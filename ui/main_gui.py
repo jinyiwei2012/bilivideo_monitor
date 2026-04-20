@@ -344,6 +344,7 @@ class BilibiliMonitorGUI:
             ("监控列表", None),
             ("数据对比",  self._open_data_comparison),
             ("交叉计算",  self._open_crossover_analysis),
+            ("周刊分数",  self._open_weekly_score),
             ("数据库",    self._open_database_query),
             ("日志",      None),
         ]
@@ -833,6 +834,8 @@ class BilibiliMonitorGUI:
             ("弹幕",   "danmaku_count",  C["text_1"]),
             ("评论",   "reply_count",    C["text_1"]),
             ("点赞率", "_like_rate",     C["success"]),
+            ("周刊分数", "_weekly_score", C["accent"]),
+            ("年刊分数", "_yearly_score", C["warning"]),
         ]
         for label, key, color in fields:
             card = tk.Frame(bar, bg=C["bg_elevated"],
@@ -846,6 +849,10 @@ class BilibiliMonitorGUI:
             if key == "_like_rate":
                 views = video.get("view_count", 1) or 1
                 val   = f"{video.get('like_count',0)/views*100:.2f}%"
+            elif key == "_weekly_score":
+                val = self._calc_weekly_score_text(video)
+            elif key == "_yearly_score":
+                val = self._calc_yearly_score_text(video)
             else:
                 val = fmt_num(video.get(key, 0)) if video else "—"
 
@@ -869,6 +876,8 @@ class BilibiliMonitorGUI:
             ("danmaku_count",  C["text_1"]),
             ("reply_count",    C["text_1"]),
             ("_like_rate",     C["success"]),
+            ("_weekly_score",  C["accent"]),
+            ("_yearly_score",  C["warning"]),
         ]
         views = video.get("view_count", 1) or 1
         for key, color in fields:
@@ -878,6 +887,10 @@ class BilibiliMonitorGUI:
             val_lbl, _ = pair
             if key == "_like_rate":
                 val_lbl.config(text=f"{video.get('like_count',0)/views*100:.2f}%")
+            elif key == "_weekly_score":
+                val_lbl.config(text=self._calc_weekly_score_text(video))
+            elif key == "_yearly_score":
+                val_lbl.config(text=self._calc_yearly_score_text(video))
             else:
                 val_lbl.config(text=fmt_num(video.get(key, 0)))
 
@@ -1278,10 +1291,126 @@ class BilibiliMonitorGUI:
         self._detail_text.tag_config("mono",    foreground=C["text_1"],  font=FONT_MONO)
         self._detail_text.tag_config("mono_b",  foreground=C["bilibili"],font=("Consolas",10,"bold"))
         self._detail_text.tag_config("mono_ok", foreground=C["success"], font=FONT_MONO)
+        self._detail_text.tag_config("mono_accent", foreground=C["accent"], font=("Consolas", 10, "bold"))
 
         for text, tag in lines:
             self._detail_text.insert(tk.END, text + "\n", tag if tag else ())
+
+        # 周刊分数
+        ws = self._calc_weekly_score(video)
+        if ws:
+            self._detail_text.insert(tk.END, "\n", ())
+            self._detail_text.insert(tk.END, "=== 周刊分数 ===\n", "head")
+            self._detail_text.insert(tk.END,
+                f"最终得点  {ws.total_score:>10,.2f}\n", "mono_accent")
+            self._detail_text.insert(tk.END, "\n", ())
+            self._detail_text.insert(tk.END,
+                f"播放得点  {ws.view_score:>10,.2f}  (基础 {ws.base_view_score:,.0f} × 修正D {ws.correction_d:.4f})\n", "mono")
+            self._detail_text.insert(tk.END,
+                f"互动得点  {ws.interaction_score:>10,.2f}  (修正A {ws.correction_a:.4f})\n", "mono")
+            self._detail_text.insert(tk.END,
+                f"收藏得点  {ws.favorite_score:>10,.2f}  ({video.get('favorite_count',0):,} × 修正B {ws.correction_b:.4f})\n", "mono")
+            self._detail_text.insert(tk.END,
+                f"硬币得点  {ws.coin_score:>10,.2f}  ({video.get('coin_count',0):,} × 修正C {ws.correction_c:.4f})\n", "mono")
+            self._detail_text.insert(tk.END,
+                f"点赞得点  {ws.like_score:>10,.2f}\n", "mono")
+
+        # 年刊分数
+        ys = self._calc_yearly_score(video)
+        if ys:
+            self._detail_text.insert(tk.END, "\n", ())
+            self._detail_text.insert(tk.END, "=== 年刊分数 ===\n", "head")
+            self._detail_text.insert(tk.END,
+                f"最终得点  {ys.total_score:>10,.2f}\n", "mono_accent")
+            self._detail_text.insert(tk.END, "\n", ())
+            self._detail_text.insert(tk.END,
+                f"播放得点  {ys.view_score:>10,.2f}\n", "mono")
+            self._detail_text.insert(tk.END,
+                f"互动得点  {ys.interaction_score:>10,.2f}  (修正A {ys.correction_a:.4f})\n", "mono")
+            self._detail_text.insert(tk.END,
+                f"收藏得点  {ys.favorite_score:>10,.2f}  ({video.get('favorite_count',0):,} × 修正B {ys.correction_b:.4f})\n", "mono")
+            self._detail_text.insert(tk.END,
+                f"硬币得点  {ys.coin_score:>10,.2f}  ({video.get('coin_count',0):,} × 修正C {ys.correction_c:.4f})\n", "mono")
+            self._detail_text.insert(tk.END,
+                f"点赞得点  {ys.like_score:>10,.2f}\n", "mono")
+
+        # 历史分数记录
+        bvid = video.get("bvid", "")
+        if bvid in self.video_dbs:
+            history_scores = self.video_dbs[bvid].get_weekly_scores(limit=5)
+            if len(history_scores) > 1:
+                self._detail_text.insert(tk.END, "\n", ())
+                self._detail_text.insert(tk.END, "=== 历史周刊分数 ===\n", "head")
+                for row in history_scores:
+                    ts_str = row.get("timestamp", "")[:16]
+                    total = row.get("total_score", 0)
+                    self._detail_text.insert(tk.END,
+                        f"  {ts_str}  {total:>10,.2f}\n", "mono")
+            yearly_scores = self.video_dbs[bvid].get_yearly_scores(limit=5)
+            if len(yearly_scores) > 1:
+                self._detail_text.insert(tk.END, "\n", ())
+                self._detail_text.insert(tk.END, "=== 历史年刊分数 ===\n", "head")
+                for row in yearly_scores:
+                    ts_str = row.get("timestamp", "")[:16]
+                    total = row.get("total_score", 0)
+                    self._detail_text.insert(tk.END,
+                        f"  {ts_str}  {total:>10,.2f}\n", "mono")
+
         self._detail_text.config(state="disabled")
+
+    def _calc_weekly_score(self, video):
+        """计算周刊分数，返回 WeeklyScoreResult 或 None"""
+        try:
+            from utils.weekly_score import calculate_from_dict
+            return calculate_from_dict(video)
+        except Exception:
+            return None
+
+    def _calc_weekly_score_text(self, video):
+        """返回周刊分数文本（用于 stat bar 卡片）"""
+        ws = self._calc_weekly_score(video)
+        if ws:
+            return f"{ws.total_score:,.0f}"
+        return "—"
+
+    def _calc_yearly_score(self, video):
+        """计算年刊分数，返回 YearlyScoreResult 或 None"""
+        try:
+            from utils.yearly_score import calculate_yearly_from_dict
+            return calculate_yearly_from_dict(video)
+        except Exception:
+            return None
+
+    def _calc_yearly_score_text(self, video):
+        """返回年刊分数文本（用于 stat bar 卡片）"""
+        ys = self._calc_yearly_score(video)
+        if ys:
+            return f"{ys.total_score:,.0f}"
+        return "—"
+
+    def _save_weekly_score(self, bvid, video, timestamp):
+        """将周刊分数写入视频数据库"""
+        try:
+            from utils.weekly_score import calculate_from_dict
+            from dataclasses import asdict
+            ws = calculate_from_dict(video)
+            if ws and bvid in self.video_dbs:
+                score_data = asdict(ws)
+                self.video_dbs[bvid].add_weekly_score(timestamp, score_data)
+        except Exception:
+            pass
+
+    def _save_yearly_score(self, bvid, video, timestamp):
+        """将年刊分数写入视频数据库"""
+        try:
+            from utils.yearly_score import calculate_yearly_from_dict
+            from dataclasses import asdict
+            ys = calculate_yearly_from_dict(video)
+            if ys and bvid in self.video_dbs:
+                score_data = asdict(ys)
+                self.video_dbs[bvid].add_yearly_score(timestamp, score_data)
+        except Exception:
+            pass
 
     def _fill_ratio_frame(self, video):
         """填充互动率面板"""
@@ -1667,7 +1796,9 @@ class BilibiliMonitorGUI:
                                 reply_count=video["reply_count"],
                             )
                             self.video_dbs[bvid].add_monitor_record(rec)
-                        except Exception as e:
+                            # 同步写入周刊分数
+                            self._save_weekly_score(bvid, video, ts.isoformat())
+                            self._save_yearly_score(bvid, video, ts.isoformat())
                             print(f"写数据库失败 {bvid}: {e}")
                             self._add_log("WARNING", f"写数据库失败 {bvid}: {e}")
                 time.sleep(0.2)
@@ -2176,6 +2307,15 @@ class BilibiliMonitorGUI:
         except Exception as e:
             messagebox.showerror("错误", f"打开交叉计算失败: {e}")
 
+    def _open_weekly_score(self):
+        try:
+            from .weekly_score import WeeklyScoreWindow
+            WeeklyScoreWindow(self.root,
+                              monitored_videos=self.monitored_videos,
+                              video_dbs=self.video_dbs)
+        except Exception as e:
+            messagebox.showerror("错误", f"打开周刊分数计算失败: {e}")
+
     def _open_settings(self):
         try:
             from .settings_window import SettingsWindow
@@ -2327,6 +2467,8 @@ class BilibiliMonitorGUI:
                     reply_count=video["reply_count"],
                 )
                 video_db.add_monitor_record(rec)
+                self._save_weekly_score(bvid, video, now.isoformat())
+                self._save_yearly_score(bvid, video, now.isoformat())
         except Exception as e:
             self._add_log("WARNING", f"数据库初始化失败: {bvid}: {e}")
 

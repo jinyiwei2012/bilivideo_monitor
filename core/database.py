@@ -164,6 +164,44 @@ class VideoDatabase:
             # 创建索引
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_monitor_timestamp ON monitor_records(timestamp)')
             
+            # 周刊分数记录表
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS weekly_scores (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    total_score REAL,
+                    view_score REAL,
+                    interaction_score REAL,
+                    favorite_score REAL,
+                    coin_score REAL,
+                    like_score REAL,
+                    correction_a REAL,
+                    correction_b REAL,
+                    correction_c REAL,
+                    correction_d REAL,
+                    base_view_score REAL
+                )
+            ''')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_weekly_timestamp ON weekly_scores(timestamp)')
+            
+            # 年刊分数记录表
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS yearly_scores (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    total_score REAL,
+                    view_score REAL,
+                    interaction_score REAL,
+                    favorite_score REAL,
+                    coin_score REAL,
+                    like_score REAL,
+                    correction_a REAL,
+                    correction_b REAL,
+                    correction_c REAL
+                )
+            ''')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_yearly_timestamp ON yearly_scores(timestamp)')
+            
             conn.commit()
     
     def save_video_info(self, video_info: Dict):
@@ -269,6 +307,137 @@ class VideoDatabase:
         except Exception as e:
             print(f"添加预测记录失败: {e}")
             return False
+
+    def add_weekly_score(self, timestamp: str, score_data: dict) -> bool:
+        """添加周刊分数记录
+        
+        Args:
+            timestamp: 时间戳字符串
+            score_data: 包含分数数据的字典，键名与 weekly_scores 表字段对应
+        """
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO weekly_scores 
+                    (timestamp, total_score, view_score, interaction_score,
+                     favorite_score, coin_score, like_score,
+                     correction_a, correction_b, correction_c, correction_d,
+                     base_view_score)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    timestamp,
+                    score_data.get('total_score', 0),
+                    score_data.get('view_score', 0),
+                    score_data.get('interaction_score', 0),
+                    score_data.get('favorite_score', 0),
+                    score_data.get('coin_score', 0),
+                    score_data.get('like_score', 0),
+                    score_data.get('correction_a', 0),
+                    score_data.get('correction_b', 0),
+                    score_data.get('correction_c', 0),
+                    score_data.get('correction_d', 0),
+                    score_data.get('base_view_score', 0),
+                ))
+                conn.commit()
+                return True
+        except Exception as e:
+            print(f"添加周刊分数记录失败: {e}")
+            return False
+
+    def get_weekly_scores(self, limit: int = 0) -> list:
+        """获取周刊分数历史记录
+        
+        Args:
+            limit: 限制返回条数，0 表示不限制
+            
+        Returns:
+            分数记录列表，按时间升序
+        """
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                if limit and limit > 0:
+                    cursor.execute(
+                        'SELECT * FROM weekly_scores ORDER BY timestamp ASC LIMIT ?',
+                        (limit,))
+                else:
+                    cursor.execute(
+                        'SELECT * FROM weekly_scores ORDER BY timestamp ASC')
+                return [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            print(f"获取周刊分数记录失败: {e}")
+            return []
+
+    def get_latest_weekly_score(self) -> Optional[Dict]:
+        """获取最新一条周刊分数记录"""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    'SELECT * FROM weekly_scores ORDER BY timestamp DESC LIMIT 1')
+                row = cursor.fetchone()
+                return dict(row) if row else None
+        except Exception:
+            return None
+
+    def add_yearly_score(self, timestamp: str, score_data: dict) -> bool:
+        """添加年刊分数记录"""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO yearly_scores
+                    (timestamp, total_score, view_score, interaction_score,
+                     favorite_score, coin_score, like_score,
+                     correction_a, correction_b, correction_c)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    timestamp,
+                    score_data.get('total_score', 0),
+                    score_data.get('view_score', 0),
+                    score_data.get('interaction_score', 0),
+                    score_data.get('favorite_score', 0),
+                    score_data.get('coin_score', 0),
+                    score_data.get('like_score', 0),
+                    score_data.get('correction_a', 0),
+                    score_data.get('correction_b', 0),
+                    score_data.get('correction_c', 0),
+                ))
+                conn.commit()
+                return True
+        except Exception as e:
+            print(f"添加年刊分数记录失败: {e}")
+            return False
+
+    def get_yearly_scores(self, limit: int = 0) -> list:
+        """获取年刊分数历史记录"""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                if limit and limit > 0:
+                    cursor.execute(
+                        'SELECT * FROM yearly_scores ORDER BY timestamp ASC LIMIT ?',
+                        (limit,))
+                else:
+                    cursor.execute(
+                        'SELECT * FROM yearly_scores ORDER BY timestamp ASC')
+                return [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            print(f"获取年刊分数记录失败: {e}")
+            return []
+
+    def get_latest_yearly_score(self) -> Optional[Dict]:
+        """获取最新一条年刊分数记录"""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    'SELECT * FROM yearly_scores ORDER BY timestamp DESC LIMIT 1')
+                row = cursor.fetchone()
+                return dict(row) if row else None
+        except Exception:
+            return None
 
 
 class Database:
