@@ -16,16 +16,59 @@ def _validate_bvid(bvid: str) -> bool:
     return bool(re.match(r'^BV[A-Za-z0-9]{10}$', bvid))
 
 
-# 导出表头（CSV / Excel 共用）
-_EXPORT_HEADERS = [
+# 基础导出表头（固定列）
+_BASE_EXPORT_HEADERS = [
     '序号', 'BV号', '时间', '播放量', '点赞', '投币',
     '分享', '收藏', '弹幕', '评论', 'APP观看', '网页观看', '总观看', '播赞比',
+    # 周刊分数
+    '周刊总分', '周刊播放', '周刊互动', '周刊收藏', '周刊硬币', '周刊点赞',
+    '周刊修正A', '周刊修正B', '周刊修正C', '周刊修正D', '周刊基础播放',
+    # 年刊分数
+    '年刊总分', '年刊播放', '年刊互动', '年刊收藏', '年刊硬币', '年刊点赞',
+    '年刊修正A', '年刊修正B', '年刊修正C',
 ]
 
 
-def _build_export_row(index: int, row) -> list:
-    """将单条查询结果构建为导出行（CSV / Excel 共用）"""
-    return [
+def _build_export_headers(algo_names: list) -> list:
+    """动态构建导出表头，包含所有算法的预测列
+    
+    Args:
+        algo_names: 算法名列表（已排序）
+    """
+    # 在基础表头第14列（播赞比）后插入预测列
+    headers = list(_BASE_EXPORT_HEADERS)
+    for name in algo_names:
+        headers.append(f'{name}_预测时间')
+        headers.append(f'{name}_预测秒数')
+        headers.append(f'{name}_置信度')
+    return headers
+
+
+def _build_export_row(index: int, row, extra: dict = None, algo_names: list = None) -> list:
+    """将单条查询结果构建为导出行（CSV / Excel 共用）
+    
+    Args:
+        row: monitor_records 的行（dict 或 sqlite3.Row）
+        extra: 关联的预测/分数数据字典
+        algo_names: 算法名列表（已排序），用于动态填充预测列
+    """
+    e = extra or {}
+    algo_names = algo_names or []
+    
+    # 确保 row 是字典（sqlite3.Row 不支持 .get()）
+    if hasattr(row, 'keys'):
+        row = dict(row)
+    
+    # 构建每个算法的预测列
+    algo_pred_map = {}
+    predictions = e.get('_predictions', [])
+    for pred in predictions:
+        algo = pred.get('algorithm', '')
+        # 用最近的预测记录（每个算法可能对多个阈值有预测，取最近一条）
+        if algo not in algo_pred_map:
+            algo_pred_map[algo] = pred
+    
+    base_row = [
         index,
         row['bvid'],
         row['timestamp'],
@@ -36,11 +79,42 @@ def _build_export_row(index: int, row) -> list:
         row['favorite_count'],
         row['danmaku_count'],
         row['reply_count'],
-        row['viewers_app'],
-        row['viewers_web'],
-        row['viewers_total'],
-        row['like_view_ratio'],
+        row.get('viewers_app', '') or '',
+        row.get('viewers_web', '') or '',
+        row.get('viewers_total', '') or '',
+        row.get('like_view_ratio', '') or '',
+        # 周刊分数
+        e.get('weekly_total', ''),
+        e.get('weekly_view', ''),
+        e.get('weekly_interaction', ''),
+        e.get('weekly_favorite', ''),
+        e.get('weekly_coin', ''),
+        e.get('weekly_like', ''),
+        e.get('weekly_corr_a', ''),
+        e.get('weekly_corr_b', ''),
+        e.get('weekly_corr_c', ''),
+        e.get('weekly_corr_d', ''),
+        e.get('weekly_base_view', ''),
+        # 年刊分数
+        e.get('yearly_total', ''),
+        e.get('yearly_view', ''),
+        e.get('yearly_interaction', ''),
+        e.get('yearly_favorite', ''),
+        e.get('yearly_coin', ''),
+        e.get('yearly_like', ''),
+        e.get('yearly_corr_a', ''),
+        e.get('yearly_corr_b', ''),
+        e.get('yearly_corr_c', ''),
     ]
+    
+    # 追加每个算法的预测列
+    for name in algo_names:
+        pred = algo_pred_map.get(name, {})
+        base_row.append(pred.get('predicted_time', ''))
+        base_row.append(pred.get('predicted_seconds', ''))
+        base_row.append(pred.get('confidence', ''))
+    
+    return base_row
 
 
 class DatabaseQueryWindow:
@@ -53,6 +127,8 @@ class DatabaseQueryWindow:
         
         self.db_path = self._get_db_path()
         self.query_results = []
+        self._extra_data = []
+        self._algo_names = []
         
         self.setup_ui()
         self.load_videos_list()
@@ -68,7 +144,18 @@ class DatabaseQueryWindow:
         query_frame = ttk.LabelFrame(self.window, text="查询条件", padding=10)
         query_frame.pack(fill='x', padx=10, pady=10)
         
-        # 查询方式选择
+        # 第一行：视频筛选（全局）
+        filter_row = ttk.Frame(query_frame)
+        filter_row.pack(fill='x', pady=5)
+        
+        ttk.Label(filter_row, text="视频筛选:").pack(side='left')
+        self.video_filter_var = tk.StringVar(value="全部视频")
+        self.video_filter_combo = ttk.Combobox(
+            filter_row, textvariable=self.video_filter_var,
+            state='readonly', width=40)
+        self.video_filter_combo.pack(side='left', padx=5)
+        
+        # 第二行：查询方式选择
         mode_frame = ttk.Frame(query_frame)
         mode_frame.pack(fill='x', pady=5)
         
@@ -85,7 +172,7 @@ class DatabaseQueryWindow:
         self.param_frame = ttk.Frame(query_frame)
         self.param_frame.pack(fill='x', pady=5)
         
-        # 视频选择（用于播放趋势查询）
+        # 视频选择（用于播放趋势查询，复用 video_filter_combo）
         self.video_combo = None
         self.video_combo_var = tk.StringVar()
         
@@ -103,7 +190,8 @@ class DatabaseQueryWindow:
         result_frame.pack(fill='both', expand=True, padx=10, pady=10)
         
         # 创建表格
-        columns = ('bv', 'timestamp', 'views', 'likes', 'coins', 'shares', 'favorites', 'danmaku', 'reply')
+        columns = ('bv', 'timestamp', 'views', 'likes', 'coins', 'shares', 'favorites',
+                   'danmaku', 'reply', 'viewers_total', 'viewers_web', 'viewers_app', 'like_ratio')
         self.result_tree = ttk.Treeview(result_frame, columns=columns, show='tree headings', height=20)
         
         # 设置列
@@ -120,6 +208,10 @@ class DatabaseQueryWindow:
             ('favorites', '收藏', 80),
             ('danmaku', '弹幕', 80),
             ('reply', '评论', 80),
+            ('viewers_total', '总在线', 80),
+            ('viewers_web', 'Web在线', 80),
+            ('viewers_app', 'APP在线', 80),
+            ('like_ratio', '播赞比', 80),
         ]
         
         for col, heading, width in col_configs:
@@ -146,6 +238,98 @@ class DatabaseQueryWindow:
         self.status_var = tk.StringVar(value="就绪")
         ttk.Label(btn_area, textvariable=self.status_var).pack(side='right')
     
+    def _get_filter_bvid(self) -> Optional[str]:
+        """从全局视频筛选下拉框获取 bvid，返回 None 表示不筛选"""
+        selection = self.video_filter_var.get()
+        if selection == "全部视频" or not selection:
+            return None
+        return self._video_bvid_map.get(selection)
+
+    def _load_extra_data(self, bvid: str, timestamp: str) -> dict:
+        """从视频独立数据库加载与记录时间最近的预测和分数数据
+        
+        Args:
+            bvid: 视频BV号
+            timestamp: 记录时间戳
+            
+        Returns:
+            包含关联数据的字典
+        """
+        extra = {}
+        video_db_path = os.path.join(
+            os.path.dirname(self.db_path), bvid, f"{bvid}.db")
+        
+        if not os.path.exists(video_db_path):
+            return extra
+        
+        try:
+            conn = sqlite3.connect(video_db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            # 查找时间点之前/最近的所有算法预测记录
+            cursor.execute('''
+                SELECT * FROM predictions 
+                WHERE created_at <= ?
+                ORDER BY algorithm, created_at DESC
+            ''', (timestamp,))
+            pred_rows = cursor.fetchall()
+            # 每个算法只保留最近一条记录
+            seen_algo = set()
+            pred_list = []
+            for pr in pred_rows:
+                algo_name = pr['algorithm']
+                if algo_name not in seen_algo:
+                    seen_algo.add(algo_name)
+                    pred_list.append(dict(pr))
+            extra['_predictions'] = pred_list
+            
+            # 查找时间点之前/最近的周刊分数
+            cursor.execute('''
+                SELECT * FROM weekly_scores 
+                WHERE timestamp <= ?
+                ORDER BY timestamp DESC LIMIT 1
+            ''', (timestamp,))
+            ws_row = cursor.fetchone()
+            if ws_row:
+                ws = dict(ws_row)
+                extra['weekly_total'] = ws.get('total_score', '')
+                extra['weekly_view'] = ws.get('view_score', '')
+                extra['weekly_interaction'] = ws.get('interaction_score', '')
+                extra['weekly_favorite'] = ws.get('favorite_score', '')
+                extra['weekly_coin'] = ws.get('coin_score', '')
+                extra['weekly_like'] = ws.get('like_score', '')
+                extra['weekly_corr_a'] = ws.get('correction_a', '')
+                extra['weekly_corr_b'] = ws.get('correction_b', '')
+                extra['weekly_corr_c'] = ws.get('correction_c', '')
+                extra['weekly_corr_d'] = ws.get('correction_d', '')
+                extra['weekly_base_view'] = ws.get('base_view_score', '')
+            
+            # 查找时间点之前/最近的年刊分数
+            cursor.execute('''
+                SELECT * FROM yearly_scores 
+                WHERE timestamp <= ?
+                ORDER BY timestamp DESC LIMIT 1
+            ''', (timestamp,))
+            ys_row = cursor.fetchone()
+            if ys_row:
+                ys = dict(ys_row)
+                extra['yearly_total'] = ys.get('total_score', '')
+                extra['yearly_view'] = ys.get('view_score', '')
+                extra['yearly_interaction'] = ys.get('interaction_score', '')
+                extra['yearly_favorite'] = ys.get('favorite_score', '')
+                extra['yearly_coin'] = ys.get('coin_score', '')
+                extra['yearly_like'] = ys.get('like_score', '')
+                extra['yearly_corr_a'] = ys.get('correction_a', '')
+                extra['yearly_corr_b'] = ys.get('correction_b', '')
+                extra['yearly_corr_c'] = ys.get('correction_c', '')
+            
+            conn.close()
+        except Exception as e:
+            print(f"加载关联数据失败 {bvid}: {e}")
+        
+        return extra
+
     def _on_mode_change(self):
         """查询模式改变"""
         # 清除现有参数控件
@@ -188,9 +372,21 @@ class DatabaseQueryWindow:
             cursor.execute('SELECT bvid, title FROM videos ORDER BY updated_at DESC')
             videos = cursor.fetchall()
             
+            # 全局视频筛选列表（带"全部视频"选项）
+            video_items = ["全部视频"]
+            self._video_bvid_map = {}  # display_text -> bvid
+            for v in videos:
+                display = f"{v['bvid']} - {v['title']}"
+                video_items.append(display)
+                self._video_bvid_map[display] = v['bvid']
+            
+            self.video_filter_combo['values'] = video_items
+            self.video_filter_combo.current(0)
+            
+            # 播放趋势模式下的下拉框（复用同样的列表）
             if self.video_combo:
-                video_list = [f"{v['bvid']} - {v['title'][:20]}..." for v in videos]
-                self.video_combo['values'] = video_list
+                trend_items = video_items[1:]  # 不含"全部视频"
+                self.video_combo['values'] = trend_items
             
             conn.close()
         except Exception as e:
@@ -206,6 +402,9 @@ class DatabaseQueryWindow:
         self.result_tree.delete(*self.result_tree.get_children())
         self.query_results = []
         
+        # 获取全局视频筛选
+        filter_bvid = self._get_filter_bvid()
+        
         try:
             conn = sqlite3.connect(self.db_path)
             conn.row_factory = sqlite3.Row
@@ -213,37 +412,62 @@ class DatabaseQueryWindow:
             
             if mode == '最新N条':
                 limit = int(self.param_var.get() or 100)
-                cursor.execute('''
-                    SELECT * FROM monitor_records 
-                    ORDER BY timestamp DESC 
-                    LIMIT ?
-                ''', (limit,))
+                if filter_bvid:
+                    cursor.execute('''
+                        SELECT * FROM monitor_records 
+                        WHERE bvid = ?
+                        ORDER BY timestamp DESC 
+                        LIMIT ?
+                    ''', (filter_bvid, limit))
+                else:
+                    cursor.execute('''
+                        SELECT * FROM monitor_records 
+                        ORDER BY timestamp DESC 
+                        LIMIT ?
+                    ''', (limit,))
                 self.query_results = cursor.fetchall()
                 
             elif mode == '播放首次大于X':
                 threshold = int(self.param_var.get() or 10000)
-                # 查找每个BV号首次超过阈值的记录
-                cursor.execute('''
-                    WITH FirstAbove AS (
-                        SELECT bvid, MIN(timestamp) as first_ts
-                        FROM monitor_records
-                        WHERE view_count > ?
-                        GROUP BY bvid
-                    )
-                    SELECT m.* FROM monitor_records m
-                    INNER JOIN FirstAbove f ON m.bvid = f.bvid AND m.timestamp = f.first_ts
-                    ORDER BY m.timestamp DESC
-                ''', (threshold,))
+                if filter_bvid:
+                    # 单个视频：查找首次超过阈值的记录
+                    cursor.execute('''
+                        SELECT * FROM monitor_records
+                        WHERE bvid = ? AND view_count > ?
+                        ORDER BY timestamp ASC
+                        LIMIT 1
+                    ''', (filter_bvid, threshold))
+                else:
+                    # 所有视频
+                    cursor.execute('''
+                        WITH FirstAbove AS (
+                            SELECT bvid, MIN(timestamp) as first_ts
+                            FROM monitor_records
+                            WHERE view_count > ?
+                            GROUP BY bvid
+                        )
+                        SELECT m.* FROM monitor_records m
+                        INNER JOIN FirstAbove f ON m.bvid = f.bvid AND m.timestamp = f.first_ts
+                        ORDER BY m.timestamp DESC
+                    ''', (threshold,))
                 self.query_results = cursor.fetchall()
                 
             elif mode == '播放趋势':
                 selection = self.video_combo_var.get()
                 if not selection:
-                    messagebox.showwarning("提示", "请选择视频")
-                    conn.close()
-                    return
+                    # 如果趋势模式没选视频，尝试用全局筛选
+                    if filter_bvid:
+                        bvid = filter_bvid
+                    else:
+                        messagebox.showwarning("提示", "请选择视频")
+                        conn.close()
+                        return
+                else:
+                    bvid = selection.split()[0] if ' ' in selection else selection
+                    # 优先用全局筛选
+                    if filter_bvid:
+                        bvid = filter_bvid
                 
-                bvid = selection.split()[0]
                 if not _validate_bvid(bvid):
                     messagebox.showerror("错误", "选中视频的BV号格式无效")
                     conn.close()
@@ -256,13 +480,21 @@ class DatabaseQueryWindow:
                 self.query_results = cursor.fetchall()
                 
             elif mode == '全量数据':
-                cursor.execute('SELECT * FROM monitor_records ORDER BY timestamp DESC')
+                if filter_bvid:
+                    cursor.execute('''
+                        SELECT * FROM monitor_records 
+                        WHERE bvid = ?
+                        ORDER BY timestamp DESC
+                    ''', (filter_bvid,))
+                else:
+                    cursor.execute('SELECT * FROM monitor_records ORDER BY timestamp DESC')
                 self.query_results = cursor.fetchall()
             
             conn.close()
             
             # 显示结果
             for i, row in enumerate(self.query_results, 1):
+                like_ratio = row['like_view_ratio'] if row['like_view_ratio'] is not None else 0
                 values = (
                     i,
                     row['bvid'],
@@ -274,10 +506,36 @@ class DatabaseQueryWindow:
                     f"{row['favorite_count']:,}",
                     f"{row['danmaku_count']:,}",
                     f"{row['reply_count']:,}",
+                    f"{(row['viewers_total'] or 0):,}",
+                    f"{(row['viewers_web'] or 0):,}",
+                    f"{(row['viewers_app'] or 0):,}",
+                    f"{like_ratio:.4f}",
                 )
                 self.result_tree.insert('', 'end', values=values, tags=(row['bvid'],))
             
             self.status_var.set(f"查询到 {len(self.query_results)} 条记录")
+            
+            # 预加载关联数据（预测/周刊/年刊分数）
+            self._extra_data = []
+            all_algo_names = set()
+            for row in self.query_results:
+                bvid = row['bvid']
+                ts = row['timestamp']
+                extra = self._load_extra_data(bvid, ts)
+                self._extra_data.append(extra)
+                # 收集所有算法名
+                for pred in extra.get('_predictions', []):
+                    all_algo_names.add(pred.get('algorithm', ''))
+            
+            # 按固定顺序排列算法名，未知算法排后面
+            known_order = [
+                '线性增长', '移动平均', '加权移动平均', '指数平滑',
+                '趋势外推', 'Gompertz',
+            ]
+            self._algo_names = sorted(
+                all_algo_names,
+                key=lambda n: (known_order.index(n) if n in known_order else len(known_order), n)
+            )
             
         except Exception as e:
             messagebox.showerror("错误", f"查询失败: {e}")
@@ -286,19 +544,23 @@ class DatabaseQueryWindow:
         """重置查询"""
         self.result_tree.delete(*self.result_tree.get_children())
         self.query_results = []
+        self._extra_data = []
+        self._algo_names = []
         self.status_var.set("就绪")
     
     def _get_export_default_name(self, extension: str) -> str:
         """生成导出文件的默认文件名（CSV / Excel 共用）"""
         mode = self.query_mode.get()
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filter_bvid = self._get_filter_bvid()
+        video_tag = f"_{filter_bvid}" if filter_bvid else ""
         mode_name = {
             '最新N条': 'latest',
             '播放首次大于X': f'above{self.param_var.get()}',
             '播放趋势': self.video_combo_var.get().split()[0] if self.video_combo_var.get() else 'trend',
             '全量数据': 'all',
         }.get(mode, 'query')
-        return f"{mode_name}_{timestamp}.{extension}"
+        return f"{mode_name}{video_tag}_{timestamp}.{extension}"
 
     def _export_csv(self):
         """导出CSV"""
@@ -316,11 +578,14 @@ class DatabaseQueryWindow:
             return
         
         try:
+            headers = _build_export_headers(self._algo_names)
             with open(filepath, 'w', newline='', encoding='utf-8-sig') as f:
                 writer = csv.writer(f)
-                writer.writerow(_EXPORT_HEADERS)
+                writer.writerow(headers)
+                extra_list = getattr(self, '_extra_data', [])
                 for i, row in enumerate(self.query_results, 1):
-                    writer.writerow(_build_export_row(i, row))
+                    extra = extra_list[i - 1] if i - 1 < len(extra_list) else None
+                    writer.writerow(_build_export_row(i, row, extra, self._algo_names))
             messagebox.showinfo("成功", f"已导出到:\n{filepath}")
         except Exception as e:
             messagebox.showerror("错误", f"导出失败: {e}")
@@ -350,9 +615,12 @@ class DatabaseQueryWindow:
             wb = openpyxl.Workbook()
             ws = wb.active
             ws.title = "查询结果"
-            ws.append(_EXPORT_HEADERS)
+            headers = _build_export_headers(self._algo_names)
+            ws.append(headers)
+            extra_list = getattr(self, '_extra_data', [])
             for i, row in enumerate(self.query_results, 1):
-                ws.append(_build_export_row(i, row))
+                extra = extra_list[i - 1] if i - 1 < len(extra_list) else None
+                ws.append(_build_export_row(i, row, extra, self._algo_names))
             
             # 自动调整列宽
             for col in ws.columns:
@@ -409,4 +677,6 @@ class DatabaseQueryWindow:
         """清空结果"""
         self.result_tree.delete(*self.result_tree.get_children())
         self.query_results = []
+        self._extra_data = []
+        self._algo_names = []
         self.status_var.set("已清空结果")

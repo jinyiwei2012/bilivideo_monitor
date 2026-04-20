@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 import math
 
 from core.database import db
+from ui.main_gui import C
 
 # 图表边距
 _ML, _MR, _MT, _MB = 72, 24, 32, 40
@@ -139,7 +140,7 @@ class CrossoverAnalysisWindow:
         # 图表
         cf = tk.Frame(self.window)
         cf.pack(fill=BOTH, expand=True, padx=12, pady=6)
-        self.canvas = tk.Canvas(cf, bg="#0d1117", highlightthickness=0)
+        self.canvas = tk.Canvas(cf, bg=C["canvas_bg"], highlightthickness=0)
         self.canvas.pack(fill=BOTH, expand=True)
 
         # 结果表格
@@ -340,7 +341,7 @@ class CrossoverAnalysisWindow:
 
         if not all_pts or not series or base_min is None:
             c.create_text(W // 2, H // 2, text="数据不足",
-                          fill="#8b949e", font=("Microsoft YaHei UI", 12))
+                          fill=C["text_2"], font=("Microsoft YaHei UI", 12))
             return
 
         all_ts_list = [p[0] for p in all_pts]
@@ -366,9 +367,9 @@ class CrossoverAnalysisWindow:
             ratio = i / 4
             y = _MT + ch * (1 - ratio)
             val = min_v + v_span * ratio
-            c.create_line(_ML, y, W - _MR, y, fill="#21262d", dash=(2, 4))
+            c.create_line(_ML, y, W - _MR, y, fill=C["grid_line"], dash=(2, 4))
             c.create_text(_ML - 6, y, text=_fmt_num(val), anchor="e",
-                          fill="#8b949e", font=("Consolas", 9))
+                          fill=C["text_2"], font=("Consolas", 9))
 
         for i in range(5):
             ratio = i / 4
@@ -377,7 +378,7 @@ class CrossoverAnalysisWindow:
             lbl = ts.strftime("%m-%d %H:%M") if ts_span < 86400 * 3 \
                   else ts.strftime("%m-%d")
             c.create_text(x, H - _MB + 16, text=lbl,
-                          fill="#8b949e", font=("Consolas", 8))
+                          fill=C["text_2"], font=("Consolas", 8))
 
         # 当前时间线
         now_x = tx(datetime.now())

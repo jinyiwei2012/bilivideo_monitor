@@ -8,6 +8,7 @@ from typing import List, Dict, Optional
 from datetime import datetime, timedelta
 
 from core.database import db
+from ui.main_gui import C
 
 
 CHART_COLORS = [
@@ -77,7 +78,7 @@ class DataComparisonWindow:
         chart_frame = tk.Frame(self.window)
         chart_frame.pack(fill=BOTH, expand=True, padx=12, pady=8)
 
-        self.canvas = tk.Canvas(chart_frame, bg="#0d1117", highlightthickness=0)
+        self.canvas = tk.Canvas(chart_frame, bg=C["canvas_bg"], highlightthickness=0)
         self.canvas.pack(fill=BOTH, expand=True)
         self.canvas.bind("<Configure>", lambda e: self._draw())
 
@@ -130,7 +131,7 @@ class DataComparisonWindow:
         if len(self._selected) < 2:
             c.create_text(c.winfo_reqwidth() // 2 or 400, 40,
                           text="请选择至少 2 个视频后点击「开始对比」",
-                          fill="#8b949e", font=("Microsoft YaHei UI", 12))
+                          fill=C["text_2"], font=("Microsoft YaHei UI", 12))
             return
 
         W = c.winfo_width()
@@ -176,7 +177,7 @@ class DataComparisonWindow:
         if len(valid) < 2:
             c.create_text(W // 2, H // 2,
                           text="所选视频的历史数据不足，无法对比",
-                          fill="#8b949e", font=("Microsoft YaHei UI", 12))
+                          fill=C["text_2"], font=("Microsoft YaHei UI", 12))
             return
 
         # 计算坐标范围
@@ -207,9 +208,9 @@ class DataComparisonWindow:
             ratio = i / 4
             y = _MT + ch * (1 - ratio)
             val = min_view + (max_view - min_view) * ratio
-            c.create_line(_ML, y, W - _MR, y, fill="#21262d", dash=(2, 4))
+            c.create_line(_ML, y, W - _MR, y, fill=C["grid_line"], dash=(2, 4))
             c.create_text(_ML - 6, y, text=fmt_num(val), anchor="e",
-                          fill="#8b949e", font=("Consolas", 9))
+                          fill=C["text_2"], font=("Consolas", 9))
 
         # X 轴时间标签
         for i in range(5):
@@ -219,7 +220,7 @@ class DataComparisonWindow:
             label = ts.strftime("%m-%d %H:%M") if ts_span < 86400 * 7 \
                     else ts.strftime("%m-%d")
             c.create_text(x, H - _MB + 16, text=label,
-                          fill="#8b949e", font=("Consolas", 8))
+                          fill=C["text_2"], font=("Consolas", 8))
 
         # 绘制每条线
         for idx, video in enumerate(valid):

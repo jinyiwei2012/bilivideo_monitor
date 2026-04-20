@@ -57,14 +57,20 @@ b站监控/
 │   └── notification.py         # 通知管理
 │
 ├── ui/                         # 界面模块
-│   ├── main_gui.py             # 主界面
+│   ├── main_gui.py             # 主界面（三栏布局控制器）
+│   ├── theme.py                # 主题系统（深色/浅色、设计令牌、控件刷新）
+│   ├── helpers.py              # 界面工具（字体、阈值、格式化、圆角矩形）
+│   ├── chart.py                # 图表绘制（Canvas 播放量趋势图）
+│   ├── log_panel.py            # 日志面板（构建与日志管理）
+│   ├── monitor_service.py      # 业务逻辑（数据拉取、预测、监控管理）
 │   ├── settings_window.py      # 系统设置
 │   ├── video_search.py         # 视频搜索
 │   ├── crossover_analysis.py   # 交叉分析
 │   ├── data_comparison.py      # 数据对比
 │   ├── database_query.py       # 数据库查询
 │   ├── weight_settings.py      # 权重设置
-│   └── network_settings.py     # 网络设置
+│   ├── network_settings.py     # 网络设置
+│   └── weekly_score.py         # 周报评分
 │
 ├── utils/                      # 工具模块
 │   ├── helpers.py              # 辅助函数
