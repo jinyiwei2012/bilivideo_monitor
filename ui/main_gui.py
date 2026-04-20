@@ -19,7 +19,7 @@ from ui.helpers import (
     FONT, FONT_BOLD, FONT_SM, FONT_LG, FONT_MONO, FONT_MONO_LG,
     THRESHOLDS, THRESHOLD_NAMES, THRESH_COLORS,
     DEFAULT_INTERVAL, FAST_INTERVAL, FAST_GAP,
-    fmt_num, nearest_threshold_gap, card_status_tag, rounded_rect,
+    fmt_num, nearest_threshold_gap, card_status_tag,
 )
 from ui.chart import (
     draw_chart, draw_chart_placeholder,
@@ -34,14 +34,6 @@ from core import bilibili_api, db, MonitorRecord
 from config import load_config, save_config
 from utils.file_logger import FileLogger
 
-
-# ── 字体定义（与 theme 解耦，放在 helpers 中） ─────────
-FONT      = ("Microsoft YaHei UI", 9)
-FONT_BOLD = ("Microsoft YaHei UI", 9, "bold")
-FONT_SM   = ("Microsoft YaHei UI", 8)
-FONT_LG   = ("Microsoft YaHei UI", 11, "bold")
-FONT_MONO = ("Consolas", 9)
-FONT_MONO_LG = ("Consolas", 14, "bold")
 
 
 # ══════════════════════════════════════════════

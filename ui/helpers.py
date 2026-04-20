@@ -3,6 +3,15 @@
 """
 from ui.theme import C
 
+# ── 字体定义 ─────────────────────────────────
+FONT         = ("Microsoft YaHei UI", 9)
+FONT_BOLD    = ("Microsoft YaHei UI", 9, "bold")
+FONT_SM      = ("Microsoft YaHei UI", 8)
+FONT_LG      = ("Microsoft YaHei UI", 11, "bold")
+FONT_MONO    = ("Consolas", 9)
+FONT_MONO_LG = ("Consolas", 14, "bold")
+
+# ── 阈值与间隔 ───────────────────────────────
 THRESHOLDS      = [100_000, 1_000_000, 10_000_000]
 THRESHOLD_NAMES = ["10万", "100万", "1000万"]
 THRESH_COLORS   = [C["thresh_10w"], C["thresh_100w"], C["thresh_1000w"]]
