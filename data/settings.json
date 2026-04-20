@@ -1,0 +1,51 @@
+{
+  "onebot": {
+    "enabled": false,
+    "http_url": "http://127.0.0.1:5700",
+    "ws_url": "ws://127.0.0.1:6700",
+    "access_token": "",
+    "private_qq": "",
+    "group_qq": ""
+  },
+  "monitor": {
+    "check_interval": 300,
+    "auto_start_monitor": true,
+    "max_monitor_count": 100,
+    "save_history": true,
+    "history_days": 30
+  },
+  "prediction": {
+    "default_algorithm": "集成预测",
+    "prediction_hours": 168,
+    "min_confidence": 0.5,
+    "auto_predict": true,
+    "thresholds": [
+      100000,
+      1000000,
+      10000000
+    ]
+  },
+  "notification": {
+    "windows_notify": true,
+    "sound_alert": true,
+    "notify_on_threshold": true,
+    "notify_on_error": false,
+    "notify_on_start": false
+  },
+  "ui": {
+    "theme": "darkly",
+    "auto_refresh": true,
+    "refresh_interval": 30,
+    "show_cover": true,
+    "show_chart": true
+  },
+  "export": {
+    "default_path": "",
+    "auto_export": false,
+    "export_format": "csv"
+  },
+  "watch_list": [
+    "BV1Y26wBcERw",
+    "BV1Y2oNB1ESs"
+  ]
+}
