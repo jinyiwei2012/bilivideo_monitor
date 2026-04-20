@@ -77,6 +77,27 @@ def fmt_num(n):
         return str(n)
 
 
+def _parse_viewer_count(s):
+    """解析B站在线人数字符串为整数。
+    
+    API 返回的 total/count 为字符串，格式示例：
+      - "50953"  -> 50953
+      - "9.4万+" -> 94000
+      - "8.8万+人在看" -> 88000
+    """
+    if not s or not isinstance(s, str):
+        return 0
+    s = s.strip()
+    # 去掉"人在看"等后缀
+    s = s.replace("人在看", "").replace("+", "").strip()
+    try:
+        if "万" in s:
+            return int(float(s.replace("万", "")) * 10000)
+        return int(float(s))
+    except (ValueError, TypeError):
+        return 0
+
+
 def fmt_eta(minutes):
     """格式化预计时间"""
     if minutes <= 0:
@@ -589,6 +610,13 @@ class BilibiliMonitorGUI:
                               font=("Consolas", 12, "bold"))
         views_lbl.pack(side=tk.LEFT)
 
+        # 在线人数
+        online_total = video.get("viewers_total", 0)
+        online_text = f"👁 {fmt_num(online_total)}" if online_total > 0 else ""
+        online_lbl = tk.Label(mid, text=online_text, bg=C["bg_surface"],
+                               fg=C["accent"], font=("Consolas", 9))
+        online_lbl.pack(side=tk.LEFT, padx=(10, 0))
+
         # 状态标签
         stag, stag_fg = _card_status_tag(gap)
 
@@ -632,7 +660,7 @@ class BilibiliMonitorGUI:
         self._video_card_widgets[bvid] = {
             "card": card, "inner": inner, "thumb": thumb,
             "title": title_lbl, "author": author_lbl,
-            "views": views_lbl, "tag": tag_lbl,
+            "views": views_lbl, "tag": tag_lbl, "online": online_lbl,
             "prog_fill": prog_fill, "gap_lbl": label_f.winfo_children()[0],
             "pct_lbl": label_f.winfo_children()[1],
         }
@@ -659,6 +687,11 @@ class BilibiliMonitorGUI:
             text=video.get("title","")[:28] + ("…" if len(video.get("title","")) > 28 else ""))
         refs["author"].config(text=video.get("author","")[:16])
         refs["views"].config(text=fmt_num(views))
+
+        # 更新在线人数
+        online_total = video.get("viewers_total", 0)
+        online_text = f"👁 {fmt_num(online_total)}" if online_total > 0 else ""
+        refs["online"].config(text=online_text)
 
         stag, stag_fg = _card_status_tag(gap)
         refs["tag"].config(text=stag, fg=stag_fg)
@@ -833,6 +866,7 @@ class BilibiliMonitorGUI:
             ("收藏",   "favorite_count", C["text_1"]),
             ("弹幕",   "danmaku_count",  C["text_1"]),
             ("评论",   "reply_count",    C["text_1"]),
+            ("在线人数", "_online_viewers", C["accent"]),
             ("点赞率", "_like_rate",     C["success"]),
             ("周刊分数", "_weekly_score", C["accent"]),
             ("年刊分数", "_yearly_score", C["warning"]),
@@ -853,6 +887,14 @@ class BilibiliMonitorGUI:
                 val = self._calc_weekly_score_text(video)
             elif key == "_yearly_score":
                 val = self._calc_yearly_score_text(video)
+            elif key == "_online_viewers":
+                total = video.get("viewers_total", 0)
+                web   = video.get("viewers_web", 0)
+                app   = video.get("viewers_app", 0)
+                if total > 0:
+                    val = f"{fmt_num(total)}"
+                else:
+                    val = "—"
             else:
                 val = fmt_num(video.get(key, 0)) if video else "—"
 
@@ -869,15 +911,16 @@ class BilibiliMonitorGUI:
     def _update_stat_bar(self, video):
         """仅更新数值，不重建"""
         fields = [
-            ("view_count",     C["bilibili"]),
-            ("like_count",     C["text_1"]),
-            ("coin_count",     C["text_1"]),
-            ("favorite_count", C["text_1"]),
-            ("danmaku_count",  C["text_1"]),
-            ("reply_count",    C["text_1"]),
-            ("_like_rate",     C["success"]),
-            ("_weekly_score",  C["accent"]),
-            ("_yearly_score",  C["warning"]),
+            ("view_count",      C["bilibili"]),
+            ("like_count",      C["text_1"]),
+            ("coin_count",      C["text_1"]),
+            ("favorite_count",  C["text_1"]),
+            ("danmaku_count",   C["text_1"]),
+            ("reply_count",     C["text_1"]),
+            ("_online_viewers", C["accent"]),
+            ("_like_rate",      C["success"]),
+            ("_weekly_score",   C["accent"]),
+            ("_yearly_score",   C["warning"]),
         ]
         views = video.get("view_count", 1) or 1
         for key, color in fields:
@@ -891,6 +934,9 @@ class BilibiliMonitorGUI:
                 val_lbl.config(text=self._calc_weekly_score_text(video))
             elif key == "_yearly_score":
                 val_lbl.config(text=self._calc_yearly_score_text(video))
+            elif key == "_online_viewers":
+                total = video.get("viewers_total", 0)
+                val_lbl.config(text=fmt_num(total) if total > 0 else "—")
             else:
                 val_lbl.config(text=fmt_num(video.get(key, 0)))
 
@@ -1276,8 +1322,20 @@ class BilibiliMonitorGUI:
             (f"投币率  {video.get('coin_count',0)/max(views,1)*100:.2f}%", "mono"),
             (f"收藏率  {video.get('favorite_count',0)/max(views,1)*100:.2f}%", "mono"),
             ("", ""),
-            ("=== 阈值进度 ===", "head"),
+            ("=== 在线人数 ===", "head"),
         ]
+        viewers_total = video.get("viewers_total", 0)
+        viewers_web   = video.get("viewers_web", 0)
+        viewers_app   = video.get("viewers_app", 0)
+        viewers_raw   = video.get("viewers_total_raw", "")
+        if viewers_total > 0:
+            lines.append((f"总在线  {fmt_num(viewers_total)}  ({viewers_raw})", "mono_accent"))
+            lines.append((f"Web端   {fmt_num(viewers_web)}", "mono"))
+            lines.append((f"APP端   {fmt_num(viewers_app)}", "mono"))
+        else:
+            lines.append(("暂无在线人数数据", "mono"))
+        lines.append(("", ""))
+        lines.append(("=== 阈值进度 ===", "head"))
         for t, name in zip(THRESHOLDS, THRESHOLD_NAMES):
             p = min(100, views/t*100)
             g = t - views
@@ -1776,6 +1834,24 @@ class BilibiliMonitorGUI:
                     video["danmaku_count"]  = stat.get("danmaku",  video.get("danmaku_count",0))
                     video["reply_count"]    = stat.get("reply",    video.get("reply_count",0))
 
+                    # 获取在线人数
+                    try:
+                        viewers = bilibili_api.get_video_viewers(
+                            bvid, info.get("cid", 0))
+                        if viewers:
+                            video["viewers_total_raw"] = viewers.get("total", "0")
+                            video["viewers_web_raw"]   = viewers.get("count", "0")
+                            video["viewers_total"] = _parse_viewer_count(viewers.get("total", "0"))
+                            video["viewers_web"]   = _parse_viewer_count(viewers.get("count", "0"))
+                            video["viewers_app"]   = max(0,
+                                video["viewers_total"] - video["viewers_web"])
+                        else:
+                            video["viewers_total"] = video.get("viewers_total", 0)
+                            video["viewers_web"]   = video.get("viewers_web", 0)
+                            video["viewers_app"]   = video.get("viewers_app", 0)
+                    except Exception as e:
+                        print(f"获取在线人数失败 {bvid}: {e}")
+
                     # 记录历史
                     if bvid not in self.history_data:
                         self.history_data[bvid] = []
@@ -1794,11 +1870,15 @@ class BilibiliMonitorGUI:
                                 favorite_count=video["favorite_count"],
                                 danmaku_count=video["danmaku_count"],
                                 reply_count=video["reply_count"],
+                                viewers_total=video.get("viewers_total", 0),
+                                viewers_web=video.get("viewers_web", 0),
+                                viewers_app=video.get("viewers_app", 0),
                             )
                             self.video_dbs[bvid].add_monitor_record(rec)
                             # 同步写入周刊分数
                             self._save_weekly_score(bvid, video, ts.isoformat())
                             self._save_yearly_score(bvid, video, ts.isoformat())
+                        except Exception as e:
                             print(f"写数据库失败 {bvid}: {e}")
                             self._add_log("WARNING", f"写数据库失败 {bvid}: {e}")
                 time.sleep(0.2)
@@ -2430,6 +2510,9 @@ class BilibiliMonitorGUI:
             "pubdate":        info.get("pubdate",  0),
             "desc":           info.get("desc",     ""),
             "aid":            info.get("aid",      0),
+            "viewers_total":  0,
+            "viewers_web":    0,
+            "viewers_app":    0,
         }
 
     def _register_video_to_monitor(self, video: dict) -> None:
