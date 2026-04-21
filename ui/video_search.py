@@ -9,6 +9,7 @@ import threading
 import time
 
 from core import bilibili_api
+from ui.theme import C
 
 
 class VideoSearchWindow:
@@ -41,7 +42,7 @@ class VideoSearchWindow:
 
         ttk.Button(top, text="搜索", command=self._start_search).pack(side=tk.LEFT, padx=(0, 12))
 
-        self.status_lbl = tk.Label(top, text="就绪", fg="gray")
+        self.status_lbl = tk.Label(top, text="就绪", fg=C["text_2"])
         self.status_lbl.pack(side=tk.RIGHT)
 
         # 结果 Treeview
@@ -91,7 +92,7 @@ class VideoSearchWindow:
         self.selected_bvids.clear()
         self.searching = True
 
-        self.status_lbl.config(text="搜索中…", fg="orange")
+        self.status_lbl.config(text="搜索中…", fg=C["warning"])
         threading.Thread(target=self._worker, args=(kw,), daemon=True).start()
 
     def _worker(self, kw: str):
@@ -99,7 +100,7 @@ class VideoSearchWindow:
             results = bilibili_api.search_videos(kw, page=1, page_size=20)
             if not results:
                 self.window.after(0, lambda: self.status_lbl.config(
-                    text="未找到结果", fg="gray"))
+                    text="未找到结果", fg=C["text_2"]))
                 return
             for v in results:
                 bvid = v.get("bvid", "")
@@ -114,11 +115,11 @@ class VideoSearchWindow:
                                     values=(b, t[:60], a,
                                             f"{p:,}" if p else "0",
                                             f"{l:,}" if l else "0")))
-            self.window.after(0, lambda n=len(self.search_results):
-                self.status_lbl.config(text=f"找到 {n} 个结果", fg="green"))
+                self.window.after(0, lambda n=len(self.search_results):
+                self.status_lbl.config(text=f"找到 {n} 个结果", fg=C["success"]))
         except Exception as e:
             self.window.after(0, lambda: self.status_lbl.config(
-                text=f"搜索失败: {e}", fg="red"))
+                text=f"搜索失败: {e}", fg=C["danger"]))
         finally:
             self.searching = False
 

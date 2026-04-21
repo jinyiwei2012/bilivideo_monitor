@@ -133,7 +133,7 @@ class CrossoverAnalysisWindow:
         bb = tk.Frame(sel)
         bb.pack(fill=X, pady=(6, 0))
         ttk.Button(bb, text="开始分析", command=self._analyze).pack(side=tk.LEFT, padx=4)
-        self.status_lbl = tk.Label(bb, text="", fg="gray",
+        self.status_lbl = tk.Label(bb, text="", fg=C["text_2"],
                                    font=("Microsoft YaHei UI", 9))
         self.status_lbl.pack(side=tk.LEFT, padx=12)
 
@@ -220,7 +220,7 @@ class CrossoverAnalysisWindow:
         valid = [v for v in self._selected if fits.get(v.get("bvid", ""))]
         if len(valid) < 2:
             self.status_lbl.config(text="所选视频历史数据不足（每个至少需要 2 条记录）",
-                                   fg="red")
+                                   fg=C["danger"])
             messagebox.showwarning("数据不足",
                                    "部分视频历史数据不足，无法进行交叉计算。\n"
                                    "每个视频至少需要 2 条历史记录。",
@@ -287,7 +287,7 @@ class CrossoverAnalysisWindow:
 
         self.status_lbl.config(
             text=f"分析完成：{len(valid)} 个视频，找到 {crossover_count} 个交会点",
-            fg="#42b983")
+            fg=C["success"])
 
         # 绘制趋势图
         self._draw_trend(fits)
@@ -384,8 +384,8 @@ class CrossoverAnalysisWindow:
         now_x = tx(datetime.now())
         if _ML < now_x < W - _MR:
             c.create_line(now_x, _MT, now_x, _MT + ch,
-                          fill="#f5a623", dash=(4, 4), width=1)
-            c.create_text(now_x, _MT - 8, text="现在", fill="#f5a623",
+                          fill=C["warning"], dash=(4, 4), width=1)
+            c.create_text(now_x, _MT - 8, text="现在", fill=C["warning"],
                           font=("Microsoft YaHei UI", 8))
 
         # 绘制每条线

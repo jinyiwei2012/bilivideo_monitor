@@ -19,7 +19,7 @@ from ui.helpers import (
     FONT, FONT_BOLD, FONT_SM, FONT_LG, FONT_MONO, FONT_MONO_LG,
     THRESHOLDS, THRESHOLD_NAMES, THRESH_COLORS,
     DEFAULT_INTERVAL, FAST_INTERVAL, FAST_GAP,
-    fmt_num, nearest_threshold_gap, card_status_tag,
+    fmt_num, nearest_threshold_gap, card_status_tag, rounded_rect,
 )
 from ui.chart import (
     draw_chart, draw_chart_placeholder,

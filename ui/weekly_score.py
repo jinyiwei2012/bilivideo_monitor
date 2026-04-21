@@ -6,6 +6,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox, LEFT, RIGHT, BOTH, X, Y
 from typing import List, Dict, Optional
 
+from ui.theme import C
 from utils.weekly_score import (
     VideoData, WeeklyScoreResult,
     calculate_weekly_score, calculate_from_dict,
@@ -95,24 +96,24 @@ class WeeklyScoreWindow:
         result_frame.pack(fill=BOTH, expand=True, padx=12, pady=8)
 
         self._result_text = tk.Text(result_frame, font=("Consolas", 11),
-                                    bg="#f8f8f2", fg="#282a36",
+                                    bg=C["bg_elevated"], fg=C["text_1"],
                                     relief="flat", wrap="none",
-                                    state="disabled")
+                                    state="disabled", insertbackground=C["text_1"])
         sb = ttk.Scrollbar(result_frame, orient="vertical",
                            command=self._result_text.yview)
         self._result_text.config(yscrollcommand=sb.set)
         self._result_text.pack(side=LEFT, fill=BOTH, expand=True)
         sb.pack(side=RIGHT, fill=Y)
 
-        # 配置颜色标签
+        # 配置颜色标签（跟随主题）
         self._result_text.tag_configure("title", font=("Consolas", 12, "bold"),
-                                        foreground="#44475a")
+                                        foreground=C["text_3"])
         self._result_text.tag_configure("total", font=("Consolas", 14, "bold"),
-                                        foreground="#bd93f9")
-        self._result_text.tag_configure("separator", foreground="#6272a4")
-        self._result_text.tag_configure("label", foreground="#6272a4")
-        self._result_text.tag_configure("value", foreground="#282a36")
-        self._result_text.tag_configure("detail", foreground="#8be9fd",
+                                        foreground=C["bilibili"])
+        self._result_text.tag_configure("separator", foreground=C["text_3"])
+        self._result_text.tag_configure("label", foreground=C["text_2"])
+        self._result_text.tag_configure("value", foreground=C["text_1"])
+        self._result_text.tag_configure("detail", foreground=C["accent"],
                                         font=("Consolas", 10))
 
         # 初始模式

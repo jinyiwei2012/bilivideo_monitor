@@ -7,6 +7,7 @@ from tkinter import ttk, messagebox, scrolledtext
 import json
 import os
 from core.bilibili_api import bilibili_api
+from ui.theme import C
 
 
 class NetworkSettingsWindow:
@@ -50,7 +51,7 @@ class NetworkSettingsWindow:
         
         ttk.Label(title_frame, text="网络设置", font=('Arial', 14, 'bold')).pack(side='left')
         ttk.Label(title_frame, text="用于配置代理和Cookie，绕过B站412频率限制", 
-                 font=('', 9), foreground='gray').pack(side='left', padx=10)
+                 font=('', 9), foreground=C["text_3"]).pack(side='left', padx=10)
         
         # Notebook分页
         notebook = ttk.Notebook(self.window)
@@ -79,7 +80,7 @@ class NetworkSettingsWindow:
         ttk.Button(btn_frame, text="从配置文件加载", command=self._load_proxies_from_config).pack(side='left', padx=5)
         
         ttk.Label(proxy_frame, text="提示: 使用代理可有效绕过IP级别的频率限制",
-                 font=('', 9), foreground='orange').pack(anchor='w', pady=5)
+                 font=('', 9), foreground=C["warning"]).pack(anchor='w', pady=5)
         
         # === Cookie设置页面 ===
         cookie_frame = ttk.Frame(notebook, padding=10)
@@ -88,7 +89,7 @@ class NetworkSettingsWindow:
         ttk.Label(cookie_frame, text="B站Cookie（SESSDATA等，用于保持登录状态）",
                  font=('', 9)).pack(anchor='w')
         ttk.Label(cookie_frame, text="格式: name=value; name=value; ...",
-                 font=('', 8), foreground='gray').pack(anchor='w')
+                 font=('', 8), foreground=C["text_3"]).pack(anchor='w')
         
         cookie_text = scrolledtext.ScrolledText(cookie_frame, height=6, width=60, font=('', 10))
         cookie_text.pack(fill='x', pady=5)
@@ -101,7 +102,7 @@ class NetworkSettingsWindow:
         ttk.Button(cookie_frame, text="应用Cookie", command=self._apply_cookies).pack(anchor='w', pady=5)
         
         ttk.Label(cookie_frame, text="提示: 设置有效的Cookie可提高请求成功率，降低被风控概率",
-                 font=('', 9), foreground='orange').pack(anchor='w', pady=5)
+                 font=('', 9), foreground=C["warning"]).pack(anchor='w', pady=5)
         
         # === 状态与重试设置页面 ===
         status_frame = ttk.Frame(notebook, padding=10)
@@ -116,7 +117,7 @@ class NetworkSettingsWindow:
             frame = ttk.Frame(status_group)
             frame.pack(fill='x')
             ttk.Label(frame, text=f"{key}:", width=25).pack(side='left')
-            value_label = ttk.Label(frame, text="-", foreground='green')
+            value_label = ttk.Label(frame, text="-", foreground=C["success"])
             value_label.pack(side='left')
             self.status_labels[key] = value_label
         
@@ -217,11 +218,11 @@ class NetworkSettingsWindow:
             value = status.get(key, 'N/A')
             if key == 'has_cookies':
                 value = '是' if value else '否'
-                label.config(foreground='green' if value == '是' else 'red')
+                label.config(foreground=C["success"] if value == '是' else C["danger"])
             elif key == 'consecutive_412_errors':
-                label.config(foreground='red' if value > 0 else 'green')
+                label.config(foreground=C["danger"] if value > 0 else C["success"])
             else:
-                label.config(foreground='green')
+                label.config(foreground=C["success"])
             label.config(text=str(value))
         self._log("状态已刷新")
     

@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), 'alg
 
 from algorithms.registry import AlgorithmRegistry
 from algorithms.weight_manager import weight_manager
+from ui.theme import C
 
 
 class WeightSettingsWindow:
@@ -105,7 +106,7 @@ class WeightSettingsWindow:
             
             # ML权重（只读）
             ml_weight = info.get('ml_weight', 1.0)
-            ttk.Label(row_frame, text=f"{ml_weight:.2f}", width=10, foreground="gray").grid(row=0, column=3)
+            ttk.Label(row_frame, text=f"{ml_weight:.2f}", width=10, foreground=C["text_3"]).grid(row=0, column=3)
             
             # 准确率
             accuracy = info.get('accuracy', 0)

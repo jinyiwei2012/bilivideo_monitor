@@ -367,13 +367,17 @@ def _apply_ttk_styles(root, FONT):
 
 
 def apply_theme(root, theme_name="dark"):
-    """切换主题：更新 C 字典 → ttk 样式 → 遍历刷新所有控件"""
+    """切换主题：更新 C 字典 → ttk 样式 → 遍历刷新所有控件（含 Toplevel 子窗口）"""
     from ui.main_gui import FONT
     theme = THEMES.get(theme_name, THEME_DARK)
     C.clear()
     C.update(theme)
     _apply_ttk_styles(root, FONT)
     _recolor_widget_tree(root)
+    # Toplevel 窗口不是 root 的子控件，需要单独遍历
+    for w in root.winfo_children():
+        if w.winfo_class() == "Toplevel":
+            _recolor_widget_tree(w)
 
 
 # 兼容旧调用

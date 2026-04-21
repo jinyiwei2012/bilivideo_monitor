@@ -252,7 +252,7 @@ class DataComparisonWindow:
             last_ts, last_v = pts[-1]
             lx, ly = to_x(last_ts), to_y(last_v)
             c.create_oval(lx - 4, ly - 4, lx + 4, ly + 4,
-                          fill=color, outline="white", width=1)
+                          fill=color, outline=C["bg_base"], width=1)
             c.create_text(lx + 8, ly - 10, text=f"{fmt_num(last_v)}",
                           anchor="w", fill=color,
                           font=("Consolas", 9, "bold"))

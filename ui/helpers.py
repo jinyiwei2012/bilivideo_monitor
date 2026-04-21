@@ -85,3 +85,16 @@ def abbrev(n):
     if n >= 10_000:
         return f"{n/10_000:.1f}w"
     return str(n)
+
+
+def rounded_rect(canvas, x1, y1, x2, y2, r, **kwargs):
+    """在 Canvas 上画圆角矩形"""
+    pts = [
+        x1+r, y1,   x2-r, y1,
+        x2,   y1,   x2,   y1+r,
+        x2,   y2-r, x2,   y2,
+        x2-r, y2,   x1+r, y2,
+        x1,   y2,   x1,   y2-r,
+        x1,   y1+r, x1,   y1,
+    ]
+    return canvas.create_polygon(pts, smooth=True, **kwargs)

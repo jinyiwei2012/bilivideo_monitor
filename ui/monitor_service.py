@@ -10,13 +10,14 @@ from ui.helpers import (
     THRESHOLDS, THRESHOLD_NAMES, THRESH_COLORS,
     fmt_num, _parse_viewer_count, fmt_eta,
 )
+from core import bilibili_api, MonitorRecord, PredictionRecord
 
 
 def fetch_all_video_data(gui):
     """在后台线程中拉取所有视频数据"""
     if not gui.monitored_videos:
         return
-    gui._sb("status", f"正在刷新 {len(gui.monitored_videos)} 个视频…", C=None)
+    gui._sb("status", f"正在刷新 {len(gui.monitored_videos)} 个视频…")
     gui.log_panel.add_log("INFO", f"开始刷新 {len(gui.monitored_videos)} 个视频")
 
     def _worker():
@@ -41,21 +42,29 @@ def fetch_all_video_data(gui):
 
                 # 获取在线人数
                 try:
-                    viewers = bilibili_api.get_video_viewers(
-                        bvid, info.get("cid", 0))
-                    if viewers:
-                        video["viewers_total_raw"] = viewers.get("total", "0")
-                        video["viewers_web_raw"]   = viewers.get("count", "0")
-                        video["viewers_total"] = _parse_viewer_count(viewers.get("total", "0"))
-                        video["viewers_web"]   = _parse_viewer_count(viewers.get("count", "0"))
-                        video["viewers_app"]   = max(0,
-                            video["viewers_total"] - video["viewers_web"])
+                    cid = info.get("cid", 0)
+                    if cid:
+                        viewers = bilibili_api.get_video_viewers(bvid, cid)
+                        if viewers:
+                            video["viewers_total_raw"] = viewers.get("total", "0")
+                            video["viewers_web_raw"]   = viewers.get("count", "0")
+                            video["viewers_total"] = _parse_viewer_count(viewers.get("total", "0"))
+                            video["viewers_web"]   = _parse_viewer_count(viewers.get("count", "0"))
+                            video["viewers_app"]   = max(0,
+                                video["viewers_total"] - video["viewers_web"])
+                        else:
+                            video["viewers_total"] = video.get("viewers_total", 0)
+                            video["viewers_web"]   = video.get("viewers_web", 0)
+                            video["viewers_app"]   = video.get("viewers_app", 0)
                     else:
                         video["viewers_total"] = video.get("viewers_total", 0)
                         video["viewers_web"]   = video.get("viewers_web", 0)
                         video["viewers_app"]   = video.get("viewers_app", 0)
                 except Exception as e:
-                    print(f"获取在线人数失败 {bvid}: {e}")
+                    gui.log_panel.add_log("WARNING", f"获取在线人数失败 {bvid}: {e}")
+                    video["viewers_total"] = video.get("viewers_total", 0)
+                    video["viewers_web"]   = video.get("viewers_web", 0)
+                    video["viewers_app"]   = video.get("viewers_app", 0)
 
                 # 记录历史
                 if bvid not in gui.history_data:
@@ -132,8 +141,42 @@ def predict_single(gui, bvid, video, callback=None):
     }
     gui.prediction_results[bvid] = result
 
+    # 将预测结果写入数据库
+    _save_predictions_to_db(gui, bvid, current_view, results)
+
     if callback:
         callback(result)
+
+
+def _save_predictions_to_db(gui, bvid, current_view, results):
+    """将各算法的阈值预测结果写入视频数据库"""
+    video_db = gui.video_dbs.get(bvid)
+    if not video_db:
+        return
+    for name, r in results.items():
+        if name == "_weighted" or "error" in r:
+            continue
+        metadata = r.get("metadata", {})
+        threshold_preds = metadata.get("threshold_predictions", [])
+        confidence = r.get("confidence", 0)
+        for tp in threshold_preds:
+            minutes = tp.get("minutes", 0)
+            pred_seconds = int(minutes * 60) if minutes else 0
+            pred_time = tp.get("name", "")
+            rec = PredictionRecord(
+                bvid=bvid,
+                algorithm=name,
+                algorithm_id=name,
+                target_threshold=tp.get("threshold", 0),
+                predicted_seconds=pred_seconds,
+                predicted_time=pred_time,
+                confidence=confidence,
+                current_views=current_view,
+            )
+            try:
+                video_db.add_prediction(rec)
+            except Exception as e:
+                gui.log_panel.add_log("WARNING", f"保存预测记录失败 {bvid}/{name}: {e}")
 
 
 def merge_history(gui, bvid: str) -> list:
@@ -216,7 +259,7 @@ def auto_predict_all(gui):
             time.sleep(0.05)
 
         gui.root.after(0, lambda: gui._sb(
-            "status", f"自动预测完成 ({count} 个视频)", C["success"]))
+            "status", f"自动预测完成 ({count} 个视频)", color=C["success"]))
         gui.log_panel.add_log("INFO", f"自动预测完成 ({count} 个视频)")
 
     threading.Thread(target=_worker, daemon=True).start()
@@ -233,7 +276,7 @@ def load_watch_list(gui):
     if not watch_list:
         return
 
-    gui._sb("status", f"正在加载 {len(watch_list)} 个监控视频…", C["accent"])
+    gui._sb("status", f"正在加载 {len(watch_list)} 个监控视频…", color=C["accent"])
 
     def _worker():
         for bvid in watch_list:
@@ -244,6 +287,20 @@ def load_watch_list(gui):
                 if not info:
                     continue
                 video = gui._map_api_to_video_dict(bvid, info)
+
+                # 启动加载时也获取在线人数
+                try:
+                    viewers = bilibili_api.get_video_viewers(
+                        bvid, info.get("cid", 0))
+                    if viewers:
+                        video["viewers_total_raw"] = viewers.get("total", "0")
+                        video["viewers_web_raw"]   = viewers.get("count", "0")
+                        video["viewers_total"] = _parse_viewer_count(viewers.get("total", "0"))
+                        video["viewers_web"]   = _parse_viewer_count(viewers.get("count", "0"))
+                        video["viewers_app"]   = max(0,
+                            video["viewers_total"] - video["viewers_web"])
+                except Exception as e:
+                    print(f"加载时获取在线人数失败 {bvid}: {e}")
 
                 try:
                     video_db = db.get_video_db(bvid)
@@ -267,7 +324,7 @@ def load_watch_list(gui):
         gui.root.after(0, lambda: gui._sb(
             "status",
             f"已加载 {len(gui.monitored_videos)} 个监控视频",
-            C["success"]))
+            color=C["success"]))
 
         if gui.monitored_videos:
             gui.root.after(500, lambda: auto_predict_all(gui))

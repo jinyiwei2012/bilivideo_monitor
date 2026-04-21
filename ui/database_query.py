@@ -185,14 +185,17 @@ class DatabaseQueryWindow:
         
         self._on_mode_change()
         
-        # 结果区域
-        result_frame = ttk.LabelFrame(self.window, text="查询结果", padding=10)
-        result_frame.pack(fill='both', expand=True, padx=10, pady=10)
+        # 结果区域（container 管理整体伸缩，按钮固定底部）
+        container = ttk.Frame(self.window)
+        container.pack(fill='both', expand=True, padx=10, pady=10)
+        
+        result_frame = ttk.LabelFrame(container, text="查询结果", padding=10)
+        result_frame.pack(fill='both', expand=True)
         
         # 创建表格
         columns = ('bv', 'timestamp', 'views', 'likes', 'coins', 'shares', 'favorites',
                    'danmaku', 'reply', 'viewers_total', 'viewers_web', 'viewers_app', 'like_ratio')
-        self.result_tree = ttk.Treeview(result_frame, columns=columns, show='tree headings', height=20)
+        self.result_tree = ttk.Treeview(result_frame, columns=columns, show='tree headings', height=15)
         
         # 设置列
         self.result_tree.column('#0', width=50, stretch=False)
@@ -225,9 +228,9 @@ class DatabaseQueryWindow:
         self.result_tree.pack(side='left', fill='both', expand=True)
         scrollbar.pack(side='right', fill='y')
         
-        # 底部按钮区
-        btn_area = ttk.Frame(self.window)
-        btn_area.pack(fill='x', padx=10, pady=5)
+        # 底部按钮区（放在 container 中，紧跟 result_frame 下方）
+        btn_area = ttk.Frame(container)
+        btn_area.pack(fill='x', pady=(5, 0))
         
         ttk.Button(btn_area, text="导出CSV", command=self._export_csv).pack(side='left', padx=5)
         ttk.Button(btn_area, text="导出Excel", command=self._export_excel).pack(side='left', padx=5)
