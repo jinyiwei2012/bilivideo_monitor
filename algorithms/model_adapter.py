@@ -107,8 +107,16 @@ class ModelAlgorithmAdapter:
     
     def _parse_result(self, result, current_value: float, 
                      thresholds: List, threshold_names: List) -> Dict:
-        """解析预测结果"""
+        """解析预测结果
+        
+        models 算法原始返回的是「达到阈值所需时间」，
+        但为了和基础算法的 prediction 语义一致（下一周期播放量），
+        这里统一转换为基于当前速率的短期预测值。
+        """
         history_list = []
+        
+        # 短期预测窗口（秒），与 DEFAULT_INTERVAL(75s) 对齐
+        SHORT_TERM_SECONDS = 75
         
         # PredictionResult对象
         if hasattr(result, 'predicted_hours'):
@@ -116,12 +124,21 @@ class ModelAlgorithmAdapter:
             confidence = result.confidence
             velocity = getattr(result, 'current_velocity', 0)
             
-            # 转换小时为预测值
-            if pred_hours == float('inf') or pred_hours < 0:
-                prediction = current_value * 1.1
+            # 统一语义：prediction = 下一周期的预测播放量
+            # velocity 单位是 播放量/小时，短期窗口 = 75秒
+            short_hours = SHORT_TERM_SECONDS / 3600.0
+            if velocity > 0:
+                prediction = current_value + velocity * short_hours
+            elif pred_hours == float('inf') or pred_hours < 0:
+                prediction = current_value * 1.01
             else:
-                # 预测播放量 = 当前播放 + 速度 * 预测小时数
-                prediction = current_value + velocity * pred_hours
+                # 无速度信息，用 predicted_hours 反推一个短期估算
+                if pred_hours > 0:
+                    # 用预测的总增长量按比例缩放到短期
+                    avg_velocity = (thresholds[0] - current_value) / max(pred_hours, 1) if thresholds[0] > current_value else 0
+                    prediction = current_value + avg_velocity * short_hours
+                else:
+                    prediction = current_value * 1.01
             
             threshold_preds = []
             for thresh, name in zip(thresholds, threshold_names):
@@ -153,18 +170,20 @@ class ModelAlgorithmAdapter:
         # 元组格式 (seconds, confidence)
         elif isinstance(result, tuple) and len(result) == 2:
             seconds, confidence = result
+            short_hours = SHORT_TERM_SECONDS / 3600.0
             
             if seconds is None or seconds == float('inf'):
-                prediction = current_value * 1.1
+                prediction = current_value * 1.01
                 pred_hours = float('inf')
             else:
                 pred_hours = seconds / 3600
-                # 估算预测播放量
+                # 用历史数据估算短期速率
                 if len(history_list) > 1:
-                    velocity = (current_value - history_list[0]['view_count']) / len(history_list)
+                    velocity = (current_value - history_list[0]['view_count']) / max(len(history_list) - 1, 1)
                 else:
                     velocity = current_value * 0.01
-                prediction = current_value + velocity * pred_hours
+                # 统一语义：短期预测
+                prediction = current_value + velocity * short_hours
             
             return {
                 'prediction': max(prediction, current_value),
@@ -179,8 +198,9 @@ class ModelAlgorithmAdapter:
     
     def _make_na_result(self, current_value: float) -> Dict:
         """返回N/A结果"""
+        short_hours = 75 / 3600.0  # 75秒，与 DEFAULT_INTERVAL 一致
         return {
-            'prediction': current_value * 1.05,  # 保守估计
+            'prediction': current_value + current_value * 0.01 * short_hours,  # ~1%/h 的保守估计
             'confidence': 0.3,
             'metadata': {
                 'na': True,
@@ -191,7 +211,7 @@ class ModelAlgorithmAdapter:
     def _make_error_result(self, current_value: float, error: str) -> Dict:
         """返回错误结果"""
         return {
-            'prediction': current_value * 1.05,
+            'prediction': current_value,  # 错误时不做预测
             'confidence': 0,
             'metadata': {
                 'error': error,

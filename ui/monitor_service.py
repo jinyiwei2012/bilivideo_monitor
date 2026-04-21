@@ -13,8 +13,104 @@ from ui.helpers import (
 from core import bilibili_api, MonitorRecord, PredictionRecord
 
 
-def fetch_all_video_data(gui):
-    """在后台线程中拉取所有视频数据"""
+def _fetch_video(gui, video):
+    """拉取单个视频的数据（内部函数，由 worker 线程调用）"""
+    bvid = video.get("bvid", "")
+    if not bvid:
+        return
+    info = bilibili_api.get_video_info(bvid)
+    if info:
+        stat  = info.get("stat", {})
+        owner = info.get("owner", {})
+        video["title"]          = info.get("title",    video.get("title",""))
+        video["author"]         = owner.get("name",    video.get("author",""))
+        video["pic"]            = info.get("pic",      video.get("pic",""))
+        video["view_count"]     = stat.get("view",     video.get("view_count",0))
+        video["like_count"]     = stat.get("like",     video.get("like_count",0))
+        video["coin_count"]     = stat.get("coin",     video.get("coin_count",0))
+        video["share_count"]    = stat.get("share",    video.get("share_count",0))
+        video["favorite_count"] = stat.get("favorite", video.get("favorite_count",0))
+        video["danmaku_count"]  = stat.get("danmaku",  video.get("danmaku_count",0))
+        video["reply_count"]    = stat.get("reply",    video.get("reply_count",0))
+
+        # 获取在线人数
+        try:
+            cid = info.get("cid", 0)
+            if cid:
+                viewers = bilibili_api.get_video_viewers(bvid, cid)
+                if viewers:
+                    video["viewers_total_raw"] = viewers.get("total", "0")
+                    video["viewers_web_raw"]   = viewers.get("count", "0")
+                    video["viewers_total"] = _parse_viewer_count(viewers.get("total", "0"))
+                    video["viewers_web"]   = _parse_viewer_count(viewers.get("count", "0"))
+                    video["viewers_app"]   = max(0,
+                        video["viewers_total"] - video["viewers_web"])
+                else:
+                    video["viewers_total"] = video.get("viewers_total", 0)
+                    video["viewers_web"]   = video.get("viewers_web", 0)
+                    video["viewers_app"]   = video.get("viewers_app", 0)
+            else:
+                video["viewers_total"] = video.get("viewers_total", 0)
+                video["viewers_web"]   = video.get("viewers_web", 0)
+                video["viewers_app"]   = video.get("viewers_app", 0)
+        except Exception as e:
+            gui.log_panel.add_log("WARNING", f"获取在线人数失败 {bvid}: {e}")
+            video["viewers_total"] = video.get("viewers_total", 0)
+            video["viewers_web"]   = video.get("viewers_web", 0)
+            video["viewers_app"]   = video.get("viewers_app", 0)
+
+        # 记录历史
+        if bvid not in gui.history_data:
+            gui.history_data[bvid] = []
+        ts = datetime.now()
+        gui.history_data[bvid].append((ts, video["view_count"]))
+
+        # 写数据库
+        if bvid in gui.video_dbs:
+            try:
+                rec = MonitorRecord(
+                    bvid=bvid, timestamp=ts.isoformat(),
+                    view_count=video["view_count"],
+                    like_count=video["like_count"],
+                    coin_count=video["coin_count"],
+                    share_count=video["share_count"],
+                    favorite_count=video["favorite_count"],
+                    danmaku_count=video["danmaku_count"],
+                    reply_count=video["reply_count"],
+                    viewers_total=video.get("viewers_total", 0),
+                    viewers_web=video.get("viewers_web", 0),
+                    viewers_app=video.get("viewers_app", 0),
+                )
+                gui.video_dbs[bvid].add_monitor_record(rec)
+                gui._save_weekly_score(bvid, video, ts.isoformat())
+                gui._save_yearly_score(bvid, video, ts.isoformat())
+            except Exception as e:
+                print(f"写数据库失败 {bvid}: {e}")
+                gui.log_panel.add_log("WARNING", f"写数据库失败 {bvid}: {e}")
+
+
+def fetch_single_video_data(gui, bvid, callback=None):
+    """在后台线程中拉取单个视频数据
+    
+    Args:
+        gui: GUI 实例
+        bvid: 视频 BV 号
+        callback: 完成后在主线程执行的回调（可选）
+    """
+    video = next((v for v in gui.monitored_videos if v.get("bvid") == bvid), None)
+    if not video:
+        return
+
+    def _worker():
+        _fetch_video(gui, video)
+        if callback:
+            gui.root.after(0, lambda: callback(bvid))
+
+    threading.Thread(target=_worker, daemon=True).start()
+
+
+def fetch_all_video_data(gui, callback=None):
+    """在后台线程中拉取所有视频数据（用于"立即刷新"按钮）"""
     if not gui.monitored_videos:
         return
     gui._sb("status", f"正在刷新 {len(gui.monitored_videos)} 个视频…")
@@ -22,81 +118,13 @@ def fetch_all_video_data(gui):
 
     def _worker():
         for video in gui.monitored_videos:
-            bvid = video.get("bvid", "")
-            if not bvid:
-                continue
-            info = bilibili_api.get_video_info(bvid)
-            if info:
-                stat  = info.get("stat", {})
-                owner = info.get("owner", {})
-                video["title"]          = info.get("title",    video.get("title",""))
-                video["author"]         = owner.get("name",    video.get("author",""))
-                video["pic"]            = info.get("pic",      video.get("pic",""))
-                video["view_count"]     = stat.get("view",     video.get("view_count",0))
-                video["like_count"]     = stat.get("like",     video.get("like_count",0))
-                video["coin_count"]     = stat.get("coin",     video.get("coin_count",0))
-                video["share_count"]    = stat.get("share",    video.get("share_count",0))
-                video["favorite_count"] = stat.get("favorite", video.get("favorite_count",0))
-                video["danmaku_count"]  = stat.get("danmaku",  video.get("danmaku_count",0))
-                video["reply_count"]    = stat.get("reply",    video.get("reply_count",0))
-
-                # 获取在线人数
-                try:
-                    cid = info.get("cid", 0)
-                    if cid:
-                        viewers = bilibili_api.get_video_viewers(bvid, cid)
-                        if viewers:
-                            video["viewers_total_raw"] = viewers.get("total", "0")
-                            video["viewers_web_raw"]   = viewers.get("count", "0")
-                            video["viewers_total"] = _parse_viewer_count(viewers.get("total", "0"))
-                            video["viewers_web"]   = _parse_viewer_count(viewers.get("count", "0"))
-                            video["viewers_app"]   = max(0,
-                                video["viewers_total"] - video["viewers_web"])
-                        else:
-                            video["viewers_total"] = video.get("viewers_total", 0)
-                            video["viewers_web"]   = video.get("viewers_web", 0)
-                            video["viewers_app"]   = video.get("viewers_app", 0)
-                    else:
-                        video["viewers_total"] = video.get("viewers_total", 0)
-                        video["viewers_web"]   = video.get("viewers_web", 0)
-                        video["viewers_app"]   = video.get("viewers_app", 0)
-                except Exception as e:
-                    gui.log_panel.add_log("WARNING", f"获取在线人数失败 {bvid}: {e}")
-                    video["viewers_total"] = video.get("viewers_total", 0)
-                    video["viewers_web"]   = video.get("viewers_web", 0)
-                    video["viewers_app"]   = video.get("viewers_app", 0)
-
-                # 记录历史
-                if bvid not in gui.history_data:
-                    gui.history_data[bvid] = []
-                ts = datetime.now()
-                gui.history_data[bvid].append((ts, video["view_count"]))
-
-                # 写数据库
-                if bvid in gui.video_dbs:
-                    try:
-                        rec = MonitorRecord(
-                            bvid=bvid, timestamp=ts.isoformat(),
-                            view_count=video["view_count"],
-                            like_count=video["like_count"],
-                            coin_count=video["coin_count"],
-                            share_count=video["share_count"],
-                            favorite_count=video["favorite_count"],
-                            danmaku_count=video["danmaku_count"],
-                            reply_count=video["reply_count"],
-                            viewers_total=video.get("viewers_total", 0),
-                            viewers_web=video.get("viewers_web", 0),
-                            viewers_app=video.get("viewers_app", 0),
-                        )
-                        gui.video_dbs[bvid].add_monitor_record(rec)
-                        gui._save_weekly_score(bvid, video, ts.isoformat())
-                        gui._save_yearly_score(bvid, video, ts.isoformat())
-                    except Exception as e:
-                        print(f"写数据库失败 {bvid}: {e}")
-                        gui.log_panel.add_log("WARNING", f"写数据库失败 {bvid}: {e}")
+            _fetch_video(gui, video)
             time.sleep(0.2)
 
-        gui.root.after(0, gui._post_fetch)
+        if callback:
+            gui.root.after(0, callback)
+        else:
+            gui.root.after(0, gui._post_fetch)
 
     threading.Thread(target=_worker, daemon=True).start()
 
@@ -228,8 +256,26 @@ def calc_growth_rate(history: list) -> float:
     return 0.0
 
 
+def auto_predict_video(gui, bvid):
+    """对单个视频运行预测（后台线程）"""
+    video = next((v for v in gui.monitored_videos if v.get("bvid") == bvid), None)
+    if not video:
+        return
+
+    predict_single(gui, bvid, video)
+    if bvid == gui.selected_bvid:
+        result = gui.prediction_results.get(bvid)
+        if result:
+            gui.root.after(0, lambda r=result: gui._prediction_done(
+                r["prediction"], r["current_view"],
+                r["growth"], r["rate_per_sec"],
+                r["success_list"], r["fail_list"],
+                r["valid"], r["total"],
+            ))
+
+
 def auto_predict_all(gui):
-    """数据拉取完成后自动对所有视频预测"""
+    """数据拉取完成后自动对所有视频预测（后台线程）"""
     from ui.theme import C
     if not gui.monitored_videos:
         return

@@ -33,7 +33,7 @@
     "notify_on_start": false
   },
   "ui": {
-    "theme": "darkly",
+    "theme": "light",
     "auto_refresh": true,
     "refresh_interval": 30,
     "show_cover": true,
@@ -46,6 +46,11 @@
   },
   "watch_list": [
     "BV1Y26wBcERw",
-    "BV1Y2oNB1ESs"
+    "BV1Y2oNB1ESs",
+    "BV1V9bCzTEJ6",
+    "BV1ZcKdzDE5Q",
+    "BV1YfJJzVEDF",
+    "BV1HWkwYWETx",
+    "BV1DtMMzyEoN"
   ]
 }

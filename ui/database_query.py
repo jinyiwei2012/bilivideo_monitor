@@ -193,28 +193,25 @@ class DatabaseQueryWindow:
         result_frame.pack(fill='both', expand=True)
         
         # 创建表格
-        columns = ('bv', 'timestamp', 'views', 'likes', 'coins', 'shares', 'favorites',
+        columns = ('seq', 'bv', 'timestamp', 'views', 'likes', 'coins', 'shares', 'favorites',
                    'danmaku', 'reply', 'viewers_total', 'viewers_web', 'viewers_app', 'like_ratio')
-        self.result_tree = ttk.Treeview(result_frame, columns=columns, show='tree headings', height=15)
-        
-        # 设置列
-        self.result_tree.column('#0', width=50, stretch=False)
-        self.result_tree.heading('#0', text='序号')
+        self.result_tree = ttk.Treeview(result_frame, columns=columns, show='headings', height=15)
         
         col_configs = [
+            ('seq', '序号', 50),
             ('bv', 'BV号', 120),
             ('timestamp', '时间', 150),
-            ('views', '播放量', 100),
-            ('likes', '点赞', 80),
-            ('coins', '投币', 80),
-            ('shares', '分享', 80),
-            ('favorites', '收藏', 80),
-            ('danmaku', '弹幕', 80),
-            ('reply', '评论', 80),
-            ('viewers_total', '总在线', 80),
-            ('viewers_web', 'Web在线', 80),
-            ('viewers_app', 'APP在线', 80),
-            ('like_ratio', '播赞比', 80),
+            ('views', '播放量', 90),
+            ('likes', '点赞', 75),
+            ('coins', '投币', 75),
+            ('shares', '分享', 75),
+            ('favorites', '收藏', 75),
+            ('danmaku', '弹幕', 75),
+            ('reply', '评论', 75),
+            ('viewers_total', '总在线', 75),
+            ('viewers_web', 'Web在线', 75),
+            ('viewers_app', 'APP在线', 75),
+            ('like_ratio', '播赞比', 75),
         ]
         
         for col, heading, width in col_configs:

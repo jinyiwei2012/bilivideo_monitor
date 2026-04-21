@@ -26,8 +26,10 @@ from ui.chart import (
 )
 from ui.log_panel import LogPanel
 from ui.monitor_service import (
-    fetch_all_video_data, predict_single, merge_history,
-    calc_growth_rate, auto_predict_all, load_watch_list,
+    fetch_all_video_data, fetch_single_video_data,
+    predict_single, merge_history,
+    calc_growth_rate, auto_predict_all, auto_predict_video,
+    load_watch_list,
 )
 from algorithms.registry import AlgorithmRegistry
 from core import bilibili_api, db, MonitorRecord
@@ -60,12 +62,10 @@ class BilibiliMonitorGUI:
         self._initial_theme = _saved_theme
 
         # 状态变量
-        self.refresh_interval      = self.DEFAULT_INTERVAL
         self.auto_refresh_enabled  = tk.BooleanVar(value=True)
-        self.auto_refresh_job      = None
-        self.countdown_job         = None
-        self.seconds_remaining     = 0
-        self.fast_mode             = False
+        self._global_tick_job      = None          # 1秒全局滴答器
+        self._video_timers         = {}            # bvid → {"next": float(time), "fetching": bool}
+        self._fetching_set         = set()         # 正在拉取的 bvid 集合
 
         # 数据
         self.monitored_videos  = []
@@ -1050,79 +1050,131 @@ class BilibiliMonitorGUI:
     # ──────────────────────────────────────────
     # 业务逻辑（调度层，具体实现在 monitor_service）
     # ──────────────────────────────────────────
-    def _start_auto_refresh(self):
-        if self.auto_refresh_enabled.get():
-            self._schedule_refresh()
 
-    def _schedule_refresh(self):
-        if self.auto_refresh_job:
-            self.root.after_cancel(self.auto_refresh_job)
-        if self.countdown_job:
-            self.root.after_cancel(self.countdown_job)
-        self.seconds_remaining = self.refresh_interval
-        self._tick_countdown()
-        self.auto_refresh_job = self.root.after(self.refresh_interval * 1000, self._do_auto_refresh)
+    def _get_video_interval(self, video):
+        """根据视频当前播放量与阈值的差距决定刷新间隔"""
+        views = video.get("view_count", 0)
+        gap, _ = nearest_threshold_gap(views)
+        if 0 < gap < self.THRESHOLD_GAP:
+            return self.FAST_INTERVAL
+        return self.DEFAULT_INTERVAL
 
-    def _tick_countdown(self):
-        if self.seconds_remaining >= 0 and self.auto_refresh_enabled.get():
-            self._countdown_badge.config(text=f"{self.seconds_remaining:02d} s")
-            self.seconds_remaining -= 1
-            self.countdown_job = self.root.after(1000, self._tick_countdown)
-        elif not self.auto_refresh_enabled.get():
-            self._countdown_badge.config(text="— s")
-
-    def _do_auto_refresh(self):
-        if not self.auto_refresh_enabled.get():
+    def _register_video_timer(self, bvid):
+        """为视频注册独立的下次刷新时间"""
+        video = next((v for v in self.monitored_videos if v.get("bvid") == bvid), None)
+        if not video:
             return
-        self._do_fetch()
-        self._check_and_switch_mode()
-        self._schedule_refresh()
+        interval = self._get_video_interval(video)
+        self._video_timers[bvid] = {
+            "next": time.time() + interval,
+            "interval": interval,
+        }
 
-    def _check_and_switch_mode(self):
-        min_gap = float("inf")
-        for v in self.monitored_videos:
-            g, _ = nearest_threshold_gap(v.get("view_count", 0))
-            if 0 < g < min_gap:
-                min_gap = g
-        if min_gap < self.THRESHOLD_GAP:
-            if not self.fast_mode:
-                self.fast_mode = True
-                self.refresh_interval = self.FAST_INTERVAL
-                self._mode_pill.config(text="⚡ 快速模式", fg=C["danger"])
-                self._sb("interval", f"刷新间隔: {self.FAST_INTERVAL}s")
-                self._schedule_refresh()
+    def _start_auto_refresh(self):
+        """启动全局1秒滴答器"""
+        if self.auto_refresh_enabled.get():
+            self._start_global_tick()
+
+    def _start_global_tick(self):
+        """启动或重启全局1秒滴答器"""
+        if self._global_tick_job:
+            self.root.after_cancel(self._global_tick_job)
+        self._global_tick_job = self.root.after(1000, self._global_tick)
+
+    def _stop_global_tick(self):
+        """停止全局滴答器"""
+        if self._global_tick_job:
+            self.root.after_cancel(self._global_tick_job)
+            self._global_tick_job = None
+
+    def _global_tick(self):
+        """全局1秒滴答：检查每个视频是否到期，到期的单独拉取"""
+        if not self.auto_refresh_enabled.get():
+            self._global_tick_job = None
+            return
+
+        now = time.time()
+        fast_count = 0
+        min_remaining = float("inf")
+
+        due_bvids = []
+        for bvid, timer in list(self._video_timers.items()):
+            remaining = timer["next"] - now
+            if timer["interval"] == self.FAST_INTERVAL:
+                fast_count += 1
+            if remaining <= 0:
+                due_bvids.append(bvid)
+            elif remaining < min_remaining:
+                min_remaining = remaining
+
+        # 对到期视频启动独立拉取
+        for bvid in due_bvids:
+            if bvid not in self._fetching_set:
+                self._fetching_set.add(bvid)
+                fetch_single_video_data(self, bvid, callback=self._on_single_fetch_done)
+
+        # 更新UI显示
+        if min_remaining == float("inf"):
+            badge_text = "— s"
         else:
-            if self.fast_mode:
-                self.fast_mode = False
-                self.refresh_interval = self.DEFAULT_INTERVAL
-                self._mode_pill.config(text="● 正常模式", fg=C["success"])
-                self._sb("interval", f"刷新间隔: {self.DEFAULT_INTERVAL}s")
-                self._schedule_refresh()
+            badge_text = f"{int(max(0, min_remaining)):02d} s"
+        self._countdown_badge.config(text=badge_text)
+
+        # 更新模式药丸
+        if fast_count > 0:
+            self._mode_pill.config(text=f"⚡ {fast_count}个快速", fg=C["danger"])
+        else:
+            self._mode_pill.config(text="● 正常模式", fg=C["success"])
+
+        self._sb("interval", f"正常{self.DEFAULT_INTERVAL}s / 快速{self.FAST_INTERVAL}s")
+
+        # 继续滴答
+        self._global_tick_job = self.root.after(1000, self._global_tick)
+
+    def _on_single_fetch_done(self, bvid):
+        """单个视频拉取完成回调（主线程）"""
+        self._fetching_set.discard(bvid)
+        # 更新该视频的 UI
+        video = next((v for v in self.monitored_videos if v.get("bvid") == bvid), None)
+        if video and bvid in self._video_card_widgets:
+            self._update_card(video)
+        # 更新选中视频的详情
+        if bvid == self.selected_bvid and video:
+            self._update_stat_bar(video)
+            if self._current_tab == "📈 播放量趋势":
+                draw_chart(self._chart_canvas, self.history_data, self.selected_bvid, video, FONT)
+        # 更新状态栏
+        now_str = datetime.now().strftime("%H:%M:%S")
+        self._sb("last_ref", f"上次刷新: {now_str}")
+        self._sb("videos", f"监控: {len(self.monitored_videos)} 个")
+        # 对该视频重新注册计时器
+        self._register_video_timer(bvid)
+        # 对该视频单独预测
+        auto_predict_video(self, bvid)
 
     def _toggle_auto_refresh(self, event=None):
         cur = self.auto_refresh_enabled.get()
         self.auto_refresh_enabled.set(not cur)
         self._draw_toggle(not cur)
         if not cur:
-            self._schedule_refresh()
+            self._start_global_tick()
             self._sb("status", "自动刷新已启用", C["success"])
         else:
-            if self.auto_refresh_job:
-                self.root.after_cancel(self.auto_refresh_job)
-            if self.countdown_job:
-                self.root.after_cancel(self.countdown_job)
+            self._stop_global_tick()
             self._countdown_badge.config(text="已暂停")
+            self._mode_pill.config(text="已暂停", fg=C["text_3"])
             self._sb("status", "自动刷新已禁用", C["warning"])
 
     def _do_fetch(self):
+        """手动"立即刷新"：拉取所有视频"""
         fetch_all_video_data(self)
 
     def _post_fetch(self):
+        """所有视频批量刷新完成后的回调"""
         now_str = datetime.now().strftime("%H:%M:%S")
         self._sb("status",   "刷新完成", C["success"])
         self._sb("last_ref", f"上次刷新: {now_str}")
         self._sb("videos",   f"监控: {len(self.monitored_videos)} 个")
-        self._sb("interval", f"刷新间隔: {self.refresh_interval}s")
         for video in self.monitored_videos:
             bvid = video.get("bvid", "")
             if bvid in self._video_card_widgets:
@@ -1133,6 +1185,9 @@ class BilibiliMonitorGUI:
                 self._update_stat_bar(video)
                 if self._current_tab == "📈 播放量趋势":
                     draw_chart(self._chart_canvas, self.history_data, self.selected_bvid, video, FONT)
+        # 重新注册所有视频的计时器
+        for video in self.monitored_videos:
+            self._register_video_timer(video.get("bvid", ""))
         auto_predict_all(self)
 
     def _show_video_detail(self, video):
@@ -1215,6 +1270,8 @@ class BilibiliMonitorGUI:
         self.history_data.pop(bvid, None)
         self.video_dbs.pop(bvid, None)
         self.prediction_results.pop(bvid, None)
+        self._video_timers.pop(bvid, None)
+        self._fetching_set.discard(bvid)
         refs = self._video_card_widgets.pop(bvid, None)
         if refs:
             refs["card"].destroy()
@@ -1312,11 +1369,12 @@ class BilibiliMonitorGUI:
                  bg=C["bg_surface"], fg=C["text_3"], font=FONT_SM, wraplength=280).pack(pady=6)
         def _save():
             self.DEFAULT_INTERVAL = var.get()
-            if not self.fast_mode:
-                self.refresh_interval = self.DEFAULT_INTERVAL
-                self._sb("interval", f"刷新间隔: {self.refresh_interval}s")
-                if self.auto_refresh_enabled.get():
-                    self._schedule_refresh()
+            # 重新注册所有非快速模式的视频计时器
+            for video in self.monitored_videos:
+                bvid = video.get("bvid", "")
+                timer = self._video_timers.get(bvid)
+                if timer and timer["interval"] != self.FAST_INTERVAL:
+                    self._register_video_timer(bvid)
             dialog.destroy()
         btn_f = tk.Frame(dialog, bg=C["bg_surface"])
         btn_f.pack(pady=14)
@@ -1424,6 +1482,8 @@ class BilibiliMonitorGUI:
         self._make_video_card(video)
         self._video_count_lbl.config(text=str(len(self.monitored_videos)))
         self._sb("videos", f"监控: {len(self.monitored_videos)} 个")
+        # 注册独立刷新计时器
+        self._register_video_timer(bvid)
 
     @staticmethod
     def _map_api_to_video_dict(bvid: str, info: dict, fallback: dict = None) -> dict:
@@ -1473,6 +1533,8 @@ class BilibiliMonitorGUI:
         self._make_video_card(video)
         self._video_count_lbl.config(text=str(len(self.monitored_videos)))
         self._sb("videos", f"监控: {len(self.monitored_videos)} 个")
+        # 注册独立刷新计时器
+        self._register_video_timer(bvid)
 
     def _save_watch_list(self):
         config = load_config()
@@ -1483,10 +1545,7 @@ class BilibiliMonitorGUI:
     def _on_exit(self):
         self._save_watch_list()
         self.log_panel.cleanup()
-        if self.auto_refresh_job:
-            self.root.after_cancel(self.auto_refresh_job)
-        if self.countdown_job:
-            self.root.after_cancel(self.countdown_job)
+        self._stop_global_tick()
         self._file_logger.cancel_midnight_checker(self.root)
         self._file_logger.close()
         for bvid in self.video_dbs:
