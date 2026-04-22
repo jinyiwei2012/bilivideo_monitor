@@ -77,7 +77,7 @@ class BilibiliMonitorGUI:
         # UI 组件引用
         self._video_card_widgets = {}
         self._cover_cache      = {}
-        self._photo_ref        = None
+        self._chart_resize_job = None
 
         # 文件日志
         self._file_logger = FileLogger(os.path.join(
@@ -327,9 +327,14 @@ class BilibiliMonitorGUI:
 
         top = tk.Frame(inner, bg=C["bg_surface"])
         top.pack(fill=tk.X)
-        thumb = tk.Label(top, width=8, bg=C["bg_elevated"], fg=C["text_3"],
-                         text="🎬", font=("Microsoft YaHei UI", 14), relief="flat")
-        thumb.pack(side=tk.LEFT)
+        # 封面缩略图容器（固定 80x45 像素，16:9 比例）
+        thumb_frame = tk.Frame(top, bg=C["bg_elevated"], width=80, height=45)
+        thumb_frame.pack(side=tk.LEFT)
+        thumb_frame.pack_propagate(False)
+        thumb = tk.Label(thumb_frame, bg=C["bg_elevated"], text="")
+        thumb.pack(expand=True)
+        # 异步加载封面缩略图
+        self._load_cover_thumb(video.get("pic", ""), bvid, thumb)
         info = tk.Frame(top, bg=C["bg_surface"])
         info.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(8, 0))
         title_lbl = tk.Label(info, text=title[:28] + ("…" if len(title) > 28 else ""),
@@ -511,14 +516,8 @@ class BilibiliMonitorGUI:
         dur_str = f"{dur_sec//60}:{dur_sec%60:02d}" if dur_sec else "—"
         pub_str = datetime.fromtimestamp(pub_ts).strftime("%Y-%m-%d") if pub_ts else "—"
 
-        self._cover_lbl = tk.Label(h, bg=C["bg_elevated"], fg=C["text_3"],
-                                    text="🎬", font=("Microsoft YaHei UI", 32),
-                                    width=40, height=10, relief="flat")
-        self._cover_lbl.pack(side=tk.LEFT, padx=(14, 12), pady=10)
-        self._load_cover_async(video.get("pic", ""), bvid)
-
         info = tk.Frame(h, bg=C["bg_surface"])
-        info.pack(side=tk.LEFT, fill=tk.X, expand=True, pady=10)
+        info.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=14, pady=10)
         tk.Label(info, text=title, bg=C["bg_surface"], fg=C["text_1"],
                  font=("Microsoft YaHei UI", 12, "bold"),
                  anchor="w", wraplength=500, justify="left").pack(fill=tk.X)
@@ -660,6 +659,13 @@ class BilibiliMonitorGUI:
                     self._fill_ratio_frame(video)
 
     def _on_chart_resize(self, event=None):
+        # 200ms 防抖，避免拖拽时每像素都触发完整重绘
+        if self._chart_resize_job:
+            self.root.after_cancel(self._chart_resize_job)
+        self._chart_resize_job = self.root.after(200, self._do_chart_redraw)
+
+    def _do_chart_redraw(self):
+        self._chart_resize_job = None
         if self.selected_bvid:
             video = next((v for v in self.monitored_videos
                           if v.get("bvid") == self.selected_bvid), None)
@@ -1112,6 +1118,7 @@ class BilibiliMonitorGUI:
         for bvid in due_bvids:
             if bvid not in self._fetching_set:
                 self._fetching_set.add(bvid)
+                self.log_panel.add_log("DEBUG", f"定时器到期，拉取 {bvid}")
                 fetch_single_video_data(self, bvid, callback=self._on_single_fetch_done)
 
         # 更新UI显示
@@ -1299,10 +1306,46 @@ class BilibiliMonitorGUI:
         self._sb("status", "预测完成", C["success"])
 
     # ── 封面异步加载 ─────────────────────────────
+    def _load_cover_thumb(self, url, bvid, label_widget):
+        """异步加载卡片封面缩略图（80×45）"""
+        cache_key = (bvid, "thumb")
+        if cache_key in self._cover_cache:
+            label_widget.config(image=self._cover_cache[cache_key], text="")
+            return
+        if not url:
+            return
+        def _fetch():
+            try:
+                import requests as req
+                from PIL import Image, ImageTk
+                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                          "Referer": "https://www.bilibili.com/"}
+                r = req.get(url, timeout=8, headers=headers)
+                if r.status_code != 200:
+                    return
+                img = Image.open(BytesIO(r.content))
+                w, h = img.size
+                target_w, target_h = 80, 45
+                ratio = min(target_w / w, target_h / h)
+                new_w, new_h = int(w * ratio), int(h * ratio)
+                img = img.resize((new_w, new_h), Image.LANCZOS)
+                ph = ImageTk.PhotoImage(img)
+                self._cover_cache[cache_key] = ph
+                self.root.after(0, lambda: self._safe_set_image(label_widget, ph))
+            except Exception as e:
+                print(f"缩略图加载失败 {bvid}: {e}")
+        threading.Thread(target=_fetch, daemon=True).start()
+
+    def _safe_set_image(self, widget, ph):
+        """安全地给 widget 设置图片（防止 widget 已销毁）"""
+        try:
+            if widget.winfo_exists():
+                widget.config(image=ph, text="")
+        except tk.TclError:
+            pass
+
     def _load_cover_async(self, url, bvid):
         if bvid in self._cover_cache:
-            self._cover_lbl.config(image=self._cover_cache[bvid], text="")
-            self._photo_ref = self._cover_cache[bvid]
             return
         if not url:
             return
@@ -1323,16 +1366,10 @@ class BilibiliMonitorGUI:
                 img = img.resize((new_w, new_h), Image.LANCZOS)
                 ph = ImageTk.PhotoImage(img)
                 self._cover_cache[bvid] = ph
-                self.root.after(0, lambda: self._apply_cover(ph))
             except Exception as e:
                 print(f"封面加载失败 {bvid}: {e}")
                 self.log_panel.add_log("DEBUG", f"封面加载失败 {bvid}: {e}")
         threading.Thread(target=_fetch, daemon=True).start()
-
-    def _apply_cover(self, ph):
-        self._photo_ref = ph
-        if hasattr(self, "_cover_lbl") and self._cover_lbl.winfo_exists():
-            self._cover_lbl.config(image=ph, text="")
 
     def _copy_bvid(self, bvid):
         self.root.clipboard_clear()
@@ -1498,6 +1535,13 @@ class BilibiliMonitorGUI:
             NetworkSettingsWindow(self.root)
         except Exception as e:
             messagebox.showerror("错误", f"打开网络设置失败: {e}")
+
+    def _open_settings(self):
+        try:
+            from .settings_window import SettingsWindow
+            SettingsWindow(self.root)
+        except Exception as e:
+            messagebox.showerror("错误", f"打开系统设置失败: {e}")
 
     # ── 监控列表持久化 ─────────────────────────────
     def _load_watch_list(self):

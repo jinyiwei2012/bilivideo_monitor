@@ -92,7 +92,11 @@ class DataComparisonWindow:
         self._snap_ts_avail:  List[str] = []          # 当前可用时间点列表
 
         self._trend_metric = tk.StringVar(value="view_count")
-        self._snap_metric  = tk.StringVar(value="view_count")
+        # 快照指标多选
+        self._snap_metric_vars = {
+            key: tk.BooleanVar(value=(key == "view_count"))
+            for key, _ in METRICS
+        }
 
         self._setup_ui()
 
@@ -124,17 +128,19 @@ class DataComparisonWindow:
         top.pack(fill=X, padx=10, pady=(8, 4))
 
         # 左：视频列表
-        left = tk.LabelFrame(top, text="选择视频（可多选）", padx=6, pady=4)
+        left = tk.LabelFrame(top, text="选择视频（可多选）", padx=6, pady=4,
+                              fg=C.get("text_1","#e6edf3"), bg=C.get("bg_surface","#161b22"))
         left.pack(side=LEFT, fill=BOTH, expand=True)
 
         lf = tk.Frame(left)
         lf.pack(fill=BOTH, expand=True)
         self._trend_listbox = tk.Listbox(lf, selectmode=tk.MULTIPLE,
                                          height=4, exportselection=False,
-                                         bg=C.get("entry_bg","#1e2330"),
+                                         bg=C.get("bg_base","#0d1117"),
                                          fg=C.get("text_1","#e6edf3"),
                                          selectbackground=C.get("accent","#fb7299"),
-                                         font=("Microsoft YaHei UI", 9))
+                                         selectforeground="#ffffff",
+                                         font=("Microsoft YaHei UI", 10))
         sb = ttk.Scrollbar(lf, orient="vertical",
                            command=self._trend_listbox.yview)
         self._trend_listbox.config(yscrollcommand=sb.set)
@@ -197,9 +203,12 @@ class DataComparisonWindow:
                 try:
                     records = self.video_dbs[bvid].get_all_records()
                     if records:
-                        self.history_data[bvid] = records
-                except Exception:
-                    pass
+                        self.history_data[bvid] = [
+                            (row["timestamp"], row["view_count"])
+                            for row in records
+                        ]
+                except Exception as e:
+                    print(f"[趋势图] 加载 {bvid} 历史数据失败: {e}")
 
         self._trend_draw()
 
@@ -301,8 +310,9 @@ class DataComparisonWindow:
                       font=("Microsoft YaHei UI", 11, "bold"))
 
         # 网格
-        for i in range(5):
-            ratio = i / 4
+        n_grid = 5
+        for i in range(n_grid + 1):
+            ratio = i / n_grid
             y   = _MT + ch * (1 - ratio)
             val = min_val + (max_val - min_val) * ratio
             c.create_line(_ML, y, W - _MR, y,
@@ -356,7 +366,7 @@ class DataComparisonWindow:
                           font=("Consolas", 9, "bold"))
 
             # 图例
-            leg = tk.Frame(self._trend_legend)
+            leg = tk.Frame(self._trend_legend, bg=C.get("bg_base","#0d1117"))
             leg.pack(side=tk.LEFT, padx=10)
             tk.Canvas(leg, width=14, height=14, bg=color,
                       highlightthickness=0).pack(side=LEFT, padx=(0,3))
@@ -375,17 +385,19 @@ class DataComparisonWindow:
         ctrl.pack(fill=X, padx=10, pady=(8,4))
 
         # 左1：视频选择
-        vbox = tk.LabelFrame(ctrl, text="选择视频（可多选）", padx=6, pady=4)
+        vbox = tk.LabelFrame(ctrl, text="选择视频（可多选）", padx=6, pady=4,
+                              fg=C.get("text_1","#e6edf3"), bg=C.get("bg_surface","#161b22"))
         vbox.pack(side=LEFT, fill=BOTH, expand=True)
 
         vf = tk.Frame(vbox)
         vf.pack(fill=BOTH, expand=True)
         self._snap_listbox = tk.Listbox(vf, selectmode=tk.MULTIPLE,
                                         height=4, exportselection=False,
-                                        bg=C.get("entry_bg","#1e2330"),
+                                        bg=C.get("bg_base","#0d1117"),
                                         fg=C.get("text_1","#e6edf3"),
                                         selectbackground=C.get("accent","#fb7299"),
-                                        font=("Microsoft YaHei UI",9))
+                                        selectforeground="#ffffff",
+                                        font=("Microsoft YaHei UI",10))
         sb2 = ttk.Scrollbar(vf, orient="vertical",
                              command=self._snap_listbox.yview)
         self._snap_listbox.config(yscrollcommand=sb2.set)
@@ -398,17 +410,31 @@ class DataComparisonWindow:
         self._snap_listbox.bind("<<ListboxSelect>>", self._snap_on_video_select)
 
         # 左2：时间点选择
-        tbox = tk.LabelFrame(ctrl, text="选择时间点（可多选）", padx=6, pady=4)
+        tbox = tk.LabelFrame(ctrl, text="选择时间点（可多选）", padx=6, pady=4,
+                              fg=C.get("text_1","#e6edf3"), bg=C.get("bg_surface","#161b22"))
         tbox.pack(side=LEFT, fill=BOTH, expand=True, padx=(8,0))
+
+        # 快捷筛选按钮行
+        qf = tk.Frame(tbox, bg=C.get("bg_surface","#161b22"))
+        qf.pack(fill=X, pady=(0, 4))
+        for label, key in [("最近1h", "1h"), ("今天", "today"), ("最近3天", "3d"), ("全部", "all")]:
+            btn = tk.Label(qf, text=label, font=("Microsoft YaHei UI", 8),
+                           fg=C.get("text_2","#8b949e"), bg=C.get("bg_elevated","#1c2129"),
+                           cursor="hand2", padx=6, pady=1)
+            btn.pack(side=LEFT, padx=2)
+            btn.bind("<Button-1>", lambda e, k=key: self._snap_quick_filter(k))
+            btn.bind("<Enter>", lambda e, b=btn: b.config(fg=C.get("accent","#23ade5")))
+            btn.bind("<Leave>", lambda e, b=btn: b.config(fg=C.get("text_2","#8b949e")))
 
         tf = tk.Frame(tbox)
         tf.pack(fill=BOTH, expand=True)
         self._snap_ts_listbox = tk.Listbox(tf, selectmode=tk.MULTIPLE,
                                            height=4, exportselection=False,
-                                           bg=C.get("entry_bg","#1e2330"),
+                                           bg=C.get("bg_base","#0d1117"),
                                            fg=C.get("text_1","#e6edf3"),
                                            selectbackground=C.get("accent","#23ade5"),
-                                           font=("Consolas",9))
+                                           selectforeground="#ffffff",
+                                           font=("Consolas",10))
         sb3 = ttk.Scrollbar(tf, orient="vertical",
                              command=self._snap_ts_listbox.yview)
         self._snap_ts_listbox.config(yscrollcommand=sb3.set)
@@ -416,7 +442,7 @@ class DataComparisonWindow:
         sb3.pack(side=RIGHT, fill=Y)
 
         tip = tk.Label(tbox,
-                       text="↑ 选视频后自动加载；也可同时选多视频叠加",
+                       text="↑ 选视频后自动加载（智能采样）；快捷按钮可快速选择时间段",
                        font=("Microsoft YaHei UI",8),
                        fg=C.get("text_2","#8b949e"))
         tip.pack(anchor="w")
@@ -425,11 +451,11 @@ class DataComparisonWindow:
         rbox = tk.Frame(ctrl)
         rbox.pack(side=RIGHT, padx=(10,0), fill=Y)
 
-        tk.Label(rbox, text="对比指标",
+        tk.Label(rbox, text="对比指标（可多选）",
                  font=("Microsoft YaHei UI",9,"bold")).pack(anchor="w")
         for key, label in METRICS:
-            ttk.Radiobutton(rbox, text=label, variable=self._snap_metric,
-                            value=key, command=self._snap_draw).pack(anchor="w")
+            ttk.Checkbutton(rbox, text=label, variable=self._snap_metric_vars[key],
+                            command=self._snap_draw).pack(anchor="w")
 
         # 里程碑来源选项
         self._snap_use_milestone = tk.BooleanVar(value=True)
@@ -469,7 +495,7 @@ class DataComparisonWindow:
 
     # ── 快照：视频选中回调 ────────────────────────────────────────────────────
     def _snap_on_video_select(self, event=None):
-        """选中视频后，加载历史时间点到下拉列表"""
+        """选中视频后，加载历史时间点到下拉列表（智能采样）"""
         sel = self._snap_listbox.curselection()
         if not sel:
             return
@@ -487,24 +513,86 @@ class DataComparisonWindow:
                 if ts:
                     all_ts_set.add(str(ts)[:16])
 
-        # 更新时间点 listbox（保留原有选中）
-        prev_sel_vals = set()
-        for idx in self._snap_ts_listbox.curselection():
-            prev_sel_vals.add(self._snap_ts_listbox.get(idx))
+        # 智能采样：按日期分组，每组保留关键时间点
+        ts_list = sorted(all_ts_set, reverse=True)
+        sampled = self._smart_sample(ts_list)
 
-        ts_list = sorted(all_ts_set, reverse=True)   # 最新在上
         self._snap_ts_listbox.delete(0, tk.END)
-        self._snap_ts_avail = ts_list   # 保存可用时间点列表
+        self._snap_ts_avail = ts_list     # 全量（供快捷筛选用）
+        self._snap_ts_displayed = sampled  # 当前显示的
 
-        for ts in ts_list:
+        for ts in sampled:
             self._snap_ts_listbox.insert(tk.END, ts)
-            if ts in prev_sel_vals:
-                self._snap_ts_listbox.selection_set(tk.END)
 
-        # 默认选中最新5个
-        if not prev_sel_vals and ts_list:
-            for i in range(min(5, len(ts_list))):
-                self._snap_ts_listbox.selection_set(i)
+        # 默认全选
+        for i in range(len(sampled)):
+            self._snap_ts_listbox.selection_set(i)
+
+    def _smart_sample(self, ts_list, max_per_day=8):
+        """智能采样：同一天内保留首条、尾条、播放量变化最大的几个时间点"""
+        if len(ts_list) <= 20:
+            return ts_list
+
+        # 按日期分组
+        from collections import defaultdict
+        day_groups = defaultdict(list)
+        for ts in ts_list:
+            day = ts[:10]
+            day_groups[day].append(ts)
+
+        result = []
+        for day in sorted(day_groups.keys(), reverse=True):
+            day_ts = day_groups[day]
+            if len(day_ts) <= max_per_day:
+                result.extend(day_ts)
+            else:
+                # 均匀采样
+                step = len(day_ts) / max_per_day
+                sampled = [day_ts[int(i * step)] for i in range(max_per_day)]
+                # 确保首尾都有
+                if day_ts[0] not in sampled:
+                    sampled[0] = day_ts[0]
+                if day_ts[-1] not in sampled:
+                    sampled[-1] = day_ts[-1]
+                result.extend(sorted(sampled, reverse=True))
+
+        return result
+
+    def _snap_quick_filter(self, mode):
+        """快捷筛选时间点"""
+        all_ts = self._snap_ts_avail
+        if not all_ts:
+            return
+
+        now = _parse_dt(all_ts[0])
+        if not now:
+            now = _parse_dt(str(all_ts[0]))
+
+        filtered = []
+        if mode == "1h":
+            cutoff = now - timedelta(hours=1) if now else None
+            filtered = [ts for ts in all_ts
+                        if cutoff and _parse_dt(ts) and _parse_dt(ts) >= cutoff]
+        elif mode == "today":
+            today_str = now.strftime("%Y-%m-%d") if now else all_ts[0][:10]
+            filtered = [ts for ts in all_ts if ts.startswith(today_str)]
+        elif mode == "3d":
+            cutoff = now - timedelta(days=3) if now else None
+            filtered = [ts for ts in all_ts
+                        if cutoff and _parse_dt(ts) and _parse_dt(ts) >= cutoff]
+        else:  # "all"
+            filtered = self._smart_sample(all_ts)
+
+        if not filtered:
+            return
+
+        self._snap_ts_listbox.delete(0, tk.END)
+        self._snap_ts_displayed = filtered
+        for ts in filtered:
+            self._snap_ts_listbox.insert(tk.END, ts)
+        # 全选
+        for i in range(len(filtered)):
+            self._snap_ts_listbox.selection_set(i)
 
     def _load_snap_records(self, bvid: str):
         """从 video_dbs 加载某视频的完整历史，存入 _snap_points"""
@@ -517,8 +605,8 @@ class DataComparisonWindow:
                         key=lambda r: r.get("timestamp","")
                     )
                     return
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[快照] 加载 {bvid} 历史记录失败: {e}")
         self._snap_points[bvid] = []
 
     # ── 快照：生成对比图 ──────────────────────────────────────────────────────
@@ -566,29 +654,30 @@ class DataComparisonWindow:
                           font=("Microsoft YaHei UI",12))
             return
 
-        metric = self._snap_metric.get()
-        metric_label = next((lb for k,lb in METRICS if k==metric), metric)
+        # 获取所有勾选的指标
+        chosen_metrics = [key for key, var in self._snap_metric_vars.items() if var.get()]
+        if not chosen_metrics:
+            cw = c.winfo_width() or 500
+            c.create_text(cw//2, 120,
+                          text="请至少选择一个对比指标",
+                          fill=C.get("text_2","#8b949e"),
+                          font=("Microsoft YaHei UI",12))
+            return
 
-        # ── 构建数据矩阵 ──
-        # bars: [{label, bvid, ts, value, color}]
-        # 组织方式：按视频分组，每组内按时间点排列
-        # 柱标签格式："视频短名 | 时间" 或 仅时间（单视频时）
-
-        groups = []   # [ {bvid, title, bars:[{ts, value}]} ]
+        # 构建每个视频的 bars 数据（所有指标都算一次）
         use_milestone = self._snap_use_milestone.get()
         milestone_data = db.get_all_milestones_grouped() if use_milestone else {}
-        period_map = {"1周": "1周", "1月": "1月", "1年": "1年"}
 
+        # 对每个视频×每个指标收集 bars
+        all_metric_bars = {}  # metric_key -> [ {bvid, title, ts, value, source} ]
         for video in self._snap_selected:
             bvid  = video.get("bvid","")
             title = video.get("title", bvid)[:14]
             recs  = self._snap_points.get(bvid, [])
             chosen_ts = self._snap_chosen_ts.get(bvid, [])
 
-            bars = []
             for ts_str in sorted(chosen_ts):
-                # 找最近匹配的记录（前缀匹配 YYYY-MM-DD HH:MM）
-                val = None
+                # 找最近匹配的记录
                 best_rec = None
                 for rec in recs:
                     rec_ts = str(rec.get("timestamp",""))[:16]
@@ -596,195 +685,241 @@ class DataComparisonWindow:
                         best_rec = rec
                         break
                 if best_rec is None:
-                    # 容忍1分钟内的误差
                     target_dt = _parse_dt(ts_str)
                     if target_dt:
-                        best = None
-                        best_diff = float("inf")
+                        best, best_diff = None, float("inf")
                         for rec in recs:
                             rdt = _parse_dt(str(rec.get("timestamp","")))
                             if rdt:
                                 diff = abs((rdt - target_dt).total_seconds())
                                 if diff < best_diff:
-                                    best_diff = diff
-                                    best = rec
+                                    best_diff, best = diff, rec
                         if best and best_diff < 300:
                             best_rec = best
 
                 if best_rec is not None:
-                    raw_val = best_rec.get(metric, None)
-                    try:
-                        val = float(raw_val) if raw_val is not None else 0
-                    except (TypeError, ValueError):
-                        val = 0
-                    bars.append({"ts": ts_str, "value": val, "source": "history"})
+                    for metric in chosen_metrics:
+                        raw_val = best_rec.get(metric, None)
+                        try:
+                            val = float(raw_val) if raw_val is not None else 0
+                        except (TypeError, ValueError):
+                            val = 0
+                        all_metric_bars.setdefault(metric, []).append({
+                            "bvid": bvid, "title": title,
+                            "ts": ts_str, "value": val, "source": "history"
+                        })
 
-            # 叠加里程碑
+            # 里程碑数据
             if use_milestone and bvid in milestone_data:
                 for period, row in milestone_data[bvid].items():
-                    raw_val = row.get(metric, None)
-                    try:
-                        val = float(raw_val) if raw_val is not None else 0
-                    except (TypeError, ValueError):
-                        val = 0
-                    if val and val > 0:
-                        bars.append({"ts": f"里程碑·{period}", "value": val,
-                                     "source": "milestone"})
+                    for metric in chosen_metrics:
+                        raw_val = row.get(metric, None)
+                        try:
+                            val = float(raw_val) if raw_val is not None else 0
+                        except (TypeError, ValueError):
+                            val = 0
+                        if val and val > 0:
+                            all_metric_bars.setdefault(metric, []).append({
+                                "bvid": bvid, "title": title,
+                                "ts": f"里程碑·{period}", "value": val,
+                                "source": "milestone"
+                            })
 
-            if bars:
-                groups.append({"bvid": bvid, "title": title, "bars": bars})
-
-        if not groups:
-            c.create_text((c.winfo_width() or 500)//2, 120,
-                          text=f"所选视频/时间点下无「{metric_label}」数据",
+        # 检查是否有数据
+        total_data = sum(len(v) for v in all_metric_bars.values())
+        if total_data == 0:
+            cw = c.winfo_width() or 500
+            c.create_text(cw//2, 120,
+                          text="所选视频/时间点下无数据",
                           fill=C.get("text_2","#8b949e"),
                           font=("Microsoft YaHei UI",12))
             return
 
-        # ── 计算尺寸 ──
-        total_bars = sum(len(g["bars"]) for g in groups)
-        n_groups   = len(groups)
-
-        BAR_W    = max(30, min(60, 800 // max(total_bars,1)))
-        GROUP_GAP = max(BAR_W, 24)
-        inner_gap = max(2, BAR_W // 6)
-        LEFT_PAD  = _BAR_ML
-        RIGHT_PAD = _BAR_MR + 20
-        TOP_PAD   = _BAR_MT
-        BOT_PAD   = _BAR_MB
-
-        # 各组宽度
-        group_widths = [len(g["bars"]) * (BAR_W + inner_gap) - inner_gap
-                        for g in groups]
-        total_W = LEFT_PAD + sum(group_widths) + GROUP_GAP*(n_groups-1) + RIGHT_PAD + GROUP_GAP
+        # ── 布局计算 ──
         canvas_H = c.winfo_height() or 400
         if canvas_H < 150:
             canvas_H = 400
 
-        chart_H = canvas_H - TOP_PAD - BOT_PAD
-        if chart_H < 80:
-            chart_H = 80
+        n_metrics  = len(chosen_metrics)
+        section_H  = canvas_H / n_metrics   # 每个指标的垂直分区
+        TOP_PAD    = _BAR_MT
+        BOT_PAD    = _BAR_MB
 
-        # 配置滚动区域
-        real_W = max(total_W, c.winfo_width() or total_W)
+        x_cursor = _BAR_ML
+        all_section_widths = []  # 每个指标区的宽度
+
+        for m_idx, metric in enumerate(chosen_metrics):
+            bars = all_metric_bars.get(metric, [])
+            if not bars:
+                all_section_widths.append(0)
+                continue
+
+            # 按 bvid 分组
+            bvid_order = [v.get("bvid","") for v in self._snap_selected]
+            groups = []
+            seen = set()
+            for bv in bvid_order:
+                if bv in seen:
+                    continue
+                seen.add(bv)
+                g_bars = [b for b in bars if b["bvid"] == bv]
+                if g_bars:
+                    groups.append({"bvid": bv, "title": g_bars[0]["title"], "bars": g_bars})
+
+            total_bars = len(bars)
+            BAR_W     = max(20, min(50, 700 // max(total_bars, 1)))
+            GROUP_GAP = max(BAR_W, 20)
+            inner_gap = max(2, BAR_W // 8)
+
+            group_widths = [len(g["bars"]) * (BAR_W + inner_gap) - inner_gap for g in groups]
+            sec_W = sum(group_widths) + GROUP_GAP * (len(groups) - 1) + GROUP_GAP + _BAR_MR
+            all_section_widths.append(sec_W)
+
+            # 保存绘图参数
+            all_metric_bars[metric] = {
+                "groups": groups, "BAR_W": BAR_W,
+                "GROUP_GAP": GROUP_GAP, "inner_gap": inner_gap,
+                "group_widths": group_widths, "total_bars": total_bars,
+            }
+
+        max_section_W = max(all_section_widths) if all_section_widths else 500
+        real_W = max(_BAR_ML + max_section_W + 10, c.winfo_width() or 500)
         c.config(scrollregion=(0, 0, real_W, canvas_H))
 
-        # 最大值
-        all_vals = [b["value"] for g in groups for b in g["bars"] if b["value"] is not None]
-        if not all_vals:
-            return
-        max_val = max(all_vals) * 1.12 or 1
+        # ── 逐指标绘图 ──
+        for m_idx, metric in enumerate(chosen_metrics):
+            metric_label = next((lb for k, lb in METRICS if k == metric), metric)
+            data = all_metric_bars.get(metric)
+            if not isinstance(data, dict):
+                continue
 
-        def val_to_y(v):
-            return TOP_PAD + chart_H - max(0, v) / max_val * chart_H
+            groups     = data["groups"]
+            BAR_W      = data["BAR_W"]
+            GROUP_GAP  = data["GROUP_GAP"]
+            inner_gap  = data["inner_gap"]
+            total_bars = data["total_bars"]
 
-        # 网格
-        n_grid = 5
-        for i in range(n_grid + 1):
-            ratio = i / n_grid
-            y   = TOP_PAD + chart_H * (1 - ratio)
-            val = max_val * ratio
-            c.create_line(LEFT_PAD, y, real_W - RIGHT_PAD, y,
-                          fill=C.get("grid_line","#21262d"), dash=(2,4))
-            c.create_text(LEFT_PAD - 6, y, text=_fmt(val), anchor="e",
-                          fill=C.get("text_2","#8b949e"), font=("Consolas",9))
+            if not groups:
+                continue
 
-        # 标题
-        c.create_text(real_W//2, TOP_PAD//2,
-                      text=f"快照对比 — {metric_label}",
-                      fill=C.get("text_1","#e6edf3"),
-                      font=("Microsoft YaHei UI",11,"bold"))
+            sec_y0 = m_idx * section_H
+            chart_H = section_H - TOP_PAD - BOT_PAD
+            if chart_H < 60:
+                chart_H = 60
 
-        # X 轴线
-        c.create_line(LEFT_PAD, TOP_PAD + chart_H,
-                      real_W - RIGHT_PAD, TOP_PAD + chart_H,
-                      fill=C.get("text_2","#8b949e"))
+            all_vals = [b["value"] for g in groups for b in g["bars"] if b["value"] is not None]
+            if not all_vals:
+                continue
+            max_val = max(all_vals) * 1.12 or 1
 
-        # 绘柱
-        x_cursor = LEFT_PAD + GROUP_GAP // 2
-        legend_added = set()
+            def val_to_y(v, _sec_y0=sec_y0, _chart_H=chart_H, _max_val=max_val):
+                return _sec_y0 + TOP_PAD + _chart_H - max(0, v) / _max_val * _chart_H
 
-        for g_idx, group in enumerate(groups):
-            bvid  = group["bvid"]
-            title = group["title"]
-            bars  = group["bars"]
+            # 分隔线
+            if m_idx > 0:
+                c.create_line(_BAR_ML, sec_y0, real_W - _BAR_MR, sec_y0,
+                              fill=C.get("border", "#30363d"), dash=(4, 4))
 
-            g_color = PALETTE[g_idx % len(PALETTE)]
+            # 网格 + Y轴刻度
+            n_grid = 4
+            for i in range(n_grid + 1):
+                ratio = i / n_grid
+                y = sec_y0 + TOP_PAD + chart_H * (1 - ratio)
+                val = max_val * ratio
+                c.create_line(_BAR_ML, y, _BAR_ML + max_section_W, y,
+                              fill=C.get("grid_line", "#21262d"), dash=(2, 4))
+                c.create_text(_BAR_ML - 6, y, text=_fmt(val), anchor="e",
+                              fill=C.get("text_2", "#8b949e"), font=("Consolas", 8))
 
-            # 组标签（视频名）
-            g_center = x_cursor + (len(bars)*(BAR_W+inner_gap) - inner_gap) // 2
-            c.create_text(g_center, canvas_H - BOT_PAD + 30,
-                          text=f"{title}", fill=g_color,
-                          font=("Microsoft YaHei UI",9,"bold"))
+            # 指标标题
+            c.create_text(_BAR_ML + 10, sec_y0 + TOP_PAD // 2 + 4,
+                          text=metric_label, anchor="w",
+                          fill=C.get("text_1", "#e6edf3"),
+                          font=("Microsoft YaHei UI", 10, "bold"))
 
-            for b_idx, bar in enumerate(bars):
-                val    = bar["value"] or 0
-                ts_lbl = bar["ts"]
-                source = bar["source"]
+            # X 轴线
+            c.create_line(_BAR_ML, sec_y0 + TOP_PAD + chart_H,
+                          _BAR_ML + max_section_W, sec_y0 + TOP_PAD + chart_H,
+                          fill=C.get("text_2", "#8b949e"))
 
-                # 里程碑用不同色系（加深）
-                if source == "milestone":
-                    bar_color = _darken(g_color, 0.75)
-                    bar_color2 = _darken(g_color, 0.55)
-                else:
-                    # 同一组内按时间点用渐变色
-                    ratio = b_idx / max(len(bars)-1,1)
-                    bar_color  = _blend(g_color, "#ffffff", 0.15 + ratio*0.2)
-                    bar_color2 = g_color
+            # 绘柱
+            x_cursor = _BAR_ML + GROUP_GAP // 2
+            legend_added = set()
 
-                x0 = x_cursor
-                x1 = x0 + BAR_W
-                y0 = val_to_y(val)
-                y1 = TOP_PAD + chart_H
+            for g_idx, group in enumerate(groups):
+                bvid  = group["bvid"]
+                title = group["title"]
+                bars  = group["bars"]
+                g_color = PALETTE[g_idx % len(PALETTE)]
 
-                # 柱体
-                _draw_bar(c, x0, y0, x1, y1, bar_color, bar_color2)
+                g_center = x_cursor + (len(bars) * (BAR_W + inner_gap) - inner_gap) // 2
+                c.create_text(g_center, sec_y0 + section_H - BOT_PAD + 20,
+                              text=f"{title}", fill=g_color,
+                              font=("Microsoft YaHei UI", 8, "bold"))
 
-                # 数值标签
-                if val > 0:
-                    c.create_text((x0+x1)//2, max(y0 - 6, TOP_PAD + 8),
-                                  text=_fmt(val), anchor="s",
-                                  fill=C.get("text_1","#e6edf3"),
-                                  font=("Consolas",8,"bold"))
+                for b_idx, bar in enumerate(bars):
+                    val    = bar["value"] or 0
+                    ts_lbl = bar["ts"]
+                    source = bar["source"]
 
-                # X 轴标签（时间点）
-                short_ts = ts_lbl[-5:] if len(ts_lbl) > 5 else ts_lbl
-                # 里程碑显示周期
-                if source == "milestone":
-                    short_ts = ts_lbl.replace("里程碑·","")
-                c.create_text((x0+x1)//2, TOP_PAD + chart_H + 10,
-                              text=short_ts, fill=C.get("text_2","#8b949e"),
-                              font=("Consolas",8))
+                    if source == "milestone":
+                        bar_color  = _darken(g_color, 0.75)
+                        bar_color2 = _darken(g_color, 0.55)
+                    else:
+                        ratio = b_idx / max(len(bars) - 1, 1)
+                        bar_color  = _blend(g_color, "#ffffff", 0.15 + ratio * 0.2)
+                        bar_color2 = g_color
 
-                x_cursor += BAR_W + inner_gap
+                    x0 = x_cursor
+                    x1 = x0 + BAR_W
+                    y0 = val_to_y(val)
+                    y1 = sec_y0 + TOP_PAD + chart_H
 
-            x_cursor += GROUP_GAP
+                    _draw_bar(c, x0, y0, x1, y1, bar_color, bar_color2)
 
-            # 图例
-            if bvid not in legend_added:
-                legend_added.add(bvid)
-                leg = tk.Frame(self._snap_legend)
-                leg.pack(side=LEFT, padx=10)
-                tk.Canvas(leg, width=14, height=14, bg=g_color,
-                          highlightthickness=0).pack(side=LEFT, padx=(0,3))
-                tk.Label(leg, text=f"{title} ({bvid})",
-                         font=("Microsoft YaHei UI",9),
-                         fg=C.get("text_1","#e6edf3"),
-                         bg=C.get("bg_base","#0d1117")).pack(side=LEFT)
+                    if val > 0:
+                        c.create_text((x0 + x1) // 2, max(y0 - 5, sec_y0 + TOP_PAD + 8),
+                                      text=_fmt(val), anchor="s",
+                                      fill=C.get("text_1", "#e6edf3"),
+                                      font=("Consolas", 7, "bold"))
+
+                    short_ts = ts_lbl[-5:] if len(ts_lbl) > 5 else ts_lbl
+                    if source == "milestone":
+                        short_ts = ts_lbl.replace("里程碑·", "")
+                    c.create_text((x0 + x1) // 2, sec_y0 + TOP_PAD + chart_H + 8,
+                                  text=short_ts, fill=C.get("text_2", "#8b949e"),
+                                  font=("Consolas", 7))
+
+                    x_cursor += BAR_W + inner_gap
+
+                x_cursor += GROUP_GAP
+
+                # 图例
+                if m_idx == 0 and bvid not in legend_added:
+                    legend_added.add(bvid)
+                    leg = tk.Frame(self._snap_legend, bg=C.get("bg_base", "#0d1117"))
+                    leg.pack(side=LEFT, padx=10)
+                    tk.Canvas(leg, width=14, height=14, bg=g_color,
+                              highlightthickness=0).pack(side=LEFT, padx=(0, 3))
+                    tk.Label(leg, text=f"{title} ({bvid})",
+                             font=("Microsoft YaHei UI", 9),
+                             fg=C.get("text_1", "#e6edf3"),
+                             bg=C.get("bg_base", "#0d1117")).pack(side=LEFT)
 
         # 里程碑图例
         if use_milestone:
-            leg2 = tk.Frame(self._snap_legend)
+            leg2 = tk.Frame(self._snap_legend, bg=C.get("bg_base", "#0d1117"))
             leg2.pack(side=LEFT, padx=10)
             tk.Canvas(leg2, width=14, height=14, bg="#888888",
-                      highlightthickness=0).pack(side=LEFT, padx=(0,3))
+                      highlightthickness=0).pack(side=LEFT, padx=(0, 3))
             tk.Label(leg2, text="里程碑数据（深色柱）",
-                     font=("Microsoft YaHei UI",9),
-                     fg=C.get("text_2","#8b949e"),
-                     bg=C.get("bg_base","#0d1117")).pack(side=LEFT)
+                     font=("Microsoft YaHei UI", 9),
+                     fg=C.get("text_2", "#8b949e"),
+                     bg=C.get("bg_base", "#0d1117")).pack(side=LEFT)
 
+        metric_labels = ", ".join(next((lb for k, lb in METRICS if k == m), m) for m in chosen_metrics)
         self._snap_status.config(
-            text=f"共 {n_groups} 个视频，{total_bars} 根柱，指标：{metric_label}")
+            text=f"共 {len(self._snap_selected)} 个视频，{total_data} 条数据，指标：{metric_labels}")
 
     # ══════════════════════════════════════════════════════════════════════════
     # ── 标签3：数据录入 ───────────────────────────────────────────────────────
@@ -811,14 +946,15 @@ class DataComparisonWindow:
 
         # 左列：BV号输入
         bv_frame = tk.LabelFrame(input_area, text="BV号（每行一个，可批量）",
-                                  padx=6, pady=6)
+                                  padx=6, pady=6,
+                                  fg=C.get("text_1","#e6edf3"), bg=C.get("bg_surface","#161b22"))
         bv_frame.pack(side=LEFT, fill=BOTH, expand=True, padx=(0, 8))
 
         self._entry_bvid_text = tk.Text(
             bv_frame, width=24, height=8,
-            bg=C.get("entry_bg", "#1e2330"), fg=C.get("text_1", "#e6edf3"),
+            bg=C.get("bg_base", "#0d1117"), fg=C.get("text_1", "#e6edf3"),
             insertbackground=C.get("text_1", "#e6edf3"),
-            font=("Consolas", 9), relief="flat", bd=1,
+            font=("Consolas", 10), relief="flat", bd=1,
             highlightthickness=1,
             highlightcolor=C.get("accent", "#fb7299"),
             highlightbackground=C.get("border", "#30363d"))
@@ -830,7 +966,9 @@ class DataComparisonWindow:
 
         # 中列：模式参数区（里程碑用周期勾选 / 快照用日期选择）
         self._entry_param_frame = tk.LabelFrame(input_area, text="参数",
-                                                  padx=6, pady=6)
+                                                  padx=6, pady=6,
+                                                  fg=C.get("text_1","#e6edf3"),
+                                                  bg=C.get("bg_surface","#161b22"))
         self._entry_param_frame.pack(side=LEFT, fill=Y, padx=(0, 8))
 
         # 里程碑参数（周期勾选）
@@ -992,7 +1130,6 @@ class DataComparisonWindow:
 
     # ── 生成输入行 ────────────────────────────────────────────────────────────
     def _entry_generate_rows(self):
-        import re as _re
         raw = self._entry_bvid_text.get("1.0", tk.END).strip()
         if not raw:
             messagebox.showwarning("提示", "请先输入 BV 号", parent=self.window)
@@ -1030,6 +1167,7 @@ class DataComparisonWindow:
                     self._monitored_set.add(bv)
 
         mode = self._entry_mode.get()
+        periods = []
 
         # 生成行标签
         row_labels = []
@@ -1134,7 +1272,7 @@ class DataComparisonWindow:
                 w = 18 if fkey == "note" else 8
                 ent = tk.Entry(row_frame, textvariable=var,
                                font=("Consolas", 9), width=w,
-                               bg=C.get("entry_bg", "#1e2330"),
+                               bg=C.get("bg_base", "#0d1117"),
                                fg=C.get("text_1", "#e6edf3"),
                                insertbackground=C.get("text_1", "#e6edf3"),
                                relief="flat", bd=1,

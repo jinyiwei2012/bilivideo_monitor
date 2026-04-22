@@ -141,7 +141,17 @@ _SEMANTIC_BG_MAP = {
         ("text_1", "text_1"), ("text_2", "text_2"),
     ],
     ("tk.Listbox", "bg"): [
-        ("bg_elevated", "bg_elevated"), ("bg_surface", "bg_surface"),
+        ("bg_base", "bg_base"), ("bg_elevated", "bg_elevated"), ("bg_surface", "bg_surface"),
+    ],
+    ("tk.Listbox", "fg"): [
+        ("text_1", "text_1"), ("text_2", "text_2"),
+    ],
+    ("tk.LabelFrame", "bg"): [
+        ("bg_base", "bg_base"), ("bg_surface", "bg_surface"),
+        ("bg_elevated", "bg_elevated"),
+    ],
+    ("tk.LabelFrame", "fg"): [
+        ("text_1", "text_1"), ("text_2", "text_2"),
     ],
 }
 

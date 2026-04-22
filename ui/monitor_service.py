@@ -5,12 +5,11 @@ import threading
 import time
 from datetime import datetime
 from algorithms.registry import AlgorithmRegistry
-from core import bilibili_api, MonitorRecord
+from core import bilibili_api, MonitorRecord, PredictionRecord
 from ui.helpers import (
     THRESHOLDS, THRESHOLD_NAMES, THRESH_COLORS,
     fmt_num, _parse_viewer_count, fmt_eta,
 )
-from core import bilibili_api, MonitorRecord, PredictionRecord
 
 
 def _fetch_video(gui, video):
@@ -102,7 +101,9 @@ def fetch_single_video_data(gui, bvid, callback=None):
         return
 
     def _worker():
+        gui.log_panel.add_log("DEBUG", f"单视频刷新 {bvid}…")
         _fetch_video(gui, video)
+        gui.log_panel.add_log("DEBUG", f"单视频刷新完成 {bvid}")
         if callback:
             gui.root.after(0, lambda: callback(bvid))
 
@@ -118,7 +119,10 @@ def fetch_all_video_data(gui, callback=None):
 
     def _worker():
         for video in gui.monitored_videos:
+            bvid = video.get("bvid", "")
+            gui.log_panel.add_log("DEBUG", f"正在获取 {bvid} 数据…")
             _fetch_video(gui, video)
+            gui.log_panel.add_log("DEBUG", f"获取完成 {bvid} 播放:{video.get('view_count',0):,}")
             time.sleep(0.2)
 
         if callback:

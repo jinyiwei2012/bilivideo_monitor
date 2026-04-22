@@ -8,6 +8,7 @@ import os
 import json
 import requests
 import shutil
+import threading
 from datetime import datetime
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass
@@ -71,27 +72,66 @@ class PredictionRecord:
     error_rate: float = 0.0
 
 
+class _ConnectionCtx:
+    """线程安全的数据库连接上下文管理器"""
+    __slots__ = ("_conn", "_lock")
+
+    def __init__(self, conn, lock):
+        self._conn = conn
+        self._lock = lock
+
+    def __enter__(self):
+        self._lock.acquire()
+        return self._conn
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        try:
+            if exc_type is None:
+                self._conn.commit()
+        finally:
+            self._lock.release()
+        return False
+
+    def cursor(self):
+        return self._conn.cursor()
+
+
 class VideoDatabase:
     """单个视频的独立数据库"""
-    
+
     def __init__(self, bvid: str, base_dir: str = None):
         self.bvid = bvid
         if base_dir is None:
             base_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data')
-        
+
         # 创建以BV号命名的文件夹
         self.video_dir = os.path.join(base_dir, bvid)
         os.makedirs(self.video_dir, exist_ok=True)
-        
+
         # 数据库文件路径：/data/BV号/BV号.db
         self.db_path = os.path.join(self.video_dir, f"{bvid}.db")
+        self._lock = threading.Lock()
+        self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        self._conn.row_factory = sqlite3.Row
         self._init_db()
-    
-    def _get_connection(self) -> sqlite3.Connection:
-        """获取数据库连接"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        return conn
+
+    def _get_connection(self):
+        """返回线程安全的连接上下文管理器（兼容 with 语法）"""
+        return _ConnectionCtx(self._conn, self._lock)
+
+    def _raw_connection(self):
+        """返回原始连接（用于需要直接操作的场景）"""
+        return self._conn
+
+    def _execute(self, sql: str, params=(), fetch: bool = False):
+        """线程安全的单条 SQL 执行辅助方法"""
+        with self._lock:
+            cursor = self._conn.cursor()
+            cursor.execute(sql, params)
+            if fetch:
+                rows = cursor.fetchall()
+                return [dict(r) for r in rows]
+            self._conn.commit()
     
     def _init_db(self):
         """初始化数据库"""
@@ -442,22 +482,23 @@ class VideoDatabase:
 
 class Database:
     """总数据库管理类"""
-    
+
     def __init__(self, db_path: str = None):
         if db_path is None:
             data_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data')
             os.makedirs(data_dir, exist_ok=True)
             db_path = os.path.join(data_dir, 'bilibili_monitor.db')
-        
+
         self.db_path = db_path
         self.data_dir = os.path.dirname(db_path)
+        self._lock = threading.Lock()
+        self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        self._conn.row_factory = sqlite3.Row
         self.init_database()
-    
-    def _get_connection(self) -> sqlite3.Connection:
-        """获取数据库连接"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        return conn
+
+    def _get_connection(self):
+        """返回线程安全的连接上下文管理器（兼容 with 语法）"""
+        return _ConnectionCtx(self._conn, self._lock)
     
     def init_database(self):
         """初始化数据库表"""

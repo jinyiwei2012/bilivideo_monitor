@@ -91,11 +91,24 @@ class LogPanel:
     def set_log_level(self, level):
         self._log_level_var.set(level)
         for l, btn in self._log_level_btns.items():
+            is_active = (l == level)
             btn.config(
-                bg=C["bg_elevated"] if l == level else C["bg_hover"],
-                fg=C["bilibili"] if l == level else C["text_2"],
+                bg=C["bg_elevated"] if is_active else C["bg_hover"],
+                fg=C["bilibili"] if is_active else C["text_2"],
             )
         self.refresh_log_view()
+
+    # 日志级别优先级：数字越大越严重
+    _LEVEL_ORDER = {"DEBUG": 0, "INFO": 1, "WARNING": 2, "ERROR": 3}
+
+    def _should_show(self, level: str) -> bool:
+        """根据当前过滤级别判断该条日志是否应显示"""
+        filter_level = self._log_level_var.get()
+        if filter_level == "ALL":
+            return True
+        min_severity = self._LEVEL_ORDER.get(filter_level, 0)
+        msg_severity = self._LEVEL_ORDER.get(level, 0)
+        return msg_severity >= min_severity
 
     def add_log(self, level: str, message: str):
         """添加日志条目"""
@@ -109,13 +122,8 @@ class LogPanel:
         if len(self._log_entries) > 2000:
             self._log_entries = self._log_entries[-1500:]
         # 如果日志面板可见且等级匹配，实时追加
-        if self._log_frame.winfo_ismapped():
-            filter_level = self._log_level_var.get()
-            if filter_level == "ALL" or level == filter_level or \
-               (filter_level == "WARNING" and level == "ERROR") or \
-               (filter_level == "INFO" and level in ("INFO", "WARNING", "ERROR")) or \
-               (filter_level == "DEBUG"):
-                self._append_log_line(level, ts, message)
+        if self._log_frame.winfo_ismapped() and self._should_show(level):
+            self._append_log_line(level, ts, message)
 
     def _append_log_line(self, level, ts, message):
         self._log_text.config(state=tk.NORMAL)
@@ -129,19 +137,8 @@ class LogPanel:
         """根据当前等级筛选刷新日志"""
         self._log_text.config(state=tk.NORMAL)
         self._log_text.delete("1.0", tk.END)
-        filter_level = self._log_level_var.get()
         for level, ts, msg in self._log_entries:
-            if filter_level == "ALL":
-                show = True
-            elif filter_level == "DEBUG":
-                show = True
-            elif filter_level == "INFO":
-                show = level in ("ERROR", "WARNING", "INFO")
-            elif filter_level == "WARNING":
-                show = level in ("ERROR", "WARNING")
-            else:
-                show = level == filter_level
-            if show:
+            if self._should_show(level):
                 self._log_text.insert(tk.END, f"[{ts}] ", "TIME")
                 self._log_text.insert(tk.END, f"[{level:>7s}] ", level)
                 self._log_text.insert(tk.END, f"{msg}\n")
