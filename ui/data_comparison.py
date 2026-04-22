@@ -8,9 +8,13 @@ from tkinter import ttk, messagebox, LEFT, RIGHT, BOTH, X, Y, TOP, BOTTOM
 from typing import List, Dict, Optional, Tuple
 from datetime import datetime, timedelta
 import math
+import logging
 
 from core.database import db
 from ui.main_gui import C
+
+# 快照模块日志记录器
+_snap_logger = logging.getLogger("data_comparison.snapshot")
 
 # ── 颜色表 ────────────────────────────────────────────────────────────────────
 PALETTE = [
@@ -435,6 +439,32 @@ class DataComparisonWindow:
             btn.bind("<Leave>", lambda e, b=btn: self._hover_btn(b, False))
             self._quick_filter_btns.append(btn)
 
+        # 自定义时间范围输入
+        cf = tk.Frame(tbox, bg=C.get("bg_surface","#161b22"))
+        cf.pack(fill=X, pady=(4, 4))
+        
+        tk.Label(cf, text="自定义范围:", font=("Microsoft YaHei UI", 8),
+                 fg=C.get("text_2","#8b949e"), bg=C.get("bg_surface","#161b22")).pack(side=LEFT, padx=(0, 4))
+        
+        self._snap_start_entry = ttk.Entry(cf, width=16, font=("Consolas", 9))
+        self._snap_start_entry.insert(0, "YYYY-MM-DD HH:MM")
+        self._snap_start_entry.pack(side=LEFT, padx=2)
+        self._snap_start_entry.bind("<FocusIn>", lambda e: self._clear_placeholder(e, "YYYY-MM-DD HH:MM"))
+        self._snap_start_entry.bind("<FocusOut>", lambda e: self._add_placeholder(e, "YYYY-MM-DD HH:MM"))
+        
+        tk.Label(cf, text="至", font=("Microsoft YaHei UI", 8),
+                 fg=C.get("text_2","#8b949e"), bg=C.get("bg_surface","#161b22")).pack(side=LEFT, padx=4)
+        
+        self._snap_end_entry = ttk.Entry(cf, width=16, font=("Consolas", 9))
+        self._snap_end_entry.insert(0, "YYYY-MM-DD HH:MM")
+        self._snap_end_entry.pack(side=LEFT, padx=2)
+        self._snap_end_entry.bind("<FocusIn>", lambda e: self._clear_placeholder(e, "YYYY-MM-DD HH:MM"))
+        self._snap_end_entry.bind("<FocusOut>", lambda e: self._add_placeholder(e, "YYYY-MM-DD HH:MM"))
+        
+        self._snap_custom_btn = ttk.Button(cf, text="应用", width=6,
+                                           command=self._snap_apply_custom_range)
+        self._snap_custom_btn.pack(side=LEFT, padx=4)
+
         tf = tk.Frame(tbox)
         tf.pack(fill=BOTH, expand=True)
         self._snap_ts_listbox = tk.Listbox(tf, selectmode=tk.MULTIPLE,
@@ -451,7 +481,7 @@ class DataComparisonWindow:
         sb3.pack(side=RIGHT, fill=Y)
 
         tip = tk.Label(tbox,
-                       text="↑ 选视频后自动加载（智能采样）  |  快捷按钮可快速筛选时间段",
+                       text="↑ 选视频后自动加载（智能采样）  |  快捷按钮可快速筛选  |  或自行输入范围筛选",
                        font=("Microsoft YaHei UI",8),
                        fg=C.get("text_3","#484f58"))
         tip.pack(anchor="w")
@@ -539,18 +569,116 @@ class DataComparisonWindow:
 
         # 智能采样：按日期分组，每组保留关键时间点
         ts_list = sorted(all_ts_set, reverse=True)
-        sampled = self._smart_sample(ts_list)
 
         self._snap_ts_listbox.delete(0, tk.END)
         self._snap_ts_avail = ts_list     # 全量（供快捷筛选用）
-        self._snap_ts_displayed = sampled  # 当前显示的
 
-        for ts in sampled:
+        # 不再默认全选，由用户自行选择
+        self._snap_ts_displayed = self._smart_sample(ts_list) if len(ts_list) > 50 else ts_list
+
+        for ts in self._snap_ts_displayed:
             self._snap_ts_listbox.insert(tk.END, ts)
 
-        # 默认全选
-        for i in range(len(sampled)):
-            self._snap_ts_listbox.selection_set(i)
+    def _clear_placeholder(self, event, placeholder):
+        """清除输入框占位符"""
+        entry = event.widget
+        if entry.get() == placeholder:
+            entry.delete(0, tk.END)
+            entry.configure(foreground=C.get("text_1", "#e6edf3"))
+
+    def _add_placeholder(self, event, placeholder):
+        """恢复输入框占位符"""
+        entry = event.widget
+        if not entry.get().strip():
+            entry.insert(0, placeholder)
+            entry.configure(foreground=C.get("text_3", "#484f58"))
+
+    def _snap_apply_custom_range(self):
+        """应用自定义时间范围筛选"""
+        all_ts = self._snap_ts_avail
+        if not all_ts:
+            messagebox.showwarning("提示", "请先选择视频加载时间点", parent=self.window)
+            return
+
+        start_str = self._snap_start_entry.get().strip()
+        end_str = self._snap_end_entry.get().strip()
+
+        # 忽略占位符
+        if start_str in ("YYYY-MM-DD HH:MM", ""):
+            start_str = None
+        if end_str in ("YYYY-MM-DD HH:MM", ""):
+            end_str = None
+
+        if not start_str and not end_str:
+            messagebox.showwarning("提示", "请输入至少一个时间范围", parent=self.window)
+            return
+
+        # 解析时间
+        start_dt = None
+        end_dt = None
+        try:
+            if start_str:
+                start_dt = datetime.strptime(start_str, "%Y-%m-%d %H:%M")
+        except ValueError:
+            try:
+                start_dt = datetime.strptime(start_str, "%Y-%m-%d")
+            except ValueError:
+                pass
+
+        try:
+            if end_str:
+                end_dt = datetime.strptime(end_str, "%Y-%m-%d %H:%M")
+        except ValueError:
+            try:
+                end_dt = datetime.strptime(end_str, "%Y-%m-%d")
+            except ValueError:
+                pass
+
+        # 获取数据实际范围
+        first_ts = _parse_dt(all_ts[0]) if all_ts else None
+        last_ts = _parse_dt(all_ts[-1]) if all_ts else None
+
+        # 校验输入范围是否在数据范围内
+        out_of_range = []
+        if start_dt and first_ts and start_dt < first_ts:
+            out_of_range.append(f"起始时间 {start_str} 早于数据最早时间 {all_ts[-1]}")
+            _snap_logger.warning(f"[快照-自定义范围] 起始时间超出范围: 输入={start_str}, 数据最小={all_ts[-1]}")
+        if end_dt and last_ts and end_dt > last_ts:
+            out_of_range.append(f"结束时间 {end_str} 晚于数据最新时间 {all_ts[0]}")
+            _snap_logger.warning(f"[快照-自定义范围] 结束时间超出范围: 输入={end_str}, 数据最大={all_ts[0]}")
+
+        if out_of_range:
+            warning_msg = "输入时间超出数据范围，已自动调整为有效范围：\n\n"
+            warning_msg += "\n".join(out_of_range)
+            warning_msg += f"\n\n有效范围: {all_ts[-1]} ~ {all_ts[0]}"
+            messagebox.showwarning("⚠️ 范围超限", warning_msg, parent=self.window)
+
+        # 筛选符合条件的時間點
+        filtered = []
+        for ts_str in all_ts:
+            ts_dt = _parse_dt(ts_str)
+            if not ts_dt:
+                continue
+
+            # 起始时间：早于等于start_dt的都包含（start_dt=None则不限）
+            if start_dt and ts_dt < start_dt:
+                continue
+            # 结束时间：晚于等于end_dt的都包含（end_dt=None则不限）
+            if end_dt and ts_dt > end_dt:
+                continue
+
+            filtered.append(ts_str)
+
+        if not filtered:
+            messagebox.showwarning("提示", "没有符合条件的时间点", parent=self.window)
+            return
+
+        self._snap_ts_listbox.delete(0, tk.END)
+        self._snap_ts_displayed = filtered
+        for ts in filtered:
+            self._snap_ts_listbox.insert(tk.END, ts)
+
+        _snap_logger.info(f"[快照-自定义范围] 筛选结果: {len(filtered)} 个时间点")
 
     def _smart_sample(self, ts_list, max_per_day=8):
         """智能采样：同一天内保留首条、尾条、播放量变化最大的几个时间点"""
@@ -605,7 +733,7 @@ class DataComparisonWindow:
             filtered = [ts for ts in all_ts
                         if cutoff and _parse_dt(ts) and _parse_dt(ts) >= cutoff]
         else:  # "all"
-            filtered = self._smart_sample(all_ts)
+            filtered = self._smart_sample(all_ts) if len(all_ts) > 50 else all_ts
 
         if not filtered:
             return
@@ -614,9 +742,7 @@ class DataComparisonWindow:
         self._snap_ts_displayed = filtered
         for ts in filtered:
             self._snap_ts_listbox.insert(tk.END, ts)
-        # 全选
-        for i in range(len(filtered)):
-            self._snap_ts_listbox.selection_set(i)
+        # 不再默认全选，由用户自行选择
 
     def _load_snap_records(self, bvid: str):
         """从 video_dbs 加载某视频的完整历史，存入 _snap_points"""

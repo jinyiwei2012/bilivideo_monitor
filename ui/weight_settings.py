@@ -36,8 +36,7 @@ class WeightSettingsWindow:
         info_frame = ttk.LabelFrame(self.window, text="说明", padding=10)
         info_frame.pack(fill=X, padx=10, pady=5)
         
-        info_text = """
-权重设置：
+        info_text = """权重设置：
 • 用户自定义权重优先级最高
 • 机器学习会自动根据准确率调整未自定义的权重
 • 权重范围：0.01 ~ 10.0
@@ -60,17 +59,37 @@ class WeightSettingsWindow:
         ttk.Label(header_frame, text="准确率", width=10, font=('Arial', 9, 'bold')).grid(row=0, column=4)
         ttk.Label(header_frame, text="样本数", width=8, font=('Arial', 9, 'bold')).grid(row=0, column=5)
         
-        # 算法列表容器
-        self.algo_frame = ttk.Frame(list_frame)
-        self.algo_frame.pack(fill=BOTH, expand=True)
+        # 滚动画布包裹算法列表（确保按钮始终可见）
+        canvas_frame = ttk.Frame(list_frame)
+        canvas_frame.pack(fill=BOTH, expand=True)
         
-        # 按钮框架
+        scroll_y = ttk.Scrollbar(canvas_frame, orient=tk.VERTICAL)
+        scroll_y.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        self.algo_canvas = tk.Canvas(canvas_frame, bg=C.get("bg_elevated", "#1e1e1e"), 
+                                      highlightthickness=0, height=280)
+        self.algo_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scroll_y.config(command=self.algo_canvas.yview)
+        self.algo_canvas.config(yscrollcommand=scroll_y.set)
+        
+        # 算法列表容器（在 Canvas 内部）
+        self.algo_frame = ttk.Frame(self.algo_canvas)
+        self.algo_canvas.create_window((0, 0), window=self.algo_frame, anchor=tk.NW)
+        self.algo_frame.bind("<Configure>", 
+            lambda e: self.algo_canvas.configure(scrollregion=self.algo_canvas.bbox("all")))
+        
+        # 按钮框架（固定在底部，始终可见）
         btn_frame = ttk.Frame(self.window, padding=10)
-        btn_frame.pack(fill=X)
+        btn_frame.pack(fill=X, side=tk.BOTTOM)
         
         ttk.Button(btn_frame, text="重置所有权重", command=self._reset_all).pack(side=LEFT, padx=5)
         ttk.Button(btn_frame, text="刷新", command=self.load_weights).pack(side=LEFT, padx=5)
-        ttk.Button(btn_frame, text="保存", command=self._save).pack(side=RIGHT, padx=5)
+        
+        # 保存按钮加粗突出
+        save_btn = ttk.Button(btn_frame, text="💾 保存", command=self._save)
+        save_btn.pack(side=RIGHT, padx=5)
+        save_btn.configure(font=('Arial', 9, 'bold'))
+        
         ttk.Button(btn_frame, text="取消", command=self.window.destroy).pack(side=RIGHT, padx=5)
     
     def load_weights(self):
