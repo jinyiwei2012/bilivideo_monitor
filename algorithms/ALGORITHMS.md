@@ -859,13 +859,131 @@ weights = {
 
 ---
 
+## 高级模块（2026-04-22 新增）
+
+### 在线学习 (OnlineLearner)
+
+**文件**: `online_learner.py`
+
+#### 原理
+使用 **Hedge 算法**（指数权重专家混合）动态调整各算法权重。
+
+#### 核心机制
+```
+每次实际值到达后：
+1. 计算每个算法的相对误差 error = |predicted - actual| / actual
+2. 累积损失 L_i += ln(1 + error_i)
+3. 更新权重 w_i ∝ exp(-η × (L_i - min_L))
+4. 归一化后输出推荐权重
+```
+
+#### 参数
+- `eta = 0.5` : Hedge 学习率
+- `decay = 0.95` : EWMA 误差衰减系数
+- `warmup = 5` : 至少 5 次反馈才开始调整
+- `min_weight = 0.05` : 最低权重防淘汰
+
+#### 集成方式
+- 每次预测后，将上次预测值与当前实际值对比，反馈给 OnlineLearner
+- 在线学习器独立于 WeightManager，提供辅助权重参考
+- 支持持久化（JSON），重启后可恢复学习状态
+
+---
+
+### 因果推断 (CausalAnalyzer)
+
+**文件**: `causal_inference.py`
+
+#### 原理
+使用 **Granger 因果检验**（OLS 简化实现）检验各指标是否领先于播放量变化。
+
+#### 分析方法
+1. **Granger 因果检验**：检验点赞/投币/分享等是否"导致"播放量变化
+   - 对每个 lag k 构建受限/无限制回归
+   - F 统计量衡量因果强度，F > 3.0 视为显著
+2. **Pearson 相关性**：各指标与播放量的线性相关性
+3. **Lead-Lag 交叉相关**：分析指标领先/滞后播放量的时序关系
+
+#### 可检验指标
+| 指标 | 说明 |
+|------|------|
+| like_count | 点赞 |
+| coin_count | 投币 |
+| share_count | 分享 |
+| favorite_count | 收藏 |
+| danmaku_count | 弹幕 |
+| reply_count | 评论 |
+| viewers_total | 在线人数 |
+| viewers_app | APP观看 |
+| viewers_web | 网页观看 |
+
+#### 输出
+```python
+{
+    'granger_ranking': [(feature, f_stat, best_lag, label), ...],  # F统计量降序
+    'correlation':    {feature: pearson_r, ...},                    # 相关系数
+    'lead_lag':       {feature: best_shift, ...},                   # 领先/滞后
+    'key_drivers':    [feature, ...],                                # 关键驱动因素
+}
+```
+
+---
+
+### 图神经网络 (VideoGraph)
+
+**文件**: `graph_neural.py`
+
+#### 原理
+构建视频关联图，使用 **简化 GCN**（图卷积网络）学习节点嵌入。
+
+#### 图构建规则
+| 边类型 | 权重 | 说明 |
+|--------|------|------|
+| 同UP主 | 0.5 | 强关联 |
+| 发布时间接近 | 0~0.3 | 48h内线性衰减 |
+| 互动率相似 | 0~0.2 | 差异越小权重越高 |
+
+#### GCN 架构
+```
+输入: 节点特征矩阵 X (N × 12)
+    ↓
+Layer 0: H^(1) = ReLU(Ã · X · W^(0) + b^(0))    # 12 → 8
+    ↓
+Layer 1: H^(2) = Ã · H^(1) · W^(1) + b^(1)      # 8 → 4
+    ↓
+输出: 节点嵌入 (N × 4)
+```
+
+其中 Ã = D^{-1/2} A D^{-1/2} 为对称归一化邻接矩阵（含自环）。
+
+#### 节点特征（12维）
+| 维度 | 特征 | 说明 |
+|------|------|------|
+| 1 | log10(播放量) | 播放量规模 |
+| 2 | 点赞率 | like / view |
+| 3 | 投币率 | coin / view |
+| 4 | 分享率 | share / view |
+| 5 | 收藏率 | fav / view |
+| 6 | 弹幕率 | danmaku / view |
+| 7 | 评论率 | reply / view |
+| 8 | 在线率 | viewer / view |
+| 9 | log10(时长) | 视频时长规模 |
+| 10 | 综合互动率 | (like+coin+fav+share) / view |
+| 11 | 投币/点赞比 | coin / like |
+| 12 | 弹幕/评论比 | danmaku / reply |
+
+#### 图增强特征
+每个视频的最终特征 = 自身特征(12) + 邻居聚合特征(12) + GCN嵌入(4) = 28维
+
+---
+
 ## 未来改进方向
 
-1. **在线学习**: 根据实际结果实时调整模型
+1. ~~在线学习: 根据实际结果实时调整模型~~ ✅ 已实现
 2. **迁移学习**: 利用相似视频的历史数据
 3. **多任务学习**: 同时预测多个阈值
-4. **因果推断**: 识别影响播放量的关键因素
-5. **图神经网络**: 考虑视频之间的关系
+4. ~~因果推断: 识别影响播放量的关键因素~~ ✅ 已实现
+5. ~~图神经网络: 考虑视频之间的关系~~ ✅ 已实现
 
 ---
 
@@ -875,8 +993,11 @@ weights = {
 2. Rogers, E. M. (2003). Diffusion of Innovations.
 3. Hochreiter, S., & Schmidhuber, J. (1997). Long short-term memory.
 4. Chen, T., & Guestrin, C. (2016). XGBoost: A scalable tree boosting system.
+5. Freund, Y., & Schapire, R. E. (1997). A decision-theoretic generalization of on-line learning. (Hedge算法)
+6. Granger, C. W. J. (1969). Investigating causal relations by econometric models. (Granger因果检验)
+7. Kipf, T. N., & Welling, M. (2017). Semi-supervised classification with graph convolutional networks. (GCN)
 
 ---
 
-*文档版本: 1.0*
-*最后更新: 2024年*
+*文档版本: 2.0*
+*最后更新: 2026-04-22*

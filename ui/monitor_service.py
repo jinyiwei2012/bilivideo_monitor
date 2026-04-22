@@ -160,6 +160,15 @@ def predict_single(gui, bvid, video, callback=None):
     growth       = w_pred - current_view
     rate_per_sec = calc_growth_rate(history)
 
+    # ── 在线学习反馈：用上次预测值与当前实际值对比 ──
+    _online_learning_feedback(gui, bvid, results, current_view)
+
+    # ── 因果推断数据投喂 ──
+    _feed_causal_analyzer(gui, bvid)
+
+    # ── 图神经网络更新 ──
+    _update_video_graph(gui, bvid, video)
+
     result = {
         "bvid":         bvid,
         "prediction":   w_pred,
@@ -178,6 +187,58 @@ def predict_single(gui, bvid, video, callback=None):
 
     if callback:
         callback(result)
+
+
+def _online_learning_feedback(gui, bvid, results, actual_view):
+    """将各算法的预测误差反馈给在线学习器。
+
+    用上次记录的 prediction 与本次实际播放量对比，
+    误差通过 OnlineLearner.update() 反馈。
+    """
+    try:
+        from algorithms.online_learner import get_online_learner
+        prev = gui.prediction_results.get(bvid)
+        if prev and actual_view > 0:
+            learner = get_online_learner()
+            learner.register(bvid + '/_weighted')  # 综合预测也作为一个「专家」
+            learner.update(bvid + '/_weighted',
+                            predicted=prev['prediction'],
+                            actual=actual_view)
+            # 逐算法反馈
+            for name, pred_val, _, _ in prev.get('success_list', []):
+                algo_key = bvid + '/' + name
+                learner.register(algo_key)
+                learner.update(algo_key, predicted=pred_val, actual=actual_view)
+    except Exception:
+        pass  # 在线学习是可选增强，不影响主流程
+
+
+def _feed_causal_analyzer(gui, bvid):
+    """将最新监控记录投喂给因果分析器。"""
+    try:
+        from algorithms.causal_inference import get_causal_analyzer
+        video_db = gui.video_dbs.get(bvid)
+        if not video_db:
+            return
+        records = video_db.get_all_records()
+        if records:
+            analyzer = get_causal_analyzer(bvid)
+            analyzer.feed(records)
+    except Exception:
+        pass
+
+
+def _update_video_graph(gui, bvid, video):
+    """更新视频图节点（异步，不影响主流程）。"""
+    try:
+        from algorithms.graph_neural import get_video_graph
+        graph = get_video_graph()
+        graph.update_node(bvid, video)
+        # 仅在有新节点时重建边
+        if graph.get_graph_stats()['num_nodes'] >= 2:
+            graph.build_edges()
+    except Exception:
+        pass
 
 
 def _save_predictions_to_db(gui, bvid, current_view, results):
