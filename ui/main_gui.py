@@ -125,6 +125,7 @@ class BilibiliMonitorGUI:
             ("数据对比",  self._open_data_comparison),
             ("交叉计算",  self._open_crossover_analysis),
             ("周刊分数",  self._open_weekly_score),
+            ("里程碑",    self._open_milestone_stats),
             ("数据库",    self._open_database_query),
             ("日志",      None),
         ]
@@ -1436,7 +1437,9 @@ class BilibiliMonitorGUI:
         try:
             from .data_comparison import DataComparisonWindow
             DataComparisonWindow(self.root, monitored_videos=self.monitored_videos,
-                                 history_data=self.history_data, video_dbs=self.video_dbs)
+                                 history_data=self.history_data,
+                                 video_dbs=self.video_dbs,
+                                 on_add_monitor=self._add_bvid_to_monitor)
         except Exception as e:
             messagebox.showerror("错误", f"打开数据对比失败: {e}")
 
@@ -1456,7 +1459,33 @@ class BilibiliMonitorGUI:
         except Exception as e:
             messagebox.showerror("错误", f"打开周刊分数计算失败: {e}")
 
-    def _open_settings(self):
+    def _open_milestone_stats(self):
+        try:
+            from .milestone_stats import MilestoneStatsWindow
+            MilestoneStatsWindow(
+                self.root,
+                monitored_videos=self.monitored_videos,
+                on_add_monitor=self._add_bvid_to_monitor,
+            )
+        except Exception as e:
+            import traceback
+            messagebox.showerror("错误", f"打开里程碑统计失败: {e}\n{traceback.format_exc()}")
+
+    def _add_bvid_to_monitor(self, bvid: str):
+        """将 BV 号加入监控列表（里程碑窗口回调）。"""
+        # 检查是否已在列表
+        for v in self.monitored_videos:
+            if v.get("bvid") == bvid:
+                return
+        # 添加最小化条目，后续刷新时会补全信息
+        entry = {"bvid": bvid, "title": bvid, "view_count": 0}
+        self.monitored_videos.append(entry)
+        self._save_watch_list()
+        self.log_panel.add_log("INFO", f"已将 {bvid} 加入监控列表（里程碑入口）")
+
+
+
+
         try:
             from .settings_window import SettingsWindow
             SettingsWindow(self.root)

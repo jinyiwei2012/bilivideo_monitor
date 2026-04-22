@@ -532,6 +532,27 @@ class Database:
                 )
             ''')
             
+            # 投稿里程碑数据表
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS video_milestones (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    bvid TEXT NOT NULL,
+                    period TEXT NOT NULL,
+                    view_count INTEGER NOT NULL,
+                    like_count INTEGER,
+                    coin_count INTEGER,
+                    share_count INTEGER,
+                    favorite_count INTEGER,
+                    danmaku_count INTEGER,
+                    reply_count INTEGER,
+                    note TEXT,
+                    recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(bvid, period)
+                )
+            ''')
+            cursor.execute(
+                'CREATE INDEX IF NOT EXISTS idx_milestones_bvid ON video_milestones(bvid)')
+            
             conn.commit()
     
     def get_video_db(self, bvid: str) -> VideoDatabase:
@@ -777,6 +798,105 @@ class Database:
         except Exception as e:
             print(f"导出失败: {e}")
             return ""
+
+    # ── 里程碑 CRUD ─────────────────────────────────────────────────────────
+
+    MILESTONE_PERIODS = ["1周", "1月", "1年"]
+
+    def upsert_milestone(self, bvid: str, period: str, data: dict) -> bool:
+        """新增或更新一条里程碑记录（同一 bvid+period 唯一）。
+
+        Args:
+            bvid:   BV号
+            period: 周期，取值 "1周" / "1月" / "1年"
+            data:   字段字典，必须包含 view_count；其余字段可选
+        Returns:
+            成功返回 True
+        """
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO video_milestones
+                        (bvid, period, view_count, like_count, coin_count,
+                         share_count, favorite_count, danmaku_count, reply_count,
+                         note, recorded_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(bvid, period) DO UPDATE SET
+                        view_count    = excluded.view_count,
+                        like_count    = excluded.like_count,
+                        coin_count    = excluded.coin_count,
+                        share_count   = excluded.share_count,
+                        favorite_count= excluded.favorite_count,
+                        danmaku_count = excluded.danmaku_count,
+                        reply_count   = excluded.reply_count,
+                        note          = excluded.note,
+                        recorded_at   = excluded.recorded_at
+                ''', (
+                    bvid, period,
+                    data.get('view_count', 0),
+                    data.get('like_count', None),
+                    data.get('coin_count', None),
+                    data.get('share_count', None),
+                    data.get('favorite_count', None),
+                    data.get('danmaku_count', None),
+                    data.get('reply_count', None),
+                    data.get('note', None),
+                    data.get('recorded_at', datetime.now().strftime('%Y-%m-%d %H:%M:%S')),
+                ))
+                conn.commit()
+                return True
+        except Exception as e:
+            print(f"里程碑写入失败: {e}")
+            return False
+
+    def get_milestones(self, bvid: str = None) -> list:
+        """查询里程碑数据。
+
+        Args:
+            bvid: 指定 BV 号则只返回该视频，None 返回全部
+        Returns:
+            dict 列表，字段同 video_milestones 表
+        """
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                if bvid:
+                    cursor.execute(
+                        'SELECT * FROM video_milestones WHERE bvid=? ORDER BY period',
+                        (bvid,))
+                else:
+                    cursor.execute(
+                        'SELECT * FROM video_milestones ORDER BY bvid, period')
+                return [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            print(f"里程碑查询失败: {e}")
+            return []
+
+    def get_all_milestones_grouped(self) -> dict:
+        """返回以 bvid 为键的里程碑字典，值为 period→row 的子字典。"""
+        rows = self.get_milestones()
+        result = {}
+        for row in rows:
+            bv = row['bvid']
+            if bv not in result:
+                result[bv] = {}
+            result[bv][row['period']] = row
+        return result
+
+    def delete_milestone(self, bvid: str, period: str) -> bool:
+        """删除指定里程碑记录。"""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    'DELETE FROM video_milestones WHERE bvid=? AND period=?',
+                    (bvid, period))
+                conn.commit()
+                return True
+        except Exception as e:
+            print(f"里程碑删除失败: {e}")
+            return False
 
 
 # 全局数据库实例
