@@ -128,8 +128,9 @@ class DataComparisonWindow:
         top.pack(fill=X, padx=10, pady=(8, 4))
 
         # 左：视频列表
-        left = tk.LabelFrame(top, text="选择视频（可多选）", padx=6, pady=4,
-                              fg=C.get("text_1","#e6edf3"), bg=C.get("bg_surface","#161b22"))
+        left = tk.LabelFrame(top, text="  选择视频（可多选）  ", padx=8, pady=4,
+                              fg=C.get("accent","#58a6ff"), bg=C.get("bg_surface","#161b22"),
+                              font=("Microsoft YaHei UI", 9, "bold"))
         left.pack(side=LEFT, fill=BOTH, expand=True)
 
         lf = tk.Frame(left)
@@ -138,7 +139,7 @@ class DataComparisonWindow:
                                          height=4, exportselection=False,
                                          bg=C.get("bg_base","#0d1117"),
                                          fg=C.get("text_1","#e6edf3"),
-                                         selectbackground=C.get("accent","#fb7299"),
+                                         selectbackground=C.get("bilibili_dim","#c45a79"),
                                          selectforeground="#ffffff",
                                          font=("Microsoft YaHei UI", 10))
         sb = ttk.Scrollbar(lf, orient="vertical",
@@ -151,10 +152,11 @@ class DataComparisonWindow:
             self._trend_listbox.insert(tk.END, f"  {v.get('bvid','')}  {title}")
 
         # 右：指标 + 按钮
-        right = tk.Frame(top)
+        right = tk.Frame(top, padx=10, pady=4, bg=C.get("bg_surface","#161b22"))
         right.pack(side=RIGHT, padx=(10,0), fill=Y)
 
-        tk.Label(right, text="对比指标", font=("Microsoft YaHei UI",9,"bold")).pack(anchor="w")
+        tk.Label(right, text="对比指标", font=("Microsoft YaHei UI",9,"bold"),
+                 fg=C.get("accent","#58a6ff"), bg=C.get("bg_surface","#161b22")).pack(anchor="w")
         for key, label in METRICS:
             ttk.Radiobutton(right, text=label, variable=self._trend_metric,
                             value=key, command=self._trend_draw).pack(anchor="w")
@@ -162,18 +164,19 @@ class DataComparisonWindow:
         ttk.Button(right, text="开始对比", command=self._trend_start).pack(
             pady=(10,0), fill=X)
 
-        # 图表
-        mid = tk.Frame(f)
+        # 图表（加入背景卡片感）
+        mid = tk.Frame(f, bg=C.get("bg_elevated","#21262d"), padx=1, pady=1)
         mid.pack(fill=BOTH, expand=True, padx=10, pady=4)
 
         self._trend_canvas = tk.Canvas(mid, bg=C.get("canvas_bg","#0d1117"),
                                        highlightthickness=0)
-        self._trend_canvas.pack(fill=BOTH, expand=True)
+        self._trend_canvas.pack(fill=BOTH, expand=True, padx=4, pady=4)
         self._trend_canvas.bind("<Configure>", lambda e: self._trend_draw())
 
-        # 图例
-        self._trend_legend = tk.Frame(f)
-        self._trend_legend.pack(fill=X, padx=14, pady=(0,6))
+        # 图例（带背景色更有层次）
+        leg_bg = tk.Frame(f, bg=C.get("bg_surface","#161b22"), pady=4)
+        leg_bg.pack(fill=X, padx=10, pady=(2, 4))
+        self._trend_legend = leg_bg
 
         # 初始提示
         self._trend_canvas.after(100, lambda: self._trend_canvas.create_text(
@@ -366,14 +369,14 @@ class DataComparisonWindow:
                           font=("Consolas", 9, "bold"))
 
             # 图例
-            leg = tk.Frame(self._trend_legend, bg=C.get("bg_base","#0d1117"))
+            leg = tk.Frame(self._trend_legend, bg=C.get("bg_surface","#161b22"))
             leg.pack(side=tk.LEFT, padx=10)
             tk.Canvas(leg, width=14, height=14, bg=color,
                       highlightthickness=0).pack(side=LEFT, padx=(0,3))
             tk.Label(leg, text=f"{title} ({bvid})",
                      font=("Microsoft YaHei UI",9),
-                     fg=C.get("text_1","#e6edf3"),
-                     bg=C.get("bg_base","#0d1117")).pack(side=LEFT)
+                     fg=color,
+                     bg=C.get("bg_surface","#161b22")).pack(side=LEFT)
 
     # ══════════════════════════════════════════════════════════════════════════
     # ── 标签2：快照对比 ───────────────────────────────────────────────────────
@@ -385,8 +388,9 @@ class DataComparisonWindow:
         ctrl.pack(fill=X, padx=10, pady=(8,4))
 
         # 左1：视频选择
-        vbox = tk.LabelFrame(ctrl, text="选择视频（可多选）", padx=6, pady=4,
-                              fg=C.get("text_1","#e6edf3"), bg=C.get("bg_surface","#161b22"))
+        vbox = tk.LabelFrame(ctrl, text="  选择视频（可多选）  ", padx=8, pady=6,
+                              fg=C.get("accent","#58a6ff"), bg=C.get("bg_surface","#161b22"),
+                              font=("Microsoft YaHei UI", 9, "bold"))
         vbox.pack(side=LEFT, fill=BOTH, expand=True)
 
         vf = tk.Frame(vbox)
@@ -395,7 +399,7 @@ class DataComparisonWindow:
                                         height=4, exportselection=False,
                                         bg=C.get("bg_base","#0d1117"),
                                         fg=C.get("text_1","#e6edf3"),
-                                        selectbackground=C.get("accent","#fb7299"),
+                                        selectbackground=C.get("bilibili_dim","#c45a79"),
                                         selectforeground="#ffffff",
                                         font=("Microsoft YaHei UI",10))
         sb2 = ttk.Scrollbar(vf, orient="vertical",
@@ -410,21 +414,26 @@ class DataComparisonWindow:
         self._snap_listbox.bind("<<ListboxSelect>>", self._snap_on_video_select)
 
         # 左2：时间点选择
-        tbox = tk.LabelFrame(ctrl, text="选择时间点（可多选）", padx=6, pady=4,
-                              fg=C.get("text_1","#e6edf3"), bg=C.get("bg_surface","#161b22"))
+        tbox = tk.LabelFrame(ctrl, text="  选择时间点（可多选）  ", padx=8, pady=4,
+                              fg=C.get("accent","#58a6ff"), bg=C.get("bg_surface","#161b22"),
+                              font=("Microsoft YaHei UI", 9, "bold"))
         tbox.pack(side=LEFT, fill=BOTH, expand=True, padx=(8,0))
 
-        # 快捷筛选按钮行
+        # 快捷筛选按钮行（胶囊风格）
         qf = tk.Frame(tbox, bg=C.get("bg_surface","#161b22"))
         qf.pack(fill=X, pady=(0, 4))
+        self._quick_filter_btns = []
         for label, key in [("最近1h", "1h"), ("今天", "today"), ("最近3天", "3d"), ("全部", "all")]:
-            btn = tk.Label(qf, text=label, font=("Microsoft YaHei UI", 8),
-                           fg=C.get("text_2","#8b949e"), bg=C.get("bg_elevated","#1c2129"),
-                           cursor="hand2", padx=6, pady=1)
+            btn = tk.Label(qf, text=f"  {label}  ", font=("Microsoft YaHei UI", 8),
+                           fg=C.get("text_2","#8b949e"),
+                           bg=C.get("bg_elevated","#21262d"),
+                           cursor="hand2",
+                           relief="flat")
             btn.pack(side=LEFT, padx=2)
             btn.bind("<Button-1>", lambda e, k=key: self._snap_quick_filter(k))
-            btn.bind("<Enter>", lambda e, b=btn: b.config(fg=C.get("accent","#23ade5")))
-            btn.bind("<Leave>", lambda e, b=btn: b.config(fg=C.get("text_2","#8b949e")))
+            btn.bind("<Enter>", lambda e, b=btn: self._hover_btn(b, True))
+            btn.bind("<Leave>", lambda e, b=btn: self._hover_btn(b, False))
+            self._quick_filter_btns.append(btn)
 
         tf = tk.Frame(tbox)
         tf.pack(fill=BOTH, expand=True)
@@ -432,7 +441,7 @@ class DataComparisonWindow:
                                            height=4, exportselection=False,
                                            bg=C.get("bg_base","#0d1117"),
                                            fg=C.get("text_1","#e6edf3"),
-                                           selectbackground=C.get("accent","#23ade5"),
+                                           selectbackground=C.get("bilibili_dim","#c45a79"),
                                            selectforeground="#ffffff",
                                            font=("Consolas",10))
         sb3 = ttk.Scrollbar(tf, orient="vertical",
@@ -442,17 +451,19 @@ class DataComparisonWindow:
         sb3.pack(side=RIGHT, fill=Y)
 
         tip = tk.Label(tbox,
-                       text="↑ 选视频后自动加载（智能采样）；快捷按钮可快速选择时间段",
+                       text="↑ 选视频后自动加载（智能采样）  |  快捷按钮可快速筛选时间段",
                        font=("Microsoft YaHei UI",8),
-                       fg=C.get("text_2","#8b949e"))
+                       fg=C.get("text_3","#484f58"))
         tip.pack(anchor="w")
 
         # 右：指标 + 按钮
-        rbox = tk.Frame(ctrl)
+        rbox = tk.Frame(ctrl, padx=10, pady=4, bg=C.get("bg_surface","#161b22"))
         rbox.pack(side=RIGHT, padx=(10,0), fill=Y)
 
         tk.Label(rbox, text="对比指标（可多选）",
-                 font=("Microsoft YaHei UI",9,"bold")).pack(anchor="w")
+                 font=("Microsoft YaHei UI",9,"bold"),
+                 fg=C.get("accent","#58a6ff"),
+                 bg=C.get("bg_surface","#161b22")).pack(anchor="w")
         for key, label in METRICS:
             ttk.Checkbutton(rbox, text=label, variable=self._snap_metric_vars[key],
                             command=self._snap_draw).pack(anchor="w")
@@ -468,8 +479,9 @@ class DataComparisonWindow:
         ttk.Button(rbox, text="清空选择",
                    command=self._snap_clear).pack(fill=X)
 
-        # ── 图表区 ──
-        chart_area = tk.Frame(f)
+        # ── 图表区（加入内边距和背景卡片感）───
+        chart_area = tk.Frame(f, bg=C.get("bg_elevated","#21262d"),
+                              padx=1, pady=1)
         chart_area.pack(fill=BOTH, expand=True, padx=10, pady=4)
 
         # 横向滚动
@@ -480,18 +492,30 @@ class DataComparisonWindow:
                                       bg=C.get("canvas_bg","#0d1117"),
                                       highlightthickness=0,
                                       xscrollcommand=h_scroll.set)
-        self._snap_canvas.pack(fill=BOTH, expand=True)
+        self._snap_canvas.pack(fill=BOTH, expand=True, padx=4, pady=4)
         h_scroll.config(command=self._snap_canvas.xview)
         self._snap_canvas.bind("<Configure>", lambda e: self._snap_draw())
 
-        # 图例区
-        self._snap_legend = tk.Frame(f)
-        self._snap_legend.pack(fill=X, padx=14, pady=(0,6))
+        # 图例区（带底部分隔线，更有层次）
+        leg_bg = tk.Frame(f, bg=C.get("bg_surface","#161b22"), pady=4)
+        leg_bg.pack(fill=X, padx=10, pady=(2, 4))
+        self._snap_legend = leg_bg
 
         # 状态标签
         self._snap_status = tk.Label(f, text="", font=("Microsoft YaHei UI",9),
-                                     fg=C.get("text_2","#8b949e"))
-        self._snap_status.pack(anchor="w", padx=14, pady=(0,4))
+                                     fg=C.get("text_2","#8b949e"),
+                                     bg=C.get("bg_base","#0d1117"))
+        self._snap_status.pack(anchor="w", padx=12, pady=(0, 4))
+
+    # ── 快捷按钮悬停效果 ────────────────────────────────────────────────────
+    @staticmethod
+    def _hover_btn(btn: tk.Label, enter: bool):
+        if enter:
+            btn.configure(fg=C.get("bilibili", "#fb7299"),
+                          bg=C.get("bg_hover", "#30363d"))
+        else:
+            btn.configure(fg=C.get("text_2", "#8b949e"),
+                          bg=C.get("bg_elevated", "#21262d"))
 
     # ── 快照：视频选中回调 ────────────────────────────────────────────────────
     def _snap_on_video_select(self, event=None):
@@ -815,10 +839,11 @@ class DataComparisonWindow:
             def val_to_y(v, _sec_y0=sec_y0, _chart_H=chart_H, _max_val=max_val):
                 return _sec_y0 + TOP_PAD + _chart_H - max(0, v) / _max_val * _chart_H
 
-            # 分隔线
+            # 分隔线（用渐变半透明效果代替虚线）
             if m_idx > 0:
                 c.create_line(_BAR_ML, sec_y0, real_W - _BAR_MR, sec_y0,
-                              fill=C.get("border", "#30363d"), dash=(4, 4))
+                              fill=C.get("border", "#30363d"), dash=(6, 4),
+                              width=1)
 
             # 网格 + Y轴刻度
             n_grid = 4
@@ -897,25 +922,28 @@ class DataComparisonWindow:
                 # 图例
                 if m_idx == 0 and bvid not in legend_added:
                     legend_added.add(bvid)
-                    leg = tk.Frame(self._snap_legend, bg=C.get("bg_base", "#0d1117"))
+                    leg = tk.Frame(self._snap_legend, bg=C.get("bg_surface","#161b22"))
                     leg.pack(side=LEFT, padx=10)
                     tk.Canvas(leg, width=14, height=14, bg=g_color,
                               highlightthickness=0).pack(side=LEFT, padx=(0, 3))
                     tk.Label(leg, text=f"{title} ({bvid})",
                              font=("Microsoft YaHei UI", 9),
-                             fg=C.get("text_1", "#e6edf3"),
-                             bg=C.get("bg_base", "#0d1117")).pack(side=LEFT)
+                             fg=g_color,
+                             bg=C.get("bg_surface","#161b22")).pack(side=LEFT)
 
         # 里程碑图例
         if use_milestone:
-            leg2 = tk.Frame(self._snap_legend, bg=C.get("bg_base", "#0d1117"))
+            leg2 = tk.Frame(self._snap_legend, bg=C.get("bg_surface","#161b22"))
             leg2.pack(side=LEFT, padx=10)
-            tk.Canvas(leg2, width=14, height=14, bg="#888888",
-                      highlightthickness=0).pack(side=LEFT, padx=(0, 3))
-            tk.Label(leg2, text="里程碑数据（深色柱）",
+            # 画一个带深色的迷你柱
+            c2 = tk.Canvas(leg2, width=14, height=14,
+                           bg=C.get("bg_surface","#161b22"), highlightthickness=0)
+            c2.pack(side=LEFT, padx=(0, 3))
+            c2.create_rectangle(2, 4, 12, 12, fill="#888888", outline="")
+            tk.Label(leg2, text="里程碑（深色柱）",
                      font=("Microsoft YaHei UI", 9),
                      fg=C.get("text_2", "#8b949e"),
-                     bg=C.get("bg_base", "#0d1117")).pack(side=LEFT)
+                     bg=C.get("bg_surface","#161b22")).pack(side=LEFT)
 
         metric_labels = ", ".join(next((lb for k, lb in METRICS if k == m), m) for m in chosen_metrics)
         self._snap_status.config(
@@ -1464,16 +1492,33 @@ def _darken(c1: str, factor: float) -> str:
 
 
 def _draw_bar(canvas: tk.Canvas, x0, y0, x1, y1, color_top, color_body):
-    """绘制一根带顶部高亮的矩形柱"""
+    """绘制一根带顶部高亮和圆角的矩形柱"""
     if y0 >= y1:
         return
-    # 主体
-    canvas.create_rectangle(x0, y0, x1, y1, fill=color_body, outline="", width=0)
-    # 顶部高亮条
-    top_h = max(3, (y1 - y0) * 0.06)
-    canvas.create_rectangle(x0, y0, x1, y0 + top_h,
-                             fill=color_top, outline="", width=0)
-    # 右侧阴影
-    shadow_w = max(2, (x1-x0)*0.08)
-    canvas.create_rectangle(x1-shadow_w, y0, x1, y1,
-                             fill=_darken(color_body, 0.75), outline="", width=0)
+    # 圆角半径（不超过柱宽的1/4）
+    r = min(3, max(1, (x1 - x0) * 0.15))
+    # 主体（圆角矩形用 polygon 模拟）
+    pts = [
+        x0+r, y0,
+        x1-r, y0,
+        x1,   y0+r,
+        x1,   y1-r,
+        x1-r, y1,
+        x0+r, y1,
+        x0,   y1-r,
+        x0,   y0+r,
+    ]
+    canvas.create_polygon(pts, fill=color_body, outline="", smooth=True, width=0)
+    # 顶部高亮条（更细腻）
+    top_h = max(2, (y1 - y0) * 0.08)
+    top_pts = [
+        x0+r, y0,
+        x1-r, y0,
+        x1,   y0+min(r, top_h),
+        x1,   y0 + top_h + r,
+        x1-r, y0 + top_h + r*2,
+        x0+r, y0 + top_h + r*2,
+        x0,   y0 + top_h + r,
+        x0,   y0+min(r, top_h),
+    ]
+    canvas.create_polygon(top_pts, fill=color_top, outline="", smooth=True, width=0)
