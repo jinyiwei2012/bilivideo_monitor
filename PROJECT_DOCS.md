@@ -36,7 +36,12 @@ b站监控/
 │
 ├── ui/                         # Tkinter GUI 模块
 │   ├── __init__.py
-│   ├── main_gui.py            # 主界面（~1640行，三栏布局控制器）
+│   ├── main_gui.py            # 主控制器（~450行，组装所有子模块）
+│   ├── video_list_panel.py    # 左侧视频列表（卡片渲染+搜索+封面加载）
+│   ├── detail_panel.py        # 中间详情面板（图表+统计栏+标签切换）
+│   ├── prediction_panel.py     # 右侧预测面板（算法列表+预测结果）
+│   ├── bottom_bar.py          # 底部操作栏+状态栏（主题切换）
+│   ├── dialogs.py             # 所有弹窗（设置/搜索/对比/分析等）
 │   ├── theme.py               # 主题系统（设计令牌 C 字典，深/浅色切换）
 │   ├── helpers.py             # 界面工具（字体、阈值常量、格式化、圆角矩形）
 │   ├── chart.py               # Canvas 图表绘制（趋势折线图）
@@ -274,6 +279,115 @@ class BaseAlgorithm(ABC):
 
 ## 四、UI模块（ui/）
 
+### `ui/main_gui.py`（精简控制器）
+**核心类**：`BilibiliMonitorGUI`（~450行）
+
+**职责**：
+- 初始化所有子模块（video_list, detail, pred, bottom_bar, dialogs）
+- 持有全局状态（monitored_videos, selected_bvid, history_data 等）
+- 执行业务逻辑（fetch/timer/refresh/prediction）
+- 协调各子模块之间的通信
+
+**子模块引用**：
+```python
+self.video_list = VideoListPanel(left_frame, self)
+self.detail = DetailPanel(center_frame, self)
+self.pred = PredictionPanel(right_frame, self)
+self.bottom_bar = BottomBar(self.root, self)
+self.dialogs = Dialogs(self)
+```
+
+---
+
+### `ui/video_list_panel.py`
+**核心类**：`VideoListPanel`
+
+**职责**：左侧视频列表的构建与交互
+
+**核心方法**：
+| 方法 | 职责 |
+|------|------|
+| `_build_left_panel` | 构建左侧面板（搜索框+视频计数+滚动列表） |
+| `_make_video_card` | 创建单个视频卡片 |
+| `_update_card` | 更新卡片数据（播放量/gap/状态） |
+| `_select_video` | 选中视频回调，触发详情和预测加载 |
+| `_on_search` | 搜索过滤 |
+| `_copy_bvid` | 复制BV号 |
+| `_load_cover_thumb` | 封面缩略图加载（80×45，异步+缓存） |
+
+---
+
+### `ui/detail_panel.py`
+**核心类**：`DetailPanel`
+
+**职责**：中间详情区域（图表+统计+标签切换）
+
+**核心方法**：
+| 方法 | 职责 |
+|------|------|
+| `_build_center_panel` | 构建中间面板框架 |
+| `_build_center_header` | 视频标题+UP主+发布时间 |
+| `_rebuild_stat_bar` | 重建统计栏（播放/点赞/投币/收藏/分享） |
+| `_update_stat_bar` | 更新统计数字和动画 |
+| `_switch_nav` | 导航切换（图表/详情/互动率） |
+| `_switch_tab` | 标签切换 |
+| `_on_chart_resize` | 图表防抖重绘（200ms） |
+| `_fill_detail_text` | 填充视频详情文本 |
+| `_calc_weekly_score` / `_save_weekly_score` | 周刊评分计算 |
+| `_calc_yearly_score` / `_save_yearly_score` | 年刊评分计算 |
+
+---
+
+### `ui/prediction_panel.py`
+**核心类**：`PredictionPanel`
+
+**职责**：右侧预测分析区域
+
+**核心方法**：
+| 方法 | 职责 |
+|------|------|
+| `_build_right_panel` | 构建右侧面板框架 |
+| `_build_pred_hero` | 预测结果英雄区（预测播放量+置信度+ETA） |
+| `_update_algo_list` | 更新算法列表（权重+准确率） |
+
+---
+
+### `ui/bottom_bar.py`
+**核心类**：`BottomBar`
+
+**职责**：底部操作栏 + 状态栏 + 主题切换
+
+**核心方法**：
+| 方法 | 职责 |
+|------|------|
+| `_build_bottom_bar` | 操作按钮（添加/刷新/删除/对比/分析） |
+| `_draw_toggle` | 绘制开关（自动刷新） |
+| `_build_status_bar` | 状态栏（监控数/间隔/算法/上次刷新） |
+| `_sb` | 更新状态栏内容 |
+| `_toggle_theme` | 主题切换（调用 theme.apply_theme） |
+
+---
+
+### `ui/dialogs.py`
+**核心类**：`Dialogs`
+
+**职责**：所有弹窗的统一入口
+
+**核心方法**：
+| 方法 | 弹窗 |
+|------|------|
+| `_open_settings` | 系统设置 |
+| `_open_weight_settings` | 权重设置 |
+| `_open_database_query` | 数据库查询 |
+| `_open_video_search` | 视频搜索 |
+| `_open_data_comparison` | 数据对比 |
+| `_open_crossover_analysis` | 交叉计算 |
+| `_open_weekly_score` | 周刊评分 |
+| `_open_milestone_stats` | 里程碑统计 |
+| `_add_bvid_to_monitor` | 添加到监控列表 |
+
+---
+
 ### `ui/theme.py`
 **设计令牌系统**：全局 `C` 字典管理所有颜色
 
@@ -378,46 +492,6 @@ FAST_GAP         = 500 # 进入快速模式的条件：距阈值 < 500
 
 ---
 
-### `ui/main_gui.py`
-**核心类**：`BilibiliMonitorGUI`（~1640行）
-
-**布局结构**：
-```
-┌─────────────────────────────────────────────────────────────┐
-│  标题栏（Logo + 导航按钮 + 主题切换 + 设置）                    │
-├──────────┬──────────────────────────────┬───────────────────┤
-│          │  详情头 + 统计栏 + 标签切换   │                   │
-│  左侧    │  ┌────────────────────────┐  │  右侧             │
-│  310px   │  │  Canvas图表/详细文本/   │  │  290px            │
-│          │  │  互动率视图             │  │                   │
-│  视频列表 │  └────────────────────────┘  │  预测分析          │
-│  + 搜索框│                              │                   │
-│          │                              │                   │
-├──────────┴──────────────────────────────┴───────────────────┤
-│  底部操作栏（添加/刷新/删除 + 自动刷新开关）                     │
-├─────────────────────────────────────────────────────────────┤
-│  状态栏（监控数/间隔/算法/上次刷新/状态）                        │
-└─────────────────────────────────────────────────────────────┘
-```
-
-**per-video 独立定时器**：
-```python
-self._video_timers = {bvid: {"next": float, "interval": int}}
-self._fetching_set  = set()  # 防止并发拉取
-_global_tick()  # 1秒全局滴答，检查到期视频并独立拉取
-```
-
-**刷新策略**：
-- 距阈值 < 500：快速模式（10秒间隔）
-- 其他：正常模式（75秒间隔）
-
-**封面异步加载**：
-- 缩略图缓存 key：`("thumb", bvid)`
-- 固定尺寸：80×45（16:9比例）
-- 后台线程加载 + `root.after()` 回调主线程设置
-
----
-
 ### `ui/data_comparison.py`
 **核心类**：`DataComparisonWindow`（标签页界面）
 
@@ -505,7 +579,39 @@ delete_milestone(bvid, period)         # 删除
 
 ---
 
-## 六、设计决策总结
+## 六、UI模块化架构
+
+### 拆分策略
+将 ~1640 行的 `main_gui.py` 拆分为 6 个独立模块：
+
+| 模块文件 | 类名 | 职责 | 引用方式 |
+|----------|------|------|----------|
+| `main_gui.py` | `BilibiliMonitorGUI` | 控制器，持有所有子模块和全局状态 | 入口 |
+| `video_list_panel.py` | `VideoListPanel` | 左侧列表 | `self.video_list` |
+| `detail_panel.py` | `DetailPanel` | 中间详情+图表 | `self.detail` |
+| `prediction_panel.py` | `PredictionPanel` | 右侧预测 | `self.pred` |
+| `bottom_bar.py` | `BottomBar` | 底部操作栏+状态栏 | `self.bottom_bar` |
+| `dialogs.py` | `Dialogs` | 所有弹窗入口 | `self.dialogs` |
+
+### 模块通信
+```
+main_gui (控制器)
+├── video_list_panel ←─ 持有 gui 引用回调
+├── detail_panel ←─ 持有 gui 引用回调
+├── prediction_panel ←─ 持有 gui 引用回调
+├── bottom_bar ←─ 持有 gui 引用回调
+└── dialogs ←─ 持有 gui 引用回调
+```
+
+### 关键设计
+1. **构造器注入依赖**：所有子模块通过 `__init__(parent, gui)` 接收主窗口引用
+2. **回调主窗口方法**：子模块通过 `self.gui.xxx()` 调用主窗口的业务逻辑
+3. **状态集中在主控制器**：所有视频数据、历史记录、选中状态都在 `BilibiliMonitorGUI`
+4. **子模块不持有业务数据**：只持有自己的 UI 组件引用
+
+---
+
+## 七、设计决策总结
 
 ### 1. 数据库架构
 - **per-video 独立数据库**：`data/<bvid>/<bvid>.db`
