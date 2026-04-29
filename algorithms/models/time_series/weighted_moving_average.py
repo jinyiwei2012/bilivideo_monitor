@@ -1,30 +1,37 @@
 """
 加权移动平均预测算法
 """
-from typing import Dict, List, Tuple
-from ...prediction_base import BasePredictionAlgorithm
+from typing import Dict, Any, List
+from datetime import datetime
+from algorithms.base import BaseAlgorithm, PredictionResult
 
 
-class WeightedMovingAverageAlgorithm(BasePredictionAlgorithm):
+class WeightedMovingAverageAlgorithm(BaseAlgorithm):
     """加权移动平均预测"""
     
     name = "加权移动平均"
+    algorithm_id = "weighted_moving_average"
     description = "使用加权移动平均，近期数据权重更高"
+    category = "时间序列"
     
     def __init__(self):
         super().__init__()
         # 默认权重：越近权重越高
         self.default_weights = [0.1, 0.15, 0.2, 0.25, 0.3]
     
-    def predict(self, history: List[Tuple], current_value: float, **kwargs) -> Dict:
+    def predict(self, video_data: Dict[str, Any], 
+                threshold: int = 100000) -> PredictionResult:
         """执行预测"""
-        thresholds = kwargs.get('thresholds', [100000, 1000000, 10000000])
-        threshold_names = kwargs.get('threshold_names', ['10万', '100万', '1000万'])
+        current_views = video_data.get('view_count', 0)
+        history = video_data.get('history_data', [])
+        velocity = self.calculate_velocity(video_data)
         
         if len(history) < 2:
-            prediction = current_value
+            prediction = current_views
+            confidence = 0.3
+            weights = []
         else:
-            views = [v for _, v in history]
+            views = [h.get('view_count', 0) for h in history]
             window_size = min(len(self.default_weights), len(views))
             
             # 截取对应长度的权重
@@ -44,39 +51,38 @@ class WeightedMovingAverageAlgorithm(BasePredictionAlgorithm):
                 prediction = wma + trend * 0.5
             else:
                 prediction = wma
+            
+            prediction = max(0, prediction)
+            confidence = min(0.8, 0.25 + len(history) * 0.08)
         
-        prediction = max(0, prediction)
+        # 计算预测达到阈值的时间
+        growth = prediction - current_views
+        predicted_hours = float('inf')
         
-        # 计算置信度
-        confidence = min(0.8, 0.25 + len(history) * 0.08)
-        
-        # 预测达到阈值
-        growth = prediction - current_value
-        threshold_predictions = []
-        
-        if abs(growth) > 0:
-            for threshold, name in zip(thresholds, threshold_names):
-                if threshold > current_value:
-                    remaining = threshold - current_value
-                    periods_needed = int(remaining / growth) + 1 if growth > 0 else 999
-                    threshold_predictions.append({
-                        'threshold': threshold,
-                        'name': name,
-                        'periods_needed': periods_needed,
-                        'minutes': periods_needed * 75 / 60
-                    })
+        if growth > 0 and current_views < threshold:
+            remaining = threshold - current_views
+            if velocity > 0:
+                predicted_hours = remaining / velocity
+            else:
+                predicted_hours = float('inf')
+        elif current_views >= threshold:
+            predicted_hours = 0
+            confidence = 1.0
         
         metadata = {
             'wma_value': prediction,
             'weights': weights if len(history) >= 2 else [],
-            'trend': '上涨' if growth > 0 else '下跌',
-            'threshold_predictions': threshold_predictions
+            'trend': '上涨' if growth > 0 else '下跌'
         }
         
-        self.last_prediction = prediction
-        
-        return {
-            'prediction': prediction,
-            'confidence': confidence,
-            'metadata': metadata
-        }
+        return PredictionResult(
+            algorithm_name=self.name,
+            algorithm_id=self.algorithm_id,
+            target_threshold=threshold,
+            predicted_hours=max(0, predicted_hours),
+            confidence=confidence,
+            current_views=current_views,
+            current_velocity=velocity,
+            metadata=metadata,
+            timestamp=datetime.now()
+        )

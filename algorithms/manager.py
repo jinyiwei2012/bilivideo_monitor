@@ -36,15 +36,22 @@ class AlgorithmManager:
         self._load_all_algorithms()
     
     def _load_all_algorithms(self):
-        """加载所有算法模块"""
+        """加载所有算法模块（包括子目录）"""
         models_dir = Path(__file__).parent / "models"
         
         if not models_dir.exists():
             print(f"算法模型目录不存在: {models_dir}")
             return
         
-        # 获取所有Python文件
-        model_files = [f for f in models_dir.glob("*.py") if not f.name.startswith("_")]
+        # 递归查找所有Python文件（包括子目录）
+        model_files = []
+        for subdir in models_dir.iterdir():
+            if subdir.is_dir() and not subdir.name.startswith("_"):
+                # 扫描子目录中的所有 .py 文件
+                model_files.extend(subdir.glob("*.py"))
+        
+        # 也加载 models 根目录下的算法（如果有）
+        model_files.extend([f for f in models_dir.glob("*.py") if not f.name.startswith("_")])
         
         for model_file in model_files:
             try:

@@ -57,21 +57,21 @@ class BaseAlgorithm(ABC):
     @abstractmethod
     def predict(
         self,
-        current_views: int,
-        target_views: int,
-        history_data: List[Dict[str, Any]],
-        video_info: Dict[str, Any]
-    ) -> Optional[tuple]:
+        video_data: Dict[str, Any],
+        threshold: int = 100000
+    ) -> PredictionResult:
         """执行预测
-
+        
         Args:
-            current_views: 当前播放量
-            target_views: 目标播放量
-            history_data: 历史数据列表
-            video_info: 视频信息
-
+            video_data: 包含视频所有数据的字典，包括：
+                - view_count: 当前播放量
+                - history_data: 历史数据列表
+                - timestamp: 时间戳
+                - 其他视频信息字段
+            threshold: 目标播放量阈值（默认10万）
+            
         Returns:
-            (预测秒数, 置信度) 或 None
+            PredictionResult 对象，包含预测结果和元数据
         """
         pass
 

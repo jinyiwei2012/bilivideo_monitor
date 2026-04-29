@@ -1,29 +1,35 @@
 """
 指数平滑预测算法
 """
-from typing import Dict, List, Tuple
-from ...prediction_base import BasePredictionAlgorithm
+from typing import Dict, Any, List
+from datetime import datetime
+from algorithms.base import BaseAlgorithm, PredictionResult
 
 
-class ExponentialSmoothingAlgorithm(BasePredictionAlgorithm):
+class ExponentialSmoothingAlgorithm(BaseAlgorithm):
     """指数平滑预测"""
     
     name = "指数平滑"
+    algorithm_id = "exponential_smoothing"
     description = "使用指数加权移动平均预测"
+    category = "时间序列"
     
     def __init__(self):
         super().__init__()
         self.alpha = 0.3  # 平滑系数
     
-    def predict(self, history: List[Tuple], current_value: float, **kwargs) -> Dict:
+    def predict(self, video_data: Dict[str, Any], 
+                threshold: int = 100000) -> PredictionResult:
         """执行预测"""
-        thresholds = kwargs.get('thresholds', [100000, 1000000, 10000000])
-        threshold_names = kwargs.get('threshold_names', ['10万', '100万', '1000万'])
+        current_views = video_data.get('view_count', 0)
+        history = video_data.get('history_data', [])
+        velocity = self.calculate_velocity(video_data)
         
         if len(history) < 2:
-            smoothed = current_value
+            smoothed = current_views
+            confidence = 0.3
         else:
-            views = [v for _, v in history]
+            views = [h.get('view_count', 0) for h in history]
             
             # 指数平滑
             smoothed = views[0]
@@ -36,38 +42,39 @@ class ExponentialSmoothingAlgorithm(BasePredictionAlgorithm):
                 prediction = smoothed + recent_trend * 0.5
             else:
                 prediction = smoothed
-        smoothed = max(0, prediction)
+            
+            smoothed = max(0, prediction)
+            confidence = min(0.85, 0.25 + len(history) * 0.1)
         
-        # 计算置信度
-        confidence = min(0.85, 0.25 + len(history) * 0.1)
+        # 计算预测达到阈值的时间
+        growth = smoothed - current_views
+        predicted_hours = float('inf')
         
-        # 预测达到阈值
-        growth = smoothed - current_value
-        threshold_predictions = []
-        
-        if growth > 0:
-            for threshold, name in zip(thresholds, threshold_names):
-                if threshold > current_value:
-                    remaining = threshold - current_value
-                    periods_needed = int(remaining / growth) + 1
-                    threshold_predictions.append({
-                        'threshold': threshold,
-                        'name': name,
-                        'periods_needed': periods_needed,
-                        'minutes': periods_needed * 75 / 60
-                    })
+        if growth > 0 and current_views < threshold:
+            remaining = threshold - current_views
+            # 估计每小时增长
+            if velocity > 0:
+                predicted_hours = remaining / velocity
+            else:
+                predicted_hours = float('inf')
+        elif current_views >= threshold:
+            predicted_hours = 0
+            confidence = 1.0
         
         metadata = {
             'smoothed_value': smoothed,
             'alpha': self.alpha,
-            'trend': growth,
-            'threshold_predictions': threshold_predictions
+            'trend': growth
         }
         
-        self.last_prediction = smoothed
-        
-        return {
-            'prediction': smoothed,
-            'confidence': confidence,
-            'metadata': metadata
-        }
+        return PredictionResult(
+            algorithm_name=self.name,
+            algorithm_id=self.algorithm_id,
+            target_threshold=threshold,
+            predicted_hours=max(0, predicted_hours),
+            confidence=confidence,
+            current_views=current_views,
+            current_velocity=velocity,
+            metadata=metadata,
+            timestamp=datetime.now()
+        )

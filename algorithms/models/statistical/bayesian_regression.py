@@ -4,9 +4,9 @@
 """
 
 import numpy as np
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any
 from datetime import datetime
-from algorithms.base import BaseAlgorithm
+from algorithms.base import BaseAlgorithm, PredictionResult
 
 
 class BayesianRegressionAlgorithm(BaseAlgorithm):
@@ -17,6 +17,7 @@ class BayesianRegressionAlgorithm(BaseAlgorithm):
     """
     
     name = "贝叶斯回归"
+    algorithm_id = "bayesian_regression"
     description = "基于贝叶斯推断，提供不确定性估计"
     category = "概率模型"
     
@@ -29,29 +30,61 @@ class BayesianRegressionAlgorithm(BaseAlgorithm):
         
     def predict(
         self,
-        current_views: int,
-        target_views: int,
-        history_data: List[Dict[str, Any]],
-        video_info: Dict[str, Any]
-    ) -> Optional[Tuple[int, float]]:
+        video_data: Dict[str, Any],
+        threshold: int = 100000
+    ) -> PredictionResult:
         """
         预测到达目标播放量所需时间
         """
+        current_views = video_data.get('view_count', 0)
+        history_data = video_data.get('history_data', [])
+        velocity = self.calculate_velocity(video_data)
+        
         if not history_data or len(history_data) < 6:
-            return None
+            return PredictionResult(
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=float('inf'),
+                confidence=0.0,
+                current_views=current_views,
+                current_velocity=velocity,
+                metadata={'error': 'Insufficient data'},
+                timestamp=datetime.now()
+            )
             
         try:
             # 准备数据
             X, y = self._prepare_data(history_data)
             
             if len(X) < 5:
-                return None
+                return PredictionResult(
+                    algorithm_name=self.name,
+                    algorithm_id=self.algorithm_id,
+                    target_threshold=threshold,
+                    predicted_hours=float('inf'),
+                    confidence=0.0,
+                    current_views=current_views,
+                    current_velocity=velocity,
+                    metadata={'error': 'Insufficient processed data'},
+                    timestamp=datetime.now()
+                )
             
             # 贝叶斯推断
             self._bayesian_inference(X, y)
             
-            if current_views >= target_views:
-                return (0, 1.0)
+            if current_views >= threshold:
+                return PredictionResult(
+                    algorithm_name=self.name,
+                    algorithm_id=self.algorithm_id,
+                    target_threshold=threshold,
+                    predicted_hours=0,
+                    confidence=1.0,
+                    current_views=current_views,
+                    current_velocity=velocity,
+                    metadata={'method': 'bayesian_regression', 'status': 'already_reached'},
+                    timestamp=datetime.now()
+                )
             
             # 预测
             last_features = X[-1]
@@ -61,26 +94,60 @@ class BayesianRegressionAlgorithm(BaseAlgorithm):
             uncertainty = np.sqrt(last_features @ self.cov @ last_features)
             
             if predicted_growth <= 0:
-                views = [d['view'] for d in history_data]
+                views = [d.get('view_count', 0) for d in history_data]
                 predicted_growth = max(1, np.mean([views[i] - views[i-1] 
                                                    for i in range(1, len(views))]))
             
-            remaining = target_views - current_views
+            remaining = threshold - current_views
             days_needed = remaining / predicted_growth
             
             if days_needed < 0 or days_needed > 3650:
-                return None
+                return PredictionResult(
+                    algorithm_name=self.name,
+                    algorithm_id=self.algorithm_id,
+                    target_threshold=threshold,
+                    predicted_hours=float('inf'),
+                    confidence=0.0,
+                    current_views=current_views,
+                    current_velocity=velocity,
+                    metadata={'error': 'Prediction too far'},
+                    timestamp=datetime.now()
+                )
             
-            seconds_needed = int(days_needed * 86400)
+            predicted_hours = days_needed * 24
             
             # 置信度基于不确定性
             confidence = self._calculate_confidence(uncertainty, predicted_growth)
             
-            return (seconds_needed, confidence)
+            return PredictionResult(
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=confidence,
+                current_views=current_views,
+                current_velocity=velocity,
+                metadata={
+                    'method': 'bayesian_regression',
+                    'uncertainty': float(uncertainty),
+                    'predicted_growth': float(predicted_growth)
+                },
+                timestamp=datetime.now()
+            )
             
         except Exception as e:
             print(f"贝叶斯回归预测失败: {e}")
-            return None
+            return PredictionResult(
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=float('inf'),
+                confidence=0.0,
+                current_views=current_views,
+                current_velocity=velocity,
+                metadata={'error': str(e)},
+                timestamp=datetime.now()
+            )
     
     def _prepare_data(
         self, 

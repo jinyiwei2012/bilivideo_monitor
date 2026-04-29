@@ -1,30 +1,40 @@
 """
 Gompertz增长模型
 """
-from typing import Dict, List, Tuple
-from ...prediction_base import BasePredictionAlgorithm
+from typing import Dict, Any, List
+from datetime import datetime
+from algorithms.base import BaseAlgorithm, PredictionResult
 
 
-class GompertzAlgorithm(BasePredictionAlgorithm):
+class GompertzAlgorithm(BaseAlgorithm):
     """Gompertz增长模型预测"""
     
     name = "Gompertz"
+    algorithm_id = "gompertz"
     description = "基于Gompertz增长曲线预测，适用于视频热度增长"
+    category = "增长模型"
     
     def __init__(self):
         super().__init__()
         self.K = 10000000  # 最大容量默认值
-    
-    def predict(self, history: List[Tuple], current_value: float, **kwargs) -> Dict:
+        
+    def predict(self, video_data: Dict[str, Any], 
+                threshold: int = 100000) -> PredictionResult:
         """执行预测"""
-        thresholds = kwargs.get('thresholds', [100000, 1000000, 10000000])
-        threshold_names = kwargs.get('threshold_names', ['10万', '100万', '1000万'])
+        current_views = video_data.get('view_count', 0)
+        history = video_data.get('history_data', [])
+        velocity = self.calculate_velocity(video_data)
         
         if len(history) < 3:
             # 数据不足，使用简单增长预测
-            prediction = current_value * 1.05
+            if velocity > 0:
+                predicted_hours = (threshold - current_views) / velocity
+            else:
+                predicted_hours = float('inf')
+            confidence = 0.3
+            metadata = {'method': 'gompertz_simple', 'reason': 'insufficient_data'}
         else:
-            views = [v for _, v in history]
+            views = [h.get('view_count', 0) for h in history]
             
             # 计算相对增长率
             growth_rates = []
@@ -38,43 +48,31 @@ class GompertzAlgorithm(BasePredictionAlgorithm):
             else:
                 avg_rate = 0.01
             
-            # 简单预测
-            prediction = current_value * (1 + avg_rate)
+            # Gompertz模型预测
+            prediction = current_views * (1 + avg_rate)
             # 限制在最大容量内
             prediction = min(self.K * 0.5, prediction)
+            
+            if velocity > 0:
+                predicted_hours = (threshold - current_views) / velocity
+            else:
+                predicted_hours = float('inf')
+            
+            confidence = min(0.8, 0.2 + len(history) * 0.1)
+            metadata = {
+                'method': 'gompertz',
+                'max_capacity': self.K,
+                'average_growth_rate': avg_rate
+            }
         
-        prediction = max(0, prediction)
-        
-        # 计算置信度
-        confidence = min(0.8, 0.2 + len(history) * 0.1)
-        
-        # 预测达到阈值
-        growth = prediction - current_value
-        threshold_predictions = []
-        
-        if growth > 0:
-            for threshold, name in zip(thresholds, threshold_names):
-                if threshold > current_value:
-                    remaining = threshold - current_value
-                    periods_needed = int(remaining / growth) + 1
-                    threshold_predictions.append({
-                        'threshold': threshold,
-                        'name': name,
-                        'periods_needed': periods_needed,
-                        'minutes': periods_needed * 75 / 60
-                    })
-        
-        metadata = {
-            'max_capacity': self.K,
-            'predicted_growth': growth,
-            'growth_rate': growth / max(1, current_value),
-            'threshold_predictions': threshold_predictions
-        }
-        
-        self.last_prediction = prediction
-        
-        return {
-            'prediction': prediction,
-            'confidence': confidence,
-            'metadata': metadata
-        }
+        return PredictionResult(
+            algorithm_name=self.name,
+            algorithm_id=self.algorithm_id,
+            target_threshold=threshold,
+            predicted_hours=max(0, predicted_hours),
+            confidence=confidence,
+            current_views=current_views,
+            current_velocity=velocity,
+            metadata=metadata,
+            timestamp=datetime.now()
+        )
