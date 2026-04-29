@@ -254,6 +254,7 @@ class BilibiliMonitorGUI:
                                       font=FONT, bd=0, relief="flat")
         self._settings_menu.add_command(label="⏱  刷新间隔", command=self._dialogs.open_interval_settings)
         self._settings_menu.add_command(label="📊  权重设置", command=self._dialogs.open_weight_settings)
+        self._settings_menu.add_command(label="🧠  算法信息", command=self._dialogs.open_algorithm_info)
         self._settings_menu.add_command(label="🌐  网络设置", command=self._dialogs.open_network_settings)
         self._settings_menu.add_separator()
         self._settings_menu.add_command(label="⚙️  系统设置", command=self._dialogs.open_settings)

@@ -220,3 +220,130 @@ class Dialogs:
             self.gui.log_panel.add_log("INFO", f"导入完成：成功 {added}，跳过 {skipped}")
 
         threading.Thread(target=_worker, daemon=True).start()
+
+    # ──────────────────────────────────────────
+    # 算法信息
+    # ──────────────────────────────────────────
+
+    def open_algorithm_info(self):
+        """打开算法信息对话框"""
+        dialog = tk.Toplevel(self.gui.root)
+        dialog.title("算法信息")
+        dialog.geometry("500x400")
+        dialog.configure(bg=C["bg_surface"])
+        dialog.transient(self.gui.root)
+        dialog.grab_set()
+        dialog.resizable(True, True)
+
+        # 标题
+        tk.Label(dialog, text="预测算法信息",
+                 bg=C["bg_surface"], fg=C["text_1"],
+                 font=("Microsoft YaHei UI", 14, "bold")).pack(pady=(15, 10))
+
+        # 创建滚动框架
+        canvas = tk.Canvas(dialog, bg=C["bg_surface"], highlightthickness=0)
+        scrollbar = ttk.Scrollbar(dialog, orient="vertical", command=canvas.yview)
+        scrollable_frame = tk.Frame(canvas, bg=C["bg_surface"])
+
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        # 算法信息
+        try:
+            from algorithms.registry import AlgorithmRegistry
+            from algorithms.weight_manager import weight_manager
+
+            # 获取算法信息
+            algo_names = AlgorithmRegistry.get_algorithm_names()
+            algo_infos = AlgorithmRegistry.get_weights_info()
+
+            # 显示算法数量
+            info_frame = tk.Frame(scrollable_frame, bg=C["bg_elevated"], relief="solid", bd=1)
+            info_frame.pack(fill=tk.X, padx=20, pady=10)
+
+            tk.Label(info_frame, text=f"已加载算法: {len(algo_names)} 个",
+                     bg=C["bg_elevated"], fg=C["text_1"],
+                     font=("Microsoft YaHei UI", 11, "bold")).pack(anchor="w", padx=10, pady=5)
+
+            # 显示算法列表
+            for info in algo_infos[:20]:  # 最多显示20个
+                algo_frame = tk.Frame(scrollable_frame, bg=C["bg_surface"])
+                algo_frame.pack(fill=tk.X, padx=20, pady=2)
+
+                name = info.get('name', 'Unknown')
+                weight = info.get('weight', 1.0)
+                accuracy = info.get('accuracy', 0.5)
+
+                tk.Label(algo_frame, text=f"• {name}",
+                         bg=C["bg_surface"], fg=C["text_1"],
+                         font=FONT, anchor="w").pack(side=tk.LEFT, padx=(0, 10))
+
+                tk.Label(algo_frame, text=f"权重: {weight:.2f}",
+                         bg=C["bg_surface"], fg=C["text_2"],
+                         font=FONT_SM).pack(side=tk.LEFT, padx=10)
+
+                tk.Label(algo_frame, text=f"准确率: {accuracy:.2%}",
+                         bg=C["bg_surface"], fg=C["text_2"],
+                         font=FONT_SM).pack(side=tk.LEFT, padx=10)
+
+            if len(algo_names) > 20:
+                tk.Label(scrollable_frame,
+                         text=f"... 还有 {len(algo_names) - 20} 个算法",
+                         bg=C["bg_surface"], fg=C["text_3"],
+                         font=FONT_SM).pack(anchor="w", padx=20, pady=5)
+
+            # 高级模块状态
+            tk.Label(scrollable_frame, text="高级模块状态:",
+                     bg=C["bg_surface"], fg=C["text_1"],
+                     font=("Microsoft YaHei UI", 11, "bold")).pack(anchor="w", padx=20, pady=(15, 5))
+
+            # 在线学习模块
+            try:
+                from algorithms.online_learner import get_online_learner
+                learner = get_online_learner()
+                tk.Label(scrollable_frame, text="✅ 在线学习模块已加载",
+                         bg=C["bg_surface"], fg=C["success"],
+                         font=FONT).pack(anchor="w", padx=20, pady=2)
+            except ImportError:
+                tk.Label(scrollable_frame, text="❌ 在线学习模块未找到",
+                         bg=C["bg_surface"], fg=C["danger"],
+                         font=FONT).pack(anchor="w", padx=20, pady=2)
+
+            # 因果推断模块
+            try:
+                from algorithms.causal_inference import get_causal_analyzer
+                tk.Label(scrollable_frame, text="✅ 因果推断模块已加载",
+                         bg=C["bg_surface"], fg=C["success"],
+                         font=FONT).pack(anchor="w", padx=20, pady=2)
+            except ImportError:
+                tk.Label(scrollable_frame, text="❌ 因果推断模块未找到",
+                         bg=C["bg_surface"], fg=C["danger"],
+                         font=FONT).pack(anchor="w", padx=20, pady=2)
+
+            # 图神经网络模块
+            try:
+                from algorithms.graph_neural import get_video_graph
+                tk.Label(scrollable_frame, text="✅ 图神经网络模块已加载",
+                         bg=C["bg_surface"], fg=C["success"],
+                         font=FONT).pack(anchor="w", padx=20, pady=2)
+            except ImportError:
+                tk.Label(scrollable_frame, text="❌ 图神经网络模块未找到",
+                         bg=C["bg_surface"], fg=C["danger"],
+                         font=FONT).pack(anchor="w", padx=20, pady=2)
+
+        except Exception as e:
+            tk.Label(scrollable_frame, text=f"加载算法信息失败: {e}",
+                     bg=C["bg_surface"], fg=C["danger"],
+                     font=FONT).pack(padx=20, pady=20)
+
+        # 布局滚动区域
+        canvas.pack(side="left", fill="both", expand=True, padx=(20, 0), pady=10)
+        scrollbar.pack(side="right", fill="y", pady=10, padx=(0, 20))
+
+        # 关闭按钮
+        ttk.Button(dialog, text="关闭", command=dialog.destroy).pack(pady=(0, 15))
