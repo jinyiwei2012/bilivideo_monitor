@@ -1,11 +1,12 @@
 # B站视频播放量监控系统 - 依赖清单
-# 更新日期: 2026-04-30 (新增6个算法，需 numpy)
+# 更新日期: 2026-04-30 (新增scipy为核心依赖，支持57个算法)
 
 # ==========
 # 核心依赖 (必需)
 # ==========
 
 numpy>=2.4.4           # 数组计算 (新算法必需: change_point_detection, survival_analysis 等)
+scipy>=1.11.0           # 科学计算 ( Gompertz/Logistic/Richards/Weibull 增长曲线算法必需)
 requests>=2.31.0        # HTTP请求 (B站API调用)
 pillow>=10.0.0          # 图片处理 (封面下载)
 
@@ -20,7 +21,7 @@ bilibili-api-python>=9.1.0  # B站API封装
 # ==========
 
 pandas>=2.0.0           # 数据处理
-scipy>=1.11.0            # 科学计算
+# scipy 已移至核心依赖 (4个增长曲线算法需要)
 scikit-learn>=1.3.0      # 机器学习算法
 statsmodels>=0.14.0      # 时间序列 (ARIMA等)
 xgboost>=2.0.0          # XGBoost算法
