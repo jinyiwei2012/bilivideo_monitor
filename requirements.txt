@@ -1,23 +1,63 @@
-requests>=2.31.0
-pandas>=2.0.0
-numpy>=1.24.0
-scikit-learn>=1.3.0
-scipy>=1.11.0
-statsmodels>=0.14.0
-prophet>=1.1.5
-xgboost>=2.0.0
-lightgbm>=4.1.0
-matplotlib>=3.7.0
-seaborn>=0.12.0
-schedule>=1.2.0
-websockets>=12.0
-aiohttp>=3.9.0
-asyncio-mqtt>=0.16.0
-plyer>=2.1.0
-pystray>=0.19.0
-Pillow>=10.0.0
-tkinter-tooltip>=2.1.0
-ttkbootstrap>=1.10.0
-bilibili-api-python>=9.1.0
-qrcode>=7.4.0
-pillow>=10.0.0
+# B站视频播放量监控系统 - 依赖清单
+# 更新日期: 2026-04-30 (新增6个算法，需 numpy)
+
+# ==========
+# 核心依赖 (必需)
+# ==========
+
+numpy>=2.4.4           # 数组计算 (新算法必需: change_point_detection, survival_analysis 等)
+requests>=2.31.0        # HTTP请求 (B站API调用)
+pillow>=10.0.0          # 图片处理 (封面下载)
+
+# ==========
+# B站API
+# ==========
+
+bilibili-api-python>=9.1.0  # B站API封装
+
+# ==========
+# 数据分析 (可选，增强功能)
+# ==========
+
+pandas>=2.0.0           # 数据处理
+scipy>=1.11.0            # 科学计算
+scikit-learn>=1.3.0      # 机器学习算法
+statsmodels>=0.14.0      # 时间序列 (ARIMA等)
+xgboost>=2.0.0          # XGBoost算法
+lightgbm>=4.1.0          # LightGBM算法
+
+# ==========
+# 时间序列 (可选)
+# ==========
+
+prophet>=1.1.5           # Facebook Prophet (需pystan，安装较慢)
+
+# ==========
+# 可视化 (可选)
+# ==========
+
+matplotlib>=3.7.0        # 绘图
+seaborn>=0.12.0          # 统计可视化
+
+# ==========
+# GUI (必需，Tkinter)
+# ==========
+
+tkinter-tooltip>=2.1.0    # Tkinter工具提示
+ttkbootstrap>=1.10.0      # Tkinter样式
+
+# ==========
+# 调度与通信 (可选)
+# ==========
+
+schedule>=1.2.0          # 任务调度
+websockets>=12.0          # WebSocket
+aiohttp>=3.9.0           # 异步HTTP
+asyncio-mqtt>=0.16.0     # MQTT (通知功能)
+
+# ==========
+# 其他 (可选)
+# ==========
+
+pystray>=0.19.0          # 系统托盘图标
+qrcode>=7.4.0            # 二维码生成
