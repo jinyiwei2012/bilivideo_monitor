@@ -107,7 +107,7 @@ def _granger_test(
         # 受限模型：仅用 target 滞后
         # target[t] ≈ a0 + a1*target[t-1] + ... + a_lag*target[t-lag]
         # 用线性代数求解（正规方程）
-        restricted rss_r = _rss_multi_regression(
+        rss_r_model = _rss_multi_regression(
             target, [target], lag_range=(1, lag)
         )
         # 无限制模型：target 滞后 + cause 滞后
@@ -115,7 +115,7 @@ def _granger_test(
             target, [target, cause], lag_range=(1, lag)
         )
 
-        if rss_r < 1e-15:
+        if rss_r_model < 1e-15:
             continue
 
         p = lag          # 额外参数个数
@@ -125,7 +125,7 @@ def _granger_test(
         if df2 <= 0:
             continue
 
-        f_stat = ((rss_r - rss_u) / df1) / (rss_u / df2) if rss_u > 1e-15 else 0.0
+        f_stat = ((rss_r_model - rss_u) / df1) / (rss_u / df2) if rss_u > 1e-15 else 0.0
         if f_stat > best_f:
             best_f = f_stat
             best_lag = lag

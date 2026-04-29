@@ -638,8 +638,8 @@ class BilibiliMonitorGUI:
             if ws and bvid in self.video_dbs:
                 score_data = asdict(ws)
                 self.video_dbs[bvid].add_weekly_score(timestamp, score_data)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"保存周刊分数失败 {bvid}: {e}")
 
     def _save_yearly_score(self, bvid, video, timestamp):
         try:
@@ -649,8 +649,8 @@ class BilibiliMonitorGUI:
             if ys and bvid in self.video_dbs:
                 score_data = asdict(ys)
                 self.video_dbs[bvid].add_yearly_score(timestamp, score_data)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"保存年刊分数失败 {bvid}: {e}")
 
     def _save_watch_list(self):
         config = load_config()

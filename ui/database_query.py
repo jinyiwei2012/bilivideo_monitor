@@ -129,6 +129,7 @@ class DatabaseQueryWindow:
         self.query_results = []
         self._extra_data = []
         self._algo_names = []
+        self._query_running = False  # 防止重复点击
         
         self.setup_ui()
         self.load_videos_list()
@@ -180,7 +181,8 @@ class DatabaseQueryWindow:
         btn_frame = ttk.Frame(query_frame)
         btn_frame.pack(fill='x', pady=10)
         
-        ttk.Button(btn_frame, text="查询", command=self._do_query).pack(side='left', padx=5)
+        self._query_btn = ttk.Button(btn_frame, text="查询", command=self._do_query)
+        self._query_btn.pack(side='left', padx=5)
         ttk.Button(btn_frame, text="重置", command=self._reset_query).pack(side='left', padx=5)
         
         self._on_mode_change()
@@ -263,7 +265,10 @@ class DatabaseQueryWindow:
             return extra
         
         try:
-            conn = sqlite3.connect(video_db_path)
+            # 以只读模式打开，避免与 VideoDatabase 长连接发生锁竞争
+            uri = "file:{}?mode=ro".format(
+                video_db_path.replace("\\", "/").replace(" ", "%20"))
+            conn = sqlite3.connect(uri, uri=True, check_same_thread=False)
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             
@@ -393,152 +398,188 @@ class DatabaseQueryWindow:
             print(f"加载视频列表失败: {e}")
     
     def _do_query(self):
-        """执行查询"""
+        """执行查询（异步后台线程，避免 UI 卡死）"""
         if not os.path.exists(self.db_path):
             messagebox.showerror("错误", "数据库文件不存在")
             return
-        
+        if self._query_running:
+            return  # 防止重复点击
+
         mode = self.query_mode.get()
+        filter_bvid = self._get_filter_bvid()
+
+        # 趋势模式需提前在主线程读取 combo 值
+        bvid_for_trend = None
+        if mode == '播放趋势':
+            selection = self.video_combo_var.get()
+            if not selection:
+                if filter_bvid:
+                    bvid_for_trend = filter_bvid
+                else:
+                    messagebox.showwarning("提示", "请选择视频")
+                    return
+            else:
+                bvid_for_trend = selection.split()[0] if ' ' in selection else selection
+                if filter_bvid:
+                    bvid_for_trend = filter_bvid
+            if not _validate_bvid(bvid_for_trend):
+                messagebox.showerror("错误", "选中视频的BV号格式无效")
+                return
+
+        # 切换为加载状态
+        self._query_running = True
+        self._query_btn.config(state='disabled', text='查询中…')
         self.result_tree.delete(*self.result_tree.get_children())
         self.query_results = []
-        
-        # 获取全局视频筛选
-        filter_bvid = self._get_filter_bvid()
-        
-        try:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            
-            if mode == '最新N条':
-                limit = int(self.param_var.get() or 100)
-                if filter_bvid:
-                    cursor.execute('''
-                        SELECT * FROM monitor_records 
-                        WHERE bvid = ?
-                        ORDER BY timestamp DESC 
-                        LIMIT ?
-                    ''', (filter_bvid, limit))
-                else:
-                    cursor.execute('''
-                        SELECT * FROM monitor_records 
-                        ORDER BY timestamp DESC 
-                        LIMIT ?
-                    ''', (limit,))
-                self.query_results = cursor.fetchall()
-                
-            elif mode == '播放首次大于X':
-                threshold = int(self.param_var.get() or 10000)
-                if filter_bvid:
-                    # 单个视频：查找首次超过阈值的记录
-                    cursor.execute('''
-                        SELECT * FROM monitor_records
-                        WHERE bvid = ? AND view_count > ?
-                        ORDER BY timestamp ASC
-                        LIMIT 1
-                    ''', (filter_bvid, threshold))
-                else:
-                    # 所有视频
-                    cursor.execute('''
-                        WITH FirstAbove AS (
-                            SELECT bvid, MIN(timestamp) as first_ts
-                            FROM monitor_records
-                            WHERE view_count > ?
-                            GROUP BY bvid
-                        )
-                        SELECT m.* FROM monitor_records m
-                        INNER JOIN FirstAbove f ON m.bvid = f.bvid AND m.timestamp = f.first_ts
-                        ORDER BY m.timestamp DESC
-                    ''', (threshold,))
-                self.query_results = cursor.fetchall()
-                
-            elif mode == '播放趋势':
-                selection = self.video_combo_var.get()
-                if not selection:
-                    # 如果趋势模式没选视频，尝试用全局筛选
+        self._extra_data = []
+        self._algo_names = []
+        self.status_var.set("查询中，请稍候…")
+
+        import threading
+
+        def _worker():
+            raw_rows = []
+            err_msg = None
+            try:
+                conn = sqlite3.connect(self.db_path)
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+
+                if mode == '最新N条':
+                    limit = int(getattr(self, 'param_var', None) and self.param_var.get() or 100)
                     if filter_bvid:
-                        bvid = filter_bvid
+                        cursor.execute('''
+                            SELECT * FROM monitor_records 
+                            WHERE bvid = ?
+                            ORDER BY timestamp DESC 
+                            LIMIT ?
+                        ''', (filter_bvid, limit))
                     else:
-                        messagebox.showwarning("提示", "请选择视频")
-                        conn.close()
-                        return
-                else:
-                    bvid = selection.split()[0] if ' ' in selection else selection
-                    # 优先用全局筛选
+                        cursor.execute('''
+                            SELECT * FROM monitor_records 
+                            ORDER BY timestamp DESC 
+                            LIMIT ?
+                        ''', (limit,))
+
+                elif mode == '播放首次大于X':
+                    threshold = int(getattr(self, 'param_var', None) and self.param_var.get() or 10000)
                     if filter_bvid:
-                        bvid = filter_bvid
-                
-                if not _validate_bvid(bvid):
-                    messagebox.showerror("错误", "选中视频的BV号格式无效")
-                    conn.close()
-                    return
-                cursor.execute('''
-                    SELECT * FROM monitor_records 
-                    WHERE bvid = ?
-                    ORDER BY timestamp ASC
-                ''', (bvid,))
-                self.query_results = cursor.fetchall()
-                
-            elif mode == '全量数据':
-                if filter_bvid:
+                        cursor.execute('''
+                            SELECT * FROM monitor_records
+                            WHERE bvid = ? AND view_count > ?
+                            ORDER BY timestamp ASC
+                            LIMIT 1
+                        ''', (filter_bvid, threshold))
+                    else:
+                        cursor.execute('''
+                            WITH FirstAbove AS (
+                                SELECT bvid, MIN(timestamp) as first_ts
+                                FROM monitor_records
+                                WHERE view_count > ?
+                                GROUP BY bvid
+                            )
+                            SELECT m.* FROM monitor_records m
+                            INNER JOIN FirstAbove f ON m.bvid = f.bvid AND m.timestamp = f.first_ts
+                            ORDER BY m.timestamp DESC
+                        ''', (threshold,))
+
+                elif mode == '播放趋势':
                     cursor.execute('''
                         SELECT * FROM monitor_records 
                         WHERE bvid = ?
-                        ORDER BY timestamp DESC
-                    ''', (filter_bvid,))
-                else:
-                    cursor.execute('SELECT * FROM monitor_records ORDER BY timestamp DESC')
-                self.query_results = cursor.fetchall()
-            
-            conn.close()
-            
-            # 显示结果
-            for i, row in enumerate(self.query_results, 1):
-                like_ratio = row['like_view_ratio'] if row['like_view_ratio'] is not None else 0
-                values = (
-                    i,
-                    row['bvid'],
-                    row['timestamp'],
-                    f"{row['view_count']:,}",
-                    f"{row['like_count']:,}",
-                    f"{row['coin_count']:,}",
-                    f"{row['share_count']:,}",
-                    f"{row['favorite_count']:,}",
-                    f"{row['danmaku_count']:,}",
-                    f"{row['reply_count']:,}",
-                    f"{(row['viewers_total'] or 0):,}",
-                    f"{(row['viewers_web'] or 0):,}",
-                    f"{(row['viewers_app'] or 0):,}",
-                    f"{like_ratio:.4f}",
-                )
-                self.result_tree.insert('', 'end', values=values, tags=(row['bvid'],))
-            
-            self.status_var.set(f"查询到 {len(self.query_results)} 条记录")
-            
-            # 预加载关联数据（预测/周刊/年刊分数）
-            self._extra_data = []
+                        ORDER BY timestamp ASC
+                    ''', (bvid_for_trend,))
+
+                elif mode == '全量数据':
+                    if filter_bvid:
+                        cursor.execute('''
+                            SELECT * FROM monitor_records 
+                            WHERE bvid = ?
+                            ORDER BY timestamp DESC
+                        ''', (filter_bvid,))
+                    else:
+                        cursor.execute('SELECT * FROM monitor_records ORDER BY timestamp DESC')
+
+                raw_rows = [dict(r) for r in cursor.fetchall()]
+                conn.close()
+            except Exception as e:
+                err_msg = str(e)
+
+            if err_msg:
+                self.window.after(0, lambda: (
+                    messagebox.showerror("错误", f"查询失败: {err_msg}"),
+                    self._reset_query_state()
+                ))
+                return
+
+            total = len(raw_rows)
+            self.window.after(0, lambda: self.status_var.set(
+                f"查询到 {total} 条记录，正在加载关联数据…"))
+
+            # 加载 extra_data（在后台线程，按批次更新进度）
+            extra_list = []
             all_algo_names = set()
-            for row in self.query_results:
+            batch = max(1, total // 20)  # 每 5% 更新一次进度
+            for idx, row in enumerate(raw_rows):
                 bvid = row['bvid']
                 ts = row['timestamp']
                 extra = self._load_extra_data(bvid, ts)
-                self._extra_data.append(extra)
-                # 收集所有算法名
+                extra_list.append(extra)
                 for pred in extra.get('_predictions', []):
                     all_algo_names.add(pred.get('algorithm', ''))
-            
-            # 按固定顺序排列算法名，未知算法排后面
+                if total > 50 and (idx + 1) % batch == 0:
+                    progress = idx + 1
+                    self.window.after(0, lambda p=progress, t=total: self.status_var.set(
+                        f"加载关联数据 {p}/{t}…"))
+
             known_order = [
                 '线性增长', '移动平均', '加权移动平均', '指数平滑',
                 '趋势外推', 'Gompertz',
             ]
-            self._algo_names = sorted(
+            algo_names = sorted(
                 all_algo_names,
                 key=lambda n: (known_order.index(n) if n in known_order else len(known_order), n)
             )
-            
-        except Exception as e:
-            messagebox.showerror("错误", f"查询失败: {e}")
+
+            # 回到主线程刷新 Treeview
+            self.window.after(0, lambda: self._finish_query(raw_rows, extra_list, algo_names))
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _reset_query_state(self):
+        """恢复查询按钮可用状态"""
+        self._query_running = False
+        self._query_btn.config(state='normal', text='查询')
+
+    def _finish_query(self, raw_rows, extra_list, algo_names):
+        """后台查询完成后，在主线程刷新 Treeview"""
+        self.query_results = raw_rows
+        self._extra_data = extra_list
+        self._algo_names = algo_names
+
+        self.result_tree.delete(*self.result_tree.get_children())
+        for i, row in enumerate(raw_rows, 1):
+            like_ratio = row.get('like_view_ratio') or 0
+            values = (
+                i,
+                row['bvid'],
+                row['timestamp'],
+                f"{row['view_count']:,}",
+                f"{row['like_count']:,}",
+                f"{row['coin_count']:,}",
+                f"{row['share_count']:,}",
+                f"{row['favorite_count']:,}",
+                f"{row['danmaku_count']:,}",
+                f"{row['reply_count']:,}",
+                f"{(row.get('viewers_total') or 0):,}",
+                f"{(row.get('viewers_web') or 0):,}",
+                f"{(row.get('viewers_app') or 0):,}",
+                f"{like_ratio:.4f}",
+            )
+            self.result_tree.insert('', 'end', values=values, tags=(row['bvid'],))
+
+        self.status_var.set(f"查询到 {len(raw_rows)} 条记录")
+        self._reset_query_state()
     
     def _reset_query(self):
         """重置查询"""
