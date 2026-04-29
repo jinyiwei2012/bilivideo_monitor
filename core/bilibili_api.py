@@ -35,7 +35,6 @@ class BilibiliAPI:
     BASE_URL = "https://api.bilibili.com"
     SEARCH_URL = "https://api.bilibili.com/x/web-interface/search/type"
     VIDEO_URL = "https://api.bilibili.com/x/web-interface/view"
-    STAT_URL = "https://api.bilibili.com/x/web-interface/stat"
     VIEWERS_URL = "https://api.bilibili.com/x/player/online/total"
     
     # 多个User-Agent轮换使用
@@ -58,6 +57,12 @@ class BilibiliAPI:
     
     def __init__(self):
         self.session = requests.Session()
+        # 连接池复用：每个 host 最多 10 个连接，减少 TCP 握手开销
+        from requests.adapters import HTTPAdapter
+        adapter = HTTPAdapter(pool_connections=10, pool_maxsize=10,
+                              max_retries=0)  # 重试由 _request 统一管理
+        self.session.mount("https://", adapter)
+        self.session.mount("http://", adapter)
         self._update_headers()
         
         # 重试配置
@@ -342,11 +347,6 @@ class BilibiliAPI:
         """获取视频详细信息"""
         params = {'bvid': bvid}
         return self._request('GET', self.VIDEO_URL, params=params)
-    
-    def get_video_stat(self, bvid: str) -> Optional[Dict]:
-        """获取视频统计数据"""
-        params = {'bvid': bvid}
-        return self._request('GET', self.STAT_URL, params=params)
     
     def get_video_viewers(self, bvid: str, cid: int = None) -> Optional[Dict]:
         """获取视频在线观看人数"""

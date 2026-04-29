@@ -5,6 +5,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 import threading
+import time
 import re
 
 from ui.theme import C
@@ -183,29 +184,39 @@ class Dialogs:
     def import_search_results(self, videos: list):
         if not videos:
             return
-        added, skipped = 0, 0
-        from core import bilibili_api
-        for v in videos:
-            bvid = v.get("bvid", "")
-            if not bvid:
-                continue
-            if any(mv.get("bvid") == bvid for mv in self.gui.monitored_videos):
-                skipped += 1
-                continue
-            try:
-                info = bilibili_api.get_video_info(bvid)
-                if not info:
+
+        import threading
+
+        def _worker():
+            added, skipped = 0, 0
+            from core import bilibili_api
+            for v in videos:
+                bvid = v.get("bvid", "")
+                if not bvid:
+                    continue
+                # 主线程已在 import_search_results 中判断，这里再检查一次保险
+                if any(mv.get("bvid") == bvid for mv in self.gui.monitored_videos):
                     skipped += 1
                     continue
-                video = self.gui._map_api_to_video_dict(bvid, info, fallback=v)
-                self.gui._register_video_to_monitor(video)
-                added += 1
-            except Exception as e:
-                self.gui.log_panel.add_log("WARNING", f"导入 {bvid} 失败: {e}")
-                skipped += 1
-        self.gui._save_watch_list()
-        msg = f"成功导入 {added} 个视频"
-        if skipped:
-            msg += f"（跳过 {skipped} 个：已存在或获取失败）"
-        if added or skipped:
-            messagebox.showinfo("导入完成", msg)
+                try:
+                    info = bilibili_api.get_video_info(bvid)
+                    if not info:
+                        skipped += 1
+                        continue
+                    video = self.gui._map_api_to_video_dict(bvid, info, fallback=v)
+                    self.gui.root.after(0, lambda v=video: self.gui._register_video_to_monitor(v))
+                    added += 1
+                except Exception as e:
+                    self.gui.log_panel.add_log("WARNING", f"导入 {bvid} 失败: {e}")
+                    skipped += 1
+                time.sleep(0.3)  # 每个视频间隔 0.3s，避免集中请求
+
+            self.gui.root.after(0, self.gui._save_watch_list)
+            msg = f"成功导入 {added} 个视频"
+            if skipped:
+                msg += f"（跳过 {skipped} 个：已存在或获取失败）"
+            if added or skipped:
+                self.gui.root.after(0, lambda: messagebox.showinfo("导入完成", msg))
+            self.gui.log_panel.add_log("INFO", f"导入完成：成功 {added}，跳过 {skipped}")
+
+        threading.Thread(target=_worker, daemon=True).start()

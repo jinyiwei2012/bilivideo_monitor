@@ -13,6 +13,14 @@ from datetime import datetime
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass
 
+# 模块级共享 Session，复用 TCP 连接，提升封面下载性能
+_http_session = requests.Session()
+_http_session.headers.update({
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Referer": "https://www.bilibili.com/",
+})
+
 
 @dataclass
 class VideoInfo:
@@ -798,7 +806,7 @@ class Database:
             if os.path.exists(cover_path):
                 return cover_path
             
-            response = requests.get(pic_url, timeout=10)
+            response = _http_session.get(pic_url, timeout=10)
             if response.status_code == 200:
                 with open(cover_path, 'wb') as f:
                     f.write(response.content)

@@ -4,7 +4,7 @@
 import json
 import logging
 import requests
-import websocket
+import threading
 from typing import Optional, Dict, Any
 from datetime import datetime
 
@@ -47,55 +47,57 @@ class NotificationManager:
             return False
     
     def send_qq_private(self, message: str) -> bool:
-        """发送QQ私聊消息"""
+        """发送QQ私聊消息（异步，不阻塞主线程）"""
         if not self.qq_private or not self.enabled:
             return False
-        
-        # 安全警告：Token通过明文HTTP传输
-        if self.token and self.onebot_http.startswith('http://'):
-            logger.warning(
-                "OneBot token通过明文HTTP传输，存在中间人攻击风险，"
-                "建议将onebot_http配置为HTTPS/WSS地址"
-            )
-        
-        try:
-            url = f"{self.onebot_http}/send_private_msg"
-            headers = {}
-            if self.token:
-                headers['Authorization'] = f"Bearer {self.token}"
-            
-            data = {
-                'user_id': self.qq_private,
-                'message': message
-            }
-            
-            response = requests.post(url, json=data, headers=headers, timeout=10)
-            return response.status_code == 200
-        except Exception as e:
-            logger.error(f"QQ私聊发送失败: {type(e).__name__}")
-            return False
+
+        def _send():
+            if self.token and self.onebot_http.startswith('http://'):
+                logger.warning(
+                    "OneBot token通过明文HTTP传输，存在中间人攻击风险，"
+                    "建议将onebot_http配置为HTTPS/WSS地址"
+                )
+            try:
+                url = f"{self.onebot_http}/send_private_msg"
+                headers = {}
+                if self.token:
+                    headers['Authorization'] = f"Bearer {self.token}"
+                data = {
+                    'user_id': self.qq_private,
+                    'message': message
+                }
+                response = requests.post(url, json=data, headers=headers, timeout=10)
+                return response.status_code == 200
+            except Exception as e:
+                logger.error(f"QQ私聊发送失败: {type(e).__name__}")
+                return False
+
+        threading.Thread(target=_send, daemon=True).start()
+        return True
     
     def send_qq_group(self, message: str) -> bool:
-        """发送QQ群消息"""
+        """发送QQ群消息（异步，不阻塞主线程）"""
         if not self.qq_group or not self.enabled:
             return False
-        
-        try:
-            url = f"{self.onebot_http}/send_group_msg"
-            headers = {}
-            if self.token:
-                headers['Authorization'] = f"Bearer {self.token}"
-            
-            data = {
-                'group_id': self.qq_group,
-                'message': message
-            }
-            
-            response = requests.post(url, json=data, headers=headers, timeout=10)
-            return response.status_code == 200
-        except Exception as e:
-            logger.error(f"QQ群消息发送失败: {type(e).__name__}")
-            return False
+
+        def _send():
+            try:
+                url = f"{self.onebot_http}/send_group_msg"
+                headers = {}
+                if self.token:
+                    headers['Authorization'] = f"Bearer {self.token}"
+                data = {
+                    'group_id': self.qq_group,
+                    'message': message
+                }
+                response = requests.post(url, json=data, headers=headers, timeout=10)
+                return response.status_code == 200
+            except Exception as e:
+                logger.error(f"QQ群消息发送失败: {type(e).__name__}")
+                return False
+
+        threading.Thread(target=_send, daemon=True).start()
+        return True
     
     def send_threshold_notification(self, bvid: str, title: str, threshold: int, current_views: int):
         """发送阈值突破通知"""

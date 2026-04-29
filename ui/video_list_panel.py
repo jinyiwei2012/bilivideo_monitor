@@ -5,7 +5,16 @@
 import tkinter as tk
 from tkinter import ttk
 import threading
+import requests as _req
 from io import BytesIO
+
+# 模块级共享 Session + 信号量（限制封面并发数）
+_cover_session = _req.Session()
+_cover_session.headers.update({
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "Referer": "https://www.bilibili.com/",
+})
+_cover_semaphore = threading.Semaphore(4)  # 最多 4 个并发下载
 
 from ui.theme import C
 from ui.helpers import (
@@ -282,12 +291,12 @@ class VideoListPanel:
         if not url:
             return
         def _fetch():
+            acquired = _cover_semaphore.acquire()
+            if not acquired:
+                return
             try:
-                import requests as req
                 from PIL import Image, ImageTk
-                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                          "Referer": "https://www.bilibili.com/"}
-                r = req.get(url, timeout=8, headers=headers)
+                r = _cover_session.get(url, timeout=8)
                 if r.status_code != 200:
                     return
                 img = Image.open(BytesIO(r.content))
@@ -301,6 +310,8 @@ class VideoListPanel:
                 self.gui.root.after(0, lambda: self._safe_set_image(label_widget, ph))
             except Exception as e:
                 print(f"缩略图加载失败 {bvid}: {e}")
+            finally:
+                _cover_semaphore.release()
         threading.Thread(target=_fetch, daemon=True).start()
 
     def _safe_set_image(self, widget, ph):
