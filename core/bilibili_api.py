@@ -73,6 +73,7 @@ class BilibiliAPI:
         self._consecutive_412_errors = 0
         self._last_request_time = 0
         self._min_request_interval = 0.5  # 最小请求间隔（秒）
+        self._interval_lock = threading.Lock()  # 线程安全保护
         
         # cookie支持
         self._cookies: Dict = {}
@@ -126,11 +127,12 @@ class BilibiliAPI:
         return proxy
     
     def _ensure_min_interval(self):
-        """确保请求间隔"""
-        elapsed = time.time() - self._last_request_time
-        if elapsed < self._min_request_interval:
-            time.sleep(self._min_request_interval - elapsed)
-        self._last_request_time = time.time()
+        """确保请求间隔（线程安全）"""
+        with self._interval_lock:
+            elapsed = time.time() - self._last_request_time
+            if elapsed < self._min_request_interval:
+                time.sleep(self._min_request_interval - elapsed)
+            self._last_request_time = time.time()
     
     def _is_412_error(self, data: Dict) -> bool:
         """检查是否是412频率限制错误"""
