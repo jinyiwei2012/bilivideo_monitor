@@ -39,6 +39,23 @@ THEME_DARK = {
     "log_error":    "#f85149",
     "log_time":     "#6e7681",
     "grid_line":    "#21262d",
+
+    # ── 设计系统令牌 ────────────────────────
+    # 圆角系统
+    "radius_sm": 6,
+    "radius_md": 8,
+    "radius_lg": 12,
+    "radius_xl": 16,
+
+    # 语义化色彩别名 (便于代码理解)
+    "brand":          "#fb7299",
+    "brand_hover":    "#c45a79",
+    "text_primary":   "#e6edf3",
+    "text_secondary": "#8b949e",
+    "text_tertiary":  "#484f58",
+    "bg_default":     "#0d1117",
+    "border_default": "#30363d",
+    "border_subtle":  "#21262d",
 }
 
 # 亮色主题配色
@@ -77,12 +94,30 @@ THEME_LIGHT = {
     "log_error":    "#d1242f",
     "log_time":     "#8b949e",
     "grid_line":    "#e8ecf0",
+
+    # ── 设计系统令牌 ────────────────────────
+    # 圆角系统
+    "radius_sm": 6,
+    "radius_md": 8,
+    "radius_lg": 12,
+    "radius_xl": 16,
+
+    # 语义化色彩别名 (便于代码理解)
+    "brand":          "#fb7299",
+    "brand_hover":    "#e05580",
+    "text_primary":   "#1f2328",
+    "text_secondary": "#656d76",
+    "text_tertiary":  "#8b949e",
+    "bg_default":     "#ffffff",
+    "border_default": "#d0d7de",
+    "border_subtle":  "#e8ecf0",
 }
 
 THEMES = {"dark": THEME_DARK, "light": THEME_LIGHT}
 
 # 当前活跃配色字典（apply_theme 会就地更新）
 C = dict(THEME_DARK)
+
 
 def current_theme_name():
     """返回当前主题名 dark/light"""
@@ -91,7 +126,20 @@ def current_theme_name():
     return "dark"
 
 
-# ── 控件颜色刷新 ─────────────────────────────────
+# ── 设计系统辅助函数 ────────────────────────
+
+def get_radius(size="md"):
+    """获取圆角值 (sm:6, md:8, lg:12, xl:16)"""
+    return C.get(f"radius_{size}", 8)
+
+
+def get_space(index):
+    """获取间距值 (8px基准, index: 0-8)"""
+    SPACE = [0, 4, 8, 12, 16, 24, 32, 48, 64]
+    return SPACE[min(index, len(SPACE) - 1)]
+
+
+# ── 控件颜色刷新 ─────────────────────────
 _WIDGET_BG_ATTRS = ["bg", "background"]
 _WIDGET_FG_ATTRS = ["fg", "foreground"]
 _WIDGET_OTHER = {
@@ -242,7 +290,7 @@ def _recolor_text_tags(text_widget):
             pass
 
 
-# ── ttk Style 配置 ───────────────────────────────
+# ── ttk Style 配置 ─────────────────────────────
 def _apply_ttk_styles(root, FONT):
     """根据当前 C 字典配置所有 ttk 样式（不重设 C 本身）"""
     from tkinter import ttk
@@ -407,3 +455,16 @@ def rounded_rect(canvas, x1, y1, x2, y2, r, **kwargs):
         x1,   y1+r, x1,   y1,
     ]
     return canvas.create_polygon(pts, smooth=True, **kwargs)
+
+
+def apply_rounded_style(widget, radius_key="radius_md"):
+    """为控件应用圆角样式 (通过 highlightthickness 模拟)"""
+    radius = C.get(radius_key, 8)
+    try:
+        widget.configure(
+            highlightthickness=1,
+            highlightbackground=C.get("border_default", "#30363d"),
+            relief="flat"
+        )
+    except Exception:
+        pass

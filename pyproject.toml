@@ -1,0 +1,33 @@
+[tool.black]
+line-length = 120
+target-version = ['py310']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+    data
+  | exports
+  | \.workbuddy
+  | __pycache__
+)/
+'''
+
+[tool.bandit]
+exclude_dirs = ["tests", "data", "exports", ".workbuddy"]
+skips = ["B101", "B311"]  # Skip assert warnings and random warnings for this project
+
+[tool.pylint.messages_control]
+disable = "C0103,C0111,R0903,R0913,W0613,R0902,R0914"
+
+[tool.pylint.format]
+max-line-length = 120
+max-module-lines = 1500
+
+[tool.pylint.design]
+max-args = 8
+max-locals = 20
+max-returns = 8
+max-branches = 20
+max-statements = 80
+max-parents = 7
+max-attributes = 15
+max-public-methods = 30

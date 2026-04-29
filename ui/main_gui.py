@@ -116,14 +116,27 @@ class BilibiliMonitorGUI:
         self._bar = bar  # 保存引用，供子函数使用
 
     def _build_logo_section(self):
-        """构建Logo区域"""
+        """构建Logo区域 - 改进版：添加副标题"""
         bar = self._bar
         logo_f = tk.Frame(bar, bg=C["bg_surface"])
         logo_f.pack(side=tk.LEFT, padx=(14, 0))
-        tk.Label(logo_f, text="📺", bg=C["bg_surface"], fg=C["bilibili"],
-                 font=("Microsoft YaHei UI", 14)).pack(side=tk.LEFT)
-        tk.Label(logo_f, text=" B站监控", bg=C["bg_surface"], fg=C["bilibili"],
-                 font=("Microsoft YaHei UI", 11, "bold")).pack(side=tk.LEFT)
+        
+        # Logo图标 (使用Canvas绘制简洁的B站风格图标)
+        logo_canvas = tk.Canvas(logo_f, width=32, height=32, 
+                                   bg=C["bg_surface"], highlightthickness=0)
+        logo_canvas.create_oval(4, 4, 28, 28, fill=C["bilibili"], outline="")
+        logo_canvas.create_text(16, 16, text="B", fill="white", 
+                                font=("Microsoft YaHei UI", 14, "bold"))
+        logo_canvas.pack(side=tk.LEFT, padx=(0, 8))
+        
+        # 标题和副标题容器
+        title_f = tk.Frame(logo_f, bg=C["bg_surface"])
+        title_f.pack(side=tk.LEFT)
+        
+        tk.Label(title_f, text="B站监控", bg=C["bg_surface"], fg=C["bilibili"],
+                 font=("Microsoft YaHei UI", 13, "bold")).pack(anchor="w")
+        tk.Label(title_f, text="播放量预测系统", bg=C["bg_surface"], fg=C["text_3"],
+                 font=("Microsoft YaHei UI", 10)).pack(anchor="w")
 
     def _build_navigation_buttons(self):
         """构建导航按钮"""
@@ -135,39 +148,87 @@ class BilibiliMonitorGUI:
         self._dialogs = Dialogs(self)
 
         nav_items = [
-            ("监控列表", None),
-            ("数据对比",  self._dialogs.open_data_comparison),
-            ("交叉计算",  self._dialogs.open_crossover_analysis),
-            ("周刊分数",  self._dialogs.open_weekly_score),
-            ("里程碑",    self._dialogs.open_milestone_stats),
-            ("数据库",    self._dialogs.open_database_query),
-            ("日志",      None),
+            ("📊", "监控列表", None),
+            ("📈", "数据对比",  self._dialogs.open_data_comparison),
+            ("🔄", "交叉计算",  self._dialogs.open_crossover_analysis),
+            ("📅", "周刊分数",  self._dialogs.open_weekly_score),
+            ("🏆", "里程碑",    self._dialogs.open_milestone_stats),
+            ("🗄", "数据库",    self._dialogs.open_database_query),
+            ("📋", "日志",      None),
         ]
         
-        for label, cmd in nav_items:
-            self._create_nav_button(nav_f, label, cmd)
+        for icon, label, cmd in nav_items:
+            self._create_nav_button(nav_f, icon, label, cmd)
 
         self._current_nav = "监控列表"
 
-    def _create_nav_button(self, parent, label, cmd):
-        """创建单个导航按钮"""
-        btn = tk.Label(parent, text=label, bg=C["bg_surface"], fg=C["text_2"],
-                       font=FONT, cursor="hand2", padx=10, pady=6)
-        btn.pack(side=tk.LEFT)
-        is_active = label == "监控列表"
-        if is_active:
-            btn.config(fg=C["bilibili"])
-        if label in self._page_views:
-            btn.bind("<Button-1>", lambda e, n=label: self._switch_nav(n))
-            btn.bind("<Enter>", lambda e, b=btn: b.config(fg=C["text_1"])
-                     if b.cget("fg") != C["bilibili"] else None)
-            btn.bind("<Leave>", lambda e, b=btn: b.config(fg=C["text_2"])
-                     if b.cget("fg") != C["bilibili"] else None)
-        elif cmd:
-            btn.bind("<Button-1>", lambda e, c=cmd: c())
-            btn.bind("<Enter>", lambda e, b=btn: b.config(fg=C["text_1"]))
-            btn.bind("<Leave>", lambda e, b=btn: b.config(fg=C["text_2"]))
-        self._nav_btns[label] = btn
+    def _create_nav_button(self, parent, icon, label, cmd):
+        """创建导航按钮 - 改进版：图标+文本+激活指示器"""
+        btn = tk.Frame(parent, bg=C["bg_surface"], cursor="hand2")
+        btn.pack(side=tk.LEFT, padx=4)
+        
+        # 图标
+        icon_lbl = tk.Label(btn, text=icon, 
+                            bg=C["bg_surface"], fg=C["text_secondary"],
+                            font=("Microsoft YaHei UI", 12))
+        icon_lbl.pack(side=tk.LEFT, padx=(8, 4))
+        
+        # 文本
+        text_lbl = tk.Label(btn, text=label, 
+                             bg=C["bg_surface"], fg=C["text_secondary"],
+                             font=FONT)
+        text_lbl.pack(side=tk.LEFT, padx=(0, 8))
+        
+        # 底部激活指示器
+        indicator = tk.Frame(btn, bg=C["bg_surface"], height=2)
+        indicator.pack(side=tk.BOTTOM, fill=tk.X)
+        
+        # 悬停效果
+        def on_enter(e):
+            icon_lbl.config(fg=C["text_1"])
+            text_lbl.config(fg=C["text_1"])
+            btn.config(bg=C["bg_hover"])
+            icon_lbl.config(bg=C["bg_hover"])
+            text_lbl.config(bg=C["bg_hover"])
+            
+        def on_leave(e):
+            if indicator.cget("bg") != C["bilibili"]:
+                icon_lbl.config(fg=C["text_secondary"])
+                text_lbl.config(fg=C["text_secondary"])
+                btn.config(bg=C["bg_surface"])
+                icon_lbl.config(bg=C["bg_surface"])
+                text_lbl.config(bg=C["bg_surface"])
+                
+        def on_click(e):
+            # 重置所有按钮
+            for k, b in self._nav_btns.items():
+                if isinstance(b, tuple):
+                    ic, tl, ind = b
+                    ic.config(fg=C["text_secondary"])
+                    tl.config(fg=C["text_secondary"])
+                    ind.config(bg=C["bg_surface"])
+            # 激活当前按钮
+            indicator.config(bg=C["bilibili"])
+            icon_lbl.config(fg=C["bilibili"])
+            text_lbl.config(fg=C["bilibili"])
+            
+            if label in self._page_views:
+                self._switch_nav(label)
+            elif cmd:
+                cmd()
+                
+        btn.bind("<Enter>", on_enter)
+        btn.bind("<Leave>", on_leave)
+        btn.bind("<Button-1>", on_click)
+        
+        # 保存引用 (icon_label, text_label, indicator)
+        self._nav_btns[label] = (icon_lbl, text_lbl, indicator)
+        
+        # 初始化激活状态
+        if label == "监控列表":
+            indicator.config(bg=C["bilibili"])
+            icon_lbl.config(fg=C["bilibili"])
+            text_lbl.config(fg=C["bilibili"])
 
     def _build_right_buttons(self):
         """构建右侧按钮区"""

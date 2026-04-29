@@ -1,0 +1,75 @@
+name: Code Quality
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install black flake8 mypy bandit radon
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Check formatting with Black
+        run: black --check --line-length=120 .
+
+      - name: Lint with Flake8
+        run: flake8 .
+
+      - name: Type check with MyPy
+        run: mypy core/ algorithms/base.py ui/ utils/ || true
+
+      - name: Security scan with Bandit
+        run: bandit -r . -c pyproject.toml -ll
+
+      - name: Complexity check
+        run: |
+          echo "=== 复杂度分析 ==="
+          radon cc -a .
+          echo ""
+          echo "=== 检查高复杂度函数 ==="
+          radon cc -nc . && echo "✅ 所有函数复杂度正常" || {
+            echo "⚠️ 发现复杂度过高的函数，建议重构"
+            exit 0
+          }
+
+      - name: Generate quality report
+        if: always()
+        run: |
+          mkdir -p quality_reports
+          echo "# 代码质量报告" > quality_reports/report.md
+          echo "生成时间: $(date)" >> quality_reports/report.md
+          echo "" >> quality_reports/report.md
+          echo "## 代码统计" >> quality_reports/report.md
+          radon raw . >> quality_reports/report.md
+          echo "" >> quality_reports/report.md
+          echo "## 复杂度分析" >> quality_reports/report.md
+          radon cc -a . >> quality_reports/report.md
+
+      - name: Upload quality report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-report
+          path: quality_reports/
