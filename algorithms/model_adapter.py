@@ -256,7 +256,7 @@ class ModelAlgorithmAdapter:
 
 
 def load_all_model_algorithms() -> List[ModelAlgorithmAdapter]:
-    """加载所有models目录下的算法"""
+    """加载所有models目录下的算法（包括子目录）"""
     adapters = []
     
     # 确保是models目录
@@ -267,35 +267,42 @@ def load_all_model_algorithms() -> List[ModelAlgorithmAdapter]:
         print(f"models目录不存在: {models_dir}")
         return adapters
     
-    # 遍历models目录下的所有.py文件
-    for filename in os.listdir(models_dir):
-        if not filename.endswith('.py') or filename.startswith('_'):
-            continue
+    # 递归遍历models目录下的所有子目录
+    for root, dirs, files in os.walk(models_dir):
+        # 跳过 __pycache__ 目录
+        dirs[:] = [d for d in dirs if d != '__pycache__']
         
-        module_name = filename[:-3]
-        
-        try:
-            # 动态导入模块
-            module = importlib.import_module(f'.models.{module_name}', package='algorithms')
+        for filename in files:
+            if not filename.endswith('.py') or filename.startswith('_'):
+                continue
             
-            # 查找算法类
-            for attr_name in dir(module):
-                attr = getattr(module, attr_name)
+            # 计算相对路径，用于构建模块路径
+            file_path = os.path.join(root, filename)
+            rel_path = os.path.relpath(file_path, models_dir)
+            module_path = rel_path.replace('\\', '/').replace('/', '.')[:-3]  # 移除.py
+            
+            try:
+                # 动态导入模块
+                module = importlib.import_module(f'.models.{module_path}', package='algorithms')
                 
-                # 是类且是BaseAlgorithm的子类
-                if (isinstance(attr, type) and 
-                    attr_name.endswith('Algorithm')):
+                # 查找算法类
+                for attr_name in dir(module):
+                    attr = getattr(module, attr_name)
                     
-                    try:
-                        base_names = [b.__name__ for b in attr.__bases__]
-                        if 'BaseAlgorithm' in base_names:
-                            instance = attr()
-                            adapter = ModelAlgorithmAdapter(instance)
-                            adapters.append(adapter)
-                    except:
-                        pass
+                    # 是类且是BaseAlgorithm的子类
+                    if (isinstance(attr, type) and 
+                        attr_name.endswith('Algorithm')):
                         
-        except Exception as e:
-            print(f"加载算法 {module_name} 失败: {e}")
+                        try:
+                            base_names = [b.__name__ for b in attr.__bases__]
+                            if 'BaseAlgorithm' in base_names:
+                                instance = attr()
+                                adapter = ModelAlgorithmAdapter(instance)
+                                adapters.append(adapter)
+                        except Exception as e:
+                            pass
+                            
+            except Exception as e:
+                print(f"加载算法 {module_path} 失败: {e}")
     
     return adapters
