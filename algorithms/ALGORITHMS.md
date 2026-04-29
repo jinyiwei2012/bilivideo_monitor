@@ -15,10 +15,12 @@
 9. [贝叶斯模型](#贝叶斯模型)
 10. [生命周期模型](#生命周期模型)
 11. [多任务学习](#多任务学习)
-12. [Transformer模型](#transformer模型)
-13. [互动率模型](#互动率模型)
-14. [趋势回归模型](#趋势回归模型)
-15. [算法选择建议](#算法选择建议)
+12. [线性模型](#线性模型)
+13. [深度学习](#深度学习)
+14. [Transformer模型](#transformer模型)
+15. [互动率模型](#互动率模型)
+16. [趋势回归模型](#趋势回归模型)
+17. [算法选择建议](#算法选择建议)
 
 ---
 
@@ -891,6 +893,115 @@ else:
 
 ---
 
+## 线性模型
+
+### 48. DLinear简化版 (DLinear Simplified)
+
+**文件**: `models/dlinear_simple.py`
+
+#### 原理
+简单但有效的线性模型，在某些任务上超越Transformer。将序列分解为趋势分量和剩余分量，分别使用线性映射。
+
+论文：Are Transformers Effective for Time Series Forecasting? (AAAI 2023)
+
+#### 核心机制
+```
+1. 分解：序列 = 趋势分量 + 剩余分量
+2. 线性映射：分别对两个分量做线性变换
+3. 叠加：预测 = 趋势预测 + 剩余预测
+```
+
+#### 数学公式
+```
+趋势分量：使用移动平均提取
+剩余分量：原始序列 - 趋势分量
+
+预测：Linear(趋势) + Linear(剩余)
+```
+
+#### 优势
+- 非常简单，训练快
+- 在某些数据集上超越Transformer
+- 可解释性强
+
+#### 适用场景
+- 数据量不大的场景
+- 需要快速预测
+- 作为基准模型
+
+---
+
+## 深度学习
+
+### 49. N-BEATS简化版 (N-BEATS Simplified)
+
+**文件**: `models/n_beats_simple.py`
+
+#### 原理
+使用基函数展开（stack of fully connected layers）捕捉时序模式。将预测分解为多个block，每个block输出回看分量和预测分量。
+
+论文：N-BEATS: Neural basis expansion analysis for interpretable time series forecasting (ICLR 2020)
+
+#### 核心机制
+```
+每个Block：
+  1. 输入 → 全连接网络
+  2. 分解为：回看分量（用于分解） + 预测分量（未来预测）
+  3. 残差连接：输入 - 回看分量 → 下一个Block
+```
+
+#### 数学公式
+```
+输出 = Σ (ForecastBlock_i)
+
+每个Block:
+  backcast = Block(x)
+  forecast = Block(x)
+  x_next = x - backcast  (残差连接)
+```
+
+#### 优势
+- 可解释性强（趋势/季节性分解可视化）
+- 在M4竞赛中表现优异
+- 支持多种损失函数
+
+#### 适用场景
+- 需要可解释预测
+- 数据量充足
+- 中长期预测
+
+---
+
+### 50. TimesNet简化版 (TimesNet Simplified)
+
+**文件**: `models/times_net_simple.py`
+
+#### 原理
+将1D时间序列转换为2D，捕获周期内和周期间的模式。通过2D卷积捕捉时序中的多维模式。
+
+论文：TimesNet: Temporal 2D-Variation Modeling for General Time Series Analysis (ICLR 2023)
+
+#### 核心机制
+```
+1. 将1D序列按周期长度P转换为2D矩阵
+   例如：序列 [1,2,3,4,5,6], P=3
+   2D = [[1,2,3], [4,5,6]]
+2. 应用2D卷积提取周期内和周期间特征
+3. 转换回1D进行预测
+```
+
+#### 优势
+- 同时捕获周期内和周期间模式
+- 在多项任务上达到SOTA
+- 通用性强（分类/预测/异常检测）
+
+#### 适用场景
+- 有明显周期性的数据
+- 需要捕捉复杂时序模式
+- 多任务学习
+
+---
+
 ## Transformer模型
 
 ### 47. PatchTST简化版 (Patch Time Series Transformer Simplified)
@@ -944,6 +1055,75 @@ attended = Σ(weight_i * repr_i)
 - 长时间序列预测
 - 需要捕捉局部模式
 - 希望利用Transformer的注意力机制
+
+---
+
+### 51. Informer简化版 (Informer Simplified)
+
+**文件**: `models/informer_simple.py`
+
+#### 原理
+高效Transformer，使用ProbSparse自注意力将复杂度从O(L²)降低到O(L log L)。
+
+论文：Informer: Beyond Efficient Transformer for Long Sequence Time-Series Forecasting (AAAI 2021)
+
+#### 核心机制
+```
+1. ProbSparse自注意力：只计算最重要的注意力连接
+2. 自注意力蒸馏：下采样减少序列长度
+3. 生成式解码器：避免误差累积
+```
+
+#### ProbSparse注意力
+```
+不是所有注意力连接都需要计算，
+只保留每个query最重要的factor个key。
+```
+
+#### 优势
+- 长序列预测效率高
+- 内存占用低
+- 在长序列任务上达到SOTA
+
+#### 适用场景
+- 长序列预测（>100个点）
+- 需要高效Transformer
+- 内存受限环境
+
+---
+
+### 52. TFT简化版 (Temporal Fusion Transformer Simplified)
+
+**文件**: `models/tft_simple.py`
+
+#### 原理
+结合静态/动态特征，提供可解释性的时间序列预测。使用变量选择网络、门控残差网络和时态自注意力。
+
+论文：Temporal Fusion Transformers for Interpretable Multi-horizon Time Series Forecasting (2019)
+
+#### 核心机制
+```
+1. 变量选择网络：选择相关输入变量
+2. 门控残差网络（GRN）：特征融合
+3. 可解释多头注意力：时态自注意力
+4. 结合静态协变量：利用不随时间变化的特征
+```
+
+#### 数学公式
+```
+变量选择：w_i = softmax(v^T * elu(W*x_i + b))
+GRN：gated_linear(x) = (W1*x + b1) ⊗ sigmoid(W2*x + b2)
+```
+
+#### 优势
+- 可解释性强（特征重要性可视化）
+- 支持静态和动态特征
+- 在M4/M5竞赛中表现优异
+
+#### 适用场景
+- 需要可解释预测
+- 有静态特征（视频类型、UP主属性等）
+- 多 horizon 预测
 
 ---
 
@@ -1316,8 +1496,12 @@ Layer 1: H^(2) = Ã · H^(1) · W^(1) + b^(1)      # 8 → 4
 6. Granger, C. W. J. (1969). Investigating causal relations by econometric models. (Granger因果检验)
 7. Kipf, T. N., & Welling, M. (2017). Semi-supervised classification with graph convolutional networks. (GCN)
 8. Nie, Y., et al. (2023). A Time Series is Worth 64 Words: Long-term Forecasting with Transformers. (ICLR 2023, PatchTST)
+9. Oreshkin, B. N., et al. (2020). N-BEATS: Neural basis expansion analysis for interpretable time series forecasting. (ICLR 2020)
+10. Wu, H., et al. (2023). TimesNet: Temporal 2D-Variation Modeling for General Time Series Analysis. (ICLR 2023)
+11. Zhou, H., et al. (2021). Informer: Beyond Efficient Transformer for Long Sequence Time-Series Forecasting. (AAAI 2021)
+12. Goold, B., et al. (2019). Temporal Fusion Transformers for Interpretable Multi-horizon Time Series Forecasting. (ArXiv 2019)
 
 ---
 
-*文档版本: 3.0*
+*文档版本: 4.0*
 *最后更新: 2026-04-30*
