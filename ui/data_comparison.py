@@ -221,29 +221,47 @@ class DataComparisonWindow:
 
     # ── 趋势图：绘制 ──────────────────────────────────────────────────────────
     def _trend_draw(self):
+        """主绘图函数 - 绘制趋势折线图"""
         c = self._trend_canvas
         c.delete("all")
         for w in self._trend_legend.winfo_children():
             w.destroy()
 
+        # 检查前置条件
+        if not self._trend_check_preconditions(c):
+            return
+
+        # 收集数据
+        result = self._trend_collect_data()
+        if result is None:
+            return
+        series_map, all_vals, all_ts = result
+
+        # 计算布局和坐标函数
+        layout = self._trend_calculate_layout(c, series_map, all_vals, all_ts)
+        if layout is None:
+            return
+        W, H, cw, ch, min_ts, max_ts, max_val, to_x, to_y = layout
+
+        # 绘制网格和坐标轴
+        self._trend_draw_grid_and_axes(c, W, H, cw, ch, min_ts, max_ts, max_val, to_x, to_y)
+
+        # 绘制所有折线
+        self._trend_draw_all_lines(c, series_map, to_x, to_y, W, H, cw, ch)
+
+    def _trend_check_preconditions(self, c):
+        """检查绘图的前置条件"""
         if not self._trend_selected:
             c.create_text(c.winfo_width()//2 or 400, 100,
                           text="请选择视频后点击「开始对比」",
                           fill=C.get("text_2","#8b949e"),
                           font=("Microsoft YaHei UI",12))
-            return
+            return False
+        return True
 
-        W, H = c.winfo_width(), c.winfo_height()
-        if W < 100 or H < 100:
-            return
-
+    def _trend_collect_data(self):
+        """收集历史数据"""
         metric = self._trend_metric.get()
-        metric_label = next((lb for k,lb in METRICS if k==metric), metric)
-
-        cw = W - _ML - _MR
-        ch = H - _MT - _MB
-
-        # 收集数据
         series_map = {}
         all_vals, all_ts = [], []
 
@@ -288,11 +306,26 @@ class DataComparisonWindow:
 
         valid = [v for v in self._trend_selected if v.get("bvid","") in series_map]
         if not valid:
-            c.create_text(W//2, H//2,
+            c = self._trend_canvas
+            metric_label = next((lb for k,lb in METRICS if k==metric), metric)
+            c.create_text(c.winfo_width()//2 or 400, c.winfo_height()//2 or 200,
                           text=f"所选视频暂无「{metric_label}」历史数据",
                           fill=C.get("text_2","#8b949e"),
                           font=("Microsoft YaHei UI",12))
-            return
+            return None
+
+        self._valid_videos_cache = valid
+        return series_map, all_vals, all_ts
+
+    def _trend_calculate_layout(self, c, series_map, all_vals, all_ts):
+        """计算布局和坐标映射函数"""
+        W, H = c.winfo_width(), c.winfo_height()
+        if W < 100 or H < 100:
+            return None
+
+        metric = self._trend_metric.get()
+        cw = W - _ML - _MR
+        ch = H - _MT - _MB
 
         # 坐标范围
         min_ts  = min(all_ts)
@@ -310,6 +343,13 @@ class DataComparisonWindow:
         def to_y(v):
             return _MT + ch - (v - min_val) / (max_val - min_val) * ch
 
+        return W, H, cw, ch, min_ts, max_ts, max_val, to_x, to_y
+
+    def _trend_draw_grid_and_axes(self, c, W, H, cw, ch, min_ts, max_ts, max_val, to_x, to_y):
+        """绘制网格和坐标轴"""
+        metric = self._trend_metric.get()
+        metric_label = next((lb for k,lb in METRICS if k==metric), metric)
+
         # 标题
         c.create_text(W//2, _MT//2,
                       text=f"对比指标：{metric_label}",
@@ -321,26 +361,27 @@ class DataComparisonWindow:
         for i in range(n_grid + 1):
             ratio = i / n_grid
             y   = _MT + ch * (1 - ratio)
-            val = min_val + (max_val - min_val) * ratio
+            val = max_val * ratio
             c.create_line(_ML, y, W - _MR, y,
                           fill=C.get("grid_line","#21262d"), dash=(2, 4))
             c.create_text(_ML - 6, y, text=_fmt(val), anchor="e",
-                          fill=C.get("text_2","#8b949e"),
-                          font=("Consolas", 9))
+                          fill=C.get("text_2","#8b949e"), font=("Consolas", 9))
 
         # X 轴
         n_ticks = min(6, max(2, cw // 100))
         for i in range(n_ticks):
             ratio = i / (n_ticks - 1) if n_ticks > 1 else 0
-            ts = min_ts + timedelta(seconds=ts_span * ratio)
+            ts = min_ts + timedelta(seconds=(max_ts - min_ts).total_seconds() * ratio)
             x  = _ML + cw * ratio
-            label = ts.strftime("%m-%d %H:%M") if ts_span < 86400*7 \
-                    else ts.strftime("%m-%d")
+            label = ts.strftime("%m-%d %H:%M") if (max_ts - min_ts).total_seconds() < 86400*7                     else ts.strftime("%m-%d")
             c.create_text(x, H - _MB + 16, text=label,
                           fill=C.get("text_2","#8b949e"),
                           font=("Consolas", 8))
 
-        # 绘线
+    def _trend_draw_all_lines(self, c, series_map, to_x, to_y, W, H, cw, ch):
+        """绘制所有折线"""
+        valid = self._valid_videos_cache
+
         for idx, video in enumerate(valid):
             bvid  = video.get("bvid","")
             title = video.get("title", bvid)[:18]
@@ -348,39 +389,47 @@ class DataComparisonWindow:
             if not pts:
                 continue
 
-            color       = PALETTE[idx % len(PALETTE)]
-            color_light = PALETTE_LIGHT[idx % len(PALETTE_LIGHT)]
+            self._trend_draw_single_line(c, idx, bvid, title, pts, to_x, to_y, W, H, cw, ch)
 
-            coords = []
-            for ts, val in pts:
-                coords.extend([to_x(ts), to_y(val)])
+    def _trend_draw_single_line(self, c, idx, bvid, title, pts, to_x, to_y, W, H, cw, ch):
+        """绘制单条折线"""
+        color       = PALETTE[idx % len(PALETTE)]
+        color_light = PALETTE_LIGHT[idx % len(PALETTE_LIGHT)]
 
-            if len(coords) >= 4:
-                c.create_line(*coords, fill=color, width=2.2, smooth=True)
+        coords = []
+        for ts, val in pts:
+            coords.extend([to_x(ts), to_y(val)])
 
-            if len(pts) >= 2:
-                area = list(coords)
-                area.extend([coords[-2], _MT+ch, coords[0], _MT+ch])
-                c.create_polygon(*area, fill=color_light,
-                                 outline="", stipple="gray25")
+        if len(coords) >= 4:
+            c.create_line(*coords, fill=color, width=2.2, smooth=True)
 
-            last_ts, last_v = pts[-1]
-            lx, ly = to_x(last_ts), to_y(last_v)
-            c.create_oval(lx-4, ly-4, lx+4, ly+4,
-                          fill=color, outline=C.get("bg_base","#0d1117"), width=1)
-            c.create_text(lx+8, ly-10, text=_fmt(last_v),
-                          anchor="w", fill=color,
-                          font=("Consolas", 9, "bold"))
+        if len(pts) >= 2:
+            area = list(coords)
+            area.extend([coords[-2], _MT+ch, coords[0], _MT+ch])
+            c.create_polygon(*area, fill=color_light,
+                             outline="", stipple="gray25")
 
-            # 图例
-            leg = tk.Frame(self._trend_legend, bg=C.get("bg_surface","#161b22"))
-            leg.pack(side=tk.LEFT, padx=10)
-            tk.Canvas(leg, width=14, height=14, bg=color,
-                      highlightthickness=0).pack(side=LEFT, padx=(0,3))
-            tk.Label(leg, text=f"{title} ({bvid})",
-                     font=("Microsoft YaHei UI",9),
-                     fg=color,
-                     bg=C.get("bg_surface","#161b22")).pack(side=LEFT)
+        last_ts, last_v = pts[-1]
+        lx, ly = to_x(last_ts), to_y(last_v)
+        c.create_oval(lx-4, ly-4, lx+4, ly+4,
+                      fill=color, outline=C.get("bg_base","#0d1117"), width=1)
+        c.create_text(lx+8, ly-10, text=_fmt(last_v),
+                      anchor="w", fill=color,
+                      font=("Consolas", 9, "bold"))
+
+        # 图例
+        self._trend_create_legend_item(idx, bvid, title, color)
+
+    def _trend_create_legend_item(self, idx, bvid, title, color):
+        """创建图例项"""
+        leg = tk.Frame(self._trend_legend, bg=C.get("bg_surface","#161b22"))
+        leg.pack(side=tk.LEFT, padx=10)
+        tk.Canvas(leg, width=14, height=14, bg=color,
+                  highlightthickness=0).pack(side=LEFT, padx=(0,3))
+        tk.Label(leg, text=f"{title} ({bvid})",
+                 font=("Microsoft YaHei UI",9),
+                 fg=color,
+                 bg=C.get("bg_surface","#161b22")).pack(side=LEFT)
 
     # ══════════════════════════════════════════════════════════════════════════
     # ── 标签2：快照对比 ───────────────────────────────────────────────────────
@@ -718,7 +767,9 @@ class DataComparisonWindow:
 
         now = _parse_dt(all_ts[0])
         if not now:
-            now = _parse_dt(str(all_ts[0]))
+            # 解析失败，使用当前时间作为fallback
+            print(f"[快照] 无法解析时间戳: {all_ts[0]}，使用当前时间")
+            now = datetime.now()
 
         filtered = []
         if mode == "1h":
@@ -790,19 +841,46 @@ class DataComparisonWindow:
 
     # ── 快照：绘图 ────────────────────────────────────────────────────────────
     def _snap_draw(self):
+        """主绘图函数 - 协调各个子函数"""
         c = self._snap_canvas
         c.delete("all")
         for w in self._snap_legend.winfo_children():
             w.destroy()
         self._snap_status.config(text="")
 
+        # 检查前置条件
+        if not self._snap_check_preconditions(c):
+            return
+
+        # 收集数据
+        all_metric_bars, total_data = self._snap_collect_data()
+        if total_data == 0:
+            cw = c.winfo_width() or 500
+            c.create_text(cw//2, 120,
+                          text="所选视频/时间点下无数据",
+                          fill=C.get("text_2","#8b949e"),
+                          font=("Microsoft YaHei UI",12))
+            return
+
+        # 计算布局
+        chosen_metrics, section_H, all_section_widths, max_section_W, real_W = self._snap_calculate_layout(all_metric_bars)
+
+        # 绘制所有指标
+        use_milestone = self._snap_use_milestone.get()
+        self._snap_draw_all_metrics(c, chosen_metrics, all_metric_bars, section_H, max_section_W, real_W, use_milestone)
+
+        # 更新状态
+        self._snap_update_status(chosen_metrics)
+
+    def _snap_check_preconditions(self, c):
+        """检查绘图的前置条件"""
         if not self._snap_selected:
             cw = c.winfo_width() or 500
             c.create_text(cw//2, 120,
                           text="请选择视频和时间点后点击「生成对比图」",
                           fill=C.get("text_2","#8b949e"),
                           font=("Microsoft YaHei UI",12))
-            return
+            return False
 
         # 获取所有勾选的指标
         chosen_metrics = [key for key, var in self._snap_metric_vars.items() if var.get()]
@@ -812,9 +890,13 @@ class DataComparisonWindow:
                           text="请至少选择一个对比指标",
                           fill=C.get("text_2","#8b949e"),
                           font=("Microsoft YaHei UI",12))
-            return
+            return False
 
-        # 构建每个视频的 bars 数据（所有指标都算一次）
+        self._chosen_metrics_cache = chosen_metrics
+        return True
+
+    def _snap_collect_data(self):
+        """收集历史和里程碑数据"""
         use_milestone = self._snap_use_milestone.get()
         milestone_data = db.get_all_milestones_grouped() if use_milestone else {}
 
@@ -826,66 +908,79 @@ class DataComparisonWindow:
             recs  = self._snap_points.get(bvid, [])
             chosen_ts = self._snap_chosen_ts.get(bvid, [])
 
-            for ts_str in sorted(chosen_ts):
-                # 找最近匹配的记录
-                best_rec = None
-                for rec in recs:
-                    rec_ts = str(rec.get("timestamp",""))[:16]
-                    if rec_ts == ts_str[:16]:
-                        best_rec = rec
-                        break
-                if best_rec is None:
-                    target_dt = _parse_dt(ts_str)
-                    if target_dt:
-                        best, best_diff = None, float("inf")
-                        for rec in recs:
-                            rdt = _parse_dt(str(rec.get("timestamp","")))
-                            if rdt:
-                                diff = abs((rdt - target_dt).total_seconds())
-                                if diff < best_diff:
-                                    best_diff, best = diff, rec
-                        if best and best_diff < 300:
-                            best_rec = best
+            # 收集历史数据
+            self._snap_collect_history_data(video, bvid, title, recs, chosen_ts, all_metric_bars)
 
-                if best_rec is not None:
-                    for metric in chosen_metrics:
-                        raw_val = best_rec.get(metric, None)
-                        try:
-                            val = float(raw_val) if raw_val is not None else 0
-                        except (TypeError, ValueError):
-                            val = 0
-                        all_metric_bars.setdefault(metric, []).append({
-                            "bvid": bvid, "title": title,
-                            "ts": ts_str, "value": val, "source": "history"
-                        })
-
-            # 里程碑数据
+            # 收集里程碑数据
             if use_milestone and bvid in milestone_data:
-                for period, row in milestone_data[bvid].items():
-                    for metric in chosen_metrics:
-                        raw_val = row.get(metric, None)
-                        try:
-                            val = float(raw_val) if raw_val is not None else 0
-                        except (TypeError, ValueError):
-                            val = 0
-                        if val and val > 0:
-                            all_metric_bars.setdefault(metric, []).append({
-                                "bvid": bvid, "title": title,
-                                "ts": f"里程碑·{period}", "value": val,
-                                "source": "milestone"
-                            })
+                self._snap_collect_milestone_data(bvid, title, milestone_data[bvid], all_metric_bars)
 
         # 检查是否有数据
         total_data = sum(len(v) for v in all_metric_bars.values())
-        if total_data == 0:
-            cw = c.winfo_width() or 500
-            c.create_text(cw//2, 120,
-                          text="所选视频/时间点下无数据",
-                          fill=C.get("text_2","#8b949e"),
-                          font=("Microsoft YaHei UI",12))
-            return
+        return all_metric_bars, total_data
 
-        # ── 布局计算 ──
+    def _snap_collect_history_data(self, video, bvid, title, recs, chosen_ts, all_metric_bars):
+        """收集历史数据"""
+        chosen_metrics = self._chosen_metrics_cache
+        for ts_str in sorted(chosen_ts):
+            best_rec = self._snap_find_best_record(recs, ts_str)
+
+            if best_rec is not None:
+                for metric in chosen_metrics:
+                    raw_val = best_rec.get(metric, None)
+                    try:
+                        val = float(raw_val) if raw_val is not None else 0
+                    except (TypeError, ValueError):
+                        val = 0
+                    all_metric_bars.setdefault(metric, []).append({
+                        "bvid": bvid, "title": title,
+                        "ts": ts_str, "value": val, "source": "history"
+                    })
+
+    def _snap_find_best_record(self, recs, ts_str):
+        """找到最匹配的记录"""
+        best_rec = None
+        for rec in recs:
+            rec_ts = str(rec.get("timestamp",""))[:16]
+            if rec_ts == ts_str[:16]:
+                best_rec = rec
+                break
+        if best_rec is None:
+            target_dt = _parse_dt(ts_str)
+            if target_dt:
+                best, best_diff = None, float("inf")
+                for rec in recs:
+                    rdt = _parse_dt(str(rec.get("timestamp","")))
+                    if rdt:
+                        diff = abs((rdt - target_dt).total_seconds())
+                        if diff < best_diff:
+                            best_diff, best = diff, rec
+                if best and best_diff < 300:
+                    best_rec = best
+        return best_rec
+
+    def _snap_collect_milestone_data(self, bvid, title, milestone_periods, all_metric_bars):
+        """收集里程碑数据"""
+        chosen_metrics = self._chosen_metrics_cache
+        for period, row in milestone_periods.items():
+            for metric in chosen_metrics:
+                raw_val = row.get(metric, None)
+                try:
+                    val = float(raw_val) if raw_val is not None else 0
+                except (TypeError, ValueError):
+                    val = 0
+                if val and val > 0:
+                    all_metric_bars.setdefault(metric, []).append({
+                        "bvid": bvid, "title": title,
+                        "ts": f"里程碑·{period}", "value": val,
+                        "source": "milestone"
+                    })
+
+    def _snap_calculate_layout(self, all_metric_bars):
+        """计算布局和条形图参数"""
+        c = self._snap_canvas
+        chosen_metrics = self._chosen_metrics_cache
+
         canvas_H = c.winfo_height() or 400
         if canvas_H < 150:
             canvas_H = 400
@@ -936,7 +1031,10 @@ class DataComparisonWindow:
         real_W = max(_BAR_ML + max_section_W + 10, c.winfo_width() or 500)
         c.config(scrollregion=(0, 0, real_W, canvas_H))
 
-        # ── 逐指标绘图 ──
+        return chosen_metrics, section_H, all_section_widths, max_section_W, real_W
+
+    def _snap_draw_all_metrics(self, c, chosen_metrics, all_metric_bars, section_H, max_section_W, real_W, use_milestone):
+        """绘制所有指标"""
         for m_idx, metric in enumerate(chosen_metrics):
             metric_label = next((lb for k, lb in METRICS if k == metric), metric)
             data = all_metric_bars.get(metric)
@@ -953,7 +1051,7 @@ class DataComparisonWindow:
                 continue
 
             sec_y0 = m_idx * section_H
-            chart_H = section_H - TOP_PAD - BOT_PAD
+            chart_H = section_H - _BAR_MT - _BAR_MB
             if chart_H < 60:
                 chart_H = 60
 
@@ -963,114 +1061,133 @@ class DataComparisonWindow:
             max_val = max(all_vals) * 1.12 or 1
 
             def val_to_y(v, _sec_y0=sec_y0, _chart_H=chart_H, _max_val=max_val):
-                return _sec_y0 + TOP_PAD + _chart_H - max(0, v) / _max_val * _chart_H
+                return _sec_y0 + _BAR_MT + _chart_H - max(0, v) / _max_val * _chart_H
 
-            # 分隔线（用渐变半透明效果代替虚线）
-            if m_idx > 0:
-                c.create_line(_BAR_ML, sec_y0, real_W - _BAR_MR, sec_y0,
-                              fill=C.get("border", "#30363d"), dash=(6, 4),
-                              width=1)
+            # 绘制网格和坐标轴
+            self._snap_draw_grid_and_axes(c, m_idx, sec_y0, chart_H, max_val, max_section_W, metric_label)
 
-            # 网格 + Y轴刻度
-            n_grid = 4
-            for i in range(n_grid + 1):
-                ratio = i / n_grid
-                y = sec_y0 + TOP_PAD + chart_H * (1 - ratio)
-                val = max_val * ratio
-                c.create_line(_BAR_ML, y, _BAR_ML + max_section_W, y,
-                              fill=C.get("grid_line", "#21262d"), dash=(2, 4))
-                c.create_text(_BAR_ML - 6, y, text=_fmt(val), anchor="e",
-                              fill=C.get("text_2", "#8b949e"), font=("Consolas", 8))
-
-            # 指标标题
-            c.create_text(_BAR_ML + 10, sec_y0 + TOP_PAD // 2 + 4,
-                          text=metric_label, anchor="w",
-                          fill=C.get("text_1", "#e6edf3"),
-                          font=("Microsoft YaHei UI", 10, "bold"))
-
-            # X 轴线
-            c.create_line(_BAR_ML, sec_y0 + TOP_PAD + chart_H,
-                          _BAR_ML + max_section_W, sec_y0 + TOP_PAD + chart_H,
-                          fill=C.get("text_2", "#8b949e"))
-
-            # 绘柱
+            # 绘制条形图
             x_cursor = _BAR_ML + GROUP_GAP // 2
             legend_added = set()
+            x_cursor = self._snap_draw_bars(c, groups, x_cursor, BAR_W, GROUP_GAP, inner_gap, sec_y0, section_H, chart_H, val_to_y, max_section_W, m_idx, legend_added)
 
-            for g_idx, group in enumerate(groups):
-                bvid  = group["bvid"]
-                title = group["title"]
-                bars  = group["bars"]
-                g_color = PALETTE[g_idx % len(PALETTE)]
-
-                g_center = x_cursor + (len(bars) * (BAR_W + inner_gap) - inner_gap) // 2
-                c.create_text(g_center, sec_y0 + section_H - BOT_PAD + 20,
-                              text=f"{title}", fill=g_color,
-                              font=("Microsoft YaHei UI", 8, "bold"))
-
-                for b_idx, bar in enumerate(bars):
-                    val    = bar["value"] or 0
-                    ts_lbl = bar["ts"]
-                    source = bar["source"]
-
-                    if source == "milestone":
-                        bar_color  = _darken(g_color, 0.75)
-                        bar_color2 = _darken(g_color, 0.55)
-                    else:
-                        ratio = b_idx / max(len(bars) - 1, 1)
-                        bar_color  = _blend(g_color, "#ffffff", 0.15 + ratio * 0.2)
-                        bar_color2 = g_color
-
-                    x0 = x_cursor
-                    x1 = x0 + BAR_W
-                    y0 = val_to_y(val)
-                    y1 = sec_y0 + TOP_PAD + chart_H
-
-                    _draw_bar(c, x0, y0, x1, y1, bar_color, bar_color2)
-
-                    if val > 0:
-                        c.create_text((x0 + x1) // 2, max(y0 - 5, sec_y0 + TOP_PAD + 8),
-                                      text=_fmt(val), anchor="s",
-                                      fill=C.get("text_1", "#e6edf3"),
-                                      font=("Consolas", 7, "bold"))
-
-                    short_ts = ts_lbl[-5:] if len(ts_lbl) > 5 else ts_lbl
-                    if source == "milestone":
-                        short_ts = ts_lbl.replace("里程碑·", "")
-                    c.create_text((x0 + x1) // 2, sec_y0 + TOP_PAD + chart_H + 8,
-                                  text=short_ts, fill=C.get("text_2", "#8b949e"),
-                                  font=("Consolas", 7))
-
-                    x_cursor += BAR_W + inner_gap
-
-                x_cursor += GROUP_GAP
-
-                # 图例
-                if m_idx == 0 and bvid not in legend_added:
-                    legend_added.add(bvid)
-                    leg = tk.Frame(self._snap_legend, bg=C.get("bg_surface","#161b22"))
-                    leg.pack(side=LEFT, padx=10)
-                    tk.Canvas(leg, width=14, height=14, bg=g_color,
-                              highlightthickness=0).pack(side=LEFT, padx=(0, 3))
-                    tk.Label(leg, text=f"{title} ({bvid})",
-                             font=("Microsoft YaHei UI", 9),
-                             fg=g_color,
-                             bg=C.get("bg_surface","#161b22")).pack(side=LEFT)
-
-        # 里程碑图例
+        # 绘制里程碑图例
         if use_milestone:
-            leg2 = tk.Frame(self._snap_legend, bg=C.get("bg_surface","#161b22"))
-            leg2.pack(side=LEFT, padx=10)
-            # 画一个带深色的迷你柱
-            c2 = tk.Canvas(leg2, width=14, height=14,
-                           bg=C.get("bg_surface","#161b22"), highlightthickness=0)
-            c2.pack(side=LEFT, padx=(0, 3))
-            c2.create_rectangle(2, 4, 12, 12, fill="#888888", outline="")
-            tk.Label(leg2, text="里程碑（深色柱）",
-                     font=("Microsoft YaHei UI", 9),
-                     fg=C.get("text_2", "#8b949e"),
-                     bg=C.get("bg_surface","#161b22")).pack(side=LEFT)
+            self._snap_create_milestone_legend()
 
+    def _snap_draw_grid_and_axes(self, c, m_idx, sec_y0, chart_H, max_val, max_section_W, metric_label):
+        """绘制网格和坐标轴"""
+        # 分隔线
+        if m_idx > 0:
+            c.create_line(_BAR_ML, sec_y0, max_section_W - _BAR_MR, sec_y0,
+                          fill=C.get("border", "#30363d"), dash=(6, 4), width=1)
+
+        # 网格 + Y轴刻度
+        n_grid = 4
+        for i in range(n_grid + 1):
+            ratio = i / n_grid
+            y = sec_y0 + _BAR_MT + chart_H * (1 - ratio)
+            val = max_val * ratio
+            c.create_line(_BAR_ML, y, _BAR_ML + max_section_W, y,
+                          fill=C.get("grid_line", "#21262d"), dash=(2, 4))
+            c.create_text(_BAR_ML - 6, y, text=_fmt(val), anchor="e",
+                          fill=C.get("text_2", "#8b949e"), font=("Consolas", 8))
+
+        # 指标标题
+        c.create_text(_BAR_ML + 10, sec_y0 + _BAR_MT // 2 + 4,
+                      text=metric_label, anchor="w",
+                      fill=C.get("text_1", "#e6edf3"),
+                      font=("Microsoft YaHei UI", 10, "bold"))
+
+        # X 轴线
+        c.create_line(_BAR_ML, sec_y0 + _BAR_MT + chart_H,
+                      _BAR_ML + max_section_W, sec_y0 + _BAR_MT + chart_H,
+                      fill=C.get("text_2", "#8b949e"))
+
+    def _snap_draw_bars(self, c, groups, x_cursor, BAR_W, GROUP_GAP, inner_gap, sec_y0, section_H, chart_H, val_to_y, max_section_W, m_idx, legend_added):
+        """绘制所有条形图"""
+        for g_idx, group in enumerate(groups):
+            bvid  = group["bvid"]
+            title = group["title"]
+            bars  = group["bars"]
+            g_color = PALETTE[g_idx % len(PALETTE)]
+
+            g_center = x_cursor + (len(bars) * (BAR_W + inner_gap) - inner_gap) // 2
+            c.create_text(g_center, sec_y0 + section_H - _BAR_MB + 20,
+                          text=f"{title}", fill=g_color,
+                          font=("Microsoft YaHei UI", 8, "bold"))
+
+            for b_idx, bar in enumerate(bars):
+                val    = bar["value"] or 0
+                ts_lbl = bar["ts"]
+                source = bar["source"]
+
+                if source == "milestone":
+                    bar_color  = _darken(g_color, 0.75)
+                    bar_color2 = _darken(g_color, 0.55)
+                else:
+                    ratio = b_idx / max(len(bars) - 1, 1)
+                    bar_color  = _blend(g_color, "#ffffff", 0.15 + ratio * 0.2)
+                    bar_color2 = g_color
+
+                x0 = x_cursor
+                x1 = x0 + BAR_W
+                y0 = val_to_y(val)
+                y1 = sec_y0 + _BAR_MT + chart_H
+
+                _draw_bar(c, x0, y0, x1, y1, bar_color, bar_color2)
+
+                if val > 0:
+                    c.create_text((x0 + x1) // 2, max(y0 - 5, sec_y0 + _BAR_MT + 8),
+                                  text=_fmt(val), anchor="s",
+                                  fill=C.get("text_1", "#e6edf3"),
+                                  font=("Consolas", 7, "bold"))
+
+                short_ts = ts_lbl[-5:] if len(ts_lbl) > 5 else ts_lbl
+                if source == "milestone":
+                    short_ts = ts_lbl.replace("里程碑·", "")
+                c.create_text((x0 + x1) // 2, sec_y0 + _BAR_MT + chart_H + 8,
+                              text=short_ts, fill=C.get("text_2", "#8b949e"),
+                              font=("Consolas", 7))
+
+                x_cursor += BAR_W + inner_gap
+
+            x_cursor += GROUP_GAP
+
+            # 图例
+            if m_idx == 0 and bvid not in legend_added:
+                legend_added.add(bvid)
+                self._snap_create_legend_item(bvid, title, g_color)
+
+        return x_cursor
+
+    def _snap_create_legend_item(self, bvid, title, g_color):
+        """创建图例项"""
+        leg = tk.Frame(self._snap_legend, bg=C.get("bg_surface","#161b22"))
+        leg.pack(side=LEFT, padx=10)
+        tk.Canvas(leg, width=14, height=14, bg=g_color,
+                  highlightthickness=0).pack(side=LEFT, padx=(0, 3))
+        tk.Label(leg, text=f"{title} ({bvid})",
+                 font=("Microsoft YaHei UI", 9),
+                 fg=g_color,
+                 bg=C.get("bg_surface","#161b22")).pack(side=LEFT)
+
+    def _snap_create_milestone_legend(self):
+        """创建里程碑图例"""
+        leg2 = tk.Frame(self._snap_legend, bg=C.get("bg_surface","#161b22"))
+        leg2.pack(side=LEFT, padx=10)
+        c2 = tk.Canvas(leg2, width=14, height=14,
+                       bg=C.get("bg_surface","#161b22"), highlightthickness=0)
+        c2.pack(side=LEFT, padx=(0, 3))
+        c2.create_rectangle(2, 4, 12, 12, fill="#888888", outline="")
+        tk.Label(leg2, text="里程碑（深色柱）",
+                 font=("Microsoft YaHei UI", 9),
+                 fg=C.get("text_2", "#8b949e"),
+                 bg=C.get("bg_surface","#161b22")).pack(side=LEFT)
+
+    def _snap_update_status(self, chosen_metrics):
+        """更新状态栏"""
+        total_data = sum(len(v) for v in self._snap_collect_data()[0].values())
         metric_labels = ", ".join(next((lb for k, lb in METRICS if k == m), m) for m in chosen_metrics)
         self._snap_status.config(
             text=f"共 {len(self._snap_selected)} 个视频，{total_data} 条数据，指标：{metric_labels}")
@@ -1284,11 +1401,36 @@ class DataComparisonWindow:
 
     # ── 生成输入行 ────────────────────────────────────────────────────────────
     def _entry_generate_rows(self):
+        """主函数 - 生成数据录入表格"""
         raw = self._entry_bvid_text.get("1.0", tk.END).strip()
         if not raw:
             messagebox.showwarning("提示", "请先输入 BV 号", parent=self.window)
             return
 
+        # 验证BV号
+        bvids, invalid = self._entry_validate_bvids(raw)
+        if not bvids:
+            return
+
+        # 提示添加监控
+        self._entry_prompt_add_monitor(bvids)
+
+        # 生成行标签
+        mode, row_labels = self._entry_generate_row_labels(bvids)
+        if not row_labels:
+            return
+
+        # 清空旧行
+        self._entry_clear_old_rows()
+
+        # 加载已有数据
+        existing_ms, existing_snap = self._entry_load_existing_data(mode, bvids)
+
+        # 创建输入行
+        self._entry_create_input_rows(row_labels, mode, existing_ms, existing_snap)
+
+    def _entry_validate_bvids(self, raw):
+        """验证BV号格式，返回有效的BV号列表和无效列表"""
         bvids, invalid = [], []
         for line in raw.splitlines():
             bv = line.strip()
@@ -1305,10 +1447,10 @@ class DataComparisonWindow:
                 f"以下格式不合法已跳过：\n" + "\n".join(invalid[:10]),
                 parent=self.window)
 
-        if not bvids:
-            return
+        return bvids, invalid
 
-        # 不在监控列表的提示
+    def _entry_prompt_add_monitor(self, bvids):
+        """提示将不在监控列表的BV号加入监控"""
         not_monitored = [b for b in bvids if b not in self._monitored_set]
         if not_monitored:
             msg = (f"以下 BV 号不在监控列表：\n"
@@ -1320,16 +1462,17 @@ class DataComparisonWindow:
                         self.on_add_monitor(bv)
                     self._monitored_set.add(bv)
 
+    def _entry_generate_row_labels(self, bvids):
+        """生成行标签（BV号 × 周期/时间点）"""
         mode = self._entry_mode.get()
         periods = []
-
-        # 生成行标签
         row_labels = []
+
         if mode == "milestone":
             periods = [p for p, v in self._entry_ms_vars.items() if v.get()]
             if not periods:
                 messagebox.showwarning("提示", "请至少选择一个周期", parent=self.window)
-                return
+                return mode, None
             for bv in bvids:
                 for p in periods:
                     row_labels.append((bv, p))
@@ -1338,26 +1481,31 @@ class DataComparisonWindow:
             if not dt_str:
                 messagebox.showwarning("提示", "请填写日期时间或从下拉选择",
                                        parent=self.window)
-                return
+                return mode, None
             # 验证格式
             dt = _parse_dt(dt_str)
             if dt is None:
                 messagebox.showwarning("格式错误",
                     "日期格式不正确，请使用 2026-04-22 12:00 格式",
                     parent=self.window)
-                return
+                return mode, None
             for bv in bvids:
                 row_labels.append((bv, dt_str[:16]))
 
-        # 清空旧行
+        return mode, row_labels
+
+    def _entry_clear_old_rows(self):
+        """清空旧的行"""
         for w in self._entry_container.winfo_children():
             w.destroy()
         self._entry_rows.clear()
 
-        # 加载已有数据做预填
+    def _entry_load_existing_data(self, mode, bvids):
+        """加载已有数据做预填"""
         existing_ms = {}
-        for row in db.get_milestones():
-            existing_ms[(row["bvid"], row["period"])] = row
+        if mode == "milestone":
+            for row in db.get_milestones():
+                existing_ms[(row["bvid"], row["period"])] = row
 
         # 快照已有数据
         existing_snap = {}
@@ -1373,7 +1521,10 @@ class DataComparisonWindow:
                     except Exception:
                         pass
 
-        # 字段定义
+        return existing_ms, existing_snap
+
+    def _entry_create_input_rows(self, row_labels, mode, existing_ms, existing_snap):
+        """创建输入行UI"""
         fields = [
             ("view_count", "播放量*", True),
             ("like_count", "点赞", False),
@@ -1386,68 +1537,78 @@ class DataComparisonWindow:
         ]
 
         for bv, key in row_labels:
-            row_frame = tk.Frame(self._entry_container, padx=4, pady=2)
-            row_frame.pack(fill=tk.X)
-
-            # BV号 + key 标签
-            tk.Label(row_frame, text=bv, font=("Consolas", 9),
-                     fg=C.get("accent", "#fb7299"),
-                     bg=C.get("bg_base", "#0d1117"),
-                     width=14, anchor="w").grid(row=0, column=0, padx=(0,4))
-
-            tk.Label(row_frame, text=key, font=("Microsoft YaHei UI", 9, "bold"),
-                     fg=C.get("text_1", "#e6edf3"),
-                     bg=C.get("bg_base", "#0d1117"),
-                     width=16, anchor="w").grid(row=0, column=1, padx=(0,8))
-
-            vars_dict = {}
-            col = 2
-            for fkey, flabel, required in fields:
-                tk.Label(row_frame,
-                         text=flabel + ("*" if required else ""),
-                         font=("Microsoft YaHei UI", 8),
-                         fg=C.get("danger", "#f85149") if required
-                            else C.get("text_2", "#8b949e"),
-                         bg=C.get("bg_base", "#0d1117"),
-                         anchor="e", width=6).grid(row=0, column=col, padx=(2,1))
-
-                var = tk.StringVar()
-                # 预填
-                if mode == "milestone":
-                    existing = existing_ms.get((bv, key))
-                    if existing and existing.get(fkey) is not None:
-                        var.set(str(existing[fkey]))
-                else:
-                    existing = existing_snap.get(bv)
-                    if existing and existing.get(fkey) is not None:
-                        var.set(str(existing[fkey]))
-
-                vars_dict[fkey] = var
-                w = 18 if fkey == "note" else 8
-                ent = tk.Entry(row_frame, textvariable=var,
-                               font=("Consolas", 9), width=w,
-                               bg=C.get("bg_base", "#0d1117"),
-                               fg=C.get("text_1", "#e6edf3"),
-                               insertbackground=C.get("text_1", "#e6edf3"),
-                               relief="flat", bd=1,
-                               highlightthickness=1,
-                               highlightcolor=C.get("accent", "#fb7299"),
-                               highlightbackground=C.get("border", "#30363d"))
-                ent.grid(row=0, column=col+1, padx=(0,4))
-                col += 2
-
-            self._entry_rows.append({
-                "bvid": bv,
-                "key": key,
-                "vars": vars_dict,
-                "mode": mode,
-            })
+            self._entry_create_single_row(bv, key, mode, fields, existing_ms, existing_snap)
 
         n = len(self._entry_rows)
         self._entry_status.config(
             text=f"已生成 {n} 行输入（{len(bvids)} 视频 × "
                  + (f"{len(periods)} 周期" if mode == "milestone" else "1 时间点")
                  + f"），填写后点击「保存全部」")
+
+    def _entry_create_single_row(self, bv, key, mode, fields, existing_ms, existing_snap):
+        """创建单行输入"""
+        row_frame = tk.Frame(self._entry_container, padx=4, pady=2)
+        row_frame.pack(fill=tk.X)
+
+        # BV号 + key 标签
+        tk.Label(row_frame, text=bv, font=("Consolas", 9),
+                 fg=C.get("accent", "#fb7299"),
+                 bg=C.get("bg_base", "#0d1117"),
+                 width=14, anchor="w").grid(row=0, column=0, padx=(0,4))
+
+        tk.Label(row_frame, text=key, font=("Microsoft YaHei UI", 9, "bold"),
+                 fg=C.get("text_1", "#e6edf3"),
+                 bg=C.get("bg_base", "#0d1117"),
+                 width=16, anchor="w").grid(row=0, column=1, padx=(0,8))
+
+        vars_dict = {}
+        col = 2
+        for fkey, flabel, required in fields:
+            self._entry_create_field_input(row_frame, bv, key, mode, fkey, flabel, required, 
+                                          col, vars_dict, existing_ms, existing_snap)
+            col += 2
+
+        self._entry_rows.append({
+            "bvid": bv,
+            "key": key,
+            "vars": vars_dict,
+            "mode": mode,
+        })
+
+    def _entry_create_field_input(self, row_frame, bv, key, mode, fkey, flabel, required, 
+                                  col, vars_dict, existing_ms, existing_snap):
+        """创建字段输入框"""
+        tk.Label(row_frame,
+                 text=flabel + ("*" if required else ""),
+                 font=("Microsoft YaHei UI", 8),
+                 fg=C.get("danger", "#f85149") if required
+                    else C.get("text_2", "#8b949e"),
+                 bg=C.get("bg_base", "#0d1117"),
+                 anchor="e", width=6).grid(row=0, column=col, padx=(2,1))
+
+        var = tk.StringVar()
+        # 预填
+        if mode == "milestone":
+            existing = existing_ms.get((bv, key))
+            if existing and existing.get(fkey) is not None:
+                var.set(str(existing[fkey]))
+        else:
+            existing = existing_snap.get(bv)
+            if existing and existing.get(fkey) is not None:
+                var.set(str(existing[fkey]))
+
+        vars_dict[fkey] = var
+        w = 18 if fkey == "note" else 8
+        ent = tk.Entry(row_frame, textvariable=var,
+                       font=("Consolas", 9), width=w,
+                       bg=C.get("bg_base", "#0d1117"),
+                       fg=C.get("text_1", "#e6edf3"),
+                       insertbackground=C.get("text_1", "#e6edf3"),
+                       relief="flat", bd=1,
+                       highlightthickness=1,
+                       highlightcolor=C.get("accent", "#fb7299"),
+                       highlightbackground=C.get("border", "#30363d"))
+        ent.grid(row=0, column=col+1, padx=(0,4))
 
     # ── 保存全部 ──────────────────────────────────────────────────────────────
     def _entry_save_all(self):
