@@ -1,19 +1,20 @@
 """
-移动平均预测算法
+加权移动平均预测算法
 """
 from typing import Dict, List, Tuple
-from .prediction_base import BasePredictionAlgorithm
+from ...prediction_base import BasePredictionAlgorithm
 
 
-class MovingAverageAlgorithm(BasePredictionAlgorithm):
-    """简单移动平均预测"""
+class WeightedMovingAverageAlgorithm(BasePredictionAlgorithm):
+    """加权移动平均预测"""
     
-    name = "移动平均"
-    description = "使用历史数据的简单移动平均预测"
+    name = "加权移动平均"
+    description = "使用加权移动平均，近期数据权重更高"
     
     def __init__(self):
         super().__init__()
-        self.window_size = 5
+        # 默认权重：越近权重越高
+        self.default_weights = [0.1, 0.15, 0.2, 0.25, 0.3]
     
     def predict(self, history: List[Tuple], current_value: float, **kwargs) -> Dict:
         """执行预测"""
@@ -24,24 +25,30 @@ class MovingAverageAlgorithm(BasePredictionAlgorithm):
             prediction = current_value
         else:
             views = [v for _, v in history]
-            window = min(self.window_size, len(views))
+            window_size = min(len(self.default_weights), len(views))
             
-            # 计算移动平均
-            ma = sum(views[-window:]) / window
+            # 截取对应长度的权重
+            weights = self.default_weights[-window_size:]
+            # 归一化权重
+            total_weight = sum(weights)
+            weights = [w / total_weight for w in weights]
             
-            # 考虑趋势
+            # 计算加权平均
+            wma = sum(views[-window_size + i] * weights[i] for i in range(window_size))
+            
+            # 考虑趋势调整
             if len(views) >= 3:
-                recent_avg = sum(views[-3:]) / 3
-                old_avg = sum(views[:3]) / 3
-                trend = (recent_avg - old_avg) / 3
-                prediction = ma + trend * 0.3
+                recent = sum(views[-2:]) / 2
+                older = sum(views[:2]) / 2
+                trend = (recent - older) / 2
+                prediction = wma + trend * 0.5
             else:
-                prediction = ma
+                prediction = wma
         
         prediction = max(0, prediction)
         
         # 计算置信度
-        confidence = min(0.75, 0.2 + len(history) * 0.08)
+        confidence = min(0.8, 0.25 + len(history) * 0.08)
         
         # 预测达到阈值
         growth = prediction - current_value
@@ -60,8 +67,8 @@ class MovingAverageAlgorithm(BasePredictionAlgorithm):
                     })
         
         metadata = {
-            'ma_value': prediction,
-            'window_size': min(self.window_size, len(history)),
+            'wma_value': prediction,
+            'weights': weights if len(history) >= 2 else [],
             'trend': '上涨' if growth > 0 else '下跌',
             'threshold_predictions': threshold_predictions
         }

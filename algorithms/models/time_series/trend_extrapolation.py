@@ -1,19 +1,15 @@
 """
-Gompertz增长模型
+趋势外推预测算法
 """
 from typing import Dict, List, Tuple
-from .prediction_base import BasePredictionAlgorithm
+from ...prediction_base import BasePredictionAlgorithm
 
 
-class GompertzAlgorithm(BasePredictionAlgorithm):
-    """Gompertz增长模型预测"""
+class TrendExtrapolationAlgorithm(BasePredictionAlgorithm):
+    """趋势外推预测（线性回归）"""
     
-    name = "Gompertz"
-    description = "基于Gompertz增长曲线预测，适用于视频热度增长"
-    
-    def __init__(self):
-        super().__init__()
-        self.K = 10000000  # 最大容量默认值
+    name = "趋势外推"
+    description = "使用线性回归外推未来趋势"
     
     def predict(self, history: List[Tuple], current_value: float, **kwargs) -> Dict:
         """执行预测"""
@@ -21,32 +17,42 @@ class GompertzAlgorithm(BasePredictionAlgorithm):
         threshold_names = kwargs.get('threshold_names', ['10万', '100万', '1000万'])
         
         if len(history) < 3:
-            # 数据不足，使用简单增长预测
-            prediction = current_value * 1.05
+            # 数据不足
+            prediction = current_value * 1.03
         else:
             views = [v for _, v in history]
+            n = len(views)
             
-            # 计算相对增长率
-            growth_rates = []
-            for i in range(1, len(views)):
-                if views[i-1] > 0:
-                    rate = (views[i] - views[i-1]) / views[i-1]
-                    growth_rates.append(max(0, rate))
+            # 线性回归
+            x_mean = (n - 1) / 2
+            y_mean = sum(views) / n
             
-            if growth_rates:
-                avg_rate = sum(growth_rates) / len(growth_rates)
+            numerator = sum((i - x_mean) * (views[i] - y_mean) for i in range(n))
+            denominator = sum((i - x_mean) ** 2 for i in range(n))
+            
+            if denominator > 0:
+                slope = numerator / denominator
             else:
-                avg_rate = 0.01
+                slope = 0
             
-            # 简单预测
-            prediction = current_value * (1 + avg_rate)
-            # 限制在最大容量内
-            prediction = min(self.K * 0.5, prediction)
+            intercept = y_mean - slope * x_mean
+            
+            # 预测未来
+            future_x = n  # 下周期
+            prediction = slope * future_x + intercept
+            prediction = max(0, prediction)
+            
+            # 未来预测列表
+            future_predictions = []
+            for i in range(1, 4):
+                fx = n - 1 + i
+                fy = max(0, slope * fx + intercept)
+                future_predictions.append(fy)
         
         prediction = max(0, prediction)
         
         # 计算置信度
-        confidence = min(0.8, 0.2 + len(history) * 0.1)
+        confidence = min(0.85, 0.25 + len(history) * 0.1)
         
         # 预测达到阈值
         growth = prediction - current_value
@@ -65,9 +71,8 @@ class GompertzAlgorithm(BasePredictionAlgorithm):
                     })
         
         metadata = {
-            'max_capacity': self.K,
-            'predicted_growth': growth,
-            'growth_rate': growth / max(1, current_value),
+            'slope': slope if len(history) >= 3 else 0,
+            'future_predictions': future_predictions if len(history) >= 3 else [],
             'threshold_predictions': threshold_predictions
         }
         

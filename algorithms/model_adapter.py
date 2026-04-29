@@ -295,7 +295,7 @@ def load_all_model_algorithms() -> List[ModelAlgorithmAdapter]:
                         
                         try:
                             base_names = [b.__name__ for b in attr.__bases__]
-                            if 'BaseAlgorithm' in base_names:
+                            if 'BaseAlgorithm' in base_names or 'BasePredictionAlgorithm' in base_names:
                                 instance = attr()
                                 adapter = ModelAlgorithmAdapter(instance)
                                 adapters.append(adapter)

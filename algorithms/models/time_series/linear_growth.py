@@ -2,7 +2,7 @@
 线性增长预测算法
 """
 from typing import Dict, List, Tuple
-from .prediction_base import BasePredictionAlgorithm
+from ...prediction_base import BasePredictionAlgorithm
 
 
 class LinearGrowthAlgorithm(BasePredictionAlgorithm):

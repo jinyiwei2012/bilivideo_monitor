@@ -1,6 +1,6 @@
 """
 算法注册器
-管理所有预测算法（包含models目录下的算法）
+管理所有预测算法（自动扫描models目录下的所有算法）
 """
 from typing import Dict, List, Optional
 import os
@@ -20,44 +20,15 @@ class AlgorithmRegistry:
         if cls._initialized:
             return
         
-        # 加载基础目录下的算法
-        cls._load_base_algorithms()
-        
-        # 加载models目录下的所有算法
+        # 加载models目录下的所有算法（包括子目录）
         cls._load_model_algorithms()
         
         cls._initialized = True
         print(f"算法注册完成，共 {len(cls._algorithms)} 个算法")
     
     @classmethod
-    def _load_base_algorithms(cls):
-        """加载基础算法"""
-        try:
-            from .prediction_base import BasePredictionAlgorithm
-            from .linear_growth import LinearGrowthAlgorithm
-            from .exponential_smoothing import ExponentialSmoothingAlgorithm
-            from .gompertz import GompertzAlgorithm
-            from .trend_extrapolation import TrendExtrapolationAlgorithm
-            from .moving_average import MovingAverageAlgorithm
-            from .weighted_moving_average import WeightedMovingAverageAlgorithm
-            
-            algorithms = [
-                LinearGrowthAlgorithm(),
-                ExponentialSmoothingAlgorithm(),
-                GompertzAlgorithm(),
-                TrendExtrapolationAlgorithm(),
-                MovingAverageAlgorithm(),
-                WeightedMovingAverageAlgorithm(),
-            ]
-            
-            for algo in algorithms:
-                cls._algorithms[algo.name] = algo
-        except Exception as e:
-            print(f"加载基础算法失败: {e}")
-    
-    @classmethod
     def _load_model_algorithms(cls):
-        """加载models目录下的所有算法"""
+        """加载models目录下的所有算法（包括子目录）"""
         try:
             from .model_adapter import load_all_model_algorithms
             
@@ -193,6 +164,6 @@ class AlgorithmRegistry:
         cls._algorithms = {}
         cls._model_adapters = {}
         cls._initialized = False
-
+    
 
 AlgorithmRegistry.initialize()
