@@ -75,6 +75,9 @@ class PredictionRecord:
     predicted_time: str
     confidence: float
     current_views: int
+    metadata: str = ""  # JSON字符串，存储额外的元数据
+    predicted_hours: float = 0.0  # 预测所需小时数
+    current_velocity: float = 0.0  # 当前播放速度
     is_reached: bool = False
     actual_time: str = ""
     error_rate: float = 0.0
@@ -202,12 +205,32 @@ class VideoDatabase:
                     predicted_time TIMESTAMP,
                     confidence REAL,
                     current_views INTEGER,
+                    metadata TEXT DEFAULT '',
+                    predicted_hours REAL DEFAULT 0,
+                    current_velocity REAL DEFAULT 0,
                     is_reached BOOLEAN DEFAULT 0,
                     actual_time TIMESTAMP,
                     error_rate REAL DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
+
+            # 算法性能跟踪表（用于在线学习模块）
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS algorithm_performance (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    algorithm TEXT NOT NULL,
+                    bvid TEXT NOT NULL,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    predicted_value REAL,
+                    actual_value REAL,
+                    error_rate REAL,
+                    weight REAL DEFAULT 1.0,
+                    confidence REAL DEFAULT 0.5
+                )
+            ''')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_algo_perf_algorithm ON algorithm_performance(algorithm)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_algo_perf_bvid ON algorithm_performance(bvid)')
             
             # 创建索引
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_monitor_timestamp ON monitor_records(timestamp)')
@@ -249,6 +272,9 @@ class VideoDatabase:
                 )
             ''')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_yearly_timestamp ON yearly_scores(timestamp)')
+            
+            # 数据库迁移：检查并添加缺少的列
+            self._migrate_db(conn)
             
             conn.commit()
     
@@ -342,13 +368,15 @@ class VideoDatabase:
                 cursor.execute('''
                     INSERT INTO predictions 
                     (algorithm, algorithm_id, target_threshold, predicted_seconds,
-                     predicted_time, confidence, current_views)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                     predicted_time, confidence, current_views,
+                     metadata, predicted_hours, current_velocity)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     prediction.algorithm, prediction.algorithm_id,
                     prediction.target_threshold, prediction.predicted_seconds,
                     prediction.predicted_time, prediction.confidence,
-                    prediction.current_views
+                    prediction.current_views,
+                    prediction.metadata, prediction.predicted_hours, prediction.current_velocity
                 ))
                 conn.commit()
                 return True

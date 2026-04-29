@@ -28,6 +28,14 @@ def _save_predictions_to_db(gui, bvid, current_view, results):
         metadata = r.get("metadata", {})
         threshold_preds = metadata.get("threshold_predictions", [])
         confidence = r.get("confidence", 0)
+        
+        # 获取额外的元数据
+        predicted_hours = metadata.get("predicted_hours", 0)
+        velocity = metadata.get("velocity", 0)
+        # 将 metadata 字典转换为 JSON 字符串
+        import json
+        metadata_str = json.dumps(metadata, ensure_ascii=False)
+        
         for tp in threshold_preds:
             minutes = tp.get("minutes", 0)
             pred_seconds = int(minutes * 60) if minutes else 0
@@ -41,6 +49,9 @@ def _save_predictions_to_db(gui, bvid, current_view, results):
                 predicted_time=pred_time,
                 confidence=confidence,
                 current_views=current_view,
+                metadata=metadata_str,  # 存储 JSON 字符串
+                predicted_hours=predicted_hours,
+                current_velocity=velocity
             )
             try:
                 video_db.add_prediction(rec)
