@@ -1,7 +1,9 @@
 """
 主题系统 - 设计令牌 & 亮/暗主题切换
+支持 CustomTkinter 与原生 tkinter 混用
 """
 import tkinter as tk
+import customtkinter as ctk
 
 # 暗色主题配色（GitHub Dark 风格）
 THEME_DARK = {
@@ -425,11 +427,12 @@ def _apply_ttk_styles(root, FONT):
 
 
 def apply_theme(root, theme_name="dark"):
-    """切换主题：更新 C 字典 → ttk 样式 → 遍历刷新所有控件（含 Toplevel 子窗口）"""
+    """切换主题：更新 C 字典 → ttk 样式 → CTk → 遍历刷新所有控件（含 Toplevel 子窗口）"""
     from ui.main_gui import FONT
     theme = THEMES.get(theme_name, THEME_DARK)
     C.clear()
     C.update(theme)
+    sync_ctk_appearance(theme_name)
     _apply_ttk_styles(root, FONT)
     _recolor_widget_tree(root)
     # Toplevel 窗口不是 root 的子控件，需要单独遍历
@@ -441,6 +444,24 @@ def apply_theme(root, theme_name="dark"):
 # 兼容旧调用
 def apply_dark_style(root):
     apply_theme(root, "dark")
+
+
+# ── CTk 初始化 ────────────────────────────────────
+_CTK_INITIALIZED = False
+
+
+def setup_ctk():
+    """一次性初始化 CustomTkinter（设置外观模式）"""
+    global _CTK_INITIALIZED
+    if not _CTK_INITIALIZED:
+        ctk.set_appearance_mode("dark")
+        ctk.set_default_color_theme("blue")
+        _CTK_INITIALIZED = True
+
+
+def sync_ctk_appearance(theme_name="dark"):
+    """同步 CTk 外观模式到我们的主题名"""
+    ctk.set_appearance_mode("dark" if theme_name == "dark" else "light")
 
 
 # ── 辅助函数 ─────────────────────────────────────

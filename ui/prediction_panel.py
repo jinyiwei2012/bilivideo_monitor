@@ -1,9 +1,9 @@
 """
-右侧预测面板模块
+右侧预测面板模块 - CustomTkinter 版
 负责预测英雄卡、算法列表展示
 """
 import tkinter as tk
-from tkinter import ttk
+import customtkinter as ctk
 from datetime import datetime, timedelta
 
 from ui.theme import C
@@ -20,48 +20,45 @@ class PredictionPanel:
 
     def _build_right_panel(self):
         p = self._parent
-        self._pred_hero = tk.Frame(p, bg=C["bg_surface"])
+        self._pred_hero = ctk.CTkFrame(p, fg_color=C["bg_surface"], corner_radius=0)
         self._pred_hero.pack(fill=tk.X)
         tk.Frame(p, bg=C["border"], height=1).pack(fill=tk.X)
         self._build_pred_hero_empty()
 
-        algo_wrap = tk.Frame(p, bg=C["bg_surface"])
+        algo_wrap = ctk.CTkFrame(p, fg_color=C["bg_surface"], corner_radius=0)
         algo_wrap.pack(fill=tk.BOTH, expand=True)
-        self._algo_canvas = tk.Canvas(algo_wrap, bg=C["bg_surface"], bd=0, highlightthickness=0)
-        algo_vsb = ttk.Scrollbar(algo_wrap, orient="vertical", command=self._algo_canvas.yview)
-        self._algo_canvas.configure(yscrollcommand=algo_vsb.set)
-        algo_vsb.pack(side=tk.RIGHT, fill=tk.Y)
-        self._algo_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        self._algo_frame = tk.Frame(self._algo_canvas, bg=C["bg_surface"])
-        self._algo_cwin = self._algo_canvas.create_window((0, 0), window=self._algo_frame, anchor="nw")
-        self._algo_frame.bind("<Configure>", lambda e: (
-            self._algo_canvas.configure(scrollregion=self._algo_canvas.bbox("all")),
-            self._algo_canvas.itemconfig(self._algo_cwin, width=self._algo_canvas.winfo_width())))
-        self._algo_canvas.bind("<Configure>", lambda e:
-            self._algo_canvas.itemconfig(self._algo_cwin, width=e.width))
+        self._algo_frame = ctk.CTkScrollableFrame(
+            algo_wrap, fg_color=C["bg_surface"], corner_radius=0,
+            scrollbar_button_color=C["bg_hover"],
+            scrollbar_button_hover_color=C["border"],
+        )
+        self._algo_frame.pack(fill=tk.BOTH, expand=True)
 
     def _build_pred_hero_empty(self):
         h = self._pred_hero
         for w in h.winfo_children():
             w.destroy()
-        tk.Label(h, text="数据刷新后自动预测", bg=C["bg_surface"], fg=C["text_3"],
-                 font=FONT, padx=14, pady=14).pack()
+        ctk.CTkLabel(h, text="数据刷新后自动预测", text_color=C["text_3"],
+                     font=FONT, fg_color="transparent").pack(padx=14, pady=14)
 
     def _build_pred_hero(self, weighted_pred, current_views, rate_per_sec):
         h = self._pred_hero
         for w in h.winfo_children():
             w.destroy()
-        outer = tk.Frame(h, bg=C["bg_surface"], padx=14, pady=12)
-        outer.pack(fill=tk.X)
-        tk.Label(outer, text="🎯 综合加权预测", bg=C["bg_surface"], fg=C["text_3"],
-                 font=("Microsoft YaHei UI", 8)).pack(anchor="w")
-        val_lbl = tk.Label(outer, text=fmt_num(weighted_pred), bg=C["bg_surface"], fg=C["text_1"],
-                            font=("Consolas", 18, "bold"))
+        outer = ctk.CTkFrame(h, fg_color=C["bg_surface"], corner_radius=0)
+        outer.pack(fill=tk.X, padx=14, pady=12)
+        ctk.CTkLabel(outer, text="🎯 综合加权预测", text_color=C["text_3"],
+                     font=("Microsoft YaHei UI", 8),
+                     fg_color="transparent").pack(anchor="w")
+        val_lbl = ctk.CTkLabel(outer, text=fmt_num(weighted_pred), text_color=C["text_1"],
+                               font=("Consolas", 18, "bold"),
+                               fg_color="transparent")
         val_lbl.pack(anchor="w", pady=(2, 0))
         delta = weighted_pred - current_views
         delta_text = f"▲ +{fmt_num(delta)}" if delta >= 0 else f"▼ {fmt_num(delta)}"
         delta_color = C["success"] if delta >= 0 else C["danger"]
-        tk.Label(outer, text=delta_text, bg=C["bg_surface"], fg=delta_color, font=FONT).pack(anchor="w")
+        ctk.CTkLabel(outer, text=delta_text, text_color=delta_color,
+                     font=FONT, fg_color="transparent").pack(anchor="w")
         if rate_per_sec > 0:
             per_min = rate_per_sec * 60
             per_hour = rate_per_sec * 3600
@@ -71,17 +68,17 @@ class PredictionPanel:
                 rate_str = f"📈 +{per_min:.1f}/min"
             else:
                 rate_str = f"📈 +{rate_per_sec:.2f}/s"
-            tk.Label(outer, text=rate_str, bg=C["bg_surface"], fg=C["accent"],
-                     font=FONT_SM).pack(anchor="w", pady=(2, 0))
+            ctk.CTkLabel(outer, text=rate_str, text_color=C["accent"],
+                         font=FONT_SM, fg_color="transparent").pack(anchor="w", pady=(2, 0))
 
         tk.Frame(outer, bg=C["border"], height=1).pack(fill=tk.X, pady=6)
         for t, name, col in zip(THRESHOLDS, THRESHOLD_NAMES, THRESH_COLORS):
-            row = tk.Frame(outer, bg=C["bg_surface"])
+            row = ctk.CTkFrame(outer, fg_color=C["bg_surface"], corner_radius=0)
             row.pack(fill=tk.X, pady=2)
-            tk.Label(row, text=name, bg=C["bg_surface"], fg=C["text_2"],
-                     font=FONT_SM, width=5).pack(side=tk.LEFT)
+            ctk.CTkLabel(row, text=name, text_color=C["text_2"],
+                         font=FONT_SM, fg_color="transparent", width=38).pack(side=tk.LEFT)
 
-            bg_bar = tk.Frame(row, bg=C["bg_hover"], height=4)
+            bg_bar = ctk.CTkFrame(row, fg_color=C["bg_hover"], height=4, corner_radius=2)
             bg_bar.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
             bg_bar.pack_propagate(False)
             pct = min(current_views / t, 1.0)
@@ -96,60 +93,69 @@ class PredictionPanel:
                 eta_c = C["danger"] if seconds_left < 3600 else C["warning"] if seconds_left < 86400 else C["text_2"]
             else:
                 eta_str, eta_c = "—", C["text_3"]
-            tk.Label(row, text=eta_str, bg=C["bg_surface"], fg=eta_c,
-                     font=FONT_MONO, width=11, anchor="e").pack(side=tk.LEFT)
+            ctk.CTkLabel(row, text=eta_str, text_color=eta_c,
+                         font=FONT_MONO, fg_color="transparent",
+                         width=88, anchor="e").pack(side=tk.LEFT)
 
     def _update_algo_list(self, results, failed):
         f = self._algo_frame
         for w in f.winfo_children():
             w.destroy()
         if results:
-            hdr = tk.Frame(f, bg=C["bg_surface"])
+            hdr = ctk.CTkFrame(f, fg_color=C["bg_surface"], corner_radius=0)
             hdr.pack(fill=tk.X, padx=8, pady=(6, 2))
 
-            tk.Label(hdr, text="✅ 成功算法", bg=C["bg_surface"], fg=C["text_3"],
-                     font=("Microsoft YaHei UI", 8, "bold")).pack(side=tk.LEFT)
-            tk.Label(hdr, text=str(len(results)), bg=C["bg_elevated"], fg=C["text_2"],
-                     font=FONT_SM, padx=5, pady=1).pack(side=tk.LEFT, padx=4)
+            ctk.CTkLabel(hdr, text="✅ 成功算法", text_color=C["text_3"],
+                         font=("Microsoft YaHei UI", 8, "bold"),
+                         fg_color="transparent").pack(side=tk.LEFT)
+            ctk.CTkLabel(hdr, text=str(len(results)),
+                         fg_color=C["bg_elevated"], text_color=C["text_2"],
+                         font=FONT_SM, corner_radius=4).pack(side=tk.LEFT, padx=4)
 
             ALGO_COLORS = [C["bilibili"], C["accent"], C["success"], C["warning"], "#a78bfa", "#22d3ee"]
             for i, (name, pred, weight, conf) in enumerate(results):
-                card = tk.Frame(f, bg=C["bg_surface"], highlightthickness=1,
-                                highlightbackground=C["border_sub"])
+                card = ctk.CTkFrame(f, fg_color=C["bg_surface"],
+                                    border_width=1, border_color=C["border_sub"],
+                                    corner_radius=6)
                 card.pack(fill=tk.X, padx=6, pady=2)
-                inner = tk.Frame(card, bg=C["bg_surface"], padx=10, pady=7)
-                inner.pack(fill=tk.X)
-                top_row = tk.Frame(inner, bg=C["bg_surface"])
+                inner = ctk.CTkFrame(card, fg_color=C["bg_surface"], corner_radius=0)
+                inner.pack(fill=tk.X, padx=10, pady=7)
+                top_row = ctk.CTkFrame(inner, fg_color=C["bg_surface"], corner_radius=0)
                 top_row.pack(fill=tk.X)
                 dot_c = ALGO_COLORS[i % len(ALGO_COLORS)]
-                tk.Label(top_row, text="●", bg=C["bg_surface"], fg=dot_c, font=FONT_SM).pack(side=tk.LEFT)
-                tk.Label(top_row, text=" " + name[:18], bg=C["bg_surface"], fg=C["text_1"], font=FONT).pack(side=tk.LEFT)
-                tk.Label(top_row, text=fmt_num(pred), bg=C["bg_surface"], fg=C["accent"],
-                         font=("Consolas", 10, "bold")).pack(side=tk.RIGHT)
-                bar_row = tk.Frame(inner, bg=C["bg_surface"])
+                ctk.CTkLabel(top_row, text="●", text_color=dot_c,
+                             font=FONT_SM, fg_color="transparent").pack(side=tk.LEFT)
+                ctk.CTkLabel(top_row, text=" " + name[:18], text_color=C["text_1"],
+                             font=FONT, fg_color="transparent").pack(side=tk.LEFT)
+                ctk.CTkLabel(top_row, text=fmt_num(pred), text_color=C["accent"],
+                             font=("Consolas", 10, "bold"),
+                             fg_color="transparent").pack(side=tk.RIGHT)
+                bar_row = ctk.CTkFrame(inner, fg_color=C["bg_surface"], corner_radius=0)
                 bar_row.pack(fill=tk.X, pady=(4, 0))
-                bg_bar = tk.Frame(bar_row, bg=C["bg_hover"], height=3)
+                bg_bar = ctk.CTkFrame(bar_row, fg_color=C["bg_hover"], height=3, corner_radius=2)
                 bg_bar.pack(side=tk.LEFT, fill=tk.X, expand=True)
                 bg_bar.pack_propagate(False)
                 tk.Frame(bg_bar, bg=C["accent"], height=3).place(x=0, y=0, relwidth=conf, relheight=1)
-                tk.Label(bar_row, text=f"{conf*100:.0f}%", bg=C["bg_surface"], fg=C["text_3"],
-                         font=("Consolas", 8), width=4).pack(side=tk.LEFT, padx=3)
-                card.bind("<Enter>", lambda e, c=card: c.config(highlightbackground=C["border"]))
-                card.bind("<Leave>", lambda e, c=card: c.config(highlightbackground=C["border_sub"]))
+                ctk.CTkLabel(bar_row, text=f"{conf*100:.0f}%", text_color=C["text_3"],
+                             font=("Consolas", 8), fg_color="transparent",
+                             width=30).pack(side=tk.LEFT, padx=3)
 
         if failed:
-            hdr2 = tk.Frame(f, bg=C["bg_surface"])
+            hdr2 = ctk.CTkFrame(f, fg_color=C["bg_surface"], corner_radius=0)
             hdr2.pack(fill=tk.X, padx=8, pady=(10, 2))
-            tk.Label(hdr2, text="❌ 失败算法", bg=C["bg_surface"], fg=C["text_3"],
-                     font=("Microsoft YaHei UI", 8, "bold")).pack(side=tk.LEFT)
-            tk.Label(hdr2, text=str(len(failed)), bg=C["bg_elevated"], fg=C["danger"],
-                     font=FONT_SM, padx=5, pady=1).pack(side=tk.LEFT, padx=4)
+            ctk.CTkLabel(hdr2, text="❌ 失败算法", text_color=C["text_3"],
+                         font=("Microsoft YaHei UI", 8, "bold"),
+                         fg_color="transparent").pack(side=tk.LEFT)
+            ctk.CTkLabel(hdr2, text=str(len(failed)),
+                         fg_color=C["bg_elevated"], text_color=C["danger"],
+                         font=FONT_SM, corner_radius=4).pack(side=tk.LEFT, padx=4)
             for name, err in failed:
-                row = tk.Frame(f, bg=C["bg_surface"], padx=10, pady=5)
-                row.pack(fill=tk.X, padx=6)
-                tk.Label(row, text=name[:20], bg=C["bg_surface"], fg=C["text_3"], font=FONT).pack(side=tk.LEFT)
-                tk.Label(row, text=str(err)[:30], bg=C["bg_surface"], fg=C["danger"], font=FONT_SM).pack(side=tk.RIGHT)
-        self._algo_canvas.yview_moveto(0)
+                row = ctk.CTkFrame(f, fg_color=C["bg_surface"], corner_radius=0)
+                row.pack(fill=tk.X, padx=10, pady=5)
+                ctk.CTkLabel(row, text=name[:20], text_color=C["text_3"],
+                             font=FONT, fg_color="transparent").pack(side=tk.LEFT)
+                ctk.CTkLabel(row, text=str(err)[:30], text_color=C["danger"],
+                             font=FONT_SM, fg_color="transparent").pack(side=tk.RIGHT)
 
     @property
     def algo_frame(self):

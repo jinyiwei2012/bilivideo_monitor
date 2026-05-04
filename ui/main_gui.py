@@ -1,27 +1,23 @@
 """
-主GUI界面 - 深色三栏布局
+主GUI界面 - CustomTkinter 版深色三栏布局
 左侧视频卡片 / 中间图表详情 / 右侧预测分析
-
-UI 已拆分为独立模块：
-- video_list_panel.py  : 左侧视频列表
-- detail_panel.py      : 中间详情+图表
-- prediction_panel.py  : 右侧预测面板
-- bottom_bar.py       : 底部状态栏
-- dialogs.py           : 所有弹窗
 """
 import tkinter as tk
 from tkinter import ttk, messagebox
 import threading
 import time
 import os
-from datetime import datetime, timedelta
+import re
+from datetime import datetime
 from io import BytesIO
 
 sys_path = os.path.dirname(os.path.dirname(__file__))
 import sys
 sys.path.insert(0, sys_path)
 
-from ui.theme import C, THEMES, THEME_DARK, current_theme_name, apply_theme
+import customtkinter as ctk
+
+from ui.theme import C, current_theme_name, apply_theme, setup_ctk
 from ui.helpers import (
     FONT, FONT_SM, FONT_MONO,
     DEFAULT_INTERVAL, FAST_INTERVAL, FAST_GAP,
@@ -44,19 +40,17 @@ from config import load_config, save_config
 from utils.file_logger import FileLogger
 
 
-# ══════════════════════════════════════════════
-# 主界面
-# ══════════════════════════════════════════════
 class BilibiliMonitorGUI:
-    """主界面 - 深色三栏布局（精简版）"""
+    """主界面 - 深色三栏布局（CustomTkinter 版）"""
 
     DEFAULT_INTERVAL = DEFAULT_INTERVAL
     FAST_INTERVAL    = FAST_INTERVAL
     THRESHOLD_GAP    = FAST_GAP
 
     def __init__(self, root=None):
+        setup_ctk()
         if root is None:
-            root = tk.Tk()
+            root = ctk.CTk()
             root.title("B站视频监控与播放量预测系统")
             root.geometry("1400x860")
             root.minsize(1100, 700)
@@ -101,47 +95,32 @@ class BilibiliMonitorGUI:
         self._build_status_bar()
 
     def _build_titlebar(self):
-        """构建标题栏 - 重构版"""
-        self._create_titlebar_container()
-        self._build_logo_section()
-        self._build_navigation_buttons()
-        self._build_right_buttons()
-
-    def _create_titlebar_container(self):
-        """创建标题栏容器"""
-        bar = tk.Frame(self.root, bg=C["bg_surface"], height=46)
+        bar = ctk.CTkFrame(self.root, fg_color=C["bg_surface"], height=46, corner_radius=0)
         bar.pack(fill=tk.X, side=tk.TOP)
         bar.pack_propagate(False)
         tk.Frame(self.root, bg=C["border"], height=1).pack(fill=tk.X)
-        self._bar = bar  # 保存引用，供子函数使用
+        self._bar = bar
 
-    def _build_logo_section(self):
-        """构建Logo区域 - 改进版：添加副标题"""
-        bar = self._bar
-        logo_f = tk.Frame(bar, bg=C["bg_surface"])
+        # Logo
+        logo_f = ctk.CTkFrame(bar, fg_color=C["bg_surface"], corner_radius=0)
         logo_f.pack(side=tk.LEFT, padx=(14, 0))
-        
-        # Logo图标 (使用Canvas绘制简洁的B站风格图标)
-        logo_canvas = tk.Canvas(logo_f, width=32, height=32, 
-                                   bg=C["bg_surface"], highlightthickness=0)
+        logo_canvas = tk.Canvas(logo_f, width=32, height=32,
+                                bg=C["bg_surface"], highlightthickness=0)
         logo_canvas.create_oval(4, 4, 28, 28, fill=C["bilibili"], outline="")
-        logo_canvas.create_text(16, 16, text="B", fill="white", 
+        logo_canvas.create_text(16, 16, text="B", fill="white",
                                 font=("Microsoft YaHei UI", 14, "bold"))
         logo_canvas.pack(side=tk.LEFT, padx=(0, 8))
-        
-        # 标题和副标题容器
-        title_f = tk.Frame(logo_f, bg=C["bg_surface"])
+        title_f = ctk.CTkFrame(logo_f, fg_color=C["bg_surface"], corner_radius=0)
         title_f.pack(side=tk.LEFT)
-        
-        tk.Label(title_f, text="B站监控", bg=C["bg_surface"], fg=C["bilibili"],
-                 font=("Microsoft YaHei UI", 13, "bold")).pack(anchor="w")
-        tk.Label(title_f, text="播放量预测系统", bg=C["bg_surface"], fg=C["text_3"],
-                 font=("Microsoft YaHei UI", 10)).pack(anchor="w")
+        ctk.CTkLabel(title_f, text="B站监控", text_color=C["bilibili"],
+                     font=("Microsoft YaHei UI", 13, "bold"),
+                     fg_color="transparent").pack(anchor="w")
+        ctk.CTkLabel(title_f, text="播放量预测系统", text_color=C["text_3"],
+                     font=("Microsoft YaHei UI", 10),
+                     fg_color="transparent").pack(anchor="w")
 
-    def _build_navigation_buttons(self):
-        """构建导航按钮"""
-        bar = self._bar
-        nav_f = tk.Frame(bar, bg=C["bg_surface"])
+        # 导航按钮
+        nav_f = ctk.CTkFrame(bar, fg_color=C["bg_surface"], corner_radius=0)
         nav_f.pack(side=tk.LEFT, padx=16)
         self._nav_btns = {}
         self._page_views = ["监控列表", "日志"]
@@ -156,98 +135,17 @@ class BilibiliMonitorGUI:
             ("🗄", "数据库",    self._dialogs.open_database_query),
             ("📋", "日志",      None),
         ]
-        
+
         for icon, label, cmd in nav_items:
             self._create_nav_button(nav_f, icon, label, cmd)
 
         self._current_nav = "监控列表"
 
-    def _create_nav_button(self, parent, icon, label, cmd):
-        """创建导航按钮 - 改进版：图标+文本+激活指示器"""
-        btn = tk.Frame(parent, bg=C["bg_surface"], cursor="hand2")
-        btn.pack(side=tk.LEFT, padx=4)
-        
-        # 图标
-        icon_lbl = tk.Label(btn, text=icon, 
-                            bg=C["bg_surface"], fg=C["text_secondary"],
-                            font=("Microsoft YaHei UI", 12))
-        icon_lbl.pack(side=tk.LEFT, padx=(8, 4))
-        
-        # 文本
-        text_lbl = tk.Label(btn, text=label, 
-                             bg=C["bg_surface"], fg=C["text_secondary"],
-                             font=FONT)
-        text_lbl.pack(side=tk.LEFT, padx=(0, 8))
-        
-        # 底部激活指示器
-        indicator = tk.Frame(btn, bg=C["bg_surface"], height=2)
-        indicator.pack(side=tk.BOTTOM, fill=tk.X)
-        
-        # 悬停效果
-        def on_enter(e):
-            icon_lbl.config(fg=C["text_1"])
-            text_lbl.config(fg=C["text_1"])
-            btn.config(bg=C["bg_hover"])
-            icon_lbl.config(bg=C["bg_hover"])
-            text_lbl.config(bg=C["bg_hover"])
-            
-        def on_leave(e):
-            if indicator.cget("bg") != C["bilibili"]:
-                icon_lbl.config(fg=C["text_secondary"])
-                text_lbl.config(fg=C["text_secondary"])
-                btn.config(bg=C["bg_surface"])
-                icon_lbl.config(bg=C["bg_surface"])
-                text_lbl.config(bg=C["bg_surface"])
-                
-        def on_click(e):
-            # 重置所有按钮
-            for k, b in self._nav_btns.items():
-                if isinstance(b, tuple):
-                    ic, tl, ind = b
-                    ic.config(fg=C["text_secondary"])
-                    tl.config(fg=C["text_secondary"])
-                    ind.config(bg=C["bg_surface"])
-            # 激活当前按钮
-            indicator.config(bg=C["bilibili"])
-            icon_lbl.config(fg=C["bilibili"])
-            text_lbl.config(fg=C["bilibili"])
-            
-            if label in self._page_views:
-                self._switch_nav(label)
-            elif cmd:
-                cmd()
-                
-        btn.bind("<Enter>", on_enter)
-        btn.bind("<Leave>", on_leave)
-        btn.bind("<Button-1>", on_click)
-        
-        # 保存引用 (icon_label, text_label, indicator)
-        self._nav_btns[label] = (icon_lbl, text_lbl, indicator)
-        
-        # 初始化激活状态
-        if label == "监控列表":
-            indicator.config(bg=C["bilibili"])
-            icon_lbl.config(fg=C["bilibili"])
-            text_lbl.config(fg=C["bilibili"])
-
-    def _build_right_buttons(self):
-        """构建右侧按钮区"""
-        bar = self._bar
-        right_f = tk.Frame(bar, bg=C["bg_surface"])
+        # 右侧按钮
+        right_f = ctk.CTkFrame(bar, fg_color=C["bg_surface"], corner_radius=0)
         right_f.pack(side=tk.RIGHT, padx=14)
 
-        # 创建设置菜单
-        self._create_settings_menu()
-        
-        # 创建图标按钮
-        self._create_icon_button(right_f, "⚙️", self._popup_settings_menu, "设置")
-        self._create_icon_button(right_f, "🔍", self._dialogs.open_video_search, "搜索")
-        self._create_theme_button(right_f)
-        self._create_countdown_badge(right_f)
-        self._create_mode_pill(right_f)
-
-    def _create_settings_menu(self):
-        """创建设置下拉菜单"""
+        # 设置菜单 (keep tk.Menu)
         self._settings_menu = tk.Menu(self.root, tearoff=0, bg=C["bg_elevated"],
                                       fg=C["text_1"], activebackground=C["bg_hover"],
                                       activeforeground=C["text_1"],
@@ -258,70 +156,130 @@ class BilibiliMonitorGUI:
         self._settings_menu.add_separator()
         self._settings_menu.add_command(label="⚙️  系统设置", command=self._dialogs.open_settings)
 
+        # 齿轮按钮 — 保存引用以便弹出菜单
+        self._gear_btn = self._create_icon_button(right_f, "⚙️", None, "设置")
+        self._gear_btn.bind("<Button-1>", self._popup_settings_menu)
+
+        self._create_icon_button(right_f, "🔍", self._dialogs.open_video_search, "搜索")
+        self._create_theme_button(right_f)
+        self._create_countdown_badge(right_f)
+        self._create_mode_pill(right_f)
+
+    def _create_nav_button(self, parent, icon, label, cmd):
+        """创建导航按钮"""
+        btn = ctk.CTkFrame(parent, fg_color=C["bg_surface"], corner_radius=0, cursor="hand2")
+        btn.pack(side=tk.LEFT, padx=4)
+
+        icon_lbl = ctk.CTkLabel(btn, text=icon, text_color=C["text_secondary"],
+                                font=("Microsoft YaHei UI", 12), fg_color="transparent")
+        icon_lbl.pack(side=tk.LEFT, padx=(8, 4))
+
+        text_lbl = ctk.CTkLabel(btn, text=label, text_color=C["text_secondary"],
+                                font=FONT, fg_color="transparent")
+        text_lbl.pack(side=tk.LEFT, padx=(0, 8))
+
+        indicator = ctk.CTkFrame(btn, fg_color=C["bg_surface"], height=2, corner_radius=0)
+        indicator.pack(side=tk.BOTTOM, fill=tk.X)
+
+        def on_enter(e):
+            icon_lbl.configure(text_color=C["text_1"])
+            text_lbl.configure(text_color=C["text_1"])
+            btn.configure(fg_color=C["bg_hover"])
+
+        def on_leave(e):
+            if indicator.cget("fg_color") != C["bilibili"]:
+                icon_lbl.configure(text_color=C["text_secondary"])
+                text_lbl.configure(text_color=C["text_secondary"])
+                btn.configure(fg_color=C["bg_surface"])
+
+        def on_click(e):
+            for k, b in self._nav_btns.items():
+                if isinstance(b, tuple):
+                    ic, tl, ind = b
+                    ic.configure(text_color=C["text_secondary"])
+                    tl.configure(text_color=C["text_secondary"])
+                    ind.configure(fg_color=C["bg_surface"])
+            indicator.configure(fg_color=C["bilibili"])
+            icon_lbl.configure(text_color=C["bilibili"])
+            text_lbl.configure(text_color=C["bilibili"])
+
+            if label in self._page_views:
+                self._switch_nav(label)
+            elif cmd:
+                cmd()
+
+        btn.bind("<Enter>", on_enter)
+        btn.bind("<Leave>", on_leave)
+        btn.bind("<Button-1>", on_click)
+
+        self._nav_btns[label] = (icon_lbl, text_lbl, indicator)
+
+        if label == "监控列表":
+            indicator.configure(fg_color=C["bilibili"])
+            icon_lbl.configure(text_color=C["bilibili"])
+            text_lbl.configure(text_color=C["bilibili"])
+
     def _create_icon_button(self, parent, icon, command, tooltip=None):
-        """创建图标按钮（可复用）"""
-        btn = tk.Label(parent, text=icon, bg=C["bg_elevated"], fg=C["text_2"],
-                        font=("Microsoft YaHei UI", 11), cursor="hand2",
-                        padx=6, pady=2, relief="flat")
+        btn = ctk.CTkLabel(parent, text=icon, fg_color=C["bg_elevated"],
+                           text_color=C["text_2"],
+                           font=("Microsoft YaHei UI", 11), cursor="hand2",
+                           corner_radius=6)
         btn.pack(side=tk.RIGHT, padx=2)
         if callable(command):
             btn.bind("<Button-1>", lambda e: command())
-        btn.bind("<Enter>", lambda e, b=btn: b.config(bg=C["bg_hover"], fg=C["text_1"]))
-        btn.bind("<Leave>", lambda e, b=btn: b.config(bg=C["bg_elevated"], fg=C["text_2"]))
-        if tooltip:
-            # 可选：添加工具提示
-            pass
+        btn.bind("<Enter>", lambda e: btn.configure(fg_color=C["bg_hover"], text_color=C["text_1"]))
+        btn.bind("<Leave>", lambda e: btn.configure(fg_color=C["bg_elevated"], text_color=C["text_2"]))
         return btn
 
-    def _popup_settings_menu(self):
-        """弹出设置菜单"""
-        gear = self._settings_menu.winfo_children()[0]  # 假设第一个子部件是齿轮按钮
-        # 实际实现中，需要保存齿轮按钮的引用
-        # 这里简化为直接使用事件绑定
-        pass  # 实际代码需要修正
+    def _popup_settings_menu(self, event=None):
+        """在齿轮按钮位置弹出设置菜单"""
+        if event:
+            try:
+                self._settings_menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                self._settings_menu.grab_release()
 
     def _create_theme_button(self, parent):
-        """创建主题切换按钮"""
-        self._theme_btn = tk.Label(parent, text="🌙", bg=C["bg_elevated"], fg=C["text_2"],
-                                   font=("Microsoft YaHei UI", 11), cursor="hand2",
-                                   padx=6, pady=2, relief="flat")
+        self._theme_btn = ctk.CTkLabel(parent, text="🌙", fg_color=C["bg_elevated"],
+                                       text_color=C["text_2"],
+                                       font=("Microsoft YaHei UI", 11), cursor="hand2",
+                                       corner_radius=6)
         self._theme_btn.pack(side=tk.RIGHT, padx=2)
         self._theme_btn.bind("<Button-1>", self._toggle_theme)
-        self._theme_btn.bind("<Enter>", lambda e: self._theme_btn.config(bg=C["bg_hover"], fg=C["text_1"]))
-        self._theme_btn.bind("<Leave>", lambda e: self._theme_btn.config(bg=C["bg_elevated"], fg=C["text_2"]))
-        self._theme_btn.config(text="☀️" if self._initial_theme == "light" else "🌙")
+        self._theme_btn.bind("<Enter>", lambda e: self._theme_btn.configure(fg_color=C["bg_hover"], text_color=C["text_1"]))
+        self._theme_btn.bind("<Leave>", lambda e: self._theme_btn.configure(fg_color=C["bg_elevated"], text_color=C["text_2"]))
+        self._theme_btn.configure(text="☀️" if self._initial_theme == "light" else "🌙")
 
     def _create_countdown_badge(self, parent):
-        """创建倒计时徽章"""
-        self._countdown_badge = tk.Label(
-            parent, text="-- s", bg=C["bg_elevated"], fg=C["accent"],
-            font=FONT_MONO, padx=8, pady=2, relief="flat")
+        self._countdown_badge = ctk.CTkLabel(
+            parent, text="-- s", fg_color=C["bg_elevated"],
+            text_color=C["accent"], font=FONT_MONO, corner_radius=6)
         self._countdown_badge.pack(side=tk.RIGHT, padx=6)
 
     def _create_mode_pill(self, parent):
-        """创建模式指示器"""
-        self._mode_pill = tk.Label(
-            parent, text="● 正常模式", bg=C["bg_surface"], fg=C["success"],
+        self._mode_pill = ctk.CTkLabel(
+            parent, text="● 正常模式", fg_color=C["bg_surface"],
+            text_color=C["success"],
             font=("Microsoft YaHei UI", 9, "bold"))
         self._mode_pill.pack(side=tk.RIGHT, padx=6)
 
     def _build_main(self):
-        self._main_frame = tk.Frame(self.root, bg=C["bg_base"])
+        self._main_frame = ctk.CTkFrame(self.root, fg_color=C["bg_base"], corner_radius=0)
         self._main_frame.pack(fill=tk.BOTH, expand=True)
 
-        main = tk.Frame(self._main_frame, bg=C["bg_base"])
+        main = ctk.CTkFrame(self._main_frame, fg_color=C["bg_base"], corner_radius=0)
         main.pack(fill=tk.BOTH, expand=True)
 
-        self._left = tk.Frame(main, bg=C["bg_surface"], width=310)
+        self._left = ctk.CTkFrame(main, fg_color=C["bg_surface"], width=310, corner_radius=0)
         self._left.pack(side=tk.LEFT, fill=tk.Y)
         self._left.pack_propagate(False)
         tk.Frame(main, bg=C["border"], width=1).pack(side=tk.LEFT, fill=tk.Y)
 
-        self._center = tk.Frame(main, bg=C["bg_base"])
+        self._center = ctk.CTkFrame(main, fg_color=C["bg_base"], corner_radius=0)
         self._center.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         tk.Frame(main, bg=C["border"], width=1).pack(side=tk.LEFT, fill=tk.Y)
 
-        self._right = tk.Frame(main, bg=C["bg_surface"], width=290)
+        self._right = ctk.CTkFrame(main, fg_color=C["bg_surface"], width=290, corner_radius=0)
         self._right.pack(side=tk.LEFT, fill=tk.Y)
         self._right.pack_propagate(False)
 
@@ -329,12 +287,8 @@ class BilibiliMonitorGUI:
         self.detail = DetailPanel(self._center, self)
         self.prediction = PredictionPanel(self._right, self)
 
-    # ──────────────────────────────────────────
-    # 状态栏（BottomBar 已构建，此处仅供外部引用）
-    # ──────────────────────────────────────────
-
     def _build_status_bar(self):
-        pass  # 已由 BottomBar 构建
+        pass
 
     def _sb(self, key, text, color=None):
         self.bottom_bar.update_sb(key, text, color)
@@ -347,8 +301,6 @@ class BilibiliMonitorGUI:
         if name == self._current_nav:
             return
         self._current_nav = name
-        for k, b in self._nav_btns.items():
-            b.config(fg=C["bilibili"] if k == name else C["text_2"])
         if name == "日志":
             self._main_frame.pack_forget()
             self.log_panel.frame.pack(fill=tk.BOTH, expand=True)
@@ -367,7 +319,7 @@ class BilibiliMonitorGUI:
         new_theme = "light" if current_theme_name() == "dark" else "dark"
         apply_theme(self.root, new_theme)
         icon = "☀️" if new_theme == "light" else "🌙"
-        self._theme_btn.config(text=icon, bg=C["bg_elevated"], fg=C["text_2"])
+        self._theme_btn.configure(text=icon, fg_color=C["bg_elevated"], text_color=C["text_2"])
         self.log_panel.recolor()
         if hasattr(self, 'detail'):
             self.detail.recolor_text_tags()
@@ -384,7 +336,7 @@ class BilibiliMonitorGUI:
             pass
 
     # ──────────────────────────────────────────
-    # 业务逻辑（调度层，具体实现在 monitor_service）
+    # 业务逻辑
     # ──────────────────────────────────────────
 
     def _get_video_interval(self, video):
@@ -444,12 +396,12 @@ class BilibiliMonitorGUI:
             badge_text = "— s"
         else:
             badge_text = f"{int(max(0, min_remaining)):02d} s"
-        self._countdown_badge.config(text=badge_text)
+        self._countdown_badge.configure(text=badge_text)
 
         if fast_count > 0:
-            self._mode_pill.config(text=f"⚡ {fast_count}个快速", fg=C["danger"])
+            self._mode_pill.configure(text=f"⚡ {fast_count}个快速", text_color=C["danger"])
         else:
-            self._mode_pill.config(text="● 正常模式", fg=C["success"])
+            self._mode_pill.configure(text="● 正常模式", text_color=C["success"])
 
         self._sb("interval", f"正常{self.DEFAULT_INTERVAL}s / 快速{self.FAST_INTERVAL}s")
         self._global_tick_job = self.root.after(1000, self._global_tick)
@@ -478,8 +430,8 @@ class BilibiliMonitorGUI:
             self._sb("status", "自动刷新已启用", C["success"])
         else:
             self._stop_global_tick()
-            self._countdown_badge.config(text="已暂停")
-            self._mode_pill.config(text="已暂停", fg=C["text_3"])
+            self._countdown_badge.configure(text="已暂停")
+            self._mode_pill.configure(text="已暂停", text_color=C["text_3"])
             self._sb("status", "自动刷新已禁用", C["warning"])
 
     def _do_fetch(self):
@@ -524,115 +476,73 @@ class BilibiliMonitorGUI:
     # ── 添加/删除监控 ────────────────────────────
 
     def _add_monitor(self):
-        """添加监控 - 重构版"""
-        # 创建对话框
-        dialog = self._create_add_dialog()
-        
-        # 构建对话框UI
-        entry, status_lbl = self._build_add_dialog_ui(dialog)
-        
-        # 设置按钮和事件绑定
-        self._setup_add_dialog_buttons(dialog, entry, status_lbl)
-
-    def _create_add_dialog(self):
-        """创建添加监控对话框"""
-        dialog = tk.Toplevel(self.root)
+        dialog = ctk.CTkToplevel(self.root)
         dialog.title("添加监控")
-        dialog.geometry("400x180")
-        dialog.configure(bg=C["bg_surface"])
+        dialog.geometry("400x210")
         dialog.transient(self.root)
         dialog.grab_set()
         dialog.resizable(False, False)
-        return dialog
 
-    def _build_add_dialog_ui(self, dialog):
-        """构建对话框UI元素"""
-        tk.Label(dialog, text="请输入BV号或视频链接：", bg=C["bg_surface"], fg=C["text_1"],
-                 font=FONT).pack(pady=(18, 4))
+        ctk.CTkLabel(dialog, text="请输入BV号或视频链接：", text_color=C["text_1"],
+                     font=FONT, fg_color="transparent").pack(pady=(18, 4))
 
-        entry_f = tk.Frame(dialog, bg=C["bg_elevated"], highlightthickness=1,
-                           highlightbackground=C["border"], highlightcolor=C["bilibili"])
-        entry_f.pack(padx=24, fill=tk.X)
-        entry = tk.Entry(entry_f, bg=C["bg_elevated"], fg=C["text_1"], insertbackground=C["text_1"],
-                         relief="flat", font=FONT, bd=0)
-        entry.pack(fill=tk.X, padx=8, pady=6)
+        entry = ctk.CTkEntry(dialog, fg_color=C["bg_elevated"], text_color=C["text_1"],
+                             font=FONT, border_width=1, border_color=C["border"],
+                             corner_radius=6)
+        entry.pack(padx=24, fill=tk.X)
         entry.focus_set()
-        tk.Label(dialog, text="格式：BV1xxx 或完整链接", bg=C["bg_surface"], fg=C["text_3"],
-                 font=FONT_SM).pack()
-        status_lbl = tk.Label(dialog, text="", bg=C["bg_surface"], fg=C["accent"], font=FONT_SM)
+        ctk.CTkLabel(dialog, text="格式：BV1xxx 或完整链接", text_color=C["text_3"],
+                     font=FONT_SM, fg_color="transparent").pack()
+        status_lbl = ctk.CTkLabel(dialog, text="", text_color=C["accent"],
+                                  font=FONT_SM, fg_color="transparent")
         status_lbl.pack(pady=2)
-        
-        return entry, status_lbl
 
-    def _setup_add_dialog_buttons(self, dialog, entry, status_lbl):
-        """设置对话框按钮和事件绑定"""
         def _confirm():
-            self._validate_and_add_video(entry.get().strip(), dialog, status_lbl)
-
-        btn_f = tk.Frame(dialog, bg=C["bg_surface"])
-        btn_f.pack(pady=10)
-        ttk.Button(btn_f, text="确认添加", style="Primary.TButton", command=_confirm).pack(side=tk.LEFT, padx=6)
-        ttk.Button(btn_f, text="取消", command=dialog.destroy).pack(side=tk.LEFT, padx=6)
-        entry.bind("<Return>", lambda e: _confirm())
-
-    def _validate_and_add_video(self, raw_input, dialog, status_lbl):
-        """验证输入并添加视频"""
-        if not raw_input:
-            messagebox.showwarning("提示", "请输入BV号", parent=dialog)
-            return
-        
-        # 提取BV号
-        bvid = self._extract_bvid_from_input(raw_input)
-        if bvid is None:
-            return
-        
-        # 检查是否已在监控列表
-        if self._check_video_in_monitor_list(bvid, dialog):
-            return
-            
-        # 获取视频信息并添加
-        self._fetch_video_info_and_add(bvid, dialog, status_lbl)
-
-    def _extract_bvid_from_input(self, raw_input):
-        """从输入中提取BV号"""
-        bvid = raw_input
-        if "bilibili.com" in raw_input:
-            m = re.search(r"BV[\w]+", raw_input)
-            if m:
-                bvid = m.group()
-            else:
-                messagebox.showerror("错误", "无法从链接中提取BV号", parent=self.root)
-                return None
-        return bvid
-
-    def _check_video_in_monitor_list(self, bvid, dialog):
-        """检查视频是否已在监控列表"""
-        if any(v.get("bvid") == bvid for v in self.monitored_videos):
-            messagebox.showinfo("提示", f"{bvid} 已在监控列表中", parent=dialog)
-            dialog.destroy()
-            return True
-        return False
-
-    def _fetch_video_info_and_add(self, bvid, dialog, status_lbl):
-        """获取视频信息并添加到监控"""
-        status_lbl.config(text="正在获取视频信息…")
-        dialog.update()
-
-        def _fetch():
-            info = bilibili_api.get_video_info(bvid)
-            dialog.after(0, lambda: _done(info))
-
-        def _done(info):
-            if not info:
-                status_lbl.config(text="获取失败，请检查BV号", fg=C["danger"])
+            raw = entry.get().strip()
+            if not raw:
+                messagebox.showwarning("提示", "请输入BV号", parent=dialog)
                 return
-            video = self._map_api_to_video_dict(bvid, info)
-            self._register_video_to_monitor(video)
-            self._save_watch_list()
-            messagebox.showinfo("成功", f"已添加监控\n标题：{video['title'][:40]}\nUP主：{video['author']}\n播放：{fmt_num(video['view_count'])}", parent=dialog)
-            dialog.destroy()
+            bvid = raw
+            if "bilibili.com" in raw:
+                m = re.search(r"BV[\w]+", raw)
+                if m:
+                    bvid = m.group()
+                else:
+                    messagebox.showerror("错误", "无法从链接中提取BV号", parent=dialog)
+                    return
+            if any(v.get("bvid") == bvid for v in self.monitored_videos):
+                messagebox.showinfo("提示", f"{bvid} 已在监控列表中", parent=dialog)
+                dialog.destroy()
+                return
 
-        threading.Thread(target=_fetch, daemon=True).start()
+            status_lbl.configure(text="正在获取视频信息…")
+            dialog.update()
+
+            def _fetch():
+                info = bilibili_api.get_video_info(bvid)
+                dialog.after(0, lambda: _done(info))
+
+            def _done(info):
+                if not info:
+                    status_lbl.configure(text="获取失败，请检查BV号", text_color=C["danger"])
+                    return
+                video = self._map_api_to_video_dict(bvid, info)
+                self._register_video_to_monitor(video)
+                self._save_watch_list()
+                messagebox.showinfo("成功", f"已添加监控\n标题：{video['title'][:40]}\nUP主：{video['author']}\n播放：{fmt_num(video['view_count'])}", parent=dialog)
+                dialog.destroy()
+
+            threading.Thread(target=_fetch, daemon=True).start()
+
+        btn_f = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_f.pack(pady=10)
+        ctk.CTkButton(btn_f, text="确认添加", fg_color=C["bilibili"],
+                      hover_color=C["bilibili_dim"], text_color="#ffffff",
+                      font=FONT, command=_confirm).pack(side=tk.LEFT, padx=6)
+        ctk.CTkButton(btn_f, text="取消", fg_color=C["bg_elevated"],
+                      hover_color=C["bg_hover"], text_color=C["text_2"],
+                      font=FONT, command=dialog.destroy).pack(side=tk.LEFT, padx=6)
+        entry.bind("<Return>", lambda e: _confirm())
 
     def _remove_monitor(self):
         if not self.selected_bvid:
