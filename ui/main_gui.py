@@ -72,6 +72,7 @@ class BilibiliMonitorGUI:
         self._global_tick_job = None
         self._video_timers    = {}
         self._fetching_set    = set()
+        self._data_lock = threading.Lock()  # 保护 shared data（history_data, prediction_results, video_dbs）
 
         # 数据
         self.monitored_videos   = []
@@ -79,6 +80,9 @@ class BilibiliMonitorGUI:
         self.prediction_results = {}
         self.video_dbs          = {}
         self.selected_bvid      = None
+
+        # 视频列表的 bvid→dict 索引，避免 O(n) 线性查找
+        self._video_index = {}
 
         # UI 子模块
         self._file_logger = FileLogger(os.path.join(sys_path, "data", "log"))
@@ -374,7 +378,7 @@ class BilibiliMonitorGUI:
             self.detail.recolor_text_tags()
             self.detail.chart_canvas.config(bg=C["bg_base"])
             if self.selected_bvid:
-                video = next((v for v in self.monitored_videos if v.get("bvid") == self.selected_bvid), None)
+                video = self._get_video(self.selected_bvid)
                 if video:
                     draw_chart(self.detail.chart_canvas, self.history_data, self.selected_bvid, video, FONT)
         try:
@@ -396,7 +400,7 @@ class BilibiliMonitorGUI:
         return self.DEFAULT_INTERVAL
 
     def _register_video_timer(self, bvid):
-        video = next((v for v in self.monitored_videos if v.get("bvid") == bvid), None)
+        video = self._get_video(bvid)
         if not video:
             return
         interval = self._get_video_interval(video)
@@ -457,7 +461,7 @@ class BilibiliMonitorGUI:
 
     def _on_single_fetch_done(self, bvid):
         self._fetching_set.discard(bvid)
-        video = next((v for v in self.monitored_videos if v.get("bvid") == bvid), None)
+        video = self._get_video(bvid)
         if video:
             self.video_list.update_card(video)
         if bvid == self.selected_bvid and video:
@@ -496,7 +500,7 @@ class BilibiliMonitorGUI:
             if bvid in self.video_list.get_card_widgets():
                 self.video_list.update_card(video)
         if self.selected_bvid:
-            video = next((v for v in self.monitored_videos if v.get("bvid") == self.selected_bvid), None)
+            video = self._get_video(self.selected_bvid)
             if video:
                 self.detail.update_stat_bar(video)
                 if self.detail.current_tab == "📈 播放量趋势":
@@ -514,7 +518,7 @@ class BilibiliMonitorGUI:
         prev = self.selected_bvid
         self.selected_bvid = bvid
         self.video_list.highlight_card(bvid)
-        video = next((v for v in self.monitored_videos if v.get("bvid") == bvid), None)
+        video = self._get_video(bvid)
         if video:
             self._show_video_detail(video)
         cached = self.prediction_results.get(bvid)
@@ -608,7 +612,7 @@ class BilibiliMonitorGUI:
 
     def _check_video_in_monitor_list(self, bvid, dialog):
         """检查视频是否已在监控列表"""
-        if any(v.get("bvid") == bvid for v in self.monitored_videos):
+        if bvid in self._video_index:
             messagebox.showinfo("提示", f"{bvid} 已在监控列表中", parent=dialog)
             dialog.destroy()
             return True
@@ -635,16 +639,21 @@ class BilibiliMonitorGUI:
 
         threading.Thread(target=_fetch, daemon=True).start()
 
+    def _get_video(self, bvid):
+        """O(1) 按 bvid 查找视频对象。"""
+        return self._video_index.get(bvid)
+
     def _remove_monitor(self):
         if not self.selected_bvid:
             messagebox.showwarning("提示", "请先在左侧选择要删除的视频")
             return
         bvid = self.selected_bvid
-        video = next((v for v in self.monitored_videos if v.get("bvid") == bvid), None)
+        video = self._get_video(bvid)
         title = video.get("title", bvid) if video else bvid
         if not messagebox.askyesno("确认删除", f"确定要删除监控：\n{title[:50]}？"):
             return
         self.monitored_videos = [v for v in self.monitored_videos if v.get("bvid") != bvid]
+        self._video_index.pop(bvid, None)
         self.history_data.pop(bvid, None)
         self.video_dbs.pop(bvid, None)
         self.prediction_results.pop(bvid, None)
@@ -724,9 +733,10 @@ class BilibiliMonitorGUI:
 
     def _restore_video(self, video):
         bvid = video.get("bvid", "")
-        if any(v.get("bvid") == bvid for v in self.monitored_videos):
+        if bvid in self._video_index:
             return
         self.monitored_videos.append(video)
+        self._video_index[bvid] = video
         self.video_list.make_card(video)
         self.video_list.update_video_count()
         self._sb("videos", f"监控: {len(self.monitored_videos)} 个")
@@ -777,6 +787,7 @@ class BilibiliMonitorGUI:
         except Exception as e:
             self.log_panel.add_log("WARNING", f"数据库初始化失败: {bvid}: {e}")
         self.monitored_videos.append(video)
+        self._video_index[bvid] = video
         self.video_list.make_card(video)
         self.video_list.update_video_count()
         self._sb("videos", f"监控: {len(self.monitored_videos)} 个")
@@ -817,11 +828,18 @@ class BilibiliMonitorGUI:
         self._stop_global_tick()
         self._file_logger.cancel_midnight_checker(self.root)
         self._file_logger.close()
+        # 停止所有监控线程
+        from ui.monitor_service import _stop_all_workers
+        _stop_all_workers()
+        # 同步并关闭各视频数据库
         for bvid in self.video_dbs:
             try:
                 db.sync_from_video_db(bvid)
+                self.video_dbs[bvid].close()
             except Exception:
                 pass
+        db.close()
+        bilibili_api.close()
         self.root.destroy()
 
     def run(self):

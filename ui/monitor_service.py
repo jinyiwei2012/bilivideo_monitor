@@ -64,7 +64,8 @@ def _merge_history(gui, bvid: str) -> list:
     current_view = next(
         (v.get("view_count", 0) for v in gui.monitored_videos
          if v.get("bvid") == bvid), 0)
-    history = list(gui.history_data.get(bvid, []))
+    with gui._data_lock:
+        history = list(gui.history_data.get(bvid, []))
 
     try:
         if bvid in gui.video_dbs:
@@ -152,7 +153,8 @@ def _predict_single(gui, bvid, video) -> dict:
         "valid":        weighted.get("valid_algorithms", 0),
         "total":        weighted.get("total_algorithms", 0),
     }
-    gui.prediction_results[bvid] = result
+    with gui._data_lock:
+        gui.prediction_results[bvid] = result
     return result
 
 
@@ -323,9 +325,13 @@ class VideoWorker:
 
         # ── 历史记录 ─────────────────────────────
         ts = datetime.now()
-        if bvid not in gui.history_data:
-            gui.history_data[bvid] = []
-        gui.history_data[bvid].append((ts, video["view_count"]))
+        with gui._data_lock:
+            if bvid not in gui.history_data:
+                gui.history_data[bvid] = []
+            gui.history_data[bvid].append((ts, video["view_count"]))
+            # 防止内存无界增长，保留最近 2000 条
+            if len(gui.history_data[bvid]) > 2000:
+                gui.history_data[bvid] = gui.history_data[bvid][-2000:]
 
         # ── 写数据库 ─────────────────────────────
         try:

@@ -307,6 +307,12 @@ class VideoListPanel:
                 img = img.resize((new_w, new_h), Image.LANCZOS)
                 ph = ImageTk.PhotoImage(img)
                 self._cover_cache[cache_key] = ph
+                # 限制封面缓存上限 50 个，淘汰最久未使用项
+                if len(self._cover_cache) > 50:
+                    try:
+                        self._cover_cache.pop(next(iter(self._cover_cache)))
+                    except (StopIteration, KeyError):
+                        pass
                 self.gui.root.after(0, lambda: self._safe_set_image(label_widget, ph))
             except Exception as e:
                 print(f"缩略图加载失败 {bvid}: {e}")

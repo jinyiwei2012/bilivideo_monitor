@@ -47,7 +47,7 @@ class LogarithmicGrowthAlgorithm(BaseAlgorithm):
                         predicted_hours = 0
                     
                     confidence = 0.6
-                except:
+                except Exception:
                     predicted_hours = float('inf')
                     confidence = 0.2
         

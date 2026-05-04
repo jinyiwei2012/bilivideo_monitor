@@ -99,7 +99,7 @@ class CatBoostSimpleAlgorithm(BaseAlgorithm):
             try:
                 dt = datetime.strptime(ts, '%Y-%m-%d %H:%M:%S')
                 day_of_week = dt.weekday() / 7.0
-            except:
+            except Exception:
                 day_of_week = 0.5
             
             features = [

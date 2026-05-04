@@ -4,7 +4,7 @@
 """
 
 # 算法基类
-from .prediction_base import BasePredictionAlgorithm
+from .base import BaseAlgorithm
 
 # 权重管理器
 from .weight_manager import WeightManager, weight_manager
@@ -25,7 +25,7 @@ from .graph_neural import VideoGraph, get_video_graph
 
 __all__ = [
     # 基类
-    'BasePredictionAlgorithm',
+    'BaseAlgorithm',
 
     # 管理器
     'WeightManager',

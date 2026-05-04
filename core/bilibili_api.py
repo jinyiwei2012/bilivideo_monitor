@@ -7,6 +7,7 @@ import re
 import time
 import random
 import logging
+import threading
 from typing import Dict, List, Optional, Any, Tuple
 from urllib.parse import quote
 from functools import wraps
@@ -405,6 +406,13 @@ class BilibiliAPI:
         self._consecutive_412_errors = 0
         self._min_request_interval = 0.5
         logger.info("API状态已重置")
+
+    def close(self):
+        """关闭 HTTP Session，释放连接池。"""
+        try:
+            self.session.close()
+        except Exception:
+            pass
 
 
 # 全局API实例

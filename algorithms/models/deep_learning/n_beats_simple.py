@@ -187,7 +187,7 @@ class NBeatsSimpleAlgorithm(BaseAlgorithm):
             fft_filtered[:keep] = fft[:keep]
             seasonality = irfft(fft_filtered, n=len(series))
             return seasonality
-        except:
+        except Exception:
             # FFT失败，返回零
             return np.zeros(len(series))
     
@@ -251,7 +251,7 @@ class NBeatsSimpleAlgorithm(BaseAlgorithm):
                 try:
                     from datetime import datetime as dt
                     t = dt.fromisoformat(t).timestamp()
-                except:
+                except Exception:
                     continue
             
             if v > 0 and t > 0:

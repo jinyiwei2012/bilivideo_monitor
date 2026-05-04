@@ -9,7 +9,7 @@ UP主历史表现贝叶斯模型 (UPcaster History Bayesian Model)
 """
 
 import numpy as np
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime
 from collections import defaultdict
 from algorithms.base import BaseAlgorithm, PredictionResult
@@ -191,7 +191,7 @@ class UpcasterHistoryBayesianAlgorithm(BaseAlgorithm):
                 try:
                     from datetime import datetime as dt
                     t0 = dt.fromisoformat(t0).timestamp()
-                except:
+                except Exception:
                     continue
             
             if hasattr(t1, 'timestamp'):
@@ -200,7 +200,7 @@ class UpcasterHistoryBayesianAlgorithm(BaseAlgorithm):
                 try:
                     from datetime import datetime as dt
                     t1 = dt.fromisoformat(t1).timestamp()
-                except:
+                except Exception:
                     continue
             
             dt_hours = (t1 - t0) / 3600.0

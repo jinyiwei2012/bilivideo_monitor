@@ -5,7 +5,7 @@ Bass扩散模型
 """
 
 import numpy as np
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 from algorithms.base import BaseAlgorithm, PredictionResult
 

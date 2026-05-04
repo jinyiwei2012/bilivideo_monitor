@@ -137,7 +137,7 @@ class TimesNetSimpleAlgorithm(BaseAlgorithm):
                 conv_features = self._simple_2d_conv(matrix_2d)
                 
                 features[period] = conv_features
-            except:
+            except Exception:
                 continue
         
         return features
@@ -260,7 +260,7 @@ class TimesNetSimpleAlgorithm(BaseAlgorithm):
                 try:
                     from datetime import datetime as dt
                     t = dt.fromisoformat(t).timestamp()
-                except:
+                except Exception:
                     continue
             
             if v > 0 and t > 0:

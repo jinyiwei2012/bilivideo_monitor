@@ -9,6 +9,7 @@ import json
 import requests
 import shutil
 import threading
+import re
 from datetime import datetime
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass
@@ -83,6 +84,15 @@ class PredictionRecord:
     error_rate: float = 0.0
 
 
+_BVID_PATTERN = re.compile(r'^BV[A-Za-z0-9]{10,12}$')
+
+def _validate_bvid(bvid: str) -> str:
+    """校验 BV 号格式，防止路径穿越。"""
+    if not _BVID_PATTERN.match(bvid):
+        raise ValueError(f"无效的 BV 号: {bvid!r}")
+    return bvid
+
+
 class _ConnectionCtx:
     """线程安全的数据库连接上下文管理器"""
     __slots__ = ("_conn", "_lock")
@@ -99,6 +109,8 @@ class _ConnectionCtx:
         try:
             if exc_type is None:
                 self._conn.commit()
+            else:
+                self._conn.rollback()
         finally:
             self._lock.release()
         return False
@@ -134,16 +146,6 @@ class VideoDatabase:
         """返回原始连接（用于需要直接操作的场景）"""
         return self._conn
 
-    def _execute(self, sql: str, params=(), fetch: bool = False):
-        """线程安全的单条 SQL 执行辅助方法"""
-        with self._lock:
-            cursor = self._conn.cursor()
-            cursor.execute(sql, params)
-            if fetch:
-                rows = cursor.fetchall()
-                return [dict(r) for r in rows]
-            self._conn.commit()
-    
     def _init_db(self):
         """初始化数据库"""
         with self._get_connection() as conn:
@@ -515,6 +517,13 @@ class VideoDatabase:
         except Exception:
             return None
 
+    def close(self):
+        """关闭数据库连接。"""
+        try:
+            self._conn.close()
+        except Exception:
+            pass
+
 
 class Database:
     """总数据库管理类"""
@@ -826,6 +835,7 @@ class Database:
     def download_cover(self, bvid: str, pic_url: str) -> str:
         """下载视频封面"""
         try:
+            _validate_bvid(bvid)
             cover_dir = os.path.join(os.path.dirname(self.db_path), 'cover')
             os.makedirs(cover_dir, exist_ok=True)
             
@@ -845,8 +855,9 @@ class Database:
     
     def export_video_to_csv(self, bvid: str, filepath: str = None) -> str:
         """导出视频数据到CSV"""
+        _validate_bvid(bvid)
         import csv
-        
+
         if filepath is None:
             exports_dir = os.path.join(os.path.dirname(self.db_path), 'exports')
             os.makedirs(exports_dir, exist_ok=True)
@@ -974,6 +985,14 @@ class Database:
         except Exception as e:
             print(f"里程碑删除失败: {e}")
             return False
+
+    def close(self):
+        """关闭数据库连接，刷新 WAL。"""
+        try:
+            self._conn.commit()
+            self._conn.close()
+        except Exception as e:
+            print(f"关闭数据库失败: {e}")
 
 
 # 全局数据库实例

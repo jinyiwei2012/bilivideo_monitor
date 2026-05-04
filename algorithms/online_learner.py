@@ -61,7 +61,7 @@ class OnlineLearner:
         self.min_weight = min_weight
         self.warmup = warmup
         self.decay = decay
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
 
         self._trackers: Dict[str, _AlgorithmTracker] = {}
         if algorithm_names:

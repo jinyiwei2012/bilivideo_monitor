@@ -169,7 +169,7 @@ class DLinearSimpleAlgorithm(BaseAlgorithm):
                         pred = np.polyval(coeffs, i - 1)
                         error = abs(pred - series[i-1]) / (series[i-1] + 1e-6)
                         errors.append(error)
-                    except:
+                    except Exception:
                         pass
             
             if errors:
@@ -197,7 +197,7 @@ class DLinearSimpleAlgorithm(BaseAlgorithm):
                 try:
                     from datetime import datetime as dt
                     t = dt.fromisoformat(t).timestamp()
-                except:
+                except Exception:
                     continue
             
             if v > 0 and t > 0:

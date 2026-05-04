@@ -267,7 +267,7 @@ class MultiTaskSimpleAlgorithm(BaseAlgorithm):
                 try:
                     from datetime import datetime as dt
                     t = dt.fromisoformat(t).timestamp()
-                except:
+                except Exception:
                     continue
             
             if v > 0 and t > 0:

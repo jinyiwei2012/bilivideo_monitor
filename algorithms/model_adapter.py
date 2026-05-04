@@ -74,7 +74,7 @@ class ModelAlgorithmAdapter:
             if result is None:
                 return self._make_na_result(current_value)
             
-            return self._parse_result(result, current_value, thresholds, threshold_names)
+            return self._parse_result(result, current_value, thresholds, threshold_names, history)
             
         except Exception as e:
             return self._make_error_result(current_value, str(e))
@@ -105,15 +105,21 @@ class ModelAlgorithmAdapter:
             'timestamp_str': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         }
     
-    def _parse_result(self, result, current_value: float, 
-                     thresholds: List, threshold_names: List) -> Dict:
+    def _parse_result(self, result, current_value: float,
+                     thresholds: List, threshold_names: List,
+                     history: List[Tuple] = None) -> Dict:
         """解析预测结果
-        
+
         models 算法原始返回的是「达到阈值所需时间」，
         但为了和基础算法的 prediction 语义一致（下一周期播放量），
         这里统一转换为基于当前速率的短期预测值。
         """
         history_list = []
+        if history:
+            history_list = [
+                {'view_count': v, 'timestamp': t}
+                for t, v in history
+            ]
         
         # 短期预测窗口（秒），与 DEFAULT_INTERVAL(75s) 对齐
         SHORT_TERM_SECONDS = 75
