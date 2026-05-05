@@ -6,9 +6,9 @@ import threading
 import time
 from datetime import datetime
 from algorithms.registry import AlgorithmRegistry
-from core import bilibili_api, MonitorRecord, PredictionRecord
+from core import bilibili_api, db, MonitorRecord, PredictionRecord
 from ui.helpers import (
-    THRESHOLDS, THRESHOLD_NAMES,
+    THRESHOLDS, THRESHOLD_NAMES, FONT,
     _parse_viewer_count,
 )
 
@@ -366,19 +366,32 @@ class VideoWorker:
 
         # ── 回调主线程更新 UI ─────────────────────
         #    仅在选中该视频时触发完整 UI 更新；其他视频静默后台更新
-        gui.root.after(0, lambda r=result: self._on_fetch_done(r))
+        gui.root.after(0, lambda r=result, v=video: self._on_fetch_done(r, v))
 
-    def _on_fetch_done(self, result):
+    def _on_fetch_done(self, result, video):
         """在主线程回调：更新 UI（仅当前选中视频触发完整刷新）"""
         gui = self.gui
-        if result["bvid"] == gui.selected_bvid:
+        bvid = result["bvid"]
+        if bvid == gui.selected_bvid:
             gui._prediction_done(
                 result["prediction"], result["current_view"],
                 result["growth"], result["rate_per_sec"],
                 result["success_list"], result["fail_list"],
                 result["valid"], result["total"],
             )
-        gui.video_list.refresh_card(result["bvid"])
+        gui.video_list.update_card(video)
+        # 同步更新 stat bar 和图表（无论是否选中，保证数据最新）
+        if bvid == gui.selected_bvid:
+            gui.detail.update_stat_bar(video)
+            if gui.detail.current_tab == "📈 播放量趋势":
+                from ui.chart import draw_chart
+                draw_chart(gui.detail.chart_canvas, gui.history_data, bvid, video, FONT)
+
+        # 同步该视频数据到中央数据库
+        try:
+            db.sync_from_video_db(bvid)
+        except Exception as e:
+            self._log("WARNING", f"[{bvid}] 同步中央数据库失败: {e}")
 
 
 # ──────────────────────────────────────────────

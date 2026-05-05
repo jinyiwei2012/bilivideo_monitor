@@ -224,7 +224,9 @@ class BilibiliMonitorGUI:
         btn.bind("<Enter>", on_enter)
         btn.bind("<Leave>", on_leave)
         btn.bind("<Button-1>", on_click)
-        
+        icon_lbl.bind("<Button-1>", on_click)
+        text_lbl.bind("<Button-1>", on_click)
+
         # 保存引用 (icon_label, text_label, indicator)
         self._nav_btns[label] = (icon_lbl, text_lbl, indicator)
         
@@ -244,7 +246,7 @@ class BilibiliMonitorGUI:
         self._create_settings_menu()
         
         # 创建图标按钮
-        self._create_icon_button(right_f, "⚙️", self._popup_settings_menu, "设置")
+        self._gear_btn = self._create_icon_button(right_f, "⚙️", self._popup_settings_menu, "设置")
         self._create_icon_button(right_f, "🔍", self._dialogs.open_video_search, "搜索")
         self._create_theme_button(right_f)
         self._create_countdown_badge(right_f)
@@ -280,10 +282,12 @@ class BilibiliMonitorGUI:
 
     def _popup_settings_menu(self):
         """弹出设置菜单"""
-        gear = self._settings_menu.winfo_children()[0]  # 假设第一个子部件是齿轮按钮
-        # 实际实现中，需要保存齿轮按钮的引用
-        # 这里简化为直接使用事件绑定
-        pass  # 实际代码需要修正
+        try:
+            x = self._gear_btn.winfo_rootx()
+            y = self._gear_btn.winfo_rooty() + self._gear_btn.winfo_height()
+            self._settings_menu.tk_popup(x, y)
+        except Exception:
+            pass
 
     def _create_theme_button(self, parent):
         """创建主题切换按钮"""
@@ -353,7 +357,10 @@ class BilibiliMonitorGUI:
             return
         self._current_nav = name
         for k, b in self._nav_btns.items():
-            b.config(fg=C["bilibili"] if k == name else C["text_2"])
+            ic, tl, ind = b
+            ic.config(fg=C["bilibili"] if k == name else C["text_secondary"])
+            tl.config(fg=C["bilibili"] if k == name else C["text_secondary"])
+            ind.config(bg=C["bilibili"] if k == name else C["bg_surface"])
         if name == "日志":
             self._main_frame.pack_forget()
             self.log_panel.frame.pack(fill=tk.BOTH, expand=True)
