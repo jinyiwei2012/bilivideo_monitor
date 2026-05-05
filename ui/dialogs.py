@@ -408,8 +408,7 @@ class Dialogs:
     def open_dashboard(self):
         try:
             from .dashboard_mode import DashboardWindow
-            DashboardWindow(self.gui.root, monitored_videos=self.gui.monitored_videos,
-                           video_dbs=self.gui.video_dbs, history_data=self.gui.history_data)
+            DashboardWindow(gui=self.gui, parent=self.gui.root)
         except Exception as e:
             import traceback
             messagebox.showerror("错误", f"打开数据大屏失败: {e}\n{traceback.format_exc()}")

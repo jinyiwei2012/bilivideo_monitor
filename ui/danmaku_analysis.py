@@ -280,6 +280,8 @@ class DanmakuAnalysisWindow:
             self._save_to_file(silent=True)
         except Exception as e:
             self._status_lbl.config(text=f"分析失败: {e}", fg=C["danger"])
+            if self.gui and hasattr(self.gui, 'log_panel'):
+                self.gui.log_panel.add_log("ERROR", f"弹幕分析失败: {e}")
         finally:
             self._fetch_btn.config(state="normal")
 
@@ -486,6 +488,27 @@ class DanmakuAnalysisWindow:
                     self.gui.log_panel.add_log(
                         "INFO",
                         f"LLM分析完成（{self._current_bvid}，{mode}）")
+                # 保存 LLM 分析结果到文件夹
+                try:
+                    from config import DATA_DIR
+                    bv_dir = os.path.join(DATA_DIR, self._current_bvid, "danmaku")
+                    os.makedirs(bv_dir, exist_ok=True)
+                    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    filepath = os.path.join(bv_dir, f"llm_{mode}_{ts}.json")
+                    with open(filepath, "w", encoding="utf-8") as f:
+                        json.dump({
+                            "bvid": self._current_bvid,
+                            "mode": mode,
+                            "model": model,
+                            "data_count": len(self._texts),
+                            "timestamp": datetime.now().isoformat(),
+                            "analysis": result_text,
+                        }, f, ensure_ascii=False, indent=2)
+                    self._status_lbl.config(
+                        text=f"LLM分析完成，已保存 → {filepath}", fg=C["success"])
+                except Exception as e:
+                    if self.gui and hasattr(self.gui, 'log_panel'):
+                        self.gui.log_panel.add_log("WARNING", f"保存LLM分析结果失败: {e}")
 
             self.window.after(0, _update_ui, nonlocal_text)
 

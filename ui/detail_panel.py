@@ -14,6 +14,8 @@ from ui.helpers import (
     fmt_num,
 )
 from ui.chart import draw_chart, draw_chart_placeholder
+from utils.weekly_score import calculate_from_dict as _calc_ws
+from utils.yearly_score import calculate_yearly_from_dict as _calc_ys
 
 
 class DetailPanel:
@@ -362,8 +364,7 @@ class DetailPanel:
 
     def _calc_weekly_score(self, video):
         try:
-            from utils.weekly_score import calculate_from_dict
-            return calculate_from_dict(video)
+            return _calc_ws(video)
         except Exception:
             return None
 
@@ -373,8 +374,7 @@ class DetailPanel:
 
     def _calc_yearly_score(self, video):
         try:
-            from utils.yearly_score import calculate_yearly_from_dict
-            return calculate_yearly_from_dict(video)
+            return _calc_ys(video)
         except Exception:
             return None
 

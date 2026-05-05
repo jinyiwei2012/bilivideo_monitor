@@ -3,6 +3,7 @@
 import sqlite3
 import os
 import json
+import re
 import threading
 from datetime import datetime
 from typing import List, Dict, Optional, Any
@@ -15,6 +16,7 @@ class VideoDatabase:
     """单个视频的独立数据库"""
 
     def __init__(self, bvid: str, base_dir: str = None):
+        _validate_bvid(bvid)
         self.bvid = bvid
         if base_dir is None:
             base_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data')
@@ -214,11 +216,15 @@ class VideoDatabase:
 
         # 检查每张表的现有列
         for table, columns in schema_upgrades.items():
+            if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', table):
+                continue  # 安全校验：表名必须只含合法字符
             cursor.execute(f"PRAGMA table_info({table})")
             existing = {row["name"] for row in cursor.fetchall()}
             if not existing:
                 continue  # 表不存在，跳过
             for col_name, col_def in columns:
+                if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', col_name):
+                    continue  # 安全校验：列名必须只含合法字符
                 if col_name not in existing:
                     try:
                         cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_def}")

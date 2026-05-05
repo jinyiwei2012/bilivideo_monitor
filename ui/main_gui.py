@@ -34,6 +34,9 @@ from ui.detail_panel import DetailPanel
 from ui.prediction_panel import PredictionPanel
 from ui.bottom_bar import BottomBar
 from ui.dialogs import Dialogs
+from utils.weekly_score import calculate_from_dict as _calc_ws
+from utils.yearly_score import calculate_yearly_from_dict as _calc_ys
+from dataclasses import asdict
 from ui.monitor_service import (
     fetch_all_video_data, fetch_single_video_data,
     auto_predict_all, auto_predict_video,
@@ -810,9 +813,7 @@ class BilibiliMonitorGUI:
 
     def _save_weekly_score(self, bvid, video, timestamp):
         try:
-            from utils.weekly_score import calculate_from_dict
-            from dataclasses import asdict
-            ws = calculate_from_dict(video)
+            ws = _calc_ws(video)
             if ws and bvid in self.video_dbs:
                 score_data = asdict(ws)
                 self.video_dbs[bvid].add_weekly_score(timestamp, score_data)
@@ -821,9 +822,7 @@ class BilibiliMonitorGUI:
 
     def _save_yearly_score(self, bvid, video, timestamp):
         try:
-            from utils.yearly_score import calculate_yearly_from_dict
-            from dataclasses import asdict
-            ys = calculate_yearly_from_dict(video)
+            ys = _calc_ys(video)
             if ys and bvid in self.video_dbs:
                 score_data = asdict(ys)
                 self.video_dbs[bvid].add_yearly_score(timestamp, score_data)

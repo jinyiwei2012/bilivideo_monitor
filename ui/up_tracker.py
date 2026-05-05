@@ -86,8 +86,11 @@ class UpTrackerWindow:
                               highlightbackground=C["border_sub"])
         list_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, ipadx=6, ipady=6)
 
-        tk.Label(list_frame, text="已追踪UP主", bg=C["bg_elevated"], fg=C["text_2"],
-                 font=("Microsoft YaHei UI", 8, "bold"), anchor="w").pack(fill=tk.X, padx=6, pady=(4, 4))
+        list_header = tk.Frame(list_frame, bg=C["bg_elevated"])
+        list_header.pack(fill=tk.X, padx=6, pady=(4, 4))
+        tk.Label(list_header, text="已追踪UP主", bg=C["bg_elevated"], fg=C["text_2"],
+                 font=("Microsoft YaHei UI", 8, "bold"), anchor="w").pack(side=tk.LEFT)
+        ttk.Button(list_header, text="🔄 刷新", command=self._refresh_selected).pack(side=tk.RIGHT)
 
         cols = ("UID", "名称", "粉丝", "投稿", "总播放")
         self._tree = ttk.Treeview(list_frame, columns=cols, show="headings",
@@ -188,6 +191,46 @@ class UpTrackerWindow:
                     "dim")
 
         self._detail_text.config(state="disabled")
+
+    def _refresh_selected(self):
+        """刷新当前选中 UP 主的数据"""
+        sel = self._tree.selection()
+        if not sel:
+            messagebox.showinfo("提示", "请先在列表中选择一个UP主", parent=self.window)
+            return
+        item = self._tree.item(sel[0])
+        uid = item["values"][0]
+
+        if not self.api:
+            self._up_status.config(text="API不可用", fg=C["danger"])
+            return
+
+        self._up_status.config(text=f"正在刷新 UID:{uid} 数据...", fg=C["text_2"])
+        self.window.update()
+
+        info = self.api.get_up_info(uid)
+        if not info:
+            self._up_status.config(text="刷新失败，请检查网络", fg=C["danger"])
+            return
+
+        stat = self.api.get_up_stat(uid)
+        if stat:
+            info["total_views"] = stat.get("total_views", 0)
+            info["total_likes"] = stat.get("total_likes", 0)
+
+        self.db.upsert_up(info)
+        self.db.add_history(
+            uid=uid,
+            follower_count=info.get("follower_count", 0),
+            video_count=info.get("video_count", 0),
+            total_views=info.get("total_views", 0),
+        )
+
+        self._load_up_list()
+        self._show_detail(info)
+        self._up_status.config(
+            text=f"刷新完成: {info.get('name', '')}  粉丝: {self._fmt(info.get('follower_count', 0))}",
+            fg=C["success"])
 
     def _search_by_name(self):
         """按用户名搜索UP主"""

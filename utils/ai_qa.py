@@ -18,10 +18,23 @@ class AIQASession:
         self.api_key = api_key
         self.endpoint = endpoint or "https://api.openai.com/v1/chat/completions"
         self.model = model
+        # 如果没传 api_key，尝试从配置文件加载
+        if not self.api_key:
+            self._load_config()
         self.history: List[Dict] = []  # [{"role": "user"/"assistant", "content": str}, ...]
         self._monitored_videos: List[Dict] = []
         self._history_data: Dict = {}
         self._video_dbs: Dict = {}
+
+    def _load_config(self):
+        try:
+            from config import load_config
+            cfg = load_config().get("ai", {})
+            self.api_key = cfg.get("api_key", "")
+            self.endpoint = cfg.get("endpoint", "") or "https://api.openai.com/v1/chat/completions"
+            self.model = cfg.get("model", "gpt-4o-mini")
+        except Exception:
+            pass
 
     def set_context(self, monitored_videos: List[Dict],
                     history_data: Dict = None,

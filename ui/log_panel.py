@@ -4,6 +4,7 @@
 import tkinter as tk
 from tkinter import ttk
 from datetime import datetime
+import queue
 import customtkinter as ctk
 from ui.theme import C, _recolor_text_tags
 
@@ -18,6 +19,9 @@ class LogPanel:
         self._log_level_var = tk.StringVar(value="ALL")
         self._log_refresh_job = None
         self._rendered_count = 0  # 已渲染的条目数，用于增量刷新
+        # 线程安全日志队列
+        self._log_queue = queue.Queue()
+        self._queue_processing = False
 
         self._build()
 
@@ -84,6 +88,9 @@ class LogPanel:
         self._log_text.tag_configure("ERROR", foreground="#f85149")
         self._log_text.tag_configure("TIME",  foreground="#6e7681")
 
+        # 启动队列处理器
+        self.root.after(200, self._process_log_queue)
+
     @property
     def frame(self):
         return self._log_frame
@@ -110,6 +117,7 @@ class LogPanel:
         return msg_severity >= min_severity
 
     def add_log(self, level: str, message: str):
+        """线程安全地添加日志（可被任何线程调用）"""
         ts = datetime.now()
         ts_str = ts.strftime("%H:%M:%S")
         self._log_entries.append((level, ts_str, message))
@@ -121,12 +129,28 @@ class LogPanel:
             removed = len(self._log_entries) - 1500
             self._log_entries = self._log_entries[-1500:]
             self._rendered_count = max(0, self._rendered_count - removed)
-        # 如果日志面板可见且等级匹配，实时追加
-        if self._log_frame.winfo_ismapped() and self._should_show(level):
-            self._append_log_line(level, ts, message)
-            self._rendered_count += 1
+
+        # 通过队列调度到主线程渲染（避免工作线程直接调用 Tkinter）
+        if self._should_show(level):
+            self._log_queue.put((level, ts, message))
+            if not self._queue_processing:
+                self.root.after(0, self._process_log_queue)
+
+    def _process_log_queue(self):
+        """主线程：处理日志队列（由 root.after 调度）"""
+        self._queue_processing = True
+        try:
+            while True:
+                level, ts, message = self._log_queue.get_nowait()
+                self._append_log_line(level, ts, message)
+                self._rendered_count += 1
+        except queue.Empty:
+            pass
+        finally:
+            self._queue_processing = False
 
     def _append_log_line(self, level, ts, message):
+        """主线程：实际追加日志到文本控件"""
         self._log_text.config(state=tk.NORMAL)
         self._log_text.insert(tk.END, f"[{ts}] ", "TIME")
         self._log_text.insert(tk.END, f"[{level:>7s}] ", level)
@@ -178,9 +202,8 @@ class LogPanel:
         self._log_refresh_job = root.after(5000, self._auto_refresh_tick)
 
     def _auto_refresh_tick(self):
-        if self._log_frame.winfo_ismapped():
-            self.refresh_log_view()
-            self._log_refresh_job = self.root.after(5000, self._auto_refresh_tick)
+        self.refresh_log_view()
+        self._log_refresh_job = self.root.after(5000, self._auto_refresh_tick)
 
     def stop_auto_refresh(self):
         if self._log_refresh_job:

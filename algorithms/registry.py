@@ -9,6 +9,11 @@ from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed, ProcessPoolExecutor
 import time
 
+try:
+    from .weight_manager import weight_manager
+except ImportError:
+    weight_manager = None
+
 
 class AlgorithmRegistry:
     """算法注册器"""
@@ -105,11 +110,6 @@ class AlgorithmRegistry:
         if not cls._initialized:
             cls.initialize()
 
-        try:
-            from .weight_manager import weight_manager
-        except ImportError:
-            weight_manager = None
-
         # ── 集中准备 video_data，避免每个 adapter 重复转换 ────
         cached_video_data = cls._prepare_video_data(history, current_value)
         kwargs_with_video = dict(kwargs, _cached_video_data=cached_video_data)
@@ -145,8 +145,10 @@ class AlgorithmRegistry:
                     'error': str(e)
                 }, e
 
-        with ThreadPoolExecutor(max_workers=4) as pool:
-            futures = [pool.submit(_run_single, item) for item in cls._algorithms.items()]
+        if not hasattr(cls, '_pool') or cls._pool is None:
+            cls._pool = ThreadPoolExecutor(max_workers=4)
+        pool = cls._pool
+        futures = [pool.submit(_run_single, item) for item in cls._algorithms.items()]
 
         for future in as_completed(futures):
             name, result, error = future.result()
@@ -187,10 +189,9 @@ class AlgorithmRegistry:
             if hasattr(algo, 'update_accuracy'):
                 algo.update_accuracy(predicted, actual)
             try:
-                from .weight_manager import weight_manager
                 accuracy = algo.get_accuracy() if hasattr(algo, 'get_accuracy') else 0.5
                 weight_manager.update_accuracy(algorithm_name, accuracy)
-            except ImportError:
+            except Exception:
                 pass
     
     @classmethod
@@ -201,9 +202,8 @@ class AlgorithmRegistry:
         names = cls.get_algorithm_names()
         
         try:
-            from .weight_manager import weight_manager
             return weight_manager.get_algorithm_info(names)
-        except ImportError:
+        except Exception:
             return [{'name': n, 'accuracy': 0.5, 'weight': 1.0} for n in names]
     
     @classmethod

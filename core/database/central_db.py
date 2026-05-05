@@ -2,6 +2,7 @@
 
 import sqlite3
 import os
+import re
 import threading
 from datetime import datetime
 from typing import List, Dict, Optional, Any
@@ -163,11 +164,15 @@ class Database:
             ],
         }
         for table, columns in schema_upgrades.items():
+            if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', table):
+                continue
             cursor.execute(f"PRAGMA table_info({table})")
             existing = {row["name"] for row in cursor.fetchall()}
             if not existing:
                 continue
             for col_name, col_def in columns:
+                if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', col_name):
+                    continue
                 if col_name not in existing:
                     try:
                         cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_def}")
@@ -208,25 +213,25 @@ class Database:
                     ))
                     conn.commit()
 
-            # 获取所有监控记录并同步（使用 INSERT OR IGNORE + 唯一索引，避免逐行 SELECT）
+            # 获取所有监控记录并同步（使用 executemany 批量插入）
             records = video_db.get_all_records()
             if records:
                 with self._get_connection() as conn:
                     cursor = conn.cursor()
-                    for record in records:
-                        cursor.execute('''
-                            INSERT OR IGNORE INTO monitor_records
-                            (bvid, timestamp, view_count, like_count, coin_count, share_count,
-                             favorite_count, danmaku_count, reply_count, viewers_app,
-                             viewers_web, viewers_total, like_view_ratio)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        ''', (
-                            bvid, record['timestamp'], record['view_count'],
-                            record['like_count'], record['coin_count'], record['share_count'],
-                            record['favorite_count'], record['danmaku_count'], record['reply_count'],
-                            record['viewers_app'], record['viewers_web'],
-                            record['viewers_total'], record['like_view_ratio']
-                        ))
+                    rows = [(
+                        bvid, r['timestamp'], r['view_count'],
+                        r['like_count'], r['coin_count'], r['share_count'],
+                        r['favorite_count'], r['danmaku_count'], r['reply_count'],
+                        r['viewers_app'], r['viewers_web'],
+                        r['viewers_total'], r['like_view_ratio']
+                    ) for r in records]
+                    cursor.executemany('''
+                        INSERT OR IGNORE INTO monitor_records
+                        (bvid, timestamp, view_count, like_count, coin_count, share_count,
+                         favorite_count, danmaku_count, reply_count, viewers_app,
+                         viewers_web, viewers_total, like_view_ratio)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', rows)
                     conn.commit()
 
             return True
