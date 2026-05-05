@@ -5,11 +5,18 @@ import os
 import json
 import re
 import threading
+import logging
 from datetime import datetime
 from typing import List, Dict, Optional, Any
 
+logger = logging.getLogger(__name__)
+
 from .connection import _ConnectionCtx
 from .models import _validate_bvid, MonitorRecord, PredictionRecord
+
+
+# 进程级迁移缓存：避免每个数据库都重复检查同结构的迁移
+_schema_migrated_version = 0
 
 
 class VideoDatabase:
@@ -172,7 +179,10 @@ class VideoDatabase:
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_yearly_timestamp ON yearly_scores(timestamp)')
 
             # 数据库迁移：检查并添加缺少的列并自动计算数值
-            self._migrate_db(conn)
+            # 进程级缓存：首次迁移成功后跳过（所有DB共享相同结构）
+            if not _schema_migrated_version:
+                self._migrate_db(conn)
+                _schema_migrated_version = 1
 
             conn.commit()
 
@@ -226,10 +236,13 @@ class VideoDatabase:
                 if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', col_name):
                     continue  # 安全校验：列名必须只含合法字符
                 if col_name not in existing:
+                    if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*(\s+DEFAULT\s+[^\s;]+)?$', col_def):
+                        logger.warning(f"迁移跳过: {table}.{col_name} 含不安全的列定义 {col_def}")
+                        continue
                     try:
                         cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_def}")
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning(f"迁移失败 {table}.{col_name}: {e}")
 
         # ── 自动计算数值 ──────────────────────────
 
@@ -240,8 +253,8 @@ class VideoDatabase:
                 SET like_view_ratio = ROUND(CAST(like_count AS REAL) / NULLIF(view_count, 0), 6)
                 WHERE like_view_ratio IS NULL OR like_view_ratio = 0
             """)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("更新 monitor_records like_view_ratio 失败: %s", e)
 
         # 2. 计算 video_info 中的 like_view_ratio
         try:
@@ -250,8 +263,8 @@ class VideoDatabase:
                 SET like_view_ratio = ROUND(CAST(like_count AS REAL) / NULLIF(view_count, 0), 6)
                 WHERE like_view_ratio IS NULL OR like_view_ratio = 0
             """)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("更新 video_info like_view_ratio 失败: %s", e)
 
         # 3. 计算 predictions 中缺失的 predicted_hours
         try:
@@ -261,8 +274,8 @@ class VideoDatabase:
                 WHERE (predicted_hours IS NULL OR predicted_hours = 0)
                   AND (predicted_seconds IS NOT NULL AND predicted_seconds > 0)
             """)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("更新 predictions predicted_hours 失败: %s", e)
 
     def save_video_info(self, video_info: Dict):
         """保存视频信息"""
@@ -506,12 +519,14 @@ class VideoDatabase:
                     'SELECT * FROM yearly_scores ORDER BY timestamp DESC LIMIT 1')
                 row = cursor.fetchone()
                 return dict(row) if row else None
-        except Exception:
+        except Exception as e:
+            logger.debug("获取最新年刊分数失败: %s", e)
             return None
 
     def close(self):
-        """关闭数据库连接。"""
+        """关闭数据库连接，刷新 WAL。"""
         try:
+            self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
             self._conn.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("关闭数据库连接失败: %s", e)

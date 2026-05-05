@@ -15,8 +15,8 @@ class ReportSchedulerWindow:
     """报告导出与定时器设置窗口"""
 
     def __init__(self, parent=None, gui=None):
-        self.dlg = DialogBase(parent, "定时导出报告", "560x480",
-                              resizable=(True, True))
+        self.dlg = DialogBase(parent, "定时导出报告", "660x540",
+                              resizable=(True, True), modal=False)
         self.window = self.dlg.window
         self.gui = gui
         self._scheduled_jobs = []

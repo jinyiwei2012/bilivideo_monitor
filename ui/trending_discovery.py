@@ -14,8 +14,8 @@ class TrendingDiscoveryWindow:
 
     def __init__(self, parent=None, api=None,
                  on_add_monitor: Optional[Callable] = None):
-        self.dlg = DialogBase(parent, "热门视频发现", "820x600",
-                              resizable=(True, True))
+        self.dlg = DialogBase(parent, "热门视频发现", "880x660",
+                              resizable=(True, True), modal=False)
         self.window = self.dlg.window
         self.api = api
         self.on_add_monitor = on_add_monitor

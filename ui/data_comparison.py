@@ -6,8 +6,11 @@
 """
 import tkinter as tk
 from tkinter import ttk, BOTH
+import logging
 from typing import List, Dict, Optional, Tuple
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 # ── 颜色表 ────────────────────────────────────────────────────────────────────
 PALETTE = [
@@ -74,8 +77,7 @@ class DataComparisonWindow:
         self.window.title("数据对比")
         self.window.geometry("1100x780")
         self.window.minsize(850, 600)
-        self.window.transient(parent)
-
+        
         self.monitored_videos = monitored_videos or []
         self.history_data     = history_data or {}
         self.video_dbs        = video_dbs    or {}
@@ -119,8 +121,8 @@ def _parse_dt(s: str) -> Optional[datetime]:
     for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M:%S"):
         try:
             return datetime.strptime(s[:len(fmt)].strip(), fmt)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("解析时间字符串失败: %s", e)
     return None
 
 

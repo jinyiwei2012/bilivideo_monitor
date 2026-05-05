@@ -3,6 +3,7 @@ XGBoost简化预测算法
 基于XGBoost思想的简化实现
 """
 
+import math
 from datetime import datetime
 from typing import Dict, Any
 from algorithms.base import BaseAlgorithm, PredictionResult
@@ -33,11 +34,11 @@ class XGBoostSimpleAlgorithm(BaseAlgorithm):
         else:
             # 构建特征
             features = {
-                'log_views': __import__('math').log(max(current_views, 1)),
-                'log_velocity': __import__('math').log(max(velocity, 0.001)),
+                'log_views': math.log(max(current_views, 1)),
+                'log_velocity': math.log(max(velocity, 0.001)),
                 'engagement': self.get_engagement_rate(video_data),
                 'quality': self.get_quality_score(video_data),
-                'age_log': __import__('math').log(max(self.get_video_age_hours(video_data), 0.1)),
+                'age_log': math.log(max(self.get_video_age_hours(video_data), 0.1)),
                 'like_rate': video_data.get('like_count', 0) / max(current_views, 1),
                 'coin_rate': video_data.get('coin_count', 0) / max(current_views, 1),
             }

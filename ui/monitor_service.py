@@ -4,6 +4,7 @@
 """
 import threading
 import time
+import logging
 from datetime import datetime
 from algorithms.registry import AlgorithmRegistry
 from core import bilibili_api, db, MonitorRecord, PredictionRecord
@@ -11,6 +12,8 @@ from ui.helpers import (
     THRESHOLDS, THRESHOLD_NAMES, FONT,
     _parse_viewer_count,
 )
+
+logger = logging.getLogger(__name__)
 
 
 # ──────────────────────────────────────────────
@@ -71,12 +74,17 @@ def _merge_history(gui, bvid: str) -> list:
         if bvid in gui.video_dbs:
             db_hist = gui.video_dbs[bvid].get_all_records()
             if db_hist:
-                existing = {v for _, v in history}
+                existing_ts = {
+                    h[0] if isinstance(h[0], str) else h[0].isoformat()
+                    for h in history
+                }
                 for row in db_hist:
-                    if row["view_count"] not in existing:
-                        history.append((row["timestamp"], row["view_count"]))
-    except Exception:
-        pass
+                    ts = row["timestamp"]
+                    ts_str = ts if isinstance(ts, str) else ts.isoformat()
+                    if ts_str not in existing_ts:
+                        history.append((ts, row["view_count"]))
+    except Exception as e:
+        logger.warning(f"合并历史记录失败 {bvid}: {e}")
 
     def _to_dt(t):
         return t if isinstance(t, datetime) else datetime.fromisoformat(str(t))
@@ -102,8 +110,8 @@ def _calc_growth_rate(history: list) -> float:
         dt_sec = (last_ts - first_ts).total_seconds()
         if dt_sec > 0 and last_v > first_v:
             return (last_v - first_v) / dt_sec
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("计算增长率失败: %s", e)
     return 0.0
 
 
@@ -169,8 +177,8 @@ def _online_learning_feedback(gui, bvid, results, actual_view):
                 algo_key = bvid + '/' + name
                 learner.register(algo_key)
                 learner.update(algo_key, predicted=pred_val, actual=actual_view)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("在线学习反馈失败: %s", e)
 
 
 def _feed_causal_analyzer(gui, bvid):
@@ -182,8 +190,8 @@ def _feed_causal_analyzer(gui, bvid):
         records = video_db.get_all_records()
         if records:
             get_causal_analyzer(bvid).feed(records)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("因果分析反馈失败: %s", e)
 
 
 def _update_video_graph(gui, bvid, video):
@@ -193,8 +201,8 @@ def _update_video_graph(gui, bvid, video):
         graph.update_node(bvid, video)
         if graph.get_graph_stats()['num_nodes'] >= 2:
             graph.build_edges()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("更新视频关系图失败: %s", e)
 
 
 # ──────────────────────────────────────────────
@@ -334,7 +342,7 @@ class VideoWorker:
                 gui.history_data[bvid] = []
             gui.history_data[bvid].append((ts, video["view_count"]))
             # 防止内存无界增长，保留最近 2000 条
-            if len(gui.history_data[bvid]) > 2000:
+            if len(gui.history_data[bvid]) > 3000:
                 gui.history_data[bvid] = gui.history_data[bvid][-2000:]
 
         # ── 写数据库 ─────────────────────────────
@@ -509,7 +517,6 @@ def auto_predict_all(gui):
             if not bvid:
                 continue
             _predict_single(gui, bvid, video)
-            time.sleep(0.05)
 
         from ui.theme import C
         gui.root.after(0, lambda: gui._sb(
@@ -552,8 +559,8 @@ def load_watch_list(gui):
                         video["viewers_total"] = _parse_viewer_count(viewers.get("total", "0"))
                         video["viewers_web"]   = _parse_viewer_count(viewers.get("count", "0"))
                         video["viewers_app"]   = max(0, video["viewers_total"] - video["viewers_web"])
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("获取视频在线人数失败 %s: %s", bvid, e)
 
                 # 初始化数据库和历史
                 try:
@@ -566,8 +573,8 @@ def load_watch_list(gui):
                             (row["timestamp"], row["view_count"])
                             for row in history
                         ]
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("初始化视频数据库失败 %s: %s", bvid, e)
 
                 gui.root.after(0, lambda v=video: gui._restore_video(v))
                 loaded += 1

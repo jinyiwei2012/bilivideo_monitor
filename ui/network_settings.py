@@ -6,6 +6,9 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import json
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 from core.bilibili_api import bilibili_api
 from ui.theme import C
@@ -17,8 +20,8 @@ class NetworkSettingsWindow:
     """网络设置窗口（现代化风格）"""
 
     def __init__(self, parent):
-        self.dlg = DialogBase(parent, "网络设置 - 412错误处理", "640x560",
-                              resizable=(True, True))
+        self.dlg = DialogBase(parent, "网络设置 - 412错误处理", "760x600",
+                              resizable=(True, True), modal=False)
         self.window = self.dlg.window
 
         self.config_file = os.path.join(
@@ -33,8 +36,8 @@ class NetworkSettingsWindow:
             try:
                 with open(self.config_file, 'r', encoding='utf-8') as f:
                     return json.load(f)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("加载网络配置失败: %s", e)
         return {'proxies': [], 'cookies': {}}
 
     def _save_config(self):

@@ -18,8 +18,8 @@ class HealthProbeWindow:
     """健康探针详情窗口，含五维雷达图、详细指标与建议"""
 
     def __init__(self, parent=None, video: Optional[dict] = None):
-        self.dlg = DialogBase(parent, "一键三连健康探针", "680x580",
-                              resizable=(True, True))
+        self.dlg = DialogBase(parent, "一键三连健康探针", "780x640",
+                              resizable=(True, True), modal=False)
         self.window = self.dlg.window
         self.video = video or {}
 

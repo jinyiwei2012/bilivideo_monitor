@@ -17,7 +17,7 @@ class VideoSearchWindow:
     """视频搜索窗口（现代化风格）"""
 
     def __init__(self, parent=None, on_import: Optional[Callable[[list], None]] = None):
-        self.dlg = DialogBase(parent, "搜索视频 - B站", "860x600",
+        self.dlg = DialogBase(parent, "搜索视频 - B站", "920x660",
                               modal=True)
         self.window = self.dlg.window
         self.on_import = on_import

@@ -14,8 +14,8 @@ class UpTrackerWindow:
     """UP主追踪面板"""
 
     def __init__(self, parent=None, api=None):
-        self.dlg = DialogBase(parent, "UP主追踪", "880x620",
-                              resizable=(True, True))
+        self.dlg = DialogBase(parent, "UP主追踪", "960x680",
+                              resizable=(True, True), modal=False)
         self.window = self.dlg.window
         self.api = api
 

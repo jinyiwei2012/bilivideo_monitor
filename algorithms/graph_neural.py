@@ -15,9 +15,12 @@
 
 import math
 import threading
+import logging
 from typing import Dict, List, Tuple, Optional, Set
 from datetime import datetime
 from collections import defaultdict
+
+logger = logging.getLogger(__name__)
 
 
 def _safe_div(a: float, b: float) -> float:
@@ -321,8 +324,8 @@ class VideoGraph:
                 if dt_hours < 48:
                     w += 0.3 * (1 - dt_hours / 48)
                 count += 1
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("计算视频间发布时间特征失败: %s", e)
 
         # 3. 互动率相似度
         va = max(a.get('view_count', 0), 1)

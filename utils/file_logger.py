@@ -8,7 +8,10 @@
 
 import os
 import threading
+import logging
 from datetime import datetime, timedelta
+
+logger = logging.getLogger(__name__)
 
 
 class FileLogger:
@@ -56,8 +59,8 @@ class FileLogger:
                 try:
                     self._file.write(line)
                     self._file.flush()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("写入日志文件失败: %s", e)
 
     def close(self):
         """关闭当前日志文件（在退出时调用）。"""
@@ -66,8 +69,8 @@ class FileLogger:
                 self._rename_to_finished()
                 try:
                     self._file.close()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("关闭日志文件失败: %s", e)
                 self._file = None
 
     def start_midnight_checker(self, root, check_interval_ms=30000):
@@ -88,8 +91,8 @@ class FileLogger:
                         self._rename_to_finished()
                         try:
                             self._file.close()
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug("跨天检查时关闭旧日志文件失败: %s", e)
                         self._file = None
                     # 新文件
                     self._open_file(now)
@@ -104,8 +107,8 @@ class FileLogger:
         if self._midnight_timer:
             try:
                 root.after_cancel(self._midnight_timer)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("取消跨天定时器失败: %s", e)
             self._midnight_timer = None
 
     # ── 内部方法 ───────────────────────────────────
@@ -135,8 +138,8 @@ class FileLogger:
                 self._rename_to_finished()
                 try:
                     self._file.close()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("日志日期切换时关闭旧文件失败: %s", e)
                 self._file = None
             self._open_file(now)
 
@@ -164,6 +167,6 @@ class FileLogger:
             os.rename(old_path, new_path)
             # 重新打开供后续使用（虽然 close 不会再写，但保险起见）
             self._file = open(new_path, "a", encoding="utf-8")
-        except Exception:
+        except Exception as e:
             # 重命名失败不影响运行，文件内容仍在
-            pass
+            logger.debug("重命名日志文件失败: %s", e)

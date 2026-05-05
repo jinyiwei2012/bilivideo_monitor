@@ -270,7 +270,7 @@ class VideoListPanel:
             if not acquired:
                 return
             try:
-                from PIL import Image, ImageTk
+                from PIL import Image
                 r = _cover_session.get(url, timeout=8)
                 if r.status_code != 200:
                     return
@@ -280,7 +280,7 @@ class VideoListPanel:
                 ratio = min(target_w / w, target_h / h)
                 new_w, new_h = int(w * ratio), int(h * ratio)
                 img = img.resize((new_w, new_h), Image.LANCZOS)
-                ph = ImageTk.PhotoImage(img)
+                ph = ctk.CTkImage(light_image=img, size=(new_w, new_h))
                 self._cover_cache[cache_key] = ph
                 # 限制封面缓存上限 50 个，淘汰最久未使用项
                 if len(self._cover_cache) > 50:

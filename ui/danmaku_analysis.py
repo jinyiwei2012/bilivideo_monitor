@@ -18,7 +18,7 @@ class DanmakuAnalysisWindow:
     """弹幕/评论分析窗口"""
 
     def __init__(self, parent=None, api=None, gui=None):
-        self.dlg = DialogBase(parent, "弹幕/评论分析", "820x680",
+        self.dlg = DialogBase(parent, "弹幕/评论分析", "920x700",
                               resizable=(True, True), modal=False)
         self.window = self.dlg.window
         self.api = api
@@ -109,27 +109,42 @@ class DanmakuAnalysisWindow:
         mid.pack(fill=tk.BOTH, expand=True, padx=24, pady=(10, 0))
 
         # 左：情绪饼图
-        left = tk.Frame(mid, bg=C["bg_elevated"], highlightthickness=1,
-                        highlightbackground=C["border_sub"])
-        left.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, ipadx=6, ipady=6)
+        self._left_frame = tk.Frame(mid, bg=C["bg_elevated"], highlightthickness=1,
+                                    highlightbackground=C["border_sub"])
+        self._left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, ipadx=6, ipady=6)
 
-        tk.Label(left, text="情绪分布", bg=C["bg_elevated"], fg=C["text_2"],
+        tk.Label(self._left_frame, text="情绪分布", bg=C["bg_elevated"], fg=C["text_2"],
                  font=("Microsoft YaHei UI", 8, "bold")).pack(anchor="w", padx=6, pady=(4, 0))
-        self._pie_canvas = tk.Canvas(left, bg=C["bg_elevated"],
+        self._pie_canvas = tk.Canvas(self._left_frame, bg=C["bg_elevated"],
                                       width=200, height=180, highlightthickness=0)
         self._pie_canvas.pack(fill=tk.BOTH, expand=True)
 
         # 右：关键词
-        right = tk.Frame(mid, bg=C["bg_elevated"], highlightthickness=1,
-                         highlightbackground=C["border_sub"])
-        right.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(10, 0), ipadx=6, ipady=6)
+        self._right_frame = tk.Frame(mid, bg=C["bg_elevated"], highlightthickness=1,
+                                     highlightbackground=C["border_sub"])
+        self._right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(10, 0), ipadx=6, ipady=6)
 
-        tk.Label(right, text="高频关键词", bg=C["bg_elevated"], fg=C["text_2"],
+        tk.Label(self._right_frame, text="高频关键词", bg=C["bg_elevated"], fg=C["text_2"],
                  font=("Microsoft YaHei UI", 8, "bold")).pack(anchor="w", padx=6, pady=(4, 0))
-        self._kw_text = tk.Text(right, bg=C["bg_base"], fg=C["text_1"],
+        self._kw_text = tk.Text(self._right_frame, bg=C["bg_base"], fg=C["text_1"],
                                  font=("Microsoft YaHei UI", 10), relief="flat",
                                  state="disabled", cursor="arrow", padx=8, pady=6)
         self._kw_text.pack(fill=tk.BOTH, expand=True)
+
+        # LLM 摘要覆盖层（初始隐藏）
+        self._llm_summary = tk.Text(mid, bg=C["bg_elevated"], fg=C["text_1"],
+                                     font=("Microsoft YaHei UI", 10), relief="flat",
+                                     state="disabled", cursor="arrow",
+                                     padx=12, pady=8, wrap="word")
+        self._summ_vsb = ttk.Scrollbar(mid, orient="vertical",
+                                        command=self._llm_summary.yview)
+        self._llm_summary.config(yscrollcommand=self._summ_vsb.set)
+        self._llm_summary.tag_configure("summ_head", foreground=C["bilibili"],
+                                         font=("Microsoft YaHei UI", 11, "bold"))
+        self._llm_summary.tag_configure("summ_body", foreground=C["text_1"],
+                                         font=("Microsoft YaHei UI", 10), spacing1=2)
+        self._llm_summary.tag_configure("summ_dim", foreground=C["text_3"],
+                                         font=("Microsoft YaHei UI", 9))
 
         # 底部：Notebook 切换 高频列表 / LLM分析
         bottom = tk.Frame(self.dlg.container, bg=C["bg_surface"])
@@ -171,7 +186,7 @@ class DanmakuAnalysisWindow:
         sb.pack(side=tk.RIGHT, fill=tk.Y)
 
         # ── 页2：LLM分析结果 ──
-        llm_page = tk.Frame(bottom_nb, bg=C["bg_base"])
+        llm_page = tk.Frame(self._bottom_nb, bg=C["bg_base"])
         self._bottom_nb.add(llm_page, text="  🤖 LLM分析  ")
 
         self._llm_text = tk.Text(llm_page, bg=C["bg_base"], fg=C["text_1"],
@@ -278,6 +293,8 @@ class DanmakuAnalysisWindow:
             self._llm_btn.config(state="normal")
             # 自动保存
             self._save_to_file(silent=True)
+            # 尝试加载本地已有的 LLM 分析结果
+            self._load_local_llm_result()
         except Exception as e:
             self._status_lbl.config(text=f"分析失败: {e}", fg=C["danger"])
             if self.gui and hasattr(self.gui, 'log_panel'):
@@ -286,6 +303,7 @@ class DanmakuAnalysisWindow:
             self._fetch_btn.config(state="normal")
 
     def _display_results(self, texts: List[str]):
+        self._restore_charts()
         from utils.sentiment_analyzer import (
             analyze_sentiment, extract_keywords, generate_word_freq,
         )
@@ -376,13 +394,29 @@ class DanmakuAnalysisWindow:
             messagebox.showinfo("提示", "请先抓取数据", parent=self.window)
             return
 
+        # 如果已有本地 LLM 结果，确认是否重新分析
+        from config import DATA_DIR
+        bv_dir = os.path.join(DATA_DIR, self._current_bvid, "danmaku")
+        mode = self._mode_var.get()
+        local_files = []
+        if os.path.isdir(bv_dir):
+            local_files = [f for f in os.listdir(bv_dir)
+                          if f.startswith("llm_") and f.endswith(".json") and f"_{mode}_" in f]
+        if local_files:
+            if not messagebox.askyesno("确认重新分析",
+                                       f"已存在 LLM {mode}分析结果，是否重新调用 API 分析？\n"
+                                       "选择「否」则查看已有结果。",
+                                       parent=self.window):
+                self._load_local_llm_result()
+                return
+
         # 加载API配置
         try:
-            from config import load_config
-            cfg = load_config().get("ai", {})
-            api_key = cfg.get("api_key", "")
-            endpoint = cfg.get("endpoint", "") or "https://api.openai.com/v1/chat/completions"
-            model = cfg.get("model", "gpt-4o-mini")
+            from config import get_active_ai_profile
+            profile = get_active_ai_profile()
+            api_key = profile.get("api_key", "")
+            endpoint = profile.get("endpoint", "") or "https://api.openai.com/v1/chat/completions"
+            model = profile.get("model", "gpt-4o-mini")
         except Exception:
             api_key = ""
 
@@ -474,6 +508,11 @@ class DanmakuAnalysisWindow:
                 nonlocal_text = f"LLM分析异常: {e}"
 
             def _update_ui(result_text):
+                # 窗口可能已关闭
+                try:
+                    self._llm_text.winfo_exists()
+                except Exception:
+                    return
                 self._llm_text.config(state="normal")
                 self._llm_text.delete("1.0", tk.END)
                 title = f"🎯 LLM {mode}深度分析报告\n"
@@ -483,6 +522,8 @@ class DanmakuAnalysisWindow:
                 self._llm_text.insert(tk.END, result_text, "body")
                 self._llm_text.config(state="disabled")
                 self._llm_btn.config(state="normal")
+                # 上半区覆盖显示 LLM 摘要
+                self._show_llm_summary(result_text, mode, model)
                 # 切换到LLM标签页
                 self._bottom_nb.select(1)
                 self._status_lbl.config(text="LLM分析完成", fg=C["success"])
@@ -515,6 +556,65 @@ class DanmakuAnalysisWindow:
             self.window.after(0, _update_ui, nonlocal_text)
 
         threading.Thread(target=_worker, daemon=True).start()
+
+    def _load_local_llm_result(self):
+        """加载本地已有的 LLM 分析结果"""
+        if not self._current_bvid:
+            return
+        from config import DATA_DIR
+        bv_dir = os.path.join(DATA_DIR, self._current_bvid, "danmaku")
+        if not os.path.isdir(bv_dir):
+            return
+        files = [f for f in os.listdir(bv_dir) if f.startswith("llm_") and f.endswith(".json")]
+        if not files:
+            return
+        mode = self._mode_var.get()
+        mode_files = [f for f in files if f"_{mode}_" in f]
+        if not mode_files:
+            return
+        latest = max(mode_files, key=lambda f: os.path.getmtime(os.path.join(bv_dir, f)))
+        try:
+            with open(os.path.join(bv_dir, latest), "r", encoding="utf-8") as f:
+                data = json.load(f)
+            result_text = data.get("analysis", "")
+            model = data.get("model", "unknown")
+            if result_text:
+                self._show_llm_summary(result_text, mode, model)
+                # 也填充底部 LLM 标签页
+                self._llm_text.config(state="normal")
+                self._llm_text.delete("1.0", tk.END)
+                self._llm_text.insert(tk.END, f"🎯 LLM {mode}深度分析报告\n", "head")
+                self._llm_text.insert(tk.END, f"BV: {self._current_bvid}  |  数据: {data.get('data_count', 0)}条  |  模型: {model}\n\n", "dim")
+                self._llm_text.insert(tk.END, result_text, "body")
+                self._llm_text.config(state="disabled")
+                self._status_lbl.config(text=f"已加载本地 LLM 分析结果（{latest}）", fg=C["success"])
+                self.window.after(100, lambda: self._bottom_nb.select(1))
+                self._llm_btn.config(state="normal")
+        except Exception as e:
+            if self.gui and hasattr(self.gui, 'log_panel'):
+                self.gui.log_panel.add_log("WARNING", f"加载本地LLM结果失败: {e}")
+
+    def _show_llm_summary(self, result_text: str, mode: str, model: str):
+        """在上半区显示 LLM 分析结果，隐藏情绪饼图和关键词"""
+        self._left_frame.pack_forget()
+        self._right_frame.pack_forget()
+        self._llm_summary.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, ipadx=6, ipady=6)
+        self._summ_vsb.pack(side=tk.RIGHT, fill=tk.Y)
+        self._llm_summary.config(state="normal")
+        self._llm_summary.delete("1.0", tk.END)
+        title = f"🎯 LLM {mode}深度分析报告\n"
+        meta = f"BV: {self._current_bvid}  |  数据: {len(self._texts)}条  |  模型: {model}\n\n"
+        self._llm_summary.insert(tk.END, title, "summ_head")
+        self._llm_summary.insert(tk.END, meta, "summ_dim")
+        self._llm_summary.insert(tk.END, result_text, "summ_body")
+        self._llm_summary.config(state="disabled")
+
+    def _restore_charts(self):
+        """恢复显示情绪饼图和关键词，隐藏 LLM 摘要"""
+        self._llm_summary.pack_forget()
+        self._summ_vsb.pack_forget()
+        self._left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, ipadx=6, ipady=6)
+        self._right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(10, 0), ipadx=6, ipady=6)
 
     def _draw_pie(self, sentiment: dict):
         c = self._pie_canvas

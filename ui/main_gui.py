@@ -14,8 +14,11 @@ from tkinter import ttk, messagebox
 import threading
 import time
 import os
+import logging
 from datetime import datetime, timedelta
 from io import BytesIO
+
+logger = logging.getLogger(__name__)
 
 sys_path = os.path.dirname(os.path.dirname(__file__))
 import sys
@@ -65,6 +68,7 @@ class BilibiliMonitorGUI:
             root.minsize(1100, 700)
 
         self.root = root
+        self._set_window_icon()
         _cfg = load_config()
         _saved_theme = _cfg.get("ui", {}).get("theme", "dark")
         apply_theme(root, _saved_theme)
@@ -76,6 +80,7 @@ class BilibiliMonitorGUI:
         self._video_timers    = {}
         self._fetching_set    = set()
         self._data_lock = threading.Lock()  # 保护 shared data（history_data, prediction_results, video_dbs）
+        self._tick_counter = 0  # 用于周期性维护任务
 
         # 数据
         self.monitored_videos   = []
@@ -95,6 +100,17 @@ class BilibiliMonitorGUI:
         self._load_watch_list()
         self._start_auto_refresh()
         self._file_logger.start_midnight_checker(self.root)
+
+    def _set_window_icon(self):
+        try:
+            from PIL import Image, ImageTk
+            icon_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'assets', 'app_icon.png')
+            if os.path.exists(icon_path):
+                img = Image.open(icon_path)
+                photo = ImageTk.PhotoImage(img)
+                self.root.iconphoto(True, photo)
+        except Exception as e:
+            logger.debug("设置窗口图标失败: %s", e)
 
     # ──────────────────────────────────────────
     # UI 构建
@@ -300,8 +316,8 @@ class BilibiliMonitorGUI:
             x = self._gear_btn.winfo_rootx()
             y = self._gear_btn.winfo_rooty() + self._gear_btn.winfo_height()
             self._settings_menu.tk_popup(x, y)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("弹出设置菜单失败: %s", e)
 
     def _create_theme_button(self, parent):
         """创建主题切换按钮"""
@@ -406,8 +422,8 @@ class BilibiliMonitorGUI:
             config = load_config()
             config.setdefault("ui", {})["theme"] = new_theme
             save_config(config)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("保存主题配置失败: %s", e)
 
     # ──────────────────────────────────────────
     # 业务逻辑（调度层，具体实现在 monitor_service）
@@ -478,6 +494,17 @@ class BilibiliMonitorGUI:
             self._mode_pill.config(text="● 正常模式", fg=C["success"])
 
         self._sb("interval", f"正常{self.DEFAULT_INTERVAL}s / 快速{self.FAST_INTERVAL}s")
+
+        # 每300 tick（≈5min）执行一次数据库WAL checkpoint，控制WAL文件膨胀
+        self._tick_counter = (self._tick_counter + 1) % 300
+        if self._tick_counter == 0:
+            db.wal_checkpoint()
+            for vdb in self.video_dbs.values():
+                try:
+                    vdb._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                except Exception:
+                    pass
+
         self._global_tick_job = self.root.after(1000, self._global_tick)
 
     def _on_single_fetch_done(self, bvid):
@@ -853,8 +880,8 @@ class BilibiliMonitorGUI:
             try:
                 db.sync_from_video_db(bvid)
                 self.video_dbs[bvid].close()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("关闭视频数据库失败 %s: %s", bvid, e)
         db.close()
         bilibili_api.close()
         self.root.destroy()

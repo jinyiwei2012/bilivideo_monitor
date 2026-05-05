@@ -19,8 +19,8 @@ class WeightSettingsWindow:
     """权重设置窗口（现代化风格）"""
 
     def __init__(self, parent=None):
-        self.dlg = DialogBase(parent, "算法权重设置", "760x560",
-                              resizable=(True, True))
+        self.dlg = DialogBase(parent, "算法权重设置", "860x640",
+                              resizable=(True, True), modal=False)
         self.window = self.dlg.window
 
         self.weight_vars = {}

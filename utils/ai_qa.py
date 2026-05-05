@@ -28,13 +28,13 @@ class AIQASession:
 
     def _load_config(self):
         try:
-            from config import load_config
-            cfg = load_config().get("ai", {})
-            self.api_key = cfg.get("api_key", "")
-            self.endpoint = cfg.get("endpoint", "") or "https://api.openai.com/v1/chat/completions"
-            self.model = cfg.get("model", "gpt-4o-mini")
-        except Exception:
-            pass
+            from config import get_active_ai_profile
+            profile = get_active_ai_profile()
+            self.api_key = profile.get("api_key", "")
+            self.endpoint = profile.get("endpoint", "") or "https://api.openai.com/v1/chat/completions"
+            self.model = profile.get("model", "gpt-4o-mini")
+        except Exception as e:
+            logger.debug("加载AI配置失败: %s", e)
 
     def set_context(self, monitored_videos: List[Dict],
                     history_data: Dict = None,
@@ -96,13 +96,13 @@ class AIQASession:
         if not self.api_key:
             # 尝试从配置读取
             try:
-                from config import load_config
-                cfg = load_config().get("ai", {})
-                self.api_key = cfg.get("api_key", "")
-                self.endpoint = cfg.get("endpoint", "") or "https://api.openai.com/v1/chat/completions"
-                self.model = cfg.get("model", "gpt-4o-mini")
-            except Exception:
-                pass
+                from config import get_active_ai_profile
+                profile = get_active_ai_profile()
+                self.api_key = profile.get("api_key", "")
+                self.endpoint = profile.get("endpoint", "") or "https://api.openai.com/v1/chat/completions"
+                self.model = profile.get("model", "gpt-4o-mini")
+            except Exception as e:
+                logger.debug("从配置加载API密钥失败: %s", e)
 
         if self.api_key:
             answer = self._ask_llm(question)
@@ -220,8 +220,8 @@ class AIQASession:
                         if alerts:
                             alert_count += len(alerts)
                             details.extend(alerts[:2])
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("生成AI预警报告失败: %s", e)
             if alert_count > 0:
                 return f"发现 {alert_count} 条异常预警：\n" + "\n".join(details[:5])
             return "当前无异常预警。"

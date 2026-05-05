@@ -104,6 +104,25 @@ def load_config() -> Dict[str, Any]:
     return config
 
 
+def get_active_ai_profile() -> dict:
+    """获取当前选中的 LLM 配置"""
+    cfg = load_config().get("ai", {})
+    profiles = cfg.get("profiles", [])
+    selected = cfg.get("selected_profile", "")
+    if profiles:
+        for p in profiles:
+            if p.get("name") == selected:
+                return p
+        return profiles[0]
+    # 旧版兼容
+    return {
+        "name": "默认配置",
+        "api_key": cfg.get("api_key", ""),
+        "endpoint": cfg.get("endpoint", "") or "https://api.openai.com/v1/chat/completions",
+        "model": cfg.get("model", "gpt-4o-mini"),
+    }
+
+
 def save_config(config: Dict[str, Any]) -> bool:
     """保存配置文件"""
     try:
@@ -126,5 +145,6 @@ __all__ = [
     'THRESHOLD_NAMES',
     'DEFAULT_CONFIG',
     'load_config',
-    'save_config'
+    'save_config',
+    'get_active_ai_profile'
 ]

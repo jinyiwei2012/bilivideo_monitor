@@ -5,9 +5,12 @@ Bass扩散模型
 """
 
 import numpy as np
+import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 from algorithms.base import BaseAlgorithm, PredictionResult
+
+logger = logging.getLogger(__name__)
 
 _TS_FMT = '%Y-%m-%d %H:%M:%S'
 
@@ -228,7 +231,7 @@ class BassDiffusionAlgorithm(BaseAlgorithm):
                     fit_quality = max(0, 1 - cv)
                     base_confidence = 0.6 * base_confidence + 0.4 * fit_quality
                     
-            except Exception:
-                pass
-        
+            except Exception as e:
+                logger.debug("Bass扩散置信度计算失败: %s", e)
+
         return min(0.95, base_confidence)

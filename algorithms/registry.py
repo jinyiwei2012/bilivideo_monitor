@@ -5,9 +5,12 @@
 from typing import Dict, List, Optional, Any, Tuple
 import os
 import importlib
+import logging
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed, ProcessPoolExecutor
 import time
+
+logger = logging.getLogger(__name__)
 
 try:
     from .weight_manager import weight_manager
@@ -191,8 +194,8 @@ class AlgorithmRegistry:
             try:
                 accuracy = algo.get_accuracy() if hasattr(algo, 'get_accuracy') else 0.5
                 weight_manager.update_accuracy(algorithm_name, accuracy)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("更新算法准确率失败 %s: %s", algorithm_name, e)
     
     @classmethod
     def get_weights_info(cls) -> List[Dict]:
@@ -203,7 +206,8 @@ class AlgorithmRegistry:
         
         try:
             return weight_manager.get_algorithm_info(names)
-        except Exception:
+        except Exception as e:
+            logger.debug("获取算法权重信息失败: %s", e)
             return [{'name': n, 'accuracy': 0.5, 'weight': 1.0} for n in names]
     
     @classmethod

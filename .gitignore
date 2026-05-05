@@ -3,6 +3,9 @@ __pycache__/
 *.pyo
 
 data/**/*.db
+data/**/*.db-shm
+data/**/*.db-wal
+data/**/danmaku/
 data/log/
 core/data/
 
@@ -31,3 +34,4 @@ reports/
 
 # 敏感配置文件（含Cookie/API密钥）
 config/network_config.json
+data/settings.json

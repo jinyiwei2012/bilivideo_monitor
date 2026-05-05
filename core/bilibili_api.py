@@ -90,6 +90,25 @@ class BilibiliAPI:
         
         # cookie支持
         self._cookies: Dict = {}
+        # 启动时加载已保存的 Cookie
+        self._load_saved_cookies()
+
+    def _load_saved_cookies(self):
+        """从 network_config.json 加载已保存的 Cookie"""
+        try:
+            import json, os
+            cfg_path = os.path.join(os.path.dirname(os.path.dirname(__file__)),
+                                    'config', 'network_config.json')
+            if os.path.exists(cfg_path):
+                with open(cfg_path, 'r', encoding='utf-8') as f:
+                    net_cfg = json.load(f)
+                cookies = net_cfg.get("cookies", {})
+                if cookies:
+                    self._cookies = cookies
+                    self.session.cookies.update(cookies)
+                    logger.info(f"已加载 {len(cookies)} 个 Cookie")
+        except Exception as e:
+            logger.warning(f"加载 Cookie 失败: {e}")
     
     def _update_headers(self, extra_headers: Dict = None):
         """更新请求头"""
@@ -291,8 +310,8 @@ class BilibiliAPI:
             data = resp.json()
             if data.get("code") == 0:
                 return data.get("data")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"公共API请求失败: {e}")
         return None
 
     def _get_retry_delay(self, attempt: int) -> float:
@@ -510,9 +529,11 @@ class BilibiliAPI:
                     import hashlib
                     self._wbi_key = hashlib.md5(mix.encode()).hexdigest()
                     return
-            self._wbi_key = "ea1db124afe2e3c1"
-        except Exception:
-            self._wbi_key = "ea1db124afe2e3c1"
+            self._wbi_key = None
+            logger.warning("WBI密钥刷新失败: 无法解析密钥图片URL")
+        except Exception as e:
+            self._wbi_key = None
+            logger.warning(f"WBI密钥刷新失败: {e}")
 
     def _wbi_sign(self, params: dict) -> dict:
         """为请求参数添加 WBI 签名"""
@@ -640,14 +661,23 @@ class BilibiliAPI:
                 if nav and nav.get("isLogin"):
                     login_status = True
                     login_name = nav.get("uname", "")
-            except Exception:
-                pass
+                else:
+                    # nav 返回了有效响应但未登录 — API 可能拒绝了这个 cookie
+                    # 但仍标记为有 cookie，只是登录验证失败
+                    logger.debug("nav 接口返回未登录，Cookie 可能已过期")
+            except Exception as e:
+                # API 调用异常（网络错误等），但有 cookie，标记为待验证
+                logger.debug(f"登录验证请求失败: {e}")
+        else:
+            # 尝试记住上次的 cookies（即使 session 里没有）
+            has_sessdata = bool(self._cookies.get("SESSDATA"))
+
         return {
             'consecutive_412_errors': self._consecutive_412_errors,
             'min_request_interval': self._min_request_interval,
             'proxy_count': len(self.proxies),
             'has_cookies': bool(self._cookies),
-            'has_sessdata': has_sessdata,
+            'has_sessdata': bool(has_sessdata),
             'is_login': login_status,
             'login_name': login_name,
         }
@@ -662,8 +692,8 @@ class BilibiliAPI:
         """关闭 HTTP Session，释放连接池。"""
         try:
             self.session.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("关闭HTTP Session失败: %s", e)
 
     # ── QR码登录 ─────────────────────────────────────────
     def get_qrcode_login_url(self) -> Optional[Dict]:
@@ -681,7 +711,8 @@ class BilibiliAPI:
             if data.get("code") == 0:
                 d = data.get("data", {})
                 return {"url": d.get("url", ""), "qrcode_key": d.get("qrcode_key", "")}
-        except Exception:
+        except Exception as e:
+            logger.warning(f"获取二维码失败: {e}")
             return None
         return None
 

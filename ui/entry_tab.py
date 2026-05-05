@@ -3,8 +3,11 @@
 """
 import tkinter as tk
 from tkinter import ttk, messagebox, LEFT, RIGHT, BOTH, X, Y, TOP, BOTTOM
+import logging
 from typing import List, Dict, Optional
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 from core.database import db
 from ui.theme import C
@@ -216,8 +219,8 @@ class EntryTab:
                     ts = str(rec.get("timestamp", ""))[:16]
                     if ts:
                         ts_set.add(ts)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("刷新快照时间下拉列表失败: %s", e)
         ts_list = sorted(ts_set, reverse=True)
         self._snap_combo["values"] = ts_list[:200]
 
@@ -360,8 +363,8 @@ class EntryTab:
                             if rec_ts == dt_str[:16]:
                                 existing_snap[bvid] = dict(rec)
                                 break
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("加载快照数据失败: %s", e)
 
         return existing_ms, existing_snap
 

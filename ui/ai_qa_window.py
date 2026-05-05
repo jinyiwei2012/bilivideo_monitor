@@ -13,7 +13,7 @@ class AIQAWindow:
     """AI智能问答窗口"""
 
     def __init__(self, parent=None, gui=None):
-        self.dlg = DialogBase(parent, "AI智能问答助手", "720x560",
+        self.dlg = DialogBase(parent, "AI智能问答助手", "820x640",
                               resizable=(True, True), modal=False)
         self.window = self.dlg.window
         self.gui = gui

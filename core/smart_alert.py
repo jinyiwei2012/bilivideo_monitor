@@ -63,8 +63,8 @@ class AnomalyDetector:
         try:
             last_hours = (datetime.fromisoformat(recent[-1]["timestamp"]) -
                           datetime.fromisoformat(recent[-2]["timestamp"])).total_seconds() / 3600
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("计算最近增速时间间隔失败: %s", e)
         last_rate = last_growth / last_hours if last_hours > 0 else 0
 
         if avg_rate > 10 and last_rate > avg_rate * 3:
@@ -92,8 +92,8 @@ class AnomalyDetector:
                     g = (recent[i].get("view_count", 0) -
                          recent[i-1].get("view_count", 0)) / h
                     growths.append(g)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("计算历史增速失败: %s", e)
 
         if len(growths) < 4:
             return None

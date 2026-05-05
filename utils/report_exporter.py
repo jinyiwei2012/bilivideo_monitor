@@ -3,8 +3,11 @@
 """
 import os
 import io
+import logging
 from datetime import datetime
 from typing import List, Dict, Optional
+
+logger = logging.getLogger(__name__)
 
 
 _OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "reports")
@@ -79,8 +82,8 @@ def export_html(videos: List[Dict], output_path: Optional[str] = None,
                 <td class="num">{r.favorite_rate:.2f}%</td>
                 <td class="num">{r.share_rate:.2f}%</td>
             </tr>"""
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("生成报告HTML行失败: %s", e)
 
     html = f"""<!DOCTYPE html>
 <html lang="zh-CN">

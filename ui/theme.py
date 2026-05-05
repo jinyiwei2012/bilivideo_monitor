@@ -3,7 +3,10 @@
 支持 CustomTkinter 与原生 tkinter 混用
 """
 import tkinter as tk
+import logging
 import customtkinter as ctk
+
+logger = logging.getLogger(__name__)
 
 # 暗色主题配色（GitHub Dark 风格）
 THEME_DARK = {
@@ -226,14 +229,14 @@ def _recolor_widget_tree(widget):
         for attr, c_key in _WIDGET_OTHER[cls]:
             try:
                 widget[attr] = C[c_key]
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("刷新控件属性失败 %s.%s: %s", cls, attr, e)
 
     if cls == "tk.Canvas":
         try:
             widget.configure(bg=C.get("canvas_bg", C["bg_base"]))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("刷新Canvas背景失败: %s", e)
 
     if cls == "tk.Text":
         _recolor_text_tags(widget)
@@ -243,8 +246,8 @@ def _recolor_widget_tree(widget):
             widget.configure(bg=C["bg_elevated"], fg=C["text_1"],
                              activebackground=C["bg_hover"],
                              activeforeground=C["text_1"])
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("刷新Menu样式失败: %s", e)
 
     for child in widget.winfo_children():
         _recolor_widget_tree(child)
@@ -261,8 +264,8 @@ def _try_recolor(widget, cls, attr):
         else:
             return
         widget.configure(**{attr: new_val})
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("尝试刷新控件颜色失败 %s.%s: %s", cls, attr, e)
 
 
 def _recolor_text_tags(text_widget):
@@ -288,8 +291,8 @@ def _recolor_text_tags(text_widget):
     for tag, (c_key, kw) in tag_map.items():
         try:
             text_widget.tag_configure(tag, **{kw: C[c_key]})
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("刷新Text标签颜色失败 %s: %s", tag, e)
 
 
 # ── ttk Style 配置 ─────────────────────────────
@@ -487,5 +490,5 @@ def apply_rounded_style(widget, radius_key="radius_md"):
             highlightbackground=C.get("border_default", "#30363d"),
             relief="flat"
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("应用圆角样式失败: %s", e)

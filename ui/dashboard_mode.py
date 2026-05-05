@@ -3,8 +3,11 @@
 """
 import tkinter as tk
 from tkinter import ttk
+import logging
 from typing import Optional
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 from ui.theme import C
 from ui.helpers import fmt_num
@@ -277,8 +280,8 @@ class DashboardWindow:
                                      bg=_DASH_COLORS["card_bg"],
                                      fg=_DASH_COLORS["text_1"],
                                      font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("渲染预警卡片失败: %s", e)
 
         if not found_alert:
             tk.Label(alert_frame, text="✅ 暂无预警",
@@ -313,10 +316,10 @@ class DashboardWindow:
                     tk.Label(row, text=f"{r.health_score:.0f} {r.health_grade}",
                              bg=_DASH_COLORS["card_bg"], fg=gc,
                              font=("Consolas", 11, "bold")).pack(side=tk.RIGHT)
-                except Exception:
-                    pass
-        except Exception:
-            pass
+                except Exception as e:
+                    logger.debug("渲染单个视频健康探针失败: %s", e)
+        except Exception as e:
+            logger.debug("渲染健康探针区域失败: %s", e)
 
 
 def _fmt(n):

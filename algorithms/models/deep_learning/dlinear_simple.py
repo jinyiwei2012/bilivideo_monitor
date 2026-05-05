@@ -4,9 +4,12 @@ DLinear简化版 (DLinear Simplified)
 """
 
 import numpy as np
+import logging
 from typing import Dict, Any, List, Tuple, Optional
 from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
+
+logger = logging.getLogger(__name__)
 
 
 class DLinearSimpleAlgorithm(BaseAlgorithm):
@@ -170,8 +173,8 @@ class DLinearSimpleAlgorithm(BaseAlgorithm):
                         pred = np.polyval(coeffs, np.arange(split, i))
                         actual = y[split:]
                         errors.append(np.mean(np.abs(pred - actual) / (np.abs(actual) + 1e-6)))
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("DLinear置信度计算失败: %s", e)
 
             if errors:
                 confidence = max(0.3, 1.0 - np.mean(errors))

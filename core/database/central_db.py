@@ -4,10 +4,13 @@ import sqlite3
 import os
 import re
 import threading
+import logging
 from datetime import datetime
 from typing import List, Dict, Optional, Any
 
 from .connection import _ConnectionCtx, _http_session
+
+logger = logging.getLogger(__name__)
 from .models import _validate_bvid, VideoInfo, MonitorRecord, PredictionRecord
 from .video_db import VideoDatabase
 
@@ -174,10 +177,13 @@ class Database:
                 if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', col_name):
                     continue
                 if col_name not in existing:
+                    if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*(\s+DEFAULT\s+[^\s;]+)?$', col_def):
+                        logger.warning(f"迁移跳过: {table}.{col_name} 含不安全的列定义 {col_def}")
+                        continue
                     try:
                         cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_def}")
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning(f"迁移失败 {table}.{col_name}: {e}")
 
     def get_video_db(self, bvid: str) -> VideoDatabase:
         """获取单个视频的数据库实例"""
@@ -517,9 +523,17 @@ class Database:
             print(f"里程碑删除失败: {e}")
             return False
 
+    def wal_checkpoint(self):
+        """周期性 WAL checkpoint，控制 WAL 文件大小。"""
+        try:
+            self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        except Exception as e:
+            logger.debug("WAL checkpoint 失败: %s", e)
+
     def close(self):
         """关闭数据库连接，刷新 WAL。"""
         try:
+            self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
             self._conn.commit()
             self._conn.close()
         except Exception as e:

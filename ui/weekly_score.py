@@ -4,7 +4,10 @@
 """
 import tkinter as tk
 from tkinter import ttk, messagebox
+import logging
 from typing import List, Dict, Optional
+
+logger = logging.getLogger(__name__)
 
 from ui.theme import C
 from ui.helpers import FONT, FONT_SM, FONT_MONO
@@ -23,7 +26,7 @@ class WeeklyScoreWindow:
                  monitored_videos: Optional[List[Dict]] = None,
                  video_dbs: Optional[Dict] = None):
         self.dlg = DialogBase(parent, "周刊分数计算", "740x600",
-                              resizable=(True, True))
+                              resizable=(True, True), modal=False)
         self.window = self.dlg.window
         self.monitored_videos = monitored_videos or []
         self.video_dbs = video_dbs or {}
@@ -155,8 +158,8 @@ class WeeklyScoreWindow:
                             danmaku_count=latest.get("danmaku_count", 0),
                             reply_count=latest.get("reply_count", 0),
                         )
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("从数据库加载视频数据失败: %s", e)
             return VideoData(
                 view_count=video.get("view_count", 0),
                 like_count=video.get("like_count", 0),

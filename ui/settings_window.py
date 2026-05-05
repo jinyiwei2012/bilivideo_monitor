@@ -5,7 +5,10 @@
 import json
 import os
 import tkinter as tk
+import logging
 from tkinter import ttk, messagebox
+
+logger = logging.getLogger(__name__)
 
 from ui.theme import C
 from ui.helpers import FONT, FONT_SM
@@ -17,7 +20,7 @@ class SettingsWindow:
     """统一设置窗口"""
 
     def __init__(self, parent=None):
-        self.dlg = DialogBase(parent, "系统设置", "740x620", resizable=(True, True))
+        self.dlg = DialogBase(parent, "系统设置", "860x680", resizable=(True, True), modal=False)
         self.window = self.dlg.window
 
         from config import load_config
@@ -37,8 +40,8 @@ class SettingsWindow:
             try:
                 with open(self._net_cfg_file, 'r', encoding='utf-8') as f:
                     return json.load(f)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("加载网络配置失败: %s", e)
         return {'proxies': [], 'cookies': {}}
 
     def _save_net_config(self):
@@ -142,34 +145,162 @@ class SettingsWindow:
         page = tk.Frame(nb, bg=C["bg_base"])
         nb.add(page, text="  AI配置  ")
 
-        sec = self._section(page, "LLM 接口参数")
+        sec = self._section(page, "LLM 配置管理")
         ai_cfg = self._cfg.get("ai", {})
-        self.ai_api_key = self._field(sec, "API密钥", ai_cfg.get("api_key", ""), show="*")
-        self.ai_endpoint = self._field(sec, "接口地址",
-            ai_cfg.get("endpoint", "") or "https://api.openai.com/v1/chat/completions")
-        self.ai_model = self._field(sec, "模型名称", ai_cfg.get("model", "gpt-4o-mini"))
 
-        tk.Label(sec, text="支持任何 OpenAI 兼容接口",
-                 bg=C["bg_elevated"], fg=C["text_3"],
-                 font=("Microsoft YaHei UI", 8)).pack(anchor="w", padx=4, pady=(8, 0))
+        # 当前配置选择
+        sel_row = tk.Frame(sec, bg=C["bg_elevated"])
+        sel_row.pack(fill=tk.X, pady=(0, 8))
+        tk.Label(sel_row, text="当前配置:", bg=C["bg_elevated"], fg=C["text_2"],
+                 font=FONT, width=16, anchor="w").pack(side=tk.LEFT)
+        self._ai_profile_var = tk.StringVar()
+        self._ai_profile_cb = ttk.Combobox(sel_row, textvariable=self._ai_profile_var,
+                                            width=38, font=FONT, state="readonly")
+        self._ai_profile_cb.pack(side=tk.LEFT, padx=(8, 0))
+        self._ai_profile_cb.bind("<<ComboboxSelected>>", self._on_ai_profile_selected)
 
+        # 初始化 profiles
+        profiles = ai_cfg.get("profiles", [])
+        if not profiles:
+            # 从旧字段迁移
+            old_key = ai_cfg.get("api_key", "")
+            old_ep = ai_cfg.get("endpoint", "") or "https://api.openai.com/v1/chat/completions"
+            old_mdl = ai_cfg.get("model", "gpt-4o-mini")
+            if old_key:
+                profiles.append({"name": "默认配置", "api_key": old_key,
+                                 "endpoint": old_ep, "model": old_mdl})
+        if not profiles:
+            profiles.append({"name": "默认配置", "api_key": "",
+                             "endpoint": "https://api.openai.com/v1/chat/completions",
+                             "model": "gpt-4o-mini"})
+        self._profiles = profiles
+        selected = ai_cfg.get("selected_profile", profiles[0]["name"])
+        names = [p["name"] for p in profiles]
+        self._ai_profile_cb["values"] = names
+        if selected in names:
+            self._ai_profile_var.set(selected)
+        else:
+            self._ai_profile_var.set(names[0])
+
+        # ── 配置详情 ──
+        detail = tk.Frame(sec, bg=C["bg_elevated"],
+                          highlightthickness=1, highlightbackground=C["border_sub"])
+        detail.pack(fill=tk.X, pady=4, ipadx=10, ipady=10)
+        tk.Label(detail, text="配置详情", bg=C["bg_elevated"], fg=C["text_2"],
+                 font=("Microsoft YaHei UI", 8, "bold")).pack(anchor="w", pady=(0, 6))
+
+        def _field_wrapper(parent, label):
+            f = tk.Frame(parent, bg=C["bg_elevated"])
+            f.pack(fill=tk.X, pady=3)
+            tk.Label(f, text=label, bg=C["bg_elevated"], fg=C["text_2"],
+                     font=FONT, width=16, anchor="w").pack(side=tk.LEFT)
+            e = ttk.Entry(f, width=40, font=FONT)
+            e.pack(side=tk.LEFT, padx=(8, 0))
+            return e
+
+        self._ai_name_entry = _field_wrapper(detail, "配置名称")
+        self._ai_key_entry = _field_wrapper(detail, "API密钥")
+        self._ai_key_entry.config(show="*")
+        self._ai_endpoint_entry = _field_wrapper(detail, "接口地址")
+        self._ai_model_entry = _field_wrapper(detail, "模型名称")
+
+        # ── 操作按钮 ──
+        btn_row = tk.Frame(sec, bg=C["bg_elevated"])
+        btn_row.pack(fill=tk.X, pady=(6, 0))
+        ttk.Button(btn_row, text="💾 保存配置",
+                   command=self._save_ai_profile).pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Button(btn_row, text="🗑 删除配置",
+                   command=self._delete_ai_profile).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_row, text="+ 新增",
+                   command=self._new_ai_profile).pack(side=tk.LEFT, padx=4)
+
+        # ── 快速填入 ──
         preset_f = tk.Frame(page, bg=C["bg_base"])
-        preset_f.pack(fill=tk.X, padx=16, pady=(4, 0))
+        preset_f.pack(fill=tk.X, padx=16, pady=(8, 0))
         tk.Label(preset_f, text="快速填入:", bg=C["bg_base"], fg=C["text_2"],
                  font=FONT).pack(side=tk.LEFT)
         presets = {
             "DeepSeek": ("https://api.deepseek.com/v1/chat/completions", "deepseek-chat"),
             "OpenAI":   ("https://api.openai.com/v1/chat/completions", "gpt-4o-mini"),
             "Claude":   ("https://api.anthropic.com/v1/messages", "claude-sonnet-4-6"),
+            "SiliconFlow": ("https://api.siliconflow.cn/v1/chat/completions", "deepseek-ai/DeepSeek-V3"),
         }
         for name, (ep, mdl) in presets.items():
             ttk.Button(preset_f, text=name, command=lambda ep=ep, mdl=mdl: (
-                self._clear_entry(self.ai_endpoint, ep),
-                self._clear_entry(self.ai_model, mdl),
+                self._clear_entry(self._ai_endpoint_entry, ep),
+                self._clear_entry(self._ai_model_entry, mdl),
             )).pack(side=tk.LEFT, padx=2)
 
-        ttk.Button(sec, text="测试连接",
-                   command=self._test_ai_connection).pack(anchor="w", padx=4, pady=(8, 0))
+        ttk.Button(preset_f, text="测试连接",
+                   command=self._test_ai_connection).pack(side=tk.LEFT, padx=(10, 0))
+
+        self._ai_status_lbl = tk.Label(sec, text="", bg=C["bg_elevated"],
+                                        fg=C["text_3"], font=FONT_SM)
+        self._ai_status_lbl.pack(anchor="w", padx=4, pady=(6, 0))
+
+        # 首次加载选中配置
+        self._on_ai_profile_selected()
+
+    def _on_ai_profile_selected(self, event=None):
+        """当 Combobox 选中项改变时，填充配置详情"""
+        name = self._ai_profile_var.get()
+        for p in self._profiles:
+            if p["name"] == name:
+                self._clear_entry(self._ai_name_entry, p.get("name", ""))
+                self._clear_entry(self._ai_key_entry, p.get("api_key", ""))
+                self._clear_entry(self._ai_endpoint_entry, p.get("endpoint", ""))
+                self._clear_entry(self._ai_model_entry, p.get("model", ""))
+                break
+
+    def _save_ai_profile(self):
+        """保存当前编辑的配置到 profiles 列表"""
+        name = self._ai_name_entry.get().strip()
+        if not name:
+            messagebox.showwarning("提示", "配置名称不能为空", parent=self.window)
+            return
+        api_key = self._ai_key_entry.get().strip()
+        endpoint = self._ai_endpoint_entry.get().strip() or "https://api.openai.com/v1/chat/completions"
+        model = self._ai_model_entry.get().strip() or "gpt-4o-mini"
+
+        # 更新或新增
+        found = False
+        for p in self._profiles:
+            if p["name"] == name:
+                p.update({"api_key": api_key, "endpoint": endpoint, "model": model})
+                found = True
+                break
+        if not found:
+            self._profiles.append({"name": name, "api_key": api_key,
+                                    "endpoint": endpoint, "model": model})
+
+        # 刷新 combobox
+        names = [p["name"] for p in self._profiles]
+        self._ai_profile_cb["values"] = names
+        self._ai_profile_var.set(name)
+        self._ai_status_lbl.config(text=f"配置「{name}」已保存", fg=C["success"])
+
+    def _delete_ai_profile(self):
+        """删除当前选中的配置"""
+        name = self._ai_profile_var.get()
+        if not name:
+            return
+        if len(self._profiles) <= 1:
+            messagebox.showwarning("提示", "至少保留一个配置", parent=self.window)
+            return
+        if not messagebox.askyesno("确认删除", f"确定删除配置「{name}」？", parent=self.window):
+            return
+        self._profiles = [p for p in self._profiles if p["name"] != name]
+        names = [p["name"] for p in self._profiles]
+        self._ai_profile_cb["values"] = names
+        self._ai_profile_var.set(names[0])
+        self._on_ai_profile_selected()
+
+    def _new_ai_profile(self):
+        """清空编辑字段以新增配置"""
+        self._clear_entry(self._ai_name_entry, "")
+        self._clear_entry(self._ai_key_entry, "")
+        self._clear_entry(self._ai_endpoint_entry, "https://api.openai.com/v1/chat/completions")
+        self._clear_entry(self._ai_model_entry, "gpt-4o-mini")
 
     # ──── 代理 ────
     def _build_proxy_tab(self, nb):
@@ -315,9 +446,9 @@ class SettingsWindow:
 
     def _test_ai_connection(self):
         """测试 AI API 密钥可用性（后台线程，不阻塞 UI）"""
-        api_key = self.ai_api_key.get().strip()
-        endpoint = self.ai_endpoint.get().strip()
-        model = self.ai_model.get().strip()
+        api_key = self._ai_key_entry.get().strip()
+        endpoint = self._ai_endpoint_entry.get().strip()
+        model = self._ai_model_entry.get().strip()
 
         if not api_key:
             messagebox.showwarning("提示", "请先填写 API 密钥", parent=self.window)
@@ -468,8 +599,8 @@ class SettingsWindow:
                     self.gui.log_panel.add_log("INFO", f"Cookie 登录验证成功: {login_name}")
                 else:
                     self.gui.log_panel.add_log("WARNING", "Cookie 登录验证失败，请检查 Cookie 是否有效")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("检查Cookie登录状态失败: %s", e)
         self._refresh_status()
 
     # ──── Cookie: 清空 ────
@@ -706,10 +837,9 @@ class SettingsWindow:
         self._cfg["prediction"]["prediction_hours"] = pred_hours
         self._cfg["prediction"]["min_confidence"] = confidence
         self._cfg["ai"] = {
-            "enabled": bool(self.ai_api_key.get().strip()),
-            "api_key": self.ai_api_key.get().strip(),
-            "endpoint": self.ai_endpoint.get().strip(),
-            "model": self.ai_model.get().strip(),
+            "enabled": any(p.get("api_key") for p in self._profiles),
+            "profiles": self._profiles,
+            "selected_profile": self._ai_profile_var.get(),
         }
         save_config(self._cfg)
         self._save_net_config()

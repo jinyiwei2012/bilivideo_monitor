@@ -5,10 +5,13 @@ Gompertz增长曲线模型
 """
 
 import numpy as np
+import logging
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 from scipy.optimize import curve_fit
 from algorithms.base import BaseAlgorithm
+
+logger = logging.getLogger(__name__)
 
 
 _TS_FMT = '%Y-%m-%d %H:%M:%S'
@@ -211,7 +214,7 @@ class GompertzGrowthAlgorithm(BaseAlgorithm):
                 fit_quality = max(0, 1 - relative_error)
                 
                 base_conf = 0.5 * base_conf + 0.5 * fit_quality
-            except Exception:
-                pass
-        
+            except Exception as e:
+                logger.debug("Gompertz置信度计算失败: %s", e)
+
         return min(0.95, base_conf)

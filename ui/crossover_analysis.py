@@ -4,9 +4,12 @@
 """
 import tkinter as tk
 from tkinter import ttk, messagebox, LEFT, RIGHT, BOTH, X, Y, W
+import logging
 from typing import List, Dict, Optional, Tuple
 from datetime import datetime, timedelta
 import math
+
+logger = logging.getLogger(__name__)
 
 from core.database import db
 from ui.theme import C
@@ -39,17 +42,17 @@ def _parse_ts(ts) -> Optional[datetime]:
     if isinstance(ts, str):
         try:
             return datetime.fromisoformat(ts)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("解析ISO时间格式失败: %s", e)
         try:
             return datetime.fromtimestamp(float(ts))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("解析时间戳格式失败: %s", e)
     if isinstance(ts, (int, float)):
         try:
             return datetime.fromtimestamp(float(ts))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("数值型时间戳解析失败: %s", e)
     return None
 
 
@@ -103,7 +106,6 @@ class CrossoverAnalysisWindow:
         self.window = tk.Toplevel(parent)
         self.window.title("播放量交叉计算")
         self.window.geometry("1020x720")
-        self.window.transient(parent)
 
         self.monitored_videos = monitored_videos or []
         self.history_data     = history_data     or {}
@@ -139,8 +141,8 @@ class CrossoverAnalysisWindow:
         algo_names = ["加权集成(默认)", "线性回归(原方法)"]
         try:
             algo_names.extend(AlgorithmRegistry.get_algorithm_names())
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("获取算法列表失败: %s", e)
         self._algo_var = tk.StringVar(value="加权集成(默认)")
         self._algo_combo = ttk.Combobox(algo_frame, textvariable=self._algo_var,
                                         values=algo_names, width=50, state="readonly",
@@ -235,8 +237,8 @@ class CrossoverAnalysisWindow:
                             (row["timestamp"], row["view_count"])
                             for row in records
                         ]
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("加载视频历史数据失败: %s", e)
 
     def _fit_videos(self) -> dict:
         """对每个视频做拟合，返回 {bvid: (slope, intercept, base_ts, points)}"""
@@ -337,8 +339,8 @@ class CrossoverAnalysisWindow:
                         rate = (threshold - current_views) / pred_h
                         if 0 < rate <= MAX_RATE:
                             return rate
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("计算预测速率失败: %s", e)
         return None
 
     def _compute_crossovers(self, valid: list, fits: dict) -> int:

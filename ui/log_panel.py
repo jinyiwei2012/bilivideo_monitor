@@ -7,6 +7,9 @@ from datetime import datetime
 import queue
 import logging
 import customtkinter as ctk
+
+logger = logging.getLogger(__name__)
+
 from ui.theme import C, _recolor_text_tags
 
 
@@ -30,8 +33,8 @@ class LogPanelHandler(logging.Handler):
         msg = self.format(record)
         try:
             self._log_panel.add_log(level, msg)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("日志面板桥接写入失败: %s", e)
 
 
 _LOGGER_HANDLER_INSTALLED = False
@@ -173,8 +176,8 @@ class LogPanel:
         self._log_entries.append((level, ts_str, message))
         try:
             self._file_logger.write(level, message, ts)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("写文件日志失败: %s", e)
         if len(self._log_entries) > 2000:
             removed = len(self._log_entries) - 1500
             self._log_entries = self._log_entries[-1500:]
@@ -189,15 +192,20 @@ class LogPanel:
     def _process_log_queue(self):
         """主线程：处理日志队列（由 root.after 调度）"""
         self._queue_processing = True
+        processed = 0
         try:
-            while True:
+            while processed < 100:
                 level, ts, message = self._log_queue.get_nowait()
                 self._append_log_line(level, ts, message)
                 self._rendered_count += 1
+                processed += 1
         except queue.Empty:
             pass
         finally:
             self._queue_processing = False
+            # 还有剩余日志，下次再处理
+            if processed == 100 and not self._log_queue.empty():
+                self.root.after(50, self._process_log_queue)
 
     def _append_log_line(self, level, ts, message):
         """主线程：实际追加日志到文本控件"""
@@ -259,8 +267,8 @@ class LogPanel:
         if self._log_refresh_job:
             try:
                 self.root.after_cancel(self._log_refresh_job)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("取消自动刷新定时器失败: %s", e)
             self._log_refresh_job = None
 
     def recolor(self):

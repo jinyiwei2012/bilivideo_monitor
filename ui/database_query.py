@@ -7,8 +7,11 @@ import sqlite3
 import os
 import re
 import csv
+import logging
 from datetime import datetime
 from typing import List, Dict, Optional
+
+logger = logging.getLogger(__name__)
 
 from ui.theme import C
 from ui.helpers import FONT, FONT_SM, FONT_MONO
@@ -81,7 +84,7 @@ class DatabaseQueryWindow:
 
     def __init__(self, parent):
         self.dlg = DialogBase(parent, "数据库查询", "1040x720",
-                              resizable=(True, True))
+                              resizable=(True, True), modal=False)
         self.window = self.dlg.window
         self.db_path = self._get_db_path()
         self.query_results = []
@@ -228,8 +231,8 @@ class DatabaseQueryWindow:
                           'coin_score', 'like_score', 'correction_a', 'correction_b', 'correction_c']:
                     extra[f'yearly_{k}'] = yd.get(k, '')
             conn.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("查询视频额外数据失败: %s", e)
         return extra
 
     def _on_mode_change(self):
@@ -281,8 +284,8 @@ class DatabaseQueryWindow:
             if self.video_combo:
                 self.video_combo['values'] = items[1:]
             conn.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("加载视频列表失败: %s", e)
 
     def _do_query(self):
         if not os.path.exists(self.db_path):
