@@ -3,6 +3,7 @@
     "enabled": true,
     "http_url": "http://127.0.0.1:5700",
     "ws_url": "ws://127.0.0.1:6700",
+    "access_token": "",
     "private_qq": "",
     "group_qq": ""
   },

@@ -19,7 +19,7 @@ class DanmakuAnalysisWindow:
 
     def __init__(self, parent=None, api=None, gui=None):
         self.dlg = DialogBase(parent, "弹幕/评论分析", "820x680",
-                              resizable=(True, True))
+                              resizable=(True, True), modal=False)
         self.window = self.dlg.window
         self.api = api
         self.gui = gui
@@ -271,6 +271,8 @@ class DanmakuAnalysisWindow:
             self._status_lbl.config(
                 text=f"抓取成功：共 {len(texts)} 条{mode} {limit_label}",
                 fg=C["success"])
+            # 确保 UI 布局完成后再绘制
+            self.window.update_idletasks()
             self._display_results(texts)
             self._save_btn.config(state="normal")
             self._llm_btn.config(state="normal")
@@ -415,6 +417,11 @@ class DanmakuAnalysisWindow:
         for i, t in enumerate(sample[:50], 1):
             prompt += f"{i}. {t}\n"
 
+        if self.gui and hasattr(self.gui, 'log_panel'):
+            self.gui.log_panel.add_log(
+                "INFO",
+                f"LLM分析请求已发送（{self._current_bvid}，{mode}，{len(self._texts)}条）")
+
         import threading
         def _worker():
             nonlocal_text = None
@@ -475,6 +482,10 @@ class DanmakuAnalysisWindow:
                 self._llm_text.config(state="disabled")
                 self._llm_btn.config(state="normal")
                 self._status_lbl.config(text="LLM分析完成", fg=C["success"])
+                if self.gui and hasattr(self.gui, 'log_panel'):
+                    self.gui.log_panel.add_log(
+                        "INFO",
+                        f"LLM分析完成（{self._current_bvid}，{mode}）")
 
             self.window.after(0, _update_ui, nonlocal_text)
 

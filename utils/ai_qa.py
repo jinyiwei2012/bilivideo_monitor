@@ -84,7 +84,7 @@ class AIQASession:
         return answer
 
     def _ask_llm(self, question: str) -> str:
-        """调用 LLM API"""
+        """调用 LLM API（支持 OpenAI 兼容 和 Claude 格式）"""
         try:
             import requests
             system_msg = self.build_context()
@@ -95,26 +95,61 @@ class AIQASession:
             for h in self.history[-10:]:
                 messages.append(h)
 
-            resp = requests.post(
-                self.endpoint,
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": self.model,
-                    "messages": messages,
-                    "max_tokens": 1024,
-                    "temperature": 0.7,
-                },
-                timeout=30,
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                return data["choices"][0]["message"]["content"]
+            is_claude = "anthropic.com" in self.endpoint
+
+            if is_claude:
+                # Claude Messages API
+                claude_messages = []
+                for m in messages:
+                    if m["role"] == "system":
+                        continue  # Claude 用 system 参数
+                    claude_messages.append({"role": m["role"], "content": m["content"]})
+
+                resp = requests.post(
+                    self.endpoint,
+                    headers={
+                        "x-api-key": self.api_key,
+                        "Content-Type": "application/json",
+                        "anthropic-version": "2023-06-01",
+                    },
+                    json={
+                        "model": self.model,
+                        "system": system_msg,
+                        "max_tokens": 1024,
+                        "temperature": 0.7,
+                        "messages": claude_messages,
+                    },
+                    timeout=30,
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    content_list = data.get("content", [])
+                    return content_list[0].get("text", "") if content_list else ""
+                else:
+                    logger.warning(f"Claude API 错误: {resp.status_code} {resp.text[:200]}")
+                    return self._ask_rule(question)
             else:
-                logger.warning(f"LLM API 错误: {resp.status_code}")
-                return self._ask_rule(question)
+                # OpenAI 兼容格式
+                resp = requests.post(
+                    self.endpoint,
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": self.model,
+                        "messages": messages,
+                        "max_tokens": 1024,
+                        "temperature": 0.7,
+                    },
+                    timeout=30,
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    return data["choices"][0]["message"]["content"]
+                else:
+                    logger.warning(f"LLM API 错误: {resp.status_code}")
+                    return self._ask_rule(question)
         except Exception as e:
             logger.warning(f"LLM 调用失败: {e}")
             return self._ask_rule(question)

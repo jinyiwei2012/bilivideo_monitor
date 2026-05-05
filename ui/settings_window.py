@@ -168,6 +168,9 @@ class SettingsWindow:
                 self._clear_entry(self.ai_model, mdl),
             )).pack(side=tk.LEFT, padx=2)
 
+        ttk.Button(sec, text="测试连接",
+                   command=self._test_ai_connection).pack(anchor="w", padx=4, pady=(8, 0))
+
     # ──── 代理 ────
     def _build_proxy_tab(self, nb):
         page = tk.Frame(nb, bg=C["bg_base"])
@@ -309,6 +312,69 @@ class SettingsWindow:
 
     def _test_connection(self):
         messagebox.showinfo("测试", "连接测试功能", parent=self.window)
+
+    def _test_ai_connection(self):
+        """测试 AI API 密钥可用性（后台线程，不阻塞 UI）"""
+        api_key = self.ai_api_key.get().strip()
+        endpoint = self.ai_endpoint.get().strip()
+        model = self.ai_model.get().strip()
+
+        if not api_key:
+            messagebox.showwarning("提示", "请先填写 API 密钥", parent=self.window)
+            return
+        if not endpoint:
+            endpoint = "https://api.openai.com/v1/chat/completions"
+        if not model:
+            model = "gpt-4o-mini"
+
+        import threading
+        result = []
+
+        def _worker():
+            try:
+                is_claude = "anthropic.com" in endpoint
+                import requests as req
+                if is_claude:
+                    resp = req.post(
+                        endpoint,
+                        headers={"x-api-key": api_key, "Content-Type": "application/json",
+                                 "anthropic-version": "2023-06-01"},
+                        json={
+                            "model": model,
+                            "max_tokens": 10,
+                            "messages": [{"role": "user", "content": "回复OK即可"}],
+                        },
+                        timeout=30,
+                    )
+                    if resp.status_code == 200:
+                        result.append(f"✅ 连接成功（Claude {model}）")
+                    else:
+                        result.append(f"❌ HTTP {resp.status_code}: {resp.text[:200]}")
+                else:
+                    resp = req.post(
+                        endpoint,
+                        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                        json={
+                            "model": model,
+                            "messages": [{"role": "user", "content": "回复OK即可"}],
+                            "max_tokens": 10,
+                        },
+                        timeout=30,
+                    )
+                    if resp.status_code == 200:
+                        result.append(f"✅ 连接成功（{model}）")
+                    else:
+                        err = resp.json().get("error", {})
+                        result.append(f"❌ HTTP {resp.status_code}: {err.get('message', resp.text[:200])}")
+            except Exception as e:
+                result.append(f"❌ 请求失败: {e}")
+
+            self.window.after(0, lambda: messagebox.showinfo(
+                "API 连接测试", result[0] if result else "❌ 无响应", parent=self.window))
+
+        _th = threading.Thread(target=_worker, daemon=True)
+        _th.start()
+        messagebox.showinfo("测试中", f"正在测试 {model} 连接...\n请稍候", parent=self.window)
 
     # ──── 代理操作 ────
     def _apply_proxies(self):
