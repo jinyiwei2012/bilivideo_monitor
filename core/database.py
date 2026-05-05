@@ -274,8 +274,95 @@ class VideoDatabase:
                 )
             ''')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_yearly_timestamp ON yearly_scores(timestamp)')
-            
+
+            # 数据库迁移：检查并添加缺少的列并自动计算数值
+            self._migrate_db(conn)
+
             conn.commit()
+
+    def _migrate_db(self, conn):
+        """检查并迁移数据库：添加缺少的列、自动计算默认值"""
+        cursor = conn.cursor()
+
+        # 定义各表的完整列定义（含新增列）
+        schema_upgrades = {
+            "video_info": [
+                ("viewers_app", "INTEGER DEFAULT 0"),
+                ("viewers_web", "INTEGER DEFAULT 0"),
+                ("viewers_total", "INTEGER DEFAULT 0"),
+                ("like_view_ratio", "REAL DEFAULT 0"),
+                ("owner_name", "TEXT"),
+                ("owner_id", "INTEGER"),
+                ("pubdate", "TEXT"),
+                ("duration", "INTEGER"),
+                ("pic", "TEXT"),
+                ("updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"),
+            ],
+            "monitor_records": [
+                ("viewers_app", "INTEGER DEFAULT 0"),
+                ("viewers_web", "INTEGER DEFAULT 0"),
+                ("viewers_total", "INTEGER DEFAULT 0"),
+                ("like_view_ratio", "REAL DEFAULT 0"),
+            ],
+            "predictions": [
+                ("metadata", "TEXT DEFAULT ''"),
+                ("predicted_hours", "REAL DEFAULT 0"),
+                ("current_velocity", "REAL DEFAULT 0"),
+                ("is_reached", "BOOLEAN DEFAULT 0"),
+                ("actual_time", "TIMESTAMP"),
+                ("error_rate", "REAL DEFAULT 0"),
+            ],
+            "weekly_scores": [
+                ("correction_d", "REAL"),
+                ("base_view_score", "REAL"),
+            ],
+        }
+
+        # 检查每张表的现有列
+        for table, columns in schema_upgrades.items():
+            cursor.execute(f"PRAGMA table_info({table})")
+            existing = {row["name"] for row in cursor.fetchall()}
+            if not existing:
+                continue  # 表不存在，跳过
+            for col_name, col_def in columns:
+                if col_name not in existing:
+                    try:
+                        cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_def}")
+                    except Exception:
+                        pass
+
+        # ── 自动计算数值 ──────────────────────────
+
+        # 1. 计算 monitor_records 中缺失的 like_view_ratio
+        try:
+            cursor.execute("""
+                UPDATE monitor_records
+                SET like_view_ratio = ROUND(CAST(like_count AS REAL) / NULLIF(view_count, 0), 6)
+                WHERE like_view_ratio IS NULL OR like_view_ratio = 0
+            """)
+        except Exception:
+            pass
+
+        # 2. 计算 video_info 中的 like_view_ratio
+        try:
+            cursor.execute("""
+                UPDATE video_info
+                SET like_view_ratio = ROUND(CAST(like_count AS REAL) / NULLIF(view_count, 0), 6)
+                WHERE like_view_ratio IS NULL OR like_view_ratio = 0
+            """)
+        except Exception:
+            pass
+
+        # 3. 计算 predictions 中缺失的 predicted_hours
+        try:
+            cursor.execute("""
+                UPDATE predictions
+                SET predicted_hours = ROUND(CAST(predicted_seconds AS REAL) / 3600, 2)
+                WHERE (predicted_hours IS NULL OR predicted_hours = 0)
+                  AND (predicted_seconds IS NOT NULL AND predicted_seconds > 0)
+            """)
+        except Exception:
+            pass
     
     def save_video_info(self, video_info: Dict):
         """保存视频信息"""
@@ -643,9 +730,50 @@ class Database:
             ''')
             cursor.execute(
                 'CREATE INDEX IF NOT EXISTS idx_milestones_bvid ON video_milestones(bvid)')
+            # 数据库迁移：检查并添加缺少的列
+            self._migrate_db(conn)
             
             conn.commit()
-    
+
+    def _migrate_db(self, conn):
+        """总数据库迁移：检查并添加缺少的列"""
+        cursor = conn.cursor()
+        schema_upgrades = {
+            "videos": [
+                ("viewers_app", "INTEGER DEFAULT 0"),
+                ("viewers_web", "INTEGER DEFAULT 0"),
+                ("viewers_total", "INTEGER DEFAULT 0"),
+                ("like_view_ratio", "REAL DEFAULT 0"),
+                ("owner_name", "TEXT"),
+                ("owner_id", "INTEGER"),
+                ("pubdate", "TEXT"),
+                ("duration", "INTEGER"),
+                ("pic", "TEXT"),
+            ],
+            "monitor_records": [
+                ("viewers_app", "INTEGER DEFAULT 0"),
+                ("viewers_web", "INTEGER DEFAULT 0"),
+                ("viewers_total", "INTEGER DEFAULT 0"),
+                ("like_view_ratio", "REAL DEFAULT 0"),
+            ],
+            "predictions": [
+                ("metadata", "TEXT DEFAULT ''"),
+                ("predicted_hours", "REAL DEFAULT 0"),
+                ("current_velocity", "REAL DEFAULT 0"),
+            ],
+        }
+        for table, columns in schema_upgrades.items():
+            cursor.execute(f"PRAGMA table_info({table})")
+            existing = {row["name"] for row in cursor.fetchall()}
+            if not existing:
+                continue
+            for col_name, col_def in columns:
+                if col_name not in existing:
+                    try:
+                        cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_def}")
+                    except Exception:
+                        pass
+
     def get_video_db(self, bvid: str) -> VideoDatabase:
         """获取单个视频的数据库实例"""
         return VideoDatabase(bvid, self.data_dir)

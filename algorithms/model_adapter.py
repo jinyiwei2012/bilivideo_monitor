@@ -41,10 +41,12 @@ class ModelAlgorithmAdapter:
         """统一预测接口"""
         thresholds = kwargs.get('thresholds', [100000, 1000000, 10000000])
         threshold_names = kwargs.get('threshold_names', ['10万', '100万', '1000万'])
-        
+
         try:
-            # 准备video_data格式
-            video_data = self._prepare_video_data(history, current_value)
+            # 使用预先准备好的video_data（由 registry 集中构建），避免每个 adapter 重复转换
+            video_data = kwargs.get('_cached_video_data')
+            if video_data is None:
+                video_data = self._prepare_video_data(history, current_value)
             
             # 根据接口类型调用
             if self.interface_type == 'video_data':
@@ -56,7 +58,11 @@ class ModelAlgorithmAdapter:
                     if isinstance(t, datetime):
                         ts_str = t.strftime('%Y-%m-%d %H:%M:%S')
                     else:
-                        ts_str = str(t)
+                        try:
+                            dt = datetime.fromisoformat(str(t))
+                            ts_str = dt.strftime('%Y-%m-%d %H:%M:%S')
+                        except (ValueError, TypeError):
+                            ts_str = str(t)
                     history_data.append({
                         'view': v,
                         'view_count': v,
@@ -88,8 +94,13 @@ class ModelAlgorithmAdapter:
                 ts_str = ts.strftime('%Y-%m-%d %H:%M:%S')
                 ts_ts = ts.timestamp()
             else:
-                ts_str = str(ts)
-                ts_ts = float(ts)
+                try:
+                    dt = datetime.fromisoformat(str(ts))
+                    ts_str = dt.strftime('%Y-%m-%d %H:%M:%S')
+                    ts_ts = dt.timestamp()
+                except (ValueError, TypeError):
+                    ts_str = str(ts)
+                    ts_ts = float(ts)
             
             history_list.append({
                 'view_count': v,
