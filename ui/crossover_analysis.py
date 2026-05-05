@@ -10,6 +10,7 @@ import math
 
 from core.database import db
 from ui.theme import C
+from algorithms.registry import AlgorithmRegistry
 
 # 图表边距
 _ML, _MR, _MT, _MB = 72, 24, 32, 40
@@ -130,6 +131,22 @@ class CrossoverAnalysisWindow:
             title = v.get("title", "未知")[:40]
             self.listbox.insert(tk.END, f"{bvid}  {title}")
 
+        # 算法选择
+        algo_frame = tk.Frame(sel)
+        algo_frame.pack(fill=X, pady=(4, 0))
+        tk.Label(algo_frame, text="预测算法:", fg=C["text_2"],
+                 font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT)
+        algo_names = ["加权集成(默认)", "线性回归(原方法)"]
+        try:
+            algo_names.extend(AlgorithmRegistry.get_algorithm_names())
+        except Exception:
+            pass
+        self._algo_var = tk.StringVar(value="加权集成(默认)")
+        self._algo_combo = ttk.Combobox(algo_frame, textvariable=self._algo_var,
+                                        values=algo_names, width=50, state="readonly",
+                                        font=("Microsoft YaHei UI", 9))
+        self._algo_combo.pack(side=tk.LEFT, padx=6)
+
         bb = tk.Frame(sel)
         bb.pack(fill=X, pady=(6, 0))
         ttk.Button(bb, text="开始分析", command=self._analyze).pack(side=tk.LEFT, padx=4)
@@ -222,7 +239,14 @@ class CrossoverAnalysisWindow:
                     pass
 
     def _fit_videos(self) -> dict:
-        """对每个视频做线性拟合，返回 {bvid: (slope, intercept, base_ts, points)}"""
+        """对每个视频做拟合，返回 {bvid: (slope, intercept, base_ts, points)}"""
+        algo = self._algo_var.get()
+        if algo == "线性回归(原方法)":
+            return self._fit_linear()
+        return self._fit_with_algorithms(algo)
+
+    def _fit_linear(self) -> dict:
+        """原线性回归拟合"""
         fits = {}
         for v in self._selected:
             bvid = v.get("bvid", "")
@@ -243,6 +267,79 @@ class CrossoverAnalysisWindow:
             result = _linear_fit(fit_pts)
             fits[bvid] = (*result, base_ts, pts_parsed) if result else None
         return fits
+
+    def _fit_with_algorithms(self, algo_name: str) -> dict:
+        """使用算法预测进行拟合"""
+        threshold = 100000  # 算法统一使用10万阈值计算增长率
+        fits = {}
+        for v in self._selected:
+            bvid = v.get("bvid", "")
+            raw = self.history_data.get(bvid, [])
+            pts_parsed = []
+            for item in raw:
+                ts = _parse_ts(item[0])
+                views = item[1] if isinstance(item[1], (int, float)) else 0
+                if ts and views >= 0:
+                    pts_parsed.append((ts, views))
+            if len(pts_parsed) < 2:
+                fits[bvid] = None
+                continue
+            pts_parsed.sort(key=lambda p: p[0])
+            base_ts = pts_parsed[0][0]
+            current_views = pts_parsed[-1][1]
+            history_pts = [(p[0], p[1]) for p in pts_parsed]
+
+            growth_rate = self._get_algo_growth_rate(
+                history_pts, current_views, algo_name, threshold)
+
+            if growth_rate is None or growth_rate <= 0:
+                # 回退到线性回归
+                hours = [(p[0] - base_ts).total_seconds() / 3600 for p in pts_parsed]
+                fit_pts = list(zip(hours, [p[1] for p in pts_parsed]))
+                result = _linear_fit(fit_pts)
+                fits[bvid] = (*result, base_ts, pts_parsed) if result else None
+            else:
+                # 以最新数据点为锚点，用算法增长率作为斜率
+                last_hours = (pts_parsed[-1][0] - base_ts).total_seconds() / 3600
+                intercept = current_views - growth_rate * last_hours
+                fits[bvid] = (growth_rate, intercept, base_ts, pts_parsed)
+        return fits
+
+    def _get_algo_growth_rate(self, history_pts, current_views, algo_name, threshold):
+        """获取算法预测的增长率 (播放量/小时)"""
+        MAX_RATE = 50000   # 超过此值的增长率视为异常（5万/小时已极高）
+        MIN_HOURS = 0.5    # 低于此值的预测时长视为不可信
+        try:
+            if algo_name == "加权集成(默认)":
+                results = AlgorithmRegistry.predict_all(
+                    history_pts, current_views, thresholds=[threshold])
+                rates, weights = [], []
+                for name, r in results.items():
+                    if name == '_weighted' or r.get('weight', 0) <= 0:
+                        continue
+                    pred_h = r.get('metadata', {}).get('predicted_hours', None)
+                    if pred_h and pred_h != float('inf') and pred_h > MIN_HOURS:
+                        rate = (threshold - current_views) / pred_h
+                        if 0 < rate <= MAX_RATE:
+                            rates.append(rate)
+                            weights.append(r['weight'] * max(r['confidence'], 0.1))
+                if rates:
+                    return sum(r * w for r, w in zip(rates, weights)) / sum(weights)
+            else:
+                # 单个算法
+                algo = AlgorithmRegistry.get_algorithm(algo_name)
+                if algo is None:
+                    return None
+                result = algo.predict(history_pts, current_views, thresholds=[threshold])
+                if result:
+                    pred_h = result.get('metadata', {}).get('predicted_hours', None)
+                    if pred_h and pred_h != float('inf') and pred_h > MIN_HOURS:
+                        rate = (threshold - current_views) / pred_h
+                        if 0 < rate <= MAX_RATE:
+                            return rate
+        except Exception:
+            pass
+        return None
 
     def _compute_crossovers(self, valid: list, fits: dict) -> int:
         """两两配对计算交会点，返回总数"""
