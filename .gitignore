@@ -4,6 +4,7 @@ __pycache__/
 
 data/**/*.db
 data/log/
+core/data/
 
 .workbuddy/
 
