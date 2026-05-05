@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 import math
 
 from core.database import db
-from ui.main_gui import C
+from ui.theme import C
 
 # 图表边距
 _ML, _MR, _MT, _MB = 72, 24, 32, 40

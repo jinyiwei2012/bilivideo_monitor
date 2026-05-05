@@ -1,15 +1,15 @@
 """
-对话框模块
-集中管理所有弹窗窗口
+现代对话框模块
+集中管理所有弹窗窗口 — 统一使用 DialogBase 样式
 """
 import tkinter as tk
 from tkinter import ttk, messagebox
 import threading
 import time
-import re
 
 from ui.theme import C
 from ui.helpers import FONT, FONT_SM, FONT_MONO, fmt_num, FAST_GAP, FAST_INTERVAL
+from ui.dialog_base import DialogBase
 
 
 class Dialogs:
@@ -23,23 +23,31 @@ class Dialogs:
     # ──────────────────────────────────────────
 
     def open_interval_settings(self):
-        dialog = tk.Toplevel(self.gui.root)
-        dialog.title("刷新间隔设置")
-        dialog.geometry("320x220")
-        dialog.configure(bg=C["bg_surface"])
-        dialog.transient(self.gui.root)
-        dialog.grab_set()
-        dialog.resizable(False, False)
+        dlg = DialogBase(self.gui.root, "刷新间隔设置", "380x260")
+        dlg.header("刷新间隔设置", "自定义各监控视频的数据刷新频率")
 
-        tk.Label(dialog, text="普通刷新间隔（秒）：", bg=C["bg_surface"], fg=C["text_1"],
-                 font=FONT).pack(pady=(20, 6))
+        sec = dlg.section(title="间隔参数")
 
-        spin_f = tk.Frame(dialog, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border"])
-        spin_f.pack(padx=40, fill=tk.X)
+        # 普通间隔
+        row1 = tk.Frame(sec, bg=C["bg_elevated"])
+        row1.pack(fill=tk.X, pady=(4, 2))
+        tk.Label(row1, text="普通刷新间隔", bg=C["bg_elevated"], fg=C["text_2"],
+                 font=FONT, width=18, anchor="w").pack(side=tk.LEFT, padx=(4, 0))
         var = tk.IntVar(value=self.gui.DEFAULT_INTERVAL)
-        ttk.Spinbox(spin_f, from_=10, to=3600, textvariable=var, width=10).pack(padx=8, pady=6)
-        tk.Label(dialog, text=f"距阈值 < {FAST_GAP} 时自动切换快速模式（{FAST_INTERVAL}s）",
-                 bg=C["bg_surface"], fg=C["text_3"], font=FONT_SM, wraplength=280).pack(pady=6)
+        spin = ttk.Spinbox(row1, from_=10, to=3600, textvariable=var, width=10)
+        spin.pack(side=tk.LEFT)
+        tk.Label(row1, text="秒", bg=C["bg_elevated"], fg=C["text_3"],
+                 font=FONT).pack(side=tk.LEFT, padx=(4, 0))
+
+        # 快速模式提示
+        tip = tk.Frame(sec, bg=C["bg_elevated"])
+        tip.pack(fill=tk.X, pady=(2, 4))
+        tk.Label(tip, text=f"距阈值 < {FAST_GAP} 时自动切换快速模式",
+                 bg=C["bg_elevated"], fg=C["text_3"], font=FONT_SM,
+                 anchor="w").pack(padx=(4, 0))
+        tk.Label(tip, text=f"快速间隔: {FAST_INTERVAL}s",
+                 bg=C["bg_elevated"], fg=C["warning"], font=FONT_SM,
+                 anchor="w").pack(padx=(4, 0))
 
         def _save():
             self.gui.DEFAULT_INTERVAL = var.get()
@@ -48,12 +56,12 @@ class Dialogs:
                 timer = self.gui._video_timers.get(bvid)
                 if timer and timer["interval"] != self.gui.FAST_INTERVAL:
                     self.gui._register_video_timer(bvid)
-            dialog.destroy()
+            dlg.window.destroy()
 
-        btn_f = tk.Frame(dialog, bg=C["bg_surface"])
-        btn_f.pack(pady=14)
-        ttk.Button(btn_f, text="保存", style="Primary.TButton", command=_save).pack(side=tk.LEFT, padx=6)
-        ttk.Button(btn_f, text="取消", command=dialog.destroy).pack(side=tk.LEFT, padx=6)
+        dlg.button_row([
+            ("取消", dlg.window.destroy, ""),
+            ("保存", _save, "primary"),
+        ])
 
     # ──────────────────────────────────────────
     # 权重设置
@@ -194,7 +202,6 @@ class Dialogs:
                 bvid = v.get("bvid", "")
                 if not bvid:
                     continue
-                # 主线程已在 import_search_results 中判断，这里再检查一次保险
                 if any(mv.get("bvid") == bvid for mv in self.gui.monitored_videos):
                     skipped += 1
                     continue
@@ -209,7 +216,7 @@ class Dialogs:
                 except Exception as e:
                     self.gui.log_panel.add_log("WARNING", f"导入 {bvid} 失败: {e}")
                     skipped += 1
-                time.sleep(0.3)  # 每个视频间隔 0.3s，避免集中请求
+                time.sleep(0.3)
 
             self.gui.root.after(0, self.gui._save_watch_list)
             msg = f"成功导入 {added} 个视频"
@@ -226,124 +233,91 @@ class Dialogs:
     # ──────────────────────────────────────────
 
     def open_algorithm_info(self):
-        """打开算法信息对话框"""
-        dialog = tk.Toplevel(self.gui.root)
-        dialog.title("算法信息")
-        dialog.geometry("500x400")
-        dialog.configure(bg=C["bg_surface"])
-        dialog.transient(self.gui.root)
-        dialog.grab_set()
-        dialog.resizable(True, True)
+        """打开算法信息对话框（现代卡片布局）"""
+        dlg = DialogBase(self.gui.root, "算法信息", "540x520", resizable=(True, True))
+        dlg.header("预测算法信息", "已加载算法的权重、准确率与模块状态")
 
-        # 标题
-        tk.Label(dialog, text="预测算法信息",
-                 bg=C["bg_surface"], fg=C["text_1"],
-                 font=("Microsoft YaHei UI", 14, "bold")).pack(pady=(15, 10))
+        # 轮播容器
+        canvas = tk.Canvas(dlg.container, bg=C["bg_base"], highlightthickness=0)
+        vsb = ttk.Scrollbar(dlg.container, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=vsb.set)
+        vsb.pack(side=tk.RIGHT, fill=tk.Y, pady=(10, 0))
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(24, 0), pady=(10, 0))
 
-        # 创建滚动框架
-        canvas = tk.Canvas(dialog, bg=C["bg_surface"], highlightthickness=0)
-        scrollbar = ttk.Scrollbar(dialog, orient="vertical", command=canvas.yview)
-        scrollable_frame = tk.Frame(canvas, bg=C["bg_surface"])
+        inner = tk.Frame(canvas, bg=C["bg_base"])
+        cwin = canvas.create_window((0, 0), window=inner, anchor="nw", tags="inner")
+        inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>", lambda e: canvas.itemconfig(cwin, width=e.width))
 
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-
-        # 算法信息
         try:
             from algorithms.registry import AlgorithmRegistry
             from algorithms.weight_manager import weight_manager
 
-            # 获取算法信息
             algo_names = AlgorithmRegistry.get_algorithm_names()
             algo_infos = AlgorithmRegistry.get_weights_info()
 
-            # 显示算法数量
-            info_frame = tk.Frame(scrollable_frame, bg=C["bg_elevated"], relief="solid", bd=1)
-            info_frame.pack(fill=tk.X, padx=20, pady=10)
-
-            tk.Label(info_frame, text=f"已加载算法: {len(algo_names)} 个",
+            # 算法概述卡片
+            summary = tk.Frame(inner, bg=C["bg_elevated"],
+                               highlightthickness=1, highlightbackground=C["border_sub"])
+            summary.pack(fill=tk.X, pady=(0, 8), ipadx=12, ipady=10)
+            tk.Label(summary, text=f"已加载 {len(algo_names)} 个算法",
                      bg=C["bg_elevated"], fg=C["text_1"],
-                     font=("Microsoft YaHei UI", 11, "bold")).pack(anchor="w", padx=10, pady=5)
+                     font=("Microsoft YaHei UI", 11, "bold")).pack(anchor="w", padx=12, pady=(6, 2))
 
-            # 显示算法列表
-            for info in algo_infos[:20]:  # 最多显示20个
-                algo_frame = tk.Frame(scrollable_frame, bg=C["bg_surface"])
-                algo_frame.pack(fill=tk.X, padx=20, pady=2)
-
+            # 算法列表
+            for info in algo_infos[:20]:
                 name = info.get('name', 'Unknown')
                 weight = info.get('weight', 1.0)
                 accuracy = info.get('accuracy', 0.5)
-
-                tk.Label(algo_frame, text=f"• {name}",
-                         bg=C["bg_surface"], fg=C["text_1"],
-                         font=FONT, anchor="w").pack(side=tk.LEFT, padx=(0, 10))
-
-                tk.Label(algo_frame, text=f"权重: {weight:.2f}",
-                         bg=C["bg_surface"], fg=C["text_2"],
-                         font=FONT_SM).pack(side=tk.LEFT, padx=10)
-
-                tk.Label(algo_frame, text=f"准确率: {accuracy:.2%}",
-                         bg=C["bg_surface"], fg=C["text_2"],
-                         font=FONT_SM).pack(side=tk.LEFT, padx=10)
+                card = tk.Frame(inner, bg=C["bg_surface"],
+                                highlightthickness=1, highlightbackground=C["border_sub"])
+                card.pack(fill=tk.X, pady=2, ipadx=10, ipady=4)
+                tk.Label(card, text=name, bg=C["bg_surface"], fg=C["text_1"],
+                         font=FONT, anchor="w", width=24).pack(side=tk.LEFT, padx=(8, 4))
+                tk.Label(card, text=f"权重 {weight:.2f}", bg=C["bg_surface"],
+                         fg=C["accent"], font=FONT_SM, width=12).pack(side=tk.LEFT)
+                tk.Label(card, text=f"准确率 {accuracy:.1%}", bg=C["bg_surface"],
+                         fg=C["success"], font=FONT_SM).pack(side=tk.LEFT)
 
             if len(algo_names) > 20:
-                tk.Label(scrollable_frame,
-                         text=f"... 还有 {len(algo_names) - 20} 个算法",
-                         bg=C["bg_surface"], fg=C["text_3"],
-                         font=FONT_SM).pack(anchor="w", padx=20, pady=5)
+                tk.Label(inner, text=f"... 还有 {len(algo_names) - 20} 个算法",
+                         bg=C["bg_base"], fg=C["text_3"],
+                         font=FONT_SM).pack(anchor="w", pady=4)
 
             # 高级模块状态
-            tk.Label(scrollable_frame, text="高级模块状态:",
-                     bg=C["bg_surface"], fg=C["text_1"],
-                     font=("Microsoft YaHei UI", 11, "bold")).pack(anchor="w", padx=20, pady=(15, 5))
+            mod_title = tk.Label(inner, text="高级模块状态",
+                                 bg=C["bg_base"], fg=C["text_1"],
+                                 font=("Microsoft YaHei UI", 10, "bold"),
+                                 anchor="w")
+            mod_title.pack(fill=tk.X, pady=(12, 4))
 
-            # 在线学习模块
-            try:
-                from algorithms.online_learner import get_online_learner
-                learner = get_online_learner()
-                tk.Label(scrollable_frame, text="✅ 在线学习模块已加载",
-                         bg=C["bg_surface"], fg=C["success"],
-                         font=FONT).pack(anchor="w", padx=20, pady=2)
-            except ImportError:
-                tk.Label(scrollable_frame, text="❌ 在线学习模块未找到",
-                         bg=C["bg_surface"], fg=C["danger"],
-                         font=FONT).pack(anchor="w", padx=20, pady=2)
+            modules = [
+                ("onli_learner", "在线学习模块", "algorithms.online_learner", "get_online_learner"),
+                ("causal", "因果推断模块", "algorithms.causal_inference", "get_causal_analyzer"),
+                ("graph", "图神经网络模块", "algorithms.graph_neural", "get_video_graph"),
+            ]
+            for mod_id, label, mod_path, attr_name in modules:
+                mod_card = tk.Frame(inner, bg=C["bg_surface"],
+                                    highlightthickness=1, highlightbackground=C["border_sub"])
+                mod_card.pack(fill=tk.X, pady=2, ipadx=10, ipady=4)
+                try:
+                    __import__(mod_path)
+                    status_text = "已加载"
+                    status_color = C["success"]
+                except ImportError:
+                    status_text = "未加载"
+                    status_color = C["text_3"]
 
-            # 因果推断模块
-            try:
-                from algorithms.causal_inference import get_causal_analyzer
-                tk.Label(scrollable_frame, text="✅ 因果推断模块已加载",
-                         bg=C["bg_surface"], fg=C["success"],
-                         font=FONT).pack(anchor="w", padx=20, pady=2)
-            except ImportError:
-                tk.Label(scrollable_frame, text="❌ 因果推断模块未找到",
-                         bg=C["bg_surface"], fg=C["danger"],
-                         font=FONT).pack(anchor="w", padx=20, pady=2)
-
-            # 图神经网络模块
-            try:
-                from algorithms.graph_neural import get_video_graph
-                tk.Label(scrollable_frame, text="✅ 图神经网络模块已加载",
-                         bg=C["bg_surface"], fg=C["success"],
-                         font=FONT).pack(anchor="w", padx=20, pady=2)
-            except ImportError:
-                tk.Label(scrollable_frame, text="❌ 图神经网络模块未找到",
-                         bg=C["bg_surface"], fg=C["danger"],
-                         font=FONT).pack(anchor="w", padx=20, pady=2)
+                tk.Label(mod_card, text=label, bg=C["bg_surface"], fg=C["text_1"],
+                         font=FONT, anchor="w").pack(side=tk.LEFT, padx=(8, 8))
+                tk.Label(mod_card, text=status_text, bg=C["bg_surface"],
+                         fg=status_color, font=FONT_SM).pack(side=tk.RIGHT, padx=8)
 
         except Exception as e:
-            tk.Label(scrollable_frame, text=f"加载算法信息失败: {e}",
-                     bg=C["bg_surface"], fg=C["danger"],
-                     font=FONT).pack(padx=20, pady=20)
+            tk.Label(inner, text=f"加载算法信息失败: {e}",
+                     bg=C["bg_base"], fg=C["danger"],
+                     font=FONT).pack(pady=20)
 
-        # 布局滚动区域
-        canvas.pack(side="left", fill="both", expand=True, padx=(20, 0), pady=10)
-        scrollbar.pack(side="right", fill="y", pady=10, padx=(0, 20))
-
-        # 关闭按钮
-        ttk.Button(dialog, text="关闭", command=dialog.destroy).pack(pady=(0, 15))
+        dlg.button_row([
+            ("关闭", dlg.window.destroy, "primary"),
+        ])

@@ -11,7 +11,7 @@ import math
 import logging
 
 from core.database import db
-from ui.main_gui import C
+from ui.theme import C
 
 # 快照模块日志记录器
 _snap_logger = logging.getLogger("data_comparison.snapshot")
