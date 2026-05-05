@@ -135,12 +135,12 @@ class DanmakuAnalysisWindow:
         bottom = tk.Frame(self.dlg.container, bg=C["bg_surface"])
         bottom.pack(fill=tk.BOTH, expand=True, padx=24, pady=(10, 12))
 
-        bottom_nb = ttk.Notebook(bottom)
-        bottom_nb.pack(fill=tk.BOTH, expand=True)
+        self._bottom_nb = ttk.Notebook(bottom)
+        self._bottom_nb.pack(fill=tk.BOTH, expand=True)
 
         # ── 页1：高频列表 ──
-        freq_page = tk.Frame(bottom_nb, bg=C["bg_base"])
-        bottom_nb.add(freq_page, text="  高频弹幕/评论  ")
+        freq_page = tk.Frame(self._bottom_nb, bg=C["bg_base"])
+        self._bottom_nb.add(freq_page, text="  高频弹幕/评论  ")
 
         list_label = tk.Frame(freq_page, bg=C["bg_base"])
         list_label.pack(fill=tk.X)
@@ -172,7 +172,7 @@ class DanmakuAnalysisWindow:
 
         # ── 页2：LLM分析结果 ──
         llm_page = tk.Frame(bottom_nb, bg=C["bg_base"])
-        bottom_nb.add(llm_page, text="  🤖 LLM分析  ")
+        self._bottom_nb.add(llm_page, text="  🤖 LLM分析  ")
 
         self._llm_text = tk.Text(llm_page, bg=C["bg_base"], fg=C["text_1"],
                                   font=("Microsoft YaHei UI", 10), relief="flat",
@@ -483,6 +483,8 @@ class DanmakuAnalysisWindow:
                 self._llm_text.insert(tk.END, result_text, "body")
                 self._llm_text.config(state="disabled")
                 self._llm_btn.config(state="normal")
+                # 切换到LLM标签页
+                self._bottom_nb.select(1)
                 self._status_lbl.config(text="LLM分析完成", fg=C["success"])
                 if self.gui and hasattr(self.gui, 'log_panel'):
                     self.gui.log_panel.add_log(

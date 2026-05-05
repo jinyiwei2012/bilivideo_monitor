@@ -13,8 +13,8 @@ class AIQAWindow:
     """AI智能问答窗口"""
 
     def __init__(self, parent=None, gui=None):
-        self.dlg = DialogBase(parent, "AI智能问答助手", "720x520",
-                              resizable=(True, True))
+        self.dlg = DialogBase(parent, "AI智能问答助手", "720x560",
+                              resizable=(True, True), modal=False)
         self.window = self.dlg.window
         self.gui = gui
 
@@ -80,14 +80,17 @@ class AIQAWindow:
         input_frame = tk.Frame(self.dlg.container, bg=C["bg_surface"])
         input_frame.pack(fill=tk.X, padx=24, pady=(10, 16))
 
-        self._input_entry = tk.Text(input_frame, height=3,
+        input_box = tk.Frame(input_frame, bg=C["border"],
+                             highlightthickness=1, highlightbackground=C["border"])
+        input_box.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        self._input_entry = tk.Text(input_box, height=3,
                                      bg=C["bg_elevated"], fg=C["text_1"],
                                      font=("Microsoft YaHei UI", 10),
                                      insertbackground=C["text_1"],
-                                     relief="flat", highlightthickness=1,
-                                     highlightbackground=C["border"],
+                                     relief="flat", highlightthickness=0,
                                      padx=8, pady=6, wrap="word")
-        self._input_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self._input_entry.pack(fill=tk.BOTH, expand=True)
         self._input_entry.bind("<Return>", lambda e: self._send() if not (e.state & 0x1) else None)
         self._input_entry.bind("<Shift-Return>", lambda e: self._input_entry.insert(tk.END, "\n"))
 
@@ -159,10 +162,38 @@ class AIQAWindow:
         self.window.after(50, lambda: self._do_answer(question))
 
     def _do_answer(self, question: str):
-        answer = self.session.ask(question)
+        """在后台线程调用 LLM，避免阻塞 UI"""
+        self._send_btn.config(state="disabled")
+        # 显示等待提示
         self._chat_text.config(state="normal")
         self._chat_text.insert(tk.END, f"\n助手\n", "assistant")
-        self._chat_text.insert(tk.END, f"{answer}\n", "content")
+        self._chat_text.insert(tk.END, "思考中...\n", "content")
         self._chat_text.see(tk.END)
         self._chat_text.config(state="disabled")
-        self._send_btn.config(state="normal")
+        self.window.update_idletasks()
+
+        import threading
+
+        def _worker():
+            answer = self.session.ask(question)
+            self.window.after(0, _update_ui, answer)
+
+        def _update_ui(answer):
+            # 删除"思考中..."占位，显示真实回答
+            self._chat_text.config(state="normal")
+            # 找到最后一条"思考中..."并替换
+            content = self._chat_text.get("1.0", tk.END)
+            last_assistant = content.rfind("思考中...")
+            if last_assistant >= 0:
+                self._chat_text.delete("1.0", tk.END)
+                self._chat_text.insert(tk.END, content[:last_assistant], "")
+                self._chat_text.insert(tk.END, f"\n助手\n", "assistant")
+                self._chat_text.insert(tk.END, f"{answer}\n", "content")
+            else:
+                self._chat_text.insert(tk.END, f"\n助手\n", "assistant")
+                self._chat_text.insert(tk.END, f"{answer}\n", "content")
+            self._chat_text.see(tk.END)
+            self._chat_text.config(state="disabled")
+            self._send_btn.config(state="normal")
+
+        threading.Thread(target=_worker, daemon=True).start()
