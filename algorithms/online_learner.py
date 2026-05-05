@@ -18,23 +18,22 @@ import os
 from typing import Dict, List, Tuple, Optional
 
 # 默认参数
-DEFAULT_ETA = 0.5          # Hedge 学习率
+DEFAULT_ETA = 0.5  # Hedge 学习率
 DEFAULT_MIN_WEIGHT = 0.05  # 最低权重（防止算法被彻底淘汰）
-DEFAULT_WARMUP = 5          # 至少需要 N 次反馈才开始调整
-DEFAULT_DECAY = 0.95        # EWMA 衰减系数（越大越重视历史）
+DEFAULT_WARMUP = 5  # 至少需要 N 次反馈才开始调整
+DEFAULT_DECAY = 0.95  # EWMA 衰减系数（越大越重视历史）
 
 
 class _AlgorithmTracker:
     """单个算法的在线学习状态"""
 
-    __slots__ = ('name', 'weight', 'cumulative_loss', 'ewma_loss',
-                 'error_count', 'last_error', 'last_update')
+    __slots__ = ("name", "weight", "cumulative_loss", "ewma_loss", "error_count", "last_error", "last_update")
 
     def __init__(self, name: str, initial_weight: float = 1.0):
         self.name = name
         self.weight = initial_weight
-        self.cumulative_loss = 0.0   # Hedge 累积损失
-        self.ewma_loss = 0.0         # 指数加权移动误差
+        self.cumulative_loss = 0.0  # Hedge 累积损失
+        self.ewma_loss = 0.0  # 指数加权移动误差
         self.error_count = 0
         self.last_error: Optional[float] = None
         self.last_update: float = 0.0
@@ -136,10 +135,7 @@ class OnlineLearner:
 
             # Hedge 混合权重
             weights = {}
-            min_loss = min(
-                (t.cumulative_loss for t in self._trackers.values()),
-                default=0
-            )
+            min_loss = min((t.cumulative_loss for t in self._trackers.values()), default=0)
             for name, t in self._trackers.items():
                 # w_i ∝ exp(-η * (L_i - min_L))
                 raw = math.exp(-self.eta * (t.cumulative_loss - min_loss))
@@ -158,12 +154,12 @@ class OnlineLearner:
             result = {}
             for name, t in self._trackers.items():
                 result[name] = {
-                    'name': t.name,
-                    'ewma_loss': round(t.ewma_loss, 4),
-                    'cumulative_loss': round(t.cumulative_loss, 4),
-                    'error_count': t.error_count,
-                    'last_error': round(t.last_error, 4) if t.last_error is not None else None,
-                    'weight': round(self._quick_weight(name), 4),
+                    "name": t.name,
+                    "ewma_loss": round(t.ewma_loss, 4),
+                    "cumulative_loss": round(t.cumulative_loss, 4),
+                    "error_count": t.error_count,
+                    "last_error": round(t.last_error, 4) if t.last_error is not None else None,
+                    "weight": round(self._quick_weight(name), 4),
                 }
             return result
 
@@ -171,21 +167,21 @@ class OnlineLearner:
         """将学习状态持久化到 JSON。"""
         with self._lock:
             data = {
-                'step': self._step,
-                'eta': self.eta,
-                'decay': self.decay,
-                'trackers': {},
+                "step": self._step,
+                "eta": self.eta,
+                "decay": self.decay,
+                "trackers": {},
             }
             for name, t in self._trackers.items():
-                data['trackers'][name] = {
-                    'cumulative_loss': t.cumulative_loss,
-                    'ewma_loss': t.ewma_loss,
-                    'error_count': t.error_count,
-                    'last_error': t.last_error,
-                    'last_update': t.last_update,
+                data["trackers"][name] = {
+                    "cumulative_loss": t.cumulative_loss,
+                    "ewma_loss": t.ewma_loss,
+                    "error_count": t.error_count,
+                    "last_error": t.last_error,
+                    "last_update": t.last_update,
                 }
-            os.makedirs(os.path.dirname(filepath) or '.', exist_ok=True)
-            with open(filepath, 'w', encoding='utf-8') as f:
+            os.makedirs(os.path.dirname(filepath) or ".", exist_ok=True)
+            with open(filepath, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
 
     def load(self, filepath: str):
@@ -194,19 +190,19 @@ class OnlineLearner:
             return
         with self._lock:
             try:
-                with open(filepath, 'r', encoding='utf-8') as f:
+                with open(filepath, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                self._step = data.get('step', 0)
-                self.eta = data.get('eta', DEFAULT_ETA)
-                self.decay = data.get('decay', DEFAULT_DECAY)
-                for name, td in data.get('trackers', {}).items():
+                self._step = data.get("step", 0)
+                self.eta = data.get("eta", DEFAULT_ETA)
+                self.decay = data.get("decay", DEFAULT_DECAY)
+                for name, td in data.get("trackers", {}).items():
                     if name in self._trackers:
                         t = self._trackers[name]
-                        t.cumulative_loss = td.get('cumulative_loss', 0)
-                        t.ewma_loss = td.get('ewma_loss', 0)
-                        t.error_count = td.get('error_count', 0)
-                        t.last_error = td.get('last_error')
-                        t.last_update = td.get('last_update', 0)
+                        t.cumulative_loss = td.get("cumulative_loss", 0)
+                        t.ewma_loss = td.get("ewma_loss", 0)
+                        t.error_count = td.get("error_count", 0)
+                        t.last_error = td.get("last_error")
+                        t.last_update = td.get("last_update", 0)
             except Exception as e:
                 logger.warning("OnlineLearner 加载失败: %s", e)
 

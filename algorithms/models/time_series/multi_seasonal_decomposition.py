@@ -2,6 +2,7 @@
 多季节性分解预测
 同时考虑日周期和周周期模式，分解后分别预测再合成
 """
+
 import math
 import numpy as np
 from typing import Dict, Any, List, Tuple
@@ -29,8 +30,9 @@ class MultiSeasonalDecompositionAlgorithm(BaseAlgorithm):
     category = "时间序列"
     default_weight = 1.2
 
-    def _decompose(self, views: np.ndarray,
-                   hours_per_point: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    def _decompose(
+        self, views: np.ndarray, hours_per_point: float
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """STL分解: 趋势 + 日周期 + 周周期 + 残差
 
         Args:
@@ -100,55 +102,66 @@ class MultiSeasonalDecompositionAlgorithm(BaseAlgorithm):
 
         return trend, daily_cycle, weekly_cycle, residual
 
-    def predict(self, video_data: Dict[str, Any],
-                threshold: int = 100000) -> PredictionResult:
-        current_views = video_data.get('view_count', 0)
-        history = video_data.get('history_data', [])
+    def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
+        current_views = video_data.get("view_count", 0)
+        history = video_data.get("history_data", [])
         velocity = self.calculate_velocity(video_data)
 
         remaining = threshold - current_views
         if remaining <= 0:
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=0, confidence=1.0,
-                current_views=current_views, current_velocity=velocity,
-                metadata={'method': 'multi_seasonal'}, timestamp=datetime.now()
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=0,
+                confidence=1.0,
+                current_views=current_views,
+                current_velocity=velocity,
+                metadata={"method": "multi_seasonal"},
+                timestamp=datetime.now(),
             )
 
         if len(history) < 10 or velocity <= 0:
-            predicted_hours = remaining / velocity if velocity > 0 else float('inf')
+            predicted_hours = remaining / velocity if velocity > 0 else float("inf")
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=0.3,
+                current_views=current_views,
                 current_velocity=velocity,
-                metadata={'method': 'multi_seasonal', 'notes': 'insufficient_data'},
-                timestamp=datetime.now()
+                metadata={"method": "multi_seasonal", "notes": "insufficient_data"},
+                timestamp=datetime.now(),
             )
 
         # 提取时序
         timestamps = []
         views_vals = []
         for h in history:
-            ts = h.get('timestamp', 0)
-            if hasattr(ts, 'timestamp'):
+            ts = h.get("timestamp", 0)
+            if hasattr(ts, "timestamp"):
                 ts = ts.timestamp()
             elif isinstance(ts, str):
                 try:
-                    ts = datetime.strptime(ts, '%Y-%m-%d %H:%M:%S').timestamp()
+                    ts = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S").timestamp()
                 except Exception:
                     continue
             timestamps.append(float(ts))
-            views_vals.append(float(h.get('view_count', 0)))
+            views_vals.append(float(h.get("view_count", 0)))
 
         if len(views_vals) < 10:
             predicted_hours = remaining / velocity
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=0.3,
+                current_views=current_views,
                 current_velocity=velocity,
-                metadata={'method': 'multi_seasonal_fallback'}, timestamp=datetime.now()
+                metadata={"method": "multi_seasonal_fallback"},
+                timestamp=datetime.now(),
             )
 
         try:
@@ -231,26 +244,33 @@ class MultiSeasonalDecompositionAlgorithm(BaseAlgorithm):
                 conf = 0.35
 
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=conf, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=conf,
+                current_views=current_views,
                 current_velocity=velocity,
                 metadata={
-                    'method': 'multi_seasonal',
-                    'daily_strength': round(float(daily_strength), 3),
-                    'weekly_strength': round(float(weekly_strength), 3),
-                    'trend_daily_growth': round(float(trend_daily_growth), 2),
-                    'residual_std': round(float(np.std(residual)), 2),
-                    'data_points': n,
+                    "method": "multi_seasonal",
+                    "daily_strength": round(float(daily_strength), 3),
+                    "weekly_strength": round(float(weekly_strength), 3),
+                    "trend_daily_growth": round(float(trend_daily_growth), 2),
+                    "residual_std": round(float(np.std(residual)), 2),
+                    "data_points": n,
                 },
-                timestamp=datetime.now()
+                timestamp=datetime.now(),
             )
         except Exception as e:
-            predicted_hours = remaining / velocity if velocity > 0 else float('inf')
+            predicted_hours = remaining / velocity if velocity > 0 else float("inf")
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.0, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=0.0,
+                current_views=current_views,
                 current_velocity=velocity,
-                metadata={'error': str(e)}, timestamp=datetime.now()
+                metadata={"error": str(e)},
+                timestamp=datetime.now(),
             )

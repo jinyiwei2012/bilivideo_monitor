@@ -11,11 +11,11 @@ from .data_comparison import DataComparisonWindow
 from .weight_settings import WeightSettingsWindow
 
 __all__ = [
-    'BilibiliMonitorGUI',
-    'main',
-    'SettingsWindow',
-    'VideoSearchWindow',
-    'CrossoverAnalysisWindow',
-    'DataComparisonWindow',
-    'WeightSettingsWindow'
+    "BilibiliMonitorGUI",
+    "main",
+    "SettingsWindow",
+    "VideoSearchWindow",
+    "CrossoverAnalysisWindow",
+    "DataComparisonWindow",
+    "WeightSettingsWindow",
 ]

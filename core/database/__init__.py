@@ -10,13 +10,13 @@ from .video_db import VideoDatabase
 from .central_db import Database, db
 
 __all__ = [
-    'VideoInfo',
-    'MonitorRecord',
-    'PredictionRecord',
-    '_validate_bvid',
-    '_ConnectionCtx',
-    '_http_session',
-    'VideoDatabase',
-    'Database',
-    'db',
+    "VideoInfo",
+    "MonitorRecord",
+    "PredictionRecord",
+    "_validate_bvid",
+    "_ConnectionCtx",
+    "_http_session",
+    "VideoDatabase",
+    "Database",
+    "db",
 ]

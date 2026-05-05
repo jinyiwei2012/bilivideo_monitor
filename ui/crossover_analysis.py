@@ -2,6 +2,7 @@
 播放量交叉计算界面
 基于历史数据预测多个视频播放量的交会时间
 """
+
 import tkinter as tk
 from tkinter import ttk, messagebox, LEFT, RIGHT, BOTH, X, Y, W
 import logging
@@ -75,9 +76,9 @@ def _linear_fit(points: List[Tuple[float, float]]) -> Optional[Tuple[float, floa
     return (k, b)
 
 
-def _find_crossover(slope_a: float, intercept_a: float,
-                    slope_b: float, intercept_b: float,
-                    offset_hours: float) -> Optional[float]:
+def _find_crossover(
+    slope_a: float, intercept_a: float, slope_b: float, intercept_b: float, offset_hours: float
+) -> Optional[float]:
     """
     求两条线的交点。
     线A: y = slope_a * t + intercept_a  (t=0 对应视频A第一个数据点)
@@ -99,17 +100,20 @@ def _find_crossover(slope_a: float, intercept_a: float,
 class CrossoverAnalysisWindow:
     """交叉计算窗口"""
 
-    def __init__(self, parent=None,
-                 monitored_videos: Optional[List[Dict]] = None,
-                 history_data: Optional[Dict] = None,
-                 video_dbs: Optional[Dict] = None):
+    def __init__(
+        self,
+        parent=None,
+        monitored_videos: Optional[List[Dict]] = None,
+        history_data: Optional[Dict] = None,
+        video_dbs: Optional[Dict] = None,
+    ):
         self.window = tk.Toplevel(parent)
         self.window.title("播放量交叉计算")
         self.window.geometry("1020x720")
 
         self.monitored_videos = monitored_videos or []
-        self.history_data     = history_data     or {}
-        self.video_dbs        = video_dbs        or {}
+        self.history_data = history_data or {}
+        self.video_dbs = video_dbs or {}
         self._selected: List[Dict] = []
 
         self._setup_ui()
@@ -121,39 +125,41 @@ class CrossoverAnalysisWindow:
 
         lf = tk.Frame(sel)
         lf.pack(fill=X)
-        self.listbox = tk.Listbox(lf, selectmode=tk.MULTIPLE, height=5,
-                                  exportselection=False)
+        self.listbox = tk.Listbox(lf, selectmode=tk.MULTIPLE, height=5, exportselection=False)
         sb = ttk.Scrollbar(lf, orient="vertical", command=self.listbox.yview)
         self.listbox.config(yscrollcommand=sb.set)
         self.listbox.pack(side=LEFT, fill=BOTH, expand=True)
         sb.pack(side=RIGHT, fill=Y)
 
         for v in self.monitored_videos:
-            bvid  = v.get("bvid", "")
+            bvid = v.get("bvid", "")
             title = v.get("title", "未知")[:40]
             self.listbox.insert(tk.END, f"{bvid}  {title}")
 
         # 算法选择
         algo_frame = tk.Frame(sel)
         algo_frame.pack(fill=X, pady=(4, 0))
-        tk.Label(algo_frame, text="预测算法:", fg=C["text_2"],
-                 font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT)
+        tk.Label(algo_frame, text="预测算法:", fg=C["text_2"], font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT)
         algo_names = ["加权集成(默认)", "线性回归(原方法)"]
         try:
             algo_names.extend(AlgorithmRegistry.get_algorithm_names())
         except Exception as e:
             logger.debug("获取算法列表失败: %s", e)
         self._algo_var = tk.StringVar(value="加权集成(默认)")
-        self._algo_combo = ttk.Combobox(algo_frame, textvariable=self._algo_var,
-                                        values=algo_names, width=50, state="readonly",
-                                        font=("Microsoft YaHei UI", 9))
+        self._algo_combo = ttk.Combobox(
+            algo_frame,
+            textvariable=self._algo_var,
+            values=algo_names,
+            width=50,
+            state="readonly",
+            font=("Microsoft YaHei UI", 9),
+        )
         self._algo_combo.pack(side=tk.LEFT, padx=6)
 
         bb = tk.Frame(sel)
         bb.pack(fill=X, pady=(6, 0))
         ttk.Button(bb, text="开始分析", command=self._analyze).pack(side=tk.LEFT, padx=4)
-        self.status_lbl = tk.Label(bb, text="", fg=C["text_2"],
-                                   font=("Microsoft YaHei UI", 9))
+        self.status_lbl = tk.Label(bb, text="", fg=C["text_2"], font=("Microsoft YaHei UI", 9))
         self.status_lbl.pack(side=tk.LEFT, padx=12)
 
         # 图表
@@ -170,13 +176,13 @@ class CrossoverAnalysisWindow:
         self.tree = ttk.Treeview(rf, columns=cols, show="headings", height=5)
         for col in cols:
             self.tree.heading(col, text=col)
-        self.tree.column("视频A",       width=100)
-        self.tree.column("视频B",       width=100)
+        self.tree.column("视频A", width=100)
+        self.tree.column("视频B", width=100)
         self.tree.column("预计交会时间", width=130)
-        self.tree.column("预计播放量",   width=110, anchor="e")
-        self.tree.column("A增长率/h",   width=90,  anchor="e")
-        self.tree.column("B增长率/h",   width=90,  anchor="e")
-        self.tree.column("置信度",       width=80,  anchor="center")
+        self.tree.column("预计播放量", width=110, anchor="e")
+        self.tree.column("A增长率/h", width=90, anchor="e")
+        self.tree.column("B增长率/h", width=90, anchor="e")
+        self.tree.column("置信度", width=80, anchor="center")
 
         tsb = ttk.Scrollbar(rf, orient="vertical", command=self.tree.yview)
         self.tree.config(yscrollcommand=tsb.set)
@@ -193,8 +199,7 @@ class CrossoverAnalysisWindow:
             messagebox.showwarning("提示", "最多选择 5 个视频", parent=self.window)
             return
 
-        self._selected = [self.monitored_videos[i] for i in sel_idx
-                          if i < len(self.monitored_videos)]
+        self._selected = [self.monitored_videos[i] for i in sel_idx if i < len(self.monitored_videos)]
 
         self._load_history()
         fits = self._fit_videos()
@@ -206,19 +211,17 @@ class CrossoverAnalysisWindow:
 
         valid = [v for v in self._selected if fits.get(v.get("bvid", ""))]
         if len(valid) < 2:
-            self.status_lbl.config(text="所选视频历史数据不足（每个至少需要 2 条记录）",
-                                   fg=C["danger"])
-            messagebox.showwarning("数据不足",
-                                   "部分视频历史数据不足，无法进行交叉计算。\n"
-                                   "每个视频至少需要 2 条历史记录。",
-                                   parent=self.window)
+            self.status_lbl.config(text="所选视频历史数据不足（每个至少需要 2 条记录）", fg=C["danger"])
+            messagebox.showwarning(
+                "数据不足",
+                "部分视频历史数据不足，无法进行交叉计算。\n" "每个视频至少需要 2 条历史记录。",
+                parent=self.window,
+            )
             return
 
         crossover_count = self._compute_crossovers(valid, fits)
 
-        self.status_lbl.config(
-            text=f"分析完成：{len(valid)} 个视频，找到 {crossover_count} 个交会点",
-            fg=C["success"])
+        self.status_lbl.config(text=f"分析完成：{len(valid)} 个视频，找到 {crossover_count} 个交会点", fg=C["success"])
 
         self._draw_trend(fits)
 
@@ -233,10 +236,7 @@ class CrossoverAnalysisWindow:
                 try:
                     records = self.video_dbs[bvid].get_all_records()
                     if records:
-                        self.history_data[bvid] = [
-                            (row["timestamp"], row["view_count"])
-                            for row in records
-                        ]
+                        self.history_data[bvid] = [(row["timestamp"], row["view_count"]) for row in records]
                 except Exception as e:
                     logger.debug("加载视频历史数据失败: %s", e)
 
@@ -291,8 +291,7 @@ class CrossoverAnalysisWindow:
             current_views = pts_parsed[-1][1]
             history_pts = [(p[0], p[1]) for p in pts_parsed]
 
-            growth_rate = self._get_algo_growth_rate(
-                history_pts, current_views, algo_name, threshold)
+            growth_rate = self._get_algo_growth_rate(history_pts, current_views, algo_name, threshold)
 
             if growth_rate is None or growth_rate <= 0:
                 # 回退到线性回归
@@ -309,22 +308,21 @@ class CrossoverAnalysisWindow:
 
     def _get_algo_growth_rate(self, history_pts, current_views, algo_name, threshold):
         """获取算法预测的增长率 (播放量/小时)"""
-        MAX_RATE = 50000   # 超过此值的增长率视为异常（5万/小时已极高）
-        MIN_HOURS = 0.5    # 低于此值的预测时长视为不可信
+        MAX_RATE = 50000  # 超过此值的增长率视为异常（5万/小时已极高）
+        MIN_HOURS = 0.5  # 低于此值的预测时长视为不可信
         try:
             if algo_name == "加权集成(默认)":
-                results = AlgorithmRegistry.predict_all(
-                    history_pts, current_views, thresholds=[threshold])
+                results = AlgorithmRegistry.predict_all(history_pts, current_views, thresholds=[threshold])
                 rates, weights = [], []
                 for name, r in results.items():
-                    if name == '_weighted' or r.get('weight', 0) <= 0:
+                    if name == "_weighted" or r.get("weight", 0) <= 0:
                         continue
-                    pred_h = r.get('metadata', {}).get('predicted_hours', None)
-                    if pred_h and pred_h != float('inf') and pred_h > MIN_HOURS:
+                    pred_h = r.get("metadata", {}).get("predicted_hours", None)
+                    if pred_h and pred_h != float("inf") and pred_h > MIN_HOURS:
                         rate = (threshold - current_views) / pred_h
                         if 0 < rate <= MAX_RATE:
                             rates.append(rate)
-                            weights.append(r['weight'] * max(r['confidence'], 0.1))
+                            weights.append(r["weight"] * max(r["confidence"], 0.1))
                 if rates:
                     return sum(r * w for r, w in zip(rates, weights)) / sum(weights)
             else:
@@ -334,8 +332,8 @@ class CrossoverAnalysisWindow:
                     return None
                 result = algo.predict(history_pts, current_views, thresholds=[threshold])
                 if result:
-                    pred_h = result.get('metadata', {}).get('predicted_hours', None)
-                    if pred_h and pred_h != float('inf') and pred_h > MIN_HOURS:
+                    pred_h = result.get("metadata", {}).get("predicted_hours", None)
+                    if pred_h and pred_h != float("inf") and pred_h > MIN_HOURS:
                         rate = (threshold - current_views) / pred_h
                         if 0 < rate <= MAX_RATE:
                             return rate
@@ -369,8 +367,7 @@ class CrossoverAnalysisWindow:
         slope_b, intercept_b, base_b, pts_b = fb
         offset_h = (base_b - base_a).total_seconds() / 3600
 
-        cross_h = _find_crossover(slope_a, intercept_a,
-                                  slope_b, intercept_b, offset_h)
+        cross_h = _find_crossover(slope_a, intercept_a, slope_b, intercept_b, offset_h)
         if cross_h is None:
             return 0
 
@@ -379,8 +376,7 @@ class CrossoverAnalysisWindow:
             return 0
 
         cross_time = base_a + timedelta(hours=cross_h)
-        confidence = self._compute_confidence(slope_a, intercept_a, pts_a,
-                                              slope_b, intercept_b, pts_b)
+        confidence = self._compute_confidence(slope_a, intercept_a, pts_a, slope_b, intercept_b, pts_b)
         time_str = cross_time.strftime("%Y-%m-%d %H:%M")
         remaining = cross_time - now
         if remaining.total_seconds() > 0:
@@ -390,16 +386,22 @@ class CrossoverAnalysisWindow:
         else:
             remain_str = "已交会"
 
-        self.tree.insert("", "end", values=(
-            ba[:14], bb[:14], time_str,
-            _fmt_num(cross_views),
-            f"{slope_a:,.1f}", f"{slope_b:,.1f}",
-            f"{confidence:.0%}",
-        ))
+        self.tree.insert(
+            "",
+            "end",
+            values=(
+                ba[:14],
+                bb[:14],
+                time_str,
+                _fmt_num(cross_views),
+                f"{slope_a:,.1f}",
+                f"{slope_b:,.1f}",
+                f"{confidence:.0%}",
+            ),
+        )
         return 1
 
-    def _compute_confidence(self, slope_a, intercept_a, pts_a,
-                            slope_b, intercept_b, pts_b) -> float:
+    def _compute_confidence(self, slope_a, intercept_a, pts_a, slope_b, intercept_b, pts_b) -> float:
         """基于 R² 和数据点数量计算综合置信度"""
         pts_a_fit = [((p[0] - pts_a[0][0]).total_seconds() / 3600, p[1]) for p in pts_a]
         pts_b_fit = [((p[0] - pts_b[0][0]).total_seconds() / 3600, p[1]) for p in pts_b]
@@ -454,12 +456,11 @@ class CrossoverAnalysisWindow:
                 base_min = base_ts
 
         if not all_pts or not series or base_min is None:
-            c.create_text(W // 2, H // 2, text="数据不足",
-                          fill=C["text_2"], font=("Microsoft YaHei UI", 12))
+            c.create_text(W // 2, H // 2, text="数据不足", fill=C["text_2"], font=("Microsoft YaHei UI", 12))
             return
 
         all_ts_list = [p[0] for p in all_pts]
-        all_v_list  = [p[1] for p in all_pts]
+        all_v_list = [p[1] for p in all_pts]
         min_ts = min(all_ts_list)
         max_ts = max(all_ts_list)
         # 延长到未来 7 天做预测
@@ -482,32 +483,26 @@ class CrossoverAnalysisWindow:
             y = _MT + ch * (1 - ratio)
             val = min_v + v_span * ratio
             c.create_line(_ML, y, W - _MR, y, fill=C["grid_line"], dash=(2, 4))
-            c.create_text(_ML - 6, y, text=_fmt_num(val), anchor="e",
-                          fill=C["text_2"], font=("Consolas", 9))
+            c.create_text(_ML - 6, y, text=_fmt_num(val), anchor="e", fill=C["text_2"], font=("Consolas", 9))
 
         for i in range(5):
             ratio = i / 4
             ts = min_ts + timedelta(seconds=ts_span * ratio)
             x = _ML + cw * ratio
-            lbl = ts.strftime("%m-%d %H:%M") if ts_span < 86400 * 3 \
-                  else ts.strftime("%m-%d")
-            c.create_text(x, H - _MB + 16, text=lbl,
-                          fill=C["text_2"], font=("Consolas", 8))
+            lbl = ts.strftime("%m-%d %H:%M") if ts_span < 86400 * 3 else ts.strftime("%m-%d")
+            c.create_text(x, H - _MB + 16, text=lbl, fill=C["text_2"], font=("Consolas", 8))
 
         # 当前时间线
         now_x = tx(datetime.now())
         if _ML < now_x < W - _MR:
-            c.create_line(now_x, _MT, now_x, _MT + ch,
-                          fill=C["warning"], dash=(4, 4), width=1)
-            c.create_text(now_x, _MT - 8, text="现在", fill=C["warning"],
-                          font=("Microsoft YaHei UI", 8))
+            c.create_line(now_x, _MT, now_x, _MT + ch, fill=C["warning"], dash=(4, 4), width=1)
+            c.create_text(now_x, _MT - 8, text="现在", fill=C["warning"], font=("Microsoft YaHei UI", 8))
 
         # 绘制每条线
         for bvid, (slope, intercept, base_ts, pts, idx) in series.items():
             color = LINE_COLORS[idx % len(LINE_COLORS)][0]
             color_light = LINE_COLORS[idx % len(LINE_COLORS)][1]
-            title = next((v.get("title", bvid) for v in self._selected
-                          if v.get("bvid") == bvid), bvid)[:16]
+            title = next((v.get("title", bvid) for v in self._selected if v.get("bvid") == bvid), bvid)[:16]
 
             # 实际数据折线
             real_coords = []
@@ -518,26 +513,23 @@ class CrossoverAnalysisWindow:
 
             # 预测虚线
             last_ts = pts[-1][0]
-            last_v  = pts[-1][1]
+            last_v = pts[-1][1]
             # 延长到 max_ts
             future_hours = (max_ts - base_ts).total_seconds() / 3600
             future_v = slope * future_hours + intercept
             pred_coords = list(real_coords[-2:])  # 从最后一个实际点
             pred_coords.extend([tx(max_ts), ty(max(0, future_v))])
             if len(pred_coords) >= 4:
-                c.create_line(*pred_coords, fill=color, width=1,
-                              dash=(6, 4))
+                c.create_line(*pred_coords, fill=color, width=1, dash=(6, 4))
 
             # 数据点
             for p in pts:
                 px, py = tx(p[0]), ty(p[1])
-                c.create_oval(px - 2, py - 2, px + 2, py + 2,
-                              fill=color, outline="")
+                c.create_oval(px - 2, py - 2, px + 2, py + 2, fill=color, outline="")
 
             # 图例
             leg = tk.Frame(self.window)
             # 在 canvas 下方用文字代替
-            c.create_text(_ML + idx * 160, _MT - 12,
-                          text=f"━ {title}",
-                          fill=color, anchor="w",
-                          font=("Microsoft YaHei UI", 8))
+            c.create_text(
+                _ML + idx * 160, _MT - 12, text=f"━ {title}", fill=color, anchor="w", font=("Microsoft YaHei UI", 8)
+            )

@@ -13,7 +13,7 @@ from algorithms.base import BaseAlgorithm
 
 logger = logging.getLogger(__name__)
 
-_TS_FMT = '%Y-%m-%d %H:%M:%S'
+_TS_FMT = "%Y-%m-%d %H:%M:%S"
 
 
 class WeibullGrowthAlgorithm(BaseAlgorithm):
@@ -34,69 +34,62 @@ class WeibullGrowthAlgorithm(BaseAlgorithm):
     def __init__(self):
         super().__init__()
         self.K = 1000000  # 最大播放量
-        self.lam = 30     # 尺度参数
-        self.k = 1.5      # 形状参数
+        self.lam = 30  # 尺度参数
+        self.k = 1.5  # 形状参数
         self._maxfev = 300
         self._min_curvefit_points = 10
-        
+
     def predict(
-        self,
-        current_views: int,
-        target_views: int,
-        history_data: List[Dict[str, Any]],
-        video_info: Dict[str, Any]
+        self, current_views: int, target_views: int, history_data: List[Dict[str, Any]], video_info: Dict[str, Any]
     ) -> Optional[Tuple[int, float]]:
         """
         预测到达目标播放量所需时间
         """
         if not history_data or len(history_data) < 3:
             return None
-            
+
         try:
             times, views = self._prepare_data(history_data)
-            
+
             if len(times) < 3:
                 return None
-            
+
             # 拟合Weibull曲线
             self._fit_curve(times, views, video_info)
-            
+
             if current_views >= target_views:
                 return (0, 1.0)
-            
+
             if target_views >= self.K * 0.99:
                 self.K = target_views * 1.2
-            
+
             current_t = times[-1]
             target_t = self._find_time_for_views(target_views)
-            
+
             if target_t is None:
                 return None
-                
+
             days_needed = target_t - current_t
-            
+
             if days_needed < 0 or days_needed > 3650:
                 return None
-            
+
             seconds_needed = int(days_needed * 86400)
             confidence = self._calculate_confidence(times, views)
-            
+
             return (seconds_needed, confidence)
-            
+
         except Exception as e:
             logger.warning(f"Weibull模型预测失败: {e}")
             return None
-    
-    def _prepare_data(
-        self,
-        history_data: List[Dict[str, Any]]
-    ) -> Tuple[np.ndarray, np.ndarray]:
+
+    def _prepare_data(self, history_data: List[Dict[str, Any]]) -> Tuple[np.ndarray, np.ndarray]:
         """准备数据"""
         n = len(history_data)
         times = np.empty(n, dtype=float)
         views = np.empty(n, dtype=float)
 
-        first_ts = history_data[0]['timestamp']
+        first_ts = history_data[0]["timestamp"]
         if isinstance(first_ts, str):
             base_epoch = datetime.strptime(first_ts, _TS_FMT).timestamp()
         elif isinstance(first_ts, datetime):
@@ -105,12 +98,12 @@ class WeibullGrowthAlgorithm(BaseAlgorithm):
             base_epoch = float(first_ts)
 
         times[0] = 0.1  # 避免t=0
-        views[0] = history_data[0].get('view', history_data[0].get('view_count', 0))
+        views[0] = history_data[0].get("view", history_data[0].get("view_count", 0))
 
         for i in range(1, n):
             data = history_data[i]
-            views[i] = data.get('view', data.get('view_count', 0))
-            ts_raw = data['timestamp']
+            views[i] = data.get("view", data.get("view_count", 0))
+            ts_raw = data["timestamp"]
             if isinstance(ts_raw, str):
                 ts_epoch = datetime.strptime(ts_raw, _TS_FMT).timestamp()
             elif isinstance(ts_raw, datetime):
@@ -120,49 +113,41 @@ class WeibullGrowthAlgorithm(BaseAlgorithm):
             times[i] = max(0.1, (ts_epoch - base_epoch) / 86400.0)
 
         return times, views
-    
+
     def _weibull(self, t, K, lam, k):
         """Weibull累积分布函数"""
         return K * (1 - np.exp(-np.power(t / lam, k)))
-    
-    def _fit_curve(
-        self,
-        times: np.ndarray,
-        views: np.ndarray,
-        video_info: Dict[str, Any]
-    ):
+
+    def _fit_curve(self, times: np.ndarray, views: np.ndarray, video_info: Dict[str, Any]):
         """拟合Weibull曲线"""
         if len(times) < self._min_curvefit_points:
             self.K = max(views) * 3
             self.lam = 30
             self.k = 1.5
-            if 'follower' in video_info:
-                self.K = max(self.K, video_info['follower'] * 2.5)
+            if "follower" in video_info:
+                self.K = max(self.K, video_info["follower"] * 2.5)
             return
 
         try:
             K_est = max(views) * 2.5
             lam_est = np.median(times) if len(times) > 0 else 30
             k_est = 1.5
-            
+
             p0 = [K_est, lam_est, k_est]
             bounds = ([max(views), 1, 0.1], [K_est * 10, times[-1] * 10, 5.0])
-            
-            popt, _ = curve_fit(
-                self._weibull, times, views,
-                p0=p0, bounds=bounds, maxfev=self._maxfev
-            )
-            
+
+            popt, _ = curve_fit(self._weibull, times, views, p0=p0, bounds=bounds, maxfev=self._maxfev)
+
             self.K, self.lam, self.k = popt
-            
+
         except Exception:
             self.K = max(views) * 3
             self.lam = 30
             self.k = 1.5
-            
-            if 'follower' in video_info:
-                self.K = max(self.K, video_info['follower'] * 2.5)
-    
+
+            if "follower" in video_info:
+                self.K = max(self.K, video_info["follower"] * 2.5)
+
     def _find_time_for_views(self, target_views: int) -> Optional[float]:
         """找到达到目标播放量所需时间"""
         try:
@@ -170,28 +155,24 @@ class WeibullGrowthAlgorithm(BaseAlgorithm):
             # 1 - V/K = exp(-(t/λ)^k)
             # -ln(1 - V/K) = (t/λ)^k
             # t = λ * (-ln(1 - V/K))^(1/k)
-            
+
             if target_views >= self.K:
                 return None
-            
+
             ratio = 1 - target_views / self.K
             if ratio <= 0 or ratio >= 1:
                 return None
-            
+
             t = self.lam * np.power(-np.log(ratio), 1.0 / self.k)
             return max(0, t)
         except Exception:
             return None
-    
-    def _calculate_confidence(
-        self, 
-        times: np.ndarray, 
-        views: np.ndarray
-    ) -> float:
+
+    def _calculate_confidence(self, times: np.ndarray, views: np.ndarray) -> float:
         """计算置信度"""
         n = len(times)
         base_conf = min(0.9, 0.4 + n * 0.03)
-        
+
         if n >= 5:
             try:
                 predicted = self._weibull(times, self.K, self.lam, self.k)

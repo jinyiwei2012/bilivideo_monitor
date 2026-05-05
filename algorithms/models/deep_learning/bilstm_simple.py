@@ -2,6 +2,7 @@
 BiLSTM双向长短期记忆预测
 前后双向处理时序，同时捕获历史和未来的上下文依赖
 """
+
 import math
 import numpy as np
 from typing import Dict, Any, List
@@ -26,72 +27,82 @@ class BiLSTMSimpleAlgorithm(BaseAlgorithm):
     category = "深度学习"
     default_weight = 1.25
 
-    def _lstm_cell(self, x: float, h_prev: float, c_prev: float,
-                   params: Dict[str, float]) -> tuple:
+    def _lstm_cell(self, x: float, h_prev: float, c_prev: float, params: Dict[str, float]) -> tuple:
         """单个LSTM单元前向计算"""
         # 遗忘门
-        f = 1.0 / (1.0 + math.exp(-(params['wf'] * h_prev + params['xf'] * x + params['bf'])))
+        f = 1.0 / (1.0 + math.exp(-(params["wf"] * h_prev + params["xf"] * x + params["bf"])))
         # 输入门
-        i = 1.0 / (1.0 + math.exp(-(params['wi'] * h_prev + params['xi'] * x + params['bi'])))
+        i = 1.0 / (1.0 + math.exp(-(params["wi"] * h_prev + params["xi"] * x + params["bi"])))
         # 候选记忆
-        c_tilde = math.tanh(params['wc'] * h_prev + params['xc'] * x + params['bc'])
+        c_tilde = math.tanh(params["wc"] * h_prev + params["xc"] * x + params["bc"])
         # 记忆更新
         c = f * c_prev + i * c_tilde
         # 输出门
-        o = 1.0 / (1.0 + math.exp(-(params['wo'] * h_prev + params['xo'] * x + params['bo'])))
+        o = 1.0 / (1.0 + math.exp(-(params["wo"] * h_prev + params["xo"] * x + params["bo"])))
         # 隐藏状态
         h = o * math.tanh(c)
         return h, c
 
-    def predict(self, video_data: Dict[str, Any],
-                threshold: int = 100000) -> PredictionResult:
-        current_views = video_data.get('view_count', 0)
-        history = video_data.get('history_data', [])
+    def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
+        current_views = video_data.get("view_count", 0)
+        history = video_data.get("history_data", [])
         velocity = self.calculate_velocity(video_data)
 
         remaining = threshold - current_views
         if remaining <= 0:
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=0, confidence=1.0,
-                current_views=current_views, current_velocity=velocity,
-                metadata={'method': 'bilstm'}, timestamp=datetime.now()
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=0,
+                confidence=1.0,
+                current_views=current_views,
+                current_velocity=velocity,
+                metadata={"method": "bilstm"},
+                timestamp=datetime.now(),
             )
 
         if len(history) < 4 or velocity <= 0:
-            predicted_hours = remaining / velocity if velocity > 0 else float('inf')
+            predicted_hours = remaining / velocity if velocity > 0 else float("inf")
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=0.3,
+                current_views=current_views,
                 current_velocity=velocity,
-                metadata={'method': 'bilstm', 'notes': 'insufficient_data'},
-                timestamp=datetime.now()
+                metadata={"method": "bilstm", "notes": "insufficient_data"},
+                timestamp=datetime.now(),
             )
 
         # 提取时序
         timestamps = []
         views_vals = []
         for h in history:
-            ts = h.get('timestamp', 0)
-            if hasattr(ts, 'timestamp'):
+            ts = h.get("timestamp", 0)
+            if hasattr(ts, "timestamp"):
                 ts = ts.timestamp()
             elif isinstance(ts, str):
                 try:
-                    ts = datetime.strptime(ts, '%Y-%m-%d %H:%M:%S').timestamp()
+                    ts = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S").timestamp()
                 except Exception:
                     continue
             timestamps.append(float(ts))
-            views_vals.append(float(h.get('view_count', 0)))
+            views_vals.append(float(h.get("view_count", 0)))
 
         if len(views_vals) < 4:
             predicted_hours = remaining / velocity
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=0.3,
+                current_views=current_views,
                 current_velocity=velocity,
-                metadata={'method': 'bilstm_fallback'}, timestamp=datetime.now()
+                metadata={"method": "bilstm_fallback"},
+                timestamp=datetime.now(),
             )
 
         try:
@@ -118,10 +129,18 @@ class BiLSTMSimpleAlgorithm(BaseAlgorithm):
 
             # ── LSTM参数初始化（正向） ──────────────────
             fwd_params = {
-                'wf': 0.3, 'xf': 0.2, 'bf': 0.1,
-                'wi': 0.4, 'xi': 0.3, 'bi': 0.0,
-                'wc': 0.2, 'xc': 0.1, 'bc': 0.0,
-                'wo': 0.3, 'xo': 0.2, 'bo': 0.0,
+                "wf": 0.3,
+                "xf": 0.2,
+                "bf": 0.1,
+                "wi": 0.4,
+                "xi": 0.3,
+                "bi": 0.0,
+                "wc": 0.2,
+                "xc": 0.1,
+                "bc": 0.0,
+                "wo": 0.3,
+                "xo": 0.2,
+                "bo": 0.0,
             }
 
             # ── 正向LSTM处理 ──────────────────────────
@@ -133,7 +152,7 @@ class BiLSTMSimpleAlgorithm(BaseAlgorithm):
                 # 将辅助特征融入输入
                 x_enhanced = x * (1.0 + growth_rate * 0.1)
                 if i > 0:
-                    x_enhanced += norm_diffs[min(i-1, len(norm_diffs)-1)] * 0.05
+                    x_enhanced += norm_diffs[min(i - 1, len(norm_diffs) - 1)] * 0.05
                 h_fwd, c_fwd = self._lstm_cell(x_enhanced, h_fwd, c_fwd, fwd_params)
                 fwd_states.append(h_fwd)
 
@@ -191,26 +210,33 @@ class BiLSTMSimpleAlgorithm(BaseAlgorithm):
                 conf = 0.35
 
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=conf, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=conf,
+                current_views=current_views,
                 current_velocity=adjusted_velocity,
                 metadata={
-                    'method': 'bilstm',
-                    'fwd_hidden': round(float(h_fwd), 4),
-                    'rev_hidden': round(float(h_rev), 4),
-                    'combined_hidden': round(float(final_hidden), 4),
-                    'forecast_horizon': forecast_days,
-                    'data_points': n,
+                    "method": "bilstm",
+                    "fwd_hidden": round(float(h_fwd), 4),
+                    "rev_hidden": round(float(h_rev), 4),
+                    "combined_hidden": round(float(final_hidden), 4),
+                    "forecast_horizon": forecast_days,
+                    "data_points": n,
                 },
-                timestamp=datetime.now()
+                timestamp=datetime.now(),
             )
         except Exception as e:
-            predicted_hours = remaining / velocity if velocity > 0 else float('inf')
+            predicted_hours = remaining / velocity if velocity > 0 else float("inf")
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.0, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=0.0,
+                current_views=current_views,
                 current_velocity=velocity,
-                metadata={'error': str(e)}, timestamp=datetime.now()
+                metadata={"error": str(e)},
+                timestamp=datetime.now(),
             )

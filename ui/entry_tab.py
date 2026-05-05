@@ -1,6 +1,7 @@
 """
 数据录入标签页 - 里程碑/快照数据录入
 """
+
 import tkinter as tk
 from tkinter import ttk, messagebox, LEFT, RIGHT, BOTH, X, Y, TOP, BOTTOM
 import logging
@@ -39,7 +40,7 @@ class EntryTab:
         self._status = None
         self._bvid_text = None
 
-        self._rows: List[dict] = []   # [{bvid, period_or_ts, vars:{field: StringVar}}, ...]
+        self._rows: List[dict] = []  # [{bvid, period_or_ts, vars:{field: StringVar}}, ...]
         self._monitored_set = {v.get("bvid", "") for v in self._monitored_videos}
 
         self._build()
@@ -52,51 +53,58 @@ class EntryTab:
         mode_bar = tk.Frame(f)
         mode_bar.pack(fill=X, padx=10, pady=(8, 4))
 
-        tk.Label(mode_bar, text="录入模式：",
-                 font=("Microsoft YaHei UI", 9, "bold")).pack(side=LEFT)
-        ttk.Radiobutton(mode_bar, text="里程碑（一周/月/年）",
-                        variable=self._mode, value="milestone",
-                        command=self._switch_mode).pack(side=LEFT, padx=(8, 16))
-        ttk.Radiobutton(mode_bar, text="历史快照（指定时间点）",
-                        variable=self._mode, value="snapshot",
-                        command=self._switch_mode).pack(side=LEFT)
+        tk.Label(mode_bar, text="录入模式：", font=("Microsoft YaHei UI", 9, "bold")).pack(side=LEFT)
+        ttk.Radiobutton(
+            mode_bar, text="里程碑（一周/月/年）", variable=self._mode, value="milestone", command=self._switch_mode
+        ).pack(side=LEFT, padx=(8, 16))
+        ttk.Radiobutton(
+            mode_bar, text="历史快照（指定时间点）", variable=self._mode, value="snapshot", command=self._switch_mode
+        ).pack(side=LEFT)
 
         # ── 上半：输入区 ──
         input_area = tk.Frame(f)
         input_area.pack(fill=BOTH, expand=True, padx=10, pady=4)
 
         # 左列：BV号输入
-        bv_frame = tk.LabelFrame(input_area, text="BV号（每行一个，可批量）",
-                                  padx=6, pady=6,
-                                  fg=C.get("text_1","#e6edf3"), bg=C.get("bg_surface","#161b22"))
+        bv_frame = tk.LabelFrame(
+            input_area,
+            text="BV号（每行一个，可批量）",
+            padx=6,
+            pady=6,
+            fg=C.get("text_1", "#e6edf3"),
+            bg=C.get("bg_surface", "#161b22"),
+        )
         bv_frame.pack(side=LEFT, fill=BOTH, expand=True, padx=(0, 8))
 
         self._bvid_text = tk.Text(
-            bv_frame, width=24, height=8,
-            bg=C.get("bg_base", "#0d1117"), fg=C.get("text_1", "#e6edf3"),
+            bv_frame,
+            width=24,
+            height=8,
+            bg=C.get("bg_base", "#0d1117"),
+            fg=C.get("text_1", "#e6edf3"),
             insertbackground=C.get("text_1", "#e6edf3"),
-            font=("Consolas", 10), relief="flat", bd=1,
+            font=("Consolas", 10),
+            relief="flat",
+            bd=1,
             highlightthickness=1,
             highlightcolor=C.get("accent", "#fb7299"),
-            highlightbackground=C.get("border", "#30363d"))
+            highlightbackground=C.get("border", "#30363d"),
+        )
         self._bvid_text.pack(fill=BOTH, expand=True)
 
         # 从监控列表批量添加按钮
-        ttk.Button(bv_frame, text="从监控列表添加全部",
-                   command=self._add_all_monitored).pack(fill=X, pady=(4, 0))
+        ttk.Button(bv_frame, text="从监控列表添加全部", command=self._add_all_monitored).pack(fill=X, pady=(4, 0))
 
         # 中列：模式参数区（里程碑用周期勾选 / 快照用日期选择）
-        self._param_frame = tk.LabelFrame(input_area, text="参数",
-                                                  padx=6, pady=6,
-                                                  fg=C.get("text_1","#e6edf3"),
-                                                  bg=C.get("bg_surface","#161b22"))
+        self._param_frame = tk.LabelFrame(
+            input_area, text="参数", padx=6, pady=6, fg=C.get("text_1", "#e6edf3"), bg=C.get("bg_surface", "#161b22")
+        )
         self._param_frame.pack(side=LEFT, fill=Y, padx=(0, 8))
 
         # 里程碑参数（周期勾选）
         self._ms_frame = tk.Frame(self._param_frame)
         self._ms_vars = {}
-        tk.Label(self._ms_frame, text="统计周期",
-                 font=("Microsoft YaHei UI", 9)).pack(anchor="w")
+        tk.Label(self._ms_frame, text="统计周期", font=("Microsoft YaHei UI", 9)).pack(anchor="w")
         for p in db.MILESTONE_PERIODS:
             var = tk.BooleanVar(value=True)
             self._ms_vars[p] = var
@@ -104,19 +112,22 @@ class EntryTab:
 
         # 快照参数（日期选择）
         self._snap_frame = tk.Frame(self._param_frame)
-        tk.Label(self._snap_frame, text="选择日期时间",
-                 font=("Microsoft YaHei UI", 9)).pack(anchor="w")
-        dt_entry = tk.Entry(self._snap_frame, textvariable=self._snap_dt,
-                            width=18, font=("Consolas", 9))
+        tk.Label(self._snap_frame, text="选择日期时间", font=("Microsoft YaHei UI", 9)).pack(anchor="w")
+        dt_entry = tk.Entry(self._snap_frame, textvariable=self._snap_dt, width=18, font=("Consolas", 9))
         dt_entry.pack(anchor="w", pady=2)
-        tk.Label(self._snap_frame, text="格式：2026-04-22 12:00",
-                 font=("Microsoft YaHei UI", 8),
-                 fg=C.get("text_2", "#8b949e")).pack(anchor="w")
-        tk.Label(self._snap_frame, text="\n或从下拉选已有时间点：",
-                 font=("Microsoft YaHei UI", 8),
-                 fg=C.get("text_2", "#8b949e")).pack(anchor="w")
-        self._snap_combo = ttk.Combobox(self._snap_frame, width=18,
-                                               state="readonly")
+        tk.Label(
+            self._snap_frame,
+            text="格式：2026-04-22 12:00",
+            font=("Microsoft YaHei UI", 8),
+            fg=C.get("text_2", "#8b949e"),
+        ).pack(anchor="w")
+        tk.Label(
+            self._snap_frame,
+            text="\n或从下拉选已有时间点：",
+            font=("Microsoft YaHei UI", 8),
+            fg=C.get("text_2", "#8b949e"),
+        ).pack(anchor="w")
+        self._snap_combo = ttk.Combobox(self._snap_frame, width=18, state="readonly")
         self._snap_combo.pack(anchor="w", pady=2)
         self._snap_combo.bind("<<ComboboxSelected>>", self._on_snap_combo_select)
 
@@ -124,10 +135,8 @@ class EntryTab:
         btn_frame = tk.Frame(input_area)
         btn_frame.pack(side=LEFT, fill=Y)
 
-        ttk.Button(btn_frame, text="生成输入表",
-                   command=self._generate_rows).pack(fill=X, pady=3, ipady=2)
-        ttk.Button(btn_frame, text="💾 保存全部",
-                   command=self._save_all).pack(fill=X, pady=3, ipady=2)
+        ttk.Button(btn_frame, text="生成输入表", command=self._generate_rows).pack(fill=X, pady=3, ipady=2)
+        ttk.Button(btn_frame, text="💾 保存全部", command=self._save_all).pack(fill=X, pady=3, ipady=2)
 
         # ── 下半：可滚动的输入行 + 已有数据表格 ──
         bottom = tk.Frame(f)
@@ -140,35 +149,24 @@ class EntryTab:
         tab_input = tk.Frame(inner_nb)
         tab_table = tk.Frame(inner_nb)
         inner_nb.add(tab_input, text="  输入行  ")
-        inner_nb.add(tab_table,  text="  已录入数据  ")
+        inner_nb.add(tab_table, text="  已录入数据  ")
 
         # 输入行区域
-        self._canvas = tk.Canvas(tab_input,
-                                        bg=C.get("bg_base", "#0d1117"),
-                                        highlightthickness=0)
-        vsb = ttk.Scrollbar(tab_input, orient="vertical",
-                             command=self._canvas.yview)
+        self._canvas = tk.Canvas(tab_input, bg=C.get("bg_base", "#0d1117"), highlightthickness=0)
+        vsb = ttk.Scrollbar(tab_input, orient="vertical", command=self._canvas.yview)
         self._canvas.configure(yscrollcommand=vsb.set)
         vsb.pack(side=RIGHT, fill=Y)
         self._canvas.pack(fill=BOTH, expand=True)
 
         self._container = tk.Frame(self._canvas)
-        self._canvas.create_window((0, 0), window=self._container,
-                                          anchor="nw", tags="inner")
-        self._container.bind("<Configure>",
-            lambda e: self._canvas.configure(
-                scrollregion=self._canvas.bbox("all")))
-        self._canvas.bind("<MouseWheel>",
-            lambda e: self._canvas.yview_scroll(
-                -1 * (e.delta // 120), "units"))
+        self._canvas.create_window((0, 0), window=self._container, anchor="nw", tags="inner")
+        self._container.bind("<Configure>", lambda e: self._canvas.configure(scrollregion=self._canvas.bbox("all")))
+        self._canvas.bind("<MouseWheel>", lambda e: self._canvas.yview_scroll(-1 * (e.delta // 120), "units"))
 
         # 已录入数据表格
-        cols = ("bvid", "type", "time_key", "播放量", "点赞", "硬币",
-                "收藏", "分享", "弹幕", "评论", "记录时间")
-        self._tbl = ttk.Treeview(tab_table, columns=cols, show="headings",
-                                        height=8)
-        tbl_sb = ttk.Scrollbar(tab_table, orient="vertical",
-                                command=self._tbl.yview)
+        cols = ("bvid", "type", "time_key", "播放量", "点赞", "硬币", "收藏", "分享", "弹幕", "评论", "记录时间")
+        self._tbl = ttk.Treeview(tab_table, columns=cols, show="headings", height=8)
+        tbl_sb = ttk.Scrollbar(tab_table, orient="vertical", command=self._tbl.yview)
         self._tbl.configure(yscrollcommand=tbl_sb.set)
         tbl_sb.pack(side=RIGHT, fill=Y)
         self._tbl.pack(fill=BOTH, expand=True)
@@ -180,15 +178,17 @@ class EntryTab:
 
         # 右键删除
         self._tbl_menu = tk.Menu(self._window, tearoff=0)
-        self._tbl_menu.add_command(label="删除选中行",
-                                          command=self._delete_selected)
-        self._tbl.bind("<Button-3>",
-            lambda e: self._tbl_menu.tk_popup(e.x_root, e.y_root))
+        self._tbl_menu.add_command(label="删除选中行", command=self._delete_selected)
+        self._tbl.bind("<Button-3>", lambda e: self._tbl_menu.tk_popup(e.x_root, e.y_root))
 
         # 状态栏
-        self._status = tk.Label(f, text="选择录入模式，输入 BV 号后点击「生成输入表」",
-                                       font=("Microsoft YaHei UI", 9),
-                                       fg=C.get("text_2", "#8b949e"), anchor="w")
+        self._status = tk.Label(
+            f,
+            text="选择录入模式，输入 BV 号后点击「生成输入表」",
+            font=("Microsoft YaHei UI", 9),
+            fg=C.get("text_2", "#8b949e"),
+            anchor="w",
+        )
         self._status.pack(fill=X, padx=12, pady=(0, 6))
 
         # 初始显示里程碑参数
@@ -242,7 +242,8 @@ class EntryTab:
     @staticmethod
     def _is_valid_bvid(s: str) -> bool:
         import re
-        return bool(re.match(r'^BV[A-Za-z0-9]{10}$', s.strip()))
+
+        return bool(re.match(r"^BV[A-Za-z0-9]{10}$", s.strip()))
 
     # ── 生成输入行 ────────────────────────────────────────────────────────────
     def _generate_rows(self):
@@ -288,9 +289,9 @@ class EntryTab:
                 invalid.append(bv)
 
         if invalid:
-            messagebox.showwarning("格式错误",
-                f"以下格式不合法已跳过：\n" + "\n".join(invalid[:10]),
-                parent=self._window)
+            messagebox.showwarning(
+                "格式错误", f"以下格式不合法已跳过：\n" + "\n".join(invalid[:10]), parent=self._window
+            )
 
         return bvids, invalid
 
@@ -298,9 +299,7 @@ class EntryTab:
         """提示将不在监控列表的BV号加入监控"""
         not_monitored = [b for b in bvids if b not in self._monitored_set]
         if not_monitored:
-            msg = (f"以下 BV 号不在监控列表：\n"
-                   + "\n".join(not_monitored[:10])
-                   + "\n\n是否加入监控？")
+            msg = f"以下 BV 号不在监控列表：\n" + "\n".join(not_monitored[:10]) + "\n\n是否加入监控？"
             if messagebox.askyesno("加入监控", msg, parent=self._window):
                 for bv in not_monitored:
                     if self._on_add_monitor:
@@ -324,15 +323,12 @@ class EntryTab:
         else:
             dt_str = self._snap_dt.get().strip()
             if not dt_str:
-                messagebox.showwarning("提示", "请填写日期时间或从下拉选择",
-                                       parent=self._window)
+                messagebox.showwarning("提示", "请填写日期时间或从下拉选择", parent=self._window)
                 return mode, None
             # 验证格式
             dt = _parse_dt(dt_str)
             if dt is None:
-                messagebox.showwarning("格式错误",
-                    "日期格式不正确，请使用 2026-04-22 12:00 格式",
-                    parent=self._window)
+                messagebox.showwarning("格式错误", "日期格式不正确，请使用 2026-04-22 12:00 格式", parent=self._window)
                 return mode, None
             for bv in bvids:
                 row_labels.append((bv, dt_str[:16]))
@@ -387,8 +383,9 @@ class EntryTab:
         n = len(self._rows)
         self._status.config(
             text=f"已生成 {n} 行输入（{len(bvids)} 视频 × "
-                 + (f"{len(periods)} 周期" if mode == "milestone" else "1 时间点")
-                 + f"），填写后点击「保存全部」")
+            + (f"{len(periods)} 周期" if mode == "milestone" else "1 时间点")
+            + f"），填写后点击「保存全部」"
+        )
 
     def _create_single_row(self, bv, key, mode, fields, existing_ms, existing_snap):
         """创建单行输入"""
@@ -396,40 +393,56 @@ class EntryTab:
         row_frame.pack(fill=tk.X)
 
         # BV号 + key 标签
-        tk.Label(row_frame, text=bv, font=("Consolas", 9),
-                 fg=C.get("accent", "#fb7299"),
-                 bg=C.get("bg_base", "#0d1117"),
-                 width=14, anchor="w").grid(row=0, column=0, padx=(0,4))
+        tk.Label(
+            row_frame,
+            text=bv,
+            font=("Consolas", 9),
+            fg=C.get("accent", "#fb7299"),
+            bg=C.get("bg_base", "#0d1117"),
+            width=14,
+            anchor="w",
+        ).grid(row=0, column=0, padx=(0, 4))
 
-        tk.Label(row_frame, text=key, font=("Microsoft YaHei UI", 9, "bold"),
-                 fg=C.get("text_1", "#e6edf3"),
-                 bg=C.get("bg_base", "#0d1117"),
-                 width=16, anchor="w").grid(row=0, column=1, padx=(0,8))
+        tk.Label(
+            row_frame,
+            text=key,
+            font=("Microsoft YaHei UI", 9, "bold"),
+            fg=C.get("text_1", "#e6edf3"),
+            bg=C.get("bg_base", "#0d1117"),
+            width=16,
+            anchor="w",
+        ).grid(row=0, column=1, padx=(0, 8))
 
         vars_dict = {}
         col = 2
         for fkey, flabel, required in fields:
-            self._create_field_input(row_frame, bv, key, mode, fkey, flabel, required,
-                                    col, vars_dict, existing_ms, existing_snap)
+            self._create_field_input(
+                row_frame, bv, key, mode, fkey, flabel, required, col, vars_dict, existing_ms, existing_snap
+            )
             col += 2
 
-        self._rows.append({
-            "bvid": bv,
-            "key": key,
-            "vars": vars_dict,
-            "mode": mode,
-        })
+        self._rows.append(
+            {
+                "bvid": bv,
+                "key": key,
+                "vars": vars_dict,
+                "mode": mode,
+            }
+        )
 
-    def _create_field_input(self, row_frame, bv, key, mode, fkey, flabel, required,
-                            col, vars_dict, existing_ms, existing_snap):
+    def _create_field_input(
+        self, row_frame, bv, key, mode, fkey, flabel, required, col, vars_dict, existing_ms, existing_snap
+    ):
         """创建字段输入框"""
-        tk.Label(row_frame,
-                 text=flabel + ("*" if required else ""),
-                 font=("Microsoft YaHei UI", 8),
-                 fg=C.get("danger", "#f85149") if required
-                    else C.get("text_2", "#8b949e"),
-                 bg=C.get("bg_base", "#0d1117"),
-                 anchor="e", width=6).grid(row=0, column=col, padx=(2,1))
+        tk.Label(
+            row_frame,
+            text=flabel + ("*" if required else ""),
+            font=("Microsoft YaHei UI", 8),
+            fg=C.get("danger", "#f85149") if required else C.get("text_2", "#8b949e"),
+            bg=C.get("bg_base", "#0d1117"),
+            anchor="e",
+            width=6,
+        ).grid(row=0, column=col, padx=(2, 1))
 
         var = tk.StringVar()
         # 预填
@@ -444,16 +457,21 @@ class EntryTab:
 
         vars_dict[fkey] = var
         w = 18 if fkey == "note" else 8
-        ent = tk.Entry(row_frame, textvariable=var,
-                       font=("Consolas", 9), width=w,
-                       bg=C.get("bg_base", "#0d1117"),
-                       fg=C.get("text_1", "#e6edf3"),
-                       insertbackground=C.get("text_1", "#e6edf3"),
-                       relief="flat", bd=1,
-                       highlightthickness=1,
-                       highlightcolor=C.get("accent", "#fb7299"),
-                       highlightbackground=C.get("border", "#30363d"))
-        ent.grid(row=0, column=col+1, padx=(0,4))
+        ent = tk.Entry(
+            row_frame,
+            textvariable=var,
+            font=("Consolas", 9),
+            width=w,
+            bg=C.get("bg_base", "#0d1117"),
+            fg=C.get("text_1", "#e6edf3"),
+            insertbackground=C.get("text_1", "#e6edf3"),
+            relief="flat",
+            bd=1,
+            highlightthickness=1,
+            highlightcolor=C.get("accent", "#fb7299"),
+            highlightbackground=C.get("border", "#30363d"),
+        )
+        ent.grid(row=0, column=col + 1, padx=(0, 4))
 
     # ── 保存全部 ──────────────────────────────────────────────────────────────
     def _save_all(self):
@@ -475,8 +493,7 @@ class EntryTab:
                 continue
 
             data = {"view_count": view_val}
-            for fkey in ["like_count", "coin_count", "share_count",
-                         "favorite_count", "danmaku_count", "reply_count"]:
+            for fkey in ["like_count", "coin_count", "share_count", "favorite_count", "danmaku_count", "reply_count"]:
                 val = vars_d[fkey].get().strip()
                 if val:
                     try:
@@ -506,9 +523,7 @@ class EntryTab:
             msg += f"，跳过 {skipped} 条（播放量为空）"
         if errors:
             msg += f"，失败 {errors} 条"
-        self._status.config(
-            text=msg,
-            fg=C.get("success", "#3fb950") if not errors else C.get("warning", "#d29922"))
+        self._status.config(text=msg, fg=C.get("success", "#3fb950") if not errors else C.get("warning", "#d29922"))
 
         if saved:
             self._reload_table()
@@ -527,6 +542,7 @@ class EntryTab:
 
             # 构造 MonitorRecord 并写入
             from core.database import MonitorRecord
+
             record = MonitorRecord(
                 bvid=bvid,
                 timestamp=ts_str_full,
@@ -551,19 +567,23 @@ class EntryTab:
 
         # 里程碑数据
         for row in db.get_milestones():
-            self._tbl.insert("", tk.END, values=(
-                row.get("bvid", ""),
-                "里程碑",
-                row.get("period", ""),
-                _fmt(row.get("view_count")),
-                _fmt(row.get("like_count")),
-                _fmt(row.get("coin_count")),
-                _fmt(row.get("favorite_count")),
-                _fmt(row.get("share_count")),
-                _fmt(row.get("danmaku_count")),
-                _fmt(row.get("reply_count")),
-                str(row.get("recorded_at", ""))[:16],
-            ))
+            self._tbl.insert(
+                "",
+                tk.END,
+                values=(
+                    row.get("bvid", ""),
+                    "里程碑",
+                    row.get("period", ""),
+                    _fmt(row.get("view_count")),
+                    _fmt(row.get("like_count")),
+                    _fmt(row.get("coin_count")),
+                    _fmt(row.get("favorite_count")),
+                    _fmt(row.get("share_count")),
+                    _fmt(row.get("danmaku_count")),
+                    _fmt(row.get("reply_count")),
+                    str(row.get("recorded_at", ""))[:16],
+                ),
+            )
 
         # 快照数据（手动录入的标记 tricky，显示所有里程碑即可；快照已录入历史表
         # 不在里程碑表中，这里主要显示里程碑）
@@ -572,8 +592,7 @@ class EntryTab:
         selected = self._tbl.selection()
         if not selected:
             return
-        if not messagebox.askyesno("确认", f"删除选中的 {len(selected)} 条记录？",
-                                    parent=self._window):
+        if not messagebox.askyesno("确认", f"删除选中的 {len(selected)} 条记录？", parent=self._window):
             return
         for iid in selected:
             values = self._tbl.item(iid, "values")

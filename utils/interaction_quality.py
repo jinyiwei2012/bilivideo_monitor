@@ -2,6 +2,7 @@
 一键三连健康探针 — 计算点赞率/硬币率/收藏率/分享率加权综合健康分
 参考B站正常区间：赞播比3-8%，币播比1-4%，收藏播比2-6%，分享播比0.5-3%
 """
+
 from typing import List, Optional
 from dataclasses import dataclass, field
 
@@ -9,30 +10,31 @@ from dataclasses import dataclass, field
 @dataclass
 class ProbeResult:
     """健康探针计算结果"""
-    health_score: float          # 综合健康分 0-100
-    health_grade: str            # S/A/B/C/D
-    like_rate: float             # 点赞率 (%)
-    coin_rate: float             # 硬币率 (%)
-    favorite_rate: float         # 收藏率 (%)
-    share_rate: float            # 分享率 (%)
+
+    health_score: float  # 综合健康分 0-100
+    health_grade: str  # S/A/B/C/D
+    like_rate: float  # 点赞率 (%)
+    coin_rate: float  # 硬币率 (%)
+    favorite_rate: float  # 收藏率 (%)
+    share_rate: float  # 分享率 (%)
     anomalies: List[str] = field(default_factory=list)
     tips: List[str] = field(default_factory=list)
 
 
 # 正常区间参考
 _NORMAL_RANGES = {
-    "like_rate":     (3.0, 8.0),
-    "coin_rate":     (1.0, 4.0),
+    "like_rate": (3.0, 8.0),
+    "coin_rate": (1.0, 4.0),
     "favorite_rate": (2.0, 6.0),
-    "share_rate":    (0.5, 3.0),
+    "share_rate": (0.5, 3.0),
 }
 
 # 各维度权重
 _WEIGHTS = {
-    "like_rate":     0.30,
-    "coin_rate":     0.30,
+    "like_rate": 0.30,
+    "coin_rate": 0.30,
     "favorite_rate": 0.25,
-    "share_rate":    0.15,
+    "share_rate": 0.15,
 }
 
 
@@ -67,9 +69,9 @@ def _grade(score: float) -> str:
     return "D"
 
 
-def calculate_probe(view_count: int = 0, like_count: int = 0,
-                    coin_count: int = 0, favorite_count: int = 0,
-                    share_count: int = 0) -> ProbeResult:
+def calculate_probe(
+    view_count: int = 0, like_count: int = 0, coin_count: int = 0, favorite_count: int = 0, share_count: int = 0
+) -> ProbeResult:
     """
     计算一键三连健康探针分数
 
@@ -83,16 +85,16 @@ def calculate_probe(view_count: int = 0, like_count: int = 0,
     Returns:
         ProbeResult: 探针结果
     """
-    like_r     = _safe_pct(like_count, view_count)
-    coin_r     = _safe_pct(coin_count, view_count)
+    like_r = _safe_pct(like_count, view_count)
+    coin_r = _safe_pct(coin_count, view_count)
     favorite_r = _safe_pct(favorite_count, view_count)
-    share_r    = _safe_pct(share_count, view_count)
+    share_r = _safe_pct(share_count, view_count)
 
     rates = {
-        "like_rate":     like_r,
-        "coin_rate":     coin_r,
+        "like_rate": like_r,
+        "coin_rate": coin_r,
         "favorite_rate": favorite_r,
-        "share_rate":    share_r,
+        "share_rate": share_r,
     }
 
     # 综合加权分
@@ -107,8 +109,10 @@ def calculate_probe(view_count: int = 0, like_count: int = 0,
     for key, val in rates.items():
         lo, hi = _NORMAL_RANGES[key]
         name_map = {
-            "like_rate": "点赞率", "coin_rate": "硬币率",
-            "favorite_rate": "收藏率", "share_rate": "分享率",
+            "like_rate": "点赞率",
+            "coin_rate": "硬币率",
+            "favorite_rate": "收藏率",
+            "share_rate": "分享率",
         }
         nm = name_map[key]
         if val < lo * 0.5:
@@ -170,7 +174,5 @@ def format_probe_result(result: ProbeResult) -> str:
 
 if __name__ == "__main__":
     # 测试
-    test = calculate_probe(view_count=34000, like_count=2000,
-                           coin_count=800, favorite_count=1200,
-                           share_count=300)
+    test = calculate_probe(view_count=34000, like_count=2000, coin_count=800, favorite_count=1200, share_count=300)
     print(format_probe_result(test))

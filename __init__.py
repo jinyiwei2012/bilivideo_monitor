@@ -30,11 +30,4 @@ __author__ = "Bilibili Monitor Team"
 
 from config import PROJECT_ROOT, DATA_DIR, COVER_DIR, EXPORT_DIR
 
-__all__ = [
-    '__version__',
-    '__author__',
-    'PROJECT_ROOT',
-    'DATA_DIR',
-    'COVER_DIR',
-    'EXPORT_DIR'
-]
+__all__ = ["__version__", "__author__", "PROJECT_ROOT", "DATA_DIR", "COVER_DIR", "EXPORT_DIR"]

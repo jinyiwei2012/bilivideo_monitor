@@ -2,6 +2,7 @@
 级联集成 (Cascade Ensemble) 预测
 多个预测器按顺序级联，每个预测器的输出作为下一个的输入
 """
+
 import math
 import numpy as np
 from typing import Dict, Any, List, Tuple
@@ -39,8 +40,7 @@ class CascadeEnsembleAlgorithm(BaseAlgorithm):
         slope = (views[-1] - views[0]) / max(n - 1, 1)
         return slope
 
-    def _level2_prediction(self, views: np.ndarray,
-                           l1_output: float) -> Tuple[float, float]:
+    def _level2_prediction(self, views: np.ndarray, l1_output: float) -> Tuple[float, float]:
         """第二级: 指数平滑 + 第一级输出"""
         n = len(views)
         if n < 2:
@@ -58,8 +58,7 @@ class CascadeEnsembleAlgorithm(BaseAlgorithm):
         adjusted = growth * 0.6 + l1_output * 0.4
         return adjusted, smoothed
 
-    def _level3_prediction(self, views: np.ndarray,
-                           l2_output: float, l2_smoothed: float) -> float:
+    def _level3_prediction(self, views: np.ndarray, l2_output: float, l2_smoothed: float) -> float:
         """第三级: 考虑季节性 + 前两级输出"""
         n = len(views)
         if n < 7:
@@ -69,7 +68,7 @@ class CascadeEnsembleAlgorithm(BaseAlgorithm):
         weekly_cycle = []
         for i in range(1, 8):
             if n >= i + 7:
-                cycle_growth = (views[-i] - views[-i-7]) / 7.0
+                cycle_growth = (views[-i] - views[-i - 7]) / 7.0
                 weekly_cycle.append(cycle_growth)
 
         seasonal_effect = np.mean(weekly_cycle) if weekly_cycle else 0
@@ -78,55 +77,66 @@ class CascadeEnsembleAlgorithm(BaseAlgorithm):
         final = l2_output * 0.5 + seasonal_effect * 0.3 + (l2_smoothed - views[-1]) * 0.2
         return final
 
-    def predict(self, video_data: Dict[str, Any],
-                threshold: int = 100000) -> PredictionResult:
-        current_views = video_data.get('view_count', 0)
-        history = video_data.get('history_data', [])
+    def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
+        current_views = video_data.get("view_count", 0)
+        history = video_data.get("history_data", [])
         velocity = self.calculate_velocity(video_data)
 
         remaining = threshold - current_views
         if remaining <= 0:
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=0, confidence=1.0,
-                current_views=current_views, current_velocity=velocity,
-                metadata={'method': 'cascade'}, timestamp=datetime.now()
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=0,
+                confidence=1.0,
+                current_views=current_views,
+                current_velocity=velocity,
+                metadata={"method": "cascade"},
+                timestamp=datetime.now(),
             )
 
         if len(history) < 5 or velocity <= 0:
-            predicted_hours = remaining / velocity if velocity > 0 else float('inf')
+            predicted_hours = remaining / velocity if velocity > 0 else float("inf")
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=0.3,
+                current_views=current_views,
                 current_velocity=velocity,
-                metadata={'method': 'cascade', 'notes': 'insufficient_data'},
-                timestamp=datetime.now()
+                metadata={"method": "cascade", "notes": "insufficient_data"},
+                timestamp=datetime.now(),
             )
 
         # 提取时序
         timestamps = []
         views_vals = []
         for h in history:
-            ts = h.get('timestamp', 0)
-            if hasattr(ts, 'timestamp'):
+            ts = h.get("timestamp", 0)
+            if hasattr(ts, "timestamp"):
                 ts = ts.timestamp()
             elif isinstance(ts, str):
                 try:
-                    ts = datetime.strptime(ts, '%Y-%m-%d %H:%M:%S').timestamp()
+                    ts = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S").timestamp()
                 except Exception:
                     continue
             timestamps.append(float(ts))
-            views_vals.append(float(h.get('view_count', 0)))
+            views_vals.append(float(h.get("view_count", 0)))
 
         if len(views_vals) < 5:
             predicted_hours = remaining / velocity
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=0.3,
+                current_views=current_views,
                 current_velocity=velocity,
-                metadata={'method': 'cascade_fallback'}, timestamp=datetime.now()
+                metadata={"method": "cascade_fallback"},
+                timestamp=datetime.now(),
             )
 
         try:
@@ -182,26 +192,33 @@ class CascadeEnsembleAlgorithm(BaseAlgorithm):
                 conf = 0.35
 
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=conf, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=conf,
+                current_views=current_views,
                 current_velocity=velocity,
                 metadata={
-                    'method': 'cascade',
-                    'level1_l1': round(float(l1_daily), 2),
-                    'level2_exp_smooth': round(float(l2_daily), 2),
-                    'level3_cascade': round(float(l3_daily), 2),
-                    'consistency': round(float(consistency), 3),
-                    'data_points': n,
+                    "method": "cascade",
+                    "level1_l1": round(float(l1_daily), 2),
+                    "level2_exp_smooth": round(float(l2_daily), 2),
+                    "level3_cascade": round(float(l3_daily), 2),
+                    "consistency": round(float(consistency), 3),
+                    "data_points": n,
                 },
-                timestamp=datetime.now()
+                timestamp=datetime.now(),
             )
         except Exception as e:
-            predicted_hours = remaining / velocity if velocity > 0 else float('inf')
+            predicted_hours = remaining / velocity if velocity > 0 else float("inf")
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.0, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=0.0,
+                current_views=current_views,
                 current_velocity=velocity,
-                metadata={'error': str(e)}, timestamp=datetime.now()
+                metadata={"error": str(e)},
+                timestamp=datetime.now(),
             )

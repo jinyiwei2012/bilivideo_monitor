@@ -2,6 +2,7 @@
 分位数回归预测
 通过不同分位点估计完整预测分布，提供乐观/中位/悲观多情景
 """
+
 import math
 import numpy as np
 from typing import Dict, Any, List, Tuple
@@ -33,15 +34,13 @@ class QuantileRegressionAlgorithm(BaseAlgorithm):
         self.learning_rate = 0.01
         self.max_iter = 200
 
-    def _quantile_loss(self, y_true: np.ndarray, y_pred: np.ndarray,
-                       tau: float) -> float:
+    def _quantile_loss(self, y_true: np.ndarray, y_pred: np.ndarray, tau: float) -> float:
         """分位数损失函数: ρ_τ(y, ŷ) = max(τ(y-ŷ), (τ-1)(y-ŷ))"""
         diff = y_true - y_pred
         loss = np.where(diff > 0, tau * diff, (tau - 1) * diff)
         return float(np.mean(loss))
 
-    def _fit_quantile(self, X: np.ndarray, y: np.ndarray,
-                      tau: float) -> Tuple[np.ndarray, float]:
+    def _fit_quantile(self, X: np.ndarray, y: np.ndarray, tau: float) -> Tuple[np.ndarray, float]:
         """使用梯度下降拟合分位数回归"""
         n, p = X.shape
         coef = np.zeros(p)
@@ -72,55 +71,66 @@ class QuantileRegressionAlgorithm(BaseAlgorithm):
 
         return coef, intercept
 
-    def predict(self, video_data: Dict[str, Any],
-                threshold: int = 100000) -> PredictionResult:
-        current_views = video_data.get('view_count', 0)
-        history = video_data.get('history_data', [])
+    def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
+        current_views = video_data.get("view_count", 0)
+        history = video_data.get("history_data", [])
         velocity = self.calculate_velocity(video_data)
 
         remaining = threshold - current_views
         if remaining <= 0:
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=0, confidence=1.0,
-                current_views=current_views, current_velocity=velocity,
-                metadata={'method': 'quantile'}, timestamp=datetime.now()
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=0,
+                confidence=1.0,
+                current_views=current_views,
+                current_velocity=velocity,
+                metadata={"method": "quantile"},
+                timestamp=datetime.now(),
             )
 
         if len(history) < 5 or velocity <= 0:
-            predicted_hours = remaining / velocity if velocity > 0 else float('inf')
+            predicted_hours = remaining / velocity if velocity > 0 else float("inf")
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=0.3,
+                current_views=current_views,
                 current_velocity=velocity,
-                metadata={'method': 'quantile', 'notes': 'insufficient_data'},
-                timestamp=datetime.now()
+                metadata={"method": "quantile", "notes": "insufficient_data"},
+                timestamp=datetime.now(),
             )
 
         # 提取时序
         timestamps = []
         views_vals = []
         for h in history:
-            ts = h.get('timestamp', 0)
-            if hasattr(ts, 'timestamp'):
+            ts = h.get("timestamp", 0)
+            if hasattr(ts, "timestamp"):
                 ts = ts.timestamp()
             elif isinstance(ts, str):
                 try:
-                    ts = datetime.strptime(ts, '%Y-%m-%d %H:%M:%S').timestamp()
+                    ts = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S").timestamp()
                 except Exception:
                     continue
             timestamps.append(float(ts))
-            views_vals.append(float(h.get('view_count', 0)))
+            views_vals.append(float(h.get("view_count", 0)))
 
         if len(views_vals) < 5:
             predicted_hours = remaining / velocity
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=0.3,
+                current_views=current_views,
                 current_velocity=velocity,
-                metadata={'method': 'quantile_fallback'}, timestamp=datetime.now()
+                metadata={"method": "quantile_fallback"},
+                timestamp=datetime.now(),
             )
 
         try:
@@ -136,14 +146,14 @@ class QuantileRegressionAlgorithm(BaseAlgorithm):
             for i in range(3, n):
                 features = [
                     1.0,
-                    views_arr[i-1] / 10000,                  # 归一化播放量
-                    (views_arr[i-1] - views_arr[i-2]) / 100,  # 近期增量
-                    np.mean(views_arr[max(0, i-7):i]) / 10000,  # 7日均值
-                    min(age_hours / 168.0, 1.0),               # 视频年龄(周)
-                    quality,                                     # 质量分
+                    views_arr[i - 1] / 10000,  # 归一化播放量
+                    (views_arr[i - 1] - views_arr[i - 2]) / 100,  # 近期增量
+                    np.mean(views_arr[max(0, i - 7) : i]) / 10000,  # 7日均值
+                    min(age_hours / 168.0, 1.0),  # 视频年龄(周)
+                    quality,  # 质量分
                 ]
                 X_list.append(features)
-                y_list.append(views_arr[i] - views_arr[i-1])  # 预测增量
+                y_list.append(views_arr[i] - views_arr[i - 1])  # 预测增量
 
             X = np.array(X_list)
             y = np.array(y_list)
@@ -151,39 +161,47 @@ class QuantileRegressionAlgorithm(BaseAlgorithm):
             if len(X) < 3:
                 predicted_hours = remaining / velocity
                 return PredictionResult(
-                    algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                    target_threshold=threshold, predicted_hours=predicted_hours,
-                    confidence=0.3, current_views=current_views,
+                    algorithm_name=self.name,
+                    algorithm_id=self.algorithm_id,
+                    target_threshold=threshold,
+                    predicted_hours=predicted_hours,
+                    confidence=0.3,
+                    current_views=current_views,
                     current_velocity=velocity,
-                    metadata={'method': 'quantile_insufficient'}, timestamp=datetime.now()
+                    metadata={"method": "quantile_insufficient"},
+                    timestamp=datetime.now(),
                 )
 
             # ── 拟合多个分位数 ────────────────────────
             quantiles = {
-                'pessimistic': 0.25,
-                'median': 0.50,
-                'optimistic': 0.75,
+                "pessimistic": 0.25,
+                "median": 0.50,
+                "optimistic": 0.75,
             }
 
             results = {}
             for label, tau in quantiles.items():
                 coef, intercept = self._fit_quantile(X, y, tau)
-                results[label] = {'coef': coef, 'intercept': intercept}
+                results[label] = {"coef": coef, "intercept": intercept}
 
             # ── 预测 ─────────────────────────────────
-            last_X = np.array([[
-                1.0,
-                views_arr[-1] / 10000,
-                (views_arr[-1] - views_arr[-2]) / 100,
-                np.mean(views_arr[-7:]) / 10000 if len(views_arr) >= 7 else views_arr[-1] / 10000,
-                min(age_hours / 168.0, 1.0),
-                quality,
-            ]])
+            last_X = np.array(
+                [
+                    [
+                        1.0,
+                        views_arr[-1] / 10000,
+                        (views_arr[-1] - views_arr[-2]) / 100,
+                        np.mean(views_arr[-7:]) / 10000 if len(views_arr) >= 7 else views_arr[-1] / 10000,
+                        min(age_hours / 168.0, 1.0),
+                        quality,
+                    ]
+                ]
+            )
 
             # 三个分位数的日增长预测
-            median_pred = float(last_X @ results['median']['coef'] + results['median']['intercept'])
-            optimistic_pred = float(last_X @ results['optimistic']['coef'] + results['optimistic']['intercept'])
-            pessimistic_pred = float(last_X @ results['pessimistic']['coef'] + results['pessimistic']['intercept'])
+            median_pred = float(last_X @ results["median"]["coef"] + results["median"]["intercept"])
+            optimistic_pred = float(last_X @ results["optimistic"]["coef"] + results["optimistic"]["intercept"])
+            pessimistic_pred = float(last_X @ results["pessimistic"]["coef"] + results["pessimistic"]["intercept"])
 
             # 使用中位数作为主预测
             daily_growth = max(0, median_pred)
@@ -217,26 +235,33 @@ class QuantileRegressionAlgorithm(BaseAlgorithm):
                 conf = 0.35
 
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=conf, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=conf,
+                current_views=current_views,
                 current_velocity=velocity,
                 metadata={
-                    'method': 'quantile',
-                    'daily_growth_median': round(float(median_pred), 2),
-                    'daily_growth_optimistic': round(float(optimistic_pred), 2),
-                    'daily_growth_pessimistic': round(float(pessimistic_pred), 2),
-                    'prediction_spread': round(float(prediction_spread), 2),
-                    'data_points': n,
+                    "method": "quantile",
+                    "daily_growth_median": round(float(median_pred), 2),
+                    "daily_growth_optimistic": round(float(optimistic_pred), 2),
+                    "daily_growth_pessimistic": round(float(pessimistic_pred), 2),
+                    "prediction_spread": round(float(prediction_spread), 2),
+                    "data_points": n,
                 },
-                timestamp=datetime.now()
+                timestamp=datetime.now(),
             )
         except Exception as e:
-            predicted_hours = remaining / velocity if velocity > 0 else float('inf')
+            predicted_hours = remaining / velocity if velocity > 0 else float("inf")
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.0, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=0.0,
+                current_views=current_views,
                 current_velocity=velocity,
-                metadata={'error': str(e)}, timestamp=datetime.now()
+                metadata={"error": str(e)},
+                timestamp=datetime.now(),
             )

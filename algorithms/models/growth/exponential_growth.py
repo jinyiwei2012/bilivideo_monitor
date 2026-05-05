@@ -2,6 +2,7 @@
 指数增长预测模型
 适用于早期快速增长的视频，假设增长速度与当前播放量成正比
 """
+
 import math
 import numpy as np
 from typing import Dict, Any, List
@@ -29,55 +30,66 @@ class ExponentialGrowthAlgorithm(BaseAlgorithm):
     category = "增长模型"
     default_weight = 1.1
 
-    def predict(self, video_data: Dict[str, Any],
-                threshold: int = 100000) -> PredictionResult:
-        current_views = video_data.get('view_count', 0)
-        history = video_data.get('history_data', [])
+    def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
+        current_views = video_data.get("view_count", 0)
+        history = video_data.get("history_data", [])
         velocity = self.calculate_velocity(video_data)
 
         remaining = threshold - current_views
         if remaining <= 0:
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=0, confidence=1.0,
-                current_views=current_views, current_velocity=velocity,
-                metadata={'method': 'exponential'}, timestamp=datetime.now()
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=0,
+                confidence=1.0,
+                current_views=current_views,
+                current_velocity=velocity,
+                metadata={"method": "exponential"},
+                timestamp=datetime.now(),
             )
 
         if len(history) < 3 or velocity <= 0 or current_views <= 0:
-            predicted_hours = remaining / velocity if velocity > 0 else float('inf')
+            predicted_hours = remaining / velocity if velocity > 0 else float("inf")
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=0.3,
+                current_views=current_views,
                 current_velocity=velocity,
-                metadata={'method': 'exponential', 'notes': 'insufficient_data'},
-                timestamp=datetime.now()
+                metadata={"method": "exponential", "notes": "insufficient_data"},
+                timestamp=datetime.now(),
             )
 
         # 提取时序
         timestamps = []
         views_vals = []
         for h in history:
-            ts = h.get('timestamp', 0)
-            if hasattr(ts, 'timestamp'):
+            ts = h.get("timestamp", 0)
+            if hasattr(ts, "timestamp"):
                 ts = ts.timestamp()
             elif isinstance(ts, str):
                 try:
-                    ts = datetime.strptime(ts, '%Y-%m-%d %H:%M:%S').timestamp()
+                    ts = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S").timestamp()
                 except Exception:
                     continue
             timestamps.append(float(ts))
-            views_vals.append(float(h.get('view_count', 0)))
+            views_vals.append(float(h.get("view_count", 0)))
 
         if len(views_vals) < 3:
             predicted_hours = remaining / velocity
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=0.3,
+                current_views=current_views,
                 current_velocity=velocity,
-                metadata={'method': 'exponential_fallback'}, timestamp=datetime.now()
+                metadata={"method": "exponential_fallback"},
+                timestamp=datetime.now(),
             )
 
         try:
@@ -149,25 +161,32 @@ class ExponentialGrowthAlgorithm(BaseAlgorithm):
                 conf = 0.3
 
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=conf, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=conf,
+                current_views=current_views,
                 current_velocity=velocity,
                 metadata={
-                    'method': 'exponential',
-                    'growth_rate_r': round(float(r), 6),
-                    'half_life_hours': round(float(half_life_hours), 1),
-                    'effective_r_at_24h': round(float(r * math.exp(-decay_rate * 24)), 6),
-                    'data_points': n,
+                    "method": "exponential",
+                    "growth_rate_r": round(float(r), 6),
+                    "half_life_hours": round(float(half_life_hours), 1),
+                    "effective_r_at_24h": round(float(r * math.exp(-decay_rate * 24)), 6),
+                    "data_points": n,
                 },
-                timestamp=datetime.now()
+                timestamp=datetime.now(),
             )
         except Exception as e:
-            predicted_hours = remaining / velocity if velocity > 0 else float('inf')
+            predicted_hours = remaining / velocity if velocity > 0 else float("inf")
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.0, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=0.0,
+                current_views=current_views,
                 current_velocity=velocity,
-                metadata={'error': str(e)}, timestamp=datetime.now()
+                metadata={"error": str(e)},
+                timestamp=datetime.now(),
             )

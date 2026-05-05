@@ -8,13 +8,13 @@ from .bilibili_api import BilibiliAPI, bilibili_api
 from .notification import NotificationManager, notification_manager
 
 __all__ = [
-    'Database',
-    'VideoInfo',
-    'MonitorRecord',
-    'PredictionRecord',
-    'db',
-    'BilibiliAPI',
-    'bilibili_api',
-    'NotificationManager',
-    'notification_manager'
+    "Database",
+    "VideoInfo",
+    "MonitorRecord",
+    "PredictionRecord",
+    "db",
+    "BilibiliAPI",
+    "bilibili_api",
+    "NotificationManager",
+    "notification_manager",
 ]

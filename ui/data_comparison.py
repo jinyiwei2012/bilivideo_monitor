@@ -4,6 +4,7 @@
 - 标签2「快照对比」：柱状图，任意选视频 × 任意选时间点，7 种指标，里程碑数据也可叠加
 - 标签3「数据录入」：里程碑/快照数据录入
 """
+
 import tkinter as tk
 from tkinter import ttk, BOTH
 import logging
@@ -27,21 +28,28 @@ PALETTE = [
 ]
 
 PALETTE_LIGHT = [
-    "#ff8db5", "#4bbfea", "#66cba0", "#f7b84e",
-    "#b07cc6", "#e57878", "#45d1b8", "#f0a35a",
-    "#5aaee8", "#5ddda2",
+    "#ff8db5",
+    "#4bbfea",
+    "#66cba0",
+    "#f7b84e",
+    "#b07cc6",
+    "#e57878",
+    "#45d1b8",
+    "#f0a35a",
+    "#5aaee8",
+    "#5ddda2",
 ]
 
 # ── 指标定义 ──────────────────────────────────────────────────────────────────
 METRICS = [
-    ("view_count",     "播放量"),
-    ("like_count",     "点赞"),
-    ("coin_count",     "硬币"),
+    ("view_count", "播放量"),
+    ("like_count", "点赞"),
+    ("coin_count", "硬币"),
     ("favorite_count", "收藏"),
-    ("share_count",    "分享"),
-    ("danmaku_count",  "弹幕"),
-    ("reply_count",    "评论"),
-    ("like_view_ratio","点赞率(%)"),
+    ("share_count", "分享"),
+    ("danmaku_count", "弹幕"),
+    ("reply_count", "评论"),
+    ("like_view_ratio", "点赞率(%)"),
 ]
 
 # 图表边距
@@ -68,20 +76,23 @@ def _fmt(n):
 class DataComparisonWindow:
     """数据对比窗口（趋势折线图 + 快照柱状图 + 数据录入）"""
 
-    def __init__(self, parent=None,
-                 monitored_videos: Optional[List[Dict]] = None,
-                 history_data: Optional[Dict] = None,
-                 video_dbs: Optional[Dict] = None,
-                 on_add_monitor=None):
+    def __init__(
+        self,
+        parent=None,
+        monitored_videos: Optional[List[Dict]] = None,
+        history_data: Optional[Dict] = None,
+        video_dbs: Optional[Dict] = None,
+        on_add_monitor=None,
+    ):
         self.window = tk.Toplevel(parent)
         self.window.title("数据对比")
         self.window.geometry("1100x780")
         self.window.minsize(850, 600)
-        
+
         self.monitored_videos = monitored_videos or []
-        self.history_data     = history_data or {}
-        self.video_dbs        = video_dbs    or {}
-        self.on_add_monitor   = on_add_monitor
+        self.history_data = history_data or {}
+        self.video_dbs = video_dbs or {}
+        self.on_add_monitor = on_add_monitor
 
         self._setup_ui()
 
@@ -92,35 +103,45 @@ class DataComparisonWindow:
         nb.pack(fill=BOTH, expand=True, padx=8, pady=8)
 
         tab_trend = tk.Frame(nb)
-        tab_snap  = tk.Frame(nb)
+        tab_snap = tk.Frame(nb)
         tab_entry = tk.Frame(nb)
 
         nb.add(tab_trend, text="  📈  趋势图  ")
-        nb.add(tab_snap,  text="  📊  快照对比  ")
+        nb.add(tab_snap, text="  📊  快照对比  ")
         nb.add(tab_entry, text="  📥  数据录入  ")
 
         self.trend_tab = TrendTab(
-            tab_trend, self.monitored_videos, self.history_data,
-            self.video_dbs, self.window,
+            tab_trend,
+            self.monitored_videos,
+            self.history_data,
+            self.video_dbs,
+            self.window,
         )
         self.snapshot_tab = SnapshotTab(
-            tab_snap, self.monitored_videos, self.video_dbs, self.window,
+            tab_snap,
+            self.monitored_videos,
+            self.video_dbs,
+            self.window,
         )
         self.entry_tab = EntryTab(
-            tab_entry, self.monitored_videos, self.video_dbs,
-            self.on_add_monitor, self.window,
+            tab_entry,
+            self.monitored_videos,
+            self.video_dbs,
+            self.on_add_monitor,
+            self.window,
         )
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # ── 工具函数 ──────────────────────────────────────────────────────────────────
 
+
 def _parse_dt(s: str) -> Optional[datetime]:
     if not s:
         return None
     for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M:%S"):
         try:
-            return datetime.strptime(s[:len(fmt)].strip(), fmt)
+            return datetime.strptime(s[: len(fmt)].strip(), fmt)
         except Exception as e:
             logger.debug("解析时间字符串失败: %s", e)
     return None
@@ -156,32 +177,48 @@ def _draw_bar(canvas: tk.Canvas, x0, y0, x1, y1, color_top, color_body):
     r = min(3, max(1, (x1 - x0) * 0.15))
     # 主体（圆角矩形用 polygon 模拟）
     pts = [
-        x0 + r, y0,
-        x1 - r, y0,
-        x1,     y0 + r,
-        x1,     y1 - r,
-        x1 - r, y1,
-        x0 + r, y1,
-        x0,     y1 - r,
-        x0,     y0 + r,
+        x0 + r,
+        y0,
+        x1 - r,
+        y0,
+        x1,
+        y0 + r,
+        x1,
+        y1 - r,
+        x1 - r,
+        y1,
+        x0 + r,
+        y1,
+        x0,
+        y1 - r,
+        x0,
+        y0 + r,
     ]
     canvas.create_polygon(pts, fill=color_body, outline="", smooth=True, width=0)
     # 顶部高亮条（更细腻）
     top_h = max(2, (y1 - y0) * 0.08)
     top_pts = [
-        x0 + r, y0,
-        x1 - r, y0,
-        x1,     y0 + min(r, top_h),
-        x1,     y0 + top_h + r,
-        x1 - r, y0 + top_h + r * 2,
-        x0 + r, y0 + top_h + r * 2,
-        x0,     y0 + top_h + r,
-        x0,     y0 + min(r, top_h),
+        x0 + r,
+        y0,
+        x1 - r,
+        y0,
+        x1,
+        y0 + min(r, top_h),
+        x1,
+        y0 + top_h + r,
+        x1 - r,
+        y0 + top_h + r * 2,
+        x0 + r,
+        y0 + top_h + r * 2,
+        x0,
+        y0 + top_h + r,
+        x0,
+        y0 + min(r, top_h),
     ]
     canvas.create_polygon(top_pts, fill=color_top, outline="", smooth=True, width=0)
 
 
 # ── 延迟导入标签页类（避免循环导入） ──────────────────────────────────────────
-from .trend_tab import TrendTab      # noqa: E402
+from .trend_tab import TrendTab  # noqa: E402
 from .snapshot_tab import SnapshotTab  # noqa: E402
-from .entry_tab import EntryTab        # noqa: E402
+from .entry_tab import EntryTab  # noqa: E402

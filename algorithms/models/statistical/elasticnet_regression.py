@@ -2,6 +2,7 @@
 ElasticNet回归
 结合L1(Lasso)和L2(Ridge)正则化的线性回归，适合处理相关特征
 """
+
 import numpy as np
 from typing import List, Dict, Any, Tuple, Optional
 from datetime import datetime
@@ -34,11 +35,7 @@ class ElasticNetRegressionAlgorithm(BaseAlgorithm):
         self.intercept_ = 0.0
 
     def predict(
-        self,
-        current_views: int,
-        target_views: int,
-        history_data: List[Dict[str, Any]],
-        video_info: Dict[str, Any]
+        self, current_views: int, target_views: int, history_data: List[Dict[str, Any]], video_info: Dict[str, Any]
     ) -> Optional[Tuple[int, float]]:
         """预测到达目标播放量所需时间"""
         if not history_data or len(history_data) < 8:
@@ -58,9 +55,8 @@ class ElasticNetRegressionAlgorithm(BaseAlgorithm):
             predicted_growth = np.dot(self.coef_, last_features) + self.intercept_
 
             if predicted_growth <= 0:
-                views = [d['view'] for d in history_data]
-                predicted_growth = max(1, np.mean([views[i] - views[i-1]
-                                                   for i in range(1, len(views))]))
+                views = [d["view"] for d in history_data]
+                predicted_growth = max(1, np.mean([views[i] - views[i - 1] for i in range(1, len(views))]))
 
             remaining = target_views - current_views
             days_needed = remaining / predicted_growth
@@ -83,9 +79,9 @@ class ElasticNetRegressionAlgorithm(BaseAlgorithm):
         for i in range(len(history_data) - 1):
             cur = history_data[i]
             nxt = history_data[i + 1]
-            ts = cur.get('timestamp', '')
+            ts = cur.get("timestamp", "")
             try:
-                dt = datetime.strptime(ts, '%Y-%m-%d %H:%M:%S')
+                dt = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
                 hour = dt.hour / 24.0
                 day_week = dt.weekday() / 7.0
             except Exception:
@@ -93,16 +89,16 @@ class ElasticNetRegressionAlgorithm(BaseAlgorithm):
 
             features = [
                 1.0,
-                cur.get('view', 0) / 10000,
-                cur.get('like', 0) / 1000,
-                cur.get('coin', 0) / 100,
-                cur.get('share', 0) / 100,
-                cur.get('reply', 0) / 100,
-                cur.get('follower', 1000) / 10000,
+                cur.get("view", 0) / 10000,
+                cur.get("like", 0) / 1000,
+                cur.get("coin", 0) / 100,
+                cur.get("share", 0) / 100,
+                cur.get("reply", 0) / 100,
+                cur.get("follower", 1000) / 10000,
                 hour,
                 day_week,
             ]
-            growth = nxt.get('view', 0) - cur.get('view', 0)
+            growth = nxt.get("view", 0) - cur.get("view", 0)
             X.append(features)
             y.append(growth)
 

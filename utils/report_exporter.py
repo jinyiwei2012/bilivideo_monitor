@@ -1,6 +1,7 @@
 """
 报告导出模块 — 生成 HTML / Excel 格式的数据报告
 """
+
 import os
 import io
 import logging
@@ -43,8 +44,7 @@ def generate_summary(videos: List[Dict]) -> Dict:
     }
 
 
-def export_html(videos: List[Dict], output_path: Optional[str] = None,
-                title: str = "B站监控数据报告") -> str:
+def export_html(videos: List[Dict], output_path: Optional[str] = None, title: str = "B站监控数据报告") -> str:
     """生成 HTML 格式报告"""
     os.makedirs(_OUTPUT_DIR, exist_ok=True)
     summary = generate_summary(videos)
@@ -68,9 +68,10 @@ def export_html(videos: List[Dict], output_path: Optional[str] = None,
     health_rows = ""
     try:
         from utils.interaction_quality import calculate_probe_from_dict
+
         for v in videos:
             r = calculate_probe_from_dict(v)
-            grade_color = {"S":"#fb7299","A":"#23ade5","B":"#42b983","C":"#f5a623","D":"#e74c3c"}
+            grade_color = {"S": "#fb7299", "A": "#23ade5", "B": "#42b983", "C": "#f5a623", "D": "#e74c3c"}
             gc = grade_color.get(r.health_grade, "#666")
             health_rows += f"""
             <tr>
@@ -148,37 +149,48 @@ def export_excel(videos: List[Dict], output_path: Optional[str] = None) -> str:
         import pandas as pd
     except ImportError:
         # Fallback to CSV
-        csv_path = output_path or os.path.join(
-            _OUTPUT_DIR, f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
+        csv_path = output_path or os.path.join(_OUTPUT_DIR, f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
         import csv
+
         with open(csv_path, "w", encoding="utf-8-sig", newline="") as f:
             w = csv.writer(f)
             w.writerow(["BV号", "标题", "UP主", "播放", "点赞", "硬币", "收藏", "弹幕", "评论", "分享"])
             for v in videos:
-                w.writerow([
-                    v.get("bvid", ""), v.get("title", ""), v.get("author", ""),
-                    v.get("view_count", 0), v.get("like_count", 0),
-                    v.get("coin_count", 0), v.get("favorite_count", 0),
-                    v.get("danmaku_count", 0), v.get("reply_count", 0),
-                    v.get("share_count", 0),
-                ])
+                w.writerow(
+                    [
+                        v.get("bvid", ""),
+                        v.get("title", ""),
+                        v.get("author", ""),
+                        v.get("view_count", 0),
+                        v.get("like_count", 0),
+                        v.get("coin_count", 0),
+                        v.get("favorite_count", 0),
+                        v.get("danmaku_count", 0),
+                        v.get("reply_count", 0),
+                        v.get("share_count", 0),
+                    ]
+                )
         return csv_path
 
-    df = pd.DataFrame([{
-        "BV号": v.get("bvid", ""),
-        "标题": v.get("title", ""),
-        "UP主": v.get("author", ""),
-        "播放": v.get("view_count", 0),
-        "点赞": v.get("like_count", 0),
-        "硬币": v.get("coin_count", 0),
-        "收藏": v.get("favorite_count", 0),
-        "弹幕": v.get("danmaku_count", 0),
-        "评论": v.get("reply_count", 0),
-        "分享": v.get("share_count", 0),
-    } for v in videos])
+    df = pd.DataFrame(
+        [
+            {
+                "BV号": v.get("bvid", ""),
+                "标题": v.get("title", ""),
+                "UP主": v.get("author", ""),
+                "播放": v.get("view_count", 0),
+                "点赞": v.get("like_count", 0),
+                "硬币": v.get("coin_count", 0),
+                "收藏": v.get("favorite_count", 0),
+                "弹幕": v.get("danmaku_count", 0),
+                "评论": v.get("reply_count", 0),
+                "分享": v.get("share_count", 0),
+            }
+            for v in videos
+        ]
+    )
 
-    output_path = output_path or os.path.join(
-        _OUTPUT_DIR, f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
+    output_path = output_path or os.path.join(_OUTPUT_DIR, f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
 
     with pd.ExcelWriter(output_path, engine="openpyxl") as w:
         df.to_excel(w, sheet_name="视频数据", index=False)

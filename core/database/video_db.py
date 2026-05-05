@@ -14,7 +14,6 @@ logger = logging.getLogger(__name__)
 from .connection import _ConnectionCtx
 from .models import _validate_bvid, MonitorRecord, PredictionRecord
 
-
 # 进程级迁移缓存：避免每个数据库都重复检查同结构的迁移
 _schema_migrated_version = 0
 
@@ -26,7 +25,7 @@ class VideoDatabase:
         _validate_bvid(bvid)
         self.bvid = bvid
         if base_dir is None:
-            base_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data')
+            base_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
 
         # 创建以BV号命名的文件夹
         self.video_dir = os.path.join(base_dir, bvid)
@@ -56,7 +55,7 @@ class VideoDatabase:
             cursor = conn.cursor()
 
             # 视频信息表
-            cursor.execute('''
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS video_info (
                     id INTEGER PRIMARY KEY,
                     title TEXT,
@@ -79,10 +78,10 @@ class VideoDatabase:
                     pic TEXT,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-            ''')
+            """)
 
             # 监控记录表
-            cursor.execute('''
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS monitor_records (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -98,10 +97,10 @@ class VideoDatabase:
                     viewers_total INTEGER DEFAULT 0,
                     like_view_ratio REAL DEFAULT 0
                 )
-            ''')
+            """)
 
             # 预测记录表
-            cursor.execute('''
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS predictions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     algorithm TEXT,
@@ -119,10 +118,10 @@ class VideoDatabase:
                     error_rate REAL DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-            ''')
+            """)
 
             # 算法性能跟踪表（用于在线学习模块）
-            cursor.execute('''
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS algorithm_performance (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     algorithm TEXT NOT NULL,
@@ -134,15 +133,15 @@ class VideoDatabase:
                     weight REAL DEFAULT 1.0,
                     confidence REAL DEFAULT 0.5
                 )
-            ''')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_algo_perf_algorithm ON algorithm_performance(algorithm)')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_algo_perf_bvid ON algorithm_performance(bvid)')
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_algo_perf_algorithm ON algorithm_performance(algorithm)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_algo_perf_bvid ON algorithm_performance(bvid)")
 
             # 创建索引
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_monitor_timestamp ON monitor_records(timestamp)')
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_monitor_timestamp ON monitor_records(timestamp)")
 
             # 周刊分数记录表
-            cursor.execute('''
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS weekly_scores (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -158,11 +157,11 @@ class VideoDatabase:
                     correction_d REAL,
                     base_view_score REAL
                 )
-            ''')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_weekly_timestamp ON weekly_scores(timestamp)')
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_weekly_timestamp ON weekly_scores(timestamp)")
 
             # 年刊分数记录表
-            cursor.execute('''
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS yearly_scores (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -176,8 +175,8 @@ class VideoDatabase:
                     correction_b REAL,
                     correction_c REAL
                 )
-            ''')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_yearly_timestamp ON yearly_scores(timestamp)')
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_yearly_timestamp ON yearly_scores(timestamp)")
 
             # 数据库迁移：检查并添加缺少的列并自动计算数值
             # 进程级缓存：首次迁移成功后跳过（所有DB共享相同结构）
@@ -227,17 +226,17 @@ class VideoDatabase:
 
         # 检查每张表的现有列
         for table, columns in schema_upgrades.items():
-            if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', table):
+            if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", table):
                 continue  # 安全校验：表名必须只含合法字符
             cursor.execute(f"PRAGMA table_info({table})")
             existing = {row["name"] for row in cursor.fetchall()}
             if not existing:
                 continue  # 表不存在，跳过
             for col_name, col_def in columns:
-                if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', col_name):
+                if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", col_name):
                     continue  # 安全校验：列名必须只含合法字符
                 if col_name not in existing:
-                    if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*(\s+DEFAULT\s+[^\s;]+)?$', col_def):
+                    if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*(\s+DEFAULT\s+[^\s;]+)?$", col_def):
                         logger.warning(f"迁移跳过: {table}.{col_name} 含不安全的列定义 {col_def}")
                         continue
                     try:
@@ -283,34 +282,37 @@ class VideoDatabase:
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute('''
+                cursor.execute(
+                    """
                     INSERT OR REPLACE INTO video_info
                     (id, title, view_count, like_count, coin_count, share_count,
                      favorite_count, danmaku_count, reply_count, viewers_app,
                      viewers_web, viewers_total, cover_path, like_view_ratio,
                      owner_name, owner_id, pubdate, duration, pic, updated_at)
                     VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    video_info.get('title', ''),
-                    video_info.get('view_count', 0),
-                    video_info.get('like_count', 0),
-                    video_info.get('coin_count', 0),
-                    video_info.get('share_count', 0),
-                    video_info.get('favorite_count', 0),
-                    video_info.get('danmaku_count', 0),
-                    video_info.get('reply_count', 0),
-                    video_info.get('viewers_app', 0),
-                    video_info.get('viewers_web', 0),
-                    video_info.get('viewers_total', 0),
-                    video_info.get('cover_path', ''),
-                    video_info.get('like_view_ratio', 0),
-                    video_info.get('owner_name', ''),
-                    video_info.get('owner_id', 0),
-                    video_info.get('pubdate', ''),
-                    video_info.get('duration', 0),
-                    video_info.get('pic', ''),
-                    datetime.now()
-                ))
+                """,
+                    (
+                        video_info.get("title", ""),
+                        video_info.get("view_count", 0),
+                        video_info.get("like_count", 0),
+                        video_info.get("coin_count", 0),
+                        video_info.get("share_count", 0),
+                        video_info.get("favorite_count", 0),
+                        video_info.get("danmaku_count", 0),
+                        video_info.get("reply_count", 0),
+                        video_info.get("viewers_app", 0),
+                        video_info.get("viewers_web", 0),
+                        video_info.get("viewers_total", 0),
+                        video_info.get("cover_path", ""),
+                        video_info.get("like_view_ratio", 0),
+                        video_info.get("owner_name", ""),
+                        video_info.get("owner_id", 0),
+                        video_info.get("pubdate", ""),
+                        video_info.get("duration", 0),
+                        video_info.get("pic", ""),
+                        datetime.now(),
+                    ),
+                )
                 conn.commit()
         except Exception as e:
             logger.warning("保存视频信息失败 %s: %s", self.bvid, e)
@@ -320,18 +322,29 @@ class VideoDatabase:
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute('''
+                cursor.execute(
+                    """
                     INSERT INTO monitor_records
                     (timestamp, view_count, like_count, coin_count, share_count,
                      favorite_count, danmaku_count, reply_count, viewers_app,
                      viewers_web, viewers_total, like_view_ratio)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    record.timestamp, record.view_count, record.like_count,
-                    record.coin_count, record.share_count, record.favorite_count,
-                    record.danmaku_count, record.reply_count, record.viewers_app,
-                    record.viewers_web, record.viewers_total, record.like_view_ratio
-                ))
+                """,
+                    (
+                        record.timestamp,
+                        record.view_count,
+                        record.like_count,
+                        record.coin_count,
+                        record.share_count,
+                        record.favorite_count,
+                        record.danmaku_count,
+                        record.reply_count,
+                        record.viewers_app,
+                        record.viewers_web,
+                        record.viewers_total,
+                        record.like_view_ratio,
+                    ),
+                )
                 conn.commit()
                 return True
         except Exception as e:
@@ -344,13 +357,10 @@ class VideoDatabase:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 if limit > 0:
-                    cursor.execute(
-                        'SELECT * FROM monitor_records ORDER BY timestamp DESC LIMIT ?',
-                        (limit,)
-                    )
+                    cursor.execute("SELECT * FROM monitor_records ORDER BY timestamp DESC LIMIT ?", (limit,))
                     rows = list(reversed([dict(row) for row in cursor.fetchall()]))
                 else:
-                    cursor.execute('SELECT * FROM monitor_records ORDER BY timestamp ASC')
+                    cursor.execute("SELECT * FROM monitor_records ORDER BY timestamp ASC")
                     rows = [dict(row) for row in cursor.fetchall()]
                 return rows
         except Exception as e:
@@ -362,7 +372,7 @@ class VideoDatabase:
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute('SELECT * FROM video_info WHERE id = 1')
+                cursor.execute("SELECT * FROM video_info WHERE id = 1")
                 row = cursor.fetchone()
                 return dict(row) if row else None
         except Exception as e:
@@ -373,19 +383,27 @@ class VideoDatabase:
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute('''
+                cursor.execute(
+                    """
                     INSERT INTO predictions
                     (algorithm, algorithm_id, target_threshold, predicted_seconds,
                      predicted_time, confidence, current_views,
                      metadata, predicted_hours, current_velocity)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    prediction.algorithm, prediction.algorithm_id,
-                    prediction.target_threshold, prediction.predicted_seconds,
-                    prediction.predicted_time, prediction.confidence,
-                    prediction.current_views,
-                    prediction.metadata, prediction.predicted_hours, prediction.current_velocity
-                ))
+                """,
+                    (
+                        prediction.algorithm,
+                        prediction.algorithm_id,
+                        prediction.target_threshold,
+                        prediction.predicted_seconds,
+                        prediction.predicted_time,
+                        prediction.confidence,
+                        prediction.current_views,
+                        prediction.metadata,
+                        prediction.predicted_hours,
+                        prediction.current_velocity,
+                    ),
+                )
                 conn.commit()
                 return True
         except Exception as e:
@@ -402,27 +420,30 @@ class VideoDatabase:
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute('''
+                cursor.execute(
+                    """
                     INSERT INTO weekly_scores
                     (timestamp, total_score, view_score, interaction_score,
                      favorite_score, coin_score, like_score,
                      correction_a, correction_b, correction_c, correction_d,
                      base_view_score)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    timestamp,
-                    score_data.get('total_score', 0),
-                    score_data.get('view_score', 0),
-                    score_data.get('interaction_score', 0),
-                    score_data.get('favorite_score', 0),
-                    score_data.get('coin_score', 0),
-                    score_data.get('like_score', 0),
-                    score_data.get('correction_a', 0),
-                    score_data.get('correction_b', 0),
-                    score_data.get('correction_c', 0),
-                    score_data.get('correction_d', 0),
-                    score_data.get('base_view_score', 0),
-                ))
+                """,
+                    (
+                        timestamp,
+                        score_data.get("total_score", 0),
+                        score_data.get("view_score", 0),
+                        score_data.get("interaction_score", 0),
+                        score_data.get("favorite_score", 0),
+                        score_data.get("coin_score", 0),
+                        score_data.get("like_score", 0),
+                        score_data.get("correction_a", 0),
+                        score_data.get("correction_b", 0),
+                        score_data.get("correction_c", 0),
+                        score_data.get("correction_d", 0),
+                        score_data.get("base_view_score", 0),
+                    ),
+                )
                 conn.commit()
                 return True
         except Exception as e:
@@ -442,12 +463,9 @@ class VideoDatabase:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 if limit and limit > 0:
-                    cursor.execute(
-                        'SELECT * FROM weekly_scores ORDER BY timestamp ASC LIMIT ?',
-                        (limit,))
+                    cursor.execute("SELECT * FROM weekly_scores ORDER BY timestamp ASC LIMIT ?", (limit,))
                 else:
-                    cursor.execute(
-                        'SELECT * FROM weekly_scores ORDER BY timestamp ASC')
+                    cursor.execute("SELECT * FROM weekly_scores ORDER BY timestamp ASC")
                 return [dict(row) for row in cursor.fetchall()]
         except Exception as e:
             logger.warning("获取周刊分数记录失败 %s: %s", self.bvid, e)
@@ -458,8 +476,7 @@ class VideoDatabase:
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute(
-                    'SELECT * FROM weekly_scores ORDER BY timestamp DESC LIMIT 1')
+                cursor.execute("SELECT * FROM weekly_scores ORDER BY timestamp DESC LIMIT 1")
                 row = cursor.fetchone()
                 return dict(row) if row else None
         except Exception:
@@ -470,24 +487,27 @@ class VideoDatabase:
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute('''
+                cursor.execute(
+                    """
                     INSERT INTO yearly_scores
                     (timestamp, total_score, view_score, interaction_score,
                      favorite_score, coin_score, like_score,
                      correction_a, correction_b, correction_c)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    timestamp,
-                    score_data.get('total_score', 0),
-                    score_data.get('view_score', 0),
-                    score_data.get('interaction_score', 0),
-                    score_data.get('favorite_score', 0),
-                    score_data.get('coin_score', 0),
-                    score_data.get('like_score', 0),
-                    score_data.get('correction_a', 0),
-                    score_data.get('correction_b', 0),
-                    score_data.get('correction_c', 0),
-                ))
+                """,
+                    (
+                        timestamp,
+                        score_data.get("total_score", 0),
+                        score_data.get("view_score", 0),
+                        score_data.get("interaction_score", 0),
+                        score_data.get("favorite_score", 0),
+                        score_data.get("coin_score", 0),
+                        score_data.get("like_score", 0),
+                        score_data.get("correction_a", 0),
+                        score_data.get("correction_b", 0),
+                        score_data.get("correction_c", 0),
+                    ),
+                )
                 conn.commit()
                 return True
         except Exception as e:
@@ -500,12 +520,9 @@ class VideoDatabase:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 if limit and limit > 0:
-                    cursor.execute(
-                        'SELECT * FROM yearly_scores ORDER BY timestamp ASC LIMIT ?',
-                        (limit,))
+                    cursor.execute("SELECT * FROM yearly_scores ORDER BY timestamp ASC LIMIT ?", (limit,))
                 else:
-                    cursor.execute(
-                        'SELECT * FROM yearly_scores ORDER BY timestamp ASC')
+                    cursor.execute("SELECT * FROM yearly_scores ORDER BY timestamp ASC")
                 return [dict(row) for row in cursor.fetchall()]
         except Exception as e:
             logger.warning("获取年刊分数记录失败 %s: %s", self.bvid, e)
@@ -516,8 +533,7 @@ class VideoDatabase:
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute(
-                    'SELECT * FROM yearly_scores ORDER BY timestamp DESC LIMIT 1')
+                cursor.execute("SELECT * FROM yearly_scores ORDER BY timestamp DESC LIMIT 1")
                 row = cursor.fetchone()
                 return dict(row) if row else None
         except Exception as e:

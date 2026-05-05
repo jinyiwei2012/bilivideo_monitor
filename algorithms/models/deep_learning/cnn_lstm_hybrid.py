@@ -2,6 +2,7 @@
 CNN-LSTM混合预测模型
 先使用CNN提取局部时序模式，再通过LSTM捕获长期依赖
 """
+
 import math
 import numpy as np
 from typing import Dict, Any, List
@@ -35,10 +36,10 @@ class CNNLSTMHybridAlgorithm(BaseAlgorithm):
         """一维卷积操作"""
         k = len(kernel)
         if len(seq) < k:
-            return np.array([np.mean(seq * kernel[:len(seq)])])
+            return np.array([np.mean(seq * kernel[: len(seq)])])
         out = np.zeros(len(seq) - k + 1)
         for i in range(len(out)):
-            out[i] = np.dot(seq[i:i+k], kernel)
+            out[i] = np.dot(seq[i : i + k], kernel)
         return out
 
     def _multi_scale_conv(self, seq: np.ndarray) -> np.ndarray:
@@ -62,55 +63,66 @@ class CNNLSTMHybridAlgorithm(BaseAlgorithm):
 
         return np.array(features)
 
-    def predict(self, video_data: Dict[str, Any],
-                threshold: int = 100000) -> PredictionResult:
-        current_views = video_data.get('view_count', 0)
-        history = video_data.get('history_data', [])
+    def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
+        current_views = video_data.get("view_count", 0)
+        history = video_data.get("history_data", [])
         velocity = self.calculate_velocity(video_data)
 
         remaining = threshold - current_views
         if remaining <= 0:
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=0, confidence=1.0,
-                current_views=current_views, current_velocity=velocity,
-                metadata={'method': 'cnn_lstm'}, timestamp=datetime.now()
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=0,
+                confidence=1.0,
+                current_views=current_views,
+                current_velocity=velocity,
+                metadata={"method": "cnn_lstm"},
+                timestamp=datetime.now(),
             )
 
         if len(history) < 5 or velocity <= 0:
-            predicted_hours = remaining / velocity if velocity > 0 else float('inf')
+            predicted_hours = remaining / velocity if velocity > 0 else float("inf")
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=0.3,
+                current_views=current_views,
                 current_velocity=velocity,
-                metadata={'method': 'cnn_lstm', 'notes': 'insufficient_data'},
-                timestamp=datetime.now()
+                metadata={"method": "cnn_lstm", "notes": "insufficient_data"},
+                timestamp=datetime.now(),
             )
 
         # 提取时序
         timestamps = []
         views_vals = []
         for h in history:
-            ts = h.get('timestamp', 0)
-            if hasattr(ts, 'timestamp'):
+            ts = h.get("timestamp", 0)
+            if hasattr(ts, "timestamp"):
                 ts = ts.timestamp()
             elif isinstance(ts, str):
                 try:
-                    ts = datetime.strptime(ts, '%Y-%m-%d %H:%M:%S').timestamp()
+                    ts = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S").timestamp()
                 except Exception:
                     continue
             timestamps.append(float(ts))
-            views_vals.append(float(h.get('view_count', 0)))
+            views_vals.append(float(h.get("view_count", 0)))
 
         if len(views_vals) < 5:
             predicted_hours = remaining / velocity
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=0.3,
+                current_views=current_views,
                 current_velocity=velocity,
-                metadata={'method': 'cnn_lstm_fallback'}, timestamp=datetime.now()
+                metadata={"method": "cnn_lstm_fallback"},
+                timestamp=datetime.now(),
             )
 
         try:
@@ -127,11 +139,15 @@ class CNNLSTMHybridAlgorithm(BaseAlgorithm):
             if len(log_diff) == 0:
                 predicted_hours = remaining / velocity
                 return PredictionResult(
-                    algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                    target_threshold=threshold, predicted_hours=predicted_hours,
-                    confidence=0.3, current_views=current_views,
+                    algorithm_name=self.name,
+                    algorithm_id=self.algorithm_id,
+                    target_threshold=threshold,
+                    predicted_hours=predicted_hours,
+                    confidence=0.3,
+                    current_views=current_views,
                     current_velocity=velocity,
-                    metadata={'method': 'cnn_lstm_no_diff'}, timestamp=datetime.now()
+                    metadata={"method": "cnn_lstm_no_diff"},
+                    timestamp=datetime.now(),
                 )
 
             # ── CNN阶段: 多尺度特征提取 ──────────────
@@ -153,7 +169,7 @@ class CNNLSTMHybridAlgorithm(BaseAlgorithm):
             h_state = 0.0
             w_h = 0.3
             w_x = 0.5
-            for x in norm_diff[-self.lstm_units:]:
+            for x in norm_diff[-self.lstm_units :]:
                 h_state = math.tanh(w_h * h_state + w_x * x)
             lstm_signal = h_state
 
@@ -189,33 +205,47 @@ class CNNLSTMHybridAlgorithm(BaseAlgorithm):
 
             if target_day is not None and target_day <= 365:
                 predicted_hours = target_day * 24
-                conf = min(0.9, 0.3 + 0.2 * min(1.0, n / 20) + 0.2 * min(1.0, abs(cnn_trend) * 5) + 0.15 * quality + 0.05 * engagement)
+                conf = min(
+                    0.9,
+                    0.3
+                    + 0.2 * min(1.0, n / 20)
+                    + 0.2 * min(1.0, abs(cnn_trend) * 5)
+                    + 0.15 * quality
+                    + 0.05 * engagement,
+                )
             else:
                 predicted_hours = remaining / velocity
                 conf = 0.35
 
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=conf, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=conf,
+                current_views=current_views,
                 current_velocity=velocity,
                 metadata={
-                    'method': 'cnn_lstm',
-                    'cnn_features': len(cnn_features),
-                    'cnn_trend': round(float(cnn_trend), 4),
-                    'lstm_signal': round(float(lstm_signal), 4),
-                    'combined_factor': round(float(combined_factor), 4),
-                    'forecast_horizon': forecast_days,
-                    'data_points': n,
+                    "method": "cnn_lstm",
+                    "cnn_features": len(cnn_features),
+                    "cnn_trend": round(float(cnn_trend), 4),
+                    "lstm_signal": round(float(lstm_signal), 4),
+                    "combined_factor": round(float(combined_factor), 4),
+                    "forecast_horizon": forecast_days,
+                    "data_points": n,
                 },
-                timestamp=datetime.now()
+                timestamp=datetime.now(),
             )
         except Exception as e:
-            predicted_hours = remaining / velocity if velocity > 0 else float('inf')
+            predicted_hours = remaining / velocity if velocity > 0 else float("inf")
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.0, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=0.0,
+                current_views=current_views,
                 current_velocity=velocity,
-                metadata={'error': str(e)}, timestamp=datetime.now()
+                metadata={"error": str(e)},
+                timestamp=datetime.now(),
             )

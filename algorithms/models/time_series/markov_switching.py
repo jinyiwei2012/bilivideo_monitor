@@ -2,6 +2,7 @@
 马尔可夫体制转换 (Markov Regime Switching) 预测
 假设播放量增长在不同"体制"间切换（如快速增长期 vs 平稳期）
 """
+
 import math
 import numpy as np
 from typing import Dict, Any, List, Tuple
@@ -58,7 +59,9 @@ class MarkovSwitchingAlgorithm(BaseAlgorithm):
                 stds = np.array([0.04, 0.02, 0.01])
 
             # 高斯观测概率
-            obs_prob = np.exp(-0.5 * ((g - means) / np.maximum(stds, 1e-6)) ** 2) / (np.sqrt(2 * np.pi) * np.maximum(stds, 1e-6))
+            obs_prob = np.exp(-0.5 * ((g - means) / np.maximum(stds, 1e-6)) ** 2) / (
+                np.sqrt(2 * np.pi) * np.maximum(stds, 1e-6)
+            )
             obs_prob = np.maximum(obs_prob, 1e-10)
 
             if t == 0:
@@ -70,55 +73,66 @@ class MarkovSwitchingAlgorithm(BaseAlgorithm):
 
         return probs
 
-    def predict(self, video_data: Dict[str, Any],
-                threshold: int = 100000) -> PredictionResult:
-        current_views = video_data.get('view_count', 0)
-        history = video_data.get('history_data', [])
+    def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
+        current_views = video_data.get("view_count", 0)
+        history = video_data.get("history_data", [])
         velocity = self.calculate_velocity(video_data)
 
         remaining = threshold - current_views
         if remaining <= 0:
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=0, confidence=1.0,
-                current_views=current_views, current_velocity=velocity,
-                metadata={'method': 'markov_switching'}, timestamp=datetime.now()
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=0,
+                confidence=1.0,
+                current_views=current_views,
+                current_velocity=velocity,
+                metadata={"method": "markov_switching"},
+                timestamp=datetime.now(),
             )
 
         if len(history) < 6 or velocity <= 0:
-            predicted_hours = remaining / velocity if velocity > 0 else float('inf')
+            predicted_hours = remaining / velocity if velocity > 0 else float("inf")
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=0.3,
+                current_views=current_views,
                 current_velocity=velocity,
-                metadata={'method': 'markov_switching', 'notes': 'insufficient_data'},
-                timestamp=datetime.now()
+                metadata={"method": "markov_switching", "notes": "insufficient_data"},
+                timestamp=datetime.now(),
             )
 
         # 提取时序
         timestamps = []
         views_vals = []
         for h in history:
-            ts = h.get('timestamp', 0)
-            if hasattr(ts, 'timestamp'):
+            ts = h.get("timestamp", 0)
+            if hasattr(ts, "timestamp"):
                 ts = ts.timestamp()
             elif isinstance(ts, str):
                 try:
-                    ts = datetime.strptime(ts, '%Y-%m-%d %H:%M:%S').timestamp()
+                    ts = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S").timestamp()
                 except Exception:
                     continue
             timestamps.append(float(ts))
-            views_vals.append(float(h.get('view_count', 0)))
+            views_vals.append(float(h.get("view_count", 0)))
 
         if len(views_vals) < 6:
             predicted_hours = remaining / velocity
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=0.3,
+                current_views=current_views,
                 current_velocity=velocity,
-                metadata={'method': 'markov_switching_fallback'}, timestamp=datetime.now()
+                metadata={"method": "markov_switching_fallback"},
+                timestamp=datetime.now(),
             )
 
         try:
@@ -134,11 +148,15 @@ class MarkovSwitchingAlgorithm(BaseAlgorithm):
             if len(growth_rates) < 3:
                 predicted_hours = remaining / velocity
                 return PredictionResult(
-                    algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                    target_threshold=threshold, predicted_hours=predicted_hours,
-                    confidence=0.3, current_views=current_views,
+                    algorithm_name=self.name,
+                    algorithm_id=self.algorithm_id,
+                    target_threshold=threshold,
+                    predicted_hours=predicted_hours,
+                    confidence=0.3,
+                    current_views=current_views,
                     current_velocity=velocity,
-                    metadata={'method': 'markov_switching_no_growth'}, timestamp=datetime.now()
+                    metadata={"method": "markov_switching_no_growth"},
+                    timestamp=datetime.now(),
                 )
 
             # ── 前向算法估计体制概率 ──────────────────
@@ -155,15 +173,15 @@ class MarkovSwitchingAlgorithm(BaseAlgorithm):
                 if np.sum(mask) >= 2:
                     r_rates = growth_rates[mask]
                     regime_growth_rates[r] = {
-                        'mean': float(np.mean(r_rates)),
-                        'std': float(max(np.std(r_rates), 0.001)),
-                        'count': int(np.sum(mask)),
+                        "mean": float(np.mean(r_rates)),
+                        "std": float(max(np.std(r_rates), 0.001)),
+                        "count": int(np.sum(mask)),
                     }
                 else:
                     regime_growth_rates[r] = {
-                        'mean': 0.01 * (1 + r),
-                        'std': 0.01,
-                        'count': 0,
+                        "mean": 0.01 * (1 + r),
+                        "std": 0.01,
+                        "count": 0,
                     }
 
             # ── 未来体制模拟（蒙特卡洛） ─────────────
@@ -187,7 +205,7 @@ class MarkovSwitchingAlgorithm(BaseAlgorithm):
                             current_regime = np.random.choice(choices, p=alt_probs)
 
                     rg = regime_growth_rates[current_regime]
-                    daily_growth = views_arr[-1] * np.random.normal(rg['mean'], rg['std'])
+                    daily_growth = views_arr[-1] * np.random.normal(rg["mean"], rg["std"])
                     daily_growth = max(0, daily_growth * (0.5 + 0.5 * math.exp(-day / 60.0)))
                     pred_v += daily_growth
 
@@ -217,28 +235,35 @@ class MarkovSwitchingAlgorithm(BaseAlgorithm):
                 conf = 0.3
 
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=conf, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=conf,
+                current_views=current_views,
                 current_velocity=velocity,
                 metadata={
-                    'method': 'markov_switching',
-                    'n_regimes': self.n_regimes,
-                    'current_regime_probs': [round(float(p), 3) for p in current_regime_probs],
-                    'regime_growth_means': [round(regime_growth_rates[r]['mean'], 4) for r in range(self.n_regimes)],
-                    'mc_simulations': mc_simulations,
-                    'mc_hit_ratio': round(len(all_hit_days) / max(mc_simulations, 1), 3),
-                    'median_hit_day': round(float(np.median(all_hit_days)), 1) if all_hit_days else None,
-                    'data_points': n,
+                    "method": "markov_switching",
+                    "n_regimes": self.n_regimes,
+                    "current_regime_probs": [round(float(p), 3) for p in current_regime_probs],
+                    "regime_growth_means": [round(regime_growth_rates[r]["mean"], 4) for r in range(self.n_regimes)],
+                    "mc_simulations": mc_simulations,
+                    "mc_hit_ratio": round(len(all_hit_days) / max(mc_simulations, 1), 3),
+                    "median_hit_day": round(float(np.median(all_hit_days)), 1) if all_hit_days else None,
+                    "data_points": n,
                 },
-                timestamp=datetime.now()
+                timestamp=datetime.now(),
             )
         except Exception as e:
-            predicted_hours = remaining / velocity if velocity > 0 else float('inf')
+            predicted_hours = remaining / velocity if velocity > 0 else float("inf")
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.0, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=0.0,
+                current_views=current_views,
                 current_velocity=velocity,
-                metadata={'error': str(e)}, timestamp=datetime.now()
+                metadata={"error": str(e)},
+                timestamp=datetime.now(),
             )

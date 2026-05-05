@@ -14,31 +14,30 @@ from typing import Dict, List, Tuple, Optional
 from datetime import datetime
 import math
 
-
 # 可检验的指标名称
 CAUSAL_FEATURES = [
-    'like_count',
-    'coin_count',
-    'share_count',
-    'favorite_count',
-    'danmaku_count',
-    'reply_count',
-    'viewers_total',
-    'viewers_app',
-    'viewers_web',
+    "like_count",
+    "coin_count",
+    "share_count",
+    "favorite_count",
+    "danmaku_count",
+    "reply_count",
+    "viewers_total",
+    "viewers_app",
+    "viewers_web",
 ]
 
 # 中文标签映射
 FEATURE_LABELS = {
-    'like_count': '点赞',
-    'coin_count': '投币',
-    'share_count': '分享',
-    'favorite_count': '收藏',
-    'danmaku_count': '弹幕',
-    'reply_count': '评论',
-    'viewers_total': '在线人数',
-    'viewers_app': 'APP观看',
-    'viewers_web': '网页观看',
+    "like_count": "点赞",
+    "coin_count": "投币",
+    "share_count": "分享",
+    "favorite_count": "收藏",
+    "danmaku_count": "弹幕",
+    "reply_count": "评论",
+    "viewers_total": "在线人数",
+    "viewers_app": "APP观看",
+    "viewers_web": "网页观看",
 }
 
 
@@ -107,18 +106,14 @@ def _granger_test(
         # 受限模型：仅用 target 滞后
         # target[t] ≈ a0 + a1*target[t-1] + ... + a_lag*target[t-lag]
         # 用线性代数求解（正规方程）
-        rss_r_model = _rss_multi_regression(
-            target, [target], lag_range=(1, lag)
-        )
+        rss_r_model = _rss_multi_regression(target, [target], lag_range=(1, lag))
         # 无限制模型：target 滞后 + cause 滞后
-        rss_u = _rss_multi_regression(
-            target, [target, cause], lag_range=(1, lag)
-        )
+        rss_u = _rss_multi_regression(target, [target, cause], lag_range=(1, lag))
 
         if rss_r_model < 1e-15:
             continue
 
-        p = lag          # 额外参数个数
+        p = lag  # 额外参数个数
         n_eff = sample_size
         df1 = p
         df2 = n_eff - 2 * lag - 1
@@ -246,10 +241,10 @@ class CausalAnalyzer:
         """
         with self._lock:
             for rec in records:
-                ts = rec.get('timestamp', None)
+                ts = rec.get("timestamp", None)
                 if ts is None:
                     continue
-                if hasattr(ts, 'timestamp'):
+                if hasattr(ts, "timestamp"):
                     ts_float = ts.timestamp()
                 elif isinstance(ts, (int, float)):
                     ts_float = float(ts)
@@ -262,9 +257,7 @@ class CausalAnalyzer:
                     continue
 
                 self._timestamps.append(ts_float)
-                self._series.setdefault('view_count', []).append(
-                    float(rec.get('view_count', 0))
-                )
+                self._series.setdefault("view_count", []).append(float(rec.get("view_count", 0)))
                 for feat in CAUSAL_FEATURES:
                     val = rec.get(feat, 0)
                     if val is not None:
@@ -291,16 +284,16 @@ class CausalAnalyzer:
         }
         """
         with self._lock:
-            if len(self._series.get('view_count', [])) < 10:
+            if len(self._series.get("view_count", [])) < 10:
                 return {
-                    'granger_ranking': [],
-                    'correlation': {},
-                    'lead_lag': {},
-                    'key_drivers': [],
-                    'sample_size': len(self._series.get('view_count', [])),
+                    "granger_ranking": [],
+                    "correlation": {},
+                    "lead_lag": {},
+                    "key_drivers": [],
+                    "sample_size": len(self._series.get("view_count", [])),
                 }
 
-            target = self._series['view_count']
+            target = self._series["view_count"]
             n = len(target)
 
             # 1) Granger 因果检验
@@ -345,10 +338,10 @@ class CausalAnalyzer:
                 for shift in range(-5, 6):
                     if shift >= 0:
                         y = target[shift:]
-                        x = cause[:n - shift] if shift > 0 else cause
+                        x = cause[: n - shift] if shift > 0 else cause
                     else:
                         x = cause[-shift:]
-                        y = target[:n + shift]
+                        y = target[: n + shift]
                     if len(x) < 5:
                         continue
                     mx = sum(x) / len(x)
@@ -364,17 +357,14 @@ class CausalAnalyzer:
                 lead_lag[feat] = best_shift
 
             # 4) 关键驱动因素：F > 3.0 视为显著
-            key_drivers = [
-                feat for feat, f, lag, _ in granger_results
-                if f > 3.0 and lag > 0
-            ]
+            key_drivers = [feat for feat, f, lag, _ in granger_results if f > 3.0 and lag > 0]
 
             return {
-                'granger_ranking': granger_results,
-                'correlation': correlations,
-                'lead_lag': lead_lag,
-                'key_drivers': key_drivers,
-                'sample_size': n,
+                "granger_ranking": granger_results,
+                "correlation": correlations,
+                "lead_lag": lead_lag,
+                "key_drivers": key_drivers,
+                "sample_size": n,
             }
 
     @property

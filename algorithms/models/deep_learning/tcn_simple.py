@@ -2,6 +2,7 @@
 TCN (Temporal Convolutional Network) 时序卷积预测
 使用空洞因果卷积捕获长期时序依赖，比RNN系列训练更稳定
 """
+
 import math
 import numpy as np
 from typing import Dict, Any, List
@@ -33,8 +34,7 @@ class TCNSimpleAlgorithm(BaseAlgorithm):
         self.dilations = [1, 2, 4, 8, 16, 32]
         self.dropout = 0.1
 
-    def _causal_conv(self, seq: np.ndarray, kernel: np.ndarray,
-                     dilation: int) -> np.ndarray:
+    def _causal_conv(self, seq: np.ndarray, kernel: np.ndarray, dilation: int) -> np.ndarray:
         """一维空洞因果卷积
 
         在序列左侧补零保证因果性（未来信息不泄漏到过去）
@@ -74,55 +74,66 @@ class TCNSimpleAlgorithm(BaseAlgorithm):
 
         return out
 
-    def predict(self, video_data: Dict[str, Any],
-                threshold: int = 100000) -> PredictionResult:
-        current_views = video_data.get('view_count', 0)
-        history = video_data.get('history_data', [])
+    def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
+        current_views = video_data.get("view_count", 0)
+        history = video_data.get("history_data", [])
         velocity = self.calculate_velocity(video_data)
 
         remaining = threshold - current_views
         if remaining <= 0:
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=0, confidence=1.0,
-                current_views=current_views, current_velocity=velocity,
-                metadata={'method': 'tcn'}, timestamp=datetime.now()
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=0,
+                confidence=1.0,
+                current_views=current_views,
+                current_velocity=velocity,
+                metadata={"method": "tcn"},
+                timestamp=datetime.now(),
             )
 
         if len(history) < 4 or velocity <= 0:
-            predicted_hours = remaining / velocity if velocity > 0 else float('inf')
+            predicted_hours = remaining / velocity if velocity > 0 else float("inf")
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=0.3,
+                current_views=current_views,
                 current_velocity=velocity,
-                metadata={'method': 'tcn', 'notes': 'insufficient_data'},
-                timestamp=datetime.now()
+                metadata={"method": "tcn", "notes": "insufficient_data"},
+                timestamp=datetime.now(),
             )
 
         # 提取时序
         timestamps = []
         views_vals = []
         for h in history:
-            ts = h.get('timestamp', 0)
-            if hasattr(ts, 'timestamp'):
+            ts = h.get("timestamp", 0)
+            if hasattr(ts, "timestamp"):
                 ts = ts.timestamp()
             elif isinstance(ts, str):
                 try:
-                    ts = datetime.strptime(ts, '%Y-%m-%d %H:%M:%S').timestamp()
+                    ts = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S").timestamp()
                 except Exception:
                     continue
             timestamps.append(float(ts))
-            views_vals.append(float(h.get('view_count', 0)))
+            views_vals.append(float(h.get("view_count", 0)))
 
         if len(views_vals) < 4:
             predicted_hours = remaining / velocity
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=0.3,
+                current_views=current_views,
                 current_velocity=velocity,
-                metadata={'method': 'tcn_fallback'}, timestamp=datetime.now()
+                metadata={"method": "tcn_fallback"},
+                timestamp=datetime.now(),
             )
 
         try:
@@ -136,11 +147,15 @@ class TCNSimpleAlgorithm(BaseAlgorithm):
             if len(log_diff) == 0:
                 predicted_hours = remaining / velocity
                 return PredictionResult(
-                    algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                    target_threshold=threshold, predicted_hours=predicted_hours,
-                    confidence=0.3, current_views=current_views,
+                    algorithm_name=self.name,
+                    algorithm_id=self.algorithm_id,
+                    target_threshold=threshold,
+                    predicted_hours=predicted_hours,
+                    confidence=0.3,
+                    current_views=current_views,
                     current_velocity=velocity,
-                    metadata={'method': 'tcn_no_diff'}, timestamp=datetime.now()
+                    metadata={"method": "tcn_no_diff"},
+                    timestamp=datetime.now(),
                 )
 
             # 标准化
@@ -156,10 +171,10 @@ class TCNSimpleAlgorithm(BaseAlgorithm):
 
             # ── 预测: 外推最后一个TCN输出 ──────────────
             last_val = tcn_out[-1] if len(tcn_out) > 0 else 0
-            trend = np.mean(tcn_out[-min(5, len(tcn_out)):]) if len(tcn_out) >= 2 else last_val
+            trend = np.mean(tcn_out[-min(5, len(tcn_out)) :]) if len(tcn_out) >= 2 else last_val
 
             # 根据最近波动估计不确定性
-            recent_volatility = np.std(tcn_out[-min(10, len(tcn_out)):]) if len(tcn_out) >= 5 else 0.5
+            recent_volatility = np.std(tcn_out[-min(10, len(tcn_out)) :]) if len(tcn_out) >= 5 else 0.5
 
             # ── 生成未来预测 ──────────────────────────
             growth_per_day = np.mean(np.diff(views_sorted)) if n > 1 else velocity * 24
@@ -196,26 +211,33 @@ class TCNSimpleAlgorithm(BaseAlgorithm):
                 conf = 0.35
 
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=conf, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=conf,
+                current_views=current_views,
                 current_velocity=velocity,
                 metadata={
-                    'method': 'tcn',
-                    'dilations_used': len(effective_dilations),
-                    'forecast_horizon': forecast_days,
-                    'trend': round(float(trend), 4),
-                    'volatility': round(float(recent_volatility), 4),
-                    'data_points': n,
+                    "method": "tcn",
+                    "dilations_used": len(effective_dilations),
+                    "forecast_horizon": forecast_days,
+                    "trend": round(float(trend), 4),
+                    "volatility": round(float(recent_volatility), 4),
+                    "data_points": n,
                 },
-                timestamp=datetime.now()
+                timestamp=datetime.now(),
             )
         except Exception as e:
-            predicted_hours = remaining / velocity if velocity > 0 else float('inf')
+            predicted_hours = remaining / velocity if velocity > 0 else float("inf")
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.0, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=0.0,
+                current_views=current_views,
                 current_velocity=velocity,
-                metadata={'error': str(e)}, timestamp=datetime.now()
+                metadata={"error": str(e)},
+                timestamp=datetime.now(),
             )

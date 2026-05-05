@@ -1,6 +1,7 @@
 """
 UP主追踪面板 — 查询UP主信息、追踪涨粉趋势、查看投稿列表
 """
+
 import tkinter as tk
 from tkinter import ttk, messagebox
 from typing import List, Dict, Optional
@@ -14,13 +15,13 @@ class UpTrackerWindow:
     """UP主追踪面板"""
 
     def __init__(self, parent=None, api=None):
-        self.dlg = DialogBase(parent, "UP主追踪", "960x680",
-                              resizable=(True, True), modal=False)
+        self.dlg = DialogBase(parent, "UP主追踪", "960x680", resizable=(True, True), modal=False)
         self.window = self.dlg.window
         self.api = api
 
         # 延迟导入避免循环
         from core.up_database import UpDatabase
+
         self.db = UpDatabase()
 
         self._setup_ui()
@@ -35,45 +36,66 @@ class UpTrackerWindow:
         # 第一行：UID输入
         uid_row = tk.Frame(add_sec, bg=C["bg_elevated"])
         uid_row.pack(fill=tk.X, pady=(0, 4))
-        tk.Label(uid_row, text="UID:", bg=C["bg_elevated"], fg=C["text_2"],
-                 font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT)
-        self._uid_entry = tk.Entry(uid_row, width=20, font=("Consolas", 10),
-                                   bg=C["bg_base"], fg=C["text_1"],
-                                   insertbackground=C["text_1"],
-                                   relief="flat", highlightthickness=1,
-                                   highlightbackground=C["border"])
+        tk.Label(uid_row, text="UID:", bg=C["bg_elevated"], fg=C["text_2"], font=("Microsoft YaHei UI", 10)).pack(
+            side=tk.LEFT
+        )
+        self._uid_entry = tk.Entry(
+            uid_row,
+            width=20,
+            font=("Consolas", 10),
+            bg=C["bg_base"],
+            fg=C["text_1"],
+            insertbackground=C["text_1"],
+            relief="flat",
+            highlightthickness=1,
+            highlightbackground=C["border"],
+        )
         self._uid_entry.pack(side=tk.LEFT, padx=(8, 8))
         self._uid_entry.insert(0, "8047632")
-        ttk.Button(uid_row, text="查询并添加", command=self._add_up,
-                   style="Primary.TButton").pack(side=tk.LEFT, padx=4)
+        ttk.Button(uid_row, text="查询并添加", command=self._add_up, style="Primary.TButton").pack(side=tk.LEFT, padx=4)
 
         # 第二行：用户名搜索
         name_row = tk.Frame(add_sec, bg=C["bg_elevated"])
         name_row.pack(fill=tk.X)
-        tk.Label(name_row, text="用户名:", bg=C["bg_elevated"], fg=C["text_2"],
-                 font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT)
-        self._name_entry = tk.Entry(name_row, width=20, font=("Microsoft YaHei UI", 10),
-                                    bg=C["bg_base"], fg=C["text_1"],
-                                    insertbackground=C["text_1"],
-                                    relief="flat", highlightthickness=1,
-                                    highlightbackground=C["border"])
+        tk.Label(name_row, text="用户名:", bg=C["bg_elevated"], fg=C["text_2"], font=("Microsoft YaHei UI", 10)).pack(
+            side=tk.LEFT
+        )
+        self._name_entry = tk.Entry(
+            name_row,
+            width=20,
+            font=("Microsoft YaHei UI", 10),
+            bg=C["bg_base"],
+            fg=C["text_1"],
+            insertbackground=C["text_1"],
+            relief="flat",
+            highlightthickness=1,
+            highlightbackground=C["border"],
+        )
         self._name_entry.pack(side=tk.LEFT, padx=(8, 8))
         self._name_entry.bind("<Return>", lambda e: self._search_by_name())
-        ttk.Button(name_row, text="搜索UP主", command=self._search_by_name,
-                   style="Primary.TButton").pack(side=tk.LEFT, padx=4)
+        ttk.Button(name_row, text="搜索UP主", command=self._search_by_name, style="Primary.TButton").pack(
+            side=tk.LEFT, padx=4
+        )
 
-        self._up_status = tk.Label(add_sec, text="", bg=C["bg_elevated"],
-                                   fg=C["text_2"], font=("Microsoft YaHei UI", 9))
+        self._up_status = tk.Label(
+            add_sec, text="", bg=C["bg_elevated"], fg=C["text_2"], font=("Microsoft YaHei UI", 9)
+        )
         self._up_status.pack(anchor="w", padx=4, pady=(4, 0))
 
         # 搜索结果（初始隐藏）
-        self._search_frame = tk.Frame(add_sec, bg=C["bg_elevated"],
-                                      highlightthickness=1, highlightbackground=C["accent"])
-        self._search_list = tk.Listbox(self._search_frame, height=4,
-                                       bg=C["bg_base"], fg=C["text_1"],
-                                       font=("Microsoft YaHei UI", 9),
-                                       relief="flat", selectbackground=C["bilibili"],
-                                       activestyle="none")
+        self._search_frame = tk.Frame(
+            add_sec, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["accent"]
+        )
+        self._search_list = tk.Listbox(
+            self._search_frame,
+            height=4,
+            bg=C["bg_base"],
+            fg=C["text_1"],
+            font=("Microsoft YaHei UI", 9),
+            relief="flat",
+            selectbackground=C["bilibili"],
+            activestyle="none",
+        )
         self._search_list.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
         self._search_list.bind("<Double-Button-1>", lambda e: self._add_from_search())
 
@@ -82,19 +104,23 @@ class UpTrackerWindow:
         mid.pack(fill=tk.BOTH, expand=True, padx=24, pady=(10, 0))
 
         # 列表（左）
-        list_frame = tk.Frame(mid, bg=C["bg_elevated"], highlightthickness=1,
-                              highlightbackground=C["border_sub"])
+        list_frame = tk.Frame(mid, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
         list_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, ipadx=6, ipady=6)
 
         list_header = tk.Frame(list_frame, bg=C["bg_elevated"])
         list_header.pack(fill=tk.X, padx=6, pady=(4, 4))
-        tk.Label(list_header, text="已追踪UP主", bg=C["bg_elevated"], fg=C["text_2"],
-                 font=("Microsoft YaHei UI", 8, "bold"), anchor="w").pack(side=tk.LEFT)
+        tk.Label(
+            list_header,
+            text="已追踪UP主",
+            bg=C["bg_elevated"],
+            fg=C["text_2"],
+            font=("Microsoft YaHei UI", 8, "bold"),
+            anchor="w",
+        ).pack(side=tk.LEFT)
         ttk.Button(list_header, text="🔄 刷新", command=self._refresh_selected).pack(side=tk.RIGHT)
 
         cols = ("UID", "名称", "粉丝", "投稿", "总播放")
-        self._tree = ttk.Treeview(list_frame, columns=cols, show="headings",
-                                   height=10, selectmode="browse")
+        self._tree = ttk.Treeview(list_frame, columns=cols, show="headings", height=10, selectmode="browse")
         for col in cols:
             self._tree.heading(col, text=col)
         self._tree.column("UID", width=70)
@@ -106,39 +132,52 @@ class UpTrackerWindow:
         self._tree.bind("<<TreeviewSelect>>", self._on_up_select)
 
         # 详情（右）
-        detail_frame = tk.Frame(mid, bg=C["bg_elevated"], highlightthickness=1,
-                                highlightbackground=C["border_sub"])
+        detail_frame = tk.Frame(mid, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
         detail_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(10, 0), ipadx=6, ipady=6)
 
-        tk.Label(detail_frame, text="UP主详情", bg=C["bg_elevated"], fg=C["text_2"],
-                 font=("Microsoft YaHei UI", 8, "bold"), anchor="w").pack(fill=tk.X, padx=6, pady=(4, 4))
+        tk.Label(
+            detail_frame,
+            text="UP主详情",
+            bg=C["bg_elevated"],
+            fg=C["text_2"],
+            font=("Microsoft YaHei UI", 8, "bold"),
+            anchor="w",
+        ).pack(fill=tk.X, padx=6, pady=(4, 4))
 
-        self._detail_text = tk.Text(detail_frame, bg=C["bg_base"], fg=C["text_1"],
-                                    font=("Consolas", 10), relief="flat",
-                                    state="disabled", cursor="arrow",
-                                    wrap="none", padx=8, pady=6)
+        self._detail_text = tk.Text(
+            detail_frame,
+            bg=C["bg_base"],
+            fg=C["text_1"],
+            font=("Consolas", 10),
+            relief="flat",
+            state="disabled",
+            cursor="arrow",
+            wrap="none",
+            padx=8,
+            pady=6,
+        )
         self._detail_text.pack(fill=tk.BOTH, expand=True)
-        self._detail_text.tag_config("head", foreground=C["bilibili"],
-                                     font=("Consolas", 10, "bold"))
-        self._detail_text.tag_config("val", foreground=C["text_1"],
-                                     font=("Consolas", 10))
-        self._detail_text.tag_config("accent", foreground=C["accent"],
-                                     font=("Consolas", 10, "bold"))
-        self._detail_text.tag_config("dim", foreground=C["text_3"],
-                                     font=("Consolas", 9))
+        self._detail_text.tag_config("head", foreground=C["bilibili"], font=("Consolas", 10, "bold"))
+        self._detail_text.tag_config("val", foreground=C["text_1"], font=("Consolas", 10))
+        self._detail_text.tag_config("accent", foreground=C["accent"], font=("Consolas", 10, "bold"))
+        self._detail_text.tag_config("dim", foreground=C["text_3"], font=("Consolas", 9))
 
     def _load_up_list(self):
         for item in self._tree.get_children():
             self._tree.delete(item)
         ups = self.db.get_all_ups()
         for up in ups:
-            self._tree.insert("", "end", values=(
-                up.get("uid", ""),
-                up.get("name", "")[:10],
-                self._fmt(up.get("follower_count", 0)),
-                up.get("video_count", 0),
-                self._fmt(up.get("total_views", 0)),
-            ))
+            self._tree.insert(
+                "",
+                "end",
+                values=(
+                    up.get("uid", ""),
+                    up.get("name", "")[:10],
+                    self._fmt(up.get("follower_count", 0)),
+                    up.get("video_count", 0),
+                    self._fmt(up.get("total_views", 0)),
+                ),
+            )
 
     def _on_up_select(self, event):
         sel = self._tree.selection()
@@ -176,9 +215,9 @@ class UpTrackerWindow:
             for v in videos[:8]:
                 self._detail_text.insert(
                     tk.END,
-                    f"  {v.get('bvid','')}  {v.get('title','')[:28]}  "
-                    f"{self._fmt(v.get('view_count',0))}\n",
-                    "val")
+                    f"  {v.get('bvid','')}  {v.get('title','')[:28]}  " f"{self._fmt(v.get('view_count',0))}\n",
+                    "val",
+                )
 
         # 历史趋势
         history = self.db.get_history(uid, limit=10)
@@ -186,9 +225,8 @@ class UpTrackerWindow:
             self._detail_text.insert(tk.END, "\n=== 粉丝趋势(近10条) ===\n", "head")
             for h in reversed(history):
                 self._detail_text.insert(
-                    tk.END,
-                    f"  {h.get('timestamp','')[:16]}  粉丝 {self._fmt(h.get('follower_count',0))}\n",
-                    "dim")
+                    tk.END, f"  {h.get('timestamp','')[:16]}  粉丝 {self._fmt(h.get('follower_count',0))}\n", "dim"
+                )
 
         self._detail_text.config(state="disabled")
 
@@ -229,8 +267,8 @@ class UpTrackerWindow:
         self._load_up_list()
         self._show_detail(info)
         self._up_status.config(
-            text=f"刷新完成: {info.get('name', '')}  粉丝: {self._fmt(info.get('follower_count', 0))}",
-            fg=C["success"])
+            text=f"刷新完成: {info.get('name', '')}  粉丝: {self._fmt(info.get('follower_count', 0))}", fg=C["success"]
+        )
 
     def _search_by_name(self):
         """按用户名搜索UP主"""
@@ -315,7 +353,8 @@ class UpTrackerWindow:
         self._load_up_list()
         self._up_status.config(
             text=f"已添加: {info.get('name', '')} (UID: {uid})  粉丝: {self._fmt(info.get('follower_count', 0))}",
-            fg=C["success"])
+            fg=C["success"],
+        )
 
     @staticmethod
     def _fmt(n):

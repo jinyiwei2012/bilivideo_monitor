@@ -9,6 +9,7 @@ from dataclasses import dataclass
 @dataclass
 class VideoInfo:
     """视频信息"""
+
     bvid: str
     title: str
     view_count: int = 0
@@ -33,6 +34,7 @@ class VideoInfo:
 @dataclass
 class MonitorRecord:
     """监控记录"""
+
     bvid: str
     timestamp: str
     view_count: int
@@ -51,6 +53,7 @@ class MonitorRecord:
 @dataclass
 class PredictionRecord:
     """预测记录"""
+
     bvid: str
     algorithm: str
     algorithm_id: str
@@ -67,7 +70,7 @@ class PredictionRecord:
     error_rate: float = 0.0
 
 
-_BVID_PATTERN = re.compile(r'^BV[A-Za-z0-9]{10,12}$')
+_BVID_PATTERN = re.compile(r"^BV[A-Za-z0-9]{10,12}$")
 
 
 def _validate_bvid(bvid: str) -> str:

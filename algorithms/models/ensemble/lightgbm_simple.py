@@ -2,6 +2,7 @@
 LightGBM风格梯度提升
 基于直方图的梯度提升，比CatBoost的穷举分裂更高效
 """
+
 import numpy as np
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
@@ -36,11 +37,7 @@ class LightGBMSimpleAlgorithm(BaseAlgorithm):
         self.trees = []
 
     def predict(
-        self,
-        current_views: int,
-        target_views: int,
-        history_data: List[Dict[str, Any]],
-        video_info: Dict[str, Any]
+        self, current_views: int, target_views: int, history_data: List[Dict[str, Any]], video_info: Dict[str, Any]
     ) -> Optional[Tuple[int, float]]:
         """预测到达目标播放量所需时间"""
         if not history_data or len(history_data) < 8:
@@ -60,9 +57,8 @@ class LightGBMSimpleAlgorithm(BaseAlgorithm):
             predicted_growth = self._predict_single(last_features[0])
 
             if predicted_growth <= 0:
-                views = [d['view'] for d in history_data]
-                predicted_growth = max(1, np.mean([views[i] - views[i-1]
-                                                   for i in range(1, len(views))]))
+                views = [d["view"] for d in history_data]
+                predicted_growth = max(1, np.mean([views[i] - views[i - 1] for i in range(1, len(views))]))
 
             remaining = target_views - current_views
             days_needed = remaining / predicted_growth
@@ -86,23 +82,23 @@ class LightGBMSimpleAlgorithm(BaseAlgorithm):
             current = history_data[i]
             next_data = history_data[i + 1]
 
-            ts = current.get('timestamp', '')
+            ts = current.get("timestamp", "")
             try:
-                dt = datetime.strptime(ts, '%Y-%m-%d %H:%M:%S')
+                dt = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
                 day_of_week = dt.weekday() / 7.0
             except Exception:
                 day_of_week = 0.5
 
             features = [
-                current.get('view', 0) / 10000,
-                current.get('like', 0) / 1000,
-                current.get('coin', 0) / 100,
-                current.get('share', 0) / 100,
-                current.get('reply', 0) / 100,
-                current.get('follower', 1000) / 10000,
+                current.get("view", 0) / 10000,
+                current.get("like", 0) / 1000,
+                current.get("coin", 0) / 100,
+                current.get("share", 0) / 100,
+                current.get("reply", 0) / 100,
+                current.get("follower", 1000) / 10000,
                 day_of_week,
             ]
-            growth = next_data.get('view', 0) - current.get('view', 0)
+            growth = next_data.get("view", 0) - current.get("view", 0)
             X.append(features)
             y.append(growth)
 
@@ -126,7 +122,7 @@ class LightGBMSimpleAlgorithm(BaseAlgorithm):
                 predictions[i] += self.learning_rate * self._tree_predict(tree, X[i])
 
             # 早停
-            loss = np.mean(residuals ** 2)
+            loss = np.mean(residuals**2)
             if loss < 1e-8:
                 break
 
@@ -149,8 +145,16 @@ class LightGBMSimpleAlgorithm(BaseAlgorithm):
             bin_boundaries.append(bins)
 
         # Leaf-wise 生长: 用节点列表，每次找到增益最大的叶子分裂
-        nodes = [{'indices': np.arange(n_samples), 'depth': 0, 'value': np.mean(y),
-                  'left': None, 'right': None, 'leaf': True}]
+        nodes = [
+            {
+                "indices": np.arange(n_samples),
+                "depth": 0,
+                "value": np.mean(y),
+                "left": None,
+                "right": None,
+                "leaf": True,
+            }
+        ]
 
         while True:
             # 找增益最大的叶子
@@ -159,12 +163,12 @@ class LightGBMSimpleAlgorithm(BaseAlgorithm):
             best_split = None
 
             for idx, node in enumerate(nodes):
-                if not node.get('leaf', False):
+                if not node.get("leaf", False):
                     continue
-                if len(node['indices']) < 3:
+                if len(node["indices"]) < 3:
                     continue
 
-                indices = node['indices']
+                indices = node["indices"]
                 node_y = y[indices]
                 var_y = np.var(node_y)
                 if var_y <= 0:
@@ -193,10 +197,9 @@ class LightGBMSimpleAlgorithm(BaseAlgorithm):
                         left_var = np.var(node_y[:cum_count]) if cum_count > 0 else 0
                         # 用近似: var ≈ sum(x^2)/n - mean^2
                         # 但这里直接用子集方差代替
-                        gain = var_y - (
-                            cum_count * left_var +
-                            (n_node - cum_count) * np.var(node_y[cum_count:])
-                        ) / n_node
+                        gain = (
+                            var_y - (cum_count * left_var + (n_node - cum_count) * np.var(node_y[cum_count:])) / n_node
+                        )
 
                         if gain > best_gain:
                             best_gain = gain
@@ -209,7 +212,7 @@ class LightGBMSimpleAlgorithm(BaseAlgorithm):
             # 执行分裂
             leaf = nodes[best_leaf_idx]
             f, bin_thresh, threshold_val = best_split
-            indices = leaf['indices']
+            indices = leaf["indices"]
             left_mask = binned_X[indices, f] <= bin_thresh
             left_idx = indices[left_mask]
             right_idx = indices[~left_mask]
@@ -217,21 +220,31 @@ class LightGBMSimpleAlgorithm(BaseAlgorithm):
             if len(left_idx) < 2 or len(right_idx) < 2:
                 break
 
-            leaf['leaf'] = False
-            leaf['feature'] = f
-            leaf['threshold'] = threshold_val
-            leaf['left'] = {'indices': left_idx, 'depth': leaf['depth'] + 1,
-                            'value': np.mean(y[left_idx]), 'leaf': True,
-                            'left': None, 'right': None}
-            leaf['right'] = {'indices': right_idx, 'depth': leaf['depth'] + 1,
-                             'value': np.mean(y[right_idx]), 'leaf': True,
-                             'left': None, 'right': None}
-            nodes.append(leaf['left'])
-            nodes.append(leaf['right'])
+            leaf["leaf"] = False
+            leaf["feature"] = f
+            leaf["threshold"] = threshold_val
+            leaf["left"] = {
+                "indices": left_idx,
+                "depth": leaf["depth"] + 1,
+                "value": np.mean(y[left_idx]),
+                "leaf": True,
+                "left": None,
+                "right": None,
+            }
+            leaf["right"] = {
+                "indices": right_idx,
+                "depth": leaf["depth"] + 1,
+                "value": np.mean(y[right_idx]),
+                "leaf": True,
+                "left": None,
+                "right": None,
+            }
+            nodes.append(leaf["left"])
+            nodes.append(leaf["right"])
 
-            if len([n for n in nodes if n.get('leaf') and len(n['indices']) >= 3]) == 0:
+            if len([n for n in nodes if n.get("leaf") and len(n["indices"]) >= 3]) == 0:
                 break
-            if max(n['depth'] for n in nodes if n.get('leaf')) >= 6:
+            if max(n["depth"] for n in nodes if n.get("leaf")) >= 6:
                 break
 
         # 转换为决策树结构
@@ -239,25 +252,25 @@ class LightGBMSimpleAlgorithm(BaseAlgorithm):
 
     def _node_to_tree(self, node: Dict) -> Dict:
         """将节点表示转换为树结构"""
-        if node.get('leaf', False):
-            return {'leaf': True, 'value': node['value']}
+        if node.get("leaf", False):
+            return {"leaf": True, "value": node["value"]}
         return {
-            'leaf': False,
-            'feature': node['feature'],
-            'threshold': node['threshold'],
-            'left': self._node_to_tree(node['left']),
-            'right': self._node_to_tree(node['right']),
+            "leaf": False,
+            "feature": node["feature"],
+            "threshold": node["threshold"],
+            "left": self._node_to_tree(node["left"]),
+            "right": self._node_to_tree(node["right"]),
         }
 
     def _tree_predict(self, tree: Dict, x: np.ndarray) -> float:
         """使用树进行预测（迭代实现）"""
         node = tree
-        while not node['leaf']:
-            if x[node['feature']] <= node['threshold']:
-                node = node['left']
+        while not node["leaf"]:
+            if x[node["feature"]] <= node["threshold"]:
+                node = node["left"]
             else:
-                node = node['right']
-        return node['value']
+                node = node["right"]
+        return node["value"]
 
     def _predict_single(self, x: np.ndarray) -> float:
         """预测单个样本"""

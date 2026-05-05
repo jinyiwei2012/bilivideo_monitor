@@ -90,10 +90,10 @@ class VideoGraph:
         self._lock = threading.Lock()
 
         # 节点数据
-        self._nodes: Dict[str, Dict] = {}           # bvid -> video_info
+        self._nodes: Dict[str, Dict] = {}  # bvid -> video_info
         self._features: Dict[str, List[float]] = {}  # bvid -> feature_vec
         self._adj: Dict[str, Dict[str, float]] = defaultdict(dict)  # bvid -> {nbvid: weight}
-        self._bvid_list: List[str] = []               # 有序节点列表
+        self._bvid_list: List[str] = []  # 有序节点列表
 
         # 边脏标记：节点变更时置 True，build_edges 后清 False
         self._edges_dirty = True
@@ -161,7 +161,7 @@ class VideoGraph:
             for bi in bvids:
                 neighbors = sorted(self._adj[bi].items(), key=lambda x: -x[1])
                 if len(neighbors) > self._k_neighbors:
-                    self._adj[bi] = dict(neighbors[:self._k_neighbors])
+                    self._adj[bi] = dict(neighbors[: self._k_neighbors])
                     # 同时清理反向
                     kept = set(self._adj[bi].keys())
                     for bj in bvids:
@@ -204,23 +204,25 @@ class VideoGraph:
             # XW0 + b0  ->  (n × d) × (d × h) + h = n × h
             H1 = []
             for i in range(n):
-                h_raw = [sum(AX[i][j] * self._W0[j][k] for j in range(self.FEATURE_DIM)) + self._b0[k]
-                         for k in range(hidden_dim)]
+                h_raw = [
+                    sum(AX[i][j] * self._W0[j][k] for j in range(self.FEATURE_DIM)) + self._b0[k]
+                    for k in range(hidden_dim)
+                ]
                 H1.append([_relu(x) for x in h_raw])
 
             # Layer 1: H2 = Ã · H1 · W1 + b1  (无激活，直接输出)
             AH1 = [self._adj_mat_vec_mul(adj_mat, H1[i], n) for i in range(n)]
             H2 = []
             for i in range(n):
-                h_raw = [sum(AH1[i][j] * self._W1[j][k] for j in range(hidden_dim)) + self._b1[k]
-                         for k in range(embed_dim)]
+                h_raw = [
+                    sum(AH1[i][j] * self._W1[j][k] for j in range(hidden_dim)) + self._b1[k] for k in range(embed_dim)
+                ]
                 H2.append(h_raw)
 
             self._embeddings = {bv: H2[i] for i, bv in enumerate(bvids)}
             return self._embeddings
 
-    def get_node_features(self, bvid: str,
-                          embeddings: Optional[Dict[str, List[float]]] = None) -> List[float]:
+    def get_node_features(self, bvid: str, embeddings: Optional[Dict[str, List[float]]] = None) -> List[float]:
         """获取某视频的图增强特征（自身特征 + 邻居聚合特征 + GCN嵌入）。
 
         Returns
@@ -242,9 +244,7 @@ class VideoGraph:
                 agg = [0.0] * self.FEATURE_DIM
                 if total_w > 0:
                     for f in nb_feats:
-                        w = self._adj[bvid].get(
-                            self._bvid_list[nb_feats.index(f)] if f in nb_feats else '', 0
-                        )
+                        w = self._adj[bvid].get(self._bvid_list[nb_feats.index(f)] if f in nb_feats else "", 0)
                         for j in range(self.FEATURE_DIM):
                             agg[j] += f[j] * w / total_w
             else:
@@ -266,40 +266,40 @@ class VideoGraph:
             avg_degree = sum(degrees) / len(degrees) if degrees else 0
             max_degree = max(degrees) if degrees else 0
             return {
-                'num_nodes': len(self._bvid_list),
-                'num_edges': total_edges,
-                'avg_degree': round(avg_degree, 2),
-                'max_degree': max_degree,
-                'feature_dim': self.FEATURE_DIM,
+                "num_nodes": len(self._bvid_list),
+                "num_edges": total_edges,
+                "avg_degree": round(avg_degree, 2),
+                "max_degree": max_degree,
+                "feature_dim": self.FEATURE_DIM,
             }
 
     # ── 内部方法 ──────────────────────────────────
 
     def _extract_features(self, info: Dict) -> List[float]:
         """从视频信息提取 12 维特征向量。"""
-        views = max(info.get('view_count', 0), 1)
-        likes = info.get('like_count', 0) or 0
-        coins = info.get('coin_count', 0) or 0
-        shares = info.get('share_count', 0) or 0
-        favs = info.get('favorite_count', 0) or 0
-        danmaku = info.get('danmaku_count', 0) or 0
-        replies = info.get('reply_count', 0) or 0
-        viewers = info.get('viewers_total', 0) or 0
-        duration = max(info.get('duration', 0), 1)
+        views = max(info.get("view_count", 0), 1)
+        likes = info.get("like_count", 0) or 0
+        coins = info.get("coin_count", 0) or 0
+        shares = info.get("share_count", 0) or 0
+        favs = info.get("favorite_count", 0) or 0
+        danmaku = info.get("danmaku_count", 0) or 0
+        replies = info.get("reply_count", 0) or 0
+        viewers = info.get("viewers_total", 0) or 0
+        duration = max(info.get("duration", 0), 1)
 
         return [
-            math.log10(max(views, 1)),              # 1. 播放量对数
-            likes / views,                          # 2. 点赞率
-            coins / views,                          # 3. 投币率
-            shares / views,                         # 4. 分享率
-            favs / views,                           # 5. 收藏率
-            danmaku / views,                        # 6. 弹幕率
-            replies / views,                        # 7. 评论率
-            viewers / max(views, 1),                # 8. 在线率
-            math.log10(max(duration, 1)),           # 9. 时长对数
-            (likes + coins + favs + shares) / views, # 10. 综合互动率
-            coins / max(likes, 1),                  # 11. 投币/点赞比
-            danmaku / max(replies, 1),              # 12. 弹幕/评论比
+            math.log10(max(views, 1)),  # 1. 播放量对数
+            likes / views,  # 2. 点赞率
+            coins / views,  # 3. 投币率
+            shares / views,  # 4. 分享率
+            favs / views,  # 5. 收藏率
+            danmaku / views,  # 6. 弹幕率
+            replies / views,  # 7. 评论率
+            viewers / max(views, 1),  # 8. 在线率
+            math.log10(max(duration, 1)),  # 9. 时长对数
+            (likes + coins + favs + shares) / views,  # 10. 综合互动率
+            coins / max(likes, 1),  # 11. 投币/点赞比
+            danmaku / max(replies, 1),  # 12. 弹幕/评论比
         ]
 
     def _compute_edge_weight(self, a: Dict, b: Dict) -> float:
@@ -308,14 +308,14 @@ class VideoGraph:
         count = 0
 
         # 1. 同UP主 (强关联)
-        if a.get('owner_name') and b.get('owner_name'):
-            if a['owner_name'] == b['owner_name']:
+        if a.get("owner_name") and b.get("owner_name"):
+            if a["owner_name"] == b["owner_name"]:
                 w += 0.5
             count += 1
 
         # 2. 发布时间接近（48h内）
-        pa = a.get('pubdate', '')
-        pb = b.get('pubdate', '')
+        pa = a.get("pubdate", "")
+        pb = b.get("pubdate", "")
         if pa and pb:
             try:
                 ta = datetime.fromisoformat(str(pa)).timestamp() if isinstance(pa, str) else float(pa)
@@ -328,10 +328,10 @@ class VideoGraph:
                 logger.debug("计算视频间发布时间特征失败: %s", e)
 
         # 3. 互动率相似度
-        va = max(a.get('view_count', 0), 1)
-        vb = max(b.get('view_count', 0), 1)
-        eng_a = (a.get('like_count', 0) or 0) / va
-        eng_b = (b.get('like_count', 0) or 0) / vb
+        va = max(a.get("view_count", 0), 1)
+        vb = max(b.get("view_count", 0), 1)
+        eng_a = (a.get("like_count", 0) or 0) / va
+        eng_b = (b.get("like_count", 0) or 0) / vb
         eng_diff = abs(eng_a - eng_b)
         w += 0.2 * max(0, 1 - eng_diff * 100)
         count += 1
@@ -372,8 +372,7 @@ class VideoGraph:
 
         return dict(adj)
 
-    def _adj_mat_vec_mul(self, adj: Dict[int, Dict[int, float]],
-                         vec: List[float], n: int) -> List[float]:
+    def _adj_mat_vec_mul(self, adj: Dict[int, Dict[int, float]], vec: List[float], n: int) -> List[float]:
         """稀疏矩阵 × 向量"""
         result = [0.0] * n
         for i, row in adj.items():
@@ -389,6 +388,7 @@ class VideoGraph:
         """Xavier 初始化权重矩阵"""
         std = math.sqrt(2.0 / (in_dim + out_dim))
         import random
+
         return [[random.gauss(0, std) for _ in range(out_dim)] for _ in range(in_dim)]
 
 

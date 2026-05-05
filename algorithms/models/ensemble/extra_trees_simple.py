@@ -2,6 +2,7 @@
 极端随机树 (Extra Trees) 预测
 在随机森林基础上更随机：随机选择特征和分割点，降低方差
 """
+
 import math
 import random
 import numpy as np
@@ -37,13 +38,12 @@ class ExtraTreesSimpleAlgorithm(BaseAlgorithm):
         def __init__(self):
             self.feature_idx: Optional[int] = None
             self.threshold: float = 0.0
-            self.left: Optional['ExtraTreesSimpleAlgorithm._Node'] = None
-            self.right: Optional['ExtraTreesSimpleAlgorithm._Node'] = None
+            self.left: Optional["ExtraTreesSimpleAlgorithm._Node"] = None
+            self.right: Optional["ExtraTreesSimpleAlgorithm._Node"] = None
             self.value: float = 0.0
             self.is_leaf: bool = False
 
-    def _build_tree(self, X: np.ndarray, y: np.ndarray,
-                    depth: int = 0) -> _Node:
+    def _build_tree(self, X: np.ndarray, y: np.ndarray, depth: int = 0) -> _Node:
         """构建极端随机树节点"""
         node = self._Node()
 
@@ -112,8 +112,9 @@ class ExtraTreesSimpleAlgorithm(BaseAlgorithm):
             return self._predict_tree(node.left, x)
         return self._predict_tree(node.right, x)
 
-    def _prepare_features(self, views_seq: List[float],
-                          features_dict: Dict[str, float]) -> Tuple[np.ndarray, np.ndarray]:
+    def _prepare_features(
+        self, views_seq: List[float], features_dict: Dict[str, float]
+    ) -> Tuple[np.ndarray, np.ndarray]:
         """准备训练特征和目标"""
         n = len(views_seq)
         if n < 5:
@@ -122,66 +123,77 @@ class ExtraTreesSimpleAlgorithm(BaseAlgorithm):
         X, y = [], []
         for i in range(4, n):
             features = [
-                views_seq[i-1] / max(views_seq[i-2], 1) - 1,  # 近期增长率
-                views_seq[i-2] / max(views_seq[i-3], 1) - 1,  # 中期增长率
-                views_seq[i-1] - views_seq[i-2],               # 绝对增量
-                np.mean(views_seq[max(0, i-7):i]),              # 7日平均
-                np.std(views_seq[max(0, i-7):i]) / max(np.mean(views_seq[max(0, i-7):i]), 1),  # 变异系数
+                views_seq[i - 1] / max(views_seq[i - 2], 1) - 1,  # 近期增长率
+                views_seq[i - 2] / max(views_seq[i - 3], 1) - 1,  # 中期增长率
+                views_seq[i - 1] - views_seq[i - 2],  # 绝对增量
+                np.mean(views_seq[max(0, i - 7) : i]),  # 7日平均
+                np.std(views_seq[max(0, i - 7) : i]) / max(np.mean(views_seq[max(0, i - 7) : i]), 1),  # 变异系数
             ]
             X.append(features)
-            y.append(views_seq[i] - views_seq[i-1])  # 预测增量
+            y.append(views_seq[i] - views_seq[i - 1])  # 预测增量
 
         return np.array(X), np.array(y)
 
-    def predict(self, video_data: Dict[str, Any],
-                threshold: int = 100000) -> PredictionResult:
-        current_views = video_data.get('view_count', 0)
-        history = video_data.get('history_data', [])
+    def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
+        current_views = video_data.get("view_count", 0)
+        history = video_data.get("history_data", [])
         velocity = self.calculate_velocity(video_data)
 
         remaining = threshold - current_views
         if remaining <= 0:
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=0, confidence=1.0,
-                current_views=current_views, current_velocity=velocity,
-                metadata={'method': 'extra_trees'}, timestamp=datetime.now()
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=0,
+                confidence=1.0,
+                current_views=current_views,
+                current_velocity=velocity,
+                metadata={"method": "extra_trees"},
+                timestamp=datetime.now(),
             )
 
         if len(history) < 6 or velocity <= 0:
-            predicted_hours = remaining / velocity if velocity > 0 else float('inf')
+            predicted_hours = remaining / velocity if velocity > 0 else float("inf")
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=0.3,
+                current_views=current_views,
                 current_velocity=velocity,
-                metadata={'method': 'extra_trees', 'notes': 'insufficient_data'},
-                timestamp=datetime.now()
+                metadata={"method": "extra_trees", "notes": "insufficient_data"},
+                timestamp=datetime.now(),
             )
 
         # 提取时序
         timestamps = []
         views_vals = []
         for h in history:
-            ts = h.get('timestamp', 0)
-            if hasattr(ts, 'timestamp'):
+            ts = h.get("timestamp", 0)
+            if hasattr(ts, "timestamp"):
                 ts = ts.timestamp()
             elif isinstance(ts, str):
                 try:
-                    ts = datetime.strptime(ts, '%Y-%m-%d %H:%M:%S').timestamp()
+                    ts = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S").timestamp()
                 except Exception:
                     continue
             timestamps.append(float(ts))
-            views_vals.append(float(h.get('view_count', 0)))
+            views_vals.append(float(h.get("view_count", 0)))
 
         if len(views_vals) < 6:
             predicted_hours = remaining / velocity
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=0.3,
+                current_views=current_views,
                 current_velocity=velocity,
-                metadata={'method': 'extra_trees_fallback'}, timestamp=datetime.now()
+                metadata={"method": "extra_trees_fallback"},
+                timestamp=datetime.now(),
             )
 
         try:
@@ -193,16 +205,20 @@ class ExtraTreesSimpleAlgorithm(BaseAlgorithm):
             engagement = self.get_engagement_rate(video_data)
 
             # ── 训练Extra Trees ───────────────────────
-            X_train, y_train = self._prepare_features(views_sorted, {'quality': quality, 'engagement': engagement})
+            X_train, y_train = self._prepare_features(views_sorted, {"quality": quality, "engagement": engagement})
 
             if len(X_train) < 5:
                 predicted_hours = remaining / velocity
                 return PredictionResult(
-                    algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                    target_threshold=threshold, predicted_hours=predicted_hours,
-                    confidence=0.3, current_views=current_views,
+                    algorithm_name=self.name,
+                    algorithm_id=self.algorithm_id,
+                    target_threshold=threshold,
+                    predicted_hours=predicted_hours,
+                    confidence=0.3,
+                    current_views=current_views,
                     current_velocity=velocity,
-                    metadata={'method': 'extra_trees_insufficient'}, timestamp=datetime.now()
+                    metadata={"method": "extra_trees_insufficient"},
+                    timestamp=datetime.now(),
                 )
 
             # 训练森林
@@ -213,13 +229,15 @@ class ExtraTreesSimpleAlgorithm(BaseAlgorithm):
                 self.trees.append(tree)
 
             # ── 预测 ─────────────────────────────────
-            last_features = np.array([
-                views_sorted[-1] / max(views_sorted[-2], 1) - 1,
-                views_sorted[-2] / max(views_sorted[-3], 1) - 1,
-                views_sorted[-1] - views_sorted[-2],
-                np.mean(views_sorted[-7:]) if len(views_sorted) >= 7 else np.mean(views_sorted),
-                np.std(views_sorted[-7:]) / max(np.mean(views_sorted[-7:]), 1) if len(views_sorted) >= 7 else 0.1,
-            ])
+            last_features = np.array(
+                [
+                    views_sorted[-1] / max(views_sorted[-2], 1) - 1,
+                    views_sorted[-2] / max(views_sorted[-3], 1) - 1,
+                    views_sorted[-1] - views_sorted[-2],
+                    np.mean(views_sorted[-7:]) if len(views_sorted) >= 7 else np.mean(views_sorted),
+                    np.std(views_sorted[-7:]) / max(np.mean(views_sorted[-7:]), 1) if len(views_sorted) >= 7 else 0.1,
+                ]
+            )
 
             # 所有树预测均值
             tree_preds = [self._predict_tree(t, last_features) for t in self.trees]
@@ -227,7 +245,7 @@ class ExtraTreesSimpleAlgorithm(BaseAlgorithm):
             pred_std = np.std(tree_preds)
 
             # 用质量评分调整
-            predicted_daily_growth *= (0.8 + 0.4 * quality)
+            predicted_daily_growth *= 0.8 + 0.4 * quality
 
             if predicted_daily_growth <= 0:
                 predicted_daily_growth = velocity * 24
@@ -254,26 +272,33 @@ class ExtraTreesSimpleAlgorithm(BaseAlgorithm):
                 conf = 0.35
 
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=conf, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=conf,
+                current_views=current_views,
                 current_velocity=velocity,
                 metadata={
-                    'method': 'extra_trees',
-                    'n_trees': self.n_trees,
-                    'predicted_daily_growth': round(float(predicted_daily_growth), 2),
-                    'tree_std': round(float(pred_std), 2),
-                    'tree_consistency': round(float(consistency), 3),
-                    'data_points': n,
+                    "method": "extra_trees",
+                    "n_trees": self.n_trees,
+                    "predicted_daily_growth": round(float(predicted_daily_growth), 2),
+                    "tree_std": round(float(pred_std), 2),
+                    "tree_consistency": round(float(consistency), 3),
+                    "data_points": n,
                 },
-                timestamp=datetime.now()
+                timestamp=datetime.now(),
             )
         except Exception as e:
-            predicted_hours = remaining / velocity if velocity > 0 else float('inf')
+            predicted_hours = remaining / velocity if velocity > 0 else float("inf")
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.0, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=0.0,
+                current_views=current_views,
                 current_velocity=velocity,
-                metadata={'error': str(e)}, timestamp=datetime.now()
+                metadata={"error": str(e)},
+                timestamp=datetime.now(),
             )

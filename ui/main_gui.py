@@ -9,6 +9,7 @@ UI 已拆分为独立模块：
 - bottom_bar.py       : 底部状态栏
 - dialogs.py           : 所有弹窗
 """
+
 import tkinter as tk
 from tkinter import ttk, messagebox
 import threading
@@ -22,13 +23,19 @@ logger = logging.getLogger(__name__)
 
 sys_path = os.path.dirname(os.path.dirname(__file__))
 import sys
+
 sys.path.insert(0, sys_path)
 
 from ui.theme import C, THEMES, THEME_DARK, current_theme_name, apply_theme
 from ui.helpers import (
-    FONT, FONT_SM, FONT_MONO,
-    DEFAULT_INTERVAL, FAST_INTERVAL, FAST_GAP,
-    fmt_num, nearest_threshold_gap,
+    FONT,
+    FONT_SM,
+    FONT_MONO,
+    DEFAULT_INTERVAL,
+    FAST_INTERVAL,
+    FAST_GAP,
+    fmt_num,
+    nearest_threshold_gap,
 )
 from ui.chart import draw_chart, draw_chart_placeholder
 from ui.log_panel import LogPanel
@@ -41,8 +48,10 @@ from utils.weekly_score import calculate_from_dict as _calc_ws
 from utils.yearly_score import calculate_yearly_from_dict as _calc_ys
 from dataclasses import asdict
 from ui.monitor_service import (
-    fetch_all_video_data, fetch_single_video_data,
-    auto_predict_all, auto_predict_video,
+    fetch_all_video_data,
+    fetch_single_video_data,
+    auto_predict_all,
+    auto_predict_video,
     load_watch_list,
 )
 from core import bilibili_api, db, MonitorRecord
@@ -57,8 +66,8 @@ class BilibiliMonitorGUI:
     """主界面 - 深色三栏布局（精简版）"""
 
     DEFAULT_INTERVAL = DEFAULT_INTERVAL
-    FAST_INTERVAL    = FAST_INTERVAL
-    THRESHOLD_GAP    = FAST_GAP
+    FAST_INTERVAL = FAST_INTERVAL
+    THRESHOLD_GAP = FAST_GAP
 
     def __init__(self, root=None):
         if root is None:
@@ -77,17 +86,17 @@ class BilibiliMonitorGUI:
         # 状态变量
         self.auto_refresh_enabled = tk.BooleanVar(value=True)
         self._global_tick_job = None
-        self._video_timers    = {}
-        self._fetching_set    = set()
+        self._video_timers = {}
+        self._fetching_set = set()
         self._data_lock = threading.Lock()  # 保护 shared data（history_data, prediction_results, video_dbs）
         self._tick_counter = 0  # 用于周期性维护任务
 
         # 数据
-        self.monitored_videos   = []
-        self.history_data        = {}
+        self.monitored_videos = []
+        self.history_data = {}
         self.prediction_results = {}
-        self.video_dbs          = {}
-        self.selected_bvid      = None
+        self.video_dbs = {}
+        self.selected_bvid = None
 
         # 视频列表的 bvid→dict 索引，避免 O(n) 线性查找
         self._video_index = {}
@@ -104,7 +113,8 @@ class BilibiliMonitorGUI:
     def _set_window_icon(self):
         try:
             from PIL import Image, ImageTk
-            icon_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'assets', 'app_icon.png')
+
+            icon_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "app_icon.png")
             if os.path.exists(icon_path):
                 img = Image.open(icon_path)
                 photo = ImageTk.PhotoImage(img)
@@ -121,6 +131,7 @@ class BilibiliMonitorGUI:
         self.log_panel = LogPanel(self.root, self._file_logger)
         # 将标准 logging 桥接到 GUI 日志面板
         from ui.log_panel import install_logging_bridge
+
         install_logging_bridge(self.log_panel)
         self._build_main()
         self.bottom_bar = BottomBar(self.root, self)
@@ -146,23 +157,23 @@ class BilibiliMonitorGUI:
         bar = self._bar
         logo_f = tk.Frame(bar, bg=C["bg_surface"])
         logo_f.pack(side=tk.LEFT, padx=(14, 0))
-        
+
         # Logo图标 (使用Canvas绘制简洁的B站风格图标)
-        logo_canvas = tk.Canvas(logo_f, width=32, height=32, 
-                                   bg=C["bg_surface"], highlightthickness=0)
+        logo_canvas = tk.Canvas(logo_f, width=32, height=32, bg=C["bg_surface"], highlightthickness=0)
         logo_canvas.create_oval(4, 4, 28, 28, fill=C["bilibili"], outline="")
-        logo_canvas.create_text(16, 16, text="B", fill="white", 
-                                font=("Microsoft YaHei UI", 14, "bold"))
+        logo_canvas.create_text(16, 16, text="B", fill="white", font=("Microsoft YaHei UI", 14, "bold"))
         logo_canvas.pack(side=tk.LEFT, padx=(0, 8))
-        
+
         # 标题和副标题容器
         title_f = tk.Frame(logo_f, bg=C["bg_surface"])
         title_f.pack(side=tk.LEFT)
-        
-        tk.Label(title_f, text="B站监控", bg=C["bg_surface"], fg=C["bilibili"],
-                 font=("Microsoft YaHei UI", 13, "bold")).pack(anchor="w")
-        tk.Label(title_f, text="播放量预测系统", bg=C["bg_surface"], fg=C["text_3"],
-                 font=("Microsoft YaHei UI", 10)).pack(anchor="w")
+
+        tk.Label(
+            title_f, text="B站监控", bg=C["bg_surface"], fg=C["bilibili"], font=("Microsoft YaHei UI", 13, "bold")
+        ).pack(anchor="w")
+        tk.Label(
+            title_f, text="播放量预测系统", bg=C["bg_surface"], fg=C["text_3"], font=("Microsoft YaHei UI", 10)
+        ).pack(anchor="w")
 
     def _build_navigation_buttons(self):
         """构建导航按钮"""
@@ -175,9 +186,9 @@ class BilibiliMonitorGUI:
 
         nav_items = [
             ("📊", "监控列表", None),
-            ("📋", "日志",      None),
+            ("📋", "日志", None),
         ]
-        
+
         for icon, label, cmd in nav_items:
             self._create_nav_button(nav_f, icon, label, cmd)
 
@@ -187,23 +198,19 @@ class BilibiliMonitorGUI:
         """创建导航按钮 - 改进版：图标+文本+激活指示器"""
         btn = tk.Frame(parent, bg=C["bg_surface"], cursor="hand2")
         btn.pack(side=tk.LEFT, padx=4)
-        
+
         # 图标
-        icon_lbl = tk.Label(btn, text=icon, 
-                            bg=C["bg_surface"], fg=C["text_secondary"],
-                            font=("Microsoft YaHei UI", 12))
+        icon_lbl = tk.Label(btn, text=icon, bg=C["bg_surface"], fg=C["text_secondary"], font=("Microsoft YaHei UI", 12))
         icon_lbl.pack(side=tk.LEFT, padx=(8, 4))
-        
+
         # 文本
-        text_lbl = tk.Label(btn, text=label, 
-                             bg=C["bg_surface"], fg=C["text_secondary"],
-                             font=FONT)
+        text_lbl = tk.Label(btn, text=label, bg=C["bg_surface"], fg=C["text_secondary"], font=FONT)
         text_lbl.pack(side=tk.LEFT, padx=(0, 8))
-        
+
         # 底部激活指示器
         indicator = tk.Frame(btn, bg=C["bg_surface"], height=2)
         indicator.pack(side=tk.BOTTOM, fill=tk.X)
-        
+
         # 悬停效果
         def on_enter(e):
             icon_lbl.config(fg=C["text_1"])
@@ -211,7 +218,7 @@ class BilibiliMonitorGUI:
             btn.config(bg=C["bg_hover"])
             icon_lbl.config(bg=C["bg_hover"])
             text_lbl.config(bg=C["bg_hover"])
-            
+
         def on_leave(e):
             if indicator.cget("bg") != C["bilibili"]:
                 icon_lbl.config(fg=C["text_secondary"])
@@ -219,7 +226,7 @@ class BilibiliMonitorGUI:
                 btn.config(bg=C["bg_surface"])
                 icon_lbl.config(bg=C["bg_surface"])
                 text_lbl.config(bg=C["bg_surface"])
-                
+
         def on_click(e):
             # 重置所有按钮
             for k, b in self._nav_btns.items():
@@ -232,12 +239,12 @@ class BilibiliMonitorGUI:
             indicator.config(bg=C["bilibili"])
             icon_lbl.config(fg=C["bilibili"])
             text_lbl.config(fg=C["bilibili"])
-            
+
             if label in self._page_views:
                 self._switch_nav(label)
             elif cmd:
                 cmd()
-                
+
         btn.bind("<Enter>", on_enter)
         btn.bind("<Leave>", on_leave)
         btn.bind("<Button-1>", on_click)
@@ -246,7 +253,7 @@ class BilibiliMonitorGUI:
 
         # 保存引用 (icon_label, text_label, indicator)
         self._nav_btns[label] = (icon_lbl, text_lbl, indicator)
-        
+
         # 初始化激活状态
         if label == "监控列表":
             indicator.config(bg=C["bilibili"])
@@ -261,7 +268,7 @@ class BilibiliMonitorGUI:
 
         # 创建设置菜单
         self._create_settings_menu()
-        
+
         # 创建图标按钮
         self._gear_btn = self._create_icon_button(right_f, "⚙️", self._popup_settings_menu, "设置")
         self._create_icon_button(right_f, "🔍", self._dialogs.open_video_search, "搜索")
@@ -271,10 +278,17 @@ class BilibiliMonitorGUI:
 
     def _create_settings_menu(self):
         """创建设置下拉菜单"""
-        self._settings_menu = tk.Menu(self.root, tearoff=0, bg=C["bg_elevated"],
-                                      fg=C["text_1"], activebackground=C["bg_hover"],
-                                      activeforeground=C["text_1"],
-                                      font=FONT, bd=0, relief="flat")
+        self._settings_menu = tk.Menu(
+            self.root,
+            tearoff=0,
+            bg=C["bg_elevated"],
+            fg=C["text_1"],
+            activebackground=C["bg_hover"],
+            activeforeground=C["text_1"],
+            font=FONT,
+            bd=0,
+            relief="flat",
+        )
         self._settings_menu.add_command(label="⏱  刷新间隔", command=self._dialogs.open_interval_settings)
         self._settings_menu.add_command(label="📊  权重设置", command=self._dialogs.open_weight_settings)
         self._settings_menu.add_command(label="🧠  算法信息", command=self._dialogs.open_algorithm_info)
@@ -297,9 +311,17 @@ class BilibiliMonitorGUI:
 
     def _create_icon_button(self, parent, icon, command, tooltip=None):
         """创建图标按钮（可复用）"""
-        btn = tk.Label(parent, text=icon, bg=C["bg_elevated"], fg=C["text_2"],
-                        font=("Microsoft YaHei UI", 11), cursor="hand2",
-                        padx=6, pady=2, relief="flat")
+        btn = tk.Label(
+            parent,
+            text=icon,
+            bg=C["bg_elevated"],
+            fg=C["text_2"],
+            font=("Microsoft YaHei UI", 11),
+            cursor="hand2",
+            padx=6,
+            pady=2,
+            relief="flat",
+        )
         btn.pack(side=tk.RIGHT, padx=2)
         if callable(command):
             btn.bind("<Button-1>", lambda e: command())
@@ -321,9 +343,17 @@ class BilibiliMonitorGUI:
 
     def _create_theme_button(self, parent):
         """创建主题切换按钮"""
-        self._theme_btn = tk.Label(parent, text="🌙", bg=C["bg_elevated"], fg=C["text_2"],
-                                   font=("Microsoft YaHei UI", 11), cursor="hand2",
-                                   padx=6, pady=2, relief="flat")
+        self._theme_btn = tk.Label(
+            parent,
+            text="🌙",
+            bg=C["bg_elevated"],
+            fg=C["text_2"],
+            font=("Microsoft YaHei UI", 11),
+            cursor="hand2",
+            padx=6,
+            pady=2,
+            relief="flat",
+        )
         self._theme_btn.pack(side=tk.RIGHT, padx=2)
         self._theme_btn.bind("<Button-1>", self._toggle_theme)
         self._theme_btn.bind("<Enter>", lambda e: self._theme_btn.config(bg=C["bg_hover"], fg=C["text_1"]))
@@ -333,15 +363,15 @@ class BilibiliMonitorGUI:
     def _create_countdown_badge(self, parent):
         """创建倒计时徽章"""
         self._countdown_badge = tk.Label(
-            parent, text="-- s", bg=C["bg_elevated"], fg=C["accent"],
-            font=FONT_MONO, padx=8, pady=2, relief="flat")
+            parent, text="-- s", bg=C["bg_elevated"], fg=C["accent"], font=FONT_MONO, padx=8, pady=2, relief="flat"
+        )
         self._countdown_badge.pack(side=tk.RIGHT, padx=6)
 
     def _create_mode_pill(self, parent):
         """创建模式指示器"""
         self._mode_pill = tk.Label(
-            parent, text="● 正常模式", bg=C["bg_surface"], fg=C["success"],
-            font=("Microsoft YaHei UI", 9, "bold"))
+            parent, text="● 正常模式", bg=C["bg_surface"], fg=C["success"], font=("Microsoft YaHei UI", 9, "bold")
+        )
         self._mode_pill.pack(side=tk.RIGHT, padx=6)
 
     def _build_main(self):
@@ -411,7 +441,7 @@ class BilibiliMonitorGUI:
         icon = "☀️" if new_theme == "light" else "🌙"
         self._theme_btn.config(text=icon, bg=C["bg_elevated"], fg=C["text_2"])
         self.log_panel.recolor()
-        if hasattr(self, 'detail'):
+        if hasattr(self, "detail"):
             self.detail.recolor_text_tags()
             self.detail.chart_canvas.config(bg=C["bg_base"])
             if self.selected_bvid:
@@ -540,9 +570,9 @@ class BilibiliMonitorGUI:
 
     def _post_fetch(self):
         now_str = datetime.now().strftime("%H:%M:%S")
-        self._sb("status",   "刷新完成", C["success"])
+        self._sb("status", "刷新完成", C["success"])
         self._sb("last_ref", f"上次刷新: {now_str}")
-        self._sb("videos",   f"监控: {len(self.monitored_videos)} 个")
+        self._sb("videos", f"监控: {len(self.monitored_videos)} 个")
         for video in self.monitored_videos:
             bvid = video.get("bvid", "")
             if bvid in self.video_list.get_card_widgets():
@@ -571,8 +601,9 @@ class BilibiliMonitorGUI:
             self._show_video_detail(video)
         cached = self.prediction_results.get(bvid)
         if cached:
-            self.prediction._build_pred_hero(cached["prediction"], cached["current_view"],
-                                              cached.get("rate_per_sec", 0))
+            self.prediction._build_pred_hero(
+                cached["prediction"], cached["current_view"], cached.get("rate_per_sec", 0)
+            )
 
     # ── 添加/删除监控 ────────────────────────────
 
@@ -580,10 +611,10 @@ class BilibiliMonitorGUI:
         """添加监控 - 重构版"""
         # 创建对话框
         dialog = self._create_add_dialog()
-        
+
         # 构建对话框UI
         entry, status_lbl = self._build_add_dialog_ui(dialog)
-        
+
         # 设置按钮和事件绑定
         self._setup_add_dialog_buttons(dialog, entry, status_lbl)
 
@@ -600,25 +631,32 @@ class BilibiliMonitorGUI:
 
     def _build_add_dialog_ui(self, dialog):
         """构建对话框UI元素"""
-        tk.Label(dialog, text="请输入BV号或视频链接：", bg=C["bg_surface"], fg=C["text_1"],
-                 font=FONT).pack(pady=(18, 4))
+        tk.Label(dialog, text="请输入BV号或视频链接：", bg=C["bg_surface"], fg=C["text_1"], font=FONT).pack(
+            pady=(18, 4)
+        )
 
-        entry_f = tk.Frame(dialog, bg=C["bg_elevated"], highlightthickness=1,
-                           highlightbackground=C["border"], highlightcolor=C["bilibili"])
+        entry_f = tk.Frame(
+            dialog,
+            bg=C["bg_elevated"],
+            highlightthickness=1,
+            highlightbackground=C["border"],
+            highlightcolor=C["bilibili"],
+        )
         entry_f.pack(padx=24, fill=tk.X)
-        entry = tk.Entry(entry_f, bg=C["bg_elevated"], fg=C["text_1"], insertbackground=C["text_1"],
-                         relief="flat", font=FONT, bd=0)
+        entry = tk.Entry(
+            entry_f, bg=C["bg_elevated"], fg=C["text_1"], insertbackground=C["text_1"], relief="flat", font=FONT, bd=0
+        )
         entry.pack(fill=tk.X, padx=8, pady=6)
         entry.focus_set()
-        tk.Label(dialog, text="格式：BV1xxx 或完整链接", bg=C["bg_surface"], fg=C["text_3"],
-                 font=FONT_SM).pack()
+        tk.Label(dialog, text="格式：BV1xxx 或完整链接", bg=C["bg_surface"], fg=C["text_3"], font=FONT_SM).pack()
         status_lbl = tk.Label(dialog, text="", bg=C["bg_surface"], fg=C["accent"], font=FONT_SM)
         status_lbl.pack(pady=2)
-        
+
         return entry, status_lbl
 
     def _setup_add_dialog_buttons(self, dialog, entry, status_lbl):
         """设置对话框按钮和事件绑定"""
+
         def _confirm():
             self._validate_and_add_video(entry.get().strip(), dialog, status_lbl)
 
@@ -633,16 +671,16 @@ class BilibiliMonitorGUI:
         if not raw_input:
             messagebox.showwarning("提示", "请输入BV号", parent=dialog)
             return
-        
+
         # 提取BV号
         bvid = self._extract_bvid_from_input(raw_input)
         if bvid is None:
             return
-        
+
         # 检查是否已在监控列表
         if self._check_video_in_monitor_list(bvid, dialog):
             return
-            
+
         # 获取视频信息并添加
         self._fetch_video_info_and_add(bvid, dialog, status_lbl)
 
@@ -682,7 +720,11 @@ class BilibiliMonitorGUI:
             video = self._map_api_to_video_dict(bvid, info)
             self._register_video_to_monitor(video)
             self._save_watch_list()
-            messagebox.showinfo("成功", f"已添加监控\n标题：{video['title'][:40]}\nUP主：{video['author']}\n播放：{fmt_num(video['view_count'])}", parent=dialog)
+            messagebox.showinfo(
+                "成功",
+                f"已添加监控\n标题：{video['title'][:40]}\nUP主：{video['author']}\n播放：{fmt_num(video['view_count'])}",
+                parent=dialog,
+            )
             dialog.destroy()
 
         threading.Thread(target=_fetch, daemon=True).start()
@@ -724,11 +766,10 @@ class BilibiliMonitorGUI:
 
     # ── 预测结果回调 ─────────────────────────────
 
-    def _prediction_done(self, w_pred, current_view, growth, rate_per_sec,
-                          success_list, fail_list, valid, total):
+    def _prediction_done(self, w_pred, current_view, growth, rate_per_sec, success_list, fail_list, valid, total):
         self.prediction._build_pred_hero(w_pred, current_view, rate_per_sec)
         self.prediction._update_algo_list(success_list, fail_list)
-        self._sb("algo",   f"算法: {valid}/{total}")
+        self._sb("algo", f"算法: {valid}/{total}")
         self._sb("status", "预测完成", C["success"])
 
     def _copy_bvid(self, bvid):
@@ -796,17 +837,24 @@ class BilibiliMonitorGUI:
         stat = info.get("stat", {})
         owner = info.get("owner", {})
         return {
-            "bvid": bvid, "title": info.get("title", fb.get("title", "未知标题")),
+            "bvid": bvid,
+            "title": info.get("title", fb.get("title", "未知标题")),
             "author": owner.get("name", fb.get("author", "未知UP主")),
             "pic": info.get("pic", fb.get("pic", "")),
             "view_count": stat.get("view", fb.get("play", 0)),
             "like_count": stat.get("like", fb.get("like", 0)),
-            "coin_count": stat.get("coin", 0), "share_count": stat.get("share", 0),
-            "favorite_count": stat.get("favorite", 0), "danmaku_count": stat.get("danmaku", 0),
-            "reply_count": stat.get("reply", 0), "duration": info.get("duration", 0),
-            "pubdate": info.get("pubdate", 0), "desc": info.get("desc", ""),
+            "coin_count": stat.get("coin", 0),
+            "share_count": stat.get("share", 0),
+            "favorite_count": stat.get("favorite", 0),
+            "danmaku_count": stat.get("danmaku", 0),
+            "reply_count": stat.get("reply", 0),
+            "duration": info.get("duration", 0),
+            "pubdate": info.get("pubdate", 0),
+            "desc": info.get("desc", ""),
             "aid": info.get("aid", 0),
-            "viewers_total": 0, "viewers_web": 0, "viewers_app": 0,
+            "viewers_total": 0,
+            "viewers_web": 0,
+            "viewers_app": 0,
         }
 
     def _register_video_to_monitor(self, video: dict) -> None:
@@ -821,14 +869,17 @@ class BilibiliMonitorGUI:
             else:
                 now = datetime.now()
                 self.history_data[bvid] = [(now, video["view_count"])]
-                rec = MonitorRecord(bvid=bvid, timestamp=now.isoformat(),
-                                    view_count=video["view_count"],
-                                    like_count=video["like_count"],
-                                    coin_count=video["coin_count"],
-                                    share_count=video["share_count"],
-                                    favorite_count=video["favorite_count"],
-                                    danmaku_count=video["danmaku_count"],
-                                    reply_count=video["reply_count"])
+                rec = MonitorRecord(
+                    bvid=bvid,
+                    timestamp=now.isoformat(),
+                    view_count=video["view_count"],
+                    like_count=video["like_count"],
+                    coin_count=video["coin_count"],
+                    share_count=video["share_count"],
+                    favorite_count=video["favorite_count"],
+                    danmaku_count=video["danmaku_count"],
+                    reply_count=video["reply_count"],
+                )
                 video_db.add_monitor_record(rec)
                 self._save_weekly_score(bvid, video, now.isoformat())
                 self._save_yearly_score(bvid, video, now.isoformat())
@@ -874,6 +925,7 @@ class BilibiliMonitorGUI:
         self._file_logger.close()
         # 停止所有监控线程
         from ui.monitor_service import _stop_all_workers
+
         _stop_all_workers()
         # 同步并关闭各视频数据库
         for bvid in self.video_dbs:

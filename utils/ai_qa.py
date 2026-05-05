@@ -2,6 +2,7 @@
 AI智能问答模块 — 基于监控数据的自然语言问答
 支持 OpenAI 兼容 API，也可纯规则回答
 """
+
 import json
 import logging
 from typing import List, Dict, Optional, Any
@@ -13,8 +14,7 @@ logger = logging.getLogger(__name__)
 class AIQASession:
     """AI问答会话，管理对话历史并生成回答"""
 
-    def __init__(self, api_key: str = "", endpoint: str = "",
-                 model: str = "gpt-4o-mini"):
+    def __init__(self, api_key: str = "", endpoint: str = "", model: str = "gpt-4o-mini"):
         self.api_key = api_key
         self.endpoint = endpoint or "https://api.openai.com/v1/chat/completions"
         self.model = model
@@ -29,6 +29,7 @@ class AIQASession:
     def _load_config(self):
         try:
             from config import get_active_ai_profile
+
             profile = get_active_ai_profile()
             self.api_key = profile.get("api_key", "")
             self.endpoint = profile.get("endpoint", "") or "https://api.openai.com/v1/chat/completions"
@@ -36,9 +37,7 @@ class AIQASession:
         except Exception as e:
             logger.debug("加载AI配置失败: %s", e)
 
-    def set_context(self, monitored_videos: List[Dict],
-                    history_data: Dict = None,
-                    video_dbs: Dict = None):
+    def set_context(self, monitored_videos: List[Dict], history_data: Dict = None, video_dbs: Dict = None):
         """设置监控上下文数据"""
         self._monitored_videos = monitored_videos or []
         self._history_data = history_data or {}
@@ -97,6 +96,7 @@ class AIQASession:
             # 尝试从配置读取
             try:
                 from config import get_active_ai_profile
+
                 profile = get_active_ai_profile()
                 self.api_key = profile.get("api_key", "")
                 self.endpoint = profile.get("endpoint", "") or "https://api.openai.com/v1/chat/completions"
@@ -119,6 +119,7 @@ class AIQASession:
         """调用 LLM API（支持 OpenAI 兼容 和 Claude 格式）"""
         try:
             import requests
+
             system_msg = self.build_context()
             messages = [
                 {"role": "system", "content": system_msg},
@@ -192,8 +193,10 @@ class AIQASession:
         videos = self._monitored_videos
 
         if not videos:
-            return ("当前未监控任何视频。请先在主界面添加视频到监控列表，"
-                    "或使用「视频搜索」功能查找并添加视频后，再来向我提问。")
+            return (
+                "当前未监控任何视频。请先在主界面添加视频到监控列表，"
+                "或使用「视频搜索」功能查找并添加视频后，再来向我提问。"
+            )
 
         if "多少" in q and "视频" in q:
             return f"当前共监控 {len(videos)} 个视频。"
@@ -209,6 +212,7 @@ class AIQASession:
 
         if "异常" in q or "预警" in q:
             from core.smart_alert import AnomalyDetector
+
             alert_count = 0
             details = []
             for v in videos:
@@ -229,9 +233,11 @@ class AIQASession:
         if "健康" in q or "探针" in q:
             return self._answer_health()
 
-        return (f"我是监控助手，当前共监控 {len(videos)} 个视频。"
-                f"你可以问我：当前监控多少视频？哪个增长最快？播放量排行？"
-                f"有无异常预警？健康探针情况？")
+        return (
+            f"我是监控助手，当前共监控 {len(videos)} 个视频。"
+            f"你可以问我：当前监控多少视频？哪个增长最快？播放量排行？"
+            f"有无异常预警？健康探针情况？"
+        )
 
     def _answer_fastest_growth(self) -> str:
         videos = self._monitored_videos
@@ -244,7 +250,18 @@ class AIQASession:
                 pts = self._history_data[bvid]
                 if len(pts) >= 2:
                     try:
-                        sorted_pts = sorted(pts, key=lambda p: p[0] if isinstance(p[0], datetime) else datetime.strptime(str(p[0])[:19], '%Y-%m-%d %H:%M:%S') if isinstance(p[0], str) else p[0])
+                        sorted_pts = sorted(
+                            pts,
+                            key=lambda p: (
+                                p[0]
+                                if isinstance(p[0], datetime)
+                                else (
+                                    datetime.strptime(str(p[0])[:19], "%Y-%m-%d %H:%M:%S")
+                                    if isinstance(p[0], str)
+                                    else p[0]
+                                )
+                            ),
+                        )
                     except Exception:
                         sorted_pts = pts
                     span = (sorted_pts[-1][0] - sorted_pts[0][0]).total_seconds()
@@ -255,14 +272,15 @@ class AIQASession:
                             best_rate = rate
                             best_v = v
         if best_v:
-            return (f"增长最快：{best_v.get('title', '')[:20]} "
-                    f"(时速 {best_rate:.0f}/h，"
-                    f"当前 {best_v.get('view_count', 0):,})")
+            return (
+                f"增长最快：{best_v.get('title', '')[:20]} "
+                f"(时速 {best_rate:.0f}/h，"
+                f"当前 {best_v.get('view_count', 0):,})"
+            )
         return "暂无足够数据计算增速。"
 
     def _answer_top_views(self) -> str:
-        sorted_v = sorted(self._monitored_videos,
-                          key=lambda v: v.get("view_count", 0), reverse=True)
+        sorted_v = sorted(self._monitored_videos, key=lambda v: v.get("view_count", 0), reverse=True)
         if not sorted_v:
             return "暂无监控视频。"
         lines = ["播放量排行："]
@@ -272,6 +290,7 @@ class AIQASession:
 
     def _answer_threshold(self) -> str:
         from ui.helpers import THRESHOLDS, THRESHOLD_NAMES
+
         achieved = 0
         nearing = []
         for v in self._monitored_videos:
@@ -290,6 +309,7 @@ class AIQASession:
     def _answer_health(self) -> str:
         try:
             from utils.interaction_quality import calculate_probe_from_dict
+
             results = []
             for v in self._monitored_videos[:5]:
                 r = calculate_probe_from_dict(v)

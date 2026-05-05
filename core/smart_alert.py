@@ -1,6 +1,7 @@
 """
 智能预警模块 — 异常增长检测、趋势反转、在线人数异常
 """
+
 import logging
 from typing import List, Dict, Optional, Tuple
 from datetime import datetime, timedelta
@@ -61,17 +62,20 @@ class AnomalyDetector:
         last_growth = recent[-1].get("view_count", 0) - recent[-2].get("view_count", 0)
         last_hours = 0
         try:
-            last_hours = (datetime.fromisoformat(recent[-1]["timestamp"]) -
-                          datetime.fromisoformat(recent[-2]["timestamp"])).total_seconds() / 3600
+            last_hours = (
+                datetime.fromisoformat(recent[-1]["timestamp"]) - datetime.fromisoformat(recent[-2]["timestamp"])
+            ).total_seconds() / 3600
         except Exception as e:
             logger.debug("计算最近增速时间间隔失败: %s", e)
         last_rate = last_growth / last_hours if last_hours > 0 else 0
 
         if avg_rate > 10 and last_rate > avg_rate * 3:
             views = recent[-1].get("view_count", 0)
-            return (f"⚡ 播放飙升！最近增速 {last_rate:.0f}/h，"
-                    f"是平均 {avg_rate:.0f}/h 的 {last_rate/avg_rate:.1f}倍 "
-                    f"(当前 {_fmt_count(views)})")
+            return (
+                f"⚡ 播放飙升！最近增速 {last_rate:.0f}/h，"
+                f"是平均 {avg_rate:.0f}/h 的 {last_rate/avg_rate:.1f}倍 "
+                f"(当前 {_fmt_count(views)})"
+            )
         return None
 
     @staticmethod
@@ -86,11 +90,11 @@ class AnomalyDetector:
         growths = []
         for i in range(1, len(recent)):
             try:
-                h = (datetime.fromisoformat(recent[i]["timestamp"]) -
-                     datetime.fromisoformat(recent[i-1]["timestamp"])).total_seconds() / 3600
+                h = (
+                    datetime.fromisoformat(recent[i]["timestamp"]) - datetime.fromisoformat(recent[i - 1]["timestamp"])
+                ).total_seconds() / 3600
                 if h > 0:
-                    g = (recent[i].get("view_count", 0) -
-                         recent[i-1].get("view_count", 0)) / h
+                    g = (recent[i].get("view_count", 0) - recent[i - 1].get("view_count", 0)) / h
                     growths.append(g)
             except Exception as e:
                 logger.debug("计算历史增速失败: %s", e)
@@ -104,8 +108,7 @@ class AnomalyDetector:
 
         if prev_g > 100 and recent_g < prev_g * 0.3:
             views = recent[-1].get("view_count", 0)
-            return (f"🔻 增长放缓！增速从 {prev_g:.0f}/h "
-                    f"降至 {recent_g:.0f}/h (当前 {_fmt_count(views)})")
+            return f"🔻 增长放缓！增速从 {prev_g:.0f}/h " f"降至 {recent_g:.0f}/h (当前 {_fmt_count(views)})"
         return None
 
     @staticmethod
@@ -117,8 +120,9 @@ class AnomalyDetector:
         recent = sorted_recs[-4:]
 
         try:
-            span_h = (datetime.fromisoformat(recent[-1]["timestamp"]) -
-                      datetime.fromisoformat(recent[0]["timestamp"])).total_seconds() / 3600
+            span_h = (
+                datetime.fromisoformat(recent[-1]["timestamp"]) - datetime.fromisoformat(recent[0]["timestamp"])
+            ).total_seconds() / 3600
         except Exception:
             return None
 
@@ -130,8 +134,10 @@ class AnomalyDetector:
 
         if rate < 5 and total_growth < 100:
             views = recent[-1].get("view_count", 0)
-            return (f"💤 播放停滞！近 {span_h:.1f}h 仅增长 {_fmt_count(total_growth)}，"
-                    f"增速 {rate:.1f}/h (当前 {_fmt_count(views)})")
+            return (
+                f"💤 播放停滞！近 {span_h:.1f}h 仅增长 {_fmt_count(total_growth)}，"
+                f"增速 {rate:.1f}/h (当前 {_fmt_count(views)})"
+            )
         return None
 
     @staticmethod
@@ -151,8 +157,7 @@ class AnomalyDetector:
 
         if avg_viewers > 0 and last_viewers > avg_viewers * 3 and last_viewers > 50:
             bvid = recent[-1].get("bvid", "")
-            return (f"🔥 在线人数飙升！当前 {last_viewers} 人在线，"
-                    f"是之前的 {last_viewers/max(avg_viewers,1):.1f}倍")
+            return f"🔥 在线人数飙升！当前 {last_viewers} 人在线，" f"是之前的 {last_viewers/max(avg_viewers,1):.1f}倍"
         return None
 
     @staticmethod
@@ -171,8 +176,10 @@ class AnomalyDetector:
         last_viewers = viewers[-1]
 
         if prev_viewers > 0 and last_viewers < prev_viewers * 0.3 and (prev_viewers - last_viewers) > 100:
-            return (f"📉 在线人数骤降！从 {prev_viewers} 人降至 {last_viewers} 人，"
-                    f"降幅 {(1-last_viewers/prev_viewers)*100:.0f}%")
+            return (
+                f"📉 在线人数骤降！从 {prev_viewers} 人降至 {last_viewers} 人，"
+                f"降幅 {(1-last_viewers/prev_viewers)*100:.0f}%"
+            )
         return None
 
     @staticmethod

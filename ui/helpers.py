@@ -1,24 +1,25 @@
 """
 通用工具函数和常量
 """
+
 from ui.theme import C
 
 # ── 字体定义 ─────────────────────────────────
-FONT         = ("Microsoft YaHei UI", 9)
-FONT_BOLD    = ("Microsoft YaHei UI", 9, "bold")
-FONT_SM      = ("Microsoft YaHei UI", 8)
-FONT_LG      = ("Microsoft YaHei UI", 11, "bold")
-FONT_MONO    = ("Consolas", 9)
+FONT = ("Microsoft YaHei UI", 9)
+FONT_BOLD = ("Microsoft YaHei UI", 9, "bold")
+FONT_SM = ("Microsoft YaHei UI", 8)
+FONT_LG = ("Microsoft YaHei UI", 11, "bold")
+FONT_MONO = ("Consolas", 9)
 FONT_MONO_LG = ("Consolas", 14, "bold")
 
 # ── 阈值与间隔 ───────────────────────────────
-THRESHOLDS      = [100_000, 1_000_000, 10_000_000]
+THRESHOLDS = [100_000, 1_000_000, 10_000_000]
 THRESHOLD_NAMES = ["10万", "100万", "1000万"]
-THRESH_COLORS   = [C["thresh_10w"], C["thresh_100w"], C["thresh_1000w"]]
+THRESH_COLORS = [C["thresh_10w"], C["thresh_100w"], C["thresh_1000w"]]
 
 DEFAULT_INTERVAL = 75
-FAST_INTERVAL    = 10
-FAST_GAP         = 500
+FAST_INTERVAL = 10
+FAST_GAP = 500
 
 
 def fmt_num(n):
@@ -48,9 +49,9 @@ def fmt_eta(minutes):
     if minutes <= 0:
         return "—"
     hours = int(minutes // 60)
-    mins  = int(minutes % 60)
-    days  = hours // 24
-    hrs   = hours % 24
+    mins = int(minutes % 60)
+    days = hours // 24
+    hrs = hours % 24
     if days > 0:
         return f"约{days}天{hrs}h"
     if hours > 0:
@@ -90,11 +91,29 @@ def abbrev(n):
 def rounded_rect(canvas, x1, y1, x2, y2, r, **kwargs):
     """在 Canvas 上画圆角矩形"""
     pts = [
-        x1+r, y1,   x2-r, y1,
-        x2,   y1,   x2,   y1+r,
-        x2,   y2-r, x2,   y2,
-        x2-r, y2,   x1+r, y2,
-        x1,   y2,   x1,   y2-r,
-        x1,   y1+r, x1,   y1,
+        x1 + r,
+        y1,
+        x2 - r,
+        y1,
+        x2,
+        y1,
+        x2,
+        y1 + r,
+        x2,
+        y2 - r,
+        x2,
+        y2,
+        x2 - r,
+        y2,
+        x1 + r,
+        y2,
+        x1,
+        y2,
+        x1,
+        y2 - r,
+        x1,
+        y1 + r,
+        x1,
+        y1,
     ]
     return canvas.create_polygon(pts, smooth=True, **kwargs)

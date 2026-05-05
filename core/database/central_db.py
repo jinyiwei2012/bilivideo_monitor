@@ -20,9 +20,9 @@ class Database:
 
     def __init__(self, db_path: str = None):
         if db_path is None:
-            data_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data')
+            data_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
             os.makedirs(data_dir, exist_ok=True)
-            db_path = os.path.join(data_dir, 'bilibili_monitor.db')
+            db_path = os.path.join(data_dir, "bilibili_monitor.db")
 
         self.db_path = db_path
         self.data_dir = os.path.dirname(db_path)
@@ -43,7 +43,7 @@ class Database:
             cursor = conn.cursor()
 
             # 视频信息表
-            cursor.execute('''
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS videos (
                     bvid TEXT PRIMARY KEY,
                     title TEXT,
@@ -67,10 +67,10 @@ class Database:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-            ''')
+            """)
 
             # 监控记录表
-            cursor.execute('''
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS monitor_records (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     bvid TEXT,
@@ -88,14 +88,14 @@ class Database:
                     like_view_ratio REAL DEFAULT 0,
                     FOREIGN KEY (bvid) REFERENCES videos(bvid)
                 )
-            ''')
-            cursor.execute('''
+            """)
+            cursor.execute("""
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_monitor_bvid_ts
                 ON monitor_records(bvid, timestamp)
-            ''')
+            """)
 
             # 预测记录表
-            cursor.execute('''
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS predictions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     bvid TEXT,
@@ -112,10 +112,10 @@ class Database:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (bvid) REFERENCES videos(bvid)
                 )
-            ''')
+            """)
 
             # 投稿里程碑数据表
-            cursor.execute('''
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS video_milestones (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     bvid TEXT NOT NULL,
@@ -131,9 +131,8 @@ class Database:
                     recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(bvid, period)
                 )
-            ''')
-            cursor.execute(
-                'CREATE INDEX IF NOT EXISTS idx_milestones_bvid ON video_milestones(bvid)')
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_milestones_bvid ON video_milestones(bvid)")
             # 数据库迁移：检查并添加缺少的列
             self._migrate_db(conn)
 
@@ -167,17 +166,17 @@ class Database:
             ],
         }
         for table, columns in schema_upgrades.items():
-            if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', table):
+            if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", table):
                 continue
             cursor.execute(f"PRAGMA table_info({table})")
             existing = {row["name"] for row in cursor.fetchall()}
             if not existing:
                 continue
             for col_name, col_def in columns:
-                if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', col_name):
+                if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", col_name):
                     continue
                 if col_name not in existing:
-                    if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*(\s+DEFAULT\s+[^\s;]+)?$', col_def):
+                    if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*(\s+DEFAULT\s+[^\s;]+)?$", col_def):
                         logger.warning(f"迁移跳过: {table}.{col_name} 含不安全的列定义 {col_def}")
                         continue
                     try:
@@ -199,24 +198,38 @@ class Database:
             if video_info:
                 with self._get_connection() as conn:
                     cursor = conn.cursor()
-                    cursor.execute('''
+                    cursor.execute(
+                        """
                         INSERT OR REPLACE INTO videos
                         (bvid, title, view_count, like_count, coin_count, share_count,
                          favorite_count, danmaku_count, reply_count, viewers_app,
                          viewers_web, viewers_total, cover_path, like_view_ratio,
                          owner_name, owner_id, pubdate, duration, pic, updated_at)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ''', (
-                        bvid, video_info.get('title', ''), video_info.get('view_count', 0),
-                        video_info.get('like_count', 0), video_info.get('coin_count', 0),
-                        video_info.get('share_count', 0), video_info.get('favorite_count', 0),
-                        video_info.get('danmaku_count', 0), video_info.get('reply_count', 0),
-                        video_info.get('viewers_app', 0), video_info.get('viewers_web', 0),
-                        video_info.get('viewers_total', 0), video_info.get('cover_path', ''),
-                        video_info.get('like_view_ratio', 0), video_info.get('owner_name', ''),
-                        video_info.get('owner_id', 0), video_info.get('pubdate', ''),
-                        video_info.get('duration', 0), video_info.get('pic', ''), datetime.now()
-                    ))
+                    """,
+                        (
+                            bvid,
+                            video_info.get("title", ""),
+                            video_info.get("view_count", 0),
+                            video_info.get("like_count", 0),
+                            video_info.get("coin_count", 0),
+                            video_info.get("share_count", 0),
+                            video_info.get("favorite_count", 0),
+                            video_info.get("danmaku_count", 0),
+                            video_info.get("reply_count", 0),
+                            video_info.get("viewers_app", 0),
+                            video_info.get("viewers_web", 0),
+                            video_info.get("viewers_total", 0),
+                            video_info.get("cover_path", ""),
+                            video_info.get("like_view_ratio", 0),
+                            video_info.get("owner_name", ""),
+                            video_info.get("owner_id", 0),
+                            video_info.get("pubdate", ""),
+                            video_info.get("duration", 0),
+                            video_info.get("pic", ""),
+                            datetime.now(),
+                        ),
+                    )
                     conn.commit()
 
             # 获取所有监控记录并同步（使用 executemany 批量插入）
@@ -224,20 +237,34 @@ class Database:
             if records:
                 with self._get_connection() as conn:
                     cursor = conn.cursor()
-                    rows = [(
-                        bvid, r['timestamp'], r['view_count'],
-                        r['like_count'], r['coin_count'], r['share_count'],
-                        r['favorite_count'], r['danmaku_count'], r['reply_count'],
-                        r['viewers_app'], r['viewers_web'],
-                        r['viewers_total'], r['like_view_ratio']
-                    ) for r in records]
-                    cursor.executemany('''
+                    rows = [
+                        (
+                            bvid,
+                            r["timestamp"],
+                            r["view_count"],
+                            r["like_count"],
+                            r["coin_count"],
+                            r["share_count"],
+                            r["favorite_count"],
+                            r["danmaku_count"],
+                            r["reply_count"],
+                            r["viewers_app"],
+                            r["viewers_web"],
+                            r["viewers_total"],
+                            r["like_view_ratio"],
+                        )
+                        for r in records
+                    ]
+                    cursor.executemany(
+                        """
                         INSERT OR IGNORE INTO monitor_records
                         (bvid, timestamp, view_count, like_count, coin_count, share_count,
                          favorite_count, danmaku_count, reply_count, viewers_app,
                          viewers_web, viewers_total, like_view_ratio)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ''', rows)
+                    """,
+                        rows,
+                    )
                     conn.commit()
 
             return True
@@ -253,7 +280,7 @@ class Database:
         # 遍历data目录下的所有BV号文件夹
         for item in os.listdir(self.data_dir):
             item_path = os.path.join(self.data_dir, item)
-            if os.path.isdir(item_path) and item.startswith('BV'):
+            if os.path.isdir(item_path) and item.startswith("BV"):
                 video_dirs.append(item)
 
         for bvid in video_dirs:
@@ -266,21 +293,38 @@ class Database:
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute('''
+                cursor.execute(
+                    """
                     INSERT OR REPLACE INTO videos
                     (bvid, title, view_count, like_count, coin_count, share_count,
                      favorite_count, danmaku_count, reply_count, viewers_app,
                      viewers_web, viewers_total, cover_path, like_view_ratio,
                      owner_name, owner_id, pubdate, duration, pic, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    video.bvid, video.title, video.view_count, video.like_count,
-                    video.coin_count, video.share_count, video.favorite_count,
-                    video.danmaku_count, video.reply_count, video.viewers_app,
-                    video.viewers_web, video.viewers_total, video.cover_path,
-                    video.like_view_ratio, video.owner_name, video.owner_id,
-                    video.pubdate, video.duration, video.pic, datetime.now()
-                ))
+                """,
+                    (
+                        video.bvid,
+                        video.title,
+                        video.view_count,
+                        video.like_count,
+                        video.coin_count,
+                        video.share_count,
+                        video.favorite_count,
+                        video.danmaku_count,
+                        video.reply_count,
+                        video.viewers_app,
+                        video.viewers_web,
+                        video.viewers_total,
+                        video.cover_path,
+                        video.like_view_ratio,
+                        video.owner_name,
+                        video.owner_id,
+                        video.pubdate,
+                        video.duration,
+                        video.pic,
+                        datetime.now(),
+                    ),
+                )
                 conn.commit()
                 return True
         except Exception as e:
@@ -292,7 +336,7 @@ class Database:
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute('SELECT * FROM videos WHERE bvid = ?', (bvid,))
+                cursor.execute("SELECT * FROM videos WHERE bvid = ?", (bvid,))
                 row = cursor.fetchone()
                 if row:
                     return VideoInfo(**dict(row))
@@ -306,18 +350,30 @@ class Database:
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute('''
+                cursor.execute(
+                    """
                     INSERT INTO monitor_records
                     (bvid, timestamp, view_count, like_count, coin_count, share_count,
                      favorite_count, danmaku_count, reply_count, viewers_app,
                      viewers_web, viewers_total, like_view_ratio)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    record.bvid, record.timestamp, record.view_count, record.like_count,
-                    record.coin_count, record.share_count, record.favorite_count,
-                    record.danmaku_count, record.reply_count, record.viewers_app,
-                    record.viewers_web, record.viewers_total, record.like_view_ratio
-                ))
+                """,
+                    (
+                        record.bvid,
+                        record.timestamp,
+                        record.view_count,
+                        record.like_count,
+                        record.coin_count,
+                        record.share_count,
+                        record.favorite_count,
+                        record.danmaku_count,
+                        record.reply_count,
+                        record.viewers_app,
+                        record.viewers_web,
+                        record.viewers_total,
+                        record.like_view_ratio,
+                    ),
+                )
                 conn.commit()
                 return True
         except Exception as e:
@@ -330,18 +386,24 @@ class Database:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 if limit and limit > 0:
-                    cursor.execute('''
+                    cursor.execute(
+                        """
                         SELECT * FROM monitor_records
                         WHERE bvid = ?
                         ORDER BY timestamp ASC
                         LIMIT ?
-                    ''', (bvid, limit))
+                    """,
+                        (bvid, limit),
+                    )
                 else:
-                    cursor.execute('''
+                    cursor.execute(
+                        """
                         SELECT * FROM monitor_records
                         WHERE bvid = ?
                         ORDER BY timestamp ASC
-                    ''', (bvid,))
+                    """,
+                        (bvid,),
+                    )
                 return [dict(row) for row in cursor.fetchall()]
         except Exception as e:
             logger.warning("获取监控历史失败 %s: %s", bvid, e)
@@ -352,17 +414,24 @@ class Database:
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute('''
+                cursor.execute(
+                    """
                     INSERT INTO predictions
                     (bvid, algorithm, algorithm_id, target_threshold, predicted_seconds,
                      predicted_time, confidence, current_views)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    prediction.bvid, prediction.algorithm, prediction.algorithm_id,
-                    prediction.target_threshold, prediction.predicted_seconds,
-                    prediction.predicted_time, prediction.confidence,
-                    prediction.current_views
-                ))
+                """,
+                    (
+                        prediction.bvid,
+                        prediction.algorithm,
+                        prediction.algorithm_id,
+                        prediction.target_threshold,
+                        prediction.predicted_seconds,
+                        prediction.predicted_time,
+                        prediction.confidence,
+                        prediction.current_views,
+                    ),
+                )
                 conn.commit()
                 return True
         except Exception as e:
@@ -373,7 +442,7 @@ class Database:
         """下载视频封面"""
         try:
             _validate_bvid(bvid)
-            cover_dir = os.path.join(os.path.dirname(self.db_path), 'cover')
+            cover_dir = os.path.join(os.path.dirname(self.db_path), "cover")
             os.makedirs(cover_dir, exist_ok=True)
 
             cover_path = os.path.join(cover_dir, f"{bvid}.jpg")
@@ -383,7 +452,7 @@ class Database:
 
             response = _http_session.get(pic_url, timeout=10)
             if response.status_code == 200:
-                with open(cover_path, 'wb') as f:
+                with open(cover_path, "wb") as f:
                     f.write(response.content)
                 return cover_path
         except Exception as e:
@@ -396,7 +465,7 @@ class Database:
         import csv
 
         if filepath is None:
-            exports_dir = os.path.join(os.path.dirname(self.db_path), 'exports')
+            exports_dir = os.path.join(os.path.dirname(self.db_path), "exports")
             os.makedirs(exports_dir, exist_ok=True)
             filepath = os.path.join(exports_dir, f"{bvid}.csv")
 
@@ -404,20 +473,46 @@ class Database:
             video = self.get_video(bvid)
             history = self.get_monitor_history(bvid)
 
-            with open(filepath, 'w', newline='', encoding='utf-8-sig') as f:
+            with open(filepath, "w", newline="", encoding="utf-8-sig") as f:
                 writer = csv.writer(f)
-                writer.writerow(['BV号', '标题', 'UP主', '播放量', '点赞数', '投币数',
-                                '分享数', '收藏数', '弹幕数', '评论数', 'APP观看人数',
-                                '网页观看人数', '总观看人数', '播赞比'])
+                writer.writerow(
+                    [
+                        "BV号",
+                        "标题",
+                        "UP主",
+                        "播放量",
+                        "点赞数",
+                        "投币数",
+                        "分享数",
+                        "收藏数",
+                        "弹幕数",
+                        "评论数",
+                        "APP观看人数",
+                        "网页观看人数",
+                        "总观看人数",
+                        "播赞比",
+                    ]
+                )
 
                 if video:
-                    writer.writerow([
-                        video.bvid, video.title, video.owner_name, video.view_count,
-                        video.like_count, video.coin_count, video.share_count,
-                        video.favorite_count, video.danmaku_count, video.reply_count,
-                        video.viewers_app, video.viewers_web, video.viewers_total,
-                        video.like_view_ratio
-                    ])
+                    writer.writerow(
+                        [
+                            video.bvid,
+                            video.title,
+                            video.owner_name,
+                            video.view_count,
+                            video.like_count,
+                            video.coin_count,
+                            video.share_count,
+                            video.favorite_count,
+                            video.danmaku_count,
+                            video.reply_count,
+                            video.viewers_app,
+                            video.viewers_web,
+                            video.viewers_total,
+                            video.like_view_ratio,
+                        ]
+                    )
 
             return filepath
         except Exception as e:
@@ -441,7 +536,8 @@ class Database:
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute('''
+                cursor.execute(
+                    """
                     INSERT INTO video_milestones
                         (bvid, period, view_count, like_count, coin_count,
                          share_count, favorite_count, danmaku_count, reply_count,
@@ -457,18 +553,21 @@ class Database:
                         reply_count   = excluded.reply_count,
                         note          = excluded.note,
                         recorded_at   = excluded.recorded_at
-                ''', (
-                    bvid, period,
-                    data.get('view_count', 0),
-                    data.get('like_count', None),
-                    data.get('coin_count', None),
-                    data.get('share_count', None),
-                    data.get('favorite_count', None),
-                    data.get('danmaku_count', None),
-                    data.get('reply_count', None),
-                    data.get('note', None),
-                    data.get('recorded_at', datetime.now().strftime('%Y-%m-%d %H:%M:%S')),
-                ))
+                """,
+                    (
+                        bvid,
+                        period,
+                        data.get("view_count", 0),
+                        data.get("like_count", None),
+                        data.get("coin_count", None),
+                        data.get("share_count", None),
+                        data.get("favorite_count", None),
+                        data.get("danmaku_count", None),
+                        data.get("reply_count", None),
+                        data.get("note", None),
+                        data.get("recorded_at", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+                    ),
+                )
                 conn.commit()
                 return True
         except Exception as e:
@@ -487,12 +586,9 @@ class Database:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 if bvid:
-                    cursor.execute(
-                        'SELECT * FROM video_milestones WHERE bvid=? ORDER BY period',
-                        (bvid,))
+                    cursor.execute("SELECT * FROM video_milestones WHERE bvid=? ORDER BY period", (bvid,))
                 else:
-                    cursor.execute(
-                        'SELECT * FROM video_milestones ORDER BY bvid, period')
+                    cursor.execute("SELECT * FROM video_milestones ORDER BY bvid, period")
                 return [dict(row) for row in cursor.fetchall()]
         except Exception as e:
             logger.warning("里程碑查询失败: %s", e)
@@ -503,10 +599,10 @@ class Database:
         rows = self.get_milestones()
         result = {}
         for row in rows:
-            bv = row['bvid']
+            bv = row["bvid"]
             if bv not in result:
                 result[bv] = {}
-            result[bv][row['period']] = row
+            result[bv][row["period"]] = row
         return result
 
     def delete_milestone(self, bvid: str, period: str) -> bool:
@@ -514,9 +610,7 @@ class Database:
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute(
-                    'DELETE FROM video_milestones WHERE bvid=? AND period=?',
-                    (bvid, period))
+                cursor.execute("DELETE FROM video_milestones WHERE bvid=? AND period=?", (bvid, period))
                 conn.commit()
                 return True
         except Exception as e:

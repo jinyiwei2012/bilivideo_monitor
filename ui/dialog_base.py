@@ -1,6 +1,7 @@
 """
 现代化对话框基类 — 统一的弹窗样式、间距、卡片布局
 """
+
 import tkinter as tk
 from tkinter import ttk
 from ui.theme import C
@@ -12,8 +13,7 @@ class DialogBase:
     提供统一的头部、卡片分段、按钮栏与间距控制。
     """
 
-    def __init__(self, parent, title="", geometry="480x360",
-                 resizable=(False, False), modal=True):
+    def __init__(self, parent, title="", geometry="480x360", resizable=(False, False), modal=True):
         self.window = tk.Toplevel(parent)
         self.window.title(title)
         self.window.geometry(geometry)
@@ -34,13 +34,13 @@ class DialogBase:
         """带分隔线的标题栏"""
         h = tk.Frame(self.container, bg=C["bg_surface"])
         h.pack(fill=tk.X, padx=24, pady=(20, 0))
-        tk.Label(h, text=title, bg=C["bg_surface"], fg=C["text_1"],
-                 font=("Microsoft YaHei UI", 14, "bold"),
-                 anchor="w").pack(fill=tk.X)
+        tk.Label(
+            h, text=title, bg=C["bg_surface"], fg=C["text_1"], font=("Microsoft YaHei UI", 14, "bold"), anchor="w"
+        ).pack(fill=tk.X)
         if subtitle:
-            tk.Label(h, text=subtitle, bg=C["bg_surface"], fg=C["text_3"],
-                     font=("Microsoft YaHei UI", 9),
-                     anchor="w").pack(fill=tk.X, pady=(4, 0))
+            tk.Label(
+                h, text=subtitle, bg=C["bg_surface"], fg=C["text_3"], font=("Microsoft YaHei UI", 9), anchor="w"
+            ).pack(fill=tk.X, pady=(4, 0))
         sep = tk.Frame(self.container, bg=C["border"], height=1)
         sep.pack(fill=tk.X, padx=24, pady=(12, 0))
         return h
@@ -56,14 +56,11 @@ class DialogBase:
         p = parent or self.container
         bg = kw.pop("bg", C["bg_elevated"])
         border = kw.pop("highlightbackground", C["border_sub"])
-        sec = tk.Frame(p, bg=bg, highlightthickness=1,
-                       highlightbackground=border, **kw)
+        sec = tk.Frame(p, bg=bg, highlightthickness=1, highlightbackground=border, **kw)
         sec.pack(fill=tk.X, padx=24, pady=(10, 0), ipadx=14, ipady=padding)
 
         if title:
-            lbl = tk.Label(sec, text=title, bg=bg, fg=C["text_2"],
-                           font=("Microsoft YaHei UI", 8, "bold"),
-                           anchor="w")
+            lbl = tk.Label(sec, text=title, bg=bg, fg=C["text_2"], font=("Microsoft YaHei UI", 8, "bold"), anchor="w")
             lbl.pack(fill=tk.X, padx=4, pady=(4, 8))
         return sec
 
@@ -86,11 +83,9 @@ class DialogBase:
 
         for text, cmd, style in reversed(rights):
             if style == "primary":
-                ttk.Button(bar, text=text, command=cmd,
-                           style="Primary.TButton").pack(side=tk.RIGHT, padx=(6, 0))
+                ttk.Button(bar, text=text, command=cmd, style="Primary.TButton").pack(side=tk.RIGHT, padx=(6, 0))
             elif style == "danger":
-                ttk.Button(bar, text=text, command=cmd,
-                           style="Danger.TButton").pack(side=tk.RIGHT, padx=(6, 0))
+                ttk.Button(bar, text=text, command=cmd, style="Danger.TButton").pack(side=tk.RIGHT, padx=(6, 0))
             else:
                 ttk.Button(bar, text=text, command=cmd).pack(side=tk.RIGHT, padx=(6, 0))
         return bar
@@ -101,9 +96,15 @@ class DialogBase:
         fg = kw.pop("fg", C["text_2"])
         row = tk.Frame(parent, bg=kw.pop("bg", parent.cget("bg")))
         row.pack(fill=tk.X, pady=kw.pop("pady", 4))
-        tk.Label(row, text=label, bg=row.cget("bg"), fg=fg,
-                 font=("Microsoft YaHei UI", 9),
-                 anchor="w", width=kw.pop("label_width", 14)).pack(side=tk.LEFT)
+        tk.Label(
+            row,
+            text=label,
+            bg=row.cget("bg"),
+            fg=fg,
+            font=("Microsoft YaHei UI", 9),
+            anchor="w",
+            width=kw.pop("label_width", 14),
+        ).pack(side=tk.LEFT)
         value_widget.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(8, 0))
         return row
 

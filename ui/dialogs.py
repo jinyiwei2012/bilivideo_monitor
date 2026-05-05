@@ -2,6 +2,7 @@
 对话框模块 - CustomTkinter 版
 集中管理所有弹窗窗口
 """
+
 import tkinter as tk
 from tkinter import ttk, messagebox
 import threading
@@ -31,18 +32,24 @@ class Dialogs:
         dialog.grab_set()
         dialog.resizable(False, False)
 
-        ctk.CTkLabel(dialog, text="普通刷新间隔（秒）：", text_color=C["text_1"],
-                     font=FONT, fg_color="transparent").pack(pady=(20, 6))
+        ctk.CTkLabel(
+            dialog, text="普通刷新间隔（秒）：", text_color=C["text_1"], font=FONT, fg_color="transparent"
+        ).pack(pady=(20, 6))
 
-        spin_f = ctk.CTkFrame(dialog, fg_color=C["bg_elevated"],
-                              border_width=1, border_color=C["border"],
-                              corner_radius=6)
+        spin_f = ctk.CTkFrame(
+            dialog, fg_color=C["bg_elevated"], border_width=1, border_color=C["border"], corner_radius=6
+        )
         spin_f.pack(padx=40, fill=tk.X)
         var = tk.IntVar(value=self.gui.DEFAULT_INTERVAL)
         ttk.Spinbox(spin_f, from_=10, to=3600, textvariable=var, width=10).pack(padx=8, pady=6)
-        ctk.CTkLabel(dialog, text=f"距阈值 < {FAST_GAP} 时自动切换快速模式（{FAST_INTERVAL}s）",
-                     text_color=C["text_3"], font=FONT_SM, fg_color="transparent",
-                     wraplength=280).pack(pady=6)
+        ctk.CTkLabel(
+            dialog,
+            text=f"距阈值 < {FAST_GAP} 时自动切换快速模式（{FAST_INTERVAL}s）",
+            text_color=C["text_3"],
+            font=FONT_SM,
+            fg_color="transparent",
+            wraplength=280,
+        ).pack(pady=6)
 
         def _save():
             self.gui.DEFAULT_INTERVAL = var.get()
@@ -55,12 +62,24 @@ class Dialogs:
 
         btn_f = ctk.CTkFrame(dialog, fg_color="transparent")
         btn_f.pack(pady=14)
-        ctk.CTkButton(btn_f, text="保存", fg_color=C["bilibili"],
-                      hover_color=C["bilibili_dim"], text_color="#ffffff",
-                      font=FONT, command=_save).pack(side=tk.LEFT, padx=6)
-        ctk.CTkButton(btn_f, text="取消", fg_color=C["bg_elevated"],
-                      hover_color=C["bg_hover"], text_color=C["text_2"],
-                      font=FONT, command=dialog.destroy).pack(side=tk.LEFT, padx=6)
+        ctk.CTkButton(
+            btn_f,
+            text="保存",
+            fg_color=C["bilibili"],
+            hover_color=C["bilibili_dim"],
+            text_color="#ffffff",
+            font=FONT,
+            command=_save,
+        ).pack(side=tk.LEFT, padx=6)
+        ctk.CTkButton(
+            btn_f,
+            text="取消",
+            fg_color=C["bg_elevated"],
+            hover_color=C["bg_hover"],
+            text_color=C["text_2"],
+            font=FONT,
+            command=dialog.destroy,
+        ).pack(side=tk.LEFT, padx=6)
 
     # ──────────────────────────────────────────
     # 权重设置
@@ -69,6 +88,7 @@ class Dialogs:
     def open_weight_settings(self):
         try:
             from .weight_settings import WeightSettingsWindow
+
             WeightSettingsWindow(self.gui.root)
         except Exception as e:
             messagebox.showerror("错误", f"打开权重设置失败: {e}")
@@ -80,6 +100,7 @@ class Dialogs:
     def open_database_query(self):
         try:
             from .database_query import DatabaseQueryWindow
+
             DatabaseQueryWindow(self.gui.root)
         except Exception as e:
             messagebox.showerror("错误", f"打开数据库查询失败: {e}")
@@ -91,6 +112,7 @@ class Dialogs:
     def open_video_search(self):
         try:
             from .video_search import VideoSearchWindow
+
             VideoSearchWindow(self.gui.root, on_import=self.gui._import_search_results)
         except Exception as e:
             messagebox.showerror("错误", f"打开视频搜索失败: {e}")
@@ -102,10 +124,14 @@ class Dialogs:
     def open_data_comparison(self):
         try:
             from .data_comparison import DataComparisonWindow
-            DataComparisonWindow(self.gui.root, monitored_videos=self.gui.monitored_videos,
-                                 history_data=self.gui.history_data,
-                                 video_dbs=self.gui.video_dbs,
-                                 on_add_monitor=self.gui._add_bvid_to_monitor)
+
+            DataComparisonWindow(
+                self.gui.root,
+                monitored_videos=self.gui.monitored_videos,
+                history_data=self.gui.history_data,
+                video_dbs=self.gui.video_dbs,
+                on_add_monitor=self.gui._add_bvid_to_monitor,
+            )
         except Exception as e:
             messagebox.showerror("错误", f"打开数据对比失败: {e}")
 
@@ -116,8 +142,13 @@ class Dialogs:
     def open_crossover_analysis(self):
         try:
             from .crossover_analysis import CrossoverAnalysisWindow
-            CrossoverAnalysisWindow(self.gui.root, monitored_videos=self.gui.monitored_videos,
-                                    history_data=self.gui.history_data, video_dbs=self.gui.video_dbs)
+
+            CrossoverAnalysisWindow(
+                self.gui.root,
+                monitored_videos=self.gui.monitored_videos,
+                history_data=self.gui.history_data,
+                video_dbs=self.gui.video_dbs,
+            )
         except Exception as e:
             messagebox.showerror("错误", f"打开交叉计算失败: {e}")
 
@@ -128,8 +159,8 @@ class Dialogs:
     def open_weekly_score(self):
         try:
             from .weekly_score import WeeklyScoreWindow
-            WeeklyScoreWindow(self.gui.root, monitored_videos=self.gui.monitored_videos,
-                              video_dbs=self.gui.video_dbs)
+
+            WeeklyScoreWindow(self.gui.root, monitored_videos=self.gui.monitored_videos, video_dbs=self.gui.video_dbs)
         except Exception as e:
             messagebox.showerror("错误", f"打开周刊分数计算失败: {e}")
 
@@ -140,6 +171,7 @@ class Dialogs:
     def open_milestone_stats(self):
         try:
             from .milestone_stats import MilestoneStatsWindow
+
             MilestoneStatsWindow(
                 self.gui.root,
                 monitored_videos=self.gui.monitored_videos,
@@ -147,6 +179,7 @@ class Dialogs:
             )
         except Exception as e:
             import traceback
+
             messagebox.showerror("错误", f"打开里程碑统计失败: {e}\n{traceback.format_exc()}")
 
     # ──────────────────────────────────────────
@@ -177,6 +210,7 @@ class Dialogs:
     def open_settings(self):
         try:
             from .settings_window import SettingsWindow
+
             SettingsWindow(self.gui.root)
         except Exception as e:
             messagebox.showerror("错误", f"打开系统设置失败: {e}")
@@ -192,6 +226,7 @@ class Dialogs:
         def _worker():
             added, skipped = 0, 0
             from core import bilibili_api
+
             for v in videos:
                 bvid = v.get("bvid", "")
                 if not bvid:
@@ -237,19 +272,16 @@ class Dialogs:
         dialog.resizable(True, True)
 
         # 标题
-        tk.Label(dialog, text="预测算法信息",
-                 bg=C["bg_surface"], fg=C["text_1"],
-                 font=("Microsoft YaHei UI", 14, "bold")).pack(pady=(15, 10))
+        tk.Label(
+            dialog, text="预测算法信息", bg=C["bg_surface"], fg=C["text_1"], font=("Microsoft YaHei UI", 14, "bold")
+        ).pack(pady=(15, 10))
 
         # 创建滚动框架
         canvas = tk.Canvas(dialog, bg=C["bg_surface"], highlightthickness=0)
         scrollbar = ttk.Scrollbar(dialog, orient="vertical", command=canvas.yview)
         scrollable_frame = tk.Frame(canvas, bg=C["bg_surface"])
 
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
+        scrollable_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
 
         canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
@@ -267,80 +299,94 @@ class Dialogs:
             info_frame = tk.Frame(scrollable_frame, bg=C["bg_elevated"], relief="solid", bd=1)
             info_frame.pack(fill=tk.X, padx=20, pady=10)
 
-            tk.Label(info_frame, text=f"已加载算法: {len(algo_names)} 个",
-                     bg=C["bg_elevated"], fg=C["text_1"],
-                     font=("Microsoft YaHei UI", 11, "bold")).pack(anchor="w", padx=10, pady=5)
+            tk.Label(
+                info_frame,
+                text=f"已加载算法: {len(algo_names)} 个",
+                bg=C["bg_elevated"],
+                fg=C["text_1"],
+                font=("Microsoft YaHei UI", 11, "bold"),
+            ).pack(anchor="w", padx=10, pady=5)
 
             # 显示算法列表
             for info in algo_infos[:20]:  # 最多显示20个
                 algo_frame = tk.Frame(scrollable_frame, bg=C["bg_surface"])
                 algo_frame.pack(fill=tk.X, padx=20, pady=2)
 
-                name = info.get('name', 'Unknown')
-                weight = info.get('weight', 1.0)
-                accuracy = info.get('accuracy', 0.5)
+                name = info.get("name", "Unknown")
+                weight = info.get("weight", 1.0)
+                accuracy = info.get("accuracy", 0.5)
 
-                tk.Label(algo_frame, text=f"• {name}",
-                         bg=C["bg_surface"], fg=C["text_1"],
-                         font=FONT, anchor="w").pack(side=tk.LEFT, padx=(0, 10))
+                tk.Label(algo_frame, text=f"• {name}", bg=C["bg_surface"], fg=C["text_1"], font=FONT, anchor="w").pack(
+                    side=tk.LEFT, padx=(0, 10)
+                )
 
-                tk.Label(algo_frame, text=f"权重: {weight:.2f}",
-                         bg=C["bg_surface"], fg=C["text_2"],
-                         font=FONT_SM).pack(side=tk.LEFT, padx=10)
+                tk.Label(algo_frame, text=f"权重: {weight:.2f}", bg=C["bg_surface"], fg=C["text_2"], font=FONT_SM).pack(
+                    side=tk.LEFT, padx=10
+                )
 
-                tk.Label(algo_frame, text=f"准确率: {accuracy:.2%}",
-                         bg=C["bg_surface"], fg=C["text_2"],
-                         font=FONT_SM).pack(side=tk.LEFT, padx=10)
+                tk.Label(
+                    algo_frame, text=f"准确率: {accuracy:.2%}", bg=C["bg_surface"], fg=C["text_2"], font=FONT_SM
+                ).pack(side=tk.LEFT, padx=10)
 
             if len(algo_names) > 20:
-                tk.Label(scrollable_frame,
-                         text=f"... 还有 {len(algo_names) - 20} 个算法",
-                         bg=C["bg_surface"], fg=C["text_3"],
-                         font=FONT_SM).pack(anchor="w", padx=20, pady=5)
+                tk.Label(
+                    scrollable_frame,
+                    text=f"... 还有 {len(algo_names) - 20} 个算法",
+                    bg=C["bg_surface"],
+                    fg=C["text_3"],
+                    font=FONT_SM,
+                ).pack(anchor="w", padx=20, pady=5)
 
             # 高级模块状态
-            tk.Label(scrollable_frame, text="高级模块状态:",
-                     bg=C["bg_surface"], fg=C["text_1"],
-                     font=("Microsoft YaHei UI", 11, "bold")).pack(anchor="w", padx=20, pady=(15, 5))
+            tk.Label(
+                scrollable_frame,
+                text="高级模块状态:",
+                bg=C["bg_surface"],
+                fg=C["text_1"],
+                font=("Microsoft YaHei UI", 11, "bold"),
+            ).pack(anchor="w", padx=20, pady=(15, 5))
 
             # 在线学习模块
             try:
                 from algorithms.online_learner import get_online_learner
+
                 learner = get_online_learner()
-                tk.Label(scrollable_frame, text="✅ 在线学习模块已加载",
-                         bg=C["bg_surface"], fg=C["success"],
-                         font=FONT).pack(anchor="w", padx=20, pady=2)
+                tk.Label(
+                    scrollable_frame, text="✅ 在线学习模块已加载", bg=C["bg_surface"], fg=C["success"], font=FONT
+                ).pack(anchor="w", padx=20, pady=2)
             except ImportError:
-                tk.Label(scrollable_frame, text="❌ 在线学习模块未找到",
-                         bg=C["bg_surface"], fg=C["danger"],
-                         font=FONT).pack(anchor="w", padx=20, pady=2)
+                tk.Label(
+                    scrollable_frame, text="❌ 在线学习模块未找到", bg=C["bg_surface"], fg=C["danger"], font=FONT
+                ).pack(anchor="w", padx=20, pady=2)
 
             # 因果推断模块
             try:
                 from algorithms.causal_inference import get_causal_analyzer
-                tk.Label(scrollable_frame, text="✅ 因果推断模块已加载",
-                         bg=C["bg_surface"], fg=C["success"],
-                         font=FONT).pack(anchor="w", padx=20, pady=2)
+
+                tk.Label(
+                    scrollable_frame, text="✅ 因果推断模块已加载", bg=C["bg_surface"], fg=C["success"], font=FONT
+                ).pack(anchor="w", padx=20, pady=2)
             except ImportError:
-                tk.Label(scrollable_frame, text="❌ 因果推断模块未找到",
-                         bg=C["bg_surface"], fg=C["danger"],
-                         font=FONT).pack(anchor="w", padx=20, pady=2)
+                tk.Label(
+                    scrollable_frame, text="❌ 因果推断模块未找到", bg=C["bg_surface"], fg=C["danger"], font=FONT
+                ).pack(anchor="w", padx=20, pady=2)
 
             # 图神经网络模块
             try:
                 from algorithms.graph_neural import get_video_graph
-                tk.Label(scrollable_frame, text="✅ 图神经网络模块已加载",
-                         bg=C["bg_surface"], fg=C["success"],
-                         font=FONT).pack(anchor="w", padx=20, pady=2)
+
+                tk.Label(
+                    scrollable_frame, text="✅ 图神经网络模块已加载", bg=C["bg_surface"], fg=C["success"], font=FONT
+                ).pack(anchor="w", padx=20, pady=2)
             except ImportError:
-                tk.Label(scrollable_frame, text="❌ 图神经网络模块未找到",
-                         bg=C["bg_surface"], fg=C["danger"],
-                         font=FONT).pack(anchor="w", padx=20, pady=2)
+                tk.Label(
+                    scrollable_frame, text="❌ 图神经网络模块未找到", bg=C["bg_surface"], fg=C["danger"], font=FONT
+                ).pack(anchor="w", padx=20, pady=2)
 
         except Exception as e:
-            tk.Label(scrollable_frame, text=f"加载算法信息失败: {e}",
-                     bg=C["bg_surface"], fg=C["danger"],
-                     font=FONT).pack(padx=20, pady=20)
+            tk.Label(
+                scrollable_frame, text=f"加载算法信息失败: {e}", bg=C["bg_surface"], fg=C["danger"], font=FONT
+            ).pack(padx=20, pady=20)
 
         # 布局滚动区域
         canvas.pack(side="left", fill="both", expand=True, padx=(20, 0), pady=10)
@@ -357,9 +403,11 @@ class Dialogs:
         try:
             from .up_tracker import UpTrackerWindow
             from core import bilibili_api
+
             UpTrackerWindow(self.gui.root, api=bilibili_api)
         except Exception as e:
             import traceback
+
             messagebox.showerror("错误", f"打开UP主追踪失败: {e}\n{traceback.format_exc()}")
 
     # ──────────────────────────────────────────
@@ -370,9 +418,11 @@ class Dialogs:
         try:
             from .danmaku_analysis import DanmakuAnalysisWindow
             from core import bilibili_api
+
             DanmakuAnalysisWindow(self.gui.root, api=bilibili_api, gui=self.gui)
         except Exception as e:
             import traceback
+
             messagebox.showerror("错误", f"打开弹幕分析失败: {e}\n{traceback.format_exc()}")
 
     # ──────────────────────────────────────────
@@ -383,10 +433,11 @@ class Dialogs:
         try:
             from .trending_discovery import TrendingDiscoveryWindow
             from core import bilibili_api
-            TrendingDiscoveryWindow(self.gui.root, api=bilibili_api,
-                                    on_add_monitor=self.gui._add_bvid_to_monitor)
+
+            TrendingDiscoveryWindow(self.gui.root, api=bilibili_api, on_add_monitor=self.gui._add_bvid_to_monitor)
         except Exception as e:
             import traceback
+
             messagebox.showerror("错误", f"打开热门发现失败: {e}\n{traceback.format_exc()}")
 
     # ──────────────────────────────────────────
@@ -396,9 +447,11 @@ class Dialogs:
     def open_ai_qa(self):
         try:
             from .ai_qa_window import AIQAWindow
+
             AIQAWindow(self.gui.root, gui=self.gui)
         except Exception as e:
             import traceback
+
             messagebox.showerror("错误", f"打开AI问答失败: {e}\n{traceback.format_exc()}")
 
     # ──────────────────────────────────────────
@@ -408,9 +461,11 @@ class Dialogs:
     def open_dashboard(self):
         try:
             from .dashboard_mode import DashboardWindow
+
             DashboardWindow(gui=self.gui, parent=self.gui.root)
         except Exception as e:
             import traceback
+
             messagebox.showerror("错误", f"打开数据大屏失败: {e}\n{traceback.format_exc()}")
 
     # ──────────────────────────────────────────
@@ -420,7 +475,9 @@ class Dialogs:
     def open_report_scheduler(self):
         try:
             from .report_scheduler import ReportSchedulerWindow
+
             ReportSchedulerWindow(self.gui.root, gui=self.gui)
         except Exception as e:
             import traceback
+
             messagebox.showerror("错误", f"打开报告导出失败: {e}\n{traceback.format_exc()}")

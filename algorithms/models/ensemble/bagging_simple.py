@@ -2,6 +2,7 @@
 Bagging集成回归预测
 使用Bootstrap采样训练多个基学习器，平均预测降低方差
 """
+
 import math
 import random
 import numpy as np
@@ -33,6 +34,7 @@ class BaggingSimpleAlgorithm(BaseAlgorithm):
 
     class _RegTree:
         """简化回归树"""
+
         def __init__(self, max_depth=5, min_samples=2):
             self.max_depth = max_depth
             self.min_samples = min_samples
@@ -44,7 +46,7 @@ class BaggingSimpleAlgorithm(BaseAlgorithm):
         def _build(self, X: np.ndarray, y: np.ndarray, depth: int) -> dict:
             node = {}
             if depth >= self.max_depth or len(y) < self.min_samples or np.std(y) < 1e-8:
-                node['value'] = float(np.mean(y))
+                node["value"] = float(np.mean(y))
                 return node
 
             n_features = X.shape[1]
@@ -76,77 +78,88 @@ class BaggingSimpleAlgorithm(BaseAlgorithm):
                     best_split = (f, threshold)
 
             if best_split is None:
-                node['value'] = float(np.mean(y))
+                node["value"] = float(np.mean(y))
                 return node
 
             f_idx, thresh = best_split
             left_mask = X[:, f_idx] <= thresh
 
-            node['feature'] = int(f_idx)
-            node['threshold'] = float(thresh)
-            node['left'] = self._build(X[left_mask], y[left_mask], depth + 1)
-            node['right'] = self._build(X[~left_mask], y[~left_mask], depth + 1)
+            node["feature"] = int(f_idx)
+            node["threshold"] = float(thresh)
+            node["left"] = self._build(X[left_mask], y[left_mask], depth + 1)
+            node["right"] = self._build(X[~left_mask], y[~left_mask], depth + 1)
             return node
 
         def predict(self, X: np.ndarray) -> np.ndarray:
             return np.array([self._predict_one(x, self.tree) for x in X])
 
         def _predict_one(self, x: np.ndarray, node: dict) -> float:
-            if 'value' in node:
-                return node['value']
-            if x[node['feature']] <= node['threshold']:
-                return self._predict_one(x, node['left'])
-            return self._predict_one(x, node['right'])
+            if "value" in node:
+                return node["value"]
+            if x[node["feature"]] <= node["threshold"]:
+                return self._predict_one(x, node["left"])
+            return self._predict_one(x, node["right"])
 
-    def predict(self, video_data: Dict[str, Any],
-                threshold: int = 100000) -> PredictionResult:
-        current_views = video_data.get('view_count', 0)
-        history = video_data.get('history_data', [])
+    def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
+        current_views = video_data.get("view_count", 0)
+        history = video_data.get("history_data", [])
         velocity = self.calculate_velocity(video_data)
 
         remaining = threshold - current_views
         if remaining <= 0:
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=0, confidence=1.0,
-                current_views=current_views, current_velocity=velocity,
-                metadata={'method': 'bagging'}, timestamp=datetime.now()
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=0,
+                confidence=1.0,
+                current_views=current_views,
+                current_velocity=velocity,
+                metadata={"method": "bagging"},
+                timestamp=datetime.now(),
             )
 
         if len(history) < 6 or velocity <= 0:
-            predicted_hours = remaining / velocity if velocity > 0 else float('inf')
+            predicted_hours = remaining / velocity if velocity > 0 else float("inf")
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=0.3,
+                current_views=current_views,
                 current_velocity=velocity,
-                metadata={'method': 'bagging', 'notes': 'insufficient_data'},
-                timestamp=datetime.now()
+                metadata={"method": "bagging", "notes": "insufficient_data"},
+                timestamp=datetime.now(),
             )
 
         # 提取时序
         timestamps = []
         views_vals = []
         for h in history:
-            ts = h.get('timestamp', 0)
-            if hasattr(ts, 'timestamp'):
+            ts = h.get("timestamp", 0)
+            if hasattr(ts, "timestamp"):
                 ts = ts.timestamp()
             elif isinstance(ts, str):
                 try:
-                    ts = datetime.strptime(ts, '%Y-%m-%d %H:%M:%S').timestamp()
+                    ts = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S").timestamp()
                 except Exception:
                     continue
             timestamps.append(float(ts))
-            views_vals.append(float(h.get('view_count', 0)))
+            views_vals.append(float(h.get("view_count", 0)))
 
         if len(views_vals) < 6:
             predicted_hours = remaining / velocity
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=0.3,
+                current_views=current_views,
                 current_velocity=velocity,
-                metadata={'method': 'bagging_fallback'}, timestamp=datetime.now()
+                metadata={"method": "bagging_fallback"},
+                timestamp=datetime.now(),
             )
 
         try:
@@ -162,11 +175,15 @@ class BaggingSimpleAlgorithm(BaseAlgorithm):
             if len(X) < 5:
                 predicted_hours = remaining / velocity
                 return PredictionResult(
-                    algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                    target_threshold=threshold, predicted_hours=predicted_hours,
-                    confidence=0.3, current_views=current_views,
+                    algorithm_name=self.name,
+                    algorithm_id=self.algorithm_id,
+                    target_threshold=threshold,
+                    predicted_hours=predicted_hours,
+                    confidence=0.3,
+                    current_views=current_views,
                     current_velocity=velocity,
-                    metadata={'method': 'bagging_insufficient'}, timestamp=datetime.now()
+                    metadata={"method": "bagging_insufficient"},
+                    timestamp=datetime.now(),
                 )
 
             # ── 训练Bagging ───────────────────────────
@@ -216,28 +233,35 @@ class BaggingSimpleAlgorithm(BaseAlgorithm):
                 conf = 0.35
 
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=conf, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=conf,
+                current_views=current_views,
                 current_velocity=velocity,
                 metadata={
-                    'method': 'bagging',
-                    'n_estimators': self.n_estimators,
-                    'daily_growth': round(float(predicted_daily_growth), 2),
-                    'pred_std': round(float(pred_std), 2),
-                    'consistency': round(float(consistency), 3),
-                    'data_points': n,
+                    "method": "bagging",
+                    "n_estimators": self.n_estimators,
+                    "daily_growth": round(float(predicted_daily_growth), 2),
+                    "pred_std": round(float(pred_std), 2),
+                    "consistency": round(float(consistency), 3),
+                    "data_points": n,
                 },
-                timestamp=datetime.now()
+                timestamp=datetime.now(),
             )
         except Exception as e:
-            predicted_hours = remaining / velocity if velocity > 0 else float('inf')
+            predicted_hours = remaining / velocity if velocity > 0 else float("inf")
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.0, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=0.0,
+                current_views=current_views,
                 current_velocity=velocity,
-                metadata={'error': str(e)}, timestamp=datetime.now()
+                metadata={"error": str(e)},
+                timestamp=datetime.now(),
             )
 
     def _build_dataset(self, views: List[float], quality: float) -> tuple:
@@ -245,24 +269,26 @@ class BaggingSimpleAlgorithm(BaseAlgorithm):
         X, y = [], []
         for i in range(5, len(views)):
             features = [
-                views[i-1] - views[i-2],                     # 绝对增量 t-1
-                views[i-2] - views[i-3],                     # 绝对增量 t-2
-                (views[i-1] / max(views[i-2], 1) - 1) * 100,  # 增长率 t-1 (%)
-                np.mean(views[i-5:i]) if i >= 5 else views[i-1],  # 5日平均
-                np.std(views[max(0, i-5):i]) / max(np.mean(views[max(0, i-5):i]), 1),  # CV
-                quality * 100,                                # 质量分
+                views[i - 1] - views[i - 2],  # 绝对增量 t-1
+                views[i - 2] - views[i - 3],  # 绝对增量 t-2
+                (views[i - 1] / max(views[i - 2], 1) - 1) * 100,  # 增长率 t-1 (%)
+                np.mean(views[i - 5 : i]) if i >= 5 else views[i - 1],  # 5日平均
+                np.std(views[max(0, i - 5) : i]) / max(np.mean(views[max(0, i - 5) : i]), 1),  # CV
+                quality * 100,  # 质量分
             ]
             X.append(features)
-            y.append(views[i] - views[i-1])  # 要预测的增量
+            y.append(views[i] - views[i - 1])  # 要预测的增量
         return np.array(X), np.array(y)
 
     def _get_last_features(self, views: List[float], quality: float) -> np.ndarray:
         """获取最后一个样本的特征"""
-        return np.array([
-            views[-1] - views[-2],
-            views[-2] - views[-3],
-            (views[-1] / max(views[-2], 1) - 1) * 100,
-            np.mean(views[-5:]),
-            np.std(views[-5:]) / max(np.mean(views[-5:]), 1),
-            quality * 100,
-        ]).reshape(1, -1)
+        return np.array(
+            [
+                views[-1] - views[-2],
+                views[-2] - views[-3],
+                (views[-1] / max(views[-2], 1) - 1) * 100,
+                np.mean(views[-5:]),
+                np.std(views[-5:]) / max(np.mean(views[-5:]), 1),
+                quality * 100,
+            ]
+        ).reshape(1, -1)

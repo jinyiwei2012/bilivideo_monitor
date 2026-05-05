@@ -2,6 +2,7 @@
 现代化周刊分数计算界面
 手动输入或选择已监控视频，计算周刊虚拟歌手中文曲排行榜分数
 """
+
 import tkinter as tk
 from tkinter import ttk, messagebox
 import logging
@@ -13,20 +14,19 @@ from ui.theme import C
 from ui.helpers import FONT, FONT_SM, FONT_MONO
 from ui.dialog_base import DialogBase
 from utils.weekly_score import (
-    VideoData, WeeklyScoreResult,
-    calculate_weekly_score, calculate_from_dict,
-    format_score_result
+    VideoData,
+    WeeklyScoreResult,
+    calculate_weekly_score,
+    calculate_from_dict,
+    format_score_result,
 )
 
 
 class WeeklyScoreWindow:
     """周刊分数计算窗口（现代化风格）"""
 
-    def __init__(self, parent=None,
-                 monitored_videos: Optional[List[Dict]] = None,
-                 video_dbs: Optional[Dict] = None):
-        self.dlg = DialogBase(parent, "周刊分数计算", "740x600",
-                              resizable=(True, True), modal=False)
+    def __init__(self, parent=None, monitored_videos: Optional[List[Dict]] = None, video_dbs: Optional[Dict] = None):
+        self.dlg = DialogBase(parent, "周刊分数计算", "740x600", resizable=(True, True), modal=False)
         self.window = self.dlg.window
         self.monitored_videos = monitored_videos or []
         self.video_dbs = video_dbs or {}
@@ -43,12 +43,22 @@ class WeeklyScoreWindow:
         mode_row = tk.Frame(sec, bg=C["bg_elevated"])
         mode_row.pack(fill=tk.X, pady=(0, 6))
         self._mode = tk.StringVar(value="manual")
-        tk.Radiobutton(mode_row, text="手动输入", variable=self._mode,
-                       value="manual", bg=C["bg_elevated"],
-                       command=self._toggle_mode).pack(side=tk.LEFT, padx=(4, 16))
-        tk.Radiobutton(mode_row, text="选择已监控视频", variable=self._mode,
-                       value="select", bg=C["bg_elevated"],
-                       command=self._toggle_mode).pack(side=tk.LEFT)
+        tk.Radiobutton(
+            mode_row,
+            text="手动输入",
+            variable=self._mode,
+            value="manual",
+            bg=C["bg_elevated"],
+            command=self._toggle_mode,
+        ).pack(side=tk.LEFT, padx=(4, 16))
+        tk.Radiobutton(
+            mode_row,
+            text="选择已监控视频",
+            variable=self._mode,
+            value="select",
+            bg=C["bg_elevated"],
+            command=self._toggle_mode,
+        ).pack(side=tk.LEFT)
 
         # 手动输入区域
         self._manual_frame = tk.Frame(sec, bg=C["bg_elevated"])
@@ -66,20 +76,26 @@ class WeeklyScoreWindow:
             row, col = divmod(i, 3)
             f = tk.Frame(self._manual_frame, bg=C["bg_elevated"])
             f.grid(row=row, column=col, padx=(0 if col == 0 else 12, 0), pady=3, sticky="w")
-            tk.Label(f, text=label, bg=C["bg_elevated"], fg=C["text_2"],
-                     font=FONT, width=8, anchor="e").pack(side=tk.LEFT, padx=(0, 4))
-            entry = tk.Entry(f, width=14, font=FONT_MONO,
-                             bg=C["bg_base"], fg=C["text_1"],
-                             insertbackground=C["text_1"],
-                             relief="flat", highlightthickness=1,
-                             highlightbackground=C["border"])
+            tk.Label(f, text=label, bg=C["bg_elevated"], fg=C["text_2"], font=FONT, width=8, anchor="e").pack(
+                side=tk.LEFT, padx=(0, 4)
+            )
+            entry = tk.Entry(
+                f,
+                width=14,
+                font=FONT_MONO,
+                bg=C["bg_base"],
+                fg=C["text_1"],
+                insertbackground=C["text_1"],
+                relief="flat",
+                highlightthickness=1,
+                highlightbackground=C["border"],
+            )
             entry.pack(side=tk.LEFT)
             self._entries[key] = entry
 
         # 已监控视频下拉
         self._select_frame = tk.Frame(sec, bg=C["bg_elevated"])
-        self._select_combo = ttk.Combobox(self._select_frame, state="readonly",
-                                          width=50, font=FONT)
+        self._select_combo = ttk.Combobox(self._select_frame, state="readonly", width=50, font=FONT)
         for v in self.monitored_videos:
             bvid = v.get("bvid", "")
             title = v.get("title", "")[:35]
@@ -91,41 +107,44 @@ class WeeklyScoreWindow:
         # 操作按钮
         btn_row = tk.Frame(sec, bg=C["bg_elevated"])
         btn_row.pack(fill=tk.X, pady=(8, 0))
-        ttk.Button(btn_row, text="计算分数", command=self._calculate,
-                   style="Primary.TButton").pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Button(btn_row, text="计算分数", command=self._calculate, style="Primary.TButton").pack(
+            side=tk.LEFT, padx=(0, 4)
+        )
         ttk.Button(btn_row, text="清空", command=self._clear).pack(side=tk.LEFT)
 
         # 结果区域
         res_sec = tk.Frame(self.dlg.container, bg=C["bg_base"])
         res_sec.pack(fill=tk.BOTH, expand=True, padx=24, pady=(10, 0))
 
-        tk.Label(res_sec, text="计算结果", bg=C["bg_base"], fg=C["text_2"],
-                 font=("Microsoft YaHei UI", 8, "bold")).pack(anchor="w")
+        tk.Label(
+            res_sec, text="计算结果", bg=C["bg_base"], fg=C["text_2"], font=("Microsoft YaHei UI", 8, "bold")
+        ).pack(anchor="w")
 
-        text_frame = tk.Frame(res_sec, bg=C["bg_elevated"],
-                              highlightthickness=1, highlightbackground=C["border_sub"])
+        text_frame = tk.Frame(res_sec, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
         text_frame.pack(fill=tk.BOTH, expand=True, pady=(4, 0))
 
-        self._result_text = tk.Text(text_frame, font=("Consolas", 11),
-                                    bg=C["bg_base"], fg=C["text_1"],
-                                    relief="flat", wrap="none",
-                                    state="disabled", cursor="arrow",
-                                    insertbackground=C["text_1"])
-        sb = ttk.Scrollbar(text_frame, orient="vertical",
-                           command=self._result_text.yview)
+        self._result_text = tk.Text(
+            text_frame,
+            font=("Consolas", 11),
+            bg=C["bg_base"],
+            fg=C["text_1"],
+            relief="flat",
+            wrap="none",
+            state="disabled",
+            cursor="arrow",
+            insertbackground=C["text_1"],
+        )
+        sb = ttk.Scrollbar(text_frame, orient="vertical", command=self._result_text.yview)
         self._result_text.config(yscrollcommand=sb.set)
         self._result_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=2, pady=2)
         sb.pack(side=tk.RIGHT, fill=tk.Y)
 
-        self._result_text.tag_configure("title", font=("Consolas", 12, "bold"),
-                                        foreground=C["text_3"])
-        self._result_text.tag_configure("total", font=("Consolas", 14, "bold"),
-                                        foreground=C["bilibili"])
+        self._result_text.tag_configure("title", font=("Consolas", 12, "bold"), foreground=C["text_3"])
+        self._result_text.tag_configure("total", font=("Consolas", 14, "bold"), foreground=C["bilibili"])
         self._result_text.tag_configure("separator", foreground=C["text_3"])
         self._result_text.tag_configure("label", foreground=C["text_2"])
         self._result_text.tag_configure("value", foreground=C["text_1"])
-        self._result_text.tag_configure("detail", foreground=C["accent"],
-                                        font=("Consolas", 10))
+        self._result_text.tag_configure("detail", foreground=C["accent"], font=("Consolas", 10))
 
         self._toggle_mode()
 
@@ -209,14 +228,14 @@ class WeeklyScoreWindow:
         add("─" * 42 + "\n", "separator")
 
         items = [
-            ("播放得点", result.view_score,
-             f"基础 {result.base_view_score:,.2f} × 修正D {result.correction_d:.4f}"),
-            ("互动得点", result.interaction_score,
-             f"({data.danmaku_count + data.reply_count}) × 修正A {result.correction_a:.4f} × 15"),
-            ("收藏得点", result.favorite_score,
-             f"{data.favorite_count:,} × 修正B {result.correction_b:.4f}"),
-            ("硬币得点", result.coin_score,
-             f"{data.coin_count:,} × 修正C {result.correction_c:.4f}"),
+            ("播放得点", result.view_score, f"基础 {result.base_view_score:,.2f} × 修正D {result.correction_d:.4f}"),
+            (
+                "互动得点",
+                result.interaction_score,
+                f"({data.danmaku_count + data.reply_count}) × 修正A {result.correction_a:.4f} × 15",
+            ),
+            ("收藏得点", result.favorite_score, f"{data.favorite_count:,} × 修正B {result.correction_b:.4f}"),
+            ("硬币得点", result.coin_score, f"{data.coin_count:,} × 修正C {result.correction_c:.4f}"),
             ("点赞得点", result.like_score, ""),
         ]
         for name, score, detail in items:

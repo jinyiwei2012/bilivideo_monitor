@@ -2,6 +2,7 @@
 现代化视频搜索界面
 支持B站关键词搜索、批量导入到监控列表
 """
+
 import tkinter as tk
 from tkinter import ttk, messagebox
 from typing import List, Dict, Callable, Optional
@@ -17,8 +18,7 @@ class VideoSearchWindow:
     """视频搜索窗口（现代化风格）"""
 
     def __init__(self, parent=None, on_import: Optional[Callable[[list], None]] = None):
-        self.dlg = DialogBase(parent, "搜索视频 - B站", "920x660",
-                              modal=True)
+        self.dlg = DialogBase(parent, "搜索视频 - B站", "920x660", modal=True)
         self.window = self.dlg.window
         self.on_import = on_import
         self.search_results: List[Dict] = []
@@ -34,17 +34,16 @@ class VideoSearchWindow:
         row = tk.Frame(sec, bg=C["bg_elevated"])
         row.pack(fill=tk.X)
 
-        tk.Label(row, text="关键词", bg=C["bg_elevated"], fg=C["text_2"],
-                 font=FONT).pack(side=tk.LEFT, padx=(4, 8))
+        tk.Label(row, text="关键词", bg=C["bg_elevated"], fg=C["text_2"], font=FONT).pack(side=tk.LEFT, padx=(4, 8))
         self.kw_entry = ttk.Entry(row, width=40, font=FONT)
         self.kw_entry.pack(side=tk.LEFT, padx=(0, 8))
         self.kw_entry.bind("<Return>", lambda e: self._start_search())
 
-        ttk.Button(row, text="搜索", command=self._start_search,
-                   style="Primary.TButton").pack(side=tk.LEFT, padx=(0, 12))
+        ttk.Button(row, text="搜索", command=self._start_search, style="Primary.TButton").pack(
+            side=tk.LEFT, padx=(0, 12)
+        )
 
-        self.status_lbl = tk.Label(row, text="就绪", bg=C["bg_elevated"],
-                                   fg=C["text_3"], font=FONT_SM)
+        self.status_lbl = tk.Label(row, text="就绪", bg=C["bg_elevated"], fg=C["text_3"], font=FONT_SM)
         self.status_lbl.pack(side=tk.RIGHT, padx=8)
 
         # 结果表格
@@ -53,8 +52,7 @@ class VideoSearchWindow:
         tree_frame = tk.Frame(content, bg=C["bg_base"])
         tree_frame.pack(fill=tk.BOTH, expand=True)
 
-        self.tree = ttk.Treeview(tree_frame, columns=cols, show="headings",
-                                 selectmode="extended", height=18)
+        self.tree = ttk.Treeview(tree_frame, columns=cols, show="headings", selectmode="extended", height=18)
         self.tree.heading("bvid", text="BV号")
         self.tree.heading("title", text="标题")
         self.tree.heading("author", text="UP主")
@@ -72,11 +70,13 @@ class VideoSearchWindow:
         vsb.pack(side=tk.RIGHT, fill=tk.Y)
 
         # 底部按钮
-        self.dlg.button_row([
-            ("全选", self._select_all, ""),
-            ("取消全选", self._select_none, ""),
-            ("导入所选到监控", self._do_import, "primary"),
-        ])
+        self.dlg.button_row(
+            [
+                ("全选", self._select_all, ""),
+                ("取消全选", self._select_none, ""),
+                ("导入所选到监控", self._do_import, "primary"),
+            ]
+        )
 
     def _start_search(self):
         kw = self.kw_entry.get().strip()
@@ -98,28 +98,28 @@ class VideoSearchWindow:
         try:
             results = bilibili_api.search_videos(kw, page=1, page_size=20)
             if not results:
-                self.window.after(0, lambda: self.status_lbl.config(
-                    text="未找到结果", fg=C["text_2"]))
+                self.window.after(0, lambda: self.status_lbl.config(text="未找到结果", fg=C["text_2"]))
                 return
             for v in results:
                 bvid = v.get("bvid", "")
                 if not bvid:
                     continue
                 self.search_results.append(v)
-                title = (v.get("title", "")
-                         .replace("<em class=\"keyword\">", "")
-                         .replace("</em>", ""))
-                self.window.after(0, lambda b=bvid, t=title, a=v.get("author", ""),
-                                  p=v.get("play", 0), l=v.get("like", 0):
-                self.tree.insert("", "end", iid=b,
-                                 values=(b, t[:60], a,
-                                         f"{p:,}" if p else "0",
-                                         f"{l:,}" if l else "0")))
-                self.window.after(0, lambda n=len(self.search_results):
-                self.status_lbl.config(text=f"找到 {n} 个结果", fg=C["success"]))
+                title = v.get("title", "").replace('<em class="keyword">', "").replace("</em>", "")
+                self.window.after(
+                    0,
+                    lambda b=bvid, t=title, a=v.get("author", ""), p=v.get("play", 0), l=v.get(
+                        "like", 0
+                    ): self.tree.insert(
+                        "", "end", iid=b, values=(b, t[:60], a, f"{p:,}" if p else "0", f"{l:,}" if l else "0")
+                    ),
+                )
+                self.window.after(
+                    0,
+                    lambda n=len(self.search_results): self.status_lbl.config(text=f"找到 {n} 个结果", fg=C["success"]),
+                )
         except Exception as e:
-            self.window.after(0, lambda: self.status_lbl.config(
-                text=f"搜索失败: {e}", fg=C["danger"]))
+            self.window.after(0, lambda: self.status_lbl.config(text=f"搜索失败: {e}", fg=C["danger"]))
         finally:
             self.searching = False
 

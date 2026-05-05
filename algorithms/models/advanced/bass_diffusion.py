@@ -12,13 +12,13 @@ from algorithms.base import BaseAlgorithm, PredictionResult
 
 logger = logging.getLogger(__name__)
 
-_TS_FMT = '%Y-%m-%d %H:%M:%S'
+_TS_FMT = "%Y-%m-%d %H:%M:%S"
 
 
 class BassDiffusionAlgorithm(BaseAlgorithm):
     """
     Bass Diffusion Model
-    
+
     公式: f(t) = [p + q*F(t)/m] * [m - F(t)]
     其中:
     - p: 创新系数 (外部影响)
@@ -26,63 +26,59 @@ class BassDiffusionAlgorithm(BaseAlgorithm):
     - m: 市场潜力 (最大播放量)
     - F(t): 到时间t的累积采用者
     """
-    
+
     name = "Bass扩散模型"
     algorithm_id = "bass_diffusion"
     description = "基于创新扩散理论，模拟病毒式传播过程"
     category = "扩散模型"
-    
+
     def __init__(self):
         super().__init__()
         self.p = 0.03  # 创新系数
         self.q = 0.38  # 模仿系数 (社交媒体通常较高)
         self.m = 10000000  # 市场潜力 (默认1000万)
-        
-    def predict(
-        self,
-        video_data: Dict[str, Any],
-        threshold: int = 100000
-    ) -> PredictionResult:
+
+    def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
         """
         预测到达目标播放量所需时间
-        
+
         Args:
             video_data: 包含视频数据的字典
             threshold: 目标播放量阈值
-            
+
         Returns:
             PredictionResult 对象
         """
-        current_views = video_data.get('view_count', 0)
-        history_data = video_data.get('history_data', [])
+        current_views = video_data.get("view_count", 0)
+        history_data = video_data.get("history_data", [])
         velocity = self.calculate_velocity(video_data)
-        
+
         if not history_data or len(history_data) < 2:
             return PredictionResult(
                 algorithm_name=self.name,
                 algorithm_id=self.algorithm_id,
                 target_threshold=threshold,
-                predicted_hours=float('inf'),
+                predicted_hours=float("inf"),
                 confidence=0.0,
                 current_views=current_views,
                 current_velocity=velocity,
-                metadata={'error': 'Insufficient data'},
-                timestamp=datetime.now()
+                metadata={"error": "Insufficient data"},
+                timestamp=datetime.now(),
             )
-            
+
         try:
             # 从视频信息调整参数
             self._adjust_parameters(video_data)
-            
+
             # 计算当前时间点
             current_time = datetime.now()
-            earliest_ts = history_data[0]['timestamp']
+            earliest_ts = history_data[0]["timestamp"]
             if isinstance(earliest_ts, (int, float)):
                 earliest = datetime.fromtimestamp(earliest_ts)
             else:
                 earliest = datetime.strptime(earliest_ts, _TS_FMT)
             t_days = (current_time - earliest).total_seconds() / 86400
-            
+
             # 如果已达到目标
             if current_views >= threshold:
                 return PredictionResult(
@@ -93,33 +89,31 @@ class BassDiffusionAlgorithm(BaseAlgorithm):
                     confidence=1.0,
                     current_views=current_views,
                     current_velocity=velocity,
-                    metadata={'method': 'bass_diffusion', 'status': 'already_reached'},
-                    timestamp=datetime.now()
+                    metadata={"method": "bass_diffusion", "status": "already_reached"},
+                    timestamp=datetime.now(),
                 )
-            
+
             # 使用Bass模型预测
-            days_needed = self._predict_days_to_target(
-                current_views, threshold, t_days
-            )
-            
+            days_needed = self._predict_days_to_target(current_views, threshold, t_days)
+
             if days_needed is None or days_needed > 3650:  # 超过10年视为无效
                 return PredictionResult(
                     algorithm_name=self.name,
                     algorithm_id=self.algorithm_id,
                     target_threshold=threshold,
-                    predicted_hours=float('inf'),
+                    predicted_hours=float("inf"),
                     confidence=0.0,
                     current_views=current_views,
                     current_velocity=velocity,
-                    metadata={'error': 'Prediction too far in future'},
-                    timestamp=datetime.now()
+                    metadata={"error": "Prediction too far in future"},
+                    timestamp=datetime.now(),
                 )
-                
+
             predicted_hours = days_needed * 24
-            
+
             # 计算置信度 (基于数据点数量和拟合质量)
             confidence = self._calculate_confidence(history_data)
-            
+
             return PredictionResult(
                 algorithm_name=self.name,
                 algorithm_id=self.algorithm_id,
@@ -128,109 +122,99 @@ class BassDiffusionAlgorithm(BaseAlgorithm):
                 confidence=confidence,
                 current_views=current_views,
                 current_velocity=velocity,
-                metadata={
-                    'method': 'bass_diffusion',
-                    'p': self.p,
-                    'q': self.q,
-                    'm': self.m
-                },
-                timestamp=datetime.now()
+                metadata={"method": "bass_diffusion", "p": self.p, "q": self.q, "m": self.m},
+                timestamp=datetime.now(),
             )
-            
+
         except Exception as e:
             logger.warning(f"Bass扩散模型预测失败: {e}")
             return PredictionResult(
                 algorithm_name=self.name,
                 algorithm_id=self.algorithm_id,
                 target_threshold=threshold,
-                predicted_hours=float('inf'),
+                predicted_hours=float("inf"),
                 confidence=0.0,
                 current_views=current_views,
                 current_velocity=velocity,
-                metadata={'error': str(e)},
-                timestamp=datetime.now()
+                metadata={"error": str(e)},
+                timestamp=datetime.now(),
             )
-    
+
     def _adjust_parameters(self, video_info: Dict[str, Any]):
         """根据视频特征调整Bass模型参数"""
         # 根据粉丝数调整市场潜力
-        if 'follower' in video_info:
-            follower = video_info['follower']
+        if "follower" in video_info:
+            follower = video_info["follower"]
             # 市场潜力与粉丝数相关
             self.m = max(follower * 3, 1000000)
-        
+
         # 根据互动率调整模仿系数
-        if 'like' in video_info and 'view' in video_info:
-            like_rate = video_info['like'] / max(video_info['view'], 1)
+        if "like" in video_info and "view" in video_info:
+            like_rate = video_info["like"] / max(video_info["view"], 1)
             # 高互动率意味着更强的口碑传播
             self.q = min(0.5, 0.3 + like_rate * 10)
-        
+
         # 根据视频质量调整创新系数
-        if 'quality_score' in video_info:
-            quality = video_info['quality_score']
+        if "quality_score" in video_info:
+            quality = video_info["quality_score"]
             self.p = min(0.1, 0.02 + quality * 0.05)
-    
-    def _predict_days_to_target(
-        self, 
-        current_views: int, 
-        target_views: int,
-        current_t: float
-    ) -> Optional[float]:
+
+    def _predict_days_to_target(self, current_views: int, target_views: int, current_t: float) -> Optional[float]:
         """预测到达目标所需天数"""
-        
+
         # Bass模型累积函数
         def bass_cumulative(t):
             if self.p + self.q == 0:
                 return 0
             exp_term = np.exp(-(self.p + self.q) * t)
             return self.m * (1 - exp_term) / (1 + (self.q / self.p) * exp_term)
-        
+
         # 如果目标超过市场潜力，调整市场潜力
         if target_views > self.m * 0.95:
             self.m = target_views * 1.2
-        
+
         # 使用数值方法求解
         # 二分查找找到目标时间
         t_low, t_high = current_t, current_t + 365 * 10  # 最多10年
-        
+
         for _ in range(100):  # 最大迭代次数
             t_mid = (t_low + t_high) / 2
             views_mid = bass_cumulative(t_mid)
-            
+
             if abs(views_mid - target_views) < self.m * 0.001:
                 return t_mid - current_t
-            
+
             if views_mid < target_views:
                 t_low = t_mid
             else:
                 t_high = t_mid
-        
+
         return t_high - current_t
-    
+
     def _calculate_confidence(self, history_data: List[Dict[str, Any]]) -> float:
         """计算预测置信度"""
         n_points = len(history_data)
-        
+
         # 基础置信度
         base_confidence = min(0.95, 0.5 + n_points * 0.02)
-        
+
         # 如果数据点足够多，计算拟合质量
         if n_points >= 5:
             try:
-                views = [d['view'] for d in history_data]
+                views = [d["view"] for d in history_data]
                 # 检查增长是否平滑
                 growth_rates = []
                 for i in range(1, len(views)):
-                    if views[i-1] > 0:
-                        rate = (views[i] - views[i-1]) / views[i-1]
+                    if views[i - 1] > 0:
+                        rate = (views[i] - views[i - 1]) / views[i - 1]
                         growth_rates.append(rate)
-                
+
                 if growth_rates:
                     # 变异系数越小，置信度越高
                     cv = np.std(growth_rates) / (np.mean(growth_rates) + 1e-10)
                     fit_quality = max(0, 1 - cv)
                     base_confidence = 0.6 * base_confidence + 0.4 * fit_quality
-                    
+
             except Exception as e:
                 logger.debug("Bass扩散置信度计算失败: %s", e)
 

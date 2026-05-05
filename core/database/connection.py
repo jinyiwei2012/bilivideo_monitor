@@ -3,18 +3,20 @@
 import requests
 import threading
 
-
 # 模块级共享 Session，复用 TCP 连接，提升封面下载性能
 _http_session = requests.Session()
-_http_session.headers.update({
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                  "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Referer": "https://www.bilibili.com/",
-})
+_http_session.headers.update(
+    {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Referer": "https://www.bilibili.com/",
+    }
+)
 
 
 class _ConnectionCtx:
     """线程安全的数据库连接上下文管理器"""
+
     __slots__ = ("_conn", "_lock")
 
     def __init__(self, conn, lock):

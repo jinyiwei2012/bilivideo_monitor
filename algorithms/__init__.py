@@ -25,18 +25,16 @@ from .graph_neural import VideoGraph, get_video_graph
 
 __all__ = [
     # 基类
-    'BaseAlgorithm',
-
+    "BaseAlgorithm",
     # 管理器
-    'WeightManager',
-    'weight_manager',
-    'AlgorithmRegistry',
-
+    "WeightManager",
+    "weight_manager",
+    "AlgorithmRegistry",
     # 高级模块
-    'OnlineLearner',
-    'get_online_learner',
-    'CausalAnalyzer',
-    'get_causal_analyzer',
-    'VideoGraph',
-    'get_video_graph',
+    "OnlineLearner",
+    "get_online_learner",
+    "CausalAnalyzer",
+    "get_causal_analyzer",
+    "VideoGraph",
+    "get_video_graph",
 ]

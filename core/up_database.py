@@ -1,11 +1,11 @@
 """
 UP主数据库管理模块 — 管理UP主信息与历史趋势数据
 """
+
 import sqlite3
 import os
 from datetime import datetime
 from typing import List, Dict, Optional
-
 
 _DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
 
@@ -72,7 +72,8 @@ class UpDatabase:
         conn = self._get_conn()
         try:
             c = conn.cursor()
-            c.execute("""
+            c.execute(
+                """
                 INSERT INTO up_info (uid, name, face, sign, level,
                                      follower_count, video_count,
                                      total_views, total_likes)
@@ -87,17 +88,19 @@ class UpDatabase:
                     total_views=excluded.total_views,
                     total_likes=excluded.total_likes,
                     updated_at=datetime('now','localtime')
-            """, (
-                info.get('uid', 0),
-                info.get('name', ''),
-                info.get('face', ''),
-                info.get('sign', ''),
-                info.get('level', 0),
-                info.get('follower_count', 0),
-                info.get('video_count', 0),
-                info.get('total_views', 0),
-                info.get('total_likes', 0),
-            ))
+            """,
+                (
+                    info.get("uid", 0),
+                    info.get("name", ""),
+                    info.get("face", ""),
+                    info.get("sign", ""),
+                    info.get("level", 0),
+                    info.get("follower_count", 0),
+                    info.get("video_count", 0),
+                    info.get("total_views", 0),
+                    info.get("total_likes", 0),
+                ),
+            )
             conn.commit()
             return True
         except Exception:
@@ -105,16 +108,18 @@ class UpDatabase:
         finally:
             conn.close()
 
-    def add_history(self, uid: int, follower_count: int = 0,
-                    video_count: int = 0, total_views: int = 0) -> bool:
+    def add_history(self, uid: int, follower_count: int = 0, video_count: int = 0, total_views: int = 0) -> bool:
         """添加UP主历史记录点"""
         conn = self._get_conn()
         try:
             c = conn.cursor()
-            c.execute("""
+            c.execute(
+                """
                 INSERT INTO up_history (uid, follower_count, video_count, total_views)
                 VALUES (?,?,?,?)
-            """, (uid, follower_count, video_count, total_views))
+            """,
+                (uid, follower_count, video_count, total_views),
+            )
             conn.commit()
             return True
         except Exception:
@@ -156,12 +161,15 @@ class UpDatabase:
         conn = self._get_conn()
         try:
             c = conn.cursor()
-            c.execute("""
+            c.execute(
+                """
                 SELECT * FROM up_history
                 WHERE uid=?
                 ORDER BY timestamp DESC
                 LIMIT ?
-            """, (uid, limit))
+            """,
+                (uid, limit),
+            )
             rows = c.fetchall()
             columns = [d[0] for d in c.description]
             return [dict(zip(columns, r)) for r in rows]
@@ -173,13 +181,16 @@ class UpDatabase:
         conn = self._get_conn()
         try:
             c = conn.cursor()
-            c.execute("""
+            c.execute(
+                """
                 SELECT bvid, title, view_count, like_count, coin_count,
                        favorite_count, danmaku_count, reply_count
                 FROM videos
                 WHERE owner_id=?
                 ORDER BY view_count DESC
-            """, (uid,))
+            """,
+                (uid,),
+            )
             rows = c.fetchall()
             columns = [d[0] for d in c.description]
             return [dict(zip(columns, r)) for r in rows]
@@ -191,8 +202,10 @@ class UpDatabase:
         conn = self._get_conn()
         try:
             c = conn.cursor()
-            c.execute("UPDATE up_info SET is_tracking=?, updated_at=datetime('now','localtime') WHERE uid=?",
-                      (1 if tracking else 0, uid))
+            c.execute(
+                "UPDATE up_info SET is_tracking=?, updated_at=datetime('now','localtime') WHERE uid=?",
+                (1 if tracking else 0, uid),
+            )
             conn.commit()
             return True
         except Exception:

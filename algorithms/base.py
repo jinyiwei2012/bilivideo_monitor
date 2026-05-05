@@ -12,6 +12,7 @@ import time
 @dataclass
 class PredictionResult:
     """预测结果"""
+
     algorithm_name: str
     algorithm_id: str
     target_threshold: int  # 目标阈值 (100000, 1000000, 10000000)
@@ -24,15 +25,15 @@ class PredictionResult:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            'algorithm_name': self.algorithm_name,
-            'algorithm_id': self.algorithm_id,
-            'target_threshold': self.target_threshold,
-            'predicted_hours': self.predicted_hours,
-            'confidence': self.confidence,
-            'current_views': self.current_views,
-            'current_velocity': self.current_velocity,
-            'metadata': self.metadata,
-            'timestamp': self.timestamp.isoformat()
+            "algorithm_name": self.algorithm_name,
+            "algorithm_id": self.algorithm_id,
+            "target_threshold": self.target_threshold,
+            "predicted_hours": self.predicted_hours,
+            "confidence": self.confidence,
+            "current_views": self.current_views,
+            "current_velocity": self.current_velocity,
+            "metadata": self.metadata,
+            "timestamp": self.timestamp.isoformat(),
         }
 
 
@@ -55,13 +56,9 @@ class BaseAlgorithm(ABC):
         pass
 
     @abstractmethod
-    def predict(
-        self,
-        video_data: Dict[str, Any],
-        threshold: int = 100000
-    ) -> PredictionResult:
+    def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
         """执行预测
-        
+
         Args:
             video_data: 包含视频所有数据的字典，包括：
                 - view_count: 当前播放量
@@ -69,7 +66,7 @@ class BaseAlgorithm(ABC):
                 - timestamp: 时间戳
                 - 其他视频信息字段
             threshold: 目标播放量阈值（默认10万）
-            
+
         Returns:
             PredictionResult 对象，包含预测结果和元数据
         """
@@ -83,21 +80,21 @@ class BaseAlgorithm(ABC):
         优先使用 video_data['history_data']，取最近两个有效数据点；
         若只有单条数据或无历史则返回 0。
         """
-        history = video_data.get('history_data', [])
+        history = video_data.get("history_data", [])
         if len(history) < 2:
             return 0.0
         try:
             recent = history[-2:]
-            v0 = float(recent[0].get('view_count', 0))
-            v1 = float(recent[-1].get('view_count', 0))
-            t0 = recent[0].get('timestamp', 0)
-            t1 = recent[-1].get('timestamp', 0)
+            v0 = float(recent[0].get("view_count", 0))
+            v1 = float(recent[-1].get("view_count", 0))
+            t0 = recent[0].get("timestamp", 0)
+            t1 = recent[-1].get("timestamp", 0)
             # timestamp 可能是 float（Unix时间戳）或 datetime 对象
-            if hasattr(t0, 'timestamp'):
+            if hasattr(t0, "timestamp"):
                 t0 = t0.timestamp()
             elif not isinstance(t0, (int, float)):
                 t0 = 0
-            if hasattr(t1, 'timestamp'):
+            if hasattr(t1, "timestamp"):
                 t1 = t1.timestamp()
             elif not isinstance(t1, (int, float)):
                 t1 = 0
@@ -110,11 +107,11 @@ class BaseAlgorithm(ABC):
 
     def get_engagement_rate(self, video_data: Dict[str, Any]) -> float:
         """计算综合互动率 = (点赞+投币+收藏+分享) / 播放量，范围 [0, 1]。"""
-        views = max(video_data.get('view_count', 0), 1)
-        likes = video_data.get('like_count', 0) or 0
-        coins = video_data.get('coin_count', 0) or 0
-        favorites = video_data.get('favorite_count', 0) or 0
-        shares = video_data.get('share_count', 0) or 0
+        views = max(video_data.get("view_count", 0), 1)
+        likes = video_data.get("like_count", 0) or 0
+        coins = video_data.get("coin_count", 0) or 0
+        favorites = video_data.get("favorite_count", 0) or 0
+        shares = video_data.get("share_count", 0) or 0
         return min(1.0, (likes + coins + favorites + shares) / views)
 
     def get_quality_score(self, video_data: Dict[str, Any]) -> float:
@@ -123,10 +120,10 @@ class BaseAlgorithm(ABC):
         综合考虑互动率、弹幕密度、投币/点赞比。
         """
         engagement = self.get_engagement_rate(video_data)
-        views = max(video_data.get('view_count', 0), 1)
-        danmaku = video_data.get('danmaku_count', 0) or 0
-        likes = video_data.get('like_count', 0) or 0
-        coins = video_data.get('coin_count', 0) or 0
+        views = max(video_data.get("view_count", 0), 1)
+        danmaku = video_data.get("danmaku_count", 0) or 0
+        likes = video_data.get("like_count", 0) or 0
+        coins = video_data.get("coin_count", 0) or 0
 
         # 弹幕密度（每万播放弹幕数，上限1.0）
         danmaku_density = min(1.0, danmaku / max(views, 1) * 10000)
@@ -142,12 +139,12 @@ class BaseAlgorithm(ABC):
         优先从 history_data 推算（最早记录 → 现在）；
         若无历史则用 video_data['timestamp']（datetime）。
         """
-        history = video_data.get('history_data', [])
+        history = video_data.get("history_data", [])
         now = datetime.now()
         if len(history) >= 1:
-            t = history[0].get('timestamp', None)
+            t = history[0].get("timestamp", None)
             if t is not None:
-                if hasattr(t, 'timestamp'):
+                if hasattr(t, "timestamp"):
                     t = t.timestamp()
                 elif isinstance(t, (int, float)):
                     pass
@@ -160,9 +157,9 @@ class BaseAlgorithm(ABC):
                     t = time.time()
                 return max(0.0, (time.time() - t) / 3600.0)
         # 回退：用 video_data 自身的 timestamp
-        ts = video_data.get('timestamp')
+        ts = video_data.get("timestamp")
         if ts is not None:
-            if hasattr(ts, 'timestamp'):
+            if hasattr(ts, "timestamp"):
                 return max(0.0, (now - ts).total_seconds() / 3600.0)
             if isinstance(ts, (int, float)):
                 return max(0.0, (time.time() - ts) / 3600.0)

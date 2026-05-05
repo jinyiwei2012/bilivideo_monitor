@@ -2,6 +2,7 @@
 Hawkes过程（自激点过程）预测
 通过自激励机制模拟B站视频播放量的级联扩散和病毒式传播
 """
+
 import math
 import numpy as np
 from typing import Dict, Any, List
@@ -31,10 +32,10 @@ class HawkesProcessAlgorithm(BaseAlgorithm):
 
     def __init__(self):
         super().__init__()
-        self.mu = 0.1          # 基础强度
-        self.kappa = 0.3       # 激励强度
-        self.theta = 1.2       # 幂律衰减指数
-        self.c = 1.0           # 截止参数
+        self.mu = 0.1  # 基础强度
+        self.kappa = 0.3  # 激励强度
+        self.theta = 1.2  # 幂律衰减指数
+        self.c = 1.0  # 截止参数
 
     def _power_law_kernel(self, tau: float) -> float:
         """幂律衰减核函数: φ(τ) = κ * (τ + c)^{-(1+θ)}"""
@@ -42,8 +43,7 @@ class HawkesProcessAlgorithm(BaseAlgorithm):
             return 0.0
         return self.kappa * (tau + self.c) ** (-(1 + self.theta))
 
-    def _compute_intensity(self, events: np.ndarray,
-                           t_current: float) -> float:
+    def _compute_intensity(self, events: np.ndarray, t_current: float) -> float:
         """计算给定时刻的强度（截断 >168h 的衰减核，旧事件贡献可忽略）"""
         base = self.mu
         if len(events) == 0:
@@ -59,55 +59,66 @@ class HawkesProcessAlgorithm(BaseAlgorithm):
                 excitation += self._power_law_kernel(tau)
         return base + excitation
 
-    def predict(self, video_data: Dict[str, Any],
-                threshold: int = 100000) -> PredictionResult:
-        current_views = video_data.get('view_count', 0)
-        history = video_data.get('history_data', [])
+    def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
+        current_views = video_data.get("view_count", 0)
+        history = video_data.get("history_data", [])
         velocity = self.calculate_velocity(video_data)
 
         remaining = threshold - current_views
         if remaining <= 0:
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=0, confidence=1.0,
-                current_views=current_views, current_velocity=velocity,
-                metadata={'method': 'hawkes'}, timestamp=datetime.now()
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=0,
+                confidence=1.0,
+                current_views=current_views,
+                current_velocity=velocity,
+                metadata={"method": "hawkes"},
+                timestamp=datetime.now(),
             )
 
         if len(history) < 4 or velocity <= 0:
-            predicted_hours = remaining / velocity if velocity > 0 else float('inf')
+            predicted_hours = remaining / velocity if velocity > 0 else float("inf")
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=0.3,
+                current_views=current_views,
                 current_velocity=velocity,
-                metadata={'method': 'hawkes', 'notes': 'insufficient_data'},
-                timestamp=datetime.now()
+                metadata={"method": "hawkes", "notes": "insufficient_data"},
+                timestamp=datetime.now(),
             )
 
         # 提取时序
         timestamps = []
         views_vals = []
         for h in history:
-            ts = h.get('timestamp', 0)
-            if hasattr(ts, 'timestamp'):
+            ts = h.get("timestamp", 0)
+            if hasattr(ts, "timestamp"):
                 ts = ts.timestamp()
             elif isinstance(ts, str):
                 try:
-                    ts = datetime.strptime(ts, '%Y-%m-%d %H:%M:%S').timestamp()
+                    ts = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S").timestamp()
                 except Exception:
                     continue
             timestamps.append(float(ts))
-            views_vals.append(float(h.get('view_count', 0)))
+            views_vals.append(float(h.get("view_count", 0)))
 
         if len(views_vals) < 4:
             predicted_hours = remaining / velocity
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=0.3,
+                current_views=current_views,
                 current_velocity=velocity,
-                metadata={'method': 'hawkes_fallback'}, timestamp=datetime.now()
+                metadata={"method": "hawkes_fallback"},
+                timestamp=datetime.now(),
             )
 
         try:
@@ -164,7 +175,7 @@ class HawkesProcessAlgorithm(BaseAlgorithm):
 
             # ── 分支比（衡量病毒性） ──────────────────
             # ∫_0^∞ φ(τ)dτ = κ / (θ * c^θ)
-            branching_ratio = self.kappa / (self.theta * (self.c ** self.theta))
+            branching_ratio = self.kappa / (self.theta * (self.c**self.theta))
             # 分支比 > 1 => 超临界（病毒式传播）
             is_viral = branching_ratio > 1.0
 
@@ -207,27 +218,34 @@ class HawkesProcessAlgorithm(BaseAlgorithm):
                 conf = 0.3
 
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=conf, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=conf,
+                current_views=current_views,
                 current_velocity=adjusted_velocity,
                 metadata={
-                    'method': 'hawkes',
-                    'branching_ratio': round(float(branching_ratio), 3),
-                    'is_viral': is_viral,
-                    'current_intensity': round(float(current_intensity), 4),
-                    'n_events': len(events),
-                    'hawkes_velocity': round(float(hawkes_velocity), 2),
-                    'data_points': n,
+                    "method": "hawkes",
+                    "branching_ratio": round(float(branching_ratio), 3),
+                    "is_viral": is_viral,
+                    "current_intensity": round(float(current_intensity), 4),
+                    "n_events": len(events),
+                    "hawkes_velocity": round(float(hawkes_velocity), 2),
+                    "data_points": n,
                 },
-                timestamp=datetime.now()
+                timestamp=datetime.now(),
             )
         except Exception as e:
-            predicted_hours = remaining / velocity if velocity > 0 else float('inf')
+            predicted_hours = remaining / velocity if velocity > 0 else float("inf")
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.0, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=0.0,
+                current_views=current_views,
                 current_velocity=velocity,
-                metadata={'error': str(e)}, timestamp=datetime.now()
+                metadata={"error": str(e)},
+                timestamp=datetime.now(),
             )

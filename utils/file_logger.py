@@ -29,9 +29,9 @@ class FileLogger:
 
         self._lock = threading.Lock()
         self._file = None
-        self._current_date = None      # 当前日志文件对应的日期 (date 对象)
-        self._start_dt = None          # 当前日志文件的起始时间 (datetime)
-        self._midnight_timer = None    # 跨天切换的 after id (仅主线程)
+        self._current_date = None  # 当前日志文件对应的日期 (date 对象)
+        self._start_dt = None  # 当前日志文件的起始时间 (datetime)
+        self._midnight_timer = None  # 跨天切换的 after id (仅主线程)
 
         # 立即打开第一个日志文件
         self._open_file()
@@ -82,6 +82,7 @@ class FileLogger:
         root              : tk.Tk          主窗口
         check_interval_ms : int            检查间隔（毫秒），默认 30 秒
         """
+
         def _check():
             now = datetime.now()
             with self._lock:
@@ -151,8 +152,7 @@ class FileLogger:
         end_dt = datetime.now()
         # 如果跨天关闭，结束时间用 23:59:59
         if end_dt.date() != self._current_date:
-            end_dt = datetime.combine(self._current_date,
-                                      datetime.max.time().replace(microsecond=0))
+            end_dt = datetime.combine(self._current_date, datetime.max.time().replace(microsecond=0))
 
         start_str = self._start_dt.strftime("%H%M%S")
         end_str = end_dt.strftime("%H%M%S")

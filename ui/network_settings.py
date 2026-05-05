@@ -2,6 +2,7 @@
 现代化网络设置窗口 - 配置代理、Cookie等网络参数
 用于绕过B站412频率限制
 """
+
 import tkinter as tk
 from tkinter import ttk, messagebox
 import json
@@ -20,13 +21,10 @@ class NetworkSettingsWindow:
     """网络设置窗口（现代化风格）"""
 
     def __init__(self, parent):
-        self.dlg = DialogBase(parent, "网络设置 - 412错误处理", "760x600",
-                              resizable=(True, True), modal=False)
+        self.dlg = DialogBase(parent, "网络设置 - 412错误处理", "760x600", resizable=(True, True), modal=False)
         self.window = self.dlg.window
 
-        self.config_file = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)),
-            'config', 'network_config.json')
+        self.config_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config", "network_config.json")
         self.config = self._load_config()
         self._create_widgets()
         self._load_current_status()
@@ -34,15 +32,15 @@ class NetworkSettingsWindow:
     def _load_config(self) -> dict:
         if os.path.exists(self.config_file):
             try:
-                with open(self.config_file, 'r', encoding='utf-8') as f:
+                with open(self.config_file, "r", encoding="utf-8") as f:
                     return json.load(f)
             except Exception as e:
                 logger.debug("加载网络配置失败: %s", e)
-        return {'proxies': [], 'cookies': {}}
+        return {"proxies": [], "cookies": {}}
 
     def _save_config(self):
         os.makedirs(os.path.dirname(self.config_file), exist_ok=True)
-        with open(self.config_file, 'w', encoding='utf-8') as f:
+        with open(self.config_file, "w", encoding="utf-8") as f:
             json.dump(self.config, f, ensure_ascii=False, indent=2)
 
     def _create_widgets(self):
@@ -55,186 +53,196 @@ class NetworkSettingsWindow:
         proxy_page = tk.Frame(nb, bg=C["bg_base"])
         nb.add(proxy_page, text="  代理设置  ")
 
-        sec_p = tk.Frame(proxy_page, bg=C["bg_elevated"],
-                         highlightthickness=1, highlightbackground=C["border_sub"])
+        sec_p = tk.Frame(proxy_page, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
         sec_p.pack(fill=tk.BOTH, expand=True, padx=16, pady=12, ipadx=10, ipady=8)
 
-        tk.Label(sec_p, text="HTTP代理列表（每行一个）",
-                 bg=C["bg_elevated"], fg=C["text_2"],
-                 font=FONT).pack(anchor="w", pady=(0, 4))
-        tk.Label(sec_p, text="格式: http://host:port 或 http://user:pass@host:port",
-                 bg=C["bg_elevated"], fg=C["text_3"],
-                 font=FONT_SM).pack(anchor="w")
+        tk.Label(sec_p, text="HTTP代理列表（每行一个）", bg=C["bg_elevated"], fg=C["text_2"], font=FONT).pack(
+            anchor="w", pady=(0, 4)
+        )
+        tk.Label(
+            sec_p,
+            text="格式: http://host:port 或 http://user:pass@host:port",
+            bg=C["bg_elevated"],
+            fg=C["text_3"],
+            font=FONT_SM,
+        ).pack(anchor="w")
 
-        self.proxy_text = tk.Text(sec_p, height=8,
-                                  bg=C["bg_base"], fg=C["text_1"],
-                                  insertbackground=C["text_1"],
-                                  font=("Consolas", 10), relief="flat",
-                                  highlightthickness=1,
-                                  highlightbackground=C["border"])
+        self.proxy_text = tk.Text(
+            sec_p,
+            height=8,
+            bg=C["bg_base"],
+            fg=C["text_1"],
+            insertbackground=C["text_1"],
+            font=("Consolas", 10),
+            relief="flat",
+            highlightthickness=1,
+            highlightbackground=C["border"],
+        )
         self.proxy_text.pack(fill=tk.BOTH, expand=True, pady=6)
-        if self.config.get('proxies'):
-            self.proxy_text.insert('1.0', '\n'.join(self.config.get('proxies', [])))
+        if self.config.get("proxies"):
+            self.proxy_text.insert("1.0", "\n".join(self.config.get("proxies", [])))
 
         btn_row = tk.Frame(sec_p, bg=C["bg_elevated"])
         btn_row.pack(fill=tk.X)
-        ttk.Button(btn_row, text="应用代理",
-                   command=self._apply_proxies).pack(side=tk.LEFT, padx=(0, 4))
-        ttk.Button(btn_row, text="清空代理",
-                   command=self._clear_proxies).pack(side=tk.LEFT, padx=4)
-        ttk.Button(btn_row, text="从配置文件加载",
-                   command=self._load_proxies_from_config).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_row, text="应用代理", command=self._apply_proxies).pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Button(btn_row, text="清空代理", command=self._clear_proxies).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_row, text="从配置文件加载", command=self._load_proxies_from_config).pack(side=tk.LEFT, padx=4)
 
-        tip_p = tk.Label(sec_p, text="使用代理可有效绕过IP级别的频率限制",
-                         bg=C["bg_elevated"], fg=C["warning"],
-                         font=FONT_SM, anchor="w")
+        tip_p = tk.Label(
+            sec_p,
+            text="使用代理可有效绕过IP级别的频率限制",
+            bg=C["bg_elevated"],
+            fg=C["warning"],
+            font=FONT_SM,
+            anchor="w",
+        )
         tip_p.pack(fill=tk.X, pady=(6, 0))
 
         # ── Cookie设置 ──
         cookie_page = tk.Frame(nb, bg=C["bg_base"])
         nb.add(cookie_page, text="  Cookie设置  ")
 
-        sec_c = tk.Frame(cookie_page, bg=C["bg_elevated"],
-                         highlightthickness=1, highlightbackground=C["border_sub"])
+        sec_c = tk.Frame(cookie_page, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
         sec_c.pack(fill=tk.BOTH, expand=True, padx=16, pady=(12, 6), ipadx=10, ipady=6)
 
         # 导入方式选择
         import_row = tk.Frame(sec_c, bg=C["bg_elevated"])
         import_row.pack(fill=tk.X, pady=(0, 6))
-        tk.Label(import_row, text="导入方式:", bg=C["bg_elevated"], fg=C["text_2"],
-                 font=FONT).pack(side=tk.LEFT)
-        ttk.Button(import_row, text="📋 Cookie-Editor JSON",
-                   command=self._import_cookie_editor).pack(side=tk.LEFT, padx=4)
-        ttk.Button(import_row, text="📱 扫码登录",
-                   command=self._qrcode_login).pack(side=tk.LEFT, padx=4)
+        tk.Label(import_row, text="导入方式:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT).pack(side=tk.LEFT)
+        ttk.Button(import_row, text="📋 Cookie-Editor JSON", command=self._import_cookie_editor).pack(
+            side=tk.LEFT, padx=4
+        )
+        ttk.Button(import_row, text="📱 扫码登录", command=self._qrcode_login).pack(side=tk.LEFT, padx=4)
 
         # Cookie 文本区（显示/编辑当前Cookie，key=value 格式）
-        self.cookie_text = tk.Text(sec_c, height=5,
-                                   bg=C["bg_base"], fg=C["text_1"],
-                                   insertbackground=C["text_1"],
-                                   font=("Consolas", 10), relief="flat",
-                                   highlightthickness=1,
-                                   highlightbackground=C["border"])
+        self.cookie_text = tk.Text(
+            sec_c,
+            height=5,
+            bg=C["bg_base"],
+            fg=C["text_1"],
+            insertbackground=C["text_1"],
+            font=("Consolas", 10),
+            relief="flat",
+            highlightthickness=1,
+            highlightbackground=C["border"],
+        )
         self.cookie_text.pack(fill=tk.BOTH, expand=True, pady=4)
         self._refresh_cookie_display()
 
         btn_row_c = tk.Frame(sec_c, bg=C["bg_elevated"])
         btn_row_c.pack(fill=tk.X)
-        ttk.Button(btn_row_c, text="应用Cookie",
-                   command=self._apply_cookies).pack(side=tk.LEFT, padx=(0, 4))
-        ttk.Button(btn_row_c, text="清空Cookie",
-                   command=self._clear_cookies).pack(side=tk.LEFT)
+        ttk.Button(btn_row_c, text="应用Cookie", command=self._apply_cookies).pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Button(btn_row_c, text="清空Cookie", command=self._clear_cookies).pack(side=tk.LEFT)
 
-        tip_c = tk.Label(sec_c, text="Cookie-Editor JSON: 从浏览器扩展导出后粘贴即可。扫码登录无需手动填写。",
-                         bg=C["bg_elevated"], fg=C["warning"],
-                         font=FONT_SM, anchor="w")
+        tip_c = tk.Label(
+            sec_c,
+            text="Cookie-Editor JSON: 从浏览器扩展导出后粘贴即可。扫码登录无需手动填写。",
+            bg=C["bg_elevated"],
+            fg=C["warning"],
+            font=FONT_SM,
+            anchor="w",
+        )
         tip_c.pack(fill=tk.X, pady=(4, 0))
 
         # ── 重试参数 ──
         retry_page = tk.Frame(nb, bg=C["bg_base"])
         nb.add(retry_page, text="  重试参数  ")
 
-        sec_r = tk.Frame(retry_page, bg=C["bg_elevated"],
-                         highlightthickness=1, highlightbackground=C["border_sub"])
+        sec_r = tk.Frame(retry_page, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
         sec_r.pack(fill=tk.X, padx=16, pady=12, ipadx=10, ipady=10)
 
         def _spin_r(parent, label, default, fr, to):
             f = tk.Frame(parent, bg=C["bg_elevated"])
             f.pack(fill=tk.X, pady=4)
-            tk.Label(f, text=label, bg=C["bg_elevated"], fg=C["text_2"],
-                     font=FONT, width=20, anchor="w").pack(side=tk.LEFT)
+            tk.Label(f, text=label, bg=C["bg_elevated"], fg=C["text_2"], font=FONT, width=20, anchor="w").pack(
+                side=tk.LEFT
+            )
             sv = tk.DoubleVar(value=default)
             sp = ttk.Spinbox(f, from_=fr, to=to, textvariable=sv, width=10)
             sp.pack(side=tk.LEFT, padx=(6, 0))
             return sv
 
-        self.retry_count_var = _spin_r(sec_r, "最大重试次数",
-                                       bilibili_api.max_retries, 1, 10)
-        self.base_delay_var = _spin_r(sec_r, "基础重试延迟(秒)",
-                                       bilibili_api.base_retry_delay, 1, 30)
-        self.min_interval_var = _spin_r(sec_r, "最小请求间隔(秒)",
-                                         bilibili_api._min_request_interval, 0.1, 10)
+        self.retry_count_var = _spin_r(sec_r, "最大重试次数", bilibili_api.max_retries, 1, 10)
+        self.base_delay_var = _spin_r(sec_r, "基础重试延迟(秒)", bilibili_api.base_retry_delay, 1, 30)
+        self.min_interval_var = _spin_r(sec_r, "最小请求间隔(秒)", bilibili_api._min_request_interval, 0.1, 10)
 
-        ttk.Button(sec_r, text="应用重试设置",
-                   command=self._apply_retry_settings).pack(anchor="w", pady=(8, 0))
+        ttk.Button(sec_r, text="应用重试设置", command=self._apply_retry_settings).pack(anchor="w", pady=(8, 0))
 
         # ── 状态 ──
         status_page = tk.Frame(nb, bg=C["bg_base"])
         nb.add(status_page, text="  运行状态  ")
 
-        sec_s = tk.Frame(status_page, bg=C["bg_elevated"],
-                         highlightthickness=1, highlightbackground=C["border_sub"])
+        sec_s = tk.Frame(status_page, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
         sec_s.pack(fill=tk.X, padx=16, pady=12, ipadx=10, ipady=8)
 
         self.status_labels = {}
         status_fields = [
-            ('is_login',        '登录状态'),
-            ('login_name',      '登录账号'),
-            ('has_cookies',     'Cookie已配置'),
-            ('consecutive_412_errors', '连续412错误'),
-            ('min_request_interval',   '请求间隔(秒)'),
-            ('proxy_count',     '代理数量'),
+            ("is_login", "登录状态"),
+            ("login_name", "登录账号"),
+            ("has_cookies", "Cookie已配置"),
+            ("consecutive_412_errors", "连续412错误"),
+            ("min_request_interval", "请求间隔(秒)"),
+            ("proxy_count", "代理数量"),
         ]
         for key, label in status_fields:
             f = tk.Frame(sec_s, bg=C["bg_elevated"])
             f.pack(fill=tk.X, pady=2)
-            tk.Label(f, text=label, bg=C["bg_elevated"], fg=C["text_2"],
-                     font=FONT, width=16, anchor="w").pack(side=tk.LEFT)
-            vl = tk.Label(f, text="-", bg=C["bg_elevated"],
-                          fg=C["success"], font=FONT)
+            tk.Label(f, text=label, bg=C["bg_elevated"], fg=C["text_2"], font=FONT, width=16, anchor="w").pack(
+                side=tk.LEFT
+            )
+            vl = tk.Label(f, text="-", bg=C["bg_elevated"], fg=C["success"], font=FONT)
             vl.pack(side=tk.LEFT)
             self.status_labels[key] = vl
 
         btn_s = tk.Frame(sec_s, bg=C["bg_elevated"])
         btn_s.pack(fill=tk.X, pady=(8, 0))
-        ttk.Button(btn_s, text="刷新状态",
-                   command=self._refresh_status).pack(side=tk.LEFT, padx=(0, 4))
-        ttk.Button(btn_s, text="重置状态",
-                   command=self._reset_status).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_s, text="刷新状态", command=self._refresh_status).pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Button(btn_s, text="重置状态", command=self._reset_status).pack(side=tk.LEFT, padx=4)
 
         # ── 底部按钮 ──
-        self.dlg.button_row([
-            ("关闭", self.window.destroy, ""),
-            ("保存所有设置", self._save_all, "primary"),
-        ])
+        self.dlg.button_row(
+            [
+                ("关闭", self.window.destroy, ""),
+                ("保存所有设置", self._save_all, "primary"),
+            ]
+        )
 
     def _apply_proxies(self):
-        text = self.proxy_text.get('1.0', 'end').strip()
-        proxy_list = [line.strip() for line in text.split('\n') if line.strip()]
+        text = self.proxy_text.get("1.0", "end").strip()
+        proxy_list = [line.strip() for line in text.split("\n") if line.strip()]
         bilibili_api.clear_proxies()
         for proxy_str in proxy_list:
-            bilibili_api.add_proxy({'http': proxy_str, 'https': proxy_str})
+            bilibili_api.add_proxy({"http": proxy_str, "https": proxy_str})
         messagebox.showinfo("成功", f"已应用 {len(proxy_list)} 个代理", parent=self.window)
 
     def _clear_proxies(self):
-        self.proxy_text.delete('1.0', 'end')
+        self.proxy_text.delete("1.0", "end")
         bilibili_api.clear_proxies()
 
     def _load_proxies_from_config(self):
-        self.proxy_text.delete('1.0', 'end')
-        if self.config.get('proxies'):
-            self.proxy_text.insert('1.0', '\n'.join(self.config.get('proxies', [])))
+        self.proxy_text.delete("1.0", "end")
+        if self.config.get("proxies"):
+            self.proxy_text.insert("1.0", "\n".join(self.config.get("proxies", [])))
 
     def _get_bilibili_api(self):
         return bilibili_api
 
     # ── Cookie: 刷新显示 ──
     def _refresh_cookie_display(self):
-        self.cookie_text.delete('1.0', tk.END)
+        self.cookie_text.delete("1.0", tk.END)
         cfg = self._get_bilibili_api().get_status()
-        if cfg.get('has_cookies'):
+        if cfg.get("has_cookies"):
             # 从当前 session cookies 读取
             cookies = {}
             for cookie in self._get_bilibili_api().session.cookies:
-                if 'bilibili.com' in (cookie.domain or ''):
+                if "bilibili.com" in (cookie.domain or ""):
                     cookies[cookie.name] = cookie.value
             if cookies:
-                self.cookie_text.insert('1.0', '; '.join(f'{k}={v}' for k, v in cookies.items()))
+                self.cookie_text.insert("1.0", "; ".join(f"{k}={v}" for k, v in cookies.items()))
                 return
         # fallback: 从配置文件读取
-        if self.config.get('cookies'):
-            self.cookie_text.insert('1.0',
-                '; '.join(f'{k}={v}' for k, v in self.config['cookies'].items()))
+        if self.config.get("cookies"):
+            self.cookie_text.insert("1.0", "; ".join(f"{k}={v}" for k, v in self.config["cookies"].items()))
 
     # ── Cookie: 从 Cookie-Editor JSON 导入 ──
     def _import_cookie_editor(self):
@@ -246,19 +254,32 @@ class NetworkSettingsWindow:
         top.transient(self.window)
         top.grab_set()
 
-        tk.Label(top, text="粘贴 Cookie-Editor 导出的 JSON 内容：",
-                 bg=C["bg_surface"], fg=C["text_1"], font=FONT).pack(pady=(12, 4))
-        tk.Label(top, text="格式: [{\"domain\": \".bilibili.com\", \"name\": \"SESSDATA\", ...}]",
-                 bg=C["bg_surface"], fg=C["text_3"], font=FONT_SM).pack()
+        tk.Label(top, text="粘贴 Cookie-Editor 导出的 JSON 内容：", bg=C["bg_surface"], fg=C["text_1"], font=FONT).pack(
+            pady=(12, 4)
+        )
+        tk.Label(
+            top,
+            text='格式: [{"domain": ".bilibili.com", "name": "SESSDATA", ...}]',
+            bg=C["bg_surface"],
+            fg=C["text_3"],
+            font=FONT_SM,
+        ).pack()
 
-        text_w = tk.Text(top, height=10, bg=C["bg_base"], fg=C["text_1"],
-                         font=("Consolas", 10), relief="flat",
-                         highlightthickness=1, highlightbackground=C["border"],
-                         insertbackground=C["text_1"])
+        text_w = tk.Text(
+            top,
+            height=10,
+            bg=C["bg_base"],
+            fg=C["text_1"],
+            font=("Consolas", 10),
+            relief="flat",
+            highlightthickness=1,
+            highlightbackground=C["border"],
+            insertbackground=C["text_1"],
+        )
         text_w.pack(fill=tk.BOTH, expand=True, padx=16, pady=8)
 
         def _do_import():
-            raw = text_w.get('1.0', tk.END).strip()
+            raw = text_w.get("1.0", tk.END).strip()
             if not raw:
                 messagebox.showwarning("提示", "请粘贴 JSON 内容", parent=top)
                 return
@@ -286,18 +307,17 @@ class NetworkSettingsWindow:
 
             api = self._get_bilibili_api()
             api.set_cookies(cookies)
-            self.config['cookies'] = cookies
+            self.config["cookies"] = cookies
             self._refresh_cookie_display()
             self._refresh_status()
             top.destroy()
-            messagebox.showinfo("成功",
-                f"已导入 {len(cookies)} 个 Cookie:\n{', '.join(cookies.keys())}",
-                parent=self.window)
+            messagebox.showinfo(
+                "成功", f"已导入 {len(cookies)} 个 Cookie:\n{', '.join(cookies.keys())}", parent=self.window
+            )
 
         btn_f = tk.Frame(top, bg=C["bg_surface"])
         btn_f.pack(pady=(0, 12))
-        ttk.Button(btn_f, text="导入并应用", command=_do_import,
-                   style="Primary.TButton").pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_f, text="导入并应用", command=_do_import, style="Primary.TButton").pack(side=tk.LEFT, padx=4)
         ttk.Button(btn_f, text="取消", command=top.destroy).pack(side=tk.LEFT, padx=4)
 
     # ── Cookie: 扫码登录 ──
@@ -317,10 +337,12 @@ class NetworkSettingsWindow:
             import qrcode
             from io import BytesIO
             import base64
+
             img = qrcode.make(qr_url)
             img_tk = tk.PhotoImage(width=200, height=200)
             # 转换 PIL Image -> tk PhotoImage
             from PIL import Image, ImageTk
+
             img = img.resize((200, 200))
             self._qr_img = ImageTk.PhotoImage(img)
         except ImportError:
@@ -336,24 +358,34 @@ class NetworkSettingsWindow:
         qr_top.grab_set()
         qr_top.resizable(False, False)
 
-        tk.Label(qr_top, text="请使用 B站 手机客户端扫码", bg=C["bg_surface"],
-                 fg=C["text_1"], font=("Microsoft YaHei UI", 11, "bold")).pack(pady=(14, 6))
+        tk.Label(
+            qr_top,
+            text="请使用 B站 手机客户端扫码",
+            bg=C["bg_surface"],
+            fg=C["text_1"],
+            font=("Microsoft YaHei UI", 11, "bold"),
+        ).pack(pady=(14, 6))
 
         if self._qr_img:
             img_label = tk.Label(qr_top, image=self._qr_img, bg=C["bg_surface"])
             img_label.pack(pady=6)
         else:
             # 文本显示二维码链接
-            tk.Label(qr_top, text=f"扫码链接:\n{qr_url}", bg=C["bg_surface"],
-                     fg=C["text_1"], font=("Consolas", 9), wraplength=280,
-                     justify="left").pack(pady=6, padx=10)
-            tk.Label(qr_top, text="提示: 可用手机浏览器打开此链接再扫码",
-                     bg=C["bg_surface"], fg=C["text_3"],
-                     font=FONT_SM).pack()
+            tk.Label(
+                qr_top,
+                text=f"扫码链接:\n{qr_url}",
+                bg=C["bg_surface"],
+                fg=C["text_1"],
+                font=("Consolas", 9),
+                wraplength=280,
+                justify="left",
+            ).pack(pady=6, padx=10)
+            tk.Label(
+                qr_top, text="提示: 可用手机浏览器打开此链接再扫码", bg=C["bg_surface"], fg=C["text_3"], font=FONT_SM
+            ).pack()
 
         status_var = tk.StringVar(value="等待扫码...")
-        status_lbl = tk.Label(qr_top, textvariable=status_var, bg=C["bg_surface"],
-                              fg=C["text_2"], font=FONT)
+        status_lbl = tk.Label(qr_top, textvariable=status_var, bg=C["bg_surface"], fg=C["text_2"], font=FONT)
         status_lbl.pack(pady=(6, 4))
 
         def _poll():
@@ -365,29 +397,25 @@ class NetworkSettingsWindow:
                 # 登录成功
                 cookies = result.get("cookies", {})
                 if cookies:
-                    self.config['cookies'] = cookies
+                    self.config["cookies"] = cookies
                     self._refresh_cookie_display()
                     self._refresh_status()
                     status_lbl.config(fg=C["success"])
                     qr_top.after(800, qr_top.destroy)
-                    messagebox.showinfo("登录成功",
-                        f"已获取 Cookie: {', '.join(cookies.keys())}",
-                        parent=self.window)
+                    messagebox.showinfo("登录成功", f"已获取 Cookie: {', '.join(cookies.keys())}", parent=self.window)
                 else:
                     # 尝试刷新状态确认是否已设置
                     self._refresh_status()
                     status_lbl.config(fg=C["success"])
                     qr_top.after(800, qr_top.destroy)
-                    messagebox.showinfo("登录成功",
-                        "扫码成功！Cookie 已通过浏览器同步。",
-                        parent=self.window)
+                    messagebox.showinfo("登录成功", "扫码成功！Cookie 已通过浏览器同步。", parent=self.window)
                 return
             elif result.get("status") == -1:
                 status_lbl.config(fg=C["danger"])
                 # 过期，提供重新生成按钮
-                ttk.Button(qr_top, text="重新生成二维码",
-                           command=lambda: [qr_top.destroy(), self._qrcode_login()]
-                           ).pack(pady=4)
+                ttk.Button(
+                    qr_top, text="重新生成二维码", command=lambda: [qr_top.destroy(), self._qrcode_login()]
+                ).pack(pady=4)
                 return
             qr_top.after(1500, _poll)
 
@@ -398,29 +426,28 @@ class NetworkSettingsWindow:
         if messagebox.askyesno("确认", "确定要清空所有 Cookie 吗？", parent=self.window):
             api = self._get_bilibili_api()
             # 清除 bilibili cookies
-            expired = ["SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd",
-                       "sid", "buvid3", "buvid4", "buvid_fp"]
+            expired = ["SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd", "sid", "buvid3", "buvid4", "buvid_fp"]
             for name in expired:
                 api.session.cookies.set(name, "", domain=".bilibili.com")
             api._cookies = {}
-            self.config['cookies'] = {}
+            self.config["cookies"] = {}
             self._refresh_cookie_display()
             self._refresh_status()
             messagebox.showinfo("成功", "Cookie 已清空", parent=self.window)
 
     def _apply_cookies(self):
-        text = self.cookie_text.get('1.0', 'end').strip()
+        text = self.cookie_text.get("1.0", "end").strip()
         if not text:
             messagebox.showwarning("警告", "Cookie不能为空", parent=self.window)
             return
         cookies = {}
-        for item in text.split(';'):
-            if '=' in item:
-                key, value = item.strip().split('=', 1)
+        for item in text.split(";"):
+            if "=" in item:
+                key, value = item.strip().split("=", 1)
                 cookies[key.strip()] = value.strip()
         api = self._get_bilibili_api()
         api.set_cookies(cookies)
-        self.config['cookies'] = cookies
+        self.config["cookies"] = cookies
         self._refresh_status()
         messagebox.showinfo("成功", f"已应用Cookie: {list(cookies.keys())}", parent=self.window)
 
@@ -428,17 +455,17 @@ class NetworkSettingsWindow:
         api = self._get_bilibili_api()
         status = api.get_status()
         for key, label in self.status_labels.items():
-            value = status.get(key, 'N/A')
-            if key == 'is_login':
-                v = '✅ 已登录' if value else '❌ 未登录'
+            value = status.get(key, "N/A")
+            if key == "is_login":
+                v = "✅ 已登录" if value else "❌ 未登录"
                 label.config(fg=C["success"] if value else C["danger"])
-            elif key == 'login_name':
-                v = str(value) if value else '—'
+            elif key == "login_name":
+                v = str(value) if value else "—"
                 label.config(fg=C["text_1"] if value else C["text_3"])
-            elif key == 'has_cookies':
-                v = '是' if value else '否'
+            elif key == "has_cookies":
+                v = "是" if value else "否"
                 label.config(fg=C["success"] if value else C["danger"])
-            elif key == 'consecutive_412_errors':
+            elif key == "consecutive_412_errors":
                 v = str(value)
                 label.config(fg=C["danger"] if value > 0 else C["success"])
             else:
@@ -461,13 +488,13 @@ class NetworkSettingsWindow:
         self._refresh_status()
 
     def _save_all(self):
-        text = self.proxy_text.get('1.0', 'end').strip()
-        self.config['proxies'] = [line.strip() for line in text.split('\n') if line.strip()]
+        text = self.proxy_text.get("1.0", "end").strip()
+        self.config["proxies"] = [line.strip() for line in text.split("\n") if line.strip()]
         self._save_config()
         messagebox.showinfo("成功", "设置已保存", parent=self.window)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     root = tk.Tk()
     root.withdraw()
     window = NetworkSettingsWindow(root)
