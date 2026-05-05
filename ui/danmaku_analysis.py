@@ -48,11 +48,14 @@ class DanmakuAnalysisWindow:
                 for v in self.gui.monitored_videos
             ]
             self._monitor_cb.pack(side=tk.LEFT, padx=(6, 8))
+            self._monitor_cb.bind("<<ComboboxSelected>>", lambda e: self._from_monitor_and_fetch())
+            # 选中第一个后自动填入（但有值时才触发抓取）
             if self._monitor_cb["values"]:
                 self._monitor_cb.current(0)
-            ttk.Button(row0, text="填入BV号", command=self._fill_from_monitor).pack(side=tk.LEFT)
+            ttk.Button(row0, text="🚀 抓取此视频", command=self._from_monitor_and_fetch,
+                       style="Primary.TButton").pack(side=tk.LEFT)
 
-        # 第二行：手动输入 BV + 模式选择
+        # 第二行：手动输入 BV + 模式选择 + 数量限制
         row1 = tk.Frame(sec, bg=C["bg_elevated"])
         row1.pack(fill=tk.X)
         tk.Label(row1, text="BV号:", bg=C["bg_elevated"], fg=C["text_2"],
@@ -71,6 +74,15 @@ class DanmakuAnalysisWindow:
         tk.Radiobutton(row1, text="评论", variable=self._mode_var,
                        value="comment", bg=C["bg_elevated"],
                        command=self._update_hint).pack(side=tk.LEFT, padx=2)
+
+        # 获取数量选择
+        tk.Label(row1, text="数量:", bg=C["bg_elevated"], fg=C["text_2"],
+                 font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT, padx=(10, 2))
+        self._limit_var = tk.StringVar(value="全量")
+        self._limit_cb = ttk.Combobox(row1, textvariable=self._limit_var,
+                                      width=8, font=("Microsoft YaHei UI", 9),
+                                      values=["全量", "50", "100", "500", "1000", "2000"])
+        self._limit_cb.pack(side=tk.LEFT)
 
         self._fetch_btn = ttk.Button(row1, text="抓取并分析",
                                       command=self._analyze,
@@ -185,6 +197,13 @@ class DanmakuAnalysisWindow:
         hint = "输入视频BV号，抓取弹幕分析情感倾向与高频内容"
         self._status_lbl.config(text=hint)
 
+    def _get_limit(self) -> int:
+        """从 UI 获取用户设置的数量限制，0 表示全量"""
+        v = self._limit_var.get()
+        if v == "全量":
+            return 0
+        return int(v)
+
     def _analyze(self):
         bvid = self._bv_entry.get().strip()
         if not bvid:
@@ -194,6 +213,8 @@ class DanmakuAnalysisWindow:
         if not self.api:
             messagebox.showerror("错误", "API不可用", parent=self.window)
             return
+
+        limit = self._get_limit()
 
         self._fetch_btn.config(state="disabled")
         self._status_lbl.config(text="正在抓取数据...", fg=C["text_2"])
@@ -222,6 +243,8 @@ class DanmakuAnalysisWindow:
                     self._fetch_btn.config(state="normal")
                     return
                 texts = [d["text"] for d in danmaku if d.get("text")]
+                if limit > 0:
+                    texts = texts[:limit]
             else:
                 # 评论：需要 aid
                 info = self.api.get_video_info(bvid)
@@ -235,7 +258,7 @@ class DanmakuAnalysisWindow:
                     self._fetch_btn.config(state="normal")
                     return
 
-                comments = self.api.get_video_comments(aid)
+                comments = self.api.get_video_comments(aid, limit=limit if limit > 0 else 0)
                 if not comments:
                     self._status_lbl.config(text="未获取到评论", fg=C["warning"])
                     self._fetch_btn.config(state="normal")
@@ -244,8 +267,9 @@ class DanmakuAnalysisWindow:
 
             self._texts = texts
             self._current_bvid = bvid
+            limit_label = f"（限制 {limit} 条）" if limit > 0 else "（全量）"
             self._status_lbl.config(
-                text=f"抓取成功：共 {len(texts)} 条{mode}",
+                text=f"抓取成功：共 {len(texts)} 条{mode} {limit_label}",
                 fg=C["success"])
             self._display_results(texts)
             self._save_btn.config(state="normal")
@@ -297,14 +321,15 @@ class DanmakuAnalysisWindow:
 
     # ── 新增方法 ────────────────────────────────────
 
-    def _fill_from_monitor(self):
-        """从监控列表选择填入BV号"""
+    def _from_monitor_and_fetch(self):
+        """从监控列表选择后直接抓取分析"""
         sel = self._monitor_var.get()
         if not sel:
             return
         bvid = sel.split()[0]
         self._bv_entry.delete(0, tk.END)
         self._bv_entry.insert(0, bvid)
+        self._analyze()
 
     def _save_to_file(self, silent: bool = False):
         """保存弹幕/评论到 BV 对应文件夹"""
@@ -342,12 +367,12 @@ class DanmakuAnalysisWindow:
                 fg=C["success"])
 
     def _llm_analysis(self):
-        """使用LLM深度分析弹幕/评论"""
+        """使用LLM深度分析弹幕/评论（后台线程，不阻塞UI）"""
         if not self._texts:
             messagebox.showinfo("提示", "请先抓取数据", parent=self.window)
             return
 
-        # 尝试加载API配置
+        # 加载API配置
         try:
             from config import load_config
             cfg = load_config().get("ai", {})
@@ -367,7 +392,14 @@ class DanmakuAnalysisWindow:
         self._status_lbl.config(text="LLM分析中...", fg=C["text_2"])
         self.window.update_idletasks()
 
-        # 构建分析提示
+        # 显示等待
+        self._llm_text.config(state="normal")
+        self._llm_text.delete("1.0", tk.END)
+        self._llm_text.insert(tk.END, "LLM分析请求已发送，请稍候...\n", "dim")
+        self._llm_text.config(state="disabled")
+        self.window.update_idletasks()
+
+        # 准备请求参数
         mode = self._mode_var.get()
         sample = self._texts[:100]
         prompt = (
@@ -383,48 +415,70 @@ class DanmakuAnalysisWindow:
         for i, t in enumerate(sample[:50], 1):
             prompt += f"{i}. {t}\n"
 
-        # 显示等待
-        self._llm_text.config(state="normal")
-        self._llm_text.delete("1.0", tk.END)
-        self._llm_text.insert(tk.END, "LLM分析请求已发送，请稍候...\n", "dim")
-        self._llm_text.config(state="disabled")
-        self.window.update_idletasks()
+        import threading
+        def _worker():
+            nonlocal_text = None
+            try:
+                import requests as req
+                is_claude = "anthropic.com" in endpoint
+                if is_claude:
+                    resp = req.post(
+                        endpoint,
+                        headers={"x-api-key": api_key, "Content-Type": "application/json",
+                                 "anthropic-version": "2023-06-01"},
+                        json={
+                            "model": model,
+                            "max_tokens": 2048,
+                            "messages": [{"role": "user", "content": prompt}],
+                        },
+                        timeout=60,
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        content_list = data.get("content", [])
+                        nonlocal_text = content_list[0].get("text", "") if content_list else ""
+                    else:
+                        nonlocal_text = f"API请求失败 (HTTP {resp.status_code})\n{resp.text[:500]}"
+                else:
+                    resp = req.post(
+                        endpoint,
+                        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                        json={
+                            "model": model,
+                            "messages": [
+                                {"role": "system", "content": "你是一个专业的数据分析助手，擅长从弹幕和评论中提取洞察。"},
+                                {"role": "user", "content": prompt},
+                            ],
+                            "max_tokens": 2048,
+                            "temperature": 0.5,
+                        },
+                        timeout=120,
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        nonlocal_text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                        if not nonlocal_text:
+                            nonlocal_text = str(data)[:500]
+                    else:
+                        nonlocal_text = f"API请求失败 (HTTP {resp.status_code})\n{resp.text[:500]}"
+            except Exception as e:
+                nonlocal_text = f"LLM分析异常: {e}"
 
-        try:
-            import requests
-            resp = requests.post(
-                endpoint,
-                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                json={
-                    "model": model,
-                    "messages": [
-                        {"role": "system", "content": "你是一个专业的数据分析助手，擅长从弹幕和评论中提取洞察。"},
-                        {"role": "user", "content": prompt},
-                    ],
-                    "max_tokens": 2048,
-                    "temperature": 0.5,
-                },
-                timeout=60,
-            )
-            if resp.status_code == 200:
-                result = resp.json()["choices"][0]["message"]["content"]
-            else:
-                result = f"API请求失败 (HTTP {resp.status_code})"
-        except Exception as e:
-            result = f"LLM分析异常: {e}"
+            def _update_ui(result_text):
+                self._llm_text.config(state="normal")
+                self._llm_text.delete("1.0", tk.END)
+                title = f"🎯 LLM {mode}深度分析报告\n"
+                meta = f"BV: {self._current_bvid}  |  数据: {len(self._texts)}条  |  模型: {model}\n\n"
+                self._llm_text.insert(tk.END, title, "head")
+                self._llm_text.insert(tk.END, meta, "dim")
+                self._llm_text.insert(tk.END, result_text, "body")
+                self._llm_text.config(state="disabled")
+                self._llm_btn.config(state="normal")
+                self._status_lbl.config(text="LLM分析完成", fg=C["success"])
 
-        self._llm_text.config(state="normal")
-        self._llm_text.delete("1.0", tk.END)
+            self.window.after(0, _update_ui, nonlocal_text)
 
-        title = f"🎯 LLM {mode}深度分析报告\n"
-        meta = f"BV: {self._current_bvid}  |  数据: {len(self._texts)}条  |  模型: {model}\n\n"
-        self._llm_text.insert(tk.END, title, "head")
-        self._llm_text.insert(tk.END, meta, "dim")
-        self._llm_text.insert(tk.END, result, "body")
-
-        self._llm_text.config(state="disabled")
-        self._llm_btn.config(state="normal")
-        self._status_lbl.config(text="LLM分析完成", fg=C["success"])
+        threading.Thread(target=_worker, daemon=True).start()
 
     def _draw_pie(self, sentiment: dict):
         c = self._pie_canvas

@@ -167,11 +167,8 @@ class Dialogs:
     # ──────────────────────────────────────────
 
     def open_network_settings(self):
-        try:
-            from .network_settings import NetworkSettingsWindow
-            NetworkSettingsWindow(self.gui.root)
-        except Exception as e:
-            messagebox.showerror("错误", f"打开网络设置失败: {e}")
+        # 网络设置已合并到系统设置
+        self.open_settings()
 
     # ──────────────────────────────────────────
     # 系统设置

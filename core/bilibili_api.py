@@ -5,6 +5,7 @@ B站API模块 - 封装B站相关接口
 import requests
 import re
 import time
+import math
 import random
 import logging
 import threading
@@ -540,27 +541,42 @@ class BilibiliAPI:
             logger.error(f"获取弹幕失败: {e}")
             return []
 
-    def get_video_comments(self, aid: int, page: int = 1) -> List[Dict]:
-        """获取视频评论（需WBI签名）
+    def get_video_comments(self, aid: int, limit: int = 20) -> List[Dict]:
+        """获取视频评论（需WBI签名），支持翻页
+
+        Args:
+            aid: 视频 aid
+            limit: 最大获取条数，默认 20（一页）。设为 0 获取全量（最多 5000 条）
 
         Returns:
             [{"content": str, "like": int, "ctime": int, "uname": str}, ...]
         """
-        params = {'oid': aid, 'type': 1, 'pn': page, 'ps': 20, 'sort': 2}
-        params = self._wbi_sign(params)
-        data = self._request('GET', self.COMMENT_URL, params=params)
-        if data and 'replies' in data:
-            replies = []
+        max_pages = 50 if limit == 0 else max(1, math.ceil(limit / 20))
+        max_pages = min(max_pages, 250)  # 最多 5000 条
+        all_replies = []
+
+        for page in range(1, max_pages + 1):
+            params = {'oid': aid, 'type': 1, 'pn': page, 'ps': 20, 'sort': 2}
+            params = self._wbi_sign(params)
+            data = self._request('GET', self.COMMENT_URL, params=params)
+            if not data or 'replies' not in data or not data['replies']:
+                break
+
             for r in data['replies']:
-                replies.append({
+                all_replies.append({
                     'content': r.get('content', {}).get('message', ''),
                     'like': r.get('like', 0),
                     'ctime': r.get('ctime', 0),
                     'uname': r.get('member', {}).get('uname', ''),
                     'mid': r.get('mid', 0),
                 })
-            return replies
-        return []
+
+            if limit > 0 and len(all_replies) >= limit:
+                return all_replies[:limit]
+
+            self._apply_request_interval()
+
+        return all_replies[:limit] if limit > 0 else all_replies
 
     # ── 热门视频 ─────────────────────────────────────────
     def get_popular_videos(self, pn: int = 1, ps: int = 20) -> List[Dict]:
@@ -589,11 +605,28 @@ class BilibiliAPI:
 
     def get_status(self) -> Dict:
         """获取API状态信息"""
+        # 验证登录状态
+        login_status = False
+        login_name = ""
+        has_sessdata = bool(self.session.cookies.get("SESSDATA", domain=".bilibili.com")
+                          or self._cookies.get("SESSDATA"))
+        if has_sessdata:
+            try:
+                nav = self._request("GET", f"{self.BASE_URL}/x/web-interface/nav",
+                                    skip_retry=True)
+                if nav and nav.get("isLogin"):
+                    login_status = True
+                    login_name = nav.get("uname", "")
+            except Exception:
+                pass
         return {
             'consecutive_412_errors': self._consecutive_412_errors,
             'min_request_interval': self._min_request_interval,
             'proxy_count': len(self.proxies),
             'has_cookies': bool(self._cookies),
+            'has_sessdata': has_sessdata,
+            'is_login': login_status,
+            'login_name': login_name,
         }
     
     def reset_status(self):
@@ -635,6 +668,7 @@ class BilibiliAPI:
             {"status": int, "message": str, "cookies": dict}
             status: 0=未扫码, 1=已扫码待确认, 2=已确认/成功, -1=已过期
         """
+        from urllib.parse import urlparse, parse_qs
         url = "https://passport.bilibili.com/x/passport-login/web/qrcode/poll"
         result = {"status": 0, "message": "等待扫码", "cookies": {}}
         try:
@@ -654,19 +688,38 @@ class BilibiliAPI:
             code = data.get("code", -1)
             if code == 0:
                 d = data.get("data", {})
-                status = d.get("status", False)
-                if status:
-                    # 扫码成功，从 response cookies 提取
+                scan_status = d.get("status", False)
+                if scan_status:
                     result["status"] = 2
                     result["message"] = "登录成功"
-                    # 从 session 中提取 B 站 cookies
-                    for cookie in self.session.cookies:
-                        if "bilibili.com" in (cookie.domain or "") or ".bilibili.com" in (cookie.domain or ""):
-                            result["cookies"][cookie.name] = cookie.value
-                    # 如果 session cookies 为空，从 Set-Cookie 响应头获取
+                    # 方式1: 从 data.url 中提取 token（B站标准流程）
+                    redirect_url = d.get("url", "")
+                    if redirect_url:
+                        parsed = urlparse(redirect_url)
+                        params = parse_qs(parsed.query)
+                        for key in ("SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd", "sid"):
+                            val = params.get(key, [None])[0]
+                            if val:
+                                result["cookies"][key] = val
+                    # 方式2: 从 Set-Cookie 响应头提取
                     if not result["cookies"]:
-                        for k, v in resp.cookies.items():
-                            result["cookies"][k] = v
+                        set_cookie = resp.headers.get("Set-Cookie", "")
+                        for part in set_cookie.split(";"):
+                            if "=" in part:
+                                k, v = part.strip().split("=", 1)
+                                k = k.strip()
+                                if k in ("SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd", "sid"):
+                                    result["cookies"][k] = v.split(";")[0].split(",")[0].strip()
+                    # 方式3: 从 requests session cookies 提取
+                    if not result["cookies"]:
+                        for cookie in self.session.cookies:
+                            if "bilibili.com" in (cookie.domain or "") or ".bilibili.com" in (cookie.domain or ""):
+                                result["cookies"][cookie.name] = cookie.value
+                    # 方式4: 从 resp.cookies 提取
+                    if not result["cookies"]:
+                        for k in ("SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd", "sid"):
+                            if k in resp.cookies:
+                                result["cookies"][k] = resp.cookies[k]
                     # 应用 cookies
                     if result["cookies"]:
                         self.set_cookies(result["cookies"])

@@ -164,12 +164,19 @@ class NetworkSettingsWindow:
         sec_s.pack(fill=tk.X, padx=16, pady=12, ipadx=10, ipady=8)
 
         self.status_labels = {}
-        for key in ['consecutive_412_errors', 'min_request_interval',
-                    'proxy_count', 'has_cookies']:
+        status_fields = [
+            ('is_login',        '登录状态'),
+            ('login_name',      '登录账号'),
+            ('has_cookies',     'Cookie已配置'),
+            ('consecutive_412_errors', '连续412错误'),
+            ('min_request_interval',   '请求间隔(秒)'),
+            ('proxy_count',     '代理数量'),
+        ]
+        for key, label in status_fields:
             f = tk.Frame(sec_s, bg=C["bg_elevated"])
             f.pack(fill=tk.X, pady=2)
-            tk.Label(f, text=key, bg=C["bg_elevated"], fg=C["text_2"],
-                     font=FONT, width=28, anchor="w").pack(side=tk.LEFT)
+            tk.Label(f, text=label, bg=C["bg_elevated"], fg=C["text_2"],
+                     font=FONT, width=16, anchor="w").pack(side=tk.LEFT)
             vl = tk.Label(f, text="-", bg=C["bg_elevated"],
                           fg=C["success"], font=FONT)
             vl.pack(side=tk.LEFT)
@@ -206,8 +213,6 @@ class NetworkSettingsWindow:
             self.proxy_text.insert('1.0', '\n'.join(self.config.get('proxies', [])))
 
     def _get_bilibili_api(self):
-        """获取 bilibili_api 实例，延迟导入避免循环"""
-        from core.bilibili_api import bilibili_api
         return bilibili_api
 
     # ── Cookie: 刷新显示 ──
@@ -365,6 +370,14 @@ class NetworkSettingsWindow:
                     messagebox.showinfo("登录成功",
                         f"已获取 Cookie: {', '.join(cookies.keys())}",
                         parent=self.window)
+                else:
+                    # 尝试刷新状态确认是否已设置
+                    self._refresh_status()
+                    status_lbl.config(fg=C["success"])
+                    qr_top.after(800, qr_top.destroy)
+                    messagebox.showinfo("登录成功",
+                        "扫码成功！Cookie 已通过浏览器同步。",
+                        parent=self.window)
                 return
             elif result.get("status") == -1:
                 status_lbl.config(fg=C["danger"])
@@ -409,10 +422,17 @@ class NetworkSettingsWindow:
         messagebox.showinfo("成功", f"已应用Cookie: {list(cookies.keys())}", parent=self.window)
 
     def _refresh_status(self):
-        status = bilibili_api.get_status()
+        api = self._get_bilibili_api()
+        status = api.get_status()
         for key, label in self.status_labels.items():
             value = status.get(key, 'N/A')
-            if key == 'has_cookies':
+            if key == 'is_login':
+                v = '✅ 已登录' if value else '❌ 未登录'
+                label.config(fg=C["success"] if value else C["danger"])
+            elif key == 'login_name':
+                v = str(value) if value else '—'
+                label.config(fg=C["text_1"] if value else C["text_3"])
+            elif key == 'has_cookies':
                 v = '是' if value else '否'
                 label.config(fg=C["success"] if value else C["danger"])
             elif key == 'consecutive_412_errors':

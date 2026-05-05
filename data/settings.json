@@ -1,9 +1,8 @@
 {
   "onebot": {
-    "enabled": false,
+    "enabled": true,
     "http_url": "http://127.0.0.1:5700",
     "ws_url": "ws://127.0.0.1:6700",
-    "access_token": "",
     "private_qq": "",
     "group_qq": ""
   },
@@ -43,6 +42,12 @@
     "default_path": "",
     "auto_export": false,
     "export_format": "csv"
+  },
+  "ai": {
+    "enabled": true,
+    "api_key": "",
+    "endpoint": "https://api.deepseek.com/v1/chat/completions",
+    "model": "deepseek-chat"
   },
   "watch_list": [
     "BV1Y26wBcERw",
