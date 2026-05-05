@@ -395,7 +395,7 @@ class Dialogs:
     def open_ai_qa(self):
         try:
             from .ai_qa_window import AIQAWindow
-            AIQAWindow(self.gui.root)
+            AIQAWindow(self.gui.root, gui=self.gui)
         except Exception as e:
             import traceback
             messagebox.showerror("错误", f"打开AI问答失败: {e}\n{traceback.format_exc()}")

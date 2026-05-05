@@ -4,6 +4,7 @@
 """
 
 import numpy as np
+from scipy import linalg
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 from algorithms.base import BaseAlgorithm
@@ -153,7 +154,7 @@ class GaussianProcessAlgorithm(BaseAlgorithm):
         # Cholesky 分解求解 K^(-1) * y（比直接求逆快 2 倍、数值更稳定）
         try:
             L = np.linalg.cholesky(K)
-            self._alpha = np.linalg.cho_solve((L, False), y)
+            self._alpha = linalg.cho_solve((L, False), y)
             self._L = L
         except np.linalg.LinAlgError:
             # fallback：对非正定矩阵使用伪逆
@@ -180,7 +181,7 @@ class GaussianProcessAlgorithm(BaseAlgorithm):
         mu = K_s.T @ self._alpha
         
         if self._L is not None:
-            v = np.linalg.cho_solve((self._L, False), K_s)
+            v = linalg.cho_solve((self._L, False), K_s)
             cov = K_ss - K_s.T @ v
         else:
             cov = K_ss - K_s.T @ np.linalg.lstsq(self.X_train, K_s, rcond=None)[0]
