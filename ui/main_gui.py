@@ -103,6 +103,9 @@ class BilibiliMonitorGUI:
     def _build_ui(self):
         self._build_titlebar()
         self.log_panel = LogPanel(self.root, self._file_logger)
+        # 将标准 logging 桥接到 GUI 日志面板
+        from ui.log_panel import install_logging_bridge
+        install_logging_bridge(self.log_panel)
         self._build_main()
         self.bottom_bar = BottomBar(self.root, self)
         self._build_status_bar()

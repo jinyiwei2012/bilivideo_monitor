@@ -200,7 +200,7 @@ class BilibiliAPI:
                 # 检查HTTP状态码
                 if response.status_code == 412:
                     self._consecutive_412_errors += 1
-                    logger.warning(f"HTTP 412错误 (第{attempt + 1}次尝试)")
+                    logger.error(f"HTTP 412错误 (第{attempt + 1}次尝试)")
                     if attempt < max_retries and not skip_retry:
                         delay = self._get_retry_delay(attempt)
                         logger.info(f"等待 {delay:.1f} 秒后重试...")
@@ -227,7 +227,7 @@ class BilibiliAPI:
                 if self._is_412_error(data):
                     self._consecutive_412_errors += 1
                     error_code, error_msg = self._get_error_info(data)
-                    logger.warning(f"B站API 412错误: {error_msg} (第{attempt + 1}次尝试)")
+                    logger.error(f"B站API 412错误: {error_msg} (第{attempt + 1}次尝试)")
                     
                     if attempt < max_retries and not skip_retry:
                         delay = self._get_retry_delay(attempt)
@@ -241,22 +241,22 @@ class BilibiliAPI:
                 
                 # 其他API错误，不重试
                 if api_code != 0:
-                    logger.warning(f"API错误 [{api_code}]: {data.get('message', '')}")
+                    logger.error(f"API错误 [{api_code}]: {data.get('message', '')}")
                 
                 return data.get('data') if 'data' in data else None
                 
             except requests.exceptions.Timeout:
                 last_error = "请求超时"
-                logger.warning(f"请求超时 (第{attempt + 1}次尝试)")
+                logger.error(f"请求超时 (第{attempt + 1}次尝试)")
                 
             except requests.exceptions.ConnectionError as e:
                 last_error = f"连接错误: {e}"
-                logger.warning(f"连接错误 (第{attempt + 1}次尝试): {e}")
+                logger.error(f"连接错误 (第{attempt + 1}次尝试): {e}")
                 
             except requests.exceptions.HTTPError as e:
                 last_error = f"HTTP错误: {e}"
                 if response.status_code in [502, 503, 504]:
-                    logger.warning(f"服务器错误 {response.status_code} (第{attempt + 1}次尝试)")
+                    logger.error(f"服务器错误 {response.status_code} (第{attempt + 1}次尝试)")
                 else:
                     logger.error(f"HTTP错误: {e}")
                     break  # 非临时错误不重试

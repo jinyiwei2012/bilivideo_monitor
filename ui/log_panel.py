@@ -5,8 +5,58 @@ import tkinter as tk
 from tkinter import ttk
 from datetime import datetime
 import queue
+import logging
 import customtkinter as ctk
 from ui.theme import C, _recolor_text_tags
+
+
+class LogPanelHandler(logging.Handler):
+    """将 Python logging 接入 GUI 日志面板"""
+
+    LEVEL_MAP = {
+        logging.DEBUG: "DEBUG",
+        logging.INFO: "INFO",
+        logging.WARNING: "WARNING",
+        logging.ERROR: "ERROR",
+        logging.CRITICAL: "ERROR",
+    }
+
+    def __init__(self, log_panel: "LogPanel"):
+        super().__init__()
+        self._log_panel = log_panel
+
+    def emit(self, record: logging.LogRecord):
+        level = self.LEVEL_MAP.get(record.levelno, "INFO")
+        msg = self.format(record)
+        try:
+            self._log_panel.add_log(level, msg)
+        except Exception:
+            pass
+
+
+_LOGGER_HANDLER_INSTALLED = False
+
+
+def install_logging_bridge(log_panel: "LogPanel", level=logging.INFO):
+    """将核心模块的 logging 输出桥接到 GUI 日志面板
+
+    调用一次即可，会自动附加到所有关心的 logger。
+    """
+    global _LOGGER_HANDLER_INSTALLED
+    if _LOGGER_HANDLER_INSTALLED:
+        return
+
+    handler = LogPanelHandler(log_panel)
+    handler.setLevel(level)
+    fmt = logging.Formatter("%(name)s:%(message)s")
+    handler.setFormatter(fmt)
+
+    for name in ("core.bilibili_api", "core.database", "algorithms", "utils"):
+        logger = logging.getLogger(name)
+        logger.addHandler(handler)
+        logger.setLevel(min(logger.level, level))
+
+    _LOGGER_HANDLER_INSTALLED = True
 
 
 class LogPanel:
