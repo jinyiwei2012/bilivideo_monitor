@@ -359,6 +359,22 @@ class VideoWorker:
         except Exception as e:
             self._log("WARNING", f"[{bvid}] 写数据库失败: {e}")
 
+        # ── 智能预警 ─────────────────────────────
+        try:
+            from core.smart_alert import AnomalyDetector
+            if bvid in gui.video_dbs:
+                raw = gui.video_dbs[bvid].get_all_records()
+                if len(raw) >= 3:
+                    alerts = AnomalyDetector.detect_all(raw, bvid=bvid)
+                    if alerts:
+                        for msg in alerts:
+                            gui.notification.send_threshold_notification(
+                                "智能预警", bvid, msg,
+                                video.get("title", ""), video.get("view_count", 0))
+                            self._log("ALERT", f"[{bvid}] {msg}")
+        except Exception as e:
+            self._log("WARNING", f"[{bvid}] 智能预警异常: {e}")
+
         # ── 预测 ─────────────────────────────────
         try:
             result = _predict_single(gui, bvid, video)

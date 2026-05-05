@@ -37,6 +37,12 @@ class BilibiliAPI:
     SEARCH_URL = "https://api.bilibili.com/x/web-interface/search/type"
     VIDEO_URL = "https://api.bilibili.com/x/web-interface/view"
     VIEWERS_URL = "https://api.bilibili.com/x/player/online/total"
+    DANMAKU_URL = "https://api.bilibili.com/x/v1/dm/list.so"
+    COMMENT_URL = "https://api.bilibili.com/x/v2/reply/main"
+    POPULAR_URL = "https://api.bilibili.com/x/web-interface/popular"
+
+    # wbi 密钥（运行时刷新）
+    _wbi_key = None
     
     # 多个User-Agent轮换使用
     USER_AGENTS = [
@@ -377,9 +383,9 @@ class BilibiliAPI:
         video_info = self.get_video_info(bvid)
         if not video_info:
             return None
-        
+
         viewers_data = self.get_video_viewers(bvid, video_info.get('cid', 0))
-        
+
         return {
             'bvid': bvid,
             'title': video_info.get('title', ''),
@@ -391,7 +397,163 @@ class BilibiliAPI:
             'viewers_web': viewers_data.get('count', 0) if viewers_data else 0,
             'viewers_app': (viewers_data.get('total', 0) - viewers_data.get('count', 0)) if viewers_data else 0,
         }
+
+    # ── UP主相关 ──────────────────────────────────────────
+    def get_up_info(self, uid: int) -> Optional[Dict]:
+        """获取UP主基本信息"""
+        url = f"{self.BASE_URL}/x/space/acc/info"
+        data = self._request('GET', url, params={'mid': uid})
+        if data:
+            return {
+                'uid':            data.get('mid', uid),
+                'name':           data.get('name', ''),
+                'face':           data.get('face', ''),
+                'sign':           data.get('sign', ''),
+                'level':          data.get('level', 0),
+                'follower_count': data.get('fans', 0) or data.get('follower', 0),
+                'video_count':    data.get('video_count', data.get('videos', 0)),
+                'official_verify': data.get('official_verify', {}),
+                'nameplate':      data.get('nameplate', {}),
+            }
+        return None
+
+    def get_up_videos(self, uid: int, page: int = 1, page_size: int = 30) -> List[Dict]:
+        """获取UP主视频列表"""
+        url = f"{self.BASE_URL}/x/space/arc/search"
+        params = {'mid': uid, 'pn': page, 'ps': page_size}
+        data = self._request('GET', url, params=params)
+        if data and 'list' in data and 'vlist' in data['list']:
+            return data['list']['vlist']
+        if data and 'vlist' in data:
+            return data['vlist']
+        return []
+
+    def get_up_stat(self, uid: int) -> Optional[Dict]:
+        """获取UP主统计数据（总播放/总点赞/粉丝趋势）"""
+        url = f"{self.BASE_URL}/x/space/upstat"
+        data = self._request('GET', url, params={'mid': uid})
+        if data:
+            return {
+                'total_views':  data.get('archive', {}).get('view', 0),
+                'total_likes':  data.get('archive', {}).get('like', 0),
+                'follower_change': data.get('follower_change', data.get('follower', 0)),
+                'follower_count':  data.get('follower', {}).get('follower', 0)
+                    if isinstance(data.get('follower'), dict) else data.get('follower', 0),
+            }
+        return None
     
+    # ── WBI签名 ───────────────────────────────────────────
+    def _refresh_wbi_key(self):
+        """刷新 WBI 密钥（从 nav 接口获取）"""
+        try:
+            nav_url = f"{self.BASE_URL}/x/web-interface/nav"
+            data = self._request('GET', nav_url, skip_retry=True)
+            if data and 'wbi_img' in data:
+                img_url = data['wbi_img']['img_url']
+                sub_url = data['wbi_img']['sub_url']
+                import re
+                img_key = re.search(r'/([^/]+)\.png', img_url)
+                sub_key = re.search(r'/([^/]+)\.png', sub_url)
+                if img_key and sub_key:
+                    mix = img_key.group(1) + sub_key.group(1)
+                    import hashlib
+                    self._wbi_key = hashlib.md5(mix.encode()).hexdigest()
+                    return
+            self._wbi_key = "ea1db124afe2e3c1"
+        except Exception:
+            self._wbi_key = "ea1db124afe2e3c1"
+
+    def _wbi_sign(self, params: dict) -> dict:
+        """为请求参数添加 WBI 签名"""
+        if not self._wbi_key:
+            self._refresh_wbi_key()
+        if not self._wbi_key:
+            return params
+        sorted_params = sorted(params.items())
+        query = '&'.join(f'{k}={v}' for k, v in sorted_params)
+        query += self._wbi_key
+        import hashlib
+        wts = int(time.time())
+        w_rid = hashlib.md5(query.encode()).hexdigest()
+        params['wts'] = wts
+        params['w_rid'] = w_rid
+        return params
+
+    # ── 弹幕/评论 ─────────────────────────────────────────
+    def get_video_danmaku(self, oid: int) -> List[Dict]:
+        """获取视频弹幕（XML接口，oid 为 cid）
+
+        Returns:
+            [{"text": str, "timestamp": int, "mode": int, "color": int}, ...]
+        """
+        try:
+            resp = self.session.get(
+                self.DANMAKU_URL,
+                params={'oid': oid},
+                headers={'User-Agent': random.choice(self.USER_AGENTS),
+                         'Referer': 'https://www.bilibili.com/'},
+                timeout=15,
+            )
+            if resp.status_code != 200:
+                return []
+            import xml.etree.ElementTree as ET
+            root = ET.fromstring(resp.content)
+            danmaku = []
+            for d in root.findall('.//d'):
+                p = d.get('p', '')
+                parts = p.split(',')
+                danmaku.append({
+                    'text': d.text or '',
+                    'timestamp': float(parts[0]) if len(parts) > 0 else 0,
+                    'mode': int(parts[1]) if len(parts) > 1 else 1,
+                    'color': int(parts[2]) if len(parts) > 2 else 16777215,
+                })
+            return danmaku
+        except Exception as e:
+            logger.error(f"获取弹幕失败: {e}")
+            return []
+
+    def get_video_comments(self, aid: int, page: int = 1) -> List[Dict]:
+        """获取视频评论（需WBI签名）
+
+        Returns:
+            [{"content": str, "like": int, "ctime": int, "uname": str}, ...]
+        """
+        params = {'oid': aid, 'type': 1, 'pn': page, 'ps': 20, 'sort': 2}
+        params = self._wbi_sign(params)
+        data = self._request('GET', self.COMMENT_URL, params=params)
+        if data and 'replies' in data:
+            replies = []
+            for r in data['replies']:
+                replies.append({
+                    'content': r.get('content', {}).get('message', ''),
+                    'like': r.get('like', 0),
+                    'ctime': r.get('ctime', 0),
+                    'uname': r.get('member', {}).get('uname', ''),
+                    'mid': r.get('mid', 0),
+                })
+            return replies
+        return []
+
+    # ── 热门视频 ─────────────────────────────────────────
+    def get_popular_videos(self, pn: int = 1, ps: int = 20) -> List[Dict]:
+        """获取热门视频列表"""
+        data = self._request('GET', self.POPULAR_URL, params={'pn': pn, 'ps': ps})
+        if data and 'list' in data:
+            return data['list']
+        return []
+
+    def get_weekly_series(self, number: int = None) -> List[Dict]:
+        """获取每周必看列表"""
+        url = f"{self.BASE_URL}/x/web-interface/popular/series/one"
+        params = {}
+        if number:
+            params['number'] = number
+        data = self._request('GET', url, params=params)
+        if data and 'list' in data:
+            return data['list']
+        return []
+
     def get_status(self) -> Dict:
         """获取API状态信息"""
         return {

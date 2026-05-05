@@ -128,6 +128,7 @@ class DetailPanel:
             ("点赞",   "like_count",      C["text_1"]),
             ("在线人数", "_online_viewers", C["accent"]),
             ("点赞率", "_like_rate",      C["success"]),
+            ("健康分", "_health_score",   C["bilibili"]),
             ("周刊分数", "_weekly_score",  C["accent"]),
         ]
         for label, key, color in fields:
@@ -139,6 +140,8 @@ class DetailPanel:
             if key == "_like_rate":
                 views = video.get("view_count", 1) or 1
                 val = f"{video.get('like_count',0)/views*100:.2f}%"
+            elif key == "_health_score":
+                val = self._compute_health_text(video)
             elif key == "_weekly_score":
                 ws_text, _ = self._get_cached_scores(video)
                 val = ws_text
@@ -153,6 +156,11 @@ class DetailPanel:
             val_lbl = tk.Label(card, text=val, bg=C["bg_elevated"], fg=color,
                                 font=("Consolas", 13, "bold"))
             val_lbl.pack(anchor="w", padx=8)
+            if key == "_health_score":
+                card.bind("<Button-1>", lambda e, v=video: self._open_health_probe(v))
+                val_lbl.bind("<Button-1>", lambda e, v=video: self._open_health_probe(v))
+                card.config(cursor="hand2")
+                val_lbl.config(cursor="hand2")
             delta_lbl = tk.Label(card, text="", bg=C["bg_elevated"],
                                   fg=C["success"], font=FONT_SM)
             delta_lbl.pack(anchor="w", padx=8, pady=(0, 4))
@@ -164,6 +172,7 @@ class DetailPanel:
             ("like_count",      C["text_1"]),
             ("_online_viewers", C["accent"]),
             ("_like_rate",      C["success"]),
+            ("_health_score",   C["bilibili"]),
             ("_weekly_score",   C["accent"]),
         ]
         views = video.get("view_count", 1) or 1
@@ -174,6 +183,8 @@ class DetailPanel:
             val_lbl, _ = pair
             if key == "_like_rate":
                 val_lbl.config(text=f"{video.get('like_count',0)/views*100:.2f}%")
+            elif key == "_health_score":
+                val_lbl.config(text=self._compute_health_text(video))
             elif key == "_weekly_score":
                 ws_text, _ = self._get_cached_scores(video)
                 val_lbl.config(text=ws_text)
@@ -260,6 +271,13 @@ class DetailPanel:
             (f"投币率  {video.get('coin_count',0)/max(views,1)*100:.2f}%", "mono"),
             (f"收藏率  {video.get('favorite_count',0)/max(views,1)*100:.2f}%", "mono"),
             (f"弹幕率  {video.get('danmaku_count',0)/max(views,1)*100:.3f}%", "mono"),
+            ("", ""),
+            ("=== 一键三连健康探针 ===", "head"),
+            (f"健康分   {self._compute_health_text(video)}", "mono_accent"),
+            (f"点赞率   {video.get('like_count',0)/max(views,1)*100:.2f}%  "
+             f"硬币率 {video.get('coin_count',0)/max(views,1)*100:.2f}%", "mono"),
+            (f"收藏率   {video.get('favorite_count',0)/max(views,1)*100:.2f}%  "
+             f"分享率 {video.get('share_count',0)/max(views,1)*100:.2f}%", "mono"),
             ("", ""),
             ("=== 在线人数 ===", "head"),
         ]
@@ -372,6 +390,18 @@ class DetailPanel:
             return calculate_yearly_from_dict(video)
         except Exception:
             return None
+
+    def _compute_health_text(self, video):
+        try:
+            from utils.interaction_quality import calculate_probe_from_dict
+            r = calculate_probe_from_dict(video)
+            return f"{r.health_score:.0f} {r.health_grade}" if r else "—"
+        except Exception:
+            return "—"
+
+    def _open_health_probe(self, video):
+        from ui.health_probe import open_health_probe
+        open_health_probe(self.gui.root, video)
 
     def recolor_text_tags(self):
         from ui.theme import _recolor_text_tags

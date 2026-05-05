@@ -321,3 +321,70 @@ class Dialogs:
         dlg.button_row([
             ("关闭", dlg.window.destroy, "primary"),
         ])
+
+    # ──────────────────────────────────────────
+    # UP主追踪
+    # ──────────────────────────────────────────
+
+    def open_up_tracker(self):
+        try:
+            from .up_tracker import UpTrackerWindow
+            UpTrackerWindow(self.gui.root, api=self.gui.bilibili_api)
+        except Exception as e:
+            messagebox.showerror("错误", f"打开UP主追踪失败: {e}")
+
+    # ──────────────────────────────────────────
+    # 弹幕/评论分析
+    # ──────────────────────────────────────────
+
+    def open_danmaku_analysis(self):
+        try:
+            from .danmaku_analysis import DanmakuAnalysisWindow
+            DanmakuAnalysisWindow(self.gui.root, api=self.gui.bilibili_api)
+        except Exception as e:
+            messagebox.showerror("错误", f"打开弹幕/评论分析失败: {e}")
+
+    # ──────────────────────────────────────────
+    # AI智能问答
+    # ──────────────────────────────────────────
+
+    def open_ai_qa(self):
+        try:
+            from .ai_qa_window import AIQAWindow
+            AIQAWindow(self.gui.root, gui=self.gui)
+        except Exception as e:
+            messagebox.showerror("错误", f"打开AI问答失败: {e}")
+
+    # ──────────────────────────────────────────
+    # 热门视频发现
+    # ──────────────────────────────────────────
+
+    def open_trending_discovery(self):
+        try:
+            from .trending_discovery import TrendingDiscoveryWindow
+            TrendingDiscoveryWindow(self.gui.root, api=self.gui.bilibili_api,
+                                    on_add_monitor=self.gui._add_bvid_to_monitor)
+        except Exception as e:
+            messagebox.showerror("错误", f"打开热门视频发现失败: {e}")
+
+    # ──────────────────────────────────────────
+    # 数据大屏
+    # ──────────────────────────────────────────
+
+    def open_dashboard(self):
+        try:
+            from .dashboard_mode import DashboardWindow
+            DashboardWindow(self.gui, self.gui.root)
+        except Exception as e:
+            messagebox.showerror("错误", f"打开数据大屏失败: {e}")
+
+    # ──────────────────────────────────────────
+    # 定时导出报告
+    # ──────────────────────────────────────────
+
+    def open_report_scheduler(self):
+        try:
+            from .report_scheduler import ReportSchedulerWindow
+            ReportSchedulerWindow(self.gui.root, gui=self.gui)
+        except Exception as e:
+            messagebox.showerror("错误", f"打开报告定时器失败: {e}")
