@@ -1,0 +1,216 @@
+"""
+AI智能问答模块 — 基于监控数据的自然语言问答
+支持 OpenAI 兼容 API，也可纯规则回答
+"""
+import json
+import logging
+from typing import List, Dict, Optional, Any
+from datetime import datetime
+
+logger = logging.getLogger(__name__)
+
+
+class AIQASession:
+    """AI问答会话，管理对话历史并生成回答"""
+
+    def __init__(self, api_key: str = "", endpoint: str = "",
+                 model: str = "gpt-4o-mini"):
+        self.api_key = api_key
+        self.endpoint = endpoint or "https://api.openai.com/v1/chat/completions"
+        self.model = model
+        self.history: List[Dict] = []  # [{"role": "user"/"assistant", "content": str}, ...]
+        self._monitored_videos: List[Dict] = []
+        self._history_data: Dict = {}
+        self._video_dbs: Dict = {}
+
+    def set_context(self, monitored_videos: List[Dict],
+                    history_data: Dict = None,
+                    video_dbs: Dict = None):
+        """设置监控上下文数据"""
+        self._monitored_videos = monitored_videos or []
+        self._history_data = history_data or {}
+        self._video_dbs = video_dbs or {}
+
+    def build_context(self) -> str:
+        """构建包含监控数据的系统提示"""
+        lines = ["你是一个B站视频监控助手，根据监控数据回答用户问题。", ""]
+
+        videos = self._monitored_videos
+        lines.append(f"当前监控 {len(videos)} 个视频：")
+
+        for v in videos:
+            bvid = v.get("bvid", "")
+            title = v.get("title", "未知")[:30]
+            views = v.get("view_count", 0)
+            likes = v.get("like_count", 0)
+            coins = v.get("coin_count", 0)
+            favs = v.get("favorite_count", 0)
+            danmaku = v.get("danmaku_count", 0)
+            lines.append(f"  {bvid} {title}")
+            lines.append(f"    播放:{views:,} 点赞:{likes:,} 硬币:{coins:,} 收藏:{favs:,} 弹幕:{danmaku:,}")
+
+        lines.append("")
+        lines.append("请用中文简洁回答。")
+        return "\n".join(lines)
+
+    def ask(self, question: str) -> str:
+        """向AI提问
+
+        如果有 API key，使用 LLM API；
+        否则使用内置规则回答。
+        """
+        self.history.append({"role": "user", "content": question})
+
+        if self.api_key:
+            answer = self._ask_llm(question)
+        else:
+            answer = self._ask_rule(question)
+
+        self.history.append({"role": "assistant", "content": answer})
+        if len(self.history) > 20:
+            self.history = self.history[-20:]
+
+        return answer
+
+    def _ask_llm(self, question: str) -> str:
+        """调用 LLM API"""
+        try:
+            import requests
+            system_msg = self.build_context()
+            messages = [
+                {"role": "system", "content": system_msg},
+            ]
+            # 加入最近对话历史
+            for h in self.history[-10:]:
+                messages.append(h)
+
+            resp = requests.post(
+                self.endpoint,
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": self.model,
+                    "messages": messages,
+                    "max_tokens": 1024,
+                    "temperature": 0.7,
+                },
+                timeout=30,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                return data["choices"][0]["message"]["content"]
+            else:
+                logger.warning(f"LLM API 错误: {resp.status_code}")
+                return self._ask_rule(question)
+        except Exception as e:
+            logger.warning(f"LLM 调用失败: {e}")
+            return self._ask_rule(question)
+
+    def _ask_rule(self, question: str) -> str:
+        """基于规则的简单回答"""
+        q = question.lower()
+        videos = self._monitored_videos
+
+        if "多少" in q and "视频" in q:
+            return f"当前共监控 {len(videos)} 个视频。"
+
+        if "最快" in q or "增长" in q or "增速" in q:
+            return self._answer_fastest_growth()
+
+        if "top" in q or "top3" in q or "排行" in q or "最多" in q:
+            return self._answer_top_views()
+
+        if "达标" in q or "完成" in q or "阈值" in q:
+            return self._answer_threshold()
+
+        if "异常" in q or "预警" in q:
+            from core.smart_alert import AnomalyDetector
+            alert_count = 0
+            details = []
+            for v in videos:
+                bvid = v.get("bvid", "")
+                if bvid in self._video_dbs:
+                    try:
+                        records = self._video_dbs[bvid].get_all_records(limit=10)
+                        alerts = AnomalyDetector.detect_all(records, bvid=bvid)
+                        if alerts:
+                            alert_count += len(alerts)
+                            details.extend(alerts[:2])
+                    except Exception:
+                        pass
+            if alert_count > 0:
+                return f"发现 {alert_count} 条异常预警：\n" + "\n".join(details[:5])
+            return "当前无异常预警。"
+
+        if "健康" in q or "探针" in q:
+            return self._answer_health()
+
+        return (f"我是监控助手，当前共监控 {len(videos)} 个视频。"
+                f"你可以问我：当前监控多少视频？哪个增长最快？播放量排行？"
+                f"有无异常预警？健康探针情况？")
+
+    def _answer_fastest_growth(self) -> str:
+        videos = self._monitored_videos
+        if not videos:
+            return "暂无监控视频。"
+        best_v, best_rate = None, -1
+        for v in videos:
+            bvid = v.get("bvid", "")
+            if bvid in self._history_data:
+                pts = self._history_data[bvid]
+                if len(pts) >= 2:
+                    sorted_pts = sorted(pts, key=lambda p: p[0])
+                    span = (sorted_pts[-1][0] - sorted_pts[0][0]).total_seconds()
+                    if span > 0:
+                        growth = sorted_pts[-1][1] - sorted_pts[0][1]
+                        rate = growth / span * 3600
+                        if rate > best_rate:
+                            best_rate = rate
+                            best_v = v
+        if best_v:
+            return (f"增长最快：{best_v.get('title', '')[:20]} "
+                    f"(时速 {best_rate:.0f}/h，"
+                    f"当前 {best_v.get('view_count', 0):,})")
+        return "暂无足够数据计算增速。"
+
+    def _answer_top_views(self) -> str:
+        sorted_v = sorted(self._monitored_videos,
+                          key=lambda v: v.get("view_count", 0), reverse=True)
+        if not sorted_v:
+            return "暂无监控视频。"
+        lines = ["播放量排行："]
+        for i, v in enumerate(sorted_v[:5], 1):
+            lines.append(f"  {i}. {v.get('title', '')[:20]} — {v.get('view_count', 0):,}")
+        return "\n".join(lines)
+
+    def _answer_threshold(self) -> str:
+        from ui.helpers import THRESHOLDS, THRESHOLD_NAMES
+        achieved = 0
+        nearing = []
+        for v in self._monitored_videos:
+            views = v.get("view_count", 0)
+            for t, name in zip(THRESHOLDS, THRESHOLD_NAMES):
+                if views >= t:
+                    achieved += 1
+                elif views >= t * 0.8:
+                    nearing.append(f"{v.get('title', '')[:20]} 距{name}还差{t - views:,}")
+
+        result = f"已达标 {achieved} 个阈值。"
+        if nearing:
+            result += "\n即将达标：\n" + "\n".join(nearing[:5])
+        return result
+
+    def _answer_health(self) -> str:
+        try:
+            from utils.interaction_quality import calculate_probe_from_dict
+            results = []
+            for v in self._monitored_videos[:5]:
+                r = calculate_probe_from_dict(v)
+                results.append(f"{v.get('title', '')[:16]}: {r.health_score:.0f}分({r.health_grade})")
+            if results:
+                return "健康探针：\n" + "\n".join(results)
+            return "暂无数据。"
+        except Exception:
+            return "健康探针暂时不可用。"

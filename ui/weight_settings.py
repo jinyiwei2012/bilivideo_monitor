@@ -1,177 +1,156 @@
 """
-权重设置界面
+现代化权重设置界面
 """
 import tkinter as tk
-from tkinter import ttk, messagebox, LEFT, RIGHT, BOTH, X, Y, W
+from tkinter import ttk, messagebox
 import sys
 import os
 
-# 添加algorithms路径
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), 'algorithms'))
 
 from algorithms.registry import AlgorithmRegistry
 from algorithms.weight_manager import weight_manager
 from ui.theme import C
+from ui.helpers import FONT, FONT_SM, FONT_MONO
+from ui.dialog_base import DialogBase
 
 
 class WeightSettingsWindow:
-    """权重设置窗口"""
-    
+    """权重设置窗口（现代化风格）"""
+
     def __init__(self, parent=None):
-        self.window = tk.Toplevel(parent)
-        self.window.title("算法权重设置")
-        self.window.geometry("700x500")
-        self.window.transient(parent)
-        
-        # 权重输入框字典
+        self.dlg = DialogBase(parent, "算法权重设置", "760x560",
+                              resizable=(True, True))
+        self.window = self.dlg.window
+
         self.weight_vars = {}
         self.check_vars = {}
-        
         self.setup_ui()
         self.load_weights()
-    
+
     def setup_ui(self):
-        """设置UI"""
-        # 说明
-        info_frame = ttk.LabelFrame(self.window, text="说明", padding=10)
-        info_frame.pack(fill=X, padx=10, pady=5)
-        
-        info_text = """权重设置：
-• 用户自定义权重优先级最高
-• 机器学习会自动根据准确率调整未自定义的权重
-• 权重范围：0.01 ~ 10.0
-• 权重越高，该算法在综合预测中占比越大
-        """
-        ttk.Label(info_frame, text=info_text, justify=LEFT).pack(anchor=W)
-        
-        # 算法权重列表
-        list_frame = ttk.LabelFrame(self.window, text="算法权重", padding=10)
-        list_frame.pack(fill=BOTH, expand=True, padx=10, pady=5)
-        
+        self.dlg.header("算法权重", "自定义各算法在集成预测中的权重")
+
+        # 说明卡片
+        info_sec = self.dlg.section(padding=8)
+        info_lines = [
+            "• 用户自定义权重优先级最高，机器学习不会修改已自定义的权重",
+            "• 权重范围：0.01 ~ 10.0",
+            "• 权重越高，该算法在综合预测中占比越大",
+        ]
+        for line in info_lines:
+            tk.Label(info_sec, text=line, bg=C["bg_elevated"], fg=C["text_2"],
+                     font=FONT_SM, anchor="w").pack(fill=tk.X, padx=4)
+
+        # 权重列表
+        list_sec = tk.Frame(self.dlg.container, bg=C["bg_base"])
+        list_sec.pack(fill=tk.BOTH, expand=True, padx=24, pady=(10, 0))
+
         # 表头
-        header_frame = ttk.Frame(list_frame)
-        header_frame.pack(fill=X)
-        
-        ttk.Label(header_frame, text="算法", width=20, font=('Arial', 9, 'bold')).grid(row=0, column=0, sticky=W)
-        ttk.Label(header_frame, text="自定义", width=8, font=('Arial', 9, 'bold')).grid(row=0, column=1)
-        ttk.Label(header_frame, text="权重值", width=10, font=('Arial', 9, 'bold')).grid(row=0, column=2)
-        ttk.Label(header_frame, text="ML权重", width=10, font=('Arial', 9, 'bold')).grid(row=0, column=3)
-        ttk.Label(header_frame, text="准确率", width=10, font=('Arial', 9, 'bold')).grid(row=0, column=4)
-        ttk.Label(header_frame, text="样本数", width=8, font=('Arial', 9, 'bold')).grid(row=0, column=5)
-        
-        # 滚动画布包裹算法列表（确保按钮始终可见）
-        canvas_frame = ttk.Frame(list_frame)
-        canvas_frame.pack(fill=BOTH, expand=True)
-        
-        scroll_y = ttk.Scrollbar(canvas_frame, orient=tk.VERTICAL)
-        scroll_y.pack(side=tk.RIGHT, fill=tk.Y)
-        
-        self.algo_canvas = tk.Canvas(canvas_frame, bg=C.get("bg_elevated", "#1e1e1e"), 
-                                      highlightthickness=0, height=280)
+        hdr = tk.Frame(list_sec, bg=C["bg_surface"],
+                       highlightthickness=1, highlightbackground=C["border_sub"])
+        hdr.pack(fill=tk.X)
+        for col_i, (text, w) in enumerate([
+            ("算法", 24), ("自定义", 8), ("权重值", 10),
+            ("ML权重", 10), ("准确率", 10), ("样本数", 8),
+        ]):
+            tk.Label(hdr, text=text, bg=C["bg_surface"], fg=C["text_2"],
+                     font=("Microsoft YaHei UI", 8, "bold"),
+                     width=w, anchor="w").grid(row=0, column=col_i, padx=6, pady=4, sticky="w")
+
+        # 滚动列表
+        canvas_frame = tk.Frame(list_sec, bg=C["bg_base"])
+        canvas_frame.pack(fill=tk.BOTH, expand=True)
+
+        vsb = ttk.Scrollbar(canvas_frame, orient="vertical")
+        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.algo_canvas = tk.Canvas(canvas_frame, bg=C["bg_elevated"],
+                                     highlightthickness=0, yscrollcommand=vsb.set)
         self.algo_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scroll_y.config(command=self.algo_canvas.yview)
-        self.algo_canvas.config(yscrollcommand=scroll_y.set)
-        
-        # 算法列表容器（在 Canvas 内部）
-        self.algo_frame = ttk.Frame(self.algo_canvas)
-        self.algo_canvas.create_window((0, 0), window=self.algo_frame, anchor=tk.NW)
-        self.algo_frame.bind("<Configure>", 
-            lambda e: self.algo_canvas.configure(scrollregion=self.algo_canvas.bbox("all")))
-        
-        # 按钮框架（固定在底部，始终可见）
-        btn_frame = ttk.Frame(self.window, padding=10)
-        btn_frame.pack(fill=X, side=tk.BOTTOM)
-        
-        ttk.Button(btn_frame, text="重置所有权重", command=self._reset_all).pack(side=LEFT, padx=5)
-        ttk.Button(btn_frame, text="刷新", command=self.load_weights).pack(side=LEFT, padx=5)
-        
-        # 保存按钮加粗突出
-        save_btn = ttk.Button(btn_frame, text="💾 保存", command=self._save)
-        save_btn.pack(side=RIGHT, padx=5)
-        save_btn.configure(font=('Arial', 9, 'bold'))
-        
-        ttk.Button(btn_frame, text="取消", command=self.window.destroy).pack(side=RIGHT, padx=5)
-    
+        vsb.config(command=self.algo_canvas.yview)
+
+        self.algo_frame = tk.Frame(self.algo_canvas, bg=C["bg_elevated"])
+        self.algo_canvas.create_window((0, 0), window=self.algo_frame, anchor="nw")
+        self.algo_frame.bind("<Configure>",
+            lambda e: self.algo_canvas.configure(
+                scrollregion=self.algo_canvas.bbox("all")))
+
+        # 按钮行
+        self.dlg.button_row([
+            ("取消", self.window.destroy, ""),
+            ("重置所有权重", self._reset_all, ""),
+            ("刷新", self.load_weights, ""),
+            ("💾 保存", self._save, "primary"),
+        ])
+
     def load_weights(self):
-        """加载权重"""
-        # 清除旧数据
         for widget in self.algo_frame.winfo_children():
             widget.destroy()
-        
         self.weight_vars.clear()
         self.check_vars.clear()
-        
-        # 获取算法信息
+
         algo_info = AlgorithmRegistry.get_weights_info()
-        
-        for i, info in enumerate(algo_info):
-            row_frame = ttk.Frame(self.algo_frame)
-            row_frame.pack(fill=X, pady=2)
-            
-            # 算法名称
-            ttk.Label(row_frame, text=info['name'], width=20).grid(row=0, column=0, sticky=W)
-            
+
+        for info in algo_info:
+            row = tk.Frame(self.algo_frame, bg=C["bg_surface"],
+                           highlightthickness=1, highlightbackground=C["border_sub"])
+            row.pack(fill=tk.X, pady=1)
+
+            # 名称
+            tk.Label(row, text=info['name'], bg=C["bg_surface"], fg=C["text_1"],
+                     font=FONT, width=24, anchor="w").grid(row=0, column=0, padx=4, pady=3, sticky="w")
+
             # 自定义复选框
             var = tk.BooleanVar(value=info['is_customized'])
             self.check_vars[info['name']] = var
-            ttk.Checkbutton(row_frame, variable=var, command=lambda n=info['name']: self._on_check_change(n)).grid(row=0, column=1)
-            
+            ttk.Checkbutton(row, variable=var,
+                           command=lambda n=info['name']: self._on_check_change(n)
+                           ).grid(row=0, column=1, padx=2)
+
             # 权重输入
-            weight_var = tk.DoubleVar(value=info.get('user_weight') or info.get('final_weight', 1.0))
-            self.weight_vars[info['name']] = weight_var
-            
-            weight_entry = ttk.Entry(row_frame, textvariable=weight_var, width=10)
-            weight_entry.grid(row=0, column=2)
-            
-            # ML权重（只读）
-            ml_weight = info.get('ml_weight', 1.0)
-            ttk.Label(row_frame, text=f"{ml_weight:.2f}", width=10, foreground=C["text_3"]).grid(row=0, column=3)
-            
+            wv = tk.DoubleVar(value=info.get('user_weight') or info.get('final_weight', 1.0))
+            self.weight_vars[info['name']] = wv
+            ttk.Entry(row, textvariable=wv, width=10).grid(row=0, column=2, padx=4)
+
+            # ML权重
+            ml_w = info.get('ml_weight', 1.0)
+            tk.Label(row, text=f"{ml_w:.2f}", bg=C["bg_surface"], fg=C["text_3"],
+                     font=FONT_MONO, width=12, anchor="w").grid(row=0, column=3)
+
             # 准确率
-            accuracy = info.get('accuracy', 0)
-            ttk.Label(row_frame, text=f"{accuracy*100:.1f}%", width=10).grid(row=0, column=4)
-            
+            acc = info.get('accuracy', 0)
+            tk.Label(row, text=f"{acc*100:.1f}%", bg=C["bg_surface"], fg=C["success"],
+                     font=FONT_MONO, width=10, anchor="w").grid(row=0, column=4)
+
             # 样本数
             samples = info.get('samples', 0)
-            ttk.Label(row_frame, text=str(samples), width=8).grid(row=0, column=5)
-    
+            tk.Label(row, text=str(samples), bg=C["bg_surface"], fg=C["text_2"],
+                     font=FONT_MONO, width=8, anchor="w").grid(row=0, column=5)
+
     def _on_check_change(self, name: str):
-        """复选框变化"""
         var = self.check_vars[name]
-        weight_var = self.weight_vars[name]
-        
-        if var.get():
-            # 启用自定义
-            weight_var.set(weight_manager.ml_weights.get(name, 1.0))
-        else:
-            # 恢复自动
-            weight_var.set(weight_manager.ml_weights.get(name, 1.0))
-    
+        wv = self.weight_vars[name]
+        wv.set(weight_manager.ml_weights.get(name, 1.0))
+
     def _reset_all(self):
-        """重置所有权重"""
-        if messagebox.askyesno("确认", "确定要重置所有自定义权重吗？"):
+        if messagebox.askyesno("确认", "确定要重置所有自定义权重吗？", parent=self.window):
             weight_manager.reset_weights()
             self.load_weights()
-            messagebox.showinfo("成功", "已重置所有权重")
-    
+            messagebox.showinfo("成功", "已重置所有权重", parent=self.window)
+
     def _save(self):
-        """保存权重"""
         for name, check_var in self.check_vars.items():
-            weight_var = self.weight_vars[name]
-            
+            wv = self.weight_vars[name]
             try:
-                weight = float(weight_var.get())
-                weight = max(0.01, min(10.0, weight))  # 限制范围
-                
+                weight = float(wv.get())
+                weight = max(0.01, min(10.0, weight))
                 if check_var.get():
-                    # 保存用户自定义权重
                     weight_manager.set_user_weight(name, weight)
                 else:
-                    # 清除用户自定义
                     weight_manager.clear_user_weight(name)
             except ValueError:
-                messagebox.showerror("错误", f"算法 {name} 的权重值无效")
+                messagebox.showerror("错误", f"算法 {name} 的权重值无效", parent=self.window)
                 return
-        
-        messagebox.showinfo("成功", "权重设置已保存")
+        messagebox.showinfo("成功", "权重设置已保存", parent=self.window)
         self.window.destroy()

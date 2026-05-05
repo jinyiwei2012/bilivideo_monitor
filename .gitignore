@@ -24,3 +24,6 @@ env/
 
 start.ps1
 start.bat
+
+.claude/
+reports/
