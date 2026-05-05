@@ -120,45 +120,59 @@ class SVRPredictorAlgorithm(BaseAlgorithm):
         return X, y
     
     def _train_svr(
-        self, 
-        X: np.ndarray, 
+        self,
+        X: np.ndarray,
         y: np.ndarray
     ) -> Tuple[np.ndarray, float]:
         """
-        训练简化版SVR模型
-        
+        训练简化版SVR模型（含早停）
+
         Returns:
             (权重, 偏置)
         """
         n_samples, n_features = X.shape
-        
+
         # 初始化
         weights = np.zeros(n_features)
         bias = 0.0
-        
+
         # 梯度下降参数
         lr = 0.01
-        epochs = 100
-        
-        for _ in range(epochs):
+        max_epochs = 100
+        patience = 5
+        best_loss = float('inf')
+        no_improve = 0
+
+        for epoch in range(max_epochs):
+            epoch_loss = 0.0
             for i in range(n_samples):
                 prediction = np.dot(weights, X[i]) + bias
                 error = y[i] - prediction
-                
+
                 # ε-不敏感损失
                 if abs(error) > self.epsilon:
-                    # 计算梯度
+                    epoch_loss += abs(error) - self.epsilon
                     if error > 0:
                         grad_w = -X[i] + self.C * weights / n_samples
                         grad_b = -1
                     else:
                         grad_w = X[i] + self.C * weights / n_samples
                         grad_b = 1
-                    
-                    # 更新
+
                     weights -= lr * grad_w
                     bias -= lr * grad_b
-        
+
+            # 早停检查
+            if epoch_loss < 1e-6:
+                break
+            if epoch_loss < best_loss:
+                best_loss = epoch_loss
+                no_improve = 0
+            else:
+                no_improve += 1
+                if no_improve >= patience:
+                    break
+
         return weights, bias
     
     def _calculate_confidence(

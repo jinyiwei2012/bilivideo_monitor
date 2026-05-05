@@ -44,14 +44,17 @@ class HawkesProcessAlgorithm(BaseAlgorithm):
 
     def _compute_intensity(self, events: np.ndarray,
                            t_current: float) -> float:
-        """计算给定时刻的强度"""
+        """计算给定时刻的强度（截断 >168h 的衰减核，旧事件贡献可忽略）"""
         base = self.mu
         if len(events) == 0:
             return base
 
         excitation = 0.0
+        cutoff = 168 * 3600  # 1 周（秒），之后核函数值 < 初始值的 1%
         for t in events:
             tau = t_current - t
+            if tau > cutoff:
+                continue  # 截断：足够旧的事件贡献可忽略
             if tau > 0:
                 excitation += self._power_law_kernel(tau)
         return base + excitation

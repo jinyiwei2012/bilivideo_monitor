@@ -60,7 +60,7 @@ class MLPPredictorAlgorithm(BaseAlgorithm):
             
             # 预测未来增长
             last_features = X[-1].reshape(1, -1)
-            predicted_growth = self._forward(last_features)[0, 0]
+            predicted_growth = self._forward(last_features)[0][0, 0]
             
             if predicted_growth <= 0:
                 views = [d['view'] for d in history_data]
@@ -119,43 +119,46 @@ class MLPPredictorAlgorithm(BaseAlgorithm):
         """ReLU激活函数"""
         return np.maximum(0, x)
     
-    def _forward(self, X: np.ndarray) -> np.ndarray:
+    def _forward(self, X: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         前向传播
-        
+
         Returns:
-            输出预测值
+            (输出预测值, 隐藏层加权输入z1, 隐藏层激活a1)
         """
-        # 第一层
-        self.z1 = X @ self.W1 + self.b1
-        self.a1 = self._relu(self.z1)
-        
-        # 输出层
-        self.z2 = self.a1 @ self.W2 + self.b2
-        
-        return self.z2
-    
+        z1 = X @ self.W1 + self.b1
+        a1 = self._relu(z1)
+        z2 = a1 @ self.W2 + self.b2
+
+        return z2, z1, a1
+
     def _train(self, X: np.ndarray, y: np.ndarray, epochs: int = 200, lr: float = 0.001):
-        """训练网络"""
+        """训练网络（每次重新初始化权重，保证线程安全）"""
         n_samples = len(X)
-        
+
+        # 重新初始化权重，避免多线程竞争导致形状不匹配
+        self.W1 = np.random.randn(self.input_size, self.hidden_size) * 0.1
+        self.b1 = np.zeros(self.hidden_size)
+        self.W2 = np.random.randn(self.hidden_size, self.output_size) * 0.1
+        self.b2 = np.zeros(self.output_size)
+
         for _ in range(epochs):
-            # 前向传播
-            output = self._forward(X)
-            
+            # 前向传播（使用局部变量，不依赖实例状态）
+            output, z1, a1 = self._forward(X)
+
             # 计算损失和梯度
             error = output - y
-            
+
             # 输出层梯度
-            dW2 = self.a1.T @ error / n_samples
+            dW2 = a1.T @ error / n_samples
             db2 = np.mean(error, axis=0)
-            
+
             # 隐藏层梯度
             da1 = error @ self.W2.T
-            dz1 = da1 * (self.z1 > 0).astype(float)  # ReLU导数
+            dz1 = da1 * (z1 > 0).astype(float)  # ReLU导数
             dW1 = X.T @ dz1 / n_samples
             db1 = np.mean(dz1, axis=0)
-            
+
             # 更新权重
             self.W2 -= lr * dW2
             self.b2 -= lr * db2
@@ -171,7 +174,7 @@ class MLPPredictorAlgorithm(BaseAlgorithm):
         
         # 计算拟合误差
         if n >= 5:
-            predictions = self._forward(X)
+            predictions = self._forward(X)[0]
             mape = np.mean(np.abs((y - predictions) / (np.abs(y) + 1)))
             fit_quality = max(0, 1 - min(1, mape))
             base_conf = 0.5 * base_conf + 0.5 * fit_quality

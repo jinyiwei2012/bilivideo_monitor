@@ -136,6 +136,8 @@ class VideoDatabase:
         self._lock = threading.Lock()
         self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA synchronous=NORMAL")
         self._init_db()
 
     def _get_connection(self):
@@ -631,6 +633,8 @@ class Database:
         self._lock = threading.Lock()
         self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA synchronous=NORMAL")
         self.init_database()
 
     def _get_connection(self):
@@ -688,6 +692,10 @@ class Database:
                     like_view_ratio REAL DEFAULT 0,
                     FOREIGN KEY (bvid) REFERENCES videos(bvid)
                 )
+            ''')
+            cursor.execute('''
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_monitor_bvid_ts
+                ON monitor_records(bvid, timestamp)
             ''')
             
             # 预测记录表
@@ -808,32 +816,25 @@ class Database:
                     ))
                     conn.commit()
             
-            # 获取所有监控记录并同步
+            # 获取所有监控记录并同步（使用 INSERT OR IGNORE + 唯一索引，避免逐行 SELECT）
             records = video_db.get_all_records()
             if records:
                 with self._get_connection() as conn:
                     cursor = conn.cursor()
                     for record in records:
-                        # 检查是否已存在
                         cursor.execute('''
-                            SELECT id FROM monitor_records 
-                            WHERE bvid = ? AND timestamp = ?
-                        ''', (bvid, record['timestamp']))
-                        
-                        if not cursor.fetchone():
-                            cursor.execute('''
-                                INSERT INTO monitor_records 
-                                (bvid, timestamp, view_count, like_count, coin_count, share_count,
-                                 favorite_count, danmaku_count, reply_count, viewers_app,
-                                 viewers_web, viewers_total, like_view_ratio)
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            ''', (
-                                bvid, record['timestamp'], record['view_count'],
-                                record['like_count'], record['coin_count'], record['share_count'],
-                                record['favorite_count'], record['danmaku_count'], record['reply_count'],
-                                record['viewers_app'], record['viewers_web'],
-                                record['viewers_total'], record['like_view_ratio']
-                            ))
+                            INSERT OR IGNORE INTO monitor_records
+                            (bvid, timestamp, view_count, like_count, coin_count, share_count,
+                             favorite_count, danmaku_count, reply_count, viewers_app,
+                             viewers_web, viewers_total, like_view_ratio)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ''', (
+                            bvid, record['timestamp'], record['view_count'],
+                            record['like_count'], record['coin_count'], record['share_count'],
+                            record['favorite_count'], record['danmaku_count'], record['reply_count'],
+                            record['viewers_app'], record['viewers_web'],
+                            record['viewers_total'], record['like_view_ratio']
+                        ))
                     conn.commit()
             
             return True

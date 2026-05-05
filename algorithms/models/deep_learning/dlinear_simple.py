@@ -28,9 +28,9 @@ class DLinearSimpleAlgorithm(BaseAlgorithm):
     
     def __init__(self):
         super().__init__()
-        self.lookback_window = 10   # 回看窗口长度
+        self.lookback_window = 8    # 回看窗口长度
         self.forecast_horizon = 5    # 预测步长
-        self.min_data_points = 12      # 最少需要的序列长度
+        self.min_data_points = 10    # 最少需要的序列长度
         self.decomposition_kernel = 3   # 移动平均核大小
         
     def predict(self, video_data: Dict[str, Any], 
@@ -151,35 +151,35 @@ class DLinearSimpleAlgorithm(BaseAlgorithm):
         return forecast
     
     def _calculate_confidence(self, series: np.ndarray, forecast: np.ndarray) -> float:
-        """计算预测置信度"""
+        """计算预测置信度（简化交叉验证）"""
         if len(forecast) == 0:
             return 0.3
-        
-        # 基于历史拟合误差
-        if len(series) >= self.lookback_window:
-            # 使用交叉验证思想
+
+        # 基于历史拟合误差，使用大步长扫描减少 polyfit 调用
+        if len(series) >= self.lookback_window // 2:
             errors = []
-            for i in range(1, min(len(series), self.lookback_window)):
+            step = max(1, len(series) // 8)  # 最多约8次polyfit
+            for i in range(step, min(len(series), self.lookback_window), step):
                 if i >= 2:
-                    # 用前i-1个点拟合，预测第i个点
-                    x = np.arange(i - 1)
-                    y = series[:i-1]
+                    x = np.arange(i)
+                    y = series[:i]
                     try:
                         coeffs = np.polyfit(x, y, 1)
-                        pred = np.polyval(coeffs, i - 1)
-                        error = abs(pred - series[i-1]) / (series[i-1] + 1e-6)
-                        errors.append(error)
+                        # 用后一半点做验证
+                        split = i // 2
+                        pred = np.polyval(coeffs, np.arange(split, i))
+                        actual = y[split:]
+                        errors.append(np.mean(np.abs(pred - actual) / (np.abs(actual) + 1e-6)))
                     except Exception:
                         pass
-            
+
             if errors:
-                mae = np.mean(errors)
-                confidence = max(0.3, 1.0 - mae)
+                confidence = max(0.3, 1.0 - np.mean(errors))
             else:
                 confidence = 0.5
         else:
             confidence = 0.4
-        
+
         return min(0.9, confidence)
     
     def _extract_series(self, history: List[Dict]) -> Tuple[np.ndarray, np.ndarray]:

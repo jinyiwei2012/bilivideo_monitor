@@ -167,7 +167,7 @@ class MarkovSwitchingAlgorithm(BaseAlgorithm):
                     }
 
             # ── 未来体制模拟（蒙特卡洛） ─────────────
-            mc_simulations = 200
+            mc_simulations = 50
             forecast_days = min(365, max(14, int((threshold - current_views) / max(velocity * 24, 1)) * 2 + 10))
 
             all_hit_days = []

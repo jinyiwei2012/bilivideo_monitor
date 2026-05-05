@@ -9,27 +9,31 @@ from datetime import datetime
 from scipy.optimize import curve_fit
 from algorithms.base import BaseAlgorithm
 
+_TS_FMT = '%Y-%m-%d %H:%M:%S'
+
 
 class LogisticGrowthAlgorithm(BaseAlgorithm):
     """
     Logistic Growth Model
-    
+
     公式: V(t) = K / (1 + exp(-r * (t - t0)))
     其中:
     - K: 承载能力 (最大播放量)
     - r: 增长率
     - t0: 中点时间点
     """
-    
+
     name = "Logistic增长模型"
     description = "经典的S型增长曲线，考虑资源限制"
     category = "扩散模型"
-    
+
     def __init__(self):
         super().__init__()
         self.K = 1000000  # 承载能力
         self.r = 0.2      # 增长率
         self.t0 = 30      # 中点时间
+        self._maxfev = 300
+        self._min_curvefit_points = 10  # 数据点少于该值时不跑curve_fit
         
     def predict(
         self,
@@ -85,37 +89,59 @@ class LogisticGrowthAlgorithm(BaseAlgorithm):
             return None
     
     def _prepare_data(
-        self, 
+        self,
         history_data: List[Dict[str, Any]]
     ) -> Tuple[np.ndarray, np.ndarray]:
         """准备数据"""
-        times = []
-        views = []
-        
-        base_time = datetime.strptime(
-            history_data[0]['timestamp'], 
-            '%Y-%m-%d %H:%M:%S'
-        )
-        
-        for data in history_data:
-            t = datetime.strptime(data['timestamp'], '%Y-%m-%d %H:%M:%S')
-            days = (t - base_time).total_seconds() / 86400
-            times.append(days)
-            views.append(data['view'])
-        
-        return np.array(times), np.array(views)
+        n = len(history_data)
+        times = np.empty(n, dtype=float)
+        views = np.empty(n, dtype=float)
+
+        first_ts = history_data[0]['timestamp']
+        if isinstance(first_ts, str):
+            base_epoch = datetime.strptime(first_ts, _TS_FMT).timestamp()
+        elif isinstance(first_ts, datetime):
+            base_epoch = first_ts.timestamp()
+        else:
+            base_epoch = float(first_ts)
+
+        times[0] = 0.0
+        views[0] = history_data[0].get('view', history_data[0].get('view_count', 0))
+
+        for i in range(1, n):
+            data = history_data[i]
+            views[i] = data.get('view', data.get('view_count', 0))
+            ts_raw = data['timestamp']
+            if isinstance(ts_raw, str):
+                ts_epoch = datetime.strptime(ts_raw, _TS_FMT).timestamp()
+            elif isinstance(ts_raw, datetime):
+                ts_epoch = ts_raw.timestamp()
+            else:
+                ts_epoch = float(ts_raw)
+            times[i] = (ts_epoch - base_epoch) / 86400.0
+
+        return times, views
     
     def _logistic(self, t, K, r, t0):
         """Logistic函数"""
         return K / (1 + np.exp(-r * (t - t0)))
     
     def _fit_curve(
-        self, 
-        times: np.ndarray, 
+        self,
+        times: np.ndarray,
         views: np.ndarray,
         video_info: Dict[str, Any]
     ):
         """拟合Logistic曲线"""
+        # 数据点太少时跳过 curve_fit，直接使用启发式参数
+        if len(times) < self._min_curvefit_points:
+            self.K = max(views) * 3
+            self.r = 0.15
+            self.t0 = np.median(times) if len(times) > 0 else 30
+            if 'follower' in video_info:
+                self.K = max(self.K, video_info['follower'] * 2.5)
+            return
+
         try:
             # 初始参数估计
             K_est = max(views) * 2.5
@@ -127,7 +153,7 @@ class LogisticGrowthAlgorithm(BaseAlgorithm):
             
             popt, _ = curve_fit(
                 self._logistic, times, views,
-                p0=p0, bounds=bounds, maxfev=5000
+                p0=p0, bounds=bounds, maxfev=self._maxfev
             )
             
             self.K, self.r, self.t0 = popt

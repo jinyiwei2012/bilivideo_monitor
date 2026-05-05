@@ -135,9 +135,7 @@ def _predict_single(gui, bvid, video) -> dict:
 
     # 在线学习反馈
     _online_learning_feedback(gui, bvid, results, current_view)
-    # 因果推断投喂
-    _feed_causal_analyzer(gui, bvid)
-    # 图神经网络更新
+    # 图神经网络更新（内部缓存边，无变更时跳过重建）
     _update_video_graph(gui, bvid, video)
     # 写数据库
     _save_predictions_to_db(gui, bvid, current_view, results)
@@ -594,6 +592,8 @@ def _start_all_workers(gui):
     default_interval  = getattr(gui, "DEFAULT_INTERVAL",  75)
     fast_interval     = getattr(gui, "FAST_INTERVAL",     10)
     get_video_interval = getattr(gui, "_get_video_interval", None)
+
+    gui.log_panel.add_log("INFO", f"系统就绪，{len(gui.monitored_videos)} 个视频监控中（{default_interval}s 刷新间隔）")
 
     for video in gui.monitored_videos:
         bvid = video.get("bvid", "")

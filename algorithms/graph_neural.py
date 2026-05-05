@@ -92,6 +92,9 @@ class VideoGraph:
         self._adj: Dict[str, Dict[str, float]] = defaultdict(dict)  # bvid -> {nbvid: weight}
         self._bvid_list: List[str] = []               # 有序节点列表
 
+        # 边脏标记：节点变更时置 True，build_edges 后清 False
+        self._edges_dirty = True
+
         # GCN 权重（小型随机初始化）
         self._W0: Optional[List[List[float]]] = None
         self._W1: Optional[List[List[float]]] = None
@@ -116,6 +119,7 @@ class VideoGraph:
             self._features[bvid] = self._extract_features(video_info)
             if bvid not in self._bvid_list:
                 self._bvid_list.append(bvid)
+                self._edges_dirty = True  # 新节点加入，边需重建
             self._embeddings = None  # 失效缓存
 
     def remove_node(self, bvid: str):
@@ -128,15 +132,18 @@ class VideoGraph:
                 self._adj[nb].pop(bvid, None)
             if bvid in self._bvid_list:
                 self._bvid_list.remove(bvid)
+            self._edges_dirty = True
             self._embeddings = None
 
     def build_edges(self):
-        """根据当前节点数据重新构建边。"""
+        """根据当前节点数据构建边（缓存：节点无变更时跳过重建）。"""
         with self._lock:
+            if not self._edges_dirty:
+                return
             self._adj.clear()
             bvids = list(self._nodes.keys())
             n = len(bvids)
-            if n < 2:
+            if n < 5:  # 节点太少时无意义，保留脏标记等积累更多节点
                 return
 
             for i in range(n):
@@ -159,6 +166,7 @@ class VideoGraph:
                             self._adj[bj].pop(bi, None)
 
             self._embeddings = None
+            self._edges_dirty = False
 
     def compute_gcn(self, hidden_dim: int = 8, embed_dim: int = 4) -> Dict[str, List[float]]:
         """运行两层简化 GCN，返回每个节点的嵌入向量。
