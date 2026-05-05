@@ -113,7 +113,7 @@ class LogPanel:
         return msg_severity >= min_severity
 
     def add_log(self, level: str, message: str):
-        """添加日志条目"""
+        """添加日志条目（线程安全：不直接操作 Tkinter 控件）"""
         ts = datetime.now()
         ts_str = ts.strftime("%H:%M:%S")
         self._log_entries.append((level, ts_str, message))
@@ -125,18 +125,6 @@ class LogPanel:
             removed = len(self._log_entries) - 1500
             self._log_entries = self._log_entries[-1500:]
             self._rendered_count = max(0, self._rendered_count - removed)
-        # 如果日志面板可见且等级匹配，实时追加
-        if self._log_frame.winfo_ismapped() and self._should_show(level):
-            self._append_log_line(level, ts, message)
-            self._rendered_count += 1
-
-    def _append_log_line(self, level, ts, message):
-        self._log_text.config(state=tk.NORMAL)
-        self._log_text.insert(tk.END, f"[{ts}] ", "TIME")
-        self._log_text.insert(tk.END, f"[{level:>7s}] ", level)
-        self._log_text.insert(tk.END, f"{message}\n")
-        self._log_text.see(tk.END)
-        self._log_text.config(state=tk.DISABLED)
 
     def refresh_log_view(self):
         """根据当前等级筛选刷新日志（增量追加，避免全量重建）"""

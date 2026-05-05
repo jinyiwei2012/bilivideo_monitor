@@ -368,6 +368,12 @@ class VideoWorker:
 
         self._log("DEBUG", f"[{bvid}] 拉取完成 播放:{video.get('view_count',0):,} 预测:{result.get('prediction',0):,}")
 
+        # ── 后台同步中央数据库（避免主线程 I/O） ────
+        try:
+            db.sync_from_video_db(bvid)
+        except Exception:
+            pass
+
         # ── 回调主线程更新 UI ─────────────────────
         #    仅在选中该视频时触发完整 UI 更新；其他视频静默后台更新
         gui.root.after(0, lambda r=result, v=video: self._on_fetch_done(r, v))
@@ -390,12 +396,6 @@ class VideoWorker:
             if gui.detail.current_tab == "📈 播放量趋势":
                 from ui.chart import draw_chart
                 draw_chart(gui.detail.chart_canvas, gui.history_data, bvid, video, FONT)
-
-        # 同步该视频数据到中央数据库
-        try:
-            db.sync_from_video_db(bvid)
-        except Exception as e:
-            self._log("WARNING", f"[{bvid}] 同步中央数据库失败: {e}")
 
         # 刷新状态栏（上次刷新时间、视频计数）
         now_str = datetime.now().strftime("%H:%M:%S")

@@ -25,6 +25,7 @@ class DetailPanel:
         self._tab_btns = {}
         self._current_tab = "📈 播放量趋势"
         self._chart_resize_job = None
+        self._score_cache = {}  # bvid -> (signature, weekly_text, yearly_text)
         self._build()
 
     def _build(self):
@@ -146,9 +147,11 @@ class DetailPanel:
                 views = video.get("view_count", 1) or 1
                 val = f"{video.get('like_count',0)/views*100:.2f}%"
             elif key == "_weekly_score":
-                val = self._calc_weekly_score_text(video)
+                ws_text, _ = self._get_cached_scores(video)
+                val = ws_text
             elif key == "_yearly_score":
-                val = self._calc_yearly_score_text(video)
+                _, ys_text = self._get_cached_scores(video)
+                val = ys_text
             elif key == "_online_viewers":
                 total = video.get("viewers_total", 0)
                 val = f"{fmt_num(total)}" if total > 0 else "—"
@@ -184,9 +187,11 @@ class DetailPanel:
             if key == "_like_rate":
                 val_lbl.config(text=f"{video.get('like_count',0)/views*100:.2f}%")
             elif key == "_weekly_score":
-                val_lbl.config(text=self._calc_weekly_score_text(video))
+                ws_text, _ = self._get_cached_scores(video)
+                val_lbl.config(text=ws_text)
             elif key == "_yearly_score":
-                val_lbl.config(text=self._calc_yearly_score_text(video))
+                _, ys_text = self._get_cached_scores(video)
+                val_lbl.config(text=ys_text)
             elif key == "_online_viewers":
                 total = video.get("viewers_total", 0)
                 val_lbl.config(text=fmt_num(total) if total > 0 else "—")
@@ -349,6 +354,30 @@ class DetailPanel:
                     self._detail_text.insert(tk.END, f"  {ts_str}  {total:>10,.2f}\n", "mono")
         self._detail_text.config(state="disabled")
 
+    def _score_signature(self, video):
+        """生成分数缓存签名（播放/互动数据不变则跳过重算）"""
+        return (video.get("view_count", 0), video.get("like_count", 0),
+                video.get("coin_count", 0), video.get("favorite_count", 0))
+
+    def _get_cached_scores(self, video):
+        bvid = video.get("bvid", "")
+        sig = self._score_signature(video)
+        cached = self._score_cache.get(bvid)
+        if cached and cached[0] == sig:
+            return cached[1], cached[2]
+        weekly_text = self._compute_weekly_text(video)
+        yearly_text = self._compute_yearly_text(video)
+        self._score_cache[bvid] = (sig, weekly_text, yearly_text)
+        return weekly_text, yearly_text
+
+    def _compute_weekly_text(self, video):
+        ws = self._calc_weekly_score(video)
+        return f"{ws.total_score:,.0f}" if ws else "—"
+
+    def _compute_yearly_text(self, video):
+        ys = self._calc_yearly_score(video)
+        return f"{ys.total_score:,.0f}" if ys else "—"
+
     def _calc_weekly_score(self, video):
         try:
             from utils.weekly_score import calculate_from_dict
@@ -356,20 +385,12 @@ class DetailPanel:
         except Exception:
             return None
 
-    def _calc_weekly_score_text(self, video):
-        ws = self._calc_weekly_score(video)
-        return f"{ws.total_score:,.0f}" if ws else "—"
-
     def _calc_yearly_score(self, video):
         try:
             from utils.yearly_score import calculate_yearly_from_dict
             return calculate_yearly_from_dict(video)
         except Exception:
             return None
-
-    def _calc_yearly_score_text(self, video):
-        ys = self._calc_yearly_score(video)
-        return f"{ys.total_score:,.0f}" if ys else "—"
 
     def _fill_ratio_frame(self, video):
         for w in self._ratio_frame.winfo_children():
