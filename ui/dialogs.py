@@ -1,5 +1,5 @@
 """
-对话框模块
+对话框模块 - CustomTkinter 版
 集中管理所有弹窗窗口
 """
 import tkinter as tk
@@ -7,6 +7,7 @@ from tkinter import ttk, messagebox
 import threading
 import time
 import re
+import customtkinter as ctk
 
 from ui.theme import C
 from ui.helpers import FONT, FONT_SM, FONT_MONO, fmt_num, FAST_GAP, FAST_INTERVAL
@@ -23,23 +24,25 @@ class Dialogs:
     # ──────────────────────────────────────────
 
     def open_interval_settings(self):
-        dialog = tk.Toplevel(self.gui.root)
+        dialog = ctk.CTkToplevel(self.gui.root)
         dialog.title("刷新间隔设置")
         dialog.geometry("320x220")
-        dialog.configure(bg=C["bg_surface"])
         dialog.transient(self.gui.root)
         dialog.grab_set()
         dialog.resizable(False, False)
 
-        tk.Label(dialog, text="普通刷新间隔（秒）：", bg=C["bg_surface"], fg=C["text_1"],
-                 font=FONT).pack(pady=(20, 6))
+        ctk.CTkLabel(dialog, text="普通刷新间隔（秒）：", text_color=C["text_1"],
+                     font=FONT, fg_color="transparent").pack(pady=(20, 6))
 
-        spin_f = tk.Frame(dialog, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border"])
+        spin_f = ctk.CTkFrame(dialog, fg_color=C["bg_elevated"],
+                              border_width=1, border_color=C["border"],
+                              corner_radius=6)
         spin_f.pack(padx=40, fill=tk.X)
         var = tk.IntVar(value=self.gui.DEFAULT_INTERVAL)
         ttk.Spinbox(spin_f, from_=10, to=3600, textvariable=var, width=10).pack(padx=8, pady=6)
-        tk.Label(dialog, text=f"距阈值 < {FAST_GAP} 时自动切换快速模式（{FAST_INTERVAL}s）",
-                 bg=C["bg_surface"], fg=C["text_3"], font=FONT_SM, wraplength=280).pack(pady=6)
+        ctk.CTkLabel(dialog, text=f"距阈值 < {FAST_GAP} 时自动切换快速模式（{FAST_INTERVAL}s）",
+                     text_color=C["text_3"], font=FONT_SM, fg_color="transparent",
+                     wraplength=280).pack(pady=6)
 
         def _save():
             self.gui.DEFAULT_INTERVAL = var.get()
@@ -50,10 +53,14 @@ class Dialogs:
                     self.gui._register_video_timer(bvid)
             dialog.destroy()
 
-        btn_f = tk.Frame(dialog, bg=C["bg_surface"])
+        btn_f = ctk.CTkFrame(dialog, fg_color="transparent")
         btn_f.pack(pady=14)
-        ttk.Button(btn_f, text="保存", style="Primary.TButton", command=_save).pack(side=tk.LEFT, padx=6)
-        ttk.Button(btn_f, text="取消", command=dialog.destroy).pack(side=tk.LEFT, padx=6)
+        ctk.CTkButton(btn_f, text="保存", fg_color=C["bilibili"],
+                      hover_color=C["bilibili_dim"], text_color="#ffffff",
+                      font=FONT, command=_save).pack(side=tk.LEFT, padx=6)
+        ctk.CTkButton(btn_f, text="取消", fg_color=C["bg_elevated"],
+                      hover_color=C["bg_hover"], text_color=C["text_2"],
+                      font=FONT, command=dialog.destroy).pack(side=tk.LEFT, padx=6)
 
     # ──────────────────────────────────────────
     # 权重设置
@@ -185,8 +192,6 @@ class Dialogs:
         if not videos:
             return
 
-        import threading
-
         def _worker():
             added, skipped = 0, 0
             from core import bilibili_api
@@ -194,7 +199,6 @@ class Dialogs:
                 bvid = v.get("bvid", "")
                 if not bvid:
                     continue
-                # 主线程已在 import_search_results 中判断，这里再检查一次保险
                 if any(mv.get("bvid") == bvid for mv in self.gui.monitored_videos):
                     skipped += 1
                     continue
@@ -209,7 +213,7 @@ class Dialogs:
                 except Exception as e:
                     self.gui.log_panel.add_log("WARNING", f"导入 {bvid} 失败: {e}")
                     skipped += 1
-                time.sleep(0.3)  # 每个视频间隔 0.3s，避免集中请求
+                time.sleep(0.3)
 
             self.gui.root.after(0, self.gui._save_watch_list)
             msg = f"成功导入 {added} 个视频"

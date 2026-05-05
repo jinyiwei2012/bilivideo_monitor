@@ -1,15 +1,16 @@
 """
-中间详情面板模块
+中间详情面板模块 - CustomTkinter 版
 负责视频详情头部、统计栏、图表切换、详细数据文本
 """
 import tkinter as tk
 from tkinter import ttk
 from datetime import datetime
+import customtkinter as ctk
 
 from ui.theme import C
 from ui.helpers import (
     FONT, FONT_SM, FONT_MONO,
-    THRESHOLDS, THRESHOLD_NAMES, THRESH_COLORS,
+    THRESHOLDS, THRESHOLD_NAMES,
     fmt_num,
 )
 from ui.chart import draw_chart, draw_chart_placeholder
@@ -32,31 +33,31 @@ class DetailPanel:
 
     def _build_center_panel(self):
         p = self._parent
-        self._detail_header = tk.Frame(p, bg=C["bg_surface"])
+        self._detail_header = ctk.CTkFrame(p, fg_color=C["bg_surface"], corner_radius=0)
         self._detail_header.pack(fill=tk.X)
         tk.Frame(p, bg=C["border"], height=1).pack(fill=tk.X)
         self._build_center_header_empty()
 
-        self._stat_bar = tk.Frame(p, bg=C["bg_surface"])
+        self._stat_bar = ctk.CTkFrame(p, fg_color=C["bg_surface"], corner_radius=0)
         self._stat_bar.pack(fill=tk.X)
         tk.Frame(p, bg=C["border"], height=1).pack(fill=tk.X)
 
-        tab_bar = tk.Frame(p, bg=C["bg_surface"])
+        tab_bar = ctk.CTkFrame(p, fg_color=C["bg_surface"], corner_radius=0)
         tab_bar.pack(fill=tk.X)
         tk.Frame(p, bg=C["border"], height=1).pack(fill=tk.X)
         for name in ["📈 播放量趋势", "📋 详细数据", "🔄 互动率"]:
-            b = tk.Label(tab_bar, text=name, bg=C["bg_surface"], fg=C["text_2"],
-                         font=FONT, cursor="hand2", padx=14, pady=8)
-            b.pack(side=tk.LEFT)
+            b = ctk.CTkLabel(tab_bar, text=name, fg_color="transparent",
+                             text_color=C["text_2"], font=FONT, cursor="hand2")
+            b.pack(side=tk.LEFT, padx=14, pady=8)
             b.bind("<Button-1>", lambda e, n=name: self._switch_tab(n))
-            b.bind("<Enter>", lambda e, b=b: b.config(fg=C["text_1"])
-                   if b.cget("fg") != C["bilibili"] else None)
-            b.bind("<Leave>", lambda e, b=b: b.config(fg=C["text_2"])
-                   if b.cget("fg") != C["bilibili"] else None)
+            b.bind("<Enter>", lambda e, b=b, n=name:
+                   b.configure(text_color=C["text_1"]) if n != self._current_tab else None)
+            b.bind("<Leave>", lambda e, b=b, n=name:
+                   b.configure(text_color=C["text_2"]) if n != self._current_tab else None)
             self._tab_btns[name] = b
-        self._tab_btns["📈 播放量趋势"].config(fg=C["bilibili"])
+        self._tab_btns["📈 播放量趋势"].configure(text_color=C["bilibili"])
 
-        self._content_area = tk.Frame(p, bg=C["bg_base"])
+        self._content_area = ctk.CTkFrame(p, fg_color=C["bg_base"], corner_radius=0)
         self._content_area.pack(fill=tk.BOTH, expand=True)
 
         self._chart_canvas = tk.Canvas(self._content_area, bg=C["bg_base"],
@@ -64,7 +65,8 @@ class DetailPanel:
         self._chart_canvas.pack(fill=tk.BOTH, expand=True, padx=16, pady=12)
         self._chart_canvas.bind("<Configure>", self._on_chart_resize)
 
-        self._detail_text_frame = tk.Frame(self._content_area, bg=C["bg_base"])
+        self._detail_text_frame = ctk.CTkFrame(self._content_area, fg_color=C["bg_base"],
+                                               corner_radius=0)
         detail_vsb = ttk.Scrollbar(self._detail_text_frame)
         detail_vsb.pack(side=tk.RIGHT, fill=tk.Y)
         self._detail_text = tk.Text(self._detail_text_frame, bg=C["bg_elevated"],
@@ -75,7 +77,8 @@ class DetailPanel:
         self._detail_text.pack(fill=tk.BOTH, expand=True)
         detail_vsb.config(command=self._detail_text.yview)
 
-        self._ratio_frame = tk.Frame(self._content_area, bg=C["bg_base"])
+        self._ratio_frame = ctk.CTkFrame(self._content_area, fg_color=C["bg_base"],
+                                         corner_radius=0)
 
         draw_chart_placeholder(self._chart_canvas)
         self._rebuild_stat_bar({})
@@ -84,8 +87,8 @@ class DetailPanel:
         h = self._detail_header
         for w in h.winfo_children():
             w.destroy()
-        tk.Label(h, text="← 从左侧选择一个视频", bg=C["bg_surface"],
-                 fg=C["text_3"], font=FONT, padx=20, pady=18).pack(side=tk.LEFT)
+        ctk.CTkLabel(h, text="← 从左侧选择一个视频", text_color=C["text_3"],
+                     font=FONT, fg_color="transparent").pack(side=tk.LEFT, padx=20, pady=18)
 
     def _build_center_header(self, video):
         h = self._detail_header
@@ -99,25 +102,29 @@ class DetailPanel:
         dur_str = f"{dur_sec//60}:{dur_sec%60:02d}" if dur_sec else "—"
         pub_str = datetime.fromtimestamp(pub_ts).strftime("%Y-%m-%d") if pub_ts else "—"
 
-        info = tk.Frame(h, bg=C["bg_surface"])
+        info = ctk.CTkFrame(h, fg_color=C["bg_surface"], corner_radius=0)
         info.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=14, pady=10)
-        tk.Label(info, text=title, bg=C["bg_surface"], fg=C["text_1"],
-                 font=("Microsoft YaHei UI", 12, "bold"),
-                 anchor="w", wraplength=500, justify="left").pack(fill=tk.X)
-        meta = tk.Frame(info, bg=C["bg_surface"])
+        ctk.CTkLabel(info, text=title, text_color=C["text_1"],
+                     font=("Microsoft YaHei UI", 12, "bold"),
+                     anchor="w", wraplength=500, justify="left",
+                     fg_color="transparent").pack(fill=tk.X)
+        meta = ctk.CTkFrame(info, fg_color=C["bg_surface"], corner_radius=0)
         meta.pack(fill=tk.X, pady=(4, 0))
         for icon, val in [("👤", author), ("⏱️", dur_str), ("📅", pub_str)]:
-            tf = tk.Frame(meta, bg=C["bg_surface"])
+            tf = ctk.CTkFrame(meta, fg_color=C["bg_surface"], corner_radius=0)
             tf.pack(side=tk.LEFT, padx=(0, 14))
-            tk.Label(tf, text=icon, bg=C["bg_surface"], fg=C["text_2"], font=FONT).pack(side=tk.LEFT)
-            tk.Label(tf, text=" " + val, bg=C["bg_surface"], fg=C["text_2"], font=FONT).pack(side=tk.LEFT)
+            ctk.CTkLabel(tf, text=icon, text_color=C["text_2"],
+                         font=FONT, fg_color="transparent").pack(side=tk.LEFT)
+            ctk.CTkLabel(tf, text=" " + val, text_color=C["text_2"],
+                         font=FONT, fg_color="transparent").pack(side=tk.LEFT)
 
-        bv_lbl = tk.Label(meta, text=bvid, bg=C["bg_elevated"], fg=C["text_3"],
-                           font=FONT_MONO, padx=6, pady=2, cursor="hand2")
+        bv_lbl = ctk.CTkLabel(meta, text=bvid, fg_color=C["bg_elevated"],
+                              text_color=C["text_3"], font=FONT_MONO, cursor="hand2",
+                              corner_radius=4)
         bv_lbl.pack(side=tk.LEFT, padx=6)
         bv_lbl.bind("<Button-1>", lambda e: self.gui._copy_bvid(bvid))
-        bv_lbl.bind("<Enter>", lambda e: bv_lbl.config(fg=C["accent"]))
-        bv_lbl.bind("<Leave>", lambda e: bv_lbl.config(fg=C["text_3"]))
+        bv_lbl.bind("<Enter>", lambda e: bv_lbl.configure(text_color=C["accent"]))
+        bv_lbl.bind("<Leave>", lambda e: bv_lbl.configure(text_color=C["text_3"]))
 
     def _rebuild_stat_bar(self, video):
         bar = self._stat_bar
@@ -137,11 +144,13 @@ class DetailPanel:
             ("年刊分数", "_yearly_score",  C["warning"]),
         ]
         for label, key, color in fields:
-            card = tk.Frame(bar, bg=C["bg_elevated"], highlightthickness=1,
-                            highlightbackground=C["border_sub"])
-            card.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4, pady=8, ipady=4)
-            tk.Label(card, text=label, bg=C["bg_elevated"], fg=C["text_3"],
-                     font=FONT_SM).pack(anchor="w", padx=8, pady=(4, 0))
+            card = ctk.CTkFrame(bar, fg_color=C["bg_elevated"],
+                                border_width=1, border_color=C["border_sub"],
+                                corner_radius=6)
+            card.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4, pady=8)
+            ctk.CTkLabel(card, text=label, text_color=C["text_3"],
+                         font=FONT_SM, fg_color="transparent",
+                         anchor="w").pack(fill=tk.X, padx=8, pady=(4, 0))
             if key == "_like_rate":
                 views = video.get("view_count", 1) or 1
                 val = f"{video.get('like_count',0)/views*100:.2f}%"
@@ -154,12 +163,14 @@ class DetailPanel:
                 val = f"{fmt_num(total)}" if total > 0 else "—"
             else:
                 val = fmt_num(video.get(key, 0)) if video else "—"
-            val_lbl = tk.Label(card, text=val, bg=C["bg_elevated"], fg=color,
-                                font=("Consolas", 13, "bold"))
-            val_lbl.pack(anchor="w", padx=8)
-            delta_lbl = tk.Label(card, text="", bg=C["bg_elevated"],
-                                  fg=C["success"], font=FONT_SM)
-            delta_lbl.pack(anchor="w", padx=8, pady=(0, 4))
+            val_lbl = ctk.CTkLabel(card, text=val, text_color=color,
+                                   font=("Consolas", 13, "bold"),
+                                   fg_color="transparent", anchor="w")
+            val_lbl.pack(fill=tk.X, padx=8)
+            delta_lbl = ctk.CTkLabel(card, text="", text_color=C["success"],
+                                     font=FONT_SM, fg_color="transparent",
+                                     anchor="w")
+            delta_lbl.pack(fill=tk.X, padx=8, pady=(0, 4))
             self._stat_labels[key] = (val_lbl, delta_lbl)
 
     def update_stat_bar(self, video):
@@ -182,20 +193,20 @@ class DetailPanel:
                 continue
             val_lbl, _ = pair
             if key == "_like_rate":
-                val_lbl.config(text=f"{video.get('like_count',0)/views*100:.2f}%")
+                val_lbl.configure(text=f"{video.get('like_count',0)/views*100:.2f}%")
             elif key == "_weekly_score":
-                val_lbl.config(text=self._calc_weekly_score_text(video))
+                val_lbl.configure(text=self._calc_weekly_score_text(video))
             elif key == "_yearly_score":
-                val_lbl.config(text=self._calc_yearly_score_text(video))
+                val_lbl.configure(text=self._calc_yearly_score_text(video))
             elif key == "_online_viewers":
                 total = video.get("viewers_total", 0)
-                val_lbl.config(text=fmt_num(total) if total > 0 else "—")
+                val_lbl.configure(text=fmt_num(total) if total > 0 else "—")
             else:
-                val_lbl.config(text=fmt_num(video.get(key, 0)))
+                val_lbl.configure(text=fmt_num(video.get(key, 0)))
 
     def _switch_tab(self, name):
         for k, b in self._tab_btns.items():
-            b.config(fg=C["bilibili"] if k == name else C["text_2"])
+            b.configure(text_color=C["bilibili"] if k == name else C["text_2"])
         self._current_tab = name
         self._chart_canvas.pack_forget()
         self._detail_text_frame.pack_forget()
@@ -382,17 +393,17 @@ class DetailPanel:
             ("弹幕率", video.get("danmaku_count",0)/views*100, C["warning"]),
         ]
         for label, pct, color in ratios:
-            row = tk.Frame(self._ratio_frame, bg=C["bg_base"])
+            row = ctk.CTkFrame(self._ratio_frame, fg_color=C["bg_base"], corner_radius=0)
             row.pack(fill=tk.X, pady=6)
-            tk.Label(row, text=label, bg=C["bg_base"], fg=C["text_2"],
-                     font=FONT, width=6).pack(side=tk.LEFT)
+            ctk.CTkLabel(row, text=label, text_color=C["text_2"],
+                         font=FONT, fg_color="transparent", width=48).pack(side=tk.LEFT)
             bg_bar = tk.Frame(row, bg=C["bg_elevated"], height=12)
             bg_bar.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=8)
             bg_bar.pack_propagate(False)
             fill_pct = min(pct / 20, 1.0)
             tk.Frame(bg_bar, bg=color, height=12).place(x=0, y=0, relwidth=fill_pct, relheight=1)
-            tk.Label(row, text=f"{pct:.3f}%", bg=C["bg_base"], fg=color,
-                     font=FONT_MONO, width=8).pack(side=tk.LEFT)
+            ctk.CTkLabel(row, text=f"{pct:.3f}%", text_color=color,
+                         font=FONT_MONO, fg_color="transparent", width=72).pack(side=tk.LEFT)
 
     def recolor_text_tags(self):
         from ui.theme import _recolor_text_tags
