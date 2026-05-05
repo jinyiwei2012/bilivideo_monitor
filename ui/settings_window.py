@@ -233,8 +233,8 @@ class SettingsWindow:
         ttk.Button(btn_row, text="清空Cookie",
                    command=self._clear_cookies).pack(side=tk.LEFT)
 
-        tk.Label(sec, text="Cookie-Editor JSON: 从浏览器扩展导出后粘贴即可。扫码登录无需手动填写。",
-                 bg=C["bg_elevated"], fg=C["warning"],
+        tk.Label(sec, text="支持直接粘贴 Cookie 字符串 (key=value; key2=value2) 或 Cookie-Editor JSON 格式，自动识别解析。",
+                 bg=C["bg_elevated"], fg=C["text_3"],
                  font=FONT_SM, anchor="w").pack(fill=tk.X, pady=(4, 0))
 
     # ──── 重试参数 ────
@@ -405,16 +405,72 @@ class SettingsWindow:
         if not text:
             messagebox.showwarning("警告", "Cookie不能为空", parent=self.window)
             return
-        cookies = {}
-        for item in text.split(';'):
-            if '=' in item:
-                key, value = item.strip().split('=', 1)
-                cookies[key.strip()] = value.strip()
+        cookies = self._parse_cookie_input(text)
+        if not cookies:
+            messagebox.showerror("错误", "无法解析输入内容，请检查格式", parent=self.window)
+            return
         bilibili_api.set_cookies(cookies)
         self._net_cfg['cookies'] = cookies
         self._save_net_config()
         self._refresh_status()
-        messagebox.showinfo("成功", f"已应用Cookie: {list(cookies.keys())}", parent=self.window)
+        # 验证登录状态
+        self.window.after(500, self._verify_login)
+        messagebox.showinfo("成功", f"已应用 Cookie，正在验证登录状态...", parent=self.window)
+
+    @staticmethod
+    def _parse_cookie_input(text: str) -> dict:
+        """自动识别并解析 Cookie 输入（JSON 数组 / JSON 对象 / key=value 字符串）"""
+        import json as _json
+        # 尝试 JSON 解析
+        stripped = text.strip()
+        if stripped.startswith("["):
+            try:
+                entries = _json.loads(stripped)
+                if isinstance(entries, list) and entries:
+                    cookies = {}
+                    for entry in entries:
+                        if isinstance(entry, dict):
+                            name = entry.get("name", "")
+                            value = entry.get("value", "")
+                            if name and value:
+                                cookies[name] = value
+                    if cookies:
+                        return cookies
+            except _json.JSONDecodeError:
+                pass
+        elif stripped.startswith("{"):
+            try:
+                obj = _json.loads(stripped)
+                if isinstance(obj, dict):
+                    # 过滤出合法 cookie 名
+                    valid_keys = {"SESSDATA", "bili_jct", "DedeUserID",
+                                  "DedeUserID__ckMd5", "sid", "buvid3", "buvid4"}
+                    return {k: v for k, v in obj.items() if k in valid_keys or not k.startswith("_")}
+            except _json.JSONDecodeError:
+                pass
+        # key=value; key2=value2 格式
+        cookies = {}
+        for item in stripped.split(";"):
+            item = item.strip()
+            if "=" in item:
+                key, value = item.split("=", 1)
+                cookies[key.strip()] = value.strip()
+        return cookies
+
+    def _verify_login(self):
+        """验证登录状态并更新 UI"""
+        try:
+            status = bilibili_api.get_status()
+            is_login = status.get("is_login", False)
+            login_name = status.get("login_name", "")
+            if self.gui and hasattr(self.gui, 'log_panel'):
+                if is_login:
+                    self.gui.log_panel.add_log("INFO", f"Cookie 登录验证成功: {login_name}")
+                else:
+                    self.gui.log_panel.add_log("WARNING", "Cookie 登录验证失败，请检查 Cookie 是否有效")
+        except Exception:
+            pass
+        self._refresh_status()
 
     # ──── Cookie: 清空 ────
     def _clear_cookies(self):
@@ -478,8 +534,9 @@ class SettingsWindow:
             self._refresh_cookie_display()
             self._refresh_status()
             top.destroy()
+            self.window.after(500, self._verify_login)
             messagebox.showinfo("成功",
-                f"已导入 {len(cookies)} 个 Cookie:\n{', '.join(cookies.keys())}",
+                f"已导入 {len(cookies)} 个 Cookie，正在验证登录状态...",
                 parent=self.window)
 
         btn_f = tk.Frame(top, bg=C["bg_surface"])
@@ -545,6 +602,7 @@ class SettingsWindow:
                     self._refresh_status()
                     status_lbl.config(fg=C["success"])
                     qr_top.after(800, qr_top.destroy)
+                    self.window.after(1000, self._verify_login)
                     messagebox.showinfo("登录成功",
                         f"已获取 Cookie: {', '.join(cookies.keys())}",
                         parent=self.window)
@@ -552,6 +610,7 @@ class SettingsWindow:
                     self._refresh_status()
                     status_lbl.config(fg=C["success"])
                     qr_top.after(800, qr_top.destroy)
+                    self.window.after(1000, self._verify_login)
                     messagebox.showinfo("登录成功",
                         "扫码成功！Cookie 已通过浏览器同步。", parent=self.window)
                 return

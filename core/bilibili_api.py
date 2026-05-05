@@ -644,18 +644,22 @@ class BilibiliAPI:
 
     # ── QR码登录 ─────────────────────────────────────────
     def get_qrcode_login_url(self) -> Optional[Dict]:
-        """获取二维码登录地址
-
-        Returns:
-            {"url": str (二维码图片URL), "qrcode_key": str (轮询key)} or None
-        """
+        """获取二维码登录地址（使用独立 session，避免旧 Cookie 干扰）"""
+        import requests as _req
         url = "https://passport.bilibili.com/x/passport-login/web/qrcode/generate"
-        data = self._request("GET", url, skip_retry=True)
-        if data:
-            return {
-                "url": data.get("url", ""),
-                "qrcode_key": data.get("qrcode_key", ""),
-            }
+        clean_session = _req.Session()
+        clean_session.headers.update({"User-Agent": random.choice(self.USER_AGENTS),
+                                       "Referer": "https://www.bilibili.com/"})
+        try:
+            resp = clean_session.get(url, timeout=15)
+            if resp.status_code != 200:
+                return None
+            data = resp.json()
+            if data.get("code") == 0:
+                d = data.get("data", {})
+                return {"url": d.get("url", ""), "qrcode_key": d.get("qrcode_key", "")}
+        except Exception:
+            return None
         return None
 
     def poll_qrcode_login(self, qrcode_key: str) -> Dict:
@@ -668,7 +672,6 @@ class BilibiliAPI:
             {"status": int, "message": str, "cookies": dict}
             status: 0=未扫码, 1=已扫码待确认, 2=已确认/成功, -1=已过期
         """
-        from urllib.parse import urlparse, parse_qs
         url = "https://passport.bilibili.com/x/passport-login/web/qrcode/poll"
         result = {"status": 0, "message": "等待扫码", "cookies": {}}
         try:
@@ -686,54 +689,80 @@ class BilibiliAPI:
                 return result
             data = resp.json()
             code = data.get("code", -1)
-            if code == 0:
-                d = data.get("data", {})
-                scan_status = d.get("status", False)
-                if scan_status:
-                    result["status"] = 2
-                    result["message"] = "登录成功"
-                    # 方式1: 从 data.url 中提取 token（B站标准流程）
-                    redirect_url = d.get("url", "")
-                    if redirect_url:
-                        parsed = urlparse(redirect_url)
-                        params = parse_qs(parsed.query)
-                        for key in ("SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd", "sid"):
-                            val = params.get(key, [None])[0]
-                            if val:
-                                result["cookies"][key] = val
-                    # 方式2: 从 Set-Cookie 响应头提取
-                    if not result["cookies"]:
-                        set_cookie = resp.headers.get("Set-Cookie", "")
-                        for part in set_cookie.split(";"):
-                            if "=" in part:
-                                k, v = part.strip().split("=", 1)
-                                k = k.strip()
-                                if k in ("SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd", "sid"):
-                                    result["cookies"][k] = v.split(";")[0].split(",")[0].strip()
-                    # 方式3: 从 requests session cookies 提取
-                    if not result["cookies"]:
-                        for cookie in self.session.cookies:
-                            if "bilibili.com" in (cookie.domain or "") or ".bilibili.com" in (cookie.domain or ""):
-                                result["cookies"][cookie.name] = cookie.value
-                    # 方式4: 从 resp.cookies 提取
-                    if not result["cookies"]:
-                        for k in ("SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd", "sid"):
-                            if k in resp.cookies:
-                                result["cookies"][k] = resp.cookies[k]
-                    # 应用 cookies
-                    if result["cookies"]:
-                        self.set_cookies(result["cookies"])
-                else:
-                    result["status"] = 1 if d.get("message", "") == "已扫码" else 0
-                    result["message"] = d.get("message", "等待扫码")
-            elif code == 86038:
+
+            if code == 86038:
                 result["status"] = -1
                 result["message"] = "二维码已过期"
-            else:
+                return result
+
+            if code != 0:
                 result["message"] = data.get("message", f"错误码 {code}")
+                return result
+
+            d = data.get("data", {})
+            # B站新API: status 可能是整数 (0=等待, 1=已扫码, 2=已确认)
+            raw_status = d.get("status", False)
+            if isinstance(raw_status, int):
+                if raw_status == 2:
+                    result["status"] = 2
+                    result["message"] = "登录成功"
+                elif raw_status == 1:
+                    result["status"] = 1
+                    result["message"] = d.get("message", "已扫码，请在手机上确认")
+                    return result
+                else:
+                    result["message"] = d.get("message", "等待扫码")
+                    return result
+            elif raw_status is True:
+                result["status"] = 2
+                result["message"] = "登录成功"
+            else:
+                result["status"] = 1 if d.get("message", "") == "已扫码" else 0
+                result["message"] = d.get("message", "等待扫码")
+                return result
+
+            # ── 登录成功，提取 Cookie ──
+            cookies = self._extract_login_cookies(resp, d)
+            if cookies:
+                self.set_cookies(cookies)
+                result["cookies"] = cookies
         except Exception as e:
             result["message"] = f"轮询异常: {e}"
         return result
+
+    @staticmethod
+    def _extract_login_cookies(resp, data: dict) -> dict:
+        """从登录响应中提取 Cookie（多种回退方式）"""
+        cookies = {}
+        from urllib.parse import urlparse, parse_qs
+
+        # 方式1: 从 data.url 中提取 token
+        redirect_url = data.get("url", "")
+        if redirect_url:
+            parsed = urlparse(redirect_url)
+            params = parse_qs(parsed.query)
+            for key in ("SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid"):
+                val = params.get(key, [None])[0]
+                if val:
+                    cookies[key] = val
+
+        # 方式2: 从 Set-Cookie 响应头
+        if not cookies:
+            set_cookie = resp.headers.get("Set-Cookie", "")
+            for part in set_cookie.split(";"):
+                if "=" in part:
+                    k, v = part.strip().split("=", 1)
+                    k = k.strip()
+                    if k in ("SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid"):
+                        cookies[k] = v.split(";")[0].split(",")[0].strip()
+
+        # 方式3: 从 resp.cookies (http.cookiejar)
+        if not cookies:
+            for k in ("SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid"):
+                if k in resp.cookies:
+                    cookies[k] = resp.cookies[k]
+
+        return cookies
 
 
 # 全局API实例
