@@ -229,7 +229,7 @@ class VideoWorker:
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._run, daemon=True, name=f"VideoWorker-{self.bvid}")
         self._thread.start()
-        self._log("DEBUG", f"[{self.bvid}] Worker 线程已启动（间隔 {self.interval}s）")
+        self._log("INFO", f"[{self.bvid}] Worker 线程已启动（间隔 {self.interval}s）")
 
     def stop(self):
         """安全停止线程"""
@@ -237,7 +237,7 @@ class VideoWorker:
         if self._thread:
             self._thread.join(timeout=3)
             self._thread = None
-        self._log("DEBUG", f"[{self.bvid}] Worker 线程已停止")
+        self._log("INFO", f"[{self.bvid}] Worker 线程已停止")
 
     def update_interval(self, new_interval):
         """运行时更新刷新间隔（主线程调用）"""
@@ -246,7 +246,7 @@ class VideoWorker:
 
     def refresh_now(self):
         """立即执行一次拉取+预测（主线程调用，立即触发一次）"""
-        self._log("DEBUG", f"[{self.bvid}] 立即刷新触发")
+        self._log("INFO", f"[{self.bvid}] 立即刷新触发")
         threading.Thread(target=self._fetch_and_predict, daemon=True, name=f"VideoWorker-{self.bvid}-immediate").start()
 
     # ── 内部循环 ─────────────────────────────────
@@ -284,8 +284,13 @@ class VideoWorker:
             self._log("ERROR", f"[{bvid}] 获取视频信息异常: {e}")
             return
 
+        # ── 网络响应日志 ────────────────────────────
+        stat = info.get("stat", {})
+        self._log("DEBUG", f"[{bvid}] API响应 播放:{stat.get('view',0)} 点赞:{stat.get('like',0)} "
+                  f"投币:{stat.get('coin',0)} 收藏:{stat.get('favorite',0)} "
+                  f"弹幕:{stat.get('danmaku',0)} 评论:{stat.get('reply',0)}")
+
         # ── 更新视频字段 ──────────────────────────
-        stat  = info.get("stat", {})
         owner = info.get("owner", {})
         video["title"]          = info.get("title",    video.get("title",""))
         video["author"]         = owner.get("name",    video.get("author",""))
@@ -304,6 +309,7 @@ class VideoWorker:
             if cid:
                 viewers = bilibili_api.get_video_viewers(bvid, cid)
                 if viewers:
+                    self._log("DEBUG", f"[{bvid}] 在线响应 总:{viewers.get('total','0')} 网页:{viewers.get('count','0')}")
                     video["viewers_total_raw"] = viewers.get("total", "0")
                     video["viewers_web_raw"]    = viewers.get("count", "0")
                     video["viewers_total"] = _parse_viewer_count(viewers.get("total", "0"))
@@ -392,6 +398,13 @@ class VideoWorker:
             db.sync_from_video_db(bvid)
         except Exception as e:
             self._log("WARNING", f"[{bvid}] 同步中央数据库失败: {e}")
+
+        # 刷新状态栏（上次刷新时间、视频计数）
+        now_str = datetime.now().strftime("%H:%M:%S")
+        gui._sb("last_ref", f"上次刷新: {now_str}")
+        gui._sb("videos", f"监控: {len(gui.monitored_videos)} 个")
+        # 重新注册定时器，使倒计时正常显示
+        gui._register_video_timer(bvid)
 
 
 # ──────────────────────────────────────────────
@@ -549,7 +562,7 @@ def load_watch_list(gui):
                     video_db = db.get_video_db(bvid)
                     gui.video_dbs[bvid] = video_db
                     video_db.save_video_info(video)
-                    history = video_db.get_all_records()
+                    history = video_db.get_all_records(limit=20)
                     if history:
                         gui.history_data[bvid] = [
                             (row["timestamp"], row["view_count"])
