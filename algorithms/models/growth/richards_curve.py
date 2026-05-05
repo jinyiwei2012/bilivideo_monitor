@@ -10,11 +10,13 @@ from datetime import datetime
 from scipy.optimize import curve_fit
 from algorithms.base import BaseAlgorithm
 
+_TS_FMT = '%Y-%m-%d %H:%M:%S'
+
 
 class RichardsCurveAlgorithm(BaseAlgorithm):
     """
     Richards Curve Model (Generalized Logistic)
-    
+
     公式: V(t) = K / (1 + ν * exp(-r * (t - t0)))^(1/ν)
     其中:
     - K: 最大播放量
@@ -22,17 +24,19 @@ class RichardsCurveAlgorithm(BaseAlgorithm):
     - t0: 中点时间
     - ν: 形状参数 (控制曲线不对称性)
     """
-    
+
     name = "Richards曲线模型"
     description = "广义Logistic模型，支持不对称增长"
     category = "扩散模型"
-    
+
     def __init__(self):
         super().__init__()
         self.K = 1000000
         self.r = 0.2
         self.t0 = 30
-        self.nu = 1.0  # ν参数
+        self.nu = 1.0
+        self._maxfev = 300
+        self._min_curvefit_points = 10
         
     def predict(
         self,
@@ -82,37 +86,59 @@ class RichardsCurveAlgorithm(BaseAlgorithm):
             return None
     
     def _prepare_data(
-        self, 
+        self,
         history_data: List[Dict[str, Any]]
     ) -> Tuple[np.ndarray, np.ndarray]:
         """准备数据"""
-        times = []
-        views = []
-        
-        base_time = datetime.strptime(
-            history_data[0]['timestamp'], 
-            '%Y-%m-%d %H:%M:%S'
-        )
-        
-        for data in history_data:
-            t = datetime.strptime(data['timestamp'], '%Y-%m-%d %H:%M:%S')
-            days = (t - base_time).total_seconds() / 86400
-            times.append(days)
-            views.append(data['view'])
-        
-        return np.array(times), np.array(views)
+        n = len(history_data)
+        times = np.empty(n, dtype=float)
+        views = np.empty(n, dtype=float)
+
+        first_ts = history_data[0]['timestamp']
+        if isinstance(first_ts, str):
+            base_epoch = datetime.strptime(first_ts, _TS_FMT).timestamp()
+        elif isinstance(first_ts, datetime):
+            base_epoch = first_ts.timestamp()
+        else:
+            base_epoch = float(first_ts)
+
+        times[0] = 0.0
+        views[0] = history_data[0].get('view', history_data[0].get('view_count', 0))
+
+        for i in range(1, n):
+            data = history_data[i]
+            views[i] = data.get('view', data.get('view_count', 0))
+            ts_raw = data['timestamp']
+            if isinstance(ts_raw, str):
+                ts_epoch = datetime.strptime(ts_raw, _TS_FMT).timestamp()
+            elif isinstance(ts_raw, datetime):
+                ts_epoch = ts_raw.timestamp()
+            else:
+                ts_epoch = float(ts_raw)
+            times[i] = (ts_epoch - base_epoch) / 86400.0
+
+        return times, views
     
     def _richards(self, t, K, r, t0, nu):
         """Richards函数"""
         return K / np.power(1 + nu * np.exp(-r * (t - t0)), 1.0 / nu)
     
     def _fit_curve(
-        self, 
-        times: np.ndarray, 
+        self,
+        times: np.ndarray,
         views: np.ndarray,
         video_info: Dict[str, Any]
     ):
         """拟合Richards曲线"""
+        if len(times) < self._min_curvefit_points:
+            self.K = max(views) * 3
+            self.r = 0.15
+            self.t0 = np.median(times) if len(times) > 0 else 30
+            self.nu = 1.0
+            if 'follower' in video_info:
+                self.K = max(self.K, video_info['follower'] * 2.5)
+            return
+
         try:
             K_est = max(views) * 2.5
             r_est = 0.2
@@ -127,7 +153,7 @@ class RichardsCurveAlgorithm(BaseAlgorithm):
             
             popt, _ = curve_fit(
                 self._richards, times, views,
-                p0=p0, bounds=bounds, maxfev=5000
+                p0=p0, bounds=bounds, maxfev=self._maxfev
             )
             
             self.K, self.r, self.t0, self.nu = popt

@@ -9,6 +9,8 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 from algorithms.base import BaseAlgorithm, PredictionResult
 
+_TS_FMT = '%Y-%m-%d %H:%M:%S'
+
 
 class BassDiffusionAlgorithm(BaseAlgorithm):
     """
@@ -71,7 +73,11 @@ class BassDiffusionAlgorithm(BaseAlgorithm):
             
             # 计算当前时间点
             current_time = datetime.now()
-            earliest = datetime.strptime(history_data[0]['timestamp'], '%Y-%m-%d %H:%M:%S')
+            earliest_ts = history_data[0]['timestamp']
+            if isinstance(earliest_ts, (int, float)):
+                earliest = datetime.fromtimestamp(earliest_ts)
+            else:
+                earliest = datetime.strptime(earliest_ts, _TS_FMT)
             t_days = (current_time - earliest).total_seconds() / 86400
             
             # 如果已达到目标

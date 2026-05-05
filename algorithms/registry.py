@@ -121,38 +121,42 @@ class AlgorithmRegistry:
         valid_count = 0
         na_count = 0
 
-        for name, algo in cls._algorithms.items():
+        def _run_single(name_algo):
+            """包装单个算法执行，供线程池调度"""
+            n, algo = name_algo
             try:
-                result = algo.predict(history, current_value,
-                                     thresholds=thresholds,
-                                     threshold_names=threshold_names,
-                                     _cached_video_data=cached_video_data)
-
-                if weight_manager:
-                    weight = weight_manager.get_weight(name)
-                else:
-                    weight = getattr(algo, 'weight', 1.0)
-
-                results[name] = {
-                    'prediction': result['prediction'],
-                    'confidence': result['confidence'],
-                    'weight': weight,
-                    'metadata': result['metadata']
-                }
-
-                if result.get('metadata', {}).get('na') or result['confidence'] == 0:
-                    na_count += 1
-                else:
-                    valid_count += 1
-
+                res = algo.predict(history, current_value,
+                                   thresholds=thresholds,
+                                   threshold_names=threshold_names,
+                                   _cached_video_data=cached_video_data)
+                w = weight_manager.get_weight(n) if weight_manager else getattr(algo, 'weight', 1.0)
+                return n, {
+                    'prediction': res['prediction'],
+                    'confidence': res['confidence'],
+                    'weight': w,
+                    'metadata': res['metadata']
+                }, None
             except Exception as e:
-                print(f"算法 {name} 预测失败: {e}")
-                results[name] = {
+                print(f"算法 {n} 预测失败: {e}")
+                return n, {
                     'prediction': current_value,
                     'confidence': 0,
                     'weight': 0.01,
                     'error': str(e)
-                }
+                }, e
+
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            futures = [pool.submit(_run_single, item) for item in cls._algorithms.items()]
+
+        for future in as_completed(futures):
+            name, result, error = future.result()
+            results[name] = result
+            if error:
+                continue
+            if result.get('metadata', {}).get('na') or result['confidence'] == 0:
+                na_count += 1
+            else:
+                valid_count += 1
 
         valid_predictions = [(name, r['prediction'], r['weight'])
                            for name, r in results.items()

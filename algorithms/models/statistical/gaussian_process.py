@@ -28,7 +28,8 @@ class GaussianProcessAlgorithm(BaseAlgorithm):
         self.sigma_n = 0.1       # 噪声标准差
         self.X_train = None
         self.y_train = None
-        self.K_inv = None
+        self._alpha = None
+        self._L = None
         
     def predict(
         self,
@@ -149,8 +150,15 @@ class GaussianProcessAlgorithm(BaseAlgorithm):
         K = self._rbf_kernel(X, X)
         K += self.sigma_n**2 * np.eye(len(X))  # 添加噪声
         
-        # 计算逆矩阵
-        self.K_inv = np.linalg.inv(K)
+        # Cholesky 分解求解 K^(-1) * y（比直接求逆快 2 倍、数值更稳定）
+        try:
+            L = np.linalg.cholesky(K)
+            self._alpha = np.linalg.cho_solve((L, False), y)
+            self._L = L
+        except np.linalg.LinAlgError:
+            # fallback：对非正定矩阵使用伪逆
+            self._alpha = np.linalg.lstsq(K, y, rcond=None)[0]
+            self._L = None
     
     def _predict_points(
         self, 
@@ -169,10 +177,13 @@ class GaussianProcessAlgorithm(BaseAlgorithm):
         K_ss = self._rbf_kernel(X_test, X_test)
         
         # 预测均值
-        mu = K_s.T @ self.K_inv @ self.y_train
+        mu = K_s.T @ self._alpha
         
-        # 预测方差
-        cov = K_ss - K_s.T @ self.K_inv @ K_s
+        if self._L is not None:
+            v = np.linalg.cho_solve((self._L, False), K_s)
+            cov = K_ss - K_s.T @ v
+        else:
+            cov = K_ss - K_s.T @ np.linalg.lstsq(self.X_train, K_s, rcond=None)[0]
         var = np.diag(cov)
         
         return mu, var

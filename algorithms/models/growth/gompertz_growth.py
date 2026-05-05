@@ -11,10 +11,13 @@ from scipy.optimize import curve_fit
 from algorithms.base import BaseAlgorithm
 
 
+_TS_FMT = '%Y-%m-%d %H:%M:%S'
+
+
 class GompertzGrowthAlgorithm(BaseAlgorithm):
     """
     Gompertz Growth Curve Model
-    
+
     公式: V(t) = a * exp(-b * exp(-c * t))
     其中:
     - a: 渐近线 (最大播放量)
@@ -22,16 +25,18 @@ class GompertzGrowthAlgorithm(BaseAlgorithm):
     - c: 增长率参数
     - t: 时间
     """
-    
+
     name = "Gompertz增长曲线"
     description = "S型增长模型，适用于长期增长预测"
     category = "扩散模型"
-    
+
     def __init__(self):
         super().__init__()
         self.a = 1000000  # 渐近线
         self.b = 5.0      # 位移
         self.c = 0.1      # 增长率
+        self._maxfev = 300  # scipy.optimize.curve_fit 最大迭代次数
+        self._min_curvefit_points = 10
         
     def predict(
         self,
@@ -82,37 +87,60 @@ class GompertzGrowthAlgorithm(BaseAlgorithm):
             return None
     
     def _prepare_data(
-        self, 
+        self,
         history_data: List[Dict[str, Any]]
     ) -> Tuple[np.ndarray, np.ndarray]:
         """准备时间和播放量数据"""
-        times = []
-        views = []
-        
-        base_time = datetime.strptime(
-            history_data[0]['timestamp'], 
-            '%Y-%m-%d %H:%M:%S'
-        )
-        
-        for data in history_data:
-            t = datetime.strptime(data['timestamp'], '%Y-%m-%d %H:%M:%S')
-            days = (t - base_time).total_seconds() / 86400
-            times.append(days)
-            views.append(data['view'])
-        
-        return np.array(times), np.array(views)
+        n = len(history_data)
+        times = np.empty(n, dtype=float)
+        views = np.empty(n, dtype=float)
+
+        # 解析第一个时间戳作为基准（天）
+        first_ts_raw = history_data[0]['timestamp']
+        if isinstance(first_ts_raw, str):
+            base_dt = datetime.strptime(first_ts_raw, _TS_FMT)
+            base_epoch = base_dt.timestamp()
+        elif isinstance(first_ts_raw, datetime):
+            base_epoch = first_ts_raw.timestamp()
+        else:
+            base_epoch = float(first_ts_raw)
+
+        times[0] = 0.0
+        views[0] = history_data[0].get('view', history_data[0].get('view_count', 0))
+
+        for i in range(1, n):
+            data = history_data[i]
+            views[i] = data.get('view', data.get('view_count', 0))
+            ts_raw = data['timestamp']
+            if isinstance(ts_raw, str):
+                ts_epoch = datetime.strptime(ts_raw, _TS_FMT).timestamp()
+            elif isinstance(ts_raw, datetime):
+                ts_epoch = ts_raw.timestamp()
+            else:
+                ts_epoch = float(ts_raw)
+            times[i] = (ts_epoch - base_epoch) / 86400.0
+
+        return times, views
     
     def _gompertz(self, t, a, b, c):
         """Gompertz函数"""
         return a * np.exp(-b * np.exp(-c * t))
     
     def _fit_curve(
-        self, 
-        times: np.ndarray, 
+        self,
+        times: np.ndarray,
         views: np.ndarray,
         video_info: Dict[str, Any]
     ):
         """拟合Gompertz曲线"""
+        if len(times) < self._min_curvefit_points:
+            self.a = max(views) * 2.5
+            self.b = 4.0
+            self.c = 0.15
+            if 'follower' in video_info:
+                self.a = max(self.a, video_info['follower'] * 2)
+            return
+
         try:
             # 设置初始参数
             max_views = max(views) * 3  # 估计最大播放量
@@ -123,8 +151,8 @@ class GompertzGrowthAlgorithm(BaseAlgorithm):
             
             # 拟合
             popt, _ = curve_fit(
-                self._gompertz, times, views, 
-                p0=p0, bounds=bounds, maxfev=5000
+                self._gompertz, times, views,
+                p0=p0, bounds=bounds, maxfev=self._maxfev
             )
             
             self.a, self.b, self.c = popt

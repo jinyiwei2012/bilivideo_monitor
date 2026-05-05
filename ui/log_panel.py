@@ -17,6 +17,7 @@ class LogPanel:
         self._log_entries = []   # [(level, timestamp_str, message), ...]
         self._log_level_var = tk.StringVar(value="ALL")
         self._log_refresh_job = None
+        self._rendered_count = 0  # 已渲染的条目数，用于增量刷新
 
         self._build()
 
@@ -95,6 +96,7 @@ class LogPanel:
                 fg_color=C["bg_elevated"] if is_active else C["bg_hover"],
                 text_color=C["bilibili"] if is_active else C["text_2"],
             )
+        self._rendered_count = 0
         self.refresh_log_view()
 
     _LEVEL_ORDER = {"DEBUG": 0, "INFO": 1, "WARNING": 2, "ERROR": 3}
@@ -116,9 +118,13 @@ class LogPanel:
         except Exception:
             pass
         if len(self._log_entries) > 2000:
+            removed = len(self._log_entries) - 1500
             self._log_entries = self._log_entries[-1500:]
+            self._rendered_count = max(0, self._rendered_count - removed)
+        # 如果日志面板可见且等级匹配，实时追加
         if self._log_frame.winfo_ismapped() and self._should_show(level):
             self._append_log_line(level, ts, message)
+            self._rendered_count += 1
 
     def _append_log_line(self, level, ts, message):
         self._log_text.config(state=tk.NORMAL)
@@ -129,30 +135,52 @@ class LogPanel:
         self._log_text.config(state=tk.DISABLED)
 
     def refresh_log_view(self):
-        self._log_text.config(state=tk.NORMAL)
-        self._log_text.delete("1.0", tk.END)
-        for level, ts, msg in self._log_entries:
-            if self._should_show(level):
-                self._log_text.insert(tk.END, f"[{ts}] ", "TIME")
-                self._log_text.insert(tk.END, f"[{level:>7s}] ", level)
-                self._log_text.insert(tk.END, f"{msg}\n")
-        self._log_text.see(tk.END)
-        self._log_text.config(state=tk.DISABLED)
+        """根据当前等级筛选刷新日志（增量追加，避免全量重建）"""
+        current_count = len(self._log_entries)
+        if current_count == 0:
+            return
+
+        # 首次刷新或切换过滤条件时全量重建
+        if self._rendered_count == 0:
+            self._log_text.config(state=tk.NORMAL)
+            self._log_text.delete("1.0", tk.END)
+            for level, ts, msg in self._log_entries:
+                if self._should_show(level):
+                    self._log_text.insert(tk.END, f"[{ts}] ", "TIME")
+                    self._log_text.insert(tk.END, f"[{level:>7s}] ", level)
+                    self._log_text.insert(tk.END, f"{msg}\n")
+            self._rendered_count = current_count
+            self._log_text.see(tk.END)
+            self._log_text.config(state=tk.DISABLED)
+            return
+
+        # 增量追加：只添加新增的条目
+        if current_count > self._rendered_count:
+            self._log_text.config(state=tk.NORMAL)
+            for level, ts, msg in self._log_entries[self._rendered_count:]:
+                if self._should_show(level):
+                    self._log_text.insert(tk.END, f"[{ts}] ", "TIME")
+                    self._log_text.insert(tk.END, f"[{level:>7s}] ", level)
+                    self._log_text.insert(tk.END, f"{msg}\n")
+            self._rendered_count = current_count
+            self._log_text.see(tk.END)
+            self._log_text.config(state=tk.DISABLED)
 
     def clear_log(self):
         self._log_entries.clear()
+        self._rendered_count = 0
         self._log_text.config(state=tk.NORMAL)
         self._log_text.delete("1.0", tk.END)
         self._log_text.config(state=tk.DISABLED)
 
     def start_auto_refresh(self, root):
         self.stop_auto_refresh()
-        self._log_refresh_job = root.after(3000, self._auto_refresh_tick)
+        self._log_refresh_job = root.after(5000, self._auto_refresh_tick)
 
     def _auto_refresh_tick(self):
         if self._log_frame.winfo_ismapped():
             self.refresh_log_view()
-            self._log_refresh_job = self.root.after(3000, self._auto_refresh_tick)
+            self._log_refresh_job = self.root.after(5000, self._auto_refresh_tick)
 
     def stop_auto_refresh(self):
         if self._log_refresh_job:

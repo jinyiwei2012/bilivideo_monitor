@@ -23,10 +23,11 @@ class CatBoostSimpleAlgorithm(BaseAlgorithm):
     
     def __init__(self):
         super().__init__()
-        self.n_trees = 20
+        self.n_trees = 10
         self.learning_rate = 0.1
-        self.max_depth = 4
+        self.max_depth = 3
         self.trees = []
+        self._threshold_percentiles = [50]  # 仅用中位数分裂，减少计算
         
     def predict(
         self,
@@ -120,71 +121,90 @@ class CatBoostSimpleAlgorithm(BaseAlgorithm):
         return np.array(X), np.array(y)
     
     def _train(self, X: np.ndarray, y: np.ndarray):
-        """训练梯度提升模型"""
+        """训练梯度提升模型（含早停）"""
         n_samples = len(X)
-        
+
         # 初始化预测值为均值
         self.base_prediction = np.mean(y)
         predictions = np.full(n_samples, self.base_prediction)
-        
+
         self.trees = []
-        
+        best_loss = float('inf')
+        no_improve = 0
+
         for _ in range(self.n_trees):
             # 计算残差 (负梯度)
             residuals = y - predictions
-            
+
             # 构建决策树桩 (简化版)
             tree = self._build_tree(X, residuals, depth=0)
             self.trees.append(tree)
-            
+
             # 更新预测
             for i in range(n_samples):
                 predictions[i] += self.learning_rate * self._tree_predict(tree, X[i])
+
+            # 早停：检查训练损失是否收敛
+            loss = np.mean(residuals ** 2)
+            if loss < 1e-8:
+                break
+            if loss < best_loss:
+                best_loss = loss
+                no_improve = 0
+            else:
+                no_improve += 1
+                if no_improve >= 3:
+                    break
     
     def _build_tree(
-        self, 
-        X: np.ndarray, 
-        y: np.ndarray, 
+        self,
+        X: np.ndarray,
+        y: np.ndarray,
         depth: int
     ) -> Dict:
         """构建决策树 (简化版)"""
         n_samples = len(X)
-        
+
         if n_samples < 2 or depth >= self.max_depth:
             return {'leaf': True, 'value': np.mean(y)}
-        
+
         # 找到最佳分裂
         best_gain = -float('inf')
         best_feature = 0
         best_threshold = 0
-        
+
         n_features = X.shape[1]
-        
+        var_y = np.var(y)
+        if var_y <= 0:
+            return {'leaf': True, 'value': np.mean(y)}
+
         for feature in range(n_features):
             values = X[:, feature]
-            thresholds = np.percentile(values, [25, 50, 75])
-            
+            thresholds = np.percentile(values, self._threshold_percentiles)
+
             for threshold in thresholds:
                 left_mask = values <= threshold
                 right_mask = ~left_mask
-                
-                if np.sum(left_mask) < 2 or np.sum(right_mask) < 2:
+
+                n_left = np.sum(left_mask)
+                n_right = n_samples - n_left
+                if n_left < 2 or n_right < 2:
                     continue
-                
+
                 left_y = y[left_mask]
                 right_y = y[right_mask]
-                
-                # 计算方差减少
-                gain = np.var(y) - (
-                    np.sum(left_mask) * np.var(left_y) +
-                    np.sum(right_mask) * np.var(right_y)
+
+                # 方差减少 = var(y) - (n_left/n * var(left) + n_right/n * var(right))
+                gain = var_y - (
+                    n_left * np.var(left_y) +
+                    n_right * np.var(right_y)
                 ) / n_samples
-                
+
                 if gain > best_gain:
                     best_gain = gain
                     best_feature = feature
                     best_threshold = threshold
-        
+
         if best_gain <= 0:
             return {'leaf': True, 'value': np.mean(y)}
         
@@ -204,14 +224,14 @@ class CatBoostSimpleAlgorithm(BaseAlgorithm):
         }
     
     def _tree_predict(self, tree: Dict, x: np.ndarray) -> float:
-        """使用树进行预测"""
-        if tree['leaf']:
-            return tree['value']
-        
-        if x[tree['feature']] <= tree['threshold']:
-            return self._tree_predict(tree['left'], x)
-        else:
-            return self._tree_predict(tree['right'], x)
+        """使用树进行预测（迭代实现，避免递归开销）"""
+        node = tree
+        while not node['leaf']:
+            if x[node['feature']] <= node['threshold']:
+                node = node['left']
+            else:
+                node = node['right']
+        return node['value']
     
     def _predict_single(self, x: np.ndarray) -> float:
         """预测单个样本"""
@@ -223,15 +243,19 @@ class CatBoostSimpleAlgorithm(BaseAlgorithm):
         return prediction
     
     def _calculate_confidence(self, X: np.ndarray, y: np.ndarray) -> float:
-        """计算置信度"""
+        """计算置信度（采样评估减少耗时）"""
         n = len(X)
         base_conf = min(0.85, 0.3 + n * 0.02)
-        
-        # 计算拟合误差
+
         if n >= 5:
-            predictions = np.array([self._predict_single(X[i]) for i in range(n)])
-            mape = np.mean(np.abs((y - predictions) / (np.abs(y) + 1)))
-            fit_quality = max(0, 1 - mape)
+            # 最多采样 5 个点评估拟合质量
+            step = max(1, n // 5)
+            indices = range(0, n, step)[:5]
+            errors = []
+            for i in indices:
+                pred = self._predict_single(X[i])
+                errors.append(abs(y[i] - pred) / (abs(y[i]) + 1))
+            fit_quality = max(0, 1 - np.mean(errors))
             base_conf = 0.5 * base_conf + 0.5 * fit_quality
-        
+
         return min(0.9, base_conf)
