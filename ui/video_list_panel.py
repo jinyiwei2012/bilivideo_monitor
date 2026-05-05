@@ -5,6 +5,7 @@
 import tkinter as tk
 import customtkinter as ctk
 import threading
+import logging
 import requests as _req
 from io import BytesIO
 
@@ -15,6 +16,8 @@ _cover_session.headers.update({
     "Referer": "https://www.bilibili.com/",
 })
 _cover_semaphore = threading.Semaphore(4)  # 最多 4 个并发下载
+
+logger = logging.getLogger(__name__)
 
 from ui.theme import C
 from ui.helpers import (
@@ -290,7 +293,7 @@ class VideoListPanel:
                         pass
                 self.gui.root.after(0, lambda: self._safe_set_image(label_widget, ph))
             except Exception as e:
-                print(f"缩略图加载失败 {bvid}: {e}")
+                logger.warning("缩略图加载失败 %s: %s", bvid, e)
             finally:
                 _cover_semaphore.release()
         threading.Thread(target=_fetch, daemon=True).start()

@@ -5,6 +5,9 @@ import tkinter as tk
 from tkinter import ttk, messagebox, LEFT, RIGHT, BOTH, X, Y, TOP, BOTTOM
 from typing import List, Dict
 from datetime import datetime, timedelta
+import logging
+
+logger = logging.getLogger(__name__)
 
 from ui.theme import C
 from .data_comparison import _fmt, PALETTE, PALETTE_LIGHT, METRICS, _ML, _MR, _MT, _MB
@@ -121,7 +124,7 @@ class TrendTab:
                             for row in records
                         ]
                 except Exception as e:
-                    print(f"[趋势图] 加载 {bvid} 历史数据失败: {e}")
+                    logger.warning("加载 %s 历史数据失败: %s", bvid, e)
 
         self._draw()
 

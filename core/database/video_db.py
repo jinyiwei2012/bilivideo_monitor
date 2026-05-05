@@ -51,6 +51,7 @@ class VideoDatabase:
 
     def _init_db(self):
         """初始化数据库"""
+        global _schema_migrated_version
         with self._get_connection() as conn:
             cursor = conn.cursor()
 
@@ -312,7 +313,7 @@ class VideoDatabase:
                 ))
                 conn.commit()
         except Exception as e:
-            print(f"保存视频信息失败: {e}")
+            logger.warning("保存视频信息失败 %s: %s", self.bvid, e)
 
     def add_monitor_record(self, record: MonitorRecord) -> bool:
         """添加监控记录"""
@@ -334,7 +335,7 @@ class VideoDatabase:
                 conn.commit()
                 return True
         except Exception as e:
-            print(f"添加监控记录失败: {e}")
+            logger.warning("添加监控记录失败 %s: %s", record.bvid, e)
             return False
 
     def get_all_records(self, limit: int = 0) -> List[Dict]:
@@ -353,7 +354,7 @@ class VideoDatabase:
                     rows = [dict(row) for row in cursor.fetchall()]
                 return rows
         except Exception as e:
-            print(f"获取记录失败: {e}")
+            logger.warning("获取记录失败 %s: %s", self.bvid, e)
             return []
 
     def get_video_info(self) -> Optional[Dict]:
@@ -388,7 +389,7 @@ class VideoDatabase:
                 conn.commit()
                 return True
         except Exception as e:
-            print(f"添加预测记录失败: {e}")
+            logger.warning("添加预测记录失败 %s: %s", record.bvid, e)
             return False
 
     def add_weekly_score(self, timestamp: str, score_data: dict) -> bool:
@@ -425,7 +426,7 @@ class VideoDatabase:
                 conn.commit()
                 return True
         except Exception as e:
-            print(f"添加周刊分数记录失败: {e}")
+            logger.warning("添加周刊分数记录失败 %s: %s", self.bvid, e)
             return False
 
     def get_weekly_scores(self, limit: int = 0) -> list:
@@ -449,7 +450,7 @@ class VideoDatabase:
                         'SELECT * FROM weekly_scores ORDER BY timestamp ASC')
                 return [dict(row) for row in cursor.fetchall()]
         except Exception as e:
-            print(f"获取周刊分数记录失败: {e}")
+            logger.warning("获取周刊分数记录失败 %s: %s", self.bvid, e)
             return []
 
     def get_latest_weekly_score(self) -> Optional[Dict]:
@@ -490,7 +491,7 @@ class VideoDatabase:
                 conn.commit()
                 return True
         except Exception as e:
-            print(f"添加年刊分数记录失败: {e}")
+            logger.warning("添加年刊分数记录失败 %s: %s", self.bvid, e)
             return False
 
     def get_yearly_scores(self, limit: int = 0) -> list:
@@ -507,7 +508,7 @@ class VideoDatabase:
                         'SELECT * FROM yearly_scores ORDER BY timestamp ASC')
                 return [dict(row) for row in cursor.fetchall()]
         except Exception as e:
-            print(f"获取年刊分数记录失败: {e}")
+            logger.warning("获取年刊分数记录失败 %s: %s", self.bvid, e)
             return []
 
     def get_latest_yearly_score(self) -> Optional[Dict]:

@@ -6,6 +6,9 @@ from typing import Dict, List, Tuple, Any
 from datetime import datetime
 import importlib
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class ModelAlgorithmAdapter:
@@ -281,7 +284,7 @@ def load_all_model_algorithms() -> List[ModelAlgorithmAdapter]:
     models_dir = os.path.join(current_dir, 'models')
     
     if not os.path.exists(models_dir):
-        print(f"models目录不存在: {models_dir}")
+        logger.warning("models目录不存在: %s", models_dir)
         return adapters
     
     # 递归遍历models目录下的所有子目录
@@ -320,6 +323,6 @@ def load_all_model_algorithms() -> List[ModelAlgorithmAdapter]:
                             pass
                             
             except Exception as e:
-                print(f"加载算法 {module_path} 失败: {e}")
+                logger.warning("加载算法 %s 失败: %s", module_path, e)
     
     return adapters

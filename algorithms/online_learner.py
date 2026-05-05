@@ -10,6 +10,9 @@
 import math
 import time
 import threading
+import logging
+
+logger = logging.getLogger(__name__)
 import json
 import os
 from typing import Dict, List, Tuple, Optional
@@ -205,7 +208,7 @@ class OnlineLearner:
                         t.last_error = td.get('last_error')
                         t.last_update = td.get('last_update', 0)
             except Exception as e:
-                print(f"OnlineLearner 加载失败: {e}")
+                logger.warning("OnlineLearner 加载失败: %s", e)
 
     def reset(self):
         """重置所有学习状态。"""

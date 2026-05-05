@@ -242,7 +242,7 @@ class Database:
 
             return True
         except Exception as e:
-            print(f"同步数据失败: {e}")
+            logger.warning("同步数据失败 %s: %s", bvid, e)
             return False
 
     def sync_all_video_dbs(self) -> Dict[str, bool]:
@@ -284,7 +284,7 @@ class Database:
                 conn.commit()
                 return True
         except Exception as e:
-            print(f"添加视频失败: {e}")
+            logger.warning("添加视频失败 %s: %s", bvid, e)
             return False
 
     def get_video(self, bvid: str) -> Optional[VideoInfo]:
@@ -298,7 +298,7 @@ class Database:
                     return VideoInfo(**dict(row))
                 return None
         except Exception as e:
-            print(f"获取视频失败: {e}")
+            logger.warning("获取视频失败 %s: %s", bvid, e)
             return None
 
     def add_monitor_record(self, record: MonitorRecord) -> bool:
@@ -321,7 +321,7 @@ class Database:
                 conn.commit()
                 return True
         except Exception as e:
-            print(f"添加监控记录失败: {e}")
+            logger.warning("添加监控记录失败 %s: %s", record.bvid, e)
             return False
 
     def get_monitor_history(self, bvid: str, limit: int = 0) -> List[Dict]:
@@ -344,7 +344,7 @@ class Database:
                     ''', (bvid,))
                 return [dict(row) for row in cursor.fetchall()]
         except Exception as e:
-            print(f"获取监控历史失败: {e}")
+            logger.warning("获取监控历史失败 %s: %s", bvid, e)
             return []
 
     def add_prediction(self, prediction: PredictionRecord) -> bool:
@@ -366,7 +366,7 @@ class Database:
                 conn.commit()
                 return True
         except Exception as e:
-            print(f"添加预测记录失败: {e}")
+            logger.warning("添加预测记录失败 %s: %s", prediction.bvid, e)
             return False
 
     def download_cover(self, bvid: str, pic_url: str) -> str:
@@ -387,7 +387,7 @@ class Database:
                     f.write(response.content)
                 return cover_path
         except Exception as e:
-            print(f"下载封面失败: {e}")
+            logger.warning("下载封面失败 %s: %s", bvid, e)
         return ""
 
     def export_video_to_csv(self, bvid: str, filepath: str = None) -> str:
@@ -421,7 +421,7 @@ class Database:
 
             return filepath
         except Exception as e:
-            print(f"导出失败: {e}")
+            logger.warning("导出失败: %s", e)
             return ""
 
     # ── 里程碑 CRUD ─────────────────────────────────────────────────────────
@@ -472,7 +472,7 @@ class Database:
                 conn.commit()
                 return True
         except Exception as e:
-            print(f"里程碑写入失败: {e}")
+            logger.warning("里程碑写入失败: %s", e)
             return False
 
     def get_milestones(self, bvid: str = None) -> list:
@@ -495,7 +495,7 @@ class Database:
                         'SELECT * FROM video_milestones ORDER BY bvid, period')
                 return [dict(row) for row in cursor.fetchall()]
         except Exception as e:
-            print(f"里程碑查询失败: {e}")
+            logger.warning("里程碑查询失败: %s", e)
             return []
 
     def get_all_milestones_grouped(self) -> dict:
@@ -520,7 +520,7 @@ class Database:
                 conn.commit()
                 return True
         except Exception as e:
-            print(f"里程碑删除失败: {e}")
+            logger.warning("里程碑删除失败: %s", e)
             return False
 
     def wal_checkpoint(self):
@@ -537,7 +537,7 @@ class Database:
             self._conn.commit()
             self._conn.close()
         except Exception as e:
-            print(f"关闭数据库失败: {e}")
+            logger.warning("关闭数据库失败: %s", e)
 
 
 # 全局数据库实例

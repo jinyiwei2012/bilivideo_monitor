@@ -138,7 +138,7 @@ class BassDiffusionAlgorithm(BaseAlgorithm):
             )
             
         except Exception as e:
-            print(f"Bass扩散模型预测失败: {e}")
+            logger.warning(f"Bass扩散模型预测失败: {e}")
             return PredictionResult(
                 algorithm_name=self.name,
                 algorithm_id=self.algorithm_id,

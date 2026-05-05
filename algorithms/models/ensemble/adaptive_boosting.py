@@ -6,7 +6,11 @@
 import numpy as np
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
+import logging
+
 from algorithms.base import BaseAlgorithm
+
+logger = logging.getLogger(__name__)
 
 
 class AdaBoostAlgorithm(BaseAlgorithm):
@@ -73,7 +77,7 @@ class AdaBoostAlgorithm(BaseAlgorithm):
             return (seconds_needed, confidence)
             
         except Exception as e:
-            print(f"AdaBoost预测失败: {e}")
+            logger.warning(f"AdaBoost预测失败: {e}")
             return None
     
     def _prepare_data(

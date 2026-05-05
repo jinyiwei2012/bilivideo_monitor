@@ -541,7 +541,7 @@ class EntryTab:
             video_db.add_monitor_record(record)
             return True
         except Exception as e:
-            print(f"快照写入失败 [{bvid}]: {e}")
+            logger.warning("快照写入失败 [%s]: %s", bvid, e)
             return False
 
     # ── 刷新已有数据表格 ──────────────────────────────────────────────────────

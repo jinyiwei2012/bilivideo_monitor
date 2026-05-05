@@ -7,7 +7,11 @@ import numpy as np
 from scipy import linalg
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
+import logging
+
 from algorithms.base import BaseAlgorithm
+
+logger = logging.getLogger(__name__)
 
 
 class GaussianProcessAlgorithm(BaseAlgorithm):
@@ -92,7 +96,7 @@ class GaussianProcessAlgorithm(BaseAlgorithm):
             return (seconds_needed, confidence)
             
         except Exception as e:
-            print(f"高斯过程预测失败: {e}")
+            logger.warning(f"高斯过程预测失败: {e}")
             return None
     
     def _prepare_data(

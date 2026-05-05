@@ -85,7 +85,7 @@ class RichardsCurveAlgorithm(BaseAlgorithm):
             return (seconds_needed, confidence)
             
         except Exception as e:
-            print(f"Richards模型预测失败: {e}")
+            logger.warning(f"Richards模型预测失败: {e}")
             return None
     
     def _prepare_data(

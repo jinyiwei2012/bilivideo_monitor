@@ -5,7 +5,11 @@ Huber鲁棒回归
 import numpy as np
 from typing import List, Dict, Any, Tuple, Optional
 from datetime import datetime
+import logging
+
 from algorithms.base import BaseAlgorithm
+
+logger = logging.getLogger(__name__)
 
 
 class HuberRegressionAlgorithm(BaseAlgorithm):
@@ -69,7 +73,7 @@ class HuberRegressionAlgorithm(BaseAlgorithm):
             return (seconds_needed, confidence)
 
         except Exception as e:
-            print(f"Huber回归预测失败: {e}")
+            logger.warning(f"Huber回归预测失败: {e}")
             return None
 
     def _prepare_features(self, history_data: List[Dict[str, Any]]) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:

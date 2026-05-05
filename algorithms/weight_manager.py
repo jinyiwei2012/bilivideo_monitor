@@ -5,8 +5,11 @@
 import os
 import json
 import threading
+import logging
 from typing import Dict, List, Optional
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 
 class WeightManager:
@@ -52,7 +55,7 @@ class WeightManager:
                     self.ml_weights = data.get('ml_weights', {})
                     self.accuracy_records = data.get('accuracy_records', {})
             except Exception as e:
-                print(f"加载权重失败: {e}")
+                logger.warning("加载权重失败: %s", e)
     
     def _save_weights(self, bvid: str = None):
         """保存权重"""
@@ -67,7 +70,7 @@ class WeightManager:
             with open(self._get_weights_file(bvid), 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            print(f"保存权重失败: {e}")
+            logger.warning("保存权重失败: %s", e)
     
     def set_user_weight(self, algorithm_name: str, weight: float):
         """设置用户自定义权重"""

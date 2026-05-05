@@ -5,7 +5,11 @@ ElasticNet回归
 import numpy as np
 from typing import List, Dict, Any, Tuple, Optional
 from datetime import datetime
+import logging
+
 from algorithms.base import BaseAlgorithm
+
+logger = logging.getLogger(__name__)
 
 
 class ElasticNetRegressionAlgorithm(BaseAlgorithm):
@@ -70,7 +74,7 @@ class ElasticNetRegressionAlgorithm(BaseAlgorithm):
             return (seconds_needed, confidence)
 
         except Exception as e:
-            print(f"ElasticNet预测失败: {e}")
+            logger.warning(f"ElasticNet预测失败: {e}")
             return None
 
     def _prepare_features(self, history_data: List[Dict[str, Any]]) -> Tuple[np.ndarray, np.ndarray]:

@@ -7,7 +7,11 @@ Holt-Winters指数平滑模型
 import numpy as np
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
+import logging
+
 from algorithms.base import BaseAlgorithm
+
+logger = logging.getLogger(__name__)
 
 
 class HoltWintersAlgorithm(BaseAlgorithm):
@@ -83,7 +87,7 @@ class HoltWintersAlgorithm(BaseAlgorithm):
             return (seconds_needed, confidence)
             
         except Exception as e:
-            print(f"Holt-Winters预测失败: {e}")
+            logger.warning(f"Holt-Winters预测失败: {e}")
             return None
     
     def _fit(self, series: List[float]) -> Tuple[float, float, List[float]]:

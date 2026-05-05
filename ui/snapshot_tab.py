@@ -389,7 +389,7 @@ class SnapshotTab:
         now = _parse_dt(all_ts[0])
         if not now:
             # 解析失败，使用当前时间作为fallback
-            print(f"[快照] 无法解析时间戳: {all_ts[0]}，使用当前时间")
+            _snap_logger.warning("无法解析时间戳: %s，使用当前时间", all_ts[0])
             now = datetime.now()
 
         filtered = []
@@ -428,7 +428,7 @@ class SnapshotTab:
                     )
                     return
             except Exception as e:
-                print(f"[快照] 加载 {bvid} 历史记录失败: {e}")
+                _snap_logger.warning("加载 %s 历史记录失败: %s", bvid, e)
         self._points[bvid] = []
 
     # ── 生成对比图 ──────────────────────────────────────────────────────────────

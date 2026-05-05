@@ -5,7 +5,10 @@
 
 import os
 import json
+import logging
 from typing import Dict, Any
+
+logger = logging.getLogger(__name__)
 
 # 项目根目录
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -100,7 +103,7 @@ def load_config() -> Dict[str, Any]:
                     else:
                         config[k] = v
         except Exception as e:
-            print(f"加载配置失败: {e}")
+            logger.warning("加载配置失败: %s", e)
     return config
 
 
@@ -130,7 +133,7 @@ def save_config(config: Dict[str, Any]) -> bool:
             json.dump(config, f, ensure_ascii=False, indent=2)
         return True
     except Exception as e:
-        print(f"保存配置失败: {e}")
+        logger.warning("保存配置失败: %s", e)
         return False
 
 

@@ -63,7 +63,7 @@ def _save_predictions_to_db(gui, bvid, current_view, results):
 
 
 def _merge_history(gui, bvid: str) -> list:
-    """合并内存历史与数据库历史"""
+    """合并内存历史与数据库历史，同步写回 gui.history_data 确保图表数据完整"""
     current_view = next(
         (v.get("view_count", 0) for v in gui.monitored_videos
          if v.get("bvid") == bvid), 0)
@@ -74,20 +74,19 @@ def _merge_history(gui, bvid: str) -> list:
         if bvid in gui.video_dbs:
             db_hist = gui.video_dbs[bvid].get_all_records()
             if db_hist:
-                existing_ts = {
-                    h[0] if isinstance(h[0], str) else h[0].isoformat()
-                    for h in history
-                }
+                def _norm(ts):
+                    """统一时间戳格式用于去重比较"""
+                    if isinstance(ts, datetime):
+                        return ts.strftime("%Y-%m-%d %H:%M:%S")
+                    dt = datetime.fromisoformat(str(ts)) if isinstance(ts, str) else datetime.fromtimestamp(float(ts))
+                    return dt.strftime("%Y-%m-%d %H:%M:%S")
+                existing_ts = {_norm(h[0]) for h in history}
                 for row in db_hist:
-                    ts = row["timestamp"]
-                    ts_str = ts if isinstance(ts, str) else ts.isoformat()
+                    ts_str = _norm(row["timestamp"])
                     if ts_str not in existing_ts:
-                        history.append((ts, row["view_count"]))
+                        history.append((row["timestamp"], row["view_count"]))
     except Exception as e:
         logger.warning(f"合并历史记录失败 {bvid}: {e}")
-
-    def _to_dt(t):
-        return t if isinstance(t, datetime) else datetime.fromisoformat(str(t))
 
     history.sort(key=lambda x: _to_dt(x[0]))
 
@@ -95,7 +94,16 @@ def _merge_history(gui, bvid: str) -> list:
         now = datetime.now()
         history = [(now, current_view), (now, current_view)]
 
+    # 同步回 gui.history_data，让图表也能看到合并后的完整数据
+    with gui._data_lock:
+        gui.history_data[bvid] = [(ts, v) for ts, v in history]
+
     return history
+
+
+def _to_dt(t):
+    """统一时间戳转为 datetime"""
+    return t if isinstance(t, datetime) else datetime.fromisoformat(str(t))
 
 
 def _calc_growth_rate(history: list) -> float:
@@ -341,9 +349,9 @@ class VideoWorker:
             if bvid not in gui.history_data:
                 gui.history_data[bvid] = []
             gui.history_data[bvid].append((ts, video["view_count"]))
-            # 防止内存无界增长，保留最近 2000 条
+            # 防止内存无界增长，超过 3000 时保留最近 2800 条（缓降，避免一次丢掉 1000 条）
             if len(gui.history_data[bvid]) > 3000:
-                gui.history_data[bvid] = gui.history_data[bvid][-2000:]
+                gui.history_data[bvid] = gui.history_data[bvid][-2800:]
 
         # ── 写数据库 ─────────────────────────────
         try:
@@ -475,6 +483,8 @@ def fetch_single_video_data(gui, bvid, callback=None):
     对应"单视频立即刷新"场景。
     """
     _refresh_worker_now(bvid)
+    if callback:
+        gui.root.after(0, lambda: callback(bvid))
 
 
 def fetch_all_video_data(gui, callback=None):

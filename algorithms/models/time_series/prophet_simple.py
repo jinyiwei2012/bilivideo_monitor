@@ -6,7 +6,11 @@ Prophet风格分解预测
 import numpy as np
 from typing import List, Dict, Any
 from datetime import datetime
+import logging
+
 from algorithms.base import BaseAlgorithm, PredictionResult
+
+logger = logging.getLogger(__name__)
 
 
 class ProphetSimpleAlgorithm(BaseAlgorithm):
@@ -81,7 +85,7 @@ class ProphetSimpleAlgorithm(BaseAlgorithm):
             )
 
         except Exception as e:
-            print(f"Prophet预测失败: {e}")
+            logger.warning(f"Prophet预测失败: {e}")
             predicted_hours = remaining / velocity if velocity > 0 else float('inf')
             return PredictionResult(
                 algorithm_name=self.name, algorithm_id=self.algorithm_id,

@@ -6,7 +6,11 @@
 import numpy as np
 from typing import List, Dict, Any, Tuple
 from datetime import datetime
+import logging
+
 from algorithms.base import BaseAlgorithm, PredictionResult
+
+logger = logging.getLogger(__name__)
 
 
 class BayesianRegressionAlgorithm(BaseAlgorithm):
@@ -136,7 +140,7 @@ class BayesianRegressionAlgorithm(BaseAlgorithm):
             )
             
         except Exception as e:
-            print(f"贝叶斯回归预测失败: {e}")
+            logger.warning(f"贝叶斯回归预测失败: {e}")
             return PredictionResult(
                 algorithm_name=self.name,
                 algorithm_id=self.algorithm_id,
