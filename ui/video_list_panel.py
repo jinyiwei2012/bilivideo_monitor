@@ -112,20 +112,10 @@ class VideoListPanel:
                        font=FONT, cursor="hand2", pady=6,
                        relief="flat", highlightthickness=1,
                        highlightbackground=C["border"], highlightcolor=C["bilibili"])
-        btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 3))
+        btn.pack(side=tk.LEFT, fill=tk.X, expand=True)
         btn.bind("<Button-1>", lambda e: self.gui._add_monitor())
         btn.bind("<Enter>", lambda e: btn.config(fg=C["bilibili"], highlightbackground=C["bilibili"]))
         btn.bind("<Leave>", lambda e: btn.config(fg=C["text_2"], highlightbackground=C["border"]))
-
-        search_btn = tk.Label(bottom_f, text="🔍 搜索视频",
-                              bg=C["bg_surface"], fg=C["text_2"],
-                              font=FONT, cursor="hand2", pady=6, padx=8,
-                              relief="flat", highlightthickness=1,
-                              highlightbackground=C["border"], highlightcolor=C["accent"])
-        search_btn.pack(side=tk.LEFT, padx=(3, 0))
-        search_btn.bind("<Button-1>", lambda e: self.gui._open_video_search())
-        search_btn.bind("<Enter>", lambda e: search_btn.config(fg=C["accent"], highlightbackground=C["accent"]))
-        search_btn.bind("<Leave>", lambda e: search_btn.config(fg=C["text_2"], highlightbackground=C["border"]))
 
     # ──────────────────────────────────────────
     # 视频卡片

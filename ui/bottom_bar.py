@@ -24,10 +24,8 @@ class BottomBar:
         bar = tk.Frame(self._root, bg=C["bg_surface"], height=46)
         bar.pack(fill=tk.X)
         bar.pack_propagate(False)
-        ttk.Button(bar, text="＋ 添加监控", style="Primary.TButton",
-                   command=self.gui._add_monitor).pack(side=tk.LEFT, padx=(12, 4), pady=8)
         ttk.Button(bar, text="🔄 立即刷新",
-                   command=self.gui._refresh_data).pack(side=tk.LEFT, padx=4, pady=8)
+                   command=self.gui._refresh_data).pack(side=tk.LEFT, padx=(12, 4), pady=8)
         ttk.Button(bar, text="🗑 删除监控", style="Danger.TButton",
                    command=self.gui._remove_monitor).pack(side=tk.LEFT, padx=4, pady=8)
         ar_f = tk.Frame(bar, bg=C["bg_surface"])

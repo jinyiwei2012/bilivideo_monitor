@@ -153,11 +153,6 @@ class BilibiliMonitorGUI:
 
         nav_items = [
             ("📊", "监控列表", None),
-            ("📈", "数据对比",  self._dialogs.open_data_comparison),
-            ("🔄", "交叉计算",  self._dialogs.open_crossover_analysis),
-            ("📅", "周刊分数",  self._dialogs.open_weekly_score),
-            ("🏆", "里程碑",    self._dialogs.open_milestone_stats),
-            ("🗄", "数据库",    self._dialogs.open_database_query),
             ("📋", "日志",      None),
         ]
         
@@ -263,6 +258,11 @@ class BilibiliMonitorGUI:
         self._settings_menu.add_command(label="🧠  算法信息", command=self._dialogs.open_algorithm_info)
         self._settings_menu.add_command(label="🌐  网络设置", command=self._dialogs.open_network_settings)
         self._settings_menu.add_separator()
+        self._settings_menu.add_command(label="📈  数据对比", command=self._dialogs.open_data_comparison)
+        self._settings_menu.add_command(label="🔄  交叉计算", command=self._dialogs.open_crossover_analysis)
+        self._settings_menu.add_command(label="📅  周刊分数", command=self._dialogs.open_weekly_score)
+        self._settings_menu.add_command(label="🏆  里程碑", command=self._dialogs.open_milestone_stats)
+        self._settings_menu.add_command(label="🗄  数据库查询", command=self._dialogs.open_database_query)
         self._settings_menu.add_command(label="⚙️  系统设置", command=self._dialogs.open_settings)
 
     def _create_icon_button(self, parent, icon, command, tooltip=None):
