@@ -177,7 +177,37 @@ class CrossoverAnalysisWindow:
         self._selected = [self.monitored_videos[i] for i in sel_idx
                           if i < len(self.monitored_videos)]
 
-        # 补充历史数据
+        self._load_history()
+        fits = self._fit_videos()
+
+        # 清空旧结果
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+        self.canvas.delete("all")
+
+        valid = [v for v in self._selected if fits.get(v.get("bvid", ""))]
+        if len(valid) < 2:
+            self.status_lbl.config(text="所选视频历史数据不足（每个至少需要 2 条记录）",
+                                   fg=C["danger"])
+            messagebox.showwarning("数据不足",
+                                   "部分视频历史数据不足，无法进行交叉计算。\n"
+                                   "每个视频至少需要 2 条历史记录。",
+                                   parent=self.window)
+            return
+
+        crossover_count = self._compute_crossovers(valid, fits)
+
+        self.status_lbl.config(
+            text=f"分析完成：{len(valid)} 个视频，找到 {crossover_count} 个交会点",
+            fg=C["success"])
+
+        self._draw_trend(fits)
+
+        if crossover_count == 0 and len(valid) >= 2:
+            messagebox.showinfo("结果", "所选视频在当前趋势下没有交会点", parent=self.window)
+
+    def _load_history(self):
+        """从视频数据库补充历史播放数据"""
         for v in self._selected:
             bvid = v.get("bvid", "")
             if bvid in self.video_dbs:
@@ -191,8 +221,9 @@ class CrossoverAnalysisWindow:
                 except Exception:
                     pass
 
-        # 对每个视频做线性拟合
-        fits = {}  # bvid -> (slope, intercept, base_ts, points)
+    def _fit_videos(self) -> dict:
+        """对每个视频做线性拟合，返回 {bvid: (slope, intercept, base_ts, points)}"""
+        fits = {}
         for v in self._selected:
             bvid = v.get("bvid", "")
             raw = self.history_data.get(bvid, [])
@@ -211,89 +242,73 @@ class CrossoverAnalysisWindow:
             fit_pts = list(zip(hours, [p[1] for p in pts_parsed]))
             result = _linear_fit(fit_pts)
             fits[bvid] = (*result, base_ts, pts_parsed) if result else None
+        return fits
 
-        # 清空旧结果
-        for item in self.tree.get_children():
-            self.tree.delete(item)
-        self.canvas.delete("all")
-
-        valid = [v for v in self._selected if fits.get(v.get("bvid", ""))]
-        if len(valid) < 2:
-            self.status_lbl.config(text="所选视频历史数据不足（每个至少需要 2 条记录）",
-                                   fg=C["danger"])
-            messagebox.showwarning("数据不足",
-                                   "部分视频历史数据不足，无法进行交叉计算。\n"
-                                   "每个视频至少需要 2 条历史记录。",
-                                   parent=self.window)
-            return
-
-        # 两两配对计算交会点
+    def _compute_crossovers(self, valid: list, fits: dict) -> int:
+        """两两配对计算交会点，返回总数"""
         crossover_count = 0
         now = datetime.now()
 
         for i in range(len(valid)):
             for j in range(i + 1, len(valid)):
-                va = valid[i]
-                vb = valid[j]
-                ba = va.get("bvid", "")
-                bb = vb.get("bvid", "")
-                fa = fits[ba]
-                fb = fits[bb]
-                if not fa or not fb:
-                    continue
+                count = self._compute_pair(valid[i], valid[j], fits, now)
+                if count:
+                    crossover_count += count
 
-                slope_a, intercept_a, base_a, pts_a = fa
-                slope_b, intercept_b, base_b, pts_b = fb
-                offset_h = (base_b - base_a).total_seconds() / 3600
+        return crossover_count
 
-                cross_h = _find_crossover(slope_a, intercept_a,
-                                          slope_b, intercept_b, offset_h)
-                if cross_h is not None:
-                    cross_views = slope_a * cross_h + intercept_a
-                    cross_time = base_a + timedelta(hours=cross_h)
+    def _compute_pair(self, va: dict, vb: dict, fits: dict, now: datetime) -> int:
+        """计算两个视频的交会点，插入表格，成功返回1"""
+        ba = va.get("bvid", "")
+        bb = vb.get("bvid", "")
+        fa = fits.get(ba)
+        fb = fits.get(bb)
+        if not fa or not fb:
+            return 0
 
-                    # 置信度：基于 R² 和数据点数量
-                    pts_a_fit = [((p[0] - base_a).total_seconds() / 3600, p[1]) for p in pts_a]
-                    pts_b_fit = [((p[0] - base_b).total_seconds() / 3600, p[1]) for p in pts_b]
-                    r2_a = self._r_squared(slope_a, intercept_a, pts_a_fit)
-                    r2_b = self._r_squared(slope_b, intercept_b, pts_b_fit)
-                    # 简单综合置信度
-                    r2_avg = (r2_a + r2_b) / 2
-                    data_penalty = min(1.0, (len(pts_a) + len(pts_b)) / 20)
-                    confidence = r2_avg * data_penalty
+        slope_a, intercept_a, base_a, pts_a = fa
+        slope_b, intercept_b, base_b, pts_b = fb
+        offset_h = (base_b - base_a).total_seconds() / 3600
 
-                    if cross_views < 0:
-                        continue
+        cross_h = _find_crossover(slope_a, intercept_a,
+                                  slope_b, intercept_b, offset_h)
+        if cross_h is None:
+            return 0
 
-                    time_str = cross_time.strftime("%Y-%m-%d %H:%M")
-                    remaining = cross_time - now
-                    if remaining.total_seconds() > 0:
-                        days = remaining.days
-                        hours = int(remaining.total_seconds() // 3600 % 24)
-                        remain_str = f"{days}天{hours}小时" if days else f"{hours}小时"
-                    else:
-                        remain_str = "已交会"
+        cross_views = slope_a * cross_h + intercept_a
+        if cross_views < 0:
+            return 0
 
-                    self.tree.insert("", "end", values=(
-                        ba[:14],
-                        bb[:14],
-                        time_str,
-                        _fmt_num(cross_views),
-                        f"{slope_a:,.1f}",
-                        f"{slope_b:,.1f}",
-                        f"{confidence:.0%}",
-                    ))
-                    crossover_count += 1
+        cross_time = base_a + timedelta(hours=cross_h)
+        confidence = self._compute_confidence(slope_a, intercept_a, pts_a,
+                                              slope_b, intercept_b, pts_b)
+        time_str = cross_time.strftime("%Y-%m-%d %H:%M")
+        remaining = cross_time - now
+        if remaining.total_seconds() > 0:
+            days = remaining.days
+            hours = int(remaining.total_seconds() // 3600 % 24)
+            remain_str = f"{days}天{hours}小时" if days else f"{hours}小时"
+        else:
+            remain_str = "已交会"
 
-        self.status_lbl.config(
-            text=f"分析完成：{len(valid)} 个视频，找到 {crossover_count} 个交会点",
-            fg=C["success"])
+        self.tree.insert("", "end", values=(
+            ba[:14], bb[:14], time_str,
+            _fmt_num(cross_views),
+            f"{slope_a:,.1f}", f"{slope_b:,.1f}",
+            f"{confidence:.0%}",
+        ))
+        return 1
 
-        # 绘制趋势图
-        self._draw_trend(fits)
-
-        if crossover_count == 0 and len(valid) >= 2:
-            messagebox.showinfo("结果", "所选视频在当前趋势下没有交会点", parent=self.window)
+    def _compute_confidence(self, slope_a, intercept_a, pts_a,
+                            slope_b, intercept_b, pts_b) -> float:
+        """基于 R² 和数据点数量计算综合置信度"""
+        pts_a_fit = [((p[0] - pts_a[0][0]).total_seconds() / 3600, p[1]) for p in pts_a]
+        pts_b_fit = [((p[0] - pts_b[0][0]).total_seconds() / 3600, p[1]) for p in pts_b]
+        r2_a = self._r_squared(slope_a, intercept_a, pts_a_fit)
+        r2_b = self._r_squared(slope_b, intercept_b, pts_b_fit)
+        r2_avg = (r2_a + r2_b) / 2
+        data_penalty = min(1.0, (len(pts_a) + len(pts_b)) / 20)
+        return r2_avg * data_penalty
 
     def _r_squared(self, k: float, b: float, points) -> float:
         """计算 R² 拟合优度"""

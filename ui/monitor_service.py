@@ -549,14 +549,16 @@ def load_watch_list(gui):
     gui._sb("status", f"正在加载 {len(watch_list)} 个监控视频…", color=C["accent"])
 
     def _worker():
+        from concurrent.futures import ThreadPoolExecutor, as_completed
         loaded = 0
-        for bvid in watch_list:
+
+        def _load_one(bvid):
             if any(v.get("bvid") == bvid for v in gui.monitored_videos):
-                continue
+                return None
             try:
                 info = bilibili_api.get_video_info(bvid)
                 if not info:
-                    continue
+                    return None
                 video = gui._map_api_to_video_dict(bvid, info)
 
                 # 获取在线人数
@@ -586,10 +588,16 @@ def load_watch_list(gui):
                     pass
 
                 gui.root.after(0, lambda v=video: gui._restore_video(v))
-                loaded += 1
-                time.sleep(0.15)
+                return bvid
             except Exception as e:
                 gui.log_panel.add_log("ERROR", f"加载视频 {bvid} 失败: {e}")
+                return None
+
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            futures = {executor.submit(_load_one, bvid): bvid for bvid in watch_list}
+            for future in as_completed(futures):
+                if future.result():
+                    loaded += 1
 
         # 所有视频加载完成后，批量启动独立 Worker
         gui.root.after(0, lambda: _start_all_workers(gui))
