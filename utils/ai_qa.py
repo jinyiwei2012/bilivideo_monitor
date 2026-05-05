@@ -62,6 +62,25 @@ class AIQASession:
             lines.append(f"  {bvid} {title}")
             lines.append(f"    播放:{views:,} 点赞:{likes:,} 硬币:{coins:,} 收藏:{favs:,} 弹幕:{danmaku:,}")
 
+            # 附加历史播放量趋势（用于增长分析）
+            if bvid in self._history_data:
+                pts = self._history_data[bvid]
+                if len(pts) >= 2:
+                    try:
+                        sorted_pts = sorted(pts, key=lambda p: p[0] if isinstance(p[0], datetime) else p[0])
+                    except Exception:
+                        sorted_pts = pts
+                    earliest = sorted_pts[0][1]
+                    latest = sorted_pts[-1][1]
+                    span_h = (sorted_pts[-1][0] - sorted_pts[0][0]).total_seconds() / 3600
+                    # 采样关键数据点：首、中、尾
+                    mid = len(sorted_pts) // 2
+                    lines.append(f"    历史趋势: {len(sorted_pts)}条记录, 跨度{span_h:.1f}h")
+                    lines.append(f"      起始: {sorted_pts[0][1]:,} → 当前: {latest:,}")
+                    if span_h > 0:
+                        hourly = (latest - earliest) / span_h
+                        lines.append(f"      时速: {hourly:.1f}/h")
+
         lines.append("")
         lines.append("请用中文简洁回答。")
         return "\n".join(lines)
