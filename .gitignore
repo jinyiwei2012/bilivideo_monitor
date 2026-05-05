@@ -28,3 +28,6 @@ start.bat
 
 .claude/
 reports/
+
+# 敏感配置文件（含Cookie/API密钥）
+config/network_config.json
