@@ -275,9 +275,6 @@ class VideoDatabase:
             ''')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_yearly_timestamp ON yearly_scores(timestamp)')
             
-            # 数据库迁移：检查并添加缺少的列
-            self._migrate_db(conn)
-            
             conn.commit()
     
     def save_video_info(self, video_info: Dict):
@@ -340,13 +337,21 @@ class VideoDatabase:
             print(f"添加监控记录失败: {e}")
             return False
     
-    def get_all_records(self) -> List[Dict]:
-        """获取所有监控记录"""
+    def get_all_records(self, limit: int = 0) -> List[Dict]:
+        """获取监控记录，limit>0 时仅返回最近 N 条"""
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute('SELECT * FROM monitor_records ORDER BY timestamp ASC')
-                return [dict(row) for row in cursor.fetchall()]
+                if limit > 0:
+                    cursor.execute(
+                        'SELECT * FROM monitor_records ORDER BY timestamp DESC LIMIT ?',
+                        (limit,)
+                    )
+                    rows = list(reversed([dict(row) for row in cursor.fetchall()]))
+                else:
+                    cursor.execute('SELECT * FROM monitor_records ORDER BY timestamp ASC')
+                    rows = [dict(row) for row in cursor.fetchall()]
+                return rows
         except Exception as e:
             print(f"获取记录失败: {e}")
             return []
