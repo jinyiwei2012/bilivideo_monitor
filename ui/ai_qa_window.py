@@ -30,6 +30,15 @@ class AIQAWindow:
         self.dlg.header("AI智能问答助手",
                         "基于监控数据的自然语言问答（可离线使用）")
 
+        # API状态提示
+        self._api_status = tk.Label(self.dlg.container,
+            font=("Microsoft YaHei UI", 8), anchor="w",
+            bg=C["bg_surface"])
+        self._api_status.pack(fill=tk.X, padx=28, pady=(4, 0))
+
+        # 检查LLM连接状态
+        self.window.after(200, self._check_api_status)
+
         # 快捷问题按钮
         quick = tk.Frame(self.dlg.container, bg=C["bg_surface"])
         quick.pack(fill=tk.X, padx=24, pady=(10, 0))
@@ -88,17 +97,37 @@ class AIQAWindow:
 
         self._show_welcome()
 
+    def _check_api_status(self):
+        """检查LLM API连接状态"""
+        if self.session.api_key:
+            self._api_status.config(text=f"✅ LLM已连接 ({self.session.model})",
+                                    fg=C["success"])
+        else:
+            self._api_status.config(text="⚠️ 未配置API密钥，使用离线规则回答（设置 → AI配置）",
+                                    fg=C["warning"])
+
     def _show_welcome(self):
         self._chat_text.config(state="normal")
         self._chat_text.delete("1.0", tk.END)
         self._chat_text.insert(tk.END, "助手\n", "assistant")
-        self._chat_text.insert(tk.END, "你好！我是监控助手。你可以问我：\n"
-                               "• 当前监控情况\n"
-                               "• 哪个视频增长最快\n"
-                               "• 播放量排行\n"
-                               "• 有无异常预警\n"
-                               "• 健康探针情况\n\n"
-                               "或者直接输入任意问题。\n", "content")
+
+        if self.gui and not self.gui.monitored_videos:
+            self._chat_text.insert(tk.END, (
+                "你好！当前还没有监控数据。\n\n"
+                "请先在主界面添加视频到监控列表：\n"
+                "1. 点击「📁 视频搜索」搜索视频\n"
+                "2. 在搜索列表中点击「+ 监控」添加\n"
+                "3. 或手动输入 BV 号添加\n\n"
+                "添加视频后，我可以帮你分析播放趋势、预测达标时间等。\n"), "content")
+        else:
+            self._chat_text.insert(tk.END, (
+                "你好！我是监控助手。你可以问我：\n"
+                "• 当前监控情况\n"
+                "• 哪个视频增长最快\n"
+                "• 播放量排行\n"
+                "• 有无异常预警\n"
+                "• 健康探针情况\n\n"
+                "或者直接输入任意问题。\n"), "content")
         self._chat_text.config(state="disabled")
 
     def _quick_ask(self, question: str):

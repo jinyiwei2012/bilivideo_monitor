@@ -351,3 +351,76 @@ class Dialogs:
 
         # 关闭按钮
         ttk.Button(dialog, text="关闭", command=dialog.destroy).pack(pady=(0, 15))
+
+    # ──────────────────────────────────────────
+    # UP主追踪
+    # ──────────────────────────────────────────
+
+    def open_up_tracker(self):
+        try:
+            from .up_tracker import UpTrackerWindow
+            UpTrackerWindow(self.gui.root)
+        except Exception as e:
+            import traceback
+            messagebox.showerror("错误", f"打开UP主追踪失败: {e}\n{traceback.format_exc()}")
+
+    # ──────────────────────────────────────────
+    # 弹幕分析
+    # ──────────────────────────────────────────
+
+    def open_danmaku_analysis(self):
+        try:
+            from .danmaku_analysis import DanmakuAnalysisWindow
+            DanmakuAnalysisWindow(self.gui.root)
+        except Exception as e:
+            import traceback
+            messagebox.showerror("错误", f"打开弹幕分析失败: {e}\n{traceback.format_exc()}")
+
+    # ──────────────────────────────────────────
+    # 热门发现
+    # ──────────────────────────────────────────
+
+    def open_trending_discovery(self):
+        try:
+            from .trending_discovery import TrendingDiscoveryWindow
+            TrendingDiscoveryWindow(self.gui.root)
+        except Exception as e:
+            import traceback
+            messagebox.showerror("错误", f"打开热门发现失败: {e}\n{traceback.format_exc()}")
+
+    # ──────────────────────────────────────────
+    # AI智能问答
+    # ──────────────────────────────────────────
+
+    def open_ai_qa(self):
+        try:
+            from .ai_qa_window import AIQAWindow
+            AIQAWindow(self.gui.root)
+        except Exception as e:
+            import traceback
+            messagebox.showerror("错误", f"打开AI问答失败: {e}\n{traceback.format_exc()}")
+
+    # ──────────────────────────────────────────
+    # 数据大屏
+    # ──────────────────────────────────────────
+
+    def open_dashboard(self):
+        try:
+            from .dashboard_mode import DashboardWindow
+            DashboardWindow(self.gui.root, monitored_videos=self.gui.monitored_videos,
+                           video_dbs=self.gui.video_dbs, history_data=self.gui.history_data)
+        except Exception as e:
+            import traceback
+            messagebox.showerror("错误", f"打开数据大屏失败: {e}\n{traceback.format_exc()}")
+
+    # ──────────────────────────────────────────
+    # 报告导出
+    # ──────────────────────────────────────────
+
+    def open_report_scheduler(self):
+        try:
+            from .report_scheduler import ReportSchedulerWindow
+            ReportSchedulerWindow(self.gui.root, gui=self.gui)
+        except Exception as e:
+            import traceback
+            messagebox.showerror("错误", f"打开报告导出失败: {e}\n{traceback.format_exc()}")

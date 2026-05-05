@@ -76,19 +76,32 @@ DEFAULT_CONFIG = {
         "default_path": "",
         "auto_export": False,
         "export_format": "csv"
+    },
+    "ai": {
+        "enabled": False,
+        "api_key": "",
+        "endpoint": "",
+        "model": "gpt-4o-mini"
     }
 }
 
 
 def load_config() -> Dict[str, Any]:
-    """加载配置文件"""
+    """加载配置文件并合并默认值"""
+    config = DEFAULT_CONFIG.copy()
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
+                saved = json.load(f)
+                # 递归合并，使新增的默认配置项自动生效
+                for k, v in saved.items():
+                    if k in config and isinstance(config[k], dict) and isinstance(v, dict):
+                        config[k].update(v)
+                    else:
+                        config[k] = v
         except Exception as e:
             print(f"加载配置失败: {e}")
-    return DEFAULT_CONFIG.copy()
+    return config
 
 
 def save_config(config: Dict[str, Any]) -> bool:

@@ -61,6 +61,17 @@ class AIQASession:
         """
         self.history.append({"role": "user", "content": question})
 
+        if not self.api_key:
+            # 尝试从配置读取
+            try:
+                from config import load_config
+                cfg = load_config().get("ai", {})
+                self.api_key = cfg.get("api_key", "")
+                self.endpoint = cfg.get("endpoint", "") or "https://api.openai.com/v1/chat/completions"
+                self.model = cfg.get("model", "gpt-4o-mini")
+            except Exception:
+                pass
+
         if self.api_key:
             answer = self._ask_llm(question)
         else:
@@ -112,6 +123,10 @@ class AIQASession:
         """基于规则的简单回答"""
         q = question.lower()
         videos = self._monitored_videos
+
+        if not videos:
+            return ("当前未监控任何视频。请先在主界面添加视频到监控列表，"
+                    "或使用「视频搜索」功能查找并添加视频后，再来向我提问。")
 
         if "多少" in q and "视频" in q:
             return f"当前共监控 {len(videos)} 个视频。"
