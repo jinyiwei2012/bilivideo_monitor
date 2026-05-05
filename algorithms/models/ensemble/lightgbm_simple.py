@@ -174,7 +174,7 @@ class LightGBMSimpleAlgorithm(BaseAlgorithm):
 
                     for i in indices:
                         bin_id = int(binned_X[i, f])
-                        hist_grad[bin_id] += node_y[i]
+                        hist_grad[bin_id] += y[i]
                         hist_count[bin_id] += 1
 
                     # 遍历分桶找最佳分割点

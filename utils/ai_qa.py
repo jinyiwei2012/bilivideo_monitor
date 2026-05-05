@@ -176,7 +176,10 @@ class AIQASession:
             if bvid in self._history_data:
                 pts = self._history_data[bvid]
                 if len(pts) >= 2:
-                    sorted_pts = sorted(pts, key=lambda p: p[0])
+                    try:
+                        sorted_pts = sorted(pts, key=lambda p: p[0] if isinstance(p[0], datetime) else datetime.strptime(str(p[0])[:19], '%Y-%m-%d %H:%M:%S') if isinstance(p[0], str) else p[0])
+                    except Exception:
+                        sorted_pts = pts
                     span = (sorted_pts[-1][0] - sorted_pts[0][0]).total_seconds()
                     if span > 0:
                         growth = sorted_pts[-1][1] - sorted_pts[0][1]

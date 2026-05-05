@@ -560,7 +560,7 @@ def load_watch_list(gui):
                     video_db = db.get_video_db(bvid)
                     gui.video_dbs[bvid] = video_db
                     video_db.save_video_info(video)
-                    history = video_db.get_all_records(limit=20)
+                    history = video_db.get_all_records()
                     if history:
                         gui.history_data[bvid] = [
                             (row["timestamp"], row["view_count"])

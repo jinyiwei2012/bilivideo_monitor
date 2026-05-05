@@ -117,9 +117,17 @@ class TrendingDiscoveryWindow:
         self._clear_cards()
 
         if not videos:
-            tk.Label(self._card_frame, text="暂无数据",
+            msg = tk.Frame(self._card_frame, bg=C["bg_elevated"])
+            msg.pack(pady=40)
+            tk.Label(msg, text="暂无数据",
                      bg=C["bg_elevated"], fg=C["text_3"],
-                     font=("Microsoft YaHei UI", 12)).pack(pady=40)
+                     font=("Microsoft YaHei UI", 12)).pack()
+            tk.Label(msg, text="提示：B站API可能需要配置Cookie才能获取数据",
+                     bg=C["bg_elevated"], fg=C["warning"],
+                     font=("Microsoft YaHei UI", 9)).pack(pady=(8, 0))
+            tk.Label(msg, text="请前往「设置 → 网络设置 → Cookie设置」配置SESSDATA",
+                     bg=C["bg_elevated"], fg=C["text_3"],
+                     font=("Microsoft YaHei UI", 9)).pack()
             return
 
         for v in videos:

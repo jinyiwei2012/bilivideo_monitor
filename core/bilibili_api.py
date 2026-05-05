@@ -399,6 +399,33 @@ class BilibiliAPI:
         }
 
     # ── UP主相关 ──────────────────────────────────────────
+    def search_up_users(self, keyword: str, page: int = 1, order: str = "fans") -> List[Dict]:
+        """按用户名搜索UP主
+
+        Args:
+            keyword: 用户名关键词
+            page: 页码
+            order: 排序方式，默认按粉丝数 ("fans"/"level"/"0")
+
+        Returns:
+            [{"mid": int, "uname": str, "usign": str, "fans": int, "videos": int,
+              "level": int, "upic": str, "is_live": bool, "room_id": int}, ...]
+        """
+        url = f"{self.BASE_URL}/x/web-interface/wbi/search/type"
+        params = {
+            "search_type": "bili_user",
+            "keyword": keyword,
+            "page": page,
+            "user_type": 1,  # 1=UP主
+        }
+        if order:
+            params["order"] = order
+        params = self._wbi_sign(params)
+        data = self._request("GET", url, params=params)
+        if data and "result" in data:
+            return data["result"]
+        return []
+
     def get_up_info(self, uid: int) -> Optional[Dict]:
         """获取UP主基本信息"""
         url = f"{self.BASE_URL}/x/space/acc/info"
@@ -544,11 +571,17 @@ class BilibiliAPI:
         return []
 
     def get_weekly_series(self, number: int = None) -> List[Dict]:
-        """获取每周必看列表"""
+        """获取每周必看列表（自动获取最新期数）"""
+        # 先获取可用期数列表
+        series_list_url = f"{self.BASE_URL}/x/web-interface/popular/series/list"
+        list_data = self._request('GET', series_list_url)
+        if list_data and 'list' in list_data and list_data['list']:
+            if number is None:
+                number = list_data['list'][0].get('number', number)
+        if number is None:
+            return []
         url = f"{self.BASE_URL}/x/web-interface/popular/series/one"
-        params = {}
-        if number:
-            params['number'] = number
+        params = {'number': number}
         data = self._request('GET', url, params=params)
         if data and 'list' in data:
             return data['list']
@@ -575,6 +608,79 @@ class BilibiliAPI:
             self.session.close()
         except Exception:
             pass
+
+    # ── QR码登录 ─────────────────────────────────────────
+    def get_qrcode_login_url(self) -> Optional[Dict]:
+        """获取二维码登录地址
+
+        Returns:
+            {"url": str (二维码图片URL), "qrcode_key": str (轮询key)} or None
+        """
+        url = "https://passport.bilibili.com/x/passport-login/web/qrcode/generate"
+        data = self._request("GET", url, skip_retry=True)
+        if data:
+            return {
+                "url": data.get("url", ""),
+                "qrcode_key": data.get("qrcode_key", ""),
+            }
+        return None
+
+    def poll_qrcode_login(self, qrcode_key: str) -> Dict:
+        """轮询二维码扫码状态
+
+        Args:
+            qrcode_key: get_qrcode_login_url 返回的 key
+
+        Returns:
+            {"status": int, "message": str, "cookies": dict}
+            status: 0=未扫码, 1=已扫码待确认, 2=已确认/成功, -1=已过期
+        """
+        url = "https://passport.bilibili.com/x/passport-login/web/qrcode/poll"
+        result = {"status": 0, "message": "等待扫码", "cookies": {}}
+        try:
+            resp = self.session.get(
+                url,
+                params={"qrcode_key": qrcode_key},
+                headers={
+                    "User-Agent": random.choice(self.USER_AGENTS),
+                    "Referer": "https://www.bilibili.com/",
+                },
+                timeout=15,
+            )
+            if resp.status_code != 200:
+                result["message"] = f"HTTP {resp.status_code}"
+                return result
+            data = resp.json()
+            code = data.get("code", -1)
+            if code == 0:
+                d = data.get("data", {})
+                status = d.get("status", False)
+                if status:
+                    # 扫码成功，从 response cookies 提取
+                    result["status"] = 2
+                    result["message"] = "登录成功"
+                    # 从 session 中提取 B 站 cookies
+                    for cookie in self.session.cookies:
+                        if "bilibili.com" in (cookie.domain or "") or ".bilibili.com" in (cookie.domain or ""):
+                            result["cookies"][cookie.name] = cookie.value
+                    # 如果 session cookies 为空，从 Set-Cookie 响应头获取
+                    if not result["cookies"]:
+                        for k, v in resp.cookies.items():
+                            result["cookies"][k] = v
+                    # 应用 cookies
+                    if result["cookies"]:
+                        self.set_cookies(result["cookies"])
+                else:
+                    result["status"] = 1 if d.get("message", "") == "已扫码" else 0
+                    result["message"] = d.get("message", "等待扫码")
+            elif code == 86038:
+                result["status"] = -1
+                result["message"] = "二维码已过期"
+            else:
+                result["message"] = data.get("message", f"错误码 {code}")
+        except Exception as e:
+            result["message"] = f"轮询异常: {e}"
+        return result
 
 
 # 全局API实例

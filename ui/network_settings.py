@@ -93,33 +93,39 @@ class NetworkSettingsWindow:
 
         sec_c = tk.Frame(cookie_page, bg=C["bg_elevated"],
                          highlightthickness=1, highlightbackground=C["border_sub"])
-        sec_c.pack(fill=tk.BOTH, expand=True, padx=16, pady=12, ipadx=10, ipady=8)
+        sec_c.pack(fill=tk.BOTH, expand=True, padx=16, pady=(12, 6), ipadx=10, ipady=6)
 
-        tk.Label(sec_c, text="B站Cookie（SESSDATA等）",
-                 bg=C["bg_elevated"], fg=C["text_2"],
-                 font=FONT).pack(anchor="w")
-        tk.Label(sec_c, text="格式: name=value; name=value; …",
-                 bg=C["bg_elevated"], fg=C["text_3"],
-                 font=FONT_SM).pack(anchor="w")
+        # 导入方式选择
+        import_row = tk.Frame(sec_c, bg=C["bg_elevated"])
+        import_row.pack(fill=tk.X, pady=(0, 6))
+        tk.Label(import_row, text="导入方式:", bg=C["bg_elevated"], fg=C["text_2"],
+                 font=FONT).pack(side=tk.LEFT)
+        ttk.Button(import_row, text="📋 Cookie-Editor JSON",
+                   command=self._import_cookie_editor).pack(side=tk.LEFT, padx=4)
+        ttk.Button(import_row, text="📱 扫码登录",
+                   command=self._qrcode_login).pack(side=tk.LEFT, padx=4)
 
-        self.cookie_text = tk.Text(sec_c, height=6,
+        # Cookie 文本区（显示/编辑当前Cookie，key=value 格式）
+        self.cookie_text = tk.Text(sec_c, height=5,
                                    bg=C["bg_base"], fg=C["text_1"],
                                    insertbackground=C["text_1"],
                                    font=("Consolas", 10), relief="flat",
                                    highlightthickness=1,
                                    highlightbackground=C["border"])
-        self.cookie_text.pack(fill=tk.BOTH, expand=True, pady=6)
-        if self.config.get('cookies'):
-            cookie_str = '; '.join(f'{k}={v}' for k, v in self.config.get('cookies', {}).items())
-            self.cookie_text.insert('1.0', cookie_str)
+        self.cookie_text.pack(fill=tk.BOTH, expand=True, pady=4)
+        self._refresh_cookie_display()
 
-        ttk.Button(sec_c, text="应用Cookie",
-                   command=self._apply_cookies).pack(anchor="w")
+        btn_row_c = tk.Frame(sec_c, bg=C["bg_elevated"])
+        btn_row_c.pack(fill=tk.X)
+        ttk.Button(btn_row_c, text="应用Cookie",
+                   command=self._apply_cookies).pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Button(btn_row_c, text="清空Cookie",
+                   command=self._clear_cookies).pack(side=tk.LEFT)
 
-        tip_c = tk.Label(sec_c, text="设置有效的Cookie可提高请求成功率",
+        tip_c = tk.Label(sec_c, text="Cookie-Editor JSON: 从浏览器扩展导出后粘贴即可。扫码登录无需手动填写。",
                          bg=C["bg_elevated"], fg=C["warning"],
                          font=FONT_SM, anchor="w")
-        tip_c.pack(fill=tk.X, pady=(6, 0))
+        tip_c.pack(fill=tk.X, pady=(4, 0))
 
         # ── 重试参数 ──
         retry_page = tk.Frame(nb, bg=C["bg_base"])
@@ -199,6 +205,193 @@ class NetworkSettingsWindow:
         if self.config.get('proxies'):
             self.proxy_text.insert('1.0', '\n'.join(self.config.get('proxies', [])))
 
+    def _get_bilibili_api(self):
+        """获取 bilibili_api 实例，延迟导入避免循环"""
+        from core.bilibili_api import bilibili_api
+        return bilibili_api
+
+    # ── Cookie: 刷新显示 ──
+    def _refresh_cookie_display(self):
+        self.cookie_text.delete('1.0', tk.END)
+        cfg = self._get_bilibili_api().get_status()
+        if cfg.get('has_cookies'):
+            # 从当前 session cookies 读取
+            cookies = {}
+            for cookie in self._get_bilibili_api().session.cookies:
+                if 'bilibili.com' in (cookie.domain or ''):
+                    cookies[cookie.name] = cookie.value
+            if cookies:
+                self.cookie_text.insert('1.0', '; '.join(f'{k}={v}' for k, v in cookies.items()))
+                return
+        # fallback: 从配置文件读取
+        if self.config.get('cookies'):
+            self.cookie_text.insert('1.0',
+                '; '.join(f'{k}={v}' for k, v in self.config['cookies'].items()))
+
+    # ── Cookie: 从 Cookie-Editor JSON 导入 ──
+    def _import_cookie_editor(self):
+        """弹出窗口粘贴 Cookie-Editor 导出的 JSON"""
+        top = tk.Toplevel(self.window)
+        top.title("导入 Cookie-Editor JSON")
+        top.geometry("520x360")
+        top.configure(bg=C["bg_surface"])
+        top.transient(self.window)
+        top.grab_set()
+
+        tk.Label(top, text="粘贴 Cookie-Editor 导出的 JSON 内容：",
+                 bg=C["bg_surface"], fg=C["text_1"], font=FONT).pack(pady=(12, 4))
+        tk.Label(top, text="格式: [{\"domain\": \".bilibili.com\", \"name\": \"SESSDATA\", ...}]",
+                 bg=C["bg_surface"], fg=C["text_3"], font=FONT_SM).pack()
+
+        text_w = tk.Text(top, height=10, bg=C["bg_base"], fg=C["text_1"],
+                         font=("Consolas", 10), relief="flat",
+                         highlightthickness=1, highlightbackground=C["border"],
+                         insertbackground=C["text_1"])
+        text_w.pack(fill=tk.BOTH, expand=True, padx=16, pady=8)
+
+        def _do_import():
+            raw = text_w.get('1.0', tk.END).strip()
+            if not raw:
+                messagebox.showwarning("提示", "请粘贴 JSON 内容", parent=top)
+                return
+            try:
+                entries = json.loads(raw)
+            except json.JSONDecodeError as e:
+                messagebox.showerror("解析失败", f"JSON 格式错误:\n{e}", parent=top)
+                return
+            if not isinstance(entries, list):
+                messagebox.showerror("格式错误", "JSON 应为数组格式 [{...}, ...]", parent=top)
+                return
+
+            cookies = {}
+            for entry in entries:
+                name = entry.get("name", "")
+                value = entry.get("value", "")
+                domain = entry.get("domain", "")
+                # 只提取 bilibili.com 的 cookie
+                if name and value and ("bilibili.com" in domain or not domain):
+                    cookies[name] = value
+
+            if not cookies:
+                messagebox.showwarning("未找到", "JSON 中未找到 B站 相关 Cookie 条目", parent=top)
+                return
+
+            api = self._get_bilibili_api()
+            api.set_cookies(cookies)
+            self.config['cookies'] = cookies
+            self._refresh_cookie_display()
+            self._refresh_status()
+            top.destroy()
+            messagebox.showinfo("成功",
+                f"已导入 {len(cookies)} 个 Cookie:\n{', '.join(cookies.keys())}",
+                parent=self.window)
+
+        btn_f = tk.Frame(top, bg=C["bg_surface"])
+        btn_f.pack(pady=(0, 12))
+        ttk.Button(btn_f, text="导入并应用", command=_do_import,
+                   style="Primary.TButton").pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_f, text="取消", command=top.destroy).pack(side=tk.LEFT, padx=4)
+
+    # ── Cookie: 扫码登录 ──
+    def _qrcode_login(self):
+        """扫码登录 B站 获取 Cookie"""
+        api = self._get_bilibili_api()
+        qr_data = api.get_qrcode_login_url()
+        if not qr_data:
+            messagebox.showerror("错误", "获取二维码失败", parent=self.window)
+            return
+
+        qrcode_key = qr_data.get("qrcode_key", "")
+        qr_url = qr_data.get("url", "")
+
+        # 生成二维码图片（用 qrcode 库或 API 二维码图片URL）
+        try:
+            import qrcode
+            from io import BytesIO
+            import base64
+            img = qrcode.make(qr_url)
+            img_tk = tk.PhotoImage(width=200, height=200)
+            # 转换 PIL Image -> tk PhotoImage
+            from PIL import Image, ImageTk
+            img = img.resize((200, 200))
+            self._qr_img = ImageTk.PhotoImage(img)
+        except ImportError:
+            # 没有 PIL/qrcode 库，使用文本二维码或直接显示链接
+            self._qr_img = None
+
+        # 扫码窗口
+        qr_top = tk.Toplevel(self.window)
+        qr_top.title("扫码登录 B站")
+        qr_top.geometry("320x380")
+        qr_top.configure(bg=C["bg_surface"])
+        qr_top.transient(self.window)
+        qr_top.grab_set()
+        qr_top.resizable(False, False)
+
+        tk.Label(qr_top, text="请使用 B站 手机客户端扫码", bg=C["bg_surface"],
+                 fg=C["text_1"], font=("Microsoft YaHei UI", 11, "bold")).pack(pady=(14, 6))
+
+        if self._qr_img:
+            img_label = tk.Label(qr_top, image=self._qr_img, bg=C["bg_surface"])
+            img_label.pack(pady=6)
+        else:
+            # 文本显示二维码链接
+            tk.Label(qr_top, text=f"扫码链接:\n{qr_url}", bg=C["bg_surface"],
+                     fg=C["text_1"], font=("Consolas", 9), wraplength=280,
+                     justify="left").pack(pady=6, padx=10)
+            tk.Label(qr_top, text="提示: 可用手机浏览器打开此链接再扫码",
+                     bg=C["bg_surface"], fg=C["text_3"],
+                     font=FONT_SM).pack()
+
+        status_var = tk.StringVar(value="等待扫码...")
+        status_lbl = tk.Label(qr_top, textvariable=status_var, bg=C["bg_surface"],
+                              fg=C["text_2"], font=FONT)
+        status_lbl.pack(pady=(6, 4))
+
+        def _poll():
+            if not qr_top.winfo_exists():
+                return
+            result = api.poll_qrcode_login(qrcode_key)
+            status_var.set(result.get("message", ""))
+            if result.get("status") == 2:
+                # 登录成功
+                cookies = result.get("cookies", {})
+                if cookies:
+                    self.config['cookies'] = cookies
+                    self._refresh_cookie_display()
+                    self._refresh_status()
+                    status_lbl.config(fg=C["success"])
+                    qr_top.after(800, qr_top.destroy)
+                    messagebox.showinfo("登录成功",
+                        f"已获取 Cookie: {', '.join(cookies.keys())}",
+                        parent=self.window)
+                return
+            elif result.get("status") == -1:
+                status_lbl.config(fg=C["danger"])
+                # 过期，提供重新生成按钮
+                ttk.Button(qr_top, text="重新生成二维码",
+                           command=lambda: [qr_top.destroy(), self._qrcode_login()]
+                           ).pack(pady=4)
+                return
+            qr_top.after(1500, _poll)
+
+        qr_top.after(500, _poll)
+
+    # ── Cookie: 清空 ──
+    def _clear_cookies(self):
+        if messagebox.askyesno("确认", "确定要清空所有 Cookie 吗？", parent=self.window):
+            api = self._get_bilibili_api()
+            # 清除 bilibili cookies
+            expired = ["SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd",
+                       "sid", "buvid3", "buvid4", "buvid_fp"]
+            for name in expired:
+                api.session.cookies.set(name, "", domain=".bilibili.com")
+            api._cookies = {}
+            self.config['cookies'] = {}
+            self._refresh_cookie_display()
+            self._refresh_status()
+            messagebox.showinfo("成功", "Cookie 已清空", parent=self.window)
+
     def _apply_cookies(self):
         text = self.cookie_text.get('1.0', 'end').strip()
         if not text:
@@ -209,8 +402,10 @@ class NetworkSettingsWindow:
             if '=' in item:
                 key, value = item.strip().split('=', 1)
                 cookies[key.strip()] = value.strip()
-        bilibili_api.set_cookies(cookies)
+        api = self._get_bilibili_api()
+        api.set_cookies(cookies)
         self.config['cookies'] = cookies
+        self._refresh_status()
         messagebox.showinfo("成功", f"已应用Cookie: {list(cookies.keys())}", parent=self.window)
 
     def _refresh_status(self):

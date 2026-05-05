@@ -359,7 +359,8 @@ class Dialogs:
     def open_up_tracker(self):
         try:
             from .up_tracker import UpTrackerWindow
-            UpTrackerWindow(self.gui.root)
+            from core import bilibili_api
+            UpTrackerWindow(self.gui.root, api=bilibili_api)
         except Exception as e:
             import traceback
             messagebox.showerror("错误", f"打开UP主追踪失败: {e}\n{traceback.format_exc()}")
@@ -371,7 +372,8 @@ class Dialogs:
     def open_danmaku_analysis(self):
         try:
             from .danmaku_analysis import DanmakuAnalysisWindow
-            DanmakuAnalysisWindow(self.gui.root)
+            from core import bilibili_api
+            DanmakuAnalysisWindow(self.gui.root, api=bilibili_api, gui=self.gui)
         except Exception as e:
             import traceback
             messagebox.showerror("错误", f"打开弹幕分析失败: {e}\n{traceback.format_exc()}")
@@ -383,7 +385,9 @@ class Dialogs:
     def open_trending_discovery(self):
         try:
             from .trending_discovery import TrendingDiscoveryWindow
-            TrendingDiscoveryWindow(self.gui.root)
+            from core import bilibili_api
+            TrendingDiscoveryWindow(self.gui.root, api=bilibili_api,
+                                    on_add_monitor=self.gui._add_bvid_to_monitor)
         except Exception as e:
             import traceback
             messagebox.showerror("错误", f"打开热门发现失败: {e}\n{traceback.format_exc()}")

@@ -29,25 +29,53 @@ class UpTrackerWindow:
     def _setup_ui(self):
         self.dlg.header("UP主追踪", "查询UP主信息、追踪涨粉与投稿趋势")
 
-        # 添加UP主卡片
+        # 添加UP主卡片（双行：UID + 用户名搜索）
         add_sec = self.dlg.section(title="添加UP主", padding=8)
-        add_row = tk.Frame(add_sec, bg=C["bg_elevated"])
-        add_row.pack(fill=tk.X)
-        tk.Label(add_row, text="UID:", bg=C["bg_elevated"], fg=C["text_2"],
+
+        # 第一行：UID输入
+        uid_row = tk.Frame(add_sec, bg=C["bg_elevated"])
+        uid_row.pack(fill=tk.X, pady=(0, 4))
+        tk.Label(uid_row, text="UID:", bg=C["bg_elevated"], fg=C["text_2"],
                  font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT)
-        self._uid_entry = tk.Entry(add_row, width=20, font=("Consolas", 10),
+        self._uid_entry = tk.Entry(uid_row, width=20, font=("Consolas", 10),
                                    bg=C["bg_base"], fg=C["text_1"],
                                    insertbackground=C["text_1"],
                                    relief="flat", highlightthickness=1,
                                    highlightbackground=C["border"])
         self._uid_entry.pack(side=tk.LEFT, padx=(8, 8))
         self._uid_entry.insert(0, "8047632")
-        ttk.Button(add_row, text="查询并添加", command=self._add_up,
+        ttk.Button(uid_row, text="查询并添加", command=self._add_up,
+                   style="Primary.TButton").pack(side=tk.LEFT, padx=4)
+
+        # 第二行：用户名搜索
+        name_row = tk.Frame(add_sec, bg=C["bg_elevated"])
+        name_row.pack(fill=tk.X)
+        tk.Label(name_row, text="用户名:", bg=C["bg_elevated"], fg=C["text_2"],
+                 font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT)
+        self._name_entry = tk.Entry(name_row, width=20, font=("Microsoft YaHei UI", 10),
+                                    bg=C["bg_base"], fg=C["text_1"],
+                                    insertbackground=C["text_1"],
+                                    relief="flat", highlightthickness=1,
+                                    highlightbackground=C["border"])
+        self._name_entry.pack(side=tk.LEFT, padx=(8, 8))
+        self._name_entry.bind("<Return>", lambda e: self._search_by_name())
+        ttk.Button(name_row, text="搜索UP主", command=self._search_by_name,
                    style="Primary.TButton").pack(side=tk.LEFT, padx=4)
 
         self._up_status = tk.Label(add_sec, text="", bg=C["bg_elevated"],
                                    fg=C["text_2"], font=("Microsoft YaHei UI", 9))
         self._up_status.pack(anchor="w", padx=4, pady=(4, 0))
+
+        # 搜索结果（初始隐藏）
+        self._search_frame = tk.Frame(add_sec, bg=C["bg_elevated"],
+                                      highlightthickness=1, highlightbackground=C["accent"])
+        self._search_list = tk.Listbox(self._search_frame, height=4,
+                                       bg=C["bg_base"], fg=C["text_1"],
+                                       font=("Microsoft YaHei UI", 9),
+                                       relief="flat", selectbackground=C["bilibili"],
+                                       activestyle="none")
+        self._search_list.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+        self._search_list.bind("<Double-Button-1>", lambda e: self._add_from_search())
 
         # UP主列表 + 详情（水平分割）
         mid = tk.Frame(self.dlg.container, bg=C["bg_surface"])
@@ -160,6 +188,49 @@ class UpTrackerWindow:
                     "dim")
 
         self._detail_text.config(state="disabled")
+
+    def _search_by_name(self):
+        """按用户名搜索UP主"""
+        keyword = self._name_entry.get().strip()
+        if not keyword:
+            messagebox.showwarning("提示", "请输入要搜索的用户名", parent=self.window)
+            return
+        if not self.api:
+            self._up_status.config(text="API不可用", fg=C["danger"])
+            return
+
+        self._up_status.config(text="正在搜索...", fg=C["text_2"])
+        self.window.update()
+
+        results = self.api.search_up_users(keyword)
+        self._search_list.delete(0, tk.END)
+
+        if not results:
+            self._up_status.config(text="未找到匹配的UP主", fg=C["warning"])
+            self._search_frame.pack_forget()
+            return
+
+        self._search_results = results
+        for r in results:
+            name = r.get("uname", "?")
+            fans = self._fmt(r.get("fans", 0))
+            videos = r.get("videos", 0)
+            uid = r.get("mid", 0)
+            self._search_list.insert(tk.END, f"[{uid}] {name}  粉丝:{fans}  投稿:{videos}")
+
+        self._search_frame.pack(fill=tk.X, padx=26, pady=(0, 4), ipadx=6, ipady=4)
+        self._up_status.config(text=f"找到 {len(results)} 个UP主，双击添加", fg=C["success"])
+
+    def _add_from_search(self):
+        """从搜索结果添加UP主"""
+        sel = self._search_list.curselection()
+        if not sel:
+            return
+        r = self._search_results[sel[0]]
+        uid = r.get("mid", 0)
+        self._uid_entry.delete(0, tk.END)
+        self._uid_entry.insert(0, str(uid))
+        self._add_up()
 
     def _add_up(self):
         uid_str = self._uid_entry.get().strip()

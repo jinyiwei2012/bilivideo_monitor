@@ -1,10 +1,14 @@
 """
 弹幕/评论分析窗口 — 情绪饼图、关键词标签云、高频列表
+支持从监控列表选择、自动保存、LLM 深度分析
 """
+import json
 import math
+import os
 import tkinter as tk
 from tkinter import ttk, messagebox
 from typing import List, Dict, Optional
+from datetime import datetime
 
 from ui.theme import C
 from ui.dialog_base import DialogBase
@@ -13,25 +17,47 @@ from ui.dialog_base import DialogBase
 class DanmakuAnalysisWindow:
     """弹幕/评论分析窗口"""
 
-    def __init__(self, parent=None, api=None):
-        self.dlg = DialogBase(parent, "弹幕/评论分析", "780x640",
+    def __init__(self, parent=None, api=None, gui=None):
+        self.dlg = DialogBase(parent, "弹幕/评论分析", "820x680",
                               resizable=(True, True))
         self.window = self.dlg.window
         self.api = api
+        self.gui = gui
         self._texts: List[str] = []
+        self._current_bvid = ""
         self._setup_ui()
 
     def _setup_ui(self):
         self.dlg.header("弹幕/评论分析", "抓取弹幕与评论，进行情绪分析与关键词提取")
 
-        # 输入卡片
+        # ── 输入卡片 ──
         sec = self.dlg.section(title="数据源", padding=8)
-        row = tk.Frame(sec, bg=C["bg_elevated"])
-        row.pack(fill=tk.X)
 
-        tk.Label(row, text="BV号:", bg=C["bg_elevated"], fg=C["text_2"],
+        # 第一行：从监控列表选择
+        if self.gui and self.gui.monitored_videos:
+            row0 = tk.Frame(sec, bg=C["bg_elevated"])
+            row0.pack(fill=tk.X, pady=(0, 4))
+            tk.Label(row0, text="监控列表:", bg=C["bg_elevated"], fg=C["text_2"],
+                     font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT)
+            self._monitor_var = tk.StringVar()
+            self._monitor_cb = ttk.Combobox(row0, textvariable=self._monitor_var,
+                                            width=40, font=("Microsoft YaHei UI", 9),
+                                            state="readonly")
+            self._monitor_cb["values"] = [
+                f"{v.get('bvid','')}  {v.get('title','')[:30]}"
+                for v in self.gui.monitored_videos
+            ]
+            self._monitor_cb.pack(side=tk.LEFT, padx=(6, 8))
+            if self._monitor_cb["values"]:
+                self._monitor_cb.current(0)
+            ttk.Button(row0, text="填入BV号", command=self._fill_from_monitor).pack(side=tk.LEFT)
+
+        # 第二行：手动输入 BV + 模式选择
+        row1 = tk.Frame(sec, bg=C["bg_elevated"])
+        row1.pack(fill=tk.X)
+        tk.Label(row1, text="BV号:", bg=C["bg_elevated"], fg=C["text_2"],
                  font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT)
-        self._bv_entry = tk.Entry(row, width=20, font=("Consolas", 10),
+        self._bv_entry = tk.Entry(row1, width=20, font=("Consolas", 10),
                                    bg=C["bg_base"], fg=C["text_1"],
                                    insertbackground=C["text_1"],
                                    relief="flat", highlightthickness=1,
@@ -39,17 +65,28 @@ class DanmakuAnalysisWindow:
         self._bv_entry.pack(side=tk.LEFT, padx=(6, 10))
 
         self._mode_var = tk.StringVar(value="danmaku")
-        tk.Radiobutton(row, text="弹幕", variable=self._mode_var,
+        tk.Radiobutton(row1, text="弹幕", variable=self._mode_var,
                        value="danmaku", bg=C["bg_elevated"],
                        command=self._update_hint).pack(side=tk.LEFT, padx=2)
-        tk.Radiobutton(row, text="评论", variable=self._mode_var,
+        tk.Radiobutton(row1, text="评论", variable=self._mode_var,
                        value="comment", bg=C["bg_elevated"],
                        command=self._update_hint).pack(side=tk.LEFT, padx=2)
 
-        self._fetch_btn = ttk.Button(row, text="抓取并分析",
+        self._fetch_btn = ttk.Button(row1, text="抓取并分析",
                                       command=self._analyze,
                                       style="Primary.TButton")
         self._fetch_btn.pack(side=tk.LEFT, padx=(10, 0))
+
+        # 第三行：操作按钮
+        row2 = tk.Frame(sec, bg=C["bg_elevated"])
+        row2.pack(fill=tk.X, pady=(4, 0))
+
+        self._save_btn = ttk.Button(row2, text="💾 保存到本地",
+                                     command=self._save_to_file, state="disabled")
+        self._save_btn.pack(side=tk.LEFT, padx=(0, 6))
+        self._llm_btn = ttk.Button(row2, text="🤖 LLM深度分析",
+                                    command=self._llm_analysis, state="disabled")
+        self._llm_btn.pack(side=tk.LEFT, padx=6)
 
         self._status_lbl = tk.Label(sec, text="", bg=C["bg_elevated"],
                                      fg=C["text_2"], font=("Microsoft YaHei UI", 9))
@@ -82,20 +119,27 @@ class DanmakuAnalysisWindow:
                                  state="disabled", cursor="arrow", padx=8, pady=6)
         self._kw_text.pack(fill=tk.BOTH, expand=True)
 
-        # 底部：高频列表
+        # 底部：Notebook 切换 高频列表 / LLM分析
         bottom = tk.Frame(self.dlg.container, bg=C["bg_surface"])
         bottom.pack(fill=tk.BOTH, expand=True, padx=24, pady=(10, 12))
 
-        list_label = tk.Frame(bottom, bg=C["bg_surface"])
+        bottom_nb = ttk.Notebook(bottom)
+        bottom_nb.pack(fill=tk.BOTH, expand=True)
+
+        # ── 页1：高频列表 ──
+        freq_page = tk.Frame(bottom_nb, bg=C["bg_base"])
+        bottom_nb.add(freq_page, text="  高频弹幕/评论  ")
+
+        list_label = tk.Frame(freq_page, bg=C["bg_base"])
         list_label.pack(fill=tk.X)
-        tk.Label(list_label, text="高频弹幕/评论", bg=C["bg_surface"], fg=C["text_2"],
+        tk.Label(list_label, text="高频弹幕/评论", bg=C["bg_base"], fg=C["text_2"],
                  font=("Microsoft YaHei UI", 8, "bold")).pack(side=tk.LEFT)
 
-        self._count_lbl = tk.Label(list_label, text="", bg=C["bg_surface"],
+        self._count_lbl = tk.Label(list_label, text="", bg=C["bg_base"],
                                     fg=C["text_3"], font=("Microsoft YaHei UI", 9))
         self._count_lbl.pack(side=tk.LEFT, padx=12)
 
-        table_frame = tk.Frame(bottom, bg=C["bg_elevated"], highlightthickness=1,
+        table_frame = tk.Frame(freq_page, bg=C["bg_elevated"], highlightthickness=1,
                                highlightbackground=C["border_sub"])
         table_frame.pack(fill=tk.BOTH, expand=True)
 
@@ -113,6 +157,26 @@ class DanmakuAnalysisWindow:
                            command=self._list_tree.yview)
         self._list_tree.config(yscrollcommand=sb.set)
         sb.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # ── 页2：LLM分析结果 ──
+        llm_page = tk.Frame(bottom_nb, bg=C["bg_base"])
+        bottom_nb.add(llm_page, text="  🤖 LLM分析  ")
+
+        self._llm_text = tk.Text(llm_page, bg=C["bg_base"], fg=C["text_1"],
+                                  font=("Microsoft YaHei UI", 10), relief="flat",
+                                  state="disabled", cursor="arrow",
+                                  padx=12, pady=10, wrap="word")
+        llm_vsb = ttk.Scrollbar(llm_page, orient="vertical",
+                                command=self._llm_text.yview)
+        self._llm_text.config(yscrollcommand=llm_vsb.set)
+        self._llm_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        llm_vsb.pack(side=tk.RIGHT, fill=tk.Y)
+        self._llm_text.tag_configure("head", foreground=C["bilibili"],
+                                      font=("Microsoft YaHei UI", 11, "bold"))
+        self._llm_text.tag_configure("body", foreground=C["text_1"],
+                                      font=("Microsoft YaHei UI", 10), spacing1=2)
+        self._llm_text.tag_configure("dim", foreground=C["text_3"],
+                                      font=("Microsoft YaHei UI", 9))
 
         self._update_hint()
 
@@ -179,10 +243,15 @@ class DanmakuAnalysisWindow:
                 texts = [c["content"] for c in comments if c.get("content")]
 
             self._texts = texts
+            self._current_bvid = bvid
             self._status_lbl.config(
                 text=f"抓取成功：共 {len(texts)} 条{mode}",
                 fg=C["success"])
             self._display_results(texts)
+            self._save_btn.config(state="normal")
+            self._llm_btn.config(state="normal")
+            # 自动保存
+            self._save_to_file(silent=True)
         except Exception as e:
             self._status_lbl.config(text=f"分析失败: {e}", fg=C["danger"])
         finally:
@@ -225,6 +294,137 @@ class DanmakuAnalysisWindow:
                 i + 1, text[:60], mood))
 
         self._count_lbl.config(text=f"共 {len(texts)} 条，显示前 {min(50, len(texts))} 条")
+
+    # ── 新增方法 ────────────────────────────────────
+
+    def _fill_from_monitor(self):
+        """从监控列表选择填入BV号"""
+        sel = self._monitor_var.get()
+        if not sel:
+            return
+        bvid = sel.split()[0]
+        self._bv_entry.delete(0, tk.END)
+        self._bv_entry.insert(0, bvid)
+
+    def _save_to_file(self, silent: bool = False):
+        """保存弹幕/评论到 BV 对应文件夹"""
+        if not self._texts or not self._current_bvid:
+            if not silent:
+                messagebox.showinfo("提示", "暂无数据可保存", parent=self.window)
+            return
+
+        from config import DATA_DIR
+        bv_dir = os.path.join(DATA_DIR, self._current_bvid, "danmaku")
+        os.makedirs(bv_dir, exist_ok=True)
+
+        mode = self._mode_var.get()
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{mode}_{ts}.json"
+        filepath = os.path.join(bv_dir, filename)
+
+        data = {
+            "bvid": self._current_bvid,
+            "mode": mode,
+            "count": len(self._texts),
+            "timestamp": datetime.now().isoformat(),
+            "texts": self._texts,
+        }
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+
+        if not silent:
+            messagebox.showinfo("保存成功",
+                                f"已保存 {len(self._texts)} 条{mode}\n{filepath}",
+                                parent=self.window)
+        else:
+            self._status_lbl.config(
+                text=f"自动保存 {len(self._texts)} 条 → {filepath}",
+                fg=C["success"])
+
+    def _llm_analysis(self):
+        """使用LLM深度分析弹幕/评论"""
+        if not self._texts:
+            messagebox.showinfo("提示", "请先抓取数据", parent=self.window)
+            return
+
+        # 尝试加载API配置
+        try:
+            from config import load_config
+            cfg = load_config().get("ai", {})
+            api_key = cfg.get("api_key", "")
+            endpoint = cfg.get("endpoint", "") or "https://api.openai.com/v1/chat/completions"
+            model = cfg.get("model", "gpt-4o-mini")
+        except Exception:
+            api_key = ""
+
+        if not api_key:
+            messagebox.showwarning("提示",
+                                    "未配置LLM API密钥，请在「设置 → AI配置」中配置",
+                                    parent=self.window)
+            return
+
+        self._llm_btn.config(state="disabled")
+        self._status_lbl.config(text="LLM分析中...", fg=C["text_2"])
+        self.window.update_idletasks()
+
+        # 构建分析提示
+        mode = self._mode_var.get()
+        sample = self._texts[:100]
+        prompt = (
+            f"你是一个B站视频{mode}分析助手。分析以下{len(sample)}条{mode}数据，"
+            f"给出分点总结：\n"
+            f"1. 整体情绪倾向（积极/消极/中性比例）\n"
+            f"2. 主要讨论话题\n"
+            f"3. 高频关键词\n"
+            f"4. 代表性评论摘录\n"
+            f"5. 总结性建议\n\n"
+            f"{mode}数据：\n"
+        )
+        for i, t in enumerate(sample[:50], 1):
+            prompt += f"{i}. {t}\n"
+
+        # 显示等待
+        self._llm_text.config(state="normal")
+        self._llm_text.delete("1.0", tk.END)
+        self._llm_text.insert(tk.END, "LLM分析请求已发送，请稍候...\n", "dim")
+        self._llm_text.config(state="disabled")
+        self.window.update_idletasks()
+
+        try:
+            import requests
+            resp = requests.post(
+                endpoint,
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": "你是一个专业的数据分析助手，擅长从弹幕和评论中提取洞察。"},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "max_tokens": 2048,
+                    "temperature": 0.5,
+                },
+                timeout=60,
+            )
+            if resp.status_code == 200:
+                result = resp.json()["choices"][0]["message"]["content"]
+            else:
+                result = f"API请求失败 (HTTP {resp.status_code})"
+        except Exception as e:
+            result = f"LLM分析异常: {e}"
+
+        self._llm_text.config(state="normal")
+        self._llm_text.delete("1.0", tk.END)
+
+        title = f"🎯 LLM {mode}深度分析报告\n"
+        meta = f"BV: {self._current_bvid}  |  数据: {len(self._texts)}条  |  模型: {model}\n\n"
+        self._llm_text.insert(tk.END, title, "head")
+        self._llm_text.insert(tk.END, meta, "dim")
+        self._llm_text.insert(tk.END, result, "body")
+
+        self._llm_text.config(state="disabled")
+        self._llm_btn.config(state="normal")
+        self._status_lbl.config(text="LLM分析完成", fg=C["success"])
 
     def _draw_pie(self, sentiment: dict):
         c = self._pie_canvas
