@@ -115,11 +115,11 @@ class LogPanel:
                 corner_radius=4,
             )
             btn.pack(side=tk.LEFT, padx=(2, 0), pady=6)
-            btn.bind("<Button-1>", lambda e, l=lvl: self.set_log_level(l))
+            btn.bind("<Button-1>", lambda e, lvl_=lvl: self.set_log_level(lvl_))
             btn.bind("<Enter>", lambda e, b=btn: b.configure(fg_color=C["bg_elevated"]))
             btn.bind(
                 "<Leave>",
-                lambda e, b=btn, l=lvl: b.configure(
+                lambda e, b=btn, lvl_=lvl: b.configure(
                     fg_color=C["bg_elevated"] if l == self._log_level_var.get() else C["bg_hover"]
                 ),
             )
@@ -177,8 +177,8 @@ class LogPanel:
 
     def set_log_level(self, level):
         self._log_level_var.set(level)
-        for l, btn in self._log_level_btns.items():
-            is_active = l == level
+        for lvl, btn in self._log_level_btns.items():
+            is_active = lvl == level
             btn.configure(
                 fg_color=C["bg_elevated"] if is_active else C["bg_hover"],
                 text_color=C["bilibili"] if is_active else C["text_2"],

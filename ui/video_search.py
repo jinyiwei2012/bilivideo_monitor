@@ -108,10 +108,10 @@ class VideoSearchWindow:
                 title = v.get("title", "").replace('<em class="keyword">', "").replace("</em>", "")
                 self.window.after(
                     0,
-                    lambda b=bvid, t=title, a=v.get("author", ""), p=v.get("play", 0), l=v.get(
+                    lambda b=bvid, t=title, a=v.get("author", ""), p=v.get("play", 0), lk=v.get(
                         "like", 0
                     ): self.tree.insert(
-                        "", "end", iid=b, values=(b, t[:60], a, f"{p:,}" if p else "0", f"{l:,}" if l else "0")
+                        "", "end", iid=b, values=(b, t[:60], a, f"{p:,}" if p else "0", f"{lk:,}" if lk else "0")
                     ),
                 )
                 self.window.after(

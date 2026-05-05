@@ -229,7 +229,7 @@ class TimesNetSimpleAlgorithm(BaseAlgorithm):
             # 映射到[0, 1]
             periodicity = max(0, autocorr)
             return periodicity
-        except:
+        except Exception:
             return 0.0
 
     def _extract_series(self, history: List[Dict]) -> Tuple[np.ndarray, np.ndarray]:

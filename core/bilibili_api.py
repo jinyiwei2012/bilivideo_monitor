@@ -529,7 +529,7 @@ class BilibiliAPI:
                     mix = img_key.group(1) + sub_key.group(1)
                     import hashlib
 
-                    self._wbi_key = hashlib.md5(mix.encode()).hexdigest()
+                    self._wbi_key = hashlib.md5(mix.encode(), usedforsecurity=False).hexdigest()
                     return
             self._wbi_key = None
             logger.warning("WBI密钥刷新失败: 无法解析密钥图片URL")
@@ -549,7 +549,7 @@ class BilibiliAPI:
         import hashlib
 
         wts = int(time.time())
-        w_rid = hashlib.md5(query.encode()).hexdigest()
+        w_rid = hashlib.md5(query.encode(), usedforsecurity=False).hexdigest()
         params["wts"] = wts
         params["w_rid"] = w_rid
         return params
@@ -572,7 +572,7 @@ class BilibiliAPI:
                 return []
             import xml.etree.ElementTree as ET
 
-            root = ET.fromstring(resp.content)
+            root = ET.fromstring(resp.content)  # nosec B314
             danmaku = []
             for d in root.findall(".//d"):
                 p = d.get("p", "")

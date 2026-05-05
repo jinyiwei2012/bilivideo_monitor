@@ -166,8 +166,8 @@ def _rss_multi_regression(
     for i in range(sample_size):
         for j in range(k):
             XtY[j] += X_design[i][j] * Y_design[i]
-            for l in range(k):
-                XtX[j][l] += X_design[i][j] * X_design[i][l]
+            for col in range(k):
+                XtX[j][col] += X_design[i][j] * X_design[i][l]
 
     # 高斯消元求解
     aug = [XtX[j][:] + [XtY[j]] for j in range(k)]

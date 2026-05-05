@@ -289,7 +289,7 @@ class ChangePointDetectionAlgorithm(BaseAlgorithm):
                 return 0.0
 
             return max(0.0, (v1 - v0) / dt_hours)
-        except:
+        except Exception:
             return 0.0
 
     def _make_result(
