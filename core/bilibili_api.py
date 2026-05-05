@@ -275,7 +275,26 @@ class BilibiliAPI:
         
         logger.error(f"请求最终失败: {last_error}")
         return None
-    
+
+    def _request_public(self, method: str, url: str, **kwargs) -> Any:
+        """使用无Cookie的独立Session请求公开API（免登录回退）"""
+        import requests as _req
+        public_session = _req.Session()
+        public_session.headers.update({
+            "User-Agent": random.choice(self.USER_AGENTS),
+            "Referer": "https://www.bilibili.com/",
+        })
+        try:
+            resp = public_session.request(method, url, timeout=15, **kwargs)
+            if resp.status_code != 200:
+                return None
+            data = resp.json()
+            if data.get("code") == 0:
+                return data.get("data")
+        except Exception:
+            pass
+        return None
+
     def _get_retry_delay(self, attempt: int) -> float:
         """计算重试延迟（指数退避 + 抖动）"""
         # 基础延迟 * 2^attempt + 随机抖动
@@ -428,9 +447,13 @@ class BilibiliAPI:
         return []
 
     def get_up_info(self, uid: int) -> Optional[Dict]:
-        """获取UP主基本信息"""
-        url = f"{self.BASE_URL}/x/space/acc/info"
-        data = self._request('GET', url, params={'mid': uid})
+        """获取UP主基本信息（先试带Cookie请求，-401时用无Cookie回退）"""
+        data = self._request('GET', f"{self.BASE_URL}/x/space/acc/info",
+                             params={'mid': uid})
+        # -401 非法访问 → Cookie 过期，用免登录方式重试
+        if data is None:
+            data = self._request_public('GET', f"{self.BASE_URL}/x/space/acc/info",
+                                        params={'mid': uid})
         if data:
             return {
                 'uid':            data.get('mid', uid),
