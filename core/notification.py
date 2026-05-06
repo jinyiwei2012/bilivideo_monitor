@@ -2,12 +2,10 @@
 通知模块 - 支持Windows原生通知和QQ Bot推送
 """
 
-import json
 import logging
 import requests
 import threading
-from typing import Optional, Dict, Any
-from datetime import datetime
+from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 

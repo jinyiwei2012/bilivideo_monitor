@@ -3,7 +3,7 @@
 参考：周刊虚拟歌手中文曲排行榜计分规则
 """
 
-from typing import Dict, Optional
+from typing import Dict
 from dataclasses import dataclass
 
 

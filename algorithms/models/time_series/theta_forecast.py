@@ -4,7 +4,7 @@ M3预测竞赛获胜方法，通过两条Theta线组合进行预测
 """
 
 import numpy as np
-from typing import List, Dict, Any
+from typing import Dict, Any
 from datetime import datetime
 import logging
 

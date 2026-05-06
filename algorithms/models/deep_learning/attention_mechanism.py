@@ -5,7 +5,6 @@
 
 import numpy as np
 from typing import List, Dict, Any, Optional, Tuple
-from datetime import datetime
 import logging
 
 from algorithms.base import BaseAlgorithm
@@ -109,7 +108,7 @@ class AttentionMechanismAlgorithm(BaseAlgorithm):
 
         使用缩放点积注意力
         """
-        n = len(sequence)
+        len(sequence)
 
         # 使用最后几个时间步作为查询
         query = sequence[-3:].mean(axis=0)  # [d_model]

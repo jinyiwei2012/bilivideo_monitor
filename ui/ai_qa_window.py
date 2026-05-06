@@ -4,7 +4,6 @@ AI智能问答窗口 — 聊天气泡风格对话界面
 
 import tkinter as tk
 from tkinter import ttk
-from typing import Optional
 
 from ui.theme import C
 from ui.dialog_base import DialogBase
@@ -169,7 +168,7 @@ class AIQAWindow:
             self.session.set_context(self.gui.monitored_videos, self.gui.history_data, self.gui.video_dbs)
 
         self._chat_text.config(state="normal")
-        self._chat_text.insert(tk.END, f"\n你\n", "user")
+        self._chat_text.insert(tk.END, "\n你\n", "user")
         self._chat_text.insert(tk.END, f"{question}\n", "content")
         self._chat_text.see(tk.END)
         self._chat_text.config(state="disabled")
@@ -184,7 +183,7 @@ class AIQAWindow:
         self._send_btn.config(state="disabled")
         # 显示等待提示
         self._chat_text.config(state="normal")
-        self._chat_text.insert(tk.END, f"\n助手\n", "assistant")
+        self._chat_text.insert(tk.END, "\n助手\n", "assistant")
         self._chat_text.insert(tk.END, "思考中...\n", "content")
         self._chat_text.see(tk.END)
         self._chat_text.config(state="disabled")
@@ -205,10 +204,10 @@ class AIQAWindow:
             if last_assistant >= 0:
                 self._chat_text.delete("1.0", tk.END)
                 self._chat_text.insert(tk.END, content[:last_assistant], "")
-                self._chat_text.insert(tk.END, f"\n助手\n", "assistant")
+                self._chat_text.insert(tk.END, "\n助手\n", "assistant")
                 self._chat_text.insert(tk.END, f"{answer}\n", "content")
             else:
-                self._chat_text.insert(tk.END, f"\n助手\n", "assistant")
+                self._chat_text.insert(tk.END, "\n助手\n", "assistant")
                 self._chat_text.insert(tk.END, f"{answer}\n", "content")
             self._chat_text.see(tk.END)
             self._chat_text.config(state="disabled")

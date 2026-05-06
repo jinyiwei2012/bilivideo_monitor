@@ -335,13 +335,11 @@ class NetworkSettingsWindow:
         # 生成二维码图片（用 qrcode 库或 API 二维码图片URL）
         try:
             import qrcode
-            from io import BytesIO
-            import base64
 
             img = qrcode.make(qr_url)
-            img_tk = tk.PhotoImage(width=200, height=200)
+            _img_tk = tk.PhotoImage(width=200, height=200)  # noqa: F841
             # 转换 PIL Image -> tk PhotoImage
-            from PIL import Image, ImageTk
+            from PIL import ImageTk
 
             img = img.resize((200, 200))
             self._qr_img = ImageTk.PhotoImage(img)

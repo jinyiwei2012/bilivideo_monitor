@@ -26,7 +26,6 @@ from ui.theme import C
 from ui.helpers import (
     FONT,
     FONT_SM,
-    FONT_MONO,
     THRESHOLDS,
     THRESHOLD_NAMES,
     THRESH_COLORS,
@@ -194,7 +193,7 @@ class VideoListPanel:
         prog_bg.pack(fill=tk.X)
         prog_bg.pack_propagate(False)
         if tidx >= 0:
-            thr, pct, fill_c = THRESHOLDS[tidx], min(views / THRESHOLDS[tidx], 1.0), THRESH_COLORS[tidx]
+            _thr, pct, fill_c = THRESHOLDS[tidx], min(views / THRESHOLDS[tidx], 1.0), THRESH_COLORS[tidx]  # noqa: F841
         else:
             pct, fill_c = 1.0, C["success"]
         prog_fill = tk.Frame(prog_bg, bg=fill_c, height=3)

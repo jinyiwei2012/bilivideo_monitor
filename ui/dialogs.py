@@ -7,11 +7,10 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import threading
 import time
-import re
 import customtkinter as ctk
 
 from ui.theme import C
-from ui.helpers import FONT, FONT_SM, FONT_MONO, fmt_num, FAST_GAP, FAST_INTERVAL
+from ui.helpers import FONT, FONT_SM, FAST_GAP, FAST_INTERVAL
 
 
 class Dialogs:
@@ -289,7 +288,6 @@ class Dialogs:
         # 算法信息
         try:
             from algorithms.registry import AlgorithmRegistry
-            from algorithms.weight_manager import weight_manager
 
             # 获取算法信息
             algo_names = AlgorithmRegistry.get_algorithm_names()
@@ -350,7 +348,7 @@ class Dialogs:
             try:
                 from algorithms.online_learner import get_online_learner
 
-                learner = get_online_learner()
+                get_online_learner()
                 tk.Label(
                     scrollable_frame, text="✅ 在线学习模块已加载", bg=C["bg_surface"], fg=C["success"], font=FONT
                 ).pack(anchor="w", padx=20, pady=2)
@@ -361,7 +359,7 @@ class Dialogs:
 
             # 因果推断模块
             try:
-                from algorithms.causal_inference import get_causal_analyzer
+                from algorithms.causal_inference import get_causal_analyzer  # noqa: F401
 
                 tk.Label(
                     scrollable_frame, text="✅ 因果推断模块已加载", bg=C["bg_surface"], fg=C["success"], font=FONT
@@ -373,7 +371,7 @@ class Dialogs:
 
             # 图神经网络模块
             try:
-                from algorithms.graph_neural import get_video_graph
+                from algorithms.graph_neural import get_video_graph  # noqa: F401
 
                 tk.Label(
                     scrollable_frame, text="✅ 图神经网络模块已加载", bg=C["bg_surface"], fg=C["success"], font=FONT

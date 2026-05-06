@@ -145,7 +145,7 @@ def _rss_multi_regression(
         return sum((y - sum(Y) / n) ** 2 for y in Y)
 
     # 构建设计矩阵
-    num_features = len(Xs) * (max_lag - min_lag + 1)
+    len(Xs) * (max_lag - min_lag + 1)
     # X_design[sample_idx][feat_idx]
     X_design: List[List[float]] = []
     Y_design: List[float] = []
@@ -167,7 +167,7 @@ def _rss_multi_regression(
         for j in range(k):
             XtY[j] += X_design[i][j] * Y_design[i]
             for col in range(k):
-                XtX[j][col] += X_design[i][j] * X_design[i][l]
+                XtX[j][col] += X_design[i][j] * X_design[i][col]
 
     # 高斯消元求解
     aug = [XtX[j][:] + [XtY[j]] for j in range(k)]

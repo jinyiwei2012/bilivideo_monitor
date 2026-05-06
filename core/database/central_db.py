@@ -6,7 +6,7 @@ import re
 import threading
 import logging
 from datetime import datetime
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional
 
 from .connection import _ConnectionCtx, _http_session
 
@@ -328,7 +328,7 @@ class Database:
                 conn.commit()
                 return True
         except Exception as e:
-            logger.warning("添加视频失败 %s: %s", bvid, e)
+            logger.warning("添加视频失败 %s: %s", bvid, e)  # noqa: F821
             return False
 
     def get_video(self, bvid: str) -> Optional[VideoInfo]:
@@ -471,7 +471,7 @@ class Database:
 
         try:
             video = self.get_video(bvid)
-            history = self.get_monitor_history(bvid)
+            self.get_monitor_history(bvid)
 
             with open(filepath, "w", newline="", encoding="utf-8-sig") as f:
                 writer = csv.writer(f)

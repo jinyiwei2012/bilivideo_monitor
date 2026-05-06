@@ -6,7 +6,6 @@
 
 import numpy as np
 from typing import List, Dict, Any, Optional, Tuple
-from datetime import datetime
 import logging
 
 from algorithms.base import BaseAlgorithm
@@ -57,7 +56,7 @@ class KalmanFilterAlgorithm(BaseAlgorithm):
                 return (0, 1.0)
 
             # 从状态估计当前值和增长率
-            current_estimate = x[0, 0]
+            x[0, 0]
             growth_rate = x[1, 0]
 
             if growth_rate <= 0:

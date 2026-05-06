@@ -33,7 +33,7 @@ class EngagementRateAlgorithm(BaseAlgorithm):
                 confidence = 1.0
             else:
                 # 基础时间
-                base_hours = remaining / velocity
+                remaining / velocity
 
                 # 根据互动率调整
                 # 高互动率 = 更快传播

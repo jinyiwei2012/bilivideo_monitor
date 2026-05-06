@@ -4,7 +4,7 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Dict, Any
 from datetime import datetime
 import time
 
@@ -70,7 +70,6 @@ class BaseAlgorithm(ABC):
         Returns:
             PredictionResult 对象，包含预测结果和元数据
         """
-        pass
 
     # ── 公共辅助方法 ───────────────────────────────
 

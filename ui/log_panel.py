@@ -120,7 +120,7 @@ class LogPanel:
             btn.bind(
                 "<Leave>",
                 lambda e, b=btn, lvl_=lvl: b.configure(
-                    fg_color=C["bg_elevated"] if l == self._log_level_var.get() else C["bg_hover"]
+                    fg_color=C["bg_elevated"] if lvl_ == self._log_level_var.get() else C["bg_hover"]
                 ),
             )
             self._log_level_btns[lvl] = btn

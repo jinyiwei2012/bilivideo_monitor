@@ -147,7 +147,7 @@ class WeightSettingsWindow:
             ).grid(row=0, column=5)
 
     def _on_check_change(self, name: str):
-        var = self.check_vars[name]
+        self.check_vars[name]
         wv = self.weight_vars[name]
         wv.set(weight_manager.ml_weights.get(name, 1.0))
 

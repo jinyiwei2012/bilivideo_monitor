@@ -573,7 +573,7 @@ class SettingsWindow:
         self._refresh_status()
         # 验证登录状态
         self.window.after(500, self._verify_login)
-        messagebox.showinfo("成功", f"已应用 Cookie，正在验证登录状态...", parent=self.window)
+        messagebox.showinfo("成功", "已应用 Cookie，正在验证登录状态...", parent=self.window)
 
     @staticmethod
     def _parse_cookie_input(text: str) -> dict:
@@ -734,7 +734,7 @@ class SettingsWindow:
         self._qr_img = None
         try:
             import qrcode
-            from PIL import Image, ImageTk
+            from PIL import ImageTk
 
             img = qrcode.make(qr_url).resize((200, 200))
             self._qr_img = ImageTk.PhotoImage(img)

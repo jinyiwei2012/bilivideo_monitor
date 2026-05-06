@@ -148,7 +148,7 @@ class InformerSimpleAlgorithm(BaseAlgorithm):
         # 实际Transformer中QKV是通过线性变换得到的，这里简化
         Q = series.reshape(-1, 1)
         K = series.reshape(-1, 1)
-        V = series.reshape(-1, 1)
+        series.reshape(-1, 1)
 
         # 计算注意力得分（点积）
         scores = np.dot(Q, K.T)  # shape: (n, n)

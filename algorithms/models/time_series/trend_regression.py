@@ -4,7 +4,7 @@
 """
 
 from datetime import datetime
-from typing import Dict, Any, List
+from typing import Dict, Any
 import numpy as np
 from algorithms.base import BaseAlgorithm, PredictionResult
 
@@ -43,7 +43,7 @@ class TrendRegressionAlgorithm(BaseAlgorithm):
                 # 多项式回归 (2次)
                 degree = min(2, len(history) - 1)
                 coeffs = np.polyfit(X, y, degree)
-                poly = np.poly1d(coeffs)
+                np.poly1d(coeffs)
 
                 # 求解达到阈值的时间
                 # poly(t) = threshold

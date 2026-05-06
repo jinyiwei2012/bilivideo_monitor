@@ -4,7 +4,7 @@
 """
 
 import numpy as np
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Dict, Any, List, Tuple
 from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
 

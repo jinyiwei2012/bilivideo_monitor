@@ -3,8 +3,8 @@
 """
 
 import logging
-from typing import List, Dict, Optional, Tuple
-from datetime import datetime, timedelta
+from typing import List, Dict, Optional
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -156,7 +156,7 @@ class AnomalyDetector:
         last_viewers = viewers[-1]
 
         if avg_viewers > 0 and last_viewers > avg_viewers * 3 and last_viewers > 50:
-            bvid = recent[-1].get("bvid", "")
+            recent[-1].get("bvid", "")
             return (
                 f"🔥 在线人数飙升！当前 {last_viewers} 人在线，" f"是之前的 {last_viewers / max(avg_viewers, 1):.1f}倍"
             )

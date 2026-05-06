@@ -7,7 +7,7 @@ import os
 import json
 import threading
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List
 from datetime import datetime
 
 logger = logging.getLogger(__name__)

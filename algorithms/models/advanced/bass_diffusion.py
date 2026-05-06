@@ -7,7 +7,7 @@ Bass扩散模型
 import numpy as np
 import logging
 from typing import List, Dict, Any, Optional
-from datetime import datetime, timedelta
+from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
 
 logger = logging.getLogger(__name__)

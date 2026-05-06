@@ -119,7 +119,7 @@ class VideoSearchWindow:
                     lambda n=len(self.search_results): self.status_lbl.config(text=f"找到 {n} 个结果", fg=C["success"]),
                 )
         except Exception as e:
-            self.window.after(0, lambda: self.status_lbl.config(text=f"搜索失败: {e}", fg=C["danger"]))
+            self.window.after(0, lambda e=e: self.status_lbl.config(text=f"搜索失败: {e}", fg=C["danger"]))
         finally:
             self.searching = False
 

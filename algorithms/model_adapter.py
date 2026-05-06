@@ -3,7 +3,7 @@ models算法适配器
 将不同接口的models算法统一适配到注册器系统
 """
 
-from typing import Dict, List, Tuple, Any
+from typing import Dict, List, Tuple
 from datetime import datetime
 import importlib
 import os
@@ -305,7 +305,7 @@ def load_all_model_algorithms() -> List[ModelAlgorithmAdapter]:
                                 instance = attr()
                                 adapter = ModelAlgorithmAdapter(instance)
                                 adapters.append(adapter)
-                        except Exception as e:
+                        except Exception:
                             pass
 
             except Exception as e:

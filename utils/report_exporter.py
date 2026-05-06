@@ -3,7 +3,6 @@
 """
 
 import os
-import io
 import logging
 from datetime import datetime
 from typing import List, Dict, Optional

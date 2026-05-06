@@ -5,8 +5,6 @@
 import os
 import tkinter as tk
 from tkinter import ttk, messagebox
-from typing import Optional
-from datetime import datetime
 
 from ui.theme import C
 from ui.dialog_base import DialogBase

@@ -2,7 +2,6 @@
 图表绘制模块 - Canvas 播放量趋势图
 """
 
-import tkinter as tk
 from datetime import datetime
 from ui.theme import C
 from ui.helpers import fmt_num, abbrev, THRESHOLDS, THRESHOLD_NAMES, THRESH_COLORS

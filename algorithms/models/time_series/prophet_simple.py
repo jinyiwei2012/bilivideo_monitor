@@ -5,7 +5,7 @@ Prophet风格分解预测
 """
 
 import numpy as np
-from typing import List, Dict, Any
+from typing import Dict, Any
 from datetime import datetime
 import logging
 

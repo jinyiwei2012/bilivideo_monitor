@@ -4,8 +4,7 @@ UP主追踪面板 — 查询UP主信息、追踪涨粉趋势、查看投稿列�
 
 import tkinter as tk
 from tkinter import ttk, messagebox
-from typing import List, Dict, Optional
-from datetime import datetime
+from typing import Dict
 
 from ui.theme import C
 from ui.dialog_base import DialogBase

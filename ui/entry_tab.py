@@ -3,10 +3,9 @@
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox, LEFT, RIGHT, BOTH, X, Y, TOP, BOTTOM
+from tkinter import ttk, messagebox, LEFT, RIGHT, BOTH, X, Y
 import logging
-from typing import List, Dict, Optional
-from datetime import datetime
+from typing import List, Dict
 
 logger = logging.getLogger(__name__)
 
@@ -290,7 +289,7 @@ class EntryTab:
 
         if invalid:
             messagebox.showwarning(
-                "格式错误", f"以下格式不合法已跳过：\n" + "\n".join(invalid[:10]), parent=self._window
+                "格式错误", "以下格式不合法已跳过：\n" + "\n".join(invalid[:10]), parent=self._window
             )
 
         return bvids, invalid
@@ -299,7 +298,7 @@ class EntryTab:
         """提示将不在监控列表的BV号加入监控"""
         not_monitored = [b for b in bvids if b not in self._monitored_set]
         if not_monitored:
-            msg = f"以下 BV 号不在监控列表：\n" + "\n".join(not_monitored[:10]) + "\n\n是否加入监控？"
+            msg = "以下 BV 号不在监控列表：\n" + "\n".join(not_monitored[:10]) + "\n\n是否加入监控？"
             if messagebox.askyesno("加入监控", msg, parent=self._window):
                 for bv in not_monitored:
                     if self._on_add_monitor:
@@ -356,7 +355,7 @@ class EntryTab:
                     try:
                         for rec in self._video_dbs[bvid].get_all_records():
                             rec_ts = str(rec.get("timestamp", ""))[:16]
-                            if rec_ts == dt_str[:16]:
+                            if rec_ts == dt_str[:16]:  # noqa: F821
                                 existing_snap[bvid] = dict(rec)
                                 break
                     except Exception as e:
@@ -382,9 +381,9 @@ class EntryTab:
 
         n = len(self._rows)
         self._status.config(
-            text=f"已生成 {n} 行输入（{len(bvids)} 视频 × "
-            + (f"{len(periods)} 周期" if mode == "milestone" else "1 时间点")
-            + f"），填写后点击「保存全部」"
+            text=f"已生成 {n} 行输入（{len(bvids)} 视频 × "  # noqa: F821
+            + (f"{len(periods)} 周期" if mode == "milestone" else "1 时间点")  # noqa: F821
+            + "），填写后点击「保存全部」"
         )
 
     def _create_single_row(self, bv, key, mode, fields, existing_ms, existing_snap):

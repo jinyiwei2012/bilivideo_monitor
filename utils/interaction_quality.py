@@ -3,7 +3,7 @@
 参考B站正常区间：赞播比3-8%，币播比1-4%，收藏播比2-6%，分享播比0.5-3%
 """
 
-from typing import List, Optional
+from typing import List
 from dataclasses import dataclass, field
 
 
@@ -46,7 +46,7 @@ def _rate_score(value: float, lo: float, hi: float) -> float:
     """单项率映射到 0-100 分，落在正常区间内得满分，偏离越远分越低"""
     if lo <= value <= hi:
         return 100.0
-    mid = (lo + hi) / 2
+    (lo + hi) / 2
     if value < lo:
         # 低于下限：线性跌到 0（低于下限 2 倍得 0）
         threshold = lo * 0.5 if lo > 0 else lo * 2

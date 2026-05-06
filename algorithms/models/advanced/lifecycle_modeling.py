@@ -4,7 +4,7 @@
 """
 
 import numpy as np
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Dict, Any, List, Tuple
 from datetime import datetime
 from enum import Enum
 from algorithms.base import BaseAlgorithm, PredictionResult
@@ -116,8 +116,8 @@ class LifecycleModelAlgorithm(BaseAlgorithm):
         # 计算关键指标
         current_vel = velocities[-1]
         avg_vel = np.mean(velocities)
-        max_vel = np.max(velocities)
-        min_vel = np.min(velocities)
+        np.max(velocities)
+        np.min(velocities)
 
         # 计算加速度（最近3个速度值的变化趋势）
         accel = self._calculate_acceleration(velocities)

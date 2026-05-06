@@ -184,7 +184,7 @@ class NBeatsSimpleAlgorithm(BaseAlgorithm):
             return np.array([])
 
         # 使用正弦拟合简化版
-        t = np.arange(len(series))
+        np.arange(len(series))
         # 简单季节性：用移动平均去除后取残差
         try:
             from numpy.fft import rfft, irfft

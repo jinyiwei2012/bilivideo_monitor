@@ -5,7 +5,7 @@ Hawkes过程（自激点过程）预测
 
 import math
 import numpy as np
-from typing import Dict, Any, List
+from typing import Dict, Any
 from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
 
@@ -128,7 +128,7 @@ class HawkesProcessAlgorithm(BaseAlgorithm):
 
             n = len(views_arr)
             start_time = times[0]
-            elapsed_hours = (times[-1] - start_time) / 3600.0
+            (times[-1] - start_time) / 3600.0
             now = times[-1]
 
             quality = self.get_quality_score(video_data)
@@ -137,7 +137,7 @@ class HawkesProcessAlgorithm(BaseAlgorithm):
             # ── 将播放量增量的时间点作为"事件" ─────────
             # 增量较大时视为"子事件"（推荐带来的播放潮）
             increments = np.diff(views_arr)
-            time_diffs = np.diff(times)
+            np.diff(times)
 
             # 构造事件列表：每达到一定增量记为一个事件
             events = []

@@ -4,8 +4,7 @@ LSTM简化预测算法
 """
 
 from datetime import datetime
-from typing import Dict, Any, List
-from collections import deque
+from typing import Dict, Any
 from algorithms.base import BaseAlgorithm, PredictionResult
 
 

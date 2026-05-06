@@ -6,7 +6,7 @@ Theil-Sen鲁棒回归
 import math
 import random
 import numpy as np
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, Tuple
 from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
 
@@ -144,7 +144,7 @@ class TheilSenRegressionAlgorithm(BaseAlgorithm):
                 # 用中位数日增量作为备选
                 daily_increments = np.diff(views_arr)
                 slope = float(np.median(daily_increments))
-                intercept = float(views_arr[0])
+                float(views_arr[0])
 
             # ── 基于时间序列分解评估趋势稳定性 ────────
             # 分段评估趋势一致性

@@ -4,15 +4,12 @@ B站API模块 - 封装B站相关接口
 """
 
 import requests
-import re
 import time
 import math
 import random
 import logging
 import threading
 from typing import Dict, List, Optional, Any, Tuple
-from urllib.parse import quote
-from functools import wraps
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -30,8 +27,6 @@ class BilibiliAPIError(Exception):
 
 class RateLimitError(BilibiliAPIError):
     """频率限制错误 (412)"""
-
-    pass
 
 
 class BilibiliAPI:
@@ -99,7 +94,8 @@ class BilibiliAPI:
     def _load_saved_cookies(self):
         """从 network_config.json 加载已保存的 Cookie"""
         try:
-            import json, os
+            import json
+            import os
 
             cfg_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config", "network_config.json")
             if os.path.exists(cfg_path):
