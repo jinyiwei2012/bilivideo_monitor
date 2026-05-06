@@ -16,9 +16,9 @@ _OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "reports"
 
 def _fmt(n):
     if n >= 1_0000_0000:
-        return f"{n/1_0000_0000:.2f}亿"
+        return f"{n / 1_0000_0000:.2f}亿"
     if n >= 1_0000:
-        return f"{n/1_0000:.1f}万"
+        return f"{n / 1_0000:.1f}万"
     return str(n)
 
 

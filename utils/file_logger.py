@@ -128,9 +128,9 @@ class FileLogger:
 
         self._file = open(filepath, "a", encoding="utf-8")
         # 写入分隔头
-        self._file.write(f"{'='*60}\n")
+        self._file.write(f"{'=' * 60}\n")
         self._file.write(f"  日志启动: {now.strftime('%Y-%m-%d %H:%M:%S')}\n")
-        self._file.write(f"{'='*60}\n")
+        self._file.write(f"{'=' * 60}\n")
 
     def _ensure_date(self, now: datetime):
         """检查是否跨天（仅对非主线程的 write 调用做兜底）。"""

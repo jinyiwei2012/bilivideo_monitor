@@ -116,7 +116,7 @@ class DetailPanel:
         author = video.get("author", "未知UP主")
         dur_sec = video.get("duration", 0)
         pub_ts = video.get("pubdate", 0)
-        dur_str = f"{dur_sec//60}:{dur_sec%60:02d}" if dur_sec else "—"
+        dur_str = f"{dur_sec // 60}:{dur_sec % 60:02d}" if dur_sec else "—"
         pub_str = datetime.fromtimestamp(pub_ts).strftime("%Y-%m-%d") if pub_ts else "—"
 
         info = ctk.CTkFrame(h, fg_color=C["bg_surface"], corner_radius=0)
@@ -182,7 +182,7 @@ class DetailPanel:
             ).pack(fill=tk.X, padx=8, pady=(4, 0))
             if key == "_like_rate":
                 views = video.get("view_count", 1) or 1
-                val = f"{video.get('like_count',0)/views*100:.2f}%"
+                val = f"{video.get('like_count', 0) / views * 100:.2f}%"
             elif key == "_weekly_score":
                 val = self._calc_weekly_score_text(video)
             elif key == "_yearly_score":
@@ -222,7 +222,7 @@ class DetailPanel:
                 continue
             val_lbl, _ = pair
             if key == "_like_rate":
-                val_lbl.configure(text=f"{video.get('like_count',0)/views*100:.2f}%")
+                val_lbl.configure(text=f"{video.get('like_count', 0) / views * 100:.2f}%")
             elif key == "_weekly_score":
                 val_lbl.configure(text=self._calc_weekly_score_text(video))
             elif key == "_yearly_score":
@@ -285,7 +285,7 @@ class DetailPanel:
         pub_ts = video.get("pubdate", 0)
         dur = video.get("duration", 0)
         pub_str = datetime.fromtimestamp(pub_ts).strftime("%Y-%m-%d %H:%M") if pub_ts else "—"
-        dur_str = f"{dur//60}:{dur%60:02d}" if dur else "—"
+        dur_str = f"{dur // 60}:{dur % 60:02d}" if dur else "—"
 
         lines = [
             ("=== 视频信息 ===", "head"),
@@ -305,9 +305,9 @@ class DetailPanel:
             (f"评论    {fmt_num(video.get('reply_count', 0))}", "mono"),
             ("", ""),
             ("=== 互动率 ===", "head"),
-            (f"点赞率  {video.get('like_count',0)/max(views,1)*100:.2f}%", "mono"),
-            (f"投币率  {video.get('coin_count',0)/max(views,1)*100:.2f}%", "mono"),
-            (f"收藏率  {video.get('favorite_count',0)/max(views,1)*100:.2f}%", "mono"),
+            (f"点赞率  {video.get('like_count', 0) / max(views, 1) * 100:.2f}%", "mono"),
+            (f"投币率  {video.get('coin_count', 0) / max(views, 1) * 100:.2f}%", "mono"),
+            (f"收藏率  {video.get('favorite_count', 0) / max(views, 1) * 100:.2f}%", "mono"),
             ("", ""),
             ("=== 在线人数 ===", "head"),
         ]
@@ -356,12 +356,12 @@ class DetailPanel:
             )
             self._detail_text.insert(
                 tk.END,
-                f"收藏得点  {ws.favorite_score:>10,.2f}  ({video.get('favorite_count',0):,} × 修正B {ws.correction_b:.4f})\n",
+                f"收藏得点  {ws.favorite_score:>10,.2f}  ({video.get('favorite_count', 0):,} × 修正B {ws.correction_b:.4f})\n",
                 "mono",
             )
             self._detail_text.insert(
                 tk.END,
-                f"硬币得点  {ws.coin_score:>10,.2f}  ({video.get('coin_count',0):,} × 修正C {ws.correction_c:.4f})\n",
+                f"硬币得点  {ws.coin_score:>10,.2f}  ({video.get('coin_count', 0):,} × 修正C {ws.correction_c:.4f})\n",
                 "mono",
             )
             self._detail_text.insert(tk.END, f"点赞得点  {ws.like_score:>10,.2f}\n", "mono")
@@ -378,12 +378,12 @@ class DetailPanel:
             )
             self._detail_text.insert(
                 tk.END,
-                f"收藏得点  {ys.favorite_score:>10,.2f}  ({video.get('favorite_count',0):,} × 修正B {ys.correction_b:.4f})\n",
+                f"收藏得点  {ys.favorite_score:>10,.2f}  ({video.get('favorite_count', 0):,} × 修正B {ys.correction_b:.4f})\n",
                 "mono",
             )
             self._detail_text.insert(
                 tk.END,
-                f"硬币得点  {ys.coin_score:>10,.2f}  ({video.get('coin_count',0):,} × 修正C {ys.correction_c:.4f})\n",
+                f"硬币得点  {ys.coin_score:>10,.2f}  ({video.get('coin_count', 0):,} × 修正C {ys.correction_c:.4f})\n",
                 "mono",
             )
             self._detail_text.insert(tk.END, f"点赞得点  {ys.like_score:>10,.2f}\n", "mono")

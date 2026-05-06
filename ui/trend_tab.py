@@ -72,7 +72,7 @@ class TrendTab:
         sb.pack(side=RIGHT, fill=Y)
         for v in self._monitored_videos:
             title = v.get("title", "未知")[:35]
-            self._listbox.insert(tk.END, f"  {v.get('bvid','')}  {title}")
+            self._listbox.insert(tk.END, f"  {v.get('bvid', '')}  {title}")
 
         # 右：指标 + 按钮
         right = tk.Frame(top, padx=10, pady=4, bg=C.get("bg_surface", "#161b22"))

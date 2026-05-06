@@ -215,7 +215,7 @@ class UpTrackerWindow:
             for v in videos[:8]:
                 self._detail_text.insert(
                     tk.END,
-                    f"  {v.get('bvid','')}  {v.get('title','')[:28]}  " f"{self._fmt(v.get('view_count',0))}\n",
+                    f"  {v.get('bvid', '')}  {v.get('title', '')[:28]}  " f"{self._fmt(v.get('view_count', 0))}\n",
                     "val",
                 )
 
@@ -225,7 +225,7 @@ class UpTrackerWindow:
             self._detail_text.insert(tk.END, "\n=== 粉丝趋势(近10条) ===\n", "head")
             for h in reversed(history):
                 self._detail_text.insert(
-                    tk.END, f"  {h.get('timestamp','')[:16]}  粉丝 {self._fmt(h.get('follower_count',0))}\n", "dim"
+                    tk.END, f"  {h.get('timestamp', '')[:16]}  粉丝 {self._fmt(h.get('follower_count', 0))}\n", "dim"
                 )
 
         self._detail_text.config(state="disabled")

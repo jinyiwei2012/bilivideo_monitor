@@ -505,7 +505,7 @@ class MilestoneStatsWindow:
             c.create_text(
                 ML - 6,
                 y,
-                text=f"{val/10000:.0f}w" if val >= 10000 else str(int(val)),
+                text=f"{val / 10000:.0f}w" if val >= 10000 else str(int(val)),
                 anchor="e",
                 fill=C["text_2"],
                 font=("Consolas", 8),
@@ -532,7 +532,7 @@ class MilestoneStatsWindow:
                         c.create_text(
                             (bx + bx2) / 2,
                             by - 4,
-                            text=f"{val/10000:.0f}w" if val >= 10000 else str(int(val)),
+                            text=f"{val / 10000:.0f}w" if val >= 10000 else str(int(val)),
                             anchor="s",
                             fill=color,
                             font=("Consolas", 7, "bold"),

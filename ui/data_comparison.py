@@ -66,9 +66,9 @@ def _fmt(n):
     except (TypeError, ValueError):
         return "N/A"
     if n >= 1e8:
-        return f"{n/1e8:.2f}亿"
+        return f"{n / 1e8:.2f}亿"
     if n >= 1e4:
-        return f"{n/1e4:.1f}万"
+        return f"{n / 1e4:.1f}万"
     return str(int(n))
 
 

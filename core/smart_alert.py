@@ -15,9 +15,9 @@ _ALERT_COOLDOWN_MINUTES = 30  # 同类预警冷却时间
 
 def _fmt_count(n: int) -> str:
     if n >= 1_0000_0000:
-        return f"{n/1_0000_0000:.2f}亿"
+        return f"{n / 1_0000_0000:.2f}亿"
     if n >= 1_0000:
-        return f"{n/1_0000:.1f}万"
+        return f"{n / 1_0000:.1f}万"
     return str(n)
 
 
@@ -73,7 +73,7 @@ class AnomalyDetector:
             views = recent[-1].get("view_count", 0)
             return (
                 f"⚡ 播放飙升！最近增速 {last_rate:.0f}/h，"
-                f"是平均 {avg_rate:.0f}/h 的 {last_rate/avg_rate:.1f}倍 "
+                f"是平均 {avg_rate:.0f}/h 的 {last_rate / avg_rate:.1f}倍 "
                 f"(当前 {_fmt_count(views)})"
             )
         return None
@@ -157,7 +157,9 @@ class AnomalyDetector:
 
         if avg_viewers > 0 and last_viewers > avg_viewers * 3 and last_viewers > 50:
             bvid = recent[-1].get("bvid", "")
-            return f"🔥 在线人数飙升！当前 {last_viewers} 人在线，" f"是之前的 {last_viewers/max(avg_viewers,1):.1f}倍"
+            return (
+                f"🔥 在线人数飙升！当前 {last_viewers} 人在线，" f"是之前的 {last_viewers / max(avg_viewers, 1):.1f}倍"
+            )
         return None
 
     @staticmethod
@@ -178,7 +180,7 @@ class AnomalyDetector:
         if prev_viewers > 0 and last_viewers < prev_viewers * 0.3 and (prev_viewers - last_viewers) > 100:
             return (
                 f"📉 在线人数骤降！从 {prev_viewers} 人降至 {last_viewers} 人，"
-                f"降幅 {(1-last_viewers/prev_viewers)*100:.0f}%"
+                f"降幅 {(1 - last_viewers / prev_viewers) * 100:.0f}%"
             )
         return None
 

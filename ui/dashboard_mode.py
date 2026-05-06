@@ -252,7 +252,7 @@ class DashboardWindow:
                 outline="",
                 stipple="" if i < 3 else "gray50",
             )
-            c.create_text(16, y + bar_h // 2, text=f"#{i+1}", fill="white", font=("Consolas", 10, "bold"), anchor="w")
+            c.create_text(16, y + bar_h // 2, text=f"#{i + 1}", fill="white", font=("Consolas", 10, "bold"), anchor="w")
             c.create_text(
                 24 + bar_w,
                 y + bar_h // 2,
@@ -429,7 +429,7 @@ class DashboardWindow:
 
 def _fmt(n):
     if n >= 1_0000_0000:
-        return f"{n/1_0000_0000:.2f}亿"
+        return f"{n / 1_0000_0000:.2f}亿"
     if n >= 1_0000:
-        return f"{n/1_0000:.1f}万"
+        return f"{n / 1_0000:.1f}万"
     return str(n)

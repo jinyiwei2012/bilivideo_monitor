@@ -102,7 +102,7 @@ class SnapshotTab:
         sb2.pack(side=RIGHT, fill=Y)
         for v in self._monitored_videos:
             title = v.get("title", "未知")[:32]
-            self._listbox.insert(tk.END, f"  {v.get('bvid','')}  {title}")
+            self._listbox.insert(tk.END, f"  {v.get('bvid', '')}  {title}")
         self._listbox.bind("<<ListboxSelect>>", self._on_video_select)
 
         # 左2：时间点选择

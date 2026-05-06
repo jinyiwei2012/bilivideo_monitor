@@ -93,7 +93,7 @@ class NotificationManager:
 
     def send_threshold_notification(self, bvid: str, title: str, threshold: int, current_views: int):
         """发送阈值突破通知"""
-        message = f"视频《{title}》播放量突破{threshold/10000:.0f}万！\n当前播放量: {current_views}\nBV号: {bvid}"
+        message = f"视频《{title}》播放量突破{threshold / 10000:.0f}万！\n当前播放量: {current_views}\nBV号: {bvid}"
 
         # Windows通知
         self.send_windows_notification("播放量突破提醒", message)

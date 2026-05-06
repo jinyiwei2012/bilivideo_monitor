@@ -137,7 +137,7 @@ class WeightSettingsWindow:
             # 准确率
             acc = info.get("accuracy", 0)
             tk.Label(
-                row, text=f"{acc*100:.1f}%", bg=C["bg_surface"], fg=C["success"], font=FONT_MONO, width=10, anchor="w"
+                row, text=f"{acc * 100:.1f}%", bg=C["bg_surface"], fg=C["success"], font=FONT_MONO, width=10, anchor="w"
             ).grid(row=0, column=4)
 
             # 样本数

@@ -45,7 +45,7 @@ class DanmakuAnalysisWindow:
                 row0, textvariable=self._monitor_var, width=40, font=("Microsoft YaHei UI", 9), state="readonly"
             )
             self._monitor_cb["values"] = [
-                f"{v.get('bvid','')}  {v.get('title','')[:30]}" for v in self.gui.monitored_videos
+                f"{v.get('bvid', '')}  {v.get('title', '')[:30]}" for v in self.gui.monitored_videos
             ]
             self._monitor_cb.pack(side=tk.LEFT, padx=(6, 8))
             self._monitor_cb.bind("<<ComboboxSelected>>", lambda e: self._from_monitor_and_fetch())
