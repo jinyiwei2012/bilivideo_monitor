@@ -4,16 +4,12 @@
 
 import math
 import tkinter as tk
-from tkinter import ttk
 from typing import Optional
 
 from ui.theme import C
 from ui.dialog_base import DialogBase
 from utils.interaction_quality import (
     calculate_probe,
-    calculate_probe_from_dict,
-    ProbeResult,
-    format_probe_result,
 )
 
 

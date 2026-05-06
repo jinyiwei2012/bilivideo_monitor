@@ -3,13 +3,10 @@
 管理所有预测算法（自动扫描models目录下的所有算法）
 """
 
-from typing import Dict, List, Optional, Any, Tuple
-import os
-import importlib
+from typing import Dict, List, Tuple
 import logging
 from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor, as_completed, ProcessPoolExecutor
-import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +116,7 @@ class AlgorithmRegistry:
 
         # ── 集中准备 video_data，避免每个 adapter 重复转换 ────
         cached_video_data = cls._prepare_video_data(history, current_value)
-        kwargs_with_video = dict(kwargs, _cached_video_data=cached_video_data)
+        # _kwargs_with_video = dict(kwargs, _cached_video_data=cached_video_data)
 
         results = {}
         thresholds = kwargs.get("thresholds", [100000, 1000000, 10000000])

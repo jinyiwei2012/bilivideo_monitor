@@ -11,11 +11,11 @@ import math
 import time
 import threading
 import logging
-
-logger = logging.getLogger(__name__)
 import json
 import os
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 # 默认参数
 DEFAULT_ETA = 0.5  # Hedge 学习率

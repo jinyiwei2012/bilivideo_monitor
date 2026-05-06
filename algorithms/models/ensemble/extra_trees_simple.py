@@ -223,7 +223,7 @@ class ExtraTreesSimpleAlgorithm(BaseAlgorithm):
 
             # 训练森林
             self.trees = []
-            prev_rng = random.random()  # save/restore not needed, just use current state
+            _ = random.random()
             for _ in range(self.n_trees):
                 tree = self._build_tree(X_train, y_train)
                 self.trees.append(tree)

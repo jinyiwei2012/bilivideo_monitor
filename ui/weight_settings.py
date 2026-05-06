@@ -137,7 +137,7 @@ class WeightSettingsWindow:
             # 准确率
             acc = info.get("accuracy", 0)
             tk.Label(
-                row, text=f"{acc*100:.1f}%", bg=C["bg_surface"], fg=C["success"], font=FONT_MONO, width=10, anchor="w"
+                row, text=f"{acc * 100:.1f}%", bg=C["bg_surface"], fg=C["success"], font=FONT_MONO, width=10, anchor="w"
             ).grid(row=0, column=4)
 
             # 样本数
@@ -147,7 +147,7 @@ class WeightSettingsWindow:
             ).grid(row=0, column=5)
 
     def _on_check_change(self, name: str):
-        var = self.check_vars[name]
+        self.check_vars[name]
         wv = self.weight_vars[name]
         wv.set(weight_manager.ml_weights.get(name, 1.0))
 

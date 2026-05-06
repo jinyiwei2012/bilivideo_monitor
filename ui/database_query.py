@@ -10,12 +10,12 @@ import re
 import csv
 import logging
 from datetime import datetime
-from typing import List, Dict, Optional
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 from ui.theme import C
-from ui.helpers import FONT, FONT_SM, FONT_MONO
+from ui.helpers import FONT, FONT_SM
 from ui.dialog_base import DialogBase
 
 

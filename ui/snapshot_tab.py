@@ -3,7 +3,7 @@
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox, LEFT, RIGHT, BOTH, X, Y, TOP, BOTTOM
+from tkinter import ttk, messagebox, LEFT, RIGHT, BOTH, X, Y, BOTTOM
 from typing import List, Dict
 from datetime import datetime, timedelta
 from collections import defaultdict
@@ -15,7 +15,6 @@ from .data_comparison import (
     _fmt,
     _parse_dt,
     PALETTE,
-    PALETTE_LIGHT,
     METRICS,
     _BAR_ML,
     _BAR_MR,
@@ -102,7 +101,7 @@ class SnapshotTab:
         sb2.pack(side=RIGHT, fill=Y)
         for v in self._monitored_videos:
             title = v.get("title", "未知")[:32]
-            self._listbox.insert(tk.END, f"  {v.get('bvid','')}  {title}")
+            self._listbox.insert(tk.END, f"  {v.get('bvid', '')}  {title}")
         self._listbox.bind("<<ListboxSelect>>", self._on_video_select)
 
         # 左2：时间点选择
@@ -644,10 +643,7 @@ class SnapshotTab:
 
         n_metrics = len(chosen_metrics)
         section_H = canvas_H / n_metrics  # 每个指标的垂直分区
-        TOP_PAD = _BAR_MT
-        BOT_PAD = _BAR_MB
 
-        x_cursor = _BAR_ML
         all_section_widths = []  # 每个指标区的宽度
 
         for m_idx, metric in enumerate(chosen_metrics):
@@ -705,7 +701,7 @@ class SnapshotTab:
             BAR_W = data["BAR_W"]
             GROUP_GAP = data["GROUP_GAP"]
             inner_gap = data["inner_gap"]
-            total_bars = data["total_bars"]
+            data["total_bars"]
 
             if not groups:
                 continue

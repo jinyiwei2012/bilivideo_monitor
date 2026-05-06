@@ -1,7 +1,6 @@
 """数据库连接管理"""
 
 import requests
-import threading
 
 # 模块级共享 Session，复用 TCP 连接，提升封面下载性能
 _http_session = requests.Session()

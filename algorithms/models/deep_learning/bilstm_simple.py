@@ -5,7 +5,7 @@ BiLSTM双向长短期记忆预测
 
 import math
 import numpy as np
-from typing import Dict, Any, List
+from typing import Dict, Any
 from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
 
@@ -111,7 +111,7 @@ class BiLSTMSimpleAlgorithm(BaseAlgorithm):
             n = len(views_sorted)
 
             # ── 特征工程 ──────────────────────────────
-            age_hours = self.get_video_age_hours(video_data)
+            self.get_video_age_hours(video_data)
             quality = self.get_quality_score(video_data)
             engagement = self.get_engagement_rate(video_data)
 

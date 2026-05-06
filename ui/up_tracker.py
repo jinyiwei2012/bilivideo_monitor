@@ -4,8 +4,7 @@ UP主追踪面板 — 查询UP主信息、追踪涨粉趋势、查看投稿列�
 
 import tkinter as tk
 from tkinter import ttk, messagebox
-from typing import List, Dict, Optional
-from datetime import datetime
+from typing import Dict
 
 from ui.theme import C
 from ui.dialog_base import DialogBase
@@ -215,7 +214,7 @@ class UpTrackerWindow:
             for v in videos[:8]:
                 self._detail_text.insert(
                     tk.END,
-                    f"  {v.get('bvid','')}  {v.get('title','')[:28]}  " f"{self._fmt(v.get('view_count',0))}\n",
+                    f"  {v.get('bvid', '')}  {v.get('title', '')[:28]}  " f"{self._fmt(v.get('view_count', 0))}\n",
                     "val",
                 )
 
@@ -225,7 +224,7 @@ class UpTrackerWindow:
             self._detail_text.insert(tk.END, "\n=== 粉丝趋势(近10条) ===\n", "head")
             for h in reversed(history):
                 self._detail_text.insert(
-                    tk.END, f"  {h.get('timestamp','')[:16]}  粉丝 {self._fmt(h.get('follower_count',0))}\n", "dim"
+                    tk.END, f"  {h.get('timestamp', '')[:16]}  粉丝 {self._fmt(h.get('follower_count', 0))}\n", "dim"
                 )
 
         self._detail_text.config(state="disabled")

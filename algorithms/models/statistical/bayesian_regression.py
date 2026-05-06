@@ -186,7 +186,7 @@ class BayesianRegressionAlgorithm(BaseAlgorithm):
         n_features = X.shape[1]
 
         # 先验协方差
-        prior_cov = np.eye(n_features) / self.alpha
+        np.eye(n_features) / self.alpha
 
         # 后验协方差
         # cov = (alpha*I + beta*X^T*X)^-1

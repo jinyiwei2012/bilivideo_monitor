@@ -5,7 +5,7 @@ TCN (Temporal Convolutional Network) 时序卷积预测
 
 import math
 import numpy as np
-from typing import Dict, Any, List
+from typing import Dict, Any
 from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
 

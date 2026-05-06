@@ -26,7 +26,6 @@ from ui.theme import C
 from ui.helpers import (
     FONT,
     FONT_SM,
-    FONT_MONO,
     THRESHOLDS,
     THRESHOLD_NAMES,
     THRESH_COLORS,
@@ -194,7 +193,7 @@ class VideoListPanel:
         prog_bg.pack(fill=tk.X)
         prog_bg.pack_propagate(False)
         if tidx >= 0:
-            thr, pct, fill_c = THRESHOLDS[tidx], min(views / THRESHOLDS[tidx], 1.0), THRESH_COLORS[tidx]
+            _thr, pct, fill_c = THRESHOLDS[tidx], min(views / THRESHOLDS[tidx], 1.0), THRESH_COLORS[tidx]  # noqa: F841
         else:
             pct, fill_c = 1.0, C["success"]
         prog_fill = tk.Frame(prog_bg, bg=fill_c, height=3)
@@ -204,7 +203,7 @@ class VideoListPanel:
         label_f.pack(fill=tk.X)
         if gap > 0:
             gap_text = f"距{THRESHOLD_NAMES[tidx]}：{fmt_num(gap)}"
-            pct_text = f"{pct*100:.1f}%"
+            pct_text = f"{pct * 100:.1f}%"
         else:
             gap_text, pct_text = "已全部达标 ✓", ""
         gap_lbl = ctk.CTkLabel(label_f, text=gap_text, text_color=C["text_3"], font=FONT_SM, fg_color="transparent")
@@ -254,7 +253,7 @@ class VideoListPanel:
             pct = min(views / thr, 1.0)
             fill_c = THRESH_COLORS[tidx]
             refs["gap_lbl"].configure(text=f"距{THRESHOLD_NAMES[tidx]}：{fmt_num(gap)}")
-            refs["pct_lbl"].configure(text=f"{pct*100:.1f}%")
+            refs["pct_lbl"].configure(text=f"{pct * 100:.1f}%")
         else:
             pct, fill_c = 1.0, C["success"]
             refs["gap_lbl"].configure(text="已全部达标 ✓")

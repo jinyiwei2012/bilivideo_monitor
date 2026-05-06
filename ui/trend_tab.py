@@ -3,7 +3,7 @@
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox, LEFT, RIGHT, BOTH, X, Y, TOP, BOTTOM
+from tkinter import ttk, messagebox, LEFT, RIGHT, BOTH, X, Y
 from typing import List, Dict
 from datetime import datetime, timedelta
 import logging
@@ -72,7 +72,7 @@ class TrendTab:
         sb.pack(side=RIGHT, fill=Y)
         for v in self._monitored_videos:
             title = v.get("title", "未知")[:35]
-            self._listbox.insert(tk.END, f"  {v.get('bvid','')}  {title}")
+            self._listbox.insert(tk.END, f"  {v.get('bvid', '')}  {title}")
 
         # 右：指标 + 按钮
         right = tk.Frame(top, padx=10, pady=4, bg=C.get("bg_surface", "#161b22"))
@@ -128,7 +128,7 @@ class TrendTab:
         self._selected = [self._monitored_videos[i] for i in sel if i < len(self._monitored_videos)]
 
         # 加载历史数据
-        metric = self._metric.get()
+        self._metric.get()
         for video in self._selected:
             bvid = video.get("bvid", "")
             if bvid in self._video_dbs:
@@ -251,7 +251,7 @@ class TrendTab:
         if W < 100 or H < 100:
             return None
 
-        metric = self._metric.get()
+        self._metric.get()
         cw = W - _ML - _MR
         ch = H - _MT - _MB
 

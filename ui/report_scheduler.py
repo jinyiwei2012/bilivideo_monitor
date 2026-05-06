@@ -5,8 +5,6 @@
 import os
 import tkinter as tk
 from tkinter import ttk, messagebox
-from typing import Optional
-from datetime import datetime
 
 from ui.theme import C
 from ui.dialog_base import DialogBase
@@ -118,7 +116,7 @@ class ReportSchedulerWindow:
             files = sorted(os.listdir(reports_dir), reverse=True)[:20]
             for f in files:
                 size = os.path.getsize(os.path.join(reports_dir, f))
-                size_str = f"{size/1024:.1f}KB" if size < 1024 * 1024 else f"{size/1024/1024:.1f}MB"
+                size_str = f"{size / 1024:.1f}KB" if size < 1024 * 1024 else f"{size / 1024 / 1024:.1f}MB"
                 self._file_list.insert(tk.END, f"{f}  ({size_str})")
 
     def _open_folder(self):

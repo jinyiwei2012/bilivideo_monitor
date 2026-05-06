@@ -11,14 +11,12 @@ from typing import List, Dict, Optional
 logger = logging.getLogger(__name__)
 
 from ui.theme import C
-from ui.helpers import FONT, FONT_SM, FONT_MONO
+from ui.helpers import FONT, FONT_MONO
 from ui.dialog_base import DialogBase
 from utils.weekly_score import (
     VideoData,
     WeeklyScoreResult,
     calculate_weekly_score,
-    calculate_from_dict,
-    format_score_result,
 )
 
 

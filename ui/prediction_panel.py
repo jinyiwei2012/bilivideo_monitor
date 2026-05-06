@@ -166,7 +166,7 @@ class PredictionPanel:
                 tk.Frame(bg_bar, bg=C["accent"], height=3).place(x=0, y=0, relwidth=conf, relheight=1)
                 ctk.CTkLabel(
                     bar_row,
-                    text=f"{conf*100:.0f}%",
+                    text=f"{conf * 100:.0f}%",
                     text_color=C["text_3"],
                     font=("Consolas", 8),
                     fg_color="transparent",

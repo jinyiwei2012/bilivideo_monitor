@@ -16,8 +16,7 @@ import threading
 import time
 import os
 import logging
-from datetime import datetime, timedelta
-from io import BytesIO
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +25,7 @@ import sys
 
 sys.path.insert(0, sys_path)
 
-from ui.theme import C, THEMES, THEME_DARK, current_theme_name, apply_theme
+from ui.theme import C, current_theme_name, apply_theme
 from ui.helpers import (
     FONT,
     FONT_SM,
@@ -593,7 +592,7 @@ class BilibiliMonitorGUI:
         self.detail._switch_tab(self.detail.current_tab)
 
     def _select_video(self, bvid):
-        prev = self.selected_bvid
+        self.selected_bvid
         self.selected_bvid = bvid
         self.video_list.highlight_card(bvid)
         video = self._get_video(bvid)
@@ -688,7 +687,7 @@ class BilibiliMonitorGUI:
         """从输入中提取BV号"""
         bvid = raw_input
         if "bilibili.com" in raw_input:
-            m = re.search(r"BV[\w]+", raw_input)
+            m = re.search(r"BV[\w]+", raw_input)  # noqa: F821
             if m:
                 bvid = m.group()
             else:

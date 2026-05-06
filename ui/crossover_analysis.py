@@ -4,15 +4,13 @@
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox, LEFT, RIGHT, BOTH, X, Y, W
+from tkinter import ttk, messagebox, LEFT, RIGHT, BOTH, X, Y
 import logging
 from typing import List, Dict, Optional, Tuple
 from datetime import datetime, timedelta
-import math
 
 logger = logging.getLogger(__name__)
 
-from core.database import db
 from ui.theme import C
 from algorithms.registry import AlgorithmRegistry
 
@@ -382,9 +380,9 @@ class CrossoverAnalysisWindow:
         if remaining.total_seconds() > 0:
             days = remaining.days
             hours = int(remaining.total_seconds() // 3600 % 24)
-            remain_str = f"{days}天{hours}小时" if days else f"{hours}小时"
+            f"{days}天{hours}小时" if days else f"{hours}小时"
         else:
-            remain_str = "已交会"
+            pass
 
         self.tree.insert(
             "",
@@ -501,7 +499,7 @@ class CrossoverAnalysisWindow:
         # 绘制每条线
         for bvid, (slope, intercept, base_ts, pts, idx) in series.items():
             color = LINE_COLORS[idx % len(LINE_COLORS)][0]
-            color_light = LINE_COLORS[idx % len(LINE_COLORS)][1]
+            LINE_COLORS[idx % len(LINE_COLORS)][1]
             title = next((v.get("title", bvid) for v in self._selected if v.get("bvid") == bvid), bvid)[:16]
 
             # 实际数据折线
@@ -512,8 +510,8 @@ class CrossoverAnalysisWindow:
                 c.create_line(*real_coords, fill=color, width=2)
 
             # 预测虚线
-            last_ts = pts[-1][0]
-            last_v = pts[-1][1]
+            pts[-1][0]
+            pts[-1][1]
             # 延长到 max_ts
             future_hours = (max_ts - base_ts).total_seconds() / 3600
             future_v = slope * future_hours + intercept
@@ -528,7 +526,7 @@ class CrossoverAnalysisWindow:
                 c.create_oval(px - 2, py - 2, px + 2, py + 2, fill=color, outline="")
 
             # 图例
-            leg = tk.Frame(self.window)
+            tk.Frame(self.window)
             # 在 canvas 下方用文字代替
             c.create_text(
                 _ML + idx * 160, _MT - 12, text=f"━ {title}", fill=color, anchor="w", font=("Microsoft YaHei UI", 8)

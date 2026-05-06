@@ -11,7 +11,6 @@ UP主历史表现贝叶斯模型 (UPcaster History Bayesian Model)
 import numpy as np
 from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime
-from collections import defaultdict
 from algorithms.base import BaseAlgorithm, PredictionResult
 
 
@@ -121,20 +120,20 @@ class UpcasterHistoryBayesianAlgorithm(BaseAlgorithm):
             # 根据历史数据数量确定先验方差
             if len(history) >= self.min_history_videos:
                 # 有充足历史数据，先验方差小
-                sigma_prior_sq = (mu_prior * 0.3) ** 2
+                (mu_prior * 0.3) ** 2
             else:
                 # 历史数据少，先验方差大
-                sigma_prior_sq = (mu_prior * 0.5) ** 2
+                (mu_prior * 0.5) ** 2
         else:
             # 从history计算先验
             if len(history) >= self.min_history_videos:
                 vels = [h.get("avg_velocity", 0) for h in history]
                 mu_prior = np.mean(vels)
-                sigma_prior_sq = np.var(vels) + 1e-6
+                np.var(vels) + 1e-6
             else:
                 # 无先验信息，使用当前速度作为先验
                 mu_prior = current_vel if current_vel > 0 else 100.0
-                sigma_prior_sq = (mu_prior * 0.5) ** 2
+                (mu_prior * 0.5) ** 2
 
         # 当前视频的观测（似然）
         # 使用当前视频的历史数据估计观测方差
@@ -143,13 +142,13 @@ class UpcasterHistoryBayesianAlgorithm(BaseAlgorithm):
             # 计算速度的标准差作为观测方差
             vels = self._extract_velocities(history_data)
             if len(vels) >= 2:
-                sigma_obs_sq = np.var(vels) + 1e-6
+                np.var(vels) + 1e-6
                 n_observations = len(vels)
             else:
-                sigma_obs_sq = (current_vel * 0.4) ** 2 + 1e-6
+                (current_vel * 0.4) ** 2 + 1e-6
                 n_observations = 1
         else:
-            sigma_obs_sq = (current_vel * 0.5) ** 2 + 1e-6
+            (current_vel * 0.5) ** 2 + 1e-6
             n_observations = 1
 
         # 贝叶斯更新（正态分布的共轭先验）

@@ -5,7 +5,7 @@
 
 import math
 import numpy as np
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, Tuple
 from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
 
@@ -36,7 +36,7 @@ class CascadeEnsembleAlgorithm(BaseAlgorithm):
         n = len(views)
         if n < 2:
             return 0.0
-        x = np.arange(n)
+        np.arange(n)
         slope = (views[-1] - views[0]) / max(n - 1, 1)
         return slope
 

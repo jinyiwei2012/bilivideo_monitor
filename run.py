@@ -5,7 +5,6 @@ B站监控启动脚本
 
 import sys
 import subprocess
-import os
 
 
 def check_conda_env():
@@ -55,21 +54,21 @@ def init_algorithms():
 
         # 检查高级模块
         try:
-            from algorithms.online_learner import get_online_learner
+            from algorithms.online_learner import get_online_learner  # noqa: F401
 
             print("✅ 在线学习模块已加载")
         except ImportError:
             print("⚠️ 在线学习模块未找到")
 
         try:
-            from algorithms.causal_inference import get_causal_analyzer
+            from algorithms.causal_inference import get_causal_analyzer  # noqa: F401
 
             print("✅ 因果推断模块已加载")
         except ImportError:
             print("⚠️ 因果推断模块未找到")
 
         try:
-            from algorithms.graph_neural import get_video_graph
+            from algorithms.graph_neural import get_video_graph  # noqa: F401
 
             print("✅ 图神经网络模块已加载")
         except ImportError:

@@ -8,7 +8,7 @@ import math
 import os
 import tkinter as tk
 from tkinter import ttk, messagebox
-from typing import List, Dict, Optional
+from typing import List
 from datetime import datetime
 
 from ui.theme import C
@@ -45,7 +45,7 @@ class DanmakuAnalysisWindow:
                 row0, textvariable=self._monitor_var, width=40, font=("Microsoft YaHei UI", 9), state="readonly"
             )
             self._monitor_cb["values"] = [
-                f"{v.get('bvid','')}  {v.get('title','')[:30]}" for v in self.gui.monitored_videos
+                f"{v.get('bvid', '')}  {v.get('title', '')[:30]}" for v in self.gui.monitored_videos
             ]
             self._monitor_cb.pack(side=tk.LEFT, padx=(6, 8))
             self._monitor_cb.bind("<<ComboboxSelected>>", lambda e: self._from_monitor_and_fetch())
@@ -242,7 +242,7 @@ class DanmakuAnalysisWindow:
         self._update_hint()
 
     def _update_hint(self):
-        mode = self._mode_var.get()
+        mode = self._mode_var.get()  # noqa: F841
         hint = "输入视频BV号，抓取弹幕分析情感倾向与高频内容"
         self._status_lbl.config(text=hint)
 
@@ -270,7 +270,7 @@ class DanmakuAnalysisWindow:
         self.window.update_idletasks()
 
         try:
-            mode = self._mode_var.get()
+            mode = self._mode_var.get()  # noqa: F841
             texts = []
 
             if mode == "danmaku":
@@ -352,7 +352,7 @@ class DanmakuAnalysisWindow:
 
         # 词频
         freq = generate_word_freq(texts)
-        top_freq = sorted(freq.items(), key=lambda x: -x[1])[:20]
+        _top_freq = sorted(freq.items(), key=lambda x: -x[1])[:20]  # noqa: F841
 
         # 更新列表
         for item in self._list_tree.get_children():
@@ -400,7 +400,7 @@ class DanmakuAnalysisWindow:
         bv_dir = os.path.join(DATA_DIR, self._current_bvid, "danmaku")
         os.makedirs(bv_dir, exist_ok=True)
 
-        mode = self._mode_var.get()
+        mode = self._mode_var.get()  # noqa: F841
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"{mode}_{ts}.json"
         filepath = os.path.join(bv_dir, filename)
@@ -430,7 +430,7 @@ class DanmakuAnalysisWindow:
         from config import DATA_DIR
 
         bv_dir = os.path.join(DATA_DIR, self._current_bvid, "danmaku")
-        mode = self._mode_var.get()
+        mode = self._mode_var.get()  # noqa: F841
         local_files = []
         if os.path.isdir(bv_dir):
             local_files = [
@@ -472,7 +472,7 @@ class DanmakuAnalysisWindow:
         self.window.update_idletasks()
 
         # 准备请求参数
-        mode = self._mode_var.get()
+        mode = self._mode_var.get()  # noqa: F841
         sample = self._texts[:100]
         prompt = (
             f"你是一个B站视频{mode}分析助手。分析以下{len(sample)}条{mode}数据，"
@@ -614,7 +614,7 @@ class DanmakuAnalysisWindow:
         files = [f for f in os.listdir(bv_dir) if f.startswith("llm_") and f.endswith(".json")]
         if not files:
             return
-        mode = self._mode_var.get()
+        mode = self._mode_var.get()  # noqa: F841
         mode_files = [f for f in files if f"_{mode}_" in f]
         if not mode_files:
             return

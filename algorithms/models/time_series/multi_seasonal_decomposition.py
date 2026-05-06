@@ -5,7 +5,7 @@
 
 import math
 import numpy as np
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, Tuple
 from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
 
@@ -189,7 +189,7 @@ class MultiSeasonalDecompositionAlgorithm(BaseAlgorithm):
                 trend_slope, trend_intercept = np.polyfit(t, trend, 1)
             else:
                 trend_slope = 0
-                trend_intercept = trend[-1] if len(trend) > 0 else current_views
+                trend[-1] if len(trend) > 0 else current_views
 
             # ── 季节性强度评估 ───────────────────────
             daily_strength = 0.0
@@ -210,7 +210,7 @@ class MultiSeasonalDecompositionAlgorithm(BaseAlgorithm):
 
             # 日周期长度（数据点）
             daily_period = max(1, int(24 / max(hours_per_point, 0.1)))
-            weekly_period = daily_period * 7
+            daily_period * 7
 
             pred_views = float(current_views)
             target_day = None
@@ -221,7 +221,7 @@ class MultiSeasonalDecompositionAlgorithm(BaseAlgorithm):
 
                 # 日周期
                 point_in_day = (day * 24) % 24
-                daily_idx = int(point_in_day / max(hours_per_point, 0.1)) % max(daily_period, 1)
+                int(point_in_day / max(hours_per_point, 0.1)) % max(daily_period, 1)
                 daily_contrib = daily_cycle[-1] * daily_strength * math.sin(2 * math.pi * day)
 
                 # 周周期

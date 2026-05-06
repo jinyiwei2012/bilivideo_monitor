@@ -80,11 +80,11 @@ def abbrev(n):
     """数字缩写：99500 -> 9.9w"""
     n = int(n)
     if n >= 10_000_000:
-        return f"{n/10_000_000:.0f}kw"
+        return f"{n / 10_000_000:.0f}kw"
     if n >= 1_000_000:
-        return f"{n/1_000_000:.1f}w"
+        return f"{n / 1_000_000:.1f}w"
     if n >= 10_000:
-        return f"{n/10_000:.1f}w"
+        return f"{n / 10_000:.1f}w"
     return str(n)
 
 

@@ -313,9 +313,9 @@ class VideoWorker:
         stat = info.get("stat", {})
         self._log(
             "DEBUG",
-            f"[{bvid}] API响应 播放:{stat.get('view',0)} 点赞:{stat.get('like',0)} "
-            f"投币:{stat.get('coin',0)} 收藏:{stat.get('favorite',0)} "
-            f"弹幕:{stat.get('danmaku',0)} 评论:{stat.get('reply',0)}",
+            f"[{bvid}] API响应 播放:{stat.get('view', 0)} 点赞:{stat.get('like', 0)} "
+            f"投币:{stat.get('coin', 0)} 收藏:{stat.get('favorite', 0)} "
+            f"弹幕:{stat.get('danmaku', 0)} 评论:{stat.get('reply', 0)}",
         )
 
         # ── 更新视频字段 ──────────────────────────
@@ -338,7 +338,7 @@ class VideoWorker:
                 viewers = bilibili_api.get_video_viewers(bvid, cid)
                 if viewers:
                     self._log(
-                        "DEBUG", f"[{bvid}] 在线响应 总:{viewers.get('total','0')} 网页:{viewers.get('count','0')}"
+                        "DEBUG", f"[{bvid}] 在线响应 总:{viewers.get('total', '0')} 网页:{viewers.get('count', '0')}"
                     )
                     video["viewers_total_raw"] = viewers.get("total", "0")
                     video["viewers_web_raw"] = viewers.get("count", "0")
@@ -399,7 +399,9 @@ class VideoWorker:
             self._log("ERROR", f"[{bvid}] 预测失败: {e}")
             return
 
-        self._log("DEBUG", f"[{bvid}] 拉取完成 播放:{video.get('view_count',0):,} 预测:{result.get('prediction',0):,}")
+        self._log(
+            "DEBUG", f"[{bvid}] 拉取完成 播放:{video.get('view_count', 0):,} 预测:{result.get('prediction', 0):,}"
+        )
 
         # ── 回调主线程更新 UI ─────────────────────
         #    仅在选中该视频时触发完整 UI 更新；其他视频静默后台更新

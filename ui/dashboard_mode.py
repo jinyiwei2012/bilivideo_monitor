@@ -3,15 +3,11 @@
 """
 
 import tkinter as tk
-from tkinter import ttk
 import logging
-from typing import Optional
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-from ui.theme import C
-from ui.helpers import fmt_num
 
 # 大屏颜色
 _DASH_COLORS = {
@@ -140,7 +136,6 @@ class DashboardWindow:
 
         # 最近视频列表
         titles = ["视频列表"]
-        cols = ["BV号", "标题", "播放", "点赞", "弹幕"]
         table_frame = tk.Frame(
             self._content, bg=_DASH_COLORS["card_bg"], highlightthickness=1, highlightbackground="#30363d"
         )
@@ -242,7 +237,7 @@ class DashboardWindow:
             y = 10 + i * bar_h
 
             # 排名圆
-            rank_color = _DASH_COLORS["danger"] if i < 3 else _DASH_COLORS["text_2"]
+            _DASH_COLORS["danger"] if i < 3 else _DASH_COLORS["text_2"]
             c.create_rectangle(
                 10,
                 y + 6,
@@ -252,7 +247,7 @@ class DashboardWindow:
                 outline="",
                 stipple="" if i < 3 else "gray50",
             )
-            c.create_text(16, y + bar_h // 2, text=f"#{i+1}", fill="white", font=("Consolas", 10, "bold"), anchor="w")
+            c.create_text(16, y + bar_h // 2, text=f"#{i + 1}", fill="white", font=("Consolas", 10, "bold"), anchor="w")
             c.create_text(
                 24 + bar_w,
                 y + bar_h // 2,
@@ -300,7 +295,7 @@ class DashboardWindow:
             # 阈值进度
             for t, name in zip(THRESHOLDS, THRESHOLD_NAMES):
                 pct = min(100, views / t * 100) if t > 0 else 0
-                gap = t - views
+                t - views
                 status = "✅" if views >= t else f"{pct:.0f}%"
                 tk.Label(
                     card,
@@ -321,7 +316,6 @@ class DashboardWindow:
         ).pack(anchor="w")
 
         # 预警列表
-        import math
         from core.smart_alert import AnomalyDetector
 
         alert_frame = tk.Frame(
@@ -429,7 +423,7 @@ class DashboardWindow:
 
 def _fmt(n):
     if n >= 1_0000_0000:
-        return f"{n/1_0000_0000:.2f}亿"
+        return f"{n / 1_0000_0000:.2f}亿"
     if n >= 1_0000:
-        return f"{n/1_0000:.1f}万"
+        return f"{n / 1_0000:.1f}万"
     return str(n)

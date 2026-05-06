@@ -5,7 +5,7 @@ CNN-LSTM混合预测模型
 
 import math
 import numpy as np
-from typing import Dict, Any, List
+from typing import Dict, Any
 from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
 
@@ -157,7 +157,7 @@ class CNNLSTMHybridAlgorithm(BaseAlgorithm):
 
             # 从CNN特征中提取关键信号
             cnn_trend = np.mean(cnn_features) if len(cnn_features) > 0 else 0
-            cnn_volatility = np.std(cnn_features) if len(cnn_features) > 1 else 0.5
+            np.std(cnn_features) if len(cnn_features) > 1 else 0.5
 
             # ── LSTM阶段: 时序依赖建模 ──────────────
             # 标准化差分序列

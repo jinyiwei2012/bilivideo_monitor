@@ -6,12 +6,11 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 import re
-from datetime import datetime
 from typing import List, Dict, Optional, Callable
 
 from core.database import db
 from ui.theme import C
-from ui.helpers import FONT, FONT_BOLD, FONT_SM, FONT_MONO, fmt_num
+from ui.helpers import FONT, FONT_BOLD, FONT_SM, fmt_num
 from ui.dialog_base import DialogBase
 
 PERIODS = ["1周", "1月", "1年"]
@@ -257,7 +256,7 @@ class MilestoneStatsWindow:
                 invalid.append(bv)
         if invalid:
             messagebox.showwarning(
-                "格式错误", f"以下 BV 号格式不合法，已跳过：\n" + "\n".join(invalid), parent=self.window
+                "格式错误", "以下 BV 号格式不合法，已跳过：\n" + "\n".join(invalid), parent=self.window
             )
         if not bvids:
             return
@@ -505,7 +504,7 @@ class MilestoneStatsWindow:
             c.create_text(
                 ML - 6,
                 y,
-                text=f"{val/10000:.0f}w" if val >= 10000 else str(int(val)),
+                text=f"{val / 10000:.0f}w" if val >= 10000 else str(int(val)),
                 anchor="e",
                 fill=C["text_2"],
                 font=("Consolas", 8),
@@ -532,7 +531,7 @@ class MilestoneStatsWindow:
                         c.create_text(
                             (bx + bx2) / 2,
                             by - 4,
-                            text=f"{val/10000:.0f}w" if val >= 10000 else str(int(val)),
+                            text=f"{val / 10000:.0f}w" if val >= 10000 else str(int(val)),
                             anchor="s",
                             fill=color,
                             font=("Consolas", 7, "bold"),

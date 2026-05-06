@@ -4,7 +4,6 @@ UP主数据库管理模块 — 管理UP主信息与历史趋势数据
 
 import sqlite3
 import os
-from datetime import datetime
 from typing import List, Dict, Optional
 
 _DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")

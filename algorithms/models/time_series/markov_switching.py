@@ -5,7 +5,7 @@
 
 import math
 import numpy as np
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any
 from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
 
@@ -141,7 +141,7 @@ class MarkovSwitchingAlgorithm(BaseAlgorithm):
             n = len(views_arr)
 
             quality = self.get_quality_score(video_data)
-            engagement = self.get_engagement_rate(video_data)
+            self.get_engagement_rate(video_data)
 
             # ── 计算增长率序列作为观测 ────────────────
             growth_rates = np.diff(views_arr) / np.maximum(views_arr[:-1], 1)

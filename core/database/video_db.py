@@ -2,12 +2,11 @@
 
 import sqlite3
 import os
-import json
 import re
 import threading
 import logging
 from datetime import datetime
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -375,7 +374,7 @@ class VideoDatabase:
                 cursor.execute("SELECT * FROM video_info WHERE id = 1")
                 row = cursor.fetchone()
                 return dict(row) if row else None
-        except Exception as e:
+        except Exception:
             return None
 
     def add_prediction(self, prediction: PredictionRecord) -> bool:
@@ -407,7 +406,7 @@ class VideoDatabase:
                 conn.commit()
                 return True
         except Exception as e:
-            logger.warning("添加预测记录失败 %s: %s", record.bvid, e)
+            logger.warning("添加预测记录失败 %s: %s", record.bvid, e)  # noqa: F821
             return False
 
     def add_weekly_score(self, timestamp: str, score_data: dict) -> bool:
