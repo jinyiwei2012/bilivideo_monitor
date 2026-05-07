@@ -642,7 +642,7 @@ class BilibiliAPI:
             if limit > 0 and len(all_replies) >= limit:
                 return all_replies[:limit]
 
-            self._apply_request_interval()
+            self._ensure_min_interval()
 
         return all_replies[:limit] if limit > 0 else all_replies
 

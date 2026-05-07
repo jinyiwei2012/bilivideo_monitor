@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 def _save_predictions_to_db(gui, bvid, current_view, results):
-    """将各算法的阈值预测结果写入视频数据库"""
+    """将各算法的阈值预测结果写入视频数据库（仅预测值变化 > 5% 时写入）"""
     video_db = gui.video_dbs.get(bvid)
     if not video_db:
         return
@@ -48,11 +48,20 @@ def _save_predictions_to_db(gui, bvid, current_view, results):
             minutes = tp.get("minutes", 0)
             pred_seconds = int(minutes * 60) if minutes else 0
             pred_time = tp.get("name", "")
+            threshold = tp.get("threshold", 0)
+
+            # 跳过：与上次预测值差异 < 5% 的记录，减少数据库写入量
+            last_pred = video_db.get_latest_prediction(name, threshold)
+            if last_pred and last_pred.get("predicted_seconds"):
+                old_val = last_pred["predicted_seconds"]
+                if old_val > 0 and abs(pred_seconds - old_val) / old_val < 0.05:
+                    continue
+
             rec = PredictionRecord(
                 bvid=bvid,
                 algorithm=name,
                 algorithm_id=name,
-                target_threshold=tp.get("threshold", 0),
+                target_threshold=threshold,
                 predicted_seconds=pred_seconds,
                 predicted_time=pred_time,
                 confidence=confidence,

@@ -405,8 +405,28 @@ class VideoDatabase:
                 conn.commit()
                 return True
         except Exception as e:
-            logger.warning("添加预测记录失败 %s: %s", record.bvid, e)  # noqa: F821
+            logger.warning("添加预测记录失败 %s: %s", prediction.bvid, e)
             return False
+
+    def get_latest_prediction(self, algorithm: str, target_threshold: int) -> Optional[Dict]:
+        """获取指定算法和阈值的最新预测记录"""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT predicted_seconds, current_views, confidence
+                    FROM predictions
+                    WHERE algorithm = ? AND target_threshold = ?
+                    ORDER BY created_at DESC LIMIT 1
+                """,
+                    (algorithm, target_threshold),
+                )
+                row = cursor.fetchone()
+                return dict(row) if row else None
+        except Exception as e:
+            logger.debug("获取最新预测记录失败: %s", e)
+            return None
 
     def add_weekly_score(self, timestamp: str, score_data: dict) -> bool:
         """添加周刊分数记录
