@@ -55,7 +55,7 @@ def install_logging_bridge(log_panel: "LogPanel", level=logging.INFO):
     fmt = logging.Formatter("%(name)s:%(message)s")
     handler.setFormatter(fmt)
 
-    for name in ("core.bilibili_api", "core.database", "algorithms", "utils"):
+    for name in ("core.bilibili_api", "core.proxy_manager", "core.database", "algorithms", "utils"):
         logger = logging.getLogger(name)
         logger.addHandler(handler)
         logger.setLevel(min(logger.level, level))
