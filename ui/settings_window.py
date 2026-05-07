@@ -10,10 +10,12 @@ import logging
 from tkinter import ttk, messagebox
 
 from ui.theme import C
-from ui.helpers import FONT, FONT_SM
+from ui.helpers import FONT, FONT_SM, FONT_MONO
 from ui.dialog_base import DialogBase
 from core.bilibili_api import bilibili_api
 from core.proxy_manager import ProxyManager
+from algorithms.registry import AlgorithmRegistry
+from algorithms.weight_manager import weight_manager
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +32,7 @@ class SettingsWindow:
         self._cfg = load_config()
 
         # 网络配置（代理/Cookie）
-        self._net_cfg_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config", "network_config.json")
+        self._net_cfg_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "network_config.json")
         self._net_cfg = self._load_net_config()
 
         self.setup_ui()
@@ -92,6 +94,7 @@ class SettingsWindow:
         self._build_monitor_tab(nb)
         self._build_predict_tab(nb)
         self._build_ai_tab(nb)
+        self._build_weights_tab(nb)
         self._build_proxy_tab(nb)
         self._build_cookie_tab(nb)
         self._build_retry_tab(nb)
@@ -99,10 +102,13 @@ class SettingsWindow:
 
         self.dlg.button_row(
             [
-                ("取消", self.window.destroy, ""),
+                ("取消", self._on_close, ""),
                 ("保存设置", self._save_settings, "primary"),
             ]
         )
+
+        # 窗口 X 按钮也触发自动保存
+        self.window.protocol("WM_DELETE_WINDOW", self._on_close)
 
     # ──── OneBot ────
     def _build_onebot_tab(self, nb):
@@ -309,6 +315,138 @@ class SettingsWindow:
         self._clear_entry(self._ai_endpoint_entry, "https://api.openai.com/v1/chat/completions")
         self._clear_entry(self._ai_model_entry, "gpt-4o-mini")
 
+    # ──── 权重设置 ────
+    def _build_weights_tab(self, nb):
+        page = tk.Frame(nb, bg=C["bg_base"])
+        nb.add(page, text="  权重设置  ")
+
+        # 说明
+        info_sec = tk.Frame(page, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
+        info_sec.pack(fill=tk.X, padx=16, pady=12, ipadx=10, ipady=8)
+        for line in [
+            "• 用户自定义权重优先级最高，机器学习不会修改已自定义的权重",
+            "• 权重范围：0.01 ~ 10.0",
+            "• 权重越高，该算法在综合预测中占比越大",
+        ]:
+            tk.Label(info_sec, text=line, bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM, anchor="w").pack(
+                fill=tk.X, padx=4
+            )
+
+        # 表头
+        hdr = tk.Frame(page, bg=C["bg_surface"], highlightthickness=1, highlightbackground=C["border_sub"])
+        hdr.pack(fill=tk.X, padx=16)
+        for col_i, (text, w) in enumerate(
+            [
+                ("算法", 24),
+                ("自定义", 8),
+                ("权重值", 10),
+                ("ML权重", 10),
+                ("准确率", 10),
+                ("样本数", 8),
+            ]
+        ):
+            tk.Label(
+                hdr,
+                text=text,
+                bg=C["bg_surface"],
+                fg=C["text_2"],
+                font=("Microsoft YaHei UI", 8, "bold"),
+                width=w,
+                anchor="w",
+            ).grid(row=0, column=col_i, padx=6, pady=4, sticky="w")
+
+        # 滚动的算法列表
+        canvas_frame = tk.Frame(page, bg=C["bg_base"])
+        canvas_frame.pack(fill=tk.BOTH, expand=True, padx=16, pady=(0, 12))
+
+        vsb = ttk.Scrollbar(canvas_frame, orient="vertical")
+        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+
+        canvas = tk.Canvas(canvas_frame, bg=C["bg_elevated"], highlightthickness=0, yscrollcommand=vsb.set)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        vsb.config(command=canvas.yview)
+
+        algo_frame = tk.Frame(canvas, bg=C["bg_elevated"])
+        canvas.create_window((0, 0), window=algo_frame, anchor="nw")
+        algo_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+
+        self._weight_vars = {}
+        self._weight_check_vars = {}
+
+        algo_info = AlgorithmRegistry.get_weights_info()
+        for info in algo_info:
+            row = tk.Frame(algo_frame, bg=C["bg_surface"], highlightthickness=1, highlightbackground=C["border_sub"])
+            row.pack(fill=tk.X, pady=1)
+
+            name = info["name"]
+            tk.Label(row, text=name, bg=C["bg_surface"], fg=C["text_1"], font=FONT, width=24, anchor="w").grid(
+                row=0, column=0, padx=4, pady=3, sticky="w"
+            )
+
+            var = tk.BooleanVar(value=info["is_customized"])
+            self._weight_check_vars[name] = var
+            ttk.Checkbutton(
+                row,
+                variable=var,
+                command=lambda n=name: self._weight_vars[n].set(weight_manager.ml_weights.get(n, 1.0)),
+            ).grid(row=0, column=1, padx=2)
+
+            wv = tk.DoubleVar(value=info.get("user_weight") or info.get("final_weight", 1.0))
+            self._weight_vars[name] = wv
+            ttk.Entry(row, textvariable=wv, width=10).grid(row=0, column=2, padx=4)
+
+            ml_w = info.get("ml_weight", 1.0)
+            tk.Label(
+                row, text=f"{ml_w:.2f}", bg=C["bg_surface"], fg=C["text_3"], font=FONT_MONO, width=12, anchor="w"
+            ).grid(row=0, column=3)
+
+            acc = info.get("accuracy", 0)
+            tk.Label(
+                row, text=f"{acc * 100:.1f}%", bg=C["bg_surface"], fg=C["success"], font=FONT_MONO, width=10, anchor="w"
+            ).grid(row=0, column=4)
+
+            samples = info.get("samples", 0)
+            tk.Label(
+                row, text=str(samples), bg=C["bg_surface"], fg=C["text_2"], font=FONT_MONO, width=8, anchor="w"
+            ).grid(row=0, column=5)
+
+        # 按钮
+        btn_row = tk.Frame(page, bg=C["bg_base"])
+        btn_row.pack(fill=tk.X, padx=16, pady=(0, 12))
+        ttk.Button(btn_row, text="重置所有权重", command=self._reset_all_weights).pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Button(btn_row, text="刷新", command=self._refresh_weights).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_row, text="💾 保存权重", command=self._save_weights, style="Primary.TButton").pack(side=tk.RIGHT)
+
+    def _reset_all_weights(self):
+        if messagebox.askyesno("确认", "确定要重置所有自定义权重吗？", parent=self.window):
+            weight_manager.reset_weights()
+            self._refresh_weights()
+            messagebox.showinfo("成功", "已重置所有权重", parent=self.window)
+
+    def _refresh_weights(self):
+        """刷新权重列表中的值"""
+        algo_info = AlgorithmRegistry.get_weights_info()
+        for info in algo_info:
+            name = info["name"]
+            if name in self._weight_vars:
+                self._weight_vars[name].set(info.get("user_weight") or info.get("final_weight", 1.0))
+                self._weight_check_vars[name].set(info["is_customized"])
+
+    def _save_weights(self):
+        for name, check_var in self._weight_check_vars.items():
+            wv = self._weight_vars[name]
+            try:
+                weight = float(wv.get())
+                weight = max(0.01, min(10.0, weight))
+                if check_var.get():
+                    weight_manager.set_user_weight(name, weight)
+                else:
+                    weight_manager.clear_user_weight(name)
+            except ValueError:
+                messagebox.showerror("错误", f"算法 {name} 的权重值无效", parent=self.window)
+                return
+        messagebox.showinfo("成功", "权重设置已保存", parent=self.window)
+
     # ──── 代理 ────
     def _build_proxy_tab(self, nb):
         page = tk.Frame(nb, bg=C["bg_base"])
@@ -351,22 +489,19 @@ class SettingsWindow:
 
         url_row = tk.Frame(sec, bg=C["bg_elevated"])
         url_row.pack(fill=tk.X, pady=(6, 0))
-        tk.Label(url_row, text="测试地址:", bg=C["bg_elevated"], fg=C["text_2"],
-                 font=FONT_SM, width=8, anchor="w").pack(side=tk.LEFT)
-        self._test_url_var = tk.StringVar(
-            value="https://api.bilibili.com/x/web-interface/view?bvid=BV1GJ411x7hQ"
-        )
+        tk.Label(
+            url_row, text="测试地址:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM, width=8, anchor="w"
+        ).pack(side=tk.LEFT)
+        self._test_url_var = tk.StringVar(value="https://api.bilibili.com/x/web-interface/view?bvid=BV1GJ411x7hQ")
         url_entry = ttk.Entry(url_row, textvariable=self._test_url_var, font=FONT_SM)
         url_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 0))
 
         # 内联检测结果区（Treeview 表格）
-        result_container = tk.Frame(sec, bg=C["bg_base"], highlightthickness=1,
-                                    highlightbackground=C["border"])
+        result_container = tk.Frame(sec, bg=C["bg_base"], highlightthickness=1, highlightbackground=C["border"])
         result_container.pack(fill=tk.BOTH, expand=True, pady=(6, 4))
 
         columns = ("addr", "status", "latency", "country", "ip", "asn", "isp")
-        self._proxy_tree = ttk.Treeview(result_container, columns=columns,
-                                        show="headings", height=6)
+        self._proxy_tree = ttk.Treeview(result_container, columns=columns, show="headings", height=6)
         self._proxy_tree.heading("addr", text="代理地址")
         self._proxy_tree.heading("status", text="状态")
         self._proxy_tree.heading("latency", text="延迟/原因")
@@ -382,8 +517,7 @@ class SettingsWindow:
         self._proxy_tree.column("asn", anchor="w", width=150, minwidth=100, stretch=False)
         self._proxy_tree.column("isp", anchor="w", width=150, minwidth=100, stretch=False)
 
-        tree_sb = ttk.Scrollbar(result_container, orient="vertical",
-                                command=self._proxy_tree.yview)
+        tree_sb = ttk.Scrollbar(result_container, orient="vertical", command=self._proxy_tree.yview)
         self._proxy_tree.configure(yscrollcommand=tree_sb.set)
         self._proxy_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         tree_sb.pack(side=tk.RIGHT, fill=tk.Y)
@@ -626,8 +760,9 @@ class SettingsWindow:
         lock = threading.Lock()
         self._proxy_test_status.configure(text=f"测试中 0/{total} …", fg=C["warning"])
 
-        cancel_btn = ttk.Button(self._proxy_test_status.master, text="✕ 取消",
-                                command=lambda: cancel_flag.__setitem__(0, True))
+        cancel_btn = ttk.Button(
+            self._proxy_test_status.master, text="✕ 取消", command=lambda: cancel_flag.__setitem__(0, True)
+        )
         cancel_btn.pack(side=tk.LEFT, padx=2)
 
         def test_one(proxy, item):
@@ -642,24 +777,27 @@ class SettingsWindow:
             isp = result.get("isp") or "—"
             status = "✅" if ok else "❌"
             tag = "ok" if ok else "fail"
-            self.window.after(0, lambda item=item, status=status, latency=latency,
-                              country=country, ip=ip, asn=asn, isp=isp, tag=tag: (
-                self._proxy_tree.set(item, "status", status),
-                self._proxy_tree.set(item, "latency", latency),
-                self._proxy_tree.set(item, "country", country),
-                self._proxy_tree.set(item, "ip", ip),
-                self._proxy_tree.set(item, "asn", asn),
-                self._proxy_tree.set(item, "isp", isp),
-                self._proxy_tree.item(item, tags=(tag,)),
-            ))
+            self.window.after(
+                0,
+                lambda item=item, status=status, latency=latency, country=country, ip=ip, asn=asn, isp=isp, tag=tag: (
+                    self._proxy_tree.set(item, "status", status),
+                    self._proxy_tree.set(item, "latency", latency),
+                    self._proxy_tree.set(item, "country", country),
+                    self._proxy_tree.set(item, "ip", ip),
+                    self._proxy_tree.set(item, "asn", asn),
+                    self._proxy_tree.set(item, "isp", isp),
+                    self._proxy_tree.item(item, tags=(tag,)),
+                ),
+            )
             with lock:
                 if ok:
                     ok_count[0] += 1
                 else:
                     fail_count[0] += 1
                 done = ok_count[0] + fail_count[0]
-                self.window.after(0, lambda d=done: self._proxy_test_status.configure(
-                    text=f"测试中 {d}/{total} …", fg=C["warning"]))
+                self.window.after(
+                    0, lambda d=done: self._proxy_test_status.configure(text=f"测试中 {d}/{total} …", fg=C["warning"])
+                )
 
         for proxy, item in zip(proxy_list, row_items):
             t = threading.Thread(target=test_one, args=(proxy, item), daemon=True)
@@ -672,9 +810,9 @@ class SettingsWindow:
             self.window.after(0, cancel_btn.destroy)
             ok_n, fail_n = ok_count[0], fail_count[0]
             status_text = f"完成: {ok_n} 可用" + (f", {fail_n} 失败" if fail_n else "")
-            self.window.after(0, lambda: self._proxy_test_status.configure(
-                text=status_text,
-                fg=C["success"] if ok_n else C["danger"]))
+            self.window.after(
+                0, lambda: self._proxy_test_status.configure(text=status_text, fg=C["success"] if ok_n else C["danger"])
+            )
 
             if fail_n:
                 failed = []
@@ -690,8 +828,8 @@ class SettingsWindow:
     def _auto_remove_failed_proxies(self, failed_urls):
         """测试完成后自动移除连接失败的代理"""
         text = self.proxy_text.get("1.0", "end").strip()
-        lines = [l.strip() for l in text.split("\n") if l.strip()]
-        remaining = [l for l in lines if l not in failed_urls]
+        lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
+        remaining = [ln for ln in lines if ln not in failed_urls]
         self.proxy_text.delete("1.0", "end")
         self.proxy_text.insert("1.0", "\n".join(remaining))
 
@@ -1002,6 +1140,14 @@ class SettingsWindow:
         if messagebox.askyesno("确认", "确定要重置所有状态吗？", parent=self.window):
             bilibili_api.reset_status()
             self._refresh_status()
+
+    # ──── 自动保存 on close ────
+    def _on_close(self):
+        """关闭时自动保存代理文本到 network_config.json"""
+        text = self.proxy_text.get("1.0", "end").strip()
+        self._net_cfg["proxies"] = [line.strip() for line in text.split("\n") if line.strip()]
+        self._save_net_config()
+        self.window.destroy()
 
     # ──── 保存系统设置 ────
     def _save_settings(self):

@@ -285,9 +285,7 @@ class BilibiliMonitorGUI:
             relief="flat",
         )
         self._settings_menu.add_command(label="⏱  刷新间隔", command=self._dialogs.open_interval_settings)
-        self._settings_menu.add_command(label="📊  权重设置", command=self._dialogs.open_weight_settings)
         self._settings_menu.add_command(label="🧠  算法信息", command=self._dialogs.open_algorithm_info)
-        self._settings_menu.add_command(label="🌐  网络设置", command=self._dialogs.open_network_settings)
         self._settings_menu.add_separator()
         self._settings_menu.add_command(label="📈  数据对比", command=self._dialogs.open_data_comparison)
         self._settings_menu.add_command(label="🔄  交叉计算", command=self._dialogs.open_crossover_analysis)
@@ -732,9 +730,6 @@ class BilibiliMonitorGUI:
     def _open_interval_settings(self):
         self._dialogs.open_interval_settings()
 
-    def _open_weight_settings(self):
-        self._dialogs.open_weight_settings()
-
     def _open_database_query(self):
         self._dialogs.open_database_query()
 
@@ -755,12 +750,6 @@ class BilibiliMonitorGUI:
 
     def _add_bvid_to_monitor(self, bvid: str):
         self._dialogs.add_bvid_to_monitor(bvid)
-
-    def _open_network_settings(self):
-        self._dialogs.open_network_settings()
-
-    def _open_settings(self):
-        self._dialogs.open_settings()
 
     def _import_search_results(self, videos: list):
         self._dialogs.import_search_results(videos)

@@ -11,12 +11,11 @@ import logging
 import threading
 from typing import Dict, List, Optional, Any, Tuple
 
+from core.proxy_manager import ProxyManager
+
 # 配置日志
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-
-from core.proxy_manager import ProxyManager
 
 
 class BilibiliAPIError(Exception):
@@ -103,7 +102,7 @@ class BilibiliAPI:
             import json
             import os
 
-            cfg_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config", "network_config.json")
+            cfg_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "network_config.json")
             if os.path.exists(cfg_path):
                 with open(cfg_path, "r", encoding="utf-8") as f:
                     net_cfg = json.load(f)
@@ -194,6 +193,8 @@ class BilibiliAPI:
 
         last_error = None
 
+        logger.debug("→ %s %s", method.upper(), url.split("?")[0])
+
         for attempt in range(max_retries + 1):
             try:
                 self._ensure_min_interval()
@@ -208,6 +209,8 @@ class BilibiliAPI:
 
                 response.raise_for_status()
                 data = response.json()
+
+                logger.debug("← %s %s → %s", method.upper(), url.split("?")[0], response.status_code)
 
                 result, should_retry = self._handle_successful_response(data, attempt, max_retries, skip_retry)
                 if should_retry:
@@ -309,8 +312,10 @@ class BilibiliAPI:
                 "Referer": "https://www.bilibili.com/",
             }
         )
+        logger.debug("→ [public] %s %s", method.upper(), url.split("?")[0])
         try:
             resp = public_session.request(method, url, timeout=15, **kwargs)
+            logger.debug("← [public] %s", resp.status_code)
             if resp.status_code != 200:
                 return None
             data = resp.json()
@@ -564,12 +569,14 @@ class BilibiliAPI:
             [{"text": str, "timestamp": int, "mode": int, "color": int}, ...]
         """
         try:
+            logger.debug("→ GET %s?oid=%s", self.DANMAKU_URL, oid)
             resp = self.session.get(
                 self.DANMAKU_URL,
                 params={"oid": oid},
                 headers={"User-Agent": random.choice(self.USER_AGENTS), "Referer": "https://www.bilibili.com/"},
                 timeout=15,
             )
+            logger.debug("← GET %s → %s", self.DANMAKU_URL.split("?")[0], resp.status_code)
             if resp.status_code != 200:
                 return []
             import xml.etree.ElementTree as ET
@@ -715,7 +722,9 @@ class BilibiliAPI:
             {"User-Agent": random.choice(self.USER_AGENTS), "Referer": "https://www.bilibili.com/"}
         )
         try:
+            logger.debug("→ GET passport.bilibili.com/qrcode/generate")
             resp = clean_session.get(url, timeout=15)
+            logger.debug("← passport.bilibili.com/qrcode/generate → %s", resp.status_code)
             if resp.status_code != 200:
                 return None
             data = resp.json()
@@ -740,6 +749,7 @@ class BilibiliAPI:
         url = "https://passport.bilibili.com/x/passport-login/web/qrcode/poll"
         result = {"status": 0, "message": "等待扫码", "cookies": {}}
         try:
+            logger.debug("→ GET passport.bilibili.com/qrcode/poll")
             resp = self.session.get(
                 url,
                 params={"qrcode_key": qrcode_key},
@@ -749,6 +759,7 @@ class BilibiliAPI:
                 },
                 timeout=15,
             )
+            logger.debug("← passport.bilibili.com/qrcode/poll → %s", resp.status_code)
             if resp.status_code != 200:
                 result["message"] = f"HTTP {resp.status_code}"
                 return result

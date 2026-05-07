@@ -76,7 +76,7 @@ b站监控/
 │       ├── deep_learning/      # 深度学习
 │       └── advanced/           # 高级分析
 │
-├── config/                     # 配置模块（加载/保存、AI 配置文件切换）
+├── config/                     # 配置模块（加载/保存）
 │
 ├── core/                       # 核心模块
 │   ├── database/               # SQLite 数据库包
@@ -101,7 +101,7 @@ b站监控/
 │   ├── prediction_panel.py     # 右侧预测面板
 │   ├── bottom_bar.py           # 底部状态栏
 │   ├── dialogs.py              # 弹窗管理
-│   ├── settings_window.py      # 系统设置（多 LLM 配置、代理、通知）
+│   ├── settings_window.py      # 统一系统设置（LLM、代理、Cookie、权重、通知等全参数）
 │   ├── video_search.py         # 视频搜索
 │   ├── data_comparison.py      # 数据对比主窗口
 │   ├── trend_tab.py            # 趋势折线图标签页
@@ -117,8 +117,6 @@ b站监控/
 │   ├── report_scheduler.py     # 报告调度
 │   ├── milestone_stats.py      # 里程碑统计
 │   ├── database_query.py       # 数据库查询
-│   ├── weight_settings.py      # 权重设置
-│   ├── network_settings.py     # 网络设置
 │   └── weekly_score.py         # 周报评分
 │
 ├── utils/                      # 工具模块
@@ -132,35 +130,172 @@ b站监控/
 ├── assets/                     # 静态资源
 │   └── app_icon.png            # 应用图标
 │
-└── data/                       # 运行时数据（不入库）
+├── data/                       # 运行时数据（不入库）
     ├── settings.json           # 监控列表与配置
+    ├── network_config.json     # 网络配置（代理、Cookie）
     ├── <BV号>/                 # 每个视频独立数据库
     └── log/                    # 日志文件
 ```
 
-## 快速开始
+## 从零开始运行
 
 ### 环境要求
-- Windows 10 / 11
+- Windows 10 / 11（推荐）
 - Python 3.10+
-- Conda（推荐）
+- Git
+- Conda（推荐，避免依赖冲突）
 
-### 安装
+### 第一步：克隆项目
 
 ```bash
-# 创建环境
-conda create -n bili python=3.10
-conda activate bili
+git clone https://github.com/your-repo/bilibili-monitor.git
+cd bilibili-monitor
+```
 
-# 安装依赖
+> 如果已下载 ZIP 压缩包，解压后进入目录即可，无需 git 命令。
+
+### 第二步：创建 Conda 环境
+
+```bash
+# 创建 Python 3.10 环境（名称任意，这里用 bilibili）
+conda create -n bilibili python=3.10
+
+# 激活环境
+conda activate bilibili
+```
+
+> 如果你不想用 Conda，也可以用 venv：
+> ```bash
+> python -m venv venv
+> venv\Scripts\activate
+> ```
+
+### 第三步：安装依赖
+
+```bash
+# 确保 pip 为最新
+pip install --upgrade pip
+
+# 安装项目依赖
 pip install -r requirements.txt
 ```
 
-### 启动
+如果安装 `prophet` 失败（Windows 上常见），它是可选的，可以跳过：
 
 ```bash
-python main.py
+# 先安装除 prophet 外的所有依赖
+pip install -r requirements.txt --ignore-installed prophet
+
+# 或手动排除
+sed -i '/prophet/d' requirements.txt && pip install -r requirements.txt
 ```
+
+安装完成后验证关键依赖：
+
+```bash
+python -c "import numpy; import requests; import customtkinter; print('✅ 核心依赖就绪')"
+```
+
+### 第四步：启动程序
+
+```bash
+# 确保 conda 环境已激活
+conda activate bilibili
+
+# 方式一：直接启动（推荐）
+python main.py
+
+# 方式二：启动脚本（会检查环境 + 初始化算法）
+python run.py
+```
+
+首次启动会：
+1. 自动创建 `data/` 目录和 SQLite 数据库
+2. 加载 75 种预测算法
+3. 打开主界面
+
+### 首次使用配置
+
+#### 1. 配置代理（绕过 412 限流）
+
+B站 API 有 IP 级别的频率限制，建议配置 HTTP 代理：
+
+```
+系统设置 → 代理设置 → 粘贴代理地址（每行一个）→ 检查可用性 → 保存
+```
+
+代理格式示例：
+```
+http://127.0.0.1:7890
+http://user:pass@proxy.example.com:8080
+socks5://127.0.0.1:1080
+```
+
+> 代理配置会自动保存在 `data/network_config.json`，关闭窗口即保存，下次启动自动加载。
+
+#### 2. 配置 Cookie（可选，获取更多数据）
+
+方法一（推荐）：扫码登录
+```
+系统设置 → Cookie设置 → 扫码登录 → 用 B站 手机客户端扫码
+```
+
+方法二：浏览器导出 Cookie
+```
+系统设置 → Cookie设置 → Cookie-Editor JSON → 粘贴导出的 JSON
+```
+
+> 浏览器扩展 [Cookie-Editor](https://github.com/Moustachauve/cookie-editor) 可导出 JSON 格式。
+
+#### 3. 添加监控视频
+
+方法一：直接输入 BV 号
+```
+主界面顶部输入框 → 粘贴 BV 号 → 点击「添加监控」
+```
+
+方法二：搜索添加
+```
+工具 → 视频搜索 → 输入关键词 → 选择视频 → 导入所选到监控
+```
+
+#### 4. 配置 LLM（可选，弹幕分析 / AI 问答）
+
+```
+系统设置 → AI配置 → 选择或新建配置 → 填写 API Key → 测试连接 → 保存
+```
+
+内置快速填入支持：DeepSeek、OpenAI、Claude、SiliconFlow。
+
+### 运行结构
+
+启动后主界面为三栏布局：
+
+```
+┌─────────────────┬────────────────────┬──────────────────┐
+│  左侧：视频列表  │  中间：详情 + 图表  │  右侧：预测面板   │
+│                 │                    │                  │
+│  • 封面缩略图    │  • 播放量趋势图     │  • 集成预测结果   │
+│  • BV号/标题    │  • 8种指标切换      │  • 各算法详细预测  │
+│  • 播放量/状态   │  • 阈值辅助线       │  • 准确率/样本量  │
+│  • 右键菜单      │  • 详细数据表格     │                  │
+└─────────────────┴────────────────────┴──────────────────┘
+```
+
+所有设置统一在「系统设置」中管理，分为以下标签页：
+
+| 标签页 | 功能 |
+|--------|------|
+| OneBot通知 | QQ Bot 推送配置 |
+| 监控参数 | 检查间隔、最大监控数 |
+| 预测参数 | 预测时长、最小置信度 |
+| AI配置 | 多 LLM 配置管理 |
+| 权重设置 | 75 种算法权重调整 |
+| 代理设置 | HTTP/SOCKS 代理管理 |
+| Cookie设置 | 扫码登录 / Cookie 导入 |
+| 重试参数 | 请求重试策略 |
+| 运行状态 | API 连接状态一览 |
+
 
 ## 使用说明
 
@@ -215,6 +350,241 @@ python main.py
 - 数据库文件按 BV 号独立存储在 `data/` 下
 - LLM 功能需自行配置 API Key
 
-## License
+## 从零开始开发
 
-MIT License
+### 开发环境搭建
+
+```bash
+# 1. 克隆仓库
+git clone https://github.com/your-repo/bilibili-monitor.git
+cd bilibili-monitor
+
+# 2. 创建开发环境（推荐 Conda）
+conda create -n bilibili-dev python=3.10
+conda activate bilibili-dev
+
+# 3. 安装所有依赖（含开发工具）
+pip install --upgrade pip
+pip install -r requirements.txt
+pip install black flake8 mypy bandit radon pre-commit
+
+# 4. 安装 pre-commit 钩子（提交前自动检查）
+pre-commit install
+
+# 5. 验证环境
+python -c "
+import numpy, scipy, requests, customtkinter
+from algorithms.registry import AlgorithmRegistry
+AlgorithmRegistry.initialize()
+print(f'✅ 开发环境就绪，已加载 {len(AlgorithmRegistry.get_algorithm_names())} 个算法')
+"
+```
+
+### 项目架构速览
+
+```
+b站监控/
+├── main.py                     # 入口：启动 GUI
+├── run.py                      # 入口：环境检查 → 算法初始化 → 启动
+├── algorithms/                 # 核心：75 种预测算法
+│   ├── base.py                 # BaseAlgorithm 基类 + PredictionResult
+│   ├── registry.py             # AlgorithmRegistry：自动发现、集成预测
+│   ├── model_adapter.py        # 新/旧接口桥接
+│   ├── weight_manager.py       # ML 驱动的权重学习
+│   └── models/                 # 算法实现（按类别分目录）
+├── core/                       # 核心：B站 API、数据库、通知
+│   ├── bilibili_api.py         # API 封装（412 重试、代理、Cookie）
+│   └── database/               # SQLite（按 BV 分库 + 中央库）
+├── ui/                         # 界面：Tkinter 三栏布局
+│   ├── main_gui.py             # 主窗口、菜单、布局
+│   ├── settings_window.py      # 统一设置（所有配置入口）
+│   └── dialog_base.py          # 弹窗基类
+├── config/                     # 配置加载/保存
+└── data/                       # 运行时数据（不入库）
+```
+
+### 如何添加一个新算法
+
+算法模块采用**自动发现**机制，只需三步：
+
+**第一步：创建算法文件**
+
+在 `algorithms/models/<类别>/` 下创建 `.py` 文件：
+
+```python
+"""
+我的新算法
+"""
+from typing import List, Dict, Any
+from algorithms.base import BaseAlgorithm, PredictionResult
+
+
+class MyAlgorithm(BaseAlgorithm):
+    """自定义预测算法"""
+
+    category = "时间序列"  # 分组标签，显示在权重列表
+
+    def predict(self, video_data: List[Dict], threshold: int, **kwargs) -> PredictionResult:
+        # video_data: [{"time": "2024-01-01", "view": 1000}, ...]
+        # threshold: 目标播放量（100000 / 1000000 / 10000000）
+        # 返回 PredictionResult(...)
+        ...
+```
+
+**第二步：自动注册**
+
+`AlgorithmRegistry` 启动时自动扫描 `models/` 目录，文件名以 `Algorithm` 结尾的类会自动注册。**无需手动注册**。
+
+**第三步：验证**
+
+```bash
+python -c "
+from algorithms.registry import AlgorithmRegistry
+AlgorithmRegistry.initialize()
+names = AlgorithmRegistry.get_algorithm_names()
+print([n for n in names if 'My' in n])  # 确认算法已加载
+"
+```
+
+算法会出现在「系统设置 → 权重设置」列表中，可调整权重和查看准确率。
+
+### 代码质量工具
+
+所有工具通过 pre-commit 自动运行，也可手动调用：
+
+```bash
+# 格式化（必须：所有 PR 前运行）
+black --line-length=120 .
+
+# 静态检查
+flake8 .                                      # PEP 8 + 逻辑检查
+mypy core/ algorithms/base.py ui/ utils/      # 类型检查（允许不通过）
+
+# 安全扫描
+bandit -r . -c pyproject.toml -ll             # 安全漏洞检查
+
+# 复杂度分析
+radon cc -a .                                 # 圈复杂度报告
+
+# 一键全部
+black --line-length=120 . && flake8 . && bandit -r . -c pyproject.toml -ll
+```
+
+### 开发工作流
+
+```
+1. 创建分支
+   git checkout -b feat/your-feature
+
+2. 修改代码
+   - 遵循现有代码风格
+   - 新增算法放在 algorithms/models/<类别>/ 下
+   - 新 UI 窗口放在 ui/ 下，继承 DialogBase
+
+3. 本地验证
+   python main.py          # 手动测试
+   black --line-length=120 .  # 格式化
+   flake8 .                # 静态检查
+
+4. 提交（pre-commit 自动检查）
+   git add <files>
+   git commit -m "feat: 你的改动说明"
+   如果 pre-commit 钩子失败，修复后重新 git commit（不要 --no-verify）
+
+5. 推送并创建 PR
+   git push -u origin feat/your-feature
+```
+
+### 架构设计原则
+
+| 原则 | 说明 |
+|------|------|
+| **算法自动发现** | 放在 `models/` 下的 `.py` 文件含 `XxxAlgorithm` 类即可，无需注册 |
+| **单基类** | 所有算法继承 `BaseAlgorithm`，实现 `predict(video_data, threshold) -> PredictionResult` |
+| **每视频独立线程** | `monitor_service.py` 为每个监控视频创建一个独立工作线程 |
+| **每视频独立数据库** | `data/<BV>/<BV>.db` 存储各视频监控数据，中央库同步摘要 |
+| **代理 + UA 轮换** | `ProxyManager` 管理代理轮询、失败自动剔除、UA 绑定 |
+| **统一设置入口** | 所有配置集中在 `settings_window.py`，不分散到多个弹窗 |
+
+### 关键模块说明
+
+#### algorithms/ — 预测引擎
+
+- **registry.py**: `AlgorithmRegistry` 是核心入口，提供 `predict_all()` 执行所有算法并生成加权集成结果
+- **weight_manager.py**: `WeightManager` 记录每个算法的历史准确率，ML 动态调整权重
+- **online_learner.py**: Hedge 在线学习算法，根据实时反馈调整权重
+- **base.py**: `PredictionResult` 数据类包含 algorithm_name / predicted_hours / confidence 等字段
+
+#### core/bilibili_api.py — B站 API
+
+关键机制：
+- **412 自动重试**: 指数退避 + 抖动，自动切换代理和 UA
+- **代理轮换**: 通过 `ProxyManager` 轮询代理，失败超 3 次自动移除
+- **WBI 签名**: 部分接口需要 WBI 签名，`_wbi_sign()` 自动处理
+- **免登录回退**: Cookie 过期时自动用 `_request_public()` 降级
+
+#### ui/ — Tkinter 界面
+
+- **DialogBase**: 所有弹窗的基类，提供 `header()` / `section()` / `button_row()` 方法
+- **theme.py**: `C` 字典定义所有颜色 token，深色/浅色统一切换
+- **main_gui.py**: `BilibiliMonitorGUI` 主类，管理三栏布局 + 菜单 + 全局时钟
+- **dialog_base.py**: 统一弹窗容器，header + 内容区 + 按钮行的标准布局
+
+### 常见开发任务
+
+#### 修改算法类别标签
+
+在算法类上设置 `category` 类属性：
+
+```python
+class MyAlgorithm(BaseAlgorithm):
+    category = "深度学习"  # 显示在权重列表的分组名
+```
+
+已有类别：`速度类` `时间衰减` `扩散模型` `时间序列` `统计模型` `集成学习` `深度学习` `高级分析` `基础` `其他`
+
+#### 新增 UI 弹窗
+
+```python
+from ui.dialog_base import DialogBase
+
+class MyDialog:
+    def __init__(self, parent):
+        self.dlg = DialogBase(parent, "标题", "800x600")
+        self.dlg.header("标题", "副标题")
+        sec = self.dlg.section()
+        # ... 你的控件 ...
+        self.dlg.button_row([("取消", self.window.destroy, ""), ("保存", self._save, "primary")])
+```
+
+#### 添加新的网络请求日志
+
+核心 API 请求默认输出 DEBUG 级别日志。在 `bilibili_api.py` 的 `_request()` 中已包含 `→ GET/POST url` 和 `← status` 的进出日志。新增 API 方法只需调用 `self._request()` 即可自动获得日志。
+
+#### 调试技巧
+
+```bash
+# 查看所有 DEBUG 级别日志（含网络请求）
+python -c "
+import logging
+logging.basicConfig(level=logging.DEBUG, format='%(name)s %(levelname)s %(message)s')
+from core.bilibili_api import bilibili_api
+data = bilibili_api.get_video_info('BV1GJ411x7hQ')
+print(data.get('title', 'N/A') if data else '失败')
+"
+
+# 测试单个代理
+python -c "
+from core.proxy_manager import ProxyManager
+r = ProxyManager.test_proxy('http://127.0.0.1:7890')
+print(r)
+"
+
+# 查看已注册算法
+python -c "
+from algorithms.registry import AlgorithmRegistry
+AlgorithmRegistry.initialize()
+for name in AlgorithmRegistry.get_algorithm_names():
+    print(name)
+"
+```

@@ -81,18 +81,6 @@ class Dialogs:
         ).pack(side=tk.LEFT, padx=6)
 
     # ──────────────────────────────────────────
-    # 权重设置
-    # ──────────────────────────────────────────
-
-    def open_weight_settings(self):
-        try:
-            from .weight_settings import WeightSettingsWindow
-
-            WeightSettingsWindow(self.gui.root)
-        except Exception as e:
-            messagebox.showerror("错误", f"打开权重设置失败: {e}")
-
-    # ──────────────────────────────────────────
     # 数据库查询
     # ──────────────────────────────────────────
 
@@ -193,14 +181,6 @@ class Dialogs:
         self.gui.monitored_videos.append(entry)
         self.gui._save_watch_list()
         self.gui.log_panel.add_log("INFO", f"已将 {bvid} 加入监控列表（里程碑入口）")
-
-    # ──────────────────────────────────────────
-    # 网络设置
-    # ──────────────────────────────────────────
-
-    def open_network_settings(self):
-        # 网络设置已合并到系统设置
-        self.open_settings()
 
     # ──────────────────────────────────────────
     # 系统设置

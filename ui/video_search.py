@@ -53,8 +53,9 @@ class VideoSearchWindow:
         bottom_bar.pack(side=tk.BOTTOM, fill=tk.X, padx=24, pady=(16, 20))
         ttk.Button(bottom_bar, text="全选", command=self._select_all).pack(side=tk.LEFT, padx=(0, 6))
         ttk.Button(bottom_bar, text="取消全选", command=self._select_none).pack(side=tk.LEFT, padx=6)
-        ttk.Button(bottom_bar, text="导入所选到监控", command=self._do_import,
-                   style="Primary.TButton").pack(side=tk.RIGHT, padx=(6, 0))
+        ttk.Button(bottom_bar, text="导入所选到监控", command=self._do_import, style="Primary.TButton").pack(
+            side=tk.RIGHT, padx=(6, 0)
+        )
 
         content = tk.Frame(self.dlg.container, bg=C["bg_base"])
         content.pack(fill=tk.BOTH, expand=True, padx=24, pady=(10, 0))
@@ -80,9 +81,16 @@ class VideoSearchWindow:
         vsb.pack(side=tk.RIGHT, fill=tk.Y)
         self.tree.bind("<Double-1>", self._on_tree_double_click)
         self.tree.bind("<Button-3>", self._on_tree_right_click)
-        self._context_menu = tk.Menu(self.tree, tearoff=0, bg=C["bg_elevated"], fg=C["text_1"],
-                                     activebackground=C["bg_hover"], activeforeground=C["text_1"],
-                                     font=("Microsoft YaHei UI", 9), bd=0)
+        self._context_menu = tk.Menu(
+            self.tree,
+            tearoff=0,
+            bg=C["bg_elevated"],
+            fg=C["text_1"],
+            activebackground=C["bg_hover"],
+            activeforeground=C["text_1"],
+            font=("Microsoft YaHei UI", 9),
+            bd=0,
+        )
 
     def _start_search(self):
         kw = self.kw_entry.get().strip()
@@ -172,15 +180,13 @@ class VideoSearchWindow:
             return
 
         self._context_menu.delete(0, "end")
+        self._context_menu.add_command(label="📋 查看详情", command=lambda: self._show_video_detail(video))
+        self._context_menu.add_command(label="📑 复制BV号", command=lambda: self._copy_bvid(bvid))
         self._context_menu.add_command(
-            label="📋 查看详情", command=lambda: self._show_video_detail(video))
-        self._context_menu.add_command(
-            label="📑 复制BV号", command=lambda: self._copy_bvid(bvid))
-        self._context_menu.add_command(
-            label="🌐 在浏览器中打开", command=lambda: webbrowser.open(f"https://www.bilibili.com/video/{bvid}"))
+            label="🌐 在浏览器中打开", command=lambda: webbrowser.open(f"https://www.bilibili.com/video/{bvid}")
+        )
         self._context_menu.add_separator()
-        self._context_menu.add_command(
-            label="➕ 导入该视频", command=lambda: self._import_single(video))
+        self._context_menu.add_command(label="➕ 导入该视频", command=lambda: self._import_single(video))
         self._context_menu.tk_popup(event.x_root, event.y_root)
 
     def _show_video_detail(self, video):
@@ -199,13 +205,15 @@ class VideoSearchWindow:
         top.transient(self.window)
         top.grab_set()
 
-        tk.Label(top, text="视频详情", bg=C["bg_surface"], fg=C["text_1"],
-                 font=("Microsoft YaHei UI", 14, "bold")).pack(pady=(20, 4))
+        tk.Label(
+            top, text="视频详情", bg=C["bg_surface"], fg=C["text_1"], font=("Microsoft YaHei UI", 14, "bold")
+        ).pack(pady=(20, 4))
 
         if pic.startswith("http"):
             try:
                 import requests
                 from PIL import Image, ImageTk
+
                 resp = requests.get(pic, timeout=5)
                 img = Image.open(io.BytesIO(resp.content)).resize((320, 180))
                 self._detail_img = ImageTk.PhotoImage(img)
@@ -225,17 +233,21 @@ class VideoSearchWindow:
         for label, value in rows:
             row = tk.Frame(info, bg=C["bg_surface"])
             row.pack(fill=tk.X, pady=2)
-            tk.Label(row, text=label, bg=C["bg_surface"], fg=C["text_3"],
-                     font=("Microsoft YaHei UI", 9), width=8, anchor="w").pack(side=tk.LEFT)
-            tk.Label(row, text=value, bg=C["bg_surface"], fg=C["text_1"],
-                     font=("Microsoft YaHei UI", 9), anchor="w").pack(side=tk.LEFT, padx=(8, 0))
+            tk.Label(
+                row, text=label, bg=C["bg_surface"], fg=C["text_3"], font=("Microsoft YaHei UI", 9), width=8, anchor="w"
+            ).pack(side=tk.LEFT)
+            tk.Label(
+                row, text=value, bg=C["bg_surface"], fg=C["text_1"], font=("Microsoft YaHei UI", 9), anchor="w"
+            ).pack(side=tk.LEFT, padx=(8, 0))
 
         btn_row = tk.Frame(top, bg=C["bg_surface"])
         btn_row.pack(pady=(16, 20))
-        ttk.Button(btn_row, text="🌐 浏览器打开",
-                   command=lambda: webbrowser.open(f"https://www.bilibili.com/video/{bvid}")).pack(side=tk.LEFT, padx=4)
-        ttk.Button(btn_row, text="➕ 导入监控",
-                   command=lambda: [top.destroy(), self._import_single(video)]).pack(side=tk.LEFT, padx=4)
+        ttk.Button(
+            btn_row, text="🌐 浏览器打开", command=lambda: webbrowser.open(f"https://www.bilibili.com/video/{bvid}")
+        ).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_row, text="➕ 导入监控", command=lambda: [top.destroy(), self._import_single(video)]).pack(
+            side=tk.LEFT, padx=4
+        )
         ttk.Button(btn_row, text="关闭", command=top.destroy).pack(side=tk.LEFT, padx=4)
 
     def _copy_bvid(self, bvid):

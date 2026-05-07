@@ -33,5 +33,5 @@ start.bat
 reports/
 
 # 敏感配置文件（含Cookie/API密钥）
-config/network_config.json
+data/network_config.json
 data/settings.json

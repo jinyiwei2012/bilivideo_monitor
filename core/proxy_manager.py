@@ -2,12 +2,9 @@
 代理管理器 - 代理IP轮询、UA绑定、失败自动清理
 """
 
-import json
 import logging
-import os
 import random
 import re
-import threading
 import time
 import warnings
 from typing import Dict, List, Optional, Tuple
@@ -180,7 +177,7 @@ class ProxyManager:
     # ── 可用性测试（静态） ───────────────────────────────
 
     @staticmethod
-    def test_proxy(proxy_url: str, timeout: int = 30, test_url: str = None) -> dict:
+    def test_proxy(proxy_url: str, timeout: int = 30, test_url: str = None) -> dict:  # noqa: C901
         """测试单个代理的可用性、延迟、地区、ASN、ISP
 
         默认测试 B站视频 API，实际获取一次数据验证代理可用性。
@@ -204,17 +201,33 @@ class ProxyManager:
 
         warnings.filterwarnings("ignore", category=InsecureRequestWarning)
 
-        result = {"ok": False, "latency_ms": None, "ip": None, "country": None, "asn": None, "isp": None, "error": None, "data": None}
+        result = {
+            "ok": False,
+            "latency_ms": None,
+            "ip": None,
+            "country": None,
+            "asn": None,
+            "isp": None,
+            "error": None,
+            "data": None,
+        }
 
         if not test_url:
             test_url = "https://api.bilibili.com/x/web-interface/view?bvid=BV1GJ411x7hQ"
 
         start = time.time()
+        logger.debug("→ [proxy-test] GET %s via %s", test_url.split("?")[0], ProxyManager.mask_url(proxy_url))
         try:
             resp = requests.get(
-                test_url, proxies=proxies, timeout=timeout, verify=False,
-                headers={"User-Agent": ua, "Referer": "https://www.bilibili.com/",
-                         "Accept": "application/json, text/plain, */*"},
+                test_url,
+                proxies=proxies,
+                timeout=timeout,
+                verify=False,  # nosec — local proxies use self-signed certs
+                headers={
+                    "User-Agent": ua,
+                    "Referer": "https://www.bilibili.com/",
+                    "Accept": "application/json, text/plain, */*",
+                },
             )
             latency = int((time.time() - start) * 1000)
             result["latency_ms"] = latency
@@ -250,8 +263,7 @@ class ProxyManager:
                 else:
                     # 非 0 非 -412 → 代理连通性没问题，只是目标视频/接口异常
                     result["ok"] = True
-                    logger.debug("代理测试收到非预期 API code=%d (%s)", code,
-                                 body.get("message", ""))
+                    logger.debug("代理测试收到非预期 API code=%d (%s)", code, body.get("message", ""))
             except Exception:
                 result["error"] = f"响应格式错误 (HTTP {resp.status_code})"
                 logger.warning("代理测试 %s: 不可用 — %s", ProxyManager.mask_url(proxy_url), result["error"])
@@ -259,11 +271,15 @@ class ProxyManager:
 
             # 通过 ip-api.com 获取地区、ASN、ISP（走同一代理）
             try:
+                logger.debug("→ [geo] GET ip-api.com/json/ via %s", ProxyManager.mask_url(proxy_url))
                 geo_resp = requests.get(
                     "https://ip-api.com/json/",
-                    proxies=proxies, timeout=timeout, verify=False,
+                    proxies=proxies,
+                    timeout=timeout,
+                    verify=False,  # nosec — local proxies use self-signed certs
                     headers={"User-Agent": ua},
                 )
+                logger.debug("← [geo] ip-api.com/json/ → %s", geo_resp.status_code)
                 if geo_resp.status_code == 200:
                     geo = geo_resp.json()
                     result["ip"] = geo.get("query")
@@ -281,7 +297,9 @@ class ProxyManager:
             # 记录测试结果到日志
             masked = ProxyManager.mask_url(proxy_url)
             if result.get("ok"):
-                logger.info(f"代理测试 {masked}: {result['latency_ms']}ms | IP {result.get('ip', '?')} | {result.get('country', '')} | {result.get('asn', '')} | {result.get('isp', '')}")
+                logger.info(
+                    f"代理测试 {masked}: {result['latency_ms']}ms | IP {result.get('ip', '?')} | {result.get('country', '')} | {result.get('asn', '')} | {result.get('isp', '')}"
+                )
             else:
                 logger.warning(f"代理测试 {masked}: 不可用 — {result.get('error', '未知错误')}")
 
@@ -305,7 +323,12 @@ class ProxyManager:
 
             if "Connection refused" in check_str or "连接被拒绝" in check_str or "积极拒绝" in check_str:
                 result["error"] = "连接被拒绝（代理地址或端口无效）"
-            elif "getaddrinfo failed" in check_str or "Name or service not known" in check_str or "Temporary failure in name resolution" in check_str or "resolving host" in check_str.lower():
+            elif (
+                "getaddrinfo failed" in check_str
+                or "Name or service not known" in check_str
+                or "Temporary failure in name resolution" in check_str
+                or "resolving host" in check_str.lower()
+            ):
                 result["error"] = "DNS解析失败（代理域名无法解析）"
             elif "No route to host" in check_str or "无法路由" in check_str:
                 result["error"] = "无法路由到主机（网络不可达）"
