@@ -9,9 +9,15 @@ import math
 import random
 import logging
 import threading
+import warnings
 from typing import Dict, List, Optional, Any, Tuple
 
 from core.proxy_manager import ProxyManager
+
+# Suppress InsecureRequestWarning for SOCKS/HTTP proxies using self-signed certs
+from urllib3.exceptions import InsecureRequestWarning
+
+warnings.filterwarnings("ignore", category=InsecureRequestWarning)
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -253,6 +259,8 @@ class BilibiliAPI:
         request_kwargs = {"timeout": 15, **kwargs}
         if proxy:
             request_kwargs["proxies"] = proxy
+            # SOCKS/HTTP代理可能使用自签名证书，关闭SSL验证
+            request_kwargs.setdefault("verify", False)  # nosec — local proxies use self-signed certs
             masked = self.proxy_manager.mask_url(proxy.get("http", ""))
             logger.debug(f"→ 请求代理: {masked}")
         else:

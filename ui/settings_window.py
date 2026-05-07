@@ -5,6 +5,7 @@
 
 import json
 import os
+import re
 import tkinter as tk
 import logging
 from tkinter import ttk, messagebox
@@ -454,16 +455,29 @@ class SettingsWindow:
 
         sec = tk.Frame(page, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
         sec.pack(fill=tk.BOTH, expand=True, padx=16, pady=12, ipadx=10, ipady=8)
-        tk.Label(sec, text="HTTP代理列表（每行一个）", bg=C["bg_elevated"], fg=C["text_2"], font=FONT).pack(
+        tk.Label(sec, text="代理列表（每行一个）", bg=C["bg_elevated"], fg=C["text_2"], font=FONT).pack(
             anchor="w", pady=(0, 4)
         )
-        tk.Label(
-            sec,
-            text="格式: http://host:port 或 http://user:pass@host:port\n支持 HTTP/HTTPS/SOCKS4/SOCKS5 协议，自动识别协议类型",
-            bg=C["bg_elevated"],
-            fg=C["text_3"],
+
+        # 协议选择 + 快速添加行
+        add_row = tk.Frame(sec, bg=C["bg_elevated"])
+        add_row.pack(fill=tk.X, pady=(0, 4))
+        tk.Label(add_row, text="协议:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT)
+        self._proxy_proto_var = tk.StringVar(value="http://")
+        proto_cb = ttk.Combobox(
+            add_row,
+            textvariable=self._proxy_proto_var,
+            values=["http://", "https://", "socks4://", "socks5://"],
+            width=10,
+            state="readonly",
             font=FONT_SM,
-        ).pack(anchor="w")
+        )
+        proto_cb.pack(side=tk.LEFT, padx=(4, 8))
+        tk.Label(add_row, text="地址:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT)
+        self._proxy_addr_entry = ttk.Entry(add_row, width=35, font=FONT_SM)
+        self._proxy_addr_entry.pack(side=tk.LEFT, padx=(4, 8))
+        self._proxy_addr_entry.bind("<Return>", lambda e: self._add_proxy_entry())
+        ttk.Button(add_row, text="添加", command=self._add_proxy_entry, style="Primary.TButton").pack(side=tk.LEFT)
 
         self.proxy_text = tk.Text(
             sec,
@@ -483,6 +497,7 @@ class SettingsWindow:
         btn_row = tk.Frame(sec, bg=C["bg_elevated"])
         btn_row.pack(fill=tk.X)
         ttk.Button(btn_row, text="应用代理", command=self._apply_proxies).pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Button(btn_row, text="批量导入", command=self._batch_import_proxies).pack(side=tk.LEFT, padx=4)
         ttk.Button(btn_row, text="检查可用性", command=self._check_proxies).pack(side=tk.LEFT, padx=4)
         self._proxy_test_status = tk.Label(btn_row, text="", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM)
         self._proxy_test_status.pack(side=tk.LEFT, padx=8)
@@ -719,6 +734,138 @@ class SettingsWindow:
         messagebox.showinfo("测试中", f"正在测试 {model} 连接...\n请稍候", parent=self.window)
 
     # ──── 代理操作 ────
+    def _add_proxy_entry(self):
+        """从协议选择 + 地址输入框添加代理到列表"""
+        proto = self._proxy_proto_var.get()
+        addr = self._proxy_addr_entry.get().strip()
+        if not addr:
+            return
+        # 如果用户已经输入了协议头，不再重复添加
+        if re.match(r"^(https?|socks[45])://", addr, re.IGNORECASE):
+            line = addr
+        else:
+            line = f"{proto}{addr}"
+        self._proxy_addr_entry.delete(0, tk.END)
+        text = self.proxy_text.get("1.0", "end").strip()
+        lines = [ln for ln in text.split("\n") if ln.strip()] if text else []
+        lines.append(line)
+        self.proxy_text.delete("1.0", "end")
+        self.proxy_text.insert("1.0", "\n".join(lines))
+
+    def _batch_import_proxies(self):
+        """批量导入代理窗口：粘贴地址列表，自动补全已选择的协议头"""
+        top = tk.Toplevel(self.window)
+        top.title("批量导入代理")
+        top.geometry("480x400")
+        top.configure(bg=C["bg_surface"])
+        top.transient(self.window)
+        top.grab_set()
+        top.resizable(False, False)
+
+        tk.Label(
+            top,
+            text="批量导入代理地址",
+            bg=C["bg_surface"],
+            fg=C["text_1"],
+            font=("Microsoft YaHei UI", 11, "bold"),
+        ).pack(pady=(14, 2))
+
+        # 协议选择（使用父窗口已选择的协议）
+        proto_row = tk.Frame(top, bg=C["bg_surface"])
+        proto_row.pack(fill=tk.X, padx=20, pady=(4, 2))
+        tk.Label(proto_row, text="协议:", bg=C["bg_surface"], fg=C["text_2"], font=FONT).pack(side=tk.LEFT)
+        batch_proto_var = tk.StringVar(value=self._proxy_proto_var.get())
+        ttk.Combobox(
+            proto_row,
+            textvariable=batch_proto_var,
+            values=["http://", "https://", "socks4://", "socks5://"],
+            width=12,
+            state="readonly",
+            font=FONT,
+        ).pack(side=tk.LEFT, padx=(6, 0))
+
+        tk.Label(
+            top,
+            text="每行一个地址（host:port 或完整URL），导入时自动补全协议头",
+            bg=C["bg_surface"],
+            fg=C["text_3"],
+            font=FONT_SM,
+        ).pack(pady=(4, 2))
+
+        text_w = tk.Text(
+            top,
+            height=10,
+            bg=C["bg_base"],
+            fg=C["text_1"],
+            font=("Consolas", 10),
+            relief="flat",
+            highlightthickness=1,
+            highlightbackground=C["border"],
+            insertbackground=C["text_1"],
+        )
+        text_w.pack(fill=tk.BOTH, expand=True, padx=20, pady=4)
+
+        # 导入按钮行
+        btn_f = tk.Frame(top, bg=C["bg_surface"])
+        btn_f.pack(fill=tk.X, padx=20, pady=(4, 14))
+
+        status_var = tk.StringVar(value="")
+        status_lbl = tk.Label(
+            btn_f, textvariable=status_var, bg=C["bg_surface"], fg=C["text_3"], font=FONT_SM, anchor="w"
+        )
+        status_lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        def _do_import():
+            raw = text_w.get("1.0", tk.END).strip()
+            if not raw:
+                status_var.set("请输入代理地址")
+                status_lbl.config(fg=C["danger"])
+                return
+
+            lines = [ln.strip() for ln in raw.split("\n") if ln.strip()]
+            proto = batch_proto_var.get()
+            imported = []
+            for ln in lines:
+                if re.match(r"^(https?|socks[45])://", ln, re.IGNORECASE):
+                    imported.append(ln)
+                else:
+                    imported.append(f"{proto}{ln}")
+
+            # 追加到主窗口代理文本框
+            current = self.proxy_text.get("1.0", "end").strip()
+            all_lines = [ln for ln in current.split("\n") if ln.strip()] if current else []
+            all_lines.extend(imported)
+            self.proxy_text.delete("1.0", "end")
+            self.proxy_text.insert("1.0", "\n".join(all_lines))
+
+            # 检查重复
+            unique = set(all_lines)
+            dup_count = len(all_lines) - len(unique)
+
+            total_count = len(imported)
+            status_lbl.config(fg=C["success"])
+            msg = f"✅ 已导入 {total_count} 条代理"
+            if dup_count:
+                msg += f"（含 {dup_count} 条重复）"
+            status_var.set(msg)
+
+            # 同时显示 messagebox 确保用户注意到
+            top.after(
+                200,
+                lambda: messagebox.showinfo(
+                    "导入完成",
+                    f"成功导入 {total_count} 条代理\n"
+                    f"当前代理列表共 {len(all_lines)} 条"
+                    + (f"\n（其中 {dup_count} 条重复已去重）" if dup_count else ""),
+                    parent=top,
+                ),
+            )
+
+        ttk.Button(btn_f, text="导入并追加", command=_do_import, style="Primary.TButton").pack(
+            side=tk.RIGHT, padx=(4, 0)
+        )
+        ttk.Button(btn_f, text="取消", command=top.destroy).pack(side=tk.RIGHT, padx=4)
+
     def _apply_proxies(self):
         text = self.proxy_text.get("1.0", "end").strip()
         proxy_list = [line.strip() for line in text.split("\n") if line.strip()]
@@ -727,7 +874,24 @@ class SettingsWindow:
             bilibili_api.add_proxy({"http": ps, "https": ps})
         self._net_cfg["proxies"] = proxy_list
         self._save_net_config()
+        # 验证文件已持久化
+        self._verify_proxy_persisted()
         self._check_proxies()
+
+    @staticmethod
+    def _verify_proxy_persisted():
+        """验证代理配置已正确写入文件"""
+        try:
+            import json
+
+            cfg_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "network_config.json")
+            if os.path.exists(cfg_path):
+                with open(cfg_path, "r", encoding="utf-8") as f:
+                    saved = json.load(f)
+                count = len(saved.get("proxies", []))
+                logger.info("代理配置持久化验证: %s — %d 条代理已保存", cfg_path, count)
+        except Exception as e:
+            logger.warning("代理配置持久化验证失败: %s", e)
 
     def _check_proxies(self):
         """测试每个代理的可用性、延迟、地区、ASN、ISP（Treeview 表格显示）"""
@@ -1141,12 +1305,18 @@ class SettingsWindow:
             bilibili_api.reset_status()
             self._refresh_status()
 
+    # ──── 代理文本同步 ────
+    def _sync_proxy_text_to_cfg(self):
+        """将代理文本框的内容同步到 _net_cfg"""
+        text = self.proxy_text.get("1.0", "end").strip()
+        self._net_cfg["proxies"] = [line.strip() for line in text.split("\n") if line.strip()]
+
     # ──── 自动保存 on close ────
     def _on_close(self):
         """关闭时自动保存代理文本到 network_config.json"""
-        text = self.proxy_text.get("1.0", "end").strip()
-        self._net_cfg["proxies"] = [line.strip() for line in text.split("\n") if line.strip()]
+        self._sync_proxy_text_to_cfg()
         self._save_net_config()
+        self._verify_proxy_persisted()
         self.window.destroy()
 
     # ──── 保存系统设置 ────
@@ -1203,7 +1373,11 @@ class SettingsWindow:
             "selected_profile": self._ai_profile_var.get(),
         }
         save_config(self._cfg)
+
+        # 同步代理文本到 net_cfg 后再保存（防止跳过"应用代理"直接点保存导致空覆盖）
+        self._sync_proxy_text_to_cfg()
         self._save_net_config()
+        self._verify_proxy_persisted()
 
         messagebox.showinfo("成功", "设置已保存", parent=self.window)
         self.window.destroy()

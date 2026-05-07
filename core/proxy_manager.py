@@ -118,6 +118,19 @@ class ProxyManager:
         self.current_proxy_index = (self.current_proxy_index + 1) % len(self.proxies)
         return proxy
 
+    def peek_proxy(self) -> Optional[str]:
+        """预览下一个将被使用的代理URL（脱敏），不改变内部状态"""
+        if not self.proxies:
+            return None
+        idx = self.current_proxy_index
+        if self._proxy_failure_count.get(idx, 0) >= self._MAX_PROXY_FAILURES:
+            for i in range(len(self.proxies)):
+                if self._proxy_failure_count.get(i, 0) < self._MAX_PROXY_FAILURES:
+                    idx = i
+                    break
+        proxy = self.proxies[idx]
+        return self.mask_url(proxy.get("http", ""))
+
     # ── 添加/清理 ─────────────────────────────────────────
 
     def add_proxy(self, proxy: Dict):

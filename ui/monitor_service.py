@@ -293,13 +293,19 @@ class VideoWorker:
                 time.sleep(sleep_for)
                 waited += sleep_for
 
-    def _fetch_and_predict(self):
+    def _fetch_and_predict(self):  # noqa: C901
         """在 worker 线程中执行一次完整的拉取 + 预测"""
         bvid = self.bvid
         video = self.video
         gui = self.gui
 
         self._log("DEBUG", f"[{bvid}] 开始拉取数据…")
+        # 记录当前使用的代理（脱敏显示协议+IP前3位）
+        proxy_hint = bilibili_api.proxy_manager.peek_proxy()
+        if proxy_hint:
+            self._log("INFO", f"[{bvid}] 开始通过代理 {proxy_hint} 拉取数据…")
+        else:
+            self._log("INFO", f"[{bvid}] 开始直连拉取数据…")
         try:
             info = bilibili_api.get_video_info(bvid)
             if not info:
