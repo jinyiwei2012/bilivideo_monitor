@@ -346,6 +346,8 @@ class SettingsWindow:
         btn_row.pack(fill=tk.X)
         ttk.Button(btn_row, text="应用代理", command=self._apply_proxies).pack(side=tk.LEFT, padx=(0, 4))
         ttk.Button(btn_row, text="检查可用性", command=self._check_proxies).pack(side=tk.LEFT, padx=4)
+        self._proxy_test_status = tk.Label(btn_row, text="", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM)
+        self._proxy_test_status.pack(side=tk.LEFT, padx=8)
 
         url_row = tk.Frame(sec, bg=C["bg_elevated"])
         url_row.pack(fill=tk.X, pady=(6, 0))
@@ -635,36 +637,76 @@ class SettingsWindow:
 
         import threading
 
-        failed_urls = []
+        # ── 并行测试 + 取消支持 ──
+        total = len(proxy_list)
+        ok_count = [0]
+        fail_count = [0]
+        cancel_flag = [False]
+        threads = []
+        lock = threading.Lock()
+        self._proxy_test_status.configure(text=f"测试中 0/{total} …", fg=C["warning"])
 
-        def _run_checks():
-            for proxy, widgets in zip(proxy_list, row_widgets):
-                result = ProxyManager.test_proxy(proxy, test_url=test_url)
-                sl, ll, cl, ipl, al, il, _ = widgets
-                ok = result.get("ok", False)
-                if not ok:
-                    failed_urls.append(proxy)
-                error_reason = r.get("error") or ""
-                self.window.after(0, lambda r=result, ok=ok, sl=sl, ll=ll,
-                                  cl=cl, ipl=ipl, al=al, il=il, err=error_reason: (
-                    sl.configure(text="✅" if ok else "❌",
-                                 fg=C["success"] if ok else C["danger"]),
-                    ll.configure(text=f"{r.get('latency_ms', '—')}ms" if ok
-                                 else err,
-                                 fg=C["success"] if ok else C["danger"]),
-                    cl.configure(text=(r.get("country") or "") if ok else f"✕ {err}",
-                                 fg=C["text_2"] if ok else C["danger"]),
-                    ipl.configure(text=r.get("ip") or ("—" if not ok else ""),
-                                  fg=C["text_2"]),
-                    al.configure(text=r.get("asn") or ("—" if not ok else ""),
-                                 fg=C["text_2"]),
-                    il.configure(text=r.get("isp") or ("—" if not ok else ""),
-                                 fg=C["text_2"]),
-                ))
-            if failed_urls:
-                self.window.after(0, lambda: self._auto_remove_failed_proxies(failed_urls))
+        cancel_btn = ttk.Button(self._proxy_test_status.master, text="✕ 取消",
+                                command=lambda: cancel_flag.__setitem__(0, True))
+        cancel_btn.pack(side=tk.LEFT, padx=2)
 
-        threading.Thread(target=_run_checks, daemon=True).start()
+        def test_one(proxy, widgets):
+            if cancel_flag[0]:
+                return
+            result = ProxyManager.test_proxy(proxy, test_url=test_url)
+            sl, ll, cl, ipl, al, il, _ = widgets
+            ok = result.get("ok", False)
+            error_reason = result.get("error") or ""
+            self.window.after(0, lambda r=result, ok=ok, sl=sl, ll=ll,
+                              cl=cl, ipl=ipl, al=al, il=il, err=error_reason: (
+                sl.configure(text="✅" if ok else "❌",
+                             fg=C["success"] if ok else C["danger"]),
+                ll.configure(text=f"{r.get('latency_ms', '—')}ms" if ok
+                             else err,
+                             fg=C["success"] if ok else C["danger"]),
+                cl.configure(text=(r.get("country") or "") if ok else f"✕ {err}",
+                             fg=C["text_2"] if ok else C["danger"]),
+                ipl.configure(text=r.get("ip") or ("—" if not ok else ""),
+                              fg=C["text_2"]),
+                al.configure(text=r.get("asn") or ("—" if not ok else ""),
+                             fg=C["text_2"]),
+                il.configure(text=r.get("isp") or ("—" if not ok else ""),
+                             fg=C["text_2"]),
+            ))
+            with lock:
+                if ok:
+                    ok_count[0] += 1
+                else:
+                    fail_count[0] += 1
+                done = ok_count[0] + fail_count[0]
+                self.window.after(0, lambda d=done: self._proxy_test_status.configure(
+                    text=f"测试中 {d}/{total} …", fg=C["warning"]))
+
+        for proxy, widgets in zip(proxy_list, row_widgets):
+            t = threading.Thread(target=test_one, args=(proxy, widgets), daemon=True)
+            t.start()
+            threads.append(t)
+
+        def _wait_all():
+            for t in threads:
+                t.join()
+            self.window.after(0, cancel_btn.destroy)
+            ok_n, fail_n = ok_count[0], fail_count[0]
+            status_text = f"完成: {ok_n} 可用" + (f", {fail_n} 失败" if fail_n else "")
+            self.window.after(0, lambda: self._proxy_test_status.configure(
+                text=status_text,
+                fg=C["success"] if ok_n else C["danger"]))
+
+            if fail_n:
+                failed = []
+                for proxy, widgets in zip(proxy_list, row_widgets):
+                    sl, _, _, _, _, _, _ = widgets
+                    if sl.cget("text") == "❌":
+                        failed.append(proxy)
+                if failed:
+                    self.window.after(0, lambda: self._auto_remove_failed_proxies(failed))
+
+        threading.Thread(target=_wait_all, daemon=True).start()
 
     def _auto_remove_failed_proxies(self, failed_urls):
         """测试完成后自动移除连接失败的代理"""

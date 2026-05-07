@@ -231,12 +231,14 @@ class ProxyManager:
                         "view": data.get("stat", {}).get("view", 0),
                     }
                 elif code == -412:
-                    result["error"] = "被B站频率限制"
+                    result["error"] = f"被B站频率限制 (HTTP {resp.status_code})"
                     return result
                 else:
-                    result["ok"] = True
+                    result["error"] = f"API 返回错误 code={code} (HTTP {resp.status_code})"
+                    return result
             except Exception:
-                result["ok"] = True
+                result["error"] = f"响应格式错误 (HTTP {resp.status_code})"
+                return result
 
             # 通过 ip-api.com 获取地区、ASN、ISP（走同一代理）
             try:
@@ -257,8 +259,8 @@ class ProxyManager:
                     else:
                         result["asn"] = geo.get("as", "")
                         result["isp"] = org or geo.get("isp", "")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("ip-api 地理查询失败: %s", e)
 
             # 记录测试结果到日志
             masked = ProxyManager.mask_url(proxy_url)
