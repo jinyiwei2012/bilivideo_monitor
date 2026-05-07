@@ -189,8 +189,152 @@ class ProxyManager:
 
     # ── 可用性测试（静态） ───────────────────────────────
 
+    HTTP_ERROR_REASONS = {
+        403: "HTTP 403 禁止访问（代理被目标拒绝）",
+        407: "HTTP 407 需要代理认证（需提供用户名密码）",
+        429: "HTTP 429 请求过快",
+        502: "HTTP 502 代理服务器错误（Bad Gateway）",
+        503: "HTTP 503 代理服务不可用",
+        504: "HTTP 504 代理网关超时",
+    }
+
     @staticmethod
-    def test_proxy(proxy_url: str, timeout: int = 30, test_url: str = None) -> dict:  # noqa: C901
+    def _build_result() -> dict:
+        return {"ok": False, "latency_ms": None, "ip": None, "country": None, "asn": None, "isp": None, "error": None, "data": None}
+
+    @staticmethod
+    def _classify_connection_error(e: requests.exceptions.ConnectionError) -> str:
+        """将 ConnectionError 归类为可读的中文错误信息"""
+        err_str = str(e)
+        root_cause = ""
+        try:
+            if e.args and hasattr(e.args[0], "reason"):
+                root_cause = str(e.args[0].reason)
+        except Exception:
+            pass
+        check = err_str + " " + root_cause
+
+        patterns = [
+            (["Connection refused", "连接被拒绝", "积极拒绝"], "连接被拒绝（代理地址或端口无效）"),
+            (["getaddrinfo failed", "Name or service not known", "Temporary failure in name resolution"], "DNS解析失败（代理域名无法解析）"),
+            (["resolving host"], "DNS解析失败（代理域名无法解析）"),
+            (["No route to host", "无法路由"], "无法路由到主机（网络不可达）"),
+            (["Network is unreachable", "网络不可达"], "网络不可达（本地网络异常）"),
+            (["Remote end closed connection", "远程主机关闭连接"], "代理连接被远端关闭"),
+            (["SSL", "ssl"], f"SSL/TLS握手失败: {root_cause[:120] or err_str[:120]}"),
+        ]
+        for keywords, message in patterns:
+            if any(kw in check for kw in keywords):
+                return message
+        if root_cause and root_cause != err_str:
+            return f"连接失败: {root_cause[:200]}"
+        return f"连接失败: {err_str[:200]}"
+
+    @staticmethod
+    def _proxy_http_request(proxy_url: str, test_url: str, ua: str, timeout: int) -> dict:
+        """通过代理发起 HTTP 请求，成功返回响应结果，失败在 result 中记录 error 并返回"""
+        import requests
+        from urllib3.exceptions import InsecureRequestWarning
+        warnings.filterwarnings("ignore", category=InsecureRequestWarning)
+
+        proxies = {"http": proxy_url, "https": proxy_url}
+        result = ProxyManager._build_result()
+        start = time.time()
+
+        logger.debug("→ [proxy-test] GET %s via %s", test_url.split("?")[0], ProxyManager.mask_url(proxy_url))
+        try:
+            resp = requests.get(
+                test_url,
+                proxies=proxies,
+                timeout=timeout,
+                verify=False,
+                headers={"User-Agent": ua, "Referer": "https://www.bilibili.com/", "Accept": "application/json, text/plain, */*"},
+            )
+            result["latency_ms"] = int((time.time() - start) * 1000)
+            return {**result, "resp": resp}
+        except requests.exceptions.ConnectTimeout:
+            result["latency_ms"] = timeout * 1000
+            result["error"] = "连接超时（代理无响应，30秒未建立连接）"
+        except requests.exceptions.ConnectionError as e:
+            result["latency_ms"] = int((time.time() - start) * 1000)
+            result["error"] = ProxyManager._classify_connection_error(e)
+        except requests.exceptions.Timeout:
+            result["latency_ms"] = timeout * 1000
+            result["error"] = "响应超时（代理已连接但30秒未返回数据）"
+        except Exception as e:
+            result["latency_ms"] = int((time.time() - start) * 1000)
+            result["error"] = str(e)[:200]
+        return result
+
+    @staticmethod
+    def _parse_bilibili_json(resp, result: dict) -> dict:
+        """解析 B站 API JSON 响应，返回填充后的 result"""
+        result["latency_ms"] = result.get("latency_ms") or 0
+
+        if resp.status_code != 200:
+            result["error"] = ProxyManager.HTTP_ERROR_REASONS.get(resp.status_code, f"HTTP {resp.status_code}")
+            return result
+
+        try:
+            body = resp.json()
+            code = body.get("code", -1)
+            if code == 0:
+                result["ok"] = True
+                data = body.get("data", {})
+                result["data"] = {"title": data.get("title", "")[:30], "view": data.get("stat", {}).get("view", 0)}
+            elif code == -412:
+                result["error"] = f"被B站频率限制 (HTTP {resp.status_code})"
+            else:
+                result["ok"] = True
+                logger.debug("代理测试收到非预期 API code=%d (%s)", code, body.get("message", ""))
+        except Exception:
+            result["error"] = f"响应格式错误 (HTTP {resp.status_code})"
+        return result
+
+    @staticmethod
+    def _proxy_geo_lookup(proxy_url: str, ua: str, timeout: int) -> dict:
+        """通过 ip-api.com 查询代理出口 IP 的地区/ASN/ISP，出错返回空 dict"""
+        import requests
+        from urllib3.exceptions import InsecureRequestWarning
+        warnings.filterwarnings("ignore", category=InsecureRequestWarning)
+
+        proxies = {"http": proxy_url, "https": proxy_url}
+        try:
+            logger.debug("→ [geo] GET ip-api.com/json/ via %s", ProxyManager.mask_url(proxy_url))
+            geo_resp = requests.get(
+                "https://ip-api.com/json/",
+                proxies=proxies,
+                timeout=timeout,
+                verify=False,
+                headers={"User-Agent": ua},
+            )
+            logger.debug("← [geo] ip-api.com/json/ → %s", geo_resp.status_code)
+            if geo_resp.status_code == 200:
+                geo = geo_resp.json()
+                as_raw = (geo.get("as") or "").strip()
+                return {
+                    "ip": geo.get("query"),
+                    "country": geo.get("country"),
+                    "asn": as_raw.split(" ", 1)[0] if as_raw.startswith("AS") else as_raw,
+                    "isp": geo.get("isp") or geo.get("org") or "",
+                }
+        except Exception as e:
+            logger.debug("ip-api 地理查询失败: %s", e)
+        return {}
+
+    @staticmethod
+    def _log_test_result(proxy_url: str, result: dict):
+        masked = ProxyManager.mask_url(proxy_url)
+        if result.get("ok"):
+            logger.info(
+                f"代理测试 {masked}: {result['latency_ms']}ms | IP {result.get('ip', '?')} | "
+                f"{result.get('country', '')} | {result.get('asn', '')} | {result.get('isp', '')}"
+            )
+        else:
+            logger.warning(f"代理测试 {masked}: 不可用 — {result.get('error', '未知错误')}")
+
+    @staticmethod
+    def test_proxy(proxy_url: str, timeout: int = 30, test_url: str = None) -> dict:
         """测试单个代理的可用性、延迟、地区、ASN、ISP
 
         默认测试 B站视频 API，实际获取一次数据验证代理可用性。
@@ -199,172 +343,25 @@ class ProxyManager:
         Returns: {ok, latency_ms, country, asn, isp, error, data}
         """
         proxy_url = ProxyManager.normalize_url(proxy_url)
-        proxies = {"http": proxy_url, "https": proxy_url}
-        uas = [
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:126.0) Gecko/20100101 Firefox/126.0",
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 Edg/122.0.0.0",
-        ]
-        ua = random.choice(uas)
-        import requests
-        from urllib3.exceptions import InsecureRequestWarning
-
-        warnings.filterwarnings("ignore", category=InsecureRequestWarning)
-
-        result = {
-            "ok": False,
-            "latency_ms": None,
-            "ip": None,
-            "country": None,
-            "asn": None,
-            "isp": None,
-            "error": None,
-            "data": None,
-        }
+        ua = random.choice(ProxyManager.USER_AGENTS)
 
         if not test_url:
             test_url = "https://api.bilibili.com/x/web-interface/view?bvid=BV1GJ411x7hQ"
 
-        start = time.time()
-        logger.debug("→ [proxy-test] GET %s via %s", test_url.split("?")[0], ProxyManager.mask_url(proxy_url))
-        try:
-            resp = requests.get(
-                test_url,
-                proxies=proxies,
-                timeout=timeout,
-                verify=False,  # nosec — local proxies use self-signed certs
-                headers={
-                    "User-Agent": ua,
-                    "Referer": "https://www.bilibili.com/",
-                    "Accept": "application/json, text/plain, */*",
-                },
-            )
-            latency = int((time.time() - start) * 1000)
-            result["latency_ms"] = latency
+        # 阶段1：HTTP 请求
+        resp_data = ProxyManager._proxy_http_request(proxy_url, test_url, ua, timeout)
+        if resp_data.get("error"):
+            ProxyManager._log_test_result(proxy_url, resp_data)
+            return resp_data
 
-            if resp.status_code != 200:
-                http_reasons = {
-                    403: "HTTP 403 禁止访问（代理被目标拒绝）",
-                    407: "HTTP 407 需要代理认证（需提供用户名密码）",
-                    429: "HTTP 429 请求过快",
-                    502: "HTTP 502 代理服务器错误（Bad Gateway）",
-                    503: "HTTP 503 代理服务不可用",
-                    504: "HTTP 504 代理网关超时",
-                }
-                result["error"] = http_reasons.get(resp.status_code, f"HTTP {resp.status_code}")
-                logger.warning("代理测试 %s: 不可用 — %s", ProxyManager.mask_url(proxy_url), result["error"])
-                return result
-
-            # 验证 JSON 响应中有有效数据
-            try:
-                body = resp.json()
-                code = body.get("code", -1)
-                if code == 0:
-                    result["ok"] = True
-                    data = body.get("data", {})
-                    result["data"] = {
-                        "title": data.get("title", "")[:30],
-                        "view": data.get("stat", {}).get("view", 0),
-                    }
-                elif code == -412:
-                    result["error"] = f"被B站频率限制 (HTTP {resp.status_code})"
-                    logger.warning("代理测试 %s: 不可用 — %s", ProxyManager.mask_url(proxy_url), result["error"])
-                    return result
-                else:
-                    # 非 0 非 -412 → 代理连通性没问题，只是目标视频/接口异常
-                    result["ok"] = True
-                    logger.debug("代理测试收到非预期 API code=%d (%s)", code, body.get("message", ""))
-            except Exception:
-                result["error"] = f"响应格式错误 (HTTP {resp.status_code})"
-                logger.warning("代理测试 %s: 不可用 — %s", ProxyManager.mask_url(proxy_url), result["error"])
-                return result
-
-            # 通过 ip-api.com 获取地区、ASN、ISP（走同一代理）
-            try:
-                logger.debug("→ [geo] GET ip-api.com/json/ via %s", ProxyManager.mask_url(proxy_url))
-                geo_resp = requests.get(
-                    "https://ip-api.com/json/",
-                    proxies=proxies,
-                    timeout=timeout,
-                    verify=False,  # nosec — local proxies use self-signed certs
-                    headers={"User-Agent": ua},
-                )
-                logger.debug("← [geo] ip-api.com/json/ → %s", geo_resp.status_code)
-                if geo_resp.status_code == 200:
-                    geo = geo_resp.json()
-                    result["ip"] = geo.get("query")
-                    result["country"] = geo.get("country")
-                    # ip-api 返回格式: as="AS13335 Cloudflare, Inc." → 提取 "AS13335"
-                    as_raw = (geo.get("as") or "").strip()
-                    if as_raw.startswith("AS"):
-                        result["asn"] = as_raw.split(" ", 1)[0]
-                    else:
-                        result["asn"] = as_raw
-                    result["isp"] = geo.get("isp") or geo.get("org") or ""
-            except Exception as e:
-                logger.debug("ip-api 地理查询失败: %s", e)
-
-            # 记录测试结果到日志
-            masked = ProxyManager.mask_url(proxy_url)
-            if result.get("ok"):
-                logger.info(
-                    f"代理测试 {masked}: {result['latency_ms']}ms | IP {result.get('ip', '?')} | {result.get('country', '')} | {result.get('asn', '')} | {result.get('isp', '')}"
-                )
-            else:
-                logger.warning(f"代理测试 {masked}: 不可用 — {result.get('error', '未知错误')}")
-
+        result = ProxyManager._parse_bilibili_json(resp_data.pop("resp"), resp_data)
+        if result.get("error"):
+            ProxyManager._log_test_result(proxy_url, result)
             return result
 
-        except requests.exceptions.ConnectTimeout:
-            result["error"] = "连接超时（代理无响应，30秒未建立连接）"
-            result["latency_ms"] = timeout * 1000
-            logger.warning("代理测试 %s: 不可用 — %s", ProxyManager.mask_url(proxy_url), result["error"])
-            return result
-        except requests.exceptions.ConnectionError as e:
-            err_str = str(e)
-            # 尝试从 MaxRetryError 中提取根因（socket 级错误）
-            root_cause = ""
-            try:
-                if e.args and hasattr(e.args[0], "reason"):
-                    root_cause = str(e.args[0].reason)
-            except Exception:
-                pass
-            check_str = err_str + " " + root_cause
+        # 阶段2：地理信息查询（尽力而为）
+        geo = ProxyManager._proxy_geo_lookup(proxy_url, ua, timeout)
+        result.update(geo)
 
-            if "Connection refused" in check_str or "连接被拒绝" in check_str or "积极拒绝" in check_str:
-                result["error"] = "连接被拒绝（代理地址或端口无效）"
-            elif (
-                "getaddrinfo failed" in check_str
-                or "Name or service not known" in check_str
-                or "Temporary failure in name resolution" in check_str
-                or "resolving host" in check_str.lower()
-            ):
-                result["error"] = "DNS解析失败（代理域名无法解析）"
-            elif "No route to host" in check_str or "无法路由" in check_str:
-                result["error"] = "无法路由到主机（网络不可达）"
-            elif "Network is unreachable" in check_str or "网络不可达" in check_str:
-                result["error"] = "网络不可达（本地网络异常）"
-            elif "Remote end closed connection" in check_str or "远程主机关闭连接" in check_str:
-                result["error"] = "代理连接被远端关闭"
-            elif "SSL" in check_str or "ssl" in check_str:
-                result["error"] = f"SSL/TLS握手失败: {root_cause[:120] or err_str[:120]}"
-            elif root_cause and root_cause != err_str:
-                result["error"] = f"连接失败: {root_cause[:200]}"
-            else:
-                result["error"] = f"连接失败: {err_str[:200]}"
-            result["latency_ms"] = int((time.time() - start) * 1000)
-            logger.warning("代理测试 %s: 不可用 — %s", ProxyManager.mask_url(proxy_url), result["error"])
-            return result
-        except requests.exceptions.Timeout:
-            result["error"] = "响应超时（代理已连接但30秒未返回数据）"
-            result["latency_ms"] = timeout * 1000
-            logger.warning("代理测试 %s: 不可用 — %s", ProxyManager.mask_url(proxy_url), result["error"])
-            return result
-        except Exception as e:
-            result["error"] = str(e)[:200]
-            result["latency_ms"] = int((time.time() - start) * 1000)
-            logger.warning("代理测试 %s: 不可用 — %s", ProxyManager.mask_url(proxy_url), result["error"])
-            return result
+        ProxyManager._log_test_result(proxy_url, result)
+        return result

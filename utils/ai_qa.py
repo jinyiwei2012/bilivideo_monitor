@@ -197,46 +197,43 @@ class AIQASession:
                 "或使用「视频搜索」功能查找并添加视频后，再来向我提问。"
             )
 
-        if "多少" in q and "视频" in q:
-            return f"当前共监控 {len(videos)} 个视频。"
-
-        if "最快" in q or "增长" in q or "增速" in q:
-            return self._answer_fastest_growth()
-
-        if "top" in q or "top3" in q or "排行" in q or "最多" in q:
-            return self._answer_top_views()
-
-        if "达标" in q or "完成" in q or "阈值" in q:
-            return self._answer_threshold()
-
-        if "异常" in q or "预警" in q:
-            from core.smart_alert import AnomalyDetector
-
-            alert_count = 0
-            details = []
-            for v in videos:
-                bvid = v.get("bvid", "")
-                if bvid in self._video_dbs:
-                    try:
-                        records = self._video_dbs[bvid].get_all_records(limit=10)
-                        alerts = AnomalyDetector.detect_all(records, bvid=bvid)
-                        if alerts:
-                            alert_count += len(alerts)
-                            details.extend(alerts[:2])
-                    except Exception as e:
-                        logger.debug("生成AI预警报告失败: %s", e)
-            if alert_count > 0:
-                return f"发现 {alert_count} 条异常预警：\n" + "\n".join(details[:5])
-            return "当前无异常预警。"
-
-        if "健康" in q or "探针" in q:
-            return self._answer_health()
+        handlers = [
+            (["多少", "视频"], lambda: f"当前共监控 {len(videos)} 个视频。"),
+            (["最快", "增长", "增速"], self._answer_fastest_growth),
+            (["top", "top3", "排行", "最多"], self._answer_top_views),
+            (["达标", "完成", "阈值"], self._answer_threshold),
+            (["异常", "预警"], self._answer_anomaly),
+            (["健康", "探针"], self._answer_health),
+        ]
+        for keywords, handler in handlers:
+            if any(kw in q for kw in keywords):
+                return handler()
 
         return (
             f"我是监控助手，当前共监控 {len(videos)} 个视频。"
             f"你可以问我：当前监控多少视频？哪个增长最快？播放量排行？"
             f"有无异常预警？健康探针情况？"
         )
+
+    def _answer_anomaly(self) -> str:
+        from core.smart_alert import AnomalyDetector
+
+        alert_count = 0
+        details = []
+        for v in self._monitored_videos:
+            bvid = v.get("bvid", "")
+            if bvid in self._video_dbs:
+                try:
+                    records = self._video_dbs[bvid].get_all_records(limit=10)
+                    alerts = AnomalyDetector.detect_all(records, bvid=bvid)
+                    if alerts:
+                        alert_count += len(alerts)
+                        details.extend(alerts[:2])
+                except Exception as e:
+                    logger.debug("生成AI预警报告失败: %s", e)
+        if alert_count > 0:
+            return f"发现 {alert_count} 条异常预警：\n" + "\n".join(details[:5])
+        return "当前无异常预警。"
 
     def _answer_fastest_growth(self) -> str:
         videos = self._monitored_videos
