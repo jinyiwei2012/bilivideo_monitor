@@ -200,7 +200,7 @@ class ProxyManager:
         ua = random.choice(uas)
         import requests
 
-        result = {"ok": False, "latency_ms": None, "country": None, "asn": None, "isp": None, "error": None, "data": None}
+        result = {"ok": False, "latency_ms": None, "ip": None, "country": None, "asn": None, "isp": None, "error": None, "data": None}
 
         if not test_url:
             test_url = "https://api.bilibili.com/x/web-interface/view?bvid=BV1GJ411x7hQ"
@@ -247,6 +247,7 @@ class ProxyManager:
                 )
                 if geo_resp.status_code == 200:
                     geo = geo_resp.json()
+                    result["ip"] = geo.get("query")
                     result["country"] = geo.get("country")
                     org = geo.get("org", "")
                     if org and "," in org:
@@ -262,7 +263,7 @@ class ProxyManager:
             # 记录测试结果到日志
             masked = ProxyManager.mask_url(proxy_url)
             if result.get("ok"):
-                logger.info(f"代理测试 {masked}: {result['latency_ms']}ms | {result.get('country', '')} | {result.get('asn', '')} | {result.get('isp', '')}")
+                logger.info(f"代理测试 {masked}: {result['latency_ms']}ms | IP {result.get('ip', '?')} | {result.get('country', '')} | {result.get('asn', '')} | {result.get('isp', '')}")
             else:
                 logger.warning(f"代理测试 {masked}: 不可用 — {result.get('error', '未知错误')}")
 

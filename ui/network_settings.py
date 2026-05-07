@@ -109,9 +109,10 @@ class NetworkSettingsWindow:
         for key, txt, expand, w in [
             ("addr", "代理地址", True, 0),
             ("status", "状态", False, 36),
-            ("latency", "延迟", False, 60),
-            ("country", "地区", False, 70),
-            ("asn", "ASN", False, 130),
+            ("latency", "延迟/原因", False, 130),
+            ("country", "地区", False, 46),
+            ("ip", "IP", False, 110),
+            ("asn", "ASN", False, 120),
             ("isp", "ISP", False, 130),
         ]:
             tk.Label(hdr_frame, text=txt, bg=C["bg_elevated"], fg=C["text_3"],
@@ -300,15 +301,18 @@ class NetworkSettingsWindow:
                                font=("Consolas", 9), width=18, anchor="w")
             lat_lbl.pack(side=tk.LEFT)
             country_lbl = tk.Label(row, text="", bg=C["bg_base"], fg=C["text_2"],
-                                   font=("Consolas", 9), width=8, anchor="w")
+                                   font=("Consolas", 9), width=6, anchor="w")
             country_lbl.pack(side=tk.LEFT)
+            ip_lbl = tk.Label(row, text="", bg=C["bg_base"], fg=C["text_2"],
+                              font=("Consolas", 9), width=15, anchor="w")
+            ip_lbl.pack(side=tk.LEFT)
             asn_lbl = tk.Label(row, text="", bg=C["bg_base"], fg=C["text_2"],
-                               font=("Consolas", 9), width=18, anchor="w")
+                               font=("Consolas", 9), width=16, anchor="w")
             asn_lbl.pack(side=tk.LEFT)
             isp_lbl = tk.Label(row, text="", bg=C["bg_base"], fg=C["text_2"],
-                               font=("Consolas", 9), width=20, anchor="w")
+                               font=("Consolas", 9), width=18, anchor="w")
             isp_lbl.pack(side=tk.LEFT)
-            row_widgets.append((status_lbl, lat_lbl, country_lbl, asn_lbl, isp_lbl, addr_lbl))
+            row_widgets.append((status_lbl, lat_lbl, country_lbl, ip_lbl, asn_lbl, isp_lbl, addr_lbl))
 
         import threading
 
@@ -317,18 +321,19 @@ class NetworkSettingsWindow:
         def _run_checks():
             for proxy, widgets in zip(proxy_list, row_widgets):
                 result = ProxyManager.test_proxy(proxy, test_url=test_url)
-                sl, ll, cl, al, il, _ = widgets
+                sl, ll, cl, ipl, al, il, _ = widgets
                 ok = result.get("ok", False)
                 if not ok:
                     failed_urls.append(proxy)
                 self.window.after(0, lambda r=result, ok=ok, sl=sl, ll=ll,
-                                  cl=cl, al=al, il=il: (
+                                  cl=cl, ipl=ipl, al=al, il=il: (
                     sl.configure(text="✅" if ok else "❌",
                                  fg=C["success"] if ok else C["danger"]),
                     ll.configure(text=f"{r.get('latency_ms', '—')}ms" if ok
                                  else r.get("error", "—"),
                                  fg=C["success"] if ok else C["danger"]),
                     cl.configure(text=r.get("country", "") or ""),
+                    ipl.configure(text=r.get("ip", "") or ""),
                     al.configure(text=r.get("asn", "") or ""),
                     il.configure(text=r.get("isp", "") or ""),
                 ))
