@@ -58,7 +58,7 @@ def install_logging_bridge(log_panel: "LogPanel", level=logging.INFO):
     for name in ("core.bilibili_api", "core.proxy_manager", "core.database", "algorithms", "utils"):
         logger = logging.getLogger(name)
         logger.addHandler(handler)
-        logger.setLevel(min(logger.level, level))
+        logger.setLevel(level)
 
     _LOGGER_HANDLER_INSTALLED = True
 

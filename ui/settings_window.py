@@ -359,39 +359,39 @@ class SettingsWindow:
         url_entry = ttk.Entry(url_row, textvariable=self._test_url_var, font=FONT_SM)
         url_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 0))
 
-        # 内联检测结果区
+        # 内联检测结果区（Treeview 表格）
         result_container = tk.Frame(sec, bg=C["bg_base"], highlightthickness=1,
                                     highlightbackground=C["border"])
         result_container.pack(fill=tk.BOTH, expand=True, pady=(6, 4))
-        hdr_frame = tk.Frame(result_container, bg=C["bg_elevated"])
-        hdr_frame.pack(fill=tk.X, padx=1, pady=(1, 0))
-        for key, txt, expand, w in [
-            ("addr", "代理地址", True, 0),
-            ("status", "状态", False, 36),
-            ("latency", "延迟/原因", False, 130),
-            ("country", "地区", False, 46),
-            ("ip", "IP", False, 110),
-            ("asn", "ASN", False, 120),
-            ("isp", "ISP", False, 130),
-        ]:
-            tk.Label(hdr_frame, text=txt, bg=C["bg_elevated"], fg=C["text_3"],
-                     font=("Microsoft YaHei UI", 8, "bold"), width=w or None,
-                     anchor="e" if key == "latency" else "w").pack(
-                side=tk.LEFT, fill=tk.X if expand else None, expand=expand)
 
-        result_canvas = tk.Canvas(result_container, bg=C["bg_base"],
-                                  highlightthickness=0, height=120)
-        result_sb = ttk.Scrollbar(result_container, orient="vertical",
-                                  command=result_canvas.yview)
-        self._proxy_result_frame = tk.Frame(result_canvas, bg=C["bg_base"])
-        self._proxy_result_frame.bind(
-            "<Configure>",
-            lambda e: result_canvas.configure(scrollregion=result_canvas.bbox("all")),
-        )
-        result_canvas.create_window((0, 0), window=self._proxy_result_frame, anchor="nw")
-        result_canvas.configure(yscrollcommand=result_sb.set)
-        result_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        result_sb.pack(side=tk.RIGHT, fill=tk.Y)
+        columns = ("addr", "status", "latency", "country", "ip", "asn", "isp")
+        self._proxy_tree = ttk.Treeview(result_container, columns=columns,
+                                        show="headings", height=6)
+        self._proxy_tree.heading("addr", text="代理地址")
+        self._proxy_tree.heading("status", text="状态")
+        self._proxy_tree.heading("latency", text="延迟/原因")
+        self._proxy_tree.heading("country", text="地区")
+        self._proxy_tree.heading("ip", text="IP")
+        self._proxy_tree.heading("asn", text="ASN")
+        self._proxy_tree.heading("isp", text="ISP")
+        self._proxy_tree.column("addr", anchor="w", width=200, minwidth=120, stretch=True)
+        self._proxy_tree.column("status", anchor="center", width=40, minwidth=40, stretch=False)
+        self._proxy_tree.column("latency", anchor="w", width=200, minwidth=120, stretch=True)
+        self._proxy_tree.column("country", anchor="w", width=80, minwidth=60, stretch=False)
+        self._proxy_tree.column("ip", anchor="w", width=140, minwidth=100, stretch=False)
+        self._proxy_tree.column("asn", anchor="w", width=150, minwidth=100, stretch=False)
+        self._proxy_tree.column("isp", anchor="w", width=150, minwidth=100, stretch=False)
+
+        tree_sb = ttk.Scrollbar(result_container, orient="vertical",
+                                command=self._proxy_tree.yview)
+        self._proxy_tree.configure(yscrollcommand=tree_sb.set)
+        self._proxy_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        tree_sb.pack(side=tk.RIGHT, fill=tk.Y)
+        # Treeview 行样式
+        style = ttk.Style()
+        style.configure("Treeview", rowheight=24, font=("Consolas", 9))
+        self._proxy_tree.tag_configure("ok", foreground=C["success"])
+        self._proxy_tree.tag_configure("fail", foreground=C["danger"])
 
         tk.Label(
             sec,
@@ -596,7 +596,7 @@ class SettingsWindow:
         self._check_proxies()
 
     def _check_proxies(self):
-        """测试每个代理的可用性、延迟、地区、ASN、ISP（内联显示）"""
+        """测试每个代理的可用性、延迟、地区、ASN、ISP（Treeview 表格显示）"""
         text = self.proxy_text.get("1.0", "end").strip()
         proxy_list = [line.strip() for line in text.split("\n") if line.strip()]
         if not proxy_list:
@@ -606,34 +606,14 @@ class SettingsWindow:
         test_url = self._test_url_var.get().strip()
 
         # 清空旧结果
-        for w in self._proxy_result_frame.winfo_children():
-            w.destroy()
+        for item in self._proxy_tree.get_children():
+            self._proxy_tree.delete(item)
 
-        row_widgets = []
+        # 插入占位行
+        row_items = []
         for proxy in proxy_list:
-            row = tk.Frame(self._proxy_result_frame, bg=C["bg_base"])
-            row.pack(fill=tk.X, padx=2, pady=1)
-            addr_lbl = tk.Label(row, text=proxy, bg=C["bg_base"], fg=C["text_1"],
-                                font=("Consolas", 9), anchor="w")
-            addr_lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
-            status_lbl = tk.Label(row, text="⏳", bg=C["bg_base"], fg=C["text_2"], width=3)
-            status_lbl.pack(side=tk.LEFT)
-            lat_lbl = tk.Label(row, text="—", bg=C["bg_base"], fg=C["text_2"],
-                               font=("Consolas", 9), width=18, anchor="w")
-            lat_lbl.pack(side=tk.LEFT)
-            country_lbl = tk.Label(row, text="", bg=C["bg_base"], fg=C["text_2"],
-                                   font=("Consolas", 9), width=6, anchor="w")
-            country_lbl.pack(side=tk.LEFT)
-            ip_lbl = tk.Label(row, text="", bg=C["bg_base"], fg=C["text_2"],
-                              font=("Consolas", 9), width=15, anchor="w")
-            ip_lbl.pack(side=tk.LEFT)
-            asn_lbl = tk.Label(row, text="", bg=C["bg_base"], fg=C["text_2"],
-                               font=("Consolas", 9), width=16, anchor="w")
-            asn_lbl.pack(side=tk.LEFT)
-            isp_lbl = tk.Label(row, text="", bg=C["bg_base"], fg=C["text_2"],
-                               font=("Consolas", 9), width=18, anchor="w")
-            isp_lbl.pack(side=tk.LEFT)
-            row_widgets.append((status_lbl, lat_lbl, country_lbl, ip_lbl, asn_lbl, isp_lbl, addr_lbl))
+            item = self._proxy_tree.insert("", "end", values=(proxy, "⏳", "—", "", "", "", ""))
+            row_items.append(item)
 
         import threading
 
@@ -650,28 +630,27 @@ class SettingsWindow:
                                 command=lambda: cancel_flag.__setitem__(0, True))
         cancel_btn.pack(side=tk.LEFT, padx=2)
 
-        def test_one(proxy, widgets):
+        def test_one(proxy, item):
             if cancel_flag[0]:
                 return
             result = ProxyManager.test_proxy(proxy, test_url=test_url)
-            sl, ll, cl, ipl, al, il, _ = widgets
             ok = result.get("ok", False)
-            error_reason = result.get("error") or ""
-            self.window.after(0, lambda r=result, ok=ok, sl=sl, ll=ll,
-                              cl=cl, ipl=ipl, al=al, il=il, err=error_reason: (
-                sl.configure(text="✅" if ok else "❌",
-                             fg=C["success"] if ok else C["danger"]),
-                ll.configure(text=f"{r.get('latency_ms', '—')}ms" if ok
-                             else err,
-                             fg=C["success"] if ok else C["danger"]),
-                cl.configure(text=(r.get("country") or "") if ok else f"✕ {err}",
-                             fg=C["text_2"] if ok else C["danger"]),
-                ipl.configure(text=r.get("ip") or ("—" if not ok else ""),
-                              fg=C["text_2"]),
-                al.configure(text=r.get("asn") or ("—" if not ok else ""),
-                             fg=C["text_2"]),
-                il.configure(text=r.get("isp") or ("—" if not ok else ""),
-                             fg=C["text_2"]),
+            latency = f"{result.get('latency_ms', '—')}ms" if ok else (result.get("error") or "—")
+            country = result.get("country") or "—"
+            ip = result.get("ip") or "—"
+            asn = result.get("asn") or "—"
+            isp = result.get("isp") or "—"
+            status = "✅" if ok else "❌"
+            tag = "ok" if ok else "fail"
+            self.window.after(0, lambda item=item, status=status, latency=latency,
+                              country=country, ip=ip, asn=asn, isp=isp, tag=tag: (
+                self._proxy_tree.set(item, "status", status),
+                self._proxy_tree.set(item, "latency", latency),
+                self._proxy_tree.set(item, "country", country),
+                self._proxy_tree.set(item, "ip", ip),
+                self._proxy_tree.set(item, "asn", asn),
+                self._proxy_tree.set(item, "isp", isp),
+                self._proxy_tree.item(item, tags=(tag,)),
             ))
             with lock:
                 if ok:
@@ -682,8 +661,8 @@ class SettingsWindow:
                 self.window.after(0, lambda d=done: self._proxy_test_status.configure(
                     text=f"测试中 {d}/{total} …", fg=C["warning"]))
 
-        for proxy, widgets in zip(proxy_list, row_widgets):
-            t = threading.Thread(target=test_one, args=(proxy, widgets), daemon=True)
+        for proxy, item in zip(proxy_list, row_items):
+            t = threading.Thread(target=test_one, args=(proxy, item), daemon=True)
             t.start()
             threads.append(t)
 
@@ -699,9 +678,9 @@ class SettingsWindow:
 
             if fail_n:
                 failed = []
-                for proxy, widgets in zip(proxy_list, row_widgets):
-                    sl, _, _, _, _, _, _ = widgets
-                    if sl.cget("text") == "❌":
+                for proxy, item in zip(proxy_list, row_items):
+                    tags = self._proxy_tree.item(item, "tags")
+                    if "fail" in tags:
                         failed.append(proxy)
                 if failed:
                     self.window.after(0, lambda: self._auto_remove_failed_proxies(failed))
