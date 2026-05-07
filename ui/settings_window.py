@@ -344,6 +344,17 @@ class SettingsWindow:
         btn_row = tk.Frame(sec, bg=C["bg_elevated"])
         btn_row.pack(fill=tk.X)
         ttk.Button(btn_row, text="应用代理", command=self._apply_proxies).pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Button(btn_row, text="检查可用性", command=self._check_proxies).pack(side=tk.LEFT, padx=4)
+
+        url_row = tk.Frame(sec, bg=C["bg_elevated"])
+        url_row.pack(fill=tk.X, pady=(6, 0))
+        tk.Label(url_row, text="测试地址:", bg=C["bg_elevated"], fg=C["text_2"],
+                 font=FONT_SM, width=8, anchor="w").pack(side=tk.LEFT)
+        self._test_url_var = tk.StringVar(
+            value="https://api.bilibili.com/x/web-interface/view?bvid=BV1GJ411x7hQ"
+        )
+        url_entry = ttk.Entry(url_row, textvariable=self._test_url_var, font=FONT_SM)
+        url_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 0))
 
         tk.Label(
             sec,
@@ -543,7 +554,129 @@ class SettingsWindow:
         bilibili_api.clear_proxies()
         for ps in proxy_list:
             bilibili_api.add_proxy({"http": ps, "https": ps})
-        messagebox.showinfo("成功", f"已应用 {len(proxy_list)} 个代理", parent=self.window)
+        self._net_cfg["proxies"] = proxy_list
+        self._save_net_config()
+        self._check_proxies()
+
+    def _check_proxies(self):
+        """测试每个代理的可用性、延迟、地区、ASN、ISP、响应数据"""
+        text = self.proxy_text.get("1.0", "end").strip()
+        proxy_list = [line.strip() for line in text.split("\n") if line.strip()]
+        if not proxy_list:
+            messagebox.showwarning("提示", "请先输入要测试的代理", parent=self.window)
+            return
+
+        test_url = self._test_url_var.get().strip()
+
+        top = tk.Toplevel(self.window)
+        top.title("代理可用性检测")
+        top.geometry("860x450")
+        top.configure(bg=C["bg_surface"])
+        top.transient(self.window)
+        top.grab_set()
+
+        tk.Label(
+            top, text="正在测试代理可用性…", bg=C["bg_surface"], fg=C["text_1"],
+            font=("Microsoft YaHei UI", 11, "bold"),
+        ).pack(pady=(12, 4))
+
+        result_frame = tk.Frame(top, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
+        result_frame.pack(fill=tk.BOTH, expand=True, padx=16, pady=6)
+
+        # 表头
+        hdr = tk.Frame(result_frame, bg=C["bg_elevated"])
+        hdr.pack(fill=tk.X, padx=4, pady=(4, 0))
+        cols = [
+            ("status", 36, "状态"), ("latency", 60, "延迟"), ("country", 70, "地区"),
+            ("asn", 130, "ASN"), ("isp", 130, "ISP"), ("data", 200, "响应数据"), ("addr", 0, "代理地址"),
+        ]
+        for col_key, w, txt in cols:
+            anchor = "e" if col_key == "latency" else "w"
+            col_idx = [c[0] for c in cols].index(col_key)
+            lbl = tk.Label(hdr, text=txt, bg=C["bg_elevated"], fg=C["text_3"],
+                           font=("Microsoft YaHei UI", 8, "bold"), width=w if w else None, anchor=anchor)
+            lbl.grid(row=0, column=col_idx, sticky="w" if anchor == "w" else "e", padx=(0, 4))
+        hdr.grid_columnconfigure(len(cols) - 1, weight=1)
+
+        # 滚动列表
+        canvas = tk.Canvas(result_frame, bg=C["bg_base"], highlightthickness=0)
+        sb = ttk.Scrollbar(result_frame, orient="vertical", command=canvas.yview)
+        scroll_frame = tk.Frame(canvas, bg=C["bg_base"])
+        scroll_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
+        canvas.configure(yscrollcommand=sb.set)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(4, 0), pady=4)
+        sb.pack(side=tk.RIGHT, fill=tk.Y, pady=4)
+
+        # 每个代理一行结果
+        row_widgets = []
+        for i, proxy in enumerate(proxy_list):
+            row = tk.Frame(scroll_frame, bg=C["bg_base"])
+            row.pack(fill=tk.X, padx=4, pady=1)
+            status_lbl = tk.Label(row, text="⏳", bg=C["bg_base"], fg=C["text_2"], width=3)
+            status_lbl.grid(row=0, column=0, padx=(0, 4))
+            lat_lbl = tk.Label(row, text="—", bg=C["bg_base"], fg=C["text_2"],
+                               font=("Consolas", 9), width=7, anchor="e")
+            lat_lbl.grid(row=0, column=1, padx=(0, 4))
+            country_lbl = tk.Label(row, text="", bg=C["bg_base"], fg=C["text_2"],
+                                   font=("Consolas", 9), width=8, anchor="w")
+            country_lbl.grid(row=0, column=2, padx=(0, 4))
+            asn_lbl = tk.Label(row, text="", bg=C["bg_base"], fg=C["text_2"],
+                               font=("Consolas", 9), width=18, anchor="w")
+            asn_lbl.grid(row=0, column=3, padx=(0, 4))
+            isp_lbl = tk.Label(row, text="", bg=C["bg_base"], fg=C["text_2"],
+                               font=("Consolas", 9), width=20, anchor="w")
+            isp_lbl.grid(row=0, column=4, padx=(0, 4))
+            data_lbl = tk.Label(row, text="", bg=C["bg_base"], fg=C["text_2"],
+                                font=("Consolas", 9), anchor="w")
+            data_lbl.grid(row=0, column=5, sticky="w", padx=(0, 4))
+            addr_lbl = tk.Label(row, text=proxy, bg=C["bg_base"], fg=C["text_1"],
+                                font=("Consolas", 9), anchor="w")
+            addr_lbl.grid(row=0, column=6, sticky="w")
+            row.columnconfigure(5, weight=1)
+            row_widgets.append((status_lbl, lat_lbl, country_lbl, asn_lbl, isp_lbl, data_lbl, addr_lbl))
+
+        progress_var = tk.DoubleVar(value=0)
+        progress_bar = ttk.Progressbar(top, variable=progress_var, maximum=len(proxy_list))
+        progress_bar.pack(fill=tk.X, padx=16, pady=(4, 8))
+
+        btn_f = tk.Frame(top, bg=C["bg_surface"])
+        btn_f.pack(pady=(0, 12))
+        ttk.Button(btn_f, text="关闭", command=top.destroy).pack(side=tk.LEFT, padx=4)
+
+        import threading
+
+        def _run_checks():
+            for i, (proxy, widgets) in enumerate(zip(proxy_list, row_widgets)):
+                result = bilibili_api.test_proxy(proxy, test_url=test_url)
+                sl, ll, cl, al, il, dl, _ = widgets
+                ok = result.get("ok", False)
+                data = result.get("data") or {}
+                data_text = ""
+                if data.get("title"):
+                    data_text = f"{data['title']} (播放: {data.get('view', 0)})"
+                top.after(0, lambda r=result, ok=ok, sl=sl, ll=ll,
+                          cl=cl, al=al, il=il, dl=dl,
+                          dt=data_text, pv=progress_var, idx=i: (
+                    sl.configure(text="✅" if ok else "❌",
+                                 fg=C["success"] if ok else C["danger"]),
+                    ll.configure(
+                        text=f"{r.get('latency_ms', '—')}ms" if ok else r.get("error", "—")[:10],
+                        fg=C["success"] if ok else C["danger"],
+                    ),
+                    cl.configure(text=r.get("country", "") or ""),
+                    al.configure(text=r.get("asn", "") or ""),
+                    il.configure(text=r.get("isp", "") or ""),
+                    dl.configure(text=dt),
+                    pv.set(idx + 1),
+                ))
+            top.after(0, lambda: (
+                progress_bar.destroy(),
+                tk.Label(top, text="检测完成", bg=C["bg_surface"], fg=C["success"],
+                         font=("Microsoft YaHei UI", 9, "bold")).pack(),
+            ))
+
+        threading.Thread(target=_run_checks, daemon=True).start()
 
     # ──── Cookie: 刷新显示 ────
     def _refresh_cookie_display(self):
