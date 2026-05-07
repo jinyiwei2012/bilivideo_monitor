@@ -9,10 +9,10 @@ import logging
 from typing import List, Dict, Optional, Tuple
 from datetime import datetime, timedelta
 
-logger = logging.getLogger(__name__)
-
 from ui.theme import C
 from algorithms.registry import AlgorithmRegistry
+
+logger = logging.getLogger(__name__)
 
 # 图表边距
 _ML, _MR, _MT, _MB = 72, 24, 32, 40
@@ -437,10 +437,27 @@ class CrossoverAnalysisWindow:
         if cw < 50 or ch < 50:
             return
 
-        # 收集实际数据范围
+        series, all_pts = self._collect_trend_series(fits)
+        if not all_pts or not series:
+            c.create_text(W // 2, H // 2, text="数据不足", fill=C["text_2"], font=("Microsoft YaHei UI", 12))
+            return
+
+        min_ts, max_ts, max_v, min_v, ts_span, v_span = self._compute_trend_ranges(all_pts)
+
+        def tx(ts):
+            return _ML + (ts - min_ts).total_seconds() / ts_span * cw
+
+        def ty(v):
+            return _MT + ch - (v - min_v) / v_span * ch
+
+        self._draw_trend_grid(c, W, H, cw, ch, min_ts, max_ts, ts_span, max_v, min_v, v_span)
+        self._draw_trend_now_line(c, tx, W, ch)
+        self._draw_trend_series(c, series, tx, ty, max_ts)
+
+    def _collect_trend_series(self, fits):
+        """收集趋势图数据系列"""
         all_pts = []
         series = {}
-        base_min = None
         for idx, v in enumerate(self._selected):
             bvid = v.get("bvid", "")
             fit_info = fits.get(bvid)
@@ -450,13 +467,10 @@ class CrossoverAnalysisWindow:
             series[bvid] = (slope, intercept, base_ts, pts, idx)
             for p in pts:
                 all_pts.append((p[0], p[1]))
-            if base_min is None or base_ts < base_min:
-                base_min = base_ts
+        return series, all_pts
 
-        if not all_pts or not series or base_min is None:
-            c.create_text(W // 2, H // 2, text="数据不足", fill=C["text_2"], font=("Microsoft YaHei UI", 12))
-            return
-
+    def _compute_trend_ranges(self, all_pts):
+        """计算趋势图坐标范围"""
         all_ts_list = [p[0] for p in all_pts]
         all_v_list = [p[1] for p in all_pts]
         min_ts = min(all_ts_list)
@@ -465,24 +479,18 @@ class CrossoverAnalysisWindow:
         max_ts = max(max_ts, max_ts + timedelta(hours=168))
         max_v = max(all_v_list) * 1.2
         min_v = 0
-
         ts_span = (max_ts - min_ts).total_seconds() or 1
         v_span = max_v - min_v or 1
+        return min_ts, max_ts, max_v, min_v, ts_span, v_span
 
-        def tx(ts):
-            return _ML + (ts - min_ts).total_seconds() / ts_span * cw
-
-        def ty(v):
-            return _MT + ch - (v - min_v) / v_span * ch
-
-        # 网格
+    def _draw_trend_grid(self, c, W, H, cw, ch, min_ts, max_ts, ts_span, max_v, min_v, v_span):
+        """绘制网格线"""
         for i in range(5):
             ratio = i / 4
             y = _MT + ch * (1 - ratio)
             val = min_v + v_span * ratio
             c.create_line(_ML, y, W - _MR, y, fill=C["grid_line"], dash=(2, 4))
             c.create_text(_ML - 6, y, text=_fmt_num(val), anchor="e", fill=C["text_2"], font=("Consolas", 9))
-
         for i in range(5):
             ratio = i / 4
             ts = min_ts + timedelta(seconds=ts_span * ratio)
@@ -490,13 +498,15 @@ class CrossoverAnalysisWindow:
             lbl = ts.strftime("%m-%d %H:%M") if ts_span < 86400 * 3 else ts.strftime("%m-%d")
             c.create_text(x, H - _MB + 16, text=lbl, fill=C["text_2"], font=("Consolas", 8))
 
-        # 当前时间线
+    def _draw_trend_now_line(self, c, tx, W, ch):
+        """绘制当前时间线"""
         now_x = tx(datetime.now())
         if _ML < now_x < W - _MR:
             c.create_line(now_x, _MT, now_x, _MT + ch, fill=C["warning"], dash=(4, 4), width=1)
             c.create_text(now_x, _MT - 8, text="现在", fill=C["warning"], font=("Microsoft YaHei UI", 8))
 
-        # 绘制每条线
+    def _draw_trend_series(self, c, series, tx, ty, max_ts):
+        """绘制所有数据系列"""
         for bvid, (slope, intercept, base_ts, pts, idx) in series.items():
             color = LINE_COLORS[idx % len(LINE_COLORS)][0]
             LINE_COLORS[idx % len(LINE_COLORS)][1]

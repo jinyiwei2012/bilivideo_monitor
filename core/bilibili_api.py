@@ -201,65 +201,22 @@ class BilibiliAPI:
         for attempt in range(max_retries + 1):
             try:
                 self._ensure_min_interval()
-
-                # 获取代理
-                proxy = self._get_proxy() if attempt > 0 else None
-
-                # 构建请求参数
-                request_kwargs = {"timeout": 15, **kwargs}
-                if proxy:
-                    request_kwargs["proxies"] = proxy
-
-                # 发送请求
+                request_kwargs = self._prepare_request_kwargs(attempt, **kwargs)
                 response = self.session.request(method, url, **request_kwargs)
 
                 # 检查HTTP状态码
                 if response.status_code == 412:
-                    self._consecutive_412_errors += 1
-                    logger.error(f"HTTP 412错误 (第{attempt + 1}次尝试)")
-                    if attempt < max_retries and not skip_retry:
-                        delay = self._get_retry_delay(attempt)
-                        logger.info(f"等待 {delay:.1f} 秒后重试...")
-                        time.sleep(delay)
-                        self._rotate_user_agent()
+                    if self._handle_http_412_response(attempt, max_retries, skip_retry):
                         continue
                     return None
 
                 response.raise_for_status()
                 data = response.json()
 
-                # 检查B站API错误码
-                if not isinstance(data, dict):
-                    return data
-
-                api_code = data.get("code", 0)
-
-                if api_code == 0:
-                    # 成功
-                    self._consecutive_412_errors = 0
-                    return data.get("data")
-
-                # 处理API错误
-                if self._is_412_error(data):
-                    self._consecutive_412_errors += 1
-                    error_code, error_msg = self._get_error_info(data)
-                    logger.error(f"B站API 412错误: {error_msg} (第{attempt + 1}次尝试)")
-
-                    if attempt < max_retries and not skip_retry:
-                        delay = self._get_retry_delay(attempt)
-                        logger.info(f"等待 {delay:.1f} 秒后重试...")
-                        time.sleep(delay)
-
-                        # 尝试绕过措施
-                        self._apply_bypass_measures(attempt)
-                        continue
-                    return None
-
-                # 其他API错误，不重试
-                if api_code != 0:
-                    logger.error(f"API错误 [{api_code}]: {data.get('message', '')}")
-
-                return data.get("data") if "data" in data else None
+                result, should_retry = self._handle_successful_response(data, attempt, max_retries, skip_retry)
+                if should_retry:
+                    continue
+                return result
 
             except requests.exceptions.Timeout:
                 last_error = "请求超时"
@@ -275,14 +232,13 @@ class BilibiliAPI:
                     logger.error(f"服务器错误 {response.status_code} (第{attempt + 1}次尝试)")
                 else:
                     logger.error(f"HTTP错误: {e}")
-                    break  # 非临时错误不重试
+                    break
 
             except Exception as e:
                 last_error = str(e)
                 logger.error(f"请求异常: {e}")
                 break
 
-            # 重试前等待
             if attempt < max_retries and not skip_retry:
                 delay = self._get_retry_delay(attempt)
                 logger.info(f"等待 {delay:.1f} 秒后重试...")
@@ -291,6 +247,55 @@ class BilibiliAPI:
 
         logger.error(f"请求最终失败: {last_error}")
         return None
+
+    def _prepare_request_kwargs(self, attempt: int, **kwargs) -> Dict:
+        """构建请求参数，在非首次尝试时启用代理"""
+        request_kwargs = {"timeout": 15, **kwargs}
+        if attempt > 0:
+            proxy = self._get_proxy()
+            if proxy:
+                request_kwargs["proxies"] = proxy
+        return request_kwargs
+
+    def _handle_http_412_response(self, attempt, max_retries, skip_retry) -> bool:
+        """处理HTTP 412响应，返回True表示应重试"""
+        self._consecutive_412_errors += 1
+        logger.error(f"HTTP 412错误 (第{attempt + 1}次尝试)")
+        if attempt < max_retries and not skip_retry:
+            delay = self._get_retry_delay(attempt)
+            logger.info(f"等待 {delay:.1f} 秒后重试...")
+            time.sleep(delay)
+            self._rotate_user_agent()
+            return True
+        return False
+
+    def _handle_successful_response(self, data, attempt, max_retries, skip_retry):
+        """处理成功获取的JSON响应，返回 (result_data, should_retry)"""
+        if not isinstance(data, dict):
+            return data, False
+
+        api_code = data.get("code", 0)
+
+        if api_code == 0:
+            self._consecutive_412_errors = 0
+            return data.get("data"), False
+
+        if self._is_412_error(data):
+            self._consecutive_412_errors += 1
+            error_code, error_msg = self._get_error_info(data)
+            logger.error(f"B站API 412错误: {error_msg} (第{attempt + 1}次尝试)")
+            if attempt < max_retries and not skip_retry:
+                delay = self._get_retry_delay(attempt)
+                logger.info(f"等待 {delay:.1f} 秒后重试...")
+                time.sleep(delay)
+                self._apply_bypass_measures(attempt)
+                return None, True
+            return None, False
+
+        if api_code != 0:
+            logger.error(f"API错误 [{api_code}]: {data.get('message', '')}")
+
+        return data.get("data") if "data" in data else None, False
 
     def _request_public(self, method: str, url: str, **kwargs) -> Any:
         """使用无Cookie的独立Session请求公开API（免登录回退）"""

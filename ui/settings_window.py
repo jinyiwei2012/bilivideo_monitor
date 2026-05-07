@@ -9,12 +9,12 @@ import tkinter as tk
 import logging
 from tkinter import ttk, messagebox
 
-logger = logging.getLogger(__name__)
-
 from ui.theme import C
 from ui.helpers import FONT, FONT_SM
 from ui.dialog_base import DialogBase
 from core.bilibili_api import bilibili_api
+
+logger = logging.getLogger(__name__)
 
 
 class SettingsWindow:

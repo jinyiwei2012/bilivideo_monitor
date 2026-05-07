@@ -297,64 +297,13 @@ class CausalAnalyzer:
             n = len(target)
 
             # 1) Granger 因果检验
-            granger_results = []
-            for feat in CAUSAL_FEATURES:
-                cause = self._series.get(feat, [])
-                if len(cause) != n or len(cause) < self._max_lag + 10:
-                    continue
-                # 检查方差
-                c_var = sum((x - sum(cause) / len(cause)) ** 2 for x in cause) / len(cause)
-                if c_var < 1e-10:
-                    continue
-                f_stat, best_lag = _granger_test(target, cause, self._max_lag)
-                label = FEATURE_LABELS.get(feat, feat)
-                granger_results.append((feat, f_stat, best_lag, label))
-            granger_results.sort(key=lambda x: x[1], reverse=True)
+            granger_results = self._analyze_granger(target, n)
 
             # 2) Pearson 相关性
-            correlations = {}
-            t_mean = sum(target) / n
-            t_std = math.sqrt(sum((x - t_mean) ** 2 for x in target) / max(n - 1, 1))
-            if t_std > 1e-10:
-                for feat in CAUSAL_FEATURES:
-                    cause = self._series.get(feat, [])
-                    if len(cause) != n:
-                        continue
-                    c_mean = sum(cause) / n
-                    c_std = math.sqrt(sum((x - c_mean) ** 2 for x in cause) / max(n - 1, 1))
-                    if c_std < 1e-10:
-                        continue
-                    cov = sum((target[i] - t_mean) * (cause[i] - c_mean) for i in range(n)) / n
-                    correlations[feat] = cov / (t_std * c_std)
+            correlations = self._analyze_correlation(target, n)
 
             # 3) Lead-Lag 分析（交叉相关，shift ∈ [-5, 5]）
-            lead_lag = {}
-            for feat in CAUSAL_FEATURES:
-                cause = self._series.get(feat, [])
-                if len(cause) != n:
-                    continue
-                best_shift = 0
-                best_corr = 0.0
-                for shift in range(-5, 6):
-                    if shift >= 0:
-                        y = target[shift:]
-                        x = cause[: n - shift] if shift > 0 else cause
-                    else:
-                        x = cause[-shift:]
-                        y = target[: n + shift]
-                    if len(x) < 5:
-                        continue
-                    mx = sum(x) / len(x)
-                    my = sum(y) / len(y)
-                    sx = math.sqrt(sum((xi - mx) ** 2 for xi in x) / max(len(x) - 1, 1))
-                    sy = math.sqrt(sum((yi - my) ** 2 for yi in y) / max(len(y) - 1, 1))
-                    if sx < 1e-10 or sy < 1e-10:
-                        continue
-                    c = sum((x[i] - mx) * (y[i] - my) for i in range(len(x))) / (sx * sy * len(x))
-                    if abs(c) > abs(best_corr):
-                        best_corr = c
-                        best_shift = shift
-                lead_lag[feat] = best_shift
+            lead_lag = self._analyze_lead_lag(target, n)
 
             # 4) 关键驱动因素：F > 3.0 视为显著
             key_drivers = [feat for feat, f, lag, _ in granger_results if f > 3.0 and lag > 0]
@@ -366,6 +315,71 @@ class CausalAnalyzer:
                 "key_drivers": key_drivers,
                 "sample_size": n,
             }
+
+    def _analyze_granger(self, target, n):
+        """Granger 因果检验"""
+        granger_results = []
+        for feat in CAUSAL_FEATURES:
+            cause = self._series.get(feat, [])
+            if len(cause) != n or len(cause) < self._max_lag + 10:
+                continue
+            c_var = sum((x - sum(cause) / len(cause)) ** 2 for x in cause) / len(cause)
+            if c_var < 1e-10:
+                continue
+            f_stat, best_lag = _granger_test(target, cause, self._max_lag)
+            label = FEATURE_LABELS.get(feat, feat)
+            granger_results.append((feat, f_stat, best_lag, label))
+        granger_results.sort(key=lambda x: x[1], reverse=True)
+        return granger_results
+
+    def _analyze_correlation(self, target, n):
+        """Pearson 相关性分析"""
+        correlations = {}
+        t_mean = sum(target) / n
+        t_std = math.sqrt(sum((x - t_mean) ** 2 for x in target) / max(n - 1, 1))
+        if t_std > 1e-10:
+            for feat in CAUSAL_FEATURES:
+                cause = self._series.get(feat, [])
+                if len(cause) != n:
+                    continue
+                c_mean = sum(cause) / n
+                c_std = math.sqrt(sum((x - c_mean) ** 2 for x in cause) / max(n - 1, 1))
+                if c_std < 1e-10:
+                    continue
+                cov = sum((target[i] - t_mean) * (cause[i] - c_mean) for i in range(n)) / n
+                correlations[feat] = cov / (t_std * c_std)
+        return correlations
+
+    def _analyze_lead_lag(self, target, n):
+        """Lead-Lag 分析（交叉相关）"""
+        lead_lag = {}
+        for feat in CAUSAL_FEATURES:
+            cause = self._series.get(feat, [])
+            if len(cause) != n:
+                continue
+            best_shift = 0
+            best_corr = 0.0
+            for shift in range(-5, 6):
+                if shift >= 0:
+                    y = target[shift:]
+                    x = cause[: n - shift] if shift > 0 else cause
+                else:
+                    x = cause[-shift:]
+                    y = target[: n + shift]
+                if len(x) < 5:
+                    continue
+                mx = sum(x) / len(x)
+                my = sum(y) / len(y)
+                sx = math.sqrt(sum((xi - mx) ** 2 for xi in x) / max(len(x) - 1, 1))
+                sy = math.sqrt(sum((yi - my) ** 2 for yi in y) / max(len(y) - 1, 1))
+                if sx < 1e-10 or sy < 1e-10:
+                    continue
+                c = sum((x[i] - mx) * (y[i] - my) for i in range(len(x))) / (sx * sy * len(x))
+                if abs(c) > abs(best_corr):
+                    best_corr = c
+                    best_shift = shift
+            lead_lag[feat] = best_shift
+        return lead_lag
 
     @property
     def sample_count(self) -> int:

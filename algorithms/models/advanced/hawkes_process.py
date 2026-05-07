@@ -60,41 +60,54 @@ class HawkesProcessAlgorithm(BaseAlgorithm):
         return base + excitation
 
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
+        """执行预测"""
         current_views = video_data.get("view_count", 0)
         history = video_data.get("history_data", [])
         velocity = self.calculate_velocity(video_data)
 
         remaining = threshold - current_views
         if remaining <= 0:
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=0,
-                confidence=1.0,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={"method": "hawkes"},
-                timestamp=datetime.now(),
-            )
+            return self._make_result(0, 1.0, current_views, velocity, {"method": "hawkes"}, threshold)
 
         if len(history) < 4 or velocity <= 0:
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=predicted_hours,
-                confidence=0.3,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={"method": "hawkes", "notes": "insufficient_data"},
-                timestamp=datetime.now(),
+            return self._make_result(
+                predicted_hours,
+                0.3,
+                current_views,
+                velocity,
+                {"method": "hawkes", "notes": "insufficient_data"},
+                threshold,
             )
 
-        # 提取时序
-        timestamps = []
-        views_vals = []
+        views_data = self._extract_views(history)
+        if views_data is None:
+            return self._make_result(
+                remaining / velocity,
+                0.3,
+                current_views,
+                velocity,
+                {"method": "hawkes_fallback"},
+                threshold,
+            )
+
+        views_arr, times = views_data
+        try:
+            return self._predict_impl(views_arr, times, current_views, velocity, remaining, threshold, video_data)
+        except Exception as e:
+            predicted_hours = remaining / velocity if velocity > 0 else float("inf")
+            return self._make_result(
+                predicted_hours,
+                0.0,
+                current_views,
+                velocity,
+                {"error": str(e)},
+                threshold,
+            )
+
+    def _extract_views(self, history):
+        """从历史记录中提取并排序播放量序列和时间戳"""
+        timestamps, views_vals = [], []
         for h in history:
             ts = h.get("timestamp", 0)
             if hasattr(ts, "timestamp"):
@@ -106,146 +119,132 @@ class HawkesProcessAlgorithm(BaseAlgorithm):
                     continue
             timestamps.append(float(ts))
             views_vals.append(float(h.get("view_count", 0)))
-
         if len(views_vals) < 4:
-            predicted_hours = remaining / velocity
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=predicted_hours,
-                confidence=0.3,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={"method": "hawkes_fallback"},
-                timestamp=datetime.now(),
-            )
+            return None
+        order = np.argsort(timestamps)
+        return np.array(views_vals, dtype=float)[order], np.array(timestamps, dtype=float)[order]
 
-        try:
-            order = np.argsort(timestamps)
-            times = np.array(timestamps, dtype=float)[order]
-            views_arr = np.array(views_vals, dtype=float)[order]
+    def _predict_impl(self, views_arr, times, current_views, velocity, remaining, threshold, video_data):
+        """执行Hawkes过程核心预测"""
+        n = len(views_arr)
+        start_time = times[0]
+        (times[-1] - start_time) / 3600.0
+        now = times[-1]
 
-            n = len(views_arr)
-            start_time = times[0]
-            (times[-1] - start_time) / 3600.0
-            now = times[-1]
+        quality = self.get_quality_score(video_data)
+        engagement = self.get_engagement_rate(video_data)
 
-            quality = self.get_quality_score(video_data)
-            engagement = self.get_engagement_rate(video_data)
+        # ── 将播放量增量的时间点作为"事件" ─────────
+        # 增量较大时视为"子事件"（推荐带来的播放潮）
+        increments = np.diff(views_arr)
+        np.diff(times)
 
-            # ── 将播放量增量的时间点作为"事件" ─────────
-            # 增量较大时视为"子事件"（推荐带来的播放潮）
-            increments = np.diff(views_arr)
-            np.diff(times)
+        # 构造事件列表：每达到一定增量记为一个事件
+        events = []
+        cumulative = 0
+        event_threshold = max(50, current_views * 0.005)  # 事件阈值
+        for i in range(len(increments)):
+            cumulative += increments[i]
+            if cumulative >= event_threshold:
+                events.append(times[i + 1])
+                cumulative = 0
 
-            # 构造事件列表：每达到一定增量记为一个事件
-            events = []
-            cumulative = 0
-            event_threshold = max(50, current_views * 0.005)  # 事件阈值
-            for i in range(len(increments)):
-                cumulative += increments[i]
-                if cumulative >= event_threshold:
-                    events.append(times[i + 1])
-                    cumulative = 0
+        if len(events) < 2:
+            events = times[1:]  # 如果没有足够事件，用所有时间点
 
-            if len(events) < 2:
-                events = times[1:]  # 如果没有足够事件，用所有时间点
+        events = np.array(events)
 
-            events = np.array(events)
+        # ── 参数估计 (基于数据适配) ─────────────────
+        self.mu = max(0.01, velocity / 3600.0 * 0.1)  # 基础强度
+        # 激励强度参数与互动率相关
+        self.kappa = 0.2 + 0.4 * (quality * 0.6 + engagement * 0.4)
+        # 网红视频衰减更慢
+        self.theta = 1.5 - 0.5 * engagement
+        # 质量分越高，截止参数越大
+        self.c = 1.0 + 2.0 * quality
 
-            # ── 参数估计 (基于数据适配) ─────────────────
-            self.mu = max(0.01, velocity / 3600.0 * 0.1)  # 基础强度
-            # 激励强度参数与互动率相关
-            self.kappa = 0.2 + 0.4 * (quality * 0.6 + engagement * 0.4)
-            # 网红视频衰减更慢
-            self.theta = 1.5 - 0.5 * engagement
-            # 质量分越高，截止参数越大
-            self.c = 1.0 + 2.0 * quality
+        # ── 计算当前强度 ──────────────────────────
+        current_intensity = self._compute_intensity(events, now)
+        # 转换为小时播放速度
+        hawkes_velocity = current_intensity * event_threshold * 3600
 
-            # ── 计算当前强度 ──────────────────────────
-            current_intensity = self._compute_intensity(events, now)
-            # 转换为小时播放速度
-            hawkes_velocity = current_intensity * event_threshold * 3600
+        # 综合 Hawkes 速度与实测速度
+        adjusted_velocity = velocity * 0.4 + hawkes_velocity * 0.6
+        if adjusted_velocity <= 0:
+            adjusted_velocity = velocity
 
-            # 综合 Hawkes 速度与实测速度
-            adjusted_velocity = velocity * 0.4 + hawkes_velocity * 0.6
-            if adjusted_velocity <= 0:
-                adjusted_velocity = velocity
+        # ── 分支比（衡量病毒性） ──────────────────
+        # ∫_0^∞ φ(τ)dτ = κ / (θ * c^θ)
+        branching_ratio = self.kappa / (self.theta * (self.c**self.theta))
+        # 分支比 > 1 => 超临界（病毒式传播）
+        is_viral = branching_ratio > 1.0
 
-            # ── 分支比（衡量病毒性） ──────────────────
-            # ∫_0^∞ φ(τ)dτ = κ / (θ * c^θ)
-            branching_ratio = self.kappa / (self.theta * (self.c**self.theta))
-            # 分支比 > 1 => 超临界（病毒式传播）
-            is_viral = branching_ratio > 1.0
+        # ── 预测 ─────────────────────────────────
+        hourly_growth = adjusted_velocity
+        forecast_hours_est = remaining / max(hourly_growth, 0.1)
+        forecast_hours = min(8760, max(24, forecast_hours_est))
 
-            # ── 预测 ─────────────────────────────────
-            hourly_growth = adjusted_velocity
-            forecast_hours_est = remaining / max(hourly_growth, 0.1)
-            forecast_hours = min(8760, max(24, forecast_hours_est))
+        pred_views = float(current_views)
+        target_hour = None
 
-            pred_views = float(current_views)
-            target_hour = None
+        for hour in range(1, min(int(forecast_hours) + 24, 8760)):
+            t_future = now + hour * 3600
 
-            for hour in range(1, min(int(forecast_hours) + 24, 8760)):
-                t_future = now + hour * 3600
+            # 自激励强度随时间衰减
+            future_intensity = self._compute_intensity(events, t_future)
+            future_hourly = future_intensity * event_threshold * 3600
 
-                # 自激励强度随时间衰减
-                future_intensity = self._compute_intensity(events, t_future)
-                future_hourly = future_intensity * event_threshold * 3600
-
-                # 病毒式传播的加速效应
-                if is_viral:
-                    acceleration = 1.0 + 0.3 * math.exp(-hour / 48.0)
-                else:
-                    acceleration = 1.0 - 0.2 * (1.0 - math.exp(-hour / 72.0))
-
-                hour_growth = future_hourly * acceleration * (1.0 / 3600.0)
-                pred_views += max(0, hour_growth)
-
-                if pred_views >= threshold:
-                    target_hour = hour
-                    break
-
-            if target_hour is not None and target_hour <= 8760:
-                predicted_hours = target_hour
-                data_qual = min(1.0, n / 20)
-                event_qual = min(1.0, len(events) / 10)
-                viral_conf = min(1.0, abs(branching_ratio - 1.0) * 0.5) if is_viral else 0.1
-                conf = min(0.9, 0.3 + 0.2 * data_qual + 0.15 * event_qual + 0.1 * viral_conf + 0.1 * quality)
+            # 病毒式传播的加速效应
+            if is_viral:
+                acceleration = 1.0 + 0.3 * math.exp(-hour / 48.0)
             else:
-                predicted_hours = remaining / velocity
-                conf = 0.3
+                acceleration = 1.0 - 0.2 * (1.0 - math.exp(-hour / 72.0))
 
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=predicted_hours,
-                confidence=conf,
-                current_views=current_views,
-                current_velocity=adjusted_velocity,
-                metadata={
-                    "method": "hawkes",
-                    "branching_ratio": round(float(branching_ratio), 3),
-                    "is_viral": is_viral,
-                    "current_intensity": round(float(current_intensity), 4),
-                    "n_events": len(events),
-                    "hawkes_velocity": round(float(hawkes_velocity), 2),
-                    "data_points": n,
-                },
-                timestamp=datetime.now(),
-            )
-        except Exception as e:
-            predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=predicted_hours,
-                confidence=0.0,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={"error": str(e)},
-                timestamp=datetime.now(),
-            )
+            hour_growth = future_hourly * acceleration * (1.0 / 3600.0)
+            pred_views += max(0, hour_growth)
+
+            if pred_views >= threshold:
+                target_hour = hour
+                break
+
+        if target_hour is not None and target_hour <= 8760:
+            predicted_hours = target_hour
+            data_qual = min(1.0, n / 20)
+            event_qual = min(1.0, len(events) / 10)
+            viral_conf = min(1.0, abs(branching_ratio - 1.0) * 0.5) if is_viral else 0.1
+            conf = min(0.9, 0.3 + 0.2 * data_qual + 0.15 * event_qual + 0.1 * viral_conf + 0.1 * quality)
+        else:
+            predicted_hours = remaining / velocity
+            conf = 0.3
+
+        return self._make_result(
+            predicted_hours,
+            conf,
+            current_views,
+            adjusted_velocity,
+            {
+                "method": "hawkes",
+                "branching_ratio": round(float(branching_ratio), 3),
+                "is_viral": is_viral,
+                "current_intensity": round(float(current_intensity), 4),
+                "n_events": len(events),
+                "hawkes_velocity": round(float(hawkes_velocity), 2),
+                "data_points": n,
+            },
+            threshold,
+        )
+
+    def _make_result(self, predicted_hours, confidence, current_views, velocity, metadata, threshold):
+        """构造 PredictionResult"""
+        metadata.setdefault("method", "hawkes")
+        return PredictionResult(
+            algorithm_name=self.name,
+            algorithm_id=self.algorithm_id,
+            target_threshold=threshold,
+            predicted_hours=predicted_hours,
+            confidence=confidence,
+            current_views=current_views,
+            current_velocity=velocity,
+            metadata=metadata,
+            timestamp=datetime.now(),
+        )

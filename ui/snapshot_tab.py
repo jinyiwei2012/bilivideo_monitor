@@ -306,20 +306,39 @@ class SnapshotTab:
             messagebox.showwarning("提示", "请先选择视频加载时间点", parent=self._window)
             return
 
-        start_str = self._start_entry.get().strip()
-        end_str = self._end_entry.get().strip()
-
-        # 忽略占位符
-        if start_str in ("YYYY-MM-DD HH:MM", ""):
-            start_str = None
-        if end_str in ("YYYY-MM-DD HH:MM", ""):
-            end_str = None
-
+        start_str, end_str = self._get_range_input()
         if not start_str and not end_str:
             messagebox.showwarning("提示", "请输入至少一个时间范围", parent=self._window)
             return
 
-        # 解析时间
+        start_dt, end_dt = self._parse_custom_range_dates(start_str, end_str)
+
+        self._validate_custom_range_bounds(start_dt, end_dt, all_ts)
+
+        filtered = self._filter_custom_timestamps(all_ts, start_dt, end_dt)
+        if not filtered:
+            messagebox.showwarning("提示", "没有符合条件的时间点", parent=self._window)
+            return
+
+        self._ts_listbox.delete(0, tk.END)
+        self._ts_displayed = filtered
+        for ts in filtered:
+            self._ts_listbox.insert(tk.END, ts)
+
+        _snap_logger.info(f"[快照-自定义范围] 筛选结果: {len(filtered)} 个时间点")
+
+    def _get_range_input(self):
+        """获取并清洗用户输入的时间范围。返回 (start_str, end_str)。"""
+        start_str = self._start_entry.get().strip()
+        end_str = self._end_entry.get().strip()
+        if start_str in ("YYYY-MM-DD HH:MM", ""):
+            start_str = None
+        if end_str in ("YYYY-MM-DD HH:MM", ""):
+            end_str = None
+        return start_str, end_str
+
+    def _parse_custom_range_dates(self, start_str, end_str):
+        """解析起始/结束时间字符串为 datetime 对象。返回 (start_dt, end_dt)。"""
         start_dt = None
         end_dt = None
         try:
@@ -339,17 +358,20 @@ class SnapshotTab:
                 end_dt = datetime.strptime(end_str, "%Y-%m-%d")
             except ValueError:
                 pass
+        return start_dt, end_dt
 
-        # 获取数据实际范围
+    def _validate_custom_range_bounds(self, start_dt, end_dt, all_ts):
+        """校验输入范围是否在数据范围内，超限时弹出警告。"""
         first_ts = _parse_dt(all_ts[0]) if all_ts else None
         last_ts = _parse_dt(all_ts[-1]) if all_ts else None
 
-        # 校验输入范围是否在数据范围内
         out_of_range = []
         if start_dt and first_ts and start_dt < first_ts:
+            start_str = self._start_entry.get().strip()
             out_of_range.append(f"起始时间 {start_str} 早于数据最早时间 {all_ts[-1]}")
             _snap_logger.warning(f"[快照-自定义范围] 起始时间超出范围: 输入={start_str}, 数据最小={all_ts[-1]}")
         if end_dt and last_ts and end_dt > last_ts:
+            end_str = self._end_entry.get().strip()
             out_of_range.append(f"结束时间 {end_str} 晚于数据最新时间 {all_ts[0]}")
             _snap_logger.warning(f"[快照-自定义范围] 结束时间超出范围: 输入={end_str}, 数据最大={all_ts[0]}")
 
@@ -359,32 +381,19 @@ class SnapshotTab:
             warning_msg += f"\n\n有效范围: {all_ts[-1]} ~ {all_ts[0]}"
             messagebox.showwarning("⚠️ 范围超限", warning_msg, parent=self._window)
 
-        # 筛选符合条件的時間點
+    def _filter_custom_timestamps(self, all_ts, start_dt, end_dt):
+        """根据时间范围筛选时间点列表。返回筛选后的列表。"""
         filtered = []
         for ts_str in all_ts:
             ts_dt = _parse_dt(ts_str)
             if not ts_dt:
                 continue
-
-            # 起始时间：早于等于start_dt的都包含（start_dt=None则不限）
             if start_dt and ts_dt < start_dt:
                 continue
-            # 结束时间：晚于等于end_dt的都包含（end_dt=None则不限）
             if end_dt and ts_dt > end_dt:
                 continue
-
             filtered.append(ts_str)
-
-        if not filtered:
-            messagebox.showwarning("提示", "没有符合条件的时间点", parent=self._window)
-            return
-
-        self._ts_listbox.delete(0, tk.END)
-        self._ts_displayed = filtered
-        for ts in filtered:
-            self._ts_listbox.insert(tk.END, ts)
-
-        _snap_logger.info(f"[快照-自定义范围] 筛选结果: {len(filtered)} 个时间点")
+        return filtered
 
     def _smart_sample(self, ts_list, max_per_day=8):
         """智能采样：同一天内保留首条、尾条、播放量变化最大的几个时间点"""

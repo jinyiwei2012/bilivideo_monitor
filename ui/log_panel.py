@@ -9,9 +9,9 @@ import queue
 import logging
 import customtkinter as ctk
 
-logger = logging.getLogger(__name__)
-
 from ui.theme import C, _recolor_text_tags
+
+logger = logging.getLogger(__name__)
 
 
 class LogPanelHandler(logging.Handler):

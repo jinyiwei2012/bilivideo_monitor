@@ -9,12 +9,12 @@ import json
 import os
 import logging
 
-logger = logging.getLogger(__name__)
-
 from core.bilibili_api import bilibili_api
 from ui.theme import C
 from ui.helpers import FONT, FONT_SM
 from ui.dialog_base import DialogBase
+
+logger = logging.getLogger(__name__)
 
 
 class NetworkSettingsWindow:

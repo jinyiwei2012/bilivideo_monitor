@@ -426,11 +426,29 @@ class DanmakuAnalysisWindow:
             messagebox.showinfo("提示", "请先抓取数据", parent=self.window)
             return
 
-        # 如果已有本地 LLM 结果，确认是否重新分析
+        if self._check_llm_existing_result():
+            return
+
+        config = self._load_llm_api_config()
+        if config is None:
+            return
+        api_key, endpoint, model = config
+
+        self._prepare_llm_ui()
+
+        mode = self._mode_var.get()
+        prompt = self._prepare_llm_prompt(mode)
+
+        import threading
+
+        threading.Thread(target=self._llm_worker, args=(api_key, endpoint, model, mode, prompt), daemon=True).start()
+
+    def _check_llm_existing_result(self):
+        """检查本地已有 LLM 结果。返回 True 表示已加载本地结果，无需继续。"""
         from config import DATA_DIR
 
         bv_dir = os.path.join(DATA_DIR, self._current_bvid, "danmaku")
-        mode = self._mode_var.get()  # noqa: F841
+        mode = self._mode_var.get()
         local_files = []
         if os.path.isdir(bv_dir):
             local_files = [
@@ -443,9 +461,11 @@ class DanmakuAnalysisWindow:
                 parent=self.window,
             ):
                 self._load_local_llm_result()
-                return
+                return True
+        return False
 
-        # 加载API配置
+    def _load_llm_api_config(self):
+        """加载 LLM API 配置。返回 (api_key, endpoint, model) 或 None。"""
         try:
             from config import get_active_ai_profile
 
@@ -458,21 +478,23 @@ class DanmakuAnalysisWindow:
 
         if not api_key:
             messagebox.showwarning("提示", "未配置LLM API密钥，请在「设置 → AI配置」中配置", parent=self.window)
-            return
+            return None
+        return (api_key, endpoint, model)
 
+    def _prepare_llm_ui(self):
+        """准备 LLM 分析的 UI 状态。"""
         self._llm_btn.config(state="disabled")
         self._status_lbl.config(text="LLM分析中...", fg=C["text_2"])
         self.window.update_idletasks()
 
-        # 显示等待
         self._llm_text.config(state="normal")
         self._llm_text.delete("1.0", tk.END)
         self._llm_text.insert(tk.END, "LLM分析请求已发送，请稍候...\n", "dim")
         self._llm_text.config(state="disabled")
         self.window.update_idletasks()
 
-        # 准备请求参数
-        mode = self._mode_var.get()  # noqa: F841
+    def _prepare_llm_prompt(self, mode):
+        """准备 LLM 分析用的 prompt。"""
         sample = self._texts[:100]
         prompt = (
             f"你是一个B站视频{mode}分析助手。分析以下{len(sample)}条{mode}数据，"
@@ -491,116 +513,121 @@ class DanmakuAnalysisWindow:
             self.gui.log_panel.add_log(
                 "INFO", f"LLM分析请求已发送（{self._current_bvid}，{mode}，{len(self._texts)}条）"
             )
+        return prompt
 
-        import threading
+    def _llm_worker(self, api_key, endpoint, model, mode, prompt):
+        """后台线程：调用 LLM API 并更新 UI。"""
+        result_text = self._call_llm_api(api_key, endpoint, model, prompt)
+        self.window.after(0, self._update_llm_ui, result_text, mode, model)
 
-        def _worker():
-            nonlocal_text = None
-            try:
-                import requests as req
+    def _call_llm_api(self, api_key, endpoint, model, prompt):
+        """调用 LLM API，返回结果文本。"""
+        try:
+            import requests as req
 
-                is_claude = "anthropic.com" in endpoint
-                if is_claude:
-                    resp = req.post(
-                        endpoint,
-                        headers={
-                            "x-api-key": api_key,
-                            "Content-Type": "application/json",
-                            "anthropic-version": "2023-06-01",
-                        },
-                        json={
-                            "model": model,
-                            "max_tokens": 2048,
-                            "messages": [{"role": "user", "content": prompt}],
-                        },
-                        timeout=60,
-                    )
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        content_list = data.get("content", [])
-                        nonlocal_text = content_list[0].get("text", "") if content_list else ""
-                    else:
-                        nonlocal_text = f"API请求失败 (HTTP {resp.status_code})\n{resp.text[:500]}"
+            is_claude = "anthropic.com" in endpoint
+            if is_claude:
+                resp = req.post(
+                    endpoint,
+                    headers={
+                        "x-api-key": api_key,
+                        "Content-Type": "application/json",
+                        "anthropic-version": "2023-06-01",
+                    },
+                    json={
+                        "model": model,
+                        "max_tokens": 2048,
+                        "messages": [{"role": "user", "content": prompt}],
+                    },
+                    timeout=60,
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    content_list = data.get("content", [])
+                    return content_list[0].get("text", "") if content_list else ""
                 else:
-                    resp = req.post(
-                        endpoint,
-                        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                        json={
-                            "model": model,
-                            "messages": [
-                                {
-                                    "role": "system",
-                                    "content": "你是一个专业的数据分析助手，擅长从弹幕和评论中提取洞察。",
-                                },
-                                {"role": "user", "content": prompt},
-                            ],
-                            "max_tokens": 2048,
-                            "temperature": 0.5,
-                        },
-                        timeout=120,
-                    )
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        nonlocal_text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-                        if not nonlocal_text:
-                            nonlocal_text = str(data)[:500]
-                    else:
-                        nonlocal_text = f"API请求失败 (HTTP {resp.status_code})\n{resp.text[:500]}"
-            except Exception as e:
-                nonlocal_text = f"LLM分析异常: {e}"
-
-            def _update_ui(result_text):
-                # 窗口可能已关闭
-                try:
-                    self._llm_text.winfo_exists()
-                except Exception:
-                    return
-                self._llm_text.config(state="normal")
-                self._llm_text.delete("1.0", tk.END)
-                title = f"🎯 LLM {mode}深度分析报告\n"
-                meta = f"BV: {self._current_bvid}  |  数据: {len(self._texts)}条  |  模型: {model}\n\n"
-                self._llm_text.insert(tk.END, title, "head")
-                self._llm_text.insert(tk.END, meta, "dim")
-                self._llm_text.insert(tk.END, result_text, "body")
-                self._llm_text.config(state="disabled")
-                self._llm_btn.config(state="normal")
-                # 上半区覆盖显示 LLM 摘要
-                self._show_llm_summary(result_text, mode, model)
-                # 切换到LLM标签页
-                self._bottom_nb.select(1)
-                self._status_lbl.config(text="LLM分析完成", fg=C["success"])
-                if self.gui and hasattr(self.gui, "log_panel"):
-                    self.gui.log_panel.add_log("INFO", f"LLM分析完成（{self._current_bvid}，{mode}）")
-                # 保存 LLM 分析结果到文件夹
-                try:
-                    from config import DATA_DIR
-
-                    bv_dir = os.path.join(DATA_DIR, self._current_bvid, "danmaku")
-                    os.makedirs(bv_dir, exist_ok=True)
-                    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    filepath = os.path.join(bv_dir, f"llm_{mode}_{ts}.json")
-                    with open(filepath, "w", encoding="utf-8") as f:
-                        json.dump(
+                    return f"API请求失败 (HTTP {resp.status_code})\n{resp.text[:500]}"
+            else:
+                resp = req.post(
+                    endpoint,
+                    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                    json={
+                        "model": model,
+                        "messages": [
                             {
-                                "bvid": self._current_bvid,
-                                "mode": mode,
-                                "model": model,
-                                "data_count": len(self._texts),
-                                "timestamp": datetime.now().isoformat(),
-                                "analysis": result_text,
+                                "role": "system",
+                                "content": "你是一个专业的数据分析助手，擅长从弹幕和评论中提取洞察。",
                             },
-                            f,
-                            ensure_ascii=False,
-                            indent=2,
-                        )
-                    self._status_lbl.config(text=f"LLM分析完成，已保存 → {filepath}", fg=C["success"])
-                except Exception as e:
-                    if self.gui and hasattr(self.gui, "log_panel"):
-                        self.gui.log_panel.add_log("WARNING", f"保存LLM分析结果失败: {e}")
+                            {"role": "user", "content": prompt},
+                        ],
+                        "max_tokens": 2048,
+                        "temperature": 0.5,
+                    },
+                    timeout=120,
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    result = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                    if not result:
+                        return str(data)[:500]
+                    return result
+                else:
+                    return f"API请求失败 (HTTP {resp.status_code})\n{resp.text[:500]}"
+        except Exception as e:
+            return f"LLM分析异常: {e}"
 
-            self.window.after(0, _update_ui, nonlocal_text)
+    def _update_llm_ui(self, result_text, mode, model):
+        """主线程：更新 UI 显示 LLM 分析结果。"""
+        try:
+            self._llm_text.winfo_exists()
+        except Exception:
+            return
+        self._llm_text.config(state="normal")
+        self._llm_text.delete("1.0", tk.END)
+        title = f"🎯 LLM {mode}深度分析报告\n"
+        meta = f"BV: {self._current_bvid}  |  数据: {len(self._texts)}条  |  模型: {model}\n\n"
+        self._llm_text.insert(tk.END, title, "head")
+        self._llm_text.insert(tk.END, meta, "dim")
+        self._llm_text.insert(tk.END, result_text, "body")
+        self._llm_text.config(state="disabled")
+        self._llm_btn.config(state="normal")
+        # 上半区覆盖显示 LLM 摘要
+        self._show_llm_summary(result_text, mode, model)
+        # 切换到LLM标签页
+        self._bottom_nb.select(1)
+        self._status_lbl.config(text="LLM分析完成", fg=C["success"])
+        if self.gui and hasattr(self.gui, "log_panel"):
+            self.gui.log_panel.add_log("INFO", f"LLM分析完成（{self._current_bvid}，{mode}）")
+        # 保存 LLM 分析结果到文件夹
+        self._save_llm_result(result_text, mode, model)
 
-        threading.Thread(target=_worker, daemon=True).start()
+    def _save_llm_result(self, result_text, mode, model):
+        """保存 LLM 分析结果到文件夹。"""
+        try:
+            from config import DATA_DIR
+
+            bv_dir = os.path.join(DATA_DIR, self._current_bvid, "danmaku")
+            os.makedirs(bv_dir, exist_ok=True)
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filepath = os.path.join(bv_dir, f"llm_{mode}_{ts}.json")
+            with open(filepath, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "bvid": self._current_bvid,
+                        "mode": mode,
+                        "model": model,
+                        "data_count": len(self._texts),
+                        "timestamp": datetime.now().isoformat(),
+                        "analysis": result_text,
+                    },
+                    f,
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            self._status_lbl.config(text=f"LLM分析完成，已保存 → {filepath}", fg=C["success"])
+        except Exception as e:
+            if self.gui and hasattr(self.gui, "log_panel"):
+                self.gui.log_panel.add_log("WARNING", f"保存LLM分析结果失败: {e}")
 
     def _load_local_llm_result(self):
         """加载本地已有的 LLM 分析结果"""

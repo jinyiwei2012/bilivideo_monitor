@@ -12,11 +12,11 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-logger = logging.getLogger(__name__)
-
 from ui.theme import C
 from ui.helpers import FONT, FONT_SM
 from ui.dialog_base import DialogBase
+
+logger = logging.getLogger(__name__)
 
 
 def _validate_bvid(bvid: str) -> bool:
@@ -400,6 +400,7 @@ class DatabaseQueryWindow:
         mode = self.query_mode.get()
         filter_bvid = self._get_filter_bvid()
         bvid_for_trend = None
+
         if mode == "播放趋势":
             sel = self.video_combo_var.get()
             if not sel:
@@ -426,80 +427,87 @@ class DatabaseQueryWindow:
 
         import threading
 
-        def _worker():
-            raw_rows = []
-            err_msg = None
-            try:
-                conn = sqlite3.connect(self.db_path)
-                conn.row_factory = sqlite3.Row
-                cur = conn.cursor()
-                if mode == "最新N条":
-                    limit = int(getattr(self, "param_var", None) and self.param_var.get() or 100)
-                    if filter_bvid:
-                        cur.execute(
-                            "SELECT * FROM monitor_records WHERE bvid = ? ORDER BY timestamp DESC LIMIT ?",
-                            (filter_bvid, limit),
-                        )
-                    else:
-                        cur.execute("SELECT * FROM monitor_records ORDER BY timestamp DESC LIMIT ?", (limit,))
-                elif mode == "播放首次大于X":
-                    thr = int(getattr(self, "param_var", None) and self.param_var.get() or 10000)
-                    if filter_bvid:
-                        cur.execute(
-                            "SELECT * FROM monitor_records WHERE bvid = ? AND view_count > ? ORDER BY timestamp ASC LIMIT 1",
-                            (filter_bvid, thr),
-                        )
-                    else:
-                        cur.execute(
-                            """WITH fa AS (SELECT bvid, MIN(timestamp) as ft FROM monitor_records WHERE view_count > ? GROUP BY bvid)
-                                       SELECT m.* FROM monitor_records m INNER JOIN fa f ON m.bvid = f.bvid AND m.timestamp = f.ft ORDER BY m.timestamp DESC""",
-                            (thr,),
-                        )
-                elif mode == "播放趋势":
-                    cur.execute(
-                        "SELECT * FROM monitor_records WHERE bvid = ? ORDER BY timestamp ASC", (bvid_for_trend,)
-                    )
-                elif mode == "全量数据":
-                    if filter_bvid:
-                        cur.execute(
-                            "SELECT * FROM monitor_records WHERE bvid = ? ORDER BY timestamp DESC", (filter_bvid,)
-                        )
-                    else:
-                        cur.execute("SELECT * FROM monitor_records ORDER BY timestamp DESC")
-                raw_rows = [dict(r) for r in cur.fetchall()]
-                conn.close()
-            except Exception as e:
-                err_msg = str(e)
+        threading.Thread(target=self._query_worker, args=(mode, filter_bvid, bvid_for_trend), daemon=True).start()
 
-            if err_msg:
-                self.window.after(
-                    0,
-                    lambda: (
-                        messagebox.showerror("错误", f"查询失败: {err_msg}", parent=self.window),
-                        self._reset_query_state(),
-                    ),
+    def _query_worker(self, mode, filter_bvid, bvid_for_trend):
+        """后台线程：执行数据库查询并加载关联数据。"""
+        raw_rows = []
+        err_msg = None
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            raw_rows = self._run_query(cur, mode, filter_bvid, bvid_for_trend)
+            conn.close()
+        except Exception as e:
+            err_msg = str(e)
+
+        if err_msg:
+            self.window.after(
+                0,
+                lambda: (
+                    messagebox.showerror("错误", f"查询失败: {err_msg}", parent=self.window),
+                    self._reset_query_state(),
+                ),
+            )
+            return
+
+        total = len(raw_rows)
+        self.window.after(0, lambda: self.status_var.set(f"查询到 {total} 条，加载关联数据…"))
+
+        extra_list, anames = self._load_query_extra_data(raw_rows)
+        self.window.after(0, lambda: self._finish_query(raw_rows, extra_list, anames))
+
+    def _run_query(self, cur, mode, filter_bvid, bvid_for_trend):
+        """根据查询模式执行 SQL，返回 dict 行列表。"""
+        if mode == "最新N条":
+            limit = int(getattr(self, "param_var", None) and self.param_var.get() or 100)
+            if filter_bvid:
+                cur.execute(
+                    "SELECT * FROM monitor_records WHERE bvid = ? ORDER BY timestamp DESC LIMIT ?",
+                    (filter_bvid, limit),
                 )
-                return
+            else:
+                cur.execute("SELECT * FROM monitor_records ORDER BY timestamp DESC LIMIT ?", (limit,))
+        elif mode == "播放首次大于X":
+            thr = int(getattr(self, "param_var", None) and self.param_var.get() or 10000)
+            if filter_bvid:
+                cur.execute(
+                    "SELECT * FROM monitor_records WHERE bvid = ? AND view_count > ? ORDER BY timestamp ASC LIMIT 1",
+                    (filter_bvid, thr),
+                )
+            else:
+                cur.execute(
+                    """WITH fa AS (SELECT bvid, MIN(timestamp) as ft FROM monitor_records WHERE view_count > ? GROUP BY bvid)
+                               SELECT m.* FROM monitor_records m INNER JOIN fa f ON m.bvid = f.bvid AND m.timestamp = f.ft ORDER BY m.timestamp DESC""",
+                    (thr,),
+                )
+        elif mode == "播放趋势":
+            cur.execute("SELECT * FROM monitor_records WHERE bvid = ? ORDER BY timestamp ASC", (bvid_for_trend,))
+        elif mode == "全量数据":
+            if filter_bvid:
+                cur.execute("SELECT * FROM monitor_records WHERE bvid = ? ORDER BY timestamp DESC", (filter_bvid,))
+            else:
+                cur.execute("SELECT * FROM monitor_records ORDER BY timestamp DESC")
+        return [dict(r) for r in cur.fetchall()]
 
-            total = len(raw_rows)
-            self.window.after(0, lambda: self.status_var.set(f"查询到 {total} 条，加载关联数据…"))
-
-            extra_list = []
-            all_an = set()
-            batch = max(1, total // 20)
-            for idx, row in enumerate(raw_rows):
-                extra = self._load_extra_data(row["bvid"], row["timestamp"])
-                extra_list.append(extra)
-                for pred in extra.get("_predictions", []):
-                    all_an.add(pred.get("algorithm", ""))
-                if total > 50 and (idx + 1) % batch == 0:
-                    p = idx + 1
-                    self.window.after(0, lambda pp=p, tt=total: self.status_var.set(f"加载关联数据 {pp}/{tt}…"))
-            known = ["线性增长", "移动平均", "加权移动平均", "指数平滑", "趋势外推", "Gompertz"]
-            anames = sorted(all_an, key=lambda n: (known.index(n) if n in known else len(known), n))
-            self.window.after(0, lambda: self._finish_query(raw_rows, extra_list, anames))
-
-        threading.Thread(target=_worker, daemon=True).start()
+    def _load_query_extra_data(self, raw_rows):
+        """加载查询结果的关联数据（算法预测等）。返回 (extra_list, algo_names)。"""
+        extra_list = []
+        all_an = set()
+        total = len(raw_rows)
+        batch = max(1, total // 20)
+        for idx, row in enumerate(raw_rows):
+            extra = self._load_extra_data(row["bvid"], row["timestamp"])
+            extra_list.append(extra)
+            for pred in extra.get("_predictions", []):
+                all_an.add(pred.get("algorithm", ""))
+            if total > 50 and (idx + 1) % batch == 0:
+                p = idx + 1
+                self.window.after(0, lambda pp=p, tt=total: self.status_var.set(f"加载关联数据 {pp}/{tt}…"))
+        known = ["线性增长", "移动平均", "加权移动平均", "指数平滑", "趋势外推", "Gompertz"]
+        anames = sorted(all_an, key=lambda n: (known.index(n) if n in known else len(known), n))
+        return extra_list, anames
 
     def _reset_query_state(self):
         self._query_running = False

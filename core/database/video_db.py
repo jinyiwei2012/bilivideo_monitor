@@ -8,10 +8,10 @@ import logging
 from datetime import datetime
 from typing import List, Dict, Optional
 
-logger = logging.getLogger(__name__)
-
 from .connection import _ConnectionCtx
 from .models import _validate_bvid, MonitorRecord, PredictionRecord
+
+logger = logging.getLogger(__name__)
 
 # 进程级迁移缓存：避免每个数据库都重复检查同结构的迁移
 _schema_migrated_version = 0
@@ -188,8 +188,11 @@ class VideoDatabase:
     def _migrate_db(self, conn):
         """检查并迁移数据库：添加缺少的列、自动计算默认值"""
         cursor = conn.cursor()
+        self._migrate_schema_upgrades(cursor)
+        self._migrate_compute_values(cursor)
 
-        # 定义各表的完整列定义（含新增列）
+    def _migrate_schema_upgrades(self, cursor):
+        """迁移数据库模式：添加缺少的列"""
         schema_upgrades = {
             "video_info": [
                 ("viewers_app", "INTEGER DEFAULT 0"),
@@ -223,17 +226,16 @@ class VideoDatabase:
             ],
         }
 
-        # 检查每张表的现有列
         for table, columns in schema_upgrades.items():
             if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", table):
-                continue  # 安全校验：表名必须只含合法字符
+                continue
             cursor.execute(f"PRAGMA table_info({table})")
             existing = {row["name"] for row in cursor.fetchall()}
             if not existing:
-                continue  # 表不存在，跳过
+                continue
             for col_name, col_def in columns:
                 if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", col_name):
-                    continue  # 安全校验：列名必须只含合法字符
+                    continue
                 if col_name not in existing:
                     if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*(\s+DEFAULT\s+[^\s;]+)?$", col_def):
                         logger.warning(f"迁移跳过: {table}.{col_name} 含不安全的列定义 {col_def}")
@@ -243,9 +245,8 @@ class VideoDatabase:
                     except Exception as e:
                         logger.warning(f"迁移失败 {table}.{col_name}: {e}")
 
-        # ── 自动计算数值 ──────────────────────────
-
-        # 1. 计算 monitor_records 中缺失的 like_view_ratio
+    def _migrate_compute_values(self, cursor):
+        """自动计算缺失的数值字段"""
         try:
             cursor.execute("""
                 UPDATE monitor_records
@@ -255,7 +256,6 @@ class VideoDatabase:
         except Exception as e:
             logger.debug("更新 monitor_records like_view_ratio 失败: %s", e)
 
-        # 2. 计算 video_info 中的 like_view_ratio
         try:
             cursor.execute("""
                 UPDATE video_info
@@ -265,7 +265,6 @@ class VideoDatabase:
         except Exception as e:
             logger.debug("更新 video_info like_view_ratio 失败: %s", e)
 
-        # 3. 计算 predictions 中缺失的 predicted_hours
         try:
             cursor.execute("""
                 UPDATE predictions
