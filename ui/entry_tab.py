@@ -7,11 +7,11 @@ from tkinter import ttk, messagebox, LEFT, RIGHT, BOTH, X, Y
 import logging
 from typing import List, Dict
 
-logger = logging.getLogger(__name__)
-
 from core.database import db
 from ui.theme import C
 from .data_comparison import _fmt, _parse_dt
+
+logger = logging.getLogger(__name__)
 
 
 class EntryTab:
@@ -480,53 +480,59 @@ class EntryTab:
 
         saved = skipped = errors = 0
         for row in self._rows:
-            vars_d = row["vars"]
-            raw_view = vars_d["view_count"].get().strip().replace(",", "")
-            if not raw_view:
-                skipped += 1
-                continue
-            try:
-                view_val = int(float(raw_view))
-            except ValueError:
-                errors += 1
-                continue
+            s, sk, e = self._save_single_row(row)
+            saved += s
+            skipped += sk
+            errors += e
 
-            data = {"view_count": view_val}
-            for fkey in ["like_count", "coin_count", "share_count", "favorite_count", "danmaku_count", "reply_count"]:
-                val = vars_d[fkey].get().strip()
-                if val:
-                    try:
-                        data[fkey] = int(float(val.replace(",", "")))
-                    except ValueError:
-                        pass
-            note = vars_d["note"].get().strip()
-            if note:
-                data["note"] = note
-
-            mode = row["mode"]
-            bvid = row["bvid"]
-
-            if mode == "milestone":
-                ok = db.upsert_milestone(bvid, row["key"], data)
-            else:
-                # 快照模式：写入 video_dbs 对应的历史表
-                ok = self._save_snapshot_record(bvid, row["key"], data)
-
-            if ok:
-                saved += 1
-            else:
-                errors += 1
-
-        msg = f"✅ 已保存 {saved} 条"
-        if skipped:
-            msg += f"，跳过 {skipped} 条（播放量为空）"
-        if errors:
-            msg += f"，失败 {errors} 条"
+        msg = self._build_save_msg(saved, skipped, errors)
         self._status.config(text=msg, fg=C.get("success", "#3fb950") if not errors else C.get("warning", "#d29922"))
 
         if saved:
             self._reload_table()
             messagebox.showinfo("保存完成", msg, parent=self._window)
+
+    def _save_single_row(self, row):
+        """处理单行数据保存。返回 (saved, skipped, errors) 三元组。"""
+        vars_d = row["vars"]
+        raw_view = vars_d["view_count"].get().strip().replace(",", "")
+        if not raw_view:
+            return (0, 1, 0)
+        try:
+            view_val = int(float(raw_view))
+        except ValueError:
+            return (0, 0, 1)
+
+        data = {"view_count": view_val}
+        for fkey in ["like_count", "coin_count", "share_count", "favorite_count", "danmaku_count", "reply_count"]:
+            val = vars_d[fkey].get().strip()
+            if val:
+                try:
+                    data[fkey] = int(float(val.replace(",", "")))
+                except ValueError:
+                    pass
+        note = vars_d["note"].get().strip()
+        if note:
+            data["note"] = note
+
+        mode = row["mode"]
+        bvid = row["bvid"]
+
+        if mode == "milestone":
+            ok = db.upsert_milestone(bvid, row["key"], data)
+        else:
+            ok = self._save_snapshot_record(bvid, row["key"], data)
+
+        return (1, 0, 0) if ok else (0, 0, 1)
+
+    def _build_save_msg(self, saved, skipped, errors):
+        """构建保存结果消息。"""
+        msg = f"✅ 已保存 {saved} 条"
+        if skipped:
+            msg += f"，跳过 {skipped} 条（播放量为空）"
+        if errors:
+            msg += f"，失败 {errors} 条"
+        return msg
 
     def _save_snapshot_record(self, bvid: str, ts_str: str, data: dict) -> bool:
         """将快照数据写入视频的历史记录表。"""

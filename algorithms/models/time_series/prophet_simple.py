@@ -115,7 +115,28 @@ class ProphetSimpleAlgorithm(BaseAlgorithm):
 
     def _prophet_forecast(self, history, current_views, threshold):
         """Prophet风格预测核心"""
-        # 提取时间序列（以天为单位）
+        t, y = self._extract_time_series(history)
+        if t is None or len(t) < 7:
+            return None
+
+        n = len(t)
+        period = 7.0
+        cp_t = self._compute_changepoints(t, n)
+
+        # 构建设计矩阵
+        X_trend = self._build_trend_features(t, cp_t)
+        X_seasonal = self._build_seasonal_features(t, period)
+        X = np.column_stack([X_trend, X_seasonal])
+        n_trend = X_trend.shape[1]
+
+        # 岭回归拟合
+        beta = self._fit_ridge(X, y, n_trend)
+
+        # 外推预测 + 置信度
+        return self._compute_forecast(X, beta, n, cp_t, period, current_views, threshold, y)
+
+    def _extract_time_series(self, history):
+        """提取时间序列数据"""
         t_days = []
         views = []
         base_time = None
@@ -136,67 +157,54 @@ class ProphetSimpleAlgorithm(BaseAlgorithm):
             t_days.append((epoch - base_time) / 86400.0)
             views.append(float(h.get("view_count", 0)))
 
-        if len(t_days) < 7:
-            return None
+        if len(t_days) < 7 or not views:
+            return None, None
+        return np.array(t_days), np.array(views)
 
-        t = np.array(t_days)
-        y = np.array(views)
-        n = len(t)
-
-        # 1. 构建线性趋势设计矩阵（含变点）
+    def _compute_changepoints(self, t, n):
+        """计算变点位置"""
         n_cp = min(self.n_changepoints, n - 2)
         cp_idx = np.linspace(0, n - 1, n_cp + 2, dtype=int)[1:-1]
-        cp_t = t[cp_idx] if len(cp_idx) > 0 else np.array([t[-1]])
+        return t[cp_idx] if len(cp_idx) > 0 else np.array([t[-1]])
 
-        # 趋势特征: [1, t, (t-cp1)+, (t-cp2)+, ...]
-        X_trend = [np.ones(n), t.copy()]
+    def _build_trend_features(self, time_array, cp_t):
+        """构建趋势特征矩阵: [1, t, (t-cp1)+, (t-cp2)+, ...]"""
+        features = [np.ones(len(time_array)), time_array.copy()]
         for cp in cp_t:
-            X_trend.append(np.maximum(0, t - cp))
-        X_trend = np.column_stack(X_trend)
+            features.append(np.maximum(0, time_array - cp))
+        return np.column_stack(features)
 
-        # 2. 构建傅里叶季节性特征（周周期 = 7天）
-        period = 7.0
-        X_seasonal = []
+    def _build_seasonal_features(self, time_array, period):
+        """构建傅里叶季节性特征"""
+        features = []
         for order in range(1, self.fourier_order + 1):
-            X_seasonal.append(np.sin(2 * np.pi * order * t / period))
-            X_seasonal.append(np.cos(2 * np.pi * order * t / period))
-        X_seasonal = np.column_stack(X_seasonal) if X_seasonal else np.zeros((n, 0))
+            features.append(np.sin(2 * np.pi * order * time_array / period))
+            features.append(np.cos(2 * np.pi * order * time_array / period))
+        n = len(time_array)
+        return np.column_stack(features) if features else np.zeros((n, 0))
 
-        # 3. 拼接设计矩阵
-        X = np.column_stack([X_trend, X_seasonal])
-
-        # 4. 岭回归拟合（用L2正则化控制季节性强度）
+    def _fit_ridge(self, X, y, n_trend):
+        """岭回归拟合"""
         lam = 1.0 / max(self.seasonality_prior, 0.01)
         n_features = X.shape[1]
-        n_trend = X_trend.shape[1]
-
-        # 正则化矩阵：趋势部分不惩罚，季节性部分惩罚
         reg_matrix = np.diag([0] * n_trend + [lam] * (n_features - n_trend))
         try:
-            beta = np.linalg.solve(X.T @ X + reg_matrix, X.T @ y)
+            return np.linalg.solve(X.T @ X + reg_matrix, X.T @ y)
         except np.linalg.LinAlgError:
-            beta = np.linalg.lstsq(X.T @ X + reg_matrix, X.T @ y, rcond=None)[0]
+            return np.linalg.lstsq(X.T @ X + reg_matrix, X.T @ y, rcond=None)[0]
 
-        # 5. 外推预测
+    def _compute_forecast(self, X, beta, n, cp_t, period, current_views, threshold, y):
+        """外推预测并计算置信度"""
         days_ahead = min(365, int((threshold - current_views) / max(np.mean(np.diff(y)), 1)) + 7)
         days_ahead = max(7, days_ahead)
 
         future_t = np.arange(n, n + days_ahead)
-        future_X_trend = [np.ones(days_ahead), future_t.copy()]
-        for cp in cp_t:
-            future_X_trend.append(np.maximum(0, future_t - cp))
-        future_X_trend = np.column_stack(future_X_trend)
-
-        future_X_seasonal = []
-        for order in range(1, self.fourier_order + 1):
-            future_X_seasonal.append(np.sin(2 * np.pi * order * future_t / period))
-            future_X_seasonal.append(np.cos(2 * np.pi * order * future_t / period))
-        future_X_seasonal = np.column_stack(future_X_seasonal) if future_X_seasonal else np.zeros((days_ahead, 0))
-
+        future_X_trend = self._build_trend_features(future_t, cp_t)
+        future_X_seasonal = self._build_seasonal_features(future_t, period)
         future_X = np.column_stack([future_X_trend, future_X_seasonal])
         forecast = future_X @ beta
 
-        # 6. 找达标时间
+        # 找达标时间
         target_days = None
         for i in range(days_ahead):
             if forecast[i] >= threshold:
@@ -208,7 +216,7 @@ class ProphetSimpleAlgorithm(BaseAlgorithm):
 
         predicted_hours = target_days * 24
 
-        # 7. 置信度
+        # 置信度
         fitted = X @ beta
         residuals = y - fitted
         scale = np.std(y)

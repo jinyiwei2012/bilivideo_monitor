@@ -36,35 +36,45 @@ class ThetaForecastAlgorithm(BaseAlgorithm):
 
         remaining = threshold - current_views
         if remaining <= 0:
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=0,
-                confidence=1.0,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={"method": "theta"},
-                timestamp=datetime.now(),
-            )
+            return self._make_result(0, 1.0, current_views, velocity, {"method": "theta"}, threshold)
 
         if len(history) < 4 or velocity <= 0:
-            predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=predicted_hours,
-                confidence=0.3,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={"method": "theta", "notes": "insufficient_data"},
-                timestamp=datetime.now(),
+            return self._make_result(
+                remaining / velocity if velocity > 0 else float("inf"),
+                0.3,
+                current_views,
+                velocity,
+                {"method": "theta", "notes": "insufficient_data"},
+                threshold,
             )
 
-        # 按时间排序提取播放量序列
-        timestamps = []
-        views_vals = []
+        views_sorted = self._extract_views(history)
+        if views_sorted is None or len(views_sorted) < 4:
+            return self._make_result(
+                remaining / velocity,
+                0.3,
+                current_views,
+                velocity,
+                {"method": "theta_fallback"},
+                threshold,
+            )
+
+        try:
+            return self._compute_theta(views_sorted, current_views, velocity, remaining, threshold)
+        except Exception as e:
+            logger.warning(f"Theta预测失败: {e}")
+            return self._make_result(
+                remaining / velocity if velocity > 0 else float("inf"),
+                0.0,
+                current_views,
+                velocity,
+                {"error": str(e)},
+                threshold,
+            )
+
+    def _extract_views(self, history):
+        """从历史记录中提取并排序播放量序列"""
+        timestamps, views_vals = [], []
         for h in history:
             ts = h.get("timestamp", 0)
             if hasattr(ts, "timestamp"):
@@ -76,105 +86,74 @@ class ThetaForecastAlgorithm(BaseAlgorithm):
                     continue
             timestamps.append(float(ts))
             views_vals.append(float(h.get("view_count", 0)))
-
         if len(views_vals) < 4:
+            return None
+        order = np.argsort(timestamps)
+        return np.array(views_vals)[order]
+
+    def _compute_theta(self, views_sorted, current_views, velocity, remaining, threshold):
+        """执行Theta算法核心计算"""
+        n = len(views_sorted)
+        x = np.arange(n, dtype=float)
+
+        coeffs = np.polyfit(x, views_sorted, 1)
+        trend_vals = np.polyval(coeffs, x)
+        theta_2 = 2 * views_sorted - trend_vals
+        alpha = 0.3
+        smoothed = np.zeros(n)
+        smoothed[0] = theta_2[0]
+        for i in range(1, n):
+            smoothed[i] = alpha * theta_2[i] + (1 - alpha) * smoothed[i - 1]
+
+        growth_per_day = np.mean(np.diff(views_sorted)) if n > 1 else velocity * 24
+        n_future = min(365, max(10, int((threshold - current_views) / max(growth_per_day, 1)) + 5))
+        future_x = np.arange(n, n + n_future)
+
+        forecast_0 = np.polyval(coeffs, future_x)
+        ses_last = smoothed[-1]
+        forecast_2 = np.empty(n_future)
+        for i in range(n_future):
+            w = min(1.0, i / max(n_future // 2, 1))
+            forecast_2[i] = (1 - w) * ses_last + w * forecast_0[i]
+
+        combined = 0.5 * forecast_0 + 0.5 * forecast_2
+        target_days = next((i + 1 for i in range(n_future) if combined[i] >= threshold), None)
+
+        if target_days is None or target_days > 3650:
             predicted_hours = remaining / velocity
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=predicted_hours,
-                confidence=0.3,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={"method": "theta_fallback"},
-                timestamp=datetime.now(),
-            )
+            confidence = 0.4
+        else:
+            predicted_hours = target_days * 24
+            residuals = views_sorted - trend_vals
+            scale = np.std(views_sorted)
+            fit_quality = max(0.0, 1.0 - np.std(residuals) / max(scale, 1))
+            confidence = min(0.9, 0.4 + 0.3 * fit_quality + 0.2 * min(1.0, n / 20))
 
-        try:
-            order = np.argsort(timestamps)
-            views_sorted = np.array(views_vals)[order]
-            n = len(views_sorted)
-            x = np.arange(n, dtype=float)
+        return self._make_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            velocity,
+            {
+                "method": "theta",
+                "trend_slope": coeffs[0],
+                "ses_last": float(ses_last),
+                "forecast_horizon": n_future,
+                "data_points": n,
+            },
+        )
 
-            # 1. 线性趋势拟合
-            coeffs = np.polyfit(x, views_sorted, 1)
-            trend_vals = np.polyval(coeffs, x)
-
-            # 2. Theta=2 线: 双倍曲率
-            theta_2 = 2 * views_sorted - trend_vals
-
-            # 3. 简单指数平滑 (Theta=2 线)
-            alpha = 0.3
-            smoothed = np.zeros(n)
-            smoothed[0] = theta_2[0]
-            for i in range(1, n):
-                smoothed[i] = alpha * theta_2[i] + (1 - alpha) * smoothed[i - 1]
-
-            # 4. 外推
-            growth_per_day = np.mean(np.diff(views_sorted)) if n > 1 else velocity * 24
-            n_future = min(365, max(10, int((threshold - current_views) / max(growth_per_day, 1)) + 5))
-            future_x = np.arange(n, n + n_future)
-
-            # Theta=0 线: 线性趋势继续
-            forecast_0 = np.polyval(coeffs, future_x)
-
-            # Theta=2 线: SES + 逐渐回归趋势
-            ses_last = smoothed[-1]
-            forecast_2 = np.empty(n_future)
-            for i in range(n_future):
-                w = min(1.0, i / max(n_future // 2, 1))
-                forecast_2[i] = (1 - w) * ses_last + w * forecast_0[i]
-
-            # 5. 组合两条线 (等权重)
-            combined = 0.5 * forecast_0 + 0.5 * forecast_2
-
-            # 6. 找达标时间
-            target_days = None
-            for i in range(n_future):
-                if combined[i] >= threshold:
-                    target_days = i + 1
-                    break
-
-            if target_days is None or target_days > 3650:
-                predicted_hours = remaining / velocity
-                confidence = 0.4
-            else:
-                predicted_hours = target_days * 24
-                # 置信度: 基于拟合优度
-                residuals = views_sorted - trend_vals
-                scale = np.std(views_sorted)
-                fit_quality = max(0.0, 1.0 - np.std(residuals) / max(scale, 1))
-                confidence = min(0.9, 0.4 + 0.3 * fit_quality + 0.2 * min(1.0, n / 20))
-
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=predicted_hours,
-                confidence=confidence,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={
-                    "method": "theta",
-                    "trend_slope": coeffs[0],
-                    "ses_last": float(ses_last),
-                    "forecast_horizon": n_future,
-                    "data_points": n,
-                },
-                timestamp=datetime.now(),
-            )
-        except Exception as e:
-            logger.warning(f"Theta预测失败: {e}")
-            predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=predicted_hours,
-                confidence=0.0,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={"error": str(e)},
-                timestamp=datetime.now(),
-            )
+    def _make_result(self, predicted_hours, confidence, current_views, velocity, metadata, threshold):
+        """构造 PredictionResult"""
+        metadata.setdefault("method", "theta")
+        return PredictionResult(
+            algorithm_name=self.name,
+            algorithm_id=self.algorithm_id,
+            target_threshold=threshold,
+            predicted_hours=predicted_hours,
+            confidence=confidence,
+            current_views=current_views,
+            current_velocity=velocity,
+            metadata=metadata,
+            timestamp=datetime.now(),
+        )

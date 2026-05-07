@@ -130,19 +130,7 @@ class LightGBMSimpleAlgorithm(BaseAlgorithm):
         """构建直方图基决策树（leaf-wise生长）"""
         n_samples, n_features = X.shape
 
-        # 对每个特征构建直方图：将值分桶
-        # 返回 bin 索引矩阵 (n_samples, n_features)
-        binned_X = np.empty_like(X)
-        bin_boundaries = []
-        for f in range(n_features):
-            col = X[:, f]
-            if np.max(col) == np.min(col):
-                binned_X[:, f] = 0
-                bin_boundaries.append(np.array([0.0]))
-                continue
-            bins = np.linspace(np.min(col), np.max(col), self.num_bins + 1)
-            binned_X[:, f] = np.digitize(col, bins[:-1]) - 1
-            bin_boundaries.append(bins)
+        binned_X, bin_boundaries = self._bin_features(X, n_features)
 
         # Leaf-wise 生长: 用节点列表，每次找到增益最大的叶子分裂
         nodes = [
@@ -158,97 +146,125 @@ class LightGBMSimpleAlgorithm(BaseAlgorithm):
 
         while True:
             # 找增益最大的叶子
-            best_leaf_idx = -1
-            best_gain = 0
-            best_split = None
-
-            for idx, node in enumerate(nodes):
-                if not node.get("leaf", False):
-                    continue
-                if len(node["indices"]) < 3:
-                    continue
-
-                indices = node["indices"]
-                node_y = y[indices]
-                var_y = np.var(node_y)
-                if var_y <= 0:
-                    continue
-                n_node = len(indices)
-
-                # 对每个特征扫描直方图找最佳分裂
-                for f in range(n_features):
-                    hist_grad = np.zeros(self.num_bins)
-                    hist_count = np.zeros(self.num_bins, dtype=int)
-
-                    for i in indices:
-                        bin_id = int(binned_X[i, f])
-                        hist_grad[bin_id] += y[i]
-                        hist_count[bin_id] += 1
-
-                    # 遍历分桶找最佳分割点
-                    cum_sum = 0.0
-                    cum_count = 0
-                    for b in range(self.num_bins - 1):
-                        cum_sum += hist_grad[b]
-                        cum_count += hist_count[b]
-                        if cum_count < 2 or (n_node - cum_count) < 2:
-                            continue
-
-                        left_var = np.var(node_y[:cum_count]) if cum_count > 0 else 0
-                        # 用近似: var ≈ sum(x^2)/n - mean^2
-                        # 但这里直接用子集方差代替
-                        gain = (
-                            var_y - (cum_count * left_var + (n_node - cum_count) * np.var(node_y[cum_count:])) / n_node
-                        )
-
-                        if gain > best_gain:
-                            best_gain = gain
-                            best_leaf_idx = idx
-                            best_split = (f, b, bin_boundaries[f][b + 1])
+            best_leaf_idx, best_gain, best_split = self._find_best_split(nodes, y, binned_X, n_features, bin_boundaries)
 
             if best_gain <= 0 or best_leaf_idx < 0:
                 break
 
             # 执行分裂
-            leaf = nodes[best_leaf_idx]
-            f, bin_thresh, threshold_val = best_split
-            indices = leaf["indices"]
-            left_mask = binned_X[indices, f] <= bin_thresh
-            left_idx = indices[left_mask]
-            right_idx = indices[~left_mask]
-
-            if len(left_idx) < 2 or len(right_idx) < 2:
+            if not self._execute_split(nodes, best_leaf_idx, best_split, y, binned_X):
                 break
 
-            leaf["leaf"] = False
-            leaf["feature"] = f
-            leaf["threshold"] = threshold_val
-            leaf["left"] = {
-                "indices": left_idx,
-                "depth": leaf["depth"] + 1,
-                "value": np.mean(y[left_idx]),
-                "leaf": True,
-                "left": None,
-                "right": None,
-            }
-            leaf["right"] = {
-                "indices": right_idx,
-                "depth": leaf["depth"] + 1,
-                "value": np.mean(y[right_idx]),
-                "leaf": True,
-                "left": None,
-                "right": None,
-            }
-            nodes.append(leaf["left"])
-            nodes.append(leaf["right"])
-
-            if len([n for n in nodes if n.get("leaf") and len(n["indices"]) >= 3]) == 0:
-                break
-            if max(n["depth"] for n in nodes if n.get("leaf")) >= 6:
+            if self._should_stop_splitting(nodes):
                 break
 
         # 转换为决策树结构
         return self._node_to_tree(nodes[0])
+
+    def _bin_features(self, X, n_features):
+        """对每个特征构建直方图分桶，返回分桶矩阵和边界列表"""
+        binned_X = np.empty_like(X)
+        bin_boundaries = []
+        for f in range(n_features):
+            col = X[:, f]
+            if np.max(col) == np.min(col):
+                binned_X[:, f] = 0
+                bin_boundaries.append(np.array([0.0]))
+                continue
+            bins = np.linspace(np.min(col), np.max(col), self.num_bins + 1)
+            binned_X[:, f] = np.digitize(col, bins[:-1]) - 1
+            bin_boundaries.append(bins)
+        return binned_X, bin_boundaries
+
+    def _find_best_split(self, nodes, y, binned_X, n_features, bin_boundaries):
+        """在所有叶子节点上扫描所有特征找最佳分裂"""
+        best_leaf_idx = -1
+        best_gain = 0
+        best_split = None
+
+        for idx, node in enumerate(nodes):
+            if not node.get("leaf", False):
+                continue
+            if len(node["indices"]) < 3:
+                continue
+
+            indices = node["indices"]
+            node_y = y[indices]
+            var_y = np.var(node_y)
+            if var_y <= 0:
+                continue
+            n_node = len(indices)
+
+            for f in range(n_features):
+                hist_grad = np.zeros(self.num_bins)
+                hist_count = np.zeros(self.num_bins, dtype=int)
+
+                for i in indices:
+                    bin_id = int(binned_X[i, f])
+                    hist_grad[bin_id] += y[i]
+                    hist_count[bin_id] += 1
+
+                cum_sum = 0.0
+                cum_count = 0
+                for b in range(self.num_bins - 1):
+                    cum_sum += hist_grad[b]
+                    cum_count += hist_count[b]
+                    if cum_count < 2 or (n_node - cum_count) < 2:
+                        continue
+
+                    left_var = np.var(node_y[:cum_count]) if cum_count > 0 else 0
+                    gain = var_y - (cum_count * left_var + (n_node - cum_count) * np.var(node_y[cum_count:])) / n_node
+
+                    if gain > best_gain:
+                        best_gain = gain
+                        best_leaf_idx = idx
+                        best_split = (f, b, bin_boundaries[f][b + 1])
+
+        return best_leaf_idx, best_gain, best_split
+
+    def _execute_split(self, nodes, best_leaf_idx, best_split, y, binned_X):
+        """执行分裂操作，成功返回True，失败返回False"""
+        leaf = nodes[best_leaf_idx]
+        f, bin_thresh, threshold_val = best_split
+        indices = leaf["indices"]
+        left_mask = binned_X[indices, f] <= bin_thresh
+        left_idx = indices[left_mask]
+        right_idx = indices[~left_mask]
+
+        if len(left_idx) < 2 or len(right_idx) < 2:
+            return False
+
+        leaf["leaf"] = False
+        leaf["feature"] = f
+        leaf["threshold"] = threshold_val
+        leaf["left"] = {
+            "indices": left_idx,
+            "depth": leaf["depth"] + 1,
+            "value": np.mean(y[left_idx]),
+            "leaf": True,
+            "left": None,
+            "right": None,
+        }
+        leaf["right"] = {
+            "indices": right_idx,
+            "depth": leaf["depth"] + 1,
+            "value": np.mean(y[right_idx]),
+            "leaf": True,
+            "left": None,
+            "right": None,
+        }
+        nodes.append(leaf["left"])
+        nodes.append(leaf["right"])
+        return True
+
+    def _should_stop_splitting(self, nodes):
+        """检查是否应停止分裂（无可用叶子或达到最大深度）"""
+        leaves_viable = [n for n in nodes if n.get("leaf") and len(n["indices"]) >= 3]
+        if not leaves_viable:
+            return True
+        if max(n["depth"] for n in nodes if n.get("leaf")) >= 6:
+            return True
+        return False
 
     def _node_to_tree(self, node: Dict) -> Dict:
         """将节点表示转换为树结构"""

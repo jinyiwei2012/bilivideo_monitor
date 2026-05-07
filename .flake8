@@ -11,6 +11,9 @@ ignore = E203,W503,E501
 per-file-ignores =
     __init__.py:F401,F403
     */models/*.py:E501
+    main.py:E402
+    ui/main_gui.py:E402
+    ui/weight_settings.py:E402
 max-complexity = 15
 show-source = True
 statistics = True

@@ -9,9 +9,9 @@ import queue
 import logging
 import customtkinter as ctk
 
-logger = logging.getLogger(__name__)
+from ui.theme import C
 
-from ui.theme import C, _recolor_text_tags
+logger = logging.getLogger(__name__)
 
 
 class LogPanelHandler(logging.Handler):
@@ -162,11 +162,11 @@ class LogPanel:
         log_sb.pack(side=tk.RIGHT, fill=tk.Y)
 
         # 日志颜色标签
-        self._log_text.tag_configure("DEBUG", foreground="#8b949e")
-        self._log_text.tag_configure("INFO", foreground="#58a6ff")
-        self._log_text.tag_configure("WARNING", foreground="#d29922")
-        self._log_text.tag_configure("ERROR", foreground="#f85149")
-        self._log_text.tag_configure("TIME", foreground="#6e7681")
+        self._log_text.tag_configure("DEBUG", foreground=C["log_debug"])
+        self._log_text.tag_configure("INFO", foreground=C["log_info"])
+        self._log_text.tag_configure("WARNING", foreground=C["log_warn"])
+        self._log_text.tag_configure("ERROR", foreground=C["log_error"])
+        self._log_text.tag_configure("TIME", foreground=C["log_time"])
 
         # 启动队列处理器
         self.root.after(200, self._process_log_queue)
@@ -297,10 +297,6 @@ class LogPanel:
             except Exception as e:
                 logger.debug("取消自动刷新定时器失败: %s", e)
             self._log_refresh_job = None
-
-    def recolor(self):
-        _recolor_text_tags(self._log_text)
-        self._log_text.config(bg=C["canvas_bg"], fg=C["canvas_text"], insertbackground=C["text_1"])
 
     def cleanup(self):
         self.stop_auto_refresh()

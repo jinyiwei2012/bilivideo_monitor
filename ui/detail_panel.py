@@ -452,12 +452,6 @@ class DetailPanel:
                 row, text=f"{pct:.3f}%", text_color=color, font=FONT_MONO, fg_color="transparent", width=72
             ).pack(side=tk.LEFT)
 
-    def recolor_text_tags(self):
-        from ui.theme import _recolor_text_tags
-
-        _recolor_text_tags(self._detail_text)
-        self._detail_text.config(bg=C["bg_elevated"], fg=C["text_1"], insertbackground=C["text_1"])
-
     @property
     def chart_canvas(self):
         return self._chart_canvas

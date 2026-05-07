@@ -88,11 +88,20 @@ class BilibiliAPI:
 
         # cookie支持
         self._cookies: Dict = {}
-        # 启动时加载已保存的 Cookie
-        self._load_saved_cookies()
 
-    def _load_saved_cookies(self):
-        """从 network_config.json 加载已保存的 Cookie"""
+        # 代理-UA绑定（启动时生成一组UA，绑定到每个代理）
+        self._proxy_ua_map: Dict[int, str] = {}
+        self._proxy_failure_count: Dict[int, int] = {}
+        self._MAX_PROXY_FAILURES = 3
+        self._current_request_proxy_idx: Optional[int] = None
+
+        # 启动时加载已保存的 Cookie 和代理
+        self._load_saved_network_config()
+        # 为每个代理绑定一个固定UA（启动时生成一组）
+        self._init_ua_bindings()
+
+    def _load_saved_network_config(self):
+        """从 network_config.json 加载已保存的 Cookie 和代理"""
         try:
             import json
             import os
@@ -106,8 +115,13 @@ class BilibiliAPI:
                     self._cookies = cookies
                     self.session.cookies.update(cookies)
                     logger.info(f"已加载 {len(cookies)} 个 Cookie")
+                proxy_urls = net_cfg.get("proxies", [])
+                if proxy_urls:
+                    for p in proxy_urls:
+                        self.add_proxy({"http": p, "https": p})
+                    logger.info(f"已加载 {len(proxy_urls)} 个代理")
         except Exception as e:
-            logger.warning(f"加载 Cookie 失败: {e}")
+            logger.warning(f"加载网络配置失败: {e}")
 
     def _update_headers(self, extra_headers: Dict = None):
         """更新请求头"""
@@ -136,10 +150,56 @@ class BilibiliAPI:
             return f"***@{parts[-1]}"
         return url
 
+    def _init_ua_bindings(self):
+        """启动时生成一组UA，为每个代理绑定一个固定UA"""
+        for i in range(len(self.proxies)):
+            self._proxy_ua_map[i] = random.choice(self.USER_AGENTS)
+            self._proxy_failure_count[i] = 0
+        if self.proxies:
+            logger.info(f"已为 {len(self.proxies)} 个代理绑定固定UA")
+
+    def _get_proxy_binding(self) -> Tuple[Optional[int], Optional[Dict], Optional[str]]:
+        """获取下一个代理及其绑定UA，跳过失败过多的代理"""
+        if not self.proxies:
+            return None, None, None
+
+        for _ in range(len(self.proxies)):
+            idx = self.current_proxy_index
+            if self._proxy_failure_count.get(idx, 0) < self._MAX_PROXY_FAILURES:
+                proxy = self.proxies[idx]
+                ua = self._proxy_ua_map.get(idx)
+                if not ua:
+                    ua = random.choice(self.USER_AGENTS)
+                    self._proxy_ua_map[idx] = ua
+                self.current_proxy_index = (idx + 1) % len(self.proxies)
+                return idx, proxy, ua
+            self.current_proxy_index = (self.current_proxy_index + 1) % len(self.proxies)
+
+        # 所有代理都失败过多，重置后重试第一个
+        self._proxy_failure_count = {i: 0 for i in range(len(self.proxies))}
+        idx = 0
+        self.current_proxy_index = 1 % max(1, len(self.proxies))
+        return idx, self.proxies[0], self._proxy_ua_map.get(0, random.choice(self.USER_AGENTS))
+
+    def _on_request_failure(self, proxy_idx: Optional[int] = None):
+        """标记请求失败：增加失败计数，更换当前代理绑定的UA"""
+        if proxy_idx is None:
+            proxy_idx = self._current_request_proxy_idx
+        if proxy_idx is not None and proxy_idx < len(self.proxies):
+            self._proxy_failure_count[proxy_idx] = self._proxy_failure_count.get(proxy_idx, 0) + 1
+            new_ua = random.choice(self.USER_AGENTS)
+            self._proxy_ua_map[proxy_idx] = new_ua
+            self.session.headers["User-Agent"] = new_ua
+            masked = self._mask_proxy_url(self.proxies[proxy_idx].get("http", ""))
+            logger.debug(f"代理 {masked} 请求失败 ({self._proxy_failure_count[proxy_idx]}/{self._MAX_PROXY_FAILURES}), UA已更换")
+
     def add_proxy(self, proxy: Dict):
         """添加代理"""
         # proxy格式: {'http': 'http://user:pass@host:port', 'https': 'https://user:pass@host:port'}
         self.proxies.append(proxy)
+        idx = len(self.proxies) - 1
+        self._proxy_ua_map[idx] = random.choice(self.USER_AGENTS)
+        self._proxy_failure_count[idx] = 0
         masked = self._mask_proxy_url(proxy.get("http", "unknown"))
         logger.info(f"已添加代理: {masked}")
 
@@ -147,6 +207,9 @@ class BilibiliAPI:
         """清空代理列表"""
         self.proxies = []
         self.current_proxy_index = 0
+        self._proxy_ua_map.clear()
+        self._proxy_failure_count.clear()
+        self._current_request_proxy_idx = None
         logger.info("已清空代理列表")
 
     def _get_proxy(self) -> Optional[Dict]:
@@ -156,6 +219,104 @@ class BilibiliAPI:
         proxy = self.proxies[self.current_proxy_index]
         self.current_proxy_index = (self.current_proxy_index + 1) % len(self.proxies)
         return proxy
+
+    @staticmethod
+    def test_proxy(proxy_url: str, timeout: int = 5, test_url: str = None) -> dict:
+        """测试单个代理的可用性、延迟、地区、ASN、ISP
+
+        默认测试 B站视频 API，实际获取一次数据验证代理可用性。
+        test_url 可自定义测试地址（含 bvid 参数时自动附加随机 UA）。
+
+        Returns: {ok, latency_ms, country, asn, isp, error, data}
+        """
+        import time as _time
+        import random as _random
+        proxies = {"http": proxy_url, "https": proxy_url}
+        uas = [
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:126.0) Gecko/20100101 Firefox/126.0",
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 Edg/122.0.0.0",
+        ]
+        ua = _random.choice(uas)
+        result = {"ok": False, "latency_ms": None, "country": None, "asn": None, "isp": None, "error": None, "data": None}
+
+        if not test_url:
+            test_url = "https://api.bilibili.com/x/web-interface/view?bvid=BV1GJ411x7hQ"
+
+        start = _time.time()
+        try:
+            resp = requests.get(
+                test_url, proxies=proxies, timeout=timeout,
+                headers={"User-Agent": ua, "Referer": "https://www.bilibili.com/",
+                         "Accept": "application/json, text/plain, */*"},
+            )
+            latency = int((_time.time() - start) * 1000)
+            result["latency_ms"] = latency
+
+            if resp.status_code != 200:
+                result["error"] = f"HTTP {resp.status_code}"
+                return result
+
+            # 验证 JSON 响应中有有效数据
+            try:
+                body = resp.json()
+                code = body.get("code", -1)
+                if code == 0:
+                    result["ok"] = True
+                    data = body.get("data", {})
+                    result["data"] = {
+                        "title": data.get("title", "")[:30],
+                        "view": data.get("stat", {}).get("view", 0),
+                    }
+                elif code == -412:
+                    result["error"] = "被B站频率限制"
+                    return result
+                else:
+                    result["ok"] = True
+            except Exception:
+                result["ok"] = True
+
+            # 通过 ip-api.com 获取地区、ASN、ISP（走同一代理）
+            try:
+                geo_resp = requests.get(
+                    "https://ip-api.com/json/",
+                    proxies=proxies, timeout=timeout,
+                    headers={"User-Agent": ua},
+                )
+                if geo_resp.status_code == 200:
+                    geo = geo_resp.json()
+                    result["country"] = geo.get("country")
+                    org = geo.get("org", "")
+                    if org and "," in org:
+                        asn_part, isp_part = org.split(",", 1)
+                        result["asn"] = asn_part.strip()
+                        result["isp"] = isp_part.strip()
+                    else:
+                        result["asn"] = geo.get("as", "")
+                        result["isp"] = org or geo.get("isp", "")
+            except Exception:
+                pass
+            return result
+
+        except requests.exceptions.ConnectTimeout:
+            result["error"] = "连接超时"
+            result["latency_ms"] = timeout * 1000
+            return result
+        except requests.exceptions.ConnectionError as e:
+            result["error"] = f"连接失败"
+            result["latency_ms"] = int((_time.time() - start) * 1000)
+            return result
+        except requests.exceptions.Timeout:
+            result["error"] = "响应超时"
+            result["latency_ms"] = timeout * 1000
+            return result
+        except Exception as e:
+            result["error"] = str(e)[:60]
+            result["latency_ms"] = int((_time.time() - start) * 1000)
+            return result
 
     def _ensure_min_interval(self):
         """确保请求间隔（线程安全）"""
@@ -201,65 +362,22 @@ class BilibiliAPI:
         for attempt in range(max_retries + 1):
             try:
                 self._ensure_min_interval()
-
-                # 获取代理
-                proxy = self._get_proxy() if attempt > 0 else None
-
-                # 构建请求参数
-                request_kwargs = {"timeout": 15, **kwargs}
-                if proxy:
-                    request_kwargs["proxies"] = proxy
-
-                # 发送请求
+                request_kwargs = self._prepare_request_kwargs(attempt, **kwargs)
                 response = self.session.request(method, url, **request_kwargs)
 
                 # 检查HTTP状态码
                 if response.status_code == 412:
-                    self._consecutive_412_errors += 1
-                    logger.error(f"HTTP 412错误 (第{attempt + 1}次尝试)")
-                    if attempt < max_retries and not skip_retry:
-                        delay = self._get_retry_delay(attempt)
-                        logger.info(f"等待 {delay:.1f} 秒后重试...")
-                        time.sleep(delay)
-                        self._rotate_user_agent()
+                    if self._handle_http_412_response(attempt, max_retries, skip_retry):
                         continue
                     return None
 
                 response.raise_for_status()
                 data = response.json()
 
-                # 检查B站API错误码
-                if not isinstance(data, dict):
-                    return data
-
-                api_code = data.get("code", 0)
-
-                if api_code == 0:
-                    # 成功
-                    self._consecutive_412_errors = 0
-                    return data.get("data")
-
-                # 处理API错误
-                if self._is_412_error(data):
-                    self._consecutive_412_errors += 1
-                    error_code, error_msg = self._get_error_info(data)
-                    logger.error(f"B站API 412错误: {error_msg} (第{attempt + 1}次尝试)")
-
-                    if attempt < max_retries and not skip_retry:
-                        delay = self._get_retry_delay(attempt)
-                        logger.info(f"等待 {delay:.1f} 秒后重试...")
-                        time.sleep(delay)
-
-                        # 尝试绕过措施
-                        self._apply_bypass_measures(attempt)
-                        continue
-                    return None
-
-                # 其他API错误，不重试
-                if api_code != 0:
-                    logger.error(f"API错误 [{api_code}]: {data.get('message', '')}")
-
-                return data.get("data") if "data" in data else None
+                result, should_retry = self._handle_successful_response(data, attempt, max_retries, skip_retry)
+                if should_retry:
+                    continue
+                return result
 
             except requests.exceptions.Timeout:
                 last_error = "请求超时"
@@ -275,22 +393,72 @@ class BilibiliAPI:
                     logger.error(f"服务器错误 {response.status_code} (第{attempt + 1}次尝试)")
                 else:
                     logger.error(f"HTTP错误: {e}")
-                    break  # 非临时错误不重试
+                    break
 
             except Exception as e:
                 last_error = str(e)
                 logger.error(f"请求异常: {e}")
                 break
 
-            # 重试前等待
             if attempt < max_retries and not skip_retry:
                 delay = self._get_retry_delay(attempt)
                 logger.info(f"等待 {delay:.1f} 秒后重试...")
                 time.sleep(delay)
-                self._rotate_user_agent()
+                self._on_request_failure()
 
         logger.error(f"请求最终失败: {last_error}")
         return None
+
+    def _prepare_request_kwargs(self, attempt: int, **kwargs) -> Dict:
+        """构建请求参数：使用代理绑定UA，跳过失败过多的代理"""
+        idx, proxy, ua = self._get_proxy_binding()
+        self._current_request_proxy_idx = idx
+        request_kwargs = {"timeout": 15, **kwargs}
+        if proxy:
+            request_kwargs["proxies"] = proxy
+        if ua:
+            self.session.headers["User-Agent"] = ua
+        return request_kwargs
+
+    def _handle_http_412_response(self, attempt, max_retries, skip_retry) -> bool:
+        """处理HTTP 412响应，返回True表示应重试"""
+        self._consecutive_412_errors += 1
+        logger.error(f"HTTP 412错误 (第{attempt + 1}次尝试)")
+        if attempt < max_retries and not skip_retry:
+            delay = self._get_retry_delay(attempt)
+            logger.info(f"等待 {delay:.1f} 秒后重试...")
+            time.sleep(delay)
+            self._on_request_failure()
+            return True
+        return False
+
+    def _handle_successful_response(self, data, attempt, max_retries, skip_retry):
+        """处理成功获取的JSON响应，返回 (result_data, should_retry)"""
+        if not isinstance(data, dict):
+            return data, False
+
+        api_code = data.get("code", 0)
+
+        if api_code == 0:
+            self._consecutive_412_errors = 0
+            return data.get("data"), False
+
+        if self._is_412_error(data):
+            self._consecutive_412_errors += 1
+            error_code, error_msg = self._get_error_info(data)
+            logger.error(f"B站API 412错误: {error_msg} (第{attempt + 1}次尝试)")
+            if attempt < max_retries and not skip_retry:
+                delay = self._get_retry_delay(attempt)
+                logger.info(f"等待 {delay:.1f} 秒后重试...")
+                time.sleep(delay)
+                self._apply_bypass_measures(attempt)
+                return None, True
+            return None, False
+
+        if api_code != 0:
+            logger.error(f"API错误 [{api_code}]: {data.get('message', '')}")
+
+        return data.get("data") if "data" in data else None, False
 
     def _request_public(self, method: str, url: str, **kwargs) -> Any:
         """使用无Cookie的独立Session请求公开API（免登录回退）"""
@@ -334,8 +502,8 @@ class BilibiliAPI:
         """
         measures = []
 
-        # 1. 更换User-Agent
-        self._rotate_user_agent()
+        # 1. 更换User-Agent（当前代理绑定新UA）
+        self._on_request_failure()
         measures.append("已更换User-Agent")
 
         # 2. 临时增加最小请求间隔

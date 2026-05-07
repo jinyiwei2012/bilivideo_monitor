@@ -113,7 +113,7 @@ class ExtraTreesSimpleAlgorithm(BaseAlgorithm):
         return self._predict_tree(node.right, x)
 
     def _prepare_features(
-        self, views_seq: List[float], features_dict: Dict[str, float]
+        self, views_seq: np.ndarray, features_dict: Dict[str, float]
     ) -> Tuple[np.ndarray, np.ndarray]:
         """准备训练特征和目标"""
         n = len(views_seq)
@@ -135,41 +135,53 @@ class ExtraTreesSimpleAlgorithm(BaseAlgorithm):
         return np.array(X), np.array(y)
 
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
+        """执行预测"""
         current_views = video_data.get("view_count", 0)
         history = video_data.get("history_data", [])
         velocity = self.calculate_velocity(video_data)
 
         remaining = threshold - current_views
         if remaining <= 0:
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=0,
-                confidence=1.0,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={"method": "extra_trees"},
-                timestamp=datetime.now(),
-            )
+            return self._make_result(0, 1.0, current_views, velocity, {"method": "extra_trees"}, threshold)
 
         if len(history) < 6 or velocity <= 0:
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=predicted_hours,
-                confidence=0.3,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={"method": "extra_trees", "notes": "insufficient_data"},
-                timestamp=datetime.now(),
+            return self._make_result(
+                predicted_hours,
+                0.3,
+                current_views,
+                velocity,
+                {"method": "extra_trees", "notes": "insufficient_data"},
+                threshold,
             )
 
-        # 提取时序
-        timestamps = []
-        views_vals = []
+        views_sorted = self._extract_views(history)
+        if views_sorted is None or len(views_sorted) < 6:
+            return self._make_result(
+                remaining / velocity,
+                0.3,
+                current_views,
+                velocity,
+                {"method": "extra_trees_fallback"},
+                threshold,
+            )
+
+        try:
+            return self._predict_impl(views_sorted, current_views, velocity, remaining, threshold, video_data)
+        except Exception as e:
+            predicted_hours = remaining / velocity if velocity > 0 else float("inf")
+            return self._make_result(
+                predicted_hours,
+                0.0,
+                current_views,
+                velocity,
+                {"error": str(e)},
+                threshold,
+            )
+
+    def _extract_views(self, history):
+        """从历史记录中提取并排序播放量序列"""
+        timestamps, views_vals = [], []
         for h in history:
             ts = h.get("timestamp", 0)
             if hasattr(ts, "timestamp"):
@@ -181,124 +193,108 @@ class ExtraTreesSimpleAlgorithm(BaseAlgorithm):
                     continue
             timestamps.append(float(ts))
             views_vals.append(float(h.get("view_count", 0)))
-
         if len(views_vals) < 6:
+            return None
+        order = np.argsort(timestamps)
+        return np.array(views_vals, dtype=float)[order]
+
+    def _predict_impl(self, views_sorted, current_views, velocity, remaining, threshold, video_data):
+        """执行Extra Trees核心预测"""
+        n = len(views_sorted)
+
+        quality = self.get_quality_score(video_data)
+        engagement = self.get_engagement_rate(video_data)
+
+        # ── 训练Extra Trees ───────────────────────
+        X_train, y_train = self._prepare_features(views_sorted, {"quality": quality, "engagement": engagement})
+
+        if len(X_train) < 5:
+            return self._make_result(
+                remaining / velocity,
+                0.3,
+                current_views,
+                velocity,
+                {"method": "extra_trees_insufficient"},
+                threshold,
+            )
+
+        # 训练森林
+        self.trees = []
+        _ = random.random()
+        for _ in range(self.n_trees):
+            tree = self._build_tree(X_train, y_train)
+            self.trees.append(tree)
+
+        # ── 预测 ─────────────────────────────────
+        last_features = np.array(
+            [
+                views_sorted[-1] / max(views_sorted[-2], 1) - 1,
+                views_sorted[-2] / max(views_sorted[-3], 1) - 1,
+                views_sorted[-1] - views_sorted[-2],
+                np.mean(views_sorted[-7:]) if len(views_sorted) >= 7 else np.mean(views_sorted),
+                np.std(views_sorted[-7:]) / max(np.mean(views_sorted[-7:]), 1) if len(views_sorted) >= 7 else 0.1,
+            ]
+        )
+
+        # 所有树预测均值
+        tree_preds = [self._predict_tree(t, last_features) for t in self.trees]
+        predicted_daily_growth = np.mean(tree_preds)
+        pred_std = np.std(tree_preds)
+
+        # 用质量评分调整
+        predicted_daily_growth *= 0.8 + 0.4 * quality
+
+        if predicted_daily_growth <= 0:
+            predicted_daily_growth = velocity * 24
+
+        forecast_days = min(365, max(10, int((threshold - current_views) / max(predicted_daily_growth, 1)) + 5))
+
+        pred_views = float(current_views)
+        target_day = None
+        for day in range(1, forecast_days + 1):
+            decay = math.exp(-day / (28.0 + 14.0 * engagement))
+            growth = predicted_daily_growth * (decay * 0.7 + 0.3)
+            pred_views += max(0, growth)
+            if pred_views >= threshold:
+                target_day = day
+                break
+
+        if target_day is not None and target_day <= 365:
+            predicted_hours = target_day * 24
+            # 置信度: 树间一致性 + 数据量
+            consistency = max(0.0, 1.0 - pred_std / max(abs(np.mean(tree_preds)), 1))
+            conf = min(0.9, 0.3 + 0.25 * min(1.0, n / 20) + 0.2 * consistency + 0.15 * quality)
+        else:
             predicted_hours = remaining / velocity
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=predicted_hours,
-                confidence=0.3,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={"method": "extra_trees_fallback"},
-                timestamp=datetime.now(),
-            )
+            conf = 0.35
 
-        try:
-            order = np.argsort(timestamps)
-            views_sorted = [views_vals[i] for i in order]
-            n = len(views_sorted)
+        return self._make_result(
+            predicted_hours,
+            conf,
+            current_views,
+            velocity,
+            {
+                "method": "extra_trees",
+                "n_trees": self.n_trees,
+                "predicted_daily_growth": round(float(predicted_daily_growth), 2),
+                "tree_std": round(float(pred_std), 2),
+                "tree_consistency": round(float(consistency), 3),
+                "data_points": n,
+            },
+            threshold,
+        )
 
-            quality = self.get_quality_score(video_data)
-            engagement = self.get_engagement_rate(video_data)
-
-            # ── 训练Extra Trees ───────────────────────
-            X_train, y_train = self._prepare_features(views_sorted, {"quality": quality, "engagement": engagement})
-
-            if len(X_train) < 5:
-                predicted_hours = remaining / velocity
-                return PredictionResult(
-                    algorithm_name=self.name,
-                    algorithm_id=self.algorithm_id,
-                    target_threshold=threshold,
-                    predicted_hours=predicted_hours,
-                    confidence=0.3,
-                    current_views=current_views,
-                    current_velocity=velocity,
-                    metadata={"method": "extra_trees_insufficient"},
-                    timestamp=datetime.now(),
-                )
-
-            # 训练森林
-            self.trees = []
-            _ = random.random()
-            for _ in range(self.n_trees):
-                tree = self._build_tree(X_train, y_train)
-                self.trees.append(tree)
-
-            # ── 预测 ─────────────────────────────────
-            last_features = np.array(
-                [
-                    views_sorted[-1] / max(views_sorted[-2], 1) - 1,
-                    views_sorted[-2] / max(views_sorted[-3], 1) - 1,
-                    views_sorted[-1] - views_sorted[-2],
-                    np.mean(views_sorted[-7:]) if len(views_sorted) >= 7 else np.mean(views_sorted),
-                    np.std(views_sorted[-7:]) / max(np.mean(views_sorted[-7:]), 1) if len(views_sorted) >= 7 else 0.1,
-                ]
-            )
-
-            # 所有树预测均值
-            tree_preds = [self._predict_tree(t, last_features) for t in self.trees]
-            predicted_daily_growth = np.mean(tree_preds)
-            pred_std = np.std(tree_preds)
-
-            # 用质量评分调整
-            predicted_daily_growth *= 0.8 + 0.4 * quality
-
-            if predicted_daily_growth <= 0:
-                predicted_daily_growth = velocity * 24
-
-            forecast_days = min(365, max(10, int((threshold - current_views) / max(predicted_daily_growth, 1)) + 5))
-
-            pred_views = float(current_views)
-            target_day = None
-            for day in range(1, forecast_days + 1):
-                decay = math.exp(-day / (28.0 + 14.0 * engagement))
-                growth = predicted_daily_growth * (decay * 0.7 + 0.3)
-                pred_views += max(0, growth)
-                if pred_views >= threshold:
-                    target_day = day
-                    break
-
-            if target_day is not None and target_day <= 365:
-                predicted_hours = target_day * 24
-                # 置信度: 树间一致性 + 数据量
-                consistency = max(0.0, 1.0 - pred_std / max(abs(np.mean(tree_preds)), 1))
-                conf = min(0.9, 0.3 + 0.25 * min(1.0, n / 20) + 0.2 * consistency + 0.15 * quality)
-            else:
-                predicted_hours = remaining / velocity
-                conf = 0.35
-
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=predicted_hours,
-                confidence=conf,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={
-                    "method": "extra_trees",
-                    "n_trees": self.n_trees,
-                    "predicted_daily_growth": round(float(predicted_daily_growth), 2),
-                    "tree_std": round(float(pred_std), 2),
-                    "tree_consistency": round(float(consistency), 3),
-                    "data_points": n,
-                },
-                timestamp=datetime.now(),
-            )
-        except Exception as e:
-            predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=predicted_hours,
-                confidence=0.0,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={"error": str(e)},
-                timestamp=datetime.now(),
-            )
+    def _make_result(self, predicted_hours, confidence, current_views, velocity, metadata, threshold):
+        """构造 PredictionResult"""
+        metadata.setdefault("method", "extra_trees")
+        return PredictionResult(
+            algorithm_name=self.name,
+            algorithm_id=self.algorithm_id,
+            target_threshold=threshold,
+            predicted_hours=predicted_hours,
+            confidence=confidence,
+            current_views=current_views,
+            current_velocity=velocity,
+            metadata=metadata,
+            timestamp=datetime.now(),
+        )

@@ -25,7 +25,7 @@ import sys
 
 sys.path.insert(0, sys_path)
 
-from ui.theme import C, current_theme_name, apply_theme
+from ui.theme import C, init_theme
 from ui.helpers import (
     FONT,
     FONT_SM,
@@ -77,10 +77,7 @@ class BilibiliMonitorGUI:
 
         self.root = root
         self._set_window_icon()
-        _cfg = load_config()
-        _saved_theme = _cfg.get("ui", {}).get("theme", "dark")
-        apply_theme(root, _saved_theme)
-        self._initial_theme = _saved_theme
+        init_theme(root)
 
         # 状态变量
         self.auto_refresh_enabled = tk.BooleanVar(value=True)
@@ -271,7 +268,6 @@ class BilibiliMonitorGUI:
         # 创建图标按钮
         self._gear_btn = self._create_icon_button(right_f, "⚙️", self._popup_settings_menu, "设置")
         self._create_icon_button(right_f, "🔍", self._dialogs.open_video_search, "搜索")
-        self._create_theme_button(right_f)
         self._create_countdown_badge(right_f)
         self._create_mode_pill(right_f)
 
@@ -339,25 +335,6 @@ class BilibiliMonitorGUI:
             self._settings_menu.tk_popup(x, y)
         except Exception as e:
             logger.debug("弹出设置菜单失败: %s", e)
-
-    def _create_theme_button(self, parent):
-        """创建主题切换按钮"""
-        self._theme_btn = tk.Label(
-            parent,
-            text="🌙",
-            bg=C["bg_elevated"],
-            fg=C["text_2"],
-            font=("Microsoft YaHei UI", 11),
-            cursor="hand2",
-            padx=6,
-            pady=2,
-            relief="flat",
-        )
-        self._theme_btn.pack(side=tk.RIGHT, padx=2)
-        self._theme_btn.bind("<Button-1>", self._toggle_theme)
-        self._theme_btn.bind("<Enter>", lambda e: self._theme_btn.config(bg=C["bg_hover"], fg=C["text_1"]))
-        self._theme_btn.bind("<Leave>", lambda e: self._theme_btn.config(bg=C["bg_elevated"], fg=C["text_2"]))
-        self._theme_btn.config(text="☀️" if self._initial_theme == "light" else "🌙")
 
     def _create_countdown_badge(self, parent):
         """创建倒计时徽章"""
@@ -430,32 +407,6 @@ class BilibiliMonitorGUI:
             self._main_frame.pack(fill=tk.BOTH, expand=True)
             self.log_panel.stop_auto_refresh()
 
-    # ──────────────────────────────────────────
-    # 主题切换
-    # ──────────────────────────────────────────
-
-    def _toggle_theme(self, event=None):
-        new_theme = "light" if current_theme_name() == "dark" else "dark"
-        apply_theme(self.root, new_theme)
-        icon = "☀️" if new_theme == "light" else "🌙"
-        self._theme_btn.config(text=icon, bg=C["bg_elevated"], fg=C["text_2"])
-        self.log_panel.recolor()
-        if hasattr(self, "detail"):
-            self.detail.recolor_text_tags()
-            self.detail.chart_canvas.config(bg=C["bg_base"])
-            if self.selected_bvid:
-                video = self._get_video(self.selected_bvid)
-                if video:
-                    draw_chart(self.detail.chart_canvas, self.history_data, self.selected_bvid, video, FONT)
-        try:
-            config = load_config()
-            config.setdefault("ui", {})["theme"] = new_theme
-            save_config(config)
-        except Exception as e:
-            logger.debug("保存主题配置失败: %s", e)
-
-    # ──────────────────────────────────────────
-    # 业务逻辑（调度层，具体实现在 monitor_service）
     # ──────────────────────────────────────────
 
     def _get_video_interval(self, video):

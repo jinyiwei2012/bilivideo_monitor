@@ -9,10 +9,10 @@ from datetime import datetime
 from typing import List, Dict, Optional
 
 from .connection import _ConnectionCtx, _http_session
-
-logger = logging.getLogger(__name__)
 from .models import _validate_bvid, VideoInfo, MonitorRecord, PredictionRecord
 from .video_db import VideoDatabase
+
+logger = logging.getLogger(__name__)
 
 
 class Database:

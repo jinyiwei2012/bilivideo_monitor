@@ -8,8 +8,6 @@ from tkinter import ttk, messagebox
 import logging
 from typing import List, Dict, Optional
 
-logger = logging.getLogger(__name__)
-
 from ui.theme import C
 from ui.helpers import FONT, FONT_MONO
 from ui.dialog_base import DialogBase
@@ -18,6 +16,8 @@ from utils.weekly_score import (
     WeeklyScoreResult,
     calculate_weekly_score,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class WeeklyScoreWindow:

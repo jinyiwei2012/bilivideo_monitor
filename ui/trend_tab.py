@@ -8,10 +8,10 @@ from typing import List, Dict
 from datetime import datetime, timedelta
 import logging
 
-logger = logging.getLogger(__name__)
-
 from ui.theme import C
 from .data_comparison import _fmt, PALETTE, PALETTE_LIGHT, METRICS, _ML, _MR, _MT, _MB
+
+logger = logging.getLogger(__name__)
 
 
 class TrendTab:

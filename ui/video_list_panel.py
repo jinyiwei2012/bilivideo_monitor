@@ -10,18 +10,6 @@ import logging
 import requests as _req
 from io import BytesIO
 
-# 模块级共享 Session + 信号量（限制封面并发数）
-_cover_session = _req.Session()
-_cover_session.headers.update(
-    {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Referer": "https://www.bilibili.com/",
-    }
-)
-_cover_semaphore = threading.Semaphore(4)  # 最多 4 个并发下载
-
-logger = logging.getLogger(__name__)
-
 from ui.theme import C
 from ui.helpers import (
     FONT,
@@ -33,6 +21,18 @@ from ui.helpers import (
     nearest_threshold_gap,
     card_status_tag,
 )
+
+# 模块级共享 Session + 信号量（限制封面并发数）
+_cover_session = _req.Session()
+_cover_session.headers.update(
+    {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Referer": "https://www.bilibili.com/",
+    }
+)
+_cover_semaphore = threading.Semaphore(4)  # 最多 4 个并发下载
+
+logger = logging.getLogger(__name__)
 
 
 class VideoListPanel:

@@ -244,6 +244,22 @@ class MilestoneStatsWindow:
         if not raw:
             messagebox.showwarning("提示", "请先输入 BV 号", parent=self.window)
             return
+
+        bvids = self._parse_and_validate_bvids(raw)
+        if not bvids:
+            return
+
+        self._prompt_not_monitored_bvids(bvids)
+
+        periods = [p for p, v in self._period_vars.items() if v.get()]
+        if not periods:
+            messagebox.showwarning("提示", "请至少选择一个统计周期", parent=self.window)
+            return
+
+        self._populate_milestone_entry_rows(bvids, periods)
+
+    def _parse_and_validate_bvids(self, raw):
+        """解析并验证 BV 号。返回有效 BV 号列表，或 None（无有效 BV 号）。"""
         bvids, invalid = [], []
         for line in raw.splitlines():
             bv = line.strip()
@@ -259,7 +275,11 @@ class MilestoneStatsWindow:
                 "格式错误", "以下 BV 号格式不合法，已跳过：\n" + "\n".join(invalid), parent=self.window
             )
         if not bvids:
-            return
+            return None
+        return bvids
+
+    def _prompt_not_monitored_bvids(self, bvids):
+        """提示将不在监控列表的 BV 号加入监控。"""
         not_monitored = [b for b in bvids if b not in self._monitored_set]
         if not_monitored:
             msg = "以下 BV 号不在监控列表中：\n" + "\n".join(not_monitored[:10])
@@ -271,10 +291,9 @@ class MilestoneStatsWindow:
                     if self.on_add_monitor:
                         self.on_add_monitor(bv)
                     self._monitored_set.add(bv)
-        periods = [p for p, v in self._period_vars.items() if v.get()]
-        if not periods:
-            messagebox.showwarning("提示", "请至少选择一个统计周期", parent=self.window)
-            return
+
+    def _populate_milestone_entry_rows(self, bvids, periods):
+        """生成里程碑输入行 UI。"""
         for w in self._entry_container.winfo_children():
             w.destroy()
         self._entry_rows.clear()
