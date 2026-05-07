@@ -644,17 +644,22 @@ class SettingsWindow:
                 ok = result.get("ok", False)
                 if not ok:
                     failed_urls.append(proxy)
+                error_reason = r.get("error") or ""
                 self.window.after(0, lambda r=result, ok=ok, sl=sl, ll=ll,
-                                  cl=cl, ipl=ipl, al=al, il=il: (
+                                  cl=cl, ipl=ipl, al=al, il=il, err=error_reason: (
                     sl.configure(text="✅" if ok else "❌",
                                  fg=C["success"] if ok else C["danger"]),
                     ll.configure(text=f"{r.get('latency_ms', '—')}ms" if ok
-                                 else r.get("error", "—"),
+                                 else err,
                                  fg=C["success"] if ok else C["danger"]),
-                    cl.configure(text=r.get("country", "") or ""),
-                    ipl.configure(text=r.get("ip", "") or ""),
-                    al.configure(text=r.get("asn", "") or ""),
-                    il.configure(text=r.get("isp", "") or ""),
+                    cl.configure(text=(r.get("country") or "") if ok else f"✕ {err}",
+                                 fg=C["text_2"] if ok else C["danger"]),
+                    ipl.configure(text=r.get("ip") or ("—" if not ok else ""),
+                                  fg=C["text_2"]),
+                    al.configure(text=r.get("asn") or ("—" if not ok else ""),
+                                 fg=C["text_2"]),
+                    il.configure(text=r.get("isp") or ("—" if not ok else ""),
+                                 fg=C["text_2"]),
                 ))
             if failed_urls:
                 self.window.after(0, lambda: self._auto_remove_failed_proxies(failed_urls))
