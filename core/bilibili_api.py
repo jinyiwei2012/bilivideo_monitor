@@ -331,6 +331,9 @@ class BilibiliAPI:
                 return data.get("data")
         except Exception as e:
             logger.debug(f"公共API请求失败: {e}")
+            return None
+        finally:
+            public_session.close()
         return None
 
     def _get_retry_delay(self, attempt: int) -> float:
@@ -742,6 +745,8 @@ class BilibiliAPI:
         except Exception as e:
             logger.warning(f"获取二维码失败: {e}")
             return None
+        finally:
+            clean_session.close()
         return None
 
     def poll_qrcode_login(self, qrcode_key: str) -> Dict:

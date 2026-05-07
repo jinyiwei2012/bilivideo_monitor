@@ -31,7 +31,11 @@ class Database:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA synchronous=NORMAL")
-        self.init_database()
+        try:
+            self.init_database()
+        except Exception:
+            self._conn.close()
+            raise
 
     def _get_connection(self):
         """返回线程安全的连接上下文管理器（兼容 with 语法）"""
@@ -189,11 +193,10 @@ class Database:
         return VideoDatabase(bvid, self.data_dir)
 
     def sync_from_video_db(self, bvid: str) -> bool:
-        """从单个视频数据库同步到总数据库"""
+        """从单个视频数据库同步视频信息到总数据库（仅同步元数据，不包含监控记录）"""
+        video_db = None
         try:
             video_db = VideoDatabase(bvid, self.data_dir)
-
-            # 获取视频信息
             video_info = video_db.get_video_info()
             if video_info:
                 with self._get_connection() as conn:
@@ -231,45 +234,53 @@ class Database:
                         ),
                     )
                     conn.commit()
-
-            # 获取所有监控记录并同步（使用 executemany 批量插入）
-            records = video_db.get_all_records()
-            if records:
-                with self._get_connection() as conn:
-                    cursor = conn.cursor()
-                    rows = [
-                        (
-                            bvid,
-                            r["timestamp"],
-                            r["view_count"],
-                            r["like_count"],
-                            r["coin_count"],
-                            r["share_count"],
-                            r["favorite_count"],
-                            r["danmaku_count"],
-                            r["reply_count"],
-                            r["viewers_app"],
-                            r["viewers_web"],
-                            r["viewers_total"],
-                            r["like_view_ratio"],
-                        )
-                        for r in records
-                    ]
-                    cursor.executemany(
-                        """
-                        INSERT OR IGNORE INTO monitor_records
-                        (bvid, timestamp, view_count, like_count, coin_count, share_count,
-                         favorite_count, danmaku_count, reply_count, viewers_app,
-                         viewers_web, viewers_total, like_view_ratio)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                        rows,
-                    )
-                    conn.commit()
-
             return True
         except Exception as e:
             logger.warning("同步数据失败 %s: %s", bvid, e)
+            return False
+        finally:
+            if video_db:
+                video_db.close()
+
+    def sync_monitor_record(self, bvid: str, record: dict) -> bool:
+        """从内存同步单条监控记录到中央数据库（避免全量读取）"""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                like_view_ratio = record.get("like_view_ratio", 0)
+                if not like_view_ratio:
+                    vc = record.get("view_count", 0)
+                    lc = record.get("like_count", 0)
+                    if vc and lc:
+                        like_view_ratio = round(lc / vc, 6)
+                cursor.execute(
+                    """
+                    INSERT OR IGNORE INTO monitor_records
+                    (bvid, timestamp, view_count, like_count, coin_count, share_count,
+                     favorite_count, danmaku_count, reply_count, viewers_app,
+                     viewers_web, viewers_total, like_view_ratio)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                    (
+                        bvid,
+                        record.get("timestamp"),
+                        record.get("view_count", 0),
+                        record.get("like_count", 0),
+                        record.get("coin_count", 0),
+                        record.get("share_count", 0),
+                        record.get("favorite_count", 0),
+                        record.get("danmaku_count", 0),
+                        record.get("reply_count", 0),
+                        record.get("viewers_app", 0),
+                        record.get("viewers_web", 0),
+                        record.get("viewers_total", 0),
+                        like_view_ratio,
+                    ),
+                )
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.warning("同步监控记录失败 %s: %s", bvid, e)
             return False
 
     def sync_all_video_dbs(self) -> Dict[str, bool]:
