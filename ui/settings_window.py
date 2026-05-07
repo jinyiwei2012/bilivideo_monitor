@@ -13,6 +13,7 @@ from ui.theme import C
 from ui.helpers import FONT, FONT_SM
 from ui.dialog_base import DialogBase
 from core.bilibili_api import bilibili_api
+from core.proxy_manager import ProxyManager
 
 logger = logging.getLogger(__name__)
 
@@ -320,7 +321,7 @@ class SettingsWindow:
         )
         tk.Label(
             sec,
-            text="格式: http://host:port 或 http://user:pass@host:port",
+            text="格式: http://host:port 或 http://user:pass@host:port\n支持 HTTP/HTTPS/SOCKS4/SOCKS5 协议，自动识别协议类型",
             bg=C["bg_elevated"],
             fg=C["text_3"],
             font=FONT_SM,
@@ -337,7 +338,7 @@ class SettingsWindow:
             highlightthickness=1,
             highlightbackground=C["border"],
         )
-        self.proxy_text.pack(fill=tk.BOTH, expand=True, pady=6)
+        self.proxy_text.pack(fill=tk.X, pady=6)
         if self._net_cfg.get("proxies"):
             self.proxy_text.insert("1.0", "\n".join(self._net_cfg["proxies"]))
 
@@ -356,6 +357,39 @@ class SettingsWindow:
         url_entry = ttk.Entry(url_row, textvariable=self._test_url_var, font=FONT_SM)
         url_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 0))
 
+        # 内联检测结果区
+        result_container = tk.Frame(sec, bg=C["bg_base"], highlightthickness=1,
+                                    highlightbackground=C["border"])
+        result_container.pack(fill=tk.BOTH, expand=True, pady=(6, 4))
+        hdr_frame = tk.Frame(result_container, bg=C["bg_elevated"])
+        hdr_frame.pack(fill=tk.X, padx=1, pady=(1, 0))
+        for key, txt, expand, w in [
+            ("addr", "代理地址", True, 0),
+            ("status", "状态", False, 36),
+            ("latency", "延迟", False, 60),
+            ("country", "地区", False, 70),
+            ("asn", "ASN", False, 130),
+            ("isp", "ISP", False, 130),
+        ]:
+            tk.Label(hdr_frame, text=txt, bg=C["bg_elevated"], fg=C["text_3"],
+                     font=("Microsoft YaHei UI", 8, "bold"), width=w or None,
+                     anchor="e" if key == "latency" else "w").pack(
+                side=tk.LEFT, fill=tk.X if expand else None, expand=expand)
+
+        result_canvas = tk.Canvas(result_container, bg=C["bg_base"],
+                                  highlightthickness=0, height=120)
+        result_sb = ttk.Scrollbar(result_container, orient="vertical",
+                                  command=result_canvas.yview)
+        self._proxy_result_frame = tk.Frame(result_canvas, bg=C["bg_base"])
+        self._proxy_result_frame.bind(
+            "<Configure>",
+            lambda e: result_canvas.configure(scrollregion=result_canvas.bbox("all")),
+        )
+        result_canvas.create_window((0, 0), window=self._proxy_result_frame, anchor="nw")
+        result_canvas.configure(yscrollcommand=result_sb.set)
+        result_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        result_sb.pack(side=tk.RIGHT, fill=tk.Y)
+
         tk.Label(
             sec,
             text="使用代理可有效绕过IP级别的频率限制",
@@ -363,7 +397,7 @@ class SettingsWindow:
             fg=C["warning"],
             font=FONT_SM,
             anchor="w",
-        ).pack(fill=tk.X, pady=(6, 0))
+        ).pack(fill=tk.X, pady=(4, 0))
 
     # ──── Cookie ────
     def _build_cookie_tab(self, nb):
@@ -559,7 +593,7 @@ class SettingsWindow:
         self._check_proxies()
 
     def _check_proxies(self):
-        """测试每个代理的可用性、延迟、地区、ASN、ISP、响应数据"""
+        """测试每个代理的可用性、延迟、地区、ASN、ISP（内联显示）"""
         text = self.proxy_text.get("1.0", "end").strip()
         proxy_list = [line.strip() for line in text.split("\n") if line.strip()]
         if not proxy_list:
@@ -568,115 +602,79 @@ class SettingsWindow:
 
         test_url = self._test_url_var.get().strip()
 
-        top = tk.Toplevel(self.window)
-        top.title("代理可用性检测")
-        top.geometry("860x450")
-        top.configure(bg=C["bg_surface"])
-        top.transient(self.window)
-        top.grab_set()
+        # 清空旧结果
+        for w in self._proxy_result_frame.winfo_children():
+            w.destroy()
 
-        tk.Label(
-            top, text="正在测试代理可用性…", bg=C["bg_surface"], fg=C["text_1"],
-            font=("Microsoft YaHei UI", 11, "bold"),
-        ).pack(pady=(12, 4))
-
-        result_frame = tk.Frame(top, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
-        result_frame.pack(fill=tk.BOTH, expand=True, padx=16, pady=6)
-
-        # 表头
-        hdr = tk.Frame(result_frame, bg=C["bg_elevated"])
-        hdr.pack(fill=tk.X, padx=4, pady=(4, 0))
-        cols = [
-            ("status", 36, "状态"), ("latency", 60, "延迟"), ("country", 70, "地区"),
-            ("asn", 130, "ASN"), ("isp", 130, "ISP"), ("data", 200, "响应数据"), ("addr", 0, "代理地址"),
-        ]
-        for col_key, w, txt in cols:
-            anchor = "e" if col_key == "latency" else "w"
-            col_idx = [c[0] for c in cols].index(col_key)
-            lbl = tk.Label(hdr, text=txt, bg=C["bg_elevated"], fg=C["text_3"],
-                           font=("Microsoft YaHei UI", 8, "bold"), width=w if w else None, anchor=anchor)
-            lbl.grid(row=0, column=col_idx, sticky="w" if anchor == "w" else "e", padx=(0, 4))
-        hdr.grid_columnconfigure(len(cols) - 1, weight=1)
-
-        # 滚动列表
-        canvas = tk.Canvas(result_frame, bg=C["bg_base"], highlightthickness=0)
-        sb = ttk.Scrollbar(result_frame, orient="vertical", command=canvas.yview)
-        scroll_frame = tk.Frame(canvas, bg=C["bg_base"])
-        scroll_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
-        canvas.configure(yscrollcommand=sb.set)
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(4, 0), pady=4)
-        sb.pack(side=tk.RIGHT, fill=tk.Y, pady=4)
-
-        # 每个代理一行结果
         row_widgets = []
-        for i, proxy in enumerate(proxy_list):
-            row = tk.Frame(scroll_frame, bg=C["bg_base"])
-            row.pack(fill=tk.X, padx=4, pady=1)
-            status_lbl = tk.Label(row, text="⏳", bg=C["bg_base"], fg=C["text_2"], width=3)
-            status_lbl.grid(row=0, column=0, padx=(0, 4))
-            lat_lbl = tk.Label(row, text="—", bg=C["bg_base"], fg=C["text_2"],
-                               font=("Consolas", 9), width=7, anchor="e")
-            lat_lbl.grid(row=0, column=1, padx=(0, 4))
-            country_lbl = tk.Label(row, text="", bg=C["bg_base"], fg=C["text_2"],
-                                   font=("Consolas", 9), width=8, anchor="w")
-            country_lbl.grid(row=0, column=2, padx=(0, 4))
-            asn_lbl = tk.Label(row, text="", bg=C["bg_base"], fg=C["text_2"],
-                               font=("Consolas", 9), width=18, anchor="w")
-            asn_lbl.grid(row=0, column=3, padx=(0, 4))
-            isp_lbl = tk.Label(row, text="", bg=C["bg_base"], fg=C["text_2"],
-                               font=("Consolas", 9), width=20, anchor="w")
-            isp_lbl.grid(row=0, column=4, padx=(0, 4))
-            data_lbl = tk.Label(row, text="", bg=C["bg_base"], fg=C["text_2"],
-                                font=("Consolas", 9), anchor="w")
-            data_lbl.grid(row=0, column=5, sticky="w", padx=(0, 4))
+        for proxy in proxy_list:
+            row = tk.Frame(self._proxy_result_frame, bg=C["bg_base"])
+            row.pack(fill=tk.X, padx=2, pady=1)
             addr_lbl = tk.Label(row, text=proxy, bg=C["bg_base"], fg=C["text_1"],
                                 font=("Consolas", 9), anchor="w")
-            addr_lbl.grid(row=0, column=6, sticky="w")
-            row.columnconfigure(5, weight=1)
-            row_widgets.append((status_lbl, lat_lbl, country_lbl, asn_lbl, isp_lbl, data_lbl, addr_lbl))
-
-        progress_var = tk.DoubleVar(value=0)
-        progress_bar = ttk.Progressbar(top, variable=progress_var, maximum=len(proxy_list))
-        progress_bar.pack(fill=tk.X, padx=16, pady=(4, 8))
-
-        btn_f = tk.Frame(top, bg=C["bg_surface"])
-        btn_f.pack(pady=(0, 12))
-        ttk.Button(btn_f, text="关闭", command=top.destroy).pack(side=tk.LEFT, padx=4)
+            addr_lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            status_lbl = tk.Label(row, text="⏳", bg=C["bg_base"], fg=C["text_2"], width=3)
+            status_lbl.pack(side=tk.LEFT)
+            lat_lbl = tk.Label(row, text="—", bg=C["bg_base"], fg=C["text_2"],
+                               font=("Consolas", 9), width=18, anchor="w")
+            lat_lbl.pack(side=tk.LEFT)
+            country_lbl = tk.Label(row, text="", bg=C["bg_base"], fg=C["text_2"],
+                                   font=("Consolas", 9), width=8, anchor="w")
+            country_lbl.pack(side=tk.LEFT)
+            asn_lbl = tk.Label(row, text="", bg=C["bg_base"], fg=C["text_2"],
+                               font=("Consolas", 9), width=18, anchor="w")
+            asn_lbl.pack(side=tk.LEFT)
+            isp_lbl = tk.Label(row, text="", bg=C["bg_base"], fg=C["text_2"],
+                               font=("Consolas", 9), width=20, anchor="w")
+            isp_lbl.pack(side=tk.LEFT)
+            row_widgets.append((status_lbl, lat_lbl, country_lbl, asn_lbl, isp_lbl, addr_lbl))
 
         import threading
 
+        failed_urls = []
+
         def _run_checks():
-            for i, (proxy, widgets) in enumerate(zip(proxy_list, row_widgets)):
-                result = bilibili_api.test_proxy(proxy, test_url=test_url)
-                sl, ll, cl, al, il, dl, _ = widgets
+            for proxy, widgets in zip(proxy_list, row_widgets):
+                result = ProxyManager.test_proxy(proxy, test_url=test_url)
+                sl, ll, cl, al, il, _ = widgets
                 ok = result.get("ok", False)
-                data = result.get("data") or {}
-                data_text = ""
-                if data.get("title"):
-                    data_text = f"{data['title']} (播放: {data.get('view', 0)})"
-                top.after(0, lambda r=result, ok=ok, sl=sl, ll=ll,
-                          cl=cl, al=al, il=il, dl=dl,
-                          dt=data_text, pv=progress_var, idx=i: (
+                if not ok:
+                    failed_urls.append(proxy)
+                self.window.after(0, lambda r=result, ok=ok, sl=sl, ll=ll,
+                                  cl=cl, al=al, il=il: (
                     sl.configure(text="✅" if ok else "❌",
                                  fg=C["success"] if ok else C["danger"]),
-                    ll.configure(
-                        text=f"{r.get('latency_ms', '—')}ms" if ok else r.get("error", "—")[:10],
-                        fg=C["success"] if ok else C["danger"],
-                    ),
+                    ll.configure(text=f"{r.get('latency_ms', '—')}ms" if ok
+                                 else r.get("error", "—"),
+                                 fg=C["success"] if ok else C["danger"]),
                     cl.configure(text=r.get("country", "") or ""),
                     al.configure(text=r.get("asn", "") or ""),
                     il.configure(text=r.get("isp", "") or ""),
-                    dl.configure(text=dt),
-                    pv.set(idx + 1),
                 ))
-            top.after(0, lambda: (
-                progress_bar.destroy(),
-                tk.Label(top, text="检测完成", bg=C["bg_surface"], fg=C["success"],
-                         font=("Microsoft YaHei UI", 9, "bold")).pack(),
-            ))
+            if failed_urls:
+                self.window.after(0, lambda: self._auto_remove_failed_proxies(failed_urls))
 
         threading.Thread(target=_run_checks, daemon=True).start()
+
+    def _auto_remove_failed_proxies(self, failed_urls):
+        """测试完成后自动移除连接失败的代理"""
+        text = self.proxy_text.get("1.0", "end").strip()
+        lines = [l.strip() for l in text.split("\n") if l.strip()]
+        remaining = [l for l in lines if l not in failed_urls]
+        self.proxy_text.delete("1.0", "end")
+        self.proxy_text.insert("1.0", "\n".join(remaining))
+
+        bilibili_api.clear_proxies()
+        for ps in remaining:
+            bilibili_api.add_proxy({"http": ps, "https": ps})
+
+        self._net_cfg["proxies"] = remaining
+        self._save_net_config()
+
+        masked = ", ".join(ProxyManager.mask_url(u) for u in failed_urls)
+        msg = f"已自动移除 {len(failed_urls)} 个失效代理:\n{masked}"
+        logger.info(msg)
+        messagebox.showinfo("代理清理", msg, parent=self.window)
 
     # ──── Cookie: 刷新显示 ────
     def _refresh_cookie_display(self):
