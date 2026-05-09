@@ -9,6 +9,8 @@ import time
 import warnings
 from typing import Dict, List, Optional, Tuple
 
+import requests
+
 logger = logging.getLogger(__name__)
 
 
