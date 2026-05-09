@@ -31,9 +31,9 @@ class Dialogs:
         dialog.grab_set()
         dialog.resizable(False, False)
 
-        ctk.CTkLabel(dialog, text="普通刷新间隔（秒）：", text_color=C["text_1"], font=FONT, fg_color="transparent").pack(
-            pady=(20, 6)
-        )
+        ctk.CTkLabel(
+            dialog, text="普通刷新间隔（秒）：", text_color=C["text_1"], font=FONT, fg_color="transparent"
+        ).pack(pady=(20, 6))
 
         spin_f = ctk.CTkFrame(
             dialog, fg_color=C["bg_elevated"], border_width=1, border_color=C["border"], corner_radius=6
@@ -329,42 +329,42 @@ class Dialogs:
                 from algorithms.online_learner import get_online_learner
 
                 get_online_learner()
-                tk.Label(scrollable_frame, text="✅ 在线学习模块已加载", bg=C["bg_surface"], fg=C["success"], font=FONT).pack(
-                    anchor="w", padx=20, pady=2
-                )
+                tk.Label(
+                    scrollable_frame, text="✅ 在线学习模块已加载", bg=C["bg_surface"], fg=C["success"], font=FONT
+                ).pack(anchor="w", padx=20, pady=2)
             except ImportError:
-                tk.Label(scrollable_frame, text="❌ 在线学习模块未找到", bg=C["bg_surface"], fg=C["danger"], font=FONT).pack(
-                    anchor="w", padx=20, pady=2
-                )
+                tk.Label(
+                    scrollable_frame, text="❌ 在线学习模块未找到", bg=C["bg_surface"], fg=C["danger"], font=FONT
+                ).pack(anchor="w", padx=20, pady=2)
 
             # 因果推断模块
             try:
                 from algorithms.causal_inference import get_causal_analyzer  # noqa: F401
 
-                tk.Label(scrollable_frame, text="✅ 因果推断模块已加载", bg=C["bg_surface"], fg=C["success"], font=FONT).pack(
-                    anchor="w", padx=20, pady=2
-                )
+                tk.Label(
+                    scrollable_frame, text="✅ 因果推断模块已加载", bg=C["bg_surface"], fg=C["success"], font=FONT
+                ).pack(anchor="w", padx=20, pady=2)
             except ImportError:
-                tk.Label(scrollable_frame, text="❌ 因果推断模块未找到", bg=C["bg_surface"], fg=C["danger"], font=FONT).pack(
-                    anchor="w", padx=20, pady=2
-                )
+                tk.Label(
+                    scrollable_frame, text="❌ 因果推断模块未找到", bg=C["bg_surface"], fg=C["danger"], font=FONT
+                ).pack(anchor="w", padx=20, pady=2)
 
             # 图神经网络模块
             try:
                 from algorithms.graph_neural import get_video_graph  # noqa: F401
 
-                tk.Label(scrollable_frame, text="✅ 图神经网络模块已加载", bg=C["bg_surface"], fg=C["success"], font=FONT).pack(
-                    anchor="w", padx=20, pady=2
-                )
+                tk.Label(
+                    scrollable_frame, text="✅ 图神经网络模块已加载", bg=C["bg_surface"], fg=C["success"], font=FONT
+                ).pack(anchor="w", padx=20, pady=2)
             except ImportError:
-                tk.Label(scrollable_frame, text="❌ 图神经网络模块未找到", bg=C["bg_surface"], fg=C["danger"], font=FONT).pack(
-                    anchor="w", padx=20, pady=2
-                )
+                tk.Label(
+                    scrollable_frame, text="❌ 图神经网络模块未找到", bg=C["bg_surface"], fg=C["danger"], font=FONT
+                ).pack(anchor="w", padx=20, pady=2)
 
         except Exception as e:
-            tk.Label(scrollable_frame, text=f"加载算法信息失败: {e}", bg=C["bg_surface"], fg=C["danger"], font=FONT).pack(
-                padx=20, pady=20
-            )
+            tk.Label(
+                scrollable_frame, text=f"加载算法信息失败: {e}", bg=C["bg_surface"], fg=C["danger"], font=FONT
+            ).pack(padx=20, pady=20)
 
         # 布局滚动区域
         canvas.pack(side="left", fill="both", expand=True, padx=(20, 0), pady=10)
