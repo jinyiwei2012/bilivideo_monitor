@@ -11,9 +11,7 @@ UP主数据多源获取器
 每个源的 HTTP 栈、UA、认证方式均不同，单个源被限流不影响其他源。
 """
 
-import json
 import logging
-import time
 from typing import Dict, List, Optional, Callable
 
 logger = logging.getLogger(__name__)
@@ -23,15 +21,13 @@ _HAS_BILIBILI_API = False
 _HAS_CURL_CFFI = False
 
 try:
-    import bilibili_api as _ba
-
+    __import__("bilibili_api")
     _HAS_BILIBILI_API = True
 except ImportError:
     pass
 
 try:
-    import curl_cffi.requests as _curl
-
+    __import__("curl_cffi.requests")
     _HAS_CURL_CFFI = True
 except ImportError:
     pass
@@ -145,6 +141,7 @@ def search_up_users_multi(keyword: str, page: int, own_api_search: Callable) -> 
 # ══════════════════════════════════════════════════════════
 # Source A — bilibili-api-python
 # ══════════════════════════════════════════════════════════
+
 
 def _source_a_up_info(uid: int) -> Optional[Dict]:
     try:

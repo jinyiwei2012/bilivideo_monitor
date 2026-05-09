@@ -298,7 +298,6 @@ def load_all_model_algorithms() -> List[ModelAlgorithmAdapter]:
 
                     # 是类且是BaseAlgorithm的子类
                     if isinstance(attr, type) and attr_name.endswith("Algorithm"):
-
                         try:
                             base_names = [b.__name__ for b in attr.__bases__]
                             if "BaseAlgorithm" in base_names or "BasePredictionAlgorithm" in base_names:
