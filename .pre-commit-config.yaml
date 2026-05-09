@@ -15,7 +15,7 @@ repos:
     rev: 23.3.0
     hooks:
       - id: black
-        language_version: python3.10
+        language_version: python3.12
         args: ['--line-length=120']
         exclude: ^(data/|exports/|.workbuddy/)
 
@@ -24,11 +24,13 @@ repos:
     hooks:
       - id: flake8
         additional_dependencies: [flake8-docstrings]
-        exclude: ^(data/|exports/|.workbuddy/)
+        exclude: ^(data/|exports/|.workbuddy/|README.md|CHANGELOG.md)
 
   - repo: https://github.com/PyCQA/bandit
     rev: 1.7.5
     hooks:
       - id: bandit
         args: ["-c", "pyproject.toml", "-r", "."]
+        additional_dependencies: [pbr]
+        stages: [push]
         exclude: ^(tests/|data/|exports/|.workbuddy/)

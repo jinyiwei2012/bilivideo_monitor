@@ -38,18 +38,10 @@ class AIQAWindow:
         # 快捷问题按钮
         quick = tk.Frame(self.dlg.container, bg=C["bg_surface"])
         quick.pack(fill=tk.X, padx=24, pady=(10, 0))
-        ttk.Button(quick, text="📊 当前监控多少视频？", command=lambda: self._quick_ask("当前监控多少视频？")).pack(
-            side=tk.LEFT, padx=2
-        )
-        ttk.Button(quick, text="⚡ 哪个增长最快？", command=lambda: self._quick_ask("哪个视频增长最快？")).pack(
-            side=tk.LEFT, padx=2
-        )
-        ttk.Button(quick, text="🏆 播放量排行", command=lambda: self._quick_ask("播放量排行？")).pack(
-            side=tk.LEFT, padx=2
-        )
-        ttk.Button(quick, text="⚠️ 有无异常预警", command=lambda: self._quick_ask("有无异常预警？")).pack(
-            side=tk.LEFT, padx=2
-        )
+        ttk.Button(quick, text="📊 当前监控多少视频？", command=lambda: self._quick_ask("当前监控多少视频？")).pack(side=tk.LEFT, padx=2)
+        ttk.Button(quick, text="⚡ 哪个增长最快？", command=lambda: self._quick_ask("哪个视频增长最快？")).pack(side=tk.LEFT, padx=2)
+        ttk.Button(quick, text="🏆 播放量排行", command=lambda: self._quick_ask("播放量排行？")).pack(side=tk.LEFT, padx=2)
+        ttk.Button(quick, text="⚠️ 有无异常预警", command=lambda: self._quick_ask("有无异常预警？")).pack(side=tk.LEFT, padx=2)
 
         # 对话区
         chat_frame = tk.Frame(

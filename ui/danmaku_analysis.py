@@ -510,9 +510,7 @@ class DanmakuAnalysisWindow:
             prompt += f"{i}. {t}\n"
 
         if self.gui and hasattr(self.gui, "log_panel"):
-            self.gui.log_panel.add_log(
-                "INFO", f"LLM分析请求已发送（{self._current_bvid}，{mode}，{len(self._texts)}条）"
-            )
+            self.gui.log_panel.add_log("INFO", f"LLM分析请求已发送（{self._current_bvid}，{mode}，{len(self._texts)}条）")
         return prompt
 
     def _llm_worker(self, api_key, endpoint, model, mode, prompt):
