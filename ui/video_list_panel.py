@@ -21,6 +21,7 @@ from ui.helpers import (
     nearest_threshold_gap,
     card_status_tag,
 )
+from utils.cover_manager import get_valid_cover, save_cover
 
 # 模块级共享 Session + 信号量（限制封面并发数）
 _cover_session = _req.Session()
@@ -151,7 +152,7 @@ class VideoListPanel:
         thumb_frame.pack_propagate(False)
         thumb = ctk.CTkLabel(thumb_frame, text="", fg_color=C["bg_elevated"])
         thumb.pack(expand=True)
-        self._load_cover_thumb(video.get("pic", ""), bvid, thumb)
+        self._load_cover_thumb(video.get("pic", ""), bvid, thumb, title)
         info = ctk.CTkFrame(top, fg_color=C["bg_surface"], corner_radius=0)
         info.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(8, 0))
 
@@ -298,8 +299,30 @@ class VideoListPanel:
     # 封面异步加载
     # ──────────────────────────────────────────
 
-    def _load_cover_thumb(self, url, bvid, label_widget):
-        """异步加载卡片封面缩略图（80×45）"""
+    @staticmethod
+    def _make_thumb_photo(img):
+        """将 PIL Image 缩放到 80×45 并包装为 CTkImage"""
+        from PIL import Image
+
+        w, h = img.size
+        target_w, target_h = 80, 45
+        ratio = min(target_w / w, target_h / h)
+        new_w, new_h = int(w * ratio), int(h * ratio)
+        img = img.resize((new_w, new_h), Image.LANCZOS)
+        return ctk.CTkImage(light_image=img, size=(new_w, new_h))
+
+    def _cache_and_show(self, cache_key, ph, label_widget):
+        """缓存 CTkImage 并显示到控件"""
+        self._cover_cache[cache_key] = ph
+        if len(self._cover_cache) > 50:
+            try:
+                self._cover_cache.pop(next(iter(self._cover_cache)))
+            except (StopIteration, KeyError):
+                pass
+        self.gui.root.after(0, lambda: self._safe_set_image(label_widget, ph))
+
+    def _load_cover_thumb(self, url, bvid, label_widget, title=""):
+        """异步加载卡片封面缩略图（80×45），优先使用本地缓存"""
         cache_key = (bvid, "thumb")
         if cache_key in self._cover_cache:
             label_widget.configure(image=self._cover_cache[cache_key], text="")
@@ -314,24 +337,19 @@ class VideoListPanel:
             try:
                 from PIL import Image
 
+                # 先尝试从本地加载
+                local = get_valid_cover(bvid, title)
+                if local is not None:
+                    ph = self._make_thumb_photo(Image.open(local))
+                    self._cache_and_show(cache_key, ph, label_widget)
+                    return
+
                 r = _cover_session.get(url, timeout=8)
                 if r.status_code != 200:
                     return
-                img = Image.open(BytesIO(r.content))
-                w, h = img.size
-                target_w, target_h = 80, 45
-                ratio = min(target_w / w, target_h / h)
-                new_w, new_h = int(w * ratio), int(h * ratio)
-                img = img.resize((new_w, new_h), Image.LANCZOS)
-                ph = ctk.CTkImage(light_image=img, size=(new_w, new_h))
-                self._cover_cache[cache_key] = ph
-                # 限制封面缓存上限 50 个，淘汰最久未使用项
-                if len(self._cover_cache) > 50:
-                    try:
-                        self._cover_cache.pop(next(iter(self._cover_cache)))
-                    except (StopIteration, KeyError):
-                        pass
-                self.gui.root.after(0, lambda: self._safe_set_image(label_widget, ph))
+                save_cover(bvid, r.content, title)
+                ph = self._make_thumb_photo(Image.open(BytesIO(r.content)))
+                self._cache_and_show(cache_key, ph, label_widget)
             except Exception as e:
                 logger.warning("缩略图加载失败 %s: %s", bvid, e)
             finally:

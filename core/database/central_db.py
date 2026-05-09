@@ -450,22 +450,19 @@ class Database:
             return False
 
     def download_cover(self, bvid: str, pic_url: str) -> str:
-        """下载视频封面"""
+        """下载视频封面到集中管理的 cover 目录"""
         try:
             _validate_bvid(bvid)
-            cover_dir = os.path.join(os.path.dirname(self.db_path), "cover")
-            os.makedirs(cover_dir, exist_ok=True)
+            from utils.cover_manager import save_cover, get_valid_cover
 
-            cover_path = os.path.join(cover_dir, f"{bvid}.jpg")
-
-            if os.path.exists(cover_path):
-                return cover_path
+            local = get_valid_cover(bvid)
+            if local is not None:
+                return local
 
             response = _http_session.get(pic_url, timeout=10)
             if response.status_code == 200:
-                with open(cover_path, "wb") as f:
-                    f.write(response.content)
-                return cover_path
+                path = save_cover(bvid, response.content)
+                return path or ""
         except Exception as e:
             logger.warning("下载封面失败 %s: %s", bvid, e)
         return ""
