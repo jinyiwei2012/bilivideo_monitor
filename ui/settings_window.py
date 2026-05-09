@@ -7,6 +7,7 @@ import json
 import os
 import re
 import tkinter as tk
+import webbrowser
 import logging
 from tkinter import ttk, messagebox
 
@@ -100,6 +101,7 @@ class SettingsWindow:
         self._build_cookie_tab(nb)
         self._build_retry_tab(nb)
         self._build_status_tab(nb)
+        self._build_about_tab(nb)
 
         self.dlg.button_row(
             [
@@ -653,6 +655,86 @@ class SettingsWindow:
         ttk.Button(btn_s, text="重置状态", command=self._reset_status).pack(side=tk.LEFT, padx=4)
 
         self._refresh_status()
+
+    # ──── 关于作者 ────
+    def _build_about_tab(self, nb):
+        page = tk.Frame(nb, bg=C["bg_base"])
+        nb.add(page, text="  关于作者  ")
+
+        from __init__ import __version__, __author__
+
+        # 项目信息
+        sec1 = tk.Frame(page, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
+        sec1.pack(fill=tk.X, padx=16, pady=(16, 6), ipadx=10, ipady=10)
+        tk.Label(
+            sec1, text="项目信息", bg=C["bg_elevated"], fg=C["text_2"],
+            font=("Microsoft YaHei UI", 9, "bold")
+        ).pack(anchor="w")
+
+        rows = [
+            ("项目名称", "B站视频监控与播放量预测系统"),
+            ("版本号", f"v{__version__}"),
+            ("作者", __author__),
+        ]
+        for label, value in rows:
+            f = tk.Frame(sec1, bg=C["bg_elevated"])
+            f.pack(fill=tk.X, pady=2)
+            tk.Label(
+                f, text=label, bg=C["bg_elevated"], fg=C["text_3"], font=FONT, width=12, anchor="w"
+            ).pack(side=tk.LEFT)
+            tk.Label(
+                f, text=value, bg=C["bg_elevated"], fg=C["text_1"], font=FONT, anchor="w"
+            ).pack(side=tk.LEFT)
+
+        # 链接
+        sec2 = tk.Frame(page, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
+        sec2.pack(fill=tk.X, padx=16, pady=6, ipadx=10, ipady=10)
+        tk.Label(
+            sec2, text="相关链接", bg=C["bg_elevated"], fg=C["text_2"],
+            font=("Microsoft YaHei UI", 9, "bold")
+        ).pack(anchor="w")
+
+        links = [
+            ("GitHub", "https://github.com/jinyiwei2012/bilivideo_monitor",
+             "项目源代码，欢迎 Star ⭐"),
+            ("B站主页", "https://space.bilibili.com/1610751976",
+             "作者的 Bilibili 个人空间"),
+        ]
+        for title, url, desc in links:
+            f = tk.Frame(sec2, bg=C["bg_elevated"])
+            f.pack(fill=tk.X, pady=2)
+            tk.Label(
+                f, text=title, bg=C["bg_elevated"], fg=C["text_3"], font=FONT, width=12, anchor="w"
+            ).pack(side=tk.LEFT)
+            link_lbl = tk.Label(
+                f, text=url, bg=C["bg_elevated"], fg=C["bilibili"], font=FONT, cursor="hand2",
+                anchor="w"
+            )
+            link_lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            link_lbl.bind("<Button-1>", lambda e, u=url: webbrowser.open(u))
+            link_lbl.bind(
+                "<Enter>", lambda e: e.widget.config(fg=C.get("accent", "#00a1d6"))
+            )
+            link_lbl.bind(
+                "<Leave>", lambda e: e.widget.config(fg=C["bilibili"])
+            )
+
+        # 描述
+        sec3 = tk.Frame(page, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
+        sec3.pack(fill=tk.X, padx=16, pady=(6, 16), ipadx=10, ipady=10)
+        tk.Label(
+            sec3, text="说明", bg=C["bg_elevated"], fg=C["text_2"],
+            font=("Microsoft YaHei UI", 9, "bold")
+        ).pack(anchor="w")
+        desc_text = (
+            "本系统用于监控 Bilibili 视频播放量增长趋势，"
+            "支持 55 种预测算法、多阈值告警、QQ 机器人通知等功能。\n\n"
+            "如果您觉得本项目对您有帮助，欢迎在 GitHub 上给项目点一个 Star！"
+        )
+        tk.Label(
+            sec3, text=desc_text, bg=C["bg_elevated"], fg=C["text_2"],
+            font=FONT, anchor="w", justify="left", wraplength=500
+        ).pack(anchor="w", fill=tk.X)
 
     # ═══════════════════════════════════════════════════
 

@@ -310,7 +310,7 @@ class BilibiliAPI:
         return data.get("data") if "data" in data else None, False
 
     def _request_public(self, method: str, url: str, **kwargs) -> Any:
-        """使用无Cookie的独立Session请求公开API（免登录回退）"""
+        """使用无Cookie的独立Session请求公开API（免登录回退，支持代理绑定）"""
         import requests as _req
 
         public_session = _req.Session()
@@ -320,6 +320,12 @@ class BilibiliAPI:
                 "Referer": "https://www.bilibili.com/",
             }
         )
+        # 绑定代理
+        idx, proxy, ua = self.proxy_manager.get_proxy_binding()
+        if proxy:
+            public_session.proxies.update(proxy)
+            public_session.headers["User-Agent"] = ua or public_session.headers["User-Agent"]
+            kwargs.setdefault("verify", False)  # nosec
         logger.debug("→ [public] %s %s", method.upper(), url.split("?")[0])
         try:
             resp = public_session.request(method, url, timeout=15, **kwargs)
@@ -456,38 +462,43 @@ class BilibiliAPI:
 
     # ── UP主相关 ──────────────────────────────────────────
     def search_up_users(self, keyword: str, page: int = 1, order: str = "fans") -> List[Dict]:
-        """按用户名搜索UP主
+        """多源搜索UP主"""
+        from core.up_fetcher import search_up_users_multi
 
-        Args:
-            keyword: 用户名关键词
-            page: 页码
-            order: 排序方式，默认按粉丝数 ("fans"/"level"/"0")
+        return search_up_users_multi(keyword, page, self._own_search_up_users)
 
-        Returns:
-            [{"mid": int, "uname": str, "usign": str, "fans": int, "videos": int,
-              "level": int, "upic": str, "is_live": bool, "room_id": int}, ...]
-        """
+    def _own_search_up_users(self, keyword: str, page: int) -> List[Dict]:
+        """自有 API 实现：按用户名搜索UP主"""
         url = f"{self.BASE_URL}/x/web-interface/wbi/search/type"
         params = {
             "search_type": "bili_user",
             "keyword": keyword,
             "page": page,
-            "user_type": 1,  # 1=UP主
+            "user_type": 1,
         }
-        if order:
-            params["order"] = order
         params = self._wbi_sign(params)
         data = self._request("GET", url, params=params)
+
+        if data is None:
+            url2 = f"{self.BASE_URL}/x/web-interface/search/type"
+            params2 = {"search_type": "bili_user", "keyword": keyword, "page": page}
+            data = self._request_public("GET", url2, params=params2)
+
         if data and "result" in data:
             return data["result"]
         return []
 
     def get_up_info(self, uid: int) -> Optional[Dict]:
-        """获取UP主基本信息（先试带Cookie请求，-401时用无Cookie回退）"""
-        data = self._request("GET", f"{self.BASE_URL}/x/space/acc/info", params={"mid": uid})
-        # -401 非法访问 → Cookie 过期，用免登录方式重试
+        """多源获取UP主基本信息（优先无Cookie请求避免412）"""
+        from core.up_fetcher import get_up_info_multi
+
+        return get_up_info_multi(uid, self._own_get_up_info)
+
+    def _own_get_up_info(self, uid: int) -> Optional[Dict]:
+        """自有 API 实现：获取UP主基本信息"""
+        data = self._request_public("GET", f"{self.BASE_URL}/x/space/acc/info", params={"mid": uid})
         if data is None:
-            data = self._request_public("GET", f"{self.BASE_URL}/x/space/acc/info", params={"mid": uid})
+            data = self._request("GET", f"{self.BASE_URL}/x/space/acc/info", params={"mid": uid})
         if data:
             return {
                 "uid": data.get("mid", uid),
@@ -502,6 +513,37 @@ class BilibiliAPI:
             }
         return None
 
+    def _calc_up_stat_from_videos(self, uid: int, max_pages: int = 5) -> Optional[Dict]:
+        """从UP主视频列表逐页汇总总播放量和总点赞数（兜底方案）"""
+        total_views = 0
+        total_likes = 0
+        try:
+            for page in range(1, max_pages + 1):
+                url = f"{self.BASE_URL}/x/space/arc/search"
+                params = {"mid": uid, "pn": page, "ps": 30}
+                data = self._request_public("GET", url, params=params)
+                if data is None:
+                    data = self._request("GET", url, params=params)
+                if not data:
+                    break
+                vlist = []
+                if "list" in data and "vlist" in data["list"]:
+                    vlist = data["list"]["vlist"]
+                elif "vlist" in data:
+                    vlist = data["vlist"]
+                if not vlist:
+                    break
+                for v in vlist:
+                    total_views += int(v.get("play", 0))
+                    total_likes += int(v.get("like", 0))
+                if len(vlist) < 30:
+                    break
+            if total_views > 0:
+                return {"total_views": total_views, "total_likes": total_likes}
+        except Exception as e:
+            logger.warning("从视频列表汇总数据失败 UID:%s: %s", uid, e)
+        return None
+
     def get_up_videos(self, uid: int, page: int = 1, page_size: int = 30) -> List[Dict]:
         """获取UP主视频列表"""
         url = f"{self.BASE_URL}/x/space/arc/search"
@@ -514,9 +556,16 @@ class BilibiliAPI:
         return []
 
     def get_up_stat(self, uid: int) -> Optional[Dict]:
-        """获取UP主统计数据（总播放/总点赞/粉丝趋势）"""
-        url = f"{self.BASE_URL}/x/space/upstat"
-        data = self._request("GET", url, params={"mid": uid})
+        """多源获取UP主统计数据（总播放/总点赞/粉丝趋势）"""
+        from core.up_fetcher import get_up_stat_multi
+
+        return get_up_stat_multi(uid, self._own_get_up_stat)
+
+    def _own_get_up_stat(self, uid: int) -> Optional[Dict]:
+        """自有 API 实现：获取UP主统计数据"""
+        data = self._request("GET", f"{self.BASE_URL}/x/space/upstat", params={"mid": uid})
+        if data is None:
+            data = self._request_public("GET", f"{self.BASE_URL}/x/space/upstat", params={"mid": uid})
         if data:
             return {
                 "total_views": data.get("archive", {}).get("view", 0),
@@ -528,7 +577,8 @@ class BilibiliAPI:
                     else data.get("follower", 0)
                 ),
             }
-        return None
+        logger.info("upstat 接口不可用，尝试从视频列表汇总总播放量 UID:%s", uid)
+        return self._calc_up_stat_from_videos(uid)
 
     # ── WBI签名 ───────────────────────────────────────────
     def _refresh_wbi_key(self):

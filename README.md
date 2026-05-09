@@ -85,9 +85,14 @@ b站监控/
 │   │   ├── connection.py       # 连接管理（线程安全上下文）
 │   │   ├── video_db.py         # 单视频数据库（按 BV 分库）
 │   │   └── central_db.py       # 中央数据库（全局实例 db）
-│   ├── bilibili_api.py         # B站 API 封装（412 重试、代理轮换、Cookie 持久化）
-│   ├── notification.py         # 通知管理
-│   └── up_database.py          # UP 主数据管理
+│   ├── bilibili_api.py         # B站 API 封装（412 重试、代理轮换、WBI 签名、Cookie 持久化）
+│   ├── notification.py         # 通知管理（Windows 原生通知 + QQ Bot）
+│   ├── proxy_manager.py        # 代理管理器（轮询、可用性检测、UA 绑定、失败自动剔除）
+│   ├── smart_alert.py          # 智能告警（异常增长检测、趋势反转）
+│   ├── up_database.py          # UP 主数据管理
+│   └── data/                   # 数据库运行时文件（自动生成）
+│       ├── bilibili_monitor.db # 中央数据库
+│       └── <BV号>/             # 按视频分库
 │
 ├── ui/                         # 界面模块
 │   ├── main_gui.py             # 主界面（三栏布局控制器 + 全局时钟）
@@ -120,21 +125,37 @@ b站监控/
 │   └── weekly_score.py         # 周报评分
 │
 ├── utils/                      # 工具模块
+│   ├── __init__.py
 │   ├── ai_qa.py                # LLM API 调用（多供应商兼容）
+│   ├── cover_manager.py        # 封面管理器（本地缓存、MD5 校验、按需重下载）
 │   ├── file_logger.py          # 日志记录（按时间段命名，跨天切分）
+│   ├── interaction_quality.py  # 一键三连健康探针 / 评分
 │   ├── weekly_score.py         # 周刊评分计算
 │   ├── yearly_score.py         # 年刊评分计算
 │   ├── report_exporter.py      # 报告导出（CSV/JSON）
 │   └── sentiment_analyzer.py   # 情感分析工具
 │
 ├── assets/                     # 静态资源
-│   └── app_icon.png            # 应用图标
+│   ├── app_icon.png            # 应用图标（PNG）
+│   └── app_icon.ico            # 应用图标（ICO）
 │
 ├── data/                       # 运行时数据（不入库）
-    ├── settings.json           # 监控列表与配置
-    ├── network_config.json     # 网络配置（代理、Cookie）
-    ├── <BV号>/                 # 每个视频独立数据库
-    └── log/                    # 日志文件
+│   ├── settings.json           # 监控列表与配置
+│   ├── network_config.json     # 网络配置（代理、Cookie）
+│   ├── bilibili_monitor.db     # 中央数据库（摘要同步）
+│   ├── cover/                  # 封面图片缓存
+│   ├── exports/                # CSV/JSON 导出文件
+│   ├── <BV号>/                 # 每个视频独立数据库（data/<BV>/<BV>.db）
+│   └── log/                    # 日志文件
+│
+├── .flake8                     # Flake8 配置
+├── .gitignore
+├── .pre-commit-config.yaml     # Pre-commit 钩子配置
+├── CLAUDE.md                   # Claude Code 项目指令
+├── CODE_REVIEW.md              # 代码审查指南
+├── mypy.ini                    # MyPy 类型检查配置
+├── pyproject.toml              # 项目工具配置（Bandit 等）
+├── start.bat                   # Windows 快速启动脚本
 ```
 
 ## 从零开始运行
@@ -148,8 +169,8 @@ b站监控/
 ### 第一步：克隆项目
 
 ```bash
-git clone https://github.com/your-repo/bilibili-monitor.git
-cd bilibili-monitor
+git clone https://github.com/jinyiwei2012/bilivideo_monitor.git
+cd bilivideo-monitor
 ```
 
 > 如果已下载 ZIP 压缩包，解压后进入目录即可，无需 git 命令。
@@ -295,6 +316,7 @@ socks5://127.0.0.1:1080
 | Cookie设置 | 扫码登录 / Cookie 导入 |
 | 重试参数 | 请求重试策略 |
 | 运行状态 | API 连接状态一览 |
+| 关于作者 | 项目信息、GitHub 仓库、B站主页链接 |
 
 
 ## 使用说明
@@ -347,7 +369,7 @@ socks5://127.0.0.1:1080
 - 请合理使用 API，监控间隔建议 5 分钟以上
 - 预测结果仅供参考，实际播放量受多种因素影响
 - QQ Bot 需自行搭建 OneBot 协议服务端
-- 数据库文件按 BV 号独立存储在 `data/` 下
+- 数据库文件按 BV 号独立存储在 `core/data/` 下（中央库在 `data/` 下）
 - LLM 功能需自行配置 API Key
 
 ## 从零开始开发
@@ -356,8 +378,8 @@ socks5://127.0.0.1:1080
 
 ```bash
 # 1. 克隆仓库
-git clone https://github.com/your-repo/bilibili-monitor.git
-cd bilibili-monitor
+git clone https://github.com/jinyiwei2012/bilivideo_monitor.git
+cd bilivideo-monitor
 
 # 2. 创建开发环境（推荐 Conda）
 conda create -n bilibili-dev python=3.10
@@ -384,6 +406,7 @@ print(f'✅ 开发环境就绪，已加载 {len(AlgorithmRegistry.get_algorithm_
 
 ```
 b站监控/
+├── __init__.py                 # 包元数据（版本号等）
 ├── main.py                     # 入口：启动 GUI
 ├── run.py                      # 入口：环境检查 → 算法初始化 → 启动
 ├── algorithms/                 # 核心：75 种预测算法
@@ -391,16 +414,36 @@ b站监控/
 │   ├── registry.py             # AlgorithmRegistry：自动发现、集成预测
 │   ├── model_adapter.py        # 新/旧接口桥接
 │   ├── weight_manager.py       # ML 驱动的权重学习
-│   └── models/                 # 算法实现（按类别分目录）
+│   ├── online_learner.py       # Hedge 在线学习
+│   ├── causal_inference.py     # Granger 因果推断
+│   ├── graph_neural.py         # 图神经网络
+│   └── models/                 # 75 种算法实现（按类别分目录）
 ├── core/                       # 核心：B站 API、数据库、通知
-│   ├── bilibili_api.py         # API 封装（412 重试、代理、Cookie）
+│   ├── bilibili_api.py         # API 封装（412 重试、代理、Cookie、WBI 签名）
+│   ├── notification.py         # 通知管理
+│   ├── proxy_manager.py        # 代理管理器
+│   ├── smart_alert.py          # 智能告警
+│   ├── up_database.py          # UP 主数据管理
 │   └── database/               # SQLite（按 BV 分库 + 中央库）
-├── ui/                         # 界面：Tkinter 三栏布局
+├── ui/                         # 界面：Tkinter 三栏布局 + 30+ 面板
 │   ├── main_gui.py             # 主窗口、菜单、布局
-│   ├── settings_window.py      # 统一设置（所有配置入口）
-│   └── dialog_base.py          # 弹窗基类
+│   ├── settings_window.py      # 统一设置（10 个标签页，所有配置入口）
+│   ├── dialog_base.py          # 弹窗基类
+│   ├── video_list_panel.py     # 左侧视频列表（封面缓存）
+│   ├── detail_panel.py         # 中间详情+图表
+│   ├── prediction_panel.py     # 右侧预测面板
+│   └── ... (20+ 面板)
+├── utils/                      # 工具模块
+│   ├── ai_qa.py                # LLM API 调用
+│   ├── cover_manager.py        # 封面缓存管理
+│   ├── file_logger.py          # 日志记录
+│   └── ...
 ├── config/                     # 配置加载/保存
 └── data/                       # 运行时数据（不入库）
+    ├── settings.json
+    ├── network_config.json
+    ├── cover/                  # 封面缓存
+    └── log/
 ```
 
 ### 如何添加一个新算法
