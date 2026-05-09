@@ -48,7 +48,10 @@ class NotificationManager:
 
         def _send():
             if self.token and self.onebot_http.startswith("http://"):
-                logger.error("OneBot配置了token但使用HTTP明文传输，拒绝发送请求。" "请将onebot_http配置为HTTPS或WSS地址，或移除token")
+                logger.error(
+                    "OneBot配置了token但使用HTTP明文传输，拒绝发送请求。"
+                    "请将onebot_http配置为HTTPS或WSS地址，或移除token"
+                )
                 return False
             try:
                 url = f"{self.onebot_http}/send_private_msg"

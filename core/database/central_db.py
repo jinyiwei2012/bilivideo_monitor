@@ -47,8 +47,7 @@ class Database:
             cursor = conn.cursor()
 
             # 视频信息表
-            cursor.execute(
-                """
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS videos (
                     bvid TEXT PRIMARY KEY,
                     title TEXT,
@@ -72,12 +71,10 @@ class Database:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-            """
-            )
+            """)
 
             # 监控记录表
-            cursor.execute(
-                """
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS monitor_records (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     bvid TEXT,
@@ -95,18 +92,14 @@ class Database:
                     like_view_ratio REAL DEFAULT 0,
                     FOREIGN KEY (bvid) REFERENCES videos(bvid)
                 )
-            """
-            )
-            cursor.execute(
-                """
+            """)
+            cursor.execute("""
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_monitor_bvid_ts
                 ON monitor_records(bvid, timestamp)
-            """
-            )
+            """)
 
             # 预测记录表
-            cursor.execute(
-                """
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS predictions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     bvid TEXT,
@@ -123,12 +116,10 @@ class Database:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (bvid) REFERENCES videos(bvid)
                 )
-            """
-            )
+            """)
 
             # 投稿里程碑数据表
-            cursor.execute(
-                """
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS video_milestones (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     bvid TEXT NOT NULL,
@@ -144,8 +135,7 @@ class Database:
                     recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(bvid, period)
                 )
-            """
-            )
+            """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_milestones_bvid ON video_milestones(bvid)")
             # 数据库迁移：检查并添加缺少的列
             self._migrate_db(conn)

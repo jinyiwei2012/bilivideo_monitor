@@ -167,9 +167,9 @@ class BilibiliMonitorGUI:
         tk.Label(
             title_f, text="B站监控", bg=C["bg_surface"], fg=C["bilibili"], font=("Microsoft YaHei UI", 13, "bold")
         ).pack(anchor="w")
-        tk.Label(title_f, text="播放量预测系统", bg=C["bg_surface"], fg=C["text_3"], font=("Microsoft YaHei UI", 10)).pack(
-            anchor="w"
-        )
+        tk.Label(
+            title_f, text="播放量预测系统", bg=C["bg_surface"], fg=C["text_3"], font=("Microsoft YaHei UI", 10)
+        ).pack(anchor="w")
 
     def _build_navigation_buttons(self):
         """构建导航按钮"""
@@ -579,7 +579,9 @@ class BilibiliMonitorGUI:
 
     def _build_add_dialog_ui(self, dialog):
         """构建对话框UI元素"""
-        tk.Label(dialog, text="请输入BV号或视频链接：", bg=C["bg_surface"], fg=C["text_1"], font=FONT).pack(pady=(18, 4))
+        tk.Label(dialog, text="请输入BV号或视频链接：", bg=C["bg_surface"], fg=C["text_1"], font=FONT).pack(
+            pady=(18, 4)
+        )
 
         entry_f = tk.Frame(
             dialog,

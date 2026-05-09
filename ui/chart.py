@@ -12,7 +12,9 @@ def draw_chart_placeholder(canvas):
     canvas.delete("all")
     w = canvas.winfo_width() or 600
     h = canvas.winfo_height() or 300
-    canvas.create_text(w // 2, h // 2, text="选择视频后显示播放量趋势图", fill=C["text_3"], font=("Microsoft YaHei UI", 11))
+    canvas.create_text(
+        w // 2, h // 2, text="选择视频后显示播放量趋势图", fill=C["text_3"], font=("Microsoft YaHei UI", 11)
+    )
 
 
 def compute_chart_scale(views_list, history, ML, MR, MT, cw, ch):

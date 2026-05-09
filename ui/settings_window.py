@@ -203,9 +203,9 @@ class SettingsWindow:
         # ── 配置详情 ──
         detail = tk.Frame(sec, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
         detail.pack(fill=tk.X, pady=4, ipadx=10, ipady=10)
-        tk.Label(detail, text="配置详情", bg=C["bg_elevated"], fg=C["text_2"], font=("Microsoft YaHei UI", 8, "bold")).pack(
-            anchor="w", pady=(0, 6)
-        )
+        tk.Label(
+            detail, text="配置详情", bg=C["bg_elevated"], fg=C["text_2"], font=("Microsoft YaHei UI", 8, "bold")
+        ).pack(anchor="w", pady=(0, 6))
 
         def _field_wrapper(parent, label):
             f = tk.Frame(parent, bg=C["bg_elevated"])
@@ -457,7 +457,9 @@ class SettingsWindow:
 
         sec = tk.Frame(page, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
         sec.pack(fill=tk.BOTH, expand=True, padx=16, pady=12, ipadx=10, ipady=8)
-        tk.Label(sec, text="代理列表（每行一个）", bg=C["bg_elevated"], fg=C["text_2"], font=FONT).pack(anchor="w", pady=(0, 4))
+        tk.Label(sec, text="代理列表（每行一个）", bg=C["bg_elevated"], fg=C["text_2"], font=FONT).pack(
+            anchor="w", pady=(0, 4)
+        )
 
         # 协议选择 + 快速添加行
         add_row = tk.Frame(sec, bg=C["bg_elevated"])
@@ -504,9 +506,9 @@ class SettingsWindow:
 
         url_row = tk.Frame(sec, bg=C["bg_elevated"])
         url_row.pack(fill=tk.X, pady=(6, 0))
-        tk.Label(url_row, text="测试地址:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM, width=8, anchor="w").pack(
-            side=tk.LEFT
-        )
+        tk.Label(
+            url_row, text="测试地址:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM, width=8, anchor="w"
+        ).pack(side=tk.LEFT)
         self._test_url_var = tk.StringVar(value="https://api.bilibili.com/x/web-interface/view?bvid=BV1GJ411x7hQ")
         url_entry = ttk.Entry(url_row, textvariable=self._test_url_var, font=FONT_SM)
         url_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 0))
@@ -664,9 +666,9 @@ class SettingsWindow:
         # 项目信息
         sec1 = tk.Frame(page, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
         sec1.pack(fill=tk.X, padx=16, pady=(16, 6), ipadx=10, ipady=10)
-        tk.Label(sec1, text="项目信息", bg=C["bg_elevated"], fg=C["text_2"], font=("Microsoft YaHei UI", 9, "bold")).pack(
-            anchor="w"
-        )
+        tk.Label(
+            sec1, text="项目信息", bg=C["bg_elevated"], fg=C["text_2"], font=("Microsoft YaHei UI", 9, "bold")
+        ).pack(anchor="w")
 
         rows = [
             ("项目名称", "B站视频监控与播放量预测系统"),
@@ -684,9 +686,9 @@ class SettingsWindow:
         # 链接
         sec2 = tk.Frame(page, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
         sec2.pack(fill=tk.X, padx=16, pady=6, ipadx=10, ipady=10)
-        tk.Label(sec2, text="相关链接", bg=C["bg_elevated"], fg=C["text_2"], font=("Microsoft YaHei UI", 9, "bold")).pack(
-            anchor="w"
-        )
+        tk.Label(
+            sec2, text="相关链接", bg=C["bg_elevated"], fg=C["text_2"], font=("Microsoft YaHei UI", 9, "bold")
+        ).pack(anchor="w")
 
         links = [
             ("GitHub", "https://github.com/jinyiwei2012/bilivideo_monitor", "项目源代码，欢迎 Star ⭐"),
@@ -713,7 +715,9 @@ class SettingsWindow:
             anchor="w"
         )
         desc_text = (
-            "本系统用于监控 Bilibili 视频播放量增长趋势，" "支持 55 种预测算法、多阈值告警、QQ 机器人通知等功能。\n\n" "如果您觉得本项目对您有帮助，欢迎在 GitHub 上给项目点一个 Star！"
+            "本系统用于监控 Bilibili 视频播放量增长趋势，"
+            "支持 55 种预测算法、多阈值告警、QQ 机器人通知等功能。\n\n"
+            "如果您觉得本项目对您有帮助，欢迎在 GitHub 上给项目点一个 Star！"
         )
         tk.Label(
             sec3,
@@ -927,12 +931,15 @@ class SettingsWindow:
                 lambda: messagebox.showinfo(
                     "导入完成",
                     f"成功导入 {total_count} 条代理\n"
-                    f"当前代理列表共 {len(all_lines)} 条" + (f"\n（其中 {dup_count} 条重复已去重）" if dup_count else ""),
+                    f"当前代理列表共 {len(all_lines)} 条"
+                    + (f"\n（其中 {dup_count} 条重复已去重）" if dup_count else ""),
                     parent=top,
                 ),
             )
 
-        ttk.Button(btn_f, text="导入并追加", command=_do_import, style="Primary.TButton").pack(side=tk.RIGHT, padx=(4, 0))
+        ttk.Button(btn_f, text="导入并追加", command=_do_import, style="Primary.TButton").pack(
+            side=tk.RIGHT, padx=(4, 0)
+        )
         ttk.Button(btn_f, text="取消", command=top.destroy).pack(side=tk.RIGHT, padx=4)
 
     def _apply_proxies(self):
@@ -1332,9 +1339,9 @@ class SettingsWindow:
                 return
             elif result.get("status") == -1:
                 status_lbl.config(fg=C["danger"])
-                ttk.Button(qr_top, text="重新生成二维码", command=lambda: [qr_top.destroy(), self._qrcode_login()]).pack(
-                    pady=4
-                )
+                ttk.Button(
+                    qr_top, text="重新生成二维码", command=lambda: [qr_top.destroy(), self._qrcode_login()]
+                ).pack(pady=4)
                 return
             qr_top.after(1500, _poll)
 

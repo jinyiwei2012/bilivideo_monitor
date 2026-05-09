@@ -202,7 +202,16 @@ class ProxyManager:
 
     @staticmethod
     def _build_result() -> dict:
-        return {"ok": False, "latency_ms": None, "ip": None, "country": None, "asn": None, "isp": None, "error": None, "data": None}
+        return {
+            "ok": False,
+            "latency_ms": None,
+            "ip": None,
+            "country": None,
+            "asn": None,
+            "isp": None,
+            "error": None,
+            "data": None,
+        }
 
     @staticmethod
     def _classify_connection_error(e: requests.exceptions.ConnectionError) -> str:
@@ -218,7 +227,10 @@ class ProxyManager:
 
         patterns = [
             (["Connection refused", "连接被拒绝", "积极拒绝"], "连接被拒绝（代理地址或端口无效）"),
-            (["getaddrinfo failed", "Name or service not known", "Temporary failure in name resolution"], "DNS解析失败（代理域名无法解析）"),
+            (
+                ["getaddrinfo failed", "Name or service not known", "Temporary failure in name resolution"],
+                "DNS解析失败（代理域名无法解析）",
+            ),
             (["resolving host"], "DNS解析失败（代理域名无法解析）"),
             (["No route to host", "无法路由"], "无法路由到主机（网络不可达）"),
             (["Network is unreachable", "网络不可达"], "网络不可达（本地网络异常）"),
@@ -237,6 +249,7 @@ class ProxyManager:
         """通过代理发起 HTTP 请求，成功返回响应结果，失败在 result 中记录 error 并返回"""
         import requests
         from urllib3.exceptions import InsecureRequestWarning
+
         warnings.filterwarnings("ignore", category=InsecureRequestWarning)
 
         proxies = {"http": proxy_url, "https": proxy_url}
@@ -250,7 +263,11 @@ class ProxyManager:
                 proxies=proxies,
                 timeout=timeout,
                 verify=False,
-                headers={"User-Agent": ua, "Referer": "https://www.bilibili.com/", "Accept": "application/json, text/plain, */*"},
+                headers={
+                    "User-Agent": ua,
+                    "Referer": "https://www.bilibili.com/",
+                    "Accept": "application/json, text/plain, */*",
+                },
             )
             result["latency_ms"] = int((time.time() - start) * 1000)
             return {**result, "resp": resp}
@@ -298,6 +315,7 @@ class ProxyManager:
         """通过 ip-api.com 查询代理出口 IP 的地区/ASN/ISP，出错返回空 dict"""
         import requests
         from urllib3.exceptions import InsecureRequestWarning
+
         warnings.filterwarnings("ignore", category=InsecureRequestWarning)
 
         proxies = {"http": proxy_url, "https": proxy_url}
