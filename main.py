@@ -6,8 +6,11 @@ B站视频监控与播放量预测系统
 import sys
 import os
 
-# 添加项目根目录到Python路径
-project_root = os.path.dirname(os.path.abspath(__file__))
+# 添加项目根目录到Python路径（兼容 PyInstaller 打包）
+if getattr(sys, "frozen", False):
+    project_root = os.path.dirname(sys.executable)
+else:
+    project_root = os.path.dirname(os.path.abspath(__file__))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
