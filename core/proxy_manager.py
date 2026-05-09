@@ -262,7 +262,7 @@ class ProxyManager:
                 test_url,
                 proxies=proxies,
                 timeout=timeout,
-                verify=False,
+                verify=False,  # nosec - proxies use self-signed certs
                 headers={
                     "User-Agent": ua,
                     "Referer": "https://www.bilibili.com/",
@@ -325,7 +325,7 @@ class ProxyManager:
                 "https://ip-api.com/json/",
                 proxies=proxies,
                 timeout=timeout,
-                verify=False,
+                verify=False,  # nosec - proxies use self-signed certs
                 headers={"User-Agent": ua},
             )
             logger.debug("← [geo] ip-api.com/json/ → %s", geo_resp.status_code)

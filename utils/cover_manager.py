@@ -36,7 +36,7 @@ def _md5_path(bvid: str, title: str = "") -> str:
 
 
 def _compute_md5(data: bytes) -> str:
-    return hashlib.md5(data).hexdigest()
+    return hashlib.md5(data, usedforsecurity=False).hexdigest()
 
 
 def _read_md5(bvid: str) -> str | None:
