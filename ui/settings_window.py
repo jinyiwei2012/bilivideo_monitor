@@ -26,7 +26,11 @@ class SettingsWindow:
     """统一设置窗口"""
 
     def __init__(self, parent=None):
-        self.dlg = DialogBase(parent, "系统设置", "860x680", resizable=(True, True), modal=False)
+        # 自适应对话框尺寸
+        sw = parent.winfo_screenwidth() if parent else 1920
+        sh = parent.winfo_screenheight() if parent else 1080
+        w, h = int(sw * 0.48), int(sh * 0.68)
+        self.dlg = DialogBase(parent, "系统设置", f"{w}x{h}", resizable=(True, True), modal=False)
         self.window = self.dlg.window
 
         from config import load_config
@@ -832,7 +836,9 @@ class SettingsWindow:
         """批量导入代理窗口：粘贴地址列表，自动补全已选择的协议头"""
         top = tk.Toplevel(self.window)
         top.title("批量导入代理")
-        top.geometry("480x400")
+        sw = self.window.winfo_screenwidth()
+        sh = self.window.winfo_screenheight()
+        top.geometry(f"{int(sw*0.35)}x{int(sh*0.45)}")
         top.configure(bg=C["bg_surface"])
         top.transient(self.window)
         top.grab_set()
@@ -1195,7 +1201,9 @@ class SettingsWindow:
     def _import_cookie_editor(self):
         top = tk.Toplevel(self.window)
         top.title("导入 Cookie-Editor JSON")
-        top.geometry("520x360")
+        sw = self.window.winfo_screenwidth()
+        sh = self.window.winfo_screenheight()
+        top.geometry(f"{int(sw*0.36)}x{int(sh*0.42)}")
         top.configure(bg=C["bg_surface"])
         top.transient(self.window)
         top.grab_set()
@@ -1283,7 +1291,9 @@ class SettingsWindow:
 
         qr_top = tk.Toplevel(self.window)
         qr_top.title("扫码登录 B站")
-        qr_top.geometry("320x380")
+        sw = self.window.winfo_screenwidth()
+        sh = self.window.winfo_screenheight()
+        qr_top.geometry(f"{int(sw*0.28)}x{int(sh*0.45)}")
         qr_top.configure(bg=C["bg_surface"])
         qr_top.transient(self.window)
         qr_top.grab_set()

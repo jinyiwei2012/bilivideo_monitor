@@ -45,7 +45,10 @@ class VideoListPanel:
         self._video_card_widgets = {}
         self._cover_cache = {}
         self._search_var = tk.StringVar()
+        self._card_wraplength = 180  # 初始默认值，make_card 时会按屏幕更新
         self._build_left_panel()
+        # 监听面板尺寸变化，动态调整卡片 wraplength
+        parent.bind("<Configure>", self._on_panel_resize)
 
     # ──────────────────────────────────────────
     # UI 构建
@@ -147,12 +150,19 @@ class VideoListPanel:
 
         top = ctk.CTkFrame(inner, fg_color=C["bg_surface"], corner_radius=0)
         top.pack(fill=tk.X)
-        thumb_frame = ctk.CTkFrame(top, fg_color=C["bg_elevated"], width=80, height=45, corner_radius=4)
+        # 自适应缩略图尺寸：按侧栏宽度缩放，最小 60×34
+        _sw = self.gui.root.winfo_screenwidth()
+        _left_w = int(_sw * 0.22)
+        _thumb_w = max(60, min(100, _left_w // 4))
+        _thumb_h = int(_thumb_w * 0.56)
+        self._card_wraplength = max(100, _left_w - _thumb_w - 60)
+
+        thumb_frame = ctk.CTkFrame(top, fg_color=C["bg_elevated"], width=_thumb_w, height=_thumb_h, corner_radius=4)
         thumb_frame.pack(side=tk.LEFT)
         thumb_frame.pack_propagate(False)
         thumb = ctk.CTkLabel(thumb_frame, text="", fg_color=C["bg_elevated"])
         thumb.pack(expand=True)
-        self._load_cover_thumb(video.get("pic", ""), bvid, thumb, title)
+        self._load_cover_thumb(video.get("pic", ""), bvid, thumb, title, target_w=_thumb_w, target_h=_thumb_h)
         info = ctk.CTkFrame(top, fg_color=C["bg_surface"], corner_radius=0)
         info.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(8, 0))
 
@@ -164,7 +174,7 @@ class VideoListPanel:
             fg_color="transparent",
             justify="left",
             anchor="w",
-            wraplength=180,
+            wraplength=self._card_wraplength,
         )
         title_lbl.pack(fill=tk.X)
         author_lbl = ctk.CTkLabel(
@@ -275,6 +285,26 @@ class VideoListPanel:
     # 搜索过滤
     # ──────────────────────────────────────────
 
+    def _on_panel_resize(self, event=None):
+        """面板尺寸变化时更新所有卡片标题折行宽度"""
+        if not hasattr(self, "_resize_job") or self._resize_job:
+            try:
+                self.gui.root.after_cancel(self._resize_job)
+            except Exception:
+                pass
+        self._resize_job = self.gui.root.after(150, self._do_update_wraplengths)
+
+    def _do_update_wraplengths(self):
+        """批量更新所有卡片标题折行宽度"""
+        self._resize_job = None
+        try:
+            parent_w = self._parent.winfo_width()
+            new_wl = max(100, parent_w - 100)
+            for refs in self._video_card_widgets.values():
+                refs["title"].configure(wraplength=new_wl)
+        except Exception:
+            pass
+
     def _on_search(self, *args):
         q = self._search_var.get().strip().lower()
         for bvid, refs in self._video_card_widgets.items():
@@ -300,12 +330,11 @@ class VideoListPanel:
     # ──────────────────────────────────────────
 
     @staticmethod
-    def _make_thumb_photo(img):
-        """将 PIL Image 缩放到 80×45 并包装为 CTkImage"""
+    def _make_thumb_photo(img, target_w=80, target_h=45):
+        """将 PIL Image 缩放到自适应尺寸包装为 CTkImage"""
         from PIL import Image
 
         w, h = img.size
-        target_w, target_h = 80, 45
         ratio = min(target_w / w, target_h / h)
         new_w, new_h = int(w * ratio), int(h * ratio)
         img = img.resize((new_w, new_h), Image.LANCZOS)
@@ -321,8 +350,8 @@ class VideoListPanel:
                 pass
         self.gui.root.after(0, lambda: self._safe_set_image(label_widget, ph))
 
-    def _load_cover_thumb(self, url, bvid, label_widget, title=""):
-        """异步加载卡片封面缩略图（80×45），优先使用本地缓存"""
+    def _load_cover_thumb(self, url, bvid, label_widget, title="", target_w=80, target_h=45):
+        """异步加载卡片封面缩略图，优先使用本地缓存"""
         cache_key = (bvid, "thumb")
         if cache_key in self._cover_cache:
             label_widget.configure(image=self._cover_cache[cache_key], text="")
@@ -340,7 +369,7 @@ class VideoListPanel:
                 # 先尝试从本地加载
                 local = get_valid_cover(bvid, title)
                 if local is not None:
-                    ph = self._make_thumb_photo(Image.open(local))
+                    ph = self._make_thumb_photo(Image.open(local), target_w, target_h)
                     self._cache_and_show(cache_key, ph, label_widget)
                     return
 
@@ -348,7 +377,7 @@ class VideoListPanel:
                 if r.status_code != 200:
                     return
                 save_cover(bvid, r.content, title)
-                ph = self._make_thumb_photo(Image.open(BytesIO(r.content)))
+                ph = self._make_thumb_photo(Image.open(BytesIO(r.content)), target_w, target_h)
                 self._cache_and_show(cache_key, ph, label_widget)
             except Exception as e:
                 logger.warning("缩略图加载失败 %s: %s", bvid, e)

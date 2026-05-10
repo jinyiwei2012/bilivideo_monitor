@@ -72,8 +72,11 @@ class BilibiliMonitorGUI:
         if root is None:
             root = tk.Tk()
             root.title("B站视频监控与播放量预测系统")
-            root.geometry("1400x860")
-            root.minsize(1100, 700)
+            # 自适应窗口：85% 屏幕尺寸，最低 55%
+            sw = root.winfo_screenwidth()
+            sh = root.winfo_screenheight()
+            root.geometry(f"{int(sw * 0.85)}x{int(sh * 0.85)}")
+            root.minsize(int(sw * 0.50), int(sh * 0.55))
 
         self.root = root
         self._set_window_icon()
@@ -358,18 +361,24 @@ class BilibiliMonitorGUI:
         main = tk.Frame(self._main_frame, bg=C["bg_base"])
         main.pack(fill=tk.BOTH, expand=True)
 
-        self._left = tk.Frame(main, bg=C["bg_surface"], width=310)
-        self._left.pack(side=tk.LEFT, fill=tk.Y)
-        self._left.pack_propagate(False)
-        tk.Frame(main, bg=C["border"], width=1).pack(side=tk.LEFT, fill=tk.Y)
+        # 自适应比例布局：左 22% | 分隔线 | 中 58% | 分隔线 | 右 20%
+        main.grid_columnconfigure(0, weight=22, minsize=220)
+        main.grid_columnconfigure(1, weight=0)  # 分隔线
+        main.grid_columnconfigure(2, weight=58, minsize=360)
+        main.grid_columnconfigure(3, weight=0)  # 分隔线
+        main.grid_columnconfigure(4, weight=20, minsize=200)
+        main.grid_rowconfigure(0, weight=1)
+
+        self._left = tk.Frame(main, bg=C["bg_surface"])
+        self._left.grid(row=0, column=0, sticky="nsew")
+        tk.Frame(main, bg=C["border"], width=1).grid(row=0, column=1, sticky="ns")
 
         self._center = tk.Frame(main, bg=C["bg_base"])
-        self._center.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        tk.Frame(main, bg=C["border"], width=1).pack(side=tk.LEFT, fill=tk.Y)
+        self._center.grid(row=0, column=2, sticky="nsew")
+        tk.Frame(main, bg=C["border"], width=1).grid(row=0, column=3, sticky="ns")
 
-        self._right = tk.Frame(main, bg=C["bg_surface"], width=290)
-        self._right.pack(side=tk.LEFT, fill=tk.Y)
-        self._right.pack_propagate(False)
+        self._right = tk.Frame(main, bg=C["bg_surface"])
+        self._right.grid(row=0, column=4, sticky="nsew")
 
         self.video_list = VideoListPanel(self._left, self)
         self.detail = DetailPanel(self._center, self)
@@ -573,7 +582,9 @@ class BilibiliMonitorGUI:
         """创建添加监控对话框"""
         dialog = tk.Toplevel(self.root)
         dialog.title("添加监控")
-        dialog.geometry("400x180")
+        sw = self.root.winfo_screenwidth()
+        sh = self.root.winfo_screenheight()
+        dialog.geometry(f"{int(sw*0.28)}x{int(sh*0.22)}")
         dialog.configure(bg=C["bg_surface"])
         dialog.transient(self.root)
         dialog.grab_set()

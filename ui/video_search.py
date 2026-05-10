@@ -20,7 +20,9 @@ class VideoSearchWindow:
     """视频搜索窗口（现代化风格）"""
 
     def __init__(self, parent=None, on_import: Optional[Callable[[list], None]] = None):
-        self.dlg = DialogBase(parent, "搜索视频 - B站", "920x660", modal=True)
+        sw = parent.winfo_screenwidth() if parent else 1920
+        sh = parent.winfo_screenheight() if parent else 1080
+        self.dlg = DialogBase(parent, "搜索视频 - B站", f"{int(sw*0.48)}x{int(sh*0.68)}", modal=True)
         self.window = self.dlg.window
         self.on_import = on_import
         self.search_results: List[Dict] = []
@@ -200,7 +202,9 @@ class VideoSearchWindow:
 
         top = tk.Toplevel(self.window)
         top.title(f"视频详情 - {bvid}")
-        top.geometry("520x420")
+        sw = self.window.winfo_screenwidth()
+        sh = self.window.winfo_screenheight()
+        top.geometry(f"{int(sw*0.32)}x{int(sh*0.48)}")
         top.configure(bg=C["bg_surface"])
         top.transient(self.window)
         top.grab_set()

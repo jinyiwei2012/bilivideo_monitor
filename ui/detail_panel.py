@@ -121,16 +121,28 @@ class DetailPanel:
 
         info = ctk.CTkFrame(h, fg_color=C["bg_surface"], corner_radius=0)
         info.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=14, pady=10)
-        ctk.CTkLabel(
+        # 自适应标题折行宽度（按屏幕宽度的 55% 计算，避免溢出）
+        _center_w = int(self.gui.root.winfo_screenwidth() * 0.55)
+        title_lbl = ctk.CTkLabel(
             info,
             text=title,
             text_color=C["text_1"],
             font=("Microsoft YaHei UI", 12, "bold"),
             anchor="w",
-            wraplength=500,
+            wraplength=max(200, _center_w),
             justify="left",
             fg_color="transparent",
-        ).pack(fill=tk.X)
+        )
+        title_lbl.pack(fill=tk.X)
+        # 窗口缩放时更新折行宽度
+        def _update_wraplength(ev=None):
+            try:
+                w = info.winfo_width() - 10
+                if w > 50:
+                    title_lbl.configure(wraplength=w)
+            except tk.TclError:
+                pass
+        info.bind("<Configure>", _update_wraplength)
         meta = ctk.CTkFrame(info, fg_color=C["bg_surface"], corner_radius=0)
         meta.pack(fill=tk.X, pady=(4, 0))
         for icon, val in [("👤", author), ("⏱️", dur_str), ("📅", pub_str)]:

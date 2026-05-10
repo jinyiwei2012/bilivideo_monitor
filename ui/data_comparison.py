@@ -86,8 +86,10 @@ class DataComparisonWindow:
     ):
         self.window = tk.Toplevel(parent)
         self.window.title("数据对比")
-        self.window.geometry("1100x780")
-        self.window.minsize(850, 600)
+        sw = parent.winfo_screenwidth() if parent else 1920
+        sh = parent.winfo_screenheight() if parent else 1080
+        self.window.geometry(f"{int(sw*0.58)}x{int(sh*0.78)}")
+        self.window.minsize(int(sw*0.40), int(sh*0.55))
 
         self.monitored_videos = monitored_videos or []
         self.history_data = history_data or {}

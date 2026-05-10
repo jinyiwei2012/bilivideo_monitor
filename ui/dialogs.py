@@ -26,7 +26,9 @@ class Dialogs:
     def open_interval_settings(self):
         dialog = ctk.CTkToplevel(self.gui.root)
         dialog.title("刷新间隔设置")
-        dialog.geometry("320x220")
+        sw = self.gui.root.winfo_screenwidth()
+        sh = self.gui.root.winfo_screenheight()
+        dialog.geometry(f"{int(sw*0.22)}x{int(sh*0.25)}")
         dialog.transient(self.gui.root)
         dialog.grab_set()
         dialog.resizable(False, False)
@@ -244,7 +246,9 @@ class Dialogs:
         """打开算法信息对话框"""
         dialog = tk.Toplevel(self.gui.root)
         dialog.title("算法信息")
-        dialog.geometry("500x400")
+        sw = self.gui.root.winfo_screenwidth()
+        sh = self.gui.root.winfo_screenheight()
+        dialog.geometry(f"{int(sw*0.36)}x{int(sh*0.48)}")
         dialog.configure(bg=C["bg_surface"])
         dialog.transient(self.gui.root)
         dialog.grab_set()
