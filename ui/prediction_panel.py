@@ -102,7 +102,7 @@ class PredictionPanel:
                 need = t - current_views
                 seconds_left = need / rate_per_sec
                 arrive_dt = datetime.now() + timedelta(seconds=seconds_left)
-                eta_str = arrive_dt.strftime("%m-%d %H:%M")
+                eta_str = arrive_dt.strftime("%Y-%m-%d %H:%M")
                 eta_c = C["danger"] if seconds_left < 3600 else C["warning"] if seconds_left < 86400 else C["text_2"]
             else:
                 eta_str, eta_c = "—", C["text_3"]
