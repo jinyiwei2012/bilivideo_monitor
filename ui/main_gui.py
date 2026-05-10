@@ -873,6 +873,17 @@ class BilibiliMonitorGUI:
                 self.video_dbs[bvid].close()
             except Exception as e:
                 logger.debug("关闭视频数据库失败 %s: %s", bvid, e)
+        # 关闭前同步：活跃库 → 中央库（兜底）
+        try:
+            result = db.sync_to_central()
+            logger.info(
+                "中央库同步完成: %d 视频, %d 记录, %d 瑕疵修复",
+                result.get("synced_videos", 0),
+                result.get("synced_records", 0),
+                result.get("fixed_flaws", 0),
+            )
+        except Exception as e:
+            logger.warning("中央库同步失败: %s", e)
         db.close()
         bilibili_api.close()
         self.root.destroy()

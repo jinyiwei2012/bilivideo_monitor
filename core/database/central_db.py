@@ -5,6 +5,7 @@ import os
 import re
 import threading
 import logging
+from dataclasses import fields
 from datetime import datetime
 from typing import List, Dict, Optional
 
@@ -18,11 +19,24 @@ logger = logging.getLogger(__name__)
 class Database:
     """总数据库管理类"""
 
+    # 双备份：active_dir = core/data/（活跃写入）, backup_dir = data/（config 定义）
+    _ACTIVE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
+    _BACKUP_DIR = None  # 懒加载
+
+    @classmethod
+    def _get_backup_dir(cls) -> str:
+        if cls._BACKUP_DIR is None:
+            try:
+                from config import DATA_DIR
+                cls._BACKUP_DIR = DATA_DIR
+            except ImportError:
+                cls._BACKUP_DIR = cls._ACTIVE_DIR
+        return cls._BACKUP_DIR
+
     def __init__(self, db_path: str = None):
         if db_path is None:
-            data_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
-            os.makedirs(data_dir, exist_ok=True)
-            db_path = os.path.join(data_dir, "bilibili_monitor.db")
+            os.makedirs(self._ACTIVE_DIR, exist_ok=True)
+            db_path = os.path.join(self._ACTIVE_DIR, "bilibili_monitor.db")
 
         self.db_path = db_path
         self.data_dir = os.path.dirname(db_path)
@@ -339,22 +353,49 @@ class Database:
                 conn.commit()
                 return True
         except Exception as e:
-            logger.warning("添加视频失败 %s: %s", bvid, e)  # noqa: F821
+            logger.warning("添加视频失败 %s: %s", video.bvid, e)
             return False
 
+    def _query_backup(self, sql: str, params: tuple = ()) -> List[sqlite3.Row]:
+        """从备份库（data/）执行只读查询，返回行列表"""
+        backup_db = os.path.join(self._get_backup_dir(), "bilibili_monitor.db")
+        if backup_db == self.db_path or not os.path.exists(backup_db):
+            return []
+        try:
+            conn = sqlite3.connect(f"file:{backup_db}?mode=ro", uri=True)
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            cur.execute(sql, params)
+            rows = cur.fetchall()
+            conn.close()
+            return rows
+        except Exception as e:
+            logger.debug("备份库查询失败: %s", e)
+            return []
+
     def get_video(self, bvid: str) -> Optional[VideoInfo]:
-        """获取视频信息"""
+        """获取视频信息（主库未命中则查备份库）"""
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("SELECT * FROM videos WHERE bvid = ?", (bvid,))
                 row = cursor.fetchone()
                 if row:
-                    return VideoInfo(**dict(row))
-                return None
+                    data = dict(row)
+                    valid_fields = {f.name for f in fields(VideoInfo)}
+                    filtered = {k: v for k, v in data.items() if k in valid_fields}
+                    return VideoInfo(**filtered)
         except Exception as e:
             logger.warning("获取视频失败 %s: %s", bvid, e)
-            return None
+
+        # 互补：主库未命中，查备份库
+        backup_rows = self._query_backup("SELECT * FROM videos WHERE bvid = ?", (bvid,))
+        if backup_rows:
+            data = dict(backup_rows[0])
+            valid_fields = {f.name for f in fields(VideoInfo)}
+            filtered = {k: v for k, v in data.items() if k in valid_fields}
+            return VideoInfo(**filtered)
+        return None
 
     def add_monitor_record(self, record: MonitorRecord) -> bool:
         """添加监控记录"""
@@ -392,7 +433,8 @@ class Database:
             return False
 
     def get_monitor_history(self, bvid: str, limit: int = 0) -> List[Dict]:
-        """获取监控历史"""
+        """获取监控历史（双备份互补合并）"""
+        rows = []
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -415,10 +457,26 @@ class Database:
                     """,
                         (bvid,),
                     )
-                return [dict(row) for row in cursor.fetchall()]
+                rows = [dict(row) for row in cursor.fetchall()]
         except Exception as e:
             logger.warning("获取监控历史失败 %s: %s", bvid, e)
-            return []
+
+        # 互补：从备份库补充缺失的记录
+        backup_rows = self._query_backup(
+            "SELECT * FROM monitor_records WHERE bvid = ? ORDER BY timestamp ASC", (bvid,)
+        )
+        if backup_rows:
+            existing_ts = {r["timestamp"] for r in rows}
+            for r in backup_rows:
+                rd = dict(r)
+                if rd["timestamp"] not in existing_ts:
+                    rows.append(rd)
+                    existing_ts.add(rd["timestamp"])
+            rows.sort(key=lambda x: x["timestamp"])
+
+        if limit > 0 and len(rows) > limit:
+            rows = rows[:limit]
+        return rows
 
     def add_prediction(self, prediction: PredictionRecord) -> bool:
         """添加预测记录"""
@@ -624,6 +682,363 @@ class Database:
         except Exception as e:
             logger.warning("里程碑删除失败: %s", e)
             return False
+
+    # ── 关闭前同步：活跃库 → 中央库（兜底） ─────────────────────────
+
+    def sync_to_central(self) -> dict:
+        """关闭前将活跃库数据同步到中央库，修复瑕疵数据。
+
+        同步项:
+          1. videos 表 — 缺失/值异常的视频
+          2. monitor_records — 活跃库有而中央库没有的记录
+          3. predictions — 各视频独立库的预测记录
+          4. weekly_scores — 各视频独立库的周刊分数
+          5. yearly_scores — 各视频独立库的年刊分数
+        返回: {synced_videos, synced_records, fixed_flaws, synced_predictions,
+               synced_weekly, synced_yearly}
+        """
+        central_db = os.path.join(self._get_backup_dir(), "bilibili_monitor.db")
+        if central_db == self.db_path or not os.path.exists(central_db):
+            logger.info("中央数据库不存在或与活跃库相同，跳过同步")
+            return {"synced_videos": 0, "synced_records": 0, "fixed_flaws": 0,
+                    "synced_predictions": 0, "synced_weekly": 0, "synced_yearly": 0}
+
+        result = {"synced_videos": 0, "synced_records": 0, "fixed_flaws": 0,
+                  "synced_predictions": 0, "synced_weekly": 0, "synced_yearly": 0}
+        try:
+            # 打开中央库（读写）
+            central_conn = sqlite3.connect(central_db)
+            central_conn.row_factory = sqlite3.Row
+            central_cur = central_conn.cursor()
+            # 确保中央库有完整的表结构
+            self._ensure_central_tables(central_cur)
+            central_conn.commit()
+
+            # 1. 同步 videos 表
+            active_cur = self._conn.cursor()
+            active_cur.execute("SELECT * FROM videos")
+            active_videos = [dict(r) for r in active_cur.fetchall()]
+            for av in active_videos:
+                central_cur.execute("SELECT * FROM videos WHERE bvid=?", (av["bvid"],))
+                existing = central_cur.fetchone()
+                should_update = False
+                if not existing:
+                    should_update = True
+                    result["synced_videos"] += 1
+                else:
+                    ed = dict(existing)
+                    for key in ("view_count", "like_count", "coin_count", "share_count"):
+                        if not ed.get(key) and av.get(key):
+                            should_update = True
+                            result["fixed_flaws"] += 1
+                            break
+                if should_update:
+                    central_cur.execute(
+                        """INSERT OR REPLACE INTO videos
+                        (bvid, title, view_count, like_count, coin_count, share_count,
+                         favorite_count, danmaku_count, reply_count, viewers_app,
+                         viewers_web, viewers_total, cover_path, like_view_ratio,
+                         owner_name, owner_id, pubdate, duration, pic, updated_at)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        (
+                            av["bvid"], av.get("title", ""),
+                            av.get("view_count", 0), av.get("like_count", 0),
+                            av.get("coin_count", 0), av.get("share_count", 0),
+                            av.get("favorite_count", 0), av.get("danmaku_count", 0),
+                            av.get("reply_count", 0),
+                            av.get("viewers_app", 0), av.get("viewers_web", 0),
+                            av.get("viewers_total", 0),
+                            av.get("cover_path", ""), av.get("like_view_ratio", 0),
+                            av.get("owner_name", ""), av.get("owner_id", 0),
+                            av.get("pubdate", ""), av.get("duration", 0),
+                            av.get("pic", ""), datetime.now(),
+                        ),
+                    )
+
+            # 2. 同步 monitor_records
+            central_cur.execute("SELECT DISTINCT bvid FROM monitor_records")
+            central_bvids = {r["bvid"] for r in central_cur.fetchall()}
+            active_cur.execute("SELECT DISTINCT bvid FROM monitor_records")
+            active_bvids = {r["bvid"] for r in active_cur.fetchall()}
+
+            for bvid in active_bvids:
+                central_cur.execute(
+                    "SELECT timestamp FROM monitor_records WHERE bvid=?", (bvid,)
+                )
+                central_ts = {r["timestamp"] for r in central_cur.fetchall()}
+
+                active_cur.execute(
+                    "SELECT * FROM monitor_records WHERE bvid=? ORDER BY timestamp ASC",
+                    (bvid,),
+                )
+                for row in active_cur.fetchall():
+                    rd = dict(row)
+                    if rd["timestamp"] not in central_ts:
+                        lvr = rd.get("like_view_ratio", 0)
+                        if not lvr and rd.get("view_count") and rd.get("like_count"):
+                            lvr = round(rd["like_count"] / rd["view_count"], 6)
+                        central_cur.execute(
+                            """INSERT INTO monitor_records
+                            (bvid, timestamp, view_count, like_count, coin_count, share_count,
+                             favorite_count, danmaku_count, reply_count, viewers_app,
+                             viewers_web, viewers_total, like_view_ratio)
+                            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                            (rd["bvid"], rd["timestamp"],
+                             rd.get("view_count", 0), rd.get("like_count", 0),
+                             rd.get("coin_count", 0), rd.get("share_count", 0),
+                             rd.get("favorite_count", 0), rd.get("danmaku_count", 0),
+                             rd.get("reply_count", 0),
+                             rd.get("viewers_app", 0), rd.get("viewers_web", 0),
+                             rd.get("viewers_total", 0), lvr),
+                        )
+                        central_ts.add(rd["timestamp"])
+                        result["synced_records"] += 1
+
+            # 3. 从各视频独立库同步预测/分数等详细数据
+            all_bvids = active_bvids | central_bvids
+            for bvid in all_bvids:
+                video_db = self._open_video_db_ro(bvid)
+                if video_db is None:
+                    continue
+                try:
+                    vcur = video_db.cursor()
+                    result["synced_predictions"] += self._sync_video_predictions(
+                        central_cur, bvid, vcur,
+                    )
+                    result["synced_weekly"] += self._sync_video_weekly_scores(
+                        central_cur, bvid, vcur,
+                    )
+                    result["synced_yearly"] += self._sync_video_yearly_scores(
+                        central_cur, bvid, vcur,
+                    )
+                finally:
+                    video_db.close()
+
+            central_conn.commit()
+            central_conn.close()
+            logger.info(
+                "中央库同步完成: %d视频 %d记录 %d瑕疵 | 预测%d 周刊%d 年刊%d",
+                result["synced_videos"], result["synced_records"],
+                result["fixed_flaws"], result["synced_predictions"],
+                result["synced_weekly"], result["synced_yearly"],
+            )
+        except Exception as e:
+            logger.warning("中央库同步失败: %s", e)
+        return result
+
+    def _open_video_db_ro(self, bvid: str) -> Optional[sqlite3.Connection]:
+        """以只读方式打开视频独立库，优先活跃目录，回退备份目录"""
+        for base in (self.data_dir, self._get_backup_dir()):
+            db_path = os.path.join(base, bvid, f"{bvid}.db")
+            if os.path.exists(db_path):
+                try:
+                    uri = f"file:{db_path.replace(chr(92), '/')}?mode=ro"
+                    conn = sqlite3.connect(uri, uri=True)
+                    conn.row_factory = sqlite3.Row
+                    return conn
+                except Exception:
+                    pass
+        return None
+
+    @staticmethod
+    def _sync_video_predictions(central_cur, bvid: str, vcur) -> int:
+        """同步视频独立库的 predictions 到中央库，返回同步条数"""
+        try:
+            vcur.execute("PRAGMA table_info(predictions)")
+            cols = {r["name"] for r in vcur.fetchall()}
+        except Exception:
+            return 0
+        if "algorithm" not in cols:
+            return 0
+
+        central_cur.execute(
+            "SELECT algorithm,predicted_time FROM predictions WHERE bvid=?", (bvid,)
+        )
+        existing = {(r["algorithm"], r["predicted_time"]) for r in central_cur.fetchall()}
+
+        try:
+            vcur.execute("SELECT * FROM predictions ORDER BY created_at ASC")
+        except Exception:
+            return 0
+
+        count = 0
+        for row in vcur.fetchall():
+            rd = dict(row)
+            key = (rd.get("algorithm", ""), rd.get("predicted_time", ""))
+            if key in existing:
+                continue
+            try:
+                central_cur.execute(
+                    """INSERT INTO predictions
+                    (bvid, algorithm, algorithm_id, target_threshold, predicted_seconds,
+                     predicted_time, confidence, current_views, metadata,
+                     predicted_hours, current_velocity, is_reached, actual_time, error_rate)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (bvid, rd.get("algorithm", ""), rd.get("algorithm_id", ""),
+                     rd.get("target_threshold", 0), rd.get("predicted_seconds", 0),
+                     rd.get("predicted_time", ""), rd.get("confidence", 0),
+                     rd.get("current_views", 0), rd.get("metadata", ""),
+                     rd.get("predicted_hours", 0), rd.get("current_velocity", 0),
+                     rd.get("is_reached", 0), rd.get("actual_time", ""),
+                     rd.get("error_rate", 0)),
+                )
+                existing.add(key)
+                count += 1
+            except Exception:
+                pass
+        return count
+
+    @staticmethod
+    def _sync_video_weekly_scores(central_cur, bvid: str, vcur) -> int:
+        """同步视频独立库的 weekly_scores 到中央库"""
+        try:
+            vcur.execute("PRAGMA table_info(weekly_scores)")
+            if not {r["name"] for r in vcur.fetchall()}:
+                return 0
+        except Exception:
+            return 0
+
+        central_cur.execute(
+            "SELECT timestamp FROM weekly_scores WHERE bvid=?", (bvid,)
+        )
+        existing_ts = {r["timestamp"] for r in central_cur.fetchall()}
+
+        try:
+            vcur.execute("SELECT * FROM weekly_scores ORDER BY timestamp ASC")
+        except Exception:
+            return 0
+
+        count = 0
+        for row in vcur.fetchall():
+            rd = dict(row)
+            if rd.get("timestamp") in existing_ts:
+                continue
+            try:
+                central_cur.execute(
+                    """INSERT INTO weekly_scores
+                    (bvid, timestamp, total_score, view_score, interaction_score,
+                     favorite_score, coin_score, like_score,
+                     correction_a, correction_b, correction_c, correction_d, base_view_score)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (bvid, rd.get("timestamp"), rd.get("total_score"),
+                     rd.get("view_score"), rd.get("interaction_score"),
+                     rd.get("favorite_score"), rd.get("coin_score"),
+                     rd.get("like_score"), rd.get("correction_a"),
+                     rd.get("correction_b"), rd.get("correction_c"),
+                     rd.get("correction_d"), rd.get("base_view_score")),
+                )
+                existing_ts.add(rd["timestamp"])
+                count += 1
+            except Exception:
+                pass
+        return count
+
+    @staticmethod
+    def _sync_video_yearly_scores(central_cur, bvid: str, vcur) -> int:
+        """同步视频独立库的 yearly_scores 到中央库"""
+        try:
+            vcur.execute("PRAGMA table_info(yearly_scores)")
+            if not {r["name"] for r in vcur.fetchall()}:
+                return 0
+        except Exception:
+            return 0
+
+        central_cur.execute(
+            "SELECT timestamp FROM yearly_scores WHERE bvid=?", (bvid,)
+        )
+        existing_ts = {r["timestamp"] for r in central_cur.fetchall()}
+
+        try:
+            vcur.execute("SELECT * FROM yearly_scores ORDER BY timestamp ASC")
+        except Exception:
+            return 0
+
+        count = 0
+        for row in vcur.fetchall():
+            rd = dict(row)
+            if rd.get("timestamp") in existing_ts:
+                continue
+            try:
+                central_cur.execute(
+                    """INSERT INTO yearly_scores
+                    (bvid, timestamp, total_score, view_score, interaction_score,
+                     favorite_score, coin_score, like_score,
+                     correction_a, correction_b, correction_c)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                    (bvid, rd.get("timestamp"), rd.get("total_score"),
+                     rd.get("view_score"), rd.get("interaction_score"),
+                     rd.get("favorite_score"), rd.get("coin_score"),
+                     rd.get("like_score"), rd.get("correction_a"),
+                     rd.get("correction_b"), rd.get("correction_c")),
+                )
+                existing_ts.add(rd["timestamp"])
+                count += 1
+            except Exception:
+                pass
+        return count
+
+    @staticmethod
+    def _ensure_central_tables(cur):
+        """确保中央库有完整的表结构（兼容首次同步）"""
+        cur.execute("""CREATE TABLE IF NOT EXISTS videos (
+            bvid TEXT PRIMARY KEY, title TEXT, view_count INTEGER DEFAULT 0,
+            like_count INTEGER DEFAULT 0, coin_count INTEGER DEFAULT 0,
+            share_count INTEGER DEFAULT 0, favorite_count INTEGER DEFAULT 0,
+            danmaku_count INTEGER DEFAULT 0, reply_count INTEGER DEFAULT 0,
+            viewers_app INTEGER DEFAULT 0, viewers_web INTEGER DEFAULT 0,
+            viewers_total INTEGER DEFAULT 0, cover_path TEXT,
+            like_view_ratio REAL DEFAULT 0, owner_name TEXT, owner_id INTEGER,
+            pubdate TEXT, duration INTEGER, pic TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+        cur.execute("""CREATE TABLE IF NOT EXISTS monitor_records (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, bvid TEXT,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            view_count INTEGER, like_count INTEGER, coin_count INTEGER,
+            share_count INTEGER, favorite_count INTEGER, danmaku_count INTEGER,
+            reply_count INTEGER, viewers_app INTEGER DEFAULT 0,
+            viewers_web INTEGER DEFAULT 0, viewers_total INTEGER DEFAULT 0,
+            like_view_ratio REAL DEFAULT 0)""")
+        cur.execute("""CREATE UNIQUE INDEX IF NOT EXISTS idx_monitor_bvid_ts
+            ON monitor_records(bvid, timestamp)""")
+        # 独立库详细数据表（含 bvid 用于跨视频关联）
+        cur.execute("""CREATE TABLE IF NOT EXISTS weekly_scores (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, bvid TEXT NOT NULL,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            total_score REAL, view_score REAL, interaction_score REAL,
+            favorite_score REAL, coin_score REAL, like_score REAL,
+            correction_a REAL, correction_b REAL, correction_c REAL,
+            correction_d REAL, base_view_score REAL)""")
+        cur.execute("""CREATE INDEX IF NOT EXISTS idx_weekly_bvid
+            ON weekly_scores(bvid, timestamp)""")
+        cur.execute("""CREATE TABLE IF NOT EXISTS yearly_scores (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, bvid TEXT NOT NULL,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            total_score REAL, view_score REAL, interaction_score REAL,
+            favorite_score REAL, coin_score REAL, like_score REAL,
+            correction_a REAL, correction_b REAL, correction_c REAL)""")
+        cur.execute("""CREATE INDEX IF NOT EXISTS idx_yearly_bvid
+            ON yearly_scores(bvid, timestamp)""")
+        # 迁移：确保 predictions 表有完整字段
+        Database._migrate_central_predictions(cur)
+
+    @staticmethod
+    def _migrate_central_predictions(cur):
+        """确保中央库 predictions 表包含独立库的全部字段"""
+        cur.execute("PRAGMA table_info(predictions)")
+        existing = {r["name"] for r in cur.fetchall()}
+        if not existing:
+            return
+        for col, definition in [
+            ("metadata", "TEXT DEFAULT ''"),
+            ("predicted_hours", "REAL DEFAULT 0"),
+            ("current_velocity", "REAL DEFAULT 0"),
+        ]:
+            if col not in existing:
+                try:
+                    cur.execute(f"ALTER TABLE predictions ADD COLUMN {col} {definition}")
+                except Exception:
+                    pass
 
     def wal_checkpoint(self):
         """周期性 WAL checkpoint，控制 WAL 文件大小。"""

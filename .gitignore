@@ -6,6 +6,7 @@ data/**/*.db
 data/**/*.db-shm
 data/**/*.db-wal
 data/**/danmaku/
+data/cover/
 data/log/
 core/data/
 

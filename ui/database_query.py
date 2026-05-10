@@ -267,10 +267,22 @@ class DatabaseQueryWindow:
             return None
         return self._video_bvid_map.get(sel)
 
+    def _get_video_db_path(self, bvid: str) -> Optional[str]:
+        """查找视频独立库路径：优先 data/，回退 core/data/"""
+        primary = os.path.join(os.path.dirname(self.db_path), bvid, f"{bvid}.db")
+        if os.path.exists(primary):
+            return primary
+        # 互补：备份路径 core/data/BVxxx/BVxxx.db
+        backup = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+            "core", "data", bvid, f"{bvid}.db",
+        )
+        return backup if os.path.exists(backup) else None
+
     def _load_extra_data(self, bvid: str, timestamp: str) -> dict:
         extra = {}
-        vdp = os.path.join(os.path.dirname(self.db_path), bvid, f"{bvid}.db")
-        if not os.path.exists(vdp):
+        vdp = self._get_video_db_path(bvid)
+        if not vdp:
             return extra
         try:
             uri = "file:{}?mode=ro".format(vdp.replace("\\", "/").replace(" ", "%20"))
