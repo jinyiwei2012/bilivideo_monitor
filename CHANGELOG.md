@@ -1,5 +1,17 @@
 # 更新日志
 
+## Release 2026-05-11 (v2.1.0)
+
+### 🔧 优化
+- **sync_to_central 性能**: 从 4.5-5s 降至 0.5s（后续同步），预测同步改用 COUNT(DISTINCT)快速检查 + GROUP BY 去重避免全表扫描
+- **拉取数据后 UI 卡顿修复**: 中央库同步 `sync_from_video_db` 从主线程回调移入工作线程，消除 UI 阻塞；图表重绘添加 100ms 防抖
+- **索引优化**: 新增 `idx_predictions_bvid` 索引加速 predictions 表按 bvid 查询
+
+### 🐛 修复
+- **predictions 未同步 created_at**: INSERT 时携带 created_at 确保后续 MAX(created_at) 比较正确
+- **多 Worker 同时完成时的 UI 卡顿**: `_on_fetch_done` 图表重绘防抖合并，避免重复 Canvas 操作
+
+
 ## Release 2026-05-10
 
 ### ✨ 新功能
