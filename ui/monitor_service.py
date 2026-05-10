@@ -431,6 +431,12 @@ class VideoWorker:
             "DEBUG", f"[{bvid}] 拉取完成 播放:{video.get('view_count', 0):,} 预测:{result.get('prediction', 0):,}"
         )
 
+        # 同步该视频数据到中央数据库（在 worker 线程执行，不阻塞 UI）
+        try:
+            db.sync_from_video_db(bvid)
+        except Exception as e:
+            self._log("WARNING", f"[{bvid}] 同步中央数据库失败: {e}")
+
         # ── 回调主线程更新 UI ─────────────────────
         #    仅在选中该视频时触发完整 UI 更新；其他视频静默后台更新
         gui.root.after(0, lambda r=result, v=video: self._on_fetch_done(r, v))
@@ -451,19 +457,17 @@ class VideoWorker:
                 result["total"],
             )
         gui.video_list.update_card(video)
-        # 同步更新 stat bar 和图表（无论是否选中，保证数据最新）
         if bvid == gui.selected_bvid:
             gui.detail.update_stat_bar(video)
             if gui.detail.current_tab == "📈 播放量趋势":
+                # 防抖：100ms 内多次触发只重绘一次
+                if hasattr(gui, "_chart_debounce") and gui._chart_debounce:
+                    gui.root.after_cancel(gui._chart_debounce)
                 from ui.chart import draw_chart
 
-                draw_chart(gui.detail.chart_canvas, gui.history_data, bvid, video, FONT)
-
-        # 同步该视频数据到中央数据库
-        try:
-            db.sync_from_video_db(bvid)
-        except Exception as e:
-            self._log("WARNING", f"[{bvid}] 同步中央数据库失败: {e}")
+                gui._chart_debounce = gui.root.after(
+                    100, lambda: draw_chart(gui.detail.chart_canvas, gui.history_data, bvid, video, FONT)
+                )
 
         # 刷新状态栏（上次刷新时间、视频计数）
         now_str = datetime.now().strftime("%H:%M:%S")

@@ -131,6 +131,7 @@ class Database:
                     FOREIGN KEY (bvid) REFERENCES videos(bvid)
                 )
             """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_predictions_bvid ON predictions(bvid)")
 
             # 投稿里程碑数据表
             cursor.execute("""
@@ -706,11 +707,9 @@ class Database:
         result = {"synced_videos": 0, "synced_records": 0, "fixed_flaws": 0,
                   "synced_predictions": 0, "synced_weekly": 0, "synced_yearly": 0}
         try:
-            # 打开中央库（读写）
             central_conn = sqlite3.connect(central_db)
             central_conn.row_factory = sqlite3.Row
             central_cur = central_conn.cursor()
-            # 确保中央库有完整的表结构
             self._ensure_central_tables(central_cur)
             central_conn.commit()
 
@@ -802,15 +801,27 @@ class Database:
                     continue
                 try:
                     vcur = video_db.cursor()
-                    result["synced_predictions"] += self._sync_video_predictions(
-                        central_cur, bvid, vcur,
-                    )
-                    result["synced_weekly"] += self._sync_video_weekly_scores(
-                        central_cur, bvid, vcur,
-                    )
-                    result["synced_yearly"] += self._sync_video_yearly_scores(
-                        central_cur, bvid, vcur,
-                    )
+                    # predictions: 比较 distinct (algorithm, predicted_time) 数量
+                    v_count = vcur.execute(
+                        "SELECT COUNT(DISTINCT COALESCE(algorithm,'') || COALESCE(predicted_time,'')) FROM predictions"
+                    ).fetchone()[0]
+                    c_count = central_cur.execute(
+                        "SELECT COUNT(DISTINCT COALESCE(algorithm,'') || COALESCE(predicted_time,'')) FROM predictions WHERE bvid=?", (bvid,)
+                    ).fetchone()[0]
+                    if v_count != c_count:
+                        result["synced_predictions"] += self._sync_video_predictions(central_cur, bvid, vcur)
+
+                    # weekly max timestamp check
+                    v_max = vcur.execute("SELECT MAX(timestamp) FROM weekly_scores").fetchone()[0]
+                    c_max = central_cur.execute("SELECT MAX(timestamp) FROM weekly_scores WHERE bvid=?", (bvid,)).fetchone()[0]
+                    if v_max and (c_max is None or v_max > c_max):
+                        result["synced_weekly"] += self._sync_video_weekly_scores(central_cur, bvid, vcur)
+
+                    # yearly max timestamp check
+                    v_max = vcur.execute("SELECT MAX(timestamp) FROM yearly_scores").fetchone()[0]
+                    c_max = central_cur.execute("SELECT MAX(timestamp) FROM yearly_scores WHERE bvid=?", (bvid,)).fetchone()[0]
+                    if v_max and (c_max is None or v_max > c_max):
+                        result["synced_yearly"] += self._sync_video_yearly_scores(central_cur, bvid, vcur)
                 finally:
                     video_db.close()
 
@@ -842,60 +853,72 @@ class Database:
 
     @staticmethod
     def _sync_video_predictions(central_cur, bvid: str, vcur) -> int:
-        """同步视频独立库的 predictions 到中央库，返回同步条数"""
+        """同步视频独立库的 predictions 到中央库"""
         try:
             vcur.execute("PRAGMA table_info(predictions)")
-            cols = {r["name"] for r in vcur.fetchall()}
+            if "algorithm" not in {r["name"] for r in vcur.fetchall()}:
+                return 0
         except Exception:
             return 0
-        if "algorithm" not in cols:
+        try:
+            # GROUP BY 只取每个 (algorithm, predicted_time) 组合的最新一条
+            vcur.execute("""
+                SELECT algorithm, algorithm_id, target_threshold, predicted_seconds,
+                       predicted_time, confidence, current_views, metadata,
+                       predicted_hours, current_velocity, is_reached,
+                       actual_time, error_rate, MAX(created_at) as created_at
+                FROM predictions
+                GROUP BY algorithm, predicted_time
+            """)
+        except Exception:
+            return 0
+        rows = [dict(r) for r in vcur.fetchall()]
+        if not rows:
             return 0
 
         central_cur.execute(
-            "SELECT algorithm,predicted_time FROM predictions WHERE bvid=?", (bvid,)
+            "SELECT algorithm, predicted_time FROM predictions WHERE bvid=?", (bvid,)
         )
         existing = {(r["algorithm"], r["predicted_time"]) for r in central_cur.fetchall()}
 
-        try:
-            vcur.execute("SELECT * FROM predictions ORDER BY created_at ASC")
-        except Exception:
-            return 0
-
-        count = 0
-        for row in vcur.fetchall():
-            rd = dict(row)
+        batch = []
+        for rd in rows:
             key = (rd.get("algorithm", ""), rd.get("predicted_time", ""))
             if key in existing:
                 continue
-            try:
-                central_cur.execute(
-                    """INSERT INTO predictions
-                    (bvid, algorithm, algorithm_id, target_threshold, predicted_seconds,
-                     predicted_time, confidence, current_views, metadata,
-                     predicted_hours, current_velocity, is_reached, actual_time, error_rate)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                    (bvid, rd.get("algorithm", ""), rd.get("algorithm_id", ""),
-                     rd.get("target_threshold", 0), rd.get("predicted_seconds", 0),
-                     rd.get("predicted_time", ""), rd.get("confidence", 0),
-                     rd.get("current_views", 0), rd.get("metadata", ""),
-                     rd.get("predicted_hours", 0), rd.get("current_velocity", 0),
-                     rd.get("is_reached", 0), rd.get("actual_time", ""),
-                     rd.get("error_rate", 0)),
-                )
-                existing.add(key)
-                count += 1
-            except Exception:
-                pass
-        return count
+            batch.append((
+                bvid, rd.get("algorithm", ""), rd.get("algorithm_id", ""),
+                rd.get("target_threshold", 0), rd.get("predicted_seconds", 0),
+                rd.get("predicted_time", ""), rd.get("confidence", 0),
+                rd.get("current_views", 0), rd.get("metadata", ""),
+                rd.get("predicted_hours", 0), rd.get("current_velocity", 0),
+                rd.get("is_reached", 0), rd.get("actual_time", ""),
+                rd.get("error_rate", 0), rd.get("created_at"),
+            ))
+            existing.add(key)
+        if batch:
+            central_cur.executemany(
+                """INSERT INTO predictions (bvid, algorithm, algorithm_id,
+                target_threshold, predicted_seconds, predicted_time, confidence,
+                current_views, metadata, predicted_hours, current_velocity,
+                is_reached, actual_time, error_rate, created_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", batch,
+            )
+        return len(batch)
 
     @staticmethod
     def _sync_video_weekly_scores(central_cur, bvid: str, vcur) -> int:
         """同步视频独立库的 weekly_scores 到中央库"""
         try:
-            vcur.execute("PRAGMA table_info(weekly_scores)")
-            if not {r["name"] for r in vcur.fetchall()}:
-                return 0
+            vcur.execute("SELECT timestamp FROM weekly_scores LIMIT 1")
         except Exception:
+            return 0
+        try:
+            vcur.execute("SELECT * FROM weekly_scores ORDER BY timestamp ASC")
+        except Exception:
+            return 0
+        rows = [dict(r) for r in vcur.fetchall()]
+        if not rows:
             return 0
 
         central_cur.execute(
@@ -903,44 +926,43 @@ class Database:
         )
         existing_ts = {r["timestamp"] for r in central_cur.fetchall()}
 
-        try:
-            vcur.execute("SELECT * FROM weekly_scores ORDER BY timestamp ASC")
-        except Exception:
-            return 0
-
-        count = 0
-        for row in vcur.fetchall():
-            rd = dict(row)
+        batch = []
+        for rd in rows:
             if rd.get("timestamp") in existing_ts:
                 continue
-            try:
-                central_cur.execute(
-                    """INSERT INTO weekly_scores
-                    (bvid, timestamp, total_score, view_score, interaction_score,
-                     favorite_score, coin_score, like_score,
-                     correction_a, correction_b, correction_c, correction_d, base_view_score)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                    (bvid, rd.get("timestamp"), rd.get("total_score"),
-                     rd.get("view_score"), rd.get("interaction_score"),
-                     rd.get("favorite_score"), rd.get("coin_score"),
-                     rd.get("like_score"), rd.get("correction_a"),
-                     rd.get("correction_b"), rd.get("correction_c"),
-                     rd.get("correction_d"), rd.get("base_view_score")),
-                )
-                existing_ts.add(rd["timestamp"])
-                count += 1
-            except Exception:
-                pass
-        return count
+            batch.append((
+                bvid, rd.get("timestamp"),
+                rd.get("total_score"), rd.get("view_score"),
+                rd.get("interaction_score"), rd.get("favorite_score"),
+                rd.get("coin_score"), rd.get("like_score"),
+                rd.get("correction_a"), rd.get("correction_b"),
+                rd.get("correction_c"), rd.get("correction_d"),
+                rd.get("base_view_score"),
+            ))
+            existing_ts.add(rd["timestamp"])
+        if batch:
+            central_cur.executemany(
+                """INSERT INTO weekly_scores (bvid, timestamp, total_score,
+                view_score, interaction_score, favorite_score, coin_score,
+                like_score, correction_a, correction_b, correction_c,
+                correction_d, base_view_score)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""", batch,
+            )
+        return len(batch)
 
     @staticmethod
     def _sync_video_yearly_scores(central_cur, bvid: str, vcur) -> int:
         """同步视频独立库的 yearly_scores 到中央库"""
         try:
-            vcur.execute("PRAGMA table_info(yearly_scores)")
-            if not {r["name"] for r in vcur.fetchall()}:
-                return 0
+            vcur.execute("SELECT timestamp FROM yearly_scores LIMIT 1")
         except Exception:
+            return 0
+        try:
+            vcur.execute("SELECT * FROM yearly_scores ORDER BY timestamp ASC")
+        except Exception:
+            return 0
+        rows = [dict(r) for r in vcur.fetchall()]
+        if not rows:
             return 0
 
         central_cur.execute(
@@ -948,34 +970,27 @@ class Database:
         )
         existing_ts = {r["timestamp"] for r in central_cur.fetchall()}
 
-        try:
-            vcur.execute("SELECT * FROM yearly_scores ORDER BY timestamp ASC")
-        except Exception:
-            return 0
-
-        count = 0
-        for row in vcur.fetchall():
-            rd = dict(row)
+        batch = []
+        for rd in rows:
             if rd.get("timestamp") in existing_ts:
                 continue
-            try:
-                central_cur.execute(
-                    """INSERT INTO yearly_scores
-                    (bvid, timestamp, total_score, view_score, interaction_score,
-                     favorite_score, coin_score, like_score,
-                     correction_a, correction_b, correction_c)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
-                    (bvid, rd.get("timestamp"), rd.get("total_score"),
-                     rd.get("view_score"), rd.get("interaction_score"),
-                     rd.get("favorite_score"), rd.get("coin_score"),
-                     rd.get("like_score"), rd.get("correction_a"),
-                     rd.get("correction_b"), rd.get("correction_c")),
-                )
-                existing_ts.add(rd["timestamp"])
-                count += 1
-            except Exception:
-                pass
-        return count
+            batch.append((
+                bvid, rd.get("timestamp"),
+                rd.get("total_score"), rd.get("view_score"),
+                rd.get("interaction_score"), rd.get("favorite_score"),
+                rd.get("coin_score"), rd.get("like_score"),
+                rd.get("correction_a"), rd.get("correction_b"),
+                rd.get("correction_c"),
+            ))
+            existing_ts.add(rd["timestamp"])
+        if batch:
+            central_cur.executemany(
+                """INSERT INTO yearly_scores (bvid, timestamp, total_score,
+                view_score, interaction_score, favorite_score, coin_score,
+                like_score, correction_a, correction_b, correction_c)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)""", batch,
+            )
+        return len(batch)
 
     @staticmethod
     def _ensure_central_tables(cur):
@@ -1021,12 +1036,14 @@ class Database:
             ON yearly_scores(bvid, timestamp)""")
         # 迁移：确保 predictions 表有完整字段
         Database._migrate_central_predictions(cur)
+        # 索引：加速 predictions 按 bvid 查询
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_predictions_bvid ON predictions(bvid)")
 
     @staticmethod
     def _migrate_central_predictions(cur):
         """确保中央库 predictions 表包含独立库的全部字段"""
         cur.execute("PRAGMA table_info(predictions)")
-        existing = {r["name"] for r in cur.fetchall()}
+        existing = {r[1] if isinstance(r, (list, tuple)) else r["name"] for r in cur.fetchall()}
         if not existing:
             return
         for col, definition in [

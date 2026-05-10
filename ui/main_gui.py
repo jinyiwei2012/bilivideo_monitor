@@ -97,6 +97,9 @@ class BilibiliMonitorGUI:
         # 视频列表的 bvid→dict 索引，避免 O(n) 线性查找
         self._video_index = {}
 
+        # 图表防抖计时器
+        self._chart_debounce = None
+
         # UI 子模块
         self._file_logger = FileLogger(os.path.join(sys_path, "data", "log"))
 
