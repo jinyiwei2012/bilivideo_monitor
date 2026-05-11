@@ -150,18 +150,55 @@ def _source_a_up_info(uid: int) -> Optional[Dict]:
 
         u = User(uid=uid)
         info = sync(u.get_user_info())
-        if info and info.get("mid"):
-            return {
-                "uid": info.get("mid", uid),
-                "name": info.get("name", ""),
-                "face": info.get("face", ""),
-                "sign": info.get("sign", ""),
-                "level": info.get("level", 0),
-                "follower_count": info.get("fans", 0) or info.get("follower", 0),
-                "video_count": info.get("video_count", info.get("videos", 0)),
-                "official_verify": info.get("official_verify", {}),
-                "nameplate": info.get("nameplate", {}),
-            }
+        if not info or not info.get("mid"):
+            return None
+
+        result = {
+            "uid": info.get("mid", uid),
+            "name": info.get("name", ""),
+            "face": info.get("face", ""),
+            "sign": info.get("sign", ""),
+            "level": info.get("level", 0),
+            "follower_count": 0,
+            "video_count": 0,
+            "official_verify": info.get("official", info.get("official_verify", {})),
+            "nameplate": info.get("nameplate", {}),
+        }
+
+        # bilibili-api-python 新版 get_user_info() 不再返回 fans/videos
+        # 从 get_relation_info() 单独获取粉丝数
+        try:
+            rel = sync(u.get_relation_info())
+            if rel:
+                result["follower_count"] = rel.get("follower", 0)
+        except Exception:
+            pass
+
+        # 尝试获取投稿数（可能受 412 限制，失败不影响主流程）
+        if not result["video_count"]:
+            try:
+                vdata = sync(u.get_videos(ps=1, pn=1))
+                if vdata and "page" in vdata:
+                    result["video_count"] = vdata["page"].get("count", 0)
+            except Exception:
+                pass
+
+        # 如果 bilibili-api-python 无法获取投稿数，尝试自有 API 兜底
+        if not result["video_count"]:
+            try:
+                import core.bilibili_api as _own_api
+                # 优先使用 navnum 接口（轻量级，同时返回投稿数和粉丝数）
+                data = _own_api._request_public(
+                    "GET", f"{_own_api.BASE_URL}/x/space/navnum",
+                    params={"mid": uid, "jsonp": "jsonp"},
+                )
+                if data:
+                    if data.get("video"):
+                        result["video_count"] = data["video"]
+            except Exception:
+                pass
+
+        return result
     except Exception as e:
         logger.debug("源 A get_up_info 失败: %s", e)
     return None
