@@ -569,7 +569,7 @@ class BilibiliAPI:
         if data:
             return {
                 "total_views": data.get("archive", {}).get("view", 0),
-                "total_likes": data.get("archive", {}).get("like", 0),
+                "total_likes": data.get("likes", 0) or data.get("archive", {}).get("like", 0),
                 "follower_change": data.get("follower_change", data.get("follower", 0)),
                 "follower_count": (
                     data.get("follower", {}).get("follower", 0)
