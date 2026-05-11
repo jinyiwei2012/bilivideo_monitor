@@ -12,7 +12,6 @@ from core import bilibili_api, db, MonitorRecord, PredictionRecord
 from ui.helpers import (
     THRESHOLDS,
     THRESHOLD_NAMES,
-    FONT,
     _parse_viewer_count,
 )
 
@@ -21,6 +20,8 @@ logger = logging.getLogger(__name__)
 # 限制并发预测数量，防止 GIL 饥饿导致主线程卡顿
 _prediction_semaphore = threading.Semaphore(2)
 
+# 已从 DB 完成历史合并的视频集合（后续循环中内存数据始终 >= DB，跳过全量读取）
+_merged_from_db = set()
 
 # ──────────────────────────────────────────────
 #  内部工具
@@ -72,30 +73,35 @@ def _save_predictions_to_db(gui, bvid, current_view, results):
 
 
 def _merge_history(gui, bvid: str) -> list:
-    """合并内存历史与数据库历史，同步写回 gui.history_data 确保图表数据完整"""
+    """合并内存历史与数据库历史，同步写回 gui.history_data 确保图表数据完整
+
+    优化：首次从 DB 全量合并后，后续循环跳过 DB 读取（内存数据始终 >= DB）。
+    """
     current_view = next((v.get("view_count", 0) for v in gui.monitored_videos if v.get("bvid") == bvid), 0)
     with gui._data_lock:
         history = list(gui.history_data.get(bvid, []))
 
-    try:
-        if bvid in gui.video_dbs:
-            db_hist = gui.video_dbs[bvid].get_all_records()
-            if db_hist:
+    if bvid not in _merged_from_db:
+        try:
+            if bvid in gui.video_dbs:
+                db_hist = gui.video_dbs[bvid].get_all_records()
+                if db_hist:
 
-                def _norm(ts):
-                    """统一时间戳格式用于去重比较"""
-                    if isinstance(ts, datetime):
-                        return ts.strftime("%Y-%m-%d %H:%M:%S")
-                    dt = datetime.fromisoformat(str(ts)) if isinstance(ts, str) else datetime.fromtimestamp(float(ts))
-                    return dt.strftime("%Y-%m-%d %H:%M:%S")
+                    def _norm(ts):
+                        """统一时间戳格式用于去重比较"""
+                        if isinstance(ts, datetime):
+                            return ts.strftime("%Y-%m-%d %H:%M:%S")
+                        dt = datetime.fromisoformat(str(ts)) if isinstance(ts, str) else datetime.fromtimestamp(float(ts))
+                        return dt.strftime("%Y-%m-%d %H:%M:%S")
 
-                existing_ts = {_norm(h[0]) for h in history}
-                for row in db_hist:
-                    ts_str = _norm(row["timestamp"])
-                    if ts_str not in existing_ts:
-                        history.append((row["timestamp"], row["view_count"]))
-    except Exception as e:
-        logger.warning(f"合并历史记录失败 {bvid}: {e}")
+                    existing_ts = {_norm(h[0]) for h in history}
+                    for row in db_hist:
+                        ts_str = _norm(row["timestamp"])
+                        if ts_str not in existing_ts:
+                            history.append((row["timestamp"], row["view_count"]))
+        except Exception as e:
+            logger.warning(f"合并历史记录失败 {bvid}: {e}")
+        _merged_from_db.add(bvid)
 
     history.sort(key=lambda x: _to_dt(x[0]))
 
@@ -200,20 +206,6 @@ def _online_learning_feedback(gui, bvid, results, actual_view):
                 learner.update(algo_key, predicted=pred_val, actual=actual_view)
     except Exception as e:
         logger.debug("在线学习反馈失败: %s", e)
-
-
-def _feed_causal_analyzer(gui, bvid):
-    try:
-        from algorithms.causal_inference import get_causal_analyzer
-
-        video_db = gui.video_dbs.get(bvid)
-        if not video_db:
-            return
-        records = video_db.get_all_records()
-        if records:
-            get_causal_analyzer(bvid).feed(records)
-    except Exception as e:
-        logger.debug("因果分析反馈失败: %s", e)
 
 
 def _update_video_graph(gui, bvid, video):
@@ -450,9 +442,9 @@ class VideoWorker:
             "DEBUG", f"[{bvid}] 拉取完成 播放:{video.get('view_count', 0):,} 预测:{result.get('prediction', 0):,}"
         )
 
-        # 同步该视频数据到中央数据库（在 worker 线程执行，不阻塞 UI）
+        # 同步视频信息到中央数据库（从内存直接写入，避免新建 DB 连接 + 重复读盘）
         try:
-            db.sync_from_video_db(bvid)
+            db.sync_video_info(bvid, video)
         except Exception as e:
             self._log("WARNING", f"[{bvid}] 同步中央数据库失败: {e}")
 
@@ -489,6 +481,8 @@ class VideoWorker:
                 gui._chart_debounce = gui.root.after(
                     100, lambda: gui.detail._auto_render_chart()
                 )
+            elif gui.detail.current_tab == "📋 详细数据":
+                gui.detail._fill_detail_text(video)
 
         # 刷新状态栏（上次刷新时间、视频计数）
         now_str = datetime.now().strftime("%H:%M:%S")
