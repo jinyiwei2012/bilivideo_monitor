@@ -23,6 +23,10 @@ _prediction_semaphore = threading.Semaphore(2)
 # 已从 DB 完成历史合并的视频集合（后续循环中内存数据始终 >= DB，跳过全量读取）
 _merged_from_db = set()
 
+# UP主数据库实例 & 拉取频率控制（每 UP主 每小时最多拉取一次）
+_up_db = None
+_last_up_fetch_time = {}  # uid -> time.time
+
 # ──────────────────────────────────────────────
 #  内部工具
 # ──────────────────────────────────────────────
@@ -119,6 +123,51 @@ def _merge_history(gui, bvid: str) -> list:
 def _to_dt(t):
     """统一时间戳转为 datetime"""
     return t if isinstance(t, datetime) else datetime.fromisoformat(str(t))
+
+
+def _get_up_db():
+    global _up_db
+    if _up_db is None:
+        from core.up_database import UpDatabase
+
+        _up_db = UpDatabase()
+    return _up_db
+
+
+def _save_up_data(uid: int):
+    """拉取 UP主信息+统计数据，保存到数据库（每 UP主 每小时最多一次）"""
+    import time
+
+    now = time.time()
+    last = _last_up_fetch_time.get(uid, 0)
+    if now - last < 3600:
+        return
+    _last_up_fetch_time[uid] = now
+
+    try:
+        info = bilibili_api.get_up_info(uid)
+        if not info:
+            logger.debug("获取UP主信息失败 UID:%s", uid)
+            return
+
+        stat = bilibili_api.get_up_stat(uid)
+        if stat:
+            info["total_views"] = stat.get("total_views", 0)
+            info["total_likes"] = stat.get("total_likes", 0)
+            if stat.get("follower_count"):
+                info["follower_count"] = stat["follower_count"]
+
+        up_db = _get_up_db()
+        up_db.upsert_up(info)
+        up_db.add_history(
+            uid,
+            follower_count=info.get("follower_count", 0),
+            video_count=info.get("video_count", 0),
+            total_views=info.get("total_views", 0),
+        )
+        logger.info("UP主数据已保存 UID:%s %s", uid, info.get("name", ""))
+    except Exception as e:
+        logger.warning("保存UP主数据失败 UID:%s: %s", uid, e)
 
 
 def _calc_growth_rate(history: list) -> float:
@@ -339,6 +388,10 @@ class VideoWorker:
         video["title"] = info.get("title", video.get("title", ""))
         video["author"] = owner.get("name", video.get("author", ""))
         video["pic"] = info.get("pic", video.get("pic", ""))
+        # 自动保存 UP主 数据到数据库（每小时最多一次）
+        owner_id = owner.get("mid", 0)
+        if owner_id:
+            _save_up_data(owner_id)
         video["view_count"] = stat.get("view", video.get("view_count", 0))
         video["like_count"] = stat.get("like", video.get("like_count", 0))
         video["coin_count"] = stat.get("coin", video.get("coin_count", 0))
