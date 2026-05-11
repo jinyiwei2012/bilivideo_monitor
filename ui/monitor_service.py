@@ -18,6 +18,9 @@ from ui.helpers import (
 
 logger = logging.getLogger(__name__)
 
+# 限制并发预测数量，防止 GIL 饥饿导致主线程卡顿
+_prediction_semaphore = threading.Semaphore(2)
+
 
 # ──────────────────────────────────────────────
 #  内部工具
@@ -133,52 +136,53 @@ def _calc_growth_rate(history: list) -> float:
 
 def _predict_single(gui, bvid, video) -> dict:
     """在 worker 线程中对单个视频运行预测（纯函数，无 UI 调用）"""
-    current_view = video.get("view_count", 0)
-    history = _merge_history(gui, bvid)
+    with _prediction_semaphore:
+        current_view = video.get("view_count", 0)
+        history = _merge_history(gui, bvid)
 
-    results = AlgorithmRegistry.predict_all(
-        history,
-        current_view,
-        thresholds=THRESHOLDS,
-        threshold_names=THRESHOLD_NAMES,
-    )
+        results = AlgorithmRegistry.predict_all(
+            history,
+            current_view,
+            thresholds=THRESHOLDS,
+            threshold_names=THRESHOLD_NAMES,
+        )
 
-    weighted = results.get("_weighted", {})
-    w_pred = weighted.get("prediction", current_view)
-    success_list = []
-    fail_list = []
-    for name, r in results.items():
-        if name == "_weighted":
-            continue
-        if "error" in r:
-            fail_list.append((name, r["error"]))
-        else:
-            success_list.append((name, r["prediction"], r["weight"], r["confidence"]))
+        weighted = results.get("_weighted", {})
+        w_pred = weighted.get("prediction", current_view)
+        success_list = []
+        fail_list = []
+        for name, r in results.items():
+            if name == "_weighted":
+                continue
+            if "error" in r:
+                fail_list.append((name, r["error"]))
+            else:
+                success_list.append((name, r["prediction"], r["weight"], r["confidence"]))
 
-    growth = w_pred - current_view
-    rate_per_sec = _calc_growth_rate(history)
+        growth = w_pred - current_view
+        rate_per_sec = _calc_growth_rate(history)
 
-    # 在线学习反馈
-    _online_learning_feedback(gui, bvid, results, current_view)
-    # 图神经网络更新（内部缓存边，无变更时跳过重建）
-    _update_video_graph(gui, bvid, video)
-    # 写数据库
-    _save_predictions_to_db(gui, bvid, current_view, results)
+        # 在线学习反馈
+        _online_learning_feedback(gui, bvid, results, current_view)
+        # 图神经网络更新（内部缓存边，无变更时跳过重建）
+        _update_video_graph(gui, bvid, video)
+        # 写数据库
+        _save_predictions_to_db(gui, bvid, current_view, results)
 
-    result = {
-        "bvid": bvid,
-        "prediction": w_pred,
-        "current_view": current_view,
-        "growth": max(0, growth),
-        "rate_per_sec": rate_per_sec,
-        "success_list": success_list,
-        "fail_list": fail_list,
-        "valid": weighted.get("valid_algorithms", 0),
-        "total": weighted.get("total_algorithms", 0),
-    }
-    with gui._data_lock:
-        gui.prediction_results[bvid] = result
-    return result
+        result = {
+            "bvid": bvid,
+            "prediction": w_pred,
+            "current_view": current_view,
+            "growth": max(0, growth),
+            "rate_per_sec": rate_per_sec,
+            "success_list": success_list,
+            "fail_list": fail_list,
+            "valid": weighted.get("valid_algorithms", 0),
+            "total": weighted.get("total_algorithms", 0),
+        }
+        with gui._data_lock:
+            gui.prediction_results[bvid] = result
+        return result
 
 
 def _online_learning_feedback(gui, bvid, results, actual_view):
@@ -244,6 +248,8 @@ class VideoWorker:
         self._stop_event = threading.Event()
         self._thread = None
         self._interval_lock = threading.Lock()  # 保护 interval 切换
+        self._fetching_lock = threading.Lock()
+        self._fetching = False
         self._log = gui.log_panel.add_log
 
     # ── 公开 API ────────────────────────────────
@@ -300,6 +306,13 @@ class VideoWorker:
         video = self.video
         gui = self.gui
 
+        # 防止同一视频的并发拉取
+        with self._fetching_lock:
+            if self._fetching:
+                self._log("DEBUG", f"[{bvid}] 上次拉取尚未完成，跳过本次")
+                return
+            self._fetching = True
+
         self._log("DEBUG", f"[{bvid}] 开始拉取数据…")
         # 记录当前使用的代理（脱敏显示协议+IP前3位）
         proxy_hint = bilibili_api.proxy_manager.peek_proxy()
@@ -311,9 +324,13 @@ class VideoWorker:
             info = bilibili_api.get_video_info(bvid)
             if not info:
                 self._log("WARNING", f"[{bvid}] 获取视频信息失败（返回 None）")
+                with self._fetching_lock:
+                    self._fetching = False
                 return
         except Exception as e:
             self._log("ERROR", f"[{bvid}] 获取视频信息异常: {e}")
+            with self._fetching_lock:
+                self._fetching = False
             return
 
         # ── 网络响应日志 ────────────────────────────
@@ -425,6 +442,8 @@ class VideoWorker:
             result = _predict_single(gui, bvid, video)
         except Exception as e:
             self._log("ERROR", f"[{bvid}] 预测失败: {e}")
+            with self._fetching_lock:
+                self._fetching = False
             return
 
         self._log(
@@ -440,6 +459,9 @@ class VideoWorker:
         # ── 回调主线程更新 UI ─────────────────────
         #    仅在选中该视频时触发完整 UI 更新；其他视频静默后台更新
         gui.root.after(0, lambda r=result, v=video: self._on_fetch_done(r, v))
+
+        with self._fetching_lock:
+            self._fetching = False
 
     def _on_fetch_done(self, result, video):
         """在主线程回调：更新 UI（仅当前选中视频触发完整刷新）"""
@@ -463,10 +485,9 @@ class VideoWorker:
                 # 防抖：100ms 内多次触发只重绘一次
                 if hasattr(gui, "_chart_debounce") and gui._chart_debounce:
                     gui.root.after_cancel(gui._chart_debounce)
-                from ui.chart import draw_chart
 
                 gui._chart_debounce = gui.root.after(
-                    100, lambda: draw_chart(gui.detail.chart_canvas, gui.history_data, bvid, video, FONT)
+                    100, lambda: gui.detail._auto_render_chart()
                 )
 
         # 刷新状态栏（上次刷新时间、视频计数）

@@ -36,7 +36,7 @@ from ui.helpers import (
     fmt_num,
     nearest_threshold_gap,
 )
-from ui.chart import draw_chart, draw_chart_placeholder
+from ui.chart import draw_chart_placeholder
 from ui.log_panel import LogPanel
 from ui.video_list_panel import VideoListPanel
 from ui.detail_panel import DetailPanel
@@ -48,9 +48,7 @@ from utils.yearly_score import calculate_yearly_from_dict as _calc_ys
 from dataclasses import asdict
 from ui.monitor_service import (
     fetch_all_video_data,
-    fetch_single_video_data,
     auto_predict_all,
-    auto_predict_video,
     load_watch_list,
 )
 from core import bilibili_api, db, MonitorRecord
@@ -86,7 +84,6 @@ class BilibiliMonitorGUI:
         self.auto_refresh_enabled = tk.BooleanVar(value=True)
         self._global_tick_job = None
         self._video_timers = {}
-        self._fetching_set = set()
         self._data_lock = threading.Lock()  # 保护 shared data（history_data, prediction_results, video_dbs）
         self._tick_counter = 0  # 用于周期性维护任务
 
@@ -455,22 +452,13 @@ class BilibiliMonitorGUI:
         now = time.time()
         fast_count = 0
         min_remaining = float("inf")
-        due_bvids = []
 
         for bvid, timer in list(self._video_timers.items()):
             remaining = timer["next"] - now
             if timer["interval"] == self.FAST_INTERVAL:
                 fast_count += 1
-            if remaining <= 0:
-                due_bvids.append(bvid)
-            elif remaining < min_remaining:
+            if remaining < min_remaining:
                 min_remaining = remaining
-
-        for bvid in due_bvids:
-            if bvid not in self._fetching_set:
-                self._fetching_set.add(bvid)
-                self.log_panel.add_log("DEBUG", f"定时器到期，拉取 {bvid}")
-                fetch_single_video_data(self, bvid, callback=self._on_single_fetch_done)
 
         if min_remaining == float("inf"):
             badge_text = "— s"
@@ -497,20 +485,6 @@ class BilibiliMonitorGUI:
 
         self._global_tick_job = self.root.after(1000, self._global_tick)
 
-    def _on_single_fetch_done(self, bvid):
-        self._fetching_set.discard(bvid)
-        video = self._get_video(bvid)
-        if video:
-            self.video_list.update_card(video)
-        if bvid == self.selected_bvid and video:
-            self.detail.update_stat_bar(video)
-            if self.detail.current_tab == "📈 播放量趋势":
-                draw_chart(self.detail.chart_canvas, self.history_data, self.selected_bvid, video, FONT)
-        now_str = datetime.now().strftime("%H:%M:%S")
-        self._sb("last_ref", f"上次刷新: {now_str}")
-        self._sb("videos", f"监控: {len(self.monitored_videos)} 个")
-        self._register_video_timer(bvid)
-        auto_predict_video(self, bvid)
 
     def _toggle_auto_refresh(self, event=None):
         cur = self.auto_refresh_enabled.get()
@@ -542,7 +516,7 @@ class BilibiliMonitorGUI:
             if video:
                 self.detail.update_stat_bar(video)
                 if self.detail.current_tab == "📈 播放量趋势":
-                    draw_chart(self.detail.chart_canvas, self.history_data, self.selected_bvid, video, FONT)
+                    self.detail._auto_render_chart()
         for video in self.monitored_videos:
             self._register_video_timer(video.get("bvid", ""))
         auto_predict_all(self)
@@ -710,7 +684,6 @@ class BilibiliMonitorGUI:
         self.video_dbs.pop(bvid, None)
         self.prediction_results.pop(bvid, None)
         self._video_timers.pop(bvid, None)
-        self._fetching_set.discard(bvid)
         self.video_list.remove_card(bvid)
         self.selected_bvid = None
         self.detail._build_center_header_empty()

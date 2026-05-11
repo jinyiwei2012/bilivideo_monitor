@@ -32,6 +32,8 @@ class DetailPanel:
         self._tab_btns = {}
         self._current_tab = "📈 播放量趋势"
         self._chart_resize_job = None
+        self._chart_mode = tk.StringVar(value="delta")
+        self._chart_max_points = tk.StringVar(value="20")
         self._build()
 
     def _build(self):
@@ -70,6 +72,44 @@ class DetailPanel:
 
         self._content_area = ctk.CTkFrame(p, fg_color=C["bg_base"], corner_radius=0)
         self._content_area.pack(fill=tk.BOTH, expand=True)
+
+        # 图表控制栏
+        bar = tk.Frame(self._content_area, bg=C["bg_base"])
+        bar.pack(fill=tk.X, padx=16, pady=(10, 0))
+        tk.Radiobutton(
+            bar, text="增量", variable=self._chart_mode, value="delta",
+            bg=C["bg_base"], fg=C["text_1"], selectcolor=C["bg_base"],
+            font=FONT_SM, command=self._on_chart_mode_change,
+        ).pack(side=tk.LEFT)
+        tk.Radiobutton(
+            bar, text="全量", variable=self._chart_mode, value="full",
+            bg=C["bg_base"], fg=C["text_1"], selectcolor=C["bg_base"],
+            font=FONT_SM, command=self._on_chart_mode_change,
+        ).pack(side=tk.LEFT)
+        tk.Frame(bar, bg=C["border_sub"], width=1, height=14).pack(side=tk.LEFT, padx=6)
+        tk.Label(bar, text="显示", bg=C["bg_base"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT)
+        pt_entry = tk.Entry(
+            bar, textvariable=self._chart_max_points, width=3,
+            font=FONT_MONO, bg=C["bg_elevated"], fg=C["text_1"],
+            insertbackground=C["text_1"], relief="flat",
+            highlightthickness=1, highlightbackground=C["border"],
+        )
+        pt_entry.pack(side=tk.LEFT, padx=2)
+        tk.Label(bar, text="点", bg=C["bg_base"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT, padx=(0, 6))
+        self._chart_render_btn = tk.Label(
+            bar, text="▶ 渲染", bg=C["bg_elevated"], fg=C["accent"],
+            font=FONT_SM, cursor="hand2", padx=6, pady=1,
+        )
+        self._chart_render_btn.pack(side=tk.LEFT)
+        self._chart_render_btn.bind("<Button-1>", lambda e: self._manual_render_chart())
+        self._chart_render_btn.bind(
+            "<Enter>", lambda e: self._chart_render_btn.config(bg=C["bg_hover"])
+        )
+        self._chart_render_btn.bind(
+            "<Leave>", lambda e: self._chart_render_btn.config(bg=C["bg_elevated"])
+        )
+        self._chart_stat_lbl = tk.Label(bar, text="", bg=C["bg_base"], fg=C["text_3"], font=FONT_SM)
+        self._chart_stat_lbl.pack(side=tk.RIGHT, padx=4)
 
         self._chart_canvas = tk.Canvas(self._content_area, bg=C["bg_base"], bd=0, highlightthickness=0)
         self._chart_canvas.pack(fill=tk.BOTH, expand=True, padx=16, pady=12)
@@ -254,12 +294,7 @@ class DetailPanel:
         self._ratio_frame.pack_forget()
         if name == "📈 播放量趋势":
             self._chart_canvas.pack(fill=tk.BOTH, expand=True, padx=16, pady=12)
-            if self.gui.selected_bvid:
-                video = next((v for v in self.gui.monitored_videos if v.get("bvid") == self.gui.selected_bvid), None)
-                if video:
-                    draw_chart(self._chart_canvas, self.gui.history_data, self.gui.selected_bvid, video, FONT)
-                    return
-            draw_chart_placeholder(self._chart_canvas)
+            self._auto_render_chart()
         elif name == "📋 详细数据":
             self._detail_text_frame.pack(fill=tk.BOTH, expand=True, padx=16, pady=12)
             if self.gui.selected_bvid:
@@ -280,12 +315,52 @@ class DetailPanel:
 
     def _do_chart_redraw(self):
         self._chart_resize_job = None
-        if self.gui.selected_bvid:
-            video = next((v for v in self.gui.monitored_videos if v.get("bvid") == self.gui.selected_bvid), None)
-            if video:
-                draw_chart(self._chart_canvas, self.gui.history_data, self.gui.selected_bvid, video, FONT)
-                return
-        draw_chart_placeholder(self._chart_canvas)
+        self._do_render_chart()
+
+    # ── 图表渲染控制 ─────────────────────────────────
+
+    def _auto_render_chart(self):
+        """自动渲染：只在增量模式下触发"""
+        if self._chart_mode.get() == "full":
+            return
+        self._do_render_chart()
+
+    def _manual_render_chart(self):
+        """手动渲染：强制渲染（无模式限制）"""
+        self._do_render_chart()
+
+    def _do_render_chart(self):
+        """实际执行渲染"""
+        if not self.gui.selected_bvid:
+            draw_chart_placeholder(self._chart_canvas)
+            return
+        video = next((v for v in self.gui.monitored_videos if v.get("bvid") == self.gui.selected_bvid), None)
+        if not video:
+            draw_chart_placeholder(self._chart_canvas)
+            return
+        try:
+            points = max(2, int(self._chart_max_points.get()))
+        except (ValueError, tk.TclError):
+            points = 20
+        draw_chart(
+            self._chart_canvas, self.gui.history_data, self.gui.selected_bvid, video, FONT,
+            mode=self._chart_mode.get(), max_points=points,
+        )
+
+    def _on_chart_mode_change(self):
+        """模式切换回调"""
+        if self._chart_mode.get() == "delta":
+            self._chart_render_btn.config(text="⟳ 渲染", fg=C["accent"])
+            self._chart_stat_lbl.config(text="自动刷新 ✓", fg=C["success"])
+            self._auto_render_chart()
+        else:
+            self._chart_render_btn.config(text="▶ 渲染全量", fg=C["bilibili"])
+            self._chart_stat_lbl.config(text="手动渲染", fg=C["warning"])
+            draw_chart_placeholder(self._chart_canvas, "点击「渲染全量」查看完整数据")
+
+    @property
+    def chart_mode(self):
+        return self._chart_mode.get()
 
     def _fill_detail_text(self, video):
         self._detail_text.config(state="normal")
