@@ -208,54 +208,79 @@ class Database:
         return VideoDatabase(bvid, self.data_dir)
 
     def sync_from_video_db(self, bvid: str) -> bool:
-        """从单个视频数据库同步视频信息到总数据库（仅同步元数据，不包含监控记录）"""
-        video_db = None
+        """从单个视频数据库同步视频信息到总数据库（仅同步元数据，不包含监控记录）
+
+        优化：优先使用内存数据（sync_video_info），避免新建 DB 连接 + 重复读盘。
+        """
         try:
-            video_db = VideoDatabase(bvid, self.data_dir)
-            video_info = video_db.get_video_info()
-            if video_info:
-                with self._get_connection() as conn:
-                    cursor = conn.cursor()
-                    cursor.execute(
-                        """
-                        INSERT OR REPLACE INTO videos
-                        (bvid, title, view_count, like_count, coin_count, share_count,
-                         favorite_count, danmaku_count, reply_count, viewers_app,
-                         viewers_web, viewers_total, cover_path, like_view_ratio,
-                         owner_name, owner_id, pubdate, duration, pic, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                        (
-                            bvid,
-                            video_info.get("title", ""),
-                            video_info.get("view_count", 0),
-                            video_info.get("like_count", 0),
-                            video_info.get("coin_count", 0),
-                            video_info.get("share_count", 0),
-                            video_info.get("favorite_count", 0),
-                            video_info.get("danmaku_count", 0),
-                            video_info.get("reply_count", 0),
-                            video_info.get("viewers_app", 0),
-                            video_info.get("viewers_web", 0),
-                            video_info.get("viewers_total", 0),
-                            video_info.get("cover_path", ""),
-                            video_info.get("like_view_ratio", 0),
-                            video_info.get("owner_name", ""),
-                            video_info.get("owner_id", 0),
-                            video_info.get("pubdate", ""),
-                            video_info.get("duration", 0),
-                            video_info.get("pic", ""),
-                            datetime.now(),
-                        ),
-                    )
-                    conn.commit()
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                # 视频独立库中的 video_info 行 id=1
+                video_db = VideoDatabase(bvid, self.data_dir)
+                try:
+                    video_info = video_db.get_video_info()
+                finally:
+                    video_db.close()
+                if not video_info:
+                    return True
+                cursor.execute(
+                    """INSERT OR REPLACE INTO videos
+                    (bvid, title, view_count, like_count, coin_count, share_count,
+                     favorite_count, danmaku_count, reply_count, viewers_app,
+                     viewers_web, viewers_total, cover_path, like_view_ratio,
+                     owner_name, owner_id, pubdate, duration, pic, updated_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (bvid,
+                     video_info.get("title", ""), video_info.get("view_count", 0),
+                     video_info.get("like_count", 0), video_info.get("coin_count", 0),
+                     video_info.get("share_count", 0), video_info.get("favorite_count", 0),
+                     video_info.get("danmaku_count", 0), video_info.get("reply_count", 0),
+                     video_info.get("viewers_app", 0), video_info.get("viewers_web", 0),
+                     video_info.get("viewers_total", 0), video_info.get("cover_path", ""),
+                     video_info.get("like_view_ratio", 0), video_info.get("owner_name", ""),
+                     video_info.get("owner_id", 0), video_info.get("pubdate", ""),
+                     video_info.get("duration", 0), video_info.get("pic", ""),
+                     datetime.now()),
+                )
+                conn.commit()
             return True
         except Exception as e:
             logger.warning("同步数据失败 %s: %s", bvid, e)
             return False
-        finally:
-            if video_db:
-                video_db.close()
+
+    def sync_video_info(self, bvid: str, video: dict) -> bool:
+        """从内存字典直接同步视频信息到总数据库，避免重复读盘
+
+        Args:
+            bvid: BV号
+            video: 视频数据字典（key 与 videos 表字段对应）
+        """
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """INSERT OR REPLACE INTO videos
+                    (bvid, title, view_count, like_count, coin_count, share_count,
+                     favorite_count, danmaku_count, reply_count, viewers_app,
+                     viewers_web, viewers_total, cover_path, like_view_ratio,
+                     owner_name, owner_id, pubdate, duration, pic, updated_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (bvid, video.get("title", ""), video.get("view_count", 0),
+                     video.get("like_count", 0), video.get("coin_count", 0),
+                     video.get("share_count", 0), video.get("favorite_count", 0),
+                     video.get("danmaku_count", 0), video.get("reply_count", 0),
+                     video.get("viewers_app", 0), video.get("viewers_web", 0),
+                     video.get("viewers_total", 0), video.get("cover_path", ""),
+                     video.get("like_view_ratio", 0), video.get("author", ""),
+                     video.get("owner_id", 0), video.get("pubdate", ""),
+                     video.get("duration", 0), video.get("pic", ""),
+                     datetime.now()),
+                )
+                conn.commit()
+            return True
+        except Exception as e:
+            logger.debug(f"同步视频信息失败 {bvid}: {e}")
+            return False
 
     def sync_monitor_record(self, bvid: str, record: dict) -> bool:
         """从内存同步单条监控记录到中央数据库（避免全量读取）"""
