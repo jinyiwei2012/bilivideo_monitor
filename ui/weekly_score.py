@@ -166,7 +166,7 @@ class WeeklyScoreWindow:
             bvid = video.get("bvid", "")
             if bvid in self.video_dbs:
                 try:
-                    records = self.video_dbs[bvid].get_all_records()
+                    records = self.video_dbs[bvid].get_all_records(limit=1)
                     if records:
                         latest = records[-1]
                         return VideoData(
