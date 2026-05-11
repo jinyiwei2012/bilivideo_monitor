@@ -50,6 +50,7 @@ from ui.monitor_service import (
     fetch_all_video_data,
     auto_predict_all,
     load_watch_list,
+    _start_worker,
 )
 from core import bilibili_api, db, MonitorRecord
 from config import load_config, save_config
@@ -817,6 +818,9 @@ class BilibiliMonitorGUI:
         self.video_list.update_video_count()
         self._sb("videos", f"监控: {len(self.monitored_videos)} 个")
         self._register_video_timer(bvid)
+        # 启动独立 Worker 线程，立即开始监控
+        interval = self._get_video_interval(video)
+        _start_worker(self, bvid, video, interval, self.FAST_INTERVAL)
 
     def _save_weekly_score(self, bvid, video, timestamp):
         try:
