@@ -197,12 +197,17 @@ class UpTrackerWindow:
         self._detail_text.delete("1.0", tk.END)
 
         uid = up.get("uid", 0)
+        fc = up.get("follower_count", 0)
+        vc = up.get("video_count", 0)
+        tv = up.get("total_views", 0)
+        tl = up.get("total_likes", 0)
         lines = [
             (f"=== {up.get('name', '未知')} ===\n", "head"),
             (f"UID: {uid}\n", "val"),
             (f"等级: Lv.{up.get('level', 0)}\n", "val"),
-            (f"粉丝: {self._fmt(up.get('follower_count', 0))}\n", "accent"),
-            (f"投稿: {up.get('video_count', 0)}  总播放: {self._fmt(up.get('total_views', 0))}\n", "val"),
+            (f"粉丝: {self._fmt(fc):>8}    {fc:,}\n", "accent"),
+            (f"投稿: {vc:>8,}    总播放: {self._fmt(tv):>8}    {tv:,}\n", "val"),
+            (f"总点赞: {self._fmt(tl):>8}    {tl:,}\n", "val"),
             (f"签名: {up.get('sign', '—')[:60]}\n", "dim"),
             (f"更新: {up.get('updated_at', '—')}\n", "dim"),
             ("\n", ""),
