@@ -33,6 +33,12 @@ start.bat
 .claude/
 reports/
 
+# 模型 checkpoint（训练产物，按需重新生成）
+algorithms/checkpoints/*/
+!algorithms/checkpoints/README.md
+*.pt
+*.pkl
+
 # 敏感配置文件（含Cookie/API密钥）
 data/network_config.json
 data/settings.json

@@ -28,6 +28,7 @@ class Database:
         if cls._BACKUP_DIR is None:
             try:
                 from config import DATA_DIR
+
                 cls._BACKUP_DIR = DATA_DIR
             except ImportError:
                 cls._BACKUP_DIR = cls._ACTIVE_DIR
@@ -61,7 +62,8 @@ class Database:
             cursor = conn.cursor()
 
             # 视频信息表
-            cursor.execute("""
+            cursor.execute(
+                """
                 CREATE TABLE IF NOT EXISTS videos (
                     bvid TEXT PRIMARY KEY,
                     title TEXT,
@@ -85,10 +87,12 @@ class Database:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-            """)
+            """
+            )
 
             # 监控记录表
-            cursor.execute("""
+            cursor.execute(
+                """
                 CREATE TABLE IF NOT EXISTS monitor_records (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     bvid TEXT,
@@ -106,14 +110,18 @@ class Database:
                     like_view_ratio REAL DEFAULT 0,
                     FOREIGN KEY (bvid) REFERENCES videos(bvid)
                 )
-            """)
-            cursor.execute("""
+            """
+            )
+            cursor.execute(
+                """
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_monitor_bvid_ts
                 ON monitor_records(bvid, timestamp)
-            """)
+            """
+            )
 
             # 预测记录表
-            cursor.execute("""
+            cursor.execute(
+                """
                 CREATE TABLE IF NOT EXISTS predictions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     bvid TEXT,
@@ -130,11 +138,13 @@ class Database:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (bvid) REFERENCES videos(bvid)
                 )
-            """)
+            """
+            )
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_predictions_bvid ON predictions(bvid)")
 
             # 投稿里程碑数据表
-            cursor.execute("""
+            cursor.execute(
+                """
                 CREATE TABLE IF NOT EXISTS video_milestones (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     bvid TEXT NOT NULL,
@@ -150,7 +160,8 @@ class Database:
                     recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(bvid, period)
                 )
-            """)
+            """
+            )
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_milestones_bvid ON video_milestones(bvid)")
             # 数据库迁移：检查并添加缺少的列
             self._migrate_db(conn)
@@ -230,17 +241,28 @@ class Database:
                      viewers_web, viewers_total, cover_path, like_view_ratio,
                      owner_name, owner_id, pubdate, duration, pic, updated_at)
                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                    (bvid,
-                     video_info.get("title", ""), video_info.get("view_count", 0),
-                     video_info.get("like_count", 0), video_info.get("coin_count", 0),
-                     video_info.get("share_count", 0), video_info.get("favorite_count", 0),
-                     video_info.get("danmaku_count", 0), video_info.get("reply_count", 0),
-                     video_info.get("viewers_app", 0), video_info.get("viewers_web", 0),
-                     video_info.get("viewers_total", 0), video_info.get("cover_path", ""),
-                     video_info.get("like_view_ratio", 0), video_info.get("owner_name", ""),
-                     video_info.get("owner_id", 0), video_info.get("pubdate", ""),
-                     video_info.get("duration", 0), video_info.get("pic", ""),
-                     datetime.now()),
+                    (
+                        bvid,
+                        video_info.get("title", ""),
+                        video_info.get("view_count", 0),
+                        video_info.get("like_count", 0),
+                        video_info.get("coin_count", 0),
+                        video_info.get("share_count", 0),
+                        video_info.get("favorite_count", 0),
+                        video_info.get("danmaku_count", 0),
+                        video_info.get("reply_count", 0),
+                        video_info.get("viewers_app", 0),
+                        video_info.get("viewers_web", 0),
+                        video_info.get("viewers_total", 0),
+                        video_info.get("cover_path", ""),
+                        video_info.get("like_view_ratio", 0),
+                        video_info.get("owner_name", ""),
+                        video_info.get("owner_id", 0),
+                        video_info.get("pubdate", ""),
+                        video_info.get("duration", 0),
+                        video_info.get("pic", ""),
+                        datetime.now(),
+                    ),
                 )
                 conn.commit()
             return True
@@ -265,16 +287,28 @@ class Database:
                      viewers_web, viewers_total, cover_path, like_view_ratio,
                      owner_name, owner_id, pubdate, duration, pic, updated_at)
                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                    (bvid, video.get("title", ""), video.get("view_count", 0),
-                     video.get("like_count", 0), video.get("coin_count", 0),
-                     video.get("share_count", 0), video.get("favorite_count", 0),
-                     video.get("danmaku_count", 0), video.get("reply_count", 0),
-                     video.get("viewers_app", 0), video.get("viewers_web", 0),
-                     video.get("viewers_total", 0), video.get("cover_path", ""),
-                     video.get("like_view_ratio", 0), video.get("author", ""),
-                     video.get("owner_id", 0), video.get("pubdate", ""),
-                     video.get("duration", 0), video.get("pic", ""),
-                     datetime.now()),
+                    (
+                        bvid,
+                        video.get("title", ""),
+                        video.get("view_count", 0),
+                        video.get("like_count", 0),
+                        video.get("coin_count", 0),
+                        video.get("share_count", 0),
+                        video.get("favorite_count", 0),
+                        video.get("danmaku_count", 0),
+                        video.get("reply_count", 0),
+                        video.get("viewers_app", 0),
+                        video.get("viewers_web", 0),
+                        video.get("viewers_total", 0),
+                        video.get("cover_path", ""),
+                        video.get("like_view_ratio", 0),
+                        video.get("author", ""),
+                        video.get("owner_id", 0),
+                        video.get("pubdate", ""),
+                        video.get("duration", 0),
+                        video.get("pic", ""),
+                        datetime.now(),
+                    ),
                 )
                 conn.commit()
             return True
@@ -488,9 +522,7 @@ class Database:
             logger.warning("获取监控历史失败 %s: %s", bvid, e)
 
         # 互补：从备份库补充缺失的记录
-        backup_rows = self._query_backup(
-            "SELECT * FROM monitor_records WHERE bvid = ? ORDER BY timestamp ASC", (bvid,)
-        )
+        backup_rows = self._query_backup("SELECT * FROM monitor_records WHERE bvid = ? ORDER BY timestamp ASC", (bvid,))
         if backup_rows:
             existing_ts = {r["timestamp"] for r in rows}
             for r in backup_rows:
@@ -726,11 +758,23 @@ class Database:
         central_db = os.path.join(self._get_backup_dir(), "bilibili_monitor.db")
         if central_db == self.db_path or not os.path.exists(central_db):
             logger.info("中央数据库不存在或与活跃库相同，跳过同步")
-            return {"synced_videos": 0, "synced_records": 0, "fixed_flaws": 0,
-                    "synced_predictions": 0, "synced_weekly": 0, "synced_yearly": 0}
+            return {
+                "synced_videos": 0,
+                "synced_records": 0,
+                "fixed_flaws": 0,
+                "synced_predictions": 0,
+                "synced_weekly": 0,
+                "synced_yearly": 0,
+            }
 
-        result = {"synced_videos": 0, "synced_records": 0, "fixed_flaws": 0,
-                  "synced_predictions": 0, "synced_weekly": 0, "synced_yearly": 0}
+        result = {
+            "synced_videos": 0,
+            "synced_records": 0,
+            "fixed_flaws": 0,
+            "synced_predictions": 0,
+            "synced_weekly": 0,
+            "synced_yearly": 0,
+        }
         try:
             central_conn = sqlite3.connect(central_db)
             central_conn.row_factory = sqlite3.Row
@@ -765,17 +809,26 @@ class Database:
                          owner_name, owner_id, pubdate, duration, pic, updated_at)
                         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                         (
-                            av["bvid"], av.get("title", ""),
-                            av.get("view_count", 0), av.get("like_count", 0),
-                            av.get("coin_count", 0), av.get("share_count", 0),
-                            av.get("favorite_count", 0), av.get("danmaku_count", 0),
+                            av["bvid"],
+                            av.get("title", ""),
+                            av.get("view_count", 0),
+                            av.get("like_count", 0),
+                            av.get("coin_count", 0),
+                            av.get("share_count", 0),
+                            av.get("favorite_count", 0),
+                            av.get("danmaku_count", 0),
                             av.get("reply_count", 0),
-                            av.get("viewers_app", 0), av.get("viewers_web", 0),
+                            av.get("viewers_app", 0),
+                            av.get("viewers_web", 0),
                             av.get("viewers_total", 0),
-                            av.get("cover_path", ""), av.get("like_view_ratio", 0),
-                            av.get("owner_name", ""), av.get("owner_id", 0),
-                            av.get("pubdate", ""), av.get("duration", 0),
-                            av.get("pic", ""), datetime.now(),
+                            av.get("cover_path", ""),
+                            av.get("like_view_ratio", 0),
+                            av.get("owner_name", ""),
+                            av.get("owner_id", 0),
+                            av.get("pubdate", ""),
+                            av.get("duration", 0),
+                            av.get("pic", ""),
+                            datetime.now(),
                         ),
                     )
 
@@ -786,9 +839,7 @@ class Database:
             active_bvids = {r["bvid"] for r in active_cur.fetchall()}
 
             for bvid in active_bvids:
-                central_cur.execute(
-                    "SELECT timestamp FROM monitor_records WHERE bvid=?", (bvid,)
-                )
+                central_cur.execute("SELECT timestamp FROM monitor_records WHERE bvid=?", (bvid,))
                 central_ts = {r["timestamp"] for r in central_cur.fetchall()}
 
                 active_cur.execute(
@@ -807,13 +858,21 @@ class Database:
                              favorite_count, danmaku_count, reply_count, viewers_app,
                              viewers_web, viewers_total, like_view_ratio)
                             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                            (rd["bvid"], rd["timestamp"],
-                             rd.get("view_count", 0), rd.get("like_count", 0),
-                             rd.get("coin_count", 0), rd.get("share_count", 0),
-                             rd.get("favorite_count", 0), rd.get("danmaku_count", 0),
-                             rd.get("reply_count", 0),
-                             rd.get("viewers_app", 0), rd.get("viewers_web", 0),
-                             rd.get("viewers_total", 0), lvr),
+                            (
+                                rd["bvid"],
+                                rd["timestamp"],
+                                rd.get("view_count", 0),
+                                rd.get("like_count", 0),
+                                rd.get("coin_count", 0),
+                                rd.get("share_count", 0),
+                                rd.get("favorite_count", 0),
+                                rd.get("danmaku_count", 0),
+                                rd.get("reply_count", 0),
+                                rd.get("viewers_app", 0),
+                                rd.get("viewers_web", 0),
+                                rd.get("viewers_total", 0),
+                                lvr,
+                            ),
                         )
                         central_ts.add(rd["timestamp"])
                         result["synced_records"] += 1
@@ -831,20 +890,25 @@ class Database:
                         "SELECT COUNT(DISTINCT COALESCE(algorithm,'') || COALESCE(predicted_time,'')) FROM predictions"
                     ).fetchone()[0]
                     c_count = central_cur.execute(
-                        "SELECT COUNT(DISTINCT COALESCE(algorithm,'') || COALESCE(predicted_time,'')) FROM predictions WHERE bvid=?", (bvid,)
+                        "SELECT COUNT(DISTINCT COALESCE(algorithm,'') || COALESCE(predicted_time,'')) FROM predictions WHERE bvid=?",
+                        (bvid,),
                     ).fetchone()[0]
                     if v_count != c_count:
                         result["synced_predictions"] += self._sync_video_predictions(central_cur, bvid, vcur)
 
                     # weekly max timestamp check
                     v_max = vcur.execute("SELECT MAX(timestamp) FROM weekly_scores").fetchone()[0]
-                    c_max = central_cur.execute("SELECT MAX(timestamp) FROM weekly_scores WHERE bvid=?", (bvid,)).fetchone()[0]
+                    c_max = central_cur.execute(
+                        "SELECT MAX(timestamp) FROM weekly_scores WHERE bvid=?", (bvid,)
+                    ).fetchone()[0]
                     if v_max and (c_max is None or v_max > c_max):
                         result["synced_weekly"] += self._sync_video_weekly_scores(central_cur, bvid, vcur)
 
                     # yearly max timestamp check
                     v_max = vcur.execute("SELECT MAX(timestamp) FROM yearly_scores").fetchone()[0]
-                    c_max = central_cur.execute("SELECT MAX(timestamp) FROM yearly_scores WHERE bvid=?", (bvid,)).fetchone()[0]
+                    c_max = central_cur.execute(
+                        "SELECT MAX(timestamp) FROM yearly_scores WHERE bvid=?", (bvid,)
+                    ).fetchone()[0]
                     if v_max and (c_max is None or v_max > c_max):
                         result["synced_yearly"] += self._sync_video_yearly_scores(central_cur, bvid, vcur)
                 finally:
@@ -854,9 +918,12 @@ class Database:
             central_conn.close()
             logger.info(
                 "中央库同步完成: %d视频 %d记录 %d瑕疵 | 预测%d 周刊%d 年刊%d",
-                result["synced_videos"], result["synced_records"],
-                result["fixed_flaws"], result["synced_predictions"],
-                result["synced_weekly"], result["synced_yearly"],
+                result["synced_videos"],
+                result["synced_records"],
+                result["fixed_flaws"],
+                result["synced_predictions"],
+                result["synced_weekly"],
+                result["synced_yearly"],
             )
         except Exception as e:
             logger.warning("中央库同步失败: %s", e)
@@ -887,23 +954,23 @@ class Database:
             return 0
         try:
             # GROUP BY 只取每个 (algorithm, predicted_time) 组合的最新一条
-            vcur.execute("""
+            vcur.execute(
+                """
                 SELECT algorithm, algorithm_id, target_threshold, predicted_seconds,
                        predicted_time, confidence, current_views, metadata,
                        predicted_hours, current_velocity, is_reached,
                        actual_time, error_rate, MAX(created_at) as created_at
                 FROM predictions
                 GROUP BY algorithm, predicted_time
-            """)
+            """
+            )
         except Exception:
             return 0
         rows = [dict(r) for r in vcur.fetchall()]
         if not rows:
             return 0
 
-        central_cur.execute(
-            "SELECT algorithm, predicted_time FROM predictions WHERE bvid=?", (bvid,)
-        )
+        central_cur.execute("SELECT algorithm, predicted_time FROM predictions WHERE bvid=?", (bvid,))
         existing = {(r["algorithm"], r["predicted_time"]) for r in central_cur.fetchall()}
 
         batch = []
@@ -911,15 +978,25 @@ class Database:
             key = (rd.get("algorithm", ""), rd.get("predicted_time", ""))
             if key in existing:
                 continue
-            batch.append((
-                bvid, rd.get("algorithm", ""), rd.get("algorithm_id", ""),
-                rd.get("target_threshold", 0), rd.get("predicted_seconds", 0),
-                rd.get("predicted_time", ""), rd.get("confidence", 0),
-                rd.get("current_views", 0), rd.get("metadata", ""),
-                rd.get("predicted_hours", 0), rd.get("current_velocity", 0),
-                rd.get("is_reached", 0), rd.get("actual_time", ""),
-                rd.get("error_rate", 0), rd.get("created_at"),
-            ))
+            batch.append(
+                (
+                    bvid,
+                    rd.get("algorithm", ""),
+                    rd.get("algorithm_id", ""),
+                    rd.get("target_threshold", 0),
+                    rd.get("predicted_seconds", 0),
+                    rd.get("predicted_time", ""),
+                    rd.get("confidence", 0),
+                    rd.get("current_views", 0),
+                    rd.get("metadata", ""),
+                    rd.get("predicted_hours", 0),
+                    rd.get("current_velocity", 0),
+                    rd.get("is_reached", 0),
+                    rd.get("actual_time", ""),
+                    rd.get("error_rate", 0),
+                    rd.get("created_at"),
+                )
+            )
             existing.add(key)
         if batch:
             central_cur.executemany(
@@ -927,7 +1004,8 @@ class Database:
                 target_threshold, predicted_seconds, predicted_time, confidence,
                 current_views, metadata, predicted_hours, current_velocity,
                 is_reached, actual_time, error_rate, created_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", batch,
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                batch,
             )
         return len(batch)
 
@@ -946,24 +1024,30 @@ class Database:
         if not rows:
             return 0
 
-        central_cur.execute(
-            "SELECT timestamp FROM weekly_scores WHERE bvid=?", (bvid,)
-        )
+        central_cur.execute("SELECT timestamp FROM weekly_scores WHERE bvid=?", (bvid,))
         existing_ts = {r["timestamp"] for r in central_cur.fetchall()}
 
         batch = []
         for rd in rows:
             if rd.get("timestamp") in existing_ts:
                 continue
-            batch.append((
-                bvid, rd.get("timestamp"),
-                rd.get("total_score"), rd.get("view_score"),
-                rd.get("interaction_score"), rd.get("favorite_score"),
-                rd.get("coin_score"), rd.get("like_score"),
-                rd.get("correction_a"), rd.get("correction_b"),
-                rd.get("correction_c"), rd.get("correction_d"),
-                rd.get("base_view_score"),
-            ))
+            batch.append(
+                (
+                    bvid,
+                    rd.get("timestamp"),
+                    rd.get("total_score"),
+                    rd.get("view_score"),
+                    rd.get("interaction_score"),
+                    rd.get("favorite_score"),
+                    rd.get("coin_score"),
+                    rd.get("like_score"),
+                    rd.get("correction_a"),
+                    rd.get("correction_b"),
+                    rd.get("correction_c"),
+                    rd.get("correction_d"),
+                    rd.get("base_view_score"),
+                )
+            )
             existing_ts.add(rd["timestamp"])
         if batch:
             central_cur.executemany(
@@ -971,7 +1055,8 @@ class Database:
                 view_score, interaction_score, favorite_score, coin_score,
                 like_score, correction_a, correction_b, correction_c,
                 correction_d, base_view_score)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""", batch,
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                batch,
             )
         return len(batch)
 
@@ -990,37 +1075,44 @@ class Database:
         if not rows:
             return 0
 
-        central_cur.execute(
-            "SELECT timestamp FROM yearly_scores WHERE bvid=?", (bvid,)
-        )
+        central_cur.execute("SELECT timestamp FROM yearly_scores WHERE bvid=?", (bvid,))
         existing_ts = {r["timestamp"] for r in central_cur.fetchall()}
 
         batch = []
         for rd in rows:
             if rd.get("timestamp") in existing_ts:
                 continue
-            batch.append((
-                bvid, rd.get("timestamp"),
-                rd.get("total_score"), rd.get("view_score"),
-                rd.get("interaction_score"), rd.get("favorite_score"),
-                rd.get("coin_score"), rd.get("like_score"),
-                rd.get("correction_a"), rd.get("correction_b"),
-                rd.get("correction_c"),
-            ))
+            batch.append(
+                (
+                    bvid,
+                    rd.get("timestamp"),
+                    rd.get("total_score"),
+                    rd.get("view_score"),
+                    rd.get("interaction_score"),
+                    rd.get("favorite_score"),
+                    rd.get("coin_score"),
+                    rd.get("like_score"),
+                    rd.get("correction_a"),
+                    rd.get("correction_b"),
+                    rd.get("correction_c"),
+                )
+            )
             existing_ts.add(rd["timestamp"])
         if batch:
             central_cur.executemany(
                 """INSERT INTO yearly_scores (bvid, timestamp, total_score,
                 view_score, interaction_score, favorite_score, coin_score,
                 like_score, correction_a, correction_b, correction_c)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?)""", batch,
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                batch,
             )
         return len(batch)
 
     @staticmethod
     def _ensure_central_tables(cur):
         """确保中央库有完整的表结构（兼容首次同步）"""
-        cur.execute("""CREATE TABLE IF NOT EXISTS videos (
+        cur.execute(
+            """CREATE TABLE IF NOT EXISTS videos (
             bvid TEXT PRIMARY KEY, title TEXT, view_count INTEGER DEFAULT 0,
             like_count INTEGER DEFAULT 0, coin_count INTEGER DEFAULT 0,
             share_count INTEGER DEFAULT 0, favorite_count INTEGER DEFAULT 0,
@@ -1030,35 +1122,48 @@ class Database:
             like_view_ratio REAL DEFAULT 0, owner_name TEXT, owner_id INTEGER,
             pubdate TEXT, duration INTEGER, pic TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
-        cur.execute("""CREATE TABLE IF NOT EXISTS monitor_records (
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"""
+        )
+        cur.execute(
+            """CREATE TABLE IF NOT EXISTS monitor_records (
             id INTEGER PRIMARY KEY AUTOINCREMENT, bvid TEXT,
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             view_count INTEGER, like_count INTEGER, coin_count INTEGER,
             share_count INTEGER, favorite_count INTEGER, danmaku_count INTEGER,
             reply_count INTEGER, viewers_app INTEGER DEFAULT 0,
             viewers_web INTEGER DEFAULT 0, viewers_total INTEGER DEFAULT 0,
-            like_view_ratio REAL DEFAULT 0)""")
-        cur.execute("""CREATE UNIQUE INDEX IF NOT EXISTS idx_monitor_bvid_ts
-            ON monitor_records(bvid, timestamp)""")
+            like_view_ratio REAL DEFAULT 0)"""
+        )
+        cur.execute(
+            """CREATE UNIQUE INDEX IF NOT EXISTS idx_monitor_bvid_ts
+            ON monitor_records(bvid, timestamp)"""
+        )
         # 独立库详细数据表（含 bvid 用于跨视频关联）
-        cur.execute("""CREATE TABLE IF NOT EXISTS weekly_scores (
+        cur.execute(
+            """CREATE TABLE IF NOT EXISTS weekly_scores (
             id INTEGER PRIMARY KEY AUTOINCREMENT, bvid TEXT NOT NULL,
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             total_score REAL, view_score REAL, interaction_score REAL,
             favorite_score REAL, coin_score REAL, like_score REAL,
             correction_a REAL, correction_b REAL, correction_c REAL,
-            correction_d REAL, base_view_score REAL)""")
-        cur.execute("""CREATE INDEX IF NOT EXISTS idx_weekly_bvid
-            ON weekly_scores(bvid, timestamp)""")
-        cur.execute("""CREATE TABLE IF NOT EXISTS yearly_scores (
+            correction_d REAL, base_view_score REAL)"""
+        )
+        cur.execute(
+            """CREATE INDEX IF NOT EXISTS idx_weekly_bvid
+            ON weekly_scores(bvid, timestamp)"""
+        )
+        cur.execute(
+            """CREATE TABLE IF NOT EXISTS yearly_scores (
             id INTEGER PRIMARY KEY AUTOINCREMENT, bvid TEXT NOT NULL,
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             total_score REAL, view_score REAL, interaction_score REAL,
             favorite_score REAL, coin_score REAL, like_score REAL,
-            correction_a REAL, correction_b REAL, correction_c REAL)""")
-        cur.execute("""CREATE INDEX IF NOT EXISTS idx_yearly_bvid
-            ON yearly_scores(bvid, timestamp)""")
+            correction_a REAL, correction_b REAL, correction_c REAL)"""
+        )
+        cur.execute(
+            """CREATE INDEX IF NOT EXISTS idx_yearly_bvid
+            ON yearly_scores(bvid, timestamp)"""
+        )
         # 迁移：确保 predictions 表有完整字段
         Database._migrate_central_predictions(cur)
         # 索引：加速 predictions 按 bvid 查询

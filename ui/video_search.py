@@ -43,9 +43,7 @@ class VideoSearchWindow:
         self.kw_entry.pack(side=tk.LEFT, padx=(0, 8))
         self.kw_entry.bind("<Return>", lambda e: self._start_search())
 
-        ttk.Button(row, text="搜索", command=self._start_search, style="Primary.TButton").pack(
-            side=tk.LEFT, padx=(0, 12)
-        )
+        ttk.Button(row, text="搜索", command=self._start_search, style="Primary.TButton").pack(side=tk.LEFT, padx=(0, 12))
 
         self.status_lbl = tk.Label(row, text="就绪", bg=C["bg_elevated"], fg=C["text_3"], font=FONT_SM)
         self.status_lbl.pack(side=tk.RIGHT, padx=8)
@@ -209,9 +207,9 @@ class VideoSearchWindow:
         top.transient(self.window)
         top.grab_set()
 
-        tk.Label(
-            top, text="视频详情", bg=C["bg_surface"], fg=C["text_1"], font=("Microsoft YaHei UI", 14, "bold")
-        ).pack(pady=(20, 4))
+        tk.Label(top, text="视频详情", bg=C["bg_surface"], fg=C["text_1"], font=("Microsoft YaHei UI", 14, "bold")).pack(
+            pady=(20, 4)
+        )
 
         if pic.startswith("http"):
             try:

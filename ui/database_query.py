@@ -201,9 +201,9 @@ class DatabaseQueryWindow:
 
         res_label = tk.Frame(container, bg=C["bg_base"])
         res_label.pack(fill=tk.X)
-        tk.Label(
-            res_label, text="查询结果", bg=C["bg_base"], fg=C["text_2"], font=("Microsoft YaHei UI", 8, "bold")
-        ).pack(side=tk.LEFT)
+        tk.Label(res_label, text="查询结果", bg=C["bg_base"], fg=C["text_2"], font=("Microsoft YaHei UI", 8, "bold")).pack(
+            side=tk.LEFT
+        )
         self.status_var = tk.StringVar(value="就绪")
         tk.Label(res_label, textvariable=self.status_var, bg=C["bg_base"], fg=C["text_3"], font=FONT_SM).pack(
             side=tk.RIGHT
@@ -275,7 +275,10 @@ class DatabaseQueryWindow:
         # 互补：备份路径 core/data/BVxxx/BVxxx.db
         backup = os.path.join(
             os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-            "core", "data", bvid, f"{bvid}.db",
+            "core",
+            "data",
+            bvid,
+            f"{bvid}.db",
         )
         return backup if os.path.exists(backup) else None
 
@@ -359,25 +362,21 @@ class DatabaseQueryWindow:
                 side=tk.LEFT, padx=8
             )
         elif mode == "播放首次大于X":
-            tk.Label(self.param_frame, text="播放量X:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT).pack(
-                side=tk.LEFT
-            )
+            tk.Label(self.param_frame, text="播放量X:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT).pack(side=tk.LEFT)
             self.param_var = tk.StringVar(value="10000")
             ttk.Entry(self.param_frame, textvariable=self.param_var, width=15, font=FONT).pack(
                 side=tk.LEFT, padx=(4, 0)
             )
         elif mode == "播放趋势":
-            tk.Label(self.param_frame, text="选择视频:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT).pack(
-                side=tk.LEFT
-            )
+            tk.Label(self.param_frame, text="选择视频:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT).pack(side=tk.LEFT)
             self.video_combo = ttk.Combobox(
                 self.param_frame, textvariable=self.video_combo_var, state="readonly", width=30, font=FONT
             )
             self.video_combo.pack(side=tk.LEFT, padx=(4, 0))
         elif mode == "全量数据":
-            tk.Label(
-                self.param_frame, text="(将导出所有监控记录数据)", bg=C["bg_elevated"], fg=C["text_3"], font=FONT_SM
-            ).pack(side=tk.LEFT)
+            tk.Label(self.param_frame, text="(将导出所有监控记录数据)", bg=C["bg_elevated"], fg=C["text_3"], font=FONT_SM).pack(
+                side=tk.LEFT
+            )
 
     def load_videos_list(self):
         if not os.path.exists(self.db_path):

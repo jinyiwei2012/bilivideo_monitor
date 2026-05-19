@@ -32,8 +32,10 @@ class DetailPanel:
         self._tab_btns = {}
         self._current_tab = "📈 播放量趋势"
         self._chart_resize_job = None
-        self._chart_mode = tk.StringVar(value="delta")
+        self._chart_mode = tk.StringVar(value="step")
         self._chart_max_points = tk.StringVar(value="20")
+        # 标记当前模式是否已经渲染过；防止 resize 绕过 delta/full 的"手动点击"门控
+        self._rendered_modes = set()
         self._build()
 
     def _build(self):
@@ -77,37 +79,68 @@ class DetailPanel:
         bar = tk.Frame(self._content_area, bg=C["bg_base"])
         bar.pack(fill=tk.X, padx=16, pady=(10, 0))
         tk.Radiobutton(
-            bar, text="增量", variable=self._chart_mode, value="delta",
-            bg=C["bg_base"], fg=C["text_1"], selectcolor=C["bg_base"],
-            font=FONT_SM, command=self._on_chart_mode_change,
+            bar,
+            text="新增",
+            variable=self._chart_mode,
+            value="step",
+            bg=C["bg_base"],
+            fg=C["text_1"],
+            selectcolor=C["bg_base"],
+            font=FONT_SM,
+            command=self._on_chart_mode_change,
         ).pack(side=tk.LEFT)
         tk.Radiobutton(
-            bar, text="全量", variable=self._chart_mode, value="full",
-            bg=C["bg_base"], fg=C["text_1"], selectcolor=C["bg_base"],
-            font=FONT_SM, command=self._on_chart_mode_change,
+            bar,
+            text="增量",
+            variable=self._chart_mode,
+            value="delta",
+            bg=C["bg_base"],
+            fg=C["text_1"],
+            selectcolor=C["bg_base"],
+            font=FONT_SM,
+            command=self._on_chart_mode_change,
+        ).pack(side=tk.LEFT)
+        tk.Radiobutton(
+            bar,
+            text="全量",
+            variable=self._chart_mode,
+            value="full",
+            bg=C["bg_base"],
+            fg=C["text_1"],
+            selectcolor=C["bg_base"],
+            font=FONT_SM,
+            command=self._on_chart_mode_change,
         ).pack(side=tk.LEFT)
         tk.Frame(bar, bg=C["border_sub"], width=1, height=14).pack(side=tk.LEFT, padx=6)
         tk.Label(bar, text="显示", bg=C["bg_base"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT)
         pt_entry = tk.Entry(
-            bar, textvariable=self._chart_max_points, width=3,
-            font=FONT_MONO, bg=C["bg_elevated"], fg=C["text_1"],
-            insertbackground=C["text_1"], relief="flat",
-            highlightthickness=1, highlightbackground=C["border"],
+            bar,
+            textvariable=self._chart_max_points,
+            width=3,
+            font=FONT_MONO,
+            bg=C["bg_elevated"],
+            fg=C["text_1"],
+            insertbackground=C["text_1"],
+            relief="flat",
+            highlightthickness=1,
+            highlightbackground=C["border"],
         )
         pt_entry.pack(side=tk.LEFT, padx=2)
         tk.Label(bar, text="点", bg=C["bg_base"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT, padx=(0, 6))
         self._chart_render_btn = tk.Label(
-            bar, text="▶ 渲染", bg=C["bg_elevated"], fg=C["accent"],
-            font=FONT_SM, cursor="hand2", padx=6, pady=1,
+            bar,
+            text="▶ 渲染",
+            bg=C["bg_elevated"],
+            fg=C["accent"],
+            font=FONT_SM,
+            cursor="hand2",
+            padx=6,
+            pady=1,
         )
         self._chart_render_btn.pack(side=tk.LEFT)
         self._chart_render_btn.bind("<Button-1>", lambda e: self._manual_render_chart())
-        self._chart_render_btn.bind(
-            "<Enter>", lambda e: self._chart_render_btn.config(bg=C["bg_hover"])
-        )
-        self._chart_render_btn.bind(
-            "<Leave>", lambda e: self._chart_render_btn.config(bg=C["bg_elevated"])
-        )
+        self._chart_render_btn.bind("<Enter>", lambda e: self._chart_render_btn.config(bg=C["bg_hover"]))
+        self._chart_render_btn.bind("<Leave>", lambda e: self._chart_render_btn.config(bg=C["bg_elevated"]))
         self._chart_stat_lbl = tk.Label(bar, text="", bg=C["bg_base"], fg=C["text_3"], font=FONT_SM)
         self._chart_stat_lbl.pack(side=tk.RIGHT, padx=4)
 
@@ -174,6 +207,7 @@ class DetailPanel:
             fg_color="transparent",
         )
         title_lbl.pack(fill=tk.X)
+
         # 窗口缩放时更新折行宽度
         def _update_wraplength(ev=None):
             try:
@@ -182,6 +216,7 @@ class DetailPanel:
                     title_lbl.configure(wraplength=w)
             except tk.TclError:
                 pass
+
         info.bind("<Configure>", _update_wraplength)
         meta = ctk.CTkFrame(info, fg_color=C["bg_surface"], corner_radius=0)
         meta.pack(fill=tk.X, pady=(4, 0))
@@ -294,7 +329,14 @@ class DetailPanel:
         self._ratio_frame.pack_forget()
         if name == "📈 播放量趋势":
             self._chart_canvas.pack(fill=tk.BOTH, expand=True, padx=16, pady=12)
-            self._auto_render_chart()
+            mode = self._chart_mode.get()
+            if mode == "step":
+                self._auto_render_chart()
+            else:
+                # 非自动模式：切回 tab / 切视频 时清除旧图并显示 placeholder
+                self._rendered_modes.discard(mode)
+                hint = "点击「渲染增量」查看累计增长" if mode == "delta" else "点击「渲染全量」查看完整数据"
+                draw_chart_placeholder(self._chart_canvas, hint)
         elif name == "📋 详细数据":
             self._detail_text_frame.pack(fill=tk.BOTH, expand=True, padx=16, pady=12)
             if self.gui.selected_bvid:
@@ -315,13 +357,17 @@ class DetailPanel:
 
     def _do_chart_redraw(self):
         self._chart_resize_job = None
+        # delta/full 模式下，仅当用户已点过渲染才允许 resize 重绘；否则维持 placeholder
+        mode = self._chart_mode.get()
+        if mode != "step" and mode not in self._rendered_modes:
+            return
         self._do_render_chart()
 
     # ── 图表渲染控制 ─────────────────────────────────
 
     def _auto_render_chart(self):
-        """自动渲染：只在增量模式下触发"""
-        if self._chart_mode.get() == "full":
+        """自动渲染：只在 新增(step) 模式下触发"""
+        if self._chart_mode.get() != "step":
             return
         self._do_render_chart()
 
@@ -343,19 +389,32 @@ class DetailPanel:
         except (ValueError, tk.TclError):
             points = 20
         draw_chart(
-            self._chart_canvas, self.gui.history_data, self.gui.selected_bvid, video, FONT,
-            mode=self._chart_mode.get(), max_points=points,
+            self._chart_canvas,
+            self.gui.history_data,
+            self.gui.selected_bvid,
+            video,
+            FONT,
+            mode=self._chart_mode.get(),
+            max_points=points,
         )
+        self._rendered_modes.add(self._chart_mode.get())
 
     def _on_chart_mode_change(self):
-        """模式切换回调"""
-        if self._chart_mode.get() == "delta":
+        """模式切换回调：新增 自动渲染；增量/全量 需点击渲染"""
+        mode = self._chart_mode.get()
+        if mode == "step":
             self._chart_render_btn.config(text="⟳ 渲染", fg=C["accent"])
             self._chart_stat_lbl.config(text="自动刷新 ✓", fg=C["success"])
             self._auto_render_chart()
+        elif mode == "delta":
+            self._chart_render_btn.config(text="▶ 渲染增量", fg=C["bilibili"])
+            self._chart_stat_lbl.config(text="手动渲染", fg=C["warning"])
+            self._rendered_modes.discard("delta")
+            draw_chart_placeholder(self._chart_canvas, "点击「渲染增量」查看累计增长")
         else:
             self._chart_render_btn.config(text="▶ 渲染全量", fg=C["bilibili"])
             self._chart_stat_lbl.config(text="手动渲染", fg=C["warning"])
+            self._rendered_modes.discard("full")
             draw_chart_placeholder(self._chart_canvas, "点击「渲染全量」查看完整数据")
 
     @property

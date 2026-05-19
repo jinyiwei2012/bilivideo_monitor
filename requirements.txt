@@ -59,6 +59,15 @@ aiohttp>=3.9.0           # 异步HTTP
 asyncio-mqtt>=0.16.0     # MQTT (通知功能)
 
 # ==========
+# 深度学习 (2026 新算法 + 既有算法升级)
+# ==========
+
+torch>=2.1.0                # PyTorch 推理 + 训练 (CPU 约 200MB / GPU 约 2GB)
+transformers>=4.40.0        # HuggingFace 模型加载 (MOIRAI-2 / Lag-Llama)
+huggingface-hub>=0.20.0     # 模型下载与缓存
+safetensors>=0.4.0          # 权重格式
+
+# ==========
 # 其他 (可选)
 # ==========
 
