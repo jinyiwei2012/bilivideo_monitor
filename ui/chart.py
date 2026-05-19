@@ -12,10 +12,7 @@ def draw_chart_placeholder(canvas, text=None):
     canvas.delete("all")
     w = canvas.winfo_width() or 600
     h = canvas.winfo_height() or 300
-    canvas.create_text(
-        w // 2, h // 2, text=text or "选择视频后显示播放量趋势图", fill=C["text_3"],
-        font=("Microsoft YaHei UI", 11)
-    )
+    canvas.create_text(w // 2, h // 2, text=text or "选择视频后显示播放量趋势图", fill=C["text_3"], font=("Microsoft YaHei UI", 11))
 
 
 def compute_chart_scale(views_list, history, ML, MR, MT, cw, ch):
@@ -93,8 +90,9 @@ def draw_chart_annotations(c, history, views_list, px, py, W, H, ML, MR, MB, bas
                 t_str = ""
             c.create_text(px(i), H - MB + 6, text=t_str, fill=C["text_3"], font=("Consolas", 8))
 
-    items = [("播放" + ("增长" if base_v else "量"), C["bilibili"])] + \
-             [(THRESHOLD_NAMES[i] + "阈值", THRESH_COLORS[i]) for i in range(3)]
+    items = [("播放" + ("增长" if base_v else "量"), C["bilibili"])] + [
+        (THRESHOLD_NAMES[i] + "阈值", THRESH_COLORS[i]) for i in range(3)
+    ]
     lx0 = ML + 4
     for label, col in items:
         c.create_rectangle(lx0, 8, lx0 + 8, 16, fill=col, outline="")
@@ -117,10 +115,11 @@ def draw_chart_grid(c, W, H, ML, MR, MT, MB, cw, ch, min_v, max_v, is_delta=Fals
         c.create_text(ML - 4, y, text=label, anchor="e", fill=C["text_3"], font=("Consolas", 8))
 
 
-def draw_chart(canvas, history_data, bvid, video, FONT, mode="delta", max_points=20):
+def draw_chart(canvas, history_data, bvid, video, FONT, mode="step", max_points=20):
     """绘制完整图表
 
-    mode: "delta" — 增量模式（以首个数据点为基准）
+    mode: "step"  — 新增模式（v[i]-v[i-1] 每次刷新的播放量增量）
+          "delta" — 增量模式（以首个数据点为基准）
           "full"  — 全量模式（显示绝对值）
     max_points: 图中数据点数量（固定间隔）
     """
@@ -144,6 +143,10 @@ def draw_chart(canvas, history_data, bvid, video, FONT, mode="delta", max_points
         c.create_text(W // 2, H // 2, text="数据点不足（需要至少2条记录）", fill=C["text_3"], font=FONT)
         return
 
+    if mode == "step":
+        _draw_step_chart(c, history, W, H, ML, MR, MT, MB, cw, ch, FONT, max_points)
+        return
+
     is_delta = mode == "delta" and history[0][1] > 0
     base_v = history[0][1] if is_delta else 0
 
@@ -161,9 +164,114 @@ def draw_chart(canvas, history_data, bvid, video, FONT, mode="delta", max_points
     # 右上角信息
     mode_name = "增量" if is_delta else "全量"
     shown = min(len(history), max_points)
-    suffix = f"起始 {fmt_num(base_v)} | " if base_v else ""
-    c.create_text(W - MR - 2, 12, text=f"{mode_name} | {shown}/{len(history)} 点",
-                  anchor="e", fill=C["text_3"], font=("Consolas", 8))
+    c.create_text(
+        W - MR - 2,
+        12,
+        text=f"{mode_name} | {shown}/{len(history)} 点",
+        anchor="e",
+        fill=C["text_3"],
+        font=("Consolas", 8),
+    )
     if base_v:
-        c.create_text(W - MR - 2, 24, text=f"起始 {fmt_num(base_v)}",
-                      anchor="e", fill=C["text_3"], font=("Consolas", 7))
+        c.create_text(W - MR - 2, 24, text=f"起始 {fmt_num(base_v)}", anchor="e", fill=C["text_3"], font=("Consolas", 7))
+
+
+def _step_compute_scale(values, ch, MT):
+    """计算 step 图 Y 轴范围并返回 py(v) 转换函数"""
+    v_min = min(0, min(values))
+    v_max = max(0, max(values))
+    if v_max == v_min:
+        v_max = v_min + 1
+    span = v_max - v_min
+    pad = span * 0.1
+    v_min -= pad
+    v_max += pad
+    span = v_max - v_min
+
+    def py(v):
+        return MT + ch - ((v - v_min) / span) * ch
+
+    return v_min, v_max, span, py
+
+
+def _step_draw_grid(c, W, H, ML, MR, MT, MB, ch, v_min, v_max, py):
+    """画 step 图的网格、Y 轴标签、0 基准线"""
+    c.create_line(ML, MT, ML, MT + ch, fill=C["border"], width=1)
+    c.create_line(ML, MT + ch, W - MR, MT + ch, fill=C["border"], width=1)
+    rows = 5
+    span = v_max - v_min
+    for i in range(rows + 1):
+        y = MT + i * ch // rows
+        c.create_line(ML, y, W - MR, y, fill=C["border_sub"], dash=(3, 5))
+        frac = 1 - i / rows
+        val = v_min + frac * span
+        sign = "+" if val > 0 else ""
+        c.create_text(ML - 4, y, text=f"{sign}{abbrev(val)}", anchor="e", fill=C["text_3"], font=("Consolas", 8))
+    if v_min <= 0 <= v_max:
+        zy = py(0)
+        c.create_line(ML, zy, W - MR, zy, fill=C["text_3"], width=1)
+
+
+def _step_draw_series(c, deltas, values, px, py, W, H, MR, MB, ML):
+    """画 step 图的折线、数据点、最新值标注、X 轴时间标签"""
+    pts = []
+    for i, (_, v) in enumerate(deltas):
+        pts += [px(i), py(v)]
+    if len(pts) >= 4:
+        c.create_line(pts, fill=C["chart_line"], width=2.5, smooth=True, joinstyle="round", capstyle="round")
+
+    for i, (_, v) in enumerate(deltas):
+        x, y = px(i), py(v)
+        dot_col = C["success"] if v >= 0 else C["danger"]
+        c.create_oval(x - 4, y - 4, x + 4, y + 4, fill=dot_col, outline=C["bg_base"], width=2)
+
+    last_v = values[-1]
+    lx = px(len(deltas) - 1)
+    ly = py(last_v)
+    label_text = f"+{fmt_num(last_v)}" if last_v >= 0 else fmt_num(last_v)
+    c.create_rectangle(lx - 34, ly - 22, lx + 34, ly - 6, fill=C["chart_line"], outline="")
+    c.create_text(lx, ly - 14, text=label_text, fill="#ffffff", font=("Consolas", 8, "bold"))
+
+    step = max(1, len(deltas) // 6)
+    for i, (ts, _) in enumerate(deltas):
+        if i % step == 0 or i == len(deltas) - 1:
+            try:
+                if isinstance(ts, str):
+                    ts = datetime.fromisoformat(ts)
+                t_str = ts.strftime("%m-%d %H:%M") if isinstance(ts, datetime) else str(ts)
+            except Exception:
+                t_str = ""
+            c.create_text(px(i), H - MB + 6, text=t_str, fill=C["text_3"], font=("Consolas", 8))
+
+
+def _draw_step_chart(c, history, W, H, ML, MR, MT, MB, cw, ch, FONT, max_points):
+    """绘制"新增"折线图 — 每个点是 v[i] - v[i-1]，0 基线，仅显示最近 N 点。"""
+    # 取尾部 N+1 条以产生 N 个差值
+    n_keep = min(len(history), max(2, max_points) + 1)
+    tail = history[-n_keep:]
+    deltas = [(tail[i][0], tail[i][1] - tail[i - 1][1]) for i in range(1, len(tail))]
+    if not deltas:
+        c.create_text(W // 2, H // 2, text="数据点不足（需要至少2条记录）", fill=C["text_3"], font=FONT)
+        return
+
+    values = [v for _, v in deltas]
+    v_min, v_max, _, py = _step_compute_scale(values, ch, MT)
+
+    def px(i):
+        if len(deltas) == 1:
+            return ML + cw / 2
+        return ML + (i / (len(deltas) - 1)) * cw
+
+    _step_draw_grid(c, W, H, ML, MR, MT, MB, ch, v_min, v_max, py)
+    _step_draw_series(c, deltas, values, px, py, W, H, MR, MB, ML)
+
+    total = sum(values)
+    avg = total / len(values) if values else 0
+    c.create_text(
+        W - MR - 2,
+        12,
+        text=f"新增 | {len(deltas)} 点 | 总+{fmt_num(total)} | 均+{fmt_num(avg)}",
+        anchor="e",
+        fill=C["text_3"],
+        font=("Consolas", 8),
+    )

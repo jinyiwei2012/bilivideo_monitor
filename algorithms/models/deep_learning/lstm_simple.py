@@ -6,6 +6,7 @@ LSTM简化预测算法
 from datetime import datetime
 from typing import Dict, Any
 from algorithms.base import BaseAlgorithm, PredictionResult
+from algorithms.models.deep_learning._torch_upgrade import LSTMTorchModel, try_torch_predict
 
 
 class LSTMSimpleAlgorithm(BaseAlgorithm):
@@ -13,11 +14,31 @@ class LSTMSimpleAlgorithm(BaseAlgorithm):
 
     name = "LSTM简化"
     algorithm_id = "lstm_simple"
-    description = "基于LSTM序列建模思想的简化预测"
+    description = "基于LSTM序列建模思想的简化预测（torch checkpoint 优先，否则 numpy 简化）"
     category = "深度学习"
     default_weight = 1.3
 
+    training_window = 10
+    training_horizon = 3
+
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
+        return try_torch_predict(
+            self,
+            video_data,
+            threshold,
+            LSTMTorchModel,
+            self._numpy_predict,
+            window=self.training_window,
+            horizon=self.training_horizon,
+        )
+
+    def build_model(self):
+        return LSTMTorchModel(in_features=5, horizon=self.training_horizon)
+
+    def get_training_features(self):
+        return ["view_count", "like_count", "coin_count", "favorite_count", "share_count"]
+
+    def _numpy_predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
         """执行预测"""
         current_views = video_data.get("view_count", 0)
         history = video_data.get("history_data", [])

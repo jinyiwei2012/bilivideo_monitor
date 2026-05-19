@@ -8,6 +8,7 @@ import logging
 from typing import Dict, Any, List, Tuple, Optional
 from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
+from algorithms.models.deep_learning._torch_upgrade import DLinearTorchModel, try_torch_predict
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,27 @@ class DLinearSimpleAlgorithm(BaseAlgorithm):
         self.min_data_points = 10  # 最少需要的序列长度
         self.decomposition_kernel = 3  # 移动平均核大小
 
-    def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
+    training_window = 10
+    training_horizon = 3
+
+    def predict(self, video_data, threshold=100000):
+        return try_torch_predict(
+            self,
+            video_data,
+            threshold,
+            DLinearTorchModel,
+            self._numpy_predict,
+            window=self.training_window,
+            horizon=self.training_horizon,
+        )
+
+    def build_model(self):
+        return DLinearTorchModel(in_features=5, window=10, horizon=self.training_horizon)
+
+    def get_training_features(self):
+        return ["view_count", "like_count", "coin_count", "favorite_count", "share_count"]
+
+    def _numpy_predict(self, video_data, threshold=100000):
         """执行预测
 
         Args:
