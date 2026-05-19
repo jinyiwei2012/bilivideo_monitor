@@ -32,8 +32,10 @@ class DetailPanel:
         self._tab_btns = {}
         self._current_tab = "📈 播放量趋势"
         self._chart_resize_job = None
-        self._chart_mode = tk.StringVar(value="delta")
+        self._chart_mode = tk.StringVar(value="step")
         self._chart_max_points = tk.StringVar(value="20")
+        # 标记当前模式是否已经渲染过；防止 resize 绕过 delta/full 的"手动点击"门控
+        self._rendered_modes = set()
         self._build()
 
     def _build(self):
@@ -76,6 +78,11 @@ class DetailPanel:
         # 图表控制栏
         bar = tk.Frame(self._content_area, bg=C["bg_base"])
         bar.pack(fill=tk.X, padx=16, pady=(10, 0))
+        tk.Radiobutton(
+            bar, text="新增", variable=self._chart_mode, value="step",
+            bg=C["bg_base"], fg=C["text_1"], selectcolor=C["bg_base"],
+            font=FONT_SM, command=self._on_chart_mode_change,
+        ).pack(side=tk.LEFT)
         tk.Radiobutton(
             bar, text="增量", variable=self._chart_mode, value="delta",
             bg=C["bg_base"], fg=C["text_1"], selectcolor=C["bg_base"],
@@ -294,7 +301,14 @@ class DetailPanel:
         self._ratio_frame.pack_forget()
         if name == "📈 播放量趋势":
             self._chart_canvas.pack(fill=tk.BOTH, expand=True, padx=16, pady=12)
-            self._auto_render_chart()
+            mode = self._chart_mode.get()
+            if mode == "step":
+                self._auto_render_chart()
+            else:
+                # 非自动模式：切回 tab / 切视频 时清除旧图并显示 placeholder
+                self._rendered_modes.discard(mode)
+                hint = "点击「渲染增量」查看累计增长" if mode == "delta" else "点击「渲染全量」查看完整数据"
+                draw_chart_placeholder(self._chart_canvas, hint)
         elif name == "📋 详细数据":
             self._detail_text_frame.pack(fill=tk.BOTH, expand=True, padx=16, pady=12)
             if self.gui.selected_bvid:
@@ -315,13 +329,17 @@ class DetailPanel:
 
     def _do_chart_redraw(self):
         self._chart_resize_job = None
+        # delta/full 模式下，仅当用户已点过渲染才允许 resize 重绘；否则维持 placeholder
+        mode = self._chart_mode.get()
+        if mode != "step" and mode not in self._rendered_modes:
+            return
         self._do_render_chart()
 
     # ── 图表渲染控制 ─────────────────────────────────
 
     def _auto_render_chart(self):
-        """自动渲染：只在增量模式下触发"""
-        if self._chart_mode.get() == "full":
+        """自动渲染：只在 新增(step) 模式下触发"""
+        if self._chart_mode.get() != "step":
             return
         self._do_render_chart()
 
@@ -346,16 +364,24 @@ class DetailPanel:
             self._chart_canvas, self.gui.history_data, self.gui.selected_bvid, video, FONT,
             mode=self._chart_mode.get(), max_points=points,
         )
+        self._rendered_modes.add(self._chart_mode.get())
 
     def _on_chart_mode_change(self):
-        """模式切换回调"""
-        if self._chart_mode.get() == "delta":
+        """模式切换回调：新增 自动渲染；增量/全量 需点击渲染"""
+        mode = self._chart_mode.get()
+        if mode == "step":
             self._chart_render_btn.config(text="⟳ 渲染", fg=C["accent"])
             self._chart_stat_lbl.config(text="自动刷新 ✓", fg=C["success"])
             self._auto_render_chart()
+        elif mode == "delta":
+            self._chart_render_btn.config(text="▶ 渲染增量", fg=C["bilibili"])
+            self._chart_stat_lbl.config(text="手动渲染", fg=C["warning"])
+            self._rendered_modes.discard("delta")
+            draw_chart_placeholder(self._chart_canvas, "点击「渲染增量」查看累计增长")
         else:
             self._chart_render_btn.config(text="▶ 渲染全量", fg=C["bilibili"])
             self._chart_stat_lbl.config(text="手动渲染", fg=C["warning"])
+            self._rendered_modes.discard("full")
             draw_chart_placeholder(self._chart_canvas, "点击「渲染全量」查看完整数据")
 
     @property
