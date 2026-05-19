@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Dict, Any
 import math
 from algorithms.base import BaseAlgorithm, PredictionResult
+from algorithms.models.deep_learning._torch_upgrade import GRUTorchModel, try_torch_predict
 
 
 class GRUSimpleAlgorithm(BaseAlgorithm):
@@ -22,7 +23,27 @@ class GRUSimpleAlgorithm(BaseAlgorithm):
     category = "深度学习"
     default_weight = 1.3
 
-    def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
+    training_window = 10
+    training_horizon = 3
+
+    def predict(self, video_data, threshold=100000):
+        return try_torch_predict(
+            self,
+            video_data,
+            threshold,
+            GRUTorchModel,
+            self._numpy_predict,
+            window=self.training_window,
+            horizon=self.training_horizon,
+        )
+
+    def build_model(self):
+        return GRUTorchModel(in_features=5, horizon=self.training_horizon)
+
+    def get_training_features(self):
+        return ["view_count", "like_count", "coin_count", "favorite_count", "share_count"]
+
+    def _numpy_predict(self, video_data, threshold=100000):
         """执行预测"""
         current_views = video_data.get("view_count", 0)
         history = video_data.get("history_data", [])

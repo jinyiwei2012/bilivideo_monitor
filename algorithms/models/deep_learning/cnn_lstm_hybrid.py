@@ -8,6 +8,7 @@ import numpy as np
 from typing import Dict, Any
 from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
+from algorithms.models.deep_learning._torch_upgrade import CNNLSTMTorchModel, try_torch_predict
 
 
 class CNNLSTMHybridAlgorithm(BaseAlgorithm):
@@ -63,7 +64,27 @@ class CNNLSTMHybridAlgorithm(BaseAlgorithm):
 
         return np.array(features)
 
-    def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
+    training_window = 10
+    training_horizon = 3
+
+    def predict(self, video_data, threshold=100000):
+        return try_torch_predict(
+            self,
+            video_data,
+            threshold,
+            CNNLSTMTorchModel,
+            self._numpy_predict,
+            window=self.training_window,
+            horizon=self.training_horizon,
+        )
+
+    def build_model(self):
+        return CNNLSTMTorchModel(in_features=5, horizon=self.training_horizon)
+
+    def get_training_features(self):
+        return ["view_count", "like_count", "coin_count", "favorite_count", "share_count"]
+
+    def _numpy_predict(self, video_data, threshold=100000):
         """执行预测"""
         current_views = video_data.get("view_count", 0)
         history = video_data.get("history_data", [])

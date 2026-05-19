@@ -187,9 +187,11 @@ def _source_a_up_info(uid: int) -> Optional[Dict]:
         if not result["video_count"]:
             try:
                 import core.bilibili_api as _own_api
+
                 # 优先使用 navnum 接口（轻量级，同时返回投稿数和粉丝数）
                 data = _own_api._request_public(
-                    "GET", f"{_own_api.BASE_URL}/x/space/navnum",
+                    "GET",
+                    f"{_own_api.BASE_URL}/x/space/navnum",
                     params={"mid": uid, "jsonp": "jsonp"},
                 )
                 if data:
