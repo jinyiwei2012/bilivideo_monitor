@@ -14,8 +14,8 @@ pillow>=10.0.0          # 图片处理 (封面下载)
 # B站API
 # ==========
 
-bilibili-api-python>=9.1.0  # B站API封装（多源获取UP主数据）
-curl_cffi>=0.15.0            # TLS指纹伪装（412绕过）
+bilibili-api-python>=17.0,<18.0   # B站API封装（多源获取UP主数据，限制 <18.0 避免 alpha 破坏性变更）
+curl_cffi>=0.15.0                  # TLS指纹伪装（412绕过）；如可升 0.15.1+ 可用 `curl-cffi update` 热更指纹
 
 # ==========
 # 数据分析 (可选，增强功能)
