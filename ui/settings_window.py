@@ -9,10 +9,11 @@ import re
 import tkinter as tk
 import webbrowser
 import logging
+from typing import Any, Dict, List, Optional
 from tkinter import ttk, messagebox
 
 from ui.theme import C
-from ui.helpers import FONT, FONT_SM, FONT_MONO
+from ui.helpers import FONT, FONT_BOLD, FONT_SM, FONT_MONO
 from ui.dialog_base import DialogBase
 from core.bilibili_api import bilibili_api
 from core.proxy_manager import ProxyManager
@@ -101,6 +102,7 @@ class SettingsWindow:
         self._build_predict_tab(nb)
         self._build_ai_tab(nb)
         self._build_weights_tab(nb)
+        self._build_training_tab(nb)
         self._build_proxy_tab(nb)
         self._build_cookie_tab(nb)
         self._build_retry_tab(nb)
@@ -207,9 +209,9 @@ class SettingsWindow:
         # ── 配置详情 ──
         detail = tk.Frame(sec, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
         detail.pack(fill=tk.X, pady=4, ipadx=10, ipady=10)
-        tk.Label(
-            detail, text="配置详情", bg=C["bg_elevated"], fg=C["text_2"], font=("Microsoft YaHei UI", 8, "bold")
-        ).pack(anchor="w", pady=(0, 6))
+        tk.Label(detail, text="配置详情", bg=C["bg_elevated"], fg=C["text_2"], font=("Microsoft YaHei UI", 8, "bold")).pack(
+            anchor="w", pady=(0, 6)
+        )
 
         def _field_wrapper(parent, label):
             f = tk.Frame(parent, bg=C["bg_elevated"])
@@ -454,6 +456,559 @@ class SettingsWindow:
                 return
         messagebox.showinfo("成功", "权重设置已保存", parent=self.window)
 
+    # ──── 模型训练 ────
+    def _build_training_tab(self, nb):
+        page = tk.Frame(nb, bg=C["bg_base"])
+        nb.add(page, text="  模型训练  ")
+
+        # ── 设备信息 ──
+        dev_sec = self._section(page, "训练设备", padding=(16, 12, 6))
+        dev_row = tk.Frame(dev_sec, bg=C["bg_elevated"])
+        dev_row.pack(fill=tk.X, pady=(4, 4))
+        tk.Label(dev_row, text="当前设备:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT, width=12, anchor="w").pack(
+            side=tk.LEFT
+        )
+        self._tr_device_lbl = tk.Label(
+            dev_row, text="检测中…", bg=C["bg_elevated"], fg=C["text_1"], font=FONT_BOLD, anchor="w"
+        )
+        self._tr_device_lbl.pack(side=tk.LEFT, padx=(4, 12))
+        self._tr_force_cpu_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            dev_row, text="强制使用 CPU", variable=self._tr_force_cpu_var, command=self._on_force_cpu_changed
+        ).pack(side=tk.LEFT)
+        ttk.Button(dev_row, text="刷新", command=self._refresh_device_info).pack(side=tk.RIGHT)
+
+        # ── 数据规模 ──
+        data_sec = self._section(page, "数据规模", padding=(16, 6, 6))
+        self._tr_data_lbl = tk.Label(
+            data_sec, text="估算中…", bg=C["bg_elevated"], fg=C["text_1"], font=FONT, anchor="w", justify="left"
+        )
+        self._tr_data_lbl.pack(fill=tk.X, padx=4, pady=(4, 4))
+        ttk.Button(data_sec, text="重新估算", command=self._refresh_data_size).pack(anchor="w", padx=4)
+
+        # ── 算法列表 ──
+        list_sec = self._section(page, "可训练算法（PyTorch）", padding=(16, 6, 6))
+
+        # 算法列表头
+        hdr = tk.Frame(list_sec, bg=C["bg_surface"], highlightthickness=1, highlightbackground=C["border_sub"])
+        hdr.pack(fill=tk.X, pady=(2, 2))
+        for col_i, (text, w) in enumerate([("选择", 6), ("算法", 22), ("ID", 22), ("状态", 16), ("操作", 12)]):
+            tk.Label(
+                hdr,
+                text=text,
+                bg=C["bg_surface"],
+                fg=C["text_2"],
+                font=("Microsoft YaHei UI", 8, "bold"),
+                width=w,
+                anchor="w",
+            ).grid(row=0, column=col_i, padx=4, pady=3, sticky="w")
+
+        # 全选 / 反选
+        toolbar = tk.Frame(list_sec, bg=C["bg_elevated"])
+        toolbar.pack(fill=tk.X, pady=(0, 4))
+        ttk.Button(toolbar, text="全选", command=lambda: self._tr_select_all(True)).pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Button(toolbar, text="全不选", command=lambda: self._tr_select_all(False)).pack(side=tk.LEFT, padx=4)
+        ttk.Button(toolbar, text="仅选未训练", command=self._tr_select_untrained).pack(side=tk.LEFT, padx=4)
+        self._tr_count_lbl = tk.Label(toolbar, text="", bg=C["bg_elevated"], fg=C["text_3"], font=FONT_SM)
+        self._tr_count_lbl.pack(side=tk.RIGHT)
+
+        # 滚动容器
+        canvas_frame = tk.Frame(list_sec, bg=C["bg_base"])
+        canvas_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 4))
+        vsb = ttk.Scrollbar(canvas_frame, orient="vertical")
+        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+        canvas = tk.Canvas(canvas_frame, bg=C["bg_elevated"], highlightthickness=0, yscrollcommand=vsb.set, height=200)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        vsb.config(command=canvas.yview)
+
+        self._tr_algo_frame = tk.Frame(canvas, bg=C["bg_elevated"])
+        canvas.create_window((0, 0), window=self._tr_algo_frame, anchor="nw")
+        self._tr_algo_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        # 鼠标滚轮
+        canvas.bind(
+            "<Enter>",
+            lambda e: canvas.bind_all(
+                "<MouseWheel>", lambda ev: canvas.yview_scroll(int(-1 * (ev.delta / 120)), "units")
+            ),
+        )
+        canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
+
+        self._tr_check_vars: Dict[str, tk.BooleanVar] = {}  # algo_id -> BooleanVar
+        self._tr_algo_meta: Dict[str, Dict[str, Any]] = {}  # algo_id -> {name, has_ckpt, active, ...}
+        self._tr_canvas = canvas
+
+        # ── 训练参数 + 控制 ──
+        ctrl_sec = self._section(page, "训练控制", padding=(16, 6, 12))
+
+        param_row = tk.Frame(ctrl_sec, bg=C["bg_elevated"])
+        param_row.pack(fill=tk.X, pady=(4, 4))
+        tk.Label(param_row, text="Epoch:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT)
+        self._tr_epoch_var = tk.IntVar(value=20)
+        ttk.Spinbox(param_row, from_=1, to=500, textvariable=self._tr_epoch_var, width=6).pack(
+            side=tk.LEFT, padx=(4, 12)
+        )
+        tk.Label(param_row, text="Batch:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT)
+        self._tr_batch_var = tk.IntVar(value=32)
+        ttk.Spinbox(param_row, from_=1, to=512, textvariable=self._tr_batch_var, width=6).pack(
+            side=tk.LEFT, padx=(4, 12)
+        )
+
+        btn_row = tk.Frame(ctrl_sec, bg=C["bg_elevated"])
+        btn_row.pack(fill=tk.X, pady=(2, 4))
+        self._tr_train_btn = ttk.Button(btn_row, text="▶ 训练所有勾选", command=self._on_train_start, style="Primary.TButton")
+        self._tr_train_btn.pack(side=tk.LEFT, padx=(0, 6))
+        self._tr_cancel_btn = ttk.Button(btn_row, text="✕ 取消", command=self._on_train_cancel, state="disabled")
+        self._tr_cancel_btn.pack(side=tk.LEFT)
+
+        self._tr_progress = ttk.Progressbar(ctrl_sec, mode="determinate", maximum=100)
+        self._tr_progress.pack(fill=tk.X, pady=(4, 2))
+        self._tr_status_lbl = tk.Label(
+            ctrl_sec, text="就绪", bg=C["bg_elevated"], fg=C["text_3"], font=FONT_SM, anchor="w"
+        )
+        self._tr_status_lbl.pack(fill=tk.X, padx=4, pady=(2, 2))
+
+        # 训练状态
+        self._tr_thread = None
+        self._tr_queue = None
+        self._tr_cancel_flag = [False]
+        self._tr_t0 = None
+
+        # 首次渲染
+        self._refresh_device_info()
+        self._refresh_data_size()
+        self._refresh_algo_list()
+
+    # —— Training tab helpers ——
+
+    def _discover_torch_algorithms(self) -> List[Dict[str, Any]]:
+        """扫描注册器，返回有 build_model 方法的算法清单。
+
+        Returns:
+            [{algorithm_id, name, has_ckpt, active_version, version_count}]
+        """
+        from algorithms.registry import AlgorithmRegistry
+        from algorithms.training.checkpoint_manager import CheckpointManager
+
+        AlgorithmRegistry.initialize()
+        result = []
+        for adapter in AlgorithmRegistry.get_all_algorithms():
+            algo = getattr(adapter, "algo", adapter)
+            if not hasattr(algo, "build_model"):
+                continue
+            aid = getattr(algo, "algorithm_id", None) or getattr(algo, "name", None)
+            if not aid:
+                continue
+            ckpt = CheckpointManager(aid)
+            versions = ckpt.list_versions()
+            result.append(
+                {
+                    "algorithm_id": aid,
+                    "name": getattr(algo, "name", aid),
+                    "category": getattr(algo, "category", ""),
+                    "has_ckpt": ckpt.has_checkpoint(),
+                    "active_version": ckpt.active_version() or "",
+                    "version_count": len(versions),
+                }
+            )
+        result.sort(key=lambda r: (not r["has_ckpt"], r["algorithm_id"]))
+        return result
+
+    def _refresh_device_info(self):
+        try:
+            from algorithms.training.device import get_device_info, is_torch_available, force_cpu
+
+            force_cpu(self._tr_force_cpu_var.get())
+            info = get_device_info()
+            if not is_torch_available():
+                self._tr_device_lbl.config(text="❌ torch 未安装（请 pip install torch）", fg=C["danger"])
+            elif info.get("is_gpu"):
+                mem = info.get("total_memory_gb", 0)
+                self._tr_device_lbl.config(text=f"✅ {info['name']} ({mem:.1f} GB) [{info['device']}]", fg=C["success"])
+            else:
+                self._tr_device_lbl.config(text=f"💻 {info['name']} ({info.get('device', 'cpu')})", fg=C["warning"])
+        except Exception as e:
+            self._tr_device_lbl.config(text=f"⚠ 检测失败: {e}", fg=C["danger"])
+
+    def _on_force_cpu_changed(self):
+        self._refresh_device_info()
+
+    def _refresh_data_size(self):
+        self._tr_data_lbl.config(text="估算中…", fg=C["text_3"])
+
+        def _worker():
+            try:
+                from algorithms.training.trainer import ModelTrainer
+
+                tr = ModelTrainer()
+                info = tr.estimate_data_size()
+                total_videos = info.get("total_videos", 0)
+                valid_videos = info.get("valid_videos", 0)
+                total_samples = info.get("total_samples", 0)
+                est_s = info.get("estimated_time_s", 0)
+                eta_min = est_s / 60
+                txt = (
+                    f"视频总数: {total_videos}  ·  有效视频: {valid_videos}  ·  "
+                    f"训练样本: {total_samples:,}\n"
+                    f"预计单算法训练时间: {eta_min:.1f} 分钟"
+                )
+                self.window.after(0, lambda: self._tr_data_lbl.config(text=txt, fg=C["text_1"]))
+            except Exception as e:
+                self.window.after(0, lambda: self._tr_data_lbl.config(text=f"⚠ 估算失败: {e}", fg=C["danger"]))
+
+        import threading
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _refresh_algo_list(self):
+        # 清空旧行
+        for w in self._tr_algo_frame.winfo_children():
+            w.destroy()
+        self._tr_check_vars.clear()
+        self._tr_algo_meta.clear()
+
+        try:
+            algos = self._discover_torch_algorithms()
+        except Exception as e:
+            tk.Label(
+                self._tr_algo_frame,
+                text=f"⚠ 加载算法列表失败: {e}",
+                bg=C["bg_elevated"],
+                fg=C["danger"],
+                font=FONT,
+            ).pack(fill=tk.X, padx=4, pady=8)
+            return
+
+        trained_n = sum(1 for a in algos if a["has_ckpt"])
+        self._tr_count_lbl.config(text=f"{len(algos)} 个算法 · 已训练 {trained_n}")
+
+        for a in algos:
+            aid = a["algorithm_id"]
+            self._tr_algo_meta[aid] = a
+
+            row = tk.Frame(
+                self._tr_algo_frame,
+                bg=C["bg_surface"],
+                highlightthickness=1,
+                highlightbackground=C["border_sub"],
+            )
+            row.pack(fill=tk.X, pady=1)
+
+            var = tk.BooleanVar(value=not a["has_ckpt"])
+            self._tr_check_vars[aid] = var
+            ttk.Checkbutton(row, variable=var).grid(row=0, column=0, padx=6, pady=3)
+
+            tk.Label(
+                row,
+                text=a["name"],
+                bg=C["bg_surface"],
+                fg=C["text_1"],
+                font=FONT,
+                width=22,
+                anchor="w",
+            ).grid(row=0, column=1, padx=4, sticky="w")
+
+            tk.Label(
+                row,
+                text=aid,
+                bg=C["bg_surface"],
+                fg=C["text_3"],
+                font=FONT_MONO,
+                width=22,
+                anchor="w",
+            ).grid(row=0, column=2, padx=4, sticky="w")
+
+            if a["has_ckpt"]:
+                status_txt = f"✅ {a['active_version'][:18]}" + (
+                    f" (+{a['version_count']-1})" if a["version_count"] > 1 else ""
+                )
+                status_fg = C["success"]
+            else:
+                status_txt = "□ 未训练"
+                status_fg = C["text_3"]
+            tk.Label(
+                row,
+                text=status_txt,
+                bg=C["bg_surface"],
+                fg=status_fg,
+                font=FONT_SM,
+                width=22,
+                anchor="w",
+            ).grid(row=0, column=3, padx=4, sticky="w")
+
+            ttk.Button(
+                row,
+                text="版本管理",
+                width=10,
+                command=lambda aid=aid: self._open_version_manager(aid),
+            ).grid(row=0, column=4, padx=4, pady=2)
+
+    def _tr_select_all(self, flag: bool):
+        for var in self._tr_check_vars.values():
+            var.set(flag)
+
+    def _tr_select_untrained(self):
+        for aid, var in self._tr_check_vars.items():
+            var.set(not self._tr_algo_meta.get(aid, {}).get("has_ckpt", False))
+
+    # —— 训练执行 ——
+
+    def _on_train_start(self):
+        from algorithms.training.device import is_torch_available
+
+        if not is_torch_available():
+            messagebox.showerror("torch 未安装", "请先安装 PyTorch:\npip install torch", parent=self.window)
+            return
+
+        selected = [aid for aid, v in self._tr_check_vars.items() if v.get()]
+        if not selected:
+            messagebox.showwarning("提示", "请至少勾选一个算法", parent=self.window)
+            return
+
+        epochs = max(1, int(self._tr_epoch_var.get()))
+        batch = max(1, int(self._tr_batch_var.get()))
+
+        if not messagebox.askyesno(
+            "确认训练",
+            f"将训练 {len(selected)} 个算法，epoch={epochs}，batch={batch}。\n" "训练过程不可中途暂停（只能取消未开始的算法）。",
+            parent=self.window,
+        ):
+            return
+
+        # 锁住 UI
+        self._tr_train_btn.config(state="disabled")
+        self._tr_cancel_btn.config(state="normal")
+        self._tr_cancel_flag[0] = False
+        self._tr_progress["value"] = 0
+        self._tr_status_lbl.config(text=f"准备训练 {len(selected)} 个算法 …", fg=C["text_2"])
+
+        import threading
+        import queue as _q
+        import time as _t
+
+        self._tr_t0 = _t.time()
+        self._tr_queue = _q.Queue()
+
+        def _cb(payload: Dict):
+            payload = dict(payload)
+            payload["_total_selected"] = len(selected)
+            self._tr_queue.put(payload)
+
+        def _worker():
+            try:
+                from algorithms.training.trainer import ModelTrainer
+
+                trainer = ModelTrainer()
+                # 在每个算法开始前检查 cancel
+                remaining = list(selected)
+                results = {}
+                while remaining:
+                    if self._tr_cancel_flag[0]:
+                        self._tr_queue.put({"stage": "cancelled", "remaining": remaining})
+                        break
+                    aid = remaining.pop(0)
+                    sub = trainer.train_global([aid], epochs=epochs, batch_size=batch, progress_cb=_cb)
+                    results.update(sub)
+                self._tr_queue.put({"stage": "all_done", "results": results})
+            except Exception as e:
+                self._tr_queue.put({"stage": "fatal", "error": str(e)})
+
+        self._tr_thread = threading.Thread(target=_worker, daemon=True)
+        self._tr_thread.start()
+        self.window.after(150, self._poll_training_progress)
+
+    def _on_train_cancel(self):
+        self._tr_cancel_flag[0] = True
+        self._tr_cancel_btn.config(state="disabled")
+        self._tr_status_lbl.config(text="正在取消（等待当前算法完成）…", fg=C["warning"])
+
+    def _poll_training_progress(self):
+        import queue as _q
+        import time as _t
+
+        if self._tr_queue is None:
+            return
+
+        done_all = False
+        # 排空队列以避免堆积
+        while True:
+            try:
+                msg = self._tr_queue.get_nowait()
+            except _q.Empty:
+                break
+            stage = msg.get("stage")
+            total_sel = msg.get("_total_selected", 1)
+
+            if stage == "start":
+                aid = msg.get("algo_id", "?")
+                cur = msg.get("current", 0)
+                tot = msg.get("total", 1)
+                self._tr_status_lbl.config(text=f"[{cur}/{tot}] 开始训练 {aid} …", fg=C["text_2"])
+            elif stage == "epoch":
+                aid = msg.get("algo_id", "?")
+                ep = msg.get("epoch", 0)
+                eps = msg.get("epochs", 1)
+                tloss = msg.get("train_loss", 0.0)
+                vloss = msg.get("val_loss", -1.0)
+                elapsed = msg.get("elapsed_s", 0.0)
+                # 进度百分比：当前算法 epoch / total_epochs
+                pct = min(100, int((ep / max(1, eps)) * 100))
+                self._tr_progress["value"] = pct
+                vtxt = f" val={vloss:.4f}" if vloss >= 0 else ""
+                eta_total = (_t.time() - self._tr_t0) if self._tr_t0 else 0
+                self._tr_status_lbl.config(
+                    text=(
+                        f"{aid}  ·  epoch {ep}/{eps}  ·  "
+                        f"train={tloss:.4f}{vtxt}  ·  本算法 {elapsed:.1f}s  ·  累计 {eta_total:.1f}s"
+                    ),
+                    fg=C["text_1"],
+                )
+            elif stage == "done":
+                aid = msg.get("algo_id", "?")
+                cur = msg.get("current", 0)
+                ver = msg.get("version", "")
+                self._tr_status_lbl.config(text=f"✓ {aid} 完成 → {ver}  ({cur}/{total_sel})", fg=C["success"])
+                self._tr_progress["value"] = int(cur / max(1, total_sel) * 100)
+            elif stage == "error":
+                aid = msg.get("algo_id", "?")
+                err = msg.get("error", "")
+                self._tr_status_lbl.config(text=f"✗ {aid} 失败: {err}", fg=C["danger"])
+            elif stage == "cancelled":
+                rem = msg.get("remaining", [])
+                self._tr_status_lbl.config(text=f"已取消，剩余 {len(rem)} 个算法未训练", fg=C["warning"])
+                done_all = True
+            elif stage == "all_done":
+                results = msg.get("results", {})
+                ok = sum(1 for v in results.values() if v)
+                bad = sum(1 for v in results.values() if not v)
+                elapsed = (_t.time() - self._tr_t0) if self._tr_t0 else 0
+                self._tr_status_lbl.config(text=f"全部完成: ✓ {ok}  ✗ {bad}  ·  耗时 {elapsed:.1f}s", fg=C["success"])
+                self._tr_progress["value"] = 100
+                done_all = True
+            elif stage == "fatal":
+                err = msg.get("error", "")
+                self._tr_status_lbl.config(text=f"训练进程异常: {err}", fg=C["danger"])
+                done_all = True
+
+        if done_all:
+            self._tr_train_btn.config(state="normal")
+            self._tr_cancel_btn.config(state="disabled")
+            self._refresh_algo_list()
+            self._tr_queue = None
+            self._tr_thread = None
+        else:
+            self.window.after(200, self._poll_training_progress)
+
+    # —— 版本管理弹窗 ——
+
+    def _open_version_manager(self, algo_id: str):
+        from algorithms.training.checkpoint_manager import CheckpointManager
+
+        ckpt = CheckpointManager(algo_id)
+
+        top = tk.Toplevel(self.window)
+        top.title(f"版本管理 — {algo_id}")
+        sw = self.window.winfo_screenwidth()
+        sh = self.window.winfo_screenheight()
+        top.geometry(f"{int(sw*0.40)}x{int(sh*0.45)}")
+        top.configure(bg=C["bg_surface"])
+        top.transient(self.window)
+        top.grab_set()
+
+        tk.Label(
+            top,
+            text=f"算法: {algo_id}",
+            bg=C["bg_surface"],
+            fg=C["text_1"],
+            font=("Microsoft YaHei UI", 11, "bold"),
+        ).pack(pady=(14, 4))
+
+        cols = ("active", "version", "created", "samples", "val_loss")
+        tree = ttk.Treeview(top, columns=cols, show="headings", height=10)
+        tree.heading("active", text="●")
+        tree.heading("version", text="版本")
+        tree.heading("created", text="创建时间")
+        tree.heading("samples", text="样本数")
+        tree.heading("val_loss", text="val_loss")
+        tree.column("active", width=36, anchor="center", stretch=False)
+        tree.column("version", width=200, anchor="w")
+        tree.column("created", width=150, anchor="w")
+        tree.column("samples", width=80, anchor="e", stretch=False)
+        tree.column("val_loss", width=90, anchor="e", stretch=False)
+        tree.pack(fill=tk.BOTH, expand=True, padx=14, pady=6)
+
+        def _reload():
+            for item in tree.get_children():
+                tree.delete(item)
+            for v in ckpt.list_versions():
+                marker = "✅" if v["active"] else ""
+                val_loss = f"{v['val_loss']:.4f}" if v["val_loss"] >= 0 else "—"
+                tree.insert(
+                    "",
+                    "end",
+                    values=(marker, v["version"], v["created_at"], v["data_count"], val_loss),
+                )
+
+        _reload()
+
+        def _selected_version() -> Optional[str]:
+            sel = tree.selection()
+            if not sel:
+                messagebox.showwarning("提示", "请先选择一个版本", parent=top)
+                return None
+            return tree.item(sel[0], "values")[1]
+
+        def _do_activate():
+            v = _selected_version()
+            if v and ckpt.activate(v):
+                _reload()
+                self._refresh_algo_list()
+
+        def _do_delete():
+            v = _selected_version()
+            if not v:
+                return
+            if not messagebox.askyesno("确认删除", f"确定删除版本 {v} 吗？", parent=top):
+                return
+            if ckpt.delete(v):
+                _reload()
+                self._refresh_algo_list()
+
+        def _do_export():
+            v = _selected_version()
+            if not v:
+                return
+            from tkinter import filedialog
+
+            path = filedialog.asksaveasfilename(
+                parent=top,
+                defaultextension=".pt",
+                initialfile=f"{algo_id}_{v}.pt",
+                filetypes=[("PyTorch checkpoint", "*.pt"), ("所有文件", "*.*")],
+            )
+            if not path:
+                return
+            try:
+                import shutil
+
+                src = os.path.join(
+                    os.path.dirname(os.path.dirname(__file__)),
+                    "algorithms",
+                    "checkpoints",
+                    algo_id,
+                    f"{v}.pt",
+                )
+                shutil.copyfile(src, path)
+                messagebox.showinfo("成功", f"已导出到:\n{path}", parent=top)
+            except Exception as e:
+                messagebox.showerror("失败", f"导出失败: {e}", parent=top)
+
+        btn_f = tk.Frame(top, bg=C["bg_surface"])
+        btn_f.pack(fill=tk.X, padx=14, pady=(4, 14))
+        ttk.Button(btn_f, text="激活", command=_do_activate, style="Primary.TButton").pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_f, text="删除", command=_do_delete).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_f, text="导出 .pt", command=_do_export).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_f, text="关闭", command=top.destroy).pack(side=tk.RIGHT, padx=2)
+
     # ──── 代理 ────
     def _build_proxy_tab(self, nb):
         page = tk.Frame(nb, bg=C["bg_base"])
@@ -461,9 +1016,7 @@ class SettingsWindow:
 
         sec = tk.Frame(page, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
         sec.pack(fill=tk.BOTH, expand=True, padx=16, pady=12, ipadx=10, ipady=8)
-        tk.Label(sec, text="代理列表（每行一个）", bg=C["bg_elevated"], fg=C["text_2"], font=FONT).pack(
-            anchor="w", pady=(0, 4)
-        )
+        tk.Label(sec, text="代理列表（每行一个）", bg=C["bg_elevated"], fg=C["text_2"], font=FONT).pack(anchor="w", pady=(0, 4))
 
         # 协议选择 + 快速添加行
         add_row = tk.Frame(sec, bg=C["bg_elevated"])
@@ -510,9 +1063,9 @@ class SettingsWindow:
 
         url_row = tk.Frame(sec, bg=C["bg_elevated"])
         url_row.pack(fill=tk.X, pady=(6, 0))
-        tk.Label(
-            url_row, text="测试地址:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM, width=8, anchor="w"
-        ).pack(side=tk.LEFT)
+        tk.Label(url_row, text="测试地址:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM, width=8, anchor="w").pack(
+            side=tk.LEFT
+        )
         self._test_url_var = tk.StringVar(value="https://api.bilibili.com/x/web-interface/view?bvid=BV1GJ411x7hQ")
         url_entry = ttk.Entry(url_row, textvariable=self._test_url_var, font=FONT_SM)
         url_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 0))
@@ -670,9 +1223,9 @@ class SettingsWindow:
         # 项目信息
         sec1 = tk.Frame(page, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
         sec1.pack(fill=tk.X, padx=16, pady=(16, 6), ipadx=10, ipady=10)
-        tk.Label(
-            sec1, text="项目信息", bg=C["bg_elevated"], fg=C["text_2"], font=("Microsoft YaHei UI", 9, "bold")
-        ).pack(anchor="w")
+        tk.Label(sec1, text="项目信息", bg=C["bg_elevated"], fg=C["text_2"], font=("Microsoft YaHei UI", 9, "bold")).pack(
+            anchor="w"
+        )
 
         rows = [
             ("项目名称", "B站视频监控与播放量预测系统"),
@@ -690,9 +1243,9 @@ class SettingsWindow:
         # 链接
         sec2 = tk.Frame(page, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
         sec2.pack(fill=tk.X, padx=16, pady=6, ipadx=10, ipady=10)
-        tk.Label(
-            sec2, text="相关链接", bg=C["bg_elevated"], fg=C["text_2"], font=("Microsoft YaHei UI", 9, "bold")
-        ).pack(anchor="w")
+        tk.Label(sec2, text="相关链接", bg=C["bg_elevated"], fg=C["text_2"], font=("Microsoft YaHei UI", 9, "bold")).pack(
+            anchor="w"
+        )
 
         links = [
             ("GitHub", "https://github.com/jinyiwei2012/bilivideo_monitor", "项目源代码，欢迎 Star ⭐"),
@@ -719,9 +1272,7 @@ class SettingsWindow:
             anchor="w"
         )
         desc_text = (
-            "本系统用于监控 Bilibili 视频播放量增长趋势，"
-            "支持 55 种预测算法、多阈值告警、QQ 机器人通知等功能。\n\n"
-            "如果您觉得本项目对您有帮助，欢迎在 GitHub 上给项目点一个 Star！"
+            "本系统用于监控 Bilibili 视频播放量增长趋势，" "支持 55 种预测算法、多阈值告警、QQ 机器人通知等功能。\n\n" "如果您觉得本项目对您有帮助，欢迎在 GitHub 上给项目点一个 Star！"
         )
         tk.Label(
             sec3,
@@ -937,15 +1488,12 @@ class SettingsWindow:
                 lambda: messagebox.showinfo(
                     "导入完成",
                     f"成功导入 {total_count} 条代理\n"
-                    f"当前代理列表共 {len(all_lines)} 条"
-                    + (f"\n（其中 {dup_count} 条重复已去重）" if dup_count else ""),
+                    f"当前代理列表共 {len(all_lines)} 条" + (f"\n（其中 {dup_count} 条重复已去重）" if dup_count else ""),
                     parent=top,
                 ),
             )
 
-        ttk.Button(btn_f, text="导入并追加", command=_do_import, style="Primary.TButton").pack(
-            side=tk.RIGHT, padx=(4, 0)
-        )
+        ttk.Button(btn_f, text="导入并追加", command=_do_import, style="Primary.TButton").pack(side=tk.RIGHT, padx=(4, 0))
         ttk.Button(btn_f, text="取消", command=top.destroy).pack(side=tk.RIGHT, padx=4)
 
     def _apply_proxies(self):
@@ -1349,9 +1897,9 @@ class SettingsWindow:
                 return
             elif result.get("status") == -1:
                 status_lbl.config(fg=C["danger"])
-                ttk.Button(
-                    qr_top, text="重新生成二维码", command=lambda: [qr_top.destroy(), self._qrcode_login()]
-                ).pack(pady=4)
+                ttk.Button(qr_top, text="重新生成二维码", command=lambda: [qr_top.destroy(), self._qrcode_login()]).pack(
+                    pady=4
+                )
                 return
             qr_top.after(1500, _poll)
 

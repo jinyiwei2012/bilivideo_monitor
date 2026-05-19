@@ -1,5 +1,48 @@
 # 更新日志
 
+## Release 2026-05-20 (v2.4.0)
+
+### ✨ 新功能
+- **PyTorch 训练基础设施**: 新增 `algorithms/training/` 模块
+  - `device.py`: GPU 自动检测（CUDA > MPS > CPU），支持 `force_cpu()` 全局开关
+  - `checkpoint_manager.py`: 多版本 checkpoint 管理，支持 `list_versions / save / load / activate / delete`，目录结构 `algorithms/checkpoints/<algo_id>/v<N>_<时间戳>.pt`
+  - `dataset.py`: `VideoTimeSeriesDataset` 从每视频 SQLite DB 滑动窗口加载，支持全局训练 + 指定视频微调两种模式
+  - `trainer.py`: 通用训练管线 `ModelTrainer.train_global / finetune_for_video / estimate_data_size`，z-score 归一化 + 单步速度差分作为训练目标
+  - `hf_loader.py`: HuggingFace Foundation 模型懒加载（MOIRAI / Lag-Llama），首次自动下载缓存
+- **8 个 2026 前沿预测算法**:
+  - `moirai`: Salesforce MOIRAI-1.1-R-small，HF 通用时序基座
+  - `lag_llama`: time-series-foundation-models/Lag-Llama，lag-feature 加权预测
+  - `knf`: Koopman Neural Forecaster（全局算子 + 局部低秩修正 + meta 网络）
+  - `diffusion_ts`: 简化 DDPM + UNet1D，100 步反向扩散采样
+  - `mar_bilstm`: BiLSTM + 可学习 Markov 转移矩阵，5 状态混合输出
+  - `cnn_image`: 时序数据展平成 2D 图像，双分支 Conv2d（kernel=3 dilation=1/2）
+  - `tsfc_classification`（统计模型）: sklearn `RandomForestClassifier`，弱标签 5 桶（decay/slow/steady/growing/viral）
+  - `distdf_align`（高级分析）: scipy `wasserstein_distance` 度量分布漂移，自适应 α 加权
+- **14 个既有深度学习算法升级为真实 PyTorch 实现**:
+  - 升级文件: `attention_mechanism`, `bilstm_simple`, `cnn_lstm_hybrid`, `dlinear_simple`, `gru_simple`, `informer_simple`, `lstm_simple`, `mlp_predictor`, `n_beats_simple`, `neural_network_simple`, `patch_tst_simple`, `tcn_simple`, `tft_simple`, `timess_net_simple`
+  - 新增统一辅助模块 `algorithms/models/deep_learning/_torch_upgrade.py`，包含 13 个 torch 模型类 + `try_torch_predict()` 调度
+  - **三级优雅降级链**: torch checkpoint 推理 → numpy 简化版 → 速度估算兜底
+  - 保留原 numpy 简化实现作为 `_numpy_predict`，无 checkpoint 或推理失败时无缝降级，行为完全向后兼容
+- **设置窗口新增「模型训练」分页** (`ui/settings_window.py`):
+  - **训练设备**: 实时显示 CUDA/MPS/CPU 设备名 + 显存容量 + "强制使用 CPU" 开关
+  - **数据规模**: 后台估算视频总数 / 训练样本数 / 预计单算法训练时间
+  - **可训练算法列表**: 自动发现 18 个 torch 算法（14 升级 + 4 新增本地训练），显示算法名/ID/checkpoint 状态/版本数，支持 全选 / 全不选 / 仅选未训练
+  - **训练控制**: Epoch/Batch 可调，实时进度条 + 每 epoch loss + ETA，支持取消（算法间隙生效）
+  - **版本管理弹窗**: 每个算法独立 Treeview 显示所有版本，支持 激活 / 删除 / 导出 .pt
+  - 后台 `threading.Thread` + `queue.Queue` 异步训练，主线程 `window.after` 轮询，不阻塞 UI
+
+### 🔧 优化
+- **新依赖** (`requirements.txt`): torch>=2.1.0、transformers>=4.40.0、huggingface-hub>=0.20.0、safetensors>=0.4.0；CPU/GPU 安装方式见 README
+- **.gitignore**: 排除 `algorithms/checkpoints/*/`（保留 `README.md`）、`*.pt`、`*.pkl` 避免大文件入库
+- **算法总数 75 → 83**: 8 个 2026 新算法增量加入，自动发现机制无需修改注册器
+
+### 🐛 修复
+- **U+0001 控制字符污染**: Phase 3 批量升级脚本中 regex backreference `\1` 误写入文件，导致 11 个 deep_learning 算法 import 失败，算法总数从 83 跌至 72；已用清理脚本去除控制字符并恢复
+
+### 📐 架构
+- **`BaseAlgorithm` 接口兼容**: `mlp_predictor` / `attention_mechanism` 保持原 full_params 签名 `predict(current_views, target_views, history_data, video_info) -> Optional[Tuple[int, float]]`，通过内部 `_try_torch_predict` 包装为统一调度路径
+- **Foundation 模型懒加载**: MOIRAI / Lag-Llama 首次预测时自动从 HuggingFace 下载（`~/.cache/huggingface/`），不阻塞应用启动
+
 ## Release 2026-05-19 (v2.3.0)
 
 ### ✨ 新功能

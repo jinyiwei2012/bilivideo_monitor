@@ -12,10 +12,7 @@ def draw_chart_placeholder(canvas, text=None):
     canvas.delete("all")
     w = canvas.winfo_width() or 600
     h = canvas.winfo_height() or 300
-    canvas.create_text(
-        w // 2, h // 2, text=text or "选择视频后显示播放量趋势图", fill=C["text_3"],
-        font=("Microsoft YaHei UI", 11)
-    )
+    canvas.create_text(w // 2, h // 2, text=text or "选择视频后显示播放量趋势图", fill=C["text_3"], font=("Microsoft YaHei UI", 11))
 
 
 def compute_chart_scale(views_list, history, ML, MR, MT, cw, ch):
@@ -93,8 +90,9 @@ def draw_chart_annotations(c, history, views_list, px, py, W, H, ML, MR, MB, bas
                 t_str = ""
             c.create_text(px(i), H - MB + 6, text=t_str, fill=C["text_3"], font=("Consolas", 8))
 
-    items = [("播放" + ("增长" if base_v else "量"), C["bilibili"])] + \
-             [(THRESHOLD_NAMES[i] + "阈值", THRESH_COLORS[i]) for i in range(3)]
+    items = [("播放" + ("增长" if base_v else "量"), C["bilibili"])] + [
+        (THRESHOLD_NAMES[i] + "阈值", THRESH_COLORS[i]) for i in range(3)
+    ]
     lx0 = ML + 4
     for label, col in items:
         c.create_rectangle(lx0, 8, lx0 + 8, 16, fill=col, outline="")
@@ -166,11 +164,16 @@ def draw_chart(canvas, history_data, bvid, video, FONT, mode="step", max_points=
     # 右上角信息
     mode_name = "增量" if is_delta else "全量"
     shown = min(len(history), max_points)
-    c.create_text(W - MR - 2, 12, text=f"{mode_name} | {shown}/{len(history)} 点",
-                  anchor="e", fill=C["text_3"], font=("Consolas", 8))
+    c.create_text(
+        W - MR - 2,
+        12,
+        text=f"{mode_name} | {shown}/{len(history)} 点",
+        anchor="e",
+        fill=C["text_3"],
+        font=("Consolas", 8),
+    )
     if base_v:
-        c.create_text(W - MR - 2, 24, text=f"起始 {fmt_num(base_v)}",
-                      anchor="e", fill=C["text_3"], font=("Consolas", 7))
+        c.create_text(W - MR - 2, 24, text=f"起始 {fmt_num(base_v)}", anchor="e", fill=C["text_3"], font=("Consolas", 7))
 
 
 def _step_compute_scale(values, ch, MT):
@@ -203,8 +206,7 @@ def _step_draw_grid(c, W, H, ML, MR, MT, MB, ch, v_min, v_max, py):
         frac = 1 - i / rows
         val = v_min + frac * span
         sign = "+" if val > 0 else ""
-        c.create_text(ML - 4, y, text=f"{sign}{abbrev(val)}", anchor="e",
-                      fill=C["text_3"], font=("Consolas", 8))
+        c.create_text(ML - 4, y, text=f"{sign}{abbrev(val)}", anchor="e", fill=C["text_3"], font=("Consolas", 8))
     if v_min <= 0 <= v_max:
         zy = py(0)
         c.create_line(ML, zy, W - MR, zy, fill=C["text_3"], width=1)
@@ -216,8 +218,7 @@ def _step_draw_series(c, deltas, values, px, py, W, H, MR, MB, ML):
     for i, (_, v) in enumerate(deltas):
         pts += [px(i), py(v)]
     if len(pts) >= 4:
-        c.create_line(pts, fill=C["chart_line"], width=2.5, smooth=True,
-                      joinstyle="round", capstyle="round")
+        c.create_line(pts, fill=C["chart_line"], width=2.5, smooth=True, joinstyle="round", capstyle="round")
 
     for i, (_, v) in enumerate(deltas):
         x, y = px(i), py(v)
@@ -228,8 +229,7 @@ def _step_draw_series(c, deltas, values, px, py, W, H, MR, MB, ML):
     lx = px(len(deltas) - 1)
     ly = py(last_v)
     label_text = f"+{fmt_num(last_v)}" if last_v >= 0 else fmt_num(last_v)
-    c.create_rectangle(lx - 34, ly - 22, lx + 34, ly - 6,
-                       fill=C["chart_line"], outline="")
+    c.create_rectangle(lx - 34, ly - 22, lx + 34, ly - 6, fill=C["chart_line"], outline="")
     c.create_text(lx, ly - 14, text=label_text, fill="#ffffff", font=("Consolas", 8, "bold"))
 
     step = max(1, len(deltas) // 6)
@@ -267,6 +267,11 @@ def _draw_step_chart(c, history, W, H, ML, MR, MT, MB, cw, ch, FONT, max_points)
 
     total = sum(values)
     avg = total / len(values) if values else 0
-    c.create_text(W - MR - 2, 12,
-                  text=f"新增 | {len(deltas)} 点 | 总+{fmt_num(total)} | 均+{fmt_num(avg)}",
-                  anchor="e", fill=C["text_3"], font=("Consolas", 8))
+    c.create_text(
+        W - MR - 2,
+        12,
+        text=f"新增 | {len(deltas)} 点 | 总+{fmt_num(total)} | 均+{fmt_num(avg)}",
+        anchor="e",
+        fill=C["text_3"],
+        font=("Consolas", 8),
+    )

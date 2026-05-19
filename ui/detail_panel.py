@@ -79,42 +79,68 @@ class DetailPanel:
         bar = tk.Frame(self._content_area, bg=C["bg_base"])
         bar.pack(fill=tk.X, padx=16, pady=(10, 0))
         tk.Radiobutton(
-            bar, text="新增", variable=self._chart_mode, value="step",
-            bg=C["bg_base"], fg=C["text_1"], selectcolor=C["bg_base"],
-            font=FONT_SM, command=self._on_chart_mode_change,
+            bar,
+            text="新增",
+            variable=self._chart_mode,
+            value="step",
+            bg=C["bg_base"],
+            fg=C["text_1"],
+            selectcolor=C["bg_base"],
+            font=FONT_SM,
+            command=self._on_chart_mode_change,
         ).pack(side=tk.LEFT)
         tk.Radiobutton(
-            bar, text="增量", variable=self._chart_mode, value="delta",
-            bg=C["bg_base"], fg=C["text_1"], selectcolor=C["bg_base"],
-            font=FONT_SM, command=self._on_chart_mode_change,
+            bar,
+            text="增量",
+            variable=self._chart_mode,
+            value="delta",
+            bg=C["bg_base"],
+            fg=C["text_1"],
+            selectcolor=C["bg_base"],
+            font=FONT_SM,
+            command=self._on_chart_mode_change,
         ).pack(side=tk.LEFT)
         tk.Radiobutton(
-            bar, text="全量", variable=self._chart_mode, value="full",
-            bg=C["bg_base"], fg=C["text_1"], selectcolor=C["bg_base"],
-            font=FONT_SM, command=self._on_chart_mode_change,
+            bar,
+            text="全量",
+            variable=self._chart_mode,
+            value="full",
+            bg=C["bg_base"],
+            fg=C["text_1"],
+            selectcolor=C["bg_base"],
+            font=FONT_SM,
+            command=self._on_chart_mode_change,
         ).pack(side=tk.LEFT)
         tk.Frame(bar, bg=C["border_sub"], width=1, height=14).pack(side=tk.LEFT, padx=6)
         tk.Label(bar, text="显示", bg=C["bg_base"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT)
         pt_entry = tk.Entry(
-            bar, textvariable=self._chart_max_points, width=3,
-            font=FONT_MONO, bg=C["bg_elevated"], fg=C["text_1"],
-            insertbackground=C["text_1"], relief="flat",
-            highlightthickness=1, highlightbackground=C["border"],
+            bar,
+            textvariable=self._chart_max_points,
+            width=3,
+            font=FONT_MONO,
+            bg=C["bg_elevated"],
+            fg=C["text_1"],
+            insertbackground=C["text_1"],
+            relief="flat",
+            highlightthickness=1,
+            highlightbackground=C["border"],
         )
         pt_entry.pack(side=tk.LEFT, padx=2)
         tk.Label(bar, text="点", bg=C["bg_base"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT, padx=(0, 6))
         self._chart_render_btn = tk.Label(
-            bar, text="▶ 渲染", bg=C["bg_elevated"], fg=C["accent"],
-            font=FONT_SM, cursor="hand2", padx=6, pady=1,
+            bar,
+            text="▶ 渲染",
+            bg=C["bg_elevated"],
+            fg=C["accent"],
+            font=FONT_SM,
+            cursor="hand2",
+            padx=6,
+            pady=1,
         )
         self._chart_render_btn.pack(side=tk.LEFT)
         self._chart_render_btn.bind("<Button-1>", lambda e: self._manual_render_chart())
-        self._chart_render_btn.bind(
-            "<Enter>", lambda e: self._chart_render_btn.config(bg=C["bg_hover"])
-        )
-        self._chart_render_btn.bind(
-            "<Leave>", lambda e: self._chart_render_btn.config(bg=C["bg_elevated"])
-        )
+        self._chart_render_btn.bind("<Enter>", lambda e: self._chart_render_btn.config(bg=C["bg_hover"]))
+        self._chart_render_btn.bind("<Leave>", lambda e: self._chart_render_btn.config(bg=C["bg_elevated"]))
         self._chart_stat_lbl = tk.Label(bar, text="", bg=C["bg_base"], fg=C["text_3"], font=FONT_SM)
         self._chart_stat_lbl.pack(side=tk.RIGHT, padx=4)
 
@@ -181,6 +207,7 @@ class DetailPanel:
             fg_color="transparent",
         )
         title_lbl.pack(fill=tk.X)
+
         # 窗口缩放时更新折行宽度
         def _update_wraplength(ev=None):
             try:
@@ -189,6 +216,7 @@ class DetailPanel:
                     title_lbl.configure(wraplength=w)
             except tk.TclError:
                 pass
+
         info.bind("<Configure>", _update_wraplength)
         meta = ctk.CTkFrame(info, fg_color=C["bg_surface"], corner_radius=0)
         meta.pack(fill=tk.X, pady=(4, 0))
@@ -361,8 +389,13 @@ class DetailPanel:
         except (ValueError, tk.TclError):
             points = 20
         draw_chart(
-            self._chart_canvas, self.gui.history_data, self.gui.selected_bvid, video, FONT,
-            mode=self._chart_mode.get(), max_points=points,
+            self._chart_canvas,
+            self.gui.history_data,
+            self.gui.selected_bvid,
+            video,
+            FONT,
+            mode=self._chart_mode.get(),
+            max_points=points,
         )
         self._rendered_modes.add(self._chart_mode.get())
 

@@ -8,6 +8,7 @@ from typing import List, Dict, Any, Optional, Tuple
 import logging
 
 from algorithms.base import BaseAlgorithm
+from algorithms.models.deep_learning._torch_upgrade import AttentionTorchModel, try_torch_predict
 
 logger = logging.getLogger(__name__)
 
@@ -21,13 +22,29 @@ class AttentionMechanismAlgorithm(BaseAlgorithm):
     """
 
     name = "注意力机制模型"
-    description = "关注重要时间点，类似Transformer"
+    algorithm_id = "attention_mechanism"
+    description = "关注重要时间点，类似Transformer（torch checkpoint 优先，否则 numpy 简化）"
     category = "深度学习"
+
+    training_window = 10
+    training_horizon = 3
 
     def __init__(self):
         super().__init__()
         self.d_model = 16  # 模型维度
         self.n_heads = 2  # 注意力头数
+
+    def build_model(self):
+        return AttentionTorchModel(
+            in_features=5,
+            d_model=32,
+            n_heads=4,
+            window=self.training_window,
+            horizon=self.training_horizon,
+        )
+
+    def get_training_features(self):
+        return ["view_count", "like_count", "coin_count", "favorite_count", "share_count"]
 
     def predict(
         self, current_views: int, target_views: int, history_data: List[Dict[str, Any]], video_info: Dict[str, Any]
@@ -35,6 +52,11 @@ class AttentionMechanismAlgorithm(BaseAlgorithm):
         """
         预测到达目标播放量所需时间
         """
+        # torch 优先
+        torch_result = self._try_torch_predict(current_views, target_views, history_data, video_info)
+        if torch_result is not None:
+            return torch_result
+
         if not history_data or len(history_data) < 8:
             return None
 
@@ -159,3 +181,59 @@ class AttentionMechanismAlgorithm(BaseAlgorithm):
             base_conf = 0.6 * base_conf + 0.4 * stability
 
         return min(0.9, base_conf)
+
+    def _try_torch_predict(
+        self, current_views: int, target_views: int, history_data: List[Dict[str, Any]], video_info: Dict[str, Any]
+    ) -> Optional[Tuple[int, float]]:
+        """torch checkpoint 存在时跑真实推理；任何失败都返回 None 让上游降级。"""
+        if not hasattr(self, "_ckpt"):
+            from algorithms.training.checkpoint_manager import CheckpointManager
+
+            self._ckpt = CheckpointManager(self.algorithm_id)
+        if not self._ckpt.has_checkpoint():
+            return None
+        try:
+            from datetime import datetime
+
+            wrapped_history = []
+            for d in history_data:
+                ts = d.get("timestamp", 0)
+                if isinstance(ts, str):
+                    try:
+                        ts = datetime.fromisoformat(ts).timestamp()
+                    except Exception:
+                        ts = 0
+                wrapped_history.append(
+                    {
+                        "view_count": d.get("view", d.get("view_count", 0)),
+                        "like_count": d.get("like", d.get("like_count", 0)),
+                        "coin_count": d.get("coin", d.get("coin_count", 0)),
+                        "favorite_count": d.get("favorite", d.get("favorite_count", 0)),
+                        "share_count": d.get("share", d.get("share_count", 0)),
+                        "timestamp": ts,
+                    }
+                )
+            video_data = {
+                "view_count": current_views,
+                "history_data": wrapped_history,
+                "timestamp": datetime.now(),
+            }
+            result = try_torch_predict(
+                self,
+                video_data,
+                target_views,
+                AttentionTorchModel,
+                lambda _v, _t: None,
+                window=self.training_window,
+                horizon=self.training_horizon,
+                model_kwargs={"in_features": 5, "window": self.training_window, "horizon": self.training_horizon},
+            )
+            if result is None or not hasattr(result, "predicted_hours"):
+                return None
+            if result.predicted_hours == float("inf") or result.predicted_hours < 0:
+                return None
+            seconds = int(result.predicted_hours * 3600)
+            return (seconds, result.confidence)
+        except Exception as e:
+            logger.debug("[attention_mechanism] torch path 异常: %s", e)
+            return None
