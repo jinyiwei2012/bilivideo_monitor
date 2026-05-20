@@ -57,6 +57,7 @@ from config import load_config, save_config
 from utils.file_logger import FileLogger
 from algorithms.training.checkpoint_manager import activate_latest_for_all, get_all_activation_status, list_all_trained_algorithms
 from ui.training_panel import TrainingPanel
+from ui.finetune_panel import FinetunePanel
 
 
 # ══════════════════════════════════════════════
@@ -141,6 +142,8 @@ class BilibiliMonitorGUI:
         # 训练面板（与主面板同级，通过 nav 切换）
         self.training_panel = TrainingPanel(self.root, self)
         self.training_panel.frame.pack_forget()  # 默认隐藏
+        self.finetune_panel = FinetunePanel(self.root, self)
+        self.finetune_panel.frame.pack_forget()  # 默认隐藏
         self.bottom_bar = BottomBar(self.root, self)
         self._build_status_bar()
 
@@ -188,13 +191,14 @@ class BilibiliMonitorGUI:
         nav_f = tk.Frame(bar, bg=C["bg_surface"])
         nav_f.pack(side=tk.LEFT, padx=16)
         self._nav_btns = {}
-        self._page_views = ["监控列表", "日志", "模型训练"]
+        self._page_views = ["监控列表", "日志", "模型训练", "微调训练"]
         self._dialogs = Dialogs(self)
 
         nav_items = [
             ("📊", "监控列表", None),
             ("📋", "日志", None),
             ("🧠", "模型训练", None),
+            ("🎯", "微调训练", None),
         ]
 
         for icon, label, cmd in nav_items:
@@ -506,6 +510,7 @@ class BilibiliMonitorGUI:
         self._main_frame.pack_forget()
         self.log_panel.frame.pack_forget()
         self.training_panel.frame.pack_forget()
+        self.finetune_panel.frame.pack_forget()
         self.log_panel.stop_auto_refresh()
 
         if name == "日志":
@@ -515,6 +520,9 @@ class BilibiliMonitorGUI:
         elif name == "模型训练":
             self.training_panel.frame.pack(fill=tk.BOTH, expand=True)
             self.training_panel.on_show()
+        elif name == "微调训练":
+            self.finetune_panel.frame.pack(fill=tk.BOTH, expand=True)
+            self.finetune_panel.on_show()
         else:
             self._main_frame.pack(fill=tk.BOTH, expand=True)
 

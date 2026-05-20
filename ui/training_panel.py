@@ -67,7 +67,7 @@ class TrainingMonitor:
         n = len(pts)
         self.suggestions.clear()
 
-        # 1. NaN 检测（优先于所有检查，即使数据不足）
+        # 1. NaN 检测（最高优先级，即使数据不足也立即返回）
         for _, tl, vl in pts:
             if math.isnan(tl) or (vl >= 0 and math.isnan(vl)):
                 self.status = "Loss = NaN — 训练失败"
@@ -80,18 +80,28 @@ class TrainingMonitor:
             self.level = "info"
             return
 
+        # 优先级辅助：danger > warning > good
+        found_level = "good"
+        found_status = "训练正常"
+        found_suggestions: List[str] = []
+
+        def _set(level: str, status: str, suggestions: List[str]):
+            nonlocal found_level, found_status, found_suggestions
+            priority = {"danger": 3, "warning": 2, "good": 1, "info": 0}
+            if priority.get(level, 0) > priority.get(found_level, 0):
+                found_level = level
+                found_status = status
+                found_suggestions = suggestions
+
         # 2. Loss 爆炸
-        if n >= 3:
-            recent = [tl for _, tl, _ in pts[-3:]]
-            if max(recent) > 10 * (pts[0][1] or 1e-8):
-                self.status = "Loss 爆炸 — 梯度可能溢出"
-                self.level = "danger"
-                self.suggestions = ["大幅降低学习率 (÷10)", "检查数据归一化"]
-                return
+        recent = [tl for _, tl, _ in pts[-3:]]
+        if max(recent) > 10 * (pts[0][1] or 1e-8):
+            _set("danger", "Loss 爆炸 — 梯度可能溢出",
+                 ["大幅降低学习率 (÷10)", "检查数据归一化"])
 
         # 3. 过拟合 — val_loss 连续上升而 train_loss 下降
         if n >= 5 and all(vl >= 0 for _, _, vl in pts[-5:]):
-            tl_trend = pts[-1][1] < pts[-5][1]   # train 在下降
+            tl_trend = pts[-1][1] < pts[-5][1]
             vl_trend = [pts[i][2] for i in range(-5, 0)]
             vl_up = sum(1 for i in range(1, len(vl_trend)) if vl_trend[i] > vl_trend[i-1])
             if tl_trend and vl_up >= 4:
@@ -99,18 +109,13 @@ class TrainingMonitor:
             else:
                 self._overfit_streak = max(0, self._overfit_streak - 1)
 
-            if self._overfit_streak >= 2:
-                self.status = "⚠️ 过拟合 — val_loss 持续上升"
-                self.level = "warning"
-                self.suggestions = ["建议停止训练 (early stopping)", "增加 Dropout", "减小模型容量"]
-                return
-
             if self._overfit_streak >= 4:
-                self.status = "🚫 严重过拟合 — 必须停止"
-                self.level = "danger"
-                self.suggestions = ["立即停止训练", "val_loss 已连续多 epoch 上升",
-                                    "减小模型或增加正则化后重新训练"]
-                return
+                _set("danger", "🚫 严重过拟合 — 必须停止",
+                     ["立即停止训练", "val_loss 已连续多 epoch 上升",
+                      "减小模型或增加正则化后重新训练"])
+            elif self._overfit_streak >= 2:
+                _set("warning", "⚠️ 过拟合 — val_loss 持续上升",
+                     ["建议停止训练 (early stopping)", "增加 Dropout", "减小模型容量"])
 
         # 4. 不再收敛 — val_loss 连续 N epoch 没有下降
         if n >= 8 and all(vl >= 0 for _, _, vl in pts[-8:]):
@@ -122,47 +127,42 @@ class TrainingMonitor:
                 self._no_improve_streak = max(0, self._no_improve_streak - 1)
 
             if self._no_improve_streak >= 2:
-                self.status = "📉 不再收敛 — val_loss 已停止下降"
-                self.level = "warning"
-                self.suggestions = ["可以提前停止 (early stopping)", "尝试降低学习率后继续",
-                                    "若已训练充足 epoch 则可接受当前结果"]
-                # 不要 return，允许继续判断其他情况
+                _set("warning", "📉 不再收敛 — val_loss 已停止下降",
+                     ["可以提前停止 (early stopping)", "尝试降低学习率后继续",
+                      "若已训练充足 epoch 则可接受当前结果"])
 
-        # 5. 震荡 — loss 波动剧烈（非单调下降的抖动）
+        # 5. 震荡 — loss 波动剧烈
         if n >= 8:
             recent_tl = [tl for _, tl, _ in pts[-8:]]
-            # 排除单调下降的正常情况
             is_monotonic_down = all(recent_tl[i] >= recent_tl[i+1] for i in range(len(recent_tl)-1))
             if not is_monotonic_down:
                 mean_tl = sum(recent_tl) / len(recent_tl)
                 cv = math.sqrt(sum((x - mean_tl)**2 for x in recent_tl) / len(recent_tl)) / max(1e-8, mean_tl)
-                # 同时检查残差（去趋势后的波动是否仍然很大）
                 residual_var = sum(abs(recent_tl[i] - recent_tl[i-1]) for i in range(1, len(recent_tl))) / (len(recent_tl) - 1)
                 avg_tl = abs(mean_tl)
                 if cv > 0.3 and residual_var > 0.02 * max(1, avg_tl):
-                    self.status = "📊 Loss 波动较大 — 训练不稳定"
-                    self.level = "warning"
-                    self.suggestions = ["降低学习率", "增大 batch size"]
-                    return
+                    _set("warning", "📊 Loss 波动较大 — 训练不稳定",
+                         ["降低学习率", "增大 batch size"])
 
-        # 6. 欠拟合 — 前几个 epoch loss 下降太慢
-        if n == max(5, n) and n >= 5:
+        # 6. 欠拟合 — loss 下降过慢
+        if n >= 3:
             initial_loss = pts[0][1]
             current_loss = pts[-1][1]
             if initial_loss > 0.1 and (initial_loss - current_loss) / initial_loss < 0.05:
-                self.status = "🐢 欠拟合 — Loss 下降过慢"
-                self.level = "warning"
-                self.suggestions = ["增大学习率", "增加模型容量 (更多层 / 更多神经元)",
-                                    "检查数据是否包含有效信号"]
-                return
+                _set("warning", "🐢 欠拟合 — Loss 下降过慢",
+                     ["增大学习率", "增加模型容量 (更多层 / 更多神经元)",
+                      "检查数据是否包含有效信号"])
 
-        # 7. 正常训练
-        if self._no_improve_streak >= 2:
-            status = "已收敛" if self.level == "warning" else "训练中"
-            self.status = f"✅ 训练正常 — {status}"
+        # 7. 应用最佳检测结果
+        if found_level != "good":
+            self.level = found_level
+            self.status = found_status
+            self.suggestions = found_suggestions
+        elif self._no_improve_streak >= 2:
+            self.status = "✅ 训练正常 — 已收敛"
+            self.level = "good"
         elif n >= 3:
             tl_trend = pts[-1][1] < pts[-3][1]
-            has_val = pts[-1][2] >= 0
             if tl_trend:
                 self.status = "✅ 训练正常 — Loss 稳步下降"
                 self.level = "good"
@@ -181,6 +181,68 @@ class TrainingMonitor:
             return "💡 " + self.suggestions[0]
         return ""
 
+    # ── 动态 LR 系数计算 ─────────────────────────
+
+    def compute_lr_scale(self, issue_type: str) -> float:
+        """根据实际 loss 数据动态计算 LR 乘除系数。
+
+        Args:
+            issue_type: "explosion" | "oscillation" | "overfitting" | "underfitting"
+
+        Returns:
+            大于 1 表示增大 LR，小于 1 表示减小 LR。
+        """
+        pts = self._points
+        n = len(pts)
+        if n < 2:
+            return 1.0
+
+        if issue_type == "explosion":
+            # Loss 爆炸：跳变越猛，缩减越狠
+            prev = pts[-2][1]
+            curr = pts[-1][1]
+            if prev > 0 and curr > prev:
+                jump_ratio = curr / prev
+                scale = 1.0 / jump_ratio  # 2x jump → 0.5, 4x → 0.25
+                return max(0.05, min(0.8, scale))
+            return 0.5
+
+        if issue_type == "oscillation":
+            # Loss 震荡：变异系数越大，缩减越多
+            recent = [p[1] for p in pts[-min(8, n):]]
+            mean = sum(recent) / len(recent)
+            if mean > 0:
+                variance = sum((v - mean) ** 2 for v in recent) / len(recent)
+                cv = (variance ** 0.5) / mean  # coefficient of variation
+                # cv=0.1 → scale≈0.83, cv=0.5 → scale≈0.5, cv=1.0 → scale≈0.33
+                scale = 1.0 / (1.0 + cv * 2)
+                return max(0.2, min(0.95, scale))
+            return 0.7
+
+        if issue_type == "overfitting":
+            # 过拟合：val_loss/train_loss 差距越大，缩减越多
+            curr_tl = pts[-1][1]
+            curr_vl = pts[-1][2]
+            if curr_vl > 0 and curr_tl > 0:
+                gap = curr_vl / curr_tl
+                scale = 1.0 / gap  # gap=2 → 0.5, gap=1.5 → 0.67
+                return max(0.2, min(0.9, scale))
+            return 0.7
+
+        if issue_type == "underfitting":
+            # 欠拟合：下降越慢，提升越多
+            initial = pts[0][1]
+            curr = pts[-1][1]
+            if initial > 0 and curr > 0:
+                total_drop = (initial - curr) / initial
+                rate = total_drop / max(1, n - 1)
+                # target per-epoch drop rate ≈ 5%
+                scale = 0.05 / max(0.001, rate)
+                return max(1.2, min(5.0, scale))
+            return 2.0
+
+        return 1.0
+
 
 class TrainingPanel:
     """训练面板 - 主界面选项卡"""
@@ -196,6 +258,7 @@ class TrainingPanel:
         self._algo_confidence: Dict[str, float] = {}  # 训练完成时记录的置信度
         self._training = False
         self._cancel_flag = [False]
+        self._skip_algo_flag = [False]
         self._train_thread: Optional[threading.Thread] = None
         self._train_queue: Optional[queue.Queue] = None
         self._train_t0: Optional[float] = None
@@ -205,6 +268,9 @@ class TrainingPanel:
         # 训练质量监控器
         self._monitor = TrainingMonitor()
         self._last_monitor_level = ""
+
+        # 算法行标签引用（用于动态更新状态/置信度）
+        self._algo_row_refs: Dict[str, List[tk.Widget]] = {}
 
         # 图表数据
         self._fig: Optional[Figure] = None
@@ -409,6 +475,8 @@ class TrainingPanel:
         self._train_btn.pack(side=tk.LEFT, padx=(12, 4))
         self._cancel_btn = ttk.Button(ctrl, text="✕ 取消", command=self._on_train_cancel, state="disabled")
         self._cancel_btn.pack(side=tk.LEFT, padx=4)
+        self._skip_btn = ttk.Button(ctrl, text="⏭ 跳过当前", command=self._on_skip_algo, state="disabled")
+        self._skip_btn.pack(side=tk.LEFT, padx=4)
         ttk.Button(ctrl, text="🎯 批量微调", command=self._on_batch_finetune, width=10).pack(side=tk.LEFT, padx=4)
 
         # 进度
@@ -547,6 +615,7 @@ class TrainingPanel:
         trained = sum(1 for a in algos if a["has_ckpt"])
         self._algo_count_lbl.config(text=f"{len(algos)} 算法 · 已训练 {trained}")
 
+        self._algo_row_refs.clear()
         for a in algos:
             aid = a["algorithm_id"]
             self._algo_meta[aid] = a
@@ -570,17 +639,22 @@ class TrainingPanel:
             else:
                 st = "□ 未训练"
                 sf = C["text_3"]
-            tk.Label(row, text=st, bg=C["bg_surface"], fg=sf,
-                     font=FONT_SM, width=12, anchor="w").grid(row=0, column=3, padx=2, sticky="w")
+            status_lbl = tk.Label(row, text=st, bg=C["bg_surface"], fg=sf,
+                                  font=FONT_SM, width=12, anchor="w")
+            status_lbl.grid(row=0, column=3, padx=2, sticky="w")
 
             # 置信度列
             conf = self._load_confidence(aid)
             conf_text, conf_color = self._format_confidence(conf)
-            tk.Label(row, text=conf_text, bg=C["bg_surface"], fg=conf_color,
-                     font=FONT_SM, width=10, anchor="w").grid(row=0, column=4, padx=2, sticky="w")
+            conf_lbl = tk.Label(row, text=conf_text, bg=C["bg_surface"], fg=conf_color,
+                                font=FONT_SM, width=10, anchor="w")
+            conf_lbl.grid(row=0, column=4, padx=2, sticky="w")
 
-            tk.Label(row, text=f"v{a['version_count']}", bg=C["bg_surface"], fg=C["text_3"],
-                     font=FONT_SM, width=6, anchor="w").grid(row=0, column=5, padx=2, sticky="w")
+            ver_lbl = tk.Label(row, text=f"v{a['version_count']}", bg=C["bg_surface"], fg=C["text_3"],
+                               font=FONT_SM, width=6, anchor="w")
+            ver_lbl.grid(row=0, column=5, padx=2, sticky="w")
+
+            self._algo_row_refs[aid] = [status_lbl, conf_lbl, ver_lbl]
 
     def _select_all(self, flag: bool):
         for v in self._check_vars.values():
@@ -589,6 +663,20 @@ class TrainingPanel:
     def _select_untrained(self):
         for aid, var in self._check_vars.items():
             var.set(not self._algo_meta.get(aid, {}).get("has_ckpt", False))
+
+    def _update_algo_row(self, aid: str, status: str = None, status_color: str = None,
+                         conf: str = None, conf_color: str = None, ver: str = None):
+        """动态更新算法列表行的状态/置信度/版本列。"""
+        refs = self._algo_row_refs.get(aid)
+        if not refs:
+            return
+        status_lbl, conf_lbl, ver_lbl = refs
+        if status is not None:
+            status_lbl.config(text=status, fg=status_color or C["text_3"])
+        if conf is not None:
+            conf_lbl.config(text=conf, fg=conf_color or C["text_3"])
+        if ver is not None:
+            ver_lbl.config(text=ver)
 
     # ── 版本管理 ──────────────────────────────────
 
@@ -1060,7 +1148,9 @@ class TrainingPanel:
         self._training = True
         self._train_btn.config(state="disabled")
         self._cancel_btn.config(state="normal")
+        self._skip_btn.config(state="normal")
         self._cancel_flag[0] = False
+        self._skip_algo_flag[0] = False
         self._progress["value"] = 0
         self._loss_history.clear()
         self._clear_chart()
@@ -1074,9 +1164,71 @@ class TrainingPanel:
         self._train_t0 = time.time()
         self._train_queue = _q.Queue()
 
+        # 自动调整状态（每个算法独立 LR 系数）
+        auto_control: Dict = {}
+        auto_monitors: Dict[str, "TrainingMonitor"] = {}
+        algo_lr_factors: Dict[str, float] = {}
+
         def _cb(payload: Dict):
+            """训练回调 — 运行在工作线程中，负责通信 + 自动调整。"""
             payload["_total_selected"] = len(selected)
             payload["_incremental"] = is_incremental
+
+            # 用户手动跳过当前算法
+            if self._skip_algo_flag[0]:
+                auto_control["early_stop"] = True
+                auto_control["_force_early_stop"] = True
+                payload["_adjustment"] = "⏭ 用户手动跳过"
+                self._train_queue.put(payload)
+                return
+
+            # 自动质量检测与参数调整
+            if payload.get("stage") == "epoch":
+                aid = payload.get("algo_id", "")
+                ep = payload.get("epoch", 0)
+                tloss = payload.get("train_loss", 0.0)
+                vloss = payload.get("val_loss", -1.0)
+
+                key = aid
+                if key not in auto_monitors:
+                    auto_monitors[key] = TrainingMonitor()
+                mon = auto_monitors[key]
+                mon.update(ep, tloss, vloss if vloss >= 0 else -1)
+
+                if mon.level in ("warning", "danger") and auto_control is not None:
+                    status = mon.status
+                    # 每个算法独立 LR 系数
+                    factor = algo_lr_factors.get(aid, 1.0)
+                    if "nan" in status.lower():
+                        auto_control["early_stop"] = True
+                        payload["_adjustment"] = "🔧 NaN 检测 — 提前停止"
+                    elif "爆炸" in status:
+                        scale = mon.compute_lr_scale("explosion")
+                        auto_control["lr_scale"] = scale
+                        algo_lr_factors[aid] = factor * scale
+                        payload["_adjustment"] = f"🔧 Loss 爆炸 — {aid} LR×{scale:.2f} (累计 {algo_lr_factors[aid]:.2f})"
+                    elif "严重过拟合" in status:
+                        auto_control["early_stop"] = True
+                        payload["_adjustment"] = "🔧 严重过拟合 — 提前停止"
+                    elif "波动" in status and "不稳定" in status:
+                        scale = mon.compute_lr_scale("oscillation")
+                        auto_control["lr_scale"] = scale
+                        algo_lr_factors[aid] = factor * scale
+                        payload["_adjustment"] = f"🔧 Loss 震荡 — {aid} LR×{scale:.2f} (累计 {algo_lr_factors[aid]:.2f})"
+                    elif "过拟合" in status:
+                        scale = mon.compute_lr_scale("overfitting")
+                        auto_control["lr_scale"] = scale
+                        algo_lr_factors[aid] = factor * scale
+                        payload["_adjustment"] = f"🔧 过拟合 — {aid} LR×{scale:.2f} (累计 {algo_lr_factors[aid]:.2f})"
+                    elif "欠拟合" in status or "下降过慢" in status:
+                        scale = mon.compute_lr_scale("underfitting")
+                        auto_control["lr_scale"] = scale
+                        algo_lr_factors[aid] = factor * scale
+                        payload["_adjustment"] = f"🔧 欠拟合 — {aid} LR×{scale:.2f} (累计 {algo_lr_factors[aid]:.2f})"
+                    elif "不再收敛" in status:
+                        auto_control["early_stop"] = True
+                        payload["_adjustment"] = "🔧 不再收敛 — 提前停止"
+
             self._train_queue.put(payload)
 
         def _worker():
@@ -1090,9 +1242,30 @@ class TrainingPanel:
                         self._train_queue.put({"stage": "cancelled", "remaining": remaining})
                         break
                     aid = remaining.pop(0)
+
+                    # 重新训练模式：删除已有 checkpoint
+                    if not is_incremental:
+                        from algorithms.training.checkpoint_manager import CheckpointManager
+                        _ckpt = CheckpointManager(aid)
+                        _n = _ckpt.delete_all()
+                        if _n:
+                            self._train_queue.put({
+                                "stage": "log",
+                                "text": f"  🗑 已清除 {aid} 的 {_n} 个旧版本",
+                            })
+
+                    # 重置跳过标记，启用跳过按钮
+                    self._skip_algo_flag[0] = False
+                    self._skip_btn.config(state="normal")
+
+                    # 每个算法独立 LR = 基础 LR × 该算法的累积系数
+                    aid_factor = algo_lr_factors.get(aid, 1.0)
+                    effective_lr = lr * aid_factor
+                    auto_control.clear()
                     sub = trainer.train_global(
                         [aid], epochs=epochs, batch_size=batch, progress_cb=_cb,
-                        init_from_global=is_incremental, lr=lr,
+                        init_from_global=is_incremental, lr=effective_lr,
+                        control_dict=auto_control,
                     )
                     results.update(sub)
                 self._train_queue.put({"stage": "all_done", "results": results})
@@ -1108,6 +1281,13 @@ class TrainingPanel:
         self._cancel_btn.config(state="disabled")
         self._status_lbl.config(text="正在取消（等待当前算法完成）…", fg=C["warning"])
         self._append_log("⏹ 用户请求取消训练")
+
+    def _on_skip_algo(self):
+        """跳过当前正在训练的算法，继续下一个。"""
+        self._skip_algo_flag[0] = True
+        self._skip_btn.config(state="disabled")
+        self._status_lbl.config(text="⏭ 跳过当前算法（等待本轮完成）…", fg=C["warning"])
+        self._append_log("⏭ 用户请求跳过当前算法")
 
     def _poll_progress(self):
         import queue as _q
@@ -1129,6 +1309,7 @@ class TrainingPanel:
                     self._current_algo = aid
                     self._status_lbl.config(text=f"[{cur}/{tot}] 训练 {aid} …", fg=C["text_2"])
                     self._append_log(f"── [{cur}/{tot}] 开始训练 {aid} ──")
+                    self._update_algo_row(aid, status="▶ 训练中", status_color=C["accent"])
 
                 elif stage == "epoch":
                     aid = msg.get("algo_id", "?")
@@ -1140,7 +1321,11 @@ class TrainingPanel:
 
                     # 实时置信度（基于 val_loss）
                     conf = self._loss_to_confidence(vloss) if vloss >= 0 else 0.0
-                    conf_str, _ = self._format_confidence(conf)
+                    conf_str, conf_color = self._format_confidence(conf)
+
+                    # 更新算法行置信度（每 5 epoch 或最后 epoch 刷新）
+                    if ep == 1 or ep % 5 == 0 or ep == eps:
+                        self._update_algo_row(aid, conf=conf_str, conf_color=conf_color)
 
                     pct = min(100, int((ep / max(1, eps)) * 100))
                     self._progress["value"] = pct
@@ -1154,6 +1339,10 @@ class TrainingPanel:
                     # 训练质量监控
                     self._monitor.update(ep, tloss, vloss if vloss >= 0 else -1)
                     self._refresh_monitor()
+
+                    adj = msg.get("_adjustment", "")
+                    if adj:
+                        self._append_log(f"  {adj}")
 
                     # 记录 loss 历史 + 更新图表
                     self._loss_history.append({
@@ -1176,12 +1365,26 @@ class TrainingPanel:
                     self._status_lbl.config(text=f"✓ {aid} → {ver} ({cur}/{total_sel})", fg=C["success"])
                     self._progress["value"] = int(cur / max(1, total_sel) * 100)
                     self._append_log(f"✓ {aid} 完成, 保存为 {ver}")
+                    # 读取最终置信度并更新行
+                    conf = self._load_confidence(aid)
+                    conf_str, conf_color = self._format_confidence(conf)
+                    self._algo_confidence[aid] = conf
+                    self._update_algo_row(
+                        aid, status=f"✓ {ver[:10]}", status_color=C["success"],
+                        conf=conf_str, conf_color=conf_color, ver=f"v{self._algo_meta.get(aid, {}).get('version_count', 0) + 1}",
+                    )
 
                 elif stage == "error":
                     aid = msg.get("algo_id", "?")
                     err = msg.get("error", "")
                     self._status_lbl.config(text=f"✗ {aid} 失败: {err}", fg=C["danger"])
                     self._append_log(f"✗ {aid} 训练失败: {err}")
+                    self._update_algo_row(aid, status="✗ 失败", status_color=C["danger"])
+
+                elif stage == "auto_adjust":
+                    message = msg.get("message", "")
+                    self._append_log(f"  🔧 自动调整: {message}")
+                    self._status_lbl.config(text=f"⚡ {message}", fg=C["warning"])
 
                 elif stage == "cancelled":
                     rem = msg.get("remaining", [])
@@ -1224,6 +1427,7 @@ class TrainingPanel:
             self._training = False
             self._train_btn.config(state="normal")
             self._cancel_btn.config(state="disabled")
+            self._skip_btn.config(state="disabled")
             self._train_queue = None
             self._train_thread = None
             # 关闭日志文件
@@ -1243,25 +1447,66 @@ class TrainingPanel:
     # ══════════════════════════════════════════════
 
     def _refresh_monitor(self):
-        """更新监控状态栏显示。"""
+        """更新监控状态栏显示，状态变化或每 8 epoch 持续监测时记录日志。"""
         text, color = self._monitor.get_status_display()
         self._monitor_status.config(text=text, fg=color)
         tip = self._monitor.get_tip()
         self._monitor_tip.config(text=tip)
 
-        # 图标映射
         icon_map = {"good": "🟢", "warning": "🟡", "danger": "🔴", "info": "🔵"}
         self._monitor_icon.config(text=icon_map.get(self._monitor.level, "🔵"))
 
-        # 关键事件记录到日志
+        # 日志记录：状态变化时记录，同状态每 8 epoch 持续监测提醒
         if self._monitor.level in ("warning", "danger") and self._monitor.suggestions:
-            # 只在首次触发时记录，避免刷屏：用 _last_monitor_level 跟踪
-            last = getattr(self, "_last_monitor_level", "")
-            if last != self._monitor.level:
-                self._last_monitor_level = self._monitor.level
-                self._append_log(f"🤖 训练质量检测: {self._monitor.status}")
+            cur_status = self._monitor.status
+            last_status = getattr(self, "_last_monitor_status", "")
+            last_epoch = getattr(self, "_last_monitor_log_epoch", 0)
+            cur_epoch = len(self._monitor._points)
+
+            if cur_status != last_status or cur_epoch - last_epoch >= 8:
+                self._last_monitor_status = cur_status
+                self._last_monitor_log_epoch = cur_epoch
+                prefix = "🤖 训练质量检测" if cur_status != last_status else "🔄 持续监测"
+                self._append_log(f"{prefix}: {cur_status}")
                 for s in self._monitor.suggestions:
                     self._append_log(f"  💡 {s}")
+
+                # 学习率建议：显示当前值和推荐值
+                lr_suggestion = self._compute_lr_suggestion()
+                if lr_suggestion:
+                    self._append_log(f"  📐 {lr_suggestion}")
+
+    def _compute_lr_suggestion(self) -> str:
+        """根据 TrainingMonitor 的 loss 数据动态计算推荐学习率。"""
+        suggestions_text = " ".join(self._monitor.suggestions).lower()
+        if "增大学习率" in suggestions_text or "下降过慢" in self._monitor.status:
+            scale = self._monitor.compute_lr_scale("underfitting")
+            try:
+                cur_lr = float(self._lr_var.get())
+            except (ValueError, TypeError):
+                cur_lr = 0.001
+            new_lr = cur_lr * scale
+            return f"学习率 {cur_lr:.6f} → {new_lr:.6f} (×{scale:.2f}) — 点击 LR 输入框可手动应用"
+        elif "大幅降低" in suggestions_text:
+            scale = self._monitor.compute_lr_scale("explosion")
+            try:
+                cur_lr = float(self._lr_var.get())
+            except (ValueError, TypeError):
+                cur_lr = 0.001
+            new_lr = cur_lr * scale
+            return f"学习率 {cur_lr:.6f} → {new_lr:.6f} (×{scale:.2f}) — 点击 LR 输入框可手动应用"
+        elif "降低学习率" in suggestions_text:
+            # 震荡或过拟合
+            status = self._monitor.status
+            issue = "oscillation" if "波动" in status else "overfitting"
+            scale = self._monitor.compute_lr_scale(issue)
+            try:
+                cur_lr = float(self._lr_var.get())
+            except (ValueError, TypeError):
+                cur_lr = 0.001
+            new_lr = cur_lr * scale
+            return f"学习率 {cur_lr:.6f} → {new_lr:.6f} (×{scale:.2f}) — 点击 LR 输入框可手动应用"
+        return ""
 
     # ══════════════════════════════════════════════
     # 图表

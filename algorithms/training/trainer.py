@@ -15,6 +15,7 @@
 """
 
 import logging
+import math
 import time
 from typing import Callable, Dict, List, Optional
 
@@ -62,12 +63,15 @@ class ModelTrainer:
         progress_cb: ProgressCb = None,
         init_from_global: bool = False,
         lr: Optional[float] = None,
+        control_dict: Optional[Dict] = None,
     ) -> Dict[str, str]:
         """对一组算法做全局预训练，返回 {algo_id: version_name}。失败的算法 value = ''。
 
         Args:
             init_from_global: True=增量训练（加载已有 checkpoint 继续训练），
                               False=重新训练（从随机初始化开始）。
+            control_dict: 线程安全的调整指令字典。_train_one 每 epoch 检查其中的
+                          early_stop (bool) 和 lr_scale (float) 并自动响应。
         """
         if not _torch_available:
             raise RuntimeError("torch 未安装，无法训练")
@@ -94,6 +98,7 @@ class ModelTrainer:
                     progress_cb=progress_cb,
                     init_from_global=init_from_global,
                     lr=lr,
+                    control_dict=control_dict,
                 )
                 results[algo_id] = version
                 self._emit(
@@ -131,8 +136,14 @@ class ModelTrainer:
         batch_size: int = 16,
         progress_cb: ProgressCb = None,
         lr: Optional[float] = None,
+        control_dict: Optional[Dict] = None,
     ) -> str:
-        """基于全局 active checkpoint 微调，存到 <algo_id>/_video/<bvid>/v*.pt。"""
+        """基于全局 active checkpoint 微调，存到 <algo_id>/_video/<bvid>/v*.pt。
+
+        Args:
+            control_dict: 线程安全的调整指令字典。_train_one 每 epoch 检查其中的
+                          early_stop (bool) 和 lr_scale (float) 并自动响应。
+        """
         if not _torch_available:
             raise RuntimeError("torch 未安装，无法训练")
         return self._train_one(
@@ -144,6 +155,7 @@ class ModelTrainer:
             progress_cb=progress_cb,
             init_from_global=True,
             lr=lr,
+            control_dict=control_dict,
         )
 
     # ── 内部 ──────────────────────────────────────────
@@ -158,6 +170,7 @@ class ModelTrainer:
         progress_cb: ProgressCb,
         init_from_global: bool = False,
         lr: Optional[float] = None,
+        control_dict: Optional[Dict] = None,
     ) -> str:
         algo = self._instantiate_algorithm(algo_id)
         if algo is None:
@@ -221,10 +234,44 @@ class ModelTrainer:
             optimizer = getattr(algo, "get_optimizer", lambda m: torch.optim.Adam(m.parameters(), lr=1e-3))(model)
         preprocess = getattr(algo, "preprocess_batch", _default_preprocess)
 
+        min_epochs = max(1, int(epochs * 0.7))  # 达到总轮次 70% 后才允许提前停止
         best_val = float("inf")
         last_val = -1.0
         start_time = time.time()
         for epoch in range(epochs):
+            # ── 自动调整检查 ──
+            if control_dict is not None:
+                if control_dict.get("early_stop"):
+                    force = control_dict.pop("_force_early_stop", False)
+                    if epoch + 1 >= min_epochs or force:
+                        logger.info("[trainer] %s early stopping at epoch %d/%d",
+                                    algo_id, epoch + 1, epochs)
+                        self._emit(progress_cb, {
+                            "stage": "auto_adjust", "algo_id": algo_id, "bvid": bvid,
+                            "action": "early_stop",
+                            "message": f"Epoch {epoch+1}/{epochs}: 提前停止",
+                            "epoch": epoch + 1, "epochs": epochs,
+                        })
+                        break
+                    else:
+                        logger.debug("[trainer] %s early_stop ignored at epoch %d/%d (min %d)",
+                                     algo_id, epoch + 1, epochs, min_epochs)
+                        control_dict["early_stop"] = False  # 清除标记避免 post-batch 误判
+                lr_scale = control_dict.pop("lr_scale", None)
+                if lr_scale is not None:
+                    for pg in optimizer.param_groups:
+                        new_lr = pg["lr"] * lr_scale
+                        pg["lr"] = new_lr
+                    logger.info("[trainer] %s LR adjusted by ×%.2f → %.6f",
+                                algo_id, lr_scale, optimizer.param_groups[0]["lr"])
+                    self._emit(progress_cb, {
+                        "stage": "auto_adjust", "algo_id": algo_id, "bvid": bvid,
+                        "action": "lr_scale",
+                        "message": f"学习率调整为 {optimizer.param_groups[0]['lr']:.6f} (×{lr_scale:.2f})",
+                        "new_lr": optimizer.param_groups[0]["lr"], "scale": lr_scale,
+                        "epoch": epoch + 1, "epochs": epochs,
+                    })
+
             model.train()
             train_loss = 0.0
             n_batches = 0
@@ -238,10 +285,22 @@ class ModelTrainer:
                 if pred.dim() == y.dim() + 1 and pred.shape[-1] == 1:
                     pred = pred.squeeze(-1)
                 loss = loss_fn(pred, y)
+                loss_val = float(loss.item())
+                # 批级别质量检查：NaN/Inf 致命错误，不受最少轮次限制
+                if control_dict is not None and (math.isnan(loss_val) or math.isinf(loss_val)):
+                    logger.warning("[trainer] %s NaN/Inf mid-epoch, early stopping", algo_id)
+                    control_dict["early_stop"] = True
+                    control_dict["_force_early_stop"] = True
+                    break
                 loss.backward()
                 optimizer.step()
-                train_loss += float(loss.item())
+                train_loss += loss_val
                 n_batches += 1
+            # 批级别 early_stop 后跳出 epoch 循环（同样遵循最少轮次限制）
+            if control_dict and control_dict.get("early_stop"):
+                if epoch + 1 >= min_epochs or control_dict.pop("_force_early_stop", False):
+                    break
+                control_dict["early_stop"] = False
             train_loss /= max(1, n_batches)
 
             if val_loader is not None:
