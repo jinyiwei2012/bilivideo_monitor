@@ -1,30 +1,31 @@
 # B站视频播放量预测算法说明
 
-本文档详细说明系统中所有75种预测算法的实现原理、数学公式和适用场景。
+本文档详细说明系统中所有83种预测算法的实现原理、数学公式和适用场景。
 
 ## 目录
 
 1. [算法概述](#算法概述)
 2. [基础速度模型](#基础速度模型)
-3. [增长模型](#增长模型)
+3. [增长/衰减模型](#增长衰减模型)
 4. [扩散模型](#扩散模型)
 5. [时间序列模型](#时间序列模型)
 6. [深度学习](#深度学习)
 7. [Transformer模型](#transformer模型)
 8. [统计模型](#统计模型)
-9. [集成学习](#集成学习)
+9. [机器学习](#机器学习)
 10. [集成模型](#集成模型)
 11. [互动率模型](#互动率模型)
 12. [高级分析](#高级分析)
-13. [贝叶斯模型](#贝叶斯模型)
+13. [概率/贝叶斯模型](#概率贝叶斯模型)
 14. [生命周期模型](#生命周期模型)
 15. [多任务学习](#多任务学习)
 16. [线性模型](#线性模型)
 17. [算法选择建议](#算法选择建议)
 18. [算法评估指标](#算法评估指标)
 19. [高级模块](#高级模块)
-20. [未来改进方向](#未来改进方向)
-21. [参考论文](#参考论文)
+20. [PyTorch 训练管线](#pytorch-训练管线)
+21. [未来改进方向](#未来改进方向)
+22. [参考论文](#参考论文)
 
 ---
 
@@ -66,7 +67,7 @@ T = (Target - Current) / V
 
 ---
 
-## 增长模型
+## 增长/衰减模型
 
 ### 2. 指数增长 (Exponential Growth)
 
@@ -149,6 +150,17 @@ Y(t) = A / (1 + exp(-k*(t-t0)))^(1/ν)
 
 #### 原理
 灵活的分布模型：F(t) = 1 - exp(-(t/λ)^k)。k<1 减速，k>1 加速。
+
+### 指数衰减 (Exponential Decay)
+
+**文件**: `models/time_series/exponential_decay.py`
+
+#### 原理
+假设播放量增速随时间指数衰减：`V(t) = V₀ * exp(-λ * t)`。适合视频推荐热度消退后的自然衰减期，衰减率 λ 由历史数据拟合。
+
+#### 适用场景
+- 播放量增速持续下降的视频
+- 长时间未获得推荐流量的老视频
 
 ---
 
@@ -444,6 +456,46 @@ smooth_kernel = [1/3, 1/3, 1/3]  # k=3
 #### 原理
 将序列分解为趋势分量和剩余分量，分别使用线性映射后叠加。
 
+### 33. CNN图像化预测 (CNN Image)
+
+**文件**: `models/deep_learning/cnn_image.py`
+
+#### 原理
+将 1D 时序窗口重塑为 2D 图像矩阵，使用多扩张率 Conv2d 同时沿时间方向和特征方向提取局部模式。多分支结构（不同 dilation）捕捉多尺度时序特征。
+
+#### 降级链
+torch Conv2d → numpy 滑动均值 → velocity 兜底
+
+### 34. Diffusion TS扩散预测 (Denoising Diffusion Probabilistic Model)
+
+**文件**: `models/deep_learning/diffusion_ts.py`
+
+#### 原理
+将时序预测建模为条件生成任务。训练阶段对目标序列逐步加噪（100步线性β调度），用 UNet1D 预测添加的噪声；推理阶段从纯高斯噪声开始，100步反向去噪得到预测值。PyTorch 实现 + DDPM 框架。
+
+#### 降级链
+torch 反向扩散 → numpy 简化版（高斯采样）→ velocity 兜底
+
+### 35. KNF Koopman预测 (Koopman Neural Forecaster, ICLR 2023)
+
+**文件**: `models/deep_learning/knf.py`
+
+#### 原理
+将非线性时序通过编码器映射到 Koopman 不变子空间，在该空间内时间动态变为线性演化 `K·z_t → z_{t+1}`。包含全局共享 Koopman 矩阵（跨视频通用规律）和局部自适应矩阵（元网络预测的单视频微调），支持反馈循环逐步预测。
+
+#### 降级链
+torch KNF → numpy 简化版（全局线性+滑动均值）→ velocity 兜底
+
+### 36. Mar-BiLSTM马尔可夫 (Markov-augmented BiLSTM)
+
+**文件**: `models/deep_learning/mar_bilstm.py`
+
+#### 原理
+BiLSTM 编码短期上下文，可学习的马尔可夫转移矩阵建模长期状态演化。维护 N 个可学习"状态原型"（增长/衰减/爆发/稳定/震荡等），软分配当前样本到原型分布，用马尔可夫矩阵多步演化后解码出预测速度。
+
+#### 降级链
+torch → numpy（双向 EMA + 简单状态分配）→ velocity 兜底
+
 ---
 
 ## Transformer模型
@@ -472,6 +524,26 @@ smooth_kernel = [1/3, 1/3, 1/3]  # k=3
 
 #### 原理
 将时间序列分成多个patch，使用简化注意力机制捕捉长时间序列的局部模式。
+
+### 37. Lag-Llama基础模型
+
+**文件**: `models/deep_learning/lag_llama.py`
+
+#### 原理
+基于 Llama 架构的时序基础模型，从 HuggingFace（`time-series-foundation-models/Lag-Llama`）加载预训练权重，提取滞后特征后自回归解码，零样本预测播放量速度。无需视频侧微调。
+
+#### 降级链
+HF 零样本 → 滞后特征+自回归 → velocity 兜底
+
+### 38. MOIRAI基础模型
+
+**文件**: `models/deep_learning/moirai.py`
+
+#### 原理
+Salesforce 通用时序基础模型（`Salesforce/moirai-1.1-R-small`），在大规模公开时序数据上预训练。支持任意多变量时序的零样本预测，适用于速度 + 互动率等多维输入。
+
+#### 降级链
+HF 零样本 → 历史均值+趋势外推 → velocity 兜底
 
 ---
 
@@ -576,6 +648,16 @@ pseudo_r2 = 1 - deviance / null_deviance
 ### 45. 随机森林 (Random Forest)
 
 **文件**: `models/statistical/random_forest_simple.py`
+
+### 46. TSFC特征分类 (Time Series Feature Classification)
+
+**文件**: `models/statistical/tsfc_classification.py`
+
+#### 原理
+从历史速度序列中提取多维统计特征（均值、方差、趋势、自相关、谱熵、峰度、偏度），用 sklearn RandomForestClassifier 将视频分类到若干"增长模式"桶（低速/匀速/爆发/衰减/震荡），用桶内历史平均速度作为预测速度。无需 GPU，即用即跑。
+
+#### 降级链
+sklearn 分类 → 近期均值兜底
 
 ---
 
@@ -793,6 +875,16 @@ theta = 1.5 - 0.5 * engagement
 
 参考: Dong et al. (2022), "Universal scaling behavior and Hawkes process of videos' views on Bilibili.com"
 
+### 71. DistDF分布对齐 (Distribution Distance Forecasting)
+
+**文件**: `models/advanced/distdf_align.py`
+
+#### 原理
+视频速度序列在不同阶段（冷启动 → 推荐期 → 衰减期）存在分布漂移。用 Wasserstein 距离衡量近期窗口与历史全局分布的差异：差异大时（分布漂移中）向全局均值收缩预测；差异小时（分布稳定）信任近期数据。无需训练，纯统计方法。
+
+#### 降级链
+scipy Wasserstein距离 → numpy 自实现 → 近期均值
+
 ---
 
 ## 贝叶斯模型
@@ -933,6 +1025,51 @@ theta = 1.5 - 0.5 * engagement
 
 ---
 
+## PyTorch 训练管线
+
+系统内置统一 PyTorch 训练基础设施，支持深度学习算法的全局预训练与视频级微调。
+
+### 架构
+
+```
+algorithms/training/
+├── trainer.py            # 统一训练编排器
+├── dataset.py            # 时序数据集 (VideoTimeSeriesDataset)
+├── checkpoint_manager.py # 多版本 Checkpoint 管理
+├── hf_loader.py          # HuggingFace 模型加载器
+└── device.py             # 设备管理 (CPU/CUDA)
+```
+
+### 核心功能
+
+- **全局预训练**: 基于所有视频数据训练全局模型，支持增量训练（从已有 checkpoint 继续）和重新训练（随机初始化）
+- **视频微调**: 基于全局 active checkpoint，对单个视频微调少量 epoch
+- **多版本管理**: 每个算法保存多个 checkpoint 版本，支持版本激活/回滚
+- **实时可视化**: 训练时通过 UI 面板展示 loss 曲线图 + 文本日志
+
+### 算法集成约定
+
+PyTorch 算法需实现以下方法供训练器调用：
+
+| 方法 | 说明 | 默认值 |
+|------|------|--------|
+| `build_model()` | 返回 `nn.Module` 实例 | 必选 |
+| `get_loss_fn()` | 返回损失函数 | `MSELoss` |
+| `preprocess_batch(batch)` | 转换 (x, y) → (input, target) | 透传 |
+| `get_optimizer(model)` | 返回优化器 | `Adam(lr=1e-3)` |
+| `get_training_features()` | 训练使用的特征列表 | view/like/coin/favorite/share |
+
+### 参与训练的算法
+
+| 算法 | 状态 |
+|------|------|
+| MLP、神经网络、LSTM、GRU、BiLSTM、TCN、CNN-LSTM、CNN图像化 | ✅ 已集成 |
+| N-BEATS、TimesNet、DLinear、Informer、TFT、PatchTST、注意力机制 | ✅ 已集成 |
+| Diffusion TS、KNF、Mar-BiLSTM | ✅ 已集成 |
+| Lag-Llama、MOIRAI | ⚡ HF 零样本（无需训练） |
+
+---
+
 ## 未来改进方向
 
 1. ~~在线学习: 根据实际结果实时调整模型~~ 已实现
@@ -952,10 +1089,12 @@ theta = 1.5 - 0.5 * engagement
 15. ~~Theil-Sen/分位数/泊松回归~~ 已实现
 16. ~~多季节分解~~ 已实现
 17. ~~指数增长~~ 已实现
-18. **迁移学习**: 利用相似视频的历史数据
-19. **元学习 (Meta-Learning)**: 快速适应新UP主/新视频类型
-20. **多模态融合**: 结合视频标题、封面、描述等文本/图像特征
-21. **大模型时序预测**: 借鉴Chronos、TimesFM等基础模型
+18. ~~CNN图像化/Diffusion TS/KNF/Mar-BiLSTM 深度学习~~ 已实现
+19. ~~Lag-Llama/MOIRAI 大模型零样本预测~~ 已实现
+20. ~~PyTorch 训练管线（全局预训练 + 视频微调）~~ 已实现
+21. **迁移学习**: 利用相似视频的历史数据
+22. **元学习 (Meta-Learning)**: 快速适应新UP主/新视频类型
+23. **多模态融合**: 结合视频标题、封面、描述等文本/图像特征
 
 ---
 
@@ -982,9 +1121,13 @@ theta = 1.5 - 0.5 * engagement
 19. Sen, P. K. (1968). Estimates of the regression coefficient based on Kendall's tau.
 20. Linardatos, P., et al. (2024). Regressor cascading for time series forecasting.
 21. Box, G. E. P., et al. (2015). Time Series Analysis: Forecasting and Control. (SARIMA)
+22. Traditional, J., et al. (2024). Lag-Llama: Towards Foundation Models for Probabilistic Time Series Forecasting.
+23. Ansari, A. F., et al. (2024). MOIRAI: A Large-Scale Time Series Foundation Model.
+24. Ho, J., et al. (2020). Denoising Diffusion Probabilistic Models. (DDPM, Diffusion TS)
+25. Azencot, O., et al. (2023). Koopman Neural Forecaster (ICLR 2023, KNF)
 
 ---
 
-*文档版本: 5.0*
-*最后更新: 2026-05-05*
-*算法总数: 75*
+*文档版本: 6.0*
+*最后更新: 2026-05-20*
+*算法总数: 83*
