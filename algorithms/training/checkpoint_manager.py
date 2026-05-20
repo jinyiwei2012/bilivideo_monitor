@@ -160,6 +160,30 @@ class CheckpointManager:
             self._write_active(remaining[0]["version"] if remaining else "")
         return True
 
+    def delete_all(self) -> int:
+        """删除此路径下的所有 checkpoint 并重置元数据。返回删除的文件数。"""
+        if not os.path.exists(self._dir):
+            return 0
+        count = 0
+        for v in self.list_versions():
+            if self.delete(v["version"]):
+                count += 1
+        # 清理残留的元数据文件
+        for fname in ("active.json", "metadata.json"):
+            fpath = os.path.join(self._dir, fname)
+            try:
+                if os.path.exists(fpath):
+                    os.remove(fpath)
+            except OSError:
+                pass
+        # 如果目录空了则移除
+        try:
+            if os.path.isdir(self._dir) and not os.listdir(self._dir):
+                os.rmdir(self._dir)
+        except OSError:
+            pass
+        return count
+
     # ── 内部辅助 ─────────────────────────────────────
 
     def _read_active(self) -> Optional[str]:
