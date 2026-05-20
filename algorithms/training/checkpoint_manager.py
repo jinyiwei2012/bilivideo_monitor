@@ -198,8 +198,58 @@ def list_all_trained_algorithms() -> List[str]:
     result = []
     for name in os.listdir(_CKPT_ROOT):
         sub = os.path.join(_CKPT_ROOT, name)
-        if not os.path.isdir(sub):
+        if not os.path.isdir(sub) or name.startswith("_"):
             continue
         if CheckpointManager(name).has_checkpoint():
             result.append(name)
     return result
+
+
+def get_all_activation_status() -> Dict[str, Dict]:
+    """返回所有有 checkpoint 的算法的版本激活状态。
+
+    Returns:
+        {algo_id: {
+            "name": str,
+            "active_version": str,
+            "latest_version": str,
+            "needs_activation": bool,
+        }}
+    """
+    all_aids = list_all_trained_algorithms()
+    status = {}
+    for aid in all_aids:
+        ckpt = CheckpointManager(aid)
+        versions = ckpt.list_versions()
+        if not versions:
+            continue
+        latest_v = versions[0]["version"]
+        active_v = ckpt.active_version() or ""
+        # try to extract display name from checkpoints metadata
+        status[aid] = {
+            "name": aid,
+            "active_version": active_v,
+            "latest_version": latest_v,
+            "needs_activation": latest_v != active_v,
+        }
+    return status
+
+
+def activate_latest_for_all() -> Dict[str, str]:
+    """将所有有 checkpoint 的算法切换到最新版本。
+
+    Returns:
+        {algo_id: version}  — 实际被切换的算法及其激活的版本号
+    """
+    switched = {}
+    for aid in list_all_trained_algorithms():
+        ckpt = CheckpointManager(aid)
+        versions = ckpt.list_versions()
+        if not versions:
+            continue
+        latest = versions[0]["version"]
+        active = ckpt.active_version()
+        if latest != active:
+            ckpt.activate(latest)
+            switched[aid] = latest
+    return switched

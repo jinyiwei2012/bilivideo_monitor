@@ -61,9 +61,19 @@ asyncio-mqtt>=0.16.0     # MQTT (通知功能)
 # ==========
 # 深度学习 (2026 新算法 + 既有算法升级)
 # ==========
+# ⚠️ torch 不在本文件内安装！请先单独运行：
+#     python install_torch.py
+#
+# 该脚本会：
+#   1. 调 nvidia-smi 检测驱动支持的 CUDA 版本
+#   2. 按驱动版本自动选择 PyTorch CUDA wheel（cu118 / cu121 / cu124 / cu126 / cu128）
+#   3. 若无 GPU 或 CUDA 太老 → 自动装 CPU 版
+#   4. 安装失败时按 GPU → CPU 顺序回退
+#
+# 然后再跑：
+#     pip install -r requirements.txt
 
-torch>=2.1.0                # PyTorch 推理 + 训练 (CPU 约 200MB / GPU 约 2GB)
-transformers>=4.40.0        # HuggingFace 模型加载 (MOIRAI-2 / Lag-Llama)
+transformers>=4.40.0        # HuggingFace 模型加载 (MOIRAI / Lag-Llama)
 huggingface-hub>=0.20.0     # 模型下载与缓存
 safetensors>=0.4.0          # 权重格式
 
