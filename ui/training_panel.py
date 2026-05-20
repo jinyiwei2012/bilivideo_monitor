@@ -37,7 +37,149 @@ from ui.theme import C
 from ui.helpers import FONT, FONT_SM, FONT_MONO, FONT_BOLD
 
 
-class TrainingPanel:
+class TrainingMonitor:
+    """实时训练质量监控器 — 自动判断模型好坏并给出建议。"""
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self._points: List[tuple] = []  # [(epoch, train_loss, val_loss)]
+        self.status = "等待数据…"
+        self.level = "info"  # "good" | "warning" | "danger" | "info"
+        self.suggestions: List[str] = []
+        self._overfit_streak = 0
+        self._no_improve_streak = 0
+
+    STATUS_LABELS = {
+        "good":   ("🟢 训练良好", C["success"]),
+        "warning": ("🟡 注意", C["warning"]),
+        "danger":  ("🔴 异常", C["danger"]),
+        "info":    ("🔵 收集中", C["text_3"]),
+    }
+
+    def update(self, epoch: int, train_loss: float, val_loss: float):
+        self._points.append((epoch, train_loss, val_loss))
+        self._evaluate()
+
+    def _evaluate(self):
+        pts = self._points
+        n = len(pts)
+        self.suggestions.clear()
+
+        # 1. NaN 检测（优先于所有检查，即使数据不足）
+        for _, tl, vl in pts:
+            if math.isnan(tl) or (vl >= 0 and math.isnan(vl)):
+                self.status = "Loss = NaN — 训练失败"
+                self.level = "danger"
+                self.suggestions = ["降低学习率", "检查数据中是否有 NaN", "添加 gradient clipping"]
+                return
+
+        if n < 3:
+            self.status = f"收集数据 ({n}/3 epoch)…"
+            self.level = "info"
+            return
+
+        # 2. Loss 爆炸
+        if n >= 3:
+            recent = [tl for _, tl, _ in pts[-3:]]
+            if max(recent) > 10 * (pts[0][1] or 1e-8):
+                self.status = "Loss 爆炸 — 梯度可能溢出"
+                self.level = "danger"
+                self.suggestions = ["大幅降低学习率 (÷10)", "检查数据归一化"]
+                return
+
+        # 3. 过拟合 — val_loss 连续上升而 train_loss 下降
+        if n >= 5 and all(vl >= 0 for _, _, vl in pts[-5:]):
+            tl_trend = pts[-1][1] < pts[-5][1]   # train 在下降
+            vl_trend = [pts[i][2] for i in range(-5, 0)]
+            vl_up = sum(1 for i in range(1, len(vl_trend)) if vl_trend[i] > vl_trend[i-1])
+            if tl_trend and vl_up >= 4:
+                self._overfit_streak += 1
+            else:
+                self._overfit_streak = max(0, self._overfit_streak - 1)
+
+            if self._overfit_streak >= 2:
+                self.status = "⚠️ 过拟合 — val_loss 持续上升"
+                self.level = "warning"
+                self.suggestions = ["建议停止训练 (early stopping)", "增加 Dropout", "减小模型容量"]
+                return
+
+            if self._overfit_streak >= 4:
+                self.status = "🚫 严重过拟合 — 必须停止"
+                self.level = "danger"
+                self.suggestions = ["立即停止训练", "val_loss 已连续多 epoch 上升",
+                                    "减小模型或增加正则化后重新训练"]
+                return
+
+        # 4. 不再收敛 — val_loss 连续 N epoch 没有下降
+        if n >= 8 and all(vl >= 0 for _, _, vl in pts[-8:]):
+            best_vl = min(vl for _, _, vl in pts)
+            recent_vl = [vl for _, _, vl in pts[-4:]]
+            if all(vl >= best_vl for vl in recent_vl):
+                self._no_improve_streak += 1
+            else:
+                self._no_improve_streak = max(0, self._no_improve_streak - 1)
+
+            if self._no_improve_streak >= 2:
+                self.status = "📉 不再收敛 — val_loss 已停止下降"
+                self.level = "warning"
+                self.suggestions = ["可以提前停止 (early stopping)", "尝试降低学习率后继续",
+                                    "若已训练充足 epoch 则可接受当前结果"]
+                # 不要 return，允许继续判断其他情况
+
+        # 5. 震荡 — loss 波动剧烈（非单调下降的抖动）
+        if n >= 8:
+            recent_tl = [tl for _, tl, _ in pts[-8:]]
+            # 排除单调下降的正常情况
+            is_monotonic_down = all(recent_tl[i] >= recent_tl[i+1] for i in range(len(recent_tl)-1))
+            if not is_monotonic_down:
+                mean_tl = sum(recent_tl) / len(recent_tl)
+                cv = math.sqrt(sum((x - mean_tl)**2 for x in recent_tl) / len(recent_tl)) / max(1e-8, mean_tl)
+                # 同时检查残差（去趋势后的波动是否仍然很大）
+                residual_var = sum(abs(recent_tl[i] - recent_tl[i-1]) for i in range(1, len(recent_tl))) / (len(recent_tl) - 1)
+                avg_tl = abs(mean_tl)
+                if cv > 0.3 and residual_var > 0.02 * max(1, avg_tl):
+                    self.status = "📊 Loss 波动较大 — 训练不稳定"
+                    self.level = "warning"
+                    self.suggestions = ["降低学习率", "增大 batch size"]
+                    return
+
+        # 6. 欠拟合 — 前几个 epoch loss 下降太慢
+        if n == max(5, n) and n >= 5:
+            initial_loss = pts[0][1]
+            current_loss = pts[-1][1]
+            if initial_loss > 0.1 and (initial_loss - current_loss) / initial_loss < 0.05:
+                self.status = "🐢 欠拟合 — Loss 下降过慢"
+                self.level = "warning"
+                self.suggestions = ["增大学习率", "增加模型容量 (更多层 / 更多神经元)",
+                                    "检查数据是否包含有效信号"]
+                return
+
+        # 7. 正常训练
+        if self._no_improve_streak >= 2:
+            status = "已收敛" if self.level == "warning" else "训练中"
+            self.status = f"✅ 训练正常 — {status}"
+        elif n >= 3:
+            tl_trend = pts[-1][1] < pts[-3][1]
+            has_val = pts[-1][2] >= 0
+            if tl_trend:
+                self.status = "✅ 训练正常 — Loss 稳步下降"
+                self.level = "good"
+            else:
+                self.status = "✅ 训练正常 — Loss 趋于平稳"
+                self.level = "good"
+
+    def get_status_display(self):
+        """返回 (status_text, color)"""
+        label, color = self.STATUS_LABELS.get(self.level, ("", C["text_3"]))
+        return f"{label}  {self.status}", color
+
+    def get_tip(self) -> str:
+        """返回一条当前最关键的简短建议，没有则返回空字符串。"""
+        if self.suggestions:
+            return "💡 " + self.suggestions[0]
+        return ""
     """训练面板 - 主界面选项卡"""
 
     def __init__(self, parent: tk.Widget, main_gui):
@@ -56,6 +198,10 @@ class TrainingPanel:
         self._train_t0: Optional[float] = None
         self._loss_history: List[Dict] = []  # [{epoch, train_loss, val_loss, algo_id}]
         self._current_algo = ""
+
+        # 训练质量监控器
+        self._monitor = TrainingMonitor()
+        self._last_monitor_level = ""
 
         # 图表数据
         self._fig: Optional[Figure] = None
@@ -156,7 +302,7 @@ class TrainingPanel:
         right = tk.Frame(parent, bg=C["bg_surface"])
         right.grid(row=0, column=1, sticky="nsew", padx=(4, 0))
         right.grid_rowconfigure(0, weight=1)
-        right.grid_rowconfigure(1, weight=1)
+        right.grid_rowconfigure(2, weight=1)
         right.grid_columnconfigure(0, weight=1)
 
         # 上半: Loss 图表
@@ -184,9 +330,26 @@ class TrainingPanel:
             tk.Label(chart_frame, text="matplotlib 未安装，无法显示图表",
                      bg=C["bg_elevated"], fg=C["text_3"], font=FONT).pack(expand=True)
 
+        # 中部: 训练质量监控状态栏
+        monitor_bar = tk.Frame(right, bg=C["bg_surface"], highlightthickness=1,
+                               highlightbackground=C["border_sub"])
+        monitor_bar.grid(row=1, column=0, sticky="ew", padx=4, pady=(0, 2))
+
+        self._monitor_icon = tk.Label(monitor_bar, text="🔵", bg=C["bg_surface"],
+                                      font=("Segoe UI", 14))
+        self._monitor_icon.pack(side=tk.LEFT, padx=(6, 2), pady=2)
+        self._monitor_status = tk.Label(monitor_bar, text="等待训练开始…",
+                                        bg=C["bg_surface"], fg=C["text_3"],
+                                        font=FONT_SM, anchor="w")
+        self._monitor_status.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2, pady=2)
+        self._monitor_tip = tk.Label(monitor_bar, text="", bg=C["bg_surface"],
+                                     fg=C["text_3"], font=("Microsoft YaHei UI", 8),
+                                     anchor="e")
+        self._monitor_tip.pack(side=tk.RIGHT, padx=(4, 8), pady=2)
+
         # 下半: 文字日志
         log_frame = tk.Frame(right, bg=C["bg_elevated"])
-        log_frame.grid(row=1, column=0, sticky="nsew", padx=4, pady=(2, 4))
+        log_frame.grid(row=2, column=0, sticky="nsew", padx=4, pady=(2, 4))
 
         log_hdr = tk.Frame(log_frame, bg=C["bg_elevated"])
         log_hdr.pack(fill=tk.X)
@@ -448,6 +611,9 @@ class TrainingPanel:
         ):
             return
 
+        # 重置监控器
+        self._monitor.reset()
+
         # 锁定 UI
         self._training = True
         self._train_btn.config(state="disabled")
@@ -543,6 +709,10 @@ class TrainingPanel:
                         fg=C["text_1"],
                     )
 
+                    # 训练质量监控
+                    self._monitor.update(ep, tloss, vloss if vloss >= 0 else -1)
+                    self._refresh_monitor()
+
                     # 记录 loss 历史 + 更新图表
                     self._loss_history.append({
                         "algo": aid, "epoch": ep,
@@ -625,6 +795,31 @@ class TrainingPanel:
                 pass
         else:
             self.frame.after(200, self._poll_progress)
+
+    # ══════════════════════════════════════════════
+    # 训练质量监控
+    # ══════════════════════════════════════════════
+
+    def _refresh_monitor(self):
+        """更新监控状态栏显示。"""
+        text, color = self._monitor.get_status_display()
+        self._monitor_status.config(text=text, fg=color)
+        tip = self._monitor.get_tip()
+        self._monitor_tip.config(text=tip)
+
+        # 图标映射
+        icon_map = {"good": "🟢", "warning": "🟡", "danger": "🔴", "info": "🔵"}
+        self._monitor_icon.config(text=icon_map.get(self._monitor.level, "🔵"))
+
+        # 关键事件记录到日志
+        if self._monitor.level in ("warning", "danger") and self._monitor.suggestions:
+            # 只在首次触发时记录，避免刷屏：用 _last_monitor_level 跟踪
+            last = getattr(self, "_last_monitor_level", "")
+            if last != self._monitor.level:
+                self._last_monitor_level = self._monitor.level
+                self._append_log(f"🤖 训练质量检测: {self._monitor.status}")
+                for s in self._monitor.suggestions:
+                    self._append_log(f"  💡 {s}")
 
     # ══════════════════════════════════════════════
     # 图表
