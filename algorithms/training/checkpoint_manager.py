@@ -191,6 +191,21 @@ class CheckpointManager:
             json.dump(meta, f, ensure_ascii=False, indent=2)
 
 
+def list_video_finetune_bvids(algo_id: str) -> List[str]:
+    """返回该算法有视频微调 checkpoint 的 bvid 列表。"""
+    video_root = os.path.join(_CKPT_ROOT, algo_id, "_video")
+    if not os.path.exists(video_root):
+        return []
+    result = []
+    for name in os.listdir(video_root):
+        bvid_dir = os.path.join(video_root, name)
+        if not os.path.isdir(bvid_dir):
+            continue
+        if CheckpointManager(algo_id, bvid=name).has_checkpoint():
+            result.append(name)
+    return sorted(result)
+
+
 def load_best_checkpoint(algo_id: str, bvid: Optional[str] = None) -> Optional[Dict]:
     """加载最佳可用 checkpoint：优先视频微调，其次全局。
 
