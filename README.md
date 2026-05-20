@@ -1,13 +1,13 @@
 # B站视频监控与播放量预测系统
 
-基于 CustomTkinter 的 B站视频数据监控与播放量预测桌面应用，集成 **75 种预测算法**，支持 Windows 原生推送和 QQ Bot 推送。
+基于 CustomTkinter 的 B站视频数据监控与播放量预测桌面应用，集成 **83 种预测算法**（含 8 种 2026 前沿算法），支持 Windows 原生推送和 QQ Bot 推送。
 
 ## 功能特性
 
 ### 核心功能
 - **视频搜索**: 关键词搜索B站视频，支持多关键词批量搜索与自动去重
 - **数据监控**: 实时监控播放量、点赞、投币、弹幕、在线观看人数等指标
-- **播放量预测**: 75 种算法预测到达 10万 / 100万 / 1000万 播放量所需时间
+- **播放量预测**: 83 种算法预测到达 10万 / 100万 / 1000万 播放量所需时间
 - **算法权重管理**: ML 权重自动调整（含 Hedge 在线学习算法）
 - **因果推断**: Granger 因果检验分析各指标与播放量的领先/滞后关系
 - **图神经网络**: 基于视频关联图的 GCN 节点嵌入增强预测
@@ -18,6 +18,8 @@
 - **UP主追踪**: 监控 UP 主粉丝数、投稿数变化趋势
 - **热门发现**: 发现当前热门视频与趋势话题
 - **健康探针**: API 连通性检测与 LLM 服务状态监控
+- **模型训练**: 内置 PyTorch 训练管线，支持全局预训练与视频微调，实时 loss 图表可视化
+- **模型激活**: 自动/手动切换各算法最新训练模型
 - **交叉计算**: 分析多个视频播放量交会时间和预测
 - **里程碑统计**: 记录视频投稿一周 / 一月 / 一年后的数据，多视频多周期柱状对比
 - **数据库查询**: 本地历史数据的可视化查询工具
@@ -29,20 +31,22 @@
 - **弹幕智能分析**: LLM 自动分析弹幕情感倾向与核心关键词，结果本地缓存
 - **历史问答**: 基于视频播放量趋势数据的上下文智能问答
 
-### 预测算法（75种）
+### 预测算法（83种）
 
 | 类别 | 算法 | 数量 |
 |------|------|:----:|
-| **基础速度** | 线性速度 | 1 |
-| **增长模型** | 指数增长、对数增长、幂律增长、Gompertz、Logistic、Richards、Weibull | 7 |
-| **时间序列** | ARIMA、SARIMA、指数平滑、Holt-Winters、移动平均、加权移动平均、线性增长、多季节分解、马尔可夫体制转换、趋势外推、趋势回归、Theta、Prophet | 13 |
-| **深度学习** | MLP、神经网络、LSTM、GRU、BiLSTM、TCN、CNN-LSTM混合、N-BEATS、TimesNet、DLinear、Informer、TFT、PatchTST、注意力机制 | 14 |
-| **统计模型** | SVR、随机森林、高斯过程、贝叶斯回归、ElasticNet、Huber回归、Theil-Sen回归、分位数回归、泊松回归 | 9 |
-| **集成学习** | AdaBoost、Gradient Boost、XGBoost、LightGBM、CatBoost、ExtraTrees、Bagging、Cascade级联集成、加权速度、coin_boost | 10 |
-| **集成模型** | 加权集成、投票集成、堆叠集成、均值集成 | 4 |
-| **互动率** | 点赞动量、分享速度、评论趋势、投币Boost、互动率综合、内容质量评分、病毒潜力 | 7 |
-| **高级分析** | 卡尔曼滤波、变化点检测、生存分析、生命周期建模、Hawkes自激过程、Bass扩散、UP主贝叶斯、多任务学习 | 8 |
-| **其他** | Gompertz扩散、Logistic扩散 | 2 |
+| **基础速度** | 线性速度、加权速度 | 2 |
+| **增长/衰减** | 指数增长、对数增长、幂律衰减、指数衰减 | 4 |
+| **扩散模型** | Bass扩散、Gompertz、Logistic、Richards、Weibull | 5 |
+| **时间序列** | ARIMA、SARIMA、指数平滑、Holt-Winters、移动平均、加权移动平均、线性增长、多季节分解、马尔可夫体制转换、趋势外推、Theta、Prophet、卡尔曼滤波 | 13 |
+| **深度学习** | MLP、神经网络、LSTM、GRU、BiLSTM、TCN、CNN-LSTM混合、CNN图像化、N-BEATS、TimesNet、DLinear、注意力机制、Diffusion TS、KNF Koopman、Mar-BiLSTM | 15 |
+| **Transformer模型** | Informer、TFT、PatchTST、Lag-Llama、MOIRAI | 5 |
+| **统计模型** | SVR、随机森林、高斯过程、贝叶斯回归、ElasticNet、Huber、Theil-Sen、分位数回归、泊松回归、TSFC特征分类、变化点检测、生存分析 | 12 |
+| **机器学习** | AdaBoost、GradientBoost、XGBoost、LightGBM、CatBoost、ExtraTrees、Bagging、Cascade级联 | 8 |
+| **集成模型** | 加权集成、投票集成、堆叠集成、平均集成 | 4 |
+| **互动率** | 点赞动量、分享速度、评论趋势、投币Boost、互动率综合、质量评分、病毒潜力 | 7 |
+| **高级分析** | Hawkes自激过程、DistDF分布对齐、生命周期建模、多任务学习、UP主贝叶斯、概率模型 | 6 |
+| **概率/贝叶斯** | 贝叶斯回归、高斯过程 | 2 |
 
 详细说明参见 [algorithms/ALGORITHMS.md](algorithms/ALGORITHMS.md)
 
@@ -67,7 +71,13 @@ b站监控/
 │   ├── causal_inference.py     # Granger 因果推断
 │   ├── graph_neural.py         # 图神经网络
 │   ├── ALGORITHMS.md           # 算法详细文档
-│   └── models/                 # 75 种算法实现（7 个子目录）
+│   ├── training/               # PyTorch 训练管线
+│   │   ├── trainer.py          # 统一训练编排器
+│   │   ├── dataset.py          # 时序数据集
+│   │   ├── checkpoint_manager.py # 多版本 Checkpoint 管理
+│   │   ├── hf_loader.py        # HuggingFace 模型加载器
+│   │   └── device.py           # 设备管理
+│   └── models/                 # 83 种算法实现（7 个子目录）
 │       ├── simple/             # 基础速度
 │       ├── growth/             # 增长模型
 │       ├── time_series/        # 时间序列
@@ -121,6 +131,7 @@ b站监控/
 │   ├── health_probe.py         # 健康探针
 │   ├── report_scheduler.py     # 报告调度
 │   ├── milestone_stats.py      # 里程碑统计
+│   ├── training_panel.py       # 模型训练面板（loss 图表 + 日志）
 │   ├── database_query.py       # 数据库查询
 │   └── weekly_score.py         # 周报评分
 │
@@ -232,7 +243,7 @@ python run.py
 
 首次启动会：
 1. 自动创建 `data/` 目录和 SQLite 数据库
-2. 加载 75 种预测算法
+2. 加载 83 种预测算法
 3. 打开主界面
 
 ### 首次使用配置
@@ -311,7 +322,7 @@ socks5://127.0.0.1:1080
 | 监控参数 | 检查间隔、最大监控数 |
 | 预测参数 | 预测时长、最小置信度 |
 | AI配置 | 多 LLM 配置管理 |
-| 权重设置 | 75 种算法权重调整 |
+| 权重设置 | 83 种算法权重调整 |
 | 代理设置 | HTTP/SOCKS 代理管理 |
 | Cookie设置 | 扫码登录 / Cookie 导入 |
 | 重试参数 | 请求重试策略 |
@@ -359,6 +370,7 @@ socks5://127.0.0.1:1080
 | 数据库 | SQLite3（按视频分库 + 中央库） |
 | 数据处理 | pandas, numpy, scipy |
 | 机器学习 | scikit-learn, xgboost, lightgbm, catboost, statsmodels |
+| 深度学习 | PyTorch, HuggingFace Transformers, uni2ts |
 | 时间序列 | statsmodels, Prophet |
 | 推送 | plyer（Windows）, websockets（QQ Bot/OneBot） |
 | LLM | OpenAI / DeepSeek / Claude / SiliconFlow API |
@@ -409,7 +421,7 @@ b站监控/
 ├── __init__.py                 # 包元数据（版本号等）
 ├── main.py                     # 入口：启动 GUI
 ├── run.py                      # 入口：环境检查 → 算法初始化 → 启动
-├── algorithms/                 # 核心：75 种预测算法
+├── algorithms/                 # 核心：83 种预测算法
 │   ├── base.py                 # BaseAlgorithm 基类 + PredictionResult
 │   ├── registry.py             # AlgorithmRegistry：自动发现、集成预测
 │   ├── model_adapter.py        # 新/旧接口桥接
@@ -417,7 +429,7 @@ b站监控/
 │   ├── online_learner.py       # Hedge 在线学习
 │   ├── causal_inference.py     # Granger 因果推断
 │   ├── graph_neural.py         # 图神经网络
-│   └── models/                 # 75 种算法实现（按类别分目录）
+│   └── models/                 # 83 种算法实现（按类别分目录）
 ├── core/                       # 核心：B站 API、数据库、通知
 │   ├── bilibili_api.py         # API 封装（412 重试、代理、Cookie、WBI 签名）
 │   ├── notification.py         # 通知管理
