@@ -190,8 +190,6 @@ class AttentionMechanismAlgorithm(BaseAlgorithm):
             from algorithms.training.checkpoint_manager import CheckpointManager
 
             self._ckpt = CheckpointManager(self.algorithm_id)
-        if not self._ckpt.has_checkpoint():
-            return None
         try:
             from datetime import datetime
 
@@ -217,6 +215,7 @@ class AttentionMechanismAlgorithm(BaseAlgorithm):
                 "view_count": current_views,
                 "history_data": wrapped_history,
                 "timestamp": datetime.now(),
+                "bvid": video_info.get("bvid", ""),
             }
             result = try_torch_predict(
                 self,

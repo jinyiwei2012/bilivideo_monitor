@@ -61,6 +61,7 @@ class ModelTrainer:
         val_ratio: float = 0.15,
         progress_cb: ProgressCb = None,
         init_from_global: bool = False,
+        lr: Optional[float] = None,
     ) -> Dict[str, str]:
         """对一组算法做全局预训练，返回 {algo_id: version_name}。失败的算法 value = ''。
 
@@ -92,6 +93,7 @@ class ModelTrainer:
                     val_ratio=val_ratio,
                     progress_cb=progress_cb,
                     init_from_global=init_from_global,
+                    lr=lr,
                 )
                 results[algo_id] = version
                 self._emit(
@@ -128,6 +130,7 @@ class ModelTrainer:
         epochs: int = 5,
         batch_size: int = 16,
         progress_cb: ProgressCb = None,
+        lr: Optional[float] = None,
     ) -> str:
         """基于全局 active checkpoint 微调，存到 <algo_id>/_video/<bvid>/v*.pt。"""
         if not _torch_available:
@@ -140,6 +143,7 @@ class ModelTrainer:
             val_ratio=0.0,
             progress_cb=progress_cb,
             init_from_global=True,
+            lr=lr,
         )
 
     # ── 内部 ──────────────────────────────────────────
@@ -153,6 +157,7 @@ class ModelTrainer:
         val_ratio: float,
         progress_cb: ProgressCb,
         init_from_global: bool = False,
+        lr: Optional[float] = None,
     ) -> str:
         algo = self._instantiate_algorithm(algo_id)
         if algo is None:
@@ -208,7 +213,12 @@ class ModelTrainer:
 
         model = model.to(self.device)
         loss_fn = getattr(algo, "get_loss_fn", lambda: torch.nn.MSELoss())()
-        optimizer = getattr(algo, "get_optimizer", lambda m: torch.optim.Adam(m.parameters(), lr=1e-3))(model)
+
+        # 学习率：用户指定 > 算法自定义 > 默认 1e-3
+        if lr is not None:
+            optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+        else:
+            optimizer = getattr(algo, "get_optimizer", lambda m: torch.optim.Adam(m.parameters(), lr=1e-3))(model)
         preprocess = getattr(algo, "preprocess_batch", _default_preprocess)
 
         best_val = float("inf")
@@ -264,7 +274,27 @@ class ModelTrainer:
                 "device": str(self.device),
             },
         )
+
+        # 视频微调时额外保存到 data/<bvid>/model/ 目录
+        if bvid:
+            self._save_model_to_video_dir(model, bvid, algo_id)
+
         return version
+
+    def _save_model_to_video_dir(self, model: "torch.nn.Module", bvid: str, algo_id: str):
+        """保存模型 state_dict 到 data/<bvid>/model/<algo_id>.pt"""
+        import os
+        video_model_dir = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+            "data", bvid, "model",
+        )
+        os.makedirs(video_model_dir, exist_ok=True)
+        path = os.path.join(video_model_dir, f"{algo_id}.pt")
+        try:
+            torch.save(model.state_dict(), path)
+            logger.info("[trainer] 模型已保存到 %s", path)
+        except Exception as e:
+            logger.warning("[trainer] 保存模型到视频目录失败: %s", e)
 
     @staticmethod
     def _evaluate(model, loader, loss_fn, preprocess) -> float:

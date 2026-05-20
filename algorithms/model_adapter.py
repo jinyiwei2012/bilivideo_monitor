@@ -81,7 +81,7 @@ class ModelAlgorithmAdapter:
         except Exception as e:
             return self._make_error_result(current_value, str(e))
 
-    def _prepare_video_data(self, history: List[Tuple], current_value: float) -> Dict:
+    def _prepare_video_data(self, history: List[Tuple], current_value: float, bvid: str = "") -> Dict:
         """准备video_data"""
         history_list = []
         for ts, v in history:
@@ -112,6 +112,7 @@ class ModelAlgorithmAdapter:
             "history_data": history_list,
             "timestamp": datetime.now(),
             "timestamp_str": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "bvid": bvid,
         }
 
     def _parse_result(
