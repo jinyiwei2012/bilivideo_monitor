@@ -55,6 +55,8 @@ from ui.monitor_service import (
 from core import bilibili_api, db, MonitorRecord
 from config import load_config, save_config
 from utils.file_logger import FileLogger
+from algorithms.training.checkpoint_manager import activate_latest_for_all, get_all_activation_status, list_all_trained_algorithms
+from ui.training_panel import TrainingPanel
 
 
 # ══════════════════════════════════════════════
@@ -106,6 +108,8 @@ class BilibiliMonitorGUI:
 
         self.root.protocol("WM_DELETE_WINDOW", self._on_exit)
         self._build_ui()
+        # 启动时自动激活所有算法的最新 checkpoint
+        self.root.after(500, self._auto_activate_on_startup)
         self._load_watch_list()
         self._start_auto_refresh()
         self._file_logger.start_midnight_checker(self.root)
@@ -134,6 +138,9 @@ class BilibiliMonitorGUI:
 
         install_logging_bridge(self.log_panel)
         self._build_main()
+        # 训练面板（与主面板同级，通过 nav 切换）
+        self.training_panel = TrainingPanel(self.root, self)
+        self.training_panel.frame.pack_forget()  # 默认隐藏
         self.bottom_bar = BottomBar(self.root, self)
         self._build_status_bar()
 
@@ -181,12 +188,13 @@ class BilibiliMonitorGUI:
         nav_f = tk.Frame(bar, bg=C["bg_surface"])
         nav_f.pack(side=tk.LEFT, padx=16)
         self._nav_btns = {}
-        self._page_views = ["监控列表", "日志"]
+        self._page_views = ["监控列表", "日志", "模型训练"]
         self._dialogs = Dialogs(self)
 
         nav_items = [
             ("📊", "监控列表", None),
             ("📋", "日志", None),
+            ("🧠", "模型训练", None),
         ]
 
         for icon, label, cmd in nav_items:
@@ -268,6 +276,9 @@ class BilibiliMonitorGUI:
 
         # 创建设置菜单
         self._create_settings_menu()
+
+        # 模型激活按钮（放在最左侧）
+        self._build_model_activation(right_f)
 
         # 创建图标按钮
         self._gear_btn = self._create_icon_button(right_f, "⚙️", self._popup_settings_menu, "设置")
@@ -352,6 +363,88 @@ class BilibiliMonitorGUI:
         )
         self._mode_pill.pack(side=tk.RIGHT, padx=6)
 
+    # ── 模型激活 ─────────────────────────────────
+
+    def _build_model_activation(self, parent):
+        """构建模型激活按钮 + 状态指示"""
+        f = tk.Frame(parent, bg=C["bg_surface"])
+        f.pack(side=tk.RIGHT, padx=2)
+
+        self._model_act_btn = tk.Label(
+            f,
+            text="🧠 激活模型",
+            bg=C["bg_elevated"],
+            fg=C["accent"],
+            font=FONT,
+            cursor="hand2",
+            padx=6,
+            pady=2,
+            relief="flat",
+        )
+        self._model_act_btn.pack(side=tk.RIGHT, padx=2)
+        self._model_act_btn.bind("<Button-1>", lambda e: self._on_activate_models())
+        self._model_act_btn.bind("<Enter>", lambda e: self._model_act_btn.config(bg=C["bg_hover"]))
+        self._model_act_btn.bind("<Leave>", lambda e: self._model_act_btn.config(bg=C["bg_elevated"]))
+
+        self._model_act_status = tk.Label(
+            f,
+            text="",
+            bg=C["bg_surface"],
+            fg=C["text_3"],
+            font=("Microsoft YaHei UI", 9),
+        )
+        self._model_act_status.pack(side=tk.RIGHT, padx=2)
+
+    def _refresh_model_status(self):
+        """刷新模型激活状态显示"""
+        try:
+            status = get_all_activation_status()
+            pending = [aid for aid, s in status.items() if s["needs_activation"]]
+            trained = len(status)
+        except Exception:
+            self._model_act_status.config(text="")
+            return
+        if pending:
+            self._model_act_status.config(
+                text=f"⚡ {len(pending)}/{trained} 待激活",
+                fg=C["danger"],
+            )
+            self._model_act_btn.config(fg=C["accent"])
+        elif trained > 0:
+            self._model_act_status.config(
+                text=f"✓ {trained} 个已最新",
+                fg=C["success"],
+            )
+            self._model_act_btn.config(fg=C["text_3"])
+        else:
+            self._model_act_status.config(text="")
+            self._model_act_btn.config(fg=C["text_3"])
+
+    def _on_activate_models(self):
+        """手动激活所有算法的最新 checkpoint"""
+        switched = activate_latest_for_all()
+        if not switched:
+            self._sb("status", "所有模型已是最新版本", C["success"])
+            self._refresh_model_status()
+            return
+        names = ", ".join(switched.keys())
+        self._sb("status", f"已激活 {len(switched)} 个模型: {names}", C["success"])
+        self._refresh_model_status()
+        self.log_panel.add_log("INFO", f"手动激活模型: {switched}")
+
+    def _auto_activate_on_startup(self):
+        """启动时自动激活所有算法的最新 checkpoint"""
+        try:
+            switched = activate_latest_for_all()
+            if switched:
+                names = ", ".join(switched.keys())
+                self.log_panel.add_log("INFO", f"启动自动激活模型: {switched}")
+                self._sb("status", f"自动激活 {len(switched)} 个模型: {names}", C["success"])
+            self._refresh_model_status()
+        except Exception as e:
+            logger.debug("自动激活模型失败: %s", e)
+            self._refresh_model_status()
+
     def _build_main(self):
         self._main_frame = tk.Frame(self.root, bg=C["bg_base"])
         self._main_frame.pack(fill=tk.BOTH, expand=True)
@@ -405,15 +498,21 @@ class BilibiliMonitorGUI:
             ic.config(fg=C["bilibili"] if k == name else C["text_secondary"])
             tl.config(fg=C["bilibili"] if k == name else C["text_secondary"])
             ind.config(bg=C["bilibili"] if k == name else C["bg_surface"])
+        # 隐藏所有面板
+        self._main_frame.pack_forget()
+        self.log_panel.frame.pack_forget()
+        self.training_panel.frame.pack_forget()
+        self.log_panel.stop_auto_refresh()
+
         if name == "日志":
-            self._main_frame.pack_forget()
             self.log_panel.frame.pack(fill=tk.BOTH, expand=True)
             self.log_panel.refresh_log_view()
             self.log_panel.start_auto_refresh(self.root)
+        elif name == "模型训练":
+            self.training_panel.frame.pack(fill=tk.BOTH, expand=True)
+            self.training_panel.on_show()
         else:
-            self.log_panel.frame.pack_forget()
             self._main_frame.pack(fill=tk.BOTH, expand=True)
-            self.log_panel.stop_auto_refresh()
 
     # ──────────────────────────────────────────
 

@@ -46,7 +46,12 @@ class LagLlamaAlgorithm(BaseAlgorithm):
                 v, conf, meta = self._torch_predict(video_data)
                 return self._make_result(current_views, threshold, v, conf, "lag_llama_hf", meta)
             except Exception as e:
-                logger.warning("[lag_llama] HF 推理失败，降级: %s", e)
+                if not self._tried_load or self._cached_model is not None:
+                    logger.warning("[lag_llama] HF 推理失败，降级: %s", e)
+                else:
+                    logger.debug("[lag_llama] HF 路径已禁用，走 numpy: %s", e)
+                if self._cached_model is None:
+                    self._available = False
         return self._numpy_predict(video_data, current_views, threshold)
 
     def _torch_predict(self, video_data: Dict[str, Any]) -> Tuple[float, float, Dict]:
