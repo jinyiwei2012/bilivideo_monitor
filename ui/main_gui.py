@@ -485,6 +485,10 @@ class BilibiliMonitorGUI:
     def _sb(self, key, text, color=None):
         self.bottom_bar.update_sb(key, text, color)
 
+    def set_finetune_status(self, text: str, color=None):
+        """更新主界面底部状态栏的微调状态"""
+        self._sb("finetune", text, color=color or C.get("accent", "#4A90D9"))
+
     # ──────────────────────────────────────────
     # 导航切换
     # ──────────────────────────────────────────
