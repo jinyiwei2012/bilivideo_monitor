@@ -87,8 +87,32 @@ if _torch_available:
             self.register_buffer("alphas", alphas)
             self.register_buffer("alpha_bars", alpha_bars)
 
-        def forward(self, x: "torch.Tensor", t: "torch.Tensor") -> "torch.Tensor":
-            # x: [B, C, L], t: [B] (int)
+        def forward(self, x: "torch.Tensor", t: "torch.Tensor" = None) -> "torch.Tensor":
+            # 训练模式（trainer 调用 model(x) 不带 t）：
+            #   使用 preprocess_batch 预先生成的 _train_t / _train_eps 加噪，
+            #   返回预测的噪声 → trainer 用 MSELoss(pred, target=eps) 计算 DDPM 损失。
+            # 推理模式（sample 内调用）：
+            #   x = x_t（当前步加噪数据）, t = 当前步 → 返回预测的噪声
+            if t is None:
+                B = x.shape[0]
+                t = getattr(self, "_train_t", None)
+                eps = getattr(self, "_train_eps", None)
+                if t is None or eps is None:
+                    raise RuntimeError(
+                        "训练模式需先调用 preprocess_batch 以设定 _train_t / _train_eps"
+                    )
+                t = t.to(device=x.device)
+                eps = eps.to(device=x.device)
+                ab = self.alpha_bars[t].view(B, 1, 1)
+                x_t = (ab.sqrt() * x) + ((1 - ab).sqrt() * eps)
+                t_emb = self.t_embed(t)
+                h = self.in_conv(x_t)
+                h = self.down1(h, t_emb)
+                h = self.down2(h, t_emb)
+                h = self.up1(h, t_emb)
+                h = self.up2(h, t_emb)
+                return self.out_conv(h)  # 预测噪声 ε̂，trainer 用 MSELoss(ε̂, eps)
+            # 推理模式
             t_emb = self.t_embed(t)
             h = self.in_conv(x)
             h = self.down1(h, t_emb)
@@ -132,6 +156,7 @@ class DiffusionTSAlgorithm(BaseAlgorithm):
         self._device = get_device()
         self._ckpt = CheckpointManager(self.algorithm_id)
         self._cached_model = None
+        self._cached_model_for_training = None  # 训练时 preprocess → forward 传递噪声用
         # 单通道：speed 序列
         self._series_len = self.training_window + self.training_horizon
 
@@ -211,19 +236,33 @@ class DiffusionTSAlgorithm(BaseAlgorithm):
         return vs
 
     def build_model(self):
-        return DiffusionTSTorchModel(in_channels=1, base=32, t_dim=64, n_steps=100)
+        m = DiffusionTSTorchModel(in_channels=1, base=32, t_dim=64, n_steps=100)
+        self._cached_model_for_training = m  # preprocess_batch 需要引用
+        return m
 
     def get_training_features(self):
         return ["view_count"]
 
     def preprocess_batch(self, batch):
-        """训练 batch：(x, y) → 训练 DDPM 的 x_0 = y 重塑为 [B, 1, H]，t 随机采样。"""
+        """训练 batch：(x, y) → x_0 作为输入，eps 作为 target。
+
+        同时生成 t 并将 (t, eps) 存入 _cached_model_for_training，
+        供 forward(t=None) 内部加噪时使用同一份噪声，
+        使 MSELoss(eps_pred, eps) 计算正确的 DDPM 噪声预测损失。
+        """
         if not _torch_available:
             return batch
         x, y = batch
-        # 用 y（horizon 段速度）训练 DDPM
         x_0 = y.unsqueeze(1)  # [B, 1, H]
-        return x_0, x_0  # trainer 会传给 model + loss_fn
+        B = x_0.shape[0]
+        device = x_0.device
+        n_steps = getattr(self._cached_model_for_training, "n_steps", 100)
+        t = torch.randint(0, n_steps, (B,), device=device, dtype=torch.long)
+        eps = torch.randn_like(x_0)
+        if self._cached_model_for_training is not None:
+            self._cached_model_for_training._train_t = t
+            self._cached_model_for_training._train_eps = eps
+        return x_0, eps  # model(x_0) → eps_pred, loss = MSELoss(eps_pred, eps)
 
     def get_loss_fn(self):
         """DDPM 损失：随机采样 t、加噪、预测噪声。"""
