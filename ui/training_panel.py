@@ -180,6 +180,9 @@ class TrainingMonitor:
         if self.suggestions:
             return "💡 " + self.suggestions[0]
         return ""
+
+
+class TrainingPanel:
     """训练面板 - 主界面选项卡"""
 
     def __init__(self, parent: tk.Widget, main_gui):
