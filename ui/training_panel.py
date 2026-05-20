@@ -934,6 +934,7 @@ class TrainingPanel:
                 from algorithms.training.trainer import ModelTrainer
                 trainer = ModelTrainer()
                 done = 0
+                self.main.set_finetune_status(f"🎯 批量微调 0/{total}")
                 for bvid in selected_videos:
                     for aid in selected_algos:
                         done += 1
@@ -942,6 +943,8 @@ class TrainingPanel:
                         dialog.after(0, lambda m=msg: ft_status.configure(text=m))
                         dialog.after(0, lambda p=pct: ft_progress.config(value=p))
                         dialog.after(0, lambda m=msg: _ft_log(m))
+                        dialog.after(0, lambda d=done, t=total:
+                                    self.main.set_finetune_status(f"🎯 批量微调 {d}/{t}"))
                         try:
                             ver = trainer.finetune_for_video(
                                 algo_id=aid, bvid=bvid, epochs=epochs, batch_size=batch,
@@ -953,6 +956,7 @@ class TrainingPanel:
                                          _ft_log(f"  ✗ {a}@{b}: {e}"))
                 dialog.after(0, lambda: ft_status.configure(text=f"✅ 微调完成 ({done} 任务)"))
                 dialog.after(0, lambda: ft_progress.config(value=100))
+                dialog.after(0, lambda: self.main.set_finetune_status(f"✅ 批量微调完成 ({done})"))
                 dialog.after(0, lambda: start_btn.config(state="normal"))
                 dialog.after(0, lambda: _ft_log("🏁 批量微调全部完成"))
 
