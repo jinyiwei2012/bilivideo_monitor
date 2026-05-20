@@ -7,6 +7,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import io
 import logging
+import math
 import os
 import threading
 import queue
@@ -47,6 +48,7 @@ class TrainingPanel:
         # 状态变量
         self._check_vars: Dict[str, tk.BooleanVar] = {}
         self._algo_meta: Dict[str, Dict] = {}
+        self._algo_confidence: Dict[str, float] = {}  # 训练完成时记录的置信度
         self._training = False
         self._cancel_flag = [False]
         self._train_thread: Optional[threading.Thread] = None
@@ -143,7 +145,7 @@ class TrainingPanel:
         # 表头
         hdr_row = tk.Frame(algo_frame, bg=C["bg_surface"])
         hdr_row.pack(fill=tk.X, pady=(0, 1))
-        for col, (txt, w) in enumerate([("", 4), ("算法", 18), ("ID", 18), ("状态", 14), ("版本", 10)]):
+        for col, (txt, w) in enumerate([("", 4), ("算法", 16), ("ID", 14), ("状态", 12), ("置信度", 10), ("版本", 8)]):
             tk.Label(hdr_row, text=txt, bg=C["bg_surface"], fg=C["text_3"],
                      font=("Microsoft YaHei UI", 8, "bold"), width=w, anchor="w"
                      ).grid(row=0, column=col, padx=2, pady=2, sticky="w")
@@ -346,21 +348,27 @@ class TrainingPanel:
             ttk.Checkbutton(row, variable=var).grid(row=0, column=0, padx=4, pady=2)
 
             tk.Label(row, text=a["name"], bg=C["bg_surface"], fg=C["text_1"],
-                     font=FONT, width=18, anchor="w").grid(row=0, column=1, padx=2, sticky="w")
+                     font=FONT, width=16, anchor="w").grid(row=0, column=1, padx=2, sticky="w")
             tk.Label(row, text=aid, bg=C["bg_surface"], fg=C["text_3"],
-                     font=FONT_MONO, width=18, anchor="w").grid(row=0, column=2, padx=2, sticky="w")
+                     font=FONT_MONO, width=14, anchor="w").grid(row=0, column=2, padx=2, sticky="w")
 
             if a["has_ckpt"]:
-                st = f"✅ {a['active_version'][:12]}"
+                st = f"✅ {a['active_version'][:10]}"
                 sf = C["success"]
             else:
                 st = "□ 未训练"
                 sf = C["text_3"]
             tk.Label(row, text=st, bg=C["bg_surface"], fg=sf,
-                     font=FONT_SM, width=14, anchor="w").grid(row=0, column=3, padx=2, sticky="w")
+                     font=FONT_SM, width=12, anchor="w").grid(row=0, column=3, padx=2, sticky="w")
+
+            # 置信度列
+            conf = self._load_confidence(aid)
+            conf_text, conf_color = self._format_confidence(conf)
+            tk.Label(row, text=conf_text, bg=C["bg_surface"], fg=conf_color,
+                     font=FONT_SM, width=10, anchor="w").grid(row=0, column=4, padx=2, sticky="w")
 
             tk.Label(row, text=f"v{a['version_count']}", bg=C["bg_surface"], fg=C["text_3"],
-                     font=FONT_SM, width=6, anchor="w").grid(row=0, column=4, padx=2, sticky="w")
+                     font=FONT_SM, width=6, anchor="w").grid(row=0, column=5, padx=2, sticky="w")
 
     def _select_all(self, flag: bool):
         for v in self._check_vars.values():
@@ -369,6 +377,47 @@ class TrainingPanel:
     def _select_untrained(self):
         for aid, var in self._check_vars.items():
             var.set(not self._algo_meta.get(aid, {}).get("has_ckpt", False))
+
+    # ── 置信度辅助 ────────────────────────────────
+
+    @staticmethod
+    def _loss_to_confidence(val_loss: float) -> float:
+        """将 val_loss 映射到 [0, 1] 置信度。"""
+        if val_loss is None or val_loss < 0:
+            return 0.0
+        # exp(-loss): loss=0 → conf=1.0, loss=0.5 → conf≈0.61, loss=1.0 → conf≈0.37
+        return max(0.0, min(1.0, math.exp(-val_loss)))
+
+    @staticmethod
+    def _format_confidence(conf: float):
+        """返回 (显示文本, 颜色) 对。"""
+        if conf <= 0:
+            return "—", C["text_3"]
+        pct = conf * 100
+        if conf >= 0.8:
+            return f"↑ {pct:.0f}%", C["success"]
+        elif conf >= 0.5:
+            return f"→ {pct:.0f}%", C["warning"]
+        else:
+            return f"↓ {pct:.0f}%", C["danger"]
+
+    def _load_confidence(self, algo_id: str) -> float:
+        """读取算法 active checkpoint 的 val_loss 并计算置信度。"""
+        try:
+            from algorithms.training.checkpoint_manager import CheckpointManager
+            ckpt = CheckpointManager(algo_id)
+            versions = ckpt.list_versions()
+            active_v = ckpt.active_version()
+            if not versions or not active_v:
+                return 0.0
+            for v in versions:
+                if v["version"] == active_v:
+                    val_loss = v.get("val_loss", -1.0)
+                    return self._loss_to_confidence(val_loss)
+            # fallback: latest version
+            return self._loss_to_confidence(versions[0].get("val_loss", -1.0))
+        except Exception:
+            return 0.0
 
     # ══════════════════════════════════════════════
     # 训练执行
@@ -481,12 +530,16 @@ class TrainingPanel:
                     vloss = msg.get("val_loss", -1.0)
                     elapsed = msg.get("elapsed_s", 0.0)
 
+                    # 实时置信度（基于 val_loss）
+                    conf = self._loss_to_confidence(vloss) if vloss >= 0 else 0.0
+                    conf_str, _ = self._format_confidence(conf)
+
                     pct = min(100, int((ep / max(1, eps)) * 100))
                     self._progress["value"] = pct
                     total_elapsed = time.time() - self._train_t0 if self._train_t0 else 0
                     vtxt = f"  val={vloss:.4f}" if vloss >= 0 else ""
                     self._status_lbl.config(
-                        text=f"{aid}  ep{ep}/{eps}  train={tloss:.4f}{vtxt}  {elapsed:.0f}s",
+                        text=f"{aid}  ep{ep}/{eps}  train={tloss:.4f}{vtxt}  {conf_str}  {elapsed:.0f}s",
                         fg=C["text_1"],
                     )
 
@@ -500,6 +553,7 @@ class TrainingPanel:
                         f"  epoch {ep:>3}/{eps}  |  "
                         f"train_loss={tloss:.6f}  |  "
                         f"{f'val_loss={vloss:.6f}' if vloss>=0 else 'val_loss=N/A'}  |  "
+                        f"confidence={conf_str}  |  "
                         f"{elapsed:.1f}s"
                     )
 
@@ -528,9 +582,21 @@ class TrainingPanel:
                     ok = sum(1 for v in results.values() if v)
                     bad = sum(1 for v in results.values() if not v)
                     elapsed = time.time() - self._train_t0 if self._train_t0 else 0
+
+                    # 读取每个成功算法的最终置信度
+                    conf_summary = ""
+                    for aid, ver in results.items():
+                        if not ver:
+                            continue
+                        conf = self._load_confidence(aid)
+                        self._algo_confidence[aid] = conf
+                        conf_str, _ = self._format_confidence(conf)
+                        conf_summary += f"  {aid}: {conf_str}"
+
                     self._status_lbl.config(text=f"全部完成: ✓ {ok}  ✗ {bad}  · {elapsed:.0f}s", fg=C["success"])
                     self._progress["value"] = 100
                     self._append_log(f"🏁 训练全部完成: {ok} 成功, {bad} 失败, 耗时 {elapsed:.0f}s")
+                    self._append_log(f"📊 各算法最终置信度:{conf_summary}")
                     done_all = True
 
                 elif stage == "fatal":
