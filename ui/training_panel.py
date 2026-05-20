@@ -271,6 +271,7 @@ class TrainingMonitor:
         ttk.Button(toolbar, text="全选", command=lambda: self._select_all(True), width=6).pack(side=tk.LEFT, padx=1)
         ttk.Button(toolbar, text="反选", command=lambda: self._select_all(False), width=6).pack(side=tk.LEFT, padx=1)
         ttk.Button(toolbar, text="仅未训练", command=self._select_untrained, width=8).pack(side=tk.LEFT, padx=1)
+        ttk.Button(toolbar, text="🗑️ 版本管理", command=self._on_manage_versions, width=10).pack(side=tk.LEFT, padx=1)
 
         # 滚动容器
         canvas = tk.Canvas(left, bg=C["bg_elevated"], highlightthickness=0, height=300)
@@ -585,6 +586,201 @@ class TrainingMonitor:
     def _select_untrained(self):
         for aid, var in self._check_vars.items():
             var.set(not self._algo_meta.get(aid, {}).get("has_ckpt", False))
+
+    # ── 版本管理 ──────────────────────────────────
+
+    def _on_manage_versions(self):
+        """打开 checkpoint 版本管理对话框 — 查看/删除/激活版本。"""
+        from algorithms.training.checkpoint_manager import (
+            CheckpointManager, list_video_finetune_bvids,
+        )
+        from algorithms.registry import AlgorithmRegistry
+
+        AlgorithmRegistry.initialize()
+        # 收集所有有 checkpoint 的算法
+        algos = []
+        for adapter in AlgorithmRegistry.get_all_algorithms():
+            algo = getattr(adapter, "algo", adapter)
+            aid = getattr(algo, "algorithm_id", None) or ""
+            if not aid:
+                continue
+            ckpt = CheckpointManager(aid)
+            if ckpt.has_checkpoint() or os.path.exists(
+                os.path.join(os.path.dirname(os.path.dirname(__file__)),
+                             "algorithms", "checkpoints", aid)
+            ):
+                algos.append({
+                    "algorithm_id": aid,
+                    "name": getattr(algo, "name", aid),
+                    "category": getattr(algo, "category", ""),
+                })
+
+        if not algos:
+            messagebox.showinfo("提示", "没有任何已训练的模型", parent=self.frame)
+            return
+
+        dialog = tk.Toplevel(self.frame)
+        dialog.title("Checkpoint 版本管理")
+        dialog.geometry("700x500")
+        dialog.transient(self.frame)
+        dialog.grab_set()
+        dialog.configure(bg=C["bg_base"])
+
+        main = tk.Frame(dialog, bg=C["bg_base"])
+        main.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+
+        # 左侧：算法列表 | 右侧：版本详情
+        left_panel = tk.Frame(main, bg=C["bg_elevated"], width=220)
+        left_panel.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 6))
+        left_panel.pack_propagate(False)
+        tk.Label(left_panel, text="算法", bg=C["bg_elevated"], fg=C["text_2"],
+                 font=FONT_SM).pack(fill=tk.X, padx=4, pady=4)
+
+        algo_canvas = tk.Canvas(left_panel, bg=C["bg_elevated"], highlightthickness=0)
+        algo_scroll = ttk.Scrollbar(left_panel, orient="vertical", command=algo_canvas.yview)
+        algo_canvas.configure(yscrollcommand=algo_scroll.set)
+        algo_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        algo_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        algo_inner = tk.Frame(algo_canvas, bg=C["bg_elevated"])
+        algo_canvas.create_window((0, 0), window=algo_inner, anchor="nw")
+        algo_inner.bind("<Configure>", lambda e: algo_canvas.configure(scrollregion=algo_canvas.bbox("all")))
+
+        # 右侧：版本列表
+        right_panel = tk.Frame(main, bg=C["bg_surface"])
+        right_panel.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+
+        info_lbl = tk.Label(right_panel, text="← 选择一个算法", bg=C["bg_surface"],
+                            fg=C["text_3"], font=FONT)
+        info_lbl.pack(pady=20)
+
+        detail_frame = tk.Frame(right_panel, bg=C["bg_surface"])
+        detail_frame.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+
+        def _refresh_detail(aid, name):
+            for w in detail_frame.winfo_children():
+                w.destroy()
+
+            info_lbl.pack_forget()
+
+            # 算法标题
+            tk.Label(detail_frame, text=f"{name}  ({aid})", bg=C["bg_surface"],
+                     fg=C["text_1"], font=FONT_BOLD).pack(anchor="w", pady=(0, 6))
+
+            ckpt = CheckpointManager(aid)
+
+            # ── 全局版本 ──
+            tk.Label(detail_frame, text="全局版本", bg=C["bg_surface"],
+                     fg=C["text_2"], font=FONT_SM).pack(anchor="w")
+
+            versions = ckpt.list_versions()
+            if not versions:
+                tk.Label(detail_frame, text="  （无全局 checkpoint）", bg=C["bg_surface"],
+                         fg=C["text_3"], font=FONT_SM).pack(anchor="w", pady=2)
+            else:
+                for v in versions:
+                    row = tk.Frame(detail_frame, bg=C["bg_elevated"])
+                    row.pack(fill=tk.X, pady=1)
+                    active_tag = "★ " if v.get("active") else "  "
+                    tk.Label(row, text=f"{active_tag}{v['version']}", bg=C["bg_elevated"],
+                             fg=C["success"] if v.get("active") else C["text_1"],
+                             font=FONT_MONO, width=30, anchor="w").pack(side=tk.LEFT, padx=4, pady=2)
+
+                    # 激活按钮（如果不是当前激活版本）
+                    if not v.get("active") and len(versions) > 1:
+                        ttk.Button(
+                            row, text="激活", width=4,
+                            command=lambda ver=v["version"], c=ckpt, a=aid, n=name: (
+                                c.activate(ver), _refresh_detail(a, n)
+                            ),
+                        ).pack(side=tk.RIGHT, padx=2)
+
+                    # 删除按钮（只有一个版本时不显示）
+                    if len(versions) > 1:
+                        ttk.Button(
+                            row, text="✕", width=3,
+                            command=lambda ver=v["version"], c=ckpt, a=aid, n=name: (
+                                c.delete(ver), _refresh_detail(a, n)
+                            ),
+                        ).pack(side=tk.RIGHT, padx=2)
+
+                    # val_loss 元信息
+                    vl = v.get("val_loss", -1)
+                    vl_txt = f"  val_loss={vl:.4f}" if vl >= 0 else ""
+                    tk.Label(row, text=vl_txt, bg=C["bg_elevated"],
+                             fg=C["text_3"], font=FONT_SM).pack(side=tk.LEFT)
+
+            # ── 视频微调版本 ──
+            bvids = list_video_finetune_bvids(aid)
+            if bvids:
+                tk.Label(detail_frame, text="\n视频微调版本", bg=C["bg_surface"],
+                         fg=C["text_2"], font=FONT_SM).pack(anchor="w")
+                for bvid in bvids:
+                    v_ckpt = CheckpointManager(aid, bvid=bvid)
+                    v_vers = v_ckpt.list_versions()
+                    for v in v_vers:
+                        row = tk.Frame(detail_frame, bg=C["bg_elevated"])
+                        row.pack(fill=tk.X, pady=1)
+                        tk.Label(row, text=f"  📺 {bvid}  {v['version']}", bg=C["bg_elevated"],
+                                 fg=C["text_1"], font=FONT_MONO, anchor="w").pack(
+                            side=tk.LEFT, padx=4, pady=2)
+                        ttk.Button(
+                            row, text="✕", width=3,
+                            command=lambda b=bvid, ver=v["version"], a=aid, n=name: (
+                                CheckpointManager(a, bvid=b).delete(ver),
+                                _refresh_detail(a, n),
+                            ),
+                        ).pack(side=tk.RIGHT, padx=2)
+
+            # ── 危险操作 ──
+            if versions or bvids:
+                tk.Label(detail_frame, text="", bg=C["bg_surface"]).pack()
+                sep = tk.Frame(detail_frame, bg=C["border"], height=1)
+                sep.pack(fill=tk.X, pady=4)
+                btn_row = tk.Frame(detail_frame, bg=C["bg_surface"])
+                btn_row.pack(fill=tk.X)
+                ttk.Button(
+                    btn_row, text="删除所有全局版本",
+                    command=lambda a=aid, n=name: self._delete_all_global(a, n, _refresh_detail),
+                ).pack(side=tk.LEFT, padx=2)
+                if bvids:
+                    ttk.Button(
+                        btn_row, text="删除所有微调版本",
+                        command=lambda a=aid, n=name: self._delete_all_video(a, n, _refresh_detail),
+                    ).pack(side=tk.LEFT, padx=2)
+
+        # 填充算法列表
+        for a in sorted(algos, key=lambda x: x["name"]):
+            btn = tk.Label(algo_inner, text=f"{a['name']}", bg=C["bg_elevated"],
+                           fg=C["text_1"], font=FONT_SM, anchor="w", cursor="hand2",
+                           padx=6, pady=3)
+            btn.pack(fill=tk.X)
+            btn.bind("<Button-1>", lambda e, aid=a["algorithm_id"], n=a["name"]: _refresh_detail(aid, n))
+            btn.bind("<Enter>", lambda e, b=btn: b.configure(bg=C["bg_surface"]))
+            btn.bind("<Leave>", lambda e, b=btn: b.configure(bg=C["bg_elevated"]))
+
+    def _delete_all_global(self, aid, name, refresh_cb):
+        """删除算法的所有全局 checkpoint。"""
+        if not messagebox.askyesno("确认删除", f"确定要删除 {name} ({aid}) 的所有全局版本？\n此操作不可撤销。",
+                                    parent=self.frame):
+            return
+        from algorithms.training.checkpoint_manager import CheckpointManager
+        ckpt = CheckpointManager(aid)
+        for v in ckpt.list_versions():
+            ckpt.delete(v["version"])
+        refresh_cb(aid, name)
+        self._refresh_algo_list()
+
+    def _delete_all_video(self, aid, name, refresh_cb):
+        """删除算法的所有视频微调 checkpoint。"""
+        if not messagebox.askyesno("确认删除", f"确定要删除 {name} ({aid}) 的所有视频微调版本？\n此操作不可撤销。",
+                                    parent=self.frame):
+            return
+        from algorithms.training.checkpoint_manager import CheckpointManager, list_video_finetune_bvids
+        for bvid in list_video_finetune_bvids(aid):
+            ckpt = CheckpointManager(aid, bvid=bvid)
+            for v in ckpt.list_versions():
+                ckpt.delete(v["version"])
+        refresh_cb(aid, name)
 
     # ── 批量微调 ──────────────────────────────────
 
