@@ -60,8 +60,14 @@ class ModelTrainer:
         batch_size: int = 32,
         val_ratio: float = 0.15,
         progress_cb: ProgressCb = None,
+        init_from_global: bool = False,
     ) -> Dict[str, str]:
-        """对一组算法做全局预训练，返回 {algo_id: version_name}。失败的算法 value = ''。"""
+        """对一组算法做全局预训练，返回 {algo_id: version_name}。失败的算法 value = ''。
+
+        Args:
+            init_from_global: True=增量训练（加载已有 checkpoint 继续训练），
+                              False=重新训练（从随机初始化开始）。
+        """
         if not _torch_available:
             raise RuntimeError("torch 未安装，无法训练")
 
@@ -85,6 +91,7 @@ class ModelTrainer:
                     batch_size=batch_size,
                     val_ratio=val_ratio,
                     progress_cb=progress_cb,
+                    init_from_global=init_from_global,
                 )
                 results[algo_id] = version
                 self._emit(
@@ -288,15 +295,23 @@ class ModelTrainer:
 
     @staticmethod
     def _instantiate_algorithm(algo_id: str):
-        """从 registry 拿到算法实例。延迟 import 避免循环依赖。"""
+        """从 registry 按 algorithm_id 查找底层算法实例（绕过 adapter 包装）。
+
+        registry 用 f"[Model] {display_name}" 当 key 存 adapter，所以不能直接
+        get_algorithm(algo_id) — 必须扫描全部 adapter 比对 algorithm_id 属性，
+        再取出 adapter.algo 把训练需要的 build_model / get_loss_fn 等方法暴露出来。
+        """
         try:
             from algorithms.registry import AlgorithmRegistry
         except Exception as e:
             logger.error("无法导入 AlgorithmRegistry: %s", e)
             return None
         AlgorithmRegistry.initialize()
-        algo = AlgorithmRegistry.get_algorithm(algo_id)
-        return algo
+        for adapter in AlgorithmRegistry.get_all_algorithms():
+            algo = getattr(adapter, "algo", adapter)
+            if getattr(algo, "algorithm_id", None) == algo_id:
+                return algo
+        return None
 
 
 def _default_preprocess(batch):
