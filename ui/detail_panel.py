@@ -380,10 +380,13 @@ class DetailPanel:
 
             trainer = ModelTrainer()
             total = len(selected)
+            self.gui.set_finetune_status(f"🎯 微调 {bvid} …")
             for i, aid in enumerate(selected):
                 msg = f"[{i+1}/{total}] 微调 {aid}…"
+                gui_msg = f"🎯 微调 {bvid}: [{i+1}/{total}] {aid}"
                 dialog.after(0, lambda m=msg: status_lbl.configure(text=m))
                 dialog.after(0, lambda p=(i + 0.5) / total: progress_bar.set(p))
+                dialog.after(0, lambda m=gui_msg: self.gui.set_finetune_status(m))
                 try:
                     version = trainer.finetune_for_video(
                         algo_id=aid, bvid=bvid, epochs=epochs, batch_size=batch,
@@ -396,6 +399,7 @@ class DetailPanel:
             dialog.after(0, lambda: progress_bar.set(1.0))
             dialog.after(0, lambda: start_btn.configure(text="完成", state="normal"))
             dialog.after(0, lambda: self._finetune_status.configure(text=f"✅ 微调完成 ({total})"))
+            dialog.after(0, lambda: self.gui.set_finetune_status(f"✅ 微调 {bvid} 完成 ({total})"))
 
         threading.Thread(target=_worker, daemon=True).start()
 
