@@ -191,6 +191,27 @@ class CheckpointManager:
             json.dump(meta, f, ensure_ascii=False, indent=2)
 
 
+def load_best_checkpoint(algo_id: str, bvid: Optional[str] = None) -> Optional[Dict]:
+    """加载最佳可用 checkpoint：优先视频微调，其次全局。
+
+    预测管线用：让已微调的算法在推理时自动使用视频专属权重，
+    未微调的视频自动回退到全局 checkpoint。
+    """
+    if bvid:
+        video_ckpt = CheckpointManager(algo_id, bvid=bvid)
+        if video_ckpt.has_checkpoint():
+            state = video_ckpt.load()
+            if state is not None:
+                logger.info("[%s] 使用视频微调 checkpoint (bvid=%s)", algo_id, bvid)
+                return state
+    global_ckpt = CheckpointManager(algo_id)
+    if global_ckpt.has_checkpoint():
+        state = global_ckpt.load()
+        if state is not None:
+            return state
+    return None
+
+
 def list_all_trained_algorithms() -> List[str]:
     """扫描 checkpoints/ 目录，返回有 active checkpoint 的 algo_id 列表。"""
     if not os.path.exists(_CKPT_ROOT):

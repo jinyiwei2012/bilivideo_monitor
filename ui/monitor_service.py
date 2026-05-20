@@ -202,6 +202,7 @@ def _predict_single(gui, bvid, video) -> dict:
         results = AlgorithmRegistry.predict_all(
             history,
             current_view,
+            bvid=bvid,
             thresholds=THRESHOLDS,
             threshold_names=THRESHOLD_NAMES,
         )

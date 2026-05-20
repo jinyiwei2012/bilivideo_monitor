@@ -200,8 +200,6 @@ class MLPPredictorAlgorithm(BaseAlgorithm):
             from algorithms.training.checkpoint_manager import CheckpointManager
 
             self._ckpt = CheckpointManager(self.algorithm_id)
-        if not self._ckpt.has_checkpoint():
-            return None
         try:
             video_data = self._wrap_video_data(current_views, history_data, video_info)
             result = try_torch_predict(
@@ -251,4 +249,5 @@ class MLPPredictorAlgorithm(BaseAlgorithm):
             "view_count": current_views,
             "history_data": wrapped_history,
             "timestamp": datetime.now(),
+            "bvid": video_info.get("bvid", ""),
         }
