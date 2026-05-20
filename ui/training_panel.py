@@ -383,6 +383,16 @@ class TrainingMonitor:
         self._batch_var = tk.IntVar(value=32)
         ttk.Spinbox(ctrl, from_=1, to=512, textvariable=self._batch_var, width=6).pack(side=tk.LEFT, padx=2)
 
+        # 学习率
+        tk.Label(ctrl, text="LR:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT, padx=(8, 2))
+        self._lr_var = tk.StringVar(value="0.001")
+        self._lr_entry = ttk.Entry(ctrl, textvariable=self._lr_var, width=8, font=FONT_MONO)
+        self._lr_entry.pack(side=tk.LEFT, padx=2)
+        self._lr_auto_var = tk.BooleanVar(value=True)
+        self._lr_auto_cb = ttk.Checkbutton(ctrl, text="自动", variable=self._lr_auto_var,
+                                            command=self._on_lr_auto_toggle)
+        self._lr_auto_cb.pack(side=tk.LEFT, padx=2)
+
         # 训练模式
         tk.Label(ctrl, text="模式:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT, padx=(8, 2))
         self._mode_var = tk.StringVar(value="incremental")
@@ -395,6 +405,7 @@ class TrainingMonitor:
         self._train_btn.pack(side=tk.LEFT, padx=(12, 4))
         self._cancel_btn = ttk.Button(ctrl, text="✕ 取消", command=self._on_train_cancel, state="disabled")
         self._cancel_btn.pack(side=tk.LEFT, padx=4)
+        ttk.Button(ctrl, text="🎯 批量微调", command=self._on_batch_finetune, width=10).pack(side=tk.LEFT, padx=4)
 
         # 进度
         self._progress = ttk.Progressbar(ctrl, mode="determinate", maximum=100)
@@ -436,6 +447,40 @@ class TrainingMonitor:
 
     def _on_force_cpu(self):
         self._refresh_device()
+
+    # ── 学习率控制 ────────────────────────────────
+
+    def _on_lr_auto_toggle(self):
+        """自动/手动学习率切换：自动时锁定输入框，并填入推荐值。"""
+        if self._lr_auto_var.get():
+            self._lr_entry.config(state="readonly")
+            auto_lr = self._auto_compute_lr()
+            self._lr_var.set(f"{auto_lr:.6f}")
+        else:
+            self._lr_entry.config(state="normal")
+
+    def _auto_compute_lr(self) -> float:
+        """根据数据规模和常用经验自动推荐学习率。"""
+        try:
+            from algorithms.training.trainer import ModelTrainer
+            info = ModelTrainer().estimate_data_size()
+            samples = info.get("total_samples", 1000)
+        except Exception:
+            samples = 1000
+
+        # 启发式规则：
+        # 样本越多 → 学习率应越小（避免在大数据集上震荡）
+        # 基础值 1e-3 (Adam 常用默认值)
+        if samples < 500:
+            return 5e-3      # 小数据集：较大学习率快速收敛
+        elif samples < 5000:
+            return 2e-3      # 中等
+        elif samples < 20000:
+            return 1e-3      # 标准 Adam 默认值
+        elif samples < 100000:
+            return 5e-4      # 大数据集
+        else:
+            return 1e-4      # 超大数据集
 
     def _refresh_data_size(self):
         self._data_lbl.config(text="估算中…", fg=C["text_3"])
@@ -541,6 +586,185 @@ class TrainingMonitor:
         for aid, var in self._check_vars.items():
             var.set(not self._algo_meta.get(aid, {}).get("has_ckpt", False))
 
+    # ── 批量微调 ──────────────────────────────────
+
+    def _on_batch_finetune(self):
+        """打开批量微调对话框：选择视频 + 算法，一键微调。"""
+        from algorithms.registry import AlgorithmRegistry
+        from algorithms.training.checkpoint_manager import CheckpointManager
+
+        # 可微调的算法（有全局 checkpoint 的 DL 算法）
+        AlgorithmRegistry.initialize()
+        algo_list = []
+        for adapter in AlgorithmRegistry.get_all_algorithms():
+            algo = getattr(adapter, "algo", adapter)
+            if not hasattr(algo, "build_model"):
+                continue
+            aid = getattr(algo, "algorithm_id", None) or ""
+            if not aid:
+                continue
+            if CheckpointManager(aid).has_checkpoint():
+                algo_list.append({"algorithm_id": aid, "name": getattr(algo, "name", aid)})
+
+        if not algo_list:
+            messagebox.showwarning("提示", "没有已训练的深度学习算法可供微调", parent=self.frame)
+            return
+
+        # 可微调的视频（当前监控中的视频）
+        videos = []
+        try:
+            for v in self.main.monitored_videos:
+                bvid = v.get("bvid", "")
+                title = v.get("title", bvid)
+                if bvid:
+                    videos.append({"bvid": bvid, "title": title[:40]})
+        except Exception:
+            pass
+
+        if not videos:
+            messagebox.showwarning("提示", "没有监控中的视频可微调", parent=self.frame)
+            return
+
+        # ── 构建对话框 ──
+        dialog = tk.Toplevel(self.frame)
+        dialog.title("批量微调")
+        dialog.geometry("650x500")
+        dialog.transient(self.frame)
+        dialog.grab_set()
+        dialog.configure(bg=C["bg_base"])
+
+        main = tk.Frame(dialog, bg=C["bg_base"])
+        main.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        # 视频选择
+        tk.Label(main, text="选择视频", bg=C["bg_base"], fg=C["text_1"],
+                 font=FONT_BOLD).pack(anchor="w", pady=(0, 2))
+        video_frame = tk.Frame(main, bg=C["bg_elevated"], highlightthickness=1,
+                               highlightbackground=C["border"])
+        video_frame.pack(fill=tk.X, pady=(0, 8))
+        v_canvas = tk.Canvas(video_frame, bg=C["bg_elevated"], highlightthickness=0, height=100)
+        v_scroll = ttk.Scrollbar(video_frame, orient="vertical", command=v_canvas.yview)
+        v_canvas.configure(yscrollcommand=v_scroll.set)
+        v_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        v_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        v_inner = tk.Frame(v_canvas, bg=C["bg_elevated"])
+        v_canvas.create_window((0, 0), window=v_inner, anchor="nw")
+        v_inner.bind("<Configure>", lambda e: v_canvas.configure(scrollregion=v_canvas.bbox("all")))
+
+        video_vars = {}
+        for v in sorted(videos, key=lambda x: x["bvid"]):
+            var = tk.BooleanVar(value=True)
+            video_vars[v["bvid"]] = var
+            row = tk.Frame(v_inner, bg=C["bg_elevated"])
+            row.pack(fill=tk.X)
+            ttk.Checkbutton(row, variable=var).pack(side=tk.LEFT, padx=2)
+            tk.Label(row, text=f"{v['title']}  ({v['bvid']})", bg=C["bg_elevated"],
+                     fg=C["text_1"], font=FONT_SM, anchor="w").pack(side=tk.LEFT, padx=2, fill=tk.X)
+
+        # 算法选择
+        tk.Label(main, text="选择算法", bg=C["bg_base"], fg=C["text_1"],
+                 font=FONT_BOLD).pack(anchor="w", pady=(0, 2))
+        algo_frame = tk.Frame(main, bg=C["bg_elevated"], highlightthickness=1,
+                              highlightbackground=C["border"])
+        algo_frame.pack(fill=tk.X, pady=(0, 8))
+        a_canvas = tk.Canvas(algo_frame, bg=C["bg_elevated"], highlightthickness=0, height=100)
+        a_scroll = ttk.Scrollbar(algo_frame, orient="vertical", command=a_canvas.yview)
+        a_canvas.configure(yscrollcommand=a_scroll.set)
+        a_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        a_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        a_inner = tk.Frame(a_canvas, bg=C["bg_elevated"])
+        a_canvas.create_window((0, 0), window=a_inner, anchor="nw")
+        a_inner.bind("<Configure>", lambda e: a_canvas.configure(scrollregion=a_canvas.bbox("all")))
+
+        algo_vars = {}
+        for a in sorted(algo_list, key=lambda x: x["name"]):
+            var = tk.BooleanVar(value=True)
+            algo_vars[a["algorithm_id"]] = var
+            row = tk.Frame(a_inner, bg=C["bg_elevated"])
+            row.pack(fill=tk.X)
+            ttk.Checkbutton(row, variable=var).pack(side=tk.LEFT, padx=2)
+            tk.Label(row, text=f"{a['name']}  ({a['algorithm_id']})", bg=C["bg_elevated"],
+                     fg=C["text_1"], font=FONT_SM, anchor="w").pack(side=tk.LEFT, padx=2, fill=tk.X)
+
+        # 参数行
+        param_row = tk.Frame(main, bg=C["bg_base"])
+        param_row.pack(fill=tk.X, pady=(0, 8))
+        tk.Label(param_row, text="Epochs:", bg=C["bg_base"], fg=C["text_2"],
+                 font=FONT_SM).pack(side=tk.LEFT, padx=(0, 4))
+        ft_epoch_var = tk.IntVar(value=5)
+        ttk.Spinbox(param_row, from_=1, to=100, textvariable=ft_epoch_var, width=6).pack(side=tk.LEFT, padx=(0, 16))
+        tk.Label(param_row, text="Batch:", bg=C["bg_base"], fg=C["text_2"],
+                 font=FONT_SM).pack(side=tk.LEFT, padx=(0, 4))
+        ft_batch_var = tk.IntVar(value=16)
+        ttk.Spinbox(param_row, from_=1, to=512, textvariable=ft_batch_var, width=6).pack(side=tk.LEFT)
+
+        # 状态 & 进度
+        ft_status = tk.Label(main, text="就绪", bg=C["bg_base"], fg=C["text_3"], font=FONT_SM, anchor="w")
+        ft_status.pack(fill=tk.X, pady=(0, 4))
+        ft_progress = ttk.Progressbar(main, mode="determinate", maximum=100)
+        ft_progress.pack(fill=tk.X, pady=(0, 8))
+
+        # 日志区域
+        log_text = tk.Text(main, bg=C["bg_base"], fg=C["text_1"], font=("Consolas", 9),
+                           relief="flat", height=6, state="disabled")
+        log_text.pack(fill=tk.BOTH, expand=True)
+
+        def _ft_log(msg):
+            log_text.config(state="normal")
+            log_text.insert(tk.END, msg + "\n")
+            log_text.see(tk.END)
+            log_text.config(state="disabled")
+
+        def _start_ft():
+            selected_videos = [b for b, v in video_vars.items() if v.get()]
+            selected_algos = [a for a, v in algo_vars.items() if v.get()]
+            if not selected_videos:
+                messagebox.showwarning("提示", "请至少选择一个视频", parent=dialog)
+                return
+            if not selected_algos:
+                messagebox.showwarning("提示", "请至少选择一个算法", parent=dialog)
+                return
+
+            epochs = max(1, ft_epoch_var.get())
+            batch = max(1, ft_batch_var.get())
+            total = len(selected_videos) * len(selected_algos)
+            _ft_log(f"开始批量微调: {len(selected_videos)} 视频 × {len(selected_algos)} 算法 = {total} 任务")
+            start_btn.config(state="disabled")
+
+            def _worker():
+                from algorithms.training.trainer import ModelTrainer
+                trainer = ModelTrainer()
+                done = 0
+                for bvid in selected_videos:
+                    for aid in selected_algos:
+                        done += 1
+                        pct = int(done / total * 100)
+                        msg = f"[{done}/{total}] 微调 {aid} → {bvid}"
+                        dialog.after(0, lambda m=msg: ft_status.configure(text=m))
+                        dialog.after(0, lambda p=pct: ft_progress.config(value=p))
+                        dialog.after(0, lambda m=msg: _ft_log(m))
+                        try:
+                            ver = trainer.finetune_for_video(
+                                algo_id=aid, bvid=bvid, epochs=epochs, batch_size=batch,
+                            )
+                            dialog.after(0, lambda a=aid, b=bvid, v=ver:
+                                         _ft_log(f"  ✓ {a}@{b} → {v[:12]}"))
+                        except Exception as e:
+                            dialog.after(0, lambda a=aid, b=bvid, e=e:
+                                         _ft_log(f"  ✗ {a}@{b}: {e}"))
+                dialog.after(0, lambda: ft_status.configure(text=f"✅ 微调完成 ({done} 任务)"))
+                dialog.after(0, lambda: ft_progress.config(value=100))
+                dialog.after(0, lambda: start_btn.config(state="normal"))
+                dialog.after(0, lambda: _ft_log("🏁 批量微调全部完成"))
+
+            threading.Thread(target=_worker, daemon=True).start()
+
+        btn_row = tk.Frame(main, bg=C["bg_base"])
+        btn_row.pack(fill=tk.X)
+        start_btn = ttk.Button(btn_row, text="▶ 开始微调", command=_start_ft)
+        start_btn.pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(btn_row, text="取消", command=dialog.destroy).pack(side=tk.LEFT)
+
     # ── 置信度辅助 ────────────────────────────────
 
     @staticmethod
@@ -603,9 +827,24 @@ class TrainingMonitor:
         is_incremental = self._mode_var.get() == "incremental"
         mode_label = "增量训练" if is_incremental else "重新训练"
 
+        # 学习率：自动模式计算推荐值，手动模式读取用户输入
+        if self._lr_auto_var.get():
+            lr = self._auto_compute_lr()
+            self._lr_var.set(f"{lr:.6f}")
+            lr_label = f"自动 ({lr:.6f})"
+        else:
+            try:
+                lr = float(self._lr_var.get())
+            except (ValueError, TypeError):
+                messagebox.showerror("LR 无效", f"请输入有效的学习率数值", parent=self.frame)
+                return
+            lr = max(1e-8, min(1.0, lr))
+            lr_label = f"手动 ({lr:.6f})"
+
         if not messagebox.askyesno(
             "确认训练",
-            f"模式: {mode_label}\n算法: {len(selected)} 个\nepoch={epochs}  batch={batch}\n"
+            f"模式: {mode_label}\n算法: {len(selected)} 个\n"
+            f"epoch={epochs}  batch={batch}  LR={lr_label}\n"
             f"训练过程不可中途暂停（只能取消未开始的算法）。",
             parent=self.frame,
         ):
@@ -624,8 +863,8 @@ class TrainingMonitor:
         self._clear_chart()
         self._clear_log()
 
-        self._open_log_file(len(selected), epochs, batch, mode_label)
-        self._append_log(f"🚀 开始训练: {mode_label}, {len(selected)} 个算法, epoch={epochs}, batch={batch}")
+        self._open_log_file(len(selected), epochs, batch, mode_label, lr)
+        self._append_log(f"🚀 开始训练: {mode_label}, {len(selected)} 个算法, epoch={epochs}, batch={batch}, lr={lr:.6f}")
         self._status_lbl.config(text=f"准备训练 {len(selected)} 个算法 …", fg=C["text_2"])
 
         import queue as _q
@@ -650,7 +889,7 @@ class TrainingMonitor:
                     aid = remaining.pop(0)
                     sub = trainer.train_global(
                         [aid], epochs=epochs, batch_size=batch, progress_cb=_cb,
-                        init_from_global=is_incremental,
+                        init_from_global=is_incremental, lr=lr,
                     )
                     results.update(sub)
                 self._train_queue.put({"stage": "all_done", "results": results})
@@ -873,7 +1112,7 @@ class TrainingMonitor:
     # 日志（UI + 存盘）
     # ══════════════════════════════════════════════
 
-    def _open_log_file(self, algo_count: int, epochs: int, batch: int, mode: str):
+    def _open_log_file(self, algo_count: int, epochs: int, batch: int, mode: str, lr: float = 0.001):
         """创建训练日志文件。"""
         os.makedirs(self._log_dir, exist_ok=True)
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -882,7 +1121,7 @@ class TrainingMonitor:
         # 写文件头
         self._log_file.write(f"{'=' * 60}\n")
         self._log_file.write(f"  训练启动: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        self._log_file.write(f"  模式: {mode}  |  算法: {algo_count}  |  epoch: {epochs}  |  batch: {batch}\n")
+        self._log_file.write(f"  模式: {mode}  |  算法: {algo_count}  |  epoch: {epochs}  |  batch: {batch}  |  lr: {lr:.6f}\n")
         self._log_file.write(f"{'=' * 60}\n")
         self._log_file.flush()
 

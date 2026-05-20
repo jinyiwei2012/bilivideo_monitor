@@ -73,7 +73,7 @@ class AlgorithmRegistry:
         return list(cls._algorithms.keys())
 
     @classmethod
-    def _prepare_video_data(cls, history: List[Tuple], current_value: float) -> Dict:
+    def _prepare_video_data(cls, history: List[Tuple], current_value: float, bvid: str = "") -> Dict:
         """集中准备 video_data，避免每个 adapter 重复转换（提升 ~30% 性能）"""
         now = datetime.now()
         history_list = []
@@ -107,15 +107,16 @@ class AlgorithmRegistry:
             "history_data": history_list,
             "timestamp": now,
             "timestamp_str": now.strftime("%Y-%m-%d %H:%M:%S"),
+            "bvid": bvid,
         }
 
     @classmethod
-    def predict_all(cls, history: List, current_value: float, **kwargs) -> Dict:
+    def predict_all(cls, history: List, current_value: float, bvid: str = "", **kwargs) -> Dict:
         if not cls._initialized:
             cls.initialize()
 
         # ── 集中准备 video_data，避免每个 adapter 重复转换 ────
-        cached_video_data = cls._prepare_video_data(history, current_value)
+        cached_video_data = cls._prepare_video_data(history, current_value, bvid=bvid)
         # _kwargs_with_video = dict(kwargs, _cached_video_data=cached_video_data)
 
         results = {}

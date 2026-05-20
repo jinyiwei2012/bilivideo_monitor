@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 
 from algorithms.base import BaseAlgorithm, PredictionResult
-from algorithms.training.checkpoint_manager import CheckpointManager
+from algorithms.training.checkpoint_manager import CheckpointManager, load_best_checkpoint
 from algorithms.training.device import get_device
 
 logger = logging.getLogger(__name__)
@@ -119,7 +119,7 @@ class KnfAlgorithm(BaseAlgorithm):
 
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
         current_views = int(video_data.get("view_count", 0))
-        if _torch_available and self._ckpt.has_checkpoint():
+        if _torch_available:
             try:
                 v, conf, meta = self._torch_predict(video_data)
                 return self._make_result(current_views, threshold, v, conf, "knf_torch", meta)
@@ -131,16 +131,18 @@ class KnfAlgorithm(BaseAlgorithm):
 
     def _torch_predict(self, video_data: Dict[str, Any]) -> Tuple[float, float, Dict]:
         x_arr = self._build_input_array(video_data)  # [W, F]
-        if self._cached_model is None:
+        bvid = video_data.get("bvid", "")
+        state = load_best_checkpoint(self.algorithm_id, bvid=bvid)
+        if state is None:
+            raise RuntimeError("无可用的 checkpoint — 请先训练")
+        if self._cached_model is None or (bvid and not getattr(self, "_cached_bvid", "") == bvid):
             model = KnfTorchModel(
                 in_features=len(self._features), window=self.training_window, horizon=self.training_horizon
             )
-            state = self._ckpt.load()
-            if state is None:
-                raise RuntimeError("checkpoint 加载失败")
             model.load_state_dict(state)
             model.to(self._device).eval()
             self._cached_model = model
+            self._cached_bvid = bvid or ""
         x = torch.from_numpy(x_arr).unsqueeze(0).to(self._device)
         with torch.no_grad():
             y = self._cached_model(x).cpu().numpy().squeeze(0)  # [H]

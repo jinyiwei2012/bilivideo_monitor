@@ -387,8 +387,13 @@ def try_torch_predict(
 
         algorithm._device = get_device()
 
-    ckpt = algorithm._ckpt
-    if not ckpt.has_checkpoint():
+    # 优先加载视频微调 checkpoint，回退到全局
+    from algorithms.training.checkpoint_manager import load_best_checkpoint
+
+    algo_id = getattr(algorithm, "algorithm_id", "unknown")
+    bvid = video_data.get("bvid", "")
+    state = load_best_checkpoint(algo_id, bvid=bvid)
+    if state is None:
         return fallback_fn(video_data, threshold)
 
     try:
@@ -398,15 +403,12 @@ def try_torch_predict(
             return fallback_fn(video_data, threshold)
 
         model = getattr(algorithm, "_cached_torch_model", None)
-        if model is None:
+        if model is None or (bvid and not getattr(algorithm, "_cached_bvid", "") == bvid):
             model = model_cls(**(model_kwargs or {}))
-            state = ckpt.load()
-            if state is None:
-                raise RuntimeError("checkpoint 加载失败")
             model.load_state_dict(state)
-            device = getattr(algorithm, "_device", None) or torch.device("cpu")
-            model.to(device).eval()
+            model.to(algorithm._device).eval()
             algorithm._cached_torch_model = model
+            algorithm._cached_bvid = bvid or ""
 
         device = next(model.parameters()).device
         x = torch.from_numpy(x_arr).unsqueeze(0).to(device)

@@ -5,6 +5,8 @@
 
 import tkinter as tk
 from tkinter import ttk
+import threading
+import logging
 from datetime import datetime
 import customtkinter as ctk
 
@@ -12,6 +14,7 @@ from ui.theme import C
 from ui.helpers import (
     FONT,
     FONT_SM,
+    FONT_BOLD,
     FONT_MONO,
     THRESHOLDS,
     THRESHOLD_NAMES,
@@ -241,6 +244,160 @@ class DetailPanel:
         bv_lbl.bind("<Button-1>", lambda e: self.gui._copy_bvid(bvid))
         bv_lbl.bind("<Enter>", lambda e: bv_lbl.configure(text_color=C["accent"]))
         bv_lbl.bind("<Leave>", lambda e: bv_lbl.configure(text_color=C["text_3"]))
+
+        # ── 微调工具栏 ──
+        ft_bar = ctk.CTkFrame(info, fg_color=C["bg_surface"], corner_radius=0)
+        ft_bar.pack(fill=tk.X, pady=(6, 0))
+        self._finetune_btn = ctk.CTkButton(
+            ft_bar,
+            text="🎯 微调此视频",
+            font=FONT_SM,
+            fg_color=C.get("accent", "#4A90D9"),
+            hover_color=C.get("accent_hover", "#357ABD"),
+            text_color="#FFFFFF",
+            height=26,
+            corner_radius=4,
+            width=100,
+            command=lambda: self._open_finetune_dialog(bvid),
+        )
+        self._finetune_btn.pack(side=tk.LEFT, padx=(0, 6))
+        self._finetune_status = ctk.CTkLabel(
+            ft_bar,
+            text="",
+            text_color=C["text_3"],
+            font=FONT_SM,
+            fg_color="transparent",
+        )
+        self._finetune_status.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+    def _open_finetune_dialog(self, bvid: str):
+        """打开微调对话框，选择算法并启动微调。"""
+        # 扫描有全局 checkpoint 的 DL 算法
+        from algorithms.registry import AlgorithmRegistry
+        from algorithms.training.checkpoint_manager import CheckpointManager
+
+        AlgorithmRegistry.initialize()
+        algos = []
+        for adapter in AlgorithmRegistry.get_all_algorithms():
+            algo = getattr(adapter, "algo", adapter)
+            if not hasattr(algo, "build_model"):
+                continue
+            aid = getattr(algo, "algorithm_id", None) or ""
+            if not aid:
+                continue
+            ckpt = CheckpointManager(aid)
+            if ckpt.has_checkpoint():
+                algos.append({"algorithm_id": aid, "name": getattr(algo, "name", aid)})
+
+        if not algos:
+            tk.messagebox.showinfo("提示", "没有已训练的深度学习算法可供微调", parent=self.gui.root)
+            return
+
+        dialog = ctk.CTkToplevel(self.gui.root)
+        dialog.title(f"微调 — {bvid}")
+        dialog.geometry("480x400")
+        dialog.transient(self.gui.root)
+        dialog.grab_set()
+
+        main_frame = ctk.CTkFrame(dialog, fg_color=C["bg_base"])
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        ctk.CTkLabel(
+            main_frame,
+            text=f"选择要在 {bvid} 上微调的算法",
+            font=FONT_BOLD,
+            text_color=C["text_1"],
+        ).pack(anchor="w", pady=(0, 6))
+
+        # 算法复选框
+        scroll = ctk.CTkScrollableFrame(main_frame, fg_color=C["bg_surface"], height=180)
+        scroll.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
+
+        algo_vars = {}
+        for a in sorted(algos, key=lambda x: x["name"]):
+            var = tk.BooleanVar(value=True)
+            algo_vars[a["algorithm_id"]] = var
+            row = ctk.CTkFrame(scroll, fg_color="transparent")
+            row.pack(fill=tk.X, pady=1)
+            ctk.CTkCheckBox(
+                row, text=f"{a['name']} ({a['algorithm_id']})",
+                variable=var, font=FONT_SM, text_color=C["text_1"],
+                fg_color=C.get("accent", "#4A90D9"),
+            ).pack(side=tk.LEFT, padx=4, pady=2)
+
+        # 参数
+        param_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        param_frame.pack(fill=tk.X, pady=(0, 8))
+        ctk.CTkLabel(param_frame, text="Epochs:", font=FONT_SM, text_color=C["text_2"]).pack(side=tk.LEFT, padx=(0, 4))
+        epoch_var = tk.IntVar(value=5)
+        epoch_spin = ctk.CTkEntry(param_frame, textvariable=epoch_var, width=60, font=FONT_MONO)
+        epoch_spin.pack(side=tk.LEFT, padx=(0, 16))
+        ctk.CTkLabel(param_frame, text="Batch:", font=FONT_SM, text_color=C["text_2"]).pack(side=tk.LEFT, padx=(0, 4))
+        batch_var = tk.IntVar(value=16)
+        batch_spin = ctk.CTkEntry(param_frame, textvariable=batch_var, width=60, font=FONT_MONO)
+        batch_spin.pack(side=tk.LEFT, padx=(0, 16))
+
+        # 状态 & 进度
+        status_lbl = ctk.CTkLabel(main_frame, text="就绪", font=FONT_SM, text_color=C["text_3"])
+        status_lbl.pack(fill=tk.X, anchor="w")
+        progress_bar = ctk.CTkProgressBar(main_frame, height=6)
+        progress_bar.pack(fill=tk.X, pady=(4, 8))
+        progress_bar.set(0)
+
+        # 按钮
+        btn_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        btn_frame.pack(fill=tk.X)
+        start_btn = ctk.CTkButton(
+            btn_frame, text="开始微调", font=FONT_SM,
+            fg_color=C.get("accent", "#4A90D9"),
+            command=lambda: self._run_finetune(
+                dialog, bvid, algo_vars, epoch_var, batch_var, status_lbl, progress_bar, start_btn,
+            ),
+        )
+        start_btn.pack(side=tk.LEFT, padx=(0, 6))
+        ctk.CTkButton(
+            btn_frame, text="取消", font=FONT_SM,
+            fg_color=C["bg_elevated"], text_color=C["text_1"],
+            command=dialog.destroy,
+        ).pack(side=tk.LEFT)
+
+    def _run_finetune(
+        self, dialog, bvid, algo_vars, epoch_var, batch_var,
+        status_lbl, progress_bar, start_btn,
+    ):
+        """在后台线程运行微调，更新对话框进度。"""
+        selected = [aid for aid, var in algo_vars.items() if var.get()]
+        if not selected:
+            tk.messagebox.showinfo("提示", "请至少选择一个算法", parent=dialog)
+            return
+
+        epochs = max(1, epoch_var.get())
+        batch = max(1, batch_var.get())
+        start_btn.configure(state="disabled", text="微调中…")
+
+        def _worker():
+            from algorithms.training.trainer import ModelTrainer
+
+            trainer = ModelTrainer()
+            total = len(selected)
+            for i, aid in enumerate(selected):
+                msg = f"[{i+1}/{total}] 微调 {aid}…"
+                dialog.after(0, lambda m=msg: status_lbl.configure(text=m))
+                dialog.after(0, lambda p=(i + 0.5) / total: progress_bar.set(p))
+                try:
+                    version = trainer.finetune_for_video(
+                        algo_id=aid, bvid=bvid, epochs=epochs, batch_size=batch,
+                    )
+                    msg = f"✓ {aid} → {version[:12]}"
+                except Exception as e:
+                    msg = f"✗ {aid}: {e}"
+                dialog.after(0, lambda m=msg: status_lbl.configure(text=m))
+            dialog.after(0, lambda: status_lbl.configure(text=f"✅ 微调完成 ({total} 个算法)"))
+            dialog.after(0, lambda: progress_bar.set(1.0))
+            dialog.after(0, lambda: start_btn.configure(text="完成", state="normal"))
+            dialog.after(0, lambda: self._finetune_status.configure(text=f"✅ 微调完成 ({total})"))
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     def _rebuild_stat_bar(self, video):
         bar = self._stat_bar
