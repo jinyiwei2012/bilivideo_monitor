@@ -46,7 +46,13 @@ class MoiraiAlgorithm(BaseAlgorithm):
                 v, conf, meta = self._torch_predict(video_data)
                 return self._make_result(current_views, threshold, v, conf, "moirai_hf", meta)
             except Exception as e:
-                logger.warning("[moirai] HF 推理失败，降级: %s", e)
+                # 首次失败记 warning，后续整条 HF 路径关闭，避免日志刷屏
+                if not self._tried_load or self._cached_model is not None:
+                    logger.warning("[moirai] HF 推理失败，降级: %s", e)
+                else:
+                    logger.debug("[moirai] HF 路径已禁用，走 numpy: %s", e)
+                if self._cached_model is None:
+                    self._available = False
         return self._numpy_predict(video_data, current_views, threshold)
 
     def _torch_predict(self, video_data: Dict[str, Any]) -> Tuple[float, float, Dict]:
@@ -63,8 +69,6 @@ class MoiraiAlgorithm(BaseAlgorithm):
         if self._cached_model is None:
             raise RuntimeError("MOIRAI 模型不可用")
 
-        # MOIRAI 的实际接口因 uni2ts 版本不同而异；这里写一个保守包装
-        # 大多数情况下需要把 context 传入 forward 并取分布的均值
         x = torch.tensor(velocities, dtype=torch.float32).reshape(1, -1, 1)  # [1, L, 1]
         try:
             with torch.no_grad():
@@ -73,19 +77,51 @@ class MoiraiAlgorithm(BaseAlgorithm):
                 elif hasattr(self._cached_model, "forecast"):
                     out = self._cached_model.forecast(x, horizon=3)
                 else:
-                    # 退化到 forward
-                    out = self._cached_model(x)
+                    # MoiraiModule.forward() 在 uni2ts>=2.0 需要 6 个额外参数
+                    # (observed_mask, sample_id, time_id, variate_id, prediction_mask, patch_size)
+                    # 用 MoiraiForecast 包装器处理内部数据转换
+                    from uni2ts.model.moirai import MoiraiForecast
+
+                    context_length = x.shape[1]
+                    prediction_length = 3
+
+                    forecast_model = MoiraiForecast(
+                        prediction_length=prediction_length,
+                        target_dim=1,
+                        feat_dynamic_real_dim=0,
+                        past_feat_dynamic_real_dim=0,
+                        context_length=context_length,
+                        module=self._cached_model,
+                        patch_size=8,
+                    )
+                    forecast_model.eval()
+
+                    past_observed_target = torch.ones_like(x, dtype=torch.bool)
+                    past_is_pad = torch.zeros(1, context_length, dtype=torch.bool)
+
+                    out = forecast_model(
+                        past_target=x,
+                        past_observed_target=past_observed_target,
+                        past_is_pad=past_is_pad,
+                    )
+                    # out: [1, num_samples, prediction_length, 1]
         except Exception as e:
             raise RuntimeError(f"MOIRAI forward 异常: {e}")
 
         # 提取预测均值
-        if hasattr(out, "mean"):
-            pred = out.mean
+        if isinstance(out, torch.Tensor):
+            if out.ndim >= 3:
+                # MoiraiForecast: [batch, num_samples, pred_len, dim] → mean over samples
+                pred_arr = out.mean(dim=1).detach().cpu().numpy().reshape(-1)
+            else:
+                pred_arr = out.detach().cpu().numpy().reshape(-1)
+        elif hasattr(out, "mean") and not callable(out.mean):
+            # Distribution.mean property
+            pred_arr = out.mean.detach().cpu().numpy().reshape(-1)
         elif isinstance(out, (tuple, list)):
-            pred = out[0]
+            pred_arr = torch.as_tensor(out[0]).detach().cpu().numpy().reshape(-1)
         else:
-            pred = out
-        pred_arr = pred.detach().cpu().numpy().reshape(-1)
+            pred_arr = torch.as_tensor(out).detach().cpu().numpy().reshape(-1)
         predicted = max(0.0, float(pred_arr[0]))
         return predicted, 0.8, {"horizon_pred": pred_arr.tolist(), "method": "moirai_zeroshot"}
 

@@ -51,23 +51,38 @@ def clear_cache():
 
 
 def get_moirai_model() -> Tuple[Optional[Any], bool, str]:
-    """加载 MOIRAI-2 small 模型。返回 (model, ok, reason)。"""
+    """加载 MOIRAI-2 small 模型。返回 (model, ok, reason)。
+
+    MOIRAI 的 config.json 用 uni2ts 自定义类型，标准 transformers.AutoModel
+    无法识别 → 必须走 uni2ts.model.moirai.MoiraiModule.from_pretrained。
+    没装 uni2ts 时降级到 numpy 路径（warning 在算法侧消音）。
+    """
     if not is_hf_available():
         return None, False, "需要 transformers + huggingface_hub"
     with _lock:
         if "moirai" in _models:
-            return _models["moirai"], True, "cached"
+            cached = _models["moirai"]
+            if cached is None:
+                return None, False, "cached_failure"
+            return cached, True, "cached"
     try:
-        from transformers import AutoModel
-
-        logger.info("[hf_loader] 首次加载 MOIRAI-2，从 HuggingFace 下载或读缓存: %s", MOIRAI_REPO)
-        model = AutoModel.from_pretrained(MOIRAI_REPO, trust_remote_code=True)
+        from uni2ts.model.moirai import MoiraiModule
+    except ImportError as e:
+        logger.info("[hf_loader] uni2ts 未安装，MOIRAI 走 numpy 降级: %s", e)
+        with _lock:
+            _models["moirai"] = None  # 缓存失败结果，避免下次再 import
+        return None, False, "需要 pip install uni2ts"
+    try:
+        logger.info("[hf_loader] 首次加载 MOIRAI，从 HuggingFace 下载或读缓存: %s", MOIRAI_REPO)
+        model = MoiraiModule.from_pretrained(MOIRAI_REPO)
         model.eval()
         with _lock:
             _models["moirai"] = model
         return model, True, "loaded"
     except Exception as e:
-        logger.warning("[hf_loader] MOIRAI-2 加载失败: %s", e)
+        logger.warning("[hf_loader] MOIRAI 加载失败: %s", e)
+        with _lock:
+            _models["moirai"] = None
         return None, False, str(e)
 
 
@@ -77,7 +92,10 @@ def get_lag_llama_model() -> Tuple[Optional[Any], bool, str]:
         return None, False, "需要 transformers + huggingface_hub"
     with _lock:
         if "lag_llama" in _models:
-            return _models["lag_llama"], True, "cached"
+            cached = _models["lag_llama"]
+            if cached is None:
+                return None, False, "cached_failure"
+            return cached, True, "cached"
     try:
         from huggingface_hub import hf_hub_download
 
@@ -94,6 +112,8 @@ def get_lag_llama_model() -> Tuple[Optional[Any], bool, str]:
         return ckpt, True, "loaded"
     except Exception as e:
         logger.warning("[hf_loader] Lag-Llama 加载失败: %s", e)
+        with _lock:
+            _models["lag_llama"] = None
         return None, False, str(e)
 
 
