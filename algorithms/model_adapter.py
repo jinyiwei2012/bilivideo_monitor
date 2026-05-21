@@ -8,6 +8,7 @@ from datetime import datetime
 import importlib
 import os
 import logging
+from utils import project_path
 from utils.time_utils import normalize_timestamp
 
 logger = logging.getLogger(__name__)
@@ -221,8 +222,7 @@ def load_all_model_algorithms() -> List[ModelAlgorithmAdapter]:
     adapters = []
 
     # 确保是models目录
-    current_dir = os.path.dirname(__file__)
-    models_dir = os.path.join(current_dir, "models")
+    models_dir = project_path("algorithms", "models")
 
     if not os.path.exists(models_dir):
         logger.warning("models目录不存在: %s", models_dir)

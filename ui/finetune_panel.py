@@ -566,8 +566,7 @@ class FinetunePanel:
             from algorithms.training.checkpoint_manager import CheckpointManager
             import os as _os
             trainer = ModelTrainer()
-            _data_root = _os.path.join(
-                _os.path.dirname(_os.path.dirname(__file__)), "data")
+            _data_root = project_path("data")
             done = 0
             for bvid in selected_videos:
                 if self._cancel_flag[0]:

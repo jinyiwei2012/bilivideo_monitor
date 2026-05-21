@@ -26,6 +26,7 @@ import json
 import logging
 from datetime import datetime
 from typing import Optional, Dict, List, Any
+from utils import project_path
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,7 @@ try:
 except ImportError:
     _torch_available = False
 
-_CKPT_ROOT = os.path.join(os.path.dirname(os.path.dirname(__file__)), "checkpoints")
+_CKPT_ROOT = project_path("algorithms", "checkpoints")
 
 
 class CheckpointManager:

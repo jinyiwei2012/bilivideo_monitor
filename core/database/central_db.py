@@ -8,6 +8,7 @@ import logging
 from dataclasses import fields
 from datetime import datetime
 from typing import List, Dict, Optional
+from utils import project_path
 
 from .connection import _ConnectionCtx, _http_session
 from .models import _validate_bvid, VideoInfo, MonitorRecord, PredictionRecord
@@ -20,7 +21,7 @@ class Database:
     """总数据库管理类"""
 
     # 双备份：active_dir = core/data/（活跃写入）, backup_dir = data/（config 定义）
-    _ACTIVE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
+    _ACTIVE_DIR = project_path("core", "data")
     _BACKUP_DIR = None  # 懒加载
 
     @classmethod

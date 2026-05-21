@@ -5,8 +5,9 @@ UP主数据库管理模块 — 管理UP主信息与历史趋势数据
 import sqlite3
 import os
 from typing import List, Dict, Optional
+from utils import project_path
 
-_DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
+_DATA_DIR = project_path("data")
 
 
 class UpDatabase:

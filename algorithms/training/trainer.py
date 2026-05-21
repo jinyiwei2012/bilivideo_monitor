@@ -18,6 +18,7 @@ import logging
 import math
 import time
 from typing import Callable, Dict, List, Optional
+from utils import project_path
 
 logger = logging.getLogger(__name__)
 
@@ -343,10 +344,7 @@ class ModelTrainer:
     def _save_model_to_video_dir(self, model: "torch.nn.Module", bvid: str, algo_id: str):
         """保存模型 state_dict 到 data/<bvid>/model/<algo_id>.pt"""
         import os
-        video_model_dir = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-            "data", bvid, "model",
-        )
+        video_model_dir = project_path("data", bvid, "model")
         os.makedirs(video_model_dir, exist_ok=True)
         path = os.path.join(video_model_dir, f"{algo_id}.pt")
         try:

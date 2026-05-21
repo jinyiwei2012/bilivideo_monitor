@@ -6,6 +6,7 @@ import re
 import threading
 import logging
 from datetime import datetime
+from utils import project_path
 from typing import List, Dict, Optional
 
 from .connection import _ConnectionCtx
@@ -24,7 +25,7 @@ class VideoDatabase:
         _validate_bvid(bvid)
         self.bvid = bvid
         if base_dir is None:
-            base_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
+            base_dir = project_path("core", "data")
 
         # 创建以BV号命名的文件夹
         self.video_dir = os.path.join(base_dir, bvid)

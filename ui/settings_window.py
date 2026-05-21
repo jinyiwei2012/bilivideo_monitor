@@ -983,12 +983,7 @@ class SettingsWindow:
             try:
                 import shutil
 
-                src = os.path.join(
-                    os.path.dirname(os.path.dirname(__file__)),
-                    "algorithms",
-                    "checkpoints",
-                    algo_id,
-                    f"{v}.pt",
+                src = project_path("algorithms", "checkpoints", algo_id, f"{v}.pt")
                 )
                 shutil.copyfile(src, path)
                 messagebox.showinfo("成功", f"已导出到:\n{path}", parent=top)

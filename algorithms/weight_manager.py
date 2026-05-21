@@ -9,6 +9,7 @@ import threading
 import logging
 from typing import Dict, List
 from datetime import datetime
+from utils import project_path
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +19,7 @@ class WeightManager:
 
     def __init__(self, save_dir: str = None):
         if save_dir is None:
-            save_dir = os.path.join(os.path.dirname(__file__), "weights")
+            save_dir = project_path("algorithms", "weights")
 
         self.save_dir = save_dir
         os.makedirs(save_dir, exist_ok=True)
