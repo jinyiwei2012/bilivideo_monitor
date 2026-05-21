@@ -19,10 +19,9 @@ class DanmakuAnalysisWindow:
     """弹幕/评论分析窗口"""
 
     def __init__(self, parent=None, api=None, gui=None):
-        sw = parent.winfo_screenwidth() if parent else 1920
-        sh = parent.winfo_screenheight() if parent else 1080
-        w, h = int(sw * 0.50), int(sh * 0.72)
-        self.dlg = DialogBase(parent, "弹幕/评论分析", f"{w}x{h}", resizable=(True, True), modal=False)
+        self.dlg = DialogBase(parent, "弹幕/评论分析",
+                              DialogBase.calc_geometry(parent, 0.50, 0.72),
+                              resizable=(True, True), modal=False)
         self.window = self.dlg.window
         self.api = api
         self.gui = gui

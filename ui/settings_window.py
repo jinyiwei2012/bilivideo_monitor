@@ -28,10 +28,9 @@ class SettingsWindow:
 
     def __init__(self, parent=None):
         # 自适应对话框尺寸
-        sw = parent.winfo_screenwidth() if parent else 1920
-        sh = parent.winfo_screenheight() if parent else 1080
-        w, h = int(sw * 0.48), int(sh * 0.68)
-        self.dlg = DialogBase(parent, "系统设置", f"{w}x{h}", resizable=(True, True), modal=False)
+        self.dlg = DialogBase(parent, "系统设置",
+                              DialogBase.calc_geometry(parent, 0.48, 0.68),
+                              resizable=(True, True), modal=False)
         self.window = self.dlg.window
 
         from config import load_config

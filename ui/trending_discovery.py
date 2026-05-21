@@ -14,10 +14,9 @@ class TrendingDiscoveryWindow:
     """热门视频发现窗口"""
 
     def __init__(self, parent=None, api=None, on_add_monitor: Optional[Callable] = None):
-        sw = parent.winfo_screenwidth() if parent else 1920
-        sh = parent.winfo_screenheight() if parent else 1080
-        w, h = int(sw * 0.48), int(sh * 0.68)
-        self.dlg = DialogBase(parent, "热门视频发现", f"{w}x{h}", resizable=(True, True), modal=False)
+        self.dlg = DialogBase(parent, "热门视频发现",
+                              DialogBase.calc_geometry(parent, 0.48, 0.68),
+                              resizable=(True, True), modal=False)
         self.window = self.dlg.window
         self.api = api
         self.on_add_monitor = on_add_monitor

@@ -24,9 +24,9 @@ class WeeklyScoreWindow:
     """周刊分数计算窗口（现代化风格）"""
 
     def __init__(self, parent=None, monitored_videos: Optional[List[Dict]] = None, video_dbs: Optional[Dict] = None):
-        sw = parent.winfo_screenwidth() if parent else 1920
-        sh = parent.winfo_screenheight() if parent else 1080
-        self.dlg = DialogBase(parent, "周刊分数计算", f"{int(sw*0.42)}x{int(sh*0.62)}", resizable=(True, True), modal=False)
+        self.dlg = DialogBase(parent, "周刊分数计算",
+                              DialogBase.calc_geometry(parent, 0.42, 0.62),
+                              resizable=(True, True), modal=False)
         self.window = self.dlg.window
         self.monitored_videos = monitored_videos or []
         self.video_dbs = video_dbs or {}

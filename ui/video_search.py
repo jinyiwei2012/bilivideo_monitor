@@ -20,9 +20,8 @@ class VideoSearchWindow:
     """视频搜索窗口（现代化风格）"""
 
     def __init__(self, parent=None, on_import: Optional[Callable[[list], None]] = None):
-        sw = parent.winfo_screenwidth() if parent else 1920
-        sh = parent.winfo_screenheight() if parent else 1080
-        self.dlg = DialogBase(parent, "搜索视频 - B站", f"{int(sw*0.48)}x{int(sh*0.68)}", modal=True)
+        self.dlg = DialogBase(parent, "搜索视频 - B站",
+                              DialogBase.calc_geometry(parent, 0.48, 0.68), modal=True)
         self.window = self.dlg.window
         self.on_import = on_import
         self.search_results: List[Dict] = []
