@@ -8,6 +8,7 @@ import time
 import math
 import random
 import logging
+from utils import project_path
 import threading
 import warnings
 from typing import Dict, List, Optional, Any, Tuple
@@ -108,7 +109,7 @@ class BilibiliAPI:
             import json
             import os
 
-            cfg_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "network_config.json")
+            cfg_path = project_path("data", "network_config.json")
             if os.path.exists(cfg_path):
                 with open(cfg_path, "r", encoding="utf-8") as f:
                     net_cfg = json.load(f)

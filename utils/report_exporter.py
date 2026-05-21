@@ -6,11 +6,12 @@ import os
 import logging
 from datetime import datetime
 from typing import List, Dict, Optional
+from utils import project_path
 
 logger = logging.getLogger(__name__)
 
 
-_OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "reports")
+_OUTPUT_DIR = project_path("reports")
 
 
 def _fmt(n):
