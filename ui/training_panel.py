@@ -26,7 +26,7 @@ except ImportError:
 from ui.mpl_imports import mpl_available, Figure, FigureCanvasTkAgg
 
 from ui.theme import C
-from ui.helpers import FONT, FONT_SM, FONT_MONO, FONT_BOLD, loss_to_confidence, format_confidence
+from ui.helpers import FONT, FONT_SM, FONT_MONO, FONT_BOLD, loss_to_confidence, format_confidence, load_algo_confidence
 
 
 class TrainingMonitor:
@@ -630,7 +630,7 @@ class TrainingPanel:
             status_lbl.grid(row=0, column=3, padx=2, sticky="w")
 
             # 置信度列
-            conf = self._load_confidence(aid)
+            conf = load_algo_confidence(aid)
             conf_text, conf_color = format_confidence(conf)
             conf_lbl = tk.Label(row, text=conf_text, bg=C["bg_surface"], fg=conf_color,
                                 font=FONT_SM, width=10, anchor="w")
@@ -1032,24 +1032,6 @@ class TrainingPanel:
         start_btn.pack(side=tk.LEFT, padx=(0, 6))
         ttk.Button(btn_row, text="取消", command=dialog.destroy).pack(side=tk.LEFT)
 
-    def _load_confidence(self, algo_id: str) -> float:
-        """读取算法 active checkpoint 的 val_loss 并计算置信度。"""
-        try:
-            from algorithms.training.checkpoint_manager import CheckpointManager
-            ckpt = CheckpointManager(algo_id)
-            versions = ckpt.list_versions()
-            active_v = ckpt.active_version()
-            if not versions or not active_v:
-                return 0.0
-            for v in versions:
-                if v["version"] == active_v:
-                    val_loss = v.get("val_loss", -1.0)
-                    return loss_to_confidence(val_loss)
-            # fallback: latest version
-            return loss_to_confidence(versions[0].get("val_loss", -1.0))
-        except Exception:
-            return 0.0
-
     # ══════════════════════════════════════════════
     # 训练执行
     # ══════════════════════════════════════════════
@@ -1319,7 +1301,7 @@ class TrainingPanel:
                     self._progress["value"] = int(cur / max(1, total_sel) * 100)
                     self._append_log(f"✓ {aid} 完成, 保存为 {ver}")
                     # 读取最终置信度并更新行
-                    conf = self._load_confidence(aid)
+                    conf = load_algo_confidence(aid)
                     conf_str, conf_color = format_confidence(conf)
                     self._algo_confidence[aid] = conf
                     self._update_algo_row(
@@ -1356,7 +1338,7 @@ class TrainingPanel:
                     for aid, ver in results.items():
                         if not ver:
                             continue
-                        conf = self._load_confidence(aid)
+                        conf = load_algo_confidence(aid)
                         self._algo_confidence[aid] = conf
                         conf_str, _ = format_confidence(conf)
                         conf_summary += f"  {aid}: {conf_str}"

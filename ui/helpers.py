@@ -141,3 +141,21 @@ def format_confidence(conf: float):
         return f"→ {pct:.0f}%", C["warning"]
     else:
         return f"↓ {pct:.0f}%", C["danger"]
+
+
+def load_algo_confidence(algo_id: str) -> float:
+    """读取算法 active checkpoint 的 val_loss 并计算置信度。"""
+    try:
+        from algorithms.training.checkpoint_manager import CheckpointManager
+
+        ckpt = CheckpointManager(algo_id)
+        versions = ckpt.list_versions()
+        active_v = ckpt.active_version()
+        if not versions or not active_v:
+            return 0.0
+        for v in versions:
+            if v["version"] == active_v:
+                return loss_to_confidence(v.get("val_loss", -1.0))
+        return loss_to_confidence(versions[0].get("val_loss", -1.0))
+    except Exception:
+        return 0.0

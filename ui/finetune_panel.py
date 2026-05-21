@@ -26,7 +26,7 @@ except ImportError:
 from ui.mpl_imports import mpl_available, Figure, FigureCanvasTkAgg
 
 from ui.theme import C
-from ui.helpers import FONT, FONT_SM, FONT_MONO, FONT_BOLD, loss_to_confidence, format_confidence
+from ui.helpers import FONT, FONT_SM, FONT_MONO, FONT_BOLD, loss_to_confidence, format_confidence, load_algo_confidence
 from ui.training_panel import TrainingMonitor
 
 
@@ -377,7 +377,7 @@ class FinetunePanel:
                      font=FONT_SM, width=10, anchor="w").grid(row=0, column=3, padx=2, sticky="w")
 
             # 置信度（全局）
-            conf = self._load_confidence(aid)
+            conf = load_algo_confidence(aid)
             conf_text, conf_color = format_confidence(conf)
             tk.Label(row, text=conf_text, bg=C["bg_surface"], fg=conf_color,
                      font=FONT_SM, width=8, anchor="w").grid(row=0, column=4, padx=2, sticky="w")
@@ -406,21 +406,6 @@ class FinetunePanel:
             v.set(flag)
 
     # ── 置信度辅助（已提取到 helpers）──
-
-    def _load_confidence(self, algo_id: str) -> float:
-        try:
-            from algorithms.training.checkpoint_manager import CheckpointManager
-            ckpt = CheckpointManager(algo_id)
-            versions = ckpt.list_versions()
-            active_v = ckpt.active_version()
-            if not versions or not active_v:
-                return 0.0
-            for v in versions:
-                if v["version"] == active_v:
-                    return loss_to_confidence(v.get("val_loss", -1.0))
-            return loss_to_confidence(versions[0].get("val_loss", -1.0))
-        except Exception:
-            return 0.0
 
     def _load_video_confidence(self, algo_id: str, bvid: str) -> float:
         """读取视频微调 checkpoint 的置信度。"""
