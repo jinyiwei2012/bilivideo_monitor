@@ -24,25 +24,6 @@ class ModelAlgorithmAdapter:
         self.category = getattr(algo_instance, "category", "其他")
         self.default_weight = getattr(algo_instance, "default_weight", 1.0)
 
-        # 检查算法接口类型
-        self._detect_interface()
-
-    def _detect_interface(self):
-        """检测算法接口类型"""
-        import inspect
-
-        sig = inspect.signature(self.algo.predict)
-        params = list(sig.parameters.keys())
-
-        # 类型1: predict(video_data, threshold)
-        if len(params) == 2 and "video_data" in params:
-            self.interface_type = "video_data"
-        # 类型2: predict(current_views, target_views, history_data, video_info)
-        elif len(params) == 4:
-            self.interface_type = "full_params"
-        else:
-            self.interface_type = "unknown"
-
     def predict(self, history: List[Tuple], current_value: float, **kwargs) -> Dict:
         """统一预测接口"""
         thresholds = kwargs.get("thresholds", [100000, 1000000, 10000000])
@@ -54,17 +35,7 @@ class ModelAlgorithmAdapter:
             if video_data is None:
                 video_data = self._prepare_video_data(history, current_value)
 
-            # 根据接口类型调用
-            if self.interface_type == "video_data":
-                result = self.algo.predict(video_data, thresholds[0])
-            else:
-                # full_params接口，需要转换数据格式
-                history_data = []
-                for t, v in history:
-                    _, _, ts_str = normalize_timestamp(t)
-                    history_data.append({"view": v, "view_count": v, "timestamp": ts_str})
-
-                result = self.algo.predict(current_value, thresholds[0], history_data, video_data)
+            result = self.algo.predict(video_data, thresholds[0])
 
             # 解析结果
             if result is None:
