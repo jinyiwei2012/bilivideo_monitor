@@ -12,6 +12,8 @@ UI 已拆分为独立模块：
 
 import tkinter as tk
 from tkinter import ttk, messagebox
+import customtkinter as ctk
+import math
 import threading
 import time
 import os
@@ -33,8 +35,10 @@ from ui.helpers import (
     DEFAULT_INTERVAL,
     FAST_INTERVAL,
     FAST_GAP,
+    THRESHOLD_NAMES,
     fmt_num,
     nearest_threshold_gap,
+    fmt_eta,
 )
 from ui.chart import draw_chart_placeholder
 from ui.log_panel import LogPanel
@@ -52,7 +56,7 @@ from ui.monitor_service import (
     load_watch_list,
     _start_worker,
 )
-from core import bilibili_api, db, MonitorRecord
+from core import bilibili_api, db, MonitorRecord, notification_manager
 from config import load_config, save_config
 from utils.file_logger import FileLogger
 from algorithms.training.checkpoint_manager import activate_latest_for_all, get_all_activation_status, list_all_trained_algorithms
@@ -72,7 +76,7 @@ class BilibiliMonitorGUI:
 
     def __init__(self, root=None):
         if root is None:
-            root = tk.Tk()
+            root = ctk.CTk()
             root.title("B站视频监控与播放量预测系统")
             # 自适应窗口：85% 屏幕尺寸，最低 55%
             sw = root.winfo_screenwidth()
@@ -673,15 +677,20 @@ class BilibiliMonitorGUI:
         dialog.configure(bg=C["bg_surface"])
         dialog.transient(self.root)
         dialog.grab_set()
-        dialog.resizable(False, False)
+        dialog.resizable(True, True)
         return dialog
 
     def _build_add_dialog_ui(self, dialog):
         """构建对话框UI元素"""
-        tk.Label(dialog, text="请输入BV号或视频链接：", bg=C["bg_surface"], fg=C["text_1"], font=FONT).pack(pady=(18, 4))
+        content = tk.Frame(dialog, bg=C["bg_surface"])
+        content.pack(fill=tk.BOTH, expand=True)
+
+        tk.Label(content, text="请输入BV号或视频链接：", bg=C["bg_surface"], fg=C["text_1"], font=FONT).pack(
+            pady=(18, 4)
+        )
 
         entry_f = tk.Frame(
-            dialog,
+            content,
             bg=C["bg_elevated"],
             highlightthickness=1,
             highlightbackground=C["border"],
@@ -693,8 +702,8 @@ class BilibiliMonitorGUI:
         )
         entry.pack(fill=tk.X, padx=8, pady=6)
         entry.focus_set()
-        tk.Label(dialog, text="格式：BV1xxx 或完整链接", bg=C["bg_surface"], fg=C["text_3"], font=FONT_SM).pack()
-        status_lbl = tk.Label(dialog, text="", bg=C["bg_surface"], fg=C["accent"], font=FONT_SM)
+        tk.Label(content, text="格式：BV1xxx 或完整链接", bg=C["bg_surface"], fg=C["text_3"], font=FONT_SM).pack()
+        status_lbl = tk.Label(content, text="", bg=C["bg_surface"], fg=C["accent"], font=FONT_SM)
         status_lbl.pack(pady=2)
 
         return entry, status_lbl
@@ -804,6 +813,96 @@ class BilibiliMonitorGUI:
         self.video_list.update_video_count()
         self._sb("videos", f"监控: {len(self.monitored_videos)} 个")
         self._save_watch_list()
+
+    def _build_push_msg(self, videos):
+        """构建推送消息文本"""
+        from datetime import datetime
+
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+        lines = [f"📊 B站监控报告 ({now_str})", f"监控 {len(videos)} 个视频：", "─" * 20]
+
+        for i, v in enumerate(videos, 1):
+            bvid = v.get("bvid", "?")
+            title = v.get("title", bvid)[:30]
+            views = v.get("view_count", 0)
+            likes = v.get("like_count", 0)
+            coins = v.get("coin_count", 0)
+
+            history = self.history_data.get(bvid, [])
+            velocity = 0
+            if len(history) >= 2:
+                t1, c1 = history[-2]
+                t0, c0 = history[-1]
+                if hasattr(t0, "timestamp"):
+                    t0 = t0.timestamp()
+                elif isinstance(t0, str):
+                    try:
+                        t0 = datetime.fromisoformat(t0).timestamp()
+                    except Exception:
+                        t0 = 0.0
+                if hasattr(t1, "timestamp"):
+                    t1 = t1.timestamp()
+                elif isinstance(t1, str):
+                    try:
+                        t1 = datetime.fromisoformat(t1).timestamp()
+                    except Exception:
+                        t1 = 0.0
+                dt = (t0 - t1) / 3600
+                if dt > 0:
+                    velocity = max(0, (c0 - c1)) / dt if isinstance(c0, (int, float)) else 0
+
+            gap, idx = nearest_threshold_gap(views)
+            eta = ""
+            if gap > 0 and velocity > 0:
+                eta_min = gap / velocity * 60
+                eta = f" 预计达{THRESHOLD_NAMES[idx]}: {fmt_eta(eta_min)}"
+
+            lines.append(f"{i}. 《{title}》")
+            lines.append(f"   播放: {fmt_num(views)}  |  👍 {fmt_num(likes)}  |  🪙 {fmt_num(coins)}")
+            lines.append(f"   增速: {math.ceil(velocity)}/h{eta}")
+
+        return "\n".join(lines)
+
+    def _push_single(self, bvid):
+        """推送单个视频状态"""
+        from core.notification import notification_manager
+
+        video = self._get_video(bvid)
+        if not video:
+            messagebox.showwarning("提示", f"未找到视频 {bvid}")
+            return
+
+        msg = self._build_push_msg([video])
+        title = video.get("title", bvid)[:30]
+        views = video.get("view_count", 0)
+
+        notification_manager.send_qq_private(msg)
+        notification_manager.send_qq_group(msg)
+        notification_manager.send_windows_notification(f"📊 B站监控 — {title[:20]}", msg[:256])
+        self._sb("status", f"已推送「{title[:20]}」", C["success"])
+
+    def _manual_push(self):
+        """手动推送所有监控视频状态到 QQ/Windows 通知"""
+        from core.notification import notification_manager
+
+        videos = self.monitored_videos
+        if not videos:
+            messagebox.showwarning("提示", "没有监控中的视频可推送")
+            return
+
+        msg = self._build_push_msg(videos)
+        now_str = datetime.now().strftime("%H:%M")
+
+        ok_qq_private = notification_manager.send_qq_private(msg)
+        ok_qq_group = notification_manager.send_qq_group(msg)
+        ok_win = notification_manager.send_windows_notification(f"📊 B站监控报告 ({now_str})", msg[:256])
+
+        if ok_qq_private or ok_qq_group:
+            self._sb("status", f"已推送 {len(videos)} 个视频状态", C["success"])
+        elif ok_win:
+            self._sb("status", "仅发送了 Windows 通知", C["warning"])
+        else:
+            self._sb("status", "推送失败 (未配置 QQ / 通知服务不可用)", C["danger"])
 
     def _refresh_data(self):
         self._do_fetch()

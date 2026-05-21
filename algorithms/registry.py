@@ -7,6 +7,7 @@ from typing import Dict, List, Tuple
 import logging
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from utils.time_utils import normalize_timestamp
 
 logger = logging.getLogger(__name__)
 
@@ -78,28 +79,23 @@ class AlgorithmRegistry:
         now = datetime.now()
         history_list = []
         for ts, v in history:
-            if isinstance(ts, datetime):
-                ts_ts = ts.timestamp()
-                ts_str = ts.strftime("%Y-%m-%d %H:%M:%S")
-            else:
+            try:
+                dt, ts_ts, ts_str = normalize_timestamp(ts)
+            except (ValueError, TypeError):
                 try:
-                    # ISO 格式字符串（如 2026-04-21T23:48:17.189827）
-                    dt = datetime.fromisoformat(str(ts))
-                    ts_ts = dt.timestamp()
-                    ts_str = dt.strftime("%Y-%m-%d %H:%M:%S")
+                    ts_ts = float(ts)
+                    ts_str = str(ts)
+                    dt = datetime.fromtimestamp(ts_ts)
                 except (ValueError, TypeError):
-                    try:
-                        ts_ts = float(ts)
-                        ts_str = str(ts)
-                    except (ValueError, TypeError):
-                        ts_ts = 0.0
-                        ts_str = str(ts)
+                    ts_ts = 0.0
+                    ts_str = str(ts)
+                    dt = now
             history_list.append(
                 {
                     "view_count": v,
                     "timestamp": ts_ts,
                     "timestamp_str": ts_str,
-                    "datetime": ts if isinstance(ts, datetime) else datetime.fromtimestamp(ts_ts),
+                    "datetime": dt,
                 }
             )
         return {

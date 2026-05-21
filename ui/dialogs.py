@@ -31,20 +31,23 @@ class Dialogs:
         dialog.geometry(f"{int(sw*0.22)}x{int(sh*0.25)}")
         dialog.transient(self.gui.root)
         dialog.grab_set()
-        dialog.resizable(False, False)
+        dialog.resizable(True, True)
+        # 使主内容区可扩展
+        content = ctk.CTkFrame(dialog, fg_color="transparent")
+        content.pack(fill=tk.BOTH, expand=True, padx=20, pady=(20, 0))
 
-        ctk.CTkLabel(dialog, text="普通刷新间隔（秒）：", text_color=C["text_1"], font=FONT, fg_color="transparent").pack(
-            pady=(20, 6)
+        ctk.CTkLabel(content, text="普通刷新间隔（秒）：", text_color=C["text_1"], font=FONT, fg_color="transparent").pack(
+            pady=(0, 6)
         )
 
         spin_f = ctk.CTkFrame(
-            dialog, fg_color=C["bg_elevated"], border_width=1, border_color=C["border"], corner_radius=6
+            content, fg_color=C["bg_elevated"], border_width=1, border_color=C["border"], corner_radius=6
         )
-        spin_f.pack(padx=40, fill=tk.X)
+        spin_f.pack(fill=tk.X)
         var = tk.IntVar(value=self.gui.DEFAULT_INTERVAL)
         ttk.Spinbox(spin_f, from_=10, to=3600, textvariable=var, width=10).pack(padx=8, pady=6)
         ctk.CTkLabel(
-            dialog,
+            content,
             text=f"距阈值 < {FAST_GAP} 时自动切换快速模式（{FAST_INTERVAL}s）",
             text_color=C["text_3"],
             font=FONT_SM,
@@ -62,7 +65,7 @@ class Dialogs:
             dialog.destroy()
 
         btn_f = ctk.CTkFrame(dialog, fg_color="transparent")
-        btn_f.pack(pady=14)
+        btn_f.pack(side=tk.BOTTOM, pady=14)
         ctk.CTkButton(
             btn_f,
             text="保存",

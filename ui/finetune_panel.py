@@ -180,7 +180,8 @@ class FinetunePanel:
     def _build_right(self, parent):
         right = tk.Frame(parent, bg=C["bg_surface"])
         right.grid(row=0, column=1, sticky="nsew")
-        right.grid_rowconfigure(2, weight=1)
+        right.grid_rowconfigure(1, weight=1)  # 图表
+        right.grid_rowconfigure(3, weight=1)  # 日志
         right.grid_columnconfigure(0, weight=1)
 
         # ── 当前任务信息栏 ──

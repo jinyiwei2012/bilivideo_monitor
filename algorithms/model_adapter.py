@@ -8,6 +8,7 @@ from datetime import datetime
 import importlib
 import os
 import logging
+from utils.time_utils import normalize_timestamp
 
 logger = logging.getLogger(__name__)
 
@@ -60,15 +61,8 @@ class ModelAlgorithmAdapter:
                 # full_params接口，需要转换数据格式
                 history_data = []
                 for t, v in history:
-                    if isinstance(t, datetime):
-                        ts_str = t.strftime("%Y-%m-%d %H:%M:%S")
-                    else:
-                        try:
-                            dt = datetime.fromisoformat(str(t))
-                            ts_str = dt.strftime("%Y-%m-%d %H:%M:%S")
-                        except (ValueError, TypeError):
-                            ts_str = str(t)
-                    history_data.append({"view": v, "view_count": v, "timestamp": ts_str})  # 必须是字符串格式
+                    _, _, ts_str = normalize_timestamp(t)
+                    history_data.append({"view": v, "view_count": v, "timestamp": ts_str})
 
                 result = self.algo.predict(current_value, thresholds[0], history_data, video_data)
 
@@ -82,28 +76,16 @@ class ModelAlgorithmAdapter:
             return self._make_error_result(current_value, str(e))
 
     def _prepare_video_data(self, history: List[Tuple], current_value: float, bvid: str = "") -> Dict:
-        """准备video_data"""
+        """准备video_data（仅作为 registry 未传入 _cached_video_data 时的保底）"""
         history_list = []
         for ts, v in history:
-            if isinstance(ts, datetime):
-                # 转换为字符串格式供某些算法使用
-                ts_str = ts.strftime("%Y-%m-%d %H:%M:%S")
-                ts_ts = ts.timestamp()
-            else:
-                try:
-                    dt = datetime.fromisoformat(str(ts))
-                    ts_str = dt.strftime("%Y-%m-%d %H:%M:%S")
-                    ts_ts = dt.timestamp()
-                except (ValueError, TypeError):
-                    ts_str = str(ts)
-                    ts_ts = float(ts)
-
+            dt, ts_ts, ts_str = normalize_timestamp(ts)
             history_list.append(
                 {
                     "view_count": v,
                     "timestamp": ts_ts,
-                    "timestamp_str": ts_str,  # 添加字符串格式
-                    "datetime": ts if isinstance(ts, datetime) else datetime.fromtimestamp(float(ts)),
+                    "timestamp_str": ts_str,
+                    "datetime": dt,
                 }
             )
 

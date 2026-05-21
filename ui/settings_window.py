@@ -1393,7 +1393,7 @@ class SettingsWindow:
         top.configure(bg=C["bg_surface"])
         top.transient(self.window)
         top.grab_set()
-        top.resizable(False, False)
+        top.resizable(True, True)
 
         tk.Label(
             top,
@@ -1845,7 +1845,7 @@ class SettingsWindow:
         qr_top.configure(bg=C["bg_surface"])
         qr_top.transient(self.window)
         qr_top.grab_set()
-        qr_top.resizable(False, False)
+        qr_top.resizable(True, True)
 
         tk.Label(
             qr_top,

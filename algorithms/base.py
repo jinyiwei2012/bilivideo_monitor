@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Dict, Any
 from datetime import datetime
 import time
+from utils.time_utils import safe_timestamp
 
 
 @dataclass
@@ -143,18 +144,11 @@ class BaseAlgorithm(ABC):
         if len(history) >= 1:
             t = history[0].get("timestamp", None)
             if t is not None:
-                if hasattr(t, "timestamp"):
-                    t = t.timestamp()
-                elif isinstance(t, (int, float)):
-                    pass
-                elif isinstance(t, str):
-                    try:
-                        t = datetime.fromisoformat(t).timestamp()
-                    except Exception:
-                        t = time.time()
-                else:
-                    t = time.time()
-                return max(0.0, (time.time() - t) / 3600.0)
+                try:
+                    ts_val = safe_timestamp(t)
+                except Exception:
+                    ts_val = time.time()
+                return max(0.0, (time.time() - ts_val) / 3600.0)
         # 回退：用 video_data 自身的 timestamp
         ts = video_data.get("timestamp")
         if ts is not None:

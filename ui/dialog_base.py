@@ -13,7 +13,7 @@ class DialogBase:
     提供统一的头部、卡片分段、按钮栏与间距控制。
     """
 
-    def __init__(self, parent, title="", geometry="480x360", resizable=(False, False), modal=True):
+    def __init__(self, parent, title="", geometry="480x360", resizable=(True, True), modal=True):
         self.window = tk.Toplevel(parent)
         self.window.title(title)
         self.window.geometry(geometry)

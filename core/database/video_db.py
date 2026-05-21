@@ -145,6 +145,7 @@ class VideoDatabase:
                 )
             """
             )
+
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_algo_perf_algorithm ON algorithm_performance(algorithm)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_algo_perf_bvid ON algorithm_performance(bvid)")
 

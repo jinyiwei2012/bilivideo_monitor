@@ -65,6 +65,18 @@ class VideoListPanel:
             hdr, text="0", fg_color=C["bg_elevated"], text_color=C["text_2"], font=FONT_SM, corner_radius=4
         )
         self._video_count_lbl.pack(side=tk.LEFT, padx=4)
+        ctk.CTkButton(
+            hdr,
+            text="📤 全部推送",
+            fg_color=C["bg_elevated"],
+            text_color=C["text_2"],
+            hover_color=C["bg_hover"],
+            font=("Microsoft YaHei UI", 8),
+            corner_radius=4,
+            height=22,
+            width=70,
+            command=self.gui._manual_push,
+        ).pack(side=tk.RIGHT, padx=4)
 
         # 搜索框
         self._search_entry = ctk.CTkEntry(
@@ -221,6 +233,23 @@ class VideoListPanel:
         gap_lbl.pack(side=tk.LEFT)
         pct_lbl = ctk.CTkLabel(label_f, text=pct_text, text_color=C["text_3"], font=FONT_SM, fg_color="transparent")
         pct_lbl.pack(side=tk.RIGHT)
+
+        # 推送按钮行
+        push_row = ctk.CTkFrame(inner, fg_color=C["bg_surface"], corner_radius=0)
+        push_row.pack(fill=tk.X, pady=(4, 0))
+        push_btn = ctk.CTkButton(
+            push_row,
+            text="📤 推送",
+            fg_color=C["bg_elevated"],
+            text_color=C["text_2"],
+            hover_color=C["bg_hover"],
+            font=("Microsoft YaHei UI", 8),
+            corner_radius=4,
+            height=20,
+            width=50,
+            command=lambda b=bvid: self.gui._push_single(b),
+        )
+        push_btn.pack(side=tk.RIGHT)
 
         self._video_card_widgets[bvid] = {
             "card": card,

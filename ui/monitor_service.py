@@ -9,6 +9,7 @@ import logging
 from datetime import datetime
 from algorithms.registry import AlgorithmRegistry
 from core import bilibili_api, db, MonitorRecord, PredictionRecord
+from utils.time_utils import normalize_timestamp, safe_datetime
 from ui.helpers import (
     THRESHOLDS,
     THRESHOLD_NAMES,
@@ -126,7 +127,7 @@ def _merge_history(gui, bvid: str) -> list:
 
 def _to_dt(t):
     """统一时间戳转为 datetime"""
-    return t if isinstance(t, datetime) else datetime.fromisoformat(str(t))
+    return safe_datetime(t)
 
 
 def _get_up_db():
@@ -180,10 +181,7 @@ def _calc_growth_rate(history: list) -> float:
         if len(history) < 2:
             return 0.0
 
-        def _to_dt(t):
-            return t if isinstance(t, datetime) else datetime.fromisoformat(str(t))
-
-        first_ts, first_v = _to_dt(history[0][0]), history[0][1]
+        first_ts, first_v = safe_datetime(history[0][0]), history[0][1]
         last_ts, last_v = _to_dt(history[-1][0]), history[-1][1]
         dt_sec = (last_ts - first_ts).total_seconds()
         if dt_sec > 0 and last_v > first_v:
@@ -217,7 +215,15 @@ def _predict_single(gui, bvid, video) -> dict:
             if "error" in r:
                 fail_list.append((name, r["error"]))
             else:
-                success_list.append((name, r["prediction"], r["weight"], r["confidence"]))
+                meta = r.get("metadata", {})
+                predicted_hours = meta.get("predicted_hours", 0)
+                success_list.append((
+                    name,
+                    r["prediction"],
+                    r["weight"],
+                    r["confidence"],
+                    predicted_hours,
+                ))
 
         growth = w_pred - current_view
         rate_per_sec = _calc_growth_rate(history)

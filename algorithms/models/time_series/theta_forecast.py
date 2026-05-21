@@ -141,6 +141,7 @@ class ThetaForecastAlgorithm(BaseAlgorithm):
                 "forecast_horizon": n_future,
                 "data_points": n,
             },
+            threshold,
         )
 
     def _make_result(self, predicted_hours, confidence, current_views, velocity, metadata, threshold):

@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 
 from ui.theme import C
 from algorithms.registry import AlgorithmRegistry
+from utils.time_utils import safe_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -36,23 +37,10 @@ def _fmt_num(n):
 
 def _parse_ts(ts) -> Optional[datetime]:
     """将各种时间格式统一为 datetime"""
-    if isinstance(ts, datetime):
-        return ts
-    if isinstance(ts, str):
-        try:
-            return datetime.fromisoformat(ts)
-        except Exception as e:
-            logger.debug("解析ISO时间格式失败: %s", e)
-        try:
-            return datetime.fromtimestamp(float(ts))
-        except Exception as e:
-            logger.debug("解析时间戳格式失败: %s", e)
-    if isinstance(ts, (int, float)):
-        try:
-            return datetime.fromtimestamp(float(ts))
-        except Exception as e:
-            logger.debug("数值型时间戳解析失败: %s", e)
-    return None
+    try:
+        return safe_datetime(ts)
+    except Exception:
+        return None
 
 
 def _linear_fit(points: List[Tuple[float, float]]) -> Optional[Tuple[float, float]]:
