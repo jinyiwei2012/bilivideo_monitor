@@ -22,10 +22,9 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-sys_path = os.path.dirname(os.path.dirname(__file__))
 import sys
 
-sys.path.insert(0, sys_path)
+sys.path.insert(0, str(project_path()))
 
 from ui.theme import C, init_theme
 from ui.helpers import (
@@ -39,6 +38,7 @@ from ui.helpers import (
     fmt_num,
     nearest_threshold_gap,
     fmt_eta,
+    project_path,
 )
 from ui.chart import draw_chart_placeholder
 from ui.log_panel import LogPanel
@@ -109,7 +109,7 @@ class BilibiliMonitorGUI:
         self._chart_debounce = None
 
         # UI 子模块
-        self._file_logger = FileLogger(os.path.join(sys_path, "data", "log"))
+        self._file_logger = FileLogger(project_path("data", "log"))
 
         self.root.protocol("WM_DELETE_WINDOW", self._on_exit)
         self._build_ui()
@@ -123,7 +123,7 @@ class BilibiliMonitorGUI:
         try:
             from PIL import Image, ImageTk
 
-            icon_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "app_icon.png")
+            icon_path = project_path("assets", "app_icon.png")
             if os.path.exists(icon_path):
                 img = Image.open(icon_path)
                 photo = ImageTk.PhotoImage(img)

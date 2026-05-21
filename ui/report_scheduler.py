@@ -8,6 +8,7 @@ from tkinter import ttk, messagebox
 
 from ui.theme import C
 from ui.dialog_base import DialogBase
+from utils import project_path
 
 
 class ReportSchedulerWindow:
@@ -113,7 +114,7 @@ class ReportSchedulerWindow:
 
     def _refresh_file_list(self):
         self._file_list.delete(0, tk.END)
-        reports_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "reports")
+        reports_dir = project_path("reports")
         if os.path.isdir(reports_dir):
             files = sorted(os.listdir(reports_dir), reverse=True)[:20]
             for f in files:
@@ -122,6 +123,6 @@ class ReportSchedulerWindow:
                 self._file_list.insert(tk.END, f"{f}  ({size_str})")
 
     def _open_folder(self):
-        reports_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "reports")
+        reports_dir = project_path("reports")
         os.makedirs(reports_dir, exist_ok=True)
         os.startfile(reports_dir)

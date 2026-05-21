@@ -270,8 +270,7 @@ class TrainingPanel:
         self._ax = None
 
         # 日志存盘
-        self._log_dir = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)), "data", "log", "training"
+        self._log_dir = project_path("data", "log", "training")
         )
         self._log_file: Optional[io.TextIOWrapper] = None
         self._log_file_path: str = ""
@@ -679,8 +678,7 @@ class TrainingPanel:
         for aid, algo, _adapter in AlgorithmRegistry.get_trainable_algorithms():
             ckpt = CheckpointManager(aid)
             if ckpt.has_checkpoint() or os.path.exists(
-                os.path.join(os.path.dirname(os.path.dirname(__file__)),
-                             "algorithms", "checkpoints", aid)
+                project_path("algorithms", "checkpoints", aid)
             ):
                 algos.append({
                     "algorithm_id": aid,

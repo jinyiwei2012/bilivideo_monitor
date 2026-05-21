@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 from tkinter import ttk, messagebox
 
 from ui.theme import C
-from ui.helpers import FONT, FONT_BOLD, FONT_SM, FONT_MONO
+from ui.helpers import FONT, FONT_BOLD, FONT_SM, FONT_MONO, project_path
 from ui.dialog_base import DialogBase
 from core.bilibili_api import bilibili_api
 from core.proxy_manager import ProxyManager
@@ -38,7 +38,7 @@ class SettingsWindow:
         self._cfg = load_config()
 
         # 网络配置（代理/Cookie）
-        self._net_cfg_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "network_config.json")
+        self._net_cfg_file = project_path("data", "network_config.json")
         self._net_cfg = self._load_net_config()
 
         self.setup_ui()
@@ -1507,7 +1507,7 @@ class SettingsWindow:
         try:
             import json
 
-            cfg_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "network_config.json")
+            cfg_path = project_path("data", "network_config.json")
             if os.path.exists(cfg_path):
                 with open(cfg_path, "r", encoding="utf-8") as f:
                     saved = json.load(f)
