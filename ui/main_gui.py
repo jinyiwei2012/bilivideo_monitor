@@ -24,7 +24,8 @@ logger = logging.getLogger(__name__)
 
 import sys
 
-sys.path.insert(0, str(project_path()))
+from utils import project_path as _pp
+sys.path.insert(0, str(_pp()))
 
 from ui.theme import C, init_theme
 from ui.helpers import (

@@ -984,7 +984,6 @@ class SettingsWindow:
                 import shutil
 
                 src = project_path("algorithms", "checkpoints", algo_id, f"{v}.pt")
-                )
                 shutil.copyfile(src, path)
                 messagebox.showinfo("成功", f"已导出到:\n{path}", parent=top)
             except Exception as e:

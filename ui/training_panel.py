@@ -7,12 +7,10 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import io
 import logging
-import math
 import os
 import threading
-import queue
 import time
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -26,252 +24,30 @@ except ImportError:
 from ui.mpl_imports import mpl_available, Figure, FigureCanvasTkAgg
 
 from ui.theme import C
-from ui.helpers import FONT, FONT_SM, FONT_MONO, FONT_BOLD, loss_to_confidence, format_confidence, load_algo_confidence, clear_loss_chart
+from ui.helpers import (
+    FONT, FONT_SM, FONT_MONO, FONT_BOLD,
+    loss_to_confidence, format_confidence, load_algo_confidence, clear_loss_chart,
+    project_path,
+)
+from ui.training_base import BaseTrainingPanel, TrainingMonitor
 
 
-class TrainingMonitor:
-    """实时训练质量监控器 — 自动判断模型好坏并给出建议。"""
-
-    def __init__(self):
-        self.reset()
-
-    def reset(self):
-        self._points: List[tuple] = []  # [(epoch, train_loss, val_loss)]
-        self.status = "等待数据…"
-        self.level = "info"  # "good" | "warning" | "danger" | "info"
-        self.suggestions: List[str] = []
-        self._overfit_streak = 0
-        self._no_improve_streak = 0
-
-    STATUS_LABELS = {
-        "good":   ("🟢 训练良好", C["success"]),
-        "warning": ("🟡 注意", C["warning"]),
-        "danger":  ("🔴 异常", C["danger"]),
-        "info":    ("🔵 收集中", C["text_3"]),
-    }
-
-    def update(self, epoch: int, train_loss: float, val_loss: float):
-        self._points.append((epoch, train_loss, val_loss))
-        self._evaluate()
-
-    def _evaluate(self):
-        pts = self._points
-        n = len(pts)
-        self.suggestions.clear()
-
-        # 1. NaN 检测（最高优先级，即使数据不足也立即返回）
-        for _, tl, vl in pts:
-            if math.isnan(tl) or (vl >= 0 and math.isnan(vl)):
-                self.status = "Loss = NaN — 训练失败"
-                self.level = "danger"
-                self.suggestions = ["降低学习率", "检查数据中是否有 NaN", "添加 gradient clipping"]
-                return
-
-        if n < 3:
-            self.status = f"收集数据 ({n}/3 epoch)…"
-            self.level = "info"
-            return
-
-        # 优先级辅助：danger > warning > good
-        found_level = "good"
-        found_status = "训练正常"
-        found_suggestions: List[str] = []
-
-        def _set(level: str, status: str, suggestions: List[str]):
-            nonlocal found_level, found_status, found_suggestions
-            priority = {"danger": 3, "warning": 2, "good": 1, "info": 0}
-            if priority.get(level, 0) > priority.get(found_level, 0):
-                found_level = level
-                found_status = status
-                found_suggestions = suggestions
-
-        # 2. Loss 爆炸
-        recent = [tl for _, tl, _ in pts[-3:]]
-        if max(recent) > 10 * (pts[0][1] or 1e-8):
-            _set("danger", "Loss 爆炸 — 梯度可能溢出",
-                 ["大幅降低学习率 (÷10)", "检查数据归一化"])
-
-        # 3. 过拟合 — val_loss 连续上升而 train_loss 下降
-        if n >= 5 and all(vl >= 0 for _, _, vl in pts[-5:]):
-            tl_trend = pts[-1][1] < pts[-5][1]
-            vl_trend = [pts[i][2] for i in range(-5, 0)]
-            vl_up = sum(1 for i in range(1, len(vl_trend)) if vl_trend[i] > vl_trend[i-1])
-            if tl_trend and vl_up >= 4:
-                self._overfit_streak += 1
-            else:
-                self._overfit_streak = max(0, self._overfit_streak - 1)
-
-            if self._overfit_streak >= 4:
-                _set("danger", "🚫 严重过拟合 — 必须停止",
-                     ["立即停止训练", "val_loss 已连续多 epoch 上升",
-                      "减小模型或增加正则化后重新训练"])
-            elif self._overfit_streak >= 2:
-                _set("warning", "⚠️ 过拟合 — val_loss 持续上升",
-                     ["建议停止训练 (early stopping)", "增加 Dropout", "减小模型容量"])
-
-        # 4. 不再收敛 — val_loss 连续 N epoch 没有下降
-        if n >= 8 and all(vl >= 0 for _, _, vl in pts[-8:]):
-            best_vl = min(vl for _, _, vl in pts)
-            recent_vl = [vl for _, _, vl in pts[-4:]]
-            if all(vl >= best_vl for vl in recent_vl):
-                self._no_improve_streak += 1
-            else:
-                self._no_improve_streak = max(0, self._no_improve_streak - 1)
-
-            if self._no_improve_streak >= 2:
-                _set("warning", "📉 不再收敛 — val_loss 已停止下降",
-                     ["可以提前停止 (early stopping)", "尝试降低学习率后继续",
-                      "若已训练充足 epoch 则可接受当前结果"])
-
-        # 5. 震荡 — loss 波动剧烈
-        if n >= 8:
-            recent_tl = [tl for _, tl, _ in pts[-8:]]
-            is_monotonic_down = all(recent_tl[i] >= recent_tl[i+1] for i in range(len(recent_tl)-1))
-            if not is_monotonic_down:
-                mean_tl = sum(recent_tl) / len(recent_tl)
-                cv = math.sqrt(sum((x - mean_tl)**2 for x in recent_tl) / len(recent_tl)) / max(1e-8, mean_tl)
-                residual_var = sum(abs(recent_tl[i] - recent_tl[i-1]) for i in range(1, len(recent_tl))) / (len(recent_tl) - 1)
-                avg_tl = abs(mean_tl)
-                if cv > 0.3 and residual_var > 0.02 * max(1, avg_tl):
-                    _set("warning", "📊 Loss 波动较大 — 训练不稳定",
-                         ["降低学习率", "增大 batch size"])
-
-        # 6. 欠拟合 — loss 下降过慢
-        if n >= 3:
-            initial_loss = pts[0][1]
-            current_loss = pts[-1][1]
-            if initial_loss > 0.1 and (initial_loss - current_loss) / initial_loss < 0.05:
-                _set("warning", "🐢 欠拟合 — Loss 下降过慢",
-                     ["增大学习率", "增加模型容量 (更多层 / 更多神经元)",
-                      "检查数据是否包含有效信号"])
-
-        # 7. 应用最佳检测结果
-        if found_level != "good":
-            self.level = found_level
-            self.status = found_status
-            self.suggestions = found_suggestions
-        elif self._no_improve_streak >= 2:
-            self.status = "✅ 训练正常 — 已收敛"
-            self.level = "good"
-        elif n >= 3:
-            tl_trend = pts[-1][1] < pts[-3][1]
-            if tl_trend:
-                self.status = "✅ 训练正常 — Loss 稳步下降"
-                self.level = "good"
-            else:
-                self.status = "✅ 训练正常 — Loss 趋于平稳"
-                self.level = "good"
-
-    def get_status_display(self):
-        """返回 (status_text, color)"""
-        label, color = self.STATUS_LABELS.get(self.level, ("", C["text_3"]))
-        return f"{label}  {self.status}", color
-
-    def get_tip(self) -> str:
-        """返回一条当前最关键的简短建议，没有则返回空字符串。"""
-        if self.suggestions:
-            return "💡 " + self.suggestions[0]
-        return ""
-
-    # ── 动态 LR 系数计算 ─────────────────────────
-
-    def compute_lr_scale(self, issue_type: str) -> float:
-        """根据实际 loss 数据动态计算 LR 乘除系数。
-
-        Args:
-            issue_type: "explosion" | "oscillation" | "overfitting" | "underfitting"
-
-        Returns:
-            大于 1 表示增大 LR，小于 1 表示减小 LR。
-        """
-        pts = self._points
-        n = len(pts)
-        if n < 2:
-            return 1.0
-
-        if issue_type == "explosion":
-            # Loss 爆炸：跳变越猛，缩减越狠
-            prev = pts[-2][1]
-            curr = pts[-1][1]
-            if prev > 0 and curr > prev:
-                jump_ratio = curr / prev
-                scale = 1.0 / jump_ratio  # 2x jump → 0.5, 4x → 0.25
-                return max(0.05, min(0.8, scale))
-            return 0.5
-
-        if issue_type == "oscillation":
-            # Loss 震荡：变异系数越大，缩减越多
-            recent = [p[1] for p in pts[-min(8, n):]]
-            mean = sum(recent) / len(recent)
-            if mean > 0:
-                variance = sum((v - mean) ** 2 for v in recent) / len(recent)
-                cv = (variance ** 0.5) / mean  # coefficient of variation
-                # cv=0.1 → scale≈0.83, cv=0.5 → scale≈0.5, cv=1.0 → scale≈0.33
-                scale = 1.0 / (1.0 + cv * 2)
-                return max(0.2, min(0.95, scale))
-            return 0.7
-
-        if issue_type == "overfitting":
-            # 过拟合：val_loss/train_loss 差距越大，缩减越多
-            curr_tl = pts[-1][1]
-            curr_vl = pts[-1][2]
-            if curr_vl > 0 and curr_tl > 0:
-                gap = curr_vl / curr_tl
-                scale = 1.0 / gap  # gap=2 → 0.5, gap=1.5 → 0.67
-                return max(0.2, min(0.9, scale))
-            return 0.7
-
-        if issue_type == "underfitting":
-            # 欠拟合：下降越慢，提升越多
-            initial = pts[0][1]
-            curr = pts[-1][1]
-            if initial > 0 and curr > 0:
-                total_drop = (initial - curr) / initial
-                rate = total_drop / max(1, n - 1)
-                # target per-epoch drop rate ≈ 5%
-                scale = 0.05 / max(0.001, rate)
-                return max(1.2, min(5.0, scale))
-            return 2.0
-
-        return 1.0
-
-
-class TrainingPanel:
+class TrainingPanel(BaseTrainingPanel):
     """训练面板 - 主界面选项卡"""
 
     def __init__(self, parent: tk.Widget, main_gui):
-        self.parent = parent
-        self.main = main_gui  # BilibiliMonitorGUI 实例
-        self.frame = tk.Frame(parent, bg=C["bg_base"])
+        super().__init__(parent, main_gui)
 
-        # 状态变量
+        # 算法列表状态
         self._check_vars: Dict[str, tk.BooleanVar] = {}
         self._algo_meta: Dict[str, Dict] = {}
         self._algo_confidence: Dict[str, float] = {}  # 训练完成时记录的置信度
-        self._training = False
-        self._cancel_flag = [False]
-        self._skip_algo_flag = [False]
-        self._train_thread: Optional[threading.Thread] = None
-        self._train_queue: Optional[queue.Queue] = None
-        self._train_t0: Optional[float] = None
-        self._loss_history: List[Dict] = []  # [{epoch, train_loss, val_loss, algo_id}]
-        self._current_algo = ""
-
-        # 训练质量监控器
-        self._monitor = TrainingMonitor()
-        self._last_monitor_level = ""
 
         # 算法行标签引用（用于动态更新状态/置信度）
         self._algo_row_refs: Dict[str, List[tk.Widget]] = {}
 
-        # 图表数据
-        self._fig: Optional[Figure] = None
-        self._canvas: Optional[FigureCanvasTkAgg] = None
-        self._ax = None
-
         # 日志存盘
         self._log_dir = project_path("data", "log", "training")
-        )
         self._log_file: Optional[io.TextIOWrapper] = None
         self._log_file_path: str = ""
 
@@ -367,67 +143,16 @@ class TrainingPanel:
         right.grid_columnconfigure(0, weight=1)
 
         # 上半: Loss 图表
-        chart_frame = tk.Frame(right, bg=C["bg_elevated"])
+        chart_frame = self._build_chart_widgets(right, title="训练 Loss 曲线")
         chart_frame.grid(row=0, column=0, sticky="nsew", padx=4, pady=(4, 2))
-        tk.Label(chart_frame, text="训练 Loss 曲线", bg=C["bg_elevated"], fg=C["text_2"],
-                 font=FONT_SM).pack(anchor="nw", padx=4, pady=(2, 0))
-
-        if mpl_available:
-            self._fig = Figure(figsize=(5, 2.5), dpi=80, facecolor=C["bg_elevated"])
-            self._ax = self._fig.add_subplot(111)
-            self._ax.set_facecolor(C["bg_elevated"])
-            self._ax.tick_params(colors=C["text_3"], labelsize=7)
-            self._ax.set_xlabel("Epoch", color=C["text_3"], fontsize=7)
-            self._ax.set_ylabel("Loss", color=C["text_3"], fontsize=7)
-            self._ax.grid(True, alpha=0.3, color=C["border"])
-            for spine in self._ax.spines.values():
-                spine.set_color(C["border"])
-            self._fig.tight_layout(pad=1.5)
-
-            self._canvas = FigureCanvasTkAgg(self._fig, master=chart_frame)
-            self._canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=4, pady=(0, 4))
-            self._canvas.draw()
-        else:
-            tk.Label(chart_frame, text="matplotlib 未安装，无法显示图表",
-                     bg=C["bg_elevated"], fg=C["text_3"], font=FONT).pack(expand=True)
 
         # 中部: 训练质量监控状态栏
-        monitor_bar = tk.Frame(right, bg=C["bg_surface"], highlightthickness=1,
-                               highlightbackground=C["border_sub"])
+        monitor_bar = self._build_monitor_bar(right)
         monitor_bar.grid(row=1, column=0, sticky="ew", padx=4, pady=(0, 2))
 
-        self._monitor_icon = tk.Label(monitor_bar, text="🔵", bg=C["bg_surface"],
-                                      font=("Segoe UI", 14))
-        self._monitor_icon.pack(side=tk.LEFT, padx=(6, 2), pady=2)
-        self._monitor_status = tk.Label(monitor_bar, text="等待训练开始…",
-                                        bg=C["bg_surface"], fg=C["text_3"],
-                                        font=FONT_SM, anchor="w")
-        self._monitor_status.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2, pady=2)
-        self._monitor_tip = tk.Label(monitor_bar, text="", bg=C["bg_surface"],
-                                     fg=C["text_3"], font=("Microsoft YaHei UI", 8),
-                                     anchor="e")
-        self._monitor_tip.pack(side=tk.RIGHT, padx=(4, 8), pady=2)
-
         # 下半: 文字日志
-        log_frame = tk.Frame(right, bg=C["bg_elevated"])
+        log_frame = self._build_log_widgets(right, title="训练日志")
         log_frame.grid(row=2, column=0, sticky="nsew", padx=4, pady=(2, 4))
-
-        log_hdr = tk.Frame(log_frame, bg=C["bg_elevated"])
-        log_hdr.pack(fill=tk.X)
-        tk.Label(log_hdr, text="训练日志", bg=C["bg_elevated"], fg=C["text_2"],
-                 font=FONT_SM).pack(side=tk.LEFT, padx=4, pady=(2, 0))
-        ttk.Button(log_hdr, text="清空", command=self._clear_log, width=4).pack(side=tk.RIGHT, padx=4)
-
-        self._log_text = tk.Text(
-            log_frame, bg=C["bg_base"], fg=C["text_1"], font=("Consolas", 9),
-            relief="flat", bd=0, wrap=tk.WORD, state="disabled",
-            highlightthickness=1, highlightbackground=C["border_sub"],
-        )
-        self._log_text.pack(fill=tk.BOTH, expand=True, padx=4, pady=(2, 4))
-
-        log_sb = ttk.Scrollbar(log_frame, orient="vertical", command=self._log_text.yview)
-        log_sb.pack(side=tk.RIGHT, fill=tk.Y, padx=(0, 4), pady=(2, 4))
-        self._log_text.configure(yscrollcommand=log_sb.set)
 
     # ── 底部控制栏 ──
 
@@ -464,7 +189,7 @@ class TrainingPanel:
         self._train_btn = ttk.Button(ctrl, text="▶ 开始训练", command=self._on_train_start,
                                      style="Primary.TButton")
         self._train_btn.pack(side=tk.LEFT, padx=(12, 4))
-        self._cancel_btn = ttk.Button(ctrl, text="✕ 取消", command=self._on_train_cancel, state="disabled")
+        self._cancel_btn = ttk.Button(ctrl, text="✕ 取消", command=self._on_cancel, state="disabled")
         self._cancel_btn.pack(side=tk.LEFT, padx=4)
         self._skip_btn = ttk.Button(ctrl, text="⏭ 跳过当前", command=self._on_skip_algo, state="disabled")
         self._skip_btn.pack(side=tk.LEFT, padx=4)
@@ -1074,28 +799,13 @@ class TrainingPanel:
         ):
             return
 
-        # 重置监控器
-        self._monitor.reset()
+        # 重置状态并锁定 UI
+        self._prepare_training()
 
-        # 锁定 UI
-        self._training = True
-        self._train_btn.config(state="disabled")
-        self._cancel_btn.config(state="normal")
-        self._skip_btn.config(state="normal")
-        self._cancel_flag[0] = False
-        self._skip_algo_flag[0] = False
-        self._progress["value"] = 0
-        self._loss_history.clear()
-        self._clear_chart()
-        self._clear_log()
-
+        # 打开日志文件
         self._open_log_file(len(selected), epochs, batch, mode_label, lr)
         self._append_log(f"🚀 开始训练: {mode_label}, {len(selected)} 个算法, epoch={epochs}, batch={batch}, lr={lr:.6f}")
         self._status_lbl.config(text=f"准备训练 {len(selected)} 个算法 …", fg=C["text_2"])
-
-        import queue as _q
-        self._train_t0 = time.time()
-        self._train_queue = _q.Queue()
 
         # 自动调整状态（每个算法独立 LR 系数）
         auto_control: Dict = {}
@@ -1205,191 +915,162 @@ class TrainingPanel:
             except Exception as e:
                 self._train_queue.put({"stage": "fatal", "error": str(e)})
 
-        self._train_thread = threading.Thread(target=_worker, daemon=True)
-        self._train_thread.start()
-        self.frame.after(150, self._poll_progress)
+        self._launch_worker(_worker)
 
-    def _on_train_cancel(self):
+    def _on_cancel(self):
         self._cancel_flag[0] = True
-        self._cancel_btn.config(state="disabled")
+        if self._cancel_btn:
+            self._cancel_btn.config(state="disabled")
         self._status_lbl.config(text="正在取消（等待当前算法完成）…", fg=C["warning"])
         self._append_log("⏹ 用户请求取消训练")
 
     def _on_skip_algo(self):
         """跳过当前正在训练的算法，继续下一个。"""
         self._skip_algo_flag[0] = True
-        self._skip_btn.config(state="disabled")
+        if self._skip_btn:
+            self._skip_btn.config(state="disabled")
         self._status_lbl.config(text="⏭ 跳过当前算法（等待本轮完成）…", fg=C["warning"])
         self._append_log("⏭ 用户请求跳过当前算法")
 
-    def _poll_progress(self):
-        import queue as _q
+    def _handle_stage(self, msg) -> bool:
+        stage = msg.get("stage")
+        total_sel = msg.get("_total_selected", 1)
 
-        if self._train_queue is None:
-            return
+        if stage == "start":
+            aid = msg.get("algo_id", "?")
+            cur = msg.get("current", 0)
+            tot = msg.get("total", 1)
+            self._current_aid = aid
+            self._status_lbl.config(text=f"[{cur}/{tot}] 训练 {aid} …", fg=C["text_2"])
+            self._append_log(f"── [{cur}/{tot}] 开始训练 {aid} ──")
+            self._update_algo_row(aid, status="▶ 训练中", status_color=C["accent"])
 
-        done_all = False
+        elif stage == "epoch":
+            aid = msg.get("algo_id", "?")
+            ep = msg.get("epoch", 0)
+            eps = msg.get("epochs", 1)
+            tloss = msg.get("train_loss", 0.0)
+            vloss = msg.get("val_loss", -1.0)
+            elapsed = msg.get("elapsed_s", 0.0)
+
+            # 实时置信度（基于 val_loss）
+            conf = loss_to_confidence(vloss) if vloss >= 0 else 0.0
+            conf_str, conf_color = format_confidence(conf)
+
+            # 更新算法行置信度（每 5 epoch 或最后 epoch 刷新）
+            if ep == 1 or ep % 5 == 0 or ep == eps:
+                self._update_algo_row(aid, conf=conf_str, conf_color=conf_color)
+
+            pct = min(100, int((ep / max(1, eps)) * 100))
+            self._progress["value"] = pct
+            total_elapsed = time.time() - self._train_t0 if self._train_t0 else 0
+            vtxt = f"  val={vloss:.4f}" if vloss >= 0 else ""
+            self._status_lbl.config(
+                text=f"{aid}  ep{ep}/{eps}  train={tloss:.4f}{vtxt}  {conf_str}  {elapsed:.0f}s",
+                fg=C["text_1"],
+            )
+
+            # 训练质量监控
+            self._monitor.update(ep, tloss, vloss if vloss >= 0 else -1)
+            self._refresh_monitor()
+
+            adj = msg.get("_adjustment", "")
+            if adj:
+                self._append_log(f"  {adj}")
+
+            # 记录 loss 历史 + 更新图表
+            self._loss_history.append({
+                "algo": aid, "epoch": ep,
+                "train_loss": tloss, "val_loss": vloss,
+            })
+            self._update_chart()
+            self._append_log(
+                f"  epoch {ep:>3}/{eps}  |  "
+                f"train_loss={tloss:.6f}  |  "
+                f"{f'val_loss={vloss:.6f}' if vloss>=0 else 'val_loss=N/A'}  |  "
+                f"confidence={conf_str}  |  "
+                f"{elapsed:.1f}s"
+            )
+
+        elif stage == "done":
+            aid = msg.get("algo_id", "?")
+            cur = msg.get("current", 0)
+            ver = msg.get("version", "")
+            self._status_lbl.config(text=f"✓ {aid} → {ver} ({cur}/{total_sel})", fg=C["success"])
+            self._progress["value"] = int(cur / max(1, total_sel) * 100)
+            self._append_log(f"✓ {aid} 完成, 保存为 {ver}")
+            # 读取最终置信度并更新行
+            conf = load_algo_confidence(aid)
+            conf_str, conf_color = format_confidence(conf)
+            self._algo_confidence[aid] = conf
+            self._update_algo_row(
+                aid, status=f"✓ {ver[:10]}", status_color=C["success"],
+                conf=conf_str, conf_color=conf_color, ver=f"v{self._algo_meta.get(aid, {}).get('version_count', 0) + 1}",
+            )
+
+        elif stage == "error":
+            aid = msg.get("algo_id", "?")
+            err = msg.get("error", "")
+            self._status_lbl.config(text=f"✗ {aid} 失败: {err}", fg=C["danger"])
+            self._append_log(f"✗ {aid} 训练失败: {err}")
+            self._update_algo_row(aid, status="✗ 失败", status_color=C["danger"])
+
+        elif stage == "auto_adjust":
+            message = msg.get("message", "")
+            self._append_log(f"  🔧 自动调整: {message}")
+            self._status_lbl.config(text=f"⚡ {message}", fg=C["warning"])
+
+        elif stage == "cancelled":
+            rem = msg.get("remaining", [])
+            self._status_lbl.config(text=f"已取消，剩余 {len(rem)} 个", fg=C["warning"])
+            self._append_log(f"⏹ 已取消, 剩余 {len(rem)} 个算法")
+            return True
+
+        elif stage == "all_done":
+            results = msg.get("results", {})
+            ok = sum(1 for v in results.values() if v)
+            bad = sum(1 for v in results.values() if not v)
+            elapsed = time.time() - self._train_t0 if self._train_t0 else 0
+
+            # 读取每个成功算法的最终置信度
+            conf_summary = ""
+            for aid, ver in results.items():
+                if not ver:
+                    continue
+                conf = load_algo_confidence(aid)
+                self._algo_confidence[aid] = conf
+                conf_str, _ = format_confidence(conf)
+                conf_summary += f"  {aid}: {conf_str}"
+
+            self._status_lbl.config(text=f"全部完成: ✓ {ok}  ✗ {bad}  · {elapsed:.0f}s", fg=C["success"])
+            self._progress["value"] = 100
+            self._append_log(f"🏁 训练全部完成: {ok} 成功, {bad} 失败, 耗时 {elapsed:.0f}s")
+            self._append_log(f"📊 各算法最终置信度:{conf_summary}")
+            return True
+
+        elif stage == "fatal":
+            err = msg.get("error", "")
+            self._status_lbl.config(text=f"训练异常: {err}", fg=C["danger"])
+            self._append_log(f"💥 训练进程异常: {err}")
+            return True
+
+        return False
+
+    def _cleanup_training(self):
+        self._close_log_file()
+        super()._cleanup_training()
+        self._refresh_algo_list()
         try:
-            while True:
-                msg = self._train_queue.get_nowait()
-                stage = msg.get("stage")
-                total_sel = msg.get("_total_selected", 1)
-
-                if stage == "start":
-                    aid = msg.get("algo_id", "?")
-                    cur = msg.get("current", 0)
-                    tot = msg.get("total", 1)
-                    self._current_algo = aid
-                    self._status_lbl.config(text=f"[{cur}/{tot}] 训练 {aid} …", fg=C["text_2"])
-                    self._append_log(f"── [{cur}/{tot}] 开始训练 {aid} ──")
-                    self._update_algo_row(aid, status="▶ 训练中", status_color=C["accent"])
-
-                elif stage == "epoch":
-                    aid = msg.get("algo_id", "?")
-                    ep = msg.get("epoch", 0)
-                    eps = msg.get("epochs", 1)
-                    tloss = msg.get("train_loss", 0.0)
-                    vloss = msg.get("val_loss", -1.0)
-                    elapsed = msg.get("elapsed_s", 0.0)
-
-                    # 实时置信度（基于 val_loss）
-                    conf = loss_to_confidence(vloss) if vloss >= 0 else 0.0
-                    conf_str, conf_color = format_confidence(conf)
-
-                    # 更新算法行置信度（每 5 epoch 或最后 epoch 刷新）
-                    if ep == 1 or ep % 5 == 0 or ep == eps:
-                        self._update_algo_row(aid, conf=conf_str, conf_color=conf_color)
-
-                    pct = min(100, int((ep / max(1, eps)) * 100))
-                    self._progress["value"] = pct
-                    total_elapsed = time.time() - self._train_t0 if self._train_t0 else 0
-                    vtxt = f"  val={vloss:.4f}" if vloss >= 0 else ""
-                    self._status_lbl.config(
-                        text=f"{aid}  ep{ep}/{eps}  train={tloss:.4f}{vtxt}  {conf_str}  {elapsed:.0f}s",
-                        fg=C["text_1"],
-                    )
-
-                    # 训练质量监控
-                    self._monitor.update(ep, tloss, vloss if vloss >= 0 else -1)
-                    self._refresh_monitor()
-
-                    adj = msg.get("_adjustment", "")
-                    if adj:
-                        self._append_log(f"  {adj}")
-
-                    # 记录 loss 历史 + 更新图表
-                    self._loss_history.append({
-                        "algo": aid, "epoch": ep,
-                        "train_loss": tloss, "val_loss": vloss,
-                    })
-                    self._update_chart()
-                    self._append_log(
-                        f"  epoch {ep:>3}/{eps}  |  "
-                        f"train_loss={tloss:.6f}  |  "
-                        f"{f'val_loss={vloss:.6f}' if vloss>=0 else 'val_loss=N/A'}  |  "
-                        f"confidence={conf_str}  |  "
-                        f"{elapsed:.1f}s"
-                    )
-
-                elif stage == "done":
-                    aid = msg.get("algo_id", "?")
-                    cur = msg.get("current", 0)
-                    ver = msg.get("version", "")
-                    self._status_lbl.config(text=f"✓ {aid} → {ver} ({cur}/{total_sel})", fg=C["success"])
-                    self._progress["value"] = int(cur / max(1, total_sel) * 100)
-                    self._append_log(f"✓ {aid} 完成, 保存为 {ver}")
-                    # 读取最终置信度并更新行
-                    conf = load_algo_confidence(aid)
-                    conf_str, conf_color = format_confidence(conf)
-                    self._algo_confidence[aid] = conf
-                    self._update_algo_row(
-                        aid, status=f"✓ {ver[:10]}", status_color=C["success"],
-                        conf=conf_str, conf_color=conf_color, ver=f"v{self._algo_meta.get(aid, {}).get('version_count', 0) + 1}",
-                    )
-
-                elif stage == "error":
-                    aid = msg.get("algo_id", "?")
-                    err = msg.get("error", "")
-                    self._status_lbl.config(text=f"✗ {aid} 失败: {err}", fg=C["danger"])
-                    self._append_log(f"✗ {aid} 训练失败: {err}")
-                    self._update_algo_row(aid, status="✗ 失败", status_color=C["danger"])
-
-                elif stage == "auto_adjust":
-                    message = msg.get("message", "")
-                    self._append_log(f"  🔧 自动调整: {message}")
-                    self._status_lbl.config(text=f"⚡ {message}", fg=C["warning"])
-
-                elif stage == "cancelled":
-                    rem = msg.get("remaining", [])
-                    self._status_lbl.config(text=f"已取消，剩余 {len(rem)} 个", fg=C["warning"])
-                    self._append_log(f"⏹ 已取消, 剩余 {len(rem)} 个算法")
-                    done_all = True
-
-                elif stage == "all_done":
-                    results = msg.get("results", {})
-                    ok = sum(1 for v in results.values() if v)
-                    bad = sum(1 for v in results.values() if not v)
-                    elapsed = time.time() - self._train_t0 if self._train_t0 else 0
-
-                    # 读取每个成功算法的最终置信度
-                    conf_summary = ""
-                    for aid, ver in results.items():
-                        if not ver:
-                            continue
-                        conf = load_algo_confidence(aid)
-                        self._algo_confidence[aid] = conf
-                        conf_str, _ = format_confidence(conf)
-                        conf_summary += f"  {aid}: {conf_str}"
-
-                    self._status_lbl.config(text=f"全部完成: ✓ {ok}  ✗ {bad}  · {elapsed:.0f}s", fg=C["success"])
-                    self._progress["value"] = 100
-                    self._append_log(f"🏁 训练全部完成: {ok} 成功, {bad} 失败, 耗时 {elapsed:.0f}s")
-                    self._append_log(f"📊 各算法最终置信度:{conf_summary}")
-                    done_all = True
-
-                elif stage == "fatal":
-                    err = msg.get("error", "")
-                    self._status_lbl.config(text=f"训练异常: {err}", fg=C["danger"])
-                    self._append_log(f"💥 训练进程异常: {err}")
-                    done_all = True
-
-        except _q.Empty:
+            self.main._refresh_model_status()
+        except Exception:
             pass
-
-        if done_all:
-            self._training = False
-            self._train_btn.config(state="normal")
-            self._cancel_btn.config(state="disabled")
-            self._skip_btn.config(state="disabled")
-            self._train_queue = None
-            self._train_thread = None
-            # 关闭日志文件
-            self._close_log_file()
-            # 刷新列表
-            self._refresh_algo_list()
-            # 刷新主界面模型状态
-            try:
-                self.main._refresh_model_status()
-            except Exception:
-                pass
-        else:
-            self.frame.after(200, self._poll_progress)
 
     # ══════════════════════════════════════════════
     # 训练质量监控
     # ══════════════════════════════════════════════
 
-    def _refresh_monitor(self):
-        """更新监控状态栏显示，状态变化或每 8 epoch 持续监测时记录日志。"""
-        text, color = self._monitor.get_status_display()
-        self._monitor_status.config(text=text, fg=color)
-        tip = self._monitor.get_tip()
-        self._monitor_tip.config(text=tip)
-
-        icon_map = {"good": "🟢", "warning": "🟡", "danger": "🔴", "info": "🔵"}
-        self._monitor_icon.config(text=icon_map.get(self._monitor.level, "🔵"))
-
-        # 日志记录：状态变化时记录，同状态每 8 epoch 持续监测提醒
+    def _on_monitor_changed(self):
+        """日志记录：状态变化时记录，同状态每 8 epoch 持续监测提醒。"""
         if self._monitor.level in ("warning", "danger") and self._monitor.suggestions:
             cur_status = self._monitor.status
             last_status = getattr(self, "_last_monitor_status", "")
@@ -1429,7 +1110,6 @@ class TrainingPanel:
             new_lr = cur_lr * scale
             return f"学习率 {cur_lr:.6f} → {new_lr:.6f} (×{scale:.2f}) — 点击 LR 输入框可手动应用"
         elif "降低学习率" in suggestions_text:
-            # 震荡或过拟合
             status = self._monitor.status
             issue = "oscillation" if "波动" in status else "overfitting"
             scale = self._monitor.compute_lr_scale(issue)
@@ -1440,43 +1120,6 @@ class TrainingPanel:
             new_lr = cur_lr * scale
             return f"学习率 {cur_lr:.6f} → {new_lr:.6f} (×{scale:.2f}) — 点击 LR 输入框可手动应用"
         return ""
-
-    # ══════════════════════════════════════════════
-    # 图表
-    # ══════════════════════════════════════════════
-
-    def _update_chart(self):
-        if not mpl_available or self._ax is None:
-            return
-        self._ax.clear()
-        self._ax.set_facecolor(C["bg_elevated"])
-        self._ax.tick_params(colors=C["text_3"], labelsize=7)
-        self._ax.set_xlabel("Epoch", color=C["text_3"], fontsize=7)
-        self._ax.set_ylabel("Loss", color=C["text_3"], fontsize=7)
-        self._ax.grid(True, alpha=0.3, color=C["border"])
-        for spine in self._ax.spines.values():
-            spine.set_color(C["border"])
-
-        # 按 algo 分组画线
-        algos_in_chart = set(d["algo"] for d in self._loss_history)
-        for algo_name in algos_in_chart:
-            pts = [d for d in self._loss_history if d["algo"] == algo_name]
-            epochs = [d["epoch"] for d in pts]
-            train = [d["train_loss"] for d in pts]
-            val = [d["val_loss"] for d in pts]
-            self._ax.plot(epochs, train, "-o", label=f"{algo_name} train", markersize=2, linewidth=1)
-            valid_val = [(e, v) for e, v in zip(epochs, val) if v >= 0]
-            if valid_val:
-                self._ax.plot([e for e, v in valid_val], [v for e, v in valid_val],
-                              "--s", label=f"{algo_name} val", markersize=2, linewidth=1)
-
-        self._ax.legend(fontsize=6, loc="upper right", facecolor=C["bg_elevated"],
-                        edgecolor=C["border"], labelcolor=C["text_1"])
-        self._fig.tight_layout(pad=1.5)
-        self._canvas.draw_idle()
-
-    def _clear_chart(self):
-        clear_loss_chart(self._ax, self._fig, self._canvas)
 
     # ══════════════════════════════════════════════
     # 日志（UI + 存盘）
@@ -1511,22 +1154,11 @@ class TrainingPanel:
         logger.info("训练日志已保存: %s", self._log_file_path)
 
     def _append_log(self, text: str):
-        ts = time.strftime("%H:%M:%S")
-        line = f"[{ts}] {text}\n"
-        self._log_text.config(state="normal")
-        self._log_text.insert(tk.END, line)
-        self._log_text.see(tk.END)
-        self._log_text.config(state="disabled")
-        # 同时写入文件
+        super()._append_log(text)
         if self._log_file is not None:
             try:
+                line = f"[{time.strftime('%H:%M:%S')}] {text}\n"
                 self._log_file.write(line)
                 self._log_file.flush()
             except Exception as e:
                 logger.debug("写入训练日志文件失败: %s", e)
-
-    def _clear_log(self):
-        self._log_text.config(state="normal")
-        self._log_text.delete("1.0", tk.END)
-        self._log_text.config(state="disabled")
-        # 不清除文件日志，下次训练会创建新文件

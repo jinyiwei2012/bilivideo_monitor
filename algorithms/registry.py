@@ -3,7 +3,7 @@
 管理所有预测算法（自动扫描models目录下的所有算法）
 """
 
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 import logging
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed

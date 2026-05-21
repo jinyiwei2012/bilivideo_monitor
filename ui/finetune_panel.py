@@ -8,9 +8,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 import threading
-import queue
 import time
-import math
 import logging
 from typing import Any, Dict, List, Optional
 from datetime import datetime
@@ -23,54 +21,39 @@ try:
 except ImportError:
     _torch_available = False
 
-from ui.mpl_imports import mpl_available, Figure, FigureCanvasTkAgg
-
 from ui.theme import C
-from ui.helpers import FONT, FONT_SM, FONT_MONO, FONT_BOLD, loss_to_confidence, format_confidence, load_algo_confidence, clear_loss_chart
-from ui.training_panel import TrainingMonitor
+from ui.helpers import (
+    FONT, FONT_SM, FONT_MONO, FONT_BOLD,
+    loss_to_confidence, format_confidence, load_algo_confidence, clear_loss_chart,
+    project_path,
+)
+from ui.training_base import BaseTrainingPanel, TrainingMonitor
 
 
-class FinetunePanel:
+class FinetunePanel(BaseTrainingPanel):
     """微调面板 — 与训练面板同级同显示"""
 
     def __init__(self, parent: tk.Widget, main_gui):
-        self.parent = parent
-        self.main = main_gui
-        self.frame = tk.Frame(parent, bg=C["bg_base"])
+        super().__init__(parent, main_gui)
 
-        # 状态
+        # 视频 / 算法勾选状态
         self._video_vars: Dict[str, tk.BooleanVar] = {}
         self._algo_vars: Dict[str, tk.BooleanVar] = {}
         self._algo_meta: Dict[str, Dict] = {}
+
+        # 微调模式
         self._mode_var = tk.StringVar(value="incremental")
-        self._training = False
-        self._cancel_flag = [False]
-        self._skip_algo_flag = [False]
-        self._train_thread: Optional[threading.Thread] = None
-        self._train_queue: Optional[queue.Queue] = None
-        self._train_t0: Optional[float] = None
 
-        # 训练质量监控器
-        self._monitor = TrainingMonitor()
-        self._last_monitor_level = ""
-
-        # Loss 历史（用于图表）
-        self._loss_history: List[Dict] = []
+        # 当前任务上下文
         self._current_bvid = ""
-        self._current_aid = ""
 
         # 自动调整状态
         self._auto_control: Dict = {}
         self._auto_monitors: Dict[str, TrainingMonitor] = {}
-        self._algo_lr_factors: Dict[str, float] = {}  # 跨任务 LR 累积系数
+        self._algo_lr_factors: Dict[str, float] = {}
 
         # 当前视频的所有算法结果缓存（用于自动切换显示）
-        self._video_results: Dict[str, List[Dict]] = {}  # bvid -> [{aid, version, confidence}]
-
-        # 图表
-        self._fig: Optional[Figure] = None
-        self._canvas: Optional[FigureCanvasTkAgg] = None
-        self._ax = None
+        self._video_results: Dict[str, List[Dict]] = {}
 
         self._build_ui()
 
@@ -188,67 +171,16 @@ class FinetunePanel:
         self._task_detail.pack(side=tk.RIGHT, padx=8, pady=6)
 
         # ── 上半: Loss 图表 ──
-        chart_frame = tk.Frame(right, bg=C["bg_elevated"])
+        chart_frame = self._build_chart_widgets(right, title="微调 Loss 曲线")
         chart_frame.grid(row=1, column=0, sticky="nsew", padx=4, pady=(0, 2))
-        chart_frame.grid_rowconfigure(1, weight=1)
-        tk.Label(chart_frame, text="微调 Loss 曲线", bg=C["bg_elevated"], fg=C["text_2"],
-                 font=FONT_SM).pack(anchor="nw", padx=4, pady=(2, 0))
-
-        if mpl_available:
-            self._fig = Figure(figsize=(5, 2.5), dpi=80, facecolor=C["bg_elevated"])
-            self._ax = self._fig.add_subplot(111)
-            self._ax.set_facecolor(C["bg_elevated"])
-            self._ax.tick_params(colors=C["text_3"], labelsize=7)
-            self._ax.set_xlabel("Epoch", color=C["text_3"], fontsize=7)
-            self._ax.set_ylabel("Loss", color=C["text_3"], fontsize=7)
-            self._ax.grid(True, alpha=0.3, color=C["border"])
-            for spine in self._ax.spines.values():
-                spine.set_color(C["border"])
-            self._fig.tight_layout(pad=1.5)
-
-            self._canvas = FigureCanvasTkAgg(self._fig, master=chart_frame)
-            self._canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=4, pady=(0, 4))
-            self._canvas.draw()
-        else:
-            tk.Label(chart_frame, text="matplotlib 未安装，无法显示图表",
-                     bg=C["bg_elevated"], fg=C["text_3"], font=FONT).pack(expand=True)
 
         # ── 中部: 训练质量监控 ──
-        monitor_bar = tk.Frame(right, bg=C["bg_surface"], highlightthickness=1,
-                               highlightbackground=C["border_sub"])
+        monitor_bar = self._build_monitor_bar(right)
         monitor_bar.grid(row=2, column=0, sticky="ew", padx=4, pady=(0, 2))
 
-        self._monitor_icon = tk.Label(monitor_bar, text="🔵", bg=C["bg_surface"],
-                                      font=("Segoe UI", 14))
-        self._monitor_icon.pack(side=tk.LEFT, padx=(6, 2), pady=2)
-        self._monitor_status = tk.Label(monitor_bar, text="等待训练开始…",
-                                        bg=C["bg_surface"], fg=C["text_3"],
-                                        font=FONT_SM, anchor="w")
-        self._monitor_status.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2, pady=2)
-        self._monitor_tip = tk.Label(monitor_bar, text="", bg=C["bg_surface"],
-                                     fg=C["text_3"], font=("Microsoft YaHei UI", 8),
-                                     anchor="e")
-        self._monitor_tip.pack(side=tk.RIGHT, padx=(4, 8), pady=2)
-
         # ── 下半: 文字日志 ──
-        log_frame = tk.Frame(right, bg=C["bg_elevated"])
+        log_frame = self._build_log_widgets(right, title="微调日志")
         log_frame.grid(row=3, column=0, sticky="nsew", padx=4, pady=(2, 4))
-
-        log_hdr = tk.Frame(log_frame, bg=C["bg_elevated"])
-        log_hdr.pack(fill=tk.X)
-        tk.Label(log_hdr, text="微调日志", bg=C["bg_elevated"], fg=C["text_2"],
-                 font=FONT_SM).pack(side=tk.LEFT, padx=4, pady=(2, 0))
-        ttk.Button(log_hdr, text="清空", command=self._clear_log, width=4).pack(side=tk.RIGHT, padx=4)
-
-        self._log_text = tk.Text(
-            log_frame, bg=C["bg_base"], fg=C["text_1"], font=("Consolas", 9),
-            relief="flat", bd=0, wrap=tk.WORD, state="disabled",
-            highlightthickness=1, highlightbackground=C["border_sub"],
-        )
-        self._log_text.pack(fill=tk.BOTH, expand=True, padx=4, pady=(2, 4))
-        log_sb = ttk.Scrollbar(log_frame, orient="vertical", command=self._log_text.yview)
-        log_sb.pack(side=tk.RIGHT, fill=tk.Y, padx=(0, 4), pady=(2, 4))
-        self._log_text.configure(yscrollcommand=log_sb.set)
 
     # ── 底部控制栏 ──
 
@@ -468,24 +400,15 @@ class FinetunePanel:
         ):
             return
 
-        self._training = True
-        self._train_btn.config(state="disabled")
-        self._cancel_btn.config(state="normal")
-        self._skip_btn.config(state="normal")
-        self._cancel_flag[0] = False
+        # 重置状态并锁定 UI
+        self._prepare_training()
 
-        # 重置训练状态
-        self._skip_algo_flag[0] = False
-        self._monitor.reset()
-        self._loss_history.clear()
+        # 微调专用状态重置
         self._video_results.clear()
         self._auto_monitors.clear()
         self._auto_control = {}
         self._last_monitor_status = ""
         self._last_monitor_log_epoch = 0
-        self._clear_chart()
-        self._clear_log()
-        self._progress["value"] = 0
 
         mode_label = "重新训练" if mode == "retrain" else "增量微调"
         self._append_log(f"🚀 开始{mode_label}: {len(selected_videos)} 视频 × {len(selected_algos)} 算法, "
@@ -493,10 +416,6 @@ class FinetunePanel:
         self._task_lbl.config(text=f"{mode_label}进行中…")
         self._task_detail.config(text=f"0/{total}")
         self._status_lbl.config(text="准备任务…", fg=C["text_2"])
-
-        import queue as _q
-        self._train_t0 = time.time()
-        self._train_queue = _q.Queue()
 
         def _cb(payload: Dict):
             """训练回调 — 运行在工作线程中，负责通信 + 自动调整。"""
@@ -528,7 +447,6 @@ class FinetunePanel:
                 # 根据检测结果自动调整
                 if mon.level in ("warning", "danger") and self._auto_control is not None:
                     status = mon.status
-                    suggestions_text = " ".join(mon.suggestions).lower()
                     if "nan" in status.lower():
                         self._auto_control["early_stop"] = True
                         payload["_adjustment"] = "🔧 NaN 检测 — 提前停止"
@@ -633,228 +551,204 @@ class FinetunePanel:
                         })
             self._train_queue.put({"stage": "all_done", "done": done, "total": total})
 
-        self._train_thread = threading.Thread(target=_worker, daemon=True)
-        self._train_thread.start()
-        self.frame.after(150, self._poll_progress)
+        self._launch_worker(_worker)
 
     def _on_cancel(self):
         self._cancel_flag[0] = True
-        self._cancel_btn.config(state="disabled")
+        if self._cancel_btn:
+            self._cancel_btn.config(state="disabled")
         self._append_log("⏹ 用户请求取消")
         self.main.set_finetune_status("⏹ 微调已取消", color=C["warning"])
 
     def _on_skip_algo(self):
         """跳过当前正在微调的（视频,算法）对，继续下一个。"""
         self._skip_algo_flag[0] = True
-        self._skip_btn.config(state="disabled")
+        if self._skip_btn:
+            self._skip_btn.config(state="disabled")
         self._append_log("⏭ 用户请求跳过当前任务")
 
-    def _poll_progress(self):
-        import queue as _q
-        if self._train_queue is None:
-            return
+    def _handle_stage(self, msg) -> bool:
+        stage = msg.get("stage")
 
-        done_all = False
+        if stage == "start":
+            done = msg.get("done", 0)
+            total = msg.get("total", 1)
+            aid = msg.get("aid", "?")
+            bvid = msg.get("bvid", "?")
+            self._current_bvid = bvid
+            self._current_aid = aid
+
+            # 切换到新视频时重置图表
+            if bvid not in self._video_results:
+                self._loss_history.clear()
+                self._clear_chart()
+                self._monitor.reset()
+                self._task_lbl.config(
+                    text=f"🎯 视频 {bvid}: 开始微调 {aid}", fg=C["accent"])
+            else:
+                self._task_lbl.config(
+                    text=f"🎯 视频 {bvid}: 微调 {aid}", fg=C["accent"])
+            self._task_detail.config(text=f"{done}/{total}")
+            pct = min(100, int(done / max(1, total) * 100))
+            self._progress["value"] = pct
+            self._status_lbl.config(
+                text=f"[{done}/{total}] 微调 {aid} → {bvid}", fg=C["text_2"])
+            self._append_log(f"── [{done}/{total}] 开始微调 {aid}@{bvid} ──")
+            self.main.set_finetune_status(f"🎯 微调 {bvid}: [{done}/{total}] {aid}")
+
+            # 更新算法行状态
+            self._refresh_algo_row(0, aid, "▶ 训练中", C["accent"], "", "", "")
+
+        elif stage == "epoch":
+            aid = msg.get("algo_id", aid)
+            bvid = msg.get("bvid", self._current_bvid)
+            ep = msg.get("epoch", 0)
+            eps = msg.get("epochs", 1)
+            tloss = msg.get("train_loss", 0.0)
+            vloss = msg.get("val_loss", -1.0)
+            elapsed = msg.get("elapsed_s", 0.0)
+
+            # 实时置信度
+            conf = loss_to_confidence(vloss) if vloss >= 0 else 0.0
+            conf_str, _ = format_confidence(conf)
+
+            pct = min(100, int((ep / max(1, eps)) * 100))
+            self._progress["value"] = pct
+            total_elapsed = time.time() - self._train_t0 if self._train_t0 else 0
+            vtxt = f"  val={vloss:.4f}" if vloss >= 0 else ""
+            ctrl_data = msg.get("_control", {})
+            if ctrl_data.get("early_stop"):
+                self._status_lbl.config(
+                    text=f"{aid}@{bvid}  ep{ep}/{eps}  ⏹ 即将停止",
+                    fg=C["warning"],
+                )
+            elif ctrl_data.get("lr_scale"):
+                self._status_lbl.config(
+                    text=f"{aid}@{bvid}  ep{ep}/{eps}  ⚡ 调整LR",
+                    fg=C["warning"],
+                )
+            else:
+                self._status_lbl.config(
+                    text=f"{aid}@{bvid}  ep{ep}/{eps}  train={tloss:.4f}{vtxt}  {conf_str}  {elapsed:.0f}s",
+                    fg=C["text_1"],
+                )
+
+            # 训练质量监控
+            self._monitor.update(ep, tloss, vloss if vloss >= 0 else -1)
+            self._refresh_monitor()
+
+            # 记录 loss 历史 + 更新图表
+            self._loss_history.append({
+                "algo": aid, "bvid": bvid, "epoch": ep,
+                "train_loss": tloss, "val_loss": vloss,
+            })
+            self._update_chart()
+            adj = msg.get("_adjustment", "")
+            adj_suffix = f"  |  {adj}" if adj else ""
+            self._append_log(
+                f"  epoch {ep:>3}/{eps}  |  "
+                f"train_loss={tloss:.6f}  |  "
+                f"{f'val_loss={vloss:.6f}' if vloss>=0 else 'val_loss=N/A'}  |  "
+                f"confidence={conf_str}  |  "
+                f"{elapsed:.1f}s{adj_suffix}"
+            )
+
+        elif stage == "done":
+            done = msg.get("done", 0)
+            total = msg.get("total", 1)
+            aid = msg.get("aid", "?")
+            bvid = msg.get("bvid", "?")
+            ver = msg.get("version", "")
+            conf = msg.get("confidence", 0.0)
+            val_loss = msg.get("val_loss", -1.0)
+
+            pct = min(100, int(done / max(1, total) * 100))
+            self._progress["value"] = pct
+            self._task_detail.config(text=f"{done}/{total}")
+            conf_str, conf_color = format_confidence(conf)
+
+            # 缓存视频结果
+            if bvid not in self._video_results:
+                self._video_results[bvid] = []
+            self._video_results[bvid].append({
+                "aid": aid, "version": ver, "confidence": conf, "val_loss": val_loss,
+            })
+
+            # 更新算法行状态
+            self._refresh_algo_row(0, aid, f"✓ {ver}", C["success"],
+                                   conf_str, conf_color, f"v{msg.get('done', 0)}")
+
+            self._status_lbl.config(
+                text=f"✓ {aid}@{bvid}  → {ver}  conf={conf_str}  ({done}/{total})",
+                fg=C["success"])
+            self._append_log(f"  ✓ {aid}@{bvid} → {ver}  置信度={conf_str}  val_loss={val_loss:.4f}")
+
+        elif stage == "error":
+            done = msg.get("done", 0)
+            total = msg.get("total", 1)
+            aid = msg.get("aid", "?")
+            bvid = msg.get("bvid", "?")
+            err = msg.get("error", "")
+            pct = min(100, int(done / max(1, total) * 100))
+            self._progress["value"] = pct
+            self._task_detail.config(text=f"{done}/{total}")
+            self._status_lbl.config(text=f"✗ {aid}@{bvid}: {err}", fg=C["danger"])
+            self._append_log(f"  ✗ {aid}@{bvid}: {err}")
+            self._refresh_algo_row(0, aid, "✗ 失败", C["danger"], "", "", "")
+
+        elif stage == "auto_adjust":
+            action = msg.get("action", "")
+            message = msg.get("message", "")
+            self._append_log(f"  🔧 自动调整: {message}")
+            self._status_lbl.config(text=f"⚡ {message}", fg=C["warning"])
+            if action == "early_stop":
+                self._monitor_status.config(text="⏹ 自动提前停止", fg=C["warning"])
+
+        elif stage == "log":
+            self._append_log(msg.get("text", ""))
+
+        elif stage == "cancelled":
+            done = msg.get("done", 0)
+            total = msg.get("total", 1)
+            self._status_lbl.config(text=f"已取消 ({done}/{total})", fg=C["warning"])
+            self._append_log(f"⏹ 已取消, {done}/{total} 已完成")
+            return True
+
+        elif stage == "all_done":
+            done = msg.get("done", 0)
+            elapsed = time.time() - self._train_t0 if self._train_t0 else 0
+
+            # 汇总所有置信度
+            conf_summary = ""
+            for bvid, results in self._video_results.items():
+                for r in results:
+                    cs, _ = format_confidence(r["confidence"])
+                    conf_summary += f"\n  {bvid} → {r['aid']}: {cs}"
+
+            self._task_lbl.config(text="✅ 微调全部完成", fg=C["success"])
+            self._task_detail.config(text=f"{done}/{done}")
+            self._status_lbl.config(text=f"全部完成: {done} 任务 · {elapsed:.0f}s", fg=C["success"])
+            self._progress["value"] = 100
+            self._append_log(f"🏁 批量微调全部完成: {done} 任务, 耗时 {elapsed:.0f}s")
+            self._append_log(f"📊 各算法最终置信度:{conf_summary}")
+            self.main.set_finetune_status(f"✅ 批量微调完成 ({done})")
+            return True
+
+        return False
+
+    def _cleanup_training(self):
+        super()._cleanup_training()
         try:
-            while True:
-                msg = self._train_queue.get_nowait()
-                stage = msg.get("stage")
-
-                if stage == "start":
-                    done = msg.get("done", 0)
-                    total = msg.get("total", 1)
-                    aid = msg.get("aid", "?")
-                    bvid = msg.get("bvid", "?")
-                    self._current_bvid = bvid
-                    self._current_aid = aid
-
-                    # 切换到新视频时重置图表
-                    if bvid not in self._video_results:
-                        self._loss_history.clear()
-                        self._clear_chart()
-                        self._monitor.reset()
-                        self._task_lbl.config(
-                            text=f"🎯 视频 {bvid}: 开始微调 {aid}", fg=C["accent"])
-                    else:
-                        self._task_lbl.config(
-                            text=f"🎯 视频 {bvid}: 微调 {aid}", fg=C["accent"])
-                    self._task_detail.config(text=f"{done}/{total}")
-                    pct = min(100, int(done / max(1, total) * 100))
-                    self._progress["value"] = pct
-                    self._status_lbl.config(
-                        text=f"[{done}/{total}] 微调 {aid} → {bvid}", fg=C["text_2"])
-                    self._append_log(f"── [{done}/{total}] 开始微调 {aid}@{bvid} ──")
-                    self.main.set_finetune_status(f"🎯 微调 {bvid}: [{done}/{total}] {aid}")
-
-                    # 更新算法行状态
-                    conf_v = self._load_video_confidence(aid, bvid)
-                    self._refresh_algo_row(0, aid, "▶ 训练中", C["accent"], "", "", "")
-
-                elif stage == "epoch":
-                    aid = msg.get("algo_id", aid)
-                    bvid = msg.get("bvid", self._current_bvid)
-                    ep = msg.get("epoch", 0)
-                    eps = msg.get("epochs", 1)
-                    tloss = msg.get("train_loss", 0.0)
-                    vloss = msg.get("val_loss", -1.0)
-                    elapsed = msg.get("elapsed_s", 0.0)
-
-                    # 实时置信度
-                    conf = loss_to_confidence(vloss) if vloss >= 0 else 0.0
-                    conf_str, _ = format_confidence(conf)
-
-                    pct = min(100, int((ep / max(1, eps)) * 100))
-                    self._progress["value"] = pct
-                    total_elapsed = time.time() - self._train_t0 if self._train_t0 else 0
-                    vtxt = f"  val={vloss:.4f}" if vloss >= 0 else ""
-                    ctrl_data = msg.get("_control", {})
-                    if ctrl_data.get("early_stop"):
-                        self._status_lbl.config(
-                            text=f"{aid}@{bvid}  ep{ep}/{eps}  ⏹ 即将停止",
-                            fg=C["warning"],
-                        )
-                    elif ctrl_data.get("lr_scale"):
-                        self._status_lbl.config(
-                            text=f"{aid}@{bvid}  ep{ep}/{eps}  ⚡ 调整LR",
-                            fg=C["warning"],
-                        )
-                    else:
-                        self._status_lbl.config(
-                            text=f"{aid}@{bvid}  ep{ep}/{eps}  train={tloss:.4f}{vtxt}  {conf_str}  {elapsed:.0f}s",
-                            fg=C["text_1"],
-                        )
-
-                    # 训练质量监控
-                    self._monitor.update(ep, tloss, vloss if vloss >= 0 else -1)
-                    self._refresh_monitor()
-
-                    # 记录 loss 历史 + 更新图表
-                    self._loss_history.append({
-                        "algo": aid, "bvid": bvid, "epoch": ep,
-                        "train_loss": tloss, "val_loss": vloss,
-                    })
-                    self._update_chart()
-                    adj = msg.get("_adjustment", "")
-                    adj_suffix = f"  |  {adj}" if adj else ""
-                    self._append_log(
-                        f"  epoch {ep:>3}/{eps}  |  "
-                        f"train_loss={tloss:.6f}  |  "
-                        f"{f'val_loss={vloss:.6f}' if vloss>=0 else 'val_loss=N/A'}  |  "
-                        f"confidence={conf_str}  |  "
-                        f"{elapsed:.1f}s{adj_suffix}"
-                    )
-
-                elif stage == "done":
-                    done = msg.get("done", 0)
-                    total = msg.get("total", 1)
-                    aid = msg.get("aid", "?")
-                    bvid = msg.get("bvid", "?")
-                    ver = msg.get("version", "")
-                    conf = msg.get("confidence", 0.0)
-                    val_loss = msg.get("val_loss", -1.0)
-
-                    pct = min(100, int(done / max(1, total) * 100))
-                    self._progress["value"] = pct
-                    self._task_detail.config(text=f"{done}/{total}")
-                    conf_str, conf_color = format_confidence(conf)
-
-                    # 缓存视频结果
-                    if bvid not in self._video_results:
-                        self._video_results[bvid] = []
-                    self._video_results[bvid].append({
-                        "aid": aid, "version": ver, "confidence": conf, "val_loss": val_loss,
-                    })
-
-                    # 更新算法行状态
-                    self._refresh_algo_row(0, aid, f"✓ {ver}", C["success"],
-                                           conf_str, conf_color, f"v{msg.get('done', 0)}")
-
-                    self._status_lbl.config(
-                        text=f"✓ {aid}@{bvid}  → {ver}  conf={conf_str}  ({done}/{total})",
-                        fg=C["success"])
-                    self._append_log(f"  ✓ {aid}@{bvid} → {ver}  置信度={conf_str}  val_loss={val_loss:.4f}")
-
-                elif stage == "error":
-                    done = msg.get("done", 0)
-                    total = msg.get("total", 1)
-                    aid = msg.get("aid", "?")
-                    bvid = msg.get("bvid", "?")
-                    err = msg.get("error", "")
-                    pct = min(100, int(done / max(1, total) * 100))
-                    self._progress["value"] = pct
-                    self._task_detail.config(text=f"{done}/{total}")
-                    self._status_lbl.config(text=f"✗ {aid}@{bvid}: {err}", fg=C["danger"])
-                    self._append_log(f"  ✗ {aid}@{bvid}: {err}")
-                    self._refresh_algo_row(0, aid, "✗ 失败", C["danger"], "", "", "")
-
-                elif stage == "auto_adjust":
-                    action = msg.get("action", "")
-                    message = msg.get("message", "")
-                    self._append_log(f"  🔧 自动调整: {message}")
-                    self._status_lbl.config(text=f"⚡ {message}", fg=C["warning"])
-                    if action == "early_stop":
-                        self._monitor_status.config(text="⏹ 自动提前停止", fg=C["warning"])
-
-                elif stage == "log":
-                    self._append_log(msg.get("text", ""))
-
-                elif stage == "cancelled":
-                    done = msg.get("done", 0)
-                    total = msg.get("total", 1)
-                    self._status_lbl.config(text=f"已取消 ({done}/{total})", fg=C["warning"])
-                    self._append_log(f"⏹ 已取消, {done}/{total} 已完成")
-                    done_all = True
-
-                elif stage == "all_done":
-                    done = msg.get("done", 0)
-                    elapsed = time.time() - self._train_t0 if self._train_t0 else 0
-
-                    # 汇总所有置信度
-                    conf_summary = ""
-                    for bvid, results in self._video_results.items():
-                        for r in results:
-                            cs, _ = format_confidence(r["confidence"])
-                            conf_summary += f"\n  {bvid} → {r['aid']}: {cs}"
-
-                    self._task_lbl.config(text="✅ 微调全部完成", fg=C["success"])
-                    self._task_detail.config(text=f"{done}/{done}")
-                    self._status_lbl.config(text=f"全部完成: {done} 任务 · {elapsed:.0f}s", fg=C["success"])
-                    self._progress["value"] = 100
-                    self._append_log(f"🏁 批量微调全部完成: {done} 任务, 耗时 {elapsed:.0f}s")
-                    self._append_log(f"📊 各算法最终置信度:{conf_summary}")
-                    self.main.set_finetune_status(f"✅ 批量微调完成 ({done})")
-                    done_all = True
-
-        except _q.Empty:
+            self.main._refresh_model_status()
+        except Exception:
             pass
-
-        if done_all:
-            self._training = False
-            self._train_btn.config(state="normal")
-            self._cancel_btn.config(state="disabled")
-            self._skip_btn.config(state="disabled")
-            self._train_queue = None
-            self._train_thread = None
-            try:
-                self.main._refresh_model_status()
-            except Exception:
-                pass
-        else:
-            self.frame.after(200, self._poll_progress)
 
     # ══════════════════════════════════════════════
     # 训练质量监控
     # ══════════════════════════════════════════════
 
-    def _refresh_monitor(self):
-        text, color = self._monitor.get_status_display()
-        self._monitor_status.config(text=text, fg=color)
-        tip = self._monitor.get_tip()
-        self._monitor_tip.config(text=tip)
-
-        icon_map = {"good": "🟢", "warning": "🟡", "danger": "🔴", "info": "🔵"}
-        self._monitor_icon.config(text=icon_map.get(self._monitor.level, "🔵"))
-
+    def _on_monitor_changed(self):
+        """记录训练质量变化日志，包含 LR 调整信息。"""
         if self._monitor.level in ("warning", "danger") and self._monitor.suggestions:
             cur_status = self._monitor.status
             last_status = getattr(self, "_last_monitor_status", "")
@@ -877,60 +771,14 @@ class FinetunePanel:
                     self._append_log(f"  📐 当前有效学习率: {cur_lr:.6f} (基础 {base_lr} × {factor:.2f}) — 自动调整已应用于后续训练")
 
     # ══════════════════════════════════════════════
-    # 图表
+    # 图表（使用基类 _update_chart / _clear_chart，
+    # 但重写 _get_chart_series 以按当前视频过滤）
     # ══════════════════════════════════════════════
 
-    def _update_chart(self):
-        if not mpl_available or self._ax is None:
-            return
-        self._ax.clear()
-        self._ax.set_facecolor(C["bg_elevated"])
-        self._ax.tick_params(colors=C["text_3"], labelsize=7)
-        self._ax.set_xlabel("Epoch", color=C["text_3"], fontsize=7)
-        self._ax.set_ylabel("Loss", color=C["text_3"], fontsize=7)
-        self._ax.grid(True, alpha=0.3, color=C["border"])
-        for spine in self._ax.spines.values():
-            spine.set_color(C["border"])
-
-        # 按 algo 分组画线（仅当前视频）
+    def _get_chart_series(self):
+        """仅显示当前视频的曲线。"""
         current_algos = set(d["algo"] for d in self._loss_history
                             if d.get("bvid") == self._current_bvid)
         if not current_algos:
             current_algos = set(d["algo"] for d in self._loss_history)
-
-        for algo_name in current_algos:
-            pts = [d for d in self._loss_history if d["algo"] == algo_name]
-            epochs = [d["epoch"] for d in pts]
-            train = [d["train_loss"] for d in pts]
-            val = [d["val_loss"] for d in pts]
-            self._ax.plot(epochs, train, "-o", label=f"{algo_name} train",
-                          markersize=2, linewidth=1)
-            valid_val = [(e, v) for e, v in zip(epochs, val) if v >= 0]
-            if valid_val:
-                self._ax.plot([e for e, v in valid_val], [v for e, v in valid_val],
-                              "--s", label=f"{algo_name} val", markersize=2, linewidth=1)
-
-        self._ax.legend(fontsize=6, loc="upper right", facecolor=C["bg_elevated"],
-                        edgecolor=C["border"], labelcolor=C["text_1"])
-        self._fig.tight_layout(pad=1.5)
-        self._canvas.draw_idle()
-
-    def _clear_chart(self):
-        clear_loss_chart(self._ax, self._fig, self._canvas)
-
-    # ══════════════════════════════════════════════
-    # 日志
-    # ══════════════════════════════════════════════
-
-    def _append_log(self, text: str):
-        ts = time.strftime("%H:%M:%S")
-        line = f"[{ts}] {text}\n"
-        self._log_text.config(state="normal")
-        self._log_text.insert(tk.END, line)
-        self._log_text.see(tk.END)
-        self._log_text.config(state="disabled")
-
-    def _clear_log(self):
-        self._log_text.config(state="normal")
-        self._log_text.delete("1.0", tk.END)
-        self._log_text.config(state="disabled")
+        return [(a, [d for d in self._loss_history if d["algo"] == a]) for a in sorted(current_algos)]
