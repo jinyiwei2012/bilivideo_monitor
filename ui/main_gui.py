@@ -47,6 +47,7 @@ from ui.detail_panel import DetailPanel
 from ui.prediction_panel import PredictionPanel
 from ui.bottom_bar import BottomBar
 from ui.dialogs import Dialogs
+from utils.time_utils import safe_timestamp
 from utils.weekly_score import calculate_from_dict as _calc_ws
 from utils.yearly_score import calculate_yearly_from_dict as _calc_ys
 from dataclasses import asdict
@@ -833,20 +834,8 @@ class BilibiliMonitorGUI:
             if len(history) >= 2:
                 t1, c1 = history[-2]
                 t0, c0 = history[-1]
-                if hasattr(t0, "timestamp"):
-                    t0 = t0.timestamp()
-                elif isinstance(t0, str):
-                    try:
-                        t0 = datetime.fromisoformat(t0).timestamp()
-                    except Exception:
-                        t0 = 0.0
-                if hasattr(t1, "timestamp"):
-                    t1 = t1.timestamp()
-                elif isinstance(t1, str):
-                    try:
-                        t1 = datetime.fromisoformat(t1).timestamp()
-                    except Exception:
-                        t1 = 0.0
+                t0 = safe_timestamp(t0)
+                t1 = safe_timestamp(t1)
                 dt = (t0 - t1) / 3600
                 if dt > 0:
                     velocity = max(0, (c0 - c1)) / dt if isinstance(c0, (int, float)) else 0

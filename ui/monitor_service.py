@@ -94,14 +94,8 @@ def _merge_history(gui, bvid: str) -> list:
 
                     def _norm(ts):
                         """统一时间戳格式用于去重比较"""
-                        if isinstance(ts, datetime):
-                            return ts.strftime("%Y-%m-%d %H:%M:%S")
-                        dt = (
-                            datetime.fromisoformat(str(ts))
-                            if isinstance(ts, str)
-                            else datetime.fromtimestamp(float(ts))
-                        )
-                        return dt.strftime("%Y-%m-%d %H:%M:%S")
+                        _, _, ts_str = normalize_timestamp(ts)
+                        return ts_str
 
                     existing_ts = {_norm(h[0]) for h in history}
                     for row in db_hist:
