@@ -579,13 +579,7 @@ class TrainingPanel:
 
         AlgorithmRegistry.initialize()
         result = []
-        for adapter in AlgorithmRegistry.get_all_algorithms():
-            algo = getattr(adapter, "algo", adapter)
-            if not hasattr(algo, "build_model"):
-                continue
-            aid = getattr(algo, "algorithm_id", None) or getattr(algo, "name", None)
-            if not aid:
-                continue
+        for aid, algo, _adapter in AlgorithmRegistry.get_trainable_algorithms():
             ckpt = CheckpointManager(aid)
             versions = ckpt.list_versions()
             result.append({
@@ -690,11 +684,7 @@ class TrainingPanel:
         AlgorithmRegistry.initialize()
         # 收集所有有 checkpoint 的算法
         algos = []
-        for adapter in AlgorithmRegistry.get_all_algorithms():
-            algo = getattr(adapter, "algo", adapter)
-            aid = getattr(algo, "algorithm_id", None) or ""
-            if not aid:
-                continue
+        for aid, algo, _adapter in AlgorithmRegistry.get_trainable_algorithms():
             ckpt = CheckpointManager(aid)
             if ckpt.has_checkpoint() or os.path.exists(
                 os.path.join(os.path.dirname(os.path.dirname(__file__)),
@@ -883,13 +873,7 @@ class TrainingPanel:
         # 可微调的算法（有全局 checkpoint 的 DL 算法）
         AlgorithmRegistry.initialize()
         algo_list = []
-        for adapter in AlgorithmRegistry.get_all_algorithms():
-            algo = getattr(adapter, "algo", adapter)
-            if not hasattr(algo, "build_model"):
-                continue
-            aid = getattr(algo, "algorithm_id", None) or ""
-            if not aid:
-                continue
+        for aid, algo, _adapter in AlgorithmRegistry.get_trainable_algorithms():
             if CheckpointManager(aid).has_checkpoint():
                 algo_list.append({"algorithm_id": aid, "name": getattr(algo, "name", aid)})
 

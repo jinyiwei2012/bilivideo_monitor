@@ -591,13 +591,7 @@ class SettingsWindow:
 
         AlgorithmRegistry.initialize()
         result = []
-        for adapter in AlgorithmRegistry.get_all_algorithms():
-            algo = getattr(adapter, "algo", adapter)
-            if not hasattr(algo, "build_model"):
-                continue
-            aid = getattr(algo, "algorithm_id", None) or getattr(algo, "name", None)
-            if not aid:
-                continue
+        for aid, algo, _adapter in AlgorithmRegistry.get_trainable_algorithms():
             ckpt = CheckpointManager(aid)
             versions = ckpt.list_versions()
             result.append(

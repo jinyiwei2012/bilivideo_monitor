@@ -56,6 +56,28 @@ class AlgorithmRegistry:
             traceback.print_exc()
 
     @classmethod
+    def get_trainable_algorithms(cls) -> List[Tuple[str, Any, Any]]:
+        """返回所有可训练的算法（有 build_model 方法），每项为 (algorithm_id, algo_instance, adapter)"""
+        results = []
+        for name, adapter in cls._algorithms.items():
+            algo = getattr(adapter, "algo", adapter)
+            if not hasattr(algo, "build_model"):
+                continue
+            aid = getattr(algo, "algorithm_id", None) or ""
+            if aid:
+                results.append((aid, algo, adapter))
+        return results
+
+    @classmethod
+    def get_algorithm_by_id(cls, algo_id: str):
+        """通过 algorithm_id 查找算法实例（扫描 adapter 的 algo 属性）"""
+        for name, adapter in cls._algorithms.items():
+            algo = getattr(adapter, "algo", adapter)
+            if getattr(algo, "algorithm_id", None) == algo_id:
+                return algo
+        return None
+
+    @classmethod
     def get_algorithm(cls, name: str):
         if not cls._initialized:
             cls.initialize()

@@ -384,22 +384,16 @@ class ModelTrainer:
 
     @staticmethod
     def _instantiate_algorithm(algo_id: str):
-        """从 registry 按 algorithm_id 查找底层算法实例（绕过 adapter 包装）。
-
-        registry 用 f"[Model] {display_name}" 当 key 存 adapter，所以不能直接
-        get_algorithm(algo_id) — 必须扫描全部 adapter 比对 algorithm_id 属性，
-        再取出 adapter.algo 把训练需要的 build_model / get_loss_fn 等方法暴露出来。
-        """
+        """从 registry 按 algorithm_id 查找底层算法实例（绕过 adapter 包装）"""
         try:
             from algorithms.registry import AlgorithmRegistry
         except Exception as e:
             logger.error("无法导入 AlgorithmRegistry: %s", e)
             return None
         AlgorithmRegistry.initialize()
-        for adapter in AlgorithmRegistry.get_all_algorithms():
-            algo = getattr(adapter, "algo", adapter)
-            if getattr(algo, "algorithm_id", None) == algo_id:
-                return algo
+        algo = AlgorithmRegistry.get_algorithm_by_id(algo_id)
+        if algo is not None:
+            return algo
         return None
 
 

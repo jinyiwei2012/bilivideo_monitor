@@ -278,13 +278,7 @@ class DetailPanel:
 
         AlgorithmRegistry.initialize()
         algos = []
-        for adapter in AlgorithmRegistry.get_all_algorithms():
-            algo = getattr(adapter, "algo", adapter)
-            if not hasattr(algo, "build_model"):
-                continue
-            aid = getattr(algo, "algorithm_id", None) or ""
-            if not aid:
-                continue
+        for aid, algo, _adapter in AlgorithmRegistry.get_trainable_algorithms():
             ckpt = CheckpointManager(aid)
             if ckpt.has_checkpoint():
                 algos.append({"algorithm_id": aid, "name": getattr(algo, "name", aid)})
