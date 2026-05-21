@@ -26,7 +26,7 @@ except ImportError:
 from ui.mpl_imports import mpl_available, Figure, FigureCanvasTkAgg
 
 from ui.theme import C
-from ui.helpers import FONT, FONT_SM, FONT_MONO, FONT_BOLD
+from ui.helpers import FONT, FONT_SM, FONT_MONO, FONT_BOLD, loss_to_confidence, format_confidence
 
 
 class TrainingMonitor:
@@ -631,7 +631,7 @@ class TrainingPanel:
 
             # 置信度列
             conf = self._load_confidence(aid)
-            conf_text, conf_color = self._format_confidence(conf)
+            conf_text, conf_color = format_confidence(conf)
             conf_lbl = tk.Label(row, text=conf_text, bg=C["bg_surface"], fg=conf_color,
                                 font=FONT_SM, width=10, anchor="w")
             conf_lbl.grid(row=0, column=4, padx=2, sticky="w")
@@ -1032,29 +1032,6 @@ class TrainingPanel:
         start_btn.pack(side=tk.LEFT, padx=(0, 6))
         ttk.Button(btn_row, text="取消", command=dialog.destroy).pack(side=tk.LEFT)
 
-    # ── 置信度辅助 ────────────────────────────────
-
-    @staticmethod
-    def _loss_to_confidence(val_loss: float) -> float:
-        """将 val_loss 映射到 [0, 1] 置信度。"""
-        if val_loss is None or val_loss < 0:
-            return 0.0
-        # exp(-loss): loss=0 → conf=1.0, loss=0.5 → conf≈0.61, loss=1.0 → conf≈0.37
-        return max(0.0, min(1.0, math.exp(-val_loss)))
-
-    @staticmethod
-    def _format_confidence(conf: float):
-        """返回 (显示文本, 颜色) 对。"""
-        if conf <= 0:
-            return "—", C["text_3"]
-        pct = conf * 100
-        if conf >= 0.8:
-            return f"↑ {pct:.0f}%", C["success"]
-        elif conf >= 0.5:
-            return f"→ {pct:.0f}%", C["warning"]
-        else:
-            return f"↓ {pct:.0f}%", C["danger"]
-
     def _load_confidence(self, algo_id: str) -> float:
         """读取算法 active checkpoint 的 val_loss 并计算置信度。"""
         try:
@@ -1067,9 +1044,9 @@ class TrainingPanel:
             for v in versions:
                 if v["version"] == active_v:
                     val_loss = v.get("val_loss", -1.0)
-                    return self._loss_to_confidence(val_loss)
+                    return loss_to_confidence(val_loss)
             # fallback: latest version
-            return self._loss_to_confidence(versions[0].get("val_loss", -1.0))
+            return loss_to_confidence(versions[0].get("val_loss", -1.0))
         except Exception:
             return 0.0
 
@@ -1296,8 +1273,8 @@ class TrainingPanel:
                     elapsed = msg.get("elapsed_s", 0.0)
 
                     # 实时置信度（基于 val_loss）
-                    conf = self._loss_to_confidence(vloss) if vloss >= 0 else 0.0
-                    conf_str, conf_color = self._format_confidence(conf)
+                    conf = loss_to_confidence(vloss) if vloss >= 0 else 0.0
+                    conf_str, conf_color = format_confidence(conf)
 
                     # 更新算法行置信度（每 5 epoch 或最后 epoch 刷新）
                     if ep == 1 or ep % 5 == 0 or ep == eps:
@@ -1343,7 +1320,7 @@ class TrainingPanel:
                     self._append_log(f"✓ {aid} 完成, 保存为 {ver}")
                     # 读取最终置信度并更新行
                     conf = self._load_confidence(aid)
-                    conf_str, conf_color = self._format_confidence(conf)
+                    conf_str, conf_color = format_confidence(conf)
                     self._algo_confidence[aid] = conf
                     self._update_algo_row(
                         aid, status=f"✓ {ver[:10]}", status_color=C["success"],
@@ -1381,7 +1358,7 @@ class TrainingPanel:
                             continue
                         conf = self._load_confidence(aid)
                         self._algo_confidence[aid] = conf
-                        conf_str, _ = self._format_confidence(conf)
+                        conf_str, _ = format_confidence(conf)
                         conf_summary += f"  {aid}: {conf_str}"
 
                     self._status_lbl.config(text=f"全部完成: ✓ {ok}  ✗ {bad}  · {elapsed:.0f}s", fg=C["success"])

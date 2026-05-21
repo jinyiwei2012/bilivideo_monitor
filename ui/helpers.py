@@ -117,3 +117,27 @@ def rounded_rect(canvas, x1, y1, x2, y2, r, **kwargs):
         y1,
     ]
     return canvas.create_polygon(pts, smooth=True, **kwargs)
+
+
+# ── 置信度辅助 ─────────────────────────────────
+import math
+
+
+def loss_to_confidence(val_loss: float) -> float:
+    """将 val_loss 映射到 [0, 1] 置信度。exp(-loss) 归一化。"""
+    if val_loss is None or val_loss < 0:
+        return 0.0
+    return max(0.0, min(1.0, math.exp(-val_loss)))
+
+
+def format_confidence(conf: float):
+    """返回 (显示文本, 颜色) 对。"""
+    if conf <= 0:
+        return "—", C["text_3"]
+    pct = conf * 100
+    if conf >= 0.8:
+        return f"↑ {pct:.0f}%", C["success"]
+    elif conf >= 0.5:
+        return f"→ {pct:.0f}%", C["warning"]
+    else:
+        return f"↓ {pct:.0f}%", C["danger"]

@@ -26,7 +26,7 @@ except ImportError:
 from ui.mpl_imports import mpl_available, Figure, FigureCanvasTkAgg
 
 from ui.theme import C
-from ui.helpers import FONT, FONT_SM, FONT_MONO, FONT_BOLD
+from ui.helpers import FONT, FONT_SM, FONT_MONO, FONT_BOLD, loss_to_confidence, format_confidence
 from ui.training_panel import TrainingMonitor
 
 
@@ -378,7 +378,7 @@ class FinetunePanel:
 
             # 置信度（全局）
             conf = self._load_confidence(aid)
-            conf_text, conf_color = self._format_confidence(conf)
+            conf_text, conf_color = format_confidence(conf)
             tk.Label(row, text=conf_text, bg=C["bg_surface"], fg=conf_color,
                      font=FONT_SM, width=8, anchor="w").grid(row=0, column=4, padx=2, sticky="w")
 
@@ -405,25 +405,7 @@ class FinetunePanel:
         for v in self._algo_vars.values():
             v.set(flag)
 
-    # ── 置信度辅助 ──
-
-    @staticmethod
-    def _loss_to_confidence(val_loss: float) -> float:
-        if val_loss is None or val_loss < 0:
-            return 0.0
-        return max(0.0, min(1.0, math.exp(-val_loss)))
-
-    @staticmethod
-    def _format_confidence(conf: float):
-        if conf <= 0:
-            return "—", C["text_3"]
-        pct = conf * 100
-        if conf >= 0.8:
-            return f"↑ {pct:.0f}%", C["success"]
-        elif conf >= 0.5:
-            return f"→ {pct:.0f}%", C["warning"]
-        else:
-            return f"↓ {pct:.0f}%", C["danger"]
+    # ── 置信度辅助（已提取到 helpers）──
 
     def _load_confidence(self, algo_id: str) -> float:
         try:
@@ -435,8 +417,8 @@ class FinetunePanel:
                 return 0.0
             for v in versions:
                 if v["version"] == active_v:
-                    return self._loss_to_confidence(v.get("val_loss", -1.0))
-            return self._loss_to_confidence(versions[0].get("val_loss", -1.0))
+                    return loss_to_confidence(v.get("val_loss", -1.0))
+            return loss_to_confidence(versions[0].get("val_loss", -1.0))
         except Exception:
             return 0.0
 
@@ -451,8 +433,8 @@ class FinetunePanel:
                 return 0.0
             for v in versions:
                 if v["version"] == active_v:
-                    return self._loss_to_confidence(v.get("val_loss", -1.0))
-            return self._loss_to_confidence(versions[0].get("val_loss", -1.0))
+                    return loss_to_confidence(v.get("val_loss", -1.0))
+            return loss_to_confidence(versions[0].get("val_loss", -1.0))
         except Exception:
             return 0.0
 
@@ -654,7 +636,7 @@ class FinetunePanel:
                         val_loss = -1.0
                         if versions:
                             val_loss = versions[0].get("val_loss", -1.0)
-                        conf = self._loss_to_confidence(val_loss)
+                        conf = loss_to_confidence(val_loss)
                         self._train_queue.put({
                             "stage": "done", "done": done, "total": total,
                             "aid": aid, "bvid": bvid, "version": ver[:12],
@@ -734,8 +716,8 @@ class FinetunePanel:
                     elapsed = msg.get("elapsed_s", 0.0)
 
                     # 实时置信度
-                    conf = self._loss_to_confidence(vloss) if vloss >= 0 else 0.0
-                    conf_str, _ = self._format_confidence(conf)
+                    conf = loss_to_confidence(vloss) if vloss >= 0 else 0.0
+                    conf_str, _ = format_confidence(conf)
 
                     pct = min(100, int((ep / max(1, eps)) * 100))
                     self._progress["value"] = pct
@@ -790,7 +772,7 @@ class FinetunePanel:
                     pct = min(100, int(done / max(1, total) * 100))
                     self._progress["value"] = pct
                     self._task_detail.config(text=f"{done}/{total}")
-                    conf_str, conf_color = self._format_confidence(conf)
+                    conf_str, conf_color = format_confidence(conf)
 
                     # 缓存视频结果
                     if bvid not in self._video_results:
@@ -847,7 +829,7 @@ class FinetunePanel:
                     conf_summary = ""
                     for bvid, results in self._video_results.items():
                         for r in results:
-                            cs, _ = self._format_confidence(r["confidence"])
+                            cs, _ = format_confidence(r["confidence"])
                             conf_summary += f"\n  {bvid} → {r['aid']}: {cs}"
 
                     self._task_lbl.config(text="✅ 微调全部完成", fg=C["success"])
