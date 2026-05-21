@@ -7,6 +7,7 @@ from tkinter import ttk, messagebox
 from typing import Dict, List, Optional, Callable
 
 from ui.theme import C
+from ui.scrollable_frame import ScrollableFrame
 from ui.dialog_base import DialogBase
 
 
@@ -64,18 +65,9 @@ class TrendingDiscoveryWindow:
         )
         list_frame.pack(fill=tk.BOTH, expand=True, padx=24, pady=(8, 16))
 
-        sc = tk.Frame(list_frame, bg=C["bg_elevated"])
-        sc.pack(fill=tk.BOTH, expand=True)
-
-        self._canvas = tk.Canvas(sc, bg=C["bg_elevated"], highlightthickness=0)
-        vsb = ttk.Scrollbar(sc, orient="vertical", command=self._canvas.yview)
-        self._canvas.config(yscrollcommand=vsb.set)
-        vsb.pack(side=tk.RIGHT, fill=tk.Y)
-        self._canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        self._card_frame = tk.Frame(self._canvas, bg=C["bg_elevated"])
-        self._canvas.create_window((0, 0), window=self._card_frame, anchor="nw")
-        self._card_frame.bind("<Configure>", lambda e: self._canvas.configure(scrollregion=self._canvas.bbox("all")))
+        sf = ScrollableFrame(list_frame, bg=C["bg_elevated"])
+        sf.pack(fill=tk.BOTH, expand=True)
+        self._card_frame = sf.inner
 
         self._load_popular()
 

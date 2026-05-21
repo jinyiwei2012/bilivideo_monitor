@@ -29,6 +29,7 @@ from ui.helpers import (
     loss_to_confidence, format_confidence, load_algo_confidence, clear_loss_chart,
     project_path,
 )
+from ui.scrollable_frame import ScrollableFrame
 from ui.training_base import BaseTrainingPanel, TrainingMonitor
 
 
@@ -110,20 +111,9 @@ class TrainingPanel(BaseTrainingPanel):
         ttk.Button(toolbar, text="🗑️ 版本管理", command=self._on_manage_versions, width=10).pack(side=tk.LEFT, padx=1)
 
         # 滚动容器
-        canvas = tk.Canvas(left, bg=C["bg_elevated"], highlightthickness=0, height=300)
-        vsb = ttk.Scrollbar(left, orient="vertical", command=canvas.yview)
-        canvas.configure(yscrollcommand=vsb.set)
-        vsb.pack(side=tk.RIGHT, fill=tk.Y)
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        algo_frame = tk.Frame(canvas, bg=C["bg_elevated"])
-        canvas.create_window((0, 0), window=algo_frame, anchor="nw", tags="algo_frame")
-        algo_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>",
-                    lambda ev: canvas.yview_scroll(int(-1 * (ev.delta / 120)), "units")))
-        canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
-        self._algo_frame = algo_frame
-        self._algo_canvas = canvas
+        sf = ScrollableFrame(left, bg=C["bg_elevated"], height=300)
+        sf.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self._algo_frame = sf.inner
 
         # 表头
         hdr_row = tk.Frame(algo_frame, bg=C["bg_surface"])
@@ -432,14 +422,9 @@ class TrainingPanel(BaseTrainingPanel):
         tk.Label(left_panel, text="算法", bg=C["bg_elevated"], fg=C["text_2"],
                  font=FONT_SM).pack(fill=tk.X, padx=4, pady=4)
 
-        algo_canvas = tk.Canvas(left_panel, bg=C["bg_elevated"], highlightthickness=0)
-        algo_scroll = ttk.Scrollbar(left_panel, orient="vertical", command=algo_canvas.yview)
-        algo_canvas.configure(yscrollcommand=algo_scroll.set)
-        algo_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        algo_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        algo_inner = tk.Frame(algo_canvas, bg=C["bg_elevated"])
-        algo_canvas.create_window((0, 0), window=algo_inner, anchor="nw")
-        algo_inner.bind("<Configure>", lambda e: algo_canvas.configure(scrollregion=algo_canvas.bbox("all")))
+        algo_sf = ScrollableFrame(left_panel, bg=C["bg_elevated"])
+        algo_sf.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        algo_inner = algo_sf.inner
 
         # 右侧：版本列表
         right_panel = tk.Frame(main, bg=C["bg_surface"])
@@ -628,14 +613,9 @@ class TrainingPanel(BaseTrainingPanel):
         video_frame = tk.Frame(main, bg=C["bg_elevated"], highlightthickness=1,
                                highlightbackground=C["border"])
         video_frame.pack(fill=tk.X, pady=(0, 8))
-        v_canvas = tk.Canvas(video_frame, bg=C["bg_elevated"], highlightthickness=0, height=100)
-        v_scroll = ttk.Scrollbar(video_frame, orient="vertical", command=v_canvas.yview)
-        v_canvas.configure(yscrollcommand=v_scroll.set)
-        v_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        v_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        v_inner = tk.Frame(v_canvas, bg=C["bg_elevated"])
-        v_canvas.create_window((0, 0), window=v_inner, anchor="nw")
-        v_inner.bind("<Configure>", lambda e: v_canvas.configure(scrollregion=v_canvas.bbox("all")))
+        v_sf = ScrollableFrame(video_frame, bg=C["bg_elevated"], height=100)
+        v_sf.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        v_inner = v_sf.inner
 
         video_vars = {}
         for v in sorted(videos, key=lambda x: x["bvid"]):
@@ -653,14 +633,9 @@ class TrainingPanel(BaseTrainingPanel):
         algo_frame = tk.Frame(main, bg=C["bg_elevated"], highlightthickness=1,
                               highlightbackground=C["border"])
         algo_frame.pack(fill=tk.X, pady=(0, 8))
-        a_canvas = tk.Canvas(algo_frame, bg=C["bg_elevated"], highlightthickness=0, height=100)
-        a_scroll = ttk.Scrollbar(algo_frame, orient="vertical", command=a_canvas.yview)
-        a_canvas.configure(yscrollcommand=a_scroll.set)
-        a_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        a_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        a_inner = tk.Frame(a_canvas, bg=C["bg_elevated"])
-        a_canvas.create_window((0, 0), window=a_inner, anchor="nw")
-        a_inner.bind("<Configure>", lambda e: a_canvas.configure(scrollregion=a_canvas.bbox("all")))
+        a_sf = ScrollableFrame(algo_frame, bg=C["bg_elevated"], height=100)
+        a_sf.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        a_inner = a_sf.inner
 
         algo_vars = {}
         for a in sorted(algo_list, key=lambda x: x["name"]):

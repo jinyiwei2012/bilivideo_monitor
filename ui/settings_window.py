@@ -15,6 +15,7 @@ from tkinter import ttk, messagebox
 from ui.theme import C
 from ui.helpers import FONT, FONT_BOLD, FONT_SM, FONT_MONO, project_path
 from ui.dialog_base import DialogBase
+from ui.scrollable_frame import ScrollableFrame
 from core.bilibili_api import bilibili_api
 from core.proxy_manager import ProxyManager
 from algorithms.registry import AlgorithmRegistry
@@ -367,16 +368,9 @@ class SettingsWindow:
         canvas_frame = tk.Frame(page, bg=C["bg_base"])
         canvas_frame.pack(fill=tk.BOTH, expand=True, padx=16, pady=(0, 12))
 
-        vsb = ttk.Scrollbar(canvas_frame, orient="vertical")
-        vsb.pack(side=tk.RIGHT, fill=tk.Y)
-
-        canvas = tk.Canvas(canvas_frame, bg=C["bg_elevated"], highlightthickness=0, yscrollcommand=vsb.set)
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        vsb.config(command=canvas.yview)
-
-        algo_frame = tk.Frame(canvas, bg=C["bg_elevated"])
-        canvas.create_window((0, 0), window=algo_frame, anchor="nw")
-        algo_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        sf = ScrollableFrame(canvas_frame, bg=C["bg_elevated"])
+        sf.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        algo_frame = sf.inner
 
         self._weight_vars = {}
         self._weight_check_vars = {}
@@ -514,27 +508,12 @@ class SettingsWindow:
         # 滚动容器
         canvas_frame = tk.Frame(list_sec, bg=C["bg_base"])
         canvas_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 4))
-        vsb = ttk.Scrollbar(canvas_frame, orient="vertical")
-        vsb.pack(side=tk.RIGHT, fill=tk.Y)
-        canvas = tk.Canvas(canvas_frame, bg=C["bg_elevated"], highlightthickness=0, yscrollcommand=vsb.set, height=200)
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        vsb.config(command=canvas.yview)
-
-        self._tr_algo_frame = tk.Frame(canvas, bg=C["bg_elevated"])
-        canvas.create_window((0, 0), window=self._tr_algo_frame, anchor="nw")
-        self._tr_algo_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        # 鼠标滚轮
-        canvas.bind(
-            "<Enter>",
-            lambda e: canvas.bind_all(
-                "<MouseWheel>", lambda ev: canvas.yview_scroll(int(-1 * (ev.delta / 120)), "units")
-            ),
-        )
-        canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
+        sf = ScrollableFrame(canvas_frame, bg=C["bg_elevated"], height=200)
+        sf.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self._tr_algo_frame = sf.inner
 
         self._tr_check_vars: Dict[str, tk.BooleanVar] = {}  # algo_id -> BooleanVar
         self._tr_algo_meta: Dict[str, Dict[str, Any]] = {}  # algo_id -> {name, has_ckpt, active, ...}
-        self._tr_canvas = canvas
 
         # ── 训练参数 + 控制 ──
         ctrl_sec = self._section(page, "训练控制", padding=(16, 6, 12))

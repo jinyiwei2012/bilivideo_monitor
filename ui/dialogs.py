@@ -10,6 +10,7 @@ import time
 import customtkinter as ctk
 
 from ui.theme import C
+from ui.scrollable_frame import ScrollableFrame
 from ui.helpers import FONT, FONT_SM, FAST_GAP, FAST_INTERVAL
 
 
@@ -263,14 +264,8 @@ class Dialogs:
         ).pack(pady=(15, 10))
 
         # 创建滚动框架
-        canvas = tk.Canvas(dialog, bg=C["bg_surface"], highlightthickness=0)
-        scrollbar = ttk.Scrollbar(dialog, orient="vertical", command=canvas.yview)
-        scrollable_frame = tk.Frame(canvas, bg=C["bg_surface"])
-
-        scrollable_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
+        _algo_sf = ScrollableFrame(dialog, bg=C["bg_surface"])
+        scrollable_frame = _algo_sf.inner
 
         # 算法信息
         try:
@@ -374,8 +369,7 @@ class Dialogs:
             )
 
         # 布局滚动区域
-        canvas.pack(side="left", fill="both", expand=True, padx=(20, 0), pady=10)
-        scrollbar.pack(side="right", fill="y", pady=10, padx=(0, 20))
+        _algo_sf.pack(fill=tk.BOTH, expand=True, padx=(20, 20), pady=10)
 
         # 关闭按钮
         ttk.Button(dialog, text="关闭", command=dialog.destroy).pack(pady=(0, 15))

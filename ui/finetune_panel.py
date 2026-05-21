@@ -28,6 +28,7 @@ from ui.helpers import (
     project_path,
 )
 from ui.training_base import BaseTrainingPanel, TrainingMonitor
+from ui.scrollable_frame import ScrollableFrame
 
 
 class FinetunePanel(BaseTrainingPanel):
@@ -104,15 +105,9 @@ class FinetunePanel(BaseTrainingPanel):
                                           fg=C["text_3"], font=FONT_SM)
         self._video_count_lbl.pack(side=tk.RIGHT, padx=4)
 
-        self._video_canvas = tk.Canvas(v_frame, bg=C["bg_elevated"], highlightthickness=0)
-        v_sb = ttk.Scrollbar(v_frame, orient="vertical", command=self._video_canvas.yview)
-        self._video_canvas.configure(yscrollcommand=v_sb.set)
-        v_sb.pack(side=tk.RIGHT, fill=tk.Y)
-        self._video_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        self._video_inner = tk.Frame(self._video_canvas, bg=C["bg_elevated"])
-        self._video_canvas.create_window((0, 0), window=self._video_inner, anchor="nw")
-        self._video_inner.bind("<Configure>", lambda e: self._video_canvas.configure(
-            scrollregion=self._video_canvas.bbox("all")))
+        v_sf = ScrollableFrame(v_frame, bg=C["bg_elevated"])
+        v_sf.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self._video_inner = v_sf.inner
 
         # ── 算法列表（带状态/置信度/版本列）──
         a_frame = tk.Frame(left, bg=C["bg_elevated"])
@@ -141,15 +136,9 @@ class FinetunePanel(BaseTrainingPanel):
                      ).grid(row=0, column=col, padx=2, pady=2, sticky="w")
 
         # 滚动容器
-        self._algo_canvas = tk.Canvas(a_frame, bg=C["bg_elevated"], highlightthickness=0, height=200)
-        a_sb = ttk.Scrollbar(a_frame, orient="vertical", command=self._algo_canvas.yview)
-        self._algo_canvas.configure(yscrollcommand=a_sb.set)
-        a_sb.pack(side=tk.RIGHT, fill=tk.Y)
-        self._algo_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        self._algo_inner = tk.Frame(self._algo_canvas, bg=C["bg_elevated"])
-        self._algo_canvas.create_window((0, 0), window=self._algo_inner, anchor="nw")
-        self._algo_inner.bind("<Configure>", lambda e: self._algo_canvas.configure(
-            scrollregion=self._algo_canvas.bbox("all")))
+        a_sf = ScrollableFrame(a_frame, bg=C["bg_elevated"], height=200)
+        a_sf.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self._algo_inner = a_sf.inner
 
     # ── 右侧: 图表 + 监控 + 日志 ──
 

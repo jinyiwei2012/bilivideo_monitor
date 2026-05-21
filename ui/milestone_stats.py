@@ -10,6 +10,7 @@ from typing import List, Dict, Optional, Callable
 
 from core.database import db
 from ui.theme import C
+from ui.scrollable_frame import ScrollableFrame
 from ui.helpers import FONT, FONT_BOLD, FONT_SM, fmt_num
 from ui.dialog_base import DialogBase
 
@@ -213,17 +214,9 @@ class MilestoneStatsWindow:
             x += w * 7
 
         # 可滚动容器
-        cf = tk.Frame(mid, bg=C["bg_base"])
-        cf.pack(fill=tk.BOTH, expand=True)
-        canvas = tk.Canvas(cf, bg=C["bg_base"], highlightthickness=0)
-        vsb = ttk.Scrollbar(cf, orient="vertical", command=canvas.yview)
-        canvas.configure(yscrollcommand=vsb.set)
-        vsb.pack(side=tk.RIGHT, fill=tk.Y)
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        self._entry_container = tk.Frame(canvas, bg=C["bg_base"])
-        canvas.create_window((0, 0), window=self._entry_container, anchor="nw", tags="inner")
-        self._entry_container.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.bind("<MouseWheel>", lambda e: canvas.yview_scroll(-1 * (e.delta // 120), "units"))
+        sf = ScrollableFrame(mid, bg=C["bg_base"])
+        sf.pack(fill=tk.BOTH, expand=True)
+        self._entry_container = sf.inner
 
         self._entry_status = tk.Label(
             tab,
