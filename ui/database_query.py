@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import Optional
 
 from ui.theme import C
-from ui.helpers import FONT, FONT_SM
+from ui.helpers import FONT, FONT_SM, project_path
 from ui.dialog_base import DialogBase
 
 logger = logging.getLogger(__name__)
@@ -141,8 +141,7 @@ class DatabaseQueryWindow:
         self.load_videos_list()
 
     def _get_db_path(self) -> str:
-        cd = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        return os.path.join(cd, "data", "bilibili_monitor.db")
+        return project_path("data", "bilibili_monitor.db")
 
     def setup_ui(self):
         self.dlg.header("数据库查询", "查询监控记录、播放趋势与算法预测数据")
@@ -273,12 +272,7 @@ class DatabaseQueryWindow:
         if os.path.exists(primary):
             return primary
         # 互补：备份路径 core/data/BVxxx/BVxxx.db
-        backup = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-            "core",
-            "data",
-            bvid,
-            f"{bvid}.db",
+        backup = project_path("core", "data", bvid, f"{bvid}.db")
         )
         return backup if os.path.exists(backup) else None
 

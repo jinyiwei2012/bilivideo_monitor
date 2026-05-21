@@ -22,6 +22,7 @@ import re
 import logging
 import sqlite3
 from typing import List, Optional, Tuple
+from utils import project_path
 
 import numpy as np
 
@@ -37,11 +38,7 @@ except ImportError:
 
 _BVID_PATTERN = re.compile(r"^BV[0-9A-Za-z]{10}$")
 
-_DATA_ROOT = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-    "core",
-    "data",
-)
+_DATA_ROOT = project_path("core", "data")
 
 
 _DEFAULT_FEATURES = ("view_count", "like_count", "coin_count", "favorite_count", "share_count")
