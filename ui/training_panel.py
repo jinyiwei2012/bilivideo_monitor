@@ -23,15 +23,7 @@ try:
 except ImportError:
     _torch_available = False
 
-# Matplotlib 内嵌
-try:
-    import matplotlib
-    matplotlib.use("TkAgg", force=True)
-    from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-    from matplotlib.figure import Figure
-    _mpl_available = True
-except Exception:
-    _mpl_available = False
+from ui.mpl_imports import mpl_available, Figure, FigureCanvasTkAgg
 
 from ui.theme import C
 from ui.helpers import FONT, FONT_SM, FONT_MONO, FONT_BOLD
@@ -381,7 +373,7 @@ class TrainingPanel:
         tk.Label(chart_frame, text="训练 Loss 曲线", bg=C["bg_elevated"], fg=C["text_2"],
                  font=FONT_SM).pack(anchor="nw", padx=4, pady=(2, 0))
 
-        if _mpl_available:
+        if mpl_available:
             self._fig = Figure(figsize=(5, 2.5), dpi=80, facecolor=C["bg_elevated"])
             self._ax = self._fig.add_subplot(111)
             self._ax.set_facecolor(C["bg_elevated"])
@@ -1497,7 +1489,7 @@ class TrainingPanel:
     # ══════════════════════════════════════════════
 
     def _update_chart(self):
-        if not _mpl_available or self._ax is None:
+        if not mpl_available or self._ax is None:
             return
         self._ax.clear()
         self._ax.set_facecolor(C["bg_elevated"])
@@ -1527,7 +1519,7 @@ class TrainingPanel:
         self._canvas.draw_idle()
 
     def _clear_chart(self):
-        if not _mpl_available or self._ax is None:
+        if not mpl_available or self._ax is None:
             return
         self._ax.clear()
         self._ax.set_facecolor(C["bg_elevated"])
