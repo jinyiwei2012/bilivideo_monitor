@@ -143,6 +143,24 @@ def format_confidence(conf: float):
         return f"↓ {pct:.0f}%", C["danger"]
 
 
+def clear_loss_chart(ax, fig, canvas):
+    """清空并样式化损失曲线图表（training/finetune 面板共用）。"""
+    from ui.mpl_imports import mpl_available
+
+    if not mpl_available or ax is None:
+        return
+    ax.clear()
+    ax.set_facecolor(C["bg_elevated"])
+    ax.tick_params(colors=C["text_3"], labelsize=7)
+    ax.set_xlabel("Epoch", color=C["text_3"], fontsize=7)
+    ax.set_ylabel("Loss", color=C["text_3"], fontsize=7)
+    ax.grid(True, alpha=0.3, color=C["border"])
+    for spine in ax.spines.values():
+        spine.set_color(C["border"])
+    fig.tight_layout(pad=1.5)
+    canvas.draw_idle()
+
+
 def load_algo_confidence(algo_id: str) -> float:
     """读取算法 active checkpoint 的 val_loss 并计算置信度。"""
     try:

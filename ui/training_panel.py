@@ -26,7 +26,7 @@ except ImportError:
 from ui.mpl_imports import mpl_available, Figure, FigureCanvasTkAgg
 
 from ui.theme import C
-from ui.helpers import FONT, FONT_SM, FONT_MONO, FONT_BOLD, loss_to_confidence, format_confidence, load_algo_confidence
+from ui.helpers import FONT, FONT_SM, FONT_MONO, FONT_BOLD, loss_to_confidence, format_confidence, load_algo_confidence, clear_loss_chart
 
 
 class TrainingMonitor:
@@ -1478,18 +1478,7 @@ class TrainingPanel:
         self._canvas.draw_idle()
 
     def _clear_chart(self):
-        if not mpl_available or self._ax is None:
-            return
-        self._ax.clear()
-        self._ax.set_facecolor(C["bg_elevated"])
-        self._ax.tick_params(colors=C["text_3"], labelsize=7)
-        self._ax.set_xlabel("Epoch", color=C["text_3"], fontsize=7)
-        self._ax.set_ylabel("Loss", color=C["text_3"], fontsize=7)
-        self._ax.grid(True, alpha=0.3, color=C["border"])
-        for spine in self._ax.spines.values():
-            spine.set_color(C["border"])
-        self._fig.tight_layout(pad=1.5)
-        self._canvas.draw_idle()
+        clear_loss_chart(self._ax, self._fig, self._canvas)
 
     # ══════════════════════════════════════════════
     # 日志（UI + 存盘）
