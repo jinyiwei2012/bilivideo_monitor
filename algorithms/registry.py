@@ -217,7 +217,8 @@ class AlgorithmRegistry:
                 algo.update_accuracy(predicted, actual)
             try:
                 accuracy = algo.get_accuracy() if hasattr(algo, "get_accuracy") else 0.5
-                weight_manager.update_accuracy(algorithm_name, accuracy)
+                if weight_manager:
+                    weight_manager.update_accuracy(algorithm_name, accuracy)
             except Exception as e:
                 logger.debug("更新算法准确率失败 %s: %s", algorithm_name, e)
 
@@ -228,6 +229,8 @@ class AlgorithmRegistry:
 
         names = cls.get_algorithm_names()
 
+        if not weight_manager:
+            return [{"name": n, "accuracy": 0.5, "weight": 1.0} for n in names]
         try:
             return weight_manager.get_algorithm_info(names)
         except Exception as e:
