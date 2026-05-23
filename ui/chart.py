@@ -70,8 +70,8 @@ def draw_chart_series(c, history, px, py, ML, MT, W, MR, ch, views_list, max_poi
         c.create_oval(x - 4, y - 4, x + 4, y + 4, fill=C["chart_dot"], outline=C["bg_base"], width=2)
 
 
-def draw_chart_annotations(c, history, views_list, px, py, W, H, ML, MR, MB, base_v=0):
-    """绘制最新值标注 + X 轴时间标签 + 图例"""
+def draw_chart_annotations(c, history, views_list, px, py, W, H, ML, MR, MB, base_v=0, prediction=None):
+    """绘制最新值标注 + X 轴时间标签 + 图例 + 预测点"""
     lx = px(len(history) - 1)
     lv = py(views_list[-1])
     cur_val = views_list[-1]
@@ -79,6 +79,32 @@ def draw_chart_annotations(c, history, views_list, px, py, W, H, ML, MR, MB, bas
     label_text = f"+{fmt_num(cur_val)}" if cur_val > 0 and base_v else fmt_num(cur_val)
     c.create_text(lx, lv - 14, text=label_text, fill="#ffffff", font=("Consolas", 8, "bold"))
 
+    # ── 预测投影线 ─────────────────────────────────
+    if prediction:
+        w_pred = prediction.get("prediction", 0)
+        pred_val = w_pred - base_v if base_v > 0 else w_pred
+        if pred_val > 0:
+            last_x = lx
+            last_y = lv
+            # 投影终点：最后一个实际点向右 80px
+            proj_x = last_x + 80
+            proj_y = py(pred_val)
+            # 虚线投影线
+            c.create_line(last_x, last_y, proj_x, proj_y, fill=C["warning"], width=2, dash=(6, 3))
+            # 菱形标记
+            r = 6
+            c.create_polygon(
+                proj_x, proj_y - r,
+                proj_x + r * 0.7, proj_y,
+                proj_x, proj_y + r,
+                proj_x - r * 0.7, proj_y,
+                fill=C["warning"], outline=C["bg_base"], width=2,
+            )
+            label = f"预测 {fmt_num(int(pred_val))}" if base_v else f"预测 {fmt_num(w_pred)}"
+            c.create_text(proj_x + r * 0.7 + 4, proj_y, text=label, anchor="w",
+                          fill=C["warning"], font=("Consolas", 8, "bold"))
+
+    # ── X 轴时间标签 ────────────────────
     step = max(1, len(history) // 6)
     for i, (ts, _) in enumerate(history):
         if i % step == 0 or i == len(history) - 1:
@@ -93,6 +119,11 @@ def draw_chart_annotations(c, history, views_list, px, py, W, H, ML, MR, MB, bas
     items = [("播放" + ("增长" if base_v else "量"), C["bilibili"])] + [
         (THRESHOLD_NAMES[i] + "阈值", THRESH_COLORS[i]) for i in range(3)
     ]
+    if prediction:
+        w_pred = prediction.get("prediction", 0)
+        pred_val = w_pred - base_v if base_v > 0 else w_pred
+        if pred_val > 0:
+            items.append(("预测", C["warning"]))
     lx0 = ML + 4
     for label, col in items:
         c.create_rectangle(lx0, 8, lx0 + 8, 16, fill=col, outline="")
@@ -115,13 +146,14 @@ def draw_chart_grid(c, W, H, ML, MR, MT, MB, cw, ch, min_v, max_v, is_delta=Fals
         c.create_text(ML - 4, y, text=label, anchor="e", fill=C["text_3"], font=("Consolas", 8))
 
 
-def draw_chart(canvas, history_data, bvid, video, FONT, mode="step", max_points=20):
+def draw_chart(canvas, history_data, bvid, video, FONT, mode="step", max_points=20, prediction=None):
     """绘制完整图表
 
     mode: "step"  — 新增模式（v[i]-v[i-1] 每次刷新的播放量增量）
           "delta" — 增量模式（以首个数据点为基准）
           "full"  — 全量模式（显示绝对值）
     max_points: 图中数据点数量（固定间隔）
+    prediction: prediction_results[bvid] dict，含 "prediction" (加权预测值) 等
     """
     c = canvas
     c.delete("all")
@@ -144,7 +176,7 @@ def draw_chart(canvas, history_data, bvid, video, FONT, mode="step", max_points=
         return
 
     if mode == "step":
-        _draw_step_chart(c, history, W, H, ML, MR, MT, MB, cw, ch, FONT, max_points)
+        _draw_step_chart(c, history, W, H, ML, MR, MT, MB, cw, ch, FONT, max_points, prediction)
         return
 
     is_delta = mode == "delta" and history[0][1] > 0
@@ -154,12 +186,21 @@ def draw_chart(canvas, history_data, bvid, video, FONT, mode="step", max_points=
         history = [(ts, v - base_v) for ts, v in history]
 
     views_list = [v for _, v in history]
-    min_v, max_v, span, px, py = compute_chart_scale(views_list, history, ML, MR, MT, cw, ch)
+
+    # 将预测值纳入 Y 轴范围，防止被裁切
+    pred_val = None
+    if prediction:
+        w_pred = prediction.get("prediction", 0)
+        pv = w_pred - base_v if base_v > 0 else w_pred
+        if pv > 0:
+            pred_val = pv
+    views_for_scale = views_list + ([pred_val] if pred_val else [])
+    min_v, max_v, span, px, py = compute_chart_scale(views_for_scale, history, ML, MR, MT, cw, ch)
 
     draw_chart_grid(c, W, H, ML, MR, MT, MB, cw, ch, min_v, max_v, is_delta=is_delta)
     draw_threshold_lines(c, min_v, max_v, py, W, ML, MR, base_v)
     draw_chart_series(c, history, px, py, ML, MT, W, MR, ch, views_list, max_points)
-    draw_chart_annotations(c, history, views_list, px, py, W, H, ML, MR, MB, base_v)
+    draw_chart_annotations(c, history, views_list, px, py, W, H, ML, MR, MB, base_v, prediction)
 
     # 右上角信息
     mode_name = "增量" if is_delta else "全量"
@@ -212,8 +253,8 @@ def _step_draw_grid(c, W, H, ML, MR, MT, MB, ch, v_min, v_max, py):
         c.create_line(ML, zy, W - MR, zy, fill=C["text_3"], width=1)
 
 
-def _step_draw_series(c, deltas, values, px, py, W, H, MR, MB, ML):
-    """画 step 图的折线、数据点、最新值标注、X 轴时间标签"""
+def _step_draw_series(c, deltas, values, px, py, W, H, MR, MB, ML, pred_delta=None):
+    """画 step 图的折线、数据点、最新值标注、X 轴时间标签 + 预测投影"""
     pts = []
     for i, (_, v) in enumerate(deltas):
         pts += [px(i), py(v)]
@@ -226,11 +267,29 @@ def _step_draw_series(c, deltas, values, px, py, W, H, MR, MB, ML):
         c.create_oval(x - 4, y - 4, x + 4, y + 4, fill=dot_col, outline=C["bg_base"], width=2)
 
     last_v = values[-1]
-    lx = px(len(deltas) - 1)
+    last_idx = len(deltas) - 1
+    lx = px(last_idx)
     ly = py(last_v)
     label_text = f"+{fmt_num(last_v)}" if last_v >= 0 else fmt_num(last_v)
     c.create_rectangle(lx - 34, ly - 22, lx + 34, ly - 6, fill=C["chart_line"], outline="")
     c.create_text(lx, ly - 14, text=label_text, fill="#ffffff", font=("Consolas", 8, "bold"))
+
+    # ── 预测投影（step 模式） ──
+    if pred_delta is not None:
+        proj_x = lx + 50
+        proj_y = py(pred_delta)
+        c.create_line(lx, ly, proj_x, proj_y, fill=C["warning"], width=2, dash=(6, 3))
+        r = 6
+        c.create_polygon(
+            proj_x, proj_y - r,
+            proj_x + r * 0.7, proj_y,
+            proj_x, proj_y + r,
+            proj_x - r * 0.7, proj_y,
+            fill=C["warning"], outline=C["bg_base"], width=2,
+        )
+        sign = "+" if pred_delta >= 0 else ""
+        c.create_text(proj_x + r * 0.7 + 4, proj_y, text=f"预测 {sign}{fmt_num(int(pred_delta))}",
+                      anchor="w", fill=C["warning"], font=("Consolas", 8, "bold"))
 
     step = max(1, len(deltas) // 6)
     for i, (ts, _) in enumerate(deltas):
@@ -244,7 +303,7 @@ def _step_draw_series(c, deltas, values, px, py, W, H, MR, MB, ML):
             c.create_text(px(i), H - MB + 6, text=t_str, fill=C["text_3"], font=("Consolas", 8))
 
 
-def _draw_step_chart(c, history, W, H, ML, MR, MT, MB, cw, ch, FONT, max_points):
+def _draw_step_chart(c, history, W, H, ML, MR, MT, MB, cw, ch, FONT, max_points, prediction=None):
     """绘制"新增"折线图 — 每个点是 v[i] - v[i-1]，0 基线，仅显示最近 N 点。"""
     # 取尾部 N+1 条以产生 N 个差值
     n_keep = min(len(history), max(2, max_points) + 1)
@@ -255,7 +314,28 @@ def _draw_step_chart(c, history, W, H, ML, MR, MT, MB, cw, ch, FONT, max_points)
         return
 
     values = [v for _, v in deltas]
-    v_min, v_max, _, py = _step_compute_scale(values, ch, MT)
+
+    # ── 计算预测的下一个增量 ──
+    pred_delta = None
+    if prediction and len(deltas) >= 2:
+        rate = prediction.get("rate_per_sec", 0)
+        if rate > 0:
+            intervals = []
+            for i in range(1, len(tail)):
+                t1, t2 = tail[i - 1][0], tail[i][0]
+                if isinstance(t1, str):
+                    t1 = datetime.fromisoformat(t1)
+                if isinstance(t2, str):
+                    t2 = datetime.fromisoformat(t2)
+                if isinstance(t1, datetime) and isinstance(t2, datetime):
+                    intervals.append((t2 - t1).total_seconds())
+            if intervals:
+                avg_interval = sum(intervals) / len(intervals)
+                pred_delta = rate * avg_interval
+
+    # 将预测增量纳入 Y 轴范围
+    values_for_scale = values + ([pred_delta] if pred_delta is not None else [])
+    v_min, v_max, _, py = _step_compute_scale(values_for_scale, ch, MT)
 
     def px(i):
         if len(deltas) == 1:
@@ -263,15 +343,12 @@ def _draw_step_chart(c, history, W, H, ML, MR, MT, MB, cw, ch, FONT, max_points)
         return ML + (i / (len(deltas) - 1)) * cw
 
     _step_draw_grid(c, W, H, ML, MR, MT, MB, ch, v_min, v_max, py)
-    _step_draw_series(c, deltas, values, px, py, W, H, MR, MB, ML)
+    _step_draw_series(c, deltas, values, px, py, W, H, MR, MB, ML, pred_delta)
 
     total = sum(values)
     avg = total / len(values) if values else 0
-    c.create_text(
-        W - MR - 2,
-        12,
-        text=f"新增 | {len(deltas)} 点 | 总+{fmt_num(total)} | 均+{fmt_num(avg)}",
-        anchor="e",
-        fill=C["text_3"],
-        font=("Consolas", 8),
-    )
+    info = f"新增 | {len(deltas)} 点 | 总+{fmt_num(total)} | 均+{fmt_num(avg)}"
+    if pred_delta is not None:
+        sign = "+" if pred_delta >= 0 else ""
+        info += f" | 预测 {sign}{fmt_num(int(pred_delta))}"
+    c.create_text(W - MR - 2, 12, text=info, anchor="e", fill=C["text_3"], font=("Consolas", 8))

@@ -118,6 +118,10 @@ class BilibiliMonitorGUI:
         # 启动时自动激活所有算法的最新 checkpoint
         self.root.after(500, self._auto_activate_on_startup)
         self._load_watch_list()
+        # 加载 OneBot 通知配置
+        notification_manager.configure(load_config())
+        # 安排每日 23:50 自动推送
+        self._schedule_daily_push()
         self._start_auto_refresh()
         self._file_logger.start_midnight_checker(self.root)
 
@@ -816,43 +820,6 @@ class BilibiliMonitorGUI:
         self._sb("videos", f"监控: {len(self.monitored_videos)} 个")
         self._save_watch_list()
 
-    def _build_push_msg(self, videos):
-        """构建推送消息文本"""
-        from datetime import datetime
-
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-        lines = [f"📊 B站监控报告 ({now_str})", f"监控 {len(videos)} 个视频：", "─" * 20]
-
-        for i, v in enumerate(videos, 1):
-            bvid = v.get("bvid", "?")
-            title = v.get("title", bvid)[:30]
-            views = v.get("view_count", 0)
-            likes = v.get("like_count", 0)
-            coins = v.get("coin_count", 0)
-
-            history = self.history_data.get(bvid, [])
-            velocity = 0
-            if len(history) >= 2:
-                t1, c1 = history[-2]
-                t0, c0 = history[-1]
-                t0 = safe_timestamp(t0)
-                t1 = safe_timestamp(t1)
-                dt = (t0 - t1) / 3600
-                if dt > 0:
-                    velocity = max(0, (c0 - c1)) / dt if isinstance(c0, (int, float)) else 0
-
-            gap, idx = nearest_threshold_gap(views)
-            eta = ""
-            if gap > 0 and velocity > 0:
-                eta_min = gap / velocity * 60
-                eta = f" 预计达{THRESHOLD_NAMES[idx]}: {fmt_eta(eta_min)}"
-
-            lines.append(f"{i}. 《{title}》")
-            lines.append(f"   播放: {fmt_num(views)}  |  👍 {fmt_num(likes)}  |  🪙 {fmt_num(coins)}")
-            lines.append(f"   增速: {math.ceil(velocity)}/h{eta}")
-
-        return "\n".join(lines)
-
     def _push_single(self, bvid):
         """推送单个视频状态"""
         from core.notification import notification_manager
@@ -894,7 +861,154 @@ class BilibiliMonitorGUI:
         else:
             self._sb("status", "推送失败 (未配置 QQ / 通知服务不可用)", C["danger"])
 
+    # ── 每日 23:50 定时推送 ─────────────────────────
+
+    def _schedule_daily_push(self):
+        """计算到下次 23:50 的秒数，用 root.after 排程"""
+        from datetime import timedelta
+
+        now = datetime.now()
+        target = now.replace(hour=23, minute=50, second=0, microsecond=0)
+        if now >= target:
+            target += timedelta(days=1)
+        delay_ms = int((target - now).total_seconds() * 1000)
+        self.root.after(delay_ms, self._daily_push)
+        logger.info("已安排每日推送: %s", target.strftime("%Y-%m-%d %H:%M"))
+
+    def _daily_push(self):
+        """每日 23:50 自动推送日报"""
+        from core.notification import notification_manager
+
+        msg = self._build_daily_push_msg()
+        notification_manager.send_qq_private(msg)
+        notification_manager.send_qq_group(msg)
+        notification_manager.send_windows_notification("📊 B站监控日报", msg[:256])
+        logger.info("每日推送完成")
+        self._schedule_daily_push()
+
+    def _build_daily_push_msg(self):
+        """构建每日日报消息：日增量 + 年刊分数 + 预测"""
+        from datetime import date
+
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+        today = date.today()
+        lines = [f"📊 B站监控日报 ({now_str})", f"监控 {len(self.monitored_videos)} 个视频：", "─" * 30]
+
+        for i, v in enumerate(self.monitored_videos, 1):
+            bvid = v.get("bvid", "")
+            title = v.get("title", bvid)[:30]
+            views = v.get("view_count", 0)
+            likes = v.get("like_count", 0)
+            coins = v.get("coin_count", 0)
+
+            # 今日播放增量
+            history = self.history_data.get(bvid, [])
+            daily_incr = 0
+            first_today = None
+            for ts, vc in history:
+                try:
+                    if isinstance(ts, str):
+                        ts = datetime.fromisoformat(ts)
+                    if ts.date() == today:
+                        if first_today is None:
+                            first_today = vc
+                        daily_incr = max(0, vc - first_today)
+                except Exception:
+                    pass
+
+            # 年刊分数
+            ys_text = "—"
+            try:
+                ys = _calc_ys(v)
+                if ys:
+                    ys_text = f"{ys.total_score:,.0f}"
+            except Exception:
+                pass
+
+            # 预测
+            pred_info = ""
+            cached = self.prediction_results.get(bvid)
+            if cached:
+                w_pred = cached.get("prediction", 0)
+                growth = cached.get("growth", 0)
+                valid = cached.get("valid", 0)
+                total = cached.get("total", 0)
+                if w_pred > 0:
+                    pred_info = f"  预测: {fmt_num(int(w_pred))} (+{fmt_num(int(growth))})  有效: {valid}/{total}"
+
+            lines.append(f"\n{i}. 《{title}》")
+            lines.append(f"   播放: {fmt_num(views)}  (+{fmt_num(daily_incr)} 今天)")
+            lines.append(f"   👍 {fmt_num(likes)}  🪙 {fmt_num(coins)}")
+            lines.append(f"   年刊: {ys_text}{pred_info}")
+
+        return "\n".join(lines)
+
+    # ── 推送消息构建（手动/单条共用） ────────────────
+
+    def _build_push_msg(self, videos):
+        """构建手动推送消息文本（含年刊分数 + 算法预测时间）"""
+        from datetime import datetime
+
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+        lines = [f"📊 B站监控报告 ({now_str})", f"监控 {len(videos)} 个视频：", "─" * 20]
+
+        for i, v in enumerate(videos, 1):
+            bvid = v.get("bvid", "?")
+            title = v.get("title", bvid)[:30]
+            views = v.get("view_count", 0)
+            likes = v.get("like_count", 0)
+            coins = v.get("coin_count", 0)
+
+            # 年刊分数
+            ys_text = ""
+            try:
+                ys = _calc_ys(v)
+                if ys:
+                    ys_text = f"  年刊: {ys.total_score:,.0f}"
+            except Exception:
+                pass
+
+            # 速度 + 预计到达阈值时间
+            history = self.history_data.get(bvid, [])
+            velocity = 0
+            if len(history) >= 2:
+                t1, c1 = history[-2]
+                t0, c0 = history[-1]
+                t0 = safe_timestamp(t0)
+                t1 = safe_timestamp(t1)
+                dt = (t0 - t1) / 3600
+                if dt > 0:
+                    velocity = max(0, (c0 - c1)) / dt if isinstance(c0, (int, float)) else 0
+
+            gap, idx = nearest_threshold_gap(views)
+            eta = ""
+            if gap > 0 and velocity > 0:
+                eta_min = gap / velocity * 60
+                eta = f"  预计达{THRESHOLD_NAMES[idx]}: {fmt_eta(eta_min)}"
+
+            # 算法预测时间（取置信度最高的 3 个）
+            algo_lines = []
+            cached = self.prediction_results.get(bvid)
+            if cached:
+                succ = cached.get("success_list", [])
+                # success_list: (name, prediction, weight, confidence, predicted_hours)
+                sorted_algos = sorted(succ, key=lambda x: x[3], reverse=True)[:3]
+                for name, pv, _, conf, ph in sorted_algos:
+                    if ph > 0:
+                        eta_str = fmt_eta(ph * 60)
+                        conf_pct = f"{conf*100:.0f}%" if conf > 0 else "—"
+                        algo_lines.append(f"     {name}: {fmt_num(int(pv))} ({eta_str}, {conf_pct})")
+
+            lines.append(f"{i}. 《{title}》")
+            lines.append(f"   播放: {fmt_num(views)}  |  👍 {fmt_num(likes)}  |  🪙 {fmt_num(coins)}")
+            lines.append(f"   增速: {math.ceil(velocity)}/h{eta}{ys_text}")
+            if algo_lines:
+                lines.extend(algo_lines)
+
+        return "\n".join(lines)
+
     def _refresh_data(self):
+        """手动刷新数据"""
         self._do_fetch()
 
     # ── 预测结果回调 ─────────────────────────────

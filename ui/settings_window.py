@@ -130,8 +130,19 @@ class SettingsWindow:
         self.onebot_ws = self._field(
             sec, "WebSocket地址", self._cfg.get("onebot", {}).get("ws_url", "ws://127.0.0.1:6700")
         )
+        self.onebot_token = self._field(
+            sec, "Access Token", self._cfg.get("onebot", {}).get("access_token", ""), show="*"
+        )
         self.qq_private = self._field(sec, "私聊QQ号", self._cfg.get("onebot", {}).get("private_qq", ""))
         self.qq_group = self._field(sec, "群号", self._cfg.get("onebot", {}).get("group_qq", ""))
+
+        # 启用开关
+        enabled = self._cfg.get("onebot", {}).get("enabled", False)
+        self.onebot_enabled = tk.BooleanVar(value=enabled)
+        cb_frame = tk.Frame(sec, bg=C["bg_elevated"])
+        cb_frame.pack(fill=tk.X, pady=(8, 4))
+        ttk.Checkbutton(cb_frame, text="启用 OneBot 通知", variable=self.onebot_enabled).pack(anchor="w")
+
         ttk.Button(sec, text="测试连接", command=self._test_connection).pack(anchor="w", padx=4, pady=(8, 0))
 
     # ──── 监控 ────
@@ -1259,7 +1270,52 @@ class SettingsWindow:
         entry.insert(0, value)
 
     def _test_connection(self):
-        messagebox.showinfo("测试", "连接测试功能", parent=self.window)
+        """测试 OneBot 服务连通性（后台线程，不阻塞 UI）"""
+        http_url = self.onebot_http.get().strip()
+        token = self.onebot_token.get().strip()
+
+        if not http_url:
+            messagebox.showwarning("提示", "请先填写 HTTP 地址", parent=self.window)
+            return
+
+        from core.notification import notification_manager
+        from threading import Thread
+
+        # 用当前 UI 的配置暂存到 notification_manager 做测试
+        saved_http = notification_manager.onebot_http
+        saved_ws = notification_manager.onebot_ws
+        saved_token = notification_manager.token
+        notification_manager.onebot_http = http_url
+        notification_manager.onebot_ws = self.onebot_ws.get().strip() or saved_ws
+        notification_manager.token = token
+
+        def _do_test():
+            try:
+                result = notification_manager.test_connection()
+                self.window.after(0, lambda: self._show_test_result(result))
+            finally:
+                notification_manager.onebot_http = saved_http
+                notification_manager.onebot_ws = saved_ws
+                notification_manager.token = saved_token
+
+        Thread(target=_do_test, daemon=True).start()
+
+    def _show_test_result(self, result: dict):
+        """显示连接测试结果弹窗"""
+        if result["ok"]:
+            ver = result.get("version", "") or "未知版本"
+            channel = result.get("channel", "HTTP")
+            messagebox.showinfo(
+                "连接成功",
+                f"✅ OneBot 服务连接成功\n\n通道: {channel}\n版本: {ver}",
+                parent=self.window,
+            )
+        else:
+            messagebox.showerror(
+                "连接失败",
+                f"❌ OneBot 服务连接失败\n\n原因: {result.get('error', '未知错误')}",
+                parent=self.window,
+            )
 
     def _test_ai_connection(self):
         """测试 AI API 密钥可用性（后台线程，不阻塞 UI）"""
@@ -1957,9 +2013,10 @@ class SettingsWindow:
         from config import save_config
 
         self._cfg["onebot"] = {
-            "enabled": bool(self.onebot_http.get().strip()),
+            "enabled": self.onebot_enabled.get(),
             "http_url": self.onebot_http.get().strip(),
             "ws_url": self.onebot_ws.get().strip(),
+            "access_token": self.onebot_token.get().strip(),
             "private_qq": self.qq_private.get().strip(),
             "group_qq": self.qq_group.get().strip(),
         }
@@ -1973,6 +2030,10 @@ class SettingsWindow:
             "selected_profile": self._ai_profile_var.get(),
         }
         save_config(self._cfg)
+
+        # 立即生效通知配置（无需重启）
+        from core.notification import notification_manager
+        notification_manager.configure(self._cfg)
 
         # 同步代理文本到 net_cfg 后再保存（防止跳过"应用代理"直接点保存导致空覆盖）
         self._sync_proxy_text_to_cfg()

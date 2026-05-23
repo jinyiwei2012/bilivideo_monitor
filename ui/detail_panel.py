@@ -543,6 +543,7 @@ class DetailPanel:
             points = max(2, int(self._chart_max_points.get()))
         except (ValueError, tk.TclError):
             points = 20
+        pred = self.gui.prediction_results.get(self.gui.selected_bvid)
         draw_chart(
             self._chart_canvas,
             self.gui.history_data,
@@ -551,6 +552,7 @@ class DetailPanel:
             FONT,
             mode=self._chart_mode.get(),
             max_points=points,
+            prediction=pred,
         )
         self._rendered_modes.add(self._chart_mode.get())
 
