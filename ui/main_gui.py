@@ -806,7 +806,12 @@ class BilibiliMonitorGUI:
         self.monitored_videos = [v for v in self.monitored_videos if v.get("bvid") != bvid]
         self._video_index.pop(bvid, None)
         self.history_data.pop(bvid, None)
-        self.video_dbs.pop(bvid, None)
+        vdb = self.video_dbs.pop(bvid, None)
+        if vdb:
+            try:
+                vdb.close()
+            except Exception:
+                pass
         self.prediction_results.pop(bvid, None)
         self._video_timers.pop(bvid, None)
         self.video_list.remove_card(bvid)
