@@ -250,7 +250,8 @@ def _online_learning_feedback(gui, bvid, results, actual_view):
         from algorithms.online_learner import get_online_learner
 
         prev = gui.prediction_results.get(bvid)
-        if prev and actual_view > 0:
+        # 仅在播放量实际发生变化时才反馈，避免静止期虚高准确率
+        if prev and actual_view > 0 and actual_view != prev.get("current_view", actual_view):
             learner = get_online_learner()
             learner.register(bvid + "/_weighted")
             learner.update(bvid + "/_weighted", predicted=prev["prediction"], actual=actual_view)
