@@ -16,9 +16,87 @@ FONT_MONO = ("Consolas", 9)
 FONT_MONO_LG = ("Consolas", 14, "bold")
 
 # ── 阈值与间隔 ───────────────────────────────
-THRESHOLDS = [100_000, 1_000_000, 10_000_000]
-THRESHOLD_NAMES = ["10万", "100万", "1000万"]
-THRESH_COLORS = [C["thresh_10w"], C["thresh_100w"], C["thresh_1000w"]]
+# 默认值（首次导入时从 config 加载；通过 reload_thresholds() 动态刷新）
+THRESHOLDS: list = []
+THRESHOLD_NAMES: list = []
+THRESH_COLORS: list = []
+
+# 阈值颜色调色板（支持 N 个阈值循环使用）
+_THRESH_PALETTE = [
+    "#1a7f37",  # 绿
+    "#9a6700",  # 琥珀
+    "#8250df",  # 紫
+    "#0969da",  # 蓝
+    "#d1242f",  # 红
+    "#bf3989",  # 粉紫
+    "#0550ae",  # 深蓝
+    "#953800",  # 棕
+    "#0e765c",  # 青绿
+    "#6e40c9",  # 紫罗兰
+]
+
+
+def _get_threshold_colors(n):
+    """为 N 个阈值生成颜色列表（使用调色板循环）"""
+    return [_THRESH_PALETTE[i % len(_THRESH_PALETTE)] for i in range(n)]
+
+
+def reload_thresholds():
+    """从配置文件加载阈值列表，就地刷新 THRESHOLDS/THRESHOLD_NAMES/THRESH_COLORS。
+
+    兼容两种存储格式：
+    - 新格式: thresholds = [[100000, "10万"], [1000000, "100万"], ...]
+    - 旧格式: thresholds = [100000, 1000000, ...] + 自动生成名称
+    """
+    global THRESHOLDS, THRESHOLD_NAMES, THRESH_COLORS
+    try:
+        from config import load_config
+
+        cfg = load_config()
+        raw = cfg.get("prediction", {}).get("thresholds", [])
+        if not raw:
+            raw = [100_000, 1_000_000, 10_000_000]
+    except Exception:
+        raw = [100_000, 1_000_000, 10_000_000]
+
+    values = []
+    names = []
+
+    # 判断格式：新格式为 [[int, str], ...]，旧格式为 [int, ...]
+    if raw and isinstance(raw[0], (list, tuple)):
+        for item in raw:
+            v = int(item[0])
+            n = str(item[1]) if len(item) > 1 else auto_threshold_name(v)
+            values.append(v)
+            names.append(n)
+    else:
+        values = [int(v) for v in raw]
+        names = [auto_threshold_name(v) for v in raw]
+
+    # 排序：按阈值升序
+    pairs = sorted(zip(values, names), key=lambda x: x[0])
+    values = [p[0] for p in pairs]
+    names = [p[1] for p in pairs]
+
+    THRESHOLDS[:] = values
+    THRESHOLD_NAMES[:] = names
+    THRESH_COLORS[:] = _get_threshold_colors(len(values))
+
+
+def auto_threshold_name(v):
+    """自动生成阈值名称（如 100000 → "10万"）"""
+    if v >= 100_000_000:
+        return f"{v / 100_000_000:.0f}亿"
+    if v >= 10_000:
+        w = v / 10_000
+        if w == int(w):
+            return f"{int(w)}万"
+        return f"{w}万"
+    return str(v)
+
+
+# 首次初始化
+reload_thresholds()
 
 DEFAULT_INTERVAL = 75
 FAST_INTERVAL = 10

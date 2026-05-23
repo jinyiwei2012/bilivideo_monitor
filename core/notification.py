@@ -67,7 +67,7 @@ class NotificationManager:
         async def _call():
             try:
                 async with websockets.connect(
-                    uri, extra_headers=extra_headers, open_timeout=timeout, close_timeout=3
+                    uri, additional_headers=extra_headers, open_timeout=timeout, close_timeout=3
                 ) as ws:
                     payload = {"action": action, "params": params, "echo": str(uuid4())}
                     await ws.send(json.dumps(payload))
@@ -123,11 +123,17 @@ class NotificationManager:
     # ── 通知发送 ────────────────────────────────
 
     def send_windows_notification(self, title: str, message: str) -> bool:
-        """发送Windows原生通知"""
+        """发送Windows原生通知（自动截断以规避 plyer 256 字符限制）"""
         try:
             from plyer import notification
 
-            notification.notify(title=title, message=message, timeout=10)
+            # plyer Windows 后端有 256 字符总缓冲区限制，截断标题+消息
+            max_msg = max(0, 220 - len(title))
+            if max_msg < 10:
+                title = title[:40]
+                max_msg = 180
+            safe_msg = message if len(message) <= max_msg else message[: max_msg - 3] + "..."
+            notification.notify(title=title, message=safe_msg, timeout=10)
             return True
         except Exception as e:
             logger.error(f"Windows通知发送失败: {type(e).__name__}")
@@ -199,7 +205,7 @@ class NotificationManager:
             extra_headers["Authorization"] = f"Bearer {self.token}"
 
         async def _check():
-            async with websockets.connect(uri, extra_headers=extra_headers, open_timeout=5, close_timeout=3) as ws:
+            async with websockets.connect(uri, additional_headers=extra_headers, open_timeout=5, close_timeout=3) as ws:
                 payload = {"action": "get_version_info", "echo": str(uuid4())}
                 await ws.send(json.dumps(payload))
                 resp = await asyncio.wait_for(ws.recv(), timeout=5)

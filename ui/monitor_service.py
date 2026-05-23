@@ -254,7 +254,7 @@ def _online_learning_feedback(gui, bvid, results, actual_view):
             learner = get_online_learner()
             learner.register(bvid + "/_weighted")
             learner.update(bvid + "/_weighted", predicted=prev["prediction"], actual=actual_view)
-            for name, pred_val, _, _ in prev.get("success_list", []):
+            for name, pred_val, _, _, _ in prev.get("success_list", []):
                 algo_key = bvid + "/" + name
                 learner.register(algo_key)
                 learner.update(algo_key, predicted=pred_val, actual=actual_view)
@@ -336,7 +336,11 @@ class VideoWorker:
             with self._interval_lock:
                 interval = self.interval
 
-            self._fetch_and_predict()
+            try:
+                self._fetch_and_predict()
+            except Exception as e:
+                logger.exception("[%s] _fetch_and_predict 异常: %s", self.bvid, e)
+                self._fetching = False
 
             # 分段睡眠，支持中途停止检查
             waited = 0

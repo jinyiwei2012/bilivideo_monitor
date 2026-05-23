@@ -273,7 +273,6 @@ class DatabaseQueryWindow:
             return primary
         # 互补：备份路径 core/data/BVxxx/BVxxx.db
         backup = project_path("core", "data", bvid, f"{bvid}.db")
-        )
         return backup if os.path.exists(backup) else None
 
     def _load_extra_data(self, bvid: str, timestamp: str) -> dict:

@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 from tkinter import ttk, messagebox
 
 from ui.theme import C
-from ui.helpers import FONT, FONT_BOLD, FONT_SM, FONT_MONO, project_path
+from ui.helpers import FONT, FONT_BOLD, FONT_SM, FONT_MONO, project_path, auto_threshold_name
 from ui.dialog_base import DialogBase
 from ui.scrollable_frame import ScrollableFrame
 from core.bilibili_api import bilibili_api
@@ -161,13 +161,64 @@ class SettingsWindow:
     def _build_predict_tab(self, nb):
         page = tk.Frame(nb, bg=C["bg_base"])
         nb.add(page, text="  预测参数  ")
-        sec = self._section(page, "预测参数")
+
+        # ── 基础参数 ──
+        sec = self._section(page, "基础参数")
         self.predict_hours = self._spin_field(
             sec, "预测时长(小时)", self._cfg.get("prediction", {}).get("prediction_hours", 168), 24, 720
         )
         self.min_confidence = self._spin_field(
             sec, "最小置信度", self._cfg.get("prediction", {}).get("min_confidence", 0.5), 0.1, 1.0
         )
+
+        # ── 自定义阈值 ──
+        th_sec = self._section(page, "播放量阈值", padding=(16, 8, 12))
+        tk.Label(th_sec, text="每个阈值代表一个里程碑，达到时触发推送提醒",
+                 bg=C["bg_elevated"], fg=C["text_3"], font=FONT_SM, anchor="w").pack(fill=tk.X, pady=(0, 6))
+
+        # 阈值列表容器
+        th_list_frame = tk.Frame(th_sec, bg=C["bg_elevated"])
+        th_list_frame.pack(fill=tk.X, pady=(0, 6))
+
+        self._thresh_rows: list = []  # [(value_var, name_var, frame)]
+
+        # 从当前配置加载阈值
+        raw = self._cfg.get("prediction", {}).get("thresholds", [])
+        if raw and isinstance(raw[0], (list, tuple)):
+            th_data = [(int(v), str(n)) for v, n in raw]
+        else:
+            th_data = [(int(v), auto_threshold_name(v)) for v in raw] if raw else [(100000, "10万"), (1000000, "100万"), (10000000, "1000万")]
+
+        for v, n in sorted(th_data, key=lambda x: x[0]):
+            self._add_threshold_row(th_list_frame, v, n)
+
+        add_btn = ttk.Button(th_sec, text="+ 添加阈值", command=lambda: self._add_threshold_row(th_list_frame))
+        add_btn.pack(anchor="w", padx=0)
+
+    # ── 阈值行管理 ──
+
+    def _add_threshold_row(self, parent, value=100000, name=""):
+        """添加一行阈值编辑控件"""
+        row = tk.Frame(parent, bg=C["bg_elevated"])
+        row.pack(fill=tk.X, pady=2)
+
+        v_var = tk.StringVar(value=str(int(value)))
+        n_var = tk.StringVar(value=name or auto_threshold_name(value))
+
+        tk.Label(row, text="播放量:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT)
+        v_spin = ttk.Spinbox(row, from_=1000, to=999_999_999, textvariable=v_var, width=14, font=FONT_SM)
+        v_spin.pack(side=tk.LEFT, padx=(2, 8))
+
+        tk.Label(row, text="名称:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT)
+        n_entry = ttk.Entry(row, textvariable=n_var, width=12, font=FONT_SM)
+        n_entry.pack(side=tk.LEFT, padx=(2, 8))
+
+        del_btn = tk.Label(row, text="✕", bg=C["bg_elevated"], fg=C["danger"],
+                           font=("Segoe UI", 10, "bold"), cursor="hand2")
+        del_btn.pack(side=tk.LEFT, padx=2)
+        del_btn.bind("<Button-1>", lambda e: (row.destroy(), self._thresh_rows.remove((v_var, n_var, row))))
+
+        self._thresh_rows.append((v_var, n_var, row))
 
     # ──── AI配置 ────
     def _build_ai_tab(self, nb):
@@ -1737,7 +1788,7 @@ class SettingsWindow:
             status = bilibili_api.get_status()
             is_login = status.get("is_login", False)
             login_name = status.get("login_name", "")
-            if self.gui and hasattr(self.gui, "log_panel"):
+            if hasattr(self, "gui") and self.gui and hasattr(self.gui, "log_panel"):
                 if is_login:
                     self.gui.log_panel.add_log("INFO", f"Cookie 登录验证成功: {login_name}")
                 else:
@@ -2024,6 +2075,20 @@ class SettingsWindow:
         self._cfg["monitor"]["max_monitor_count"] = max_m
         self._cfg["prediction"]["prediction_hours"] = pred_hours
         self._cfg["prediction"]["min_confidence"] = confidence
+
+        # 收集自定义阈值
+        th_data = []
+        for v_var, n_var, _ in getattr(self, "_thresh_rows", []):
+            try:
+                v = int(v_var.get())
+                n = n_var.get().strip() or auto_threshold_name(v)
+                if v > 0:
+                    th_data.append([v, n])
+            except (ValueError, TypeError):
+                continue
+        if th_data:
+            self._cfg["prediction"]["thresholds"] = th_data
+
         self._cfg["ai"] = {
             "enabled": any(p.get("api_key") for p in self._profiles),
             "profiles": self._profiles,
@@ -2034,6 +2099,13 @@ class SettingsWindow:
         # 立即生效通知配置（无需重启）
         from core.notification import notification_manager
         notification_manager.configure(self._cfg)
+
+        # 立即生效阈值变更（无需重启）
+        try:
+            from ui.helpers import reload_thresholds
+            reload_thresholds()
+        except Exception:
+            pass
 
         # 同步代理文本到 net_cfg 后再保存（防止跳过"应用代理"直接点保存导致空覆盖）
         self._sync_proxy_text_to_cfg()

@@ -116,7 +116,7 @@ class TrainingPanel(BaseTrainingPanel):
         self._algo_frame = sf.inner
 
         # 表头
-        hdr_row = tk.Frame(algo_frame, bg=C["bg_surface"])
+        hdr_row = tk.Frame(self._algo_frame, bg=C["bg_surface"])
         hdr_row.pack(fill=tk.X, pady=(0, 1))
         for col, (txt, w) in enumerate([("", 4), ("算法", 16), ("ID", 14), ("状态", 12), ("置信度", 10), ("版本", 8)]):
             tk.Label(hdr_row, text=txt, bg=C["bg_surface"], fg=C["text_3"],
@@ -1003,6 +1003,7 @@ class TrainingPanel(BaseTrainingPanel):
 
         elif stage == "all_done":
             results = msg.get("results", {})
+            self._last_training_results = results
             ok = sum(1 for v in results.values() if v)
             bad = sum(1 for v in results.values() if not v)
             elapsed = time.time() - self._train_t0 if self._train_t0 else 0
@@ -1039,6 +1040,17 @@ class TrainingPanel(BaseTrainingPanel):
             self.main._refresh_model_status()
         except Exception:
             pass
+        # 训练自动回调：通知 + 重新预测
+        trained = getattr(self, "_last_training_results", {})
+        ok = [aid for aid, v in trained.items() if v]
+        if ok:
+            detail = ", ".join(ok[:6])
+            if len(ok) > 6:
+                detail += f" …等{len(ok)}个"
+            try:
+                self.main._on_training_completed("训练", len(ok), detail)
+            except Exception:
+                pass
 
     # ══════════════════════════════════════════════
     # 训练质量监控

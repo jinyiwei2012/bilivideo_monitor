@@ -14,6 +14,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import customtkinter as ctk
 import math
+import re
 import threading
 import time
 import os
@@ -863,6 +864,61 @@ class BilibiliMonitorGUI:
 
     # ── 每日 23:50 定时推送 ─────────────────────────
 
+    # ── 训练完成自动回调 ──────────────────────────
+
+    def _on_training_completed(self, mode="训练", count=0, detail=""):
+        """训练/微调完成后自动刷新预测 + 推送通知"""
+        try:
+            # 1. 推送通知
+            from core.notification import notification_manager
+
+            now_str = datetime.now().strftime("%H:%M")
+            if count > 0 and detail:
+                msg = f"🤖 {mode}完成 ({now_str})\n{count} 个算法: {detail}"
+            elif count > 0:
+                msg = f"🤖 {mode}完成 ({now_str})\n共 {count} 个算法已更新"
+            else:
+                msg = f"🤖 {mode}完成 ({now_str})"
+            notification_manager.send_qq_private(msg)
+            notification_manager.send_qq_group(msg)
+            notification_manager.send_windows_notification(f"🤖 {mode}完成", msg[:256])
+        except Exception as e:
+            logger.debug("训练推送异常: %s", e)
+
+        # 2. 后台重新预测所有视频
+        try:
+            threading.Thread(target=self._run_post_training_predict, daemon=True).start()
+        except Exception as e:
+            logger.debug("启动训练后预测失败: %s", e)
+
+    def _run_post_training_predict(self):
+        """后台重跑所有监控视频的预测"""
+        from ui.monitor_service import _predict_single
+
+        bvids = [v.get("bvid", "") for v in self.monitored_videos if v.get("bvid")]
+        if not bvids:
+            return
+        logger.info("训练完成，开始重新预测 %d 个视频…", len(bvids))
+        for bvid in bvids:
+            video = next((v for v in self.monitored_videos if v.get("bvid") == bvid), None)
+            if not video:
+                continue
+            try:
+                _predict_single(self, bvid, video)
+            except Exception as e:
+                logger.debug("训练后预测 %s 失败: %s", bvid, e)
+        trained = sum(1 for _ in self.monitored_videos)
+        self.root.after(0, lambda: self._sb("status", f"训练后预测完成 ({trained} 个视频)", C["success"]))
+        # 若当前有选中视频，刷新其界面
+        if self.selected_bvid and self.selected_bvid in self.prediction_results:
+            r = self.prediction_results[self.selected_bvid]
+            self.root.after(0, lambda: self._prediction_done(
+                r["prediction"], r["current_view"], r["growth"],
+                r["rate_per_sec"], r.get("success_list", []),
+                r.get("fail_list", []), r["valid"], r["total"],
+            ))
+        logger.info("训练后预测完成 (%d 个视频)", len(bvids))
+
     def _schedule_daily_push(self):
         """计算到下次 23:50 的秒数，用 root.after 排程"""
         from datetime import timedelta
@@ -879,12 +935,16 @@ class BilibiliMonitorGUI:
         """每日 23:50 自动推送日报"""
         from core.notification import notification_manager
 
-        msg = self._build_daily_push_msg()
-        notification_manager.send_qq_private(msg)
-        notification_manager.send_qq_group(msg)
-        notification_manager.send_windows_notification("📊 B站监控日报", msg[:256])
-        logger.info("每日推送完成")
-        self._schedule_daily_push()
+        try:
+            msg = self._build_daily_push_msg()
+            notification_manager.send_qq_private(msg)
+            notification_manager.send_qq_group(msg)
+            notification_manager.send_windows_notification("📊 B站监控日报", msg[:256])
+            logger.info("每日推送完成")
+        except Exception as e:
+            logger.error("每日推送异常: %s", e)
+        finally:
+            self._schedule_daily_push()
 
     def _build_daily_push_msg(self):
         """构建每日日报消息：日增量 + 年刊分数 + 预测"""

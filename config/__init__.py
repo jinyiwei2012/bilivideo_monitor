@@ -59,7 +59,7 @@ DEFAULT_CONFIG = {
         "prediction_hours": 168,
         "min_confidence": 0.5,
         "auto_predict": True,
-        "thresholds": [100000, 1000000, 10000000],
+        "thresholds": [[100000, "10万"], [1000000, "100万"], [10000000, "1000万"]],
     },
     "notification": {
         "windows_notify": True,

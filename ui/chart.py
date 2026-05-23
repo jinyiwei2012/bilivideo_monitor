@@ -6,6 +6,11 @@ from datetime import datetime
 from ui.theme import C
 from ui.helpers import fmt_num, abbrev, THRESHOLDS, THRESHOLD_NAMES, THRESH_COLORS
 
+# 预测投影专用颜色（高亮蓝，与粉色折线形成对比）
+_PRED_COLOR = "#0969da"
+_PRED_LIGHT = "#58a6ff"
+_PRED_BG = "#ddf4ff"
+
 
 def draw_chart_placeholder(canvas, text=None):
     """绘制空状态占位"""
@@ -70,6 +75,26 @@ def draw_chart_series(c, history, px, py, ML, MT, W, MR, ch, views_list, max_poi
         c.create_oval(x - 4, y - 4, x + 4, y + 4, fill=C["chart_dot"], outline=C["bg_base"], width=2)
 
 
+def _draw_projection(c, start_x, start_y, end_x, end_y, pred_val=0, is_step=False, base_v=0, raw_pred=0):
+    """绘制预测虚拟点：虚线连接线 + 标准圆点 + 预测标签"""
+    # 虚线连接线（从最后一个实际点到预测点）
+    c.create_line(start_x, start_y, end_x, end_y,
+                  fill=_PRED_COLOR, width=2, dash=(4, 4), capstyle="round")
+
+    # 标准圆点（和实际数据点一致：r=4，白色描边 width=2）
+    c.create_oval(end_x - 4, end_y - 4, end_x + 4, end_y + 4,
+                  fill=_PRED_COLOR, outline="#ffffff", width=2)
+
+    # 预测标签（悬浮在圆点上方）
+    if is_step:
+        sign = "+" if pred_val >= 0 else ""
+        label = f"预测 {sign}{fmt_num(int(pred_val))}"
+    else:
+        label = f"预测 {fmt_num(int(pred_val))}" if base_v else f"预测 {fmt_num(raw_pred)}"
+    c.create_text(end_x, end_y - 14, text=label, anchor="s",
+                  fill=_PRED_COLOR, font=("Consolas", 8, "bold"))
+
+
 def draw_chart_annotations(c, history, views_list, px, py, W, H, ML, MR, MB, base_v=0, prediction=None):
     """绘制最新值标注 + X 轴时间标签 + 图例 + 预测点"""
     lx = px(len(history) - 1)
@@ -86,23 +111,11 @@ def draw_chart_annotations(c, history, views_list, px, py, W, H, ML, MR, MB, bas
         if pred_val > 0:
             last_x = lx
             last_y = lv
-            # 投影终点：最后一个实际点向右 80px
-            proj_x = last_x + 80
+            spacing = (W - ML - MR) / (len(history) - 1) if len(history) > 1 else 30
+            proj_x = min(last_x + spacing, W - MR - 10)
             proj_y = py(pred_val)
-            # 虚线投影线
-            c.create_line(last_x, last_y, proj_x, proj_y, fill=C["warning"], width=2, dash=(6, 3))
-            # 菱形标记
-            r = 6
-            c.create_polygon(
-                proj_x, proj_y - r,
-                proj_x + r * 0.7, proj_y,
-                proj_x, proj_y + r,
-                proj_x - r * 0.7, proj_y,
-                fill=C["warning"], outline=C["bg_base"], width=2,
-            )
-            label = f"预测 {fmt_num(int(pred_val))}" if base_v else f"预测 {fmt_num(w_pred)}"
-            c.create_text(proj_x + r * 0.7 + 4, proj_y, text=label, anchor="w",
-                          fill=C["warning"], font=("Consolas", 8, "bold"))
+            _draw_projection(c, last_x, last_y, proj_x, proj_y, pred_val,
+                             is_step=False, base_v=base_v, raw_pred=w_pred)
 
     # ── X 轴时间标签 ────────────────────
     step = max(1, len(history) // 6)
@@ -123,7 +136,7 @@ def draw_chart_annotations(c, history, views_list, px, py, W, H, ML, MR, MB, bas
         w_pred = prediction.get("prediction", 0)
         pred_val = w_pred - base_v if base_v > 0 else w_pred
         if pred_val > 0:
-            items.append(("预测", C["warning"]))
+            items.append(("预测", _PRED_COLOR))
     lx0 = ML + 4
     for label, col in items:
         c.create_rectangle(lx0, 8, lx0 + 8, 16, fill=col, outline="")
@@ -276,20 +289,11 @@ def _step_draw_series(c, deltas, values, px, py, W, H, MR, MB, ML, pred_delta=No
 
     # ── 预测投影（step 模式） ──
     if pred_delta is not None:
-        proj_x = lx + 50
+        spacing = (W - ML - MR) / (len(deltas) - 1) if len(deltas) > 1 else 30
+        proj_x = min(lx + spacing, W - MR - 10)
         proj_y = py(pred_delta)
-        c.create_line(lx, ly, proj_x, proj_y, fill=C["warning"], width=2, dash=(6, 3))
-        r = 6
-        c.create_polygon(
-            proj_x, proj_y - r,
-            proj_x + r * 0.7, proj_y,
-            proj_x, proj_y + r,
-            proj_x - r * 0.7, proj_y,
-            fill=C["warning"], outline=C["bg_base"], width=2,
-        )
-        sign = "+" if pred_delta >= 0 else ""
-        c.create_text(proj_x + r * 0.7 + 4, proj_y, text=f"预测 {sign}{fmt_num(int(pred_delta))}",
-                      anchor="w", fill=C["warning"], font=("Consolas", 8, "bold"))
+        _draw_projection(c, lx, ly, proj_x, proj_y, pred_delta,
+                         is_step=True)
 
     step = max(1, len(deltas) // 6)
     for i, (ts, _) in enumerate(deltas):

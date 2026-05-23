@@ -48,6 +48,9 @@ class FinetunePanel(BaseTrainingPanel):
         # 当前任务上下文
         self._current_bvid = ""
 
+        # 微调结果回溯（用于训练完成自动回调）
+        self._last_finetune_count = 0
+
         # 自动调整状态
         self._auto_control: Dict = {}
         self._auto_monitors: Dict[str, TrainingMonitor] = {}
@@ -721,6 +724,8 @@ class FinetunePanel(BaseTrainingPanel):
             self._append_log(f"🏁 批量微调全部完成: {done} 任务, 耗时 {elapsed:.0f}s")
             self._append_log(f"📊 各算法最终置信度:{conf_summary}")
             self.main.set_finetune_status(f"✅ 批量微调完成 ({done})")
+            # 记录微调结果用于自动回调
+            self._last_finetune_count = done
             return True
 
         return False
@@ -731,6 +736,13 @@ class FinetunePanel(BaseTrainingPanel):
             self.main._refresh_model_status()
         except Exception:
             pass
+        # 微调完成自动回调
+        n = getattr(self, "_last_finetune_count", 0)
+        if n > 0:
+            try:
+                self.main._on_training_completed("微调", n)
+            except Exception:
+                pass
 
     # ══════════════════════════════════════════════
     # 训练质量监控
