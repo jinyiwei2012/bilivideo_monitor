@@ -521,9 +521,17 @@ class DetailPanel:
     # ── 图表渲染控制 ─────────────────────────────────
 
     def _auto_render_chart(self):
-        """自动渲染：只在 新增(step) 模式下触发"""
+        """自动渲染：只在 新增(step) 模式下触发，数据未变时跳过重绘"""
         if self._chart_mode.get() != "step":
             return
+        # 检测数据是否变化，避免无意义重绘
+        bvid = self.gui.selected_bvid
+        if bvid:
+            history = self.gui.history_data.get(bvid, [])
+            new_tag = (len(history), history[-1][1] if history else 0)
+            if new_tag == getattr(self, "_last_render_tag", None):
+                return
+            self._last_render_tag = new_tag
         self._do_render_chart()
 
     def _manual_render_chart(self):
