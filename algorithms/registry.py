@@ -23,6 +23,7 @@ class AlgorithmRegistry:
     _algorithms: Dict = {}
     _initialized = False
     _model_adapters = {}
+    _pool = ThreadPoolExecutor(max_workers=4)
 
     @classmethod
     def initialize(cls):
@@ -170,10 +171,7 @@ class AlgorithmRegistry:
                 logger.warning("算法 %s 预测失败: %s", n, e)
                 return n, {"prediction": current_value, "confidence": 0, "weight": 0.01, "error": str(e)}, e
 
-        if not hasattr(cls, "_pool") or cls._pool is None:
-            cls._pool = ThreadPoolExecutor(max_workers=4)
-        pool = cls._pool
-        futures = [pool.submit(_run_single, item) for item in cls._algorithms.items()]
+        futures = [cls._pool.submit(_run_single, item) for item in cls._algorithms.items()]
 
         for future in as_completed(futures):
             name, result, error = future.result()
