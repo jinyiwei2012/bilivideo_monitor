@@ -93,6 +93,9 @@ class BilibiliAPI:
         self._consecutive_412_errors = 0
         self._last_request_time = 0
         self._min_request_interval = 0.5  # 最小请求间隔（秒）
+
+        # 公开 API 复用 Session（首次调用时懒创建）
+        self._public_session = None
         self._interval_lock = threading.Lock()  # 线程安全保护
 
         # cookie支持
@@ -311,25 +314,32 @@ class BilibiliAPI:
         return data.get("data") if "data" in data else None, False
 
     def _request_public(self, method: str, url: str, **kwargs) -> Any:
-        """使用无Cookie的独立Session请求公开API（免登录回退，支持代理绑定）"""
+        """使用复用 Session 请求公开 API（免登录回退，支持代理绑定）"""
         import requests as _req
 
-        public_session = _req.Session()
-        public_session.headers.update(
+        if self._public_session is None:
+            self._public_session = _req.Session()
+            adapter = _req.adapters.HTTPAdapter(pool_connections=10, pool_maxsize=10)
+            self._public_session.mount("https://", adapter)
+            self._public_session.mount("http://", adapter)
+
+        # 每次按当前代理绑定刷新 UA + 代理
+        idx, proxy, ua = self.proxy_manager.get_proxy_binding()
+        self._public_session.headers.update(
             {
-                "User-Agent": random.choice(self.USER_AGENTS),
+                "User-Agent": ua or random.choice(self.USER_AGENTS),
                 "Referer": "https://www.bilibili.com/",
             }
         )
-        # 绑定代理
-        idx, proxy, ua = self.proxy_manager.get_proxy_binding()
         if proxy:
-            public_session.proxies.update(proxy)
-            public_session.headers["User-Agent"] = ua or public_session.headers["User-Agent"]
+            self._public_session.proxies.update(proxy)
             kwargs.setdefault("verify", False)  # nosec
+        elif self._public_session.proxies:
+            self._public_session.proxies.clear()
+
         logger.debug("→ [public] %s %s", method.upper(), url.split("?")[0])
         try:
-            resp = public_session.request(method, url, timeout=15, **kwargs)
+            resp = self._public_session.request(method, url, timeout=15, **kwargs)
             logger.debug("← [public] %s", resp.status_code)
             if resp.status_code != 200:
                 return None
