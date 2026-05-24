@@ -316,6 +316,7 @@ class BilibiliMonitorGUI:
         )
         self._settings_menu.add_command(label="⏱  刷新间隔", command=self._dialogs.open_interval_settings)
         self._settings_menu.add_command(label="🧠  算法信息", command=self._dialogs.open_algorithm_info)
+        self._settings_menu.add_command(label="📊  算法比较", command=self._dialogs.open_algorithm_comparison)
         self._settings_menu.add_separator()
         self._settings_menu.add_command(label="📈  数据对比", command=self._dialogs.open_data_comparison)
         self._settings_menu.add_command(label="🔄  交叉计算", command=self._dialogs.open_crossover_analysis)
@@ -649,7 +650,6 @@ class BilibiliMonitorGUI:
         self.detail._switch_tab(self.detail.current_tab)
 
     def _select_video(self, bvid):
-        self.selected_bvid
         self.selected_bvid = bvid
         self.video_list.highlight_card(bvid)
         video = self._get_video(bvid)
