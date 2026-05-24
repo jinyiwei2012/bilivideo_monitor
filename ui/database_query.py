@@ -800,31 +800,54 @@ class DatabaseQueryWindow:
             return
         if not messagebox.askyesno("确认", f"确定删除选中的 {len(sel)} 条记录？", parent=self.window):
             return
-        try:
-            source_bvid = self._query_source_bvid
-            if source_bvid:
-                db_path = self._get_video_db_path(source_bvid)
-                if not db_path:
-                    messagebox.showerror("错误", "视频独立库文件不存在", parent=self.window)
-                    return
-            else:
-                db_path = self.db_path
-            conn = sqlite3.connect(db_path)
-            cur = conn.cursor()
-            for item in sel:
-                vals = self.result_tree.item(item)["values"]
-                bvid, ts = vals[1], vals[2]
-                if source_bvid:
-                    cur.execute("DELETE FROM monitor_records WHERE timestamp = ?", (ts,))
-                else:
-                    cur.execute("DELETE FROM monitor_records WHERE bvid = ? AND timestamp = ?", (bvid, ts))
-                self.query_results = [r for r in self.query_results if not (r["bvid"] == bvid and r["timestamp"] == ts)]
-            conn.commit()
-            conn.close()
-            self._do_query()
-            self.status_var.set(f"已删除 {len(sel)} 条记录")
-        except Exception as e:
-            messagebox.showerror("错误", f"删除失败: {e}", parent=self.window)
+
+        source_bvid = self._query_source_bvid
+        if source_bvid:
+            db_path = self._get_video_db_path(source_bvid)
+            if not db_path:
+                messagebox.showerror("错误", "视频独立库文件不存在", parent=self.window)
+                return
+        else:
+            db_path = self.db_path
+
+        del_data = []
+        for item in sel:
+            vals = self.result_tree.item(item)["values"]
+            del_data.append((vals[1], vals[2]))  # (bvid, timestamp)
+
+        def _do_delete():
+            try:
+                conn = sqlite3.connect(db_path)
+                cur = conn.cursor()
+                for bvid, ts in del_data:
+                    if source_bvid:
+                        cur.execute("DELETE FROM monitor_records WHERE timestamp = ?", (ts,))
+                    else:
+                        cur.execute(
+                            "DELETE FROM monitor_records WHERE bvid = ? AND timestamp = ?", (bvid, ts)
+                        )
+                conn.commit()
+                conn.close()
+                self.window.after(0, lambda: self._finish_delete(del_data, len(sel)))
+            except Exception as e:
+                self.window.after(
+                    0,
+                    lambda e=e: messagebox.showerror("错误", f"删除失败: {e}", parent=self.window),
+                )
+
+        self.status_var.set(f"正在删除 {len(sel)} 条记录…")
+        import threading
+
+        threading.Thread(target=_do_delete, daemon=True).start()
+
+    def _finish_delete(self, del_data: list, count: int):
+        """后台删除完成后在主线程刷新 UI。"""
+        for bvid, ts in del_data:
+            self.query_results = [
+                r for r in self.query_results if not (r["bvid"] == bvid and r["timestamp"] == ts)
+            ]
+        self._do_query()
+        self.status_var.set(f"已删除 {count} 条记录")
 
     def _clear_results(self):
         self.result_tree.delete(*self.result_tree.get_children())
