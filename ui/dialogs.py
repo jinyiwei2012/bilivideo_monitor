@@ -189,6 +189,20 @@ class Dialogs:
         self.gui.log_panel.add_log("INFO", f"已将 {bvid} 加入监控列表（里程碑入口）")
 
     # ──────────────────────────────────────────
+    # 算法可视化比较
+    # ──────────────────────────────────────────
+
+    def open_algorithm_comparison(self):
+        try:
+            from .algorithm_comparison import AlgorithmComparisonWindow
+
+            AlgorithmComparisonWindow(self.gui.root)
+        except Exception as e:
+            import traceback
+
+            messagebox.showerror("错误", f"打开算法比较失败: {e}\n{traceback.format_exc()}")
+
+    # ──────────────────────────────────────────
     # 系统设置
     # ──────────────────────────────────────────
 

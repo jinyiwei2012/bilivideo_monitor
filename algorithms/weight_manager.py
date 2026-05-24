@@ -5,6 +5,7 @@
 
 import os
 import json
+import math
 import threading
 import logging
 from typing import Dict, List
@@ -126,11 +127,15 @@ class WeightManager:
             # 将准确率转换为权重 (0.5准确率=1.0权重, 1.0准确率=2.0权重)
             self.ml_weights[algo_name] = 0.5 + avg_accuracy * 1.5
 
-        # 归一化权重
-        total = sum(self.ml_weights.values())
-        if total > 0:
-            for algo in self.ml_weights:
-                self.ml_weights[algo] = self.ml_weights[algo] / total * len(self.ml_weights)
+        # 使用 softmax 归一化，保留高准确率算法的优势
+        algo_names = list(self.ml_weights.keys())
+        if algo_names:
+            weights = [self.ml_weights[an] for an in algo_names]
+            max_w = max(weights)
+            softmax_sum = sum(math.exp(w - max_w) for w in weights)
+            if softmax_sum > 0:
+                for an, w in zip(algo_names, weights):
+                    self.ml_weights[an] = math.exp(w - max_w) / softmax_sum * len(algo_names)
 
     def get_weight(self, algorithm_name: str, base_weight: float = 1.0) -> float:
         """获取最终权重"""

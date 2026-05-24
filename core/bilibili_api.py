@@ -264,6 +264,7 @@ class BilibiliAPI:
         if proxy:
             request_kwargs["proxies"] = proxy
             # SOCKS/HTTP代理可能使用自签名证书，关闭SSL验证
+            # 代理使用自签名证书，需关闭验证。确保代理 URL 可信。
             request_kwargs.setdefault("verify", False)  # nosec — local proxies use self-signed certs
             masked = self.proxy_manager.mask_url(proxy.get("http", ""))
             logger.debug(f"→ 请求代理: {masked}")
@@ -653,7 +654,8 @@ class BilibiliAPI:
                 return []
             import xml.etree.ElementTree as ET
 
-            root = ET.fromstring(resp.content)  # nosec B314
+            parser = ET.XMLParser(resolve_entities=False)
+            root = ET.fromstring(resp.content, parser)  # nosec B314
             danmaku = []
             for d in root.findall(".//d"):
                 p = d.get("p", "")
