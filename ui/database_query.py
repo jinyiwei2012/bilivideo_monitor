@@ -20,6 +20,8 @@ logger = logging.getLogger(__name__)
 
 
 def _validate_bvid(bvid: str) -> bool:
+    from ui.helpers import is_valid_bvid
+
     return is_valid_bvid(bvid)
 
 
@@ -269,6 +271,8 @@ class DatabaseQueryWindow:
 
     def _get_video_db_path(self, bvid: str) -> Optional[str]:
         """查找视频独立库路径：优先 data/，回退 core/data/"""
+        if not _validate_bvid(bvid):
+            return None
         primary = os.path.join(os.path.dirname(self.db_path), bvid, f"{bvid}.db")
         if os.path.exists(primary):
             return primary
