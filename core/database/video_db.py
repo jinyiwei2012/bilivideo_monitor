@@ -564,8 +564,16 @@ class VideoDatabase:
 
     def close(self):
         """关闭数据库连接，刷新 WAL。"""
+        self.wal_checkpoint()
         try:
-            self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
             self._conn.close()
         except Exception as e:
             logger.debug("关闭数据库连接失败: %s", e)
+
+    def wal_checkpoint(self):
+        """安全执行 WAL checkpoint，持有锁避免与写入冲突。"""
+        try:
+            with self._lock:
+                self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        except Exception as e:
+            logger.debug("WAL checkpoint 失败: %s", e)

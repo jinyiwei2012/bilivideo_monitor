@@ -603,7 +603,7 @@ class BilibiliMonitorGUI:
             db.wal_checkpoint()
             for vdb in self.video_dbs.values():
                 try:
-                    vdb._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                    vdb.wal_checkpoint()
                 except Exception:
                     pass
 
