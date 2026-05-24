@@ -8,7 +8,7 @@ import time
 import logging
 from datetime import datetime
 from algorithms.registry import AlgorithmRegistry
-from core import bilibili_api, db, MonitorRecord, PredictionRecord
+from core import bilibili_api, db, MonitorRecord, PredictionRecord, notification_manager
 from utils.time_utils import normalize_timestamp, safe_datetime
 from ui.helpers import (
     THRESHOLDS,
@@ -27,6 +27,9 @@ _merged_from_db = set()
 # UP主数据库实例 & 拉取频率控制（每 UP主 每小时最多拉取一次）
 _up_db = None
 _last_up_fetch_time = {}  # uid -> time.time
+
+# 已通知的阈值追踪，防止同一阈值的重复推送
+_notified_thresholds = {}  # bvid -> set of threshold values
 
 # ──────────────────────────────────────────────
 #  内部工具
@@ -341,7 +344,8 @@ class VideoWorker:
                 self._fetch_and_predict()
             except Exception as e:
                 logger.exception("[%s] _fetch_and_predict 异常: %s", self.bvid, e)
-                self._fetching = False
+                with self._fetching_lock:
+                    self._fetching = False
 
             # 分段睡眠，支持中途停止检查
             waited = 0
@@ -402,6 +406,7 @@ class VideoWorker:
         owner_id = owner.get("mid", 0)
         if owner_id:
             _save_up_data(owner_id)
+        old_views = video.get("view_count", 0)
         video["view_count"] = stat.get("view", video.get("view_count", 0))
         video["like_count"] = stat.get("like", video.get("like_count", 0))
         video["coin_count"] = stat.get("coin", video.get("coin_count", 0))
@@ -435,6 +440,28 @@ class VideoWorker:
             video["viewers_total"] = video.get("viewers_total", 0)
             video["viewers_web"] = video.get("viewers_web", 0)
             video["viewers_app"] = video.get("viewers_app", 0)
+
+        # ── 阈值突破检测 ──────────────────────────
+        new_views = video["view_count"]
+        if new_views > old_views:
+            try:
+                if bvid not in _notified_thresholds:
+                    _notified_thresholds[bvid] = set()
+                # 首次拉取（old_views=0）时，标记所有已超越的阈值，避免首次加载爆通知
+                if old_views == 0:
+                    for thr in THRESHOLDS:
+                        if thr <= new_views:
+                            _notified_thresholds[bvid].add(thr)
+                else:
+                    for i, thr in enumerate(THRESHOLDS):
+                        if old_views < thr <= new_views and thr not in _notified_thresholds[bvid]:
+                            _notified_thresholds[bvid].add(thr)
+                            name = THRESHOLD_NAMES[i] if i < len(THRESHOLD_NAMES) else f"{thr:,}"
+                            title = video.get("title", bvid)[:30]
+                            notification_manager.send_threshold_notification(bvid, title, thr, new_views)
+                            self._log("INFO", f"[{bvid}] 阈值突破 {name}！当前播放量: {new_views:,}")
+            except Exception as e:
+                logger.debug("阈值突破检测失败: %s", e)
 
         # ── 历史记录 ─────────────────────────────
         ts = datetime.now()
