@@ -963,7 +963,8 @@ class BilibiliAPI:
 
     # ── 密码登录 ────────────────────────────────────────────
 
-    def login_with_password(self, username: str, password: str) -> Dict:
+    def login_with_password(self, username: str, password: str, captcha: str = "",
+                            captcha_type: int = 0) -> Dict:
         """使用账号密码登录 B站
 
         B站登录流程：
@@ -971,10 +972,18 @@ class BilibiliAPI:
         2. RSA PKCS1_v1_5 加密 hash+password
         3. POST /api/v2/oauth2/login → 获取 Cookie
 
+        Args:
+            username: 账号
+            password: 密码
+            captcha: 验证码（短信验证码，首次调用填空）
+            captcha_type: 验证码类型（6=短信验证码，0=无）
+
         Returns:
-            {"code": 0, "cookies": {...}, "refresh_token": "", "message": ""}
+            {"code": 0, "cookies": {...}, "refresh_token": "", "message": "",
+             "need_captcha": False, "captcha_type": 0}
         """
-        result: Dict = {"code": -1, "cookies": {}, "refresh_token": "", "message": ""}
+        result: Dict = {"code": -1, "cookies": {}, "refresh_token": "", "message": "",
+                        "need_captcha": False, "captcha_type": 0}
         try:
             # Step 1: 获取 RSA 公钥
             key_resp = requests.get(
@@ -1005,13 +1014,19 @@ class BilibiliAPI:
             encrypted_password = _b64.b64encode(encrypted).decode("utf-8")
 
             # Step 3: 登录
+            login_data = {
+                "username": username,
+                "password": encrypted_password,
+                "keep": "true",
+            }
+            if captcha:
+                login_data["captcha"] = captcha
+            if captcha_type:
+                login_data["captcha_type"] = str(captcha_type)
+
             login_resp = requests.post(
                 "https://passport.bilibili.com/api/v2/oauth2/login",
-                data={
-                    "username": username,
-                    "password": encrypted_password,
-                    "keep": "true",
-                },
+                data=login_data,
                 headers={
                     "User-Agent": random.choice(self.USER_AGENTS),
                     "Referer": "https://www.bilibili.com/",
@@ -1026,12 +1041,19 @@ class BilibiliAPI:
             if login_data.get("code") != 0:
                 result["code"] = login_data.get("code", -1)
                 result["message"] = login_data.get("message", "登录失败")
-                # 常见错误: -629 = 需要验证码, -1057 = 账号密码错误
+                # 常见错误: -629 = 需要验证码
+                if login_data.get("code") == -629:
+                    body = login_data.get("data", {})
+                    result["need_captcha"] = True
+                    # B站返回的验证码类型: 6=短信验证码, geetest=滑块
+                    ct = body.get("captcha_type", 0)
+                    result["captcha_type"] = ct
+                    result["captcha_url"] = body.get("url", "")
+                    result["captcha_phone"] = body.get("phone", "")
+                    result["message"] = body.get("message", "需要安全验证，请完成验证后再登录")
+                elif login_data.get("code") == -1057:
+                    result["message"] += "，请检查账号密码"
                 return result
-
-            # 登录成功，提取 Cookie（密码登录响应在 token_info 中直接返回）
-            login_info = login_data.get("data", {})
-            token_info = login_info.get("token_info", login_info)
 
             # 从 token_info 直接提取
             cookies = {}

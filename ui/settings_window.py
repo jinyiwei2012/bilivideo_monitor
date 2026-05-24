@@ -2004,7 +2004,7 @@ class SettingsWindow:
         pwd_top.title("密码登录 B站")
         sw = self.window.winfo_screenwidth()
         sh = self.window.winfo_screenheight()
-        pwd_top.geometry(f"{int(sw*0.28)}x{int(sh*0.32)}")
+        pwd_top.geometry(f"{int(sw*0.28)}x{int(sh*0.36)}")
         pwd_top.configure(bg=C["bg_surface"])
         pwd_top.transient(self.window)
         pwd_top.grab_set()
@@ -2036,27 +2036,51 @@ class SettingsWindow:
         password_entry = ttk.Entry(form, width=28, font=FONT, show="*")
         password_entry.grid(row=1, column=1, padx=(8, 0), pady=4)
 
+        # 验证码区域（初始隐藏）
+        captcha_frame = tk.Frame(pwd_top, bg=C["bg_surface"])
+        captcha_row = tk.Frame(captcha_frame, bg=C["bg_surface"])
+        captcha_row.pack()
+        tk.Label(captcha_row, text="验证码:", bg=C["bg_surface"], fg=C["text_2"], font=FONT).pack(side=tk.LEFT)
+        captcha_entry = ttk.Entry(captcha_row, width=14, font=FONT)
+        captcha_entry.pack(side=tk.LEFT, padx=(8, 0))
+        captcha_type_var = tk.IntVar(value=0)
+
         status_var = tk.StringVar(value="")
         status_lbl = tk.Label(
             pwd_top, textvariable=status_var, bg=C["bg_surface"], fg=C["text_2"], font=FONT_SM, wraplength=300
         )
         status_lbl.pack(pady=(8, 0))
 
-        def _do_login():
+        # 按钮区域
+        btn_f = tk.Frame(pwd_top, bg=C["bg_surface"])
+        btn_f.pack(pady=(6, 0))
+        login_btn = ttk.Button(btn_f, text="登录", style="Primary.TButton")
+        login_btn.pack(side=tk.LEFT, padx=4)
+
+        captcha_btn_f = tk.Frame(pwd_top, bg=C["bg_surface"])
+        submit_captcha_btn = ttk.Button(captcha_btn_f, text="提交验证码", style="Primary.TButton")
+
+        cancel_btn = ttk.Button(btn_f, text="取消", command=pwd_top.destroy)
+        cancel_btn.pack(side=tk.LEFT, padx=4)
+
+        def _do_login(captcha_code: str = "", ct: int = 0):
             uname = username_entry.get().strip()
             pwd = password_entry.get()
             if not uname or not pwd:
                 messagebox.showwarning("提示", "请输入账号和密码", parent=pwd_top)
                 return
-            for w in (username_entry, password_entry):
+            for w in (username_entry, password_entry, captcha_entry):
                 w.config(state="disabled")
-            status_var.set("登录中...")
+            login_btn.config(state="disabled")
+            status_var.set("登录中..." if not captcha_code else "验证中...")
             status_lbl.config(fg=C["text_2"])
             pwd_top.update()
 
             def _worker():
                 try:
-                    result = get_bilibili_api().login_with_password(uname, pwd)
+                    result = get_bilibili_api().login_with_password(
+                        uname, pwd, captcha=captcha_code, captcha_type=ct
+                    )
                     pwd_top.after(0, lambda: _handle_result(result))
                 except Exception as e:
                     pwd_top.after(0, lambda: status_var.set(f"异常: {e}"))
@@ -2081,25 +2105,72 @@ class SettingsWindow:
                     f"已获取 Cookie: {', '.join(cookies.keys())}",
                     parent=self.window,
                 )
-            else:
-                msg = result.get("message", "未知错误")
-                if code == -629:
-                    msg += "\n需验证码，请使用扫码登录"
-                elif code == -1057:
-                    msg += "\n请检查账号密码是否正确"
-                status_var.set(msg)
-                status_lbl.config(fg=C["danger"])
+            elif result.get("need_captcha") and not captcha_entry.get().strip():
+                ct = result.get("captcha_type", 0)
+                captcha_type_var.set(ct)
+                if ct == 6:
+                    phone = result.get("captcha_phone", "")
+                    hint = f"验证码已发送至 {phone}" if phone else "请输入手机收到的验证码"
+                    status_var.set(hint)
+                    status_lbl.config(fg=C["warning"])
+                    captcha_frame.pack(pady=(6, 0))
+                    captcha_entry.config(state="normal")
+                    captcha_entry.focus_set()
+                    captcha_btn_f.pack(pady=(2, 0))
+                    submit_captcha_btn.pack(side=tk.LEFT, padx=4)
+                    login_btn.pack_forget()
+                    cancel_btn.pack_forget()
+                    ttk.Button(captcha_btn_f, text="取消", command=pwd_top.destroy).pack(side=tk.LEFT, padx=4)
+                else:
+                    status_var.set("需要滑块验证，请使用扫码登录")
+                    status_lbl.config(fg=C["danger"])
                 for w in (username_entry, password_entry):
                     w.config(state="normal")
+                login_btn.config(state="normal")
+            else:
+                msg = result.get("message", "未知错误")
+                if code == -1057:
+                    msg += "，请检查账号密码"
+                status_var.set(msg)
+                status_lbl.config(fg=C["danger"])
+                for w in (username_entry, password_entry, captcha_entry):
+                    w.config(state="normal")
+                login_btn.config(state="normal")
 
-        btn_f = tk.Frame(pwd_top, bg=C["bg_surface"])
-        btn_f.pack(pady=(10, 0))
-        ttk.Button(btn_f, text="登录", command=_do_login, style="Primary.TButton").pack(side=tk.LEFT, padx=4)
-        ttk.Button(btn_f, text="取消", command=pwd_top.destroy).pack(side=tk.LEFT, padx=4)
+        def _submit_captcha():
+            code = captcha_entry.get().strip()
+            if not code:
+                messagebox.showwarning("提示", "请输入验证码", parent=pwd_top)
+                return
+            _do_login(captcha_code=code, ct=captcha_type_var.get())
 
-        # 回车触发登录
+        login_btn.config(command=lambda: _do_login())
+        submit_captcha_btn.config(command=_submit_captcha)
+
+        # 回车触发
         for w in (username_entry, password_entry):
             w.bind("<Return>", lambda e: _do_login())
+        captcha_entry.bind("<Return>", lambda e: _submit_captcha())
+        ttk.Button(btn_f, text="取消", command=pwd_top.destroy).pack(side=tk.LEFT, padx=4)
+
+        # 验证码提交按钮（初始隐藏，随 captcha_frame 一起显示）
+        captcha_btn_f = tk.Frame(pwd_top, bg=C["bg_surface"])
+        captcha_submit_btn = ttk.Button(
+            captcha_btn_f, text="提交验证码", command=_submit_captcha, style="Primary.TButton"
+        )
+        captcha_submit_btn.pack()
+
+        # 挂钩 captcha 回车
+        captcha_entry.bind("<Return>", lambda e: _submit_captcha())
+
+        # 主登录回车
+        for w in (username_entry, password_entry):
+            w.bind("<Return>", lambda e: _do_login())
+
+        # 在 _handle_result 的 need_captcha 分支中也 pack captcha_btn_f
+        # 将 captcha_btn_f 放在 status_lbl 下方
+        captcha_btn_f.pack(pady=(4, 0))
+        captcha_btn_f.pack_forget()  # 初始隐藏
 
     # ──── 代理文本同步 ────
     def _sync_proxy_text_to_cfg(self):
