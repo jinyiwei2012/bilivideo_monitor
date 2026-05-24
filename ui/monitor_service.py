@@ -28,6 +28,10 @@ _merged_from_db = set()
 _up_db = None
 _last_up_fetch_time = {}  # uid -> time.time
 
+# 单视频内存历史上限 / 保留下限（缓降策略，避免一次性裁剪过多）
+_MAX_HISTORY_PER_VIDEO = 3000
+_KEEP_HISTORY_PER_VIDEO = 2800
+
 # 已通知的阈值追踪，防止同一阈值的重复推送
 _notified_thresholds = {}  # bvid -> set of threshold values
 _notified_lock = threading.Lock()
@@ -476,9 +480,9 @@ class VideoWorker:
             if bvid not in gui.history_data:
                 gui.history_data[bvid] = []
             gui.history_data[bvid].append((ts, video["view_count"]))
-            # 防止内存无界增长，超过 3000 时保留最近 2800 条（缓降，避免一次丢掉 1000 条）
-            if len(gui.history_data[bvid]) > 3000:
-                gui.history_data[bvid] = gui.history_data[bvid][-2800:]
+            # 防止内存无界增长，超过上限时缓降保留（避免一次丢掉太多）
+            if len(gui.history_data[bvid]) > _MAX_HISTORY_PER_VIDEO:
+                gui.history_data[bvid] = gui.history_data[bvid][-_KEEP_HISTORY_PER_VIDEO:]
 
         # ── 写数据库 ─────────────────────────────
         try:

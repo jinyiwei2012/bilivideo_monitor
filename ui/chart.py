@@ -118,7 +118,8 @@ def draw_chart_annotations(c, history, views_list, px, py, W, H, ML, MR, MB, bas
                              is_step=False, base_v=base_v, raw_pred=w_pred)
 
     # ── X 轴时间标签 ────────────────────
-    step = max(1, len(history) // 6)
+    _X_LABEL_COUNT = 6
+    step = max(1, len(history) // _X_LABEL_COUNT)
     for i, (ts, _) in enumerate(history):
         if i % step == 0 or i == len(history) - 1:
             try:
