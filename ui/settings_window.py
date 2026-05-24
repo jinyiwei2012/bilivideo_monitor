@@ -1133,6 +1133,7 @@ class SettingsWindow:
             side=tk.LEFT, padx=4
         )
         ttk.Button(import_row, text="📱 扫码登录", command=self._qrcode_login).pack(side=tk.LEFT, padx=4)
+        ttk.Button(import_row, text="🔑 密码登录", command=self._password_login).pack(side=tk.LEFT, padx=4)
 
         self.cookie_text = tk.Text(
             sec,
@@ -1716,6 +1717,7 @@ class SettingsWindow:
             return
         get_bilibili_api().set_cookies(cookies)
         self._net_cfg["cookies"] = cookies
+        self._net_cfg["refresh_token"] = get_bilibili_api().get_refresh_token()
         self._save_net_config()
         self._refresh_status()
         # 验证登录状态
@@ -1792,7 +1794,9 @@ class SettingsWindow:
             ):
                 get_bilibili_api().session.cookies.set(name, "", domain=".bilibili.com")
             get_bilibili_api()._cookies = {}
+            get_bilibili_api()._refresh_token = ""
             self._net_cfg["cookies"] = {}
+            self._net_cfg["refresh_token"] = ""
             self._save_net_config()
             self._refresh_cookie_display()
             self._refresh_status()
@@ -1858,6 +1862,7 @@ class SettingsWindow:
                 return
             get_bilibili_api().set_cookies(cookies)
             self._net_cfg["cookies"] = cookies
+            self._net_cfg["refresh_token"] = get_bilibili_api().get_refresh_token()
             self._save_net_config()
             self._refresh_cookie_display()
             self._refresh_status()
@@ -1934,6 +1939,7 @@ class SettingsWindow:
                 cookies = result.get("cookies", {})
                 if cookies:
                     self._net_cfg["cookies"] = cookies
+                    self._net_cfg["refresh_token"] = get_bilibili_api().get_refresh_token()
                     self._save_net_config()
                     self._refresh_cookie_display()
                     self._refresh_status()
@@ -1991,6 +1997,109 @@ class SettingsWindow:
         if messagebox.askyesno("确认", "确定要重置所有状态吗？", parent=self.window):
             get_bilibili_api().reset_status()
             self._refresh_status()
+
+    # ──── Cookie: 密码登录 ────
+    def _password_login(self):
+        pwd_top = tk.Toplevel(self.window)
+        pwd_top.title("密码登录 B站")
+        sw = self.window.winfo_screenwidth()
+        sh = self.window.winfo_screenheight()
+        pwd_top.geometry(f"{int(sw*0.28)}x{int(sh*0.32)}")
+        pwd_top.configure(bg=C["bg_surface"])
+        pwd_top.transient(self.window)
+        pwd_top.grab_set()
+        pwd_top.resizable(False, False)
+
+        tk.Label(
+            pwd_top,
+            text="B站 账号密码登录",
+            bg=C["bg_surface"],
+            fg=C["text_1"],
+            font=("Microsoft YaHei UI", 13, "bold"),
+        ).pack(pady=(18, 4))
+        tk.Label(
+            pwd_top,
+            text="部分账号需要手机验证码，建议使用扫码登录",
+            bg=C["bg_surface"],
+            fg=C["text_3"],
+            font=FONT_SM,
+        ).pack()
+
+        form = tk.Frame(pwd_top, bg=C["bg_surface"])
+        form.pack(pady=(12, 0))
+
+        tk.Label(form, text="账号:", bg=C["bg_surface"], fg=C["text_2"], font=FONT).grid(row=0, column=0, sticky="w")
+        username_entry = ttk.Entry(form, width=28, font=FONT)
+        username_entry.grid(row=0, column=1, padx=(8, 0), pady=4)
+
+        tk.Label(form, text="密码:", bg=C["bg_surface"], fg=C["text_2"], font=FONT).grid(row=1, column=0, sticky="w")
+        password_entry = ttk.Entry(form, width=28, font=FONT, show="*")
+        password_entry.grid(row=1, column=1, padx=(8, 0), pady=4)
+
+        status_var = tk.StringVar(value="")
+        status_lbl = tk.Label(
+            pwd_top, textvariable=status_var, bg=C["bg_surface"], fg=C["text_2"], font=FONT_SM, wraplength=300
+        )
+        status_lbl.pack(pady=(8, 0))
+
+        def _do_login():
+            uname = username_entry.get().strip()
+            pwd = password_entry.get()
+            if not uname or not pwd:
+                messagebox.showwarning("提示", "请输入账号和密码", parent=pwd_top)
+                return
+            for w in (username_entry, password_entry):
+                w.config(state="disabled")
+            status_var.set("登录中...")
+            status_lbl.config(fg=C["text_2"])
+            pwd_top.update()
+
+            def _worker():
+                try:
+                    result = get_bilibili_api().login_with_password(uname, pwd)
+                    pwd_top.after(0, lambda: _handle_result(result))
+                except Exception as e:
+                    pwd_top.after(0, lambda: status_var.set(f"异常: {e}"))
+
+            threading.Thread(target=_worker, daemon=True).start()
+
+        def _handle_result(result):
+            code = result.get("code", -1)
+            if code == 0:
+                cookies = result.get("cookies", {})
+                self._net_cfg["cookies"] = cookies
+                self._net_cfg["refresh_token"] = result.get("refresh_token", "")
+                self._save_net_config()
+                self._refresh_cookie_display()
+                self._refresh_status()
+                status_var.set("登录成功！")
+                status_lbl.config(fg=C["success"])
+                pwd_top.after(800, pwd_top.destroy)
+                self.window.after(1000, self._verify_login)
+                messagebox.showinfo(
+                    "登录成功",
+                    f"已获取 Cookie: {', '.join(cookies.keys())}",
+                    parent=self.window,
+                )
+            else:
+                msg = result.get("message", "未知错误")
+                if code == -629:
+                    msg += "\n需验证码，请使用扫码登录"
+                elif code == -1057:
+                    msg += "\n请检查账号密码是否正确"
+                status_var.set(msg)
+                status_lbl.config(fg=C["danger"])
+                for w in (username_entry, password_entry):
+                    w.config(state="normal")
+
+        btn_f = tk.Frame(pwd_top, bg=C["bg_surface"])
+        btn_f.pack(pady=(10, 0))
+        ttk.Button(btn_f, text="登录", command=_do_login, style="Primary.TButton").pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_f, text="取消", command=pwd_top.destroy).pack(side=tk.LEFT, padx=4)
+
+        # 回车触发登录
+        for w in (username_entry, password_entry):
+            w.bind("<Return>", lambda e: _do_login())
 
     # ──── 代理文本同步 ────
     def _sync_proxy_text_to_cfg(self):

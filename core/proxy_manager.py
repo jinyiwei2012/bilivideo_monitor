@@ -83,7 +83,7 @@ class ProxyManager:
             self._proxy_ua_map[i] = random.choice(self.USER_AGENTS)
             self._proxy_failure_count[i] = 0
         if self.proxies:
-            logger.info(f"已为 {len(self.proxies)} 个代理绑定固定UA")
+            logger.debug(f"已为 {len(self.proxies)} 个代理绑定固定UA")
 
     # ── 代理轮询 ──────────────────────────────────────────
 
@@ -145,7 +145,7 @@ class ProxyManager:
         self._proxy_ua_map[idx] = random.choice(self.USER_AGENTS)
         self._proxy_failure_count[idx] = 0
         masked = self.mask_url(proxy.get("http", "unknown"))
-        logger.info(f"已添加代理: {masked}")
+        logger.debug(f"已添加代理: {masked}")
 
     def clear_proxies(self):
         """清空代理列表"""
