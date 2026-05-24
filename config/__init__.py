@@ -33,10 +33,6 @@ DB_PATH = os.path.join(DATA_DIR, "bilibili_monitor.db")
 # 配置文件路径
 CONFIG_FILE = os.path.join(DATA_DIR, "settings.json")
 
-# 播放量阈值
-VIEW_THRESHOLDS = [100000, 1000000, 10000000]  # 10万, 100万, 1000万
-THRESHOLD_NAMES = {100000: "10万", 1000000: "100万", 10000000: "1000万"}
-
 # 默认配置
 DEFAULT_CONFIG = {
     "onebot": {
@@ -74,6 +70,22 @@ DEFAULT_CONFIG = {
 }
 
 
+def _deep_merge(base: dict, override: dict) -> dict:
+    """递归合并两个字典，使深层嵌套的默认配置项也能自动生效"""
+    result = {}
+    for k in set(base) | set(override):
+        if k in override and k in base:
+            if isinstance(base[k], dict) and isinstance(override[k], dict):
+                result[k] = _deep_merge(base[k], override[k])
+            else:
+                result[k] = override[k]
+        elif k in override:
+            result[k] = override[k]
+        else:
+            result[k] = base[k]
+    return result
+
+
 def load_config() -> Dict[str, Any]:
     """加载配置文件并合并默认值"""
     config = DEFAULT_CONFIG.copy()
@@ -81,12 +93,7 @@ def load_config() -> Dict[str, Any]:
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 saved = json.load(f)
-                # 递归合并，使新增的默认配置项自动生效
-                for k, v in saved.items():
-                    if k in config and isinstance(config[k], dict) and isinstance(v, dict):
-                        config[k].update(v)
-                    else:
-                        config[k] = v
+                config = _deep_merge(config, saved)
         except Exception as e:
             logger.warning("加载配置失败: %s", e)
     return config
@@ -129,8 +136,6 @@ __all__ = [
     "EXPORT_DIR",
     "DB_PATH",
     "CONFIG_FILE",
-    "VIEW_THRESHOLDS",
-    "THRESHOLD_NAMES",
     "DEFAULT_CONFIG",
     "load_config",
     "save_config",
