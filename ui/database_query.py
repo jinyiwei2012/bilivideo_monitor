@@ -281,6 +281,7 @@ class DatabaseQueryWindow:
         vdp = self._get_video_db_path(bvid)
         if not vdp:
             return extra
+        conn = None
         try:
             uri = "file:{}?mode=ro".format(vdp.replace("\\", "/").replace(" ", "%20"))
             conn = sqlite3.connect(uri, uri=True, check_same_thread=False)
@@ -337,9 +338,11 @@ class DatabaseQueryWindow:
                     "correction_c",
                 ]:
                     extra[f"yearly_{k}"] = yd.get(k, "")
-            conn.close()
         except Exception as e:
             logger.debug("查询视频额外数据失败: %s", e)
+        finally:
+            if conn:
+                conn.close()
         return extra
 
     def _on_mode_change(self):
