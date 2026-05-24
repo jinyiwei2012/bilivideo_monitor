@@ -233,9 +233,9 @@ class EntryTab:
     # ── BV号验证 ──────────────────────────────────────────────────────────────
     @staticmethod
     def _is_valid_bvid(s: str) -> bool:
-        import re
+        from ui.helpers import is_valid_bvid
 
-        return bool(re.match(r"^BV[A-Za-z0-9]{10}$", s.strip()))
+        return is_valid_bvid(s)
 
     # ── 生成输入行 ────────────────────────────────────────────────────────────
     def _generate_rows(self):

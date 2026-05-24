@@ -258,3 +258,10 @@ def load_algo_confidence(algo_id: str) -> float:
         return loss_to_confidence(versions[0].get("val_loss", -1.0))
     except Exception:
         return 0.0
+
+
+def is_valid_bvid(s: str) -> bool:
+    """校验 BV 号格式，防止路径穿越。"""
+    import re
+
+    return bool(re.match(r"^BV[A-Za-z0-9]{10,12}$", s.strip()))

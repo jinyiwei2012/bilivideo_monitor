@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 def _validate_bvid(bvid: str) -> bool:
-    return bool(re.match(r"^BV[A-Za-z0-9]{10}$", bvid))
+    return is_valid_bvid(bvid)
 
 
 _BASE_EXPORT_HEADERS = [

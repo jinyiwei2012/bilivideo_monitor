@@ -5,7 +5,6 @@
 
 import tkinter as tk
 from tkinter import ttk, messagebox
-import re
 from typing import List, Dict, Optional, Callable
 
 from core.database import db
@@ -16,8 +15,6 @@ from ui.dialog_base import DialogBase
 
 PERIODS = ["1周", "1月", "1年"]
 PERIOD_COLORS = {"1周": "#58a6ff", "1月": "#3fb950", "1年": "#f5a623"}
-_BVID_RE = re.compile(r"^BV[A-Za-z0-9]{10}$")
-
 FIELDS = [
     ("view_count", "播放量", True, "必填"),
     ("like_count", "点赞数", False, ""),
@@ -31,7 +28,9 @@ FIELDS = [
 
 
 def _valid_bvid(s: str) -> bool:
-    return bool(_BVID_RE.match(s.strip()))
+    from ui.helpers import is_valid_bvid
+
+    return is_valid_bvid(s)
 
 
 class _EntryRow:
