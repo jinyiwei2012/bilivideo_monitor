@@ -30,6 +30,7 @@ _last_up_fetch_time = {}  # uid -> time.time
 
 # 已通知的阈值追踪，防止同一阈值的重复推送
 _notified_thresholds = {}  # bvid -> set of threshold values
+_notified_lock = threading.Lock()
 
 # ──────────────────────────────────────────────
 #  内部工具
@@ -89,25 +90,26 @@ def _merge_history(gui, bvid: str) -> list:
     with gui._data_lock:
         history = list(gui.history_data.get(bvid, []))
 
-    if bvid not in _merged_from_db:
-        try:
-            if bvid in gui.video_dbs:
-                db_hist = gui.video_dbs[bvid].get_all_records()
-                if db_hist:
+    with _notified_lock:
+        if bvid not in _merged_from_db:
+            try:
+                if bvid in gui.video_dbs:
+                    db_hist = gui.video_dbs[bvid].get_all_records()
+                    if db_hist:
 
-                    def _norm(ts):
-                        """统一时间戳格式用于去重比较"""
-                        _, _, ts_str = normalize_timestamp(ts)
-                        return ts_str
+                        def _norm(ts):
+                            """统一时间戳格式用于去重比较"""
+                            _, _, ts_str = normalize_timestamp(ts)
+                            return ts_str
 
-                    existing_ts = {_norm(h[0]) for h in history}
-                    for row in db_hist:
-                        ts_str = _norm(row["timestamp"])
-                        if ts_str not in existing_ts:
-                            history.append((row["timestamp"], row["view_count"]))
-        except Exception as e:
-            logger.warning(f"合并历史记录失败 {bvid}: {e}")
-        _merged_from_db.add(bvid)
+                        existing_ts = {_norm(h[0]) for h in history}
+                        for row in db_hist:
+                            ts_str = _norm(row["timestamp"])
+                            if ts_str not in existing_ts:
+                                history.append((row["timestamp"], row["view_count"]))
+            except Exception as e:
+                logger.warning(f"合并历史记录失败 {bvid}: {e}")
+            _merged_from_db.add(bvid)
 
     history.sort(key=lambda x: _to_dt(x[0]))
 
@@ -445,21 +447,22 @@ class VideoWorker:
         new_views = video["view_count"]
         if new_views > old_views:
             try:
-                if bvid not in _notified_thresholds:
-                    _notified_thresholds[bvid] = set()
-                # 首次拉取（old_views=0）时，标记所有已超越的阈值，避免首次加载爆通知
-                if old_views == 0:
-                    for thr in THRESHOLDS:
-                        if thr <= new_views:
-                            _notified_thresholds[bvid].add(thr)
-                else:
-                    for i, thr in enumerate(THRESHOLDS):
-                        if old_views < thr <= new_views and thr not in _notified_thresholds[bvid]:
-                            _notified_thresholds[bvid].add(thr)
-                            name = THRESHOLD_NAMES[i] if i < len(THRESHOLD_NAMES) else f"{thr:,}"
-                            title = video.get("title", bvid)[:30]
-                            notification_manager.send_threshold_notification(bvid, title, thr, new_views)
-                            self._log("INFO", f"[{bvid}] 阈值突破 {name}！当前播放量: {new_views:,}")
+                with _notified_lock:
+                    if bvid not in _notified_thresholds:
+                        _notified_thresholds[bvid] = set()
+                    # 首次拉取（old_views=0）时，标记所有已超越的阈值，避免首次加载爆通知
+                    if old_views == 0:
+                        for thr in THRESHOLDS:
+                            if thr <= new_views:
+                                _notified_thresholds[bvid].add(thr)
+                    else:
+                        for i, thr in enumerate(THRESHOLDS):
+                            if old_views < thr <= new_views and thr not in _notified_thresholds[bvid]:
+                                _notified_thresholds[bvid].add(thr)
+                                name = THRESHOLD_NAMES[i] if i < len(THRESHOLD_NAMES) else f"{thr:,}"
+                                title = video.get("title", bvid)[:30]
+                                notification_manager.send_threshold_notification(bvid, title, thr, new_views)
+                                self._log("INFO", f"[{bvid}] 阈值突破 {name}！当前播放量: {new_views:,}")
             except Exception as e:
                 logger.debug("阈值突破检测失败: %s", e)
 
@@ -602,6 +605,10 @@ def _stop_worker(bvid):
         worker = _active_workers.pop(bvid, None)
     if worker:
         worker.stop()
+    # 清理该视频的已通知阈值和历史合并标记，避免内存膨胀
+    with _notified_lock:
+        _notified_thresholds.pop(bvid, None)
+        _merged_from_db.discard(bvid)
 
 
 def _stop_all_workers():
