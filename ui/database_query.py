@@ -167,11 +167,11 @@ class DatabaseQueryWindow:
         tk.Label(mr, text="查询方式", bg=C["bg_elevated"], fg=C["text_2"], font=FONT, width=12, anchor="w").pack(
             side=tk.LEFT
         )
-        self.query_mode = tk.StringVar(value="latest")
+        self.query_mode = tk.StringVar(value="最新N条")
         mode_combo = ttk.Combobox(
             mr,
             textvariable=self.query_mode,
-            values=["最新N条", "播放首次大于X", "播放趋势", "全量数据"],
+            values=["最新N条", "播放首次大于X", "播放量大于X", "播放趋势", "全量数据"],
             state="readonly",
             width=20,
             font=FONT,
@@ -360,6 +360,18 @@ class DatabaseQueryWindow:
             ttk.Entry(self.param_frame, textvariable=self.param_var, width=15, font=FONT).pack(
                 side=tk.LEFT, padx=(4, 0)
             )
+            tk.Label(self.param_frame, text="(每视频首次超过X的记录)", bg=C["bg_elevated"], fg=C["text_3"], font=FONT_SM).pack(
+                side=tk.LEFT, padx=8
+            )
+        elif mode == "播放量大于X":
+            tk.Label(self.param_frame, text="播放量X:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT).pack(side=tk.LEFT)
+            self.param_var = tk.StringVar(value="10000")
+            ttk.Entry(self.param_frame, textvariable=self.param_var, width=15, font=FONT).pack(
+                side=tk.LEFT, padx=(4, 0)
+            )
+            tk.Label(self.param_frame, text="(所有播放量超过X的记录)", bg=C["bg_elevated"], fg=C["text_3"], font=FONT_SM).pack(
+                side=tk.LEFT, padx=8
+            )
         elif mode == "播放趋势":
             tk.Label(self.param_frame, text="选择视频:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT).pack(side=tk.LEFT)
             self.video_combo = ttk.Combobox(
@@ -433,8 +445,128 @@ class DatabaseQueryWindow:
 
         threading.Thread(target=self._query_worker, args=(mode, filter_bvid, bvid_for_trend), daemon=True).start()
 
+    def _query_video_db(self, bvid: str, mode: str) -> list:
+        """在视频独立库中执行查询，返回 dict 行列表。"""
+        vdp = self._get_video_db_path(bvid)
+        if not vdp:
+            return []
+        uri = "file:{}?mode=ro".format(vdp.replace("\\", "/").replace(" ", "%20"))
+        conn = sqlite3.connect(uri, uri=True, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        try:
+            rows = self._run_video_query(cur, mode)
+        finally:
+            conn.close()
+        result = [dict(r) for r in rows]
+        for row in result:
+            row.setdefault("bvid", bvid)
+        return result
+
+    def _run_video_query(self, cur, mode: str) -> list:
+        """在视频独立库上执行模式查询（无需 bvid 过滤，数据已按视频隔离）。"""
+        if mode == "最新N条":
+            limit = int(getattr(self, "param_var", None) and self.param_var.get() or 100)
+            cur.execute("SELECT * FROM monitor_records ORDER BY timestamp DESC LIMIT ?", (limit,))
+        elif mode == "播放首次大于X":
+            thr = int(getattr(self, "param_var", None) and self.param_var.get() or 10000)
+            cur.execute(
+                "SELECT * FROM monitor_records WHERE view_count > ? ORDER BY timestamp ASC LIMIT 1", (thr,)
+            )
+        elif mode == "播放量大于X":
+            thr = int(getattr(self, "param_var", None) and self.param_var.get() or 10000)
+            cur.execute(
+                "SELECT * FROM monitor_records WHERE view_count > ? ORDER BY timestamp DESC", (thr,)
+            )
+        elif mode == "播放趋势":
+            cur.execute("SELECT * FROM monitor_records ORDER BY timestamp ASC")
+        elif mode == "全量数据":
+            cur.execute("SELECT * FROM monitor_records ORDER BY timestamp DESC")
+        return cur.fetchall()
+
+    def _prompt_fallback(self, mode, filter_bvid, bvid_for_trend):
+        """主线程：弹窗询问是否查询中央数据库"""
+        ok = messagebox.askyesno(
+            "未找到数据",
+            "该视频的独立库中没有匹配的记录。\n是否到中央数据库查询？",
+            parent=self.window,
+        )
+        if ok:
+            self.status_var.set("查询中央数据库…")
+            import threading
+            threading.Thread(
+                target=self._run_fallback_query,
+                args=(mode, filter_bvid, bvid_for_trend),
+                daemon=True,
+            ).start()
+        else:
+            self._reset_query_state()
+
+    def _run_fallback_query(self, mode, filter_bvid, bvid_for_trend):
+        """后台线程：在中央数据库中执行查询"""
+        raw_rows = []
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            raw_rows = self._run_query(cur, mode, filter_bvid, bvid_for_trend)
+            conn.close()
+        except Exception as e:
+            self.window.after(0, lambda: (
+                messagebox.showerror("错误", f"中央库查询失败: {e}", parent=self.window),
+                self._reset_query_state(),
+            ))
+            return
+
+        self.window.after(0, lambda: self.status_var.set(f"中央库查到 {len(raw_rows)} 条，加载关联数据…"))
+        try:
+            extra_list, anames = self._load_query_extra_data(raw_rows)
+        except Exception as e:
+            logger.exception("加载关联数据失败")
+            self.window.after(0, lambda: self.status_var.set(f"加载关联数据失败: {e}"))
+            self.window.after(0, self._reset_query_state)
+            return
+        self.window.after(0, lambda: self._finish_query(raw_rows, extra_list, anames))
+
     def _query_worker(self, mode, filter_bvid, bvid_for_trend):
-        """后台线程：执行数据库查询并加载关联数据。"""
+        """后台线程：执行数据库查询并加载关联数据。
+
+        查询顺序：
+        1. 若指定了视频（filter_bvid 或趋势模式的 bvid_for_trend），优先查该视频的独立库
+        2. 独立库无结果时弹窗询问是否查中央数据库
+        3. 未指定视频时直接查中央数据库
+        """
+        # ── 确定要查的视频 BVID ──────────────────
+        target_bvid = filter_bvid or (bvid_for_trend if mode == "播放趋势" else None)
+
+        if target_bvid:
+            try:
+                raw_rows = self._query_video_db(target_bvid, mode)
+                self.window.after(0, lambda: self.status_var.set(
+                    f"视频独立库查到 {len(raw_rows)} 条" if raw_rows else "视频独立库无匹配记录"
+                ))
+                if raw_rows:
+                    total = len(raw_rows)
+                    self.window.after(0, lambda: self.status_var.set(f"查询到 {total} 条，加载关联数据…"))
+                    try:
+                        extra_list, anames = self._load_query_extra_data(raw_rows)
+                    except Exception as e:
+                        logger.exception("加载关联数据失败")
+                        self.window.after(0, lambda: self.status_var.set(f"加载关联数据失败: {e}"))
+                        self.window.after(0, self._reset_query_state)
+                        return
+                    self.window.after(0, lambda: self._finish_query(raw_rows, extra_list, anames))
+                    return
+                # 无结果 → 弹窗询问是否查中央库（主线程）
+                self.window.after(0, lambda: self._prompt_fallback(mode, filter_bvid, bvid_for_trend))
+                return
+            except Exception as e:
+                logger.exception("视频独立库查询失败")
+                self.window.after(0, lambda: self.status_var.set(f"视频库查询失败: {e}"))
+                self.window.after(0, self._reset_query_state)
+                return
+
+        # ── 未指定视频 → 直接查中央数据库 ────────
         raw_rows = []
         err_msg = None
         try:
@@ -459,7 +591,13 @@ class DatabaseQueryWindow:
         total = len(raw_rows)
         self.window.after(0, lambda: self.status_var.set(f"查询到 {total} 条，加载关联数据…"))
 
-        extra_list, anames = self._load_query_extra_data(raw_rows)
+        try:
+            extra_list, anames = self._load_query_extra_data(raw_rows)
+        except Exception as e:
+            logger.exception("加载关联数据失败")
+            self.window.after(0, lambda: self.status_var.set(f"加载关联数据失败: {e}"))
+            self.window.after(0, self._reset_query_state)
+            return
         self.window.after(0, lambda: self._finish_query(raw_rows, extra_list, anames))
 
     def _run_query(self, cur, mode, filter_bvid, bvid_for_trend):
@@ -484,6 +622,18 @@ class DatabaseQueryWindow:
                 cur.execute(
                     """WITH fa AS (SELECT bvid, MIN(timestamp) as ft FROM monitor_records WHERE view_count > ? GROUP BY bvid)
                                SELECT m.* FROM monitor_records m INNER JOIN fa f ON m.bvid = f.bvid AND m.timestamp = f.ft ORDER BY m.timestamp DESC""",
+                    (thr,),
+                )
+        elif mode == "播放量大于X":
+            thr = int(getattr(self, "param_var", None) and self.param_var.get() or 10000)
+            if filter_bvid:
+                cur.execute(
+                    "SELECT * FROM monitor_records WHERE bvid = ? AND view_count > ? ORDER BY timestamp DESC",
+                    (filter_bvid, thr),
+                )
+            else:
+                cur.execute(
+                    "SELECT * FROM monitor_records WHERE view_count > ? ORDER BY timestamp DESC",
                     (thr,),
                 )
         elif mode == "播放趋势":
@@ -522,27 +672,40 @@ class DatabaseQueryWindow:
         self._extra_data = extra_list
         self._algo_names = algo_names
         self.result_tree.delete(*self.result_tree.get_children())
-        for i, row in enumerate(raw_rows, 1):
-            lr = row.get("like_view_ratio") or 0
-            vals = (
-                i,
-                row["bvid"],
-                row["timestamp"],
-                f"{row['view_count']:,}",
-                f"{row['like_count']:,}",
-                f"{row['coin_count']:,}",
-                f"{row['share_count']:,}",
-                f"{row['favorite_count']:,}",
-                f"{row['danmaku_count']:,}",
-                f"{row['reply_count']:,}",
-                f"{(row.get('viewers_total') or 0):,}",
-                f"{(row.get('viewers_web') or 0):,}",
-                f"{(row.get('viewers_app') or 0):,}",
-                f"{lr:.4f}",
-            )
-            self.result_tree.insert("", "end", values=vals, tags=(row["bvid"],))
-        self.status_var.set(f"查询到 {len(raw_rows)} 条记录")
+        try:
+            for i, row in enumerate(raw_rows, 1):
+                lr = row.get("like_view_ratio") or 0
+                vals = (
+                    i,
+                    row.get("bvid", ""),
+                    row.get("timestamp", ""),
+                    self._safe_fmt(row.get("view_count")),
+                    self._safe_fmt(row.get("like_count")),
+                    self._safe_fmt(row.get("coin_count")),
+                    self._safe_fmt(row.get("share_count")),
+                    self._safe_fmt(row.get("favorite_count")),
+                    self._safe_fmt(row.get("danmaku_count")),
+                    self._safe_fmt(row.get("reply_count")),
+                    self._safe_fmt(row.get("viewers_total")),
+                    self._safe_fmt(row.get("viewers_web")),
+                    self._safe_fmt(row.get("viewers_app")),
+                    f"{lr:.4f}",
+                )
+                self.result_tree.insert("", "end", values=vals, tags=(row.get("bvid", ""),))
+            self.status_var.set(f"查询到 {len(raw_rows)} 条记录")
+        except Exception as e:
+            logger.exception("显示查询结果失败")
+            self.status_var.set(f"显示结果失败: {e}")
         self._reset_query_state()
+
+    @staticmethod
+    def _safe_fmt(v):
+        if v is None:
+            return "0"
+        try:
+            return f"{int(v):,}"
+        except (ValueError, TypeError):
+            return str(v)
 
     def _reset_query(self):
         self.result_tree.delete(*self.result_tree.get_children())
@@ -558,7 +721,8 @@ class DatabaseQueryWindow:
         tag = f"_{fb}" if fb else ""
         mn = {
             "最新N条": "latest",
-            "播放首次大于X": f"above{self.param_var.get()}",
+            "播放首次大于X": f"first_above{self.param_var.get()}",
+            "播放量大于X": f"above{self.param_var.get()}",
             "播放趋势": self.video_combo_var.get().split()[0] if self.video_combo_var.get() else "trend",
             "全量数据": "all",
         }.get(mode, "query")
