@@ -113,7 +113,7 @@ def _merge_history(gui, bvid: str) -> list:
                                 history.append((row["timestamp"], row["view_count"]))
             except Exception as e:
                 logger.warning(f"合并历史记录失败 {bvid}: {e}")
-            _merged_from_get_db().add(bvid)
+            _merged_from_db.add(bvid)
 
     history.sort(key=lambda x: _to_dt(x[0]))
 
@@ -616,7 +616,7 @@ def _stop_worker(bvid):
     # 清理该视频的已通知阈值和历史合并标记，避免内存膨胀
     with _notified_lock:
         _notified_thresholds.pop(bvid, None)
-        _merged_from_get_db().discard(bvid)
+        _merged_from_db.discard(bvid)
 
 
 def _stop_all_workers():
