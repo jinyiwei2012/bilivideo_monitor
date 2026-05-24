@@ -505,7 +505,7 @@ class FinetunePanel(BaseTrainingPanel):
 
                     # 重置跳过标记，启用跳过按钮
                     self._skip_algo_flag[0] = False
-                    self._skip_btn.config(state="normal")
+                    self.frame.after(0, lambda: self._skip_btn.config(state="normal"))
 
                     # 通知开始
                     self._train_queue.put({

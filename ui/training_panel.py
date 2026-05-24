@@ -874,7 +874,7 @@ class TrainingPanel(BaseTrainingPanel):
 
                     # 重置跳过标记，启用跳过按钮
                     self._skip_algo_flag[0] = False
-                    self._skip_btn.config(state="normal")
+                    self.frame.after(0, lambda: self._skip_btn.config(state="normal"))
 
                     # 每个算法独立 LR = 基础 LR × 该算法的累积系数
                     aid_factor = algo_lr_factors.get(aid, 1.0)
