@@ -984,10 +984,37 @@ class BilibiliAPI:
         """
         result: Dict = {"code": -1, "cookies": {}, "refresh_token": "", "message": "",
                         "need_captcha": False, "captcha_type": 0}
+
+        # 如果非验证码提交，首次触发可尝试自动重试绕开验证
+        if not captcha:
+            r = self._login_with_password_attempt(username, password, "", 0)
+            if r.get("code") == 0 or not r.get("need_captcha"):
+                return r
+            # 有验证码 — 短暂重试一次（可能设备指纹生效后跳过）
+            time.sleep(3)
+            r2 = self._login_with_password_attempt(username, password, "", 0)
+            if r2.get("code") == 0 or not r2.get("need_captcha"):
+                return r2
+            # 仍然需要验证码，返回结果让 UI 处理
+            return r
+
+        # 已有验证码，直接提交
+        return self._login_with_password_attempt(username, password, captcha, captcha_type)
+
+    def _login_with_password_attempt(self, username: str, password: str, captcha: str = "",
+                                      captcha_type: int = 0) -> Dict:
+        """一次登录尝试（不自动重试）"""
+        result: Dict = {"code": -1, "cookies": {}, "refresh_token": "", "message": "",
+                        "need_captcha": False, "captcha_type": 0}
         try:
-            # Step 1: 获取 RSA 公钥
+            # 生成设备指纹，帮助减少验证码触发
+            if not self._session.cookies.get("buvid3"):
+                import uuid as _uuid
+                self._session.cookies.set("buvid3", _uuid.uuid4().hex.upper(), domain=".bilibili.com")
+
+            # Step 1: 获取 RSA 公钥 + token
             key_resp = requests.get(
-                "https://passport.bilibili.com/api/v2/oauth2/getKey",
+                "https://passport.bilibili.com/x/passport-login/web/key",
                 headers={"User-Agent": random.choice(self.USER_AGENTS), "Referer": "https://www.bilibili.com/"},
                 timeout=15,
             )
@@ -1001,6 +1028,7 @@ class BilibiliAPI:
             key_info = key_data.get("data", {})
             rsa_key = key_info.get("key", "")
             rsa_hash = key_info.get("hash", "")
+            login_token = key_info.get("token", "")
 
             # Step 2: RSA 加密密码
             from Cryptodome.PublicKey import RSA as _RSA
@@ -1014,19 +1042,21 @@ class BilibiliAPI:
             encrypted_password = _b64.b64encode(encrypted).decode("utf-8")
 
             # Step 3: 登录
-            login_data = {
+            login_body = {
                 "username": username,
                 "password": encrypted_password,
                 "keep": "true",
+                "key": rsa_key,
+                "token": login_token,
             }
             if captcha:
-                login_data["captcha"] = captcha
+                login_body["captcha"] = captcha
             if captcha_type:
-                login_data["captcha_type"] = str(captcha_type)
+                login_body["captcha_type"] = str(captcha_type)
 
-            login_resp = requests.post(
-                "https://passport.bilibili.com/api/v2/oauth2/login",
-                data=login_data,
+            login_resp = self._session.post(
+                "https://passport.bilibili.com/x/passport-login/web/login",
+                data=login_body,
                 headers={
                     "User-Agent": random.choice(self.USER_AGENTS),
                     "Referer": "https://www.bilibili.com/",
@@ -1037,32 +1067,33 @@ class BilibiliAPI:
             if login_resp.status_code != 200:
                 result["message"] = f"登录失败: HTTP {login_resp.status_code}"
                 return result
-            login_data = login_resp.json()
-            if login_data.get("code") != 0:
-                result["code"] = login_data.get("code", -1)
-                result["message"] = login_data.get("message", "登录失败")
-                # 常见错误: -629 = 需要验证码
-                if login_data.get("code") == -629:
-                    body = login_data.get("data", {})
+            resp_data = login_resp.json()
+            if resp_data.get("code") != 0:
+                result["code"] = resp_data.get("code", -1)
+                result["message"] = resp_data.get("message", "登录失败")
+                # -629 = 需要验证码
+                if resp_data.get("code") == -629:
+                    bd = resp_data.get("data", {})
                     result["need_captcha"] = True
-                    # B站返回的验证码类型: 6=短信验证码, geetest=滑块
-                    ct = body.get("captcha_type", 0)
+                    ct = bd.get("captcha_type", 0)
                     result["captcha_type"] = ct
-                    result["captcha_url"] = body.get("url", "")
-                    result["captcha_phone"] = body.get("phone", "")
-                    result["message"] = body.get("message", "需要安全验证，请完成验证后再登录")
-                elif login_data.get("code") == -1057:
+                    result["captcha_url"] = bd.get("url", "")
+                    result["captcha_phone"] = bd.get("phone", "")
+                    result["tmp_token"] = bd.get("tmp_token", "")
+                    result["message"] = bd.get("message", "需要安全验证")
+                elif resp_data.get("code") == -1057:
                     result["message"] += "，请检查账号密码"
                 return result
 
-            # 从 token_info 直接提取
+            # 登录成功
+            d = resp_data.get("data", {})
+            token_info = d.get("token_info", d)
             cookies = {}
             for k in ("SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid"):
                 val = token_info.get(k, "")
                 if val:
                     cookies[k] = val
 
-            # 回退到 header/cookiejar 方式
             if not cookies:
                 cookies = self._extract_login_cookies(login_resp, token_info)
 
