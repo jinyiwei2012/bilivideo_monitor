@@ -136,6 +136,7 @@ class DatabaseQueryWindow:
         self._extra_data = []
         self._algo_names = []
         self._query_running = False
+        self._query_source_bvid = None  # None=中央库, 有值=视频独立库
 
         self.setup_ui()
         self.load_videos_list()
@@ -526,9 +527,9 @@ class DatabaseQueryWindow:
             self.window.after(0, lambda: self.status_var.set(f"加载关联数据失败: {e}"))
             self.window.after(0, self._reset_query_state)
             return
+        self._query_source_bvid = None
         self.window.after(0, lambda: self._finish_query(raw_rows, extra_list, anames))
-
-    def _query_worker(self, mode, filter_bvid, bvid_for_trend):
+        return
         """后台线程：执行数据库查询并加载关联数据。
 
         查询顺序：
@@ -555,6 +556,7 @@ class DatabaseQueryWindow:
                         self.window.after(0, lambda: self.status_var.set(f"加载关联数据失败: {e}"))
                         self.window.after(0, self._reset_query_state)
                         return
+                    self._query_source_bvid = target_bvid
                     self.window.after(0, lambda: self._finish_query(raw_rows, extra_list, anames))
                     return
                 # 无结果 → 弹窗询问是否查中央库（主线程）
@@ -598,6 +600,7 @@ class DatabaseQueryWindow:
             self.window.after(0, lambda: self.status_var.set(f"加载关联数据失败: {e}"))
             self.window.after(0, self._reset_query_state)
             return
+        self._query_source_bvid = None
         self.window.after(0, lambda: self._finish_query(raw_rows, extra_list, anames))
 
     def _run_query(self, cur, mode, filter_bvid, bvid_for_trend):
@@ -665,6 +668,7 @@ class DatabaseQueryWindow:
 
     def _reset_query_state(self):
         self._query_running = False
+        self._query_source_bvid = None
         self._query_btn.config(state="normal", text="查询")
 
     def _finish_query(self, raw_rows, extra_list, algo_names):
@@ -797,12 +801,23 @@ class DatabaseQueryWindow:
         if not messagebox.askyesno("确认", f"确定删除选中的 {len(sel)} 条记录？", parent=self.window):
             return
         try:
-            conn = sqlite3.connect(self.db_path)
+            source_bvid = self._query_source_bvid
+            if source_bvid:
+                db_path = self._get_video_db_path(source_bvid)
+                if not db_path:
+                    messagebox.showerror("错误", "视频独立库文件不存在", parent=self.window)
+                    return
+            else:
+                db_path = self.db_path
+            conn = sqlite3.connect(db_path)
             cur = conn.cursor()
             for item in sel:
                 vals = self.result_tree.item(item)["values"]
                 bvid, ts = vals[1], vals[2]
-                cur.execute("DELETE FROM monitor_records WHERE bvid = ? AND timestamp = ?", (bvid, ts))
+                if source_bvid:
+                    cur.execute("DELETE FROM monitor_records WHERE timestamp = ?", (ts,))
+                else:
+                    cur.execute("DELETE FROM monitor_records WHERE bvid = ? AND timestamp = ?", (bvid, ts))
                 self.query_results = [r for r in self.query_results if not (r["bvid"] == bvid and r["timestamp"] == ts)]
             conn.commit()
             conn.close()
