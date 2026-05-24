@@ -550,7 +550,7 @@ class EntryTab:
                 danmaku_count=data.get("danmaku_count", 0),
                 reply_count=data.get("reply_count", 0),
             )
-            video_get_db().add_monitor_record(record)
+            video_db.add_monitor_record(record)
             return True
         except Exception as e:
             logger.warning("快照写入失败 [%s]: %s", bvid, e)
