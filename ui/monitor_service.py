@@ -118,8 +118,12 @@ def _merge_history(gui, bvid: str) -> list:
         history = [(now, current_view), (now, current_view)]
 
     # 同步回 gui.history_data，让图表也能看到合并后的完整数据
+    # 使用增量替换而非直接覆盖，避免丢失合并期间其他线程新增的记录
     with gui._data_lock:
-        gui.history_data[bvid] = [(ts, v) for ts, v in history]
+        existing = dict(gui.history_data.get(bvid, []))
+        merged = dict(history)
+        existing.update(merged)
+        gui.history_data[bvid] = sorted(existing.items(), key=lambda x: _to_dt(x[0]))
 
     return history
 
