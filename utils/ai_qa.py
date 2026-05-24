@@ -275,13 +275,18 @@ class AIQASession:
         return "\n".join(lines)
 
     def _answer_threshold(self) -> str:
-        from ui.helpers import THRESHOLDS, THRESHOLD_NAMES
+        from config import load_config
+
+        cfg = load_config().get("prediction", {})
+        thresholds_raw = cfg.get("thresholds", [[100000, "10万"], [1000000, "100万"], [10000000, "1000万"]])
+        thresholds = [t for t, _ in thresholds_raw]
+        threshold_names = [n for _, n in thresholds_raw]
 
         achieved = 0
         nearing = []
         for v in self._monitored_videos:
             views = v.get("view_count", 0)
-            for t, name in zip(THRESHOLDS, THRESHOLD_NAMES):
+            for t, name in zip(thresholds, threshold_names):
                 if views >= t:
                     achieved += 1
                 elif views >= t * 0.8:
