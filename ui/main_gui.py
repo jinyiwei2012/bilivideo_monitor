@@ -736,6 +736,7 @@ class BilibiliMonitorGUI:
         # 提取BV号
         bvid = self._extract_bvid_from_input(raw_input)
         if bvid is None:
+            dialog.destroy()
             return
 
         # 检查是否已在监控列表
