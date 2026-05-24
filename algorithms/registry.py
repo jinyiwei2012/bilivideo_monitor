@@ -240,6 +240,8 @@ class AlgorithmRegistry:
         cls._algorithms = {}
         cls._model_adapters = {}
         cls._initialized = False
+        cls._pool.shutdown(wait=False)
+        cls._pool = ThreadPoolExecutor(max_workers=4)
 
 
 AlgorithmRegistry.initialize()
