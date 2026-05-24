@@ -73,7 +73,7 @@ def get_moirai_model() -> Tuple[Optional[Any], bool, str]:
             _models["moirai"] = None  # 缓存失败结果，避免下次再 import
         return None, False, "需要 pip install uni2ts"
     try:
-        logger.info("[hf_loader] 首次加载 MOIRAI，从 HuggingFace 下载或读缓存: %s", MOIRAI_REPO)
+        logger.debug("[hf_loader] 首次加载 MOIRAI，从 HuggingFace 下载或读缓存: %s", MOIRAI_REPO)
         model = MoiraiModule.from_pretrained(MOIRAI_REPO)
         model.eval()
         with _lock:
@@ -99,7 +99,7 @@ def get_lag_llama_model() -> Tuple[Optional[Any], bool, str]:
     try:
         from huggingface_hub import hf_hub_download
 
-        logger.info("[hf_loader] 首次加载 Lag-Llama，从 HuggingFace 下载或读缓存: %s", LAG_LLAMA_REPO)
+        logger.debug("[hf_loader] 首次加载 Lag-Llama，从 HuggingFace 下载或读缓存: %s", LAG_LLAMA_REPO)
         ckpt_path = hf_hub_download(
             repo_id=LAG_LLAMA_REPO,
             filename="lag-llama.ckpt",

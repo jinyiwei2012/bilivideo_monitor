@@ -378,11 +378,11 @@ class VideoWorker:
                 return
             self._fetching = True
 
-        self._log("DEBUG", f"[{bvid}] 开始拉取数据…")
+        self._log("INFO", f"[{bvid}] 开始拉取数据…")
         # 记录当前使用的代理（脱敏显示协议+IP前3位）
         proxy_hint = get_bilibili_api().proxy_manager.peek_proxy()
         if proxy_hint:
-            self._log("INFO", f"[{bvid}] 开始通过代理 {proxy_hint} 拉取数据…")
+            self._log("DEBUG", f"[{bvid}] 开始通过代理 {proxy_hint} 拉取数据…")
         else:
             self._log("INFO", f"[{bvid}] 开始直连拉取数据…")
         try:
@@ -537,7 +537,7 @@ class VideoWorker:
                 self._fetching = False
             return
 
-        self._log("DEBUG", f"[{bvid}] 拉取完成 播放:{video.get('view_count', 0):,} 预测:{result.get('prediction', 0):,}")
+        self._log("INFO", f"[{bvid}] 拉取完成 播放:{video.get('view_count', 0):,} 预测:{result.get('prediction', 0):,}")
 
         # 同步视频信息到中央数据库（从内存直接写入，避免新建 DB 连接 + 重复读盘）
         try:
