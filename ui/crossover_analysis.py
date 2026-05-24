@@ -160,7 +160,7 @@ class CrossoverAnalysisWindow:
         rf = tk.LabelFrame(self.window, text="交会分析结果", padx=8, pady=6)
         rf.pack(fill=X, padx=12, pady=(0, 12))
 
-        cols = ("视频A", "视频B", "预计交会时间", "预计播放量", "A增长率/h", "B增长率/h", "置信度")
+        cols = ("视频A", "视频B", "预计交会时间", "预计播放量", "A增长率/h", "B增长率/h", "置信度", "剩余时间")
         self.tree = ttk.Treeview(rf, columns=cols, show="headings", height=5)
         for col in cols:
             self.tree.heading(col, text=col)
@@ -171,6 +171,7 @@ class CrossoverAnalysisWindow:
         self.tree.column("A增长率/h", width=90, anchor="e")
         self.tree.column("B增长率/h", width=90, anchor="e")
         self.tree.column("置信度", width=80, anchor="center")
+        self.tree.column("剩余时间", width=90, anchor="center")
 
         tsb = ttk.Scrollbar(rf, orient="vertical", command=self.tree.yview)
         self.tree.config(yscrollcommand=tsb.set)
@@ -367,12 +368,11 @@ class CrossoverAnalysisWindow:
         confidence = self._compute_confidence(slope_a, intercept_a, pts_a, slope_b, intercept_b, pts_b)
         time_str = cross_time.strftime("%Y-%m-%d %H:%M")
         remaining = cross_time - now
+        remaining_str = ""
         if remaining.total_seconds() > 0:
             days = remaining.days
             hours = int(remaining.total_seconds() // 3600 % 24)
-            f"{days}天{hours}小时" if days else f"{hours}小时"
-        else:
-            pass
+            remaining_str = f"{days}天{hours}小时" if days else f"{hours}小时"
 
         self.tree.insert(
             "",
@@ -385,6 +385,7 @@ class CrossoverAnalysisWindow:
                 f"{slope_a:,.1f}",
                 f"{slope_b:,.1f}",
                 f"{confidence:.0%}",
+                remaining_str,
             ),
         )
         return 1

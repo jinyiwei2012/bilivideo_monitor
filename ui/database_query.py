@@ -529,15 +529,8 @@ class DatabaseQueryWindow:
             return
         self._query_source_bvid = None
         self.window.after(0, lambda: self._finish_query(raw_rows, extra_list, anames))
-        return
-        """后台线程：执行数据库查询并加载关联数据。
 
-        查询顺序：
-        1. 若指定了视频（filter_bvid 或趋势模式的 bvid_for_trend），优先查该视频的独立库
-        2. 独立库无结果时弹窗询问是否查中央数据库
-        3. 未指定视频时直接查中央数据库
-        """
-        # ── 确定要查的视频 BVID ──────────────────
+    # ── 确定要查的视频 BVID ──────────────────
         target_bvid = filter_bvid or (bvid_for_trend if mode == "播放趋势" else None)
 
         if target_bvid:

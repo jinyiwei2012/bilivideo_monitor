@@ -72,7 +72,6 @@ class AIQASession:
                     latest = sorted_pts[-1][1]
                     span_h = (sorted_pts[-1][0] - sorted_pts[0][0]).total_seconds() / 3600
                     # 采样关键数据点：首、中、尾
-                    len(sorted_pts) // 2
                     lines.append(f"    历史趋势: {len(sorted_pts)}条记录, 跨度{span_h:.1f}h")
                     lines.append(f"      起始: {sorted_pts[0][1]:,} → 当前: {latest:,}")
                     if span_h > 0:
