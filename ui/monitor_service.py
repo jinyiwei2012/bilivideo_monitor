@@ -170,8 +170,8 @@ def _save_up_data(uid: int):
                 info["follower_count"] = stat["follower_count"]
 
         up_db = _get_up_db()
-        up_get_db().upsert_up(info)
-        up_get_db().add_history(
+        up_db.upsert_up(info)
+        up_db.add_history(
             uid,
             follower_count=info.get("follower_count", 0),
             video_count=info.get("video_count", 0),
