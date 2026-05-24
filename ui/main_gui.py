@@ -59,7 +59,7 @@ from ui.monitor_service import (
     load_watch_list,
     _start_worker,
 )
-from core import bilibili_api, db, MonitorRecord, notification_manager
+from core import get_bilibili_api, get_db, MonitorRecord, notification_manager
 from config import load_config, save_config
 from utils.file_logger import FileLogger
 from algorithms.training.checkpoint_manager import activate_latest_for_all, get_all_activation_status, list_all_trained_algorithms
@@ -600,10 +600,10 @@ class BilibiliMonitorGUI:
         # 每300 tick（≈5min）执行一次数据库WAL checkpoint，控制WAL文件膨胀
         self._tick_counter = (self._tick_counter + 1) % 300
         if self._tick_counter == 0:
-            db.wal_checkpoint()
+            get_db().wal_checkpoint()
             for vdb in self.video_dbs.values():
                 try:
-                    vdb.wal_checkpoint()
+                    vget_db().wal_checkpoint()
                 except Exception:
                     pass
 
@@ -772,7 +772,7 @@ class BilibiliMonitorGUI:
         dialog.update()
 
         def _fetch():
-            info = bilibili_api.get_video_info(bvid)
+            info = get_bilibili_api().get_video_info(bvid)
             dialog.after(0, lambda: _done(info))
 
         def _done(info):
@@ -810,7 +810,7 @@ class BilibiliMonitorGUI:
         vdb = self.video_dbs.pop(bvid, None)
         if vdb:
             try:
-                vdb.close()
+                vget_db().close()
             except Exception:
                 pass
         self.prediction_results.pop(bvid, None)
@@ -1164,7 +1164,7 @@ class BilibiliMonitorGUI:
     def _register_video_to_monitor(self, video: dict) -> None:
         bvid = video["bvid"]
         try:
-            video_db = db.get_video_db(bvid)
+            video_db = get_db().get_video_db(bvid)
             self.video_dbs[bvid] = video_db
             video_db.save_video_info(video)
             history = video_db.get_all_records()
@@ -1237,13 +1237,13 @@ class BilibiliMonitorGUI:
         # 同步并关闭各视频数据库
         for bvid in self.video_dbs:
             try:
-                db.sync_from_video_db(bvid)
+                get_db().sync_from_video_db(bvid)
                 self.video_dbs[bvid].close()
             except Exception as e:
                 logger.debug("关闭视频数据库失败 %s: %s", bvid, e)
         # 关闭前同步：活跃库 → 中央库（兜底）
         try:
-            result = db.sync_to_central()
+            result = get_db().sync_to_central()
             logger.info(
                 "中央库同步完成: %d 视频, %d 记录, %d 瑕疵修复",
                 result.get("synced_videos", 0),
@@ -1252,8 +1252,8 @@ class BilibiliMonitorGUI:
             )
         except Exception as e:
             logger.warning("中央库同步失败: %s", e)
-        db.close()
-        bilibili_api.close()
+        get_db().close()
+        get_bilibili_api().close()
         self.root.destroy()
 
     def run(self):

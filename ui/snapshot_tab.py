@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 import logging
 
-from core.database import db
+from core.database import get_db
 from ui.theme import C
 from .data_comparison import (
     _fmt,
@@ -566,7 +566,7 @@ class SnapshotTab:
     def _collect_data(self):
         """收集历史和里程碑数据"""
         use_milestone = self._use_milestone.get()
-        milestone_data = db.get_all_milestones_grouped() if use_milestone else {}
+        milestone_data = get_db().get_all_milestones_grouped() if use_milestone else {}
 
         # 对每个视频×每个指标收集 bars
         all_metric_bars = {}  # metric_key -> [ {bvid, title, ts, value, source} ]

@@ -10,7 +10,7 @@ from typing import List, Dict, Callable, Optional
 import threading
 import webbrowser
 
-from core import bilibili_api
+from core import get_bilibili_api
 from ui.theme import C
 from ui.helpers import FONT, FONT_SM
 from ui.dialog_base import DialogBase
@@ -109,7 +109,7 @@ class VideoSearchWindow:
 
     def _worker(self, kw: str):
         try:
-            results = bilibili_api.search_videos(kw, page=1, page_size=20)
+            results = get_bilibili_api().search_videos(kw, page=1, page_size=20)
             if not results:
                 self.window.after(0, lambda: self.status_lbl.config(text="未找到结果", fg=C["text_2"]))
                 return

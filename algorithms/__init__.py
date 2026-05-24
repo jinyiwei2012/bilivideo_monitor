@@ -7,7 +7,7 @@
 from .base import BaseAlgorithm
 
 # 权重管理器
-from .weight_manager import WeightManager, weight_manager
+from .weight_manager import WeightManager, get_weight_manager
 
 # 算法注册器
 from .registry import AlgorithmRegistry
@@ -28,7 +28,7 @@ __all__ = [
     "BaseAlgorithm",
     # 管理器
     "WeightManager",
-    "weight_manager",
+    "get_weight_manager",
     "AlgorithmRegistry",
     # 高级模块
     "OnlineLearner",

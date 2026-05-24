@@ -7,7 +7,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from typing import List, Dict, Optional, Callable
 
-from core.database import db
+from core.database import get_db
 from ui.theme import C
 from ui.scrollable_frame import ScrollableFrame
 from ui.helpers import FONT, FONT_BOLD, FONT_SM, fmt_num
@@ -284,7 +284,7 @@ class MilestoneStatsWindow:
             w.destroy()
         self._entry_rows.clear()
         existing_map = {}
-        for row in db.get_milestones():
+        for row in get_db().get_milestones():
             existing_map[(row["bvid"], row["period"])] = row
         for bv in bvids:
             for p in periods:
@@ -303,7 +303,7 @@ class MilestoneStatsWindow:
             if data is None:
                 skipped += 1
                 continue
-            ok = db.upsert_milestone(row.bvid, row.period, data)
+            ok = get_db().upsert_milestone(row.bvid, row.period, data)
             if ok:
                 saved += 1
             else:
@@ -402,7 +402,7 @@ class MilestoneStatsWindow:
         self._all_data: dict = {}
 
     def _reload_comparison(self):
-        self._all_data = db.get_all_milestones_grouped()
+        self._all_data = get_db().get_all_milestones_grouped()
         self._fill_table()
         self._redraw_compare()
 
@@ -452,7 +452,7 @@ class MilestoneStatsWindow:
             return
         for bv in sel:
             for p in PERIODS:
-                db.delete_milestone(bv, p)
+                get_db().delete_milestone(bv, p)
         self._reload_comparison()
 
     def _redraw_compare(self):

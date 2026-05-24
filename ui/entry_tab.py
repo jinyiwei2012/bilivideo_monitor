@@ -7,7 +7,7 @@ from tkinter import ttk, messagebox, LEFT, RIGHT, BOTH, X, Y
 import logging
 from typing import List, Dict
 
-from core.database import db
+from core.database import get_db
 from ui.theme import C
 from ui.scrollable_frame import ScrollableFrame
 from .data_comparison import _fmt, _parse_dt
@@ -104,7 +104,7 @@ class EntryTab:
         self._ms_frame = tk.Frame(self._param_frame)
         self._ms_vars = {}
         tk.Label(self._ms_frame, text="统计周期", font=("Microsoft YaHei UI", 9)).pack(anchor="w")
-        for p in db.MILESTONE_PERIODS:
+        for p in get_db().MILESTONE_PERIODS:
             var = tk.BooleanVar(value=True)
             self._ms_vars[p] = var
             tk.Checkbutton(self._ms_frame, text=p, variable=var).pack(anchor="w")
@@ -335,7 +335,7 @@ class EntryTab:
         """加载已有数据做预填"""
         existing_ms = {}
         if mode == "milestone":
-            for row in db.get_milestones():
+            for row in get_db().get_milestones():
                 existing_ms[(row["bvid"], row["period"])] = row
 
         # 快照已有数据
@@ -510,7 +510,7 @@ class EntryTab:
         bvid = row["bvid"]
 
         if mode == "milestone":
-            ok = db.upsert_milestone(bvid, row["key"], data)
+            ok = get_db().upsert_milestone(bvid, row["key"], data)
         else:
             ok = self._save_snapshot_record(bvid, row["key"], data)
 
@@ -550,7 +550,7 @@ class EntryTab:
                 danmaku_count=data.get("danmaku_count", 0),
                 reply_count=data.get("reply_count", 0),
             )
-            video_db.add_monitor_record(record)
+            video_get_db().add_monitor_record(record)
             return True
         except Exception as e:
             logger.warning("快照写入失败 [%s]: %s", bvid, e)
@@ -562,7 +562,7 @@ class EntryTab:
             self._tbl.delete(item)
 
         # 里程碑数据
-        for row in db.get_milestones():
+        for row in get_db().get_milestones():
             self._tbl.insert(
                 "",
                 tk.END,
@@ -598,5 +598,5 @@ class EntryTab:
             entry_type = values[1]
             time_key = values[2]
             if entry_type == "里程碑":
-                db.delete_milestone(bvid, time_key)
+                get_db().delete_milestone(bvid, time_key)
         self._reload_table()

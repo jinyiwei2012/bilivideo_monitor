@@ -210,7 +210,7 @@ class Dialogs:
         try:
             from .settings_window import SettingsWindow
 
-            SettingsWindow(self.gui.root)
+            SettingsWindow(self.gui.root, gui=self.gui)
         except Exception as e:
             messagebox.showerror("错误", f"打开系统设置失败: {e}")
 
@@ -224,7 +224,7 @@ class Dialogs:
 
         def _worker():
             added, skipped = 0, 0
-            from core import bilibili_api
+            from core import get_bilibili_api
 
             for v in videos:
                 bvid = v.get("bvid", "")
@@ -234,7 +234,7 @@ class Dialogs:
                     skipped += 1
                     continue
                 try:
-                    info = bilibili_api.get_video_info(bvid)
+                    info = get_bilibili_api().get_video_info(bvid)
                     if not info:
                         skipped += 1
                         continue
@@ -395,9 +395,9 @@ class Dialogs:
     def open_up_tracker(self):
         try:
             from .up_tracker import UpTrackerWindow
-            from core import bilibili_api
+            from core import get_bilibili_api
 
-            UpTrackerWindow(self.gui.root, api=bilibili_api)
+            UpTrackerWindow(self.gui.root, api=get_bilibili_api())
         except Exception as e:
             import traceback
 
@@ -410,9 +410,9 @@ class Dialogs:
     def open_danmaku_analysis(self):
         try:
             from .danmaku_analysis import DanmakuAnalysisWindow
-            from core import bilibili_api
+            from core import get_bilibili_api
 
-            DanmakuAnalysisWindow(self.gui.root, api=bilibili_api, gui=self.gui)
+            DanmakuAnalysisWindow(self.gui.root, api=get_bilibili_api(), gui=self.gui)
         except Exception as e:
             import traceback
 
@@ -425,9 +425,9 @@ class Dialogs:
     def open_trending_discovery(self):
         try:
             from .trending_discovery import TrendingDiscoveryWindow
-            from core import bilibili_api
+            from core import get_bilibili_api
 
-            TrendingDiscoveryWindow(self.gui.root, api=bilibili_api, on_add_monitor=self.gui._add_bvid_to_monitor)
+            TrendingDiscoveryWindow(self.gui.root, api=get_bilibili_api(), on_add_monitor=self.gui._add_bvid_to_monitor)
         except Exception as e:
             import traceback
 

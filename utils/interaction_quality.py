@@ -47,8 +47,10 @@ def _rate_score(value: float, lo: float, hi: float) -> float:
     if lo <= value <= hi:
         return 100.0
     if value < lo:
+        if lo <= 0:
+            return 0.0
         # 低于下限：线性跌到 0（低于下限 2 倍得 0）
-        threshold = lo * 0.5 if lo > 0 else lo * 2
+        threshold = lo * 0.5
         return max(0, 100 * (value - threshold) / (lo - threshold))
     else:
         # 高于上限

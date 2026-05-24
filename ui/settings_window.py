@@ -16,10 +16,10 @@ from ui.theme import C
 from ui.helpers import FONT, FONT_BOLD, FONT_SM, FONT_MONO, project_path, auto_threshold_name
 from ui.dialog_base import DialogBase
 from ui.scrollable_frame import ScrollableFrame
-from core.bilibili_api import bilibili_api
+from core.bilibili_api import get_bilibili_api
 from core.proxy_manager import ProxyManager
 from algorithms.registry import AlgorithmRegistry
-from algorithms.weight_manager import weight_manager
+from algorithms.weight_manager import get_weight_manager
 
 logger = logging.getLogger(__name__)
 
@@ -27,12 +27,13 @@ logger = logging.getLogger(__name__)
 class SettingsWindow:
     """统一设置窗口"""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, gui=None):
         # 自适应对话框尺寸
         self.dlg = DialogBase(parent, "系统设置",
                               DialogBase.calc_geometry(parent, 0.48, 0.68),
                               resizable=(True, True), modal=False)
         self.window = self.dlg.window
+        self.gui = gui
 
         from config import load_config
 
@@ -452,7 +453,7 @@ class SettingsWindow:
             ttk.Checkbutton(
                 row,
                 variable=var,
-                command=lambda n=name: self._weight_vars[n].set(weight_manager.ml_weights.get(n, 1.0)),
+                command=lambda n=name: self._weight_vars[n].set(get_weight_manager().ml_weights.get(n, 1.0)),
             ).grid(row=0, column=1, padx=2)
 
             wv = tk.DoubleVar(value=info.get("user_weight") or info.get("final_weight", 1.0))
@@ -483,7 +484,7 @@ class SettingsWindow:
 
     def _reset_all_weights(self):
         if messagebox.askyesno("确认", "确定要重置所有自定义权重吗？", parent=self.window):
-            weight_manager.reset_weights()
+            get_weight_manager().reset_weights()
             self._refresh_weights()
             messagebox.showinfo("成功", "已重置所有权重", parent=self.window)
 
@@ -503,9 +504,9 @@ class SettingsWindow:
                 weight = float(wv.get())
                 weight = max(0.01, min(10.0, weight))
                 if check_var.get():
-                    weight_manager.set_user_weight(name, weight)
+                    get_weight_manager().set_user_weight(name, weight)
                 else:
-                    weight_manager.clear_user_weight(name)
+                    get_weight_manager().clear_user_weight(name)
             except ValueError:
                 messagebox.showerror("错误", f"算法 {name} 的权重值无效", parent=self.window)
                 return
@@ -621,31 +622,10 @@ class SettingsWindow:
     # —— Training tab helpers ——
 
     def _discover_torch_algorithms(self) -> List[Dict[str, Any]]:
-        """扫描注册器，返回有 build_model 方法的算法清单。
-
-        Returns:
-            [{algorithm_id, name, has_ckpt, active_version, version_count}]
-        """
+        """扫描注册器，返回可训练算法清单。"""
         from algorithms.registry import AlgorithmRegistry
-        from algorithms.training.checkpoint_manager import CheckpointManager
 
-        AlgorithmRegistry.initialize()
-        result = []
-        for aid, algo, _adapter in AlgorithmRegistry.get_trainable_algorithms():
-            ckpt = CheckpointManager(aid)
-            versions = ckpt.list_versions()
-            result.append(
-                {
-                    "algorithm_id": aid,
-                    "name": getattr(algo, "name", aid),
-                    "category": getattr(algo, "category", ""),
-                    "has_ckpt": ckpt.has_checkpoint(),
-                    "active_version": ckpt.active_version() or "",
-                    "version_count": len(versions),
-                }
-            )
-        result.sort(key=lambda r: (not r["has_ckpt"], r["algorithm_id"]))
-        return result
+        return AlgorithmRegistry.get_trainable_info()
 
     def _refresh_device_info(self):
         try:
@@ -1201,9 +1181,9 @@ class SettingsWindow:
             sp.pack(side=tk.LEFT, padx=(6, 0))
             return sv
 
-        self.retry_count_var = _spin_r(sec, "最大重试次数", bilibili_api.max_retries, 1, 10)
-        self.base_delay_var = _spin_r(sec, "基础重试延迟(秒)", bilibili_api.base_retry_delay, 1, 30)
-        self.min_interval_var = _spin_r(sec, "最小请求间隔(秒)", bilibili_api._min_request_interval, 0.1, 10)
+        self.retry_count_var = _spin_r(sec, "最大重试次数", get_bilibili_api().max_retries, 1, 10)
+        self.base_delay_var = _spin_r(sec, "基础重试延迟(秒)", get_bilibili_api().base_retry_delay, 1, 30)
+        self.min_interval_var = _spin_r(sec, "最小请求间隔(秒)", get_bilibili_api()._min_request_interval, 0.1, 10)
 
         ttk.Button(sec, text="应用重试设置", command=self._apply_retry_settings).pack(anchor="w", pady=(8, 0))
 
@@ -1572,9 +1552,9 @@ class SettingsWindow:
     def _apply_proxies(self):
         text = self.proxy_text.get("1.0", "end").strip()
         proxy_list = [line.strip() for line in text.split("\n") if line.strip()]
-        bilibili_api.clear_proxies()
+        get_bilibili_api().clear_proxies()
         for ps in proxy_list:
-            bilibili_api.add_proxy({"http": ps, "https": ps})
+            get_bilibili_api().add_proxy({"http": ps, "https": ps})
         self._net_cfg["proxies"] = proxy_list
         self._save_net_config()
         # 验证文件已持久化
@@ -1700,9 +1680,9 @@ class SettingsWindow:
         self.proxy_text.delete("1.0", "end")
         self.proxy_text.insert("1.0", "\n".join(remaining))
 
-        bilibili_api.clear_proxies()
+        get_bilibili_api().clear_proxies()
         for ps in remaining:
-            bilibili_api.add_proxy({"http": ps, "https": ps})
+            get_bilibili_api().add_proxy({"http": ps, "https": ps})
 
         self._net_cfg["proxies"] = remaining
         self._save_net_config()
@@ -1716,7 +1696,7 @@ class SettingsWindow:
     def _refresh_cookie_display(self):
         self.cookie_text.delete("1.0", tk.END)
         cookies = {}
-        for cookie in bilibili_api.session.cookies:
+        for cookie in get_bilibili_api().session.cookies:
             if "bilibili.com" in (cookie.domain or ""):
                 cookies[cookie.name] = cookie.value
         if cookies:
@@ -1734,7 +1714,7 @@ class SettingsWindow:
         if not cookies:
             messagebox.showerror("错误", "无法解析输入内容，请检查格式", parent=self.window)
             return
-        bilibili_api.set_cookies(cookies)
+        get_bilibili_api().set_cookies(cookies)
         self._net_cfg["cookies"] = cookies
         self._save_net_config()
         self._refresh_status()
@@ -1785,7 +1765,7 @@ class SettingsWindow:
     def _verify_login(self):
         """验证登录状态并更新 UI"""
         try:
-            status = bilibili_api.get_status()
+            status = get_bilibili_api().get_status()
             is_login = status.get("is_login", False)
             login_name = status.get("login_name", "")
             if hasattr(self, "gui") and self.gui and hasattr(self.gui, "log_panel"):
@@ -1810,8 +1790,8 @@ class SettingsWindow:
                 "buvid4",
                 "buvid_fp",
             ):
-                bilibili_api.session.cookies.set(name, "", domain=".bilibili.com")
-            bilibili_api._cookies = {}
+                get_bilibili_api().session.cookies.set(name, "", domain=".bilibili.com")
+            get_bilibili_api()._cookies = {}
             self._net_cfg["cookies"] = {}
             self._save_net_config()
             self._refresh_cookie_display()
@@ -1876,7 +1856,7 @@ class SettingsWindow:
             if not cookies:
                 messagebox.showwarning("未找到", "JSON 中未找到 B站 相关 Cookie", parent=top)
                 return
-            bilibili_api.set_cookies(cookies)
+            get_bilibili_api().set_cookies(cookies)
             self._net_cfg["cookies"] = cookies
             self._save_net_config()
             self._refresh_cookie_display()
@@ -1892,7 +1872,7 @@ class SettingsWindow:
 
     # ──── Cookie: 扫码登录 ────
     def _qrcode_login(self):
-        qr_data = bilibili_api.get_qrcode_login_url()
+        qr_data = get_bilibili_api().get_qrcode_login_url()
         if not qr_data:
             messagebox.showerror("错误", "获取二维码失败", parent=self.window)
             return
@@ -1948,7 +1928,7 @@ class SettingsWindow:
         def _poll():
             if not qr_top.winfo_exists():
                 return
-            result = bilibili_api.poll_qrcode_login(qrcode_key)
+            result = get_bilibili_api().poll_qrcode_login(qrcode_key)
             status_var.set(result.get("message", ""))
             if result.get("status") == 2:
                 cookies = result.get("cookies", {})
@@ -1980,14 +1960,14 @@ class SettingsWindow:
 
     # ──── 重试设置 ────
     def _apply_retry_settings(self):
-        bilibili_api.max_retries = int(self.retry_count_var.get())
-        bilibili_api.base_retry_delay = self.base_delay_var.get()
-        bilibili_api._min_request_interval = self.min_interval_var.get()
+        get_bilibili_api().max_retries = int(self.retry_count_var.get())
+        get_bilibili_api().base_retry_delay = self.base_delay_var.get()
+        get_bilibili_api()._min_request_interval = self.min_interval_var.get()
         messagebox.showinfo("成功", "重试设置已更新", parent=self.window)
 
     # ──── 状态 ────
     def _refresh_status(self):
-        status = bilibili_api.get_status()
+        status = get_bilibili_api().get_status()
         for key, label in self.status_labels.items():
             value = status.get(key, "N/A")
             if key == "is_login":
@@ -2009,7 +1989,7 @@ class SettingsWindow:
 
     def _reset_status(self):
         if messagebox.askyesno("确认", "确定要重置所有状态吗？", parent=self.window):
-            bilibili_api.reset_status()
+            get_bilibili_api().reset_status()
             self._refresh_status()
 
     # ──── 代理文本同步 ────

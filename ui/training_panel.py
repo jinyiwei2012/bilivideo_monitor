@@ -281,23 +281,8 @@ class TrainingPanel(BaseTrainingPanel):
     def _discover_algorithms(self) -> List[Dict]:
         """扫描有 build_model 的算法"""
         from algorithms.registry import AlgorithmRegistry
-        from algorithms.training.checkpoint_manager import CheckpointManager
 
-        AlgorithmRegistry.initialize()
-        result = []
-        for aid, algo, _adapter in AlgorithmRegistry.get_trainable_algorithms():
-            ckpt = CheckpointManager(aid)
-            versions = ckpt.list_versions()
-            result.append({
-                "algorithm_id": aid,
-                "name": getattr(algo, "name", aid),
-                "category": getattr(algo, "category", ""),
-                "has_ckpt": ckpt.has_checkpoint(),
-                "active_version": ckpt.active_version() or "",
-                "version_count": len(versions),
-            })
-        result.sort(key=lambda r: (not r["has_ckpt"], r["algorithm_id"]))
-        return result
+        return AlgorithmRegistry.get_trainable_info()
 
     def _refresh_algo_list(self):
         for w in self._algo_frame.winfo_children():

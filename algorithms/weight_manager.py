@@ -186,5 +186,13 @@ class WeightManager:
             self._save_weights()
 
 
-# 全局权重管理器实例
-weight_manager = WeightManager()
+# 全局权重管理器实例（惰性初始化）
+_weight_manager = None
+
+
+def get_weight_manager():
+    """获取全局 WeightManager 单例（惰性初始化）"""
+    global _weight_manager
+    if _weight_manager is None:
+        _weight_manager = WeightManager()
+    return _weight_manager

@@ -12,9 +12,9 @@ from utils.time_utils import normalize_timestamp
 logger = logging.getLogger(__name__)
 
 try:
-    from .weight_manager import weight_manager
+    from .weight_manager import get_weight_manager
 except ImportError:
-    weight_manager = None
+    get_weight_manager = None
 
 
 class AlgorithmRegistry:
@@ -156,7 +156,7 @@ class AlgorithmRegistry:
                     threshold_names=threshold_names,
                     _cached_video_data=cached_video_data,
                 )
-                w = weight_manager.get_weight(n) if weight_manager else getattr(algo, "weight", 1.0)
+                w = get_weight_manager().get_weight(n) if get_weight_manager() else getattr(algo, "weight", 1.0)
                 return (
                     n,
                     {
@@ -215,8 +215,8 @@ class AlgorithmRegistry:
                 algo.update_accuracy(predicted, actual)
             try:
                 accuracy = algo.get_accuracy() if hasattr(algo, "get_accuracy") else 0.5
-                if weight_manager:
-                    weight_manager.update_accuracy(algorithm_name, accuracy)
+                if get_weight_manager():
+                    get_weight_manager().update_accuracy(algorithm_name, accuracy)
             except Exception as e:
                 logger.debug("更新算法准确率失败 %s: %s", algorithm_name, e)
 
@@ -227,13 +227,34 @@ class AlgorithmRegistry:
 
         names = cls.get_algorithm_names()
 
-        if not weight_manager:
+        if not get_weight_manager():
             return [{"name": n, "accuracy": 0.5, "weight": 1.0} for n in names]
         try:
-            return weight_manager.get_algorithm_info(names)
+            return get_weight_manager().get_algorithm_info(names)
         except Exception as e:
             logger.debug("获取算法权重信息失败: %s", e)
             return [{"name": n, "accuracy": 0.5, "weight": 1.0} for n in names]
+
+    @classmethod
+    def get_trainable_info(cls) -> List[Dict]:
+        """返回可训练算法的元信息（用于训练面板和设置面板）"""
+        from algorithms.training.checkpoint_manager import CheckpointManager
+
+        cls.initialize()
+        result = []
+        for aid, algo, _adapter in cls.get_trainable_algorithms():
+            ckpt = CheckpointManager(aid)
+            versions = ckpt.list_versions()
+            result.append({
+                "algorithm_id": aid,
+                "name": getattr(algo, "name", aid),
+                "category": getattr(algo, "category", ""),
+                "has_ckpt": ckpt.has_checkpoint(),
+                "active_version": ckpt.active_version() or "",
+                "version_count": len(versions),
+            })
+        result.sort(key=lambda r: (not r["has_ckpt"], r["algorithm_id"]))
+        return result
 
     @classmethod
     def reset(cls):

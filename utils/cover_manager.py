@@ -39,9 +39,13 @@ def _compute_md5(data: bytes) -> str:
     return hashlib.md5(data, usedforsecurity=False).hexdigest()
 
 
-def _read_md5(bvid: str) -> str | None:
-    """读取本地保存的 MD5 值（向后兼容：尝试新旧两种文件名）"""
-    for path in (_md5_path(bvid), _md5_path(bvid, "x")):
+def _read_md5(bvid: str, title: str = "") -> str | None:
+    """读取本地保存的 MD5 值（优先按标题查找，回退无标题版本）"""
+    candidates = [_md5_path(bvid, title), _md5_path(bvid)]
+    if title:
+        # 只有给定标题时才插入带标题路径到首位
+        pass  # candidates 顺序已正确
+    for path in candidates:
         try:
             with open(path, "r") as f:
                 return f.read().strip()
@@ -98,7 +102,7 @@ def get_valid_cover(bvid: str, title: str = "") -> str | None:
     try:
         with open(path, "rb") as f:
             data = f.read()
-        expected = _read_md5(bvid)
+        expected = _read_md5(bvid, title)
         if expected is None:
             return path
         if _compute_md5(data) == expected:

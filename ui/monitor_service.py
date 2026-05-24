@@ -8,7 +8,7 @@ import time
 import logging
 from datetime import datetime
 from algorithms.registry import AlgorithmRegistry
-from core import bilibili_api, db, MonitorRecord, PredictionRecord, notification_manager
+from core import get_bilibili_api, get_db, MonitorRecord, PredictionRecord, notification_manager
 from utils.time_utils import normalize_timestamp, safe_datetime
 from ui.helpers import (
     THRESHOLDS,
@@ -113,7 +113,7 @@ def _merge_history(gui, bvid: str) -> list:
                                 history.append((row["timestamp"], row["view_count"]))
             except Exception as e:
                 logger.warning(f"合并历史记录失败 {bvid}: {e}")
-            _merged_from_db.add(bvid)
+            _merged_from_get_db().add(bvid)
 
     history.sort(key=lambda x: _to_dt(x[0]))
 
@@ -157,12 +157,12 @@ def _save_up_data(uid: int):
     _last_up_fetch_time[uid] = now
 
     try:
-        info = bilibili_api.get_up_info(uid)
+        info = get_bilibili_api().get_up_info(uid)
         if not info:
             logger.debug("获取UP主信息失败 UID:%s", uid)
             return
 
-        stat = bilibili_api.get_up_stat(uid)
+        stat = get_bilibili_api().get_up_stat(uid)
         if stat:
             info["total_views"] = stat.get("total_views", 0)
             info["total_likes"] = stat.get("total_likes", 0)
@@ -170,8 +170,8 @@ def _save_up_data(uid: int):
                 info["follower_count"] = stat["follower_count"]
 
         up_db = _get_up_db()
-        up_db.upsert_up(info)
-        up_db.add_history(
+        up_get_db().upsert_up(info)
+        up_get_db().add_history(
             uid,
             follower_count=info.get("follower_count", 0),
             video_count=info.get("video_count", 0),
@@ -380,13 +380,13 @@ class VideoWorker:
 
         self._log("DEBUG", f"[{bvid}] 开始拉取数据…")
         # 记录当前使用的代理（脱敏显示协议+IP前3位）
-        proxy_hint = bilibili_api.proxy_manager.peek_proxy()
+        proxy_hint = get_bilibili_api().proxy_manager.peek_proxy()
         if proxy_hint:
             self._log("INFO", f"[{bvid}] 开始通过代理 {proxy_hint} 拉取数据…")
         else:
             self._log("INFO", f"[{bvid}] 开始直连拉取数据…")
         try:
-            info = bilibili_api.get_video_info(bvid)
+            info = get_bilibili_api().get_video_info(bvid)
             if not info:
                 self._log("WARNING", f"[{bvid}] 获取视频信息失败（返回 None）")
                 with self._fetching_lock:
@@ -429,7 +429,7 @@ class VideoWorker:
         try:
             cid = info.get("cid", 0)
             if cid:
-                viewers = bilibili_api.get_video_viewers(bvid, cid)
+                viewers = get_bilibili_api().get_video_viewers(bvid, cid)
                 if viewers:
                     self._log("DEBUG", f"[{bvid}] 在线响应 总:{viewers.get('total', '0')} 网页:{viewers.get('count', '0')}")
                     video["viewers_total_raw"] = viewers.get("total", "0")
@@ -509,7 +509,7 @@ class VideoWorker:
 
         # 同步当前监控记录到中央数据库（避免全量扫描）
         try:
-            db.sync_monitor_record(
+            get_db().sync_monitor_record(
                 bvid,
                 {
                     "timestamp": ts.isoformat(),
@@ -541,7 +541,7 @@ class VideoWorker:
 
         # 同步视频信息到中央数据库（从内存直接写入，避免新建 DB 连接 + 重复读盘）
         try:
-            db.sync_video_info(bvid, video)
+            get_db().sync_video_info(bvid, video)
         except Exception as e:
             self._log("WARNING", f"[{bvid}] 同步中央数据库失败: {e}")
 
@@ -616,7 +616,7 @@ def _stop_worker(bvid):
     # 清理该视频的已通知阈值和历史合并标记，避免内存膨胀
     with _notified_lock:
         _notified_thresholds.pop(bvid, None)
-        _merged_from_db.discard(bvid)
+        _merged_from_get_db().discard(bvid)
 
 
 def _stop_all_workers():
@@ -720,7 +720,7 @@ def load_watch_list(gui):
     """启动时加载监控列表，并为每个视频启动独立 Worker"""
     from ui.theme import C
     from config import load_config
-    from core import db
+    from core import get_db
 
     config = load_config()
     watch_list = config.get("watch_list", [])
@@ -735,14 +735,14 @@ def load_watch_list(gui):
             if any(v.get("bvid") == bvid for v in gui.monitored_videos):
                 continue
             try:
-                info = bilibili_api.get_video_info(bvid)
+                info = get_bilibili_api().get_video_info(bvid)
                 if not info:
                     continue
                 video = gui._map_api_to_video_dict(bvid, info)
 
                 # 获取在线人数
                 try:
-                    viewers = bilibili_api.get_video_viewers(bvid, info.get("cid", 0))
+                    viewers = get_bilibili_api().get_video_viewers(bvid, info.get("cid", 0))
                     if viewers:
                         video["viewers_total_raw"] = viewers.get("total", "0")
                         video["viewers_web_raw"] = viewers.get("count", "0")
@@ -754,7 +754,7 @@ def load_watch_list(gui):
 
                 # 初始化数据库和历史
                 try:
-                    video_db = db.get_video_db(bvid)
+                    video_db = get_db().get_video_db(bvid)
                     gui.video_dbs[bvid] = video_db
                     video_db.save_video_info(video)
                     history = video_db.get_all_records()

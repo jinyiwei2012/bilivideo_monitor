@@ -1205,5 +1205,13 @@ class Database:
             logger.warning("关闭数据库失败: %s", e)
 
 
-# 全局数据库实例
-db = Database()
+# 全局数据库实例（惰性初始化）
+_db = None
+
+
+def get_db():
+    """获取全局 Database 单例（惰性初始化）"""
+    global _db
+    if _db is None:
+        _db = Database()
+    return _db

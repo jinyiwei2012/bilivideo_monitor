@@ -917,5 +917,13 @@ class BilibiliAPI:
         return cookies
 
 
-# 全局API实例
-bilibili_api = BilibiliAPI()
+# 全局API实例（惰性初始化）
+_bilibili_api = None
+
+
+def get_bilibili_api():
+    """获取全局 BilibiliAPI 单例（惰性初始化）"""
+    global _bilibili_api
+    if _bilibili_api is None:
+        _bilibili_api = BilibiliAPI()
+    return _bilibili_api

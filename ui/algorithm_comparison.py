@@ -351,4 +351,9 @@ class AlgorithmComparisonWindow:
         n_filtered = len(filtered)
         avg_acc = sum(info.get("accuracy", 0) for info in filtered) / max(1, n_filtered)
         avg_weight = sum(info.get("final_weight", 1) for info in filtered) / max(1, n_filtered)
-        self._summary_lbl.config(text=f"展示 {n_filtered}/{n_total} | 平�
+        self._summary_lbl.config(text=f"展示 {n_filtered}/{n_total} | 平均准确率 {_fmt_pct(avg_acc)} | 平均权重 {avg_weight:.2f}")
+
+    def _refresh(self):
+        self._draw_accuracy_chart()
+        self._draw_weight_chart()
+        self._populate_tree()
