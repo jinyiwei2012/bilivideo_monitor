@@ -990,11 +990,40 @@ class BilibiliAPI:
             r = self._login_with_password_attempt(username, password, "", 0)
             if r.get("code") == 0 or not r.get("need_captcha"):
                 return r
+
             # 有验证码 — 短暂重试一次（可能设备指纹生效后跳过）
             time.sleep(3)
             r2 = self._login_with_password_attempt(username, password, "", 0)
             if r2.get("code") == 0 or not r2.get("need_captcha"):
                 return r2
+
+            # 还是需要验证码 — 尝试自动过滑块验证码（非短信验证时）
+            ct = r.get("captcha_type", 0)
+            gt = r.get("gt", "")
+            challenge = r.get("challenge", "")
+            if ct == 0 and gt and challenge:
+                logger.info("尝试自动过 Geetest 滑块验证码...")
+                try:
+                    from utils.geetest_solver import solve as _solve_geetest
+
+                    result = _solve_geetest(gt, challenge)
+                    if result:
+                        validate, seccode = result
+                        r3 = self._login_with_password_attempt(
+                            username, password, captcha="", captcha_type=0,
+                            geetest_validate=validate, geetest_seccode=seccode,
+                            geetest_challenge=challenge,
+                        )
+                        if r3.get("code") == 0 or not r3.get("need_captcha"):
+                            return r3
+                        logger.warning("geetest 验证通过但登录仍失败")
+                    else:
+                        logger.warning("geetest 自动验证失败")
+                except ImportError:
+                    logger.warning("opencv 未安装，无法自动过滑块验证码")
+                except Exception as e:
+                    logger.warning("geetest 自动求解异常: %s", e)
+
             # 仍然需要验证码，返回结果让 UI 处理
             return r
 
@@ -1002,7 +1031,10 @@ class BilibiliAPI:
         return self._login_with_password_attempt(username, password, captcha, captcha_type)
 
     def _login_with_password_attempt(self, username: str, password: str, captcha: str = "",
-                                      captcha_type: int = 0) -> Dict:
+                                      captcha_type: int = 0,
+                                      geetest_validate: str = "",
+                                      geetest_seccode: str = "",
+                                      geetest_challenge: str = "") -> Dict:
         """一次登录尝试（不自动重试）"""
         result: Dict = {"code": -1, "cookies": {}, "refresh_token": "", "message": "",
                         "need_captcha": False, "captcha_type": 0}
@@ -1053,6 +1085,10 @@ class BilibiliAPI:
                 login_body["captcha"] = captcha
             if captcha_type:
                 login_body["captcha_type"] = str(captcha_type)
+            if geetest_validate:
+                login_body["validate"] = geetest_validate
+                login_body["seccode"] = geetest_seccode
+                login_body["challenge"] = geetest_challenge
 
             login_resp = self._session.post(
                 "https://passport.bilibili.com/x/passport-login/web/login",
@@ -1080,6 +1116,8 @@ class BilibiliAPI:
                     result["captcha_url"] = bd.get("url", "")
                     result["captcha_phone"] = bd.get("phone", "")
                     result["tmp_token"] = bd.get("tmp_token", "")
+                    result["gt"] = bd.get("gt", "")
+                    result["challenge"] = bd.get("challenge", "")
                     result["message"] = bd.get("message", "需要安全验证")
                 elif resp_data.get("code") == -1057:
                     result["message"] += "，请检查账号密码"
