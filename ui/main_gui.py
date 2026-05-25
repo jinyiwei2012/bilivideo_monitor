@@ -126,6 +126,8 @@ class BilibiliMonitorGUI:
         self._schedule_daily_push()
         self._start_auto_refresh()
         self._file_logger.start_midnight_checker(self.root)
+        # 异步检查更新
+        self.root.after(3000, self._check_update)
 
     def _set_window_icon(self):
         try:
@@ -963,6 +965,26 @@ class BilibiliMonitorGUI:
         delay_ms = int((target - now).total_seconds() * 1000)
         self.root.after(delay_ms, self._daily_push)
         logger.info("已安排每日推送: %s", target.strftime("%Y-%m-%d %H:%M"))
+
+    def _check_update(self):
+        """异步检查 GitHub Release 更新"""
+        from utils.update_checker import check_for_update_async
+
+        def _on_result(has_update, latest, url):
+            if has_update and latest:
+                from __init__ import __version__
+                self.root.after(0, lambda: self._sb("status", f"发现新版本 v{latest} (当前 v{__version__})", C["warning"]))
+                logger.info("有新版本可用: v%s (当前 v%s), %s", latest, __version__, url)
+                # 显示弹窗
+                try:
+                    from tkinter import messagebox
+                    if messagebox.askyesno("发现新版本", f"新版本 v{latest} 可用！\n当前版本: v{__version__}\n\n是否前往 GitHub 查看？"):
+                        import webbrowser
+                        webbrowser.open(url)
+                except Exception:
+                    pass
+
+        check_for_update_async(_on_result)
 
     def _daily_push(self):
         """每日 23:50 自动推送日报"""
