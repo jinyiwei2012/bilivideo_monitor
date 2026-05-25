@@ -12,6 +12,9 @@ UI 已拆分为独立模块：
 
 import tkinter as tk
 from tkinter import ttk, messagebox
+import customtkinter as ctk
+import math
+import re
 import threading
 import time
 import os
@@ -20,10 +23,11 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-sys_path = os.path.dirname(os.path.dirname(__file__))
 import sys
 
-sys.path.insert(0, sys_path)
+from utils import project_path as _pp
+
+sys.path.insert(0, str(_pp()))
 
 from ui.theme import C, init_theme
 from ui.helpers import (
@@ -33,8 +37,11 @@ from ui.helpers import (
     DEFAULT_INTERVAL,
     FAST_INTERVAL,
     FAST_GAP,
+    THRESHOLD_NAMES,
     fmt_num,
     nearest_threshold_gap,
+    fmt_eta,
+    project_path,
 )
 from ui.chart import draw_chart_placeholder
 from ui.log_panel import LogPanel
@@ -43,6 +50,7 @@ from ui.detail_panel import DetailPanel
 from ui.prediction_panel import PredictionPanel
 from ui.bottom_bar import BottomBar
 from ui.dialogs import Dialogs
+from utils.time_utils import safe_timestamp
 from utils.weekly_score import calculate_from_dict as _calc_ws
 from utils.yearly_score import calculate_yearly_from_dict as _calc_ys
 from dataclasses import asdict
@@ -52,10 +60,10 @@ from ui.monitor_service import (
     load_watch_list,
     _start_worker,
 )
-from core import bilibili_api, db, MonitorRecord
+from core import bilibili_api, db, MonitorRecord, notification_manager
 from config import load_config, save_config
 from utils.file_logger import FileLogger
-from algorithms.training.checkpoint_manager import activate_latest_for_all, get_all_activation_status, list_all_trained_algorithms
+from algorithms.training.checkpoint_manager import activate_latest_for_all, get_all_activation_status
 from ui.training_panel import TrainingPanel
 from ui.finetune_panel import FinetunePanel
 
@@ -72,7 +80,7 @@ class BilibiliMonitorGUI:
 
     def __init__(self, root=None):
         if root is None:
-            root = tk.Tk()
+            root = ctk.CTk()
             root.title("B站视频监控与播放量预测系统")
             # 自适应窗口：85% 屏幕尺寸，最低 55%
             sw = root.winfo_screenwidth()
@@ -105,13 +113,17 @@ class BilibiliMonitorGUI:
         self._chart_debounce = None
 
         # UI 子模块
-        self._file_logger = FileLogger(os.path.join(sys_path, "data", "log"))
+        self._file_logger = FileLogger(project_path("data", "log"))
 
         self.root.protocol("WM_DELETE_WINDOW", self._on_exit)
         self._build_ui()
         # 启动时自动激活所有算法的最新 checkpoint
         self.root.after(500, self._auto_activate_on_startup)
         self._load_watch_list()
+        # 加载 OneBot 通知配置
+        notification_manager.configure(load_config())
+        # 安排每日 23:50 自动推送
+        self._schedule_daily_push()
         self._start_auto_refresh()
         self._file_logger.start_midnight_checker(self.root)
 
@@ -119,7 +131,7 @@ class BilibiliMonitorGUI:
         try:
             from PIL import Image, ImageTk
 
-            icon_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "app_icon.png")
+            icon_path = project_path("assets", "app_icon.png")
             if os.path.exists(icon_path):
                 img = Image.open(icon_path)
                 photo = ImageTk.PhotoImage(img)
@@ -181,9 +193,9 @@ class BilibiliMonitorGUI:
         tk.Label(
             title_f, text="B站监控", bg=C["bg_surface"], fg=C["bilibili"], font=("Microsoft YaHei UI", 13, "bold")
         ).pack(anchor="w")
-        tk.Label(title_f, text="播放量预测系统", bg=C["bg_surface"], fg=C["text_3"], font=("Microsoft YaHei UI", 10)).pack(
-            anchor="w"
-        )
+        tk.Label(
+            title_f, text="播放量预测系统", bg=C["bg_surface"], fg=C["text_3"], font=("Microsoft YaHei UI", 10)
+        ).pack(anchor="w")
 
     def _build_navigation_buttons(self):
         """构建导航按钮"""
@@ -306,7 +318,7 @@ class BilibiliMonitorGUI:
         self._settings_menu.add_command(label="⏱  刷新间隔", command=self._dialogs.open_interval_settings)
         self._settings_menu.add_command(label="🧠  算法信息", command=self._dialogs.open_algorithm_info)
         self._settings_menu.add_separator()
-        self._settings_menu.add_command(label="📈  数据对比", command=self._dialogs.open_data_comparison)
+        self._settings_menu.add_command(label="📊  数据对比", command=self._dialogs.open_data_comparison)
         self._settings_menu.add_command(label="🔄  交叉计算", command=self._dialogs.open_crossover_analysis)
         self._settings_menu.add_command(label="📅  周刊分数", command=self._dialogs.open_weekly_score)
         self._settings_menu.add_command(label="🏆  里程碑", command=self._dialogs.open_milestone_stats)
@@ -638,7 +650,6 @@ class BilibiliMonitorGUI:
         self.detail._switch_tab(self.detail.current_tab)
 
     def _select_video(self, bvid):
-        self.selected_bvid
         self.selected_bvid = bvid
         self.video_list.highlight_card(bvid)
         video = self._get_video(bvid)
@@ -669,19 +680,24 @@ class BilibiliMonitorGUI:
         dialog.title("添加监控")
         sw = self.root.winfo_screenwidth()
         sh = self.root.winfo_screenheight()
-        dialog.geometry(f"{int(sw*0.28)}x{int(sh*0.22)}")
+        dialog.geometry(f"{int(sw * 0.28)}x{int(sh * 0.22)}")
         dialog.configure(bg=C["bg_surface"])
         dialog.transient(self.root)
         dialog.grab_set()
-        dialog.resizable(False, False)
+        dialog.resizable(True, True)
         return dialog
 
     def _build_add_dialog_ui(self, dialog):
         """构建对话框UI元素"""
-        tk.Label(dialog, text="请输入BV号或视频链接：", bg=C["bg_surface"], fg=C["text_1"], font=FONT).pack(pady=(18, 4))
+        content = tk.Frame(dialog, bg=C["bg_surface"])
+        content.pack(fill=tk.BOTH, expand=True)
+
+        tk.Label(content, text="请输入BV号或视频链接：", bg=C["bg_surface"], fg=C["text_1"], font=FONT).pack(
+            pady=(18, 4)
+        )
 
         entry_f = tk.Frame(
-            dialog,
+            content,
             bg=C["bg_elevated"],
             highlightthickness=1,
             highlightbackground=C["border"],
@@ -693,8 +709,8 @@ class BilibiliMonitorGUI:
         )
         entry.pack(fill=tk.X, padx=8, pady=6)
         entry.focus_set()
-        tk.Label(dialog, text="格式：BV1xxx 或完整链接", bg=C["bg_surface"], fg=C["text_3"], font=FONT_SM).pack()
-        status_lbl = tk.Label(dialog, text="", bg=C["bg_surface"], fg=C["accent"], font=FONT_SM)
+        tk.Label(content, text="格式：BV1xxx 或完整链接", bg=C["bg_surface"], fg=C["text_3"], font=FONT_SM).pack()
+        status_lbl = tk.Label(content, text="", bg=C["bg_surface"], fg=C["accent"], font=FONT_SM)
         status_lbl.pack(pady=2)
 
         return entry, status_lbl
@@ -790,7 +806,12 @@ class BilibiliMonitorGUI:
         self.monitored_videos = [v for v in self.monitored_videos if v.get("bvid") != bvid]
         self._video_index.pop(bvid, None)
         self.history_data.pop(bvid, None)
-        self.video_dbs.pop(bvid, None)
+        vdb = self.video_dbs.pop(bvid, None)
+        if vdb:
+            try:
+                vdb.close()
+            except Exception:
+                pass
         self.prediction_results.pop(bvid, None)
         self._video_timers.pop(bvid, None)
         self.video_list.remove_card(bvid)
@@ -805,7 +826,282 @@ class BilibiliMonitorGUI:
         self._sb("videos", f"监控: {len(self.monitored_videos)} 个")
         self._save_watch_list()
 
+    def _push_single(self, bvid):
+        """推送单个视频状态"""
+        from core.notification import notification_manager
+
+        video = self._get_video(bvid)
+        if not video:
+            messagebox.showwarning("提示", f"未找到视频 {bvid}")
+            return
+
+        msg = self._build_push_msg([video])
+        title = video.get("title", bvid)[:30]
+
+        notification_manager.send_qq_private(msg)
+        notification_manager.send_qq_group(msg)
+        notification_manager.send_windows_notification(f"📊 B站监控 — {title[:20]}", msg[:256])
+        self._sb("status", f"已推送「{title[:20]}」", C["success"])
+
+    def _manual_push(self):
+        """手动推送所有监控视频状态到 QQ/Windows 通知"""
+        from core.notification import notification_manager
+
+        videos = self.monitored_videos
+        if not videos:
+            messagebox.showwarning("提示", "没有监控中的视频可推送")
+            return
+
+        msg = self._build_push_msg(videos)
+        now_str = datetime.now().strftime("%H:%M")
+
+        ok_qq_private = notification_manager.send_qq_private(msg)
+        ok_qq_group = notification_manager.send_qq_group(msg)
+        ok_win = notification_manager.send_windows_notification(f"📊 B站监控报告 ({now_str})", msg[:256])
+
+        if ok_qq_private or ok_qq_group:
+            self._sb("status", f"已推送 {len(videos)} 个视频状态", C["success"])
+        elif ok_win:
+            self._sb("status", "仅发送了 Windows 通知", C["warning"])
+        else:
+            self._sb("status", "推送失败 (未配置 QQ / 通知服务不可用)", C["danger"])
+
+    # ── 每日 23:50 定时推送 ─────────────────────────
+
+    # ── 训练完成自动回调 ──────────────────────────
+
+    def _on_training_completed(self, mode="训练", count=0, detail="", trained_ids=None):
+        """训练/微调完成后自动刷新预测 + 推送通知 + 更新权重"""
+        # 1. 推送通知
+        try:
+            from core.notification import notification_manager
+
+            now_str = datetime.now().strftime("%H:%M")
+            if count > 0 and detail:
+                msg = f"🤖 {mode}完成 ({now_str})\n{count} 个算法: {detail}"
+            elif count > 0:
+                msg = f"🤖 {mode}完成 ({now_str})\n共 {count} 个算法已更新"
+            else:
+                msg = f"🤖 {mode}完成 ({now_str})"
+            notification_manager.send_qq_private(msg)
+            notification_manager.send_qq_group(msg)
+            notification_manager.send_windows_notification(f"🤖 {mode}完成", msg[:256])
+        except Exception as e:
+            logger.debug("训练推送异常: %s", e)
+
+        # 2. 更新训练完成算法的权重（提升置信度）
+        if trained_ids:
+            try:
+                self._update_trained_weights(trained_ids)
+            except Exception as e:
+                logger.debug("更新训练算法权重失败: %s", e)
+
+        # 3. 后台重新预测所有视频
+        try:
+            threading.Thread(target=self._run_post_training_predict, daemon=True).start()
+        except Exception as e:
+            logger.debug("启动训练后预测失败: %s", e)
+
+    def _update_trained_weights(self, algo_ids):
+        """训练完成后提升算法 ML 权重"""
+        from algorithms.registry import AlgorithmRegistry
+        from ui.helpers import load_algo_confidence
+
+        for algo_id in algo_ids:
+            conf = load_algo_confidence(algo_id)
+            accuracy = max(0.5, conf)  # 训练后至少 0.5，避免拉低加权
+            AlgorithmRegistry.update_accuracy(algo_id, 1.0, accuracy)
+        logger.info("已更新 %d 个训练完成算法的权重", len(algo_ids))
+
+    def _run_post_training_predict(self):
+        """后台重跑所有监控视频的预测"""
+        from ui.monitor_service import _predict_single
+
+        bvids = [v.get("bvid", "") for v in self.monitored_videos if v.get("bvid")]
+        if not bvids:
+            return
+        logger.info("训练完成，开始重新预测 %d 个视频…", len(bvids))
+        for bvid in bvids:
+            video = next((v for v in self.monitored_videos if v.get("bvid") == bvid), None)
+            if not video:
+                continue
+            try:
+                _predict_single(self, bvid, video)
+            except Exception as e:
+                logger.debug("训练后预测 %s 失败: %s", bvid, e)
+        trained = sum(1 for _ in self.monitored_videos)
+        self.root.after(0, lambda: self._sb("status", f"训练后预测完成 ({trained} 个视频)", C["success"]))
+        # 若当前有选中视频，刷新其预测面板 + 图表
+        if self.selected_bvid:
+            if self.selected_bvid in self.prediction_results:
+                r = self.prediction_results[self.selected_bvid]
+                self.root.after(
+                    0,
+                    lambda: self._prediction_done(
+                        r["prediction"],
+                        r["current_view"],
+                        r["growth"],
+                        r["rate_per_sec"],
+                        r.get("success_list", []),
+                        r.get("fail_list", []),
+                        r["valid"],
+                        r["total"],
+                    ),
+                )
+            # 强制刷新图表（预测线已更新）
+            self.root.after(100, lambda: self.detail._manual_render_chart())
+        logger.info("训练后预测完成 (%d 个视频)", len(bvids))
+
+    def _schedule_daily_push(self):
+        """计算到下次 23:50 的秒数，用 root.after 排程"""
+        from datetime import timedelta
+
+        now = datetime.now()
+        target = now.replace(hour=23, minute=50, second=0, microsecond=0)
+        if now >= target:
+            target += timedelta(days=1)
+        delay_ms = int((target - now).total_seconds() * 1000)
+        self.root.after(delay_ms, self._daily_push)
+        logger.info("已安排每日推送: %s", target.strftime("%Y-%m-%d %H:%M"))
+
+    def _daily_push(self):
+        """每日 23:50 自动推送日报"""
+        from core.notification import notification_manager
+
+        try:
+            msg = self._build_daily_push_msg()
+            notification_manager.send_qq_private(msg)
+            notification_manager.send_qq_group(msg)
+            notification_manager.send_windows_notification("📊 B站监控日报", msg[:256])
+            logger.info("每日推送完成")
+        except Exception as e:
+            logger.error("每日推送异常: %s", e)
+        finally:
+            self._schedule_daily_push()
+
+    def _build_daily_push_msg(self):
+        """构建每日日报消息：日增量 + 年刊分数 + 预测"""
+        from datetime import date
+
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+        today = date.today()
+        lines = [f"📊 B站监控日报 ({now_str})", f"监控 {len(self.monitored_videos)} 个视频：", "─" * 30]
+
+        for i, v in enumerate(self.monitored_videos, 1):
+            bvid = v.get("bvid", "")
+            title = v.get("title", bvid)[:30]
+            views = v.get("view_count", 0)
+            likes = v.get("like_count", 0)
+            coins = v.get("coin_count", 0)
+
+            # 今日播放增量
+            history = self.history_data.get(bvid, [])
+            daily_incr = 0
+            first_today = None
+            for ts, vc in history:
+                try:
+                    if isinstance(ts, str):
+                        ts = datetime.fromisoformat(ts)
+                    if ts.date() == today:
+                        if first_today is None:
+                            first_today = vc
+                        daily_incr = max(0, vc - first_today)
+                except Exception:
+                    pass
+
+            # 年刊分数
+            ys_text = "—"
+            try:
+                ys = _calc_ys(v)
+                if ys:
+                    ys_text = f"{ys.total_score:,.0f}"
+            except Exception:
+                pass
+
+            # 预测
+            pred_info = ""
+            cached = self.prediction_results.get(bvid)
+            if cached:
+                w_pred = cached.get("prediction", 0)
+                growth = cached.get("growth", 0)
+                valid = cached.get("valid", 0)
+                total = cached.get("total", 0)
+                if w_pred > 0:
+                    pred_info = f"  预测: {fmt_num(int(w_pred))} (+{fmt_num(int(growth))})  有效: {valid}/{total}"
+
+            lines.append(f"\n{i}. 《{title}》")
+            lines.append(f"   播放: {fmt_num(views)}  (+{fmt_num(daily_incr)} 今天)")
+            lines.append(f"   👍 {fmt_num(likes)}  🪙 {fmt_num(coins)}")
+            lines.append(f"   年刊: {ys_text}{pred_info}")
+
+        return "\n".join(lines)
+
+    # ── 推送消息构建（手动/单条共用） ────────────────
+
+    def _build_push_msg(self, videos):
+        """构建手动推送消息文本（含年刊分数 + 算法预测时间）"""
+        from datetime import datetime
+
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+        lines = [f"📊 B站监控报告 ({now_str})", f"监控 {len(videos)} 个视频：", "─" * 20]
+
+        for i, v in enumerate(videos, 1):
+            bvid = v.get("bvid", "?")
+            title = v.get("title", bvid)[:30]
+            views = v.get("view_count", 0)
+            likes = v.get("like_count", 0)
+            coins = v.get("coin_count", 0)
+
+            # 年刊分数
+            ys_text = ""
+            try:
+                ys = _calc_ys(v)
+                if ys:
+                    ys_text = f"  年刊: {ys.total_score:,.0f}"
+            except Exception:
+                pass
+
+            # 速度 + 预计到达阈值时间
+            history = self.history_data.get(bvid, [])
+            velocity = 0
+            if len(history) >= 2:
+                t1, c1 = history[-2]
+                t0, c0 = history[-1]
+                t0 = safe_timestamp(t0)
+                t1 = safe_timestamp(t1)
+                dt = (t0 - t1) / 3600
+                if dt > 0:
+                    velocity = max(0, (c0 - c1)) / dt if isinstance(c0, (int, float)) else 0
+
+            gap, idx = nearest_threshold_gap(views)
+            eta = ""
+            if gap > 0 and velocity > 0:
+                eta_min = gap / velocity * 60
+                eta = f"  预计达{THRESHOLD_NAMES[idx]}: {fmt_eta(eta_min)}"
+
+            # 算法预测时间（取置信度最高的 3 个）
+            algo_lines = []
+            cached = self.prediction_results.get(bvid)
+            if cached:
+                succ = cached.get("success_list", [])
+                # success_list: (name, prediction, weight, confidence, predicted_hours)
+                sorted_algos = sorted(succ, key=lambda x: x[3], reverse=True)[:3]
+                for name, pv, _, conf, ph in sorted_algos:
+                    if ph > 0:
+                        eta_str = fmt_eta(ph * 60)
+                        conf_pct = f"{conf * 100:.0f}%" if conf > 0 else "—"
+                        algo_lines.append(f"     {name}: {fmt_num(int(pv))} ({eta_str}, {conf_pct})")
+
+            lines.append(f"{i}. 《{title}》")
+            lines.append(f"   播放: {fmt_num(views)}  |  👍 {fmt_num(likes)}  |  🪙 {fmt_num(coins)}")
+            lines.append(f"   增速: {math.ceil(velocity)}/h{eta}{ys_text}")
+            if algo_lines:
+                lines.extend(algo_lines)
+
+        return "\n".join(lines)
+
     def _refresh_data(self):
+        """手动刷新数据"""
         self._do_fetch()
 
     # ── 预测结果回调 ─────────────────────────────

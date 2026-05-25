@@ -13,6 +13,7 @@
 - **图神经网络**: 基于视频关联图的 GCN 节点嵌入增强预测
 - **阈值推送**: 视频突破播放量阈值时自动推送通知
 - **数据对比**: 趋势折线图（8种指标切换）+ 快照柱状图（多指标多时间点对比），支持里程碑数据叠加
+- **预测投影**: 图表上以虚线 + 菱形标记展示加权预测值（全量/增量/新增三模式均支持）
 - **弹幕分析**: 获取视频弹幕，支持 LLM 自动分析情感倾向与关键词提取
 - **AI 问答**: 基于历史播放数据的 LLM 智能问答助手
 - **UP主追踪**: 监控 UP 主粉丝数、投稿数变化趋势
@@ -52,7 +53,10 @@
 
 ### 推送通知
 - **Windows 原生通知**: 系统级通知弹窗 + 声音提醒
-- **QQ Bot**: OneBot 协议，支持私聊 / 群聊推送
+- **QQ Bot**: OneBot 协议，主力 WebSocket + 回退 HTTP，支持私聊 / 群聊推送
+- **每日 23:50 自动推送**: 日报含今日播放增量、年刊分数、加权预测值
+- **手动推送**: 含年刊分数、速度/ETA、Top 3 算法预测时间及置信度
+- **服务可用性检测**: 设置面板一键测试连接（WS → HTTP 自动检测）
 
 ## 项目结构
 
@@ -108,7 +112,7 @@ b站监控/
 │   ├── main_gui.py             # 主界面（三栏布局控制器 + 全局时钟）
 │   ├── theme.py                # 主题系统（深色/浅色，设计令牌 C 字典）
 │   ├── helpers.py              # 界面工具（字体、阈值常量、格式化）
-│   ├── chart.py                # 图表绘制（Canvas 播放量趋势图 + 阈值辅助线）
+│   ├── chart.py                # 图表绘制（Canvas 播放量趋势图 + 阈值辅助线 + 预测投影线）
 │   ├── log_panel.py            # 日志面板（线程安全队列，等级过滤）
 │   ├── monitor_service.py      # 业务逻辑（per-video 独立 Worker 线程）
 │   ├── video_list_panel.py     # 左侧视频列表（封面缓存 + 状态标签）
@@ -208,8 +212,18 @@ conda activate bilibili
 # 确保 pip 为最新
 pip install --upgrade pip
 
-# 安装项目依赖
+# 安装项目依赖（不含 PyTorch）
 pip install -r requirements.txt
+
+# 安装 PyTorch（三选一）
+# 选项 A: CPU 版（通用，最小，推荐首次使用）
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+
+# 选项 B: CUDA 版（需 NVIDIA GPU）
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+
+# 选项 C: DirectML 版（Intel NPU/GPU, Windows）
+pip install torch-directml --pre
 ```
 
 如果安装 `prophet` 失败（Windows 上常见），它是可选的，可以跳过：
@@ -357,10 +371,12 @@ socks5://127.0.0.1:1080
 4. **数据录入**标签：里程碑模式（投稿后周期录入）或历史快照模式（指定时间点录入）
 
 ### QQ Bot 配置
-1. 部署 OneBot 协议实现（如 go-cqhttp、LLOneBot）
-2. 设置 → 系统设置 → OneBot 配置 HTTP / WS 地址
-3. 填写推送目标 QQ 号或群号
-4. 点击「测试连接」验证
+1. 部署 OneBot 协议实现（如 go-cqhttp、LLOneBot、Lagrange）
+2. 设置 → 系统设置 → OneBot 通知 → 填写 HTTP 地址和 WebSocket 地址
+3. 如需鉴权，填写 Access Token（填写后自动禁用明文 WS/HTTP）
+4. 填写推送目标 QQ 号（私聊）和/或群号
+5. 勾选「启用 OneBot 通知」后保存
+6. 点击「测试连接」验证（自动先测 WS，失败回退 HTTP）
 
 ## 技术栈
 
@@ -370,7 +386,8 @@ socks5://127.0.0.1:1080
 | 数据库 | SQLite3（按视频分库 + 中央库） |
 | 数据处理 | pandas, numpy, scipy |
 | 机器学习 | scikit-learn, xgboost, lightgbm, catboost, statsmodels |
-| 深度学习 | PyTorch, HuggingFace Transformers, uni2ts |
+| 深度学习 | PyTorch 2.5+, HuggingFace Transformers, uni2ts |
+| 推理加速 | CUDA (NVIDIA GPU) / DirectML (Intel NPU/GPU, Windows) / XPU (Intel GPU, Linux) | 推理加速，自动检测 |
 | 时间序列 | statsmodels, Prophet |
 | 推送 | plyer（Windows）, websockets（QQ Bot/OneBot） |
 | LLM | OpenAI / DeepSeek / Claude / SiliconFlow API |
@@ -563,6 +580,16 @@ black --line-length=120 . && flake8 . && bandit -r . -c pyproject.toml -ll
 
 ### 关键模块说明
 
+### 关键模块说明
+
+#### algorithms/training/ — 训练与推理加速
+
+- **device.py**: 自动检测可用设备，优先级 `cuda > DirectML (Intel NPU) > XPU (IPEX) > MPS > CPU`，含冒烟测试确保硬件实际可用
+- **trainer.py**: 统一训练编排器，支持全局预训练与视频微调
+- **dataset.py**: 时序数据集构造
+- **checkpoint_manager.py**: 多版本 Checkpoint 管理
+- **hf_loader.py**: HuggingFace 模型加载器
+
 #### algorithms/ — 预测引擎
 
 - **registry.py**: `AlgorithmRegistry` 是核心入口，提供 `predict_all()` 执行所有算法并生成加权集成结果
@@ -643,3 +670,86 @@ for name in AlgorithmRegistry.get_algorithm_names():
     print(name)
 "
 ```
+
+## 如何贡献
+
+欢迎任何形式的贡献！无论是新算法、新功能、Bug 修复还是文档改进。
+
+### 贡献流程
+
+1. **Fork 仓库** 并创建特性分支：
+   ```bash
+   git checkout -b feat/your-feature
+   ```
+
+2. **编写代码**：
+   - 新算法放在 `algorithms/models/<类别>/` 下，类名以 `Algorithm` 结尾即可自动注册
+   - 新 UI 窗口放在 `ui/` 下，推荐继承 `DialogBase` 获得统一布局
+   - 遵循现有代码风格（Black 格式化、Flake8 检查）
+
+3. **本地验证**：
+   ```bash
+   python main.py           # 手动功能测试
+   black --line-length=120 . # 格式化
+   flake8 .                  # 静态检查
+   ```
+
+4. **提交 PR**：
+   - 确保 pre-commit 钩子通过（不要使用 `--no-verify`）
+   - PR 标题格式：`feat: 新功能说明` / `fix: 修复问题` / `refactor: 重构说明`
+   - 描述中说明改动目的和测试方式
+
+### 贡献范围
+
+| 领域 | 说明 |
+|------|------|
+| 预测算法 | 实现 `BaseAlgorithm.predict()` 即可自动注册 |
+| PyTorch 训练 | 为算法添加 `build_model` 方法即可接入训练管线 |
+| UI 面板 | 继承 `DialogBase` 或遵循三栏布局模式 |
+| API 适配 | B站 API 变化时的兼容性修复 |
+| 文档 | README、算法文档、注释改进 |
+| 代码质量 | 减少圈复杂度、消除重复代码、类型注解覆盖 |
+
+### 行为准则
+
+- 保持友好和尊重
+- 优先讨论再实现（可以先开 Issue）
+- 新算法请附带测试数据或预期行为说明
+
+## 未实现功能
+
+以下功能在规划中或部分实现，欢迎贡献：
+
+### 高优先级
+
+| 功能 | 描述 | 状态 |
+|------|------|:----:|
+| **主题切换** | 深色/亮色主题动态切换（主题 token 已定义，切换入口已移除） | 待恢复 |
+| **定时报告自动推送** | 每日 23:50 自动推送日报，含今日增量、年刊分数、预测数据 | 已实现 |
+| **模型批量导出/导入** | 支持一键导出所有算法 checkpoint 和训练配置，跨机器迁移 | 未实现 |
+| **训练完成后自动回调** | 训练完成后自动刷新预测面板、推送通知、更新权重、重绘图表 | 已实现 |
+
+### 中优先级
+
+| 功能 | 描述 | 状态 |
+|------|------|:----:|
+| **Web 管理界面** | 基于 Flask/FastAPI 的辅助 Web 界面，支持移动端查看 | 未实现 |
+| **Docker 部署** | 容器化支持，降低环境搭建门槛 | 未实现 |
+| **多语言 (i18n)** | 英文/日文等多语言界面支持 | 未实现 |
+| **自动更新检查** | 启动时检查 GitHub Release 版本并提示更新 | 未实现 |
+| **CSV/JSON 定时导出** | 按计划任务自动导出监控数据到指定目录 | 未实现 |
+| **自定义阈值** | 用户自定义播放量阈值（当前固定 10万/100万/1000万） | 未实现 |
+
+### 低优先级 / 探索中
+
+| 功能 | 描述 | 状态 |
+|------|------|:----:|
+| **插件系统** | 允许第三方算法和 UI 组件以插件形式加载，无需修改核心代码 | 探索中 |
+| **分布式监控** | 多机协作监控，避免单 IP 请求频率限制 | 探索中 |
+| **ONNX Runtime 推理** | 将 PyTorch 模型导出为 ONNX，加速 CPU 推理 | 探索中 |
+| **DirectML 推理加速** | 通过 DirectML 在 Intel NPU/GPU 上运行 PyTorch 模型推理 | 已支持 |
+| **实时 WebSocket 推送** | 播放量突破阈值时通过 WebSocket 实时推送到浏览器 | 未实现 |
+| **算法可视化比较** | 并排对比多个算法的历史预测准确率和误差分布 | 未实现 |
+
+> 标记「部分实现」的功能已有框架代码但未完成闭环；标记「待恢复」的功能曾实现后被暂时移除。
+> 如果想实现某个功能，建议先开 Issue 讨论设计方案，避免重复劳动。
