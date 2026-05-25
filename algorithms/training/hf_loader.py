@@ -28,7 +28,7 @@ _hf_available = True
 try:
     import transformers  # noqa: F401
     import huggingface_hub  # noqa: F401
-except ImportError:
+except Exception:
     _hf_available = False
 
 # Repo ID 常量
