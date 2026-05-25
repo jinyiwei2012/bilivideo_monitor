@@ -350,18 +350,20 @@ if _torch_available:
                 nn.GELU(),
                 nn.Linear(hidden, in_features),
             )
-            self.norm_time = nn.LayerNorm([in_features, window])
-            self.norm_channel = nn.LayerNorm([in_features, window])
+            self.norm_time = nn.LayerNorm(window)
+            self.norm_channel = nn.LayerNorm(in_features)
             self.head = nn.Linear(window * in_features, horizon)
 
         def forward(self, x):
-            h = x + self.time_mlp(self.norm_time(x).transpose(1, 2)).transpose(1, 2)
+            x_t = x.transpose(1, 2)
+            x_t = x_t + self.time_mlp(self.norm_time(x_t))
+            h = x_t.transpose(1, 2)
             h = h + self.channel_mlp(self.norm_channel(h))
             return self.head(h.flatten(1))
 
     # ── 16. DeepAR（GRU 自回归概率） ────────────
     class DeepARTorchModel(nn.Module):
-        def __init__(self, in_features=5, hidden=32, horizon=3):
+        def __init__(self, in_features=5, window=10, hidden=32, horizon=3):
             super().__init__()
             self.gru = nn.GRU(in_features, hidden, batch_first=True)
             self.mu = nn.Linear(hidden, horizon)
@@ -388,7 +390,7 @@ if _torch_available:
 
     # ── 18. Mamba S6（简化 SSM） ───────────────
     class MambaS6TorchModel(nn.Module):
-        def __init__(self, in_features=5, d_state=4, horizon=3):
+        def __init__(self, in_features=5, window=10, d_state=4, horizon=3):
             super().__init__()
             self.d_state = d_state
             self.proj = nn.Linear(in_features, d_state)
@@ -423,7 +425,7 @@ if _torch_available:
 
     # ── 20. SCINet（二叉树下采样卷积） ─────────
     class SCINetTorchModel(nn.Module):
-        def __init__(self, in_features=5, hidden=16, horizon=3):
+        def __init__(self, in_features=5, window=10, hidden=16, horizon=3):
             super().__init__()
             self.conv_even = nn.Conv1d(in_features, hidden, 3, padding=1)
             self.conv_odd = nn.Conv1d(in_features, hidden, 3, padding=1)
