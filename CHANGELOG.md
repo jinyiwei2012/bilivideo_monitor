@@ -1,5 +1,15 @@
 # 更新日志
 
+## Release 2026-05-22 (v2.5.0)
+
+### 🔧 优化
+- **ScrollableFrame 通用组件**: 提取 12+ 处重复的 Canvas + Scrollbar + Frame 模式到 `ui/scrollable_frame.py`，统一 40 行实现，`FinetunePanel` / `TrainingPanel` / `SettingsWindow` / `Dialogs` / `milestone_stats` / `trending_discovery` / `entry_tab` 共 7 个文件受益
+- **BaseTrainingPanel 基类**: 提取 `TrainingPanel` 与 `FinetunePanel` 共享逻辑到 `ui/training_base.py`，包含 `TrainingMonitor` 训练质量监控和 `BaseTrainingPanel` 通用训练生命周期管理
+
+### 📐 架构
+- **代码消除**: 移除约 90 行重复的滚动容器样板代码
+- **单一职责**: `ScrollableFrame` 封装了 Canvas 的创建、Scrollbar 绑定、鼠标滚轮支持、`<Configure>` 自适应和 `inner` 属性访问，调用方只需 3 行即可获得完整可滚动容器
+
 ## Release 2026-05-20 (v2.4.0)
 
 ### ✨ 新功能
