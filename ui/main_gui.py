@@ -967,24 +967,61 @@ class BilibiliMonitorGUI:
         logger.info("已安排每日推送: %s", target.strftime("%Y-%m-%d %H:%M"))
 
     def _check_update(self):
-        """异步检查 GitHub Release 更新"""
-        from utils.update_checker import check_for_update_async
+        """异步检查 GitHub Release 更新，含 changelog 展示"""
+        from utils.update_checker import check_for_update_async, format_changelog_for_display
 
-        def _on_result(has_update, latest, url):
+        def _on_result(has_update, latest, url, changelog):
             if has_update and latest:
                 from __init__ import __version__
                 self.root.after(0, lambda: self._sb("status", f"发现新版本 v{latest} (当前 v{__version__})", C["warning"]))
                 logger.info("有新版本可用: v%s (当前 v%s), %s", latest, __version__, url)
-                # 显示弹窗
-                try:
-                    from tkinter import messagebox
-                    if messagebox.askyesno("发现新版本", f"新版本 v{latest} 可用！\n当前版本: v{__version__}\n\n是否前往 GitHub 查看？"):
-                        import webbrowser
-                        webbrowser.open(url)
-                except Exception:
-                    pass
+                self.root.after(0, lambda: self._show_update_dialog(latest, __version__, url, changelog))
 
         check_for_update_async(_on_result)
+
+    def _show_update_dialog(self, latest, current, url, changelog):
+        """显示更新弹窗（含 changelog）"""
+        from utils.update_checker import format_changelog_for_display
+        import webbrowser
+
+        dlg = tk.Toplevel(self.root)
+        dlg.title("发现新版本")
+        dlg.configure(bg=C["bg_base"])
+        dlg.resizable(True, True)
+        dlg.geometry("600x450")
+        dlg.transient(self.root)
+        dlg.grab_set()
+
+        # 标题
+        tk.Label(dlg, text=f"新版本 v{latest} 可用！", font=("Microsoft YaHei UI", 14, "bold"),
+                 bg=C["bg_base"], fg=C["text_1"]).pack(pady=(16, 4))
+        tk.Label(dlg, text=f"当前版本: v{current}", font=("Microsoft YaHei UI", 10),
+                 bg=C["bg_base"], fg=C["text_3"]).pack(pady=(0, 12))
+
+        # Changelog 区域
+        frame = tk.Frame(dlg, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
+        frame.pack(fill=tk.BOTH, expand=True, padx=16, pady=(0, 12))
+
+        tk.Label(frame, text="更新内容", font=("Microsoft YaHei UI", 10, "bold"),
+                 bg=C["bg_elevated"], fg=C["text_2"]).pack(anchor="w", padx=8, pady=(8, 4))
+
+        text = tk.Text(frame, wrap=tk.WORD, font=("Consolas", 9),
+                       bg=C["bg_surface"], fg=C["text_1"],
+                       relief=tk.FLAT, borderwidth=0, padx=8, pady=8)
+        text.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
+        text.insert("1.0", format_changelog_for_display(changelog))
+        text.config(state=tk.DISABLED)
+
+        # 滚动条
+        scroll = tk.Scrollbar(text, command=text.yview)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        text.config(yscrollcommand=scroll.set)
+
+        # 按钮
+        btn_frame = tk.Frame(dlg, bg=C["bg_base"])
+        btn_frame.pack(fill=tk.X, padx=16, pady=(0, 16))
+        ttk.Button(btn_frame, text="前往下载", command=lambda: (webbrowser.open(url), dlg.destroy())).pack(side=tk.RIGHT, padx=(8, 0))
+        ttk.Button(btn_frame, text="稍后提醒", command=dlg.destroy).pack(side=tk.RIGHT)
 
     def _daily_push(self):
         """每日 23:50 自动推送日报"""

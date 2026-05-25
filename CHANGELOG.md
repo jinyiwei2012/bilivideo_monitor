@@ -1,5 +1,28 @@
 # 更新日志
 
+## Release 2026-05-25 (v2.5.0)
+
+### ✨ 新功能
+- **20 种新预测算法** (83 → 103):
+  - 时间序列: NARX外生自回归、MSTL多重季节分解、TBATS季节分解、GARCH波动率
+  - 深度学习: TIDE稠密编码器、TSMixer MLP混合器、DeepAR概率自回归、Chronos零样本、Mamba S6状态空间、iTransformer倒置、SCINet卷积交互、TimesFM谷歌、Time-MoE专家混合
+  - 统计模型: DTW-kNN类比预测
+  - 集成模型: NGBoost自然梯度提升、TabNet注意力特征网络
+  - 高级分析: 频域分解、SIRD传染病传播模型、CausalImpact因果推断、层级贝叶斯
+- **9 个新 Torch 模型**: 全部新深度学习算法实现 PyTorch 模型，接入 `try_torch_predict` 降级链
+- **DirectML 推理加速**: 支持 Intel NPU (AI Boost) / GPU 通过 DirectML 运行 PyTorch 推理
+- **CUDA 冒烟测试**: `get_device()` 自动验证 GPU 实际可用，失败降级 CPU
+- **自动更新检查**: 启动时异步检测 GitHub Release，弹窗展示 changelog
+
+### 🐛 修复
+- `change_point_detection.py`: 斜率计算改用 `np.polyfit` 避免大数溢出
+- `hf_loader.py`: transformers 元数据异常时正确降级
+- `main_gui.py`: 移除不存在的 `open_algorithm_comparison` 调用
+
+### 📚 文档
+- README 更新至 103 种算法，新增 DirectML/XPU/NPU 安装指南
+- ALGORITHMS.md 新增 20 种算法详细说明 + 14 篇参考论文
+
 ## Release 2026-05-20 (v2.4.0)
 
 ### ✨ 新功能

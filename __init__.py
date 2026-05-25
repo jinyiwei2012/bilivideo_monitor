@@ -25,7 +25,7 @@ B站视频监控与播放量预测系统
 - exports/: 导出目录
 """
 
-__version__ = "2.4.0"
+__version__ = "2.5.0"
 __author__ = "Bilibili Monitor Team"
 
 from config import PROJECT_ROOT, DATA_DIR, COVER_DIR, EXPORT_DIR
