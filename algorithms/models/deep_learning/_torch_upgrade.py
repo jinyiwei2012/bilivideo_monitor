@@ -318,6 +318,177 @@ if _torch_available:
             agg = self.norm(agg + h)
             return self.head(agg.flatten(1))
 
+    # ── 14. TIDE（残差 MLP 编码器） ─────────────
+    class TIDETorchModel(nn.Module):
+        def __init__(self, in_features=5, window=10, hidden=64, horizon=3):
+            super().__init__()
+            self.encoder = nn.Sequential(
+                nn.Flatten(),
+                nn.Linear(window * in_features, hidden),
+                nn.GELU(),
+                nn.Linear(hidden, hidden),
+                nn.GELU(),
+            )
+            self.decoder = nn.Linear(hidden, horizon)
+            self.residual = nn.Linear(window * in_features, horizon)
+
+        def forward(self, x):
+            flat = x.flatten(1)
+            return self.decoder(self.encoder(flat)) + self.residual(flat)
+
+    # ── 15. TSMixer（时间维 + 通道维 MLP 交替混合） ──
+    class TSMixerTorchModel(nn.Module):
+        def __init__(self, in_features=5, window=10, hidden=64, horizon=3):
+            super().__init__()
+            self.time_mlp = nn.Sequential(
+                nn.Linear(window, hidden),
+                nn.GELU(),
+                nn.Linear(hidden, window),
+            )
+            self.channel_mlp = nn.Sequential(
+                nn.Linear(in_features, hidden),
+                nn.GELU(),
+                nn.Linear(hidden, in_features),
+            )
+            self.norm_time = nn.LayerNorm([in_features, window])
+            self.norm_channel = nn.LayerNorm([in_features, window])
+            self.head = nn.Linear(window * in_features, horizon)
+
+        def forward(self, x):
+            h = x + self.time_mlp(self.norm_time(x).transpose(1, 2)).transpose(1, 2)
+            h = h + self.channel_mlp(self.norm_channel(h))
+            return self.head(h.flatten(1))
+
+    # ── 16. DeepAR（GRU 自回归概率） ────────────
+    class DeepARTorchModel(nn.Module):
+        def __init__(self, in_features=5, hidden=32, horizon=3):
+            super().__init__()
+            self.gru = nn.GRU(in_features, hidden, batch_first=True)
+            self.mu = nn.Linear(hidden, horizon)
+            self.sigma = nn.Sequential(nn.Linear(hidden, horizon), nn.Softplus())
+
+        def forward(self, x):
+            out, _ = self.gru(x)
+            h = out[:, -1, :]
+            return self.mu(h) + self.sigma(h) * torch.randn_like(self.sigma(h)) * 0.01
+
+    # ── 17. Chronos（轻量 T5 式编码器） ─────────
+    class ChronosTorchModel(nn.Module):
+        def __init__(self, in_features=5, window=10, d_model=32, n_heads=2, horizon=3):
+            super().__init__()
+            self.proj = nn.Linear(in_features, d_model)
+            encoder_layer = nn.TransformerEncoderLayer(d_model, n_heads, dim_feedforward=64, batch_first=True)
+            self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=2)
+            self.head = nn.Linear(d_model * window, horizon)
+
+        def forward(self, x):
+            h = self.proj(x)
+            h = self.encoder(h)
+            return self.head(h.flatten(1))
+
+    # ── 18. Mamba S6（简化 SSM） ───────────────
+    class MambaS6TorchModel(nn.Module):
+        def __init__(self, in_features=5, d_state=4, horizon=3):
+            super().__init__()
+            self.d_state = d_state
+            self.proj = nn.Linear(in_features, d_state)
+            self.A = nn.Parameter(torch.randn(d_state, d_state) * 0.01)
+            self.B = nn.Linear(in_features, d_state)
+            self.C = nn.Linear(d_state, 1)
+            self.head = nn.Linear(d_state, horizon)
+
+        def forward(self, x):
+            B = x.shape[0]
+            dt = 0.1
+            h = self.proj(x)
+            state = torch.zeros(B, self.d_state, device=x.device)
+            for t in range(x.shape[1]):
+                b_t = self.B(x[:, t, :])
+                state = state @ self.A.T + b_t * dt
+            return self.head(state)
+
+    # ── 19. iTransformer（变量作为 token） ─────
+    class ITransformerTorchModel(nn.Module):
+        def __init__(self, in_features=5, window=10, d_model=32, n_heads=4, horizon=3):
+            super().__init__()
+            self.var_proj = nn.Linear(window, d_model)
+            encoder_layer = nn.TransformerEncoderLayer(d_model, n_heads, dim_feedforward=64, batch_first=True)
+            self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=2)
+            self.head = nn.Linear(d_model * in_features, horizon)
+
+        def forward(self, x):
+            h = self.var_proj(x.transpose(1, 2))
+            h = self.encoder(h)
+            return self.head(h.flatten(1))
+
+    # ── 20. SCINet（二叉树下采样卷积） ─────────
+    class SCINetTorchModel(nn.Module):
+        def __init__(self, in_features=5, hidden=16, horizon=3):
+            super().__init__()
+            self.conv_even = nn.Conv1d(in_features, hidden, 3, padding=1)
+            self.conv_odd = nn.Conv1d(in_features, hidden, 3, padding=1)
+            self.interact = nn.Conv1d(hidden * 2, hidden, 1)
+            self.head = nn.Linear(hidden, horizon)
+
+        def forward(self, x):
+            x = x.transpose(1, 2)
+            even = self.conv_even(x[:, :, ::2])
+            odd = self.conv_odd(x[:, :, 1::2])
+            if even.shape[-1] > odd.shape[-1]:
+                even = even[..., :odd.shape[-1]]
+            diff = even - odd
+            gate_e = torch.tanh(diff)
+            gate_o = torch.tanh(-diff)
+            even_out = even + gate_e * odd
+            odd_out = odd + gate_o * even[..., :odd.shape[-1]]
+            combined = torch.cat([even_out, odd_out], dim=1)
+            h = self.interact(combined)
+            h = h.mean(dim=-1)
+            return self.head(h)
+
+    # ── 21. TimesFM（Patch + Decoder） ──────────
+    class TimesFMTorchModel(nn.Module):
+        def __init__(self, in_features=5, window=10, patch_len=4, d_model=32, n_heads=2, horizon=3):
+            super().__init__()
+            self.patch_len = min(patch_len, window)
+            self.n_patches = max(1, window // self.patch_len)
+            self.patch_proj = nn.Linear(self.patch_len * in_features, d_model)
+            decoder_layer = nn.TransformerDecoderLayer(d_model, n_heads, dim_feedforward=64, batch_first=True)
+            self.decoder = nn.TransformerDecoder(decoder_layer, num_layers=2)
+            self.tgt = nn.Parameter(torch.randn(1, horizon, d_model) * 0.01)
+            self.head = nn.Linear(d_model, 1)
+
+        def forward(self, x):
+            B = x.shape[0]
+            patches = []
+            for s in range(0, x.shape[1] - self.patch_len + 1, self.patch_len):
+                patches.append(x[:, s:s + self.patch_len, :].flatten(1))
+            if not patches:
+                patches.append(x[:, :self.patch_len, :].flatten(1))
+            p = torch.stack(patches, dim=1)
+            mem = self.patch_proj(p)
+            tgt = self.tgt.expand(B, -1, -1)
+            h = self.decoder(tgt, mem)
+            return self.head(h).squeeze(-1)
+
+    # ── 22. Time-MoE（轻量专家混合） ───────────
+    class TimeMoETorchModel(nn.Module):
+        def __init__(self, in_features=5, window=10, n_experts=4, d_model=16, horizon=3):
+            super().__init__()
+            self.n_experts = n_experts
+            self.proj = nn.Linear(window * in_features, d_model)
+            self.gate = nn.Linear(d_model, n_experts)
+            self.experts = nn.ModuleList([
+                nn.Sequential(nn.Linear(d_model, d_model), nn.GELU(), nn.Linear(d_model, horizon))
+                for _ in range(n_experts)
+            ])
+
+        def forward(self, x):
+            h = self.proj(x.flatten(1))
+            gates = self.gate(h).softmax(dim=-1)
+            out = sum(gates[:, i:i+1] * self.experts[i](h) for i in range(self.n_experts))
+            return out
+
     # ── 工具：手写 1D padding + avg pool（避免与外部 import 冲突） ──
     def nn_pad1d(x, left, right):
         return torch.nn.functional.pad(x, (left, right), mode="replicate")
@@ -340,6 +511,15 @@ else:
     InformerTorchModel = None  # type: ignore
     TFTTorchModel = None  # type: ignore
     TimessNetTorchModel = None  # type: ignore
+    TIDETorchModel = None  # type: ignore
+    TSMixerTorchModel = None  # type: ignore
+    DeepARTorchModel = None  # type: ignore
+    ChronosTorchModel = None  # type: ignore
+    MambaS6TorchModel = None  # type: ignore
+    ITransformerTorchModel = None  # type: ignore
+    SCINetTorchModel = None  # type: ignore
+    TimesFMTorchModel = None  # type: ignore
+    TimeMoETorchModel = None  # type: ignore
 
 
 # ════════════════════════════════════════════════════════
