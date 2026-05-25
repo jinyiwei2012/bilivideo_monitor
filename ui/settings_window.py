@@ -560,6 +560,10 @@ class SettingsWindow:
         self._tr_cancel_btn = ttk.Button(btn_row, text="✕ 取消", command=self._on_train_cancel, state="disabled")
         self._tr_cancel_btn.pack(side=tk.LEFT)
 
+        # 模型导入/导出
+        ttk.Button(btn_row, text="📤 导出模型", command=self._on_export_checkpoints).pack(side=tk.RIGHT, padx=(4, 0))
+        ttk.Button(btn_row, text="📥 导入模型", command=self._on_import_checkpoints).pack(side=tk.RIGHT, padx=(4, 0))
+
         self._tr_progress = ttk.Progressbar(ctrl_sec, mode="determinate", maximum=100)
         self._tr_progress.pack(fill=tk.X, pady=(4, 2))
         self._tr_status_lbl = tk.Label(
@@ -820,6 +824,36 @@ class SettingsWindow:
         self._tr_cancel_flag[0] = True
         self._tr_cancel_btn.config(state="disabled")
         self._tr_status_lbl.config(text="正在取消（等待当前算法完成）…", fg=C["warning"])
+
+    def _on_export_checkpoints(self):
+        """导出所有 checkpoint 为 zip 文件"""
+        try:
+            from utils.checkpoint_io import export_checkpoints
+            path = export_checkpoints()
+            self._tr_status_lbl.config(text=f"导出完成: {os.path.basename(path)}", fg=C["success"])
+            if messagebox.askyesno("导出完成", f"模型已导出到:\n{path}\n\n是否打开所在文件夹？", parent=self.window):
+                os.startfile(os.path.dirname(path))
+        except Exception as e:
+            messagebox.showerror("导出失败", str(e), parent=self.window)
+            self._tr_status_lbl.config(text=f"导出失败: {e}", fg=C["danger"])
+
+    def _on_import_checkpoints(self):
+        """从 zip 文件导入 checkpoint"""
+        from tkinter import filedialog
+        path = filedialog.askopenfilename(
+            title="选择要导入的 checkpoint 文件",
+            filetypes=[("Zip 文件", "*.zip"), ("所有文件", "*.*")],
+            parent=self.window,
+        )
+        if not path:
+            return
+        try:
+            from utils.checkpoint_io import import_checkpoints
+            count = import_checkpoints(path)
+            messagebox.showinfo("导入完成", f"已导入 {count} 个算法的模型\n\n请刷新算法列表查看更新。", parent=self.window)
+            self._refresh_algo_list()
+        except Exception as e:
+            messagebox.showerror("导入失败", str(e), parent=self.window)
 
     def _poll_training_progress(self):
         import queue as _q
