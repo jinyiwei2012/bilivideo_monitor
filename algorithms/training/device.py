@@ -1,10 +1,16 @@
-"""GPU 自动检测
+"""GPU / NPU 自动检测
 
 公开 API：
 - is_torch_available() — torch 是否已安装
-- get_device()         — 返回 torch.device（cuda > mps > cpu）；torch 未装时返回 None
+- get_device()         — 返回 torch.device；torch 未装时返回 None
 - get_device_info()    — 返回 dict{device, name, total_memory_gb, is_gpu}
 - force_cpu(flag)      — 强制 CPU（设置后 get_device 永远返回 cpu）
+
+后端优先级：cuda > DirectML > XPU (IPEX, Linux) > MPS > CPU
+
+NPU (Intel AI Boost) 支持：
+- Windows: torch-directml (pip install torch-directml --pre)
+- Linux: intel-extension-for-pytorch (pip install intel-extension-for-pytorch)
 """
 
 import os
@@ -18,6 +24,20 @@ try:
     import torch
 except ImportError:
     _torch_available = False
+
+_xpu_available = False
+try:
+    import intel_extension_for_pytorch  # noqa: F401 — registers torch.xpu backend (Linux only)
+    _xpu_available = True
+except ImportError:
+    pass
+
+_dml_available = False
+try:
+    import torch_directml  # noqa: F401 — DirectML backend for Windows
+    _dml_available = True
+except ImportError:
+    pass
 
 _force_cpu = False
 
@@ -37,9 +57,11 @@ def get_device() -> Optional[Any]:
 
     选择顺序：
         1. 用户强制 CPU 或 CUDA_VISIBLE_DEVICES='' → cpu
-        2. CUDA 可用 → cuda
-        3. MPS 可用（Apple Silicon） → mps
-        4. 兜底 → cpu
+        2. CUDA 可用（含冒烟测试） → cuda
+        3. DirectML 可用（Windows，Intel GPU/NPU 含冒烟测试） → privateuseone
+        4. Intel XPU 可用（IPEX, Linux，含冒烟测试） → xpu
+        5. MPS 可用（Apple Silicon） → mps
+        6. 兜底 → cpu
     """
     if not _torch_available:
         return None
@@ -47,11 +69,35 @@ def get_device() -> Optional[Any]:
         return torch.device("cpu")
     if os.environ.get("CUDA_VISIBLE_DEVICES", "") == "" and "CUDA_VISIBLE_DEVICES" in os.environ:
         return torch.device("cpu")
+    # ── CUDA ──
     try:
         if torch.cuda.is_available():
+            _test = torch.zeros(1, device="cuda:0") + 1
+            del _test
+            torch.cuda.synchronize()
             return torch.device("cuda:0")
     except Exception as e:
-        logger.debug("CUDA 检测异常: %s", e)
+        logger.warning("CUDA 冒烟测试失败: %s", e)
+    # ── DirectML (Windows: Intel GPU + AI Boost NPU) ──
+    if _dml_available:
+        try:
+            dml_dev = torch_directml.device()
+            _test = torch.zeros(1, device=dml_dev) + 1
+            del _test
+            return dml_dev
+        except Exception as e:
+            logger.warning("DirectML 冒烟测试失败: %s", e)
+    # ── Intel XPU (IPEX, Linux only) ──
+    if _xpu_available:
+        try:
+            if torch.xpu.is_available():
+                _test = torch.zeros(1, device="xpu:0") + 1
+                del _test
+                torch.xpu.synchronize()
+                return torch.device("xpu:0")
+        except Exception as e:
+            logger.warning("Intel XPU 冒烟测试失败: %s", e)
+    # ── MPS (Apple Silicon) ──
     try:
         if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
             return torch.device("mps")
@@ -88,6 +134,21 @@ def get_device_info() -> Dict[str, Any]:
             logger.debug("读取 CUDA 设备信息失败: %s", e)
             info["name"] = "NVIDIA GPU"
             info["is_gpu"] = True
+    elif device.type == "xpu":
+        try:
+            idx = device.index if device.index is not None else 0
+            name = torch.xpu.get_device_name(idx)
+            props = torch.xpu.get_device_properties(idx)
+            info["name"] = name
+            info["total_memory_gb"] = round(props.total_memory / (1024**3), 1)
+            info["is_gpu"] = True
+        except Exception as e:
+            logger.debug("读取 Intel XPU 设备信息失败: %s", e)
+            info["name"] = "Intel XPU (GPU/NPU)"
+            info["is_gpu"] = True
+    elif device.type == "privateuseone":
+        info["name"] = "DirectML (Intel GPU/NPU)"
+        info["is_gpu"] = True
     elif device.type == "mps":
         info["name"] = "Apple Silicon (MPS)"
         info["is_gpu"] = True
