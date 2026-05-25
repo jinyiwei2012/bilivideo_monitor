@@ -4,9 +4,10 @@ iTransformer (倒置Transformer)
 """
 
 import numpy as np
-from typing import Dict, Any
+from typing import Dict, Any, List
 from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
+from algorithms.models.deep_learning._torch_upgrade import ITransformerTorchModel, try_torch_predict
 
 
 class ITransformerSimpleAlgorithm(BaseAlgorithm):
@@ -18,7 +19,22 @@ class ITransformerSimpleAlgorithm(BaseAlgorithm):
     category = "深度学习"
     default_weight = 1.2
 
+    training_window = 10
+    training_horizon = 3
+
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
+        return try_torch_predict(
+            self, video_data, threshold, ITransformerTorchModel, self._numpy_predict,
+            window=self.training_window, horizon=self.training_horizon,
+        )
+
+    def build_model(self):
+        return ITransformerTorchModel(in_features=5, window=10, d_model=32, n_heads=4, horizon=self.training_horizon)
+
+    def get_training_features(self) -> List[str]:
+        return ["view_count", "like_count", "coin_count", "favorite_count", "share_count"]
+
+    def _numpy_predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
         current_views = video_data.get("view_count", 0)
         history = video_data.get("history_data", [])
         velocity = self.calculate_velocity(video_data)
@@ -36,25 +52,19 @@ class ITransformerSimpleAlgorithm(BaseAlgorithm):
             metrics = np.diff(metrics) / np.maximum(metrics[:, :-1], 1)
             metrics = np.nan_to_num(metrics)
 
-            n_vars, seq_len = metrics.shape
-            if seq_len < 2:
-                return self._fallback(velocity, current_views, threshold)
-
+            n_vars = metrics.shape[0]
             Q = metrics @ metrics.T / np.sqrt(n_vars)
             attn = np.maximum(Q, 0)
             attn = attn / (np.sum(attn, axis=-1, keepdims=True) + 1e-10)
 
-            W_v = np.random.RandomState(42).randn(seq_len, 1) * 0.01
+            W_v = np.random.RandomState(42).randn(metrics.shape[1], 1) * 0.01
             values = metrics @ W_v
             context = attn @ values
-
             gate = np.tanh(context)
-            trends = np.mean(gate, axis=1)
+            trends = gate.flatten()
 
-            view_trend = float(trends[0])
-            like_trend = float(trends[1]) if len(trends) > 1 else 0
-
-            predicted_velocity = max(0, velocity * (1 + view_trend + 0.2 * like_trend))
+            view_trend = float(trends[0]) if len(trends) > 0 else 0
+            predicted_velocity = max(0, velocity * (1 + view_trend))
             if predicted_velocity < 1:
                 predicted_velocity = velocity
 
@@ -63,8 +73,7 @@ class ITransformerSimpleAlgorithm(BaseAlgorithm):
                 predicted_hours, confidence = 0, 1.0
             else:
                 predicted_hours = remaining / predicted_velocity
-                cross_corr = float(np.mean(np.abs(attn[0, 1:]))) if attn.shape[1] > 1 else 0.5
-                confidence = max(0.1, min(0.85, 0.4 + cross_corr * 0.5))
+                confidence = max(0.1, min(0.8, 0.5))
 
             return PredictionResult(
                 algorithm_name=self.name, algorithm_id=self.algorithm_id,

@@ -4,9 +4,10 @@ SCINet (Sample Convolution and Interaction Network)
 """
 
 import numpy as np
-from typing import Dict, Any
+from typing import Dict, Any, List
 from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
+from algorithms.models.deep_learning._torch_upgrade import SCINetTorchModel, try_torch_predict
 
 
 class ScinetSimpleAlgorithm(BaseAlgorithm):
@@ -18,7 +19,22 @@ class ScinetSimpleAlgorithm(BaseAlgorithm):
     category = "深度学习"
     default_weight = 1.3
 
+    training_window = 10
+    training_horizon = 3
+
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
+        return try_torch_predict(
+            self, video_data, threshold, SCINetTorchModel, self._numpy_predict,
+            window=self.training_window, horizon=self.training_horizon,
+        )
+
+    def build_model(self):
+        return SCINetTorchModel(in_features=5, hidden=16, horizon=self.training_horizon)
+
+    def get_training_features(self) -> List[str]:
+        return ["view_count", "like_count", "coin_count", "favorite_count", "share_count"]
+
+    def _numpy_predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
         current_views = video_data.get("view_count", 0)
         history = video_data.get("history_data", [])
         velocity = self.calculate_velocity(video_data)
@@ -28,7 +44,6 @@ class ScinetSimpleAlgorithm(BaseAlgorithm):
 
         try:
             views = np.array([h.get("view", 0) for h in history], dtype=np.float64)
-            likes = np.array([h.get("like", 0) for h in history], dtype=np.float64)
 
             def _sci_block(x):
                 n = len(x)
@@ -41,13 +56,10 @@ class ScinetSimpleAlgorithm(BaseAlgorithm):
                 k = np.array([0.5, 0.5])
 
                 def conv1d(signal, kernel):
-                    k_len = len(kernel)
-                    result = np.convolve(signal, kernel, mode='same')[:len(signal)]
-                    return result
+                    return np.convolve(signal, kernel, mode='same')[:len(signal)]
 
                 even_filt = conv1d(even, k)
-                odd_filt = conv1d(odd, k)
-                even_out = even - odd_filt
+                even_out = even - even_filt
                 odd_out = odd + even_filt
                 return even_out, odd_out, diff
 
@@ -56,24 +68,23 @@ class ScinetSimpleAlgorithm(BaseAlgorithm):
                 gate_o = np.tanh(diff[:len(odd)] if len(diff) >= len(odd) else np.pad(diff, (0, len(odd) - len(diff))))
                 return even + gate_e * odd[:len(even)], odd + gate_o * even[:len(odd)]
 
-            combined = views + likes * 0.1
+            combined = views
             even1, odd1, diff1 = _sci_block(combined)
-            even2, odd2, diff2 = _sci_block(even1[:len(even1) // 2 * 2]) if len(even1) >= 4 else (even1, odd1[:1], diff1[:1])
-
             even1_int, odd1_int = _interact(even1, odd1, diff1)
 
-            if len(even2) > 0 and len(odd2) > 0:
-                even2_int, odd2_int = _interact(even2, odd2, diff2)
-                scale2_trend = np.mean(np.abs(even2_int[-3:])) if len(even2_int) >= 3 else 0
+            if len(even1_int) >= 4:
+                even2, odd2, diff2 = _sci_block(even1_int[:len(even1_int) // 2 * 2])
+                if len(even2) > 0 and len(odd2) > 0:
+                    even2_int, odd2_int = _interact(even2, odd2, diff2)
+                    scale2_trend = np.mean(np.abs(even2_int[-3:])) if len(even2_int) >= 3 else 0
+                else:
+                    scale2_trend = 0
             else:
                 scale2_trend = 0
 
             scale1_trend = np.mean(np.abs(even1_int[-3:])) if len(even1_int) >= 3 else 0
-            multi_scale_trend = (scale1_trend + scale2_trend) / 2
-
             recent_diff = np.mean(np.diff(views[-5:])) if len(views) >= 5 else velocity * 3600
-            predicted_velocity = max(0, (recent_diff + multi_scale_trend * 100) / 3600)
-
+            predicted_velocity = max(0, (recent_diff + (scale1_trend + scale2_trend) * 50) / 3600)
             if predicted_velocity < 1:
                 predicted_velocity = velocity
 
@@ -82,8 +93,7 @@ class ScinetSimpleAlgorithm(BaseAlgorithm):
                 predicted_hours, confidence = 0, 1.0
             else:
                 predicted_hours = remaining / predicted_velocity
-                scale_variance = np.var([scale1_trend, scale2_trend]) + 1e-10
-                confidence = max(0.1, min(0.8, 0.5 - np.log1p(scale_variance) * 0.05))
+                confidence = max(0.1, min(0.8, 0.5))
 
             return PredictionResult(
                 algorithm_name=self.name, algorithm_id=self.algorithm_id,
