@@ -63,8 +63,7 @@ class Database:
             cursor = conn.cursor()
 
             # 视频信息表
-            cursor.execute(
-                """
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS videos (
                     bvid TEXT PRIMARY KEY,
                     title TEXT,
@@ -88,12 +87,10 @@ class Database:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-            """
-            )
+            """)
 
             # 监控记录表
-            cursor.execute(
-                """
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS monitor_records (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     bvid TEXT,
@@ -111,18 +108,14 @@ class Database:
                     like_view_ratio REAL DEFAULT 0,
                     FOREIGN KEY (bvid) REFERENCES videos(bvid)
                 )
-            """
-            )
-            cursor.execute(
-                """
+            """)
+            cursor.execute("""
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_monitor_bvid_ts
                 ON monitor_records(bvid, timestamp)
-            """
-            )
+            """)
 
             # 预测记录表
-            cursor.execute(
-                """
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS predictions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     bvid TEXT,
@@ -139,13 +132,11 @@ class Database:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (bvid) REFERENCES videos(bvid)
                 )
-            """
-            )
+            """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_predictions_bvid ON predictions(bvid)")
 
             # 投稿里程碑数据表
-            cursor.execute(
-                """
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS video_milestones (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     bvid TEXT NOT NULL,
@@ -161,8 +152,7 @@ class Database:
                     recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(bvid, period)
                 )
-            """
-            )
+            """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_milestones_bvid ON video_milestones(bvid)")
             # 数据库迁移：检查并添加缺少的列
             self._migrate_db(conn)
@@ -955,16 +945,14 @@ class Database:
             return 0
         try:
             # GROUP BY 只取每个 (algorithm, predicted_time) 组合的最新一条
-            vcur.execute(
-                """
+            vcur.execute("""
                 SELECT algorithm, algorithm_id, target_threshold, predicted_seconds,
                        predicted_time, confidence, current_views, metadata,
                        predicted_hours, current_velocity, is_reached,
                        actual_time, error_rate, MAX(created_at) as created_at
                 FROM predictions
                 GROUP BY algorithm, predicted_time
-            """
-            )
+            """)
         except Exception:
             return 0
         rows = [dict(r) for r in vcur.fetchall()]
@@ -1112,8 +1100,7 @@ class Database:
     @staticmethod
     def _ensure_central_tables(cur):
         """确保中央库有完整的表结构（兼容首次同步）"""
-        cur.execute(
-            """CREATE TABLE IF NOT EXISTS videos (
+        cur.execute("""CREATE TABLE IF NOT EXISTS videos (
             bvid TEXT PRIMARY KEY, title TEXT, view_count INTEGER DEFAULT 0,
             like_count INTEGER DEFAULT 0, coin_count INTEGER DEFAULT 0,
             share_count INTEGER DEFAULT 0, favorite_count INTEGER DEFAULT 0,
@@ -1123,48 +1110,35 @@ class Database:
             like_view_ratio REAL DEFAULT 0, owner_name TEXT, owner_id INTEGER,
             pubdate TEXT, duration INTEGER, pic TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"""
-        )
-        cur.execute(
-            """CREATE TABLE IF NOT EXISTS monitor_records (
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+        cur.execute("""CREATE TABLE IF NOT EXISTS monitor_records (
             id INTEGER PRIMARY KEY AUTOINCREMENT, bvid TEXT,
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             view_count INTEGER, like_count INTEGER, coin_count INTEGER,
             share_count INTEGER, favorite_count INTEGER, danmaku_count INTEGER,
             reply_count INTEGER, viewers_app INTEGER DEFAULT 0,
             viewers_web INTEGER DEFAULT 0, viewers_total INTEGER DEFAULT 0,
-            like_view_ratio REAL DEFAULT 0)"""
-        )
-        cur.execute(
-            """CREATE UNIQUE INDEX IF NOT EXISTS idx_monitor_bvid_ts
-            ON monitor_records(bvid, timestamp)"""
-        )
+            like_view_ratio REAL DEFAULT 0)""")
+        cur.execute("""CREATE UNIQUE INDEX IF NOT EXISTS idx_monitor_bvid_ts
+            ON monitor_records(bvid, timestamp)""")
         # 独立库详细数据表（含 bvid 用于跨视频关联）
-        cur.execute(
-            """CREATE TABLE IF NOT EXISTS weekly_scores (
+        cur.execute("""CREATE TABLE IF NOT EXISTS weekly_scores (
             id INTEGER PRIMARY KEY AUTOINCREMENT, bvid TEXT NOT NULL,
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             total_score REAL, view_score REAL, interaction_score REAL,
             favorite_score REAL, coin_score REAL, like_score REAL,
             correction_a REAL, correction_b REAL, correction_c REAL,
-            correction_d REAL, base_view_score REAL)"""
-        )
-        cur.execute(
-            """CREATE INDEX IF NOT EXISTS idx_weekly_bvid
-            ON weekly_scores(bvid, timestamp)"""
-        )
-        cur.execute(
-            """CREATE TABLE IF NOT EXISTS yearly_scores (
+            correction_d REAL, base_view_score REAL)""")
+        cur.execute("""CREATE INDEX IF NOT EXISTS idx_weekly_bvid
+            ON weekly_scores(bvid, timestamp)""")
+        cur.execute("""CREATE TABLE IF NOT EXISTS yearly_scores (
             id INTEGER PRIMARY KEY AUTOINCREMENT, bvid TEXT NOT NULL,
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             total_score REAL, view_score REAL, interaction_score REAL,
             favorite_score REAL, coin_score REAL, like_score REAL,
-            correction_a REAL, correction_b REAL, correction_c REAL)"""
-        )
-        cur.execute(
-            """CREATE INDEX IF NOT EXISTS idx_yearly_bvid
-            ON yearly_scores(bvid, timestamp)"""
-        )
+            correction_a REAL, correction_b REAL, correction_c REAL)""")
+        cur.execute("""CREATE INDEX IF NOT EXISTS idx_yearly_bvid
+            ON yearly_scores(bvid, timestamp)""")
         # 迁移：确保 predictions 表有完整字段
         Database._migrate_central_predictions(cur)
         # 索引：加速 predictions 按 bvid 查询

@@ -19,9 +19,9 @@ class DanmakuAnalysisWindow:
     """弹幕/评论分析窗口"""
 
     def __init__(self, parent=None, api=None, gui=None):
-        self.dlg = DialogBase(parent, "弹幕/评论分析",
-                              DialogBase.calc_geometry(parent, 0.50, 0.72),
-                              resizable=(True, True), modal=False)
+        self.dlg = DialogBase(
+            parent, "弹幕/评论分析", DialogBase.calc_geometry(parent, 0.50, 0.72), resizable=(True, True), modal=False
+        )
         self.window = self.dlg.window
         self.api = api
         self.gui = gui
@@ -512,7 +512,9 @@ class DanmakuAnalysisWindow:
             prompt += f"{i}. {t}\n"
 
         if self.gui and hasattr(self.gui, "log_panel"):
-            self.gui.log_panel.add_log("INFO", f"LLM分析请求已发送（{self._current_bvid}，{mode}，{len(self._texts)}条）")
+            self.gui.log_panel.add_log(
+                "INFO", f"LLM分析请求已发送（{self._current_bvid}，{mode}，{len(self._texts)}条）"
+            )
         return prompt
 
     def _llm_worker(self, api_key, endpoint, model, mode, prompt):

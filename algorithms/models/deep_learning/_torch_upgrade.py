@@ -10,7 +10,7 @@
 """
 
 import logging
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict, List
 
 import numpy as np
 
@@ -421,7 +421,9 @@ def try_torch_predict(
             try:
                 return _try_make_result(algorithm, video_data, threshold, predicted_velocity, y)
             except Exception as e:
-                logger.debug("[%s] 调用 _make_result 失败，构造通用结果: %s", getattr(algorithm, "algorithm_id", "?"), e)
+                logger.debug(
+                    "[%s] 调用 _make_result 失败，构造通用结果: %s", getattr(algorithm, "algorithm_id", "?"), e
+                )
         return _generic_result(algorithm, video_data, threshold, predicted_velocity, y)
 
     except Exception as e:

@@ -103,10 +103,11 @@ def get_lag_llama_model() -> Tuple[Optional[Any], bool, str]:
         ckpt_path = hf_hub_download(
             repo_id=LAG_LLAMA_REPO,
             filename="lag-llama.ckpt",
+            revision="main",
         )
         import torch as _torch
 
-        ckpt = _torch.load(ckpt_path, map_location="cpu", weights_only=False)
+        ckpt = _torch.load(ckpt_path, map_location="cpu", weights_only=True)
         with _lock:
             _models["lag_llama"] = ckpt
         return ckpt, True, "loaded"

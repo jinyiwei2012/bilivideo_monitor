@@ -13,7 +13,7 @@ extend-exclude = '''
 
 [tool.bandit]
 exclude_dirs = ["tests", "data", "exports", ".workbuddy"]
-skips = ["B101", "B311"]  # Skip assert warnings and random warnings for this project
+skips = ["B101", "B311", "B615"]  # Skip assert, random, and HF revision warnings for this project
 
 [tool.pylint.messages_control]
 disable = "C0103,C0111,R0903,R0913,W0613,R0902,R0914"

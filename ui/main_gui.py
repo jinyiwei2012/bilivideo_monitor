@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 import sys
 
 from utils import project_path as _pp
+
 sys.path.insert(0, str(_pp()))
 
 from ui.theme import C, init_theme
@@ -62,7 +63,7 @@ from ui.monitor_service import (
 from core import bilibili_api, db, MonitorRecord, notification_manager
 from config import load_config, save_config
 from utils.file_logger import FileLogger
-from algorithms.training.checkpoint_manager import activate_latest_for_all, get_all_activation_status, list_all_trained_algorithms
+from algorithms.training.checkpoint_manager import activate_latest_for_all, get_all_activation_status
 from ui.training_panel import TrainingPanel
 from ui.finetune_panel import FinetunePanel
 
@@ -192,9 +193,9 @@ class BilibiliMonitorGUI:
         tk.Label(
             title_f, text="B站监控", bg=C["bg_surface"], fg=C["bilibili"], font=("Microsoft YaHei UI", 13, "bold")
         ).pack(anchor="w")
-        tk.Label(title_f, text="播放量预测系统", bg=C["bg_surface"], fg=C["text_3"], font=("Microsoft YaHei UI", 10)).pack(
-            anchor="w"
-        )
+        tk.Label(
+            title_f, text="播放量预测系统", bg=C["bg_surface"], fg=C["text_3"], font=("Microsoft YaHei UI", 10)
+        ).pack(anchor="w")
 
     def _build_navigation_buttons(self):
         """构建导航按钮"""
@@ -316,9 +317,8 @@ class BilibiliMonitorGUI:
         )
         self._settings_menu.add_command(label="⏱  刷新间隔", command=self._dialogs.open_interval_settings)
         self._settings_menu.add_command(label="🧠  算法信息", command=self._dialogs.open_algorithm_info)
-        self._settings_menu.add_command(label="📊  算法比较", command=self._dialogs.open_algorithm_comparison)
         self._settings_menu.add_separator()
-        self._settings_menu.add_command(label="📈  数据对比", command=self._dialogs.open_data_comparison)
+        self._settings_menu.add_command(label="📊  数据对比", command=self._dialogs.open_data_comparison)
         self._settings_menu.add_command(label="🔄  交叉计算", command=self._dialogs.open_crossover_analysis)
         self._settings_menu.add_command(label="📅  周刊分数", command=self._dialogs.open_weekly_score)
         self._settings_menu.add_command(label="🏆  里程碑", command=self._dialogs.open_milestone_stats)
@@ -680,7 +680,7 @@ class BilibiliMonitorGUI:
         dialog.title("添加监控")
         sw = self.root.winfo_screenwidth()
         sh = self.root.winfo_screenheight()
-        dialog.geometry(f"{int(sw*0.28)}x{int(sh*0.22)}")
+        dialog.geometry(f"{int(sw * 0.28)}x{int(sh * 0.22)}")
         dialog.configure(bg=C["bg_surface"])
         dialog.transient(self.root)
         dialog.grab_set()
@@ -837,7 +837,6 @@ class BilibiliMonitorGUI:
 
         msg = self._build_push_msg([video])
         title = video.get("title", bvid)[:30]
-        views = video.get("view_count", 0)
 
         notification_manager.send_qq_private(msg)
         notification_manager.send_qq_group(msg)
@@ -871,10 +870,10 @@ class BilibiliMonitorGUI:
 
     # ── 训练完成自动回调 ──────────────────────────
 
-    def _on_training_completed(self, mode="训练", count=0, detail=""):
-        """训练/微调完成后自动刷新预测 + 推送通知"""
+    def _on_training_completed(self, mode="训练", count=0, detail="", trained_ids=None):
+        """训练/微调完成后自动刷新预测 + 推送通知 + 更新权重"""
+        # 1. 推送通知
         try:
-            # 1. 推送通知
             from core.notification import notification_manager
 
             now_str = datetime.now().strftime("%H:%M")
@@ -890,11 +889,29 @@ class BilibiliMonitorGUI:
         except Exception as e:
             logger.debug("训练推送异常: %s", e)
 
-        # 2. 后台重新预测所有视频
+        # 2. 更新训练完成算法的权重（提升置信度）
+        if trained_ids:
+            try:
+                self._update_trained_weights(trained_ids)
+            except Exception as e:
+                logger.debug("更新训练算法权重失败: %s", e)
+
+        # 3. 后台重新预测所有视频
         try:
             threading.Thread(target=self._run_post_training_predict, daemon=True).start()
         except Exception as e:
             logger.debug("启动训练后预测失败: %s", e)
+
+    def _update_trained_weights(self, algo_ids):
+        """训练完成后提升算法 ML 权重"""
+        from algorithms.registry import AlgorithmRegistry
+        from ui.helpers import load_algo_confidence
+
+        for algo_id in algo_ids:
+            conf = load_algo_confidence(algo_id)
+            accuracy = max(0.5, conf)  # 训练后至少 0.5，避免拉低加权
+            AlgorithmRegistry.update_accuracy(algo_id, 1.0, accuracy)
+        logger.info("已更新 %d 个训练完成算法的权重", len(algo_ids))
 
     def _run_post_training_predict(self):
         """后台重跑所有监控视频的预测"""
@@ -914,14 +931,25 @@ class BilibiliMonitorGUI:
                 logger.debug("训练后预测 %s 失败: %s", bvid, e)
         trained = sum(1 for _ in self.monitored_videos)
         self.root.after(0, lambda: self._sb("status", f"训练后预测完成 ({trained} 个视频)", C["success"]))
-        # 若当前有选中视频，刷新其界面
-        if self.selected_bvid and self.selected_bvid in self.prediction_results:
-            r = self.prediction_results[self.selected_bvid]
-            self.root.after(0, lambda: self._prediction_done(
-                r["prediction"], r["current_view"], r["growth"],
-                r["rate_per_sec"], r.get("success_list", []),
-                r.get("fail_list", []), r["valid"], r["total"],
-            ))
+        # 若当前有选中视频，刷新其预测面板 + 图表
+        if self.selected_bvid:
+            if self.selected_bvid in self.prediction_results:
+                r = self.prediction_results[self.selected_bvid]
+                self.root.after(
+                    0,
+                    lambda: self._prediction_done(
+                        r["prediction"],
+                        r["current_view"],
+                        r["growth"],
+                        r["rate_per_sec"],
+                        r.get("success_list", []),
+                        r.get("fail_list", []),
+                        r["valid"],
+                        r["total"],
+                    ),
+                )
+            # 强制刷新图表（预测线已更新）
+            self.root.after(100, lambda: self.detail._manual_render_chart())
         logger.info("训练后预测完成 (%d 个视频)", len(bvids))
 
     def _schedule_daily_push(self):
@@ -1061,7 +1089,7 @@ class BilibiliMonitorGUI:
                 for name, pv, _, conf, ph in sorted_algos:
                     if ph > 0:
                         eta_str = fmt_eta(ph * 60)
-                        conf_pct = f"{conf*100:.0f}%" if conf > 0 else "—"
+                        conf_pct = f"{conf * 100:.0f}%" if conf > 0 else "—"
                         algo_lines.append(f"     {name}: {fmt_num(int(pv))} ({eta_str}, {conf_pct})")
 
             lines.append(f"{i}. 《{title}》")

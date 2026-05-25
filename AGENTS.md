@@ -1,85 +1,67 @@
 # AGENTS.md
 
-This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+B站视频监控与播放量预测系统 — CustomTkinter desktop app.
 
 ## Commands
 
 ```bash
-# Run the application
-python main.py
+# Run
+python main.py                          # direct
+python run.py                           # conda env check + algorithm init
 
-# Or with environment checks
-python run.py
+# Install (order matters!)
+python install_torch.py                 # MUST run first (auto-detects CUDA)
+pip install -r requirements.txt         # then install everything else
 
-# Lint & format
+# Lint & format (run before commit)
 black --line-length=120 .
 flake8 .
 mypy core/ algorithms/base.py ui/ utils/ || true
 bandit -r . -c pyproject.toml -ll
 radon cc -a .
-
-# Pre-commit hooks
 pre-commit run --all-files
 
-# Install dependencies
-pip install -r requirements.txt
+# Test
+python -m pytest tests/ -v                          # 68 unit tests
 ```
 
-## Architecture Overview
+## Architecture
 
-B站视频监控与播放量预测系统 — a Tkinter desktop app for monitoring Bilibili videos and predicting view counts using 55 algorithms.
+- **83 prediction algorithms** (auto-discovered from `algorithms/models/` — just drop a `.py` with a class ending in `Algorithm` that inherits `BaseAlgorithm`, no registration needed)
+- **Entry point**: `ui/main_gui.py:BilibiliMonitorGUI`. `main.py` imports `from ui import main` and calls `main()`.
+- **Database**: `core/database/` is a package (not a single file). Per-video SQLite at `data/<BV>/<BV>.db`, central DB at `data/bilibili_monitor.db`. `Database.sync_from_video_db()` consolidates upward.
+- **Per-video worker threads** in `monitor_service.py`: one thread per video, independent fetch intervals.
+- **412 mitigation** in `bilibili_api.py`: exponential backoff, UA/proxy rotation, WBI signing, cookie persistence.
+- **Weighted ensemble**: `AlgorithmRegistry.predict_all()` runs all algorithms, weights by ML-adjusted confidence, produces `_weighted` result.
+- **Conda env**: `bilibili` or `bili` (run.py checks for both). `start.bat` uses `bili`.
+- **Settings**: All config in `settings_window.py` (not scattered). Stored as `data/settings.json` + `data/network_config.json`.
 
-### Module Layout
+## Known Bugs (DO NOT REINTRODUCE)
 
-```
-main.py / run.py           — Entry points (run.py checks conda env + inits algorithms)
-├── algorithms/             — Prediction engine (55 algorithms)
-│   ├── base.py             — BaseAlgorithm: predict(video_data, threshold)->PredictionResult
-│   ├── model_adapter.py    — ModelAlgorithmAdapter: bridges models/ algorithms to registry
-│   ├── registry.py         — AlgorithmRegistry: auto-scans models/ dir, trains weighted ensemble
-│   ├── weight_manager.py   — WeightManager: ML-driven per-algorithm weight adjustment
-│   ├── online_learner.py   — Online learning module (Hedge algorithm)
-│   ├── causal_inference.py — Causal analysis
-│   ├── graph_neural.py     — Graph neural network for video relationships
-│   └── models/             — Algorithm implementations by category
-│       ├── simple/         — Linear velocity, weighted velocity
-│       ├── growth/         — Logistic, Gompertz, Richards, Weibull, Bass diffusion, power law
-│       ├── time_series/    — ARIMA, exponential smoothing, Holt-Winters, seasonal decomposition
-│       ├── statistical/    — SVR, random forest, Gaussian process, Bayesian regression
-│       ├── ensemble/       — Voting, stacking, weighted, gradient boost, XGBoost, CatBoost
-│       ├── deep_learning/  — MLP, LSTM, neural network, attention, N-BEATS, TFT, Informer, DLinear, PatchTST
-│       └── advanced/       — Kalman filter, change point detection, viral potential, quality score
-├── core/
-│   ├── database.py         — SQLite: per-video DB (data/<BV>/<BV>.db) + central DB (data/bilibili_monitor.db)
-│   ├── bilibili_api.py     — Bilibili API wrapper with 412 retry, proxy rotation, UA rotation
-│   └── notification.py     — Windows toast + QQ Bot (OneBot protocol) notifications
-├── ui/                     — Tkinter GUI panels
-│   ├── main_gui.py         — Main window, 3-column layout controller
-│   ├── monitor_service.py  — Business logic: per-video worker threads for independent data fetching
-│   ├── theme.py            — Dark/light theme system with design tokens
-│   ├── chart.py            — Canvas-based trend chart with threshold lines
-│   ├── video_list_panel.py — Left sidebar: video cards
-│   ├── detail_panel.py     — Center: video details + chart
-│   ├── prediction_panel.py — Right: prediction results
-│   └── ...                 — dialogs, comparison, milestones, search, settings, etc.
-├── config/                 — Settings (JSON) load/save with defaults
-└── utils/                  — File logger (time-split log rotation)
-```
+See `CODE_REVIEW.md` for full report. Critical ones:
 
-### Key Design Decisions
+| File | Issue | Fix |
+|------|-------|-----|
+| `core/database/video_db.py:408` | `record.bvid` → `prediction.bvid` | Unused variable in exception handler, causes `NameError` on write failure |
+| `core/bilibili_api.py:645` | Calls `_apply_request_interval()` (doesn't exist) → `_ensure_min_interval()` | `get_video_comments` always fails with `AttributeError` |
+| `core/central_db.py:194` | `VideoDatabase` never closed after sync | Connection leak: ~11k/day per video |
+| `monitor_service.py:161-162` | Online learning compares *previous* prediction vs *current* actual | Inflates accuracy of high-frequency algorithms |
 
-1. **Single algorithm base class**: All algorithms inherit from `BaseAlgorithm` in `algorithms/base.py` with `predict(video_data, threshold) -> PredictionResult`. `ModelAlgorithmAdapter` bridges the two historic interfaces for the `AlgorithmRegistry`.
+## Category Labels (for new algorithms)
 
-2. **Algorithm registration**: `AlgorithmRegistry` auto-discovers models by scanning the `models/` directory tree at import time. New algorithms just need to be a `.py` file with a class ending in `Algorithm` that inherits from `BaseAlgorithm` — no manual registration needed.
+Use `category` class attribute: "速度类", "时间衰减", "扩散模型", "时间序列", "统计模型", "集成学习", "深度学习", "高级分析", "基础", "其他".
 
-3. **Per-video worker threads**: `monitor_service.py` spawns one thread per monitored video. Each thread independently manages its fetch interval, so slow API responses for one video don't block others.
+## PyInstaller Build
 
-4. **Database split**: Each video gets its own SQLite DB at `data/<BV>/<BV>.db` with monitor records, predictions, weekly/yearly scores. A central `data/bilibili_monitor.db` mirrors summaries and stores milestones. `Database.sync_from_video_db()` consolidates per-video data upward.
+- `BiliMonitor.spec` in root; CI builds on `releases` branch via `.github/workflows/build-exe.yml`
+- Hidden imports required: `plyer.platforms.win.notification`, `PIL._tkinter_finder`, `pandas`, `sklearn`, `scipy`, `statsmodels`, `xgboost`, `lightgbm`, `prophet`
 
-5. **412 error mitigation**: `BilibiliAPI` implements exponential backoff, User-Agent rotation, proxy rotation, and request interval throttling to handle Bilibili's rate limiting.
+## CI
 
-6. **Weighted ensemble prediction**: `AlgorithmRegistry.predict_all()` runs every algorithm, weights results by ML-adjusted confidence, and produces a `_weighted` ensemble prediction.
+`code-quality.yml` runs on push/PR to `main`/`develop`: black --check, flake8, mypy (allow failure), bandit, radon cc.
 
-### Algorithm Category Labels
+## Environment
 
-When adding algorithms to `models/<category>/`, use the `category` class attribute to group them. Existing categories: "速度类", "时间衰减", "扩散模型", "时间序列", "统计模型", "集成学习", "深度学习", "高级分析", "基础", "其他".
+- Python 3.10+, Windows 10/11 recommended
+- Torch NOT in requirements.txt — run `install_torch.py` first (auto-detects CUDA version or falls back to CPU)
+- Prophet is optional (known to fail on Windows; `pip install -r requirements.txt --ignore-installed prophet` to skip)

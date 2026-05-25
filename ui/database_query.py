@@ -201,9 +201,9 @@ class DatabaseQueryWindow:
 
         res_label = tk.Frame(container, bg=C["bg_base"])
         res_label.pack(fill=tk.X)
-        tk.Label(res_label, text="查询结果", bg=C["bg_base"], fg=C["text_2"], font=("Microsoft YaHei UI", 8, "bold")).pack(
-            side=tk.LEFT
-        )
+        tk.Label(
+            res_label, text="查询结果", bg=C["bg_base"], fg=C["text_2"], font=("Microsoft YaHei UI", 8, "bold")
+        ).pack(side=tk.LEFT)
         self.status_var = tk.StringVar(value="就绪")
         tk.Label(res_label, textvariable=self.status_var, bg=C["bg_base"], fg=C["text_3"], font=FONT_SM).pack(
             side=tk.RIGHT
@@ -356,33 +356,39 @@ class DatabaseQueryWindow:
                 side=tk.LEFT, padx=8
             )
         elif mode == "播放首次大于X":
-            tk.Label(self.param_frame, text="播放量X:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT).pack(side=tk.LEFT)
+            tk.Label(self.param_frame, text="播放量X:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT).pack(
+                side=tk.LEFT
+            )
             self.param_var = tk.StringVar(value="10000")
             ttk.Entry(self.param_frame, textvariable=self.param_var, width=15, font=FONT).pack(
                 side=tk.LEFT, padx=(4, 0)
             )
-            tk.Label(self.param_frame, text="(每视频首次超过X的记录)", bg=C["bg_elevated"], fg=C["text_3"], font=FONT_SM).pack(
-                side=tk.LEFT, padx=8
-            )
+            tk.Label(
+                self.param_frame, text="(每视频首次超过X的记录)", bg=C["bg_elevated"], fg=C["text_3"], font=FONT_SM
+            ).pack(side=tk.LEFT, padx=8)
         elif mode == "播放量大于X":
-            tk.Label(self.param_frame, text="播放量X:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT).pack(side=tk.LEFT)
+            tk.Label(self.param_frame, text="播放量X:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT).pack(
+                side=tk.LEFT
+            )
             self.param_var = tk.StringVar(value="10000")
             ttk.Entry(self.param_frame, textvariable=self.param_var, width=15, font=FONT).pack(
                 side=tk.LEFT, padx=(4, 0)
             )
-            tk.Label(self.param_frame, text="(所有播放量超过X的记录)", bg=C["bg_elevated"], fg=C["text_3"], font=FONT_SM).pack(
-                side=tk.LEFT, padx=8
-            )
+            tk.Label(
+                self.param_frame, text="(所有播放量超过X的记录)", bg=C["bg_elevated"], fg=C["text_3"], font=FONT_SM
+            ).pack(side=tk.LEFT, padx=8)
         elif mode == "播放趋势":
-            tk.Label(self.param_frame, text="选择视频:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT).pack(side=tk.LEFT)
+            tk.Label(self.param_frame, text="选择视频:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT).pack(
+                side=tk.LEFT
+            )
             self.video_combo = ttk.Combobox(
                 self.param_frame, textvariable=self.video_combo_var, state="readonly", width=30, font=FONT
             )
             self.video_combo.pack(side=tk.LEFT, padx=(4, 0))
         elif mode == "全量数据":
-            tk.Label(self.param_frame, text="(将导出所有监控记录数据)", bg=C["bg_elevated"], fg=C["text_3"], font=FONT_SM).pack(
-                side=tk.LEFT
-            )
+            tk.Label(
+                self.param_frame, text="(将导出所有监控记录数据)", bg=C["bg_elevated"], fg=C["text_3"], font=FONT_SM
+            ).pack(side=tk.LEFT)
 
     def load_videos_list(self):
         if not os.path.exists(self.db_path):
@@ -471,14 +477,10 @@ class DatabaseQueryWindow:
             cur.execute("SELECT * FROM monitor_records ORDER BY timestamp DESC LIMIT ?", (limit,))
         elif mode == "播放首次大于X":
             thr = int(getattr(self, "param_var", None) and self.param_var.get() or 10000)
-            cur.execute(
-                "SELECT * FROM monitor_records WHERE view_count > ? ORDER BY timestamp ASC LIMIT 1", (thr,)
-            )
+            cur.execute("SELECT * FROM monitor_records WHERE view_count > ? ORDER BY timestamp ASC LIMIT 1", (thr,))
         elif mode == "播放量大于X":
             thr = int(getattr(self, "param_var", None) and self.param_var.get() or 10000)
-            cur.execute(
-                "SELECT * FROM monitor_records WHERE view_count > ? ORDER BY timestamp DESC", (thr,)
-            )
+            cur.execute("SELECT * FROM monitor_records WHERE view_count > ? ORDER BY timestamp DESC", (thr,))
         elif mode == "播放趋势":
             cur.execute("SELECT * FROM monitor_records ORDER BY timestamp ASC")
         elif mode == "全量数据":
@@ -495,6 +497,7 @@ class DatabaseQueryWindow:
         if ok:
             self.status_var.set("查询中央数据库…")
             import threading
+
             threading.Thread(
                 target=self._run_fallback_query,
                 args=(mode, filter_bvid, bvid_for_trend),
@@ -513,10 +516,14 @@ class DatabaseQueryWindow:
             raw_rows = self._run_query(cur, mode, filter_bvid, bvid_for_trend)
             conn.close()
         except Exception as e:
-            self.window.after(0, lambda: (
-                messagebox.showerror("错误", f"中央库查询失败: {e}", parent=self.window),
-                self._reset_query_state(),
-            ))
+            err_msg = str(e)
+            self.window.after(
+                0,
+                lambda err_msg=err_msg: (
+                    messagebox.showerror("错误", f"中央库查询失败: {err_msg}", parent=self.window),
+                    self._reset_query_state(),
+                ),
+            )
             return
 
         self.window.after(0, lambda: self.status_var.set(f"中央库查到 {len(raw_rows)} 条，加载关联数据…"))
@@ -524,7 +531,8 @@ class DatabaseQueryWindow:
             extra_list, anames = self._load_query_extra_data(raw_rows)
         except Exception as e:
             logger.exception("加载关联数据失败")
-            self.window.after(0, lambda: self.status_var.set(f"加载关联数据失败: {e}"))
+            err_msg = str(e)
+            self.window.after(0, lambda err_msg=err_msg: self.status_var.set(f"加载关联数据失败: {err_msg}"))
             self.window.after(0, self._reset_query_state)
             return
         self._query_source_bvid = None
@@ -543,9 +551,12 @@ class DatabaseQueryWindow:
         if target_bvid:
             try:
                 raw_rows = self._query_video_db(target_bvid, mode)
-                self.window.after(0, lambda: self.status_var.set(
-                    f"视频独立库查到 {len(raw_rows)} 条" if raw_rows else "视频独立库无匹配记录"
-                ))
+                self.window.after(
+                    0,
+                    lambda: self.status_var.set(
+                        f"视频独立库查到 {len(raw_rows)} 条" if raw_rows else "视频独立库无匹配记录"
+                    ),
+                )
                 if raw_rows:
                     total = len(raw_rows)
                     self.window.after(0, lambda: self.status_var.set(f"查询到 {total} 条，加载关联数据…"))
@@ -553,7 +564,10 @@ class DatabaseQueryWindow:
                         extra_list, anames = self._load_query_extra_data(raw_rows)
                     except Exception as e:
                         logger.exception("加载关联数据失败")
-                        self.window.after(0, lambda: self.status_var.set(f"加载关联数据失败: {e}"))
+                        err_msg = str(e)
+                        self.window.after(
+                            0, lambda err_msg=err_msg: self.status_var.set(f"加载关联数据失败: {err_msg}")
+                        )
                         self.window.after(0, self._reset_query_state)
                         return
                     self._query_source_bvid = target_bvid
@@ -564,7 +578,8 @@ class DatabaseQueryWindow:
                 return
             except Exception as e:
                 logger.exception("视频独立库查询失败")
-                self.window.after(0, lambda: self.status_var.set(f"视频库查询失败: {e}"))
+                err_msg = str(e)
+                self.window.after(0, lambda err_msg=err_msg: self.status_var.set(f"视频库查询失败: {err_msg}"))
                 self.window.after(0, self._reset_query_state)
                 return
 
@@ -597,7 +612,8 @@ class DatabaseQueryWindow:
             extra_list, anames = self._load_query_extra_data(raw_rows)
         except Exception as e:
             logger.exception("加载关联数据失败")
-            self.window.after(0, lambda: self.status_var.set(f"加载关联数据失败: {e}"))
+            err_msg = str(e)
+            self.window.after(0, lambda err_msg=err_msg: self.status_var.set(f"加载关联数据失败: {err_msg}"))
             self.window.after(0, self._reset_query_state)
             return
         self._query_source_bvid = None

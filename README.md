@@ -212,8 +212,18 @@ conda activate bilibili
 # 确保 pip 为最新
 pip install --upgrade pip
 
-# 安装项目依赖
+# 安装项目依赖（不含 PyTorch）
 pip install -r requirements.txt
+
+# 安装 PyTorch（三选一）
+# 选项 A: CPU 版（通用，最小，推荐首次使用）
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+
+# 选项 B: CUDA 版（需 NVIDIA GPU）
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+
+# 选项 C: DirectML 版（Intel NPU/GPU, Windows）
+pip install torch-directml --pre
 ```
 
 如果安装 `prophet` 失败（Windows 上常见），它是可选的，可以跳过：
@@ -376,7 +386,8 @@ socks5://127.0.0.1:1080
 | 数据库 | SQLite3（按视频分库 + 中央库） |
 | 数据处理 | pandas, numpy, scipy |
 | 机器学习 | scikit-learn, xgboost, lightgbm, catboost, statsmodels |
-| 深度学习 | PyTorch, HuggingFace Transformers, uni2ts |
+| 深度学习 | PyTorch 2.5+, HuggingFace Transformers, uni2ts |
+| 推理加速 | CUDA (NVIDIA GPU) / DirectML (Intel NPU/GPU, Windows) / XPU (Intel GPU, Linux) | 推理加速，自动检测 |
 | 时间序列 | statsmodels, Prophet |
 | 推送 | plyer（Windows）, websockets（QQ Bot/OneBot） |
 | LLM | OpenAI / DeepSeek / Claude / SiliconFlow API |
@@ -569,6 +580,16 @@ black --line-length=120 . && flake8 . && bandit -r . -c pyproject.toml -ll
 
 ### 关键模块说明
 
+### 关键模块说明
+
+#### algorithms/training/ — 训练与推理加速
+
+- **device.py**: 自动检测可用设备，优先级 `cuda > DirectML (Intel NPU) > XPU (IPEX) > MPS > CPU`，含冒烟测试确保硬件实际可用
+- **trainer.py**: 统一训练编排器，支持全局预训练与视频微调
+- **dataset.py**: 时序数据集构造
+- **checkpoint_manager.py**: 多版本 Checkpoint 管理
+- **hf_loader.py**: HuggingFace 模型加载器
+
 #### algorithms/ — 预测引擎
 
 - **registry.py**: `AlgorithmRegistry` 是核心入口，提供 `predict_all()` 执行所有算法并生成加权集成结果
@@ -706,7 +727,7 @@ for name in AlgorithmRegistry.get_algorithm_names():
 | **主题切换** | 深色/亮色主题动态切换（主题 token 已定义，切换入口已移除） | 待恢复 |
 | **定时报告自动推送** | 每日 23:50 自动推送日报，含今日增量、年刊分数、预测数据 | 已实现 |
 | **模型批量导出/导入** | 支持一键导出所有算法 checkpoint 和训练配置，跨机器迁移 | 未实现 |
-| **训练完成后自动回调** | 训练完成后自动刷新预测面板、推送通知、更新权重 | 未实现 |
+| **训练完成后自动回调** | 训练完成后自动刷新预测面板、推送通知、更新权重、重绘图表 | 已实现 |
 
 ### 中优先级
 
@@ -726,6 +747,7 @@ for name in AlgorithmRegistry.get_algorithm_names():
 | **插件系统** | 允许第三方算法和 UI 组件以插件形式加载，无需修改核心代码 | 探索中 |
 | **分布式监控** | 多机协作监控，避免单 IP 请求频率限制 | 探索中 |
 | **ONNX Runtime 推理** | 将 PyTorch 模型导出为 ONNX，加速 CPU 推理 | 探索中 |
+| **DirectML 推理加速** | 通过 DirectML 在 Intel NPU/GPU 上运行 PyTorch 模型推理 | 已支持 |
 | **实时 WebSocket 推送** | 播放量突破阈值时通过 WebSocket 实时推送到浏览器 | 未实现 |
 | **算法可视化比较** | 并排对比多个算法的历史预测准确率和误差分布 | 未实现 |
 

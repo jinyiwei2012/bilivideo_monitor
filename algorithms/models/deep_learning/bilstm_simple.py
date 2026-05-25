@@ -5,7 +5,7 @@ BiLSTM双向长短期记忆预测
 
 import math
 import numpy as np
-from typing import Dict, Any
+from typing import Dict
 from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
 from algorithms.models.deep_learning._torch_upgrade import BiLSTMTorchModel, try_torch_predict

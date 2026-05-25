@@ -17,7 +17,9 @@ def draw_chart_placeholder(canvas, text=None):
     canvas.delete("all")
     w = canvas.winfo_width() or 600
     h = canvas.winfo_height() or 300
-    canvas.create_text(w // 2, h // 2, text=text or "选择视频后显示播放量趋势图", fill=C["text_3"], font=("Microsoft YaHei UI", 11))
+    canvas.create_text(
+        w // 2, h // 2, text=text or "选择视频后显示播放量趋势图", fill=C["text_3"], font=("Microsoft YaHei UI", 11)
+    )
 
 
 def compute_chart_scale(views_list, history, ML, MR, MT, cw, ch):
@@ -78,12 +80,10 @@ def draw_chart_series(c, history, px, py, ML, MT, W, MR, ch, views_list, max_poi
 def _draw_projection(c, start_x, start_y, end_x, end_y, pred_val=0, is_step=False, base_v=0, raw_pred=0):
     """绘制预测虚拟点：虚线连接线 + 标准圆点 + 预测标签"""
     # 虚线连接线（从最后一个实际点到预测点）
-    c.create_line(start_x, start_y, end_x, end_y,
-                  fill=_PRED_COLOR, width=2, dash=(4, 4), capstyle="round")
+    c.create_line(start_x, start_y, end_x, end_y, fill=_PRED_COLOR, width=2, dash=(4, 4), capstyle="round")
 
     # 标准圆点（和实际数据点一致：r=4，白色描边 width=2）
-    c.create_oval(end_x - 4, end_y - 4, end_x + 4, end_y + 4,
-                  fill=_PRED_COLOR, outline="#ffffff", width=2)
+    c.create_oval(end_x - 4, end_y - 4, end_x + 4, end_y + 4, fill=_PRED_COLOR, outline="#ffffff", width=2)
 
     # 预测标签（悬浮在圆点上方）
     if is_step:
@@ -91,8 +91,7 @@ def _draw_projection(c, start_x, start_y, end_x, end_y, pred_val=0, is_step=Fals
         label = f"预测 {sign}{fmt_num(int(pred_val))}"
     else:
         label = f"预测 {fmt_num(int(pred_val))}" if base_v else f"预测 {fmt_num(raw_pred)}"
-    c.create_text(end_x, end_y - 14, text=label, anchor="s",
-                  fill=_PRED_COLOR, font=("Consolas", 8, "bold"))
+    c.create_text(end_x, end_y - 14, text=label, anchor="s", fill=_PRED_COLOR, font=("Consolas", 8, "bold"))
 
 
 def draw_chart_annotations(c, history, views_list, px, py, W, H, ML, MR, MB, base_v=0, prediction=None):
@@ -114,8 +113,7 @@ def draw_chart_annotations(c, history, views_list, px, py, W, H, ML, MR, MB, bas
             spacing = (W - ML - MR) / (len(history) - 1) if len(history) > 1 else 30
             proj_x = min(last_x + spacing, W - MR - 10)
             proj_y = py(pred_val)
-            _draw_projection(c, last_x, last_y, proj_x, proj_y, pred_val,
-                             is_step=False, base_v=base_v, raw_pred=w_pred)
+            _draw_projection(c, last_x, last_y, proj_x, proj_y, pred_val, is_step=False, base_v=base_v, raw_pred=w_pred)
 
     # ── X 轴时间标签 ────────────────────
     step = max(1, len(history) // 6)
@@ -227,7 +225,9 @@ def draw_chart(canvas, history_data, bvid, video, FONT, mode="step", max_points=
         font=("Consolas", 8),
     )
     if base_v:
-        c.create_text(W - MR - 2, 24, text=f"起始 {fmt_num(base_v)}", anchor="e", fill=C["text_3"], font=("Consolas", 7))
+        c.create_text(
+            W - MR - 2, 24, text=f"起始 {fmt_num(base_v)}", anchor="e", fill=C["text_3"], font=("Consolas", 7)
+        )
 
 
 def _step_compute_scale(values, ch, MT):
@@ -292,8 +292,7 @@ def _step_draw_series(c, deltas, values, px, py, W, H, MR, MB, ML, pred_delta=No
         spacing = (W - ML - MR) / (len(deltas) - 1) if len(deltas) > 1 else 30
         proj_x = min(lx + spacing, W - MR - 10)
         proj_y = py(pred_delta)
-        _draw_projection(c, lx, ly, proj_x, proj_y, pred_delta,
-                         is_step=True)
+        _draw_projection(c, lx, ly, proj_x, proj_y, pred_delta, is_step=True)
 
     step = max(1, len(deltas) // 6)
     for i, (ts, _) in enumerate(deltas):

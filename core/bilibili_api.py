@@ -350,7 +350,7 @@ class BilibiliAPI:
             logger.debug(f"公共API请求失败: {e}")
             return None
         finally:
-            public_session.close()
+            self._public_session.close()
         return None
 
     def _get_retry_delay(self, attempt: int) -> float:

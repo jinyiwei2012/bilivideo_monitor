@@ -131,7 +131,7 @@ class CheckpointManager:
             logger.warning("[%s] checkpoint 不存在: %s", self.algo_id, path)
             return None
         try:
-            return torch.load(path, map_location="cpu", weights_only=False)
+            return torch.load(path, map_location="cpu", weights_only=True)
         except Exception as e:
             logger.error("[%s] 加载 checkpoint 失败: %s", self.algo_id, e)
             return None

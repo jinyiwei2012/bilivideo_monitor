@@ -29,9 +29,9 @@ class SettingsWindow:
 
     def __init__(self, parent=None):
         # 自适应对话框尺寸
-        self.dlg = DialogBase(parent, "系统设置",
-                              DialogBase.calc_geometry(parent, 0.48, 0.68),
-                              resizable=(True, True), modal=False)
+        self.dlg = DialogBase(
+            parent, "系统设置", DialogBase.calc_geometry(parent, 0.48, 0.68), resizable=(True, True), modal=False
+        )
         self.window = self.dlg.window
 
         from config import load_config
@@ -173,8 +173,14 @@ class SettingsWindow:
 
         # ── 自定义阈值 ──
         th_sec = self._section(page, "播放量阈值", padding=(16, 8, 12))
-        tk.Label(th_sec, text="每个阈值代表一个里程碑，达到时触发推送提醒",
-                 bg=C["bg_elevated"], fg=C["text_3"], font=FONT_SM, anchor="w").pack(fill=tk.X, pady=(0, 6))
+        tk.Label(
+            th_sec,
+            text="每个阈值代表一个里程碑，达到时触发推送提醒",
+            bg=C["bg_elevated"],
+            fg=C["text_3"],
+            font=FONT_SM,
+            anchor="w",
+        ).pack(fill=tk.X, pady=(0, 6))
 
         # 阈值列表容器
         th_list_frame = tk.Frame(th_sec, bg=C["bg_elevated"])
@@ -187,7 +193,11 @@ class SettingsWindow:
         if raw and isinstance(raw[0], (list, tuple)):
             th_data = [(int(v), str(n)) for v, n in raw]
         else:
-            th_data = [(int(v), auto_threshold_name(v)) for v in raw] if raw else [(100000, "10万"), (1000000, "100万"), (10000000, "1000万")]
+            th_data = (
+                [(int(v), auto_threshold_name(v)) for v in raw]
+                if raw
+                else [(100000, "10万"), (1000000, "100万"), (10000000, "1000万")]
+            )
 
         for v, n in sorted(th_data, key=lambda x: x[0]):
             self._add_threshold_row(th_list_frame, v, n)
@@ -213,8 +223,9 @@ class SettingsWindow:
         n_entry = ttk.Entry(row, textvariable=n_var, width=12, font=FONT_SM)
         n_entry.pack(side=tk.LEFT, padx=(2, 8))
 
-        del_btn = tk.Label(row, text="✕", bg=C["bg_elevated"], fg=C["danger"],
-                           font=("Segoe UI", 10, "bold"), cursor="hand2")
+        del_btn = tk.Label(
+            row, text="✕", bg=C["bg_elevated"], fg=C["danger"], font=("Segoe UI", 10, "bold"), cursor="hand2"
+        )
         del_btn.pack(side=tk.LEFT, padx=2)
         del_btn.bind("<Button-1>", lambda e: (row.destroy(), self._thresh_rows.remove((v_var, n_var, row))))
 
@@ -271,9 +282,9 @@ class SettingsWindow:
         # ── 配置详情 ──
         detail = tk.Frame(sec, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
         detail.pack(fill=tk.X, pady=4, ipadx=10, ipady=10)
-        tk.Label(detail, text="配置详情", bg=C["bg_elevated"], fg=C["text_2"], font=("Microsoft YaHei UI", 8, "bold")).pack(
-            anchor="w", pady=(0, 6)
-        )
+        tk.Label(
+            detail, text="配置详情", bg=C["bg_elevated"], fg=C["text_2"], font=("Microsoft YaHei UI", 8, "bold")
+        ).pack(anchor="w", pady=(0, 6))
 
         def _field_wrapper(parent, label):
             f = tk.Frame(parent, bg=C["bg_elevated"])
@@ -595,7 +606,9 @@ class SettingsWindow:
 
         btn_row = tk.Frame(ctrl_sec, bg=C["bg_elevated"])
         btn_row.pack(fill=tk.X, pady=(2, 4))
-        self._tr_train_btn = ttk.Button(btn_row, text="▶ 训练所有勾选", command=self._on_train_start, style="Primary.TButton")
+        self._tr_train_btn = ttk.Button(
+            btn_row, text="▶ 训练所有勾选", command=self._on_train_start, style="Primary.TButton"
+        )
         self._tr_train_btn.pack(side=tk.LEFT, padx=(0, 6))
         self._tr_cancel_btn = ttk.Button(btn_row, text="✕ 取消", command=self._on_train_cancel, state="disabled")
         self._tr_cancel_btn.pack(side=tk.LEFT)
@@ -687,7 +700,10 @@ class SettingsWindow:
                 )
                 self.window.after(0, lambda: self._tr_data_lbl.config(text=txt, fg=C["text_1"]))
             except Exception as e:
-                self.window.after(0, lambda: self._tr_data_lbl.config(text=f"⚠ 估算失败: {e}", fg=C["danger"]))
+                err_msg = str(e)
+                self.window.after(
+                    0, lambda err_msg=err_msg: self._tr_data_lbl.config(text=f"⚠ 估算失败: {err_msg}", fg=C["danger"])
+                )
 
         import threading
 
@@ -753,7 +769,7 @@ class SettingsWindow:
 
             if a["has_ckpt"]:
                 status_txt = f"✅ {a['active_version'][:18]}" + (
-                    f" (+{a['version_count']-1})" if a["version_count"] > 1 else ""
+                    f" (+{a['version_count'] - 1})" if a["version_count"] > 1 else ""
                 )
                 status_fg = C["success"]
             else:
@@ -803,7 +819,8 @@ class SettingsWindow:
 
         if not messagebox.askyesno(
             "确认训练",
-            f"将训练 {len(selected)} 个算法，epoch={epochs}，batch={batch}。\n" "训练过程不可中途暂停（只能取消未开始的算法）。",
+            f"将训练 {len(selected)} 个算法，epoch={epochs}，batch={batch}。\n"
+            "训练过程不可中途暂停（只能取消未开始的算法）。",
             parent=self.window,
         ):
             return
@@ -943,7 +960,7 @@ class SettingsWindow:
         top.title(f"版本管理 — {algo_id}")
         sw = self.window.winfo_screenwidth()
         sh = self.window.winfo_screenheight()
-        top.geometry(f"{int(sw*0.40)}x{int(sh*0.45)}")
+        top.geometry(f"{int(sw * 0.40)}x{int(sh * 0.45)}")
         top.configure(bg=C["bg_surface"])
         top.transient(self.window)
         top.grab_set()
@@ -1044,7 +1061,9 @@ class SettingsWindow:
 
         sec = tk.Frame(page, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
         sec.pack(fill=tk.BOTH, expand=True, padx=16, pady=12, ipadx=10, ipady=8)
-        tk.Label(sec, text="代理列表（每行一个）", bg=C["bg_elevated"], fg=C["text_2"], font=FONT).pack(anchor="w", pady=(0, 4))
+        tk.Label(sec, text="代理列表（每行一个）", bg=C["bg_elevated"], fg=C["text_2"], font=FONT).pack(
+            anchor="w", pady=(0, 4)
+        )
 
         # 协议选择 + 快速添加行
         add_row = tk.Frame(sec, bg=C["bg_elevated"])
@@ -1091,9 +1110,9 @@ class SettingsWindow:
 
         url_row = tk.Frame(sec, bg=C["bg_elevated"])
         url_row.pack(fill=tk.X, pady=(6, 0))
-        tk.Label(url_row, text="测试地址:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM, width=8, anchor="w").pack(
-            side=tk.LEFT
-        )
+        tk.Label(
+            url_row, text="测试地址:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM, width=8, anchor="w"
+        ).pack(side=tk.LEFT)
         self._test_url_var = tk.StringVar(value="https://api.bilibili.com/x/web-interface/view?bvid=BV1GJ411x7hQ")
         url_entry = ttk.Entry(url_row, textvariable=self._test_url_var, font=FONT_SM)
         url_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 0))
@@ -1251,9 +1270,9 @@ class SettingsWindow:
         # 项目信息
         sec1 = tk.Frame(page, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
         sec1.pack(fill=tk.X, padx=16, pady=(16, 6), ipadx=10, ipady=10)
-        tk.Label(sec1, text="项目信息", bg=C["bg_elevated"], fg=C["text_2"], font=("Microsoft YaHei UI", 9, "bold")).pack(
-            anchor="w"
-        )
+        tk.Label(
+            sec1, text="项目信息", bg=C["bg_elevated"], fg=C["text_2"], font=("Microsoft YaHei UI", 9, "bold")
+        ).pack(anchor="w")
 
         rows = [
             ("项目名称", "B站视频监控与播放量预测系统"),
@@ -1271,9 +1290,9 @@ class SettingsWindow:
         # 链接
         sec2 = tk.Frame(page, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
         sec2.pack(fill=tk.X, padx=16, pady=6, ipadx=10, ipady=10)
-        tk.Label(sec2, text="相关链接", bg=C["bg_elevated"], fg=C["text_2"], font=("Microsoft YaHei UI", 9, "bold")).pack(
-            anchor="w"
-        )
+        tk.Label(
+            sec2, text="相关链接", bg=C["bg_elevated"], fg=C["text_2"], font=("Microsoft YaHei UI", 9, "bold")
+        ).pack(anchor="w")
 
         links = [
             ("GitHub", "https://github.com/jinyiwei2012/bilivideo_monitor", "项目源代码，欢迎 Star ⭐"),
@@ -1300,7 +1319,9 @@ class SettingsWindow:
             anchor="w"
         )
         desc_text = (
-            "本系统用于监控 Bilibili 视频播放量增长趋势，" "支持 55 种预测算法、多阈值告警、QQ 机器人通知等功能。\n\n" "如果您觉得本项目对您有帮助，欢迎在 GitHub 上给项目点一个 Star！"
+            "本系统用于监控 Bilibili 视频播放量增长趋势，"
+            "支持 55 种预测算法、多阈值告警、QQ 机器人通知等功能。\n\n"
+            "如果您觉得本项目对您有帮助，欢迎在 GitHub 上给项目点一个 Star！"
         )
         tk.Label(
             sec3,
@@ -1462,7 +1483,7 @@ class SettingsWindow:
         top.title("批量导入代理")
         sw = self.window.winfo_screenwidth()
         sh = self.window.winfo_screenheight()
-        top.geometry(f"{int(sw*0.35)}x{int(sh*0.45)}")
+        top.geometry(f"{int(sw * 0.35)}x{int(sh * 0.45)}")
         top.configure(bg=C["bg_surface"])
         top.transient(self.window)
         top.grab_set()
@@ -1561,12 +1582,15 @@ class SettingsWindow:
                 lambda: messagebox.showinfo(
                     "导入完成",
                     f"成功导入 {total_count} 条代理\n"
-                    f"当前代理列表共 {len(all_lines)} 条" + (f"\n（其中 {dup_count} 条重复已去重）" if dup_count else ""),
+                    f"当前代理列表共 {len(all_lines)} 条"
+                    + (f"\n（其中 {dup_count} 条重复已去重）" if dup_count else ""),
                     parent=top,
                 ),
             )
 
-        ttk.Button(btn_f, text="导入并追加", command=_do_import, style="Primary.TButton").pack(side=tk.RIGHT, padx=(4, 0))
+        ttk.Button(btn_f, text="导入并追加", command=_do_import, style="Primary.TButton").pack(
+            side=tk.RIGHT, padx=(4, 0)
+        )
         ttk.Button(btn_f, text="取消", command=top.destroy).pack(side=tk.RIGHT, padx=4)
 
     def _apply_proxies(self):
@@ -1824,7 +1848,7 @@ class SettingsWindow:
         top.title("导入 Cookie-Editor JSON")
         sw = self.window.winfo_screenwidth()
         sh = self.window.winfo_screenheight()
-        top.geometry(f"{int(sw*0.36)}x{int(sh*0.42)}")
+        top.geometry(f"{int(sw * 0.36)}x{int(sh * 0.42)}")
         top.configure(bg=C["bg_surface"])
         top.transient(self.window)
         top.grab_set()
@@ -1914,7 +1938,7 @@ class SettingsWindow:
         qr_top.title("扫码登录 B站")
         sw = self.window.winfo_screenwidth()
         sh = self.window.winfo_screenheight()
-        qr_top.geometry(f"{int(sw*0.28)}x{int(sh*0.45)}")
+        qr_top.geometry(f"{int(sw * 0.28)}x{int(sh * 0.45)}")
         qr_top.configure(bg=C["bg_surface"])
         qr_top.transient(self.window)
         qr_top.grab_set()
@@ -1970,9 +1994,9 @@ class SettingsWindow:
                 return
             elif result.get("status") == -1:
                 status_lbl.config(fg=C["danger"])
-                ttk.Button(qr_top, text="重新生成二维码", command=lambda: [qr_top.destroy(), self._qrcode_login()]).pack(
-                    pady=4
-                )
+                ttk.Button(
+                    qr_top, text="重新生成二维码", command=lambda: [qr_top.destroy(), self._qrcode_login()]
+                ).pack(pady=4)
                 return
             qr_top.after(1500, _poll)
 
@@ -2098,11 +2122,13 @@ class SettingsWindow:
 
         # 立即生效通知配置（无需重启）
         from core.notification import notification_manager
+
         notification_manager.configure(self._cfg)
 
         # 立即生效阈值变更（无需重启）
         try:
             from ui.helpers import reload_thresholds
+
             reload_thresholds()
         except Exception:
             pass

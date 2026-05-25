@@ -4,7 +4,7 @@ GRU简化预测算法
 """
 
 from datetime import datetime
-from typing import Dict, Any
+
 import math
 from algorithms.base import BaseAlgorithm, PredictionResult
 from algorithms.models.deep_learning._torch_upgrade import GRUTorchModel, try_torch_predict

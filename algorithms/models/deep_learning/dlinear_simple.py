@@ -5,7 +5,7 @@ DLinear简化版 (DLinear Simplified)
 
 import numpy as np
 import logging
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional
 from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
 from algorithms.models.deep_learning._torch_upgrade import DLinearTorchModel, try_torch_predict

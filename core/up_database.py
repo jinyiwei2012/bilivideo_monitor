@@ -28,8 +28,7 @@ class UpDatabase:
         conn = self._get_conn()
         try:
             c = conn.cursor()
-            c.execute(
-                """
+            c.execute("""
                 CREATE TABLE IF NOT EXISTS up_info (
                     uid           INTEGER PRIMARY KEY,
                     name          TEXT NOT NULL DEFAULT '',
@@ -44,10 +43,8 @@ class UpDatabase:
                     created_at    TEXT DEFAULT (datetime('now','localtime')),
                     updated_at    TEXT DEFAULT (datetime('now','localtime'))
                 )
-            """
-            )
-            c.execute(
-                """
+            """)
+            c.execute("""
                 CREATE TABLE IF NOT EXISTS up_history (
                     id            INTEGER PRIMARY KEY AUTOINCREMENT,
                     uid           INTEGER NOT NULL,
@@ -56,14 +53,11 @@ class UpDatabase:
                     video_count   INTEGER DEFAULT 0,
                     total_views   INTEGER DEFAULT 0
                 )
-            """
-            )
-            c.execute(
-                """
+            """)
+            c.execute("""
                 CREATE INDEX IF NOT EXISTS idx_up_history_uid
                 ON up_history(uid)
-            """
-            )
+            """)
             conn.commit()
         finally:
             conn.close()

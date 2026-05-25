@@ -18,17 +18,18 @@ import queue as _q
 
 logger = logging.getLogger(__name__)
 
-from ui.mpl_imports import mpl_available, Figure, FigureCanvasTkAgg
-from ui.theme import C
-from ui.helpers import (
-    FONT, FONT_SM, FONT_MONO, FONT_BOLD,
-    loss_to_confidence, format_confidence, clear_loss_chart,
+from ui.mpl_imports import mpl_available, Figure, FigureCanvasTkAgg  # noqa: E402
+from ui.theme import C  # noqa: E402
+from ui.helpers import (  # noqa: E402
+    FONT,
+    FONT_SM,
+    clear_loss_chart,
 )
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 训练质量监控器
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class TrainingMonitor:
     """实时训练质量监控器 — 自动判断模型好坏并给出建议。"""
@@ -45,10 +46,10 @@ class TrainingMonitor:
         self._no_improve_streak = 0
 
     STATUS_LABELS = {
-        "good":   ("🟢 训练良好", C["success"]),
+        "good": ("🟢 训练良好", C["success"]),
         "warning": ("🟡 注意", C["warning"]),
-        "danger":  ("🔴 异常", C["danger"]),
-        "info":    ("🔵 收集中", C["text_3"]),
+        "danger": ("🔴 异常", C["danger"]),
+        "info": ("🔵 收集中", C["text_3"]),
     }
 
     def update(self, epoch: int, train_loss: float, val_loss: float):
@@ -89,26 +90,30 @@ class TrainingMonitor:
         # 2. Loss 爆炸
         recent = [tl for _, tl, _ in pts[-3:]]
         if max(recent) > 10 * (pts[0][1] or 1e-8):
-            _set("danger", "Loss 爆炸 — 梯度可能溢出",
-                 ["大幅降低学习率 (÷10)", "检查数据归一化"])
+            _set("danger", "Loss 爆炸 — 梯度可能溢出", ["大幅降低学习率 (÷10)", "检查数据归一化"])
 
         # 3. 过拟合 — val_loss 连续上升而 train_loss 下降
         if n >= 5 and all(vl >= 0 for _, _, vl in pts[-5:]):
             tl_trend = pts[-1][1] < pts[-5][1]
             vl_trend = [pts[i][2] for i in range(-5, 0)]
-            vl_up = sum(1 for i in range(1, len(vl_trend)) if vl_trend[i] > vl_trend[i-1])
+            vl_up = sum(1 for i in range(1, len(vl_trend)) if vl_trend[i] > vl_trend[i - 1])
             if tl_trend and vl_up >= 4:
                 self._overfit_streak += 1
             else:
                 self._overfit_streak = max(0, self._overfit_streak - 1)
 
             if self._overfit_streak >= 4:
-                _set("danger", "🚫 严重过拟合 — 必须停止",
-                     ["立即停止训练", "val_loss 已连续多 epoch 上升",
-                      "减小模型或增加正则化后重新训练"])
+                _set(
+                    "danger",
+                    "🚫 严重过拟合 — 必须停止",
+                    ["立即停止训练", "val_loss 已连续多 epoch 上升", "减小模型或增加正则化后重新训练"],
+                )
             elif self._overfit_streak >= 2:
-                _set("warning", "⚠️ 过拟合 — val_loss 持续上升",
-                     ["建议停止训练 (early stopping)", "增加 Dropout", "减小模型容量"])
+                _set(
+                    "warning",
+                    "⚠️ 过拟合 — val_loss 持续上升",
+                    ["建议停止训练 (early stopping)", "增加 Dropout", "减小模型容量"],
+                )
 
         # 4. 不再收敛 — val_loss 连续 N epoch 没有下降
         if n >= 8 and all(vl >= 0 for _, _, vl in pts[-8:]):
@@ -120,31 +125,36 @@ class TrainingMonitor:
                 self._no_improve_streak = max(0, self._no_improve_streak - 1)
 
             if self._no_improve_streak >= 2:
-                _set("warning", "📉 不再收敛 — val_loss 已停止下降",
-                     ["可以提前停止 (early stopping)", "尝试降低学习率后继续",
-                      "若已训练充足 epoch 则可接受当前结果"])
+                _set(
+                    "warning",
+                    "📉 不再收敛 — val_loss 已停止下降",
+                    ["可以提前停止 (early stopping)", "尝试降低学习率后继续", "若已训练充足 epoch 则可接受当前结果"],
+                )
 
         # 5. 震荡 — loss 波动剧烈
         if n >= 8:
             recent_tl = [tl for _, tl, _ in pts[-8:]]
-            is_monotonic_down = all(recent_tl[i] >= recent_tl[i+1] for i in range(len(recent_tl)-1))
+            is_monotonic_down = all(recent_tl[i] >= recent_tl[i + 1] for i in range(len(recent_tl) - 1))
             if not is_monotonic_down:
                 mean_tl = sum(recent_tl) / len(recent_tl)
-                cv = math.sqrt(sum((x - mean_tl)**2 for x in recent_tl) / len(recent_tl)) / max(1e-8, mean_tl)
-                residual_var = sum(abs(recent_tl[i] - recent_tl[i-1]) for i in range(1, len(recent_tl))) / (len(recent_tl) - 1)
+                cv = math.sqrt(sum((x - mean_tl) ** 2 for x in recent_tl) / len(recent_tl)) / max(1e-8, mean_tl)
+                residual_var = sum(abs(recent_tl[i] - recent_tl[i - 1]) for i in range(1, len(recent_tl))) / (
+                    len(recent_tl) - 1
+                )
                 avg_tl = abs(mean_tl)
                 if cv > 0.3 and residual_var > 0.02 * max(1, avg_tl):
-                    _set("warning", "📊 Loss 波动较大 — 训练不稳定",
-                         ["降低学习率", "增大 batch size"])
+                    _set("warning", "📊 Loss 波动较大 — 训练不稳定", ["降低学习率", "增大 batch size"])
 
         # 6. 欠拟合 — loss 下降过慢
         if n >= 3:
             initial_loss = pts[0][1]
             current_loss = pts[-1][1]
             if initial_loss > 0.1 and (initial_loss - current_loss) / initial_loss < 0.05:
-                _set("warning", "🐢 欠拟合 — Loss 下降过慢",
-                     ["增大学习率", "增加模型容量 (更多层 / 更多神经元)",
-                      "检查数据是否包含有效信号"])
+                _set(
+                    "warning",
+                    "🐢 欠拟合 — Loss 下降过慢",
+                    ["增大学习率", "增加模型容量 (更多层 / 更多神经元)", "检查数据是否包含有效信号"],
+                )
 
         # 7. 应用最佳检测结果
         if found_level != "good":
@@ -200,11 +210,11 @@ class TrainingMonitor:
             return 0.5
 
         if issue_type == "oscillation":
-            recent = [p[1] for p in pts[-min(8, n):]]
+            recent = [p[1] for p in pts[-min(8, n) :]]
             mean = sum(recent) / len(recent)
             if mean > 0:
                 variance = sum((v - mean) ** 2 for v in recent) / len(recent)
-                cv = (variance ** 0.5) / mean
+                cv = (variance**0.5) / mean
                 scale = 1.0 / (1.0 + cv * 2)
                 return max(0.2, min(0.95, scale))
             return 0.7
@@ -234,6 +244,7 @@ class TrainingMonitor:
 # ══════════════════════════════════════════════════════════════════════════════
 # 训练/微调面板共享基类
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 class BaseTrainingPanel:
     """训练/微调面板的共享基类。
@@ -299,11 +310,13 @@ class BaseTrainingPanel:
         """创建 matplotlib 图表控件。返回 chart_frame。"""
         chart_frame = tk.Frame(parent, bg=C["bg_elevated"])
         if title:
-            tk.Label(chart_frame, text=title, bg=C["bg_elevated"], fg=C["text_2"],
-                     font=FONT_SM).pack(anchor="nw", padx=4, pady=(2, 0))
+            tk.Label(chart_frame, text=title, bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(
+                anchor="nw", padx=4, pady=(2, 0)
+            )
         if not mpl_available:
-            tk.Label(chart_frame, text="matplotlib 未安装，无法显示图表",
-                     bg=C["bg_elevated"], fg=C["text_3"], font=FONT).pack(expand=True)
+            tk.Label(
+                chart_frame, text="matplotlib 未安装，无法显示图表", bg=C["bg_elevated"], fg=C["text_3"], font=FONT
+            ).pack(expand=True)
             return chart_frame
 
         self._fig = Figure(figsize=(5, 2.5), dpi=80, facecolor=C["bg_elevated"])
@@ -339,15 +352,21 @@ class BaseTrainingPanel:
             epochs = [d["epoch"] for d in pts]
             train = [d["train_loss"] for d in pts]
             val = [d["val_loss"] for d in pts]
-            self._ax.plot(epochs, train, "-o", label=f"{algo_name} train",
-                          markersize=2, linewidth=1)
+            self._ax.plot(epochs, train, "-o", label=f"{algo_name} train", markersize=2, linewidth=1)
             valid_val = [(e, v) for e, v in zip(epochs, val) if v >= 0]
             if valid_val:
-                self._ax.plot([e for e, v in valid_val], [v for e, v in valid_val],
-                              "--s", label=f"{algo_name} val", markersize=2, linewidth=1)
+                self._ax.plot(
+                    [e for e, v in valid_val],
+                    [v for e, v in valid_val],
+                    "--s",
+                    label=f"{algo_name} val",
+                    markersize=2,
+                    linewidth=1,
+                )
 
-        self._ax.legend(fontsize=6, loc="upper right", facecolor=C["bg_elevated"],
-                        edgecolor=C["border"], labelcolor=C["text_1"])
+        self._ax.legend(
+            fontsize=6, loc="upper right", facecolor=C["bg_elevated"], edgecolor=C["border"], labelcolor=C["text_1"]
+        )
         self._fig.tight_layout(pad=1.5)
         self._canvas.draw_idle()
 
@@ -369,14 +388,22 @@ class BaseTrainingPanel:
 
         log_hdr = tk.Frame(log_frame, bg=C["bg_elevated"])
         log_hdr.pack(fill=tk.X)
-        tk.Label(log_hdr, text=title, bg=C["bg_elevated"], fg=C["text_2"],
-                 font=FONT_SM).pack(side=tk.LEFT, padx=4, pady=(2, 0))
+        tk.Label(log_hdr, text=title, bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(
+            side=tk.LEFT, padx=4, pady=(2, 0)
+        )
         ttk.Button(log_hdr, text="清空", command=self._clear_log, width=4).pack(side=tk.RIGHT, padx=4)
 
         self._log_text = tk.Text(
-            log_frame, bg=C["bg_base"], fg=C["text_1"], font=("Consolas", 9),
-            relief="flat", bd=0, wrap=tk.WORD, state="disabled",
-            highlightthickness=1, highlightbackground=C["border_sub"],
+            log_frame,
+            bg=C["bg_base"],
+            fg=C["text_1"],
+            font=("Consolas", 9),
+            relief="flat",
+            bd=0,
+            wrap=tk.WORD,
+            state="disabled",
+            highlightthickness=1,
+            highlightbackground=C["border_sub"],
         )
         self._log_text.pack(fill=tk.BOTH, expand=True, padx=4, pady=(2, 4))
 
@@ -409,19 +436,17 @@ class BaseTrainingPanel:
 
     def _build_monitor_bar(self, parent) -> tk.Frame:
         """创建训练质量监控状态栏。返回 monitor_bar。"""
-        monitor_bar = tk.Frame(parent, bg=C["bg_surface"], highlightthickness=1,
-                               highlightbackground=C["border_sub"])
+        monitor_bar = tk.Frame(parent, bg=C["bg_surface"], highlightthickness=1, highlightbackground=C["border_sub"])
 
-        self._monitor_icon = tk.Label(monitor_bar, text="🔵", bg=C["bg_surface"],
-                                      font=("Segoe UI", 14))
+        self._monitor_icon = tk.Label(monitor_bar, text="🔵", bg=C["bg_surface"], font=("Segoe UI", 14))
         self._monitor_icon.pack(side=tk.LEFT, padx=(6, 2), pady=2)
-        self._monitor_status = tk.Label(monitor_bar, text="等待训练开始…",
-                                        bg=C["bg_surface"], fg=C["text_3"],
-                                        font=FONT_SM, anchor="w")
+        self._monitor_status = tk.Label(
+            monitor_bar, text="等待训练开始…", bg=C["bg_surface"], fg=C["text_3"], font=FONT_SM, anchor="w"
+        )
         self._monitor_status.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2, pady=2)
-        self._monitor_tip = tk.Label(monitor_bar, text="", bg=C["bg_surface"],
-                                     fg=C["text_3"], font=("Microsoft YaHei UI", 8),
-                                     anchor="e")
+        self._monitor_tip = tk.Label(
+            monitor_bar, text="", bg=C["bg_surface"], fg=C["text_3"], font=("Microsoft YaHei UI", 8), anchor="e"
+        )
         self._monitor_tip.pack(side=tk.RIGHT, padx=(4, 8), pady=2)
 
         return monitor_bar

@@ -29,10 +29,9 @@ try:
 except ImportError:
     _torch_available = False
 
-from algorithms.training.checkpoint_manager import CheckpointManager
-from algorithms.training.device import get_device
-from algorithms.training.dataset import VideoTimeSeriesDataset, estimate_dataset_size
-
+from algorithms.training.checkpoint_manager import CheckpointManager  # noqa: E402
+from algorithms.training.device import get_device  # noqa: E402
+from algorithms.training.dataset import VideoTimeSeriesDataset, estimate_dataset_size  # noqa: E402
 
 ProgressCb = Optional[Callable[[Dict], None]]
 
@@ -245,33 +244,51 @@ class ModelTrainer:
                 if control_dict.get("early_stop"):
                     force = control_dict.pop("_force_early_stop", False)
                     if epoch + 1 >= min_epochs or force:
-                        logger.info("[trainer] %s early stopping at epoch %d/%d",
-                                    algo_id, epoch + 1, epochs)
-                        self._emit(progress_cb, {
-                            "stage": "auto_adjust", "algo_id": algo_id, "bvid": bvid,
-                            "action": "early_stop",
-                            "message": f"Epoch {epoch+1}/{epochs}: 提前停止",
-                            "epoch": epoch + 1, "epochs": epochs,
-                        })
+                        logger.info("[trainer] %s early stopping at epoch %d/%d", algo_id, epoch + 1, epochs)
+                        self._emit(
+                            progress_cb,
+                            {
+                                "stage": "auto_adjust",
+                                "algo_id": algo_id,
+                                "bvid": bvid,
+                                "action": "early_stop",
+                                "message": f"Epoch {epoch + 1}/{epochs}: 提前停止",
+                                "epoch": epoch + 1,
+                                "epochs": epochs,
+                            },
+                        )
                         break
                     else:
-                        logger.debug("[trainer] %s early_stop ignored at epoch %d/%d (min %d)",
-                                     algo_id, epoch + 1, epochs, min_epochs)
+                        logger.debug(
+                            "[trainer] %s early_stop ignored at epoch %d/%d (min %d)",
+                            algo_id,
+                            epoch + 1,
+                            epochs,
+                            min_epochs,
+                        )
                         control_dict["early_stop"] = False  # 清除标记避免 post-batch 误判
                 lr_scale = control_dict.pop("lr_scale", None)
                 if lr_scale is not None:
                     for pg in optimizer.param_groups:
                         new_lr = pg["lr"] * lr_scale
                         pg["lr"] = new_lr
-                    logger.info("[trainer] %s LR adjusted by ×%.2f → %.6f",
-                                algo_id, lr_scale, optimizer.param_groups[0]["lr"])
-                    self._emit(progress_cb, {
-                        "stage": "auto_adjust", "algo_id": algo_id, "bvid": bvid,
-                        "action": "lr_scale",
-                        "message": f"学习率调整为 {optimizer.param_groups[0]['lr']:.6f} (×{lr_scale:.2f})",
-                        "new_lr": optimizer.param_groups[0]["lr"], "scale": lr_scale,
-                        "epoch": epoch + 1, "epochs": epochs,
-                    })
+                    logger.info(
+                        "[trainer] %s LR adjusted by ×%.2f → %.6f", algo_id, lr_scale, optimizer.param_groups[0]["lr"]
+                    )
+                    self._emit(
+                        progress_cb,
+                        {
+                            "stage": "auto_adjust",
+                            "algo_id": algo_id,
+                            "bvid": bvid,
+                            "action": "lr_scale",
+                            "message": f"学习率调整为 {optimizer.param_groups[0]['lr']:.6f} (×{lr_scale:.2f})",
+                            "new_lr": optimizer.param_groups[0]["lr"],
+                            "scale": lr_scale,
+                            "epoch": epoch + 1,
+                            "epochs": epochs,
+                        },
+                    )
 
             model.train()
             train_loss = 0.0
@@ -344,6 +361,7 @@ class ModelTrainer:
     def _save_model_to_video_dir(self, model: "torch.nn.Module", bvid: str, algo_id: str):
         """保存模型 state_dict 到 data/<bvid>/model/<algo_id>.pt"""
         import os
+
         video_model_dir = project_path("data", bvid, "model")
         os.makedirs(video_model_dir, exist_ok=True)
         path = os.path.join(video_model_dir, f"{algo_id}.pt")

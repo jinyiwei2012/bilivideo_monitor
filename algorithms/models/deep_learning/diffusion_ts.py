@@ -11,7 +11,7 @@
 
 import logging
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
 
@@ -98,9 +98,7 @@ if _torch_available:
                 t = getattr(self, "_train_t", None)
                 eps = getattr(self, "_train_eps", None)
                 if t is None or eps is None:
-                    raise RuntimeError(
-                        "训练模式需先调用 preprocess_batch 以设定 _train_t / _train_eps"
-                    )
+                    raise RuntimeError("训练模式需先调用 preprocess_batch 以设定 _train_t / _train_eps")
                 t = t.to(device=x.device)
                 eps = eps.to(device=x.device)
                 ab = self.alpha_bars[t].view(B, 1, 1)
