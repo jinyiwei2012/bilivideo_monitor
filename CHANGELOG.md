@@ -1,14 +1,27 @@
 # 更新日志
 
-## Release 2026-05-22 (v2.5.0)
+## Release 2026-05-25 (v2.5.0)
 
-### 🔧 优化
-- **ScrollableFrame 通用组件**: 提取 12+ 处重复的 Canvas + Scrollbar + Frame 模式到 `ui/scrollable_frame.py`，统一 40 行实现，`FinetunePanel` / `TrainingPanel` / `SettingsWindow` / `Dialogs` / `milestone_stats` / `trending_discovery` / `entry_tab` 共 7 个文件受益
-- **BaseTrainingPanel 基类**: 提取 `TrainingPanel` 与 `FinetunePanel` 共享逻辑到 `ui/training_base.py`，包含 `TrainingMonitor` 训练质量监控和 `BaseTrainingPanel` 通用训练生命周期管理
+### ✨ 新功能
+- **20 种新预测算法** (83 → 103):
+  - 时间序列: NARX外生自回归、MSTL多重季节分解、TBATS季节分解、GARCH波动率
+  - 深度学习: TIDE稠密编码器、TSMixer MLP混合器、DeepAR概率自回归、Chronos零样本、Mamba S6状态空间、iTransformer倒置、SCINet卷积交互、TimesFM谷歌、Time-MoE专家混合
+  - 统计模型: DTW-kNN类比预测
+  - 集成模型: NGBoost自然梯度提升、TabNet注意力特征网络
+  - 高级分析: 频域分解、SIRD传染病传播模型、CausalImpact因果推断、层级贝叶斯
+- **9 个新 Torch 模型**: 全部新深度学习算法实现 PyTorch 模型，接入 `try_torch_predict` 降级链
+- **DirectML 推理加速**: 支持 Intel NPU (AI Boost) / GPU 通过 DirectML 运行 PyTorch 推理
+- **CUDA 冒烟测试**: `get_device()` 自动验证 GPU 实际可用，失败降级 CPU
+- **自动更新检查**: 启动时异步检测 GitHub Release，弹窗展示 changelog
 
-### 📐 架构
-- **代码消除**: 移除约 90 行重复的滚动容器样板代码
-- **单一职责**: `ScrollableFrame` 封装了 Canvas 的创建、Scrollbar 绑定、鼠标滚轮支持、`<Configure>` 自适应和 `inner` 属性访问，调用方只需 3 行即可获得完整可滚动容器
+### 🐛 修复
+- `change_point_detection.py`: 斜率计算改用 `np.polyfit` 避免大数溢出
+- `hf_loader.py`: transformers 元数据异常时正确降级
+- `main_gui.py`: 移除不存在的 `open_algorithm_comparison` 调用
+
+### 📚 文档
+- README 更新至 103 种算法，新增 DirectML/XPU/NPU 安装指南
+- ALGORITHMS.md 新增 20 种算法详细说明 + 14 篇参考论文
 
 ## Release 2026-05-20 (v2.4.0)
 
