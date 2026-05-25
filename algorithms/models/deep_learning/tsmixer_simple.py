@@ -4,9 +4,10 @@ TSMixer (MLP Mixer)
 """
 
 import numpy as np
-from typing import Dict, Any
+from typing import Dict, Any, List
 from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
+from algorithms.models.deep_learning._torch_upgrade import TSMixerTorchModel, try_torch_predict
 
 
 class TsmixerSimpleAlgorithm(BaseAlgorithm):
@@ -18,7 +19,22 @@ class TsmixerSimpleAlgorithm(BaseAlgorithm):
     category = "深度学习"
     default_weight = 1.2
 
+    training_window = 10
+    training_horizon = 3
+
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
+        return try_torch_predict(
+            self, video_data, threshold, TSMixerTorchModel, self._numpy_predict,
+            window=self.training_window, horizon=self.training_horizon,
+        )
+
+    def build_model(self):
+        return TSMixerTorchModel(in_features=5, window=10, horizon=self.training_horizon)
+
+    def get_training_features(self) -> List[str]:
+        return ["view_count", "like_count", "coin_count", "favorite_count", "share_count"]
+
+    def _numpy_predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
         current_views = video_data.get("view_count", 0)
         history = video_data.get("history_data", [])
         velocity = self.calculate_velocity(video_data)
@@ -55,7 +71,8 @@ class TsmixerSimpleAlgorithm(BaseAlgorithm):
 
             remaining = threshold - current_views
             if remaining <= 0:
-                predicted_hours, confidence = 0, 1.0
+                predicted_hours = 0
+                confidence = 1.0
             else:
                 predicted_hours = remaining / predicted_velocity
                 confidence = min(0.8, 0.4 + 0.05 * np.log1p(len(history)))

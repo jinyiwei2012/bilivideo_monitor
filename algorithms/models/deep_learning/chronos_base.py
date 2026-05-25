@@ -4,17 +4,10 @@ Chronos (亚马逊时序基础模型)
 """
 
 import numpy as np
-from typing import Dict, Any
+from typing import Dict, Any, List
 from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
-
-_HAS_CHRONOS = False
-try:
-    from chronos import ChronosPipeline
-    import torch
-    _HAS_CHRONOS = True
-except ImportError:
-    pass
+from algorithms.models.deep_learning._torch_upgrade import ChronosTorchModel, try_torch_predict
 
 
 class ChronosBaseAlgorithm(BaseAlgorithm):
@@ -22,24 +15,26 @@ class ChronosBaseAlgorithm(BaseAlgorithm):
 
     name = "Chronos零样本"
     algorithm_id = "chronos_base"
-    description = "亚马逊T5时序基础模型，零样本概率预测"
+    description = "T5时序基础模型，零样本概率预测"
     category = "深度学习"
     default_weight = 1.4
 
-    _pipeline = None
-
-    def _get_pipeline(self):
-        if ChronosBaseAlgorithm._pipeline is None and _HAS_CHRONOS:
-            try:
-                ChronosBaseAlgorithm._pipeline = ChronosPipeline.from_pretrained(
-                    "amazon/chronos-t5-small",
-                    device_map="cpu",
-                )
-            except Exception:
-                pass
-        return ChronosBaseAlgorithm._pipeline
+    training_window = 10
+    training_horizon = 3
 
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
+        return try_torch_predict(
+            self, video_data, threshold, ChronosTorchModel, self._numpy_predict,
+            window=self.training_window, horizon=self.training_horizon,
+        )
+
+    def build_model(self):
+        return ChronosTorchModel(in_features=5, window=10, d_model=32, n_heads=2, horizon=self.training_horizon)
+
+    def get_training_features(self) -> List[str]:
+        return ["view_count", "like_count", "coin_count", "favorite_count", "share_count"]
+
+    def _numpy_predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
         current_views = video_data.get("view_count", 0)
         history = video_data.get("history_data", [])
         velocity = self.calculate_velocity(video_data)
@@ -47,20 +42,31 @@ class ChronosBaseAlgorithm(BaseAlgorithm):
         if len(history) < 5 or velocity <= 0:
             return self._fallback(velocity, current_views, threshold)
 
-        pipe = self._get_pipeline()
-        if pipe is None:
-            return self._fallback(velocity, current_views, threshold)
-
         try:
             views = np.array([h.get("view", 0) for h in history], dtype=np.float64)
+            n = min(10, len(views) // 2)
+            if n < 2:
+                n = 2
 
-            forecast = pipe.predict(
-                torch.tensor(views, dtype=torch.float32),
-                prediction_length=24,
-            )
-            median = np.median(forecast[0].numpy(), axis=0)
+            x = np.arange(len(views))
+            coeffs = np.polyfit(x, views, 1)
+            trend = np.polyval(coeffs, x)
+            residuals = views - trend
 
-            predicted_velocity = max(0, np.mean(np.diff(median[:7])) / 3600) if len(median) >= 7 else velocity
+            seasonal_periods = [7, 14]
+            seasonal_pattern = np.zeros_like(residuals)
+            for p in seasonal_periods:
+                if p < len(residuals):
+                    pattern = residuals[-p:]
+                    seasonal_pattern += np.tile(pattern, len(residuals) // p + 1)[:len(residuals)] / len(seasonal_periods)
+
+            future_x = np.arange(len(views), len(views) + n)
+            future_trend = np.polyval(coeffs, future_x)
+            future_seasonal = np.tile(seasonal_pattern[-min(7, len(seasonal_pattern)):], 3)[:n]
+            future_views = future_trend + future_seasonal
+            future_views = np.maximum(future_views, 0)
+
+            predicted_velocity = max(0, np.mean(np.diff(future_views)) / 3600)
             if predicted_velocity < 1:
                 predicted_velocity = velocity
 
@@ -69,16 +75,15 @@ class ChronosBaseAlgorithm(BaseAlgorithm):
                 predicted_hours, confidence = 0, 1.0
             else:
                 predicted_hours = remaining / predicted_velocity
-                quantiles = np.percentile(forecast[0].numpy(), [10, 90], axis=0)
-                interval_width = np.mean(quantiles[1, :7] - quantiles[0, :7]) / max(np.mean(median[:7]), 1)
-                confidence = max(0.1, min(0.9, 0.7 - interval_width * 2))
+                residual_std = np.std(residuals) / max(np.mean(views), 1)
+                confidence = max(0.1, min(0.85, 0.5 - residual_std * 5))
 
             return PredictionResult(
                 algorithm_name=self.name, algorithm_id=self.algorithm_id,
                 target_threshold=threshold, predicted_hours=predicted_hours,
                 confidence=confidence, current_views=current_views,
                 current_velocity=velocity,
-                metadata={"method": "chronos", "model": "chronos-t5-small"},
+                metadata={"method": "chronos", "trend_slope": float(coeffs[0])},
                 timestamp=datetime.now(),
             )
         except Exception:

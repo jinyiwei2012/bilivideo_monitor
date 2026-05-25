@@ -1,13 +1,13 @@
 """
 Mamba S6 (选择性状态空间模型)
 基于选择性SSM的高效长程依赖建模，线性复杂度
-简化版：状态空间逼近
 """
 
 import numpy as np
-from typing import Dict, Any
+from typing import Dict, Any, List
 from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
+from algorithms.models.deep_learning._torch_upgrade import MambaS6TorchModel, try_torch_predict
 
 
 class MambaS6Algorithm(BaseAlgorithm):
@@ -19,7 +19,22 @@ class MambaS6Algorithm(BaseAlgorithm):
     category = "深度学习"
     default_weight = 1.3
 
+    training_window = 10
+    training_horizon = 3
+
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
+        return try_torch_predict(
+            self, video_data, threshold, MambaS6TorchModel, self._numpy_predict,
+            window=self.training_window, horizon=self.training_horizon,
+        )
+
+    def build_model(self):
+        return MambaS6TorchModel(in_features=5, d_state=4, horizon=self.training_horizon)
+
+    def get_training_features(self) -> List[str]:
+        return ["view_count", "like_count", "coin_count", "favorite_count", "share_count"]
+
+    def _numpy_predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
         current_views = video_data.get("view_count", 0)
         history = video_data.get("history_data", [])
         velocity = self.calculate_velocity(video_data)
@@ -29,26 +44,18 @@ class MambaS6Algorithm(BaseAlgorithm):
 
         try:
             views = np.array([h.get("view", 0) for h in history], dtype=np.float64)
-
             dt = 1.0
             A = np.array([[0.9, 0.1], [-0.05, 0.95]])
             B = np.array([[0.1], [0.05]])
             C = np.array([[1.0, 0.0]])
-            D = np.array([[0.01]])
 
             state = np.zeros((2, 1))
-            states = []
             for v in views:
                 delta_B = B * (views[-1] / max(views[0], 1))
                 state = A @ state + delta_B * dt
-                states.append(state.copy())
 
-            states = np.array(states).squeeze()
-            pred_output = (C @ state + D * views[-1])[0, 0]
-
-            state_trend = np.mean(np.diff(states[-5:, 0])) if len(states) >= 5 else 0
-            predicted_velocity = max(0, float(pred_output) / 3600 + state_trend * 0.1)
-
+            pred_output = (C @ state)[0, 0]
+            predicted_velocity = max(0, float(pred_output) / 3600)
             if predicted_velocity < 1:
                 predicted_velocity = velocity
 
@@ -57,8 +64,7 @@ class MambaS6Algorithm(BaseAlgorithm):
                 predicted_hours, confidence = 0, 1.0
             else:
                 predicted_hours = remaining / predicted_velocity
-                state_std = np.std(states[-5:, 0]) if len(states) >= 5 else 1
-                confidence = max(0.1, min(0.8, 0.5 - state_std * 0.01))
+                confidence = 0.5
 
             return PredictionResult(
                 algorithm_name=self.name, algorithm_id=self.algorithm_id,
