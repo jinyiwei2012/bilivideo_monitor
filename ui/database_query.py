@@ -6,7 +6,6 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import sqlite3
 import os
-import re
 import csv
 import logging
 from datetime import datetime

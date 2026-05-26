@@ -968,7 +968,7 @@ class BilibiliMonitorGUI:
 
     def _check_update(self):
         """异步检查 GitHub Release 更新，含 changelog 展示"""
-        from utils.update_checker import check_for_update_async, format_changelog_for_display
+        from utils.update_checker import check_for_update_async
 
         def _on_result(has_update, latest, url, changelog):
             if has_update and latest:

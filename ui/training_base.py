@@ -23,10 +23,6 @@ from ui.theme import C
 from ui.helpers import (
     FONT,
     FONT_SM,
-    FONT_MONO,
-    FONT_BOLD,
-    loss_to_confidence,
-    format_confidence,
     clear_loss_chart,
 )
 

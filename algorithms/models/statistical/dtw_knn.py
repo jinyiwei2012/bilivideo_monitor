@@ -9,9 +9,6 @@ from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
 
 try:
-    from scipy.spatial.distance import euclidean
-    from scipy.spatial.distance import cdist
-
     _HAS_SCIPY = True
 except ImportError:
     _HAS_SCIPY = False

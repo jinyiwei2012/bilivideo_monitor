@@ -1,8 +1,6 @@
 """
 通用工具函数和常量
 """
-import os
-
 from ui.theme import C
 
 from utils import PROJECT_ROOT, project_path  # noqa: F401 — re-export for convenience

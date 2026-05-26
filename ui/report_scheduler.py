@@ -6,7 +6,6 @@ import os
 import json
 import tkinter as tk
 from tkinter import ttk, messagebox
-from datetime import datetime, timedelta
 from pathlib import Path
 
 from ui.theme import C, FONT

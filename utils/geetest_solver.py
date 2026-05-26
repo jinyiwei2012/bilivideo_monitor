@@ -11,10 +11,7 @@ Geetest 滑块验证码自动求解
 import logging
 import time
 import random
-import math
 import json
-import struct
-from io import BytesIO
 from typing import Optional, Tuple, List, Dict
 
 import cv2

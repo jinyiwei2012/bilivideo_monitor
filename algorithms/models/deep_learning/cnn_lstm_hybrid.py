@@ -5,7 +5,6 @@ CNN-LSTM混合预测模型
 
 import math
 import numpy as np
-from typing import Dict, Any
 from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
 from algorithms.models.deep_learning._torch_upgrade import CNNLSTMTorchModel, try_torch_predict

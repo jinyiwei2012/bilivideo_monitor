@@ -10,7 +10,7 @@ import logging
 import os
 import threading
 import time
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -21,8 +21,6 @@ try:
 except ImportError:
     _torch_available = False
 
-from ui.mpl_imports import mpl_available, Figure, FigureCanvasTkAgg
-
 from ui.theme import C
 from ui.helpers import (
     FONT,
@@ -32,7 +30,6 @@ from ui.helpers import (
     loss_to_confidence,
     format_confidence,
     load_algo_confidence,
-    clear_loss_chart,
     project_path,
 )
 from ui.scrollable_frame import ScrollableFrame

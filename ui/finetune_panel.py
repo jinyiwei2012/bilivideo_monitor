@@ -7,12 +7,9 @@
 
 import tkinter as tk
 from tkinter import ttk, messagebox
-import threading
 import time
 import logging
-from typing import Any, Dict, List, Optional
-from datetime import datetime
-
+from typing import Dict, List
 logger = logging.getLogger(__name__)
 
 _torch_available = True
@@ -30,7 +27,6 @@ from ui.helpers import (
     loss_to_confidence,
     format_confidence,
     load_algo_confidence,
-    clear_loss_chart,
     project_path,
 )
 from ui.training_base import BaseTrainingPanel, TrainingMonitor
