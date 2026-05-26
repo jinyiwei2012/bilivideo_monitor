@@ -990,7 +990,7 @@ class BilibiliMonitorGUI:
             is_frozen,
             perform_source_git_pull,
             perform_source_download_zip,
-            perform_exe_download,
+            perform_exe_self_update,
         )
 
         dlg = tk.Toplevel(self.root)
@@ -1046,15 +1046,23 @@ class BilibiliMonitorGUI:
         btn_frame.pack(fill=tk.X, padx=16, pady=(0, 16))
 
         if is_frozen():
-            # EXE 打包版 → 提供下载新 exe + 自动更新
+            # EXE 打包版 → aria2 下载 + 自动更新
+            def _download_exe():
+                dlg.destroy()
+                self._show_download_progress("正在下载新版本…", perform_exe_self_update)
+
             ttk.Button(
                 btn_frame,
-                text="🌐 浏览器下载新版本",
-                command=lambda: (perform_exe_download(), dlg.destroy()),
+                text="⬇ aria2 下载更新",
+                command=_download_exe,
             ).pack(side=tk.RIGHT, padx=(8, 0))
             ttk.Button(btn_frame, text="稍后提醒", command=dlg.destroy).pack(side=tk.RIGHT)
         else:
-            # 源码版 → 提供 git pull + 下载 zip
+            # 源码版 → 提供 git pull + aria2 下载 zip
+            def _download_zip():
+                dlg.destroy()
+                self._show_download_progress("正在下载最新源码…", perform_source_download_zip)
+
             def _on_git_pull():
                 ok, msg = perform_source_git_pull()
                 if ok:
@@ -1072,10 +1080,54 @@ class BilibiliMonitorGUI:
             ).pack(side=tk.RIGHT, padx=(8, 0))
             ttk.Button(
                 btn_frame,
-                text="📦 下载 ZIP 手动更新",
-                command=lambda: (perform_source_download_zip(), dlg.destroy()),
+                text="⬇ aria2 下载 ZIP",
+                command=_download_zip,
             ).pack(side=tk.RIGHT, padx=(8, 0))
             ttk.Button(btn_frame, text="稍后提醒", command=dlg.destroy).pack(side=tk.RIGHT)
+
+    def _show_download_progress(self, title, download_fn):
+        """显示 aria2 下载进度窗口"""
+        from utils.update_checker import is_frozen
+        win = tk.Toplevel(self.root)
+        win.title(title)
+        win.configure(bg=C["bg_base"])
+        win.geometry("400x150")
+        win.transient(self.root)
+        win.grab_set()
+
+        tk.Label(win, text=title, bg=C["bg_base"], fg=C["text_1"], font=("Microsoft YaHei UI", 12)).pack(pady=(16, 8))
+
+        progress = ttk.Progressbar(win, mode="determinate", length=320)
+        progress.pack(pady=8)
+
+        status_lbl = tk.Label(win, text="准备中…", bg=C["bg_base"], fg=C["text_3"], font=("Microsoft YaHei UI", 9))
+        status_lbl.pack(pady=4)
+
+        def on_progress(downloaded, total):
+            if total > 0:
+                pct = min(100, int(downloaded / total * 100))
+                progress["value"] = pct
+                from ui.helpers import fmt_num
+                status_lbl.config(text=f"已下载 {fmt_num(downloaded)} / {fmt_num(total)}")
+            else:
+                status_lbl.config(text="已下载…")
+
+        def on_done(success, msg):
+            win.destroy()
+            if success:
+                self._sb("status", "下载完成", C["success"])
+                self.log_panel.add_log("INFO", f"下载完成: {title}")
+                if is_frozen() and "更新" in title:
+                    messagebox.showinfo("更新", "下载完成，程序将自动重启以完成更新", parent=self.root)
+            else:
+                self._sb("status", f"下载失败: {msg}", C["danger"])
+                self.log_panel.add_log("ERROR", f"下载失败: {msg}")
+
+        threading.Thread(
+            target=download_fn,
+            args=(on_progress, on_done),
+            daemon=True,
+        ).start()
 
     def _daily_push(self):
         """每日 23:50 自动推送日报"""

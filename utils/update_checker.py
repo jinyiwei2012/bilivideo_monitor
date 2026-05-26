@@ -1,8 +1,8 @@
 """
 自动更新检查
 启动时异步检查 GitHub Release，根据运行模式提供不同更新方式：
-- 源码运行 → 提供 git pull / 下载 zip 两种方式
-- EXE 运行  → 提供下载新 exe / 自动更新
+- 源码运行 → 提供 git pull / 下载 zip（aria2）两种方式
+- EXE 运行  → 提供下载新 exe（aria2）/ 自动更新
 """
 
 import logging
@@ -11,7 +11,6 @@ import os
 import sys
 import threading
 import subprocess
-import webbrowser
 from typing import Optional, Tuple
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -88,6 +87,11 @@ def check_for_update() -> Tuple[bool, str, str, str]:
                 "latest_version": latest,
                 "download_url": download_url,
                 "changelog": changelog,
+                "assets": [
+                    {"name": a.get("name"), "url": a.get("browser_download_url")}
+                    for a in data.get("assets", [])
+                ],
+                "zipball_url": data.get("zipball_url", ""),
             }
         )
 
@@ -115,19 +119,19 @@ def format_changelog_for_display(changelog: str, max_lines: int = 30) -> str:
     return display
 
 
-def _get_asset_for_platform(data: dict) -> Optional[str]:
-    """从 GitHub release assets 中获取当前平台对应的下载地址"""
-    assets = data.get("assets", [])
-    if is_frozen():
-        # EXE 模式：找 .exe 文件
-        for a in assets:
-            name = a.get("name", "")
-            if name.endswith(".exe"):
-                return a.get("browser_download_url", "")
-    else:
-        # 源码模式：找 Source code (zip) 或直接返回 repo 地址
-        return data.get("zipball_url", "")
-    return None
+def get_download_urls() -> dict:
+    """从缓存中获取各平台下载地址"""
+    cached = _load_cache()
+    if not cached:
+        return {}
+    return {
+        "exe": next(
+            (a["url"] for a in cached.get("assets", []) if a["name"].endswith(".exe")),
+            cached.get("download_url", ""),
+        ),
+        "zip": cached.get("zipball_url", ""),
+        "release_page": cached.get("download_url", ""),
+    }
 
 
 def perform_source_git_pull(parent_widget=None):
@@ -148,13 +152,71 @@ def perform_source_git_pull(parent_widget=None):
         return False, f"git pull 异常: {e}"
 
 
-def perform_source_download_zip(parent_widget=None):
-    """源码模式: 打开浏览器下载 zip"""
-    webbrowser.open(f"{GITHUB_REPO}/archive/refs/heads/main.zip")
-    return True, "已在浏览器打开最新源码 zip 下载"
+def perform_source_download_zip(progress_cb=None, done_cb=None):
+    """源码模式: aria2 下载 ZIP"""
+    urls = get_download_urls()
+    url = urls.get("zip") or urls.get("release_page")
+    if not url:
+        if done_cb:
+            done_cb(False, "无法获取下载地址")
+        return False
+    dest = os.path.join(DATA_DIR, "downloads", "source.zip")
+    from utils.downloader import download_file
+
+    return download_file(url, dest, progress_cb, done_cb)
 
 
-def perform_exe_download(parent_widget=None):
-    """EXE 模式: 打开 release 页面"""
-    webbrowser.open(f"{GITHUB_REPO}/releases/latest")
-    return True, "已在浏览器打开最新版本下载页"
+def perform_exe_download(progress_cb=None, done_cb=None):
+    """EXE 模式: aria2 下载新 EXE"""
+    urls = get_download_urls()
+    url = urls.get("exe") or urls.get("release_page")
+    if not url:
+        if done_cb:
+            done_cb(False, "无法获取 EXE 下载地址")
+        return False
+    dest = os.path.join(DATA_DIR, "downloads", "BiliMonitor_new.exe")
+    from utils.downloader import download_file
+
+    return download_file(url, dest, progress_cb, done_cb)
+
+
+def perform_exe_self_update(progress_cb=None, done_cb=None):
+    """EXE 模式: 下载新 EXE 并创建重启脚本"""
+    def _on_done(success, msg):
+        if success:
+            _create_restart_script()
+        if done_cb:
+            done_cb(success, msg)
+
+    return perform_exe_download(progress_cb, _on_done)
+
+
+def _create_restart_script():
+    """创建重启脚本：等待主进程退出 → 替换 EXE → 重启"""
+    if not is_frozen():
+        return
+    exe_path = sys.executable
+    exe_dir = os.path.dirname(exe_path)
+    new_exe = os.path.join(DATA_DIR, "downloads", "BiliMonitor_new.exe")
+    script_path = os.path.join(exe_dir, "update_restart.bat")
+    bat_content = f"""@echo off
+chcp 65001 >nul
+echo 正在更新 BiliMonitor…
+:sleep
+timeout /t 2 /nobreak >nul
+copy /Y "{new_exe}" "{exe_path}" >nul 2>nul
+if %errorlevel% neq 0 goto sleep
+del "{new_exe}" >nul 2>nul
+start "" "{exe_path}"
+del "%~f0" >nul 2>nul
+"""
+    try:
+        with open(script_path, "w", encoding="utf-8") as f:
+            f.write(bat_content)
+        subprocess.Popen(
+            [script_path],
+            creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0,
+        )
+        logger.info("重启脚本已创建: %s", script_path)
+    except Exception as e:
+        logger.warning("创建重启脚本失败: %s", e)
