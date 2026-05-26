@@ -173,13 +173,15 @@ class VideoTimeSeriesDataset(Dataset):
         self.target_idx = self.features.index(target_feature)
         self.normalize = bool(normalize)
         self.max_timestamp = 0.0  # 本次训练用到的最大时间戳
+        self._derived_feature_names = ["roll_mean_5", "roll_std_5", "acceleration", "relative_pos"]
+        self._n_derived = len(self._derived_feature_names)  # 衍生特征数
 
         if bvids is None:
             bvids = _scan_all_bvids(self.data_root)
         else:
             bvids = [b for b in bvids if _safe_bvid(b)]
 
-        self._series: List[np.ndarray] = []  # 每个视频归一化后的 [N, F]
+        self._series: List[np.ndarray] = []  # 每个视频归一化后的 [N, F + n_derived]
         self._velocity: List[np.ndarray] = []  # 每个视频的目标速度 [N-1]
         self._index: List[Tuple[int, int]] = []  # (series_idx, start_offset)
         self._global_max_ts = 0.0  # 所有视频中的最大 timestamp
@@ -189,13 +191,44 @@ class VideoTimeSeriesDataset(Dataset):
             if arr is None or arr.shape[0] < self.min_records:
                 continue
             # 一阶差分得到速度序列；首位补 0
-            velocity = np.diff(arr[:, self.target_idx], prepend=arr[0, self.target_idx]).astype(np.float32)
+            target = arr[:, self.target_idx]
+            velocity = np.diff(target, prepend=target[0]).astype(np.float32)
+
+            # ── 衍生特征 ─────────────────────────────
+            N = arr.shape[0]
+
+            # rolling mean (window=5)
+            if N >= 5:
+                kernel = np.ones(5, dtype=np.float32) / 5
+                roll_mean = np.convolve(target, kernel, mode="same")
+            else:
+                roll_mean = np.full(N, float(target.mean()))
+
+            # rolling std (window=5)
+            if N >= 5:
+                roll_std = np.array([
+                    float(np.std(target[max(0, i-2):min(N, i+3)]))
+                    for i in range(N)
+                ], dtype=np.float32)
+            else:
+                roll_std = np.full(N, float(target.std() or 1.0))
+
+            # 加速度（速度的二阶差分）
+            accel = np.diff(velocity, prepend=velocity[0]).astype(np.float32)
+
+            # 相对时间位置 [0, 1]
+            rel_pos = np.arange(N, dtype=np.float32) / max(N - 1, 1)
+
+            extras = np.column_stack([roll_mean, roll_std, accel, rel_pos])  # [N, 4]
+            arr_ext = np.column_stack([arr, extras])  # [N, F + 4]
+
             if self.normalize:
-                arr_n = _zscore(arr)
+                arr_n = _zscore(arr_ext)
                 vel_n = _zscore_1d(velocity)
             else:
-                arr_n = arr
+                arr_n = arr_ext
                 vel_n = velocity
+
             if max_ts > self._global_max_ts:
                 self._global_max_ts = max_ts
             sidx = len(self._series)
@@ -207,13 +240,15 @@ class VideoTimeSeriesDataset(Dataset):
                 self._index.append((sidx, s))
 
         self.max_timestamp = self._global_max_ts
+        n_feat = len(self.features) + self._n_derived
         logger.info(
-            "[dataset] 加载完成: %d 视频, %d 样本 (window=%d, horizon=%d, features=%d, max_ts=%.0f)",
+            "[dataset] 加载完成: %d 视频, %d 样本 (window=%d, horizon=%d, features=%d, derived=%d, max_ts=%.0f)",
             len(self._series),
             len(self._index),
             self.window,
             self.horizon,
             len(self.features),
+            self._n_derived,
             self.max_timestamp,
         )
 
@@ -229,7 +264,7 @@ class VideoTimeSeriesDataset(Dataset):
         return torch.from_numpy(np.ascontiguousarray(x)), torch.from_numpy(np.ascontiguousarray(y))
 
     def n_features(self) -> int:
-        return len(self.features)
+        return len(self.features) + self._n_derived
 
     def n_videos(self) -> int:
         return len(self._series)
