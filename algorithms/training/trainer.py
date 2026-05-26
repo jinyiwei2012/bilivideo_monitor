@@ -404,10 +404,12 @@ class ModelTrainer:
         act_decay = 0.0
         label_noise = 0.0
         mixup_alpha = 0.0
+        amp_weight = False
         if control_dict is not None:
             act_decay = control_dict.get("activation_decay", 0.0)
             label_noise = control_dict.get("label_smoothing", 0.0)
             mixup_alpha = control_dict.get("mixup_alpha", 0.0)
+            amp_weight = control_dict.get("amplitude_weight", False)
         for batch in train_loader:
             x, y = preprocess(batch)
             x = x.to(self.device)
@@ -429,7 +431,14 @@ class ModelTrainer:
             pred = model(x)
             if pred.dim() == y.dim() + 1 and pred.shape[-1] == 1:
                 pred = pred.squeeze(-1)
-            loss = loss_fn(pred, y)
+            # SPADE-S 偏斜修正：按幅值加权，避免高播放量支配 loss
+            if amp_weight:
+                diff = pred - y
+                sq_err = diff ** 2
+                denom = y.abs().mean(dim=-1, keepdim=True).clamp(min=1.0).detach()
+                loss = (sq_err / denom).mean()
+            else:
+                loss = loss_fn(pred, y)
             # Activation Decay: 对预测输出加 L2 正则，平滑损失曲面
             if act_decay > 0:
                 loss = loss + act_decay * (pred ** 2).mean()
