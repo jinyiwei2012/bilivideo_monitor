@@ -25,7 +25,7 @@ class VideoDatabase:
         _validate_bvid(bvid)
         self.bvid = bvid
         if base_dir is None:
-            base_dir = project_path("core", "data")
+            base_dir = project_path("data")
 
         # 创建以BV号命名的文件夹
         self.video_dir = os.path.join(base_dir, bvid)

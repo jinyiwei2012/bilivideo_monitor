@@ -20,9 +20,33 @@ logger = logging.getLogger(__name__)
 class Database:
     """总数据库管理类"""
 
-    # 双备份：active_dir = core/data/（活跃写入）, backup_dir = data/（config 定义）
-    _ACTIVE_DIR = project_path("core", "data")
+    # 活跃数据目录
+    _ACTIVE_DIR = project_path("data")
     _BACKUP_DIR = None  # 懒加载
+
+    @classmethod
+    def _migrate_old_data(cls):
+        """从旧的 core/data/ 迁移数据到 data/（首次新路径运行时执行）"""
+        old_dir = project_path("core", "data")
+        new_dir = cls._ACTIVE_DIR
+        if old_dir == new_dir or not os.path.exists(old_dir):
+            return
+        # 只在目标目录为空时迁移
+        if os.path.exists(os.path.join(new_dir, "bilibili_monitor.db")):
+            return
+        import shutil
+        try:
+            for item in os.listdir(old_dir):
+                src = os.path.join(old_dir, item)
+                dst = os.path.join(new_dir, item)
+                if not os.path.exists(dst):
+                    if os.path.isdir(src):
+                        shutil.copytree(src, dst)
+                    else:
+                        shutil.copy2(src, dst)
+            logger.info("已从 %s 迁移旧数据到 %s", old_dir, new_dir)
+        except Exception as e:
+            logger.warning("迁移旧数据失败: %s", e)
 
     @classmethod
     def _get_backup_dir(cls) -> str:
@@ -36,6 +60,7 @@ class Database:
         return cls._BACKUP_DIR
 
     def __init__(self, db_path: str = None):
+        self._migrate_old_data()
         if db_path is None:
             os.makedirs(self._ACTIVE_DIR, exist_ok=True)
             db_path = os.path.join(self._ACTIVE_DIR, "bilibili_monitor.db")
