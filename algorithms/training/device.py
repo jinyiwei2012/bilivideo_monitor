@@ -72,8 +72,6 @@ def get_device() -> Optional[Any]:
     # ── CUDA ──
     try:
         if torch.cuda.is_available():
-            _test = torch.zeros(1, device="cuda:0") + 1
-            del _test
             torch.cuda.synchronize()
             return torch.device("cuda:0")
     except Exception as e:
@@ -82,8 +80,6 @@ def get_device() -> Optional[Any]:
     if _dml_available:
         try:
             dml_dev = torch_directml.device()
-            _test = torch.zeros(1, device=dml_dev) + 1
-            del _test
             return dml_dev
         except Exception as e:
             logger.warning("DirectML 冒烟测试失败: %s", e)
@@ -91,8 +87,6 @@ def get_device() -> Optional[Any]:
     if _xpu_available:
         try:
             if torch.xpu.is_available():
-                _test = torch.zeros(1, device="xpu:0") + 1
-                del _test
                 torch.xpu.synchronize()
                 return torch.device("xpu:0")
         except Exception as e:

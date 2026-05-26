@@ -83,7 +83,7 @@ class DtwKnnAlgorithm(BaseAlgorithm):
                 metadata={"method": "dtw_knn", "k": k, "min_dist": float(distances[0][0])},
                 timestamp=datetime.now(),
             )
-        except Exception as e:
+        except Exception:
             return self._fallback(velocity, current_views, threshold)
 
     @staticmethod

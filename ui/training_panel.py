@@ -1031,7 +1031,6 @@ class TrainingPanel(BaseTrainingPanel):
 
         pct = min(100, int((ep / max(1, eps)) * 100))
         self._progress["value"] = pct
-        total_elapsed = time.time() - self._train_t0 if self._train_t0 else 0
         vtxt = f"  val={vloss:.4f}" if vloss >= 0 else ""
         self._status_lbl.config(
             text=f"{aid}  ep{ep}/{eps}  train={tloss:.4f}{vtxt}  {conf_str}  {elapsed:.0f}s",

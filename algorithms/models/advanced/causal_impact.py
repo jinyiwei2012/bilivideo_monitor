@@ -71,7 +71,6 @@ class CausalImpactAlgorithm(BaseAlgorithm):
                 predicted_hours, confidence = 0, 1.0
             else:
                 predicted_hours = remaining / predicted_velocity
-                rmse = np.sqrt(np.mean((y_post - y_pred) ** 2)) if len(y_post) > 0 else 1
                 r2 = 1 - np.sum((y_post - y_pred) ** 2) / max(np.sum((y_post - np.mean(y_post)) ** 2), 1)
                 confidence = max(0.1, min(0.85, 0.5 + 0.3 * max(0, r2)))
 

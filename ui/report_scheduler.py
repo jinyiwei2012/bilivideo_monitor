@@ -109,7 +109,6 @@ class ReportSchedulerWindow:
     # ── 定时导出 ──
 
     def _on_schedule_toggle(self):
-        state = tk.NORMAL if self._schedule_enabled.get() else tk.DISABLED
         self._interval_var.set("daily")
         self._schedule_format_var.set("csv")
 

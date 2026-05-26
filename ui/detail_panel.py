@@ -6,7 +6,6 @@
 import tkinter as tk
 from tkinter import ttk
 import threading
-import logging
 from datetime import datetime
 import customtkinter as ctk
 
@@ -376,8 +375,8 @@ class DetailPanel:
             total = len(selected)
             self.gui.set_finetune_status(f"🎯 微调 {bvid} …")
             for i, aid in enumerate(selected):
-                msg = f"[{i+1}/{total}] 微调 {aid}…"
-                gui_msg = f"🎯 微调 {bvid}: [{i+1}/{total}] {aid}"
+                msg = f"[{i + 1}/{total}] 微调 {aid}…"
+                gui_msg = f"🎯 微调 {bvid}: [{i + 1}/{total}] {aid}"
                 dialog.after(0, lambda m=msg: status_lbl.configure(text=m))
                 dialog.after(0, lambda p=(i + 0.5) / total: progress_bar.set(p))
                 dialog.after(0, lambda m=gui_msg: self.gui.set_finetune_status(m))

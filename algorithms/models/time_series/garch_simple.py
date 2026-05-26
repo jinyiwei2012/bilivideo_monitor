@@ -44,7 +44,6 @@ class GarchSimpleAlgorithm(BaseAlgorithm):
                 sigma2[t] = omega + alpha * eps[t - 1] ** 2 + beta * sigma2[t - 1]
 
             vol = np.sqrt(sigma2[-1])
-            vol_reg = np.mean(np.sqrt(sigma2[-min(5, T):])) if T >= 5 else vol
             mean_return = np.mean(eps[-min(5, T):]) if T >= 5 else mu
 
             upside = mean_return + vol

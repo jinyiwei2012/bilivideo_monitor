@@ -22,8 +22,6 @@ class HierarchicalBayesAlgorithm(BaseAlgorithm):
         current_views = video_data.get("view_count", 0)
         history = video_data.get("history_data", [])
         velocity = self.calculate_velocity(video_data)
-        up_fans = video_data.get("up_fans", 0)
-        up_videos = video_data.get("up_video_count", 0)
         up_avg_views = video_data.get("up_average_views", 0)
 
         if len(history) < 3 or velocity <= 0:
@@ -32,7 +30,6 @@ class HierarchicalBayesAlgorithm(BaseAlgorithm):
         try:
             views = np.array([h.get("view", 0) for h in history], dtype=np.float64)
 
-            tau_up = max(up_videos, 1) * 0.1
             mu_up = max(up_avg_views, 1000) if up_avg_views > 0 else current_views
 
             mu_prior = max(mu_up, current_views)

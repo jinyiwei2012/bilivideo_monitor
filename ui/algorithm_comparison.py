@@ -182,11 +182,9 @@ class AlgorithmComparisonWindow:
             c.create_text(W // 2, H // 2, text="无数据", fill=C["text_3"], font=FONT)
             return
 
-        n = len(filtered)
         cw = W - _ML - _MR
         ch = max(50, H - _MT - _MB)
         bar_unit = _BAR_H + _BAR_GAP
-        total_h = n * bar_unit
         # 如果内容超长，不绘制（需要滚动，但简单起见只适配可见区域）
         visible = filtered[:max(1, int(ch / bar_unit))]
 
@@ -246,7 +244,6 @@ class AlgorithmComparisonWindow:
             c.create_text(W // 2, H // 2, text="无数据", fill=C["text_3"], font=FONT)
             return
 
-        n = len(filtered)
         cw = W - _ML - _MR
         ch = max(50, H - _MT - _MB)
         bar_unit = _BAR_H + _BAR_GAP

@@ -72,7 +72,6 @@ class SirdModelAlgorithm(BaseAlgorithm):
             elif remaining <= 0:
                 predicted_hours, confidence = 0, 1.0
             else:
-                peak_infected = np.max(I_pred)
                 peak_time = future_t[np.argmax(I_pred)]
                 max_reach = np.max(total_pred)
                 if max_reach > current_views:

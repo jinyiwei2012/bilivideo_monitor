@@ -54,16 +54,6 @@ class TideSimpleAlgorithm(BaseAlgorithm):
             n = 2
 
         try:
-            x = np.arange(len(views))
-            coeffs = np.polyfit(x, views, 2)
-            trend = np.polyval(coeffs, x)
-            detrended = views - trend
-
-            encoder = detrended[-n:]
-            seasonal = np.tile(encoder, 3)[:n]
-            decoder = trend[-1] + np.arange(1, n + 1) * (coeffs[0] * 2 + coeffs[1])
-
-            future = decoder + seasonal
             future_velocity = max(0, np.mean(np.diff(views[-5:])) / 3600) if len(views) >= 5 else velocity
             predicted_velocity = max(future_velocity, velocity * 0.5)
 

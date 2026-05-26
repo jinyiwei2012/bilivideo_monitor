@@ -686,7 +686,6 @@ class FinetunePanel(BaseTrainingPanel):
 
         pct = min(100, int((ep / max(1, eps)) * 100))
         self._progress["value"] = pct
-        total_elapsed = time.time() - self._train_t0 if self._train_t0 else 0
         vtxt = f"  val={vloss:.4f}" if vloss >= 0 else ""
         ctrl_data = msg.get("_control", {})
         if ctrl_data.get("early_stop"):

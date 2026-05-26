@@ -402,7 +402,6 @@ if _torch_available:
         def forward(self, x):
             B = x.shape[0]
             dt = 0.1
-            h = self.proj(x)
             state = torch.zeros(B, self.d_state, device=x.device)
             for t in range(x.shape[1]):
                 b_t = self.B(x[:, t, :])

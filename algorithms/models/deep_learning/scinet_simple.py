@@ -46,8 +46,6 @@ class ScinetSimpleAlgorithm(BaseAlgorithm):
             views = np.array([h.get("view", 0) for h in history], dtype=np.float64)
 
             def _sci_block(x):
-                n = len(x)
-                half = n // 2
                 even = x[::2]
                 odd = x[1::2]
                 if len(even) > len(odd):

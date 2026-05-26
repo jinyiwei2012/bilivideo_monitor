@@ -41,8 +41,6 @@ class MstlDecompositionAlgorithm(BaseAlgorithm):
                     res = stl.fit()
                     trend = res.trend
                     seasonal = res.seasonal
-                    resid = res.resid
-
                     trend_grad = np.gradient(trend)
                     trend_vel = np.mean(trend_grad[-3:]) / 3600
                 except Exception:

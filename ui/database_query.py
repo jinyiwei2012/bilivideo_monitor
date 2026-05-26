@@ -551,10 +551,11 @@ class DatabaseQueryWindow:
                     self.window.after(0, lambda: self.status_var.set(f"查询到 {total} 条，加载关联数据…"))
                     try:
                         extra_list, anames = self._load_query_extra_data(raw_rows)
-        except Exception as e:
-            logger.exception("加载关联数据失败")
-            self.window.after(0, lambda e=e: self.status_var.set(f"加载关联数据失败: {e}"))
+                    except Exception as e:
+                        logger.exception("加载关联数据失败")
+                        self.window.after(0, lambda e=e: self.status_var.set(f"加载关联数据失败: {e}"))
                         self.window.after(0, self._reset_query_state)
+                        return
                         return
                     self._query_source_bvid = target_bvid
                     self.window.after(0, lambda: self._finish_query(raw_rows, extra_list, anames))

@@ -76,7 +76,6 @@ class NarxSimpleAlgorithm(BaseAlgorithm):
                 predicted_hours, confidence = 0, 1.0
             else:
                 predicted_hours = remaining / predicted_velocity
-                n_samples = len(X)
                 residuals = y - X @ theta
                 rmse = np.sqrt(np.mean(residuals ** 2)) if len(residuals) > 0 else 1
                 cv = rmse / max(np.mean(y), 1)
