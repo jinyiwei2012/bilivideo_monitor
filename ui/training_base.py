@@ -8,7 +8,7 @@
 import tkinter as tk
 from tkinter import ttk
 import threading
-import queue
+import queue as _q
 import time
 import math
 import logging
@@ -18,13 +18,8 @@ from ui.theme import C
 from ui.helpers import (
     FONT,
     FONT_SM,
-    FONT_MONO,
-    FONT_BOLD,
-    loss_to_confidence,
-    format_confidence,
     clear_loss_chart,
 )
-from ui.scrollable_frame import ScrollableFrame
 
 logger = logging.getLogger(__name__)
 

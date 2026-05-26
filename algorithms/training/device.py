@@ -54,52 +54,55 @@ def force_cpu(flag: bool):
     _force_cpu = bool(flag)
 
 
-def get_device() -> Optional[Any]:
-    """返回 torch.device；torch 未装时返回 None。
-
-    选择顺序：
-        1. 用户强制 CPU 或 CUDA_VISIBLE_DEVICES='' → cpu
-        2. CUDA 可用（含冒烟测试） → cuda
-        3. DirectML 可用（Windows，Intel GPU/NPU 含冒烟测试） → privateuseone
-        4. Intel XPU 可用（IPEX, Linux，含冒烟测试） → xpu
-        5. MPS 可用（Apple Silicon） → mps
-        6. 兜底 → cpu
-    """
-    if not _torch_available:
-        return None
-    if _force_cpu:
-        return torch.device("cpu")
-    if os.environ.get("CUDA_VISIBLE_DEVICES", "") == "" and "CUDA_VISIBLE_DEVICES" in os.environ:
-        return torch.device("cpu")
-    # ── CUDA ──
+def _try_cuda():
     try:
         if torch.cuda.is_available():
             torch.cuda.synchronize()
             return torch.device("cuda:0")
     except Exception as e:
         logger.warning("CUDA 冒烟测试失败: %s", e)
-    # ── DirectML (Windows: Intel GPU + AI Boost NPU) ──
-    if _dml_available:
-        try:
-            dml_dev = torch_directml.device()
-            return dml_dev
-        except Exception as e:
-            logger.warning("DirectML 冒烟测试失败: %s", e)
-    # ── Intel XPU (IPEX, Linux only) ──
-    if _xpu_available:
-        try:
-            if torch.xpu.is_available():
-                torch.xpu.synchronize()
-                return torch.device("xpu:0")
-        except Exception as e:
-            logger.warning("Intel XPU 冒烟测试失败: %s", e)
-    # ── MPS (Apple Silicon) ──
+    return None
+
+
+def _try_dml():
+    if not _dml_available:
+        return None
+    try:
+        return torch_directml.device()
+    except Exception as e:
+        logger.warning("DirectML 冒烟测试失败: %s", e)
+    return None
+
+
+def _try_xpu():
+    if not _xpu_available:
+        return None
+    try:
+        if torch.xpu.is_available():
+            torch.xpu.synchronize()
+            return torch.device("xpu:0")
+    except Exception as e:
+        logger.warning("Intel XPU 冒烟测试失败: %s", e)
+    return None
+
+
+def _try_mps():
     try:
         if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
             return torch.device("mps")
     except Exception as e:
         logger.debug("MPS 检测异常: %s", e)
-    return torch.device("cpu")
+    return None
+
+
+def get_device() -> Optional[Any]:
+    if not _torch_available:
+        return None
+    if _force_cpu:
+        return torch.device("cpu")
+    if os.environ.get("CUDA_VISIBLE_DEVICES", "") == "" and "CUDA_VISIBLE_DEVICES" in os.environ:
+        return torch.device("cpu")
+    return _try_cuda() or _try_dml() or _try_xpu() or _try_mps() or torch.device("cpu")
 
 
 def get_device_info() -> Dict[str, Any]:

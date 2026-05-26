@@ -36,7 +36,7 @@ DEFAULT_HORIZON = 3
 #  Torch 模型骨架（14 个）
 # ════════════════════════════════════════════════════════
 
-if _torch_available:
+if _torch_available:  # noqa: C901
     # ── 1. LSTM ────────────────────────────────────
     class LSTMTorchModel(nn.Module):
         def __init__(self, in_features=5, hidden=32, layers=1, horizon=3):

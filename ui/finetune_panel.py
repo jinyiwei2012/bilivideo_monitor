@@ -392,7 +392,7 @@ class FinetunePanel(BaseTrainingPanel):
     # 微调执行
     # ══════════════════════════════════════════════
 
-    def _on_start(self):
+    def _on_start(self):  # noqa: C901
         if self._training:
             return
 

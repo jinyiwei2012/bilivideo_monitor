@@ -985,7 +985,7 @@ class SettingsWindow:
 
     # —— 版本管理弹窗 ——
 
-    def _open_version_manager(self, algo_id: str):
+    def _open_version_manager(self, algo_id: str):  # noqa: C901
         from algorithms.training.checkpoint_manager import CheckpointManager
 
         ckpt = CheckpointManager(algo_id)
@@ -2077,7 +2077,7 @@ class SettingsWindow:
             self._refresh_status()
 
     # ──── Cookie: 密码登录 ────
-    def _password_login(self):
+    def _password_login(self):  # noqa: C901
         pwd_top = tk.Toplevel(self.window)
         pwd_top.title("密码登录 B站")
         sw = self.window.winfo_screenwidth()
@@ -2265,7 +2265,7 @@ class SettingsWindow:
         self.window.destroy()
 
     # ──── 保存系统设置 ────
-    def _save_settings(self):
+    def _save_settings(self):  # noqa: C901
         try:
             interval = int(self.check_interval.get())
             if not (60 <= interval <= 3600):

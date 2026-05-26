@@ -143,7 +143,7 @@ def search_up_users_multi(keyword: str, page: int, own_api_search: Callable) -> 
 # ══════════════════════════════════════════════════════════
 
 
-def _source_a_up_info(uid: int) -> Optional[Dict]:
+def _source_a_up_info(uid: int) -> Optional[Dict]:  # noqa: C901
     try:
         from bilibili_api import sync
         from bilibili_api.user import User

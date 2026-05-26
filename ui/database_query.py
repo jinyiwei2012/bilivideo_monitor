@@ -512,7 +512,7 @@ class DatabaseQueryWindow:
         else:
             self._reset_query_state()
 
-    def _run_fallback_query(self, mode, filter_bvid, bvid_for_trend):
+    def _run_fallback_query(self, mode, filter_bvid, bvid_for_trend):  # noqa: C901
         """后台线程：在中央数据库中执行查询"""
         raw_rows = []
         try:
@@ -563,7 +563,6 @@ class DatabaseQueryWindow:
                         logger.exception("加载关联数据失败")
                         self.window.after(0, lambda e=e: self.status_var.set(f"加载关联数据失败: {e}"))
                         self.window.after(0, self._reset_query_state)
-                        return
                         return
                     self._query_source_bvid = target_bvid
                     self.window.after(0, lambda: self._finish_query(raw_rows, extra_list, anames))

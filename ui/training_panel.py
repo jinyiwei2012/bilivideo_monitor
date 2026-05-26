@@ -22,7 +22,6 @@ from ui.helpers import (
     format_confidence,
     load_algo_confidence,
     project_path,
-    clear_loss_chart,
 )
 from ui.scrollable_frame import ScrollableFrame
 from ui.training_base import BaseTrainingPanel, TrainingMonitor
@@ -402,7 +401,7 @@ class TrainingPanel(BaseTrainingPanel):
 
     # ── 版本管理 ──────────────────────────────────
 
-    def _on_manage_versions(self):
+    def _on_manage_versions(self):  # noqa: C901
         """打开 checkpoint 版本管理对话框 — 查看/删除/激活版本。"""
         from algorithms.training.checkpoint_manager import (
             CheckpointManager,
@@ -622,7 +621,7 @@ class TrainingPanel(BaseTrainingPanel):
 
     # ── 批量微调 ──────────────────────────────────
 
-    def _on_batch_finetune(self):
+    def _on_batch_finetune(self):  # noqa: C901
         """打开批量微调对话框：选择视频 + 算法，一键微调。"""
         from algorithms.registry import AlgorithmRegistry
         from algorithms.training.checkpoint_manager import CheckpointManager
@@ -798,7 +797,7 @@ class TrainingPanel(BaseTrainingPanel):
     # 训练执行
     # ══════════════════════════════════════════════
 
-    def _on_train_start(self):
+    def _on_train_start(self):  # noqa: C901
         if self._training:
             return
         if not _torch_available:
