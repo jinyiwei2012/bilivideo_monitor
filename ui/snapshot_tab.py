@@ -424,30 +424,31 @@ class SnapshotTab:
 
         return result
 
+    def _resolve_quick_filter_ref(self, all_ts):
+        now = _parse_dt(all_ts[0])
+        if not now:
+            _snap_logger.warning("无法解析时间戳: %s，使用当前时间", all_ts[0])
+            now = datetime.now()
+        return now
+
+    def _apply_quick_filter(self, mode, all_ts, now):
+        filters = {
+            "1h": lambda: [ts for ts in all_ts if _parse_dt(ts) and _parse_dt(ts) >= now - timedelta(hours=1)],
+            "3d": lambda: [ts for ts in all_ts if _parse_dt(ts) and _parse_dt(ts) >= now - timedelta(days=3)],
+            "today": lambda: [ts for ts in all_ts if ts.startswith(now.strftime("%Y-%m-%d"))],
+        }
+        fn = filters.get(mode)
+        if fn:
+            return fn()
+        return self._smart_sample(all_ts) if len(all_ts) > 50 else all_ts
+
     def _quick_filter(self, mode):
-        """快捷筛选时间点"""
         all_ts = self._ts_avail
         if not all_ts:
             return
 
-        now = _parse_dt(all_ts[0])
-        if not now:
-            # 解析失败，使用当前时间作为fallback
-            _snap_logger.warning("无法解析时间戳: %s，使用当前时间", all_ts[0])
-            now = datetime.now()
-
-        filtered = []
-        if mode == "1h":
-            cutoff = now - timedelta(hours=1) if now else None
-            filtered = [ts for ts in all_ts if cutoff and _parse_dt(ts) and _parse_dt(ts) >= cutoff]
-        elif mode == "today":
-            today_str = now.strftime("%Y-%m-%d") if now else all_ts[0][:10]
-            filtered = [ts for ts in all_ts if ts.startswith(today_str)]
-        elif mode == "3d":
-            cutoff = now - timedelta(days=3) if now else None
-            filtered = [ts for ts in all_ts if cutoff and _parse_dt(ts) and _parse_dt(ts) >= cutoff]
-        else:  # "all"
-            filtered = self._smart_sample(all_ts) if len(all_ts) > 50 else all_ts
+        now = self._resolve_quick_filter_ref(all_ts)
+        filtered = self._apply_quick_filter(mode, all_ts, now)
 
         if not filtered:
             return
@@ -456,7 +457,6 @@ class SnapshotTab:
         self._ts_displayed = filtered
         for ts in filtered:
             self._ts_listbox.insert(tk.END, ts)
-        # 不再默认全选，由用户自行选择
 
     def _load_records(self, bvid: str):
         """从 video_dbs 加载某视频的完整历史，存入 _points"""

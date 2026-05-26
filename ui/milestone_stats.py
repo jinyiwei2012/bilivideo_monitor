@@ -455,26 +455,103 @@ class MilestoneStatsWindow:
                 get_db().delete_milestone(bv, p)
         self._reload_comparison()
 
+    def _apply_compare_filter(self):
+        ft = self._filter_entry.get().strip()
+        if not ft:
+            return self._all_data
+        ks = [k.strip() for k in ft.split(",") if k.strip()]
+        return {bv: pd for bv, pd in self._all_data.items() if any(k.upper() in bv.upper() for k in ks)}
+
+    def _draw_compare_empty(self, c):
+        c.create_text(
+            (c.winfo_width() or 600) // 2,
+            (c.winfo_height() or 300) // 2,
+            text="暂无里程碑数据，请在「录入数据」标签页添加",
+            fill=C["text_2"],
+            font=("Microsoft YaHei UI", 12),
+        )
+        self._cmp_status.config(text="无数据")
+
+    def _draw_compare_grid(self, c, max_val, cw, ch, ML, MT):
+        for i in range(6):
+            ratio = i / 5
+            y = MT + ch * (1 - ratio * 0.92)
+            val = max_val * ratio
+            c.create_line(ML, y, ML + cw, y, fill=C["border"], dash=(2, 4))
+            c.create_text(
+                ML - 6,
+                y,
+                text=f"{val / 10000:.0f}w" if val >= 10000 else str(int(val)),
+                anchor="e",
+                fill=C["text_2"],
+                font=("Consolas", 8),
+            )
+
+    def _draw_compare_bars(self, c, data, bvids, metric, max_val, group_w, bar_w, gap_w, bar_total_w, ML, MT, ch):
+        for vi, bv in enumerate(bvids):
+            gx = ML + vi * group_w + gap_w
+            title = self._get_video_title(bv)
+            for pi, period in enumerate(PERIODS):
+                row = data[bv].get(period) or {}
+                val = row.get(metric)
+                color = PERIOD_COLORS[period]
+                bx = gx + pi * bar_w
+                by = self._to_y(val, max_val, MT, ch)
+                bx2 = bx + bar_w - 2
+                if val:
+                    c.create_rectangle(bx, by, bx2, MT + ch, fill=color, outline="")
+                    if by < MT + ch - 14:
+                        c.create_text(
+                            (bx + bx2) / 2,
+                            by - 4,
+                            text=f"{val / 10000:.0f}w" if val >= 10000 else str(int(val)),
+                            anchor="s",
+                            fill=color,
+                            font=("Consolas", 7, "bold"),
+                        )
+                else:
+                    c.create_rectangle(bx, MT + ch - 4, bx2, MT + ch, fill=C["border"], outline="")
+            lx = gx + bar_total_w / 2
+            c.create_text(lx, MT + ch + 6, text=title, anchor="n", fill=C["text_1"], font=("Microsoft YaHei UI", 8))
+            c.create_text(lx, MT + ch + 22, text=bv, anchor="n", fill=C["text_3"], font=("Consolas", 7))
+
+    def _draw_compare_legend(self, c, ML, MT, ch):
+        lgx = ML + 6
+        for p in PERIODS:
+            c.create_rectangle(lgx, MT + ch + 52, lgx + 10, MT + ch + 62, fill=PERIOD_COLORS[p], outline="")
+            c.create_text(
+                lgx + 14,
+                MT + ch + 57,
+                text=f"投稿{p}后",
+                anchor="w",
+                fill=PERIOD_COLORS[p],
+                font=("Microsoft YaHei UI", 8),
+            )
+            lgx += 90
+
+    def _draw_compare_title(self, c, ML, cw, metric, n_videos):
+        ml = next((lb for key, lb, *_ in FIELDS if key == metric), metric)
+        c.create_text(
+            ML + cw // 2,
+            14,
+            text=f"投稿里程碑对比 — {ml}",
+            fill=C["text_1"],
+            font=("Microsoft YaHei UI", 10, "bold"),
+            anchor="n",
+        )
+        self._cmp_status.config(text=f"共 {n_videos} 个视频 · 展示指标：{ml}")
+
+    @staticmethod
+    def _to_y(v, max_val, MT, ch):
+        return MT + ch - (v / max_val) * ch * 0.92 if v else MT + ch
+
     def _redraw_compare(self):
         c = self._cmp_canvas
         c.delete("all")
 
-        ft = self._filter_entry.get().strip()
-        if ft:
-            ks = [k.strip() for k in ft.split(",") if k.strip()]
-            data = {bv: pd for bv, pd in self._all_data.items() if any(k.upper() in bv.upper() for k in ks)}
-        else:
-            data = self._all_data
-
+        data = self._apply_compare_filter()
         if not data:
-            c.create_text(
-                (c.winfo_width() or 600) // 2,
-                (c.winfo_height() or 300) // 2,
-                text="暂无里程碑数据，请在「录入数据」标签页添加",
-                fill=C["text_2"],
-                font=("Microsoft YaHei UI", 12),
-            )
-            self._cmp_status.config(text="无数据")
+            self._draw_compare_empty(c)
             return
 
         metric = self._metric_var.get()
@@ -496,75 +573,13 @@ class MilestoneStatsWindow:
                 if v:
                     max_val = max(max_val, v)
 
-        def to_y(v):
-            return MT + ch - (v / max_val) * ch * 0.92 if v else MT + ch
-
-        for i in range(6):
-            ratio = i / 5
-            y = MT + ch * (1 - ratio * 0.92)
-            val = max_val * ratio
-            c.create_line(ML, y, ML + cw, y, fill=C["border"], dash=(2, 4))
-            c.create_text(
-                ML - 6,
-                y,
-                text=f"{val / 10000:.0f}w" if val >= 10000 else str(int(val)),
-                anchor="e",
-                fill=C["text_2"],
-                font=("Consolas", 8),
-            )
+        self._draw_compare_grid(c, max_val, cw, ch, ML, MT)
 
         group_w = cw / max(n_videos, 1)
         bar_total_w = group_w * 0.75
         bar_w = bar_total_w / n_periods
         gap_w = group_w * 0.125
 
-        for vi, bv in enumerate(bvids):
-            gx = ML + vi * group_w + gap_w
-            title = self._get_video_title(bv)
-            for pi, period in enumerate(PERIODS):
-                row = data[bv].get(period) or {}
-                val = row.get(metric)
-                color = PERIOD_COLORS[period]
-                bx = gx + pi * bar_w
-                by = to_y(val)
-                bx2 = bx + bar_w - 2
-                if val:
-                    c.create_rectangle(bx, by, bx2, MT + ch, fill=color, outline="")
-                    if by < MT + ch - 14:
-                        c.create_text(
-                            (bx + bx2) / 2,
-                            by - 4,
-                            text=f"{val / 10000:.0f}w" if val >= 10000 else str(int(val)),
-                            anchor="s",
-                            fill=color,
-                            font=("Consolas", 7, "bold"),
-                        )
-                else:
-                    c.create_rectangle(bx, MT + ch - 4, bx2, MT + ch, fill=C["border"], outline="")
-            lx = gx + bar_total_w / 2
-            c.create_text(lx, MT + ch + 6, text=title, anchor="n", fill=C["text_1"], font=("Microsoft YaHei UI", 8))
-            c.create_text(lx, MT + ch + 22, text=bv, anchor="n", fill=C["text_3"], font=("Consolas", 7))
-
-        lgx = ML + 6
-        for p in PERIODS:
-            c.create_rectangle(lgx, MT + ch + 52, lgx + 10, MT + ch + 62, fill=PERIOD_COLORS[p], outline="")
-            c.create_text(
-                lgx + 14,
-                MT + ch + 57,
-                text=f"投稿{p}后",
-                anchor="w",
-                fill=PERIOD_COLORS[p],
-                font=("Microsoft YaHei UI", 8),
-            )
-            lgx += 90
-
-        ml = next((lb for key, lb, *_ in FIELDS if key == metric), metric)
-        c.create_text(
-            ML + cw // 2,
-            14,
-            text=f"投稿里程碑对比 — {ml}",
-            fill=C["text_1"],
-            font=("Microsoft YaHei UI", 10, "bold"),
-            anchor="n",
-        )
-        self._cmp_status.config(text=f"共 {n_videos} 个视频 · 展示指标：{ml}")
+        self._draw_compare_bars(c, data, bvids, metric, max_val, group_w, bar_w, gap_w, bar_total_w, ML, MT, ch)
+        self._draw_compare_legend(c, ML, MT, ch)
+        self._draw_compare_title(c, ML, cw, metric, n_videos)

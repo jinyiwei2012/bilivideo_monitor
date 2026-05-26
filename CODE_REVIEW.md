@@ -24,7 +24,7 @@
 
 | 状态 | 数量 | 类型 |
 |------|------|------|
-| ✅ 已修复 | 30 | B1-B5, R1-R2, S1(部分), S3, L1-L13, P2-P6, T1-T4 |
+| ✅ 已修复 | 34 | B1-B5, R1-R2, S1(部分), S3, L1-L13, P2-P6, T1-T4, 复杂度4项 |
 | 🔄 重新实现 | 4 | XGBoost, LightGBM, CatBoost, Prophet 算法升级 |
 | 🆕 新增 | 4 | 统一算法接口, Cookie加密, 算法命名规范, 各类别测试套件 |
 | ❌ 待修复 | 3 | P1（部分: 差值>5%限流+executemany）, D1-D3 |
@@ -137,11 +137,11 @@
 
 | 排名 | 函数 | 文件 | CC 分数 |
 |------|------|------|---------|
-| 1 | `ProxyManager.test_proxy` | `core/proxy_manager.py` | **38** |
-| 2 | `MilestoneStatsWindow._redraw_compare` | `ui/milestone_stats.py` | **27** |
-| 3 | `SnapshotTab._quick_filter` | `ui/snapshot_tab.py` | **22** |
-| 4 | `TrendTab._collect_data` | `ui/trend_tab.py` | **22** |
-| 5 | `DanmakuAnalysisWindow._analyze` | `ui/danmaku_analysis.py` | **20** |
+| 1 | `TrainingMonitor._evaluate` | `ui/training_base.py` | **42** |
+| 2 | `ModelTrainer._train_one` | `algorithms/training/trainer.py` | **35** |
+| 3 | `Database.sync_to_central` | `core/database/central_db.py` | **29** |
+| 4 | `TrainingPanel._handle_stage` | `ui/training_panel.py` | **25** |
+| 5 | `FinetunePanel._handle_stage` | `ui/finetune_panel.py` | **23** |
 
 ### 最大文件
 
@@ -188,6 +188,10 @@
 | 28 | **T2:** video dict 持锁写入 | `ui/monitor_service.py` | `3409975` |
 | 29 | **T4:** ProxyManager 线程安全 | `core/proxy_manager.py` | `5b66a64` |
 | 30 | 测试适配异步写盘 | `tests/test_weight_manager.py` | `921ac45` |
+| 31 | **复杂度: _redraw_compare** D(27)→B(8), 拆6个方法 | `ui/milestone_stats.py` | — |
+| 32 | **复杂度: _quick_filter** D(22)→A(4), 策略字典替代if链 | `ui/snapshot_tab.py` | — |
+| 33 | **复杂度: _collect_data** D(22)→C(12), 抽取_parse_raw_item | `ui/trend_tab.py` | — |
+| 34 | **复杂度: _analyze** C(20)→B(9), 抽取_fetch_danmaku/comments | `ui/danmaku_analysis.py` | — |
 
 ### 待修复
 
@@ -196,7 +200,7 @@
 | 1 | 预测写入限流（差值 > 5% 才写）+ 批量 `executemany` | 高 | 半天 |
 | 2 | SSL verify 恢复 | 高 | 2 小时 |
 | 3 | Predictions 表 TTL 清理 + 周/年分数去重 | 高 | 2 小时 |
-| 4 | `test_proxy` 拆分为小函数 | 低 | 半天 |
+| 5 | `test_proxy` 拆分为小函数（已部分完成，CC 38→4） | 低 | 半天 |
 | 5 | `settings_window.py` 拆分子文件 | 低 | 1 天 |
 
 ---
