@@ -401,12 +401,21 @@ class ModelTrainer:
         n_batches = 0
         # Activation Decay 系数
         act_decay = 0.0
+        # Label Smoothing 噪声比例
+        label_noise = 0.0
         if control_dict is not None:
             act_decay = control_dict.get("activation_decay", 0.0)
+            label_noise = control_dict.get("label_smoothing", 0.0)
         for batch in train_loader:
             x, y = preprocess(batch)
             x = x.to(self.device)
             y = y.to(self.device)
+            # Label Smoothing for Regression: 加 ~1% 噪声防止过拟合
+            if label_noise > 0 and y.numel() > 0:
+                y_std = y.std().item()
+                if y_std > 1e-8:
+                    noise = torch.randn_like(y) * y_std * label_noise
+                    y = y + noise
             optimizer.zero_grad()
             pred = model(x)
             if pred.dim() == y.dim() + 1 and pred.shape[-1] == 1:
