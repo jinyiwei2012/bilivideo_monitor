@@ -18,6 +18,8 @@ import logging
 import math
 import time
 from typing import Callable, Dict, List, Optional
+
+import numpy as np
 from utils import project_path
 from algorithms.training.checkpoint_manager import CheckpointManager
 from algorithms.training.device import get_device
@@ -399,13 +401,13 @@ class ModelTrainer:
         model.train()
         train_loss = 0.0
         n_batches = 0
-        # Activation Decay 系数
         act_decay = 0.0
-        # Label Smoothing 噪声比例
         label_noise = 0.0
+        mixup_alpha = 0.0
         if control_dict is not None:
             act_decay = control_dict.get("activation_decay", 0.0)
             label_noise = control_dict.get("label_smoothing", 0.0)
+            mixup_alpha = control_dict.get("mixup_alpha", 0.0)
         for batch in train_loader:
             x, y = preprocess(batch)
             x = x.to(self.device)
@@ -416,6 +418,13 @@ class ModelTrainer:
                 if y_std > 1e-8:
                     noise = torch.randn_like(y) * y_std * label_noise
                     y = y + noise
+            # MixUp 数据增强
+            if mixup_alpha > 0 and x.size(0) > 1:
+                lam = float(np.random.beta(mixup_alpha, mixup_alpha))
+                perm = torch.randperm(x.size(0), device=self.device)
+                x = lam * x + (1 - lam) * x[perm]
+                y = lam * y + (1 - lam) * y[perm]
+
             optimizer.zero_grad()
             pred = model(x)
             if pred.dim() == y.dim() + 1 and pred.shape[-1] == 1:
