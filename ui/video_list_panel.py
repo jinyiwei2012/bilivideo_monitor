@@ -43,7 +43,8 @@ class VideoListPanel:
         self.gui = gui
         self._parent = parent
         self._video_card_widgets = {}
-        self._cover_cache = {}
+        from collections import OrderedDict
+        self._cover_cache = OrderedDict()
         self._search_var = tk.StringVar()
         self._card_wraplength = 180  # 初始默认值，make_card 时会按屏幕更新
         self._build_left_panel()
@@ -370,19 +371,18 @@ class VideoListPanel:
         return ctk.CTkImage(light_image=img, size=(new_w, new_h))
 
     def _cache_and_show(self, cache_key, ph, label_widget):
-        """缓存 CTkImage 并显示到控件"""
+        """缓存 CTkImage 并显示到控件（LRU 淘汰）"""
         self._cover_cache[cache_key] = ph
+        self._cover_cache.move_to_end(cache_key)
         if len(self._cover_cache) > 50:
-            try:
-                self._cover_cache.pop(next(iter(self._cover_cache)))
-            except (StopIteration, KeyError):
-                pass
+            self._cover_cache.popitem(last=False)
         self.gui.root.after(0, lambda: self._safe_set_image(label_widget, ph))
 
     def _load_cover_thumb(self, url, bvid, label_widget, title="", target_w=80, target_h=45):
         """异步加载卡片封面缩略图，优先使用本地缓存"""
         cache_key = (bvid, "thumb")
         if cache_key in self._cover_cache:
+            self._cover_cache.move_to_end(cache_key)
             label_widget.configure(image=self._cover_cache[cache_key], text="")
             return
         if not url:
