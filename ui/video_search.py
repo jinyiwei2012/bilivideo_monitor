@@ -202,7 +202,7 @@ class VideoSearchWindow:
         top.title(f"视频详情 - {bvid}")
         sw = self.window.winfo_screenwidth()
         sh = self.window.winfo_screenheight()
-        top.geometry(f"{int(sw*0.32)}x{int(sh*0.48)}")
+        top.geometry(f"{int(sw * 0.32)}x{int(sh * 0.48)}")
         top.configure(bg=C["bg_surface"])
         top.transient(self.window)
         top.grab_set()

@@ -719,7 +719,7 @@ class FinetunePanel(BaseTrainingPanel):
         self._append_log(
             f"  epoch {ep:>3}/{eps}  |  "
             f"train_loss={tloss:.6f}  |  "
-            f"{f'val_loss={vloss:.6f}' if vloss>=0 else 'val_loss=N/A'}  |  "
+            f"{f'val_loss={vloss:.6f}' if vloss >= 0 else 'val_loss=N/A'}  |  "
             f"confidence={conf_str}  |  "
             f"{elapsed:.1f}s{adj_suffix}"
         )

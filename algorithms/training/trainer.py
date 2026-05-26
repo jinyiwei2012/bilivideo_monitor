@@ -282,7 +282,7 @@ class ModelTrainer:
                         "algo_id": algo_id,
                         "bvid": bvid,
                         "action": "early_stop",
-                        "message": f"Epoch {epoch+1}/{epochs}: 提前停止",
+                        "message": f"Epoch {epoch + 1}/{epochs}: 提前停止",
                         "epoch": epoch + 1,
                         "epochs": epochs,
                     },

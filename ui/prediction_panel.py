@@ -163,11 +163,11 @@ class PredictionPanel:
                     eta_row = ctk.CTkFrame(inner, fg_color=C["bg_surface"], corner_radius=0)
                     eta_row.pack(fill=tk.X)
                     if predicted_hours >= 24:
-                        eta_text = f"🎯 预计 {predicted_hours/24:.1f} 天"
+                        eta_text = f"🎯 预计 {predicted_hours / 24:.1f} 天"
                     elif predicted_hours >= 1:
                         eta_text = f"🎯 预计 {predicted_hours:.1f} 小时"
                     else:
-                        eta_text = f"🎯 预计 {predicted_hours*60:.0f} 分钟"
+                        eta_text = f"🎯 预计 {predicted_hours * 60:.0f} 分钟"
                     ctk.CTkLabel(
                         eta_row,
                         text=eta_text,

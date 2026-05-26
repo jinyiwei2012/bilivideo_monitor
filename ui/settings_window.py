@@ -768,7 +768,7 @@ class SettingsWindow:
 
             if a["has_ckpt"]:
                 status_txt = f"✅ {a['active_version'][:18]}" + (
-                    f" (+{a['version_count']-1})" if a["version_count"] > 1 else ""
+                    f" (+{a['version_count'] - 1})" if a["version_count"] > 1 else ""
                 )
                 status_fg = C["success"]
             else:
@@ -994,7 +994,7 @@ class SettingsWindow:
         top.title(f"版本管理 — {algo_id}")
         sw = self.window.winfo_screenwidth()
         sh = self.window.winfo_screenheight()
-        top.geometry(f"{int(sw*0.40)}x{int(sh*0.45)}")
+        top.geometry(f"{int(sw * 0.40)}x{int(sh * 0.45)}")
         top.configure(bg=C["bg_surface"])
         top.transient(self.window)
         top.grab_set()
@@ -1518,7 +1518,7 @@ class SettingsWindow:
         top.title("批量导入代理")
         sw = self.window.winfo_screenwidth()
         sh = self.window.winfo_screenheight()
-        top.geometry(f"{int(sw*0.35)}x{int(sh*0.45)}")
+        top.geometry(f"{int(sw * 0.35)}x{int(sh * 0.45)}")
         top.configure(bg=C["bg_surface"])
         top.transient(self.window)
         top.grab_set()
@@ -1886,7 +1886,7 @@ class SettingsWindow:
         top.title("导入 Cookie-Editor JSON")
         sw = self.window.winfo_screenwidth()
         sh = self.window.winfo_screenheight()
-        top.geometry(f"{int(sw*0.36)}x{int(sh*0.42)}")
+        top.geometry(f"{int(sw * 0.36)}x{int(sh * 0.42)}")
         top.configure(bg=C["bg_surface"])
         top.transient(self.window)
         top.grab_set()
@@ -1977,7 +1977,7 @@ class SettingsWindow:
         qr_top.title("扫码登录 B站")
         sw = self.window.winfo_screenwidth()
         sh = self.window.winfo_screenheight()
-        qr_top.geometry(f"{int(sw*0.28)}x{int(sh*0.45)}")
+        qr_top.geometry(f"{int(sw * 0.28)}x{int(sh * 0.45)}")
         qr_top.configure(bg=C["bg_surface"])
         qr_top.transient(self.window)
         qr_top.grab_set()
@@ -2082,7 +2082,7 @@ class SettingsWindow:
         pwd_top.title("密码登录 B站")
         sw = self.window.winfo_screenwidth()
         sh = self.window.winfo_screenheight()
-        pwd_top.geometry(f"{int(sw*0.28)}x{int(sh*0.36)}")
+        pwd_top.geometry(f"{int(sw * 0.28)}x{int(sh * 0.36)}")
         pwd_top.configure(bg=C["bg_surface"])
         pwd_top.transient(self.window)
         pwd_top.grab_set()

@@ -22,7 +22,7 @@ class ReportSchedulerWindow:
         sw = parent.winfo_screenwidth() if parent else 1920
         sh = parent.winfo_screenheight() if parent else 1080
         self.dlg = DialogBase(
-            parent, "定时导出报告", f"{int(sw*0.42)}x{int(sh*0.60)}", resizable=(True, True), modal=False
+            parent, "定时导出报告", f"{int(sw * 0.42)}x{int(sh * 0.60)}", resizable=(True, True), modal=False
         )
         self.window = self.dlg.window
         self.gui = gui
@@ -124,7 +124,7 @@ class ReportSchedulerWindow:
             }
             for exporter in fmts.get(fmt, [export_html]):
                 path = exporter(self.gui.monitored_videos)
-                results.append(f"{exporter.__name__.replace('export_','').upper()}: {path}")
+                results.append(f"{exporter.__name__.replace('export_', '').upper()}: {path}")
             self._export_status.config(text="导出完成！\n" + "\n".join(results), fg=C["success"])
             self._refresh_file_list()
         except Exception as e:

@@ -97,7 +97,7 @@ class CrossoverAnalysisWindow:
         self.window.title("播放量交叉计算")
         sw = parent.winfo_screenwidth() if parent else 1920
         sh = parent.winfo_screenheight() if parent else 1080
-        self.window.geometry(f"{int(sw*0.54)}x{int(sh*0.72)}")
+        self.window.geometry(f"{int(sw * 0.54)}x{int(sh * 0.72)}")
 
         self.monitored_videos = monitored_videos or []
         self.history_data = history_data or {}

@@ -290,7 +290,7 @@ class TrainingPanel(BaseTrainingPanel):
                 valid = info.get("valid_videos", 0)
                 samples = info.get("total_samples", 0)
                 eta = info.get("estimated_time_s", 0)
-                txt = f"{total} 视频 · {valid} 有效 · {samples:,} 样本 · 约 {eta/60:.1f} min/algo"
+                txt = f"{total} 视频 · {valid} 有效 · {samples:,} 样本 · 约 {eta / 60:.1f} min/algo"
                 self.frame.after(0, lambda: self._data_lbl.config(text=txt, fg=C["text_1"]))
             except Exception as e:
                 self.frame.after(0, lambda e=e: self._data_lbl.config(text=f"⚠ {e}", fg=C["danger"]))
@@ -1053,7 +1053,7 @@ class TrainingPanel(BaseTrainingPanel):
         self._append_log(
             f"  epoch {ep:>3}/{eps}  |  "
             f"train_loss={tloss:.6f}  |  "
-            f"{f'val_loss={vloss:.6f}' if vloss>=0 else 'val_loss=N/A'}  |  "
+            f"{f'val_loss={vloss:.6f}' if vloss >= 0 else 'val_loss=N/A'}  |  "
             f"confidence={conf_str}  |  "
             f"{elapsed:.1f}s"
         )
