@@ -296,7 +296,7 @@ class TrainingPanel(BaseTrainingPanel):
                 txt = f"{total} 视频 · {valid} 有效 · {samples:,} 样本 · 约 {eta/60:.1f} min/algo"
                 self.frame.after(0, lambda: self._data_lbl.config(text=txt, fg=C["text_1"]))
             except Exception as e:
-                self.frame.after(0, lambda: self._data_lbl.config(text=f"⚠ {e}", fg=C["danger"]))
+                self.frame.after(0, lambda e=e: self._data_lbl.config(text=f"⚠ {e}", fg=C["danger"]))
 
         threading.Thread(target=_worker, daemon=True).start()
 

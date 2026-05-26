@@ -686,7 +686,7 @@ class SettingsWindow:
                 )
                 self.window.after(0, lambda: self._tr_data_lbl.config(text=txt, fg=C["text_1"]))
             except Exception as e:
-                self.window.after(0, lambda: self._tr_data_lbl.config(text=f"⚠ 估算失败: {e}", fg=C["danger"]))
+                self.window.after(0, lambda e=e: self._tr_data_lbl.config(text=f"⚠ 估算失败: {e}", fg=C["danger"]))
 
         import threading
 
@@ -2132,8 +2132,9 @@ class SettingsWindow:
                     )
                     pwd_top.after(0, lambda: _handle_result(result))
                 except Exception as e:
-                    pwd_top.after(0, lambda: status_var.set(f"异常: {e}"))
+                    pwd_top.after(0, lambda e=e: status_var.set(f"异常: {e}"))
 
+            import threading
             threading.Thread(target=_worker, daemon=True).start()
 
         def _handle_result(result):

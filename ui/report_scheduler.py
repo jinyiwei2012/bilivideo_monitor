@@ -155,11 +155,12 @@ class ReportSchedulerWindow:
             return
         try:
             fmt = self._schedule_format_var.get()
+            import logging
             from utils.report_exporter import export_csv, export_json, export_html
             exporters = {"csv": export_csv, "json": export_json, "html": export_html}
             exporter = exporters.get(fmt, export_csv)
             path = exporter(self.gui.monitored_videos)
-            logger.info("定时导出完成: %s", path)
+            logging.getLogger(__name__).info("定时导出完成: %s", path)
         except Exception as e:
             import logging
             logging.getLogger(__name__).warning("定时导出失败: %s", e)
