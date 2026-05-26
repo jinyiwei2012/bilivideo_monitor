@@ -1,5 +1,58 @@
 # 更新日志
 
+## Release 2026-05-26 (v2.7.1)
+
+### 🐛 修复
+- **`ModelAlgorithmAdapter` 未转发 `build_model`**: `registry.get_trainable_info()` 检测不到任何有底模的算法（始终返回空列表），因为 `ModelAlgorithmAdapter.__init__` 未将底层算法的 `build_model` 暴露给注册器。新增 `build_model` property 委托到底层 `self.algo`，27 个深度学习算法恢复可训练识别。
+
+### ✨ 新功能
+- **`build_model` 属性转发**: `ModelAlgorithmAdapter` 新增 `build_model` property，自动将底层算法的 `build_model` 方法暴露给注册器，无需为每个算法单独适配。
+
+## Release 2026-05-26 (v2.7.0)
+
+### ✨ 新功能
+- **双更新通道**: 支持稳定版/测试版切换，测试版从 `pre-release` 分支拉取，稳定版从 `releases` 分支
+- **pre-release 分支**: 新功能先推送 `pre-release` 分支测试，稳定后合并到 `releases`
+- **Git 拉取自动匹配分支**: 测试版 `git pull origin pre-release`，稳定版 `git pull origin releases`
+
+### 🧹 优化
+- **测试版暂不提供 EXE**: 测试通道仅提供 Git/ZIP 更新方式
+
+## Release 2026-05-26 (v2.6.1)
+
+### 🧹 优化
+- **模型加载/推理日志格式化**: `[算法] 视频(BV),使用'微调模型(v3)'预测成功 预测结果: xxx`
+- **日志格式统一**: FileLogger 和 stderr 输出使用相同 ISO 时间格式
+- **启动日志显示 checkpoint 状态**: 显示每个算法的模型来源（视频微调/底模/numpy）
+
+## Release 2026-05-26 (v2.6.0)
+
+### ✨ 新功能
+- **aria2 下载器集成**: `utils/downloader.py` — 首次使用自动下载 aria2c.exe，支持多线程断点续传 + 实时进度回调
+- **自适应更新弹窗**: 检测运行模式（源码/PyInstaller），源码提供 Git Pull / aria2 下载 ZIP，打包版提供 aria2 下载 EXE + 重启脚本
+- **窗口标题显示版本号**: `B站视频监控与播放量预测系统 v2.6.0`
+- **备份差异检测+弹窗询问**: 退出时比较 `core/data/` 与 `data/` 差异，弹窗让用户选择是否同步
+- **双写机制**: `VideoDatabase` 运行时同时写入 `core/data/<BV>` 和 `data/<BV>`，退出同步中央库
+- **预测日志格式化**: `[BV号] [算法名] 预测: xxx` (DEBUG)，`[BV号] 综合预测: xxx` (INFO)
+
+### 🐛 修复
+- **import 崩溃修复**: `core.__init__` 导出 `db` 别名、`bilibili_api` 添加模块级 wrapper（`get_video_info`、`proxy_manager`、`close` 等 7 个）
+- **数据路径修复**: `_ACTIVE_DIR` 从 `core/data` 改回 `core/data`，退出时同步到 `data/`；新增 `_migrate_old_data()` 自动迁移已有数据
+- **预测结果 ValueError**: `success_list` 缺 `predicted_hours` 导致 4-tuple→5-tuple 解包失败
+- **watch_list 空配置**: 配置文件 `watch_list` 为空时从数据库兜底加载已有 17 个视频
+- **LightGBM UserWarning**: 抑制 `X does not have valid feature names` 警告
+- **Lag-Llama 循环导入**: 安装 `lightning>=2.1.0` 修复 `Callback` 循环导入
+
+### 🧹 代码质量
+- **flake8 0 error**: 修复 557 个 lint 错误（F401×43、F841×26、F821×23、E226×29、E402×17、C901×12 等）
+- **全库复杂度降至 C 级**: 消除全部 D/E/F 级函数（12 个），最高 CC 仅 C(19)
+- **black 格式化 80 文件**: 统一风格
+- **`hf_loader` 日志降级**: WARNING→DEBUG，成功时 INFO 显示 torch 推理
+
+### 📦 打包
+- **BiliMonitor.spec 全面重写**: 97 个算法 hiddenimports、Tcl/Tk 运行时、torch/scipy/sklearn 子包、UPX 压缩
+- **`hook-bilibili_api.py`**: 按官方 issue #39 收集 59 个数据文件
+
 ## Release 2026-05-25 (v2.5.0)
 
 ### ✨ 新功能
