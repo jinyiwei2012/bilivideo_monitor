@@ -85,6 +85,7 @@ class CheckpointManager:
                     "learning_rate": m.get("learning_rate", -1.0),
                     "completed_epochs": m.get("completed_epochs", 0),
                     "data_trained_until": m.get("data_trained_until", 0.0),
+                    "scheduler_state": m.get("scheduler_state"),
                     "active": version == active_version,
                 }
             )
@@ -118,6 +119,7 @@ class CheckpointManager:
             "learning_rate": (metadata or {}).get("learning_rate", -1.0),
             "completed_epochs": (metadata or {}).get("completed_epochs", 0),
             "data_trained_until": (metadata or {}).get("data_trained_until", 0.0),
+            "scheduler_state": (metadata or {}).get("scheduler_state"),
         }
         self._write_metadata(meta)
         self._write_active(version)

@@ -22,6 +22,7 @@ from utils import project_path
 from algorithms.training.checkpoint_manager import CheckpointManager
 from algorithms.training.device import get_device
 from algorithms.training.dataset import VideoTimeSeriesDataset, estimate_dataset_size
+from algorithms.training.schedulers import HyperbolicLR, ComboScheduler
 
 logger = logging.getLogger(__name__)
 
@@ -200,17 +201,51 @@ class ModelTrainer:
         dataset, train_loader, val_loader = self._prepare_dataset(algo, algo_id, bvid, batch_size, val_ratio, min_timestamp=min_timestamp)
         model, optimizer, loss_fn, preprocess = self._init_model_optimizer(algo, algo_id, init_from_global, lr, bvid=bvid)
 
+        # 创建调度器
+        scheduler = ComboScheduler(optimizer, k=0.1, plateau_patience=5, plateau_factor=0.5, min_lr=1e-6)
+
+        # 恢复调度器状态（增量训练续训）
+        if prev_epochs > 0:
+            scheduler._step_count = prev_epochs
+        try:
+            if bvid:
+                _sd_ckpt = CheckpointManager(algo_id, bvid=bvid)
+                _sd_ver = _sd_ckpt.list_versions()
+                for _v in _sd_ver:
+                    if _v["active"]:
+                        _saved_sd = _v.get("scheduler_state")
+                        if _saved_sd:
+                            scheduler.load_state_dict(_saved_sd)
+                        break
+            if not bvid:
+                _sd_ckpt = CheckpointManager(algo_id)
+                _sd_ver = _sd_ckpt.list_versions()
+                for _v in _sd_ver:
+                    if _v["active"]:
+                        _saved_sd = _v.get("scheduler_state")
+                        if _saved_sd:
+                            scheduler.load_state_dict(_saved_sd)
+                        break
+        except Exception:
+            pass
+
         best_val = float("inf")
         last_val = -1.0
         start_time = time.time()
         best_model_state = None
         train_losses = []
         for epoch in range(epochs):
-            if self._check_control(control_dict, epoch, algo_id, bvid, optimizer, progress_cb, epochs):
+            if self._check_control(control_dict, epoch, algo_id, bvid, optimizer, progress_cb, epochs, scheduler=scheduler):
                 break
 
             train_loss = self._train_epoch(model, train_loader, optimizer, loss_fn, preprocess, control_dict, algo_id)
             train_losses.append(train_loss)
+
+            # 调度器步进（hyperbolic 模式）
+            if control_dict and control_dict.get("lr_scale"):
+                pass  # lr_scale 已由 _check_control 应用到 base_lrs
+            else:
+                scheduler.step_hyperbolic()
 
             if control_dict and control_dict.get("early_stop"):
                 if control_dict.pop("_force_early_stop", False):
@@ -242,11 +277,14 @@ class ModelTrainer:
                 best_val = last_val
                 best_model_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
 
+            # 调度器 plateau 检测
+            scheduler.update(last_val)
+
         # 无验证集时保存最终模型；有验证集时保存 val_loss 最低的那个
         if best_model_state is not None:
             model.load_state_dict(best_model_state)
         data_trained_until_new = getattr(dataset, "max_timestamp", 0.0)
-        return self._save_checkpoint(model, algo_id, bvid, dataset, best_val, last_val, val_loader, epochs, optimizer, prev_epochs=prev_epochs, data_trained_until=data_trained_until_new)
+        return self._save_checkpoint(model, algo_id, bvid, dataset, best_val, last_val, val_loader, epochs, optimizer, prev_epochs=prev_epochs, data_trained_until=data_trained_until_new, scheduler=scheduler)
 
     def _prepare_dataset(self, algo, algo_id, bvid, batch_size, val_ratio, min_timestamp=None):
         features = getattr(algo, "get_training_features", lambda: None)() or [
@@ -323,11 +361,14 @@ class ModelTrainer:
         return model, optimizer, loss_fn, preprocess
 
     @staticmethod
-    def _check_control(control_dict, epoch, algo_id, bvid, optimizer, progress_cb, epochs):
+    def _check_control(control_dict, epoch, algo_id, bvid, optimizer, progress_cb, epochs, scheduler=None):
         if control_dict is None:
             return False
         lr_scale = control_dict.pop("lr_scale", None)
         if lr_scale is not None:
+            if scheduler is not None and hasattr(scheduler, "base_lrs"):
+                # 更新调度器的 base_lrs，让调度器在此基础上继续衰减
+                scheduler.base_lrs = [blr * lr_scale for blr in scheduler.base_lrs]
             for pg in optimizer.param_groups:
                 new_lr = pg["lr"] * lr_scale
                 pg["lr"] = new_lr
@@ -418,20 +459,23 @@ class ModelTrainer:
         )
         return last_val
 
-    def _save_checkpoint(self, model, algo_id, bvid, dataset, best_val, last_val, val_loader, epochs, optimizer=None, prev_epochs=0, data_trained_until=0.0):
+    def _save_checkpoint(self, model, algo_id, bvid, dataset, best_val, last_val, val_loader, epochs, optimizer=None, prev_epochs=0, data_trained_until=0.0, scheduler=None):
         ckpt = CheckpointManager(algo_id, bvid=bvid)
         lr = optimizer.param_groups[0]["lr"] if optimizer is not None else 0.001
+        metadata = {
+            "data_count": len(dataset),
+            "val_loss": best_val if val_loader is not None else last_val,
+            "epochs": epochs,
+            "completed_epochs": prev_epochs + epochs,
+            "device": str(self.device),
+            "learning_rate": lr,
+            "data_trained_until": data_trained_until,
+        }
+        if scheduler is not None:
+            metadata["scheduler_state"] = scheduler.state_dict()
         version = ckpt.save(
             model.state_dict(),
-            metadata={
-                "data_count": len(dataset),
-                "val_loss": best_val if val_loader is not None else last_val,
-                "epochs": epochs,
-                "completed_epochs": prev_epochs + epochs,
-                "device": str(self.device),
-                "learning_rate": lr,
-                "data_trained_until": data_trained_until,
-            },
+            metadata=metadata,
         )
         if bvid:
             self._save_model_to_video_dir(model, bvid, algo_id)
