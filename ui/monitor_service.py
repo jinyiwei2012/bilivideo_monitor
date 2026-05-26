@@ -217,7 +217,7 @@ def _predict_single(gui, bvid, video) -> dict:
             if "error" in r:
                 fail_list.append((name, r["error"]))
             else:
-                success_list.append((name, r["prediction"], r["weight"], r["confidence"]))
+                success_list.append((name, r["prediction"], r["weight"], r["confidence"], r.get("predicted_hours", 0)))
 
         growth = w_pred - current_view
         rate_per_sec = _calc_growth_rate(history)

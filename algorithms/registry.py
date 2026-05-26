@@ -157,6 +157,7 @@ class AlgorithmRegistry:
                         "prediction": res["prediction"],
                         "confidence": res["confidence"],
                         "weight": w,
+                        "predicted_hours": res.get("predicted_hours", 0),
                         "metadata": res["metadata"],
                     },
                     None,
