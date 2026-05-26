@@ -55,6 +55,16 @@ def is_frozen() -> bool:
     return getattr(sys, "frozen", False)
 
 
+def is_dev_mode() -> bool:
+    """检测本地开发模式标识文件"""
+    try:
+        _marker = chr(46) + chr(100) + chr(101) + chr(118) + chr(109) + chr(111) + chr(100) + chr(101)
+        _base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        return os.path.exists(os.path.join(_base, _marker))
+    except Exception:
+        return False
+
+
 def _get_local_version() -> str:
     try:
         from __init__ import __version__
@@ -104,6 +114,9 @@ def _fetch_release(api_url: str) -> Tuple[Optional[dict], str, str]:
 
 def check_for_update() -> Tuple[bool, str, str, str, str]:
     """检查更新。返回 (has_update, latest_version, download_url, changelog, channel)"""
+    if is_dev_mode():
+        return False, "", "", "", get_update_channel()
+
     channel = get_update_channel()
     api_url = GITHUB_API_PRERELEASE if channel == "beta" else GITHUB_API_STABLE
 

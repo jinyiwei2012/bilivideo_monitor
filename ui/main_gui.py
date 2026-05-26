@@ -82,7 +82,9 @@ class BilibiliMonitorGUI:
         if root is None:
             root = ctk.CTk()
             from __init__ import __version__
-            root.title(f"B站视频监控与播放量预测系统 v{__version__}")
+            from utils.update_checker import is_dev_mode
+            ver_suffix = (" " + chr(100) + chr(101) + chr(118) + " " + chr(24320) + chr(21457) + chr(20013)) if is_dev_mode() else ""
+            root.title(f"B站视频监控与播放量预测系统 v{__version__}{ver_suffix}")
             # 自适应窗口：85% 屏幕尺寸，最低 55%
             sw = root.winfo_screenwidth()
             sh = root.winfo_screenheight()
