@@ -27,10 +27,10 @@
 
 | 状态 | 数量 | 类型 |
 |------|------|------|
-| ✅ 已修复 | 22 | B1-B5, R1, R2, S1(部分), S3, L1-L3, L5-L6, L8-L13 |
+| ✅ 已修复 | 26 | B1-B5, R1, R2, S1(部分), S3, L1-L3, L5-L6, L8-L13, P2-P5 |
 | 🔄 重新实现 | 4 | XGBoost, LightGBM, CatBoost, Prophet 算法升级 |
 | 🆕 新增 | 4 | 统一算法接口, Cookie加密, 算法命名规范, 各类别测试套件 |
-| ❌ 待修复 | 8 | P1-P6, D1-D3, T2-T4 |
+| ❌ 待修复 | 4 | P1, D1-D3 |
 
 ---
 
@@ -224,15 +224,25 @@ predict()
 - 使用 `executemany` + 单事务批量写入
 - 周/年分数改为小时级去重
 
-### P2. `_request_public` Session 复用 ❌ 未修复
+### P2. `_request_public` Session 复用 ✅ 已修复
 
-当前 `finally` 中 `close()` 已修复泄漏，但仍每次新建 Session。
+**commit:** `e533138`  
+**操作：** 实例级 `self._public_session` 替代每次新建 Session，共享 TCP 连接池。`close()` 中一并清理。
 
-### P3. 封面缓存 FIFO 淘汰 ❌ 未修复
+### P3. 封面缓存 FIFO→LRU ✅ 已修复
 
-### P4. 每 tick 完整重绘图表 ❌ 未修复
+**commit:** `de96a55`  
+**操作：** `dict` → `OrderedDict`，`move_to_end` 标记访问，`popitem(last=False)` LRU 淘汰。缓存命中时同时更新访问顺序。
 
-### P5. `_merge_history` 全量加载 ❌ 未修复
+### P4. 图表指纹缓存防重复重绘 ✅ 已修复
+
+**commit:** `80de20e`  
+**操作：** `draw_chart()` 新增函数级 `_last_fp` 指纹（bvid+mode+数据点数量+最新播放量+预测值），数据未变时跳过 `delete("all")`+全量重绘。`detail_panel._auto_render_chart` 中原标签检查下放到 chart 层统一管理。
+
+### P5. `_merge_history` 限制 DB 读取 ✅ 已修复
+
+**commit:** `4458f65`  
+**操作：** `get_all_records()` → `get_all_records(limit=500)`，限制最近 500 条，避免数月积累的全量加载。
 
 ### P6. WeightManager 持锁写磁盘 ❌ 未修复
 
@@ -327,23 +337,22 @@ predict()
 | 20 | **L11:** dataset.py WAL 模式 | `algorithms/training/dataset.py` | `b34c366` |
 | 21 | **L12:** 算法类别测试 32 条 | `tests/test_model_algorithms.py`（新建） | `f009bc8` |
 | 22 | **L13:** torchmetrics 依赖 | `requirements.txt` | `1488d63` |
+| 23 | **P2:** _request_public 复用 Session | `core/bilibili_api.py` | `e533138` |
+| 24 | **P3:** 封面缓存 FIFO→LRU | `ui/video_list_panel.py` | `de96a55` |
+| 25 | **P4:** 图表指纹缓存防重复重绘 | `ui/chart.py`, `ui/detail_panel.py` | `80de20e` |
+| 26 | **P5:** _merge_history limit=500 | `ui/monitor_service.py` | `4458f65` |
 
 ### 待修复
 
 | # | 问题 | 优先级 | 预计工作量 |
 |---|------|--------|-----------|
-| 1 | 预测写入限流（差值 > 5% 才写） | 高 | 半天 |
+| 1 | 预测写入限流（差值 > 5% 才写）+ 批量 `executemany` | 高 | 半天 |
 | 2 | SSL verify 恢复 | 高 | 2 小时 |
-| 3 | Predictions 表 TTL 清理 | 高 | 2 小时 |
-| 4 | 封面缓存 LRU 替换 | 中 | 1 小时 |
-| 5 | Weekly/Yearly 分数去重 | 中 | 2 小时 |
-| 6 | 数据库批量写入优化 | 中 | 半天 |
-| 7 | `_request_public` 复用 Session | 中 | 2 小时 |
-| 8 | ProxyManager 线程安全 | 中 | 2 小时 |
-| 9 | `test_proxy` 拆分为小函数 | 低 | 半天 |
-| 10 | 图表增量绘制 | 低 | 半天 |
-| 11 | `_merge_history` limit 限制 | 低 | 1 小时 |
-| 12 | `settings_window.py` 拆分子文件 | 低 | 1 天 |
+| 3 | Predictions 表 TTL 清理 + 中央 DB 全量同步优化 | 高 | 2 小时 |
+| 4 | WeightManager 持锁写磁盘改为异步 | 中 | 2 小时 |
+| 5 | ProxyManager 线程安全 + 共享 video dict 保护 | 中 | 2 小时 |
+| 6 | `test_proxy` 拆分为小函数 | 低 | 半天 |
+| 7 | `settings_window.py` 拆分子文件 | 低 | 1 天 |
 
 ---
 
@@ -469,7 +478,7 @@ predict()
 |---------|--------|--------|------|
 | 🔴 高危（安全/RCE） | 1 | 0 | 1 |
 | 🟠 中危（安全/Bug） | 5 | 2 | 7 |
-| 🟡 一般（性能/线程） | 2 | 6 | 8 |
+| 🟡 一般（性能/线程） | 6 | 3 | 9 |
 | 🔵 低危（代码质量） | 12 | 0 | 12 |
 | 🆕 架构改进 | 4 | 0 | 4 |
 
