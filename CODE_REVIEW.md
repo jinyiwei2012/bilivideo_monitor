@@ -24,10 +24,10 @@
 
 | 状态 | 数量 | 类型 |
 |------|------|------|
-| ✅ 已修复 | 26 | B1-B5, R1-R2, S1(部分), S3, L1-L13, P2-P5 |
+| ✅ 已修复 | 30 | B1-B5, R1-R2, S1(部分), S3, L1-L13, P2-P6, T1-T4 |
 | 🔄 重新实现 | 4 | XGBoost, LightGBM, CatBoost, Prophet 算法升级 |
 | 🆕 新增 | 4 | 统一算法接口, Cookie加密, 算法命名规范, 各类别测试套件 |
-| ❌ 待修复 | 4 | P1, D1-D3 |
+| ❌ 待修复 | 3 | P1（部分: 差值>5%限流+executemany）, D1-D3 |
 
 ---
 
@@ -105,19 +105,19 @@
 
 ### ✅ P5. `_merge_history` limit=500
 
-### ❌ P6. WeightManager 持锁写磁盘
+### ✅ P6. WeightManager 持锁写磁盘 → 异步 `_save_weights_async` + 快照 `_recalculate`
 
 ---
 
-## 线程安全问题
+## 线程安全问题（全部已修复）
 
-### T1. `registry.py` ThreadPoolExecutor 竞态 ✅ 已修复（`_pool_lock`）
+### ✅ T1. `registry.py` ThreadPoolExecutor 竞态（`_pool_lock`）
 
-### ❌ T2. 共享 video dict 无保护写入
+### ✅ T2. 共享 video dict 无保护写入 → Worker 写入块持 `gui._data_lock`
 
-### ❌ T3. `weight_manager.py:94-107` 持锁做文件 I/O
+### ✅ T3. `weight_manager.py` 持锁做文件 I/O → 异步写盘（同 P6）
 
-### ❌ T4. `proxy_manager.py:166-171` 失败代理移除非原子
+### ✅ T4. `proxy_manager.py` 失败代理移除非原子 → 全部 `_lock` 保护
 
 ---
 
@@ -162,7 +162,7 @@
 
 ## 综合建议
 
-### 本周期已修复（26 项）
+### 本周期已修复（30 项）
 
 | # | 问题 | 文件 | commit |
 |---|------|------|--------|
@@ -184,6 +184,10 @@
 | 24 | **P3:** 封面缓存 FIFO→LRU | `ui/video_list_panel.py` | `de96a55` |
 | 25 | **P4:** 图表指纹缓存防重复重绘 | `ui/chart.py`, `ui/detail_panel.py` | `80de20e` |
 | 26 | **P5:** _merge_history limit=500 | `ui/monitor_service.py` | `4458f65` |
+| 27 | **P6+T3:** WeightManager 异步写盘 | `algorithms/weight_manager.py` | `7cebd32` |
+| 28 | **T2:** video dict 持锁写入 | `ui/monitor_service.py` | `3409975` |
+| 29 | **T4:** ProxyManager 线程安全 | `core/proxy_manager.py` | `5b66a64` |
+| 30 | 测试适配异步写盘 | `tests/test_weight_manager.py` | `921ac45` |
 
 ### 待修复
 
@@ -191,11 +195,9 @@
 |---|------|--------|-----------|
 | 1 | 预测写入限流（差值 > 5% 才写）+ 批量 `executemany` | 高 | 半天 |
 | 2 | SSL verify 恢复 | 高 | 2 小时 |
-| 3 | Predictions 表 TTL 清理 + 中央 DB 全量同步优化 | 高 | 2 小时 |
-| 4 | WeightManager 持锁写磁盘改为异步 | 中 | 2 小时 |
-| 5 | ProxyManager 线程安全 + 共享 video dict 保护 | 中 | 2 小时 |
-| 6 | `test_proxy` 拆分为小函数 | 低 | 半天 |
-| 7 | `settings_window.py` 拆分子文件 | 低 | 1 天 |
+| 3 | Predictions 表 TTL 清理 + 周/年分数去重 | 高 | 2 小时 |
+| 4 | `test_proxy` 拆分为小函数 | 低 | 半天 |
+| 5 | `settings_window.py` 拆分子文件 | 低 | 1 天 |
 
 ---
 
@@ -205,7 +207,7 @@
 |---------|--------|--------|------|
 | 🔴 高危（安全/RCE） | 1 | 0 | 1 |
 | 🟠 中危（安全/Bug） | 5 | 2 | 7 |
-| 🟡 一般（性能/线程） | 6 | 3 | 9 |
+| 🟡 一般（性能/线程） | 9 | 1 | 10 |
 | 🔵 低危（代码质量） | 12 | 0 | 12 |
 | 🆕 架构改进 | 4 | 0 | 4 |
 
