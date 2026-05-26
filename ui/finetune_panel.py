@@ -217,7 +217,7 @@ class FinetunePanel(BaseTrainingPanel):
 
         if _train() != "normal":
             tk.Label(
-                ctrl, text="💡 创建 .enabletraining 文件即可开启微调",
+                ctrl, text="💡 创建 .enabletraining 文件开启微调 / 完整 devmode 见 README.md",
                 bg=C["bg_elevated"], fg=C["warning"], font=("", 8),
             ).pack(side=tk.LEFT, padx=8)
 

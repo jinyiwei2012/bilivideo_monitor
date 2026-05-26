@@ -652,7 +652,7 @@ class SettingsWindow:
 
         if _train() != "normal":
             tk.Label(
-                btn_row, text="💡 创建 .enabletraining 文件即可开启训练",
+                btn_row, text="💡 创建 .enabletraining 文件开启训练 / 完整 devmode 见 README.md",
                 bg=C["bg_elevated"], fg=C["warning"], font=("", 8),
             ).pack(side=tk.LEFT, padx=4)
 
