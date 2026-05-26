@@ -1,14 +1,57 @@
 # 更新日志
 
-## Release 2026-05-22 (v2.5.0)
+## Release 2026-05-26 (v2.6.0)
 
-### 🔧 优化
-- **ScrollableFrame 通用组件**: 提取 12+ 处重复的 Canvas + Scrollbar + Frame 模式到 `ui/scrollable_frame.py`，统一 40 行实现，`FinetunePanel` / `TrainingPanel` / `SettingsWindow` / `Dialogs` / `milestone_stats` / `trending_discovery` / `entry_tab` 共 7 个文件受益
-- **BaseTrainingPanel 基类**: 提取 `TrainingPanel` 与 `FinetunePanel` 共享逻辑到 `ui/training_base.py`，包含 `TrainingMonitor` 训练质量监控和 `BaseTrainingPanel` 通用训练生命周期管理
+### ✨ 新功能
+- **aria2 下载器集成**: `utils/downloader.py` — 首次使用自动下载 aria2c.exe，支持多线程断点续传 + 实时进度回调
+- **自适应更新弹窗**: 检测运行模式（源码/PyInstaller），源码提供 Git Pull / aria2 下载 ZIP，打包版提供 aria2 下载 EXE + 重启脚本
+- **窗口标题显示版本号**: `B站视频监控与播放量预测系统 v2.6.0`
+- **备份差异检测+弹窗询问**: 退出时比较 `core/data/` 与 `data/` 差异，弹窗让用户选择是否同步
+- **双写机制**: `VideoDatabase` 运行时同时写入 `core/data/<BV>` 和 `data/<BV>`，退出同步中央库
+- **预测日志格式化**: `[BV号] [算法名] 预测: xxx` (DEBUG)，`[BV号] 综合预测: xxx` (INFO)
 
-### 📐 架构
-- **代码消除**: 移除约 90 行重复的滚动容器样板代码
-- **单一职责**: `ScrollableFrame` 封装了 Canvas 的创建、Scrollbar 绑定、鼠标滚轮支持、`<Configure>` 自适应和 `inner` 属性访问，调用方只需 3 行即可获得完整可滚动容器
+### 🐛 修复
+- **import 崩溃修复**: `core.__init__` 导出 `db` 别名、`bilibili_api` 添加模块级 wrapper（`get_video_info`、`proxy_manager`、`close` 等 7 个）
+- **数据路径修复**: `_ACTIVE_DIR` 从 `core/data` 改回 `core/data`，退出时同步到 `data/`；新增 `_migrate_old_data()` 自动迁移已有数据
+- **预测结果 ValueError**: `success_list` 缺 `predicted_hours` 导致 4-tuple→5-tuple 解包失败
+- **watch_list 空配置**: 配置文件 `watch_list` 为空时从数据库兜底加载已有 17 个视频
+- **LightGBM UserWarning**: 抑制 `X does not have valid feature names` 警告
+- **Lag-Llama 循环导入**: 安装 `lightning>=2.1.0` 修复 `Callback` 循环导入
+
+### 🧹 代码质量
+- **flake8 0 error**: 修复 557 个 lint 错误（F401×43、F841×26、F821×23、E226×29、E402×17、C901×12 等）
+- **全库复杂度降至 C 级**: 消除全部 D/E/F 级函数（12 个），最高 CC 仅 C(19)
+- **black 格式化 80 文件**: 统一风格
+- **`hf_loader` 日志降级**: WARNING→DEBUG，成功时 INFO 显示 torch 推理
+
+### 📦 打包
+- **BiliMonitor.spec 全面重写**: 97 个算法 hiddenimports、Tcl/Tk 运行时、torch/scipy/sklearn 子包、UPX 压缩
+- **`hook-bilibili_api.py`**: 按官方 issue #39 收集 59 个数据文件
+
+## Release 2026-05-25 (v2.5.0)
+
+### ✨ 新功能
+- **20 种新预测算法** (83 → 103):
+  - 时间序列: NARX外生自回归、MSTL多重季节分解、TBATS季节分解、GARCH波动率
+  - 深度学习: TIDE稠密编码器、TSMixer MLP混合器、DeepAR概率自回归、Chronos零样本、Mamba S6状态空间、iTransformer倒置、SCINet卷积交互、TimesFM谷歌、Time-MoE专家混合
+  - 统计模型: DTW-kNN类比预测
+  - 集成模型: NGBoost自然梯度提升、TabNet注意力特征网络
+  - 高级分析: 频域分解、SIRD传染病传播模型、CausalImpact因果推断、层级贝叶斯
+- **9 个新 Torch 模型**: 全部新深度学习算法实现 PyTorch 模型，接入 `try_torch_predict` 降级链
+- **DirectML 推理加速**: 支持 Intel NPU (AI Boost) / GPU 通过 DirectML 运行 PyTorch 推理
+- **CUDA 冒烟测试**: `get_device()` 自动验证 GPU 实际可用，失败降级 CPU
+- **自动更新检查**: 启动时异步检测 GitHub Release，弹窗展示 changelog
+- **CSV/JSON 定时导出**: 支持按小时/天/周自动导出数据报告至 reports/ 目录
+- **模型批量导出/导入**: 一键打包/解包 algorithms/checkpoints/ 为 zip，zip合并/覆盖两种模式
+
+### 🐛 修复
+- `change_point_detection.py`: 斜率计算改用 `np.polyfit` 避免大数溢出
+- `hf_loader.py`: transformers 元数据异常时正确降级
+- `main_gui.py`: 移除不存在的 `open_algorithm_comparison` 调用
+
+### 📚 文档
+- README 更新至 103 种算法，新增 DirectML/XPU/NPU 安装指南
+- ALGORITHMS.md 新增 20 种算法详细说明 + 14 篇参考论文
 
 ## Release 2026-05-20 (v2.4.0)
 
