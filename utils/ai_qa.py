@@ -103,6 +103,7 @@ class AIQASession:
                 logger.debug("从配置加载API密钥失败: %s", e)
 
         if self.api_key:
+            self._rate_limit()
             answer = self._ask_llm(question)
         else:
             answer = self._ask_rule(question)
@@ -112,6 +113,23 @@ class AIQASession:
             self.history = self.history[-20:]
 
         return answer
+
+    _last_call_time = 0.0
+    _min_call_interval = 1.0  # 最少间隔 1 秒
+
+    def _rate_limit(self):
+        """Token bucket 简单限速：每秒最多 1 次 API 调用"""
+        import time
+        elapsed = time.time() - self._last_call_time
+        if elapsed < self._min_call_interval:
+            time.sleep(self._min_call_interval - elapsed)
+        AIQASession._last_call_time = time.time()
+
+    def clear_api_key(self):
+        """使用后清除 API Key（内存安全）"""
+        self.api_key = ""
+        self.model = ""
+        self.endpoint = ""
 
     def _ask_llm(self, question: str) -> str:
         """调用 LLM API（支持 OpenAI 兼容 和 Claude 格式）"""
