@@ -11,6 +11,7 @@ from algorithms.base import BaseAlgorithm, PredictionResult
 try:
     from scipy.spatial.distance import euclidean
     from scipy.spatial.distance import cdist
+
     _HAS_SCIPY = True
 except ImportError:
     _HAS_SCIPY = False
@@ -46,55 +47,23 @@ class DtwKnnAlgorithm(BaseAlgorithm):
             return self._fallback(velocity, current_views, threshold)
 
         try:
-            views = np.array([h.get("view", 0) for h in history], dtype=np.float64)
-            likes = np.array([h.get("like", 0) for h in history], dtype=np.float64)
-            coins = np.array([h.get("coin", 0) for h in history], dtype=np.float64)
-
-            profile = np.column_stack([
-                np.gradient(views),
-                np.gradient(likes),
-                np.gradient(coins),
-            ])
-
-            segments = []
-            n = min(6, len(profile) // 2)
-            if n < 2:
-                n = 2
-            for i in range(0, len(profile) - n, n // 2):
-                seg = profile[i:i + n]
-                if len(seg) == n:
-                    segments.append((i, seg))
-
+            profile = self._build_profile(history)
+            segments = self._segment_profile(profile)
             if len(segments) < 2:
                 return self._fallback(velocity, current_views, threshold)
 
+            views = np.array([h.get("view", 0) for h in history], dtype=np.float64)
             query = segments[-1][1]
-            distances = []
-            for start, seg in segments[:-1]:
-                d = _dtw_distance(query.flatten(), seg.flatten())
-                distances.append((d, start, seg))
-
-            distances.sort(key=lambda x: x[0])
+            distances = self._find_knn(query, segments)
             k = min(3, len(distances))
 
             if k == 0 or distances[0][0] < 1e-10:
                 return self._fallback(velocity, current_views, threshold)
 
-            weights = np.array([1.0 / max(d[0], 1e-10) for d in distances[:k]])
-            weights /= weights.sum()
-
-            future_velocities = []
-            for idx, (d, start, seg) in enumerate(distances[:k]):
-                end_idx = start + n
-                if end_idx + 3 <= len(views):
-                    future = views[end_idx:end_idx + 3]
-                    if len(future) >= 2:
-                        fv = np.mean(np.diff(future))
-                        future_velocities.append(fv)
-
-            predicted_velocity = velocity
-            if future_velocities:
-                predicted_velocity = max(0, np.average(future_velocities, weights=weights[:len(future_velocities)]))
+            n = min(6, len(profile) // 2)
+            if n < 2:
+                n = 2
+            predicted_velocity = self._predict_future_velocity(distances, k, views, n, velocity)
 
             remaining = threshold - current_views
             if remaining <= 0:
@@ -104,9 +73,12 @@ class DtwKnnAlgorithm(BaseAlgorithm):
                 confidence = min(0.9, 0.5 + 0.1 * k)
 
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=confidence, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=confidence,
+                current_views=current_views,
                 current_velocity=velocity,
                 metadata={"method": "dtw_knn", "k": k, "min_dist": float(distances[0][0])},
                 timestamp=datetime.now(),
@@ -114,21 +86,79 @@ class DtwKnnAlgorithm(BaseAlgorithm):
         except Exception as e:
             return self._fallback(velocity, current_views, threshold)
 
+    @staticmethod
+    def _build_profile(history):
+        views = np.array([h.get("view", 0) for h in history], dtype=np.float64)
+        likes = np.array([h.get("like", 0) for h in history], dtype=np.float64)
+        coins = np.array([h.get("coin", 0) for h in history], dtype=np.float64)
+        return np.column_stack(
+            [
+                np.gradient(views),
+                np.gradient(likes),
+                np.gradient(coins),
+            ]
+        )
+
+    @staticmethod
+    def _segment_profile(profile):
+        segments = []
+        n = min(6, len(profile) // 2)
+        if n < 2:
+            n = 2
+        for i in range(0, len(profile) - n, n // 2):
+            seg = profile[i : i + n]
+            if len(seg) == n:
+                segments.append((i, seg))
+        return segments
+
+    @staticmethod
+    def _find_knn(query, segments):
+        distances = []
+        for start, seg in segments[:-1]:
+            d = _dtw_distance(query.flatten(), seg.flatten())
+            distances.append((d, start, seg))
+        distances.sort(key=lambda x: x[0])
+        return distances
+
+    @staticmethod
+    def _predict_future_velocity(distances, k, views, n, velocity):
+        weights = np.array([1.0 / max(d[0], 1e-10) for d in distances[:k]])
+        weights /= weights.sum()
+        future_velocities = []
+        for idx, (d, start, seg) in enumerate(distances[:k]):
+            end_idx = start + n
+            if end_idx + 3 <= len(views):
+                future = views[end_idx : end_idx + 3]
+                if len(future) >= 2:
+                    fv = np.mean(np.diff(future))
+                    future_velocities.append(fv)
+        if future_velocities:
+            return max(0, np.average(future_velocities, weights=weights[: len(future_velocities)]))
+        return velocity
+
     def _fallback(self, velocity, current_views, threshold):
         if velocity <= 0:
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=float("inf"),
-                confidence=0.0, current_views=current_views, current_velocity=velocity,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=float("inf"),
+                confidence=0.0,
+                current_views=current_views,
+                current_velocity=velocity,
                 metadata={"method": "dtw_knn", "reason": "fallback"},
                 timestamp=datetime.now(),
             )
         remaining = threshold - current_views
         predicted_hours = remaining / velocity if remaining > 0 else 0
         return PredictionResult(
-            algorithm_name=self.name, algorithm_id=self.algorithm_id,
-            target_threshold=threshold, predicted_hours=predicted_hours,
-            confidence=0.3, current_views=current_views, current_velocity=velocity,
+            algorithm_name=self.name,
+            algorithm_id=self.algorithm_id,
+            target_threshold=threshold,
+            predicted_hours=predicted_hours,
+            confidence=0.3,
+            current_views=current_views,
+            current_velocity=velocity,
             metadata={"method": "dtw_knn", "reason": "fallback"},
             timestamp=datetime.now(),
         )

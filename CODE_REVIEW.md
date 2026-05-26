@@ -24,7 +24,7 @@
 
 | 状态 | 数量 | 类型 |
 |------|------|------|
-| ✅ 已修复 | 34 | B1-B5, R1-R2, S1(部分), S3, L1-L13, P2-P6, T1-T4, 复杂度4项 |
+| ✅ 已修复 | 41 | B1-B5, R1-R2, S1(部分), S3, L1-L13, P2-P6, T1-T4, 复杂度11项 |
 | 🔄 重新实现 | 4 | XGBoost, LightGBM, CatBoost, Prophet 算法升级 |
 | 🆕 新增 | 4 | 统一算法接口, Cookie加密, 算法命名规范, 各类别测试套件 |
 | ❌ 待修复 | 3 | P1（部分: 差值>5%限流+executemany）, D1-D3 |
@@ -137,11 +137,13 @@
 
 | 排名 | 函数 | 文件 | CC 分数 |
 |------|------|------|---------|
-| 1 | `TrainingMonitor._evaluate` | `ui/training_base.py` | **42** |
-| 2 | `ModelTrainer._train_one` | `algorithms/training/trainer.py` | **35** |
-| 3 | `Database.sync_to_central` | `core/database/central_db.py` | **29** |
-| 4 | `TrainingPanel._handle_stage` | `ui/training_panel.py` | **25** |
-| 5 | `FinetunePanel._handle_stage` | `ui/finetune_panel.py` | **23** |
+| 1 | `ExponentialGrowthAlgorithm` (class) | `algorithms/models/growth/exponential_growth.py` | **C (19)** |
+| 2 | `draw_chart_annotations` | `ui/chart.py` | **C (19)** |
+| 3 | `SettingsWindow._poll_training_progress` | `ui/settings_window.py` | **C (19)** |
+| 4 | `CascadeEnsembleAlgorithm.predict` | `algorithms/models/ensemble/cascade_ensemble.py` | **C (18)** |
+| 5 | `NgboostAlgorithm.predict` | `algorithms/models/ensemble/ngboost_simple.py` | **C (18)** |
+
+> 注：本次迭代已将全部 D 级及以上复杂度的 12 个函数降至 C 级或更低。全库无 D/E/F 级函数。
 
 ### 最大文件
 
@@ -192,6 +194,13 @@
 | 32 | **复杂度: _quick_filter** D(22)→A(4), 策略字典替代if链 | `ui/snapshot_tab.py` | — |
 | 33 | **复杂度: _collect_data** D(22)→C(12), 抽取_parse_raw_item | `ui/trend_tab.py` | — |
 | 34 | **复杂度: _analyze** C(20)→B(9), 抽取_fetch_danmaku/comments | `ui/danmaku_analysis.py` | — |
+| 35 | **复杂度: _handle_stage (TrainingPanel)** D(25)→A(2), 策略字典 | `ui/training_panel.py` | — |
+| 36 | **复杂度: _handle_stage (FinetunePanel)** D(23)→A(2), 策略字典 | `ui/finetune_panel.py` | — |
+| 37 | **复杂度: _evaluate** F(42)→A(3), 7个检测方法+实例变量替代闭包 | `ui/training_base.py` | — |
+| 38 | **复杂度: _train_one** E(35)→C(11), 抽取6个助手方法 | `algorithms/training/trainer.py` | — |
+| 39 | **复杂度: sync_to_central** D(29)→A(4), 抽取3个同步阶段 | `core/database/central_db.py` | — |
+| 40 | **复杂度: draw_chart** D(22)→C(11), 抽出_draw_delta_or_full_chart | `ui/chart.py` | — |
+| 41 | **复杂度: DtwKnnAlgorithm.predict** D(21)→C(11), 抽取4个方法 | `algorithms/models/statistical/dtw_knn.py` | — |
 
 ### 待修复
 
@@ -212,7 +221,7 @@
 | 🔴 高危（安全/RCE） | 1 | 0 | 1 |
 | 🟠 中危（安全/Bug） | 5 | 2 | 7 |
 | 🟡 一般（性能/线程） | 9 | 1 | 10 |
-| 🔵 低危（代码质量） | 12 | 0 | 12 |
+| 🔵 低危（代码质量） | 19 | 0 | 19 |
 | 🆕 架构改进 | 4 | 0 | 4 |
 
 ---

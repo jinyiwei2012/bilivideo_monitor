@@ -25,8 +25,14 @@ from ui.mpl_imports import mpl_available, Figure, FigureCanvasTkAgg
 
 from ui.theme import C
 from ui.helpers import (
-    FONT, FONT_SM, FONT_MONO, FONT_BOLD,
-    loss_to_confidence, format_confidence, load_algo_confidence, clear_loss_chart,
+    FONT,
+    FONT_SM,
+    FONT_MONO,
+    FONT_BOLD,
+    loss_to_confidence,
+    format_confidence,
+    load_algo_confidence,
+    clear_loss_chart,
     project_path,
 )
 from ui.scrollable_frame import ScrollableFrame
@@ -65,15 +71,20 @@ class TrainingPanel(BaseTrainingPanel):
         info_bar = tk.Frame(outer, bg=C["bg_elevated"])
         info_bar.pack(fill=tk.X, padx=8, pady=(8, 4))
 
-        tk.Label(info_bar, text="训练设备:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT).pack(side=tk.LEFT, padx=(8, 2))
+        tk.Label(info_bar, text="训练设备:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT).pack(
+            side=tk.LEFT, padx=(8, 2)
+        )
         self._device_lbl = tk.Label(info_bar, text="检测中…", bg=C["bg_elevated"], fg=C["text_1"], font=FONT)
         self._device_lbl.pack(side=tk.LEFT, padx=(0, 16))
-        tk.Label(info_bar, text="数据规模:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT).pack(side=tk.LEFT, padx=(8, 2))
+        tk.Label(info_bar, text="数据规模:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT).pack(
+            side=tk.LEFT, padx=(8, 2)
+        )
         self._data_lbl = tk.Label(info_bar, text="估算中…", bg=C["bg_elevated"], fg=C["text_3"], font=FONT_SM)
         self._data_lbl.pack(side=tk.LEFT, padx=(0, 16))
         self._force_cpu_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(info_bar, text="强制 CPU", variable=self._force_cpu_var,
-                        command=self._on_force_cpu).pack(side=tk.LEFT, padx=4)
+        ttk.Checkbutton(info_bar, text="强制 CPU", variable=self._force_cpu_var, command=self._on_force_cpu).pack(
+            side=tk.LEFT, padx=4
+        )
         ttk.Button(info_bar, text="刷新", command=self._refresh_all).pack(side=tk.RIGHT, padx=8)
 
         # ── 主体区域: 左(算法列表) | 右(图表+日志) ──
@@ -98,8 +109,9 @@ class TrainingPanel(BaseTrainingPanel):
 
         hdr = tk.Frame(left, bg=C["bg_surface"])
         hdr.pack(fill=tk.X, padx=4, pady=(4, 0))
-        tk.Label(hdr, text="可训练算法（PyTorch）", bg=C["bg_surface"], fg=C["text_1"],
-                 font=FONT_BOLD).pack(side=tk.LEFT)
+        tk.Label(hdr, text="可训练算法（PyTorch）", bg=C["bg_surface"], fg=C["text_1"], font=FONT_BOLD).pack(
+            side=tk.LEFT
+        )
         self._algo_count_lbl = tk.Label(hdr, text="", bg=C["bg_surface"], fg=C["text_3"], font=FONT_SM)
         self._algo_count_lbl.pack(side=tk.RIGHT, padx=4)
 
@@ -119,9 +131,15 @@ class TrainingPanel(BaseTrainingPanel):
         hdr_row = tk.Frame(self._algo_frame, bg=C["bg_surface"])
         hdr_row.pack(fill=tk.X, pady=(0, 1))
         for col, (txt, w) in enumerate([("", 4), ("算法", 16), ("ID", 14), ("状态", 12), ("置信度", 10), ("版本", 8)]):
-            tk.Label(hdr_row, text=txt, bg=C["bg_surface"], fg=C["text_3"],
-                     font=("Microsoft YaHei UI", 8, "bold"), width=w, anchor="w"
-                     ).grid(row=0, column=col, padx=2, pady=2, sticky="w")
+            tk.Label(
+                hdr_row,
+                text=txt,
+                bg=C["bg_surface"],
+                fg=C["text_3"],
+                font=("Microsoft YaHei UI", 8, "bold"),
+                width=w,
+                anchor="w",
+            ).grid(row=0, column=col, padx=2, pady=2, sticky="w")
 
     # ── 图表+日志 (右侧) ──
 
@@ -165,8 +183,9 @@ class TrainingPanel(BaseTrainingPanel):
         self._lr_entry = ttk.Entry(ctrl, textvariable=self._lr_var, width=8, font=FONT_MONO)
         self._lr_entry.pack(side=tk.LEFT, padx=2)
         self._lr_auto_var = tk.BooleanVar(value=True)
-        self._lr_auto_cb = ttk.Checkbutton(ctrl, text="自动", variable=self._lr_auto_var,
-                                            command=self._on_lr_auto_toggle)
+        self._lr_auto_cb = ttk.Checkbutton(
+            ctrl, text="自动", variable=self._lr_auto_var, command=self._on_lr_auto_toggle
+        )
         self._lr_auto_cb.pack(side=tk.LEFT, padx=2)
 
         # 训练模式
@@ -176,8 +195,7 @@ class TrainingPanel(BaseTrainingPanel):
         ttk.Radiobutton(ctrl, text="重新训练", variable=self._mode_var, value="retrain").pack(side=tk.LEFT, padx=1)
 
         # 按钮
-        self._train_btn = ttk.Button(ctrl, text="▶ 开始训练", command=self._on_train_start,
-                                     style="Primary.TButton")
+        self._train_btn = ttk.Button(ctrl, text="▶ 开始训练", command=self._on_train_start, style="Primary.TButton")
         self._train_btn.pack(side=tk.LEFT, padx=(12, 4))
         self._cancel_btn = ttk.Button(ctrl, text="✕ 取消", command=self._on_cancel, state="disabled")
         self._cancel_btn.pack(side=tk.LEFT, padx=4)
@@ -189,8 +207,9 @@ class TrainingPanel(BaseTrainingPanel):
         self._progress = ttk.Progressbar(ctrl, mode="determinate", maximum=100)
         self._progress.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(12, 4))
 
-        self._status_lbl = tk.Label(ctrl, text="就绪", bg=C["bg_elevated"], fg=C["text_3"],
-                                    font=FONT_SM, anchor="w", width=40)
+        self._status_lbl = tk.Label(
+            ctrl, text="就绪", bg=C["bg_elevated"], fg=C["text_3"], font=FONT_SM, anchor="w", width=40
+        )
         self._status_lbl.pack(side=tk.RIGHT, padx=(0, 8))
 
     # ══════════════════════════════════════════════
@@ -211,6 +230,7 @@ class TrainingPanel(BaseTrainingPanel):
     def _refresh_device(self):
         try:
             from algorithms.training.device import get_device_info, is_torch_available, force_cpu
+
             force_cpu(self._force_cpu_var.get())
             info = get_device_info()
             if not is_torch_available():
@@ -241,6 +261,7 @@ class TrainingPanel(BaseTrainingPanel):
         """根据数据规模和常用经验自动推荐学习率。"""
         try:
             from algorithms.training.trainer import ModelTrainer
+
             info = ModelTrainer().estimate_data_size()
             samples = info.get("total_samples", 1000)
         except Exception:
@@ -250,15 +271,15 @@ class TrainingPanel(BaseTrainingPanel):
         # 样本越多 → 学习率应越小（避免在大数据集上震荡）
         # 基础值 1e-3 (Adam 常用默认值)
         if samples < 500:
-            return 5e-3      # 小数据集：较大学习率快速收敛
+            return 5e-3  # 小数据集：较大学习率快速收敛
         elif samples < 5000:
-            return 2e-3      # 中等
+            return 2e-3  # 中等
         elif samples < 20000:
-            return 1e-3      # 标准 Adam 默认值
+            return 1e-3  # 标准 Adam 默认值
         elif samples < 100000:
-            return 5e-4      # 大数据集
+            return 5e-4  # 大数据集
         else:
-            return 1e-4      # 超大数据集
+            return 1e-4  # 超大数据集
 
     def _refresh_data_size(self):
         self._data_lbl.config(text="估算中…", fg=C["text_3"])
@@ -266,6 +287,7 @@ class TrainingPanel(BaseTrainingPanel):
         def _worker():
             try:
                 from algorithms.training.trainer import ModelTrainer
+
                 info = ModelTrainer().estimate_data_size()
                 total = info.get("total_videos", 0)
                 valid = info.get("valid_videos", 0)
@@ -293,8 +315,9 @@ class TrainingPanel(BaseTrainingPanel):
         try:
             algos = self._discover_algorithms()
         except Exception as e:
-            tk.Label(self._algo_frame, text=f"⚠ 加载失败: {e}",
-                     bg=C["bg_elevated"], fg=C["danger"], font=FONT).pack(padx=4, pady=8)
+            tk.Label(self._algo_frame, text=f"⚠ 加载失败: {e}", bg=C["bg_elevated"], fg=C["danger"], font=FONT).pack(
+                padx=4, pady=8
+            )
             return
 
         trained = sum(1 for a in algos if a["has_ckpt"])
@@ -305,18 +328,21 @@ class TrainingPanel(BaseTrainingPanel):
             aid = a["algorithm_id"]
             self._algo_meta[aid] = a
 
-            row = tk.Frame(self._algo_frame, bg=C["bg_surface"],
-                           highlightthickness=1, highlightbackground=C["border_sub"])
+            row = tk.Frame(
+                self._algo_frame, bg=C["bg_surface"], highlightthickness=1, highlightbackground=C["border_sub"]
+            )
             row.pack(fill=tk.X, pady=1)
 
             var = tk.BooleanVar(value=not a["has_ckpt"])
             self._check_vars[aid] = var
             ttk.Checkbutton(row, variable=var).grid(row=0, column=0, padx=4, pady=2)
 
-            tk.Label(row, text=a["name"], bg=C["bg_surface"], fg=C["text_1"],
-                     font=FONT, width=16, anchor="w").grid(row=0, column=1, padx=2, sticky="w")
-            tk.Label(row, text=aid, bg=C["bg_surface"], fg=C["text_3"],
-                     font=FONT_MONO, width=14, anchor="w").grid(row=0, column=2, padx=2, sticky="w")
+            tk.Label(row, text=a["name"], bg=C["bg_surface"], fg=C["text_1"], font=FONT, width=16, anchor="w").grid(
+                row=0, column=1, padx=2, sticky="w"
+            )
+            tk.Label(row, text=aid, bg=C["bg_surface"], fg=C["text_3"], font=FONT_MONO, width=14, anchor="w").grid(
+                row=0, column=2, padx=2, sticky="w"
+            )
 
             if a["has_ckpt"]:
                 st = f"✅ {a['active_version'][:10]}"
@@ -324,19 +350,26 @@ class TrainingPanel(BaseTrainingPanel):
             else:
                 st = "□ 未训练"
                 sf = C["text_3"]
-            status_lbl = tk.Label(row, text=st, bg=C["bg_surface"], fg=sf,
-                                  font=FONT_SM, width=12, anchor="w")
+            status_lbl = tk.Label(row, text=st, bg=C["bg_surface"], fg=sf, font=FONT_SM, width=12, anchor="w")
             status_lbl.grid(row=0, column=3, padx=2, sticky="w")
 
             # 置信度列
             conf = load_algo_confidence(aid)
             conf_text, conf_color = format_confidence(conf)
-            conf_lbl = tk.Label(row, text=conf_text, bg=C["bg_surface"], fg=conf_color,
-                                font=FONT_SM, width=10, anchor="w")
+            conf_lbl = tk.Label(
+                row, text=conf_text, bg=C["bg_surface"], fg=conf_color, font=FONT_SM, width=10, anchor="w"
+            )
             conf_lbl.grid(row=0, column=4, padx=2, sticky="w")
 
-            ver_lbl = tk.Label(row, text=f"v{a['version_count']}", bg=C["bg_surface"], fg=C["text_3"],
-                               font=FONT_SM, width=6, anchor="w")
+            ver_lbl = tk.Label(
+                row,
+                text=f"v{a['version_count']}",
+                bg=C["bg_surface"],
+                fg=C["text_3"],
+                font=FONT_SM,
+                width=6,
+                anchor="w",
+            )
             ver_lbl.grid(row=0, column=5, padx=2, sticky="w")
 
             self._algo_row_refs[aid] = [status_lbl, conf_lbl, ver_lbl]
@@ -349,8 +382,15 @@ class TrainingPanel(BaseTrainingPanel):
         for aid, var in self._check_vars.items():
             var.set(not self._algo_meta.get(aid, {}).get("has_ckpt", False))
 
-    def _update_algo_row(self, aid: str, status: str = None, status_color: str = None,
-                         conf: str = None, conf_color: str = None, ver: str = None):
+    def _update_algo_row(
+        self,
+        aid: str,
+        status: str = None,
+        status_color: str = None,
+        conf: str = None,
+        conf_color: str = None,
+        ver: str = None,
+    ):
         """动态更新算法列表行的状态/置信度/版本列。"""
         refs = self._algo_row_refs.get(aid)
         if not refs:
@@ -368,7 +408,8 @@ class TrainingPanel(BaseTrainingPanel):
     def _on_manage_versions(self):
         """打开 checkpoint 版本管理对话框 — 查看/删除/激活版本。"""
         from algorithms.training.checkpoint_manager import (
-            CheckpointManager, list_video_finetune_bvids,
+            CheckpointManager,
+            list_video_finetune_bvids,
         )
         from algorithms.registry import AlgorithmRegistry
 
@@ -377,14 +418,14 @@ class TrainingPanel(BaseTrainingPanel):
         algos = []
         for aid, algo, _adapter in AlgorithmRegistry.get_trainable_algorithms():
             ckpt = CheckpointManager(aid)
-            if ckpt.has_checkpoint() or os.path.exists(
-                project_path("algorithms", "checkpoints", aid)
-            ):
-                algos.append({
-                    "algorithm_id": aid,
-                    "name": getattr(algo, "name", aid),
-                    "category": getattr(algo, "category", ""),
-                })
+            if ckpt.has_checkpoint() or os.path.exists(project_path("algorithms", "checkpoints", aid)):
+                algos.append(
+                    {
+                        "algorithm_id": aid,
+                        "name": getattr(algo, "name", aid),
+                        "category": getattr(algo, "category", ""),
+                    }
+                )
 
         if not algos:
             messagebox.showinfo("提示", "没有任何已训练的模型", parent=self.frame)
@@ -404,8 +445,9 @@ class TrainingPanel(BaseTrainingPanel):
         left_panel = tk.Frame(main, bg=C["bg_elevated"], width=220)
         left_panel.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 6))
         left_panel.pack_propagate(False)
-        tk.Label(left_panel, text="算法", bg=C["bg_elevated"], fg=C["text_2"],
-                 font=FONT_SM).pack(fill=tk.X, padx=4, pady=4)
+        tk.Label(left_panel, text="算法", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(
+            fill=tk.X, padx=4, pady=4
+        )
 
         algo_sf = ScrollableFrame(left_panel, bg=C["bg_elevated"])
         algo_sf.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -415,8 +457,7 @@ class TrainingPanel(BaseTrainingPanel):
         right_panel = tk.Frame(main, bg=C["bg_surface"])
         right_panel.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
 
-        info_lbl = tk.Label(right_panel, text="← 选择一个算法", bg=C["bg_surface"],
-                            fg=C["text_3"], font=FONT)
+        info_lbl = tk.Label(right_panel, text="← 选择一个算法", bg=C["bg_surface"], fg=C["text_3"], font=FONT)
         info_lbl.pack(pady=20)
 
         detail_frame = tk.Frame(right_panel, bg=C["bg_surface"])
@@ -429,68 +470,88 @@ class TrainingPanel(BaseTrainingPanel):
             info_lbl.pack_forget()
 
             # 算法标题
-            tk.Label(detail_frame, text=f"{name}  ({aid})", bg=C["bg_surface"],
-                     fg=C["text_1"], font=FONT_BOLD).pack(anchor="w", pady=(0, 6))
+            tk.Label(detail_frame, text=f"{name}  ({aid})", bg=C["bg_surface"], fg=C["text_1"], font=FONT_BOLD).pack(
+                anchor="w", pady=(0, 6)
+            )
 
             ckpt = CheckpointManager(aid)
 
             # ── 全局版本 ──
-            tk.Label(detail_frame, text="全局版本", bg=C["bg_surface"],
-                     fg=C["text_2"], font=FONT_SM).pack(anchor="w")
+            tk.Label(detail_frame, text="全局版本", bg=C["bg_surface"], fg=C["text_2"], font=FONT_SM).pack(anchor="w")
 
             versions = ckpt.list_versions()
             if not versions:
-                tk.Label(detail_frame, text="  （无全局 checkpoint）", bg=C["bg_surface"],
-                         fg=C["text_3"], font=FONT_SM).pack(anchor="w", pady=2)
+                tk.Label(
+                    detail_frame, text="  （无全局 checkpoint）", bg=C["bg_surface"], fg=C["text_3"], font=FONT_SM
+                ).pack(anchor="w", pady=2)
             else:
                 for v in versions:
                     row = tk.Frame(detail_frame, bg=C["bg_elevated"])
                     row.pack(fill=tk.X, pady=1)
                     active_tag = "★ " if v.get("active") else "  "
-                    tk.Label(row, text=f"{active_tag}{v['version']}", bg=C["bg_elevated"],
-                             fg=C["success"] if v.get("active") else C["text_1"],
-                             font=FONT_MONO, width=30, anchor="w").pack(side=tk.LEFT, padx=4, pady=2)
+                    tk.Label(
+                        row,
+                        text=f"{active_tag}{v['version']}",
+                        bg=C["bg_elevated"],
+                        fg=C["success"] if v.get("active") else C["text_1"],
+                        font=FONT_MONO,
+                        width=30,
+                        anchor="w",
+                    ).pack(side=tk.LEFT, padx=4, pady=2)
 
                     # 激活按钮（如果不是当前激活版本）
                     if not v.get("active") and len(versions) > 1:
                         ttk.Button(
-                            row, text="激活", width=4,
+                            row,
+                            text="激活",
+                            width=4,
                             command=lambda ver=v["version"], c=ckpt, a=aid, n=name: (
-                                c.activate(ver), _refresh_detail(a, n)
+                                c.activate(ver),
+                                _refresh_detail(a, n),
                             ),
                         ).pack(side=tk.RIGHT, padx=2)
 
                     # 删除按钮（只有一个版本时不显示）
                     if len(versions) > 1:
                         ttk.Button(
-                            row, text="✕", width=3,
+                            row,
+                            text="✕",
+                            width=3,
                             command=lambda ver=v["version"], c=ckpt, a=aid, n=name: (
-                                c.delete(ver), _refresh_detail(a, n)
+                                c.delete(ver),
+                                _refresh_detail(a, n),
                             ),
                         ).pack(side=tk.RIGHT, padx=2)
 
                     # val_loss 元信息
                     vl = v.get("val_loss", -1)
                     vl_txt = f"  val_loss={vl:.4f}" if vl >= 0 else ""
-                    tk.Label(row, text=vl_txt, bg=C["bg_elevated"],
-                             fg=C["text_3"], font=FONT_SM).pack(side=tk.LEFT)
+                    tk.Label(row, text=vl_txt, bg=C["bg_elevated"], fg=C["text_3"], font=FONT_SM).pack(side=tk.LEFT)
 
             # ── 视频微调版本 ──
             bvids = list_video_finetune_bvids(aid)
             if bvids:
-                tk.Label(detail_frame, text="\n视频微调版本", bg=C["bg_surface"],
-                         fg=C["text_2"], font=FONT_SM).pack(anchor="w")
+                tk.Label(detail_frame, text="\n视频微调版本", bg=C["bg_surface"], fg=C["text_2"], font=FONT_SM).pack(
+                    anchor="w"
+                )
                 for bvid in bvids:
                     v_ckpt = CheckpointManager(aid, bvid=bvid)
                     v_vers = v_ckpt.list_versions()
                     for v in v_vers:
                         row = tk.Frame(detail_frame, bg=C["bg_elevated"])
                         row.pack(fill=tk.X, pady=1)
-                        tk.Label(row, text=f"  📺 {bvid}  {v['version']}", bg=C["bg_elevated"],
-                                 fg=C["text_1"], font=FONT_MONO, anchor="w").pack(
-                            side=tk.LEFT, padx=4, pady=2)
+                        tk.Label(
+                            row,
+                            text=f"  📺 {bvid}  {v['version']}",
+                            bg=C["bg_elevated"],
+                            fg=C["text_1"],
+                            font=FONT_MONO,
+                            anchor="w",
+                        ).pack(side=tk.LEFT, padx=4, pady=2)
                         ttk.Button(
-                            row, text="✕", width=3,
+                            row,
+                            text="✕",
+                            width=3,
                             command=lambda b=bvid, ver=v["version"], a=aid, n=name: (
                                 CheckpointManager(a, bvid=b).delete(ver),
                                 _refresh_detail(a, n),
@@ -505,20 +566,30 @@ class TrainingPanel(BaseTrainingPanel):
                 btn_row = tk.Frame(detail_frame, bg=C["bg_surface"])
                 btn_row.pack(fill=tk.X)
                 ttk.Button(
-                    btn_row, text="删除所有全局版本",
+                    btn_row,
+                    text="删除所有全局版本",
                     command=lambda a=aid, n=name: self._delete_all_global(a, n, _refresh_detail),
                 ).pack(side=tk.LEFT, padx=2)
                 if bvids:
                     ttk.Button(
-                        btn_row, text="删除所有微调版本",
+                        btn_row,
+                        text="删除所有微调版本",
                         command=lambda a=aid, n=name: self._delete_all_video(a, n, _refresh_detail),
                     ).pack(side=tk.LEFT, padx=2)
 
         # 填充算法列表
         for a in sorted(algos, key=lambda x: x["name"]):
-            btn = tk.Label(algo_inner, text=f"{a['name']}", bg=C["bg_elevated"],
-                           fg=C["text_1"], font=FONT_SM, anchor="w", cursor="hand2",
-                           padx=6, pady=3)
+            btn = tk.Label(
+                algo_inner,
+                text=f"{a['name']}",
+                bg=C["bg_elevated"],
+                fg=C["text_1"],
+                font=FONT_SM,
+                anchor="w",
+                cursor="hand2",
+                padx=6,
+                pady=3,
+            )
             btn.pack(fill=tk.X)
             btn.bind("<Button-1>", lambda e, aid=a["algorithm_id"], n=a["name"]: _refresh_detail(aid, n))
             btn.bind("<Enter>", lambda e, b=btn: b.configure(bg=C["bg_surface"]))
@@ -526,10 +597,12 @@ class TrainingPanel(BaseTrainingPanel):
 
     def _delete_all_global(self, aid, name, refresh_cb):
         """删除算法的所有全局 checkpoint。"""
-        if not messagebox.askyesno("确认删除", f"确定要删除 {name} ({aid}) 的所有全局版本？\n此操作不可撤销。",
-                                    parent=self.frame):
+        if not messagebox.askyesno(
+            "确认删除", f"确定要删除 {name} ({aid}) 的所有全局版本？\n此操作不可撤销。", parent=self.frame
+        ):
             return
         from algorithms.training.checkpoint_manager import CheckpointManager
+
         ckpt = CheckpointManager(aid)
         for v in ckpt.list_versions():
             ckpt.delete(v["version"])
@@ -538,10 +611,12 @@ class TrainingPanel(BaseTrainingPanel):
 
     def _delete_all_video(self, aid, name, refresh_cb):
         """删除算法的所有视频微调 checkpoint。"""
-        if not messagebox.askyesno("确认删除", f"确定要删除 {name} ({aid}) 的所有视频微调版本？\n此操作不可撤销。",
-                                    parent=self.frame):
+        if not messagebox.askyesno(
+            "确认删除", f"确定要删除 {name} ({aid}) 的所有视频微调版本？\n此操作不可撤销。", parent=self.frame
+        ):
             return
         from algorithms.training.checkpoint_manager import CheckpointManager, list_video_finetune_bvids
+
         for bvid in list_video_finetune_bvids(aid):
             ckpt = CheckpointManager(aid, bvid=bvid)
             for v in ckpt.list_versions():
@@ -593,10 +668,8 @@ class TrainingPanel(BaseTrainingPanel):
         main.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
         # 视频选择
-        tk.Label(main, text="选择视频", bg=C["bg_base"], fg=C["text_1"],
-                 font=FONT_BOLD).pack(anchor="w", pady=(0, 2))
-        video_frame = tk.Frame(main, bg=C["bg_elevated"], highlightthickness=1,
-                               highlightbackground=C["border"])
+        tk.Label(main, text="选择视频", bg=C["bg_base"], fg=C["text_1"], font=FONT_BOLD).pack(anchor="w", pady=(0, 2))
+        video_frame = tk.Frame(main, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border"])
         video_frame.pack(fill=tk.X, pady=(0, 8))
         v_sf = ScrollableFrame(video_frame, bg=C["bg_elevated"], height=100)
         v_sf.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -609,14 +682,13 @@ class TrainingPanel(BaseTrainingPanel):
             row = tk.Frame(v_inner, bg=C["bg_elevated"])
             row.pack(fill=tk.X)
             ttk.Checkbutton(row, variable=var).pack(side=tk.LEFT, padx=2)
-            tk.Label(row, text=f"{v['title']}  ({v['bvid']})", bg=C["bg_elevated"],
-                     fg=C["text_1"], font=FONT_SM, anchor="w").pack(side=tk.LEFT, padx=2, fill=tk.X)
+            tk.Label(
+                row, text=f"{v['title']}  ({v['bvid']})", bg=C["bg_elevated"], fg=C["text_1"], font=FONT_SM, anchor="w"
+            ).pack(side=tk.LEFT, padx=2, fill=tk.X)
 
         # 算法选择
-        tk.Label(main, text="选择算法", bg=C["bg_base"], fg=C["text_1"],
-                 font=FONT_BOLD).pack(anchor="w", pady=(0, 2))
-        algo_frame = tk.Frame(main, bg=C["bg_elevated"], highlightthickness=1,
-                              highlightbackground=C["border"])
+        tk.Label(main, text="选择算法", bg=C["bg_base"], fg=C["text_1"], font=FONT_BOLD).pack(anchor="w", pady=(0, 2))
+        algo_frame = tk.Frame(main, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border"])
         algo_frame.pack(fill=tk.X, pady=(0, 8))
         a_sf = ScrollableFrame(algo_frame, bg=C["bg_elevated"], height=100)
         a_sf.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -629,18 +701,26 @@ class TrainingPanel(BaseTrainingPanel):
             row = tk.Frame(a_inner, bg=C["bg_elevated"])
             row.pack(fill=tk.X)
             ttk.Checkbutton(row, variable=var).pack(side=tk.LEFT, padx=2)
-            tk.Label(row, text=f"{a['name']}  ({a['algorithm_id']})", bg=C["bg_elevated"],
-                     fg=C["text_1"], font=FONT_SM, anchor="w").pack(side=tk.LEFT, padx=2, fill=tk.X)
+            tk.Label(
+                row,
+                text=f"{a['name']}  ({a['algorithm_id']})",
+                bg=C["bg_elevated"],
+                fg=C["text_1"],
+                font=FONT_SM,
+                anchor="w",
+            ).pack(side=tk.LEFT, padx=2, fill=tk.X)
 
         # 参数行
         param_row = tk.Frame(main, bg=C["bg_base"])
         param_row.pack(fill=tk.X, pady=(0, 8))
-        tk.Label(param_row, text="Epochs:", bg=C["bg_base"], fg=C["text_2"],
-                 font=FONT_SM).pack(side=tk.LEFT, padx=(0, 4))
+        tk.Label(param_row, text="Epochs:", bg=C["bg_base"], fg=C["text_2"], font=FONT_SM).pack(
+            side=tk.LEFT, padx=(0, 4)
+        )
         ft_epoch_var = tk.IntVar(value=5)
         ttk.Spinbox(param_row, from_=1, to=100, textvariable=ft_epoch_var, width=6).pack(side=tk.LEFT, padx=(0, 16))
-        tk.Label(param_row, text="Batch:", bg=C["bg_base"], fg=C["text_2"],
-                 font=FONT_SM).pack(side=tk.LEFT, padx=(0, 4))
+        tk.Label(param_row, text="Batch:", bg=C["bg_base"], fg=C["text_2"], font=FONT_SM).pack(
+            side=tk.LEFT, padx=(0, 4)
+        )
         ft_batch_var = tk.IntVar(value=16)
         ttk.Spinbox(param_row, from_=1, to=512, textvariable=ft_batch_var, width=6).pack(side=tk.LEFT)
 
@@ -651,8 +731,9 @@ class TrainingPanel(BaseTrainingPanel):
         ft_progress.pack(fill=tk.X, pady=(0, 8))
 
         # 日志区域
-        log_text = tk.Text(main, bg=C["bg_base"], fg=C["text_1"], font=("Consolas", 9),
-                           relief="flat", height=6, state="disabled")
+        log_text = tk.Text(
+            main, bg=C["bg_base"], fg=C["text_1"], font=("Consolas", 9), relief="flat", height=6, state="disabled"
+        )
         log_text.pack(fill=tk.BOTH, expand=True)
 
         def _ft_log(msg):
@@ -679,6 +760,7 @@ class TrainingPanel(BaseTrainingPanel):
 
             def _worker():
                 from algorithms.training.trainer import ModelTrainer
+
                 trainer = ModelTrainer()
                 done = 0
                 self.main.set_finetune_status(f"🎯 批量微调 0/{total}")
@@ -690,17 +772,17 @@ class TrainingPanel(BaseTrainingPanel):
                         dialog.after(0, lambda m=msg: ft_status.configure(text=m))
                         dialog.after(0, lambda p=pct: ft_progress.config(value=p))
                         dialog.after(0, lambda m=msg: _ft_log(m))
-                        dialog.after(0, lambda d=done, t=total:
-                                    self.main.set_finetune_status(f"🎯 批量微调 {d}/{t}"))
+                        dialog.after(0, lambda d=done, t=total: self.main.set_finetune_status(f"🎯 批量微调 {d}/{t}"))
                         try:
                             ver = trainer.finetune_for_video(
-                                algo_id=aid, bvid=bvid, epochs=epochs, batch_size=batch,
+                                algo_id=aid,
+                                bvid=bvid,
+                                epochs=epochs,
+                                batch_size=batch,
                             )
-                            dialog.after(0, lambda a=aid, b=bvid, v=ver:
-                                         _ft_log(f"  ✓ {a}@{b} → {v[:12]}"))
+                            dialog.after(0, lambda a=aid, b=bvid, v=ver: _ft_log(f"  ✓ {a}@{b} → {v[:12]}"))
                         except Exception as e:
-                            dialog.after(0, lambda a=aid, b=bvid, e=e:
-                                         _ft_log(f"  ✗ {a}@{b}: {e}"))
+                            dialog.after(0, lambda a=aid, b=bvid, e=e: _ft_log(f"  ✗ {a}@{b}: {e}"))
                 dialog.after(0, lambda: ft_status.configure(text=f"✅ 微调完成 ({done} 任务)"))
                 dialog.after(0, lambda: ft_progress.config(value=100))
                 dialog.after(0, lambda: self.main.set_finetune_status(f"✅ 批量微调完成 ({done})"))
@@ -764,7 +846,9 @@ class TrainingPanel(BaseTrainingPanel):
 
         # 打开日志文件
         self._open_log_file(len(selected), epochs, batch, mode_label, lr)
-        self._append_log(f"🚀 开始训练: {mode_label}, {len(selected)} 个算法, epoch={epochs}, batch={batch}, lr={lr:.6f}")
+        self._append_log(
+            f"🚀 开始训练: {mode_label}, {len(selected)} 个算法, epoch={epochs}, batch={batch}, lr={lr:.6f}"
+        )
         self._status_lbl.config(text=f"准备训练 {len(selected)} 个算法 …", fg=C["text_2"])
 
         # 自动调整状态（每个算法独立 LR 系数）
@@ -809,7 +893,9 @@ class TrainingPanel(BaseTrainingPanel):
                         scale = mon.compute_lr_scale("explosion")
                         auto_control["lr_scale"] = scale
                         algo_lr_factors[aid] = factor * scale
-                        payload["_adjustment"] = f"🔧 Loss 爆炸 — {aid} LR×{scale:.2f} (累计 {algo_lr_factors[aid]:.2f})"
+                        payload["_adjustment"] = (
+                            f"🔧 Loss 爆炸 — {aid} LR×{scale:.2f} (累计 {algo_lr_factors[aid]:.2f})"
+                        )
                     elif "严重过拟合" in status:
                         auto_control["early_stop"] = True
                         payload["_adjustment"] = "🔧 严重过拟合 — 提前停止"
@@ -817,7 +903,9 @@ class TrainingPanel(BaseTrainingPanel):
                         scale = mon.compute_lr_scale("oscillation")
                         auto_control["lr_scale"] = scale
                         algo_lr_factors[aid] = factor * scale
-                        payload["_adjustment"] = f"🔧 Loss 震荡 — {aid} LR×{scale:.2f} (累计 {algo_lr_factors[aid]:.2f})"
+                        payload["_adjustment"] = (
+                            f"🔧 Loss 震荡 — {aid} LR×{scale:.2f} (累计 {algo_lr_factors[aid]:.2f})"
+                        )
                     elif "过拟合" in status:
                         scale = mon.compute_lr_scale("overfitting")
                         auto_control["lr_scale"] = scale
@@ -837,6 +925,7 @@ class TrainingPanel(BaseTrainingPanel):
         def _worker():
             try:
                 from algorithms.training.trainer import ModelTrainer
+
                 trainer = ModelTrainer()
                 remaining = list(selected)
                 results = {}
@@ -849,13 +938,16 @@ class TrainingPanel(BaseTrainingPanel):
                     # 重新训练模式：删除已有 checkpoint
                     if not is_incremental:
                         from algorithms.training.checkpoint_manager import CheckpointManager
+
                         _ckpt = CheckpointManager(aid)
                         _n = _ckpt.delete_all()
                         if _n:
-                            self._train_queue.put({
-                                "stage": "log",
-                                "text": f"  🗑 已清除 {aid} 的 {_n} 个旧版本",
-                            })
+                            self._train_queue.put(
+                                {
+                                    "stage": "log",
+                                    "text": f"  🗑 已清除 {aid} 的 {_n} 个旧版本",
+                                }
+                            )
 
                     # 重置跳过标记，启用跳过按钮
                     self._skip_algo_flag[0] = False
@@ -866,8 +958,12 @@ class TrainingPanel(BaseTrainingPanel):
                     effective_lr = lr * aid_factor
                     auto_control.clear()
                     sub = trainer.train_global(
-                        [aid], epochs=epochs, batch_size=batch, progress_cb=_cb,
-                        init_from_global=is_incremental, lr=effective_lr,
+                        [aid],
+                        epochs=epochs,
+                        batch_size=batch,
+                        progress_cb=_cb,
+                        init_from_global=is_incremental,
+                        lr=effective_lr,
                         control_dict=auto_control,
                     )
                     results.update(sub)
@@ -892,130 +988,145 @@ class TrainingPanel(BaseTrainingPanel):
         self._status_lbl.config(text="⏭ 跳过当前算法（等待本轮完成）…", fg=C["warning"])
         self._append_log("⏭ 用户请求跳过当前算法")
 
+    STAGE_HANDLERS = {
+        "start": "_on_stage_start",
+        "epoch": "_on_stage_epoch",
+        "done": "_on_stage_done",
+        "error": "_on_stage_error",
+        "auto_adjust": "_on_stage_auto_adjust",
+        "cancelled": "_on_stage_cancelled",
+        "all_done": "_on_stage_all_done",
+        "fatal": "_on_stage_fatal",
+    }
+
     def _handle_stage(self, msg) -> bool:
         stage = msg.get("stage")
-        total_sel = msg.get("_total_selected", 1)
-
-        if stage == "start":
-            aid = msg.get("algo_id", "?")
-            cur = msg.get("current", 0)
-            tot = msg.get("total", 1)
-            self._current_aid = aid
-            self._status_lbl.config(text=f"[{cur}/{tot}] 训练 {aid} …", fg=C["text_2"])
-            self._append_log(f"── [{cur}/{tot}] 开始训练 {aid} ──")
-            self._update_algo_row(aid, status="▶ 训练中", status_color=C["accent"])
-
-        elif stage == "epoch":
-            aid = msg.get("algo_id", "?")
-            ep = msg.get("epoch", 0)
-            eps = msg.get("epochs", 1)
-            tloss = msg.get("train_loss", 0.0)
-            vloss = msg.get("val_loss", -1.0)
-            elapsed = msg.get("elapsed_s", 0.0)
-
-            # 实时置信度（基于 val_loss）
-            conf = loss_to_confidence(vloss) if vloss >= 0 else 0.0
-            conf_str, conf_color = format_confidence(conf)
-
-            # 更新算法行置信度（每 5 epoch 或最后 epoch 刷新）
-            if ep == 1 or ep % 5 == 0 or ep == eps:
-                self._update_algo_row(aid, conf=conf_str, conf_color=conf_color)
-
-            pct = min(100, int((ep / max(1, eps)) * 100))
-            self._progress["value"] = pct
-            total_elapsed = time.time() - self._train_t0 if self._train_t0 else 0
-            vtxt = f"  val={vloss:.4f}" if vloss >= 0 else ""
-            self._status_lbl.config(
-                text=f"{aid}  ep{ep}/{eps}  train={tloss:.4f}{vtxt}  {conf_str}  {elapsed:.0f}s",
-                fg=C["text_1"],
-            )
-
-            # 训练质量监控
-            self._monitor.update(ep, tloss, vloss if vloss >= 0 else -1)
-            self._refresh_monitor()
-
-            adj = msg.get("_adjustment", "")
-            if adj:
-                self._append_log(f"  {adj}")
-
-            # 记录 loss 历史 + 更新图表
-            self._loss_history.append({
-                "algo": aid, "epoch": ep,
-                "train_loss": tloss, "val_loss": vloss,
-            })
-            self._update_chart()
-            self._append_log(
-                f"  epoch {ep:>3}/{eps}  |  "
-                f"train_loss={tloss:.6f}  |  "
-                f"{f'val_loss={vloss:.6f}' if vloss>=0 else 'val_loss=N/A'}  |  "
-                f"confidence={conf_str}  |  "
-                f"{elapsed:.1f}s"
-            )
-
-        elif stage == "done":
-            aid = msg.get("algo_id", "?")
-            cur = msg.get("current", 0)
-            ver = msg.get("version", "")
-            self._status_lbl.config(text=f"✓ {aid} → {ver} ({cur}/{total_sel})", fg=C["success"])
-            self._progress["value"] = int(cur / max(1, total_sel) * 100)
-            self._append_log(f"✓ {aid} 完成, 保存为 {ver}")
-            # 读取最终置信度并更新行
-            conf = load_algo_confidence(aid)
-            conf_str, conf_color = format_confidence(conf)
-            self._algo_confidence[aid] = conf
-            self._update_algo_row(
-                aid, status=f"✓ {ver[:10]}", status_color=C["success"],
-                conf=conf_str, conf_color=conf_color, ver=f"v{self._algo_meta.get(aid, {}).get('version_count', 0) + 1}",
-            )
-
-        elif stage == "error":
-            aid = msg.get("algo_id", "?")
-            err = msg.get("error", "")
-            self._status_lbl.config(text=f"✗ {aid} 失败: {err}", fg=C["danger"])
-            self._append_log(f"✗ {aid} 训练失败: {err}")
-            self._update_algo_row(aid, status="✗ 失败", status_color=C["danger"])
-
-        elif stage == "auto_adjust":
-            message = msg.get("message", "")
-            self._append_log(f"  🔧 自动调整: {message}")
-            self._status_lbl.config(text=f"⚡ {message}", fg=C["warning"])
-
-        elif stage == "cancelled":
-            rem = msg.get("remaining", [])
-            self._status_lbl.config(text=f"已取消，剩余 {len(rem)} 个", fg=C["warning"])
-            self._append_log(f"⏹ 已取消, 剩余 {len(rem)} 个算法")
-            return True
-
-        elif stage == "all_done":
-            results = msg.get("results", {})
-            self._last_training_results = results
-            ok = sum(1 for v in results.values() if v)
-            bad = sum(1 for v in results.values() if not v)
-            elapsed = time.time() - self._train_t0 if self._train_t0 else 0
-
-            # 读取每个成功算法的最终置信度
-            conf_summary = ""
-            for aid, ver in results.items():
-                if not ver:
-                    continue
-                conf = load_algo_confidence(aid)
-                self._algo_confidence[aid] = conf
-                conf_str, _ = format_confidence(conf)
-                conf_summary += f"  {aid}: {conf_str}"
-
-            self._status_lbl.config(text=f"全部完成: ✓ {ok}  ✗ {bad}  · {elapsed:.0f}s", fg=C["success"])
-            self._progress["value"] = 100
-            self._append_log(f"🏁 训练全部完成: {ok} 成功, {bad} 失败, 耗时 {elapsed:.0f}s")
-            self._append_log(f"📊 各算法最终置信度:{conf_summary}")
-            return True
-
-        elif stage == "fatal":
-            err = msg.get("error", "")
-            self._status_lbl.config(text=f"训练异常: {err}", fg=C["danger"])
-            self._append_log(f"💥 训练进程异常: {err}")
-            return True
-
+        handler_name = self.STAGE_HANDLERS.get(stage)
+        if handler_name:
+            return getattr(self, handler_name)(msg)
         return False
+
+    def _on_stage_start(self, msg):
+        aid = msg.get("algo_id", "?")
+        cur = msg.get("current", 0)
+        tot = msg.get("total", 1)
+        self._current_aid = aid
+        self._status_lbl.config(text=f"[{cur}/{tot}] 训练 {aid} …", fg=C["text_2"])
+        self._append_log(f"── [{cur}/{tot}] 开始训练 {aid} ──")
+        self._update_algo_row(aid, status="▶ 训练中", status_color=C["accent"])
+
+    def _on_stage_epoch(self, msg):
+        aid = msg.get("algo_id", "?")
+        ep = msg.get("epoch", 0)
+        eps = msg.get("epochs", 1)
+        tloss = msg.get("train_loss", 0.0)
+        vloss = msg.get("val_loss", -1.0)
+        elapsed = msg.get("elapsed_s", 0.0)
+
+        conf = loss_to_confidence(vloss) if vloss >= 0 else 0.0
+        conf_str, conf_color = format_confidence(conf)
+
+        if ep == 1 or ep % 5 == 0 or ep == eps:
+            self._update_algo_row(aid, conf=conf_str, conf_color=conf_color)
+
+        pct = min(100, int((ep / max(1, eps)) * 100))
+        self._progress["value"] = pct
+        total_elapsed = time.time() - self._train_t0 if self._train_t0 else 0
+        vtxt = f"  val={vloss:.4f}" if vloss >= 0 else ""
+        self._status_lbl.config(
+            text=f"{aid}  ep{ep}/{eps}  train={tloss:.4f}{vtxt}  {conf_str}  {elapsed:.0f}s",
+            fg=C["text_1"],
+        )
+
+        self._monitor.update(ep, tloss, vloss if vloss >= 0 else -1)
+        self._refresh_monitor()
+
+        adj = msg.get("_adjustment", "")
+        if adj:
+            self._append_log(f"  {adj}")
+
+        self._loss_history.append(
+            {
+                "algo": aid,
+                "epoch": ep,
+                "train_loss": tloss,
+                "val_loss": vloss,
+            }
+        )
+        self._update_chart()
+        self._append_log(
+            f"  epoch {ep:>3}/{eps}  |  "
+            f"train_loss={tloss:.6f}  |  "
+            f"{f'val_loss={vloss:.6f}' if vloss>=0 else 'val_loss=N/A'}  |  "
+            f"confidence={conf_str}  |  "
+            f"{elapsed:.1f}s"
+        )
+
+    def _on_stage_done(self, msg):
+        total_sel = msg.get("_total_selected", 1)
+        aid = msg.get("algo_id", "?")
+        cur = msg.get("current", 0)
+        ver = msg.get("version", "")
+        self._status_lbl.config(text=f"✓ {aid} → {ver} ({cur}/{total_sel})", fg=C["success"])
+        self._progress["value"] = int(cur / max(1, total_sel) * 100)
+        self._append_log(f"✓ {aid} 完成, 保存为 {ver}")
+        conf = load_algo_confidence(aid)
+        conf_str, conf_color = format_confidence(conf)
+        self._algo_confidence[aid] = conf
+        self._update_algo_row(
+            aid,
+            status=f"✓ {ver[:10]}",
+            status_color=C["success"],
+            conf=conf_str,
+            conf_color=conf_color,
+            ver=f"v{self._algo_meta.get(aid, {}).get('version_count', 0) + 1}",
+        )
+
+    def _on_stage_error(self, msg):
+        aid = msg.get("algo_id", "?")
+        err = msg.get("error", "")
+        self._status_lbl.config(text=f"✗ {aid} 失败: {err}", fg=C["danger"])
+        self._append_log(f"✗ {aid} 训练失败: {err}")
+        self._update_algo_row(aid, status="✗ 失败", status_color=C["danger"])
+
+    def _on_stage_auto_adjust(self, msg):
+        message = msg.get("message", "")
+        self._append_log(f"  🔧 自动调整: {message}")
+        self._status_lbl.config(text=f"⚡ {message}", fg=C["warning"])
+
+    def _on_stage_cancelled(self, msg):
+        rem = msg.get("remaining", [])
+        self._status_lbl.config(text=f"已取消，剩余 {len(rem)} 个", fg=C["warning"])
+        self._append_log(f"⏹ 已取消, 剩余 {len(rem)} 个算法")
+        return True
+
+    def _on_stage_all_done(self, msg):
+        results = msg.get("results", {})
+        self._last_training_results = results
+        ok = sum(1 for v in results.values() if v)
+        bad = sum(1 for v in results.values() if not v)
+        elapsed = time.time() - self._train_t0 if self._train_t0 else 0
+
+        conf_summary = ""
+        for aid, ver in results.items():
+            if not ver:
+                continue
+            conf = load_algo_confidence(aid)
+            self._algo_confidence[aid] = conf
+            conf_str, _ = format_confidence(conf)
+            conf_summary += f"  {aid}: {conf_str}"
+
+        self._status_lbl.config(text=f"全部完成: ✓ {ok}  ✗ {bad}  · {elapsed:.0f}s", fg=C["success"])
+        self._progress["value"] = 100
+        self._append_log(f"🏁 训练全部完成: {ok} 成功, {bad} 失败, 耗时 {elapsed:.0f}s")
+        self._append_log(f"📊 各算法最终置信度:{conf_summary}")
+        return True
+
+    def _on_stage_fatal(self, msg):
+        err = msg.get("error", "")
+        self._status_lbl.config(text=f"训练异常: {err}", fg=C["danger"])
+        self._append_log(f"💥 训练进程异常: {err}")
+        return True
 
     def _cleanup_training(self):
         self._close_log_file()
@@ -1106,7 +1217,9 @@ class TrainingPanel(BaseTrainingPanel):
         # 写文件头
         self._log_file.write(f"{'=' * 60}\n")
         self._log_file.write(f"  训练启动: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        self._log_file.write(f"  模式: {mode}  |  算法: {algo_count}  |  epoch: {epochs}  |  batch: {batch}  |  lr: {lr:.6f}\n")
+        self._log_file.write(
+            f"  模式: {mode}  |  算法: {algo_count}  |  epoch: {epochs}  |  batch: {batch}  |  lr: {lr:.6f}\n"
+        )
         self._log_file.write(f"{'=' * 60}\n")
         self._log_file.flush()
 
