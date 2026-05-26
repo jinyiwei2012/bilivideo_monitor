@@ -273,6 +273,10 @@ class ModelAlgorithmAdapter:
     def weight(self, value):
         self.algo.weight = value
 
+    @property
+    def build_model(self):
+        return getattr(self.algo, "build_model", None)
+
     def get_info(self) -> Dict:
         """获取算法信息"""
         return {

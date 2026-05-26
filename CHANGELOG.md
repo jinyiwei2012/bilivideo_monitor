@@ -1,5 +1,13 @@
 # 更新日志
 
+## Release 2026-05-26 (v2.7.1)
+
+### 🐛 修复
+- **`ModelAlgorithmAdapter` 未转发 `build_model`**: `registry.get_trainable_info()` 检测不到任何有底模的算法（始终返回空列表），因为 `ModelAlgorithmAdapter.__init__` 未将底层算法的 `build_model` 暴露给注册器。新增 `build_model` property 委托到底层 `self.algo`，27 个深度学习算法恢复可训练识别。
+
+### ✨ 新功能
+- **`build_model` 属性转发**: `ModelAlgorithmAdapter` 新增 `build_model` property，自动将底层算法的 `build_model` 方法暴露给注册器，无需为每个算法单独适配。
+
 ## Release 2026-05-26 (v2.7.0)
 
 ### ✨ 新功能
