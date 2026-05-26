@@ -267,6 +267,7 @@ class AlgorithmRegistry:
             if build_model_fn is None:
                 continue
             ckpt = CheckpointManager(aid)
+            versions = ckpt.list_versions()
             active = ckpt.active_version()
             result.append({
                 "algorithm_id": aid,
@@ -274,6 +275,7 @@ class AlgorithmRegistry:
                 "category": getattr(adapter, "category", ""),
                 "has_ckpt": ckpt.has_checkpoint(),
                 "active_version": active or "",
+                "version_count": len(versions),
             })
         return result
 
