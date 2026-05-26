@@ -33,6 +33,8 @@ start.bat
 .claude/
 reports/
 
+_wheels/
+
 # 模型 checkpoint（训练产物，按需重新生成）
 algorithms/checkpoints/*/
 !algorithms/checkpoints/README.md

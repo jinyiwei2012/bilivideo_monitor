@@ -78,7 +78,14 @@ class BilibiliAPI:
         adapter = HTTPAdapter(pool_connections=10, pool_maxsize=10, max_retries=0)  # 重试由 _request 统一管理
         self.session.mount("https://", adapter)
         self.session.mount("http://", adapter)
+
+        # 公共 API Session（免 Cookie，复用连接池）
+        self._public_session = requests.Session()
+        self._public_session.mount("https://", adapter)
+        self._public_session.mount("http://", adapter)
+
         self._update_headers()
+        self._update_public_headers()
 
         # 重试配置
         self.max_retries = 3
@@ -108,12 +115,16 @@ class BilibiliAPI:
             import json
             import os
 
+            from utils.crypto import decrypt_dict
+
             cfg_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "network_config.json")
             if os.path.exists(cfg_path):
                 with open(cfg_path, "r", encoding="utf-8") as f:
                     net_cfg = json.load(f)
                 cookies = net_cfg.get("cookies", {})
                 if cookies:
+                    # 解密 Cookie 值
+                    decrypt_dict(cookies, "SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid")
                     self._cookies = cookies
                     self.session.cookies.update(cookies)
                     logger.info(f"已加载 {len(cookies)} 个 Cookie")
@@ -132,6 +143,15 @@ class BilibiliAPI:
         if extra_headers:
             headers.update(extra_headers)
         self.session.headers.update(headers)
+
+    def _update_public_headers(self):
+        """更新公共 API Session 请求头"""
+        self._public_session.headers.update(
+            {
+                "User-Agent": random.choice(self.USER_AGENTS),
+                "Referer": "https://www.bilibili.com/",
+            }
+        )
 
     def _rotate_user_agent(self):
         """轮换User-Agent"""
@@ -313,25 +333,20 @@ class BilibiliAPI:
         return data.get("data") if "data" in data else None, False
 
     def _request_public(self, method: str, url: str, **kwargs) -> Any:
-        """使用无Cookie的独立Session请求公开API（免登录回退，支持代理绑定）"""
-        import requests as _req
+        """使用无Cookie的独立Session请求公开API（免登录回退，支持代理绑定）
 
-        public_session = _req.Session()
-        public_session.headers.update(
-            {
-                "User-Agent": random.choice(self.USER_AGENTS),
-                "Referer": "https://www.bilibili.com/",
-            }
-        )
+        复用实例级 _public_session（连接池共享），避免每次新建 TCP 连接。
+        """
+        self._update_public_headers()
         # 绑定代理
         idx, proxy, ua = self.proxy_manager.get_proxy_binding()
         if proxy:
-            public_session.proxies.update(proxy)
-            public_session.headers["User-Agent"] = ua or public_session.headers["User-Agent"]
+            self._public_session.proxies.update(proxy)
+            self._public_session.headers["User-Agent"] = ua or self._public_session.headers["User-Agent"]
             kwargs.setdefault("verify", False)  # nosec
         logger.debug("→ [public] %s %s", method.upper(), url.split("?")[0])
         try:
-            resp = public_session.request(method, url, timeout=15, **kwargs)
+            resp = self._public_session.request(method, url, timeout=15, **kwargs)
             logger.debug("← [public] %s", resp.status_code)
             if resp.status_code != 200:
                 return None
@@ -341,8 +356,6 @@ class BilibiliAPI:
         except Exception as e:
             logger.debug(f"公共API请求失败: {e}")
             return None
-        finally:
-            public_session.close()
         return None
 
     def _get_retry_delay(self, attempt: int) -> float:
@@ -775,6 +788,7 @@ class BilibiliAPI:
         """关闭 HTTP Session，释放连接池。"""
         try:
             self.session.close()
+            self._public_session.close()
         except Exception as e:
             logger.debug("关闭HTTP Session失败: %s", e)
 
@@ -870,10 +884,33 @@ class BilibiliAPI:
             cookies = self._extract_login_cookies(resp, d)
             if cookies:
                 self.set_cookies(cookies)
+                self._persist_cookies(cookies)
                 result["cookies"] = cookies
         except Exception as e:
             result["message"] = f"轮询异常: {e}"
         return result
+
+    def _persist_cookies(self, cookies: dict):
+        """将 Cookie 加密写入 network_config.json"""
+        if not cookies:
+            return
+        try:
+            import json
+            import os
+
+            from utils.crypto import encrypt_dict
+
+            cfg_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "network_config.json")
+            net_cfg = {}
+            if os.path.exists(cfg_path):
+                with open(cfg_path, "r", encoding="utf-8") as f:
+                    net_cfg = json.load(f)
+            net_cfg["cookies"] = cookies
+            encrypt_dict(net_cfg["cookies"], "SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid")
+            with open(cfg_path, "w", encoding="utf-8") as f:
+                json.dump(net_cfg, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.warning("持久化 Cookie 失败: %s", e)
 
     @staticmethod
     def _extract_login_cookies(resp, data: dict) -> dict:
@@ -913,3 +950,8 @@ class BilibiliAPI:
 
 # 全局API实例
 bilibili_api = BilibiliAPI()
+
+
+def get_bilibili_api() -> BilibiliAPI:
+    """获取全局 BilibiliAPI 实例"""
+    return bilibili_api

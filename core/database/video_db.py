@@ -6,6 +6,7 @@ import re
 import threading
 import logging
 from datetime import datetime
+from utils import project_path
 from typing import List, Dict, Optional
 
 from .connection import _ConnectionCtx
@@ -24,7 +25,7 @@ class VideoDatabase:
         _validate_bvid(bvid)
         self.bvid = bvid
         if base_dir is None:
-            base_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
+            base_dir = project_path("core", "data")
 
         # 创建以BV号命名的文件夹
         self.video_dir = os.path.join(base_dir, bvid)
@@ -58,8 +59,7 @@ class VideoDatabase:
             cursor = conn.cursor()
 
             # 视频信息表
-            cursor.execute(
-                """
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS video_info (
                     id INTEGER PRIMARY KEY,
                     title TEXT,
@@ -82,12 +82,10 @@ class VideoDatabase:
                     pic TEXT,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-            """
-            )
+            """)
 
             # 监控记录表
-            cursor.execute(
-                """
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS monitor_records (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -103,12 +101,10 @@ class VideoDatabase:
                     viewers_total INTEGER DEFAULT 0,
                     like_view_ratio REAL DEFAULT 0
                 )
-            """
-            )
+            """)
 
             # 预测记录表
-            cursor.execute(
-                """
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS predictions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     algorithm TEXT,
@@ -126,12 +122,10 @@ class VideoDatabase:
                     error_rate REAL DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-            """
-            )
+            """)
 
             # 算法性能跟踪表（用于在线学习模块）
-            cursor.execute(
-                """
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS algorithm_performance (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     algorithm TEXT NOT NULL,
@@ -143,8 +137,8 @@ class VideoDatabase:
                     weight REAL DEFAULT 1.0,
                     confidence REAL DEFAULT 0.5
                 )
-            """
-            )
+            """)
+
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_algo_perf_algorithm ON algorithm_performance(algorithm)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_algo_perf_bvid ON algorithm_performance(bvid)")
 
@@ -152,8 +146,7 @@ class VideoDatabase:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_monitor_timestamp ON monitor_records(timestamp)")
 
             # 周刊分数记录表
-            cursor.execute(
-                """
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS weekly_scores (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -169,13 +162,11 @@ class VideoDatabase:
                     correction_d REAL,
                     base_view_score REAL
                 )
-            """
-            )
+            """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_weekly_timestamp ON weekly_scores(timestamp)")
 
             # 年刊分数记录表
-            cursor.execute(
-                """
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS yearly_scores (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -189,8 +180,7 @@ class VideoDatabase:
                     correction_b REAL,
                     correction_c REAL
                 )
-            """
-            )
+            """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_yearly_timestamp ON yearly_scores(timestamp)")
 
             # 数据库迁移：检查并添加缺少的列并自动计算数值
@@ -264,36 +254,30 @@ class VideoDatabase:
     def _migrate_compute_values(self, cursor):
         """自动计算缺失的数值字段"""
         try:
-            cursor.execute(
-                """
+            cursor.execute("""
                 UPDATE monitor_records
                 SET like_view_ratio = ROUND(CAST(like_count AS REAL) / NULLIF(view_count, 0), 6)
                 WHERE like_view_ratio IS NULL OR like_view_ratio = 0
-            """
-            )
+            """)
         except Exception as e:
             logger.debug("更新 monitor_records like_view_ratio 失败: %s", e)
 
         try:
-            cursor.execute(
-                """
+            cursor.execute("""
                 UPDATE video_info
                 SET like_view_ratio = ROUND(CAST(like_count AS REAL) / NULLIF(view_count, 0), 6)
                 WHERE like_view_ratio IS NULL OR like_view_ratio = 0
-            """
-            )
+            """)
         except Exception as e:
             logger.debug("更新 video_info like_view_ratio 失败: %s", e)
 
         try:
-            cursor.execute(
-                """
+            cursor.execute("""
                 UPDATE predictions
                 SET predicted_hours = ROUND(CAST(predicted_seconds AS REAL) / 3600, 2)
                 WHERE (predicted_hours IS NULL OR predicted_hours = 0)
                   AND (predicted_seconds IS NOT NULL AND predicted_seconds > 0)
-            """
-            )
+            """)
         except Exception as e:
             logger.debug("更新 predictions predicted_hours 失败: %s", e)
 
@@ -562,8 +546,16 @@ class VideoDatabase:
 
     def close(self):
         """关闭数据库连接，刷新 WAL。"""
+        self.wal_checkpoint()
         try:
-            self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
             self._conn.close()
         except Exception as e:
             logger.debug("关闭数据库连接失败: %s", e)
+
+    def wal_checkpoint(self):
+        """安全执行 WAL checkpoint，持有锁避免与写入冲突。"""
+        try:
+            with self._lock:
+                self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        except Exception as e:
+            logger.debug("WAL checkpoint 失败: %s", e)

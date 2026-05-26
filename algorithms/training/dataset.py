@@ -22,6 +22,7 @@ import re
 import logging
 import sqlite3
 from typing import List, Optional, Tuple
+from utils import project_path
 
 import numpy as np
 
@@ -37,11 +38,7 @@ except ImportError:
 
 _BVID_PATTERN = re.compile(r"^BV[0-9A-Za-z]{10}$")
 
-_DATA_ROOT = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-    "core",
-    "data",
-)
+_DATA_ROOT = project_path("core", "data")
 
 
 _DEFAULT_FEATURES = ("view_count", "like_count", "coin_count", "favorite_count", "share_count")
@@ -75,6 +72,8 @@ def _load_records(bvid: str, features: Tuple[str, ...], data_root: str = _DATA_R
     try:
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         cursor = conn.cursor()
         cols = ", ".join(features)
         cursor.execute(f"SELECT {cols} FROM monitor_records ORDER BY timestamp ASC")

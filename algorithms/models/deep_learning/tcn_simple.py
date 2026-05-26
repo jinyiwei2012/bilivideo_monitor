@@ -5,7 +5,6 @@ TCN (Temporal Convolutional Network) 时序卷积预测
 
 import math
 import numpy as np
-from typing import Dict, Any
 from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
 from algorithms.models.deep_learning._torch_upgrade import TCNTorchModel, try_torch_predict
@@ -149,7 +148,7 @@ class TCNSimpleAlgorithm(BaseAlgorithm):
                 ts = ts.timestamp()
             elif isinstance(ts, str):
                 try:
-                    ts = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S").timestamp()
+                    ts = datetime.fromisoformat(str(ts)[:19].replace("T", " ")).timestamp()
                 except Exception:
                     continue
             timestamps.append(float(ts))

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Dict, Any
 from datetime import datetime
 import time
+from utils.time_utils import safe_timestamp
 
 
 @dataclass
@@ -129,7 +130,10 @@ class BaseAlgorithm(ABC):
         # 投币/点赞比（越高表示认可度越高）
         coin_like_ratio = min(1.0, coins / max(likes, 1))
 
-        score = 0.4 * engagement + 0.3 * danmaku_density + 0.3 * coin_like_ratio
+        _W_ENGAGEMENT = 0.4
+        _W_DANMAKU = 0.3
+        _W_COIN_LIKE = 0.3
+        score = _W_ENGAGEMENT * engagement + _W_DANMAKU * danmaku_density + _W_COIN_LIKE * coin_like_ratio
         return min(1.0, max(0.0, score))
 
     def get_video_age_hours(self, video_data: Dict[str, Any]) -> float:
@@ -143,18 +147,11 @@ class BaseAlgorithm(ABC):
         if len(history) >= 1:
             t = history[0].get("timestamp", None)
             if t is not None:
-                if hasattr(t, "timestamp"):
-                    t = t.timestamp()
-                elif isinstance(t, (int, float)):
-                    pass
-                elif isinstance(t, str):
-                    try:
-                        t = datetime.fromisoformat(t).timestamp()
-                    except Exception:
-                        t = time.time()
-                else:
-                    t = time.time()
-                return max(0.0, (time.time() - t) / 3600.0)
+                try:
+                    ts_val = safe_timestamp(t)
+                except Exception:
+                    ts_val = time.time()
+                return max(0.0, (time.time() - ts_val) / 3600.0)
         # 回退：用 video_data 自身的 timestamp
         ts = video_data.get("timestamp")
         if ts is not None:

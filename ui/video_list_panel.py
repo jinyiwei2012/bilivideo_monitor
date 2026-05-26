@@ -43,7 +43,9 @@ class VideoListPanel:
         self.gui = gui
         self._parent = parent
         self._video_card_widgets = {}
-        self._cover_cache = {}
+        from collections import OrderedDict
+
+        self._cover_cache = OrderedDict()
         self._search_var = tk.StringVar()
         self._card_wraplength = 180  # 初始默认值，make_card 时会按屏幕更新
         self._build_left_panel()
@@ -65,6 +67,18 @@ class VideoListPanel:
             hdr, text="0", fg_color=C["bg_elevated"], text_color=C["text_2"], font=FONT_SM, corner_radius=4
         )
         self._video_count_lbl.pack(side=tk.LEFT, padx=4)
+        ctk.CTkButton(
+            hdr,
+            text="📤 全部推送",
+            fg_color=C["bg_elevated"],
+            text_color=C["text_2"],
+            hover_color=C["bg_hover"],
+            font=("Microsoft YaHei UI", 8),
+            corner_radius=4,
+            height=22,
+            width=70,
+            command=self.gui._manual_push,
+        ).pack(side=tk.RIGHT, padx=4)
 
         # 搜索框
         self._search_entry = ctk.CTkEntry(
@@ -222,6 +236,23 @@ class VideoListPanel:
         pct_lbl = ctk.CTkLabel(label_f, text=pct_text, text_color=C["text_3"], font=FONT_SM, fg_color="transparent")
         pct_lbl.pack(side=tk.RIGHT)
 
+        # 推送按钮行
+        push_row = ctk.CTkFrame(inner, fg_color=C["bg_surface"], corner_radius=0)
+        push_row.pack(fill=tk.X, pady=(4, 0))
+        push_btn = ctk.CTkButton(
+            push_row,
+            text="📤 推送",
+            fg_color=C["bg_elevated"],
+            text_color=C["text_2"],
+            hover_color=C["bg_hover"],
+            font=("Microsoft YaHei UI", 8),
+            corner_radius=4,
+            height=20,
+            width=50,
+            command=lambda b=bvid: self.gui._push_single(b),
+        )
+        push_btn.pack(side=tk.RIGHT)
+
         self._video_card_widgets[bvid] = {
             "card": card,
             "inner": inner,
@@ -341,19 +372,18 @@ class VideoListPanel:
         return ctk.CTkImage(light_image=img, size=(new_w, new_h))
 
     def _cache_and_show(self, cache_key, ph, label_widget):
-        """缓存 CTkImage 并显示到控件"""
+        """缓存 CTkImage 并显示到控件（LRU 淘汰）"""
         self._cover_cache[cache_key] = ph
+        self._cover_cache.move_to_end(cache_key)
         if len(self._cover_cache) > 50:
-            try:
-                self._cover_cache.pop(next(iter(self._cover_cache)))
-            except (StopIteration, KeyError):
-                pass
+            self._cover_cache.popitem(last=False)
         self.gui.root.after(0, lambda: self._safe_set_image(label_widget, ph))
 
     def _load_cover_thumb(self, url, bvid, label_widget, title="", target_w=80, target_h=45):
         """异步加载卡片封面缩略图，优先使用本地缓存"""
         cache_key = (bvid, "thumb")
         if cache_key in self._cover_cache:
+            self._cover_cache.move_to_end(cache_key)
             label_widget.configure(image=self._cover_cache[cache_key], text="")
             return
         if not url:

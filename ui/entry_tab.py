@@ -7,8 +7,9 @@ from tkinter import ttk, messagebox, LEFT, RIGHT, BOTH, X, Y
 import logging
 from typing import List, Dict
 
-from core.database import db
+from core.database import get_db
 from ui.theme import C
+from ui.scrollable_frame import ScrollableFrame
 from .data_comparison import _fmt, _parse_dt
 
 logger = logging.getLogger(__name__)
@@ -32,7 +33,6 @@ class EntryTab:
         self._snap_frame = None
         self._ms_frame = None
         self._param_frame = None
-        self._canvas = None
         self._container = None
         self._tbl = None
         self._tbl_menu = None
@@ -104,7 +104,7 @@ class EntryTab:
         self._ms_frame = tk.Frame(self._param_frame)
         self._ms_vars = {}
         tk.Label(self._ms_frame, text="统计周期", font=("Microsoft YaHei UI", 9)).pack(anchor="w")
-        for p in db.MILESTONE_PERIODS:
+        for p in get_db().MILESTONE_PERIODS:
             var = tk.BooleanVar(value=True)
             self._ms_vars[p] = var
             tk.Checkbutton(self._ms_frame, text=p, variable=var).pack(anchor="w")
@@ -151,16 +151,9 @@ class EntryTab:
         inner_nb.add(tab_table, text="  已录入数据  ")
 
         # 输入行区域
-        self._canvas = tk.Canvas(tab_input, bg=C.get("bg_base", "#0d1117"), highlightthickness=0)
-        vsb = ttk.Scrollbar(tab_input, orient="vertical", command=self._canvas.yview)
-        self._canvas.configure(yscrollcommand=vsb.set)
-        vsb.pack(side=RIGHT, fill=Y)
-        self._canvas.pack(fill=BOTH, expand=True)
-
-        self._container = tk.Frame(self._canvas)
-        self._canvas.create_window((0, 0), window=self._container, anchor="nw", tags="inner")
-        self._container.bind("<Configure>", lambda e: self._canvas.configure(scrollregion=self._canvas.bbox("all")))
-        self._canvas.bind("<MouseWheel>", lambda e: self._canvas.yview_scroll(-1 * (e.delta // 120), "units"))
+        sf = ScrollableFrame(tab_input, bg=C.get("bg_base", "#0d1117"))
+        sf.pack(fill=BOTH, expand=True)
+        self._container = sf.inner
 
         # 已录入数据表格
         cols = ("bvid", "type", "time_key", "播放量", "点赞", "硬币", "收藏", "分享", "弹幕", "评论", "记录时间")
@@ -240,9 +233,9 @@ class EntryTab:
     # ── BV号验证 ──────────────────────────────────────────────────────────────
     @staticmethod
     def _is_valid_bvid(s: str) -> bool:
-        import re
+        from ui.helpers import is_valid_bvid
 
-        return bool(re.match(r"^BV[A-Za-z0-9]{10}$", s.strip()))
+        return is_valid_bvid(s)
 
     # ── 生成输入行 ────────────────────────────────────────────────────────────
     def _generate_rows(self):
@@ -288,7 +281,9 @@ class EntryTab:
                 invalid.append(bv)
 
         if invalid:
-            messagebox.showwarning("格式错误", "以下格式不合法已跳过：\n" + "\n".join(invalid[:10]), parent=self._window)
+            messagebox.showwarning(
+                "格式错误", "以下格式不合法已跳过：\n" + "\n".join(invalid[:10]), parent=self._window
+            )
 
         return bvids, invalid
 
@@ -342,7 +337,7 @@ class EntryTab:
         """加载已有数据做预填"""
         existing_ms = {}
         if mode == "milestone":
-            for row in db.get_milestones():
+            for row in get_db().get_milestones():
                 existing_ms[(row["bvid"], row["period"])] = row
 
         # 快照已有数据
@@ -517,7 +512,7 @@ class EntryTab:
         bvid = row["bvid"]
 
         if mode == "milestone":
-            ok = db.upsert_milestone(bvid, row["key"], data)
+            ok = get_db().upsert_milestone(bvid, row["key"], data)
         else:
             ok = self._save_snapshot_record(bvid, row["key"], data)
 
@@ -569,7 +564,7 @@ class EntryTab:
             self._tbl.delete(item)
 
         # 里程碑数据
-        for row in db.get_milestones():
+        for row in get_db().get_milestones():
             self._tbl.insert(
                 "",
                 tk.END,
@@ -605,5 +600,5 @@ class EntryTab:
             entry_type = values[1]
             time_key = values[2]
             if entry_type == "里程碑":
-                db.delete_milestone(bvid, time_key)
+                get_db().delete_milestone(bvid, time_key)
         self._reload_table()

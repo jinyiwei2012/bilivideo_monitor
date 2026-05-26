@@ -1,14 +1,15 @@
 # B站视频播放量监控系统 - 依赖清单
-# 更新日期: 2026-04-30 (新增scipy为核心依赖，支持75个算法)
+# 更新日期: 2026-05-26 (补充遗漏依赖，对齐实际代码导入)
 
 # ==========
 # 核心依赖 (必需)
 # ==========
 
-numpy>=1.24.0           # 数组计算 (新算法必需)
+numpy>=1.24.0           # 数组计算 (所有算法必需)
 scipy>=1.11.0           # 科学计算 (增长曲线算法必需)
 requests>=2.31.0        # HTTP请求 (B站API调用)
 pillow>=10.0.0          # 图片处理 (封面下载)
+urllib3>=2.0.0          # HTTP连接池 (requests底层，直接导入用于 Suppress Warnings)
 
 # ==========
 # B站API
@@ -24,30 +25,19 @@ curl_cffi>=0.15.0                  # TLS指纹伪装（412绕过）；如可升 
 pandas>=2.0.0           # 数据处理
 scikit-learn>=1.3.0      # 机器学习算法
 statsmodels>=0.14.0      # 时间序列 (ARIMA等)
-xgboost>=2.0.0          # XGBoost算法
-lightgbm>=4.1.0          # LightGBM算法
-
-# ==========
-# 时间序列 (可选)
-# ==========
-
-prophet>=1.1.5           # Facebook Prophet
 
 # ==========
 # 可视化 (可选)
 # ==========
 
 matplotlib>=3.7.0        # 绘图
-seaborn>=0.12.0          # 统计可视化
 
 # ==========
 # GUI
 # ==========
 
 customtkinter>=5.2.0     # CustomTkinter UI框架
-tkinter-tooltip>=2.1.0   # 工具提示
-ttkbootstrap>=1.10.0      # Tkinter样式
-plyer>=2.1.0             # 跨平台通知
+plyer>=2.1.0             # 跨平台通知 (Windows 原生弹窗)
 
 # ==========
 # 调度与通信 (可选)
@@ -75,11 +65,27 @@ asyncio-mqtt>=0.16.0     # MQTT (通知功能)
 
 transformers>=4.40.0        # HuggingFace 模型加载 (MOIRAI / Lag-Llama)
 huggingface-hub>=0.20.0     # 模型下载与缓存
-safetensors>=0.4.0          # 权重格式
+torchmetrics>=1.3.0         # Lag-Llama / MOIRAI 隐式依赖（gluonts 需要）
 
 # ==========
 # 其他 (可选)
 # ==========
 
-pystray>=0.19.0          # 系统托盘图标
+# --- 代理与网络 ---
+PySocks>=1.7.1          # SOCKS4/5 代理支持（proxy_manager.py）
+cryptography>=41.0.0    # Cookie 加密存储（回退内置 XOR 脱敏）
 qrcode>=7.4.0            # 二维码生成
+
+# --- 算法增强 ---
+xgboost>=2.0.0          # XGBoost 梯度提升（xgboost_simple.py）
+lightgbm>=4.1.0          # LightGBM 直方图梯度提升（lightgbm_simple.py）
+catboost>=1.2.0          # CatBoost 有序提升（catboost_simple.py）
+prophet>=1.1.5           # Facebook Prophet 时间序列分解（prophet_simple.py）
+ngboost>=0.5.0          # NGBoost 概率预测（ngboost_simple.py）
+uni2ts>=0.1.0           # MOIRAI 基础模型加载（hf_loader.py / moirai.py）
+
+# --- 导出与工具 ---
+openpyxl>=3.1.0         # Excel 导出（database_query.py）
+
+# --- 文档与测试 ---
+pytest>=8.0.0           # 单元测试（tests/）

@@ -92,16 +92,20 @@ class OnlineLearner:
         Parameters
         ----------
         name : str          算法名称
-        predicted : float   上次预测值
+        predicted : float   上次预测值（短期预测，如 75 秒后的预估播放量）
         actual : float      当前实际观测值
         """
         if name not in self._trackers:
             return
 
-        # 计算误差
         if actual <= 0:
             return
-        error = abs(predicted - actual) / actual  # 相对误差 [0, +∞)
+
+        # 使用相对误差，但为防止无变化时人为抬高频次，用平滑相对变化：
+        #   error = |predicted - actual| / max(predicted, actual, 1)
+        # 当 predicted == actual == 不变时，error=0 但由 decay 衰减
+        base = max(predicted, actual, 1.0)
+        error = abs(predicted - actual) / base  # 相对误差 [0, +∞)
 
         with self._lock:
             t = self._trackers[name]
@@ -109,7 +113,7 @@ class OnlineLearner:
             t.last_update = time.time()
             t.error_count += 1
 
-            # EWMA 误差
+            # EWMA 误差（decay 防止静止期误差堆积到 0）
             if t.ewma_loss == 0:
                 t.ewma_loss = error
             else:

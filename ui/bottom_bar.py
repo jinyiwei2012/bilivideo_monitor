@@ -64,6 +64,18 @@ class BottomBar:
             command=self.gui._remove_monitor,
         ).pack(side=tk.LEFT, padx=4, pady=8)
 
+        ctk.CTkButton(
+            bar,
+            text="📤 手动推送",
+            fg_color=C.get("accent", "#4A90D9"),
+            hover_color=C.get("accent_dim", "#357ABD"),
+            text_color="#ffffff",
+            font=FONT,
+            corner_radius=6,
+            height=32,
+            command=self.gui._manual_push,
+        ).pack(side=tk.LEFT, padx=4, pady=8)
+
         ar_f = ctk.CTkFrame(bar, fg_color=C["bg_surface"], corner_radius=0)
         ar_f.pack(side=tk.RIGHT, padx=14)
         self._ar_toggle = tk.Canvas(

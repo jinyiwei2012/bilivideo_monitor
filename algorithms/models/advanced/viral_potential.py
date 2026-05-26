@@ -28,7 +28,7 @@ class ViralPotentialAlgorithm(BaseAlgorithm):
         likes = video_data.get("like_count", 0)
         shares = video_data.get("share_count", 0)
 
-        if views == 0 or age_hours <= 0:
+        if views == 0 or age_hours <= 0 or velocity <= 0:
             predicted_hours = float("inf")
             confidence = 0.0
         else:
@@ -56,6 +56,8 @@ class ViralPotentialAlgorithm(BaseAlgorithm):
                 # 置信度基于病毒分数
                 confidence = min(1.0, viral_score / 3)
 
+        viral_score = locals().get("viral_score", 0)
+
         return PredictionResult(
             algorithm_name=self.name,
             algorithm_id=self.algorithm_id,
@@ -64,6 +66,6 @@ class ViralPotentialAlgorithm(BaseAlgorithm):
             confidence=confidence,
             current_views=current_views,
             current_velocity=velocity,
-            metadata={"method": "viral_potential", "viral_score": viral_score if "viral_score" in dir() else 0},
+            metadata={"method": "viral_potential", "viral_score": viral_score},
             timestamp=datetime.now(),
         )

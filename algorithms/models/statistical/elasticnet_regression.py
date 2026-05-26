@@ -81,7 +81,7 @@ class ElasticNetRegressionAlgorithm(BaseAlgorithm):
             nxt = history_data[i + 1]
             ts = cur.get("timestamp", "")
             try:
-                dt = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
+                dt = datetime.fromisoformat(str(ts)[:19].replace("T", " "))
                 hour = dt.hour / 24.0
                 day_week = dt.weekday() / 7.0
             except Exception:

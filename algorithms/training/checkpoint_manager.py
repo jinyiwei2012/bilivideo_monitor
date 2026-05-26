@@ -26,6 +26,7 @@ import json
 import logging
 from datetime import datetime
 from typing import Optional, Dict, List, Any
+from utils import project_path
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,7 @@ try:
 except ImportError:
     _torch_available = False
 
-_CKPT_ROOT = os.path.join(os.path.dirname(os.path.dirname(__file__)), "checkpoints")
+_CKPT_ROOT = project_path("algorithms", "checkpoints")
 
 
 class CheckpointManager:
@@ -130,7 +131,7 @@ class CheckpointManager:
             logger.warning("[%s] checkpoint 不存在: %s", self.algo_id, path)
             return None
         try:
-            return torch.load(path, map_location="cpu", weights_only=False)
+            return torch.load(path, map_location="cpu", weights_only=True)
         except Exception as e:
             logger.error("[%s] 加载 checkpoint 失败: %s", self.algo_id, e)
             return None
@@ -241,7 +242,7 @@ def load_best_checkpoint(algo_id: str, bvid: Optional[str] = None) -> Optional[D
         if video_ckpt.has_checkpoint():
             state = video_ckpt.load()
             if state is not None:
-                logger.info("[%s] 使用视频微调 checkpoint (bvid=%s)", algo_id, bvid)
+                logger.debug("[%s] 使用视频微调 checkpoint (bvid=%s)", algo_id, bvid)
                 return state
     global_ckpt = CheckpointManager(algo_id)
     if global_ckpt.has_checkpoint():

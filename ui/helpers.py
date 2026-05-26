@@ -2,7 +2,10 @@
 通用工具函数和常量
 """
 
+import math
 from ui.theme import C
+
+from utils import PROJECT_ROOT, project_path  # noqa: F401 — re-export for convenience
 
 # ── 字体定义 ─────────────────────────────────
 FONT = ("Microsoft YaHei UI", 9)
@@ -13,9 +16,87 @@ FONT_MONO = ("Consolas", 9)
 FONT_MONO_LG = ("Consolas", 14, "bold")
 
 # ── 阈值与间隔 ───────────────────────────────
-THRESHOLDS = [100_000, 1_000_000, 10_000_000]
-THRESHOLD_NAMES = ["10万", "100万", "1000万"]
-THRESH_COLORS = [C["thresh_10w"], C["thresh_100w"], C["thresh_1000w"]]
+# 默认值（首次导入时从 config 加载；通过 reload_thresholds() 动态刷新）
+THRESHOLDS: list = []
+THRESHOLD_NAMES: list = []
+THRESH_COLORS: list = []
+
+# 阈值颜色调色板（支持 N 个阈值循环使用）
+_THRESH_PALETTE = [
+    "#1a7f37",  # 绿
+    "#9a6700",  # 琥珀
+    "#8250df",  # 紫
+    "#0969da",  # 蓝
+    "#d1242f",  # 红
+    "#bf3989",  # 粉紫
+    "#0550ae",  # 深蓝
+    "#953800",  # 棕
+    "#0e765c",  # 青绿
+    "#6e40c9",  # 紫罗兰
+]
+
+
+def _get_threshold_colors(n):
+    """为 N 个阈值生成颜色列表（使用调色板循环）"""
+    return [_THRESH_PALETTE[i % len(_THRESH_PALETTE)] for i in range(n)]
+
+
+def reload_thresholds():
+    """从配置文件加载阈值列表，就地刷新 THRESHOLDS/THRESHOLD_NAMES/THRESH_COLORS。
+
+    兼容两种存储格式：
+    - 新格式: thresholds = [[100000, "10万"], [1000000, "100万"], ...]
+    - 旧格式: thresholds = [100000, 1000000, ...] + 自动生成名称
+    """
+    global THRESHOLDS, THRESHOLD_NAMES, THRESH_COLORS  # noqa: F824
+    try:
+        from config import load_config
+
+        cfg = load_config()
+        raw = cfg.get("prediction", {}).get("thresholds", [])
+        if not raw:
+            raw = [100_000, 1_000_000, 10_000_000]
+    except Exception:
+        raw = [100_000, 1_000_000, 10_000_000]
+
+    values = []
+    names = []
+
+    # 判断格式：新格式为 [[int, str], ...]，旧格式为 [int, ...]
+    if raw and isinstance(raw[0], (list, tuple)):
+        for item in raw:
+            v = int(item[0])
+            n = str(item[1]) if len(item) > 1 else auto_threshold_name(v)
+            values.append(v)
+            names.append(n)
+    else:
+        values = [int(v) for v in raw]
+        names = [auto_threshold_name(v) for v in raw]
+
+    # 排序：按阈值升序
+    pairs = sorted(zip(values, names), key=lambda x: x[0])
+    values = [p[0] for p in pairs]
+    names = [p[1] for p in pairs]
+
+    THRESHOLDS[:] = values
+    THRESHOLD_NAMES[:] = names
+    THRESH_COLORS[:] = _get_threshold_colors(len(values))
+
+
+def auto_threshold_name(v):
+    """自动生成阈值名称（如 100000 → "10万"）"""
+    if v >= 100_000_000:
+        return f"{v / 100_000_000:.0f}亿"
+    if v >= 10_000:
+        w = v / 10_000
+        if w == int(w):
+            return f"{int(w)}万"
+        return f"{w}万"
+    return str(v)
+
+
+# 首次初始化
+reload_thresholds()
 
 DEFAULT_INTERVAL = 75
 FAST_INTERVAL = 10
@@ -117,3 +198,69 @@ def rounded_rect(canvas, x1, y1, x2, y2, r, **kwargs):
         y1,
     ]
     return canvas.create_polygon(pts, smooth=True, **kwargs)
+
+
+# ── 置信度辅助 ─────────────────────────────────
+
+
+def loss_to_confidence(val_loss: float) -> float:
+    """将 val_loss 映射到 [0, 1] 置信度。exp(-loss) 归一化。"""
+    if val_loss is None or val_loss < 0:
+        return 0.0
+    return max(0.0, min(1.0, math.exp(-val_loss)))
+
+
+def format_confidence(conf: float):
+    """返回 (显示文本, 颜色) 对。"""
+    if conf <= 0:
+        return "—", C["text_3"]
+    pct = conf * 100
+    if conf >= 0.8:
+        return f"↑ {pct:.0f}%", C["success"]
+    elif conf >= 0.5:
+        return f"→ {pct:.0f}%", C["warning"]
+    else:
+        return f"↓ {pct:.0f}%", C["danger"]
+
+
+def clear_loss_chart(ax, fig, canvas):
+    """清空并样式化损失曲线图表（training/finetune 面板共用）。"""
+    from ui.mpl_imports import mpl_available
+
+    if not mpl_available or ax is None:
+        return
+    ax.clear()
+    ax.set_facecolor(C["bg_elevated"])
+    ax.tick_params(colors=C["text_3"], labelsize=7)
+    ax.set_xlabel("Epoch", color=C["text_3"], fontsize=7)
+    ax.set_ylabel("Loss", color=C["text_3"], fontsize=7)
+    ax.grid(True, alpha=0.3, color=C["border"])
+    for spine in ax.spines.values():
+        spine.set_color(C["border"])
+    fig.tight_layout(pad=1.5)
+    canvas.draw_idle()
+
+
+def load_algo_confidence(algo_id: str) -> float:
+    """读取算法 active checkpoint 的 val_loss 并计算置信度。"""
+    try:
+        from algorithms.training.checkpoint_manager import CheckpointManager
+
+        ckpt = CheckpointManager(algo_id)
+        versions = ckpt.list_versions()
+        active_v = ckpt.active_version()
+        if not versions or not active_v:
+            return 0.0
+        for v in versions:
+            if v["version"] == active_v:
+                return loss_to_confidence(v.get("val_loss", -1.0))
+        return loss_to_confidence(versions[0].get("val_loss", -1.0))
+    except Exception:
+        return 0.0
+
+
+def is_valid_bvid(s: str) -> bool:
+    """校验 BV 号格式，防止路径穿越。"""
+    import re
+
+    return bool(re.match(r"^BV[A-Za-z0-9]{10,12}$", s.strip()))

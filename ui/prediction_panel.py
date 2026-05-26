@@ -135,7 +135,7 @@ class PredictionPanel:
             ).pack(side=tk.LEFT, padx=4)
 
             ALGO_COLORS = [C["bilibili"], C["accent"], C["success"], C["warning"], "#a78bfa", "#22d3ee"]
-            for i, (name, pred, weight, conf) in enumerate(results):
+            for i, (name, pred, weight, conf, predicted_hours) in enumerate(results):
                 card = ctk.CTkFrame(
                     f, fg_color=C["bg_surface"], border_width=1, border_color=C["border_sub"], corner_radius=6
                 )
@@ -158,6 +158,23 @@ class PredictionPanel:
                     font=("Consolas", 10, "bold"),
                     fg_color="transparent",
                 ).pack(side=tk.RIGHT)
+                # 预计到达时间行
+                if predicted_hours > 0:
+                    eta_row = ctk.CTkFrame(inner, fg_color=C["bg_surface"], corner_radius=0)
+                    eta_row.pack(fill=tk.X)
+                    if predicted_hours >= 24:
+                        eta_text = f"🎯 预计 {predicted_hours / 24:.1f} 天"
+                    elif predicted_hours >= 1:
+                        eta_text = f"🎯 预计 {predicted_hours:.1f} 小时"
+                    else:
+                        eta_text = f"🎯 预计 {predicted_hours * 60:.0f} 分钟"
+                    ctk.CTkLabel(
+                        eta_row,
+                        text=eta_text,
+                        text_color=C["success"],
+                        font=("Consolas", 8),
+                        fg_color="transparent",
+                    ).pack(side=tk.LEFT)
                 bar_row = ctk.CTkFrame(inner, fg_color=C["bg_surface"], corner_radius=0)
                 bar_row.pack(fill=tk.X, pady=(4, 0))
                 bg_bar = ctk.CTkFrame(bar_row, fg_color=C["bg_hover"], height=3, corner_radius=2)

@@ -1,6 +1,6 @@
 # B站视频播放量预测算法说明
 
-本文档详细说明系统中所有83种预测算法的实现原理、数学公式和适用场景。
+本文档详细说明系统中所有103种预测算法的实现原理、数学公式和适用场景。
 
 ## 目录
 
@@ -220,6 +220,42 @@ seasonal_strength = std(seasonal_pattern) / std(views)
 conf = 0.35 + 0.25 * n_points_conf + 0.2 * seasonal_strength
 ```
 
+### 22. MSTL多重季节分解 (Multiple Seasonal-Trend decomposition)
+
+**文件**: `models/time_series/mstl_decomposition.py`
+
+#### 原理
+将播放量序列迭代分解为多重季节分量 + 趋势 + 残差，对每类成分分别预测后合成。使用 `statsmodels.tsa.seasonal.MSTL`（statsmodels >= 0.14），自动检测周/月周期。
+
+#### 降级链
+statsmodels MSTL → savgol_filter → velocity 兜底
+
+### 23. TBATS季节分解
+
+**文件**: `models/time_series/tbats_simple.py`
+
+#### 原理
+三角函数处理多重季节性（日/周/月），Box-Cox变换后分解趋势与季节成分，残差拟合一阶自回归(AR)模型。三角函数周期用 cos/sin 基函数表示。
+
+#### 降级链
+Box-Cox + 三角函数 → numpy 实现 → velocity 兜底
+
+### 24. GARCH波动率聚集 (GARCH)
+
+**文件**: `models/time_series/garch_simple.py`
+
+#### 原理
+广义自回归条件异方差模型，建模播放量增量的波动率聚集效应（如爆款后波动衰减）。输出带置信区间的概率预测，适合评估不确定性。
+
+#### 数学公式
+```
+σ²_t = ω + α·ε²_{t-1} + β·σ²_{t-1}
+```
+预测速度 = (μ + σ) × views_last / 3600
+
+#### 降级链
+numpy GARCH → velocity 兜底
+
 ### 12. 指数平滑 (Exponential Smoothing)
 
 **文件**: `models/time_series/exponential_smoothing.py`
@@ -319,6 +355,22 @@ alpha = obs_prob * (alpha @ transition_matrix)
 - 增长速度频繁变化的视频
 - 需要区分"是否还在推荐期"
 - 长周期视频的趋势预测
+
+### 25. NARX外生自回归
+
+**文件**: `models/time_series/narx_simple.py`
+
+#### 原理
+带外生输入的非线性自回归模型。将历史播放量差分作为自回归项，同时引入互动数据（点赞、投币、收藏的差分）作为外生变量。用最小二乘拟合线性权重后外推。可捕捉互动指标对播放量的领先效应。
+
+#### 数学公式
+```
+Δviews(t) = β₀ + Σᵢ₌₁ᵖ (αᵢ·Δviews(t-i) + βᵢ·Δlikes(t-i) + γᵢ·Δcoins(t-i) + δᵢ·Δfavs(t-i))
+```
+
+#### 适用场景
+- 互动数据丰富的视频
+- 需要量化互动对播放量的拉动效应
 
 ---
 
@@ -496,6 +548,96 @@ BiLSTM 编码短期上下文，可学习的马尔可夫转移矩阵建模长期�
 #### 降级链
 torch → numpy（双向 EMA + 简单状态分配）→ velocity 兜底
 
+### 37. TIDE稠密编码器 (Time Series Dense Encoder)
+
+**文件**: `models/deep_learning/tide_simple.py`
+
+#### 原理
+基于残差MLP的轻量时序预测。用二次多项式拟合趋势得到"编码器"窗口，外推趋势后叠加季节模版（tile重复）得到最终预测。结构极简但在多种数据集上超越复杂Transformer（Zeng et al., AAAI 2023）。
+
+#### Torch模型
+`TIDETorchModel`: 残差 MLP 编码器-解码器，`MLP(hidden=64) + residual skip`
+
+### 38. TSMixer MLP混合器
+
+**文件**: `models/deep_learning/tsmixer_simple.py`
+
+#### 原理
+纯MLP架构，交替在时间维和通道维做MLP混合。极轻量化、训练快，在小样本播放量数据上不易过拟合。随机权重矩阵 + GELU激活。
+
+#### Torch模型
+`TSMixerTorchModel`: 时间维MLP + 通道维MLP + LayerNorm 交替
+
+### 39. DeepAR概率自回归
+
+**文件**: `models/deep_learning/deepar_simple.py`
+
+#### 原理
+基于RNN的自回归概率预测模型。从历史回报率（return）分布采样200条未来路径，模拟未来播放量概率分布。输出中位数预测 + 25/75百分位区间。
+
+#### Torch模型
+`DeepARTorchModel`: GRU编码器 + mu/sigma双头输出概率分布
+
+### 40. Chronos零样本基础模型
+
+**文件**: `models/deep_learning/chronos_base.py`
+
+#### 原理
+基于T5架构的亚马逊时序基础模型。支持从 HuggingFace 加载 `amazon/chronos-t5-small` 预训练权重，零样本预测。无需微调，通过趋势分解+季节模式外推测速。
+
+#### Torch模型
+`ChronosTorchModel`: 轻量T5 Transformer编码器（2层）
+
+### 41. Mamba S6状态空间模型
+
+**文件**: `models/deep_learning/mamba_s6_simple.py`
+
+#### 原理
+2024年最热门的Transformer替代架构。通过选择性SSM高效建模播放量的长程依赖，线性复杂度。简化版用2维离散状态空间 `[z₁, z₂]` 逐步更新，A/B/C矩阵参数化。
+
+#### Torch模型
+`MambaS6TorchModel`: 离散SSM `state = A@state + B@x` → 线性头输出
+
+### 42. iTransformer倒置Transformer
+
+**文件**: `models/deep_learning/itransformer_simple.py`
+
+#### 原理
+将Transformer反转：把每个变量（播放量、点赞、投币、收藏）的时间序列作为token，用注意力机制捕捉跨指标的相关性。简化版用指标矩阵的自注意力 + 随机投影。
+
+#### Torch模型
+`ITransformerTorchModel`: 变量投影 + TransformerEncoder → 展平预测头
+
+### 43. SCINet卷积交互网络
+
+**文件**: `models/deep_learning/scinet_simple.py`
+
+#### 原理
+二叉树结构逐层下采样-卷积-交互，捕捉不同时间尺度上的模式（小时级爆发 vs 日级增长）。偶数/奇数索引子序列分别卷积，用差值门控交互。
+
+#### Torch模型
+`SCINetTorchModel`: 偶/奇分支Conv1d + 差值门控交互
+
+### 44. TimesFM谷歌基础模型
+
+**文件**: `models/deep_learning/timesfm_simple.py`
+
+#### 原理
+Google的Decoder-only预训练时序模型，在1亿+真实时间序列上预训练。基于Patch（子序列分块）+ Decoder架构，零样本预测。
+
+#### Torch模型
+`TimesFMTorchModel`: Patch分块投影 + TransformerDecoder + 线性输出
+
+### 45. Time-MoE专家混合
+
+**文件**: `models/deep_learning/time_moe_simple.py`
+
+#### 原理
+华为时序专家混合模型。4个专家分别学习不同增长阶段模式（冷启动/病毒传播/稳定增长/饱和），可训练门控网络自动选择最优专家。路由依据近期增长率+当前互动率。
+
+#### Torch模型
+`TimeMoETorchModel`: 特征投影 → 门控网络(softmax) → 4专家混合输出(summation)
+
 ---
 
 ## Transformer模型
@@ -659,6 +801,18 @@ pseudo_r2 = 1 - deviance / null_deviance
 #### 降级链
 sklearn 分类 → 近期均值兜底
 
+### 47. DTW-kNN类比预测
+
+**文件**: `models/statistical/dtw_knn.py`
+
+#### 原理
+用动态时间规整(DTW)距离从历史数据中检索增长模式最相似的k个片段，加权平均作为预测权重 = 1/dist。本质上是"类比推理"预测——找过去相似的走势来推测未来。考虑播放量、点赞、投币的三维梯度profile。
+
+#### 适用场景
+- 有充足历史数据（>20个点）
+- 视频增长模式存在重复性
+- 作为深度学习方法的轻量替代
+
 ---
 
 ## 集成学习
@@ -777,6 +931,26 @@ Level 3 (季节性感知): 周周期 + L2修正
 
 **文件**: `models/ensemble/weighted_velocity.py`
 
+### 59. NGBoost概率提升
+
+**文件**: `models/ensemble/ngboost_simple.py`
+
+#### 原理
+自然梯度提升(Natural Gradient Boosting)，输出完整概率分布（高斯分布参数 μ, σ）。用自然梯度优化分布参数，适合建模播放量预测的不确定性。基于滞后特征（4阶视图+互动滞后）拟合。
+
+#### 降级链
+ngboost → velocity 兜底
+
+### 60. TabNet注意力特征网络
+
+**文件**: `models/ensemble/tabnet_simple.py`
+
+#### 原理
+带Transformer风格注意力机制的表格网络。用随机投影 + 门控注意力自动选择最重要的特征（播放量、点赞、投币、收藏、分享的log值及其梯度），输出趋势信号调整预测速度。
+
+#### 降级链
+numpy 注意力门控 → velocity 兜底
+
 ---
 
 ## 互动率模型
@@ -884,6 +1058,34 @@ theta = 1.5 - 0.5 * engagement
 
 #### 降级链
 scipy Wasserstein距离 → numpy 自实现 → 近期均值
+
+### 72. 频域分解 (Fourier/Wavelet Decomposition)
+
+**文件**: `models/advanced/fourier_wavelet.py`
+
+#### 原理
+将播放量序列通过FFT变换到频域，保留前1/4最强谐波滤除噪声，逆变换得到周期模式。线性趋势 + 周期波动叠加预测。无需训练，纯信号处理方法。
+
+### 73. SIRD传染病传播模型
+
+**文件**: `models/advanced/sird_model.py`
+
+#### 原理
+将视频传播类比传染病SIRD模型。S=易感粉丝数，I=当前活跃播放/传播，R=已观看，D=流失。用常微分方程(ODE)求解未来I+R曲线。参数β(传播率)、γ(恢复率)、δ(流失率)从实时数据估计。
+
+### 74. CausalImpact因果推断
+
+**文件**: `models/advanced/causal_impact.py`
+
+#### 原理
+贝叶斯结构时间序列模型。用点赞、投币、收藏等协变量构建反事实预测（若无互动会怎样），互动率变化与播放量差值即为"因果效应"。估算互动指标对播放量的增量贡献。
+
+### 75. 层级贝叶斯 (Hierarchical Bayes)
+
+**文件**: `models/advanced/hierarchical_bayes.py`
+
+#### 原理
+利用UP主级别的超参数共享信息（UP主历史平均播放量、投稿数），将新视频的播放量预测纳入层级结构进行收缩估计。本地数据方差大时向UP主全局均值收缩，数据充足时信任本地估计。
 
 ---
 
@@ -1066,6 +1268,7 @@ PyTorch 算法需实现以下方法供训练器调用：
 | MLP、神经网络、LSTM、GRU、BiLSTM、TCN、CNN-LSTM、CNN图像化 | ✅ 已集成 |
 | N-BEATS、TimesNet、DLinear、Informer、TFT、PatchTST、注意力机制 | ✅ 已集成 |
 | Diffusion TS、KNF、Mar-BiLSTM | ✅ 已集成 |
+| TIDE、TSMixer、DeepAR、Chronos、Mamba S6、iTransformer、SCINet、TimesFM、Time-MoE | ✅ 已集成 |
 | Lag-Llama、MOIRAI | ⚡ HF 零样本（无需训练） |
 
 ### 如何通过 Loss 值判断模型好坏
@@ -1215,9 +1418,23 @@ Loss 急跌后横盘         Loss 震荡不降          Loss 先降后升
 23. Ansari, A. F., et al. (2024). MOIRAI: A Large-Scale Time Series Foundation Model.
 24. Ho, J., et al. (2020). Denoising Diffusion Probabilistic Models. (DDPM, Diffusion TS)
 25. Azencot, O., et al. (2023). Koopman Neural Forecaster (ICLR 2023, KNF)
+26. Salinas, D., et al. (2020). DeepAR: Probabilistic Forecasting with Autoregressive Recurrent Networks.
+27. Ansari, A. F., et al. (2024). Chronos: Learning the Language of Time Series.
+28. Gu, A., & Dao, T. (2024). Mamba: Linear-Time Sequence Modeling with Selective State Spaces.
+29. Liu, Y., et al. (2024). iTransformer: Inverted Transformers Are Effective for Time Series Forecasting.
+30. Liu, M., et al. (2022). SCINet: Time Series Modeling and Forecasting with Sample Convolution and Interaction.
+31. Das, A., et al. (2024). A decoder-only foundation model for time-series forecasting. (TimesFM)
+32. Shi, X., et al. (2025). Time-MoE: Billion-Scale Time Series Foundation Models with Mixture of Experts.
+33. Duan, T., et al. (2020). NGBoost: Natural Gradient Boosting for Probabilistic Prediction.
+34. Arik, S. O., & Pfister, T. (2021). TabNet: Attentive Interpretable Tabular Learning.
+35. Brodersen, K. H., et al. (2015). Inferring causal impact using Bayesian structural time-series models.
+36. De Livera, A. M., et al. (2011). Forecasting time series with complex seasonal patterns using exponential smoothing. (TBATS)
+37. Bandara, K., et al. (2021). MSTL: A Seasonal-Trend Decomposition Algorithm for Time Series with Multiple Seasonal Patterns.
+38. Bollerslev, T. (1986). Generalized autoregressive conditional heteroskedasticity. (GARCH)
+39. Chen, S.-A., et al. (2023). TSMixer: An All-MLP Architecture for Time Series Forecasting.
 
 ---
 
-*文档版本: 6.0*
-*最后更新: 2026-05-20*
-*算法总数: 83*
+*文档版本: 7.0*
+*最后更新: 2026-05-25*
+*算法总数: 103*

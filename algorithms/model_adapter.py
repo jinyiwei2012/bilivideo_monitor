@@ -3,11 +3,13 @@ models算法适配器
 将不同接口的models算法统一适配到注册器系统
 """
 
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Any
 from datetime import datetime
 import importlib
 import os
 import logging
+
+from algorithms.base import PredictionResult
 
 logger = logging.getLogger(__name__)
 
@@ -42,41 +44,60 @@ class ModelAlgorithmAdapter:
         else:
             self.interface_type = "unknown"
 
-    def predict(self, history: List[Tuple], current_value: float, **kwargs) -> Dict:
-        """统一预测接口"""
+    def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
+        """统一预测接口（与 BaseAlgorithm 签名一致）
+
+        Args:
+            video_data: 包含视频所有数据的字典
+            threshold: 目标播放量阈值
+
+        Returns:
+            PredictionResult 对象
+        """
+        try:
+            if self.interface_type == "video_data":
+                return self.algo.predict(video_data, threshold)
+            else:
+                current_value = video_data.get("view_count", 0)
+                history_data = video_data.get("history_data", [])
+                history_list = [
+                    {
+                        "view": d.get("view_count", 0),
+                        "view_count": d.get("view_count", 0),
+                        "timestamp": d.get("timestamp_str", ""),
+                    }
+                    for d in history_data
+                ]
+                return self.algo.predict(current_value, threshold, history_list, video_data)
+        except Exception:
+            current_views = video_data.get("view_count", 0)
+            return PredictionResult(
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=float("inf"),
+                confidence=0.0,
+                current_views=current_views,
+                current_velocity=0,
+                metadata={"error": True},
+                timestamp=datetime.now(),
+            )
+
+    def predict_dict(self, history: List[Tuple], current_value: float, **kwargs) -> Dict:
+        """返回 Dict 格式的预测结果（供 registry 调用）"""
         thresholds = kwargs.get("thresholds", [100000, 1000000, 10000000])
         threshold_names = kwargs.get("threshold_names", ["10万", "100万", "1000万"])
 
         try:
-            # 使用预先准备好的video_data（由 registry 集中构建），避免每个 adapter 重复转换
             video_data = kwargs.get("_cached_video_data")
             if video_data is None:
                 video_data = self._prepare_video_data(history, current_value)
 
-            # 根据接口类型调用
-            if self.interface_type == "video_data":
-                result = self.algo.predict(video_data, thresholds[0])
-            else:
-                # full_params接口，需要转换数据格式
-                history_data = []
-                for t, v in history:
-                    if isinstance(t, datetime):
-                        ts_str = t.strftime("%Y-%m-%d %H:%M:%S")
-                    else:
-                        try:
-                            dt = datetime.fromisoformat(str(t))
-                            ts_str = dt.strftime("%Y-%m-%d %H:%M:%S")
-                        except (ValueError, TypeError):
-                            ts_str = str(t)
-                    history_data.append({"view": v, "view_count": v, "timestamp": ts_str})  # 必须是字符串格式
-
-                result = self.algo.predict(current_value, thresholds[0], history_data, video_data)
-
-            # 解析结果
-            if result is None:
+            prediction_result = self.predict(video_data, thresholds[0])
+            if prediction_result is None:
                 return self._make_na_result(current_value)
 
-            return self._parse_result(result, current_value, thresholds, threshold_names, history)
+            return self._parse_result(prediction_result, current_value, thresholds, threshold_names, history)
 
         except Exception as e:
             return self._make_error_result(current_value, str(e))

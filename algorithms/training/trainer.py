@@ -18,6 +18,10 @@ import logging
 import math
 import time
 from typing import Callable, Dict, List, Optional
+from utils import project_path
+from algorithms.training.checkpoint_manager import CheckpointManager
+from algorithms.training.device import get_device
+from algorithms.training.dataset import VideoTimeSeriesDataset, estimate_dataset_size
 
 logger = logging.getLogger(__name__)
 
@@ -27,11 +31,6 @@ try:
     from torch.utils.data import DataLoader, random_split
 except ImportError:
     _torch_available = False
-
-from algorithms.training.checkpoint_manager import CheckpointManager
-from algorithms.training.device import get_device
-from algorithms.training.dataset import VideoTimeSeriesDataset, estimate_dataset_size
-
 
 ProgressCb = Optional[Callable[[Dict], None]]
 
@@ -178,6 +177,44 @@ class ModelTrainer:
         if not hasattr(algo, "build_model"):
             raise RuntimeError(f"算法 {algo_id} 未实现 build_model()")
 
+        dataset, train_loader, val_loader = self._prepare_dataset(algo, algo_id, bvid, batch_size, val_ratio)
+        model, optimizer, loss_fn, preprocess = self._init_model_optimizer(algo, algo_id, init_from_global, lr)
+
+        min_epochs = max(1, int(epochs * 0.7))
+        best_val = float("inf")
+        last_val = -1.0
+        start_time = time.time()
+        for epoch in range(epochs):
+            if self._check_control(control_dict, epoch, min_epochs, algo_id, bvid, optimizer, progress_cb, epochs):
+                break
+
+            train_loss = self._train_epoch(model, train_loader, optimizer, loss_fn, preprocess, control_dict, algo_id)
+
+            if control_dict and control_dict.get("early_stop"):
+                if epoch + 1 >= min_epochs or control_dict.pop("_force_early_stop", False):
+                    break
+                control_dict["early_stop"] = False
+
+            last_val = self._validate_and_emit(
+                model,
+                val_loader,
+                loss_fn,
+                preprocess,
+                best_val,
+                progress_cb,
+                algo_id,
+                bvid,
+                epoch,
+                epochs,
+                train_loss,
+                start_time,
+            )
+            if val_loader is not None and last_val < best_val:
+                best_val = last_val
+
+        return self._save_checkpoint(model, algo_id, bvid, dataset, best_val, last_val, val_loader, epochs)
+
+    def _prepare_dataset(self, algo, algo_id, bvid, batch_size, val_ratio):
         features = getattr(algo, "get_training_features", lambda: None)() or [
             "view_count",
             "like_count",
@@ -189,29 +226,25 @@ class ModelTrainer:
         horizon = getattr(algo, "training_horizon", 3)
 
         dataset = VideoTimeSeriesDataset(
-            window=window,
-            horizon=horizon,
-            bvids=[bvid] if bvid else None,
-            features=features,
+            window=window, horizon=horizon, bvids=[bvid] if bvid else None, features=features
         )
         if len(dataset) == 0:
             raise RuntimeError(f"没有足够的训练样本（algo={algo_id}, bvid={bvid}）")
 
-        # 划分训练 / 验证
         if val_ratio > 0 and len(dataset) >= 10:
             val_size = max(1, int(len(dataset) * val_ratio))
             train_size = len(dataset) - val_size
             train_set, val_set = random_split(
-                dataset,
-                [train_size, val_size],
-                generator=torch.Generator().manual_seed(42),
+                dataset, [train_size, val_size], generator=torch.Generator().manual_seed(42)
             )
         else:
             train_set, val_set = dataset, None
 
         train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, drop_last=False)
         val_loader = DataLoader(val_set, batch_size=batch_size, shuffle=False) if val_set else None
+        return dataset, train_loader, val_loader
 
+    def _init_model_optimizer(self, algo, algo_id, init_from_global, lr):
         model = algo.build_model()
         if init_from_global:
             global_ckpt = CheckpointManager(algo_id)
@@ -226,103 +259,120 @@ class ModelTrainer:
 
         model = model.to(self.device)
         loss_fn = getattr(algo, "get_loss_fn", lambda: torch.nn.MSELoss())()
-
-        # 学习率：用户指定 > 算法自定义 > 默认 1e-3
         if lr is not None:
             optimizer = torch.optim.Adam(model.parameters(), lr=lr)
         else:
             optimizer = getattr(algo, "get_optimizer", lambda m: torch.optim.Adam(m.parameters(), lr=1e-3))(model)
         preprocess = getattr(algo, "preprocess_batch", _default_preprocess)
+        return model, optimizer, loss_fn, preprocess
 
-        min_epochs = max(1, int(epochs * 0.7))  # 达到总轮次 70% 后才允许提前停止
-        best_val = float("inf")
-        last_val = -1.0
-        start_time = time.time()
-        for epoch in range(epochs):
-            # ── 自动调整检查 ──
-            if control_dict is not None:
-                if control_dict.get("early_stop"):
-                    force = control_dict.pop("_force_early_stop", False)
-                    if epoch + 1 >= min_epochs or force:
-                        logger.info("[trainer] %s early stopping at epoch %d/%d",
-                                    algo_id, epoch + 1, epochs)
-                        self._emit(progress_cb, {
-                            "stage": "auto_adjust", "algo_id": algo_id, "bvid": bvid,
-                            "action": "early_stop",
-                            "message": f"Epoch {epoch+1}/{epochs}: 提前停止",
-                            "epoch": epoch + 1, "epochs": epochs,
-                        })
-                        break
-                    else:
-                        logger.debug("[trainer] %s early_stop ignored at epoch %d/%d (min %d)",
-                                     algo_id, epoch + 1, epochs, min_epochs)
-                        control_dict["early_stop"] = False  # 清除标记避免 post-batch 误判
-                lr_scale = control_dict.pop("lr_scale", None)
-                if lr_scale is not None:
-                    for pg in optimizer.param_groups:
-                        new_lr = pg["lr"] * lr_scale
-                        pg["lr"] = new_lr
-                    logger.info("[trainer] %s LR adjusted by ×%.2f → %.6f",
-                                algo_id, lr_scale, optimizer.param_groups[0]["lr"])
-                    self._emit(progress_cb, {
-                        "stage": "auto_adjust", "algo_id": algo_id, "bvid": bvid,
-                        "action": "lr_scale",
-                        "message": f"学习率调整为 {optimizer.param_groups[0]['lr']:.6f} (×{lr_scale:.2f})",
-                        "new_lr": optimizer.param_groups[0]["lr"], "scale": lr_scale,
-                        "epoch": epoch + 1, "epochs": epochs,
-                    })
-
-            model.train()
-            train_loss = 0.0
-            n_batches = 0
-            for batch in train_loader:
-                x, y = preprocess(batch)
-                x = x.to(self.device)
-                y = y.to(self.device)
-                optimizer.zero_grad()
-                pred = model(x)
-                # 自动 squeeze 末尾维度匹配
-                if pred.dim() == y.dim() + 1 and pred.shape[-1] == 1:
-                    pred = pred.squeeze(-1)
-                loss = loss_fn(pred, y)
-                loss_val = float(loss.item())
-                # 批级别质量检查：NaN/Inf 致命错误，不受最少轮次限制
-                if control_dict is not None and (math.isnan(loss_val) or math.isinf(loss_val)):
-                    logger.warning("[trainer] %s NaN/Inf mid-epoch, early stopping", algo_id)
-                    control_dict["early_stop"] = True
-                    control_dict["_force_early_stop"] = True
-                    break
-                loss.backward()
-                optimizer.step()
-                train_loss += loss_val
-                n_batches += 1
-            # 批级别 early_stop 后跳出 epoch 循环（同样遵循最少轮次限制）
-            if control_dict and control_dict.get("early_stop"):
-                if epoch + 1 >= min_epochs or control_dict.pop("_force_early_stop", False):
-                    break
+    @staticmethod
+    def _check_control(control_dict, epoch, min_epochs, algo_id, bvid, optimizer, progress_cb, epochs):
+        if control_dict is None:
+            return False
+        if control_dict.get("early_stop"):
+            force = control_dict.pop("_force_early_stop", False)
+            if epoch + 1 >= min_epochs or force:
+                logger.info("[trainer] %s early stopping at epoch %d/%d", algo_id, epoch + 1, epochs)
+                ModelTrainer._emit(
+                    progress_cb,
+                    {
+                        "stage": "auto_adjust",
+                        "algo_id": algo_id,
+                        "bvid": bvid,
+                        "action": "early_stop",
+                        "message": f"Epoch {epoch + 1}/{epochs}: 提前停止",
+                        "epoch": epoch + 1,
+                        "epochs": epochs,
+                    },
+                )
+                return True
+            else:
+                logger.debug(
+                    "[trainer] %s early_stop ignored at epoch %d/%d (min %d)", algo_id, epoch + 1, epochs, min_epochs
+                )
                 control_dict["early_stop"] = False
-            train_loss /= max(1, n_batches)
-
-            if val_loader is not None:
-                val_loss = self._evaluate(model, val_loader, loss_fn, preprocess)
-                last_val = val_loss
-                if val_loss < best_val:
-                    best_val = val_loss
-            self._emit(
+        lr_scale = control_dict.pop("lr_scale", None)
+        if lr_scale is not None:
+            for pg in optimizer.param_groups:
+                new_lr = pg["lr"] * lr_scale
+                pg["lr"] = new_lr
+            logger.info("[trainer] %s LR adjusted by ×%.2f → %.6f", algo_id, lr_scale, optimizer.param_groups[0]["lr"])
+            ModelTrainer._emit(
                 progress_cb,
                 {
-                    "stage": "epoch",
+                    "stage": "auto_adjust",
                     "algo_id": algo_id,
                     "bvid": bvid,
+                    "action": "lr_scale",
+                    "message": f"学习率调整为 {optimizer.param_groups[0]['lr']:.6f} (×{lr_scale:.2f})",
+                    "new_lr": optimizer.param_groups[0]["lr"],
+                    "scale": lr_scale,
                     "epoch": epoch + 1,
                     "epochs": epochs,
-                    "train_loss": train_loss,
-                    "val_loss": last_val,
-                    "elapsed_s": time.time() - start_time,
                 },
             )
+        return False
 
-        # 保存 checkpoint
+    def _train_epoch(self, model, train_loader, optimizer, loss_fn, preprocess, control_dict, algo_id):
+        model.train()
+        train_loss = 0.0
+        n_batches = 0
+        for batch in train_loader:
+            x, y = preprocess(batch)
+            x = x.to(self.device)
+            y = y.to(self.device)
+            optimizer.zero_grad()
+            pred = model(x)
+            if pred.dim() == y.dim() + 1 and pred.shape[-1] == 1:
+                pred = pred.squeeze(-1)
+            loss = loss_fn(pred, y)
+            loss_val = float(loss.item())
+            if control_dict is not None and (math.isnan(loss_val) or math.isinf(loss_val)):
+                logger.warning("[trainer] %s NaN/Inf mid-epoch, early stopping", algo_id)
+                control_dict["early_stop"] = True
+                control_dict["_force_early_stop"] = True
+                break
+            loss.backward()
+            optimizer.step()
+            train_loss += loss_val
+            n_batches += 1
+        return train_loss / max(1, n_batches)
+
+    def _validate_and_emit(
+        self,
+        model,
+        val_loader,
+        loss_fn,
+        preprocess,
+        best_val,
+        progress_cb,
+        algo_id,
+        bvid,
+        epoch,
+        epochs,
+        train_loss,
+        start_time,
+    ):
+        last_val = -1.0
+        if val_loader is not None:
+            last_val = ModelTrainer._evaluate(model, val_loader, loss_fn, preprocess)
+        ModelTrainer._emit(
+            progress_cb,
+            {
+                "stage": "epoch",
+                "algo_id": algo_id,
+                "bvid": bvid,
+                "epoch": epoch + 1,
+                "epochs": epochs,
+                "train_loss": train_loss,
+                "val_loss": last_val,
+                "elapsed_s": time.time() - start_time,
+            },
+        )
+        return last_val
+
+    def _save_checkpoint(self, model, algo_id, bvid, dataset, best_val, last_val, val_loader, epochs):
         ckpt = CheckpointManager(algo_id, bvid=bvid)
         version = ckpt.save(
             model.state_dict(),
@@ -333,20 +383,15 @@ class ModelTrainer:
                 "device": str(self.device),
             },
         )
-
-        # 视频微调时额外保存到 data/<bvid>/model/ 目录
         if bvid:
             self._save_model_to_video_dir(model, bvid, algo_id)
-
         return version
 
     def _save_model_to_video_dir(self, model: "torch.nn.Module", bvid: str, algo_id: str):
         """保存模型 state_dict 到 data/<bvid>/model/<algo_id>.pt"""
         import os
-        video_model_dir = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-            "data", bvid, "model",
-        )
+
+        video_model_dir = project_path("data", bvid, "model")
         os.makedirs(video_model_dir, exist_ok=True)
         path = os.path.join(video_model_dir, f"{algo_id}.pt")
         try:
@@ -384,22 +429,16 @@ class ModelTrainer:
 
     @staticmethod
     def _instantiate_algorithm(algo_id: str):
-        """从 registry 按 algorithm_id 查找底层算法实例（绕过 adapter 包装）。
-
-        registry 用 f"[Model] {display_name}" 当 key 存 adapter，所以不能直接
-        get_algorithm(algo_id) — 必须扫描全部 adapter 比对 algorithm_id 属性，
-        再取出 adapter.algo 把训练需要的 build_model / get_loss_fn 等方法暴露出来。
-        """
+        """从 registry 按 algorithm_id 查找底层算法实例（绕过 adapter 包装）"""
         try:
             from algorithms.registry import AlgorithmRegistry
         except Exception as e:
             logger.error("无法导入 AlgorithmRegistry: %s", e)
             return None
         AlgorithmRegistry.initialize()
-        for adapter in AlgorithmRegistry.get_all_algorithms():
-            algo = getattr(adapter, "algo", adapter)
-            if getattr(algo, "algorithm_id", None) == algo_id:
-                return algo
+        algo = AlgorithmRegistry.get_algorithm_by_id(algo_id)
+        if algo is not None:
+            return algo
         return None
 
 

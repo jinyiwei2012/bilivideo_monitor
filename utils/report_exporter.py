@@ -6,11 +6,12 @@ import os
 import logging
 from datetime import datetime
 from typing import List, Dict, Optional
+from utils import project_path
 
 logger = logging.getLogger(__name__)
 
 
-_OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "reports")
+_OUTPUT_DIR = project_path("reports")
 
 
 def _fmt(n):
@@ -197,4 +198,46 @@ def export_excel(videos: List[Dict], output_path: Optional[str] = None) -> str:
         sdf = pd.DataFrame([summary])
         sdf.to_excel(w, sheet_name="摘要", index=False)
 
+    return output_path
+
+
+def export_csv(videos: List[Dict], output_path: Optional[str] = None) -> str:
+    """生成 CSV 格式报告"""
+    os.makedirs(_OUTPUT_DIR, exist_ok=True)
+    output_path = output_path or os.path.join(_OUTPUT_DIR, f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
+    import csv
+
+    with open(output_path, "w", encoding="utf-8-sig", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["BV号", "标题", "UP主", "播放", "点赞", "硬币", "收藏", "弹幕", "评论", "分享"])
+        for v in videos:
+            w.writerow(
+                [
+                    v.get("bvid", ""),
+                    v.get("title", ""),
+                    v.get("author", ""),
+                    v.get("view_count", 0),
+                    v.get("like_count", 0),
+                    v.get("coin_count", 0),
+                    v.get("favorite_count", 0),
+                    v.get("danmaku_count", 0),
+                    v.get("reply_count", 0),
+                    v.get("share_count", 0),
+                ]
+            )
+    logger.info("CSV 导出完成: %s", output_path)
+    return output_path
+
+
+def export_json(videos: List[Dict], output_path: Optional[str] = None) -> str:
+    """生成 JSON 格式报告"""
+    import json
+
+    os.makedirs(_OUTPUT_DIR, exist_ok=True)
+    output_path = output_path or os.path.join(_OUTPUT_DIR, f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
+    summary = generate_summary(videos)
+    data = {"summary": summary, "videos": videos}
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    logger.info("JSON 导出完成: %s", output_path)
     return output_path

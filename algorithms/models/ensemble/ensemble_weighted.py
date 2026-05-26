@@ -24,6 +24,7 @@ class EnsembleWeightedAlgorithm(BaseAlgorithm):
         age_hours = self.get_video_age_hours(video_data)
 
         remaining = threshold - current_views
+        weighted_predictions = []
         if remaining <= 0:
             predicted_hours = 0
             confidence = 1.0

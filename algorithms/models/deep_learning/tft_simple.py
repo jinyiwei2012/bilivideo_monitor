@@ -4,7 +4,7 @@ TFT简化版 (Temporal Fusion Transformer Simplified)
 """
 
 import numpy as np
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional
 from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
 from algorithms.models.deep_learning._torch_upgrade import TFTTorchModel, try_torch_predict

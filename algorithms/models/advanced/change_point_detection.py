@@ -342,12 +342,11 @@ class ChangePointDetectionAlgorithm(BaseAlgorithm):
             return "insufficient_data"
 
         # 使用简单线性回归判断趋势
-        x = np.arange(len(velocities))
-        y = velocities
+        x = np.arange(len(velocities), dtype=np.float64)
+        y = np.asarray(velocities, dtype=np.float64)
 
-        # 计算斜率
-        n = len(x)
-        slope = (n * np.sum(x * y) - np.sum(x) * np.sum(y)) / (n * np.sum(x**2) - np.sum(x) ** 2)
+        # 计算斜率（用 np.polyfit 避免大数溢出）
+        slope = np.polyfit(x, y, 1)[0]
 
         if slope > 0.1 * np.mean(velocities):
             return "accelerating"
