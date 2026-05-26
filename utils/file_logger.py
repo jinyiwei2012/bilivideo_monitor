@@ -51,7 +51,7 @@ class FileLogger:
         if ts is None:
             ts = datetime.now()
 
-        line = f"[{ts.strftime('%H:%M:%S')}] [{level:>7s}] {message}\n"
+        line = f"[{ts.strftime('%Y-%m-%d %H:%M:%S')}.{ts.microsecond // 1000:03d}] [{level:>7s}] {message}\n"
 
         with self._lock:
             self._ensure_date(ts)

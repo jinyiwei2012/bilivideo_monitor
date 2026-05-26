@@ -575,7 +575,7 @@ def try_torch_predict(
 
     algo_id = getattr(algorithm, "algorithm_id", "unknown")
     bvid = video_data.get("bvid", "")
-    state = load_best_checkpoint(algo_id, bvid=bvid)
+    state, model_source = load_best_checkpoint(algo_id, bvid=bvid)
     if state is None:
         return fallback_fn(video_data, threshold)
 
@@ -599,7 +599,7 @@ def try_torch_predict(
             y = model(x).cpu().numpy().reshape(-1)
         predicted_velocity = max(0.0, float(y[0]) * v_std + v_mean)
 
-        return _generic_result(algorithm, video_data, threshold, predicted_velocity, y)
+        return _generic_result(algorithm, video_data, threshold, predicted_velocity, y, model_source=model_source)
 
     except Exception as e:
         logger.warning("[%s] torch 推理失败，降级 numpy: %s", getattr(algorithm, "algorithm_id", "?"), e)
@@ -649,7 +649,7 @@ def _velocity_series(history):
     return vs
 
 
-def _generic_result(algorithm, video_data, threshold, velocity, y):
+def _generic_result(algorithm, video_data, threshold, velocity, y, model_source=None):
     from datetime import datetime
     from algorithms.base import PredictionResult
 
@@ -661,6 +661,13 @@ def _generic_result(algorithm, video_data, threshold, velocity, y):
         remaining = threshold - current_views
         predicted_hours = 0 if remaining <= 0 else remaining / velocity
         confidence = 0.75 if remaining > 0 else 1.0
+    metadata = {
+        "reason": "torch_inference",
+        "horizon_pred": y.tolist() if hasattr(y, "tolist") else list(y),
+        "method": getattr(algorithm, "algorithm_id", "?") + "_torch",
+    }
+    if model_source:
+        metadata["model_source"] = model_source
     return PredictionResult(
         algorithm_name=getattr(algorithm, "name", "?"),
         algorithm_id=getattr(algorithm, "algorithm_id", "?"),

@@ -1,5 +1,22 @@
 # 更新日志
 
+## Release 2026-05-26 (v2.7.0)
+
+### ✨ 新功能
+- **双更新通道**: 支持稳定版/测试版切换，测试版从 `pre-release` 分支拉取，稳定版从 `releases` 分支
+- **pre-release 分支**: 新功能先推送 `pre-release` 分支测试，稳定后合并到 `releases`
+- **Git 拉取自动匹配分支**: 测试版 `git pull origin pre-release`，稳定版 `git pull origin releases`
+
+### 🧹 优化
+- **测试版暂不提供 EXE**: 测试通道仅提供 Git/ZIP 更新方式
+
+## Release 2026-05-26 (v2.6.1)
+
+### 🧹 优化
+- **模型加载/推理日志格式化**: `[算法] 视频(BV),使用'微调模型(v3)'预测成功 预测结果: xxx`
+- **日志格式统一**: FileLogger 和 stderr 输出使用相同 ISO 时间格式
+- **启动日志显示 checkpoint 状态**: 显示每个算法的模型来源（视频微调/底模/numpy）
+
 ## Release 2026-05-26 (v2.6.0)
 
 ### ✨ 新功能
