@@ -3,7 +3,6 @@ NGBoost (Natural Gradient Boosting)
 输出完整概率分布的梯度提升，用自然梯度优化分布参数
 """
 
-import numpy as np
 from typing import Dict, Any
 from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
