@@ -125,7 +125,8 @@ class HuberRegressionAlgorithm(BaseAlgorithm):
 
     def _huber_weights(self, r: np.ndarray) -> np.ndarray:
         """Huber损失权重 (IRLS)"""
-        return np.where(np.abs(r) <= self.epsilon, 1.0, self.epsilon / np.abs(r))
+        abs_r = np.abs(r)
+        return np.where(abs_r <= self.epsilon, 1.0, self.epsilon / np.maximum(abs_r, 1e-12))
 
     def _fit_huber(self, X: np.ndarray, y: np.ndarray) -> Tuple[np.ndarray, float]:
         """IRLS (Iteratively Reweighted Least Squares) 拟合Huber回归"""
