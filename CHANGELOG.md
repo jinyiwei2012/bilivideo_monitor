@@ -13,6 +13,8 @@
 - **DirectML 推理加速**: 支持 Intel NPU (AI Boost) / GPU 通过 DirectML 运行 PyTorch 推理
 - **CUDA 冒烟测试**: `get_device()` 自动验证 GPU 实际可用，失败降级 CPU
 - **自动更新检查**: 启动时异步检测 GitHub Release，弹窗展示 changelog
+- **CSV/JSON 定时导出**: 支持按小时/天/周自动导出数据报告至 reports/ 目录
+- **模型批量导出/导入**: 一键打包/解包 algorithms/checkpoints/ 为 zip，zip合并/覆盖两种模式
 
 ### 🐛 修复
 - `change_point_detection.py`: 斜率计算改用 `np.polyfit` 避免大数溢出
