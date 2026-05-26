@@ -347,6 +347,10 @@ for pkg in ("customtkinter", "bilibili_api", "ui", "core", "algorithms", "utils"
     binaries += tmp_ret[1]
     hiddenimports += tmp_ret[2]
 
+# Extra safety: bilibili_api data files (hook-bilibili_api.py also handles this)
+from PyInstaller.utils.hooks import collect_data_files
+datas += collect_data_files("bilibili_api")
+
 # ── Extra data: matplotlib mpl-data ──
 datas += collect_data_files("matplotlib", include_py_files=True)
 
@@ -386,7 +390,7 @@ a = Analysis(
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
-    hookspath=[],
+    hookspath=[PROJECT_ROOT],  # uses hook-bilibili_api.py from project root
     hooksconfig={},
     runtime_hooks=[],
     excludes=EXCLUDES,
