@@ -33,6 +33,7 @@ def _make_video_data(history, current_views=15000):
         "danmaku_count": current_views // 200,
     }
 
+
 # Algorithms that still use the old 4-arg interface (predict(cv, tv, hd, vi))
 # These need to be tested via ModelAlgorithmAdapter
 _OLD_INTERFACE = {

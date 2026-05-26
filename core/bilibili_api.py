@@ -933,3 +933,8 @@ class BilibiliAPI:
 
 # 全局API实例
 bilibili_api = BilibiliAPI()
+
+
+def get_bilibili_api() -> BilibiliAPI:
+    """获取全局 BilibiliAPI 实例"""
+    return bilibili_api
