@@ -106,7 +106,11 @@ def get_lag_llama_model() -> Tuple[Optional[Any], bool, str]:
         )
         import torch as _torch
 
-        ckpt = _torch.load(ckpt_path, map_location="cpu", weights_only=False)
+        try:
+            ckpt = _torch.load(ckpt_path, map_location="cpu", weights_only=True)
+        except Exception:
+            logger.warning("[hf_loader] weights_only=True 加载失败，回退到信任加载（HF 官方 checkpoint 可信任）")
+            ckpt = _torch.load(ckpt_path, map_location="cpu", weights_only=False)
         with _lock:
             _models["lag_llama"] = ckpt
         return ckpt, True, "loaded"

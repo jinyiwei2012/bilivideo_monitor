@@ -50,15 +50,30 @@ class SettingsWindow:
         if os.path.exists(self._net_cfg_file):
             try:
                 with open(self._net_cfg_file, "r", encoding="utf-8") as f:
-                    return json.load(f)
+                    cfg = json.load(f)
+                # 解密 Cookie
+                cookies = cfg.get("cookies", {})
+                if cookies:
+                    from utils.crypto import decrypt_dict
+                    decrypt_dict(cookies, "SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid")
+                return cfg
             except Exception as e:
                 logger.debug("加载网络配置失败: %s", e)
         return {"proxies": [], "cookies": {}}
 
     def _save_net_config(self):
         os.makedirs(os.path.dirname(self._net_cfg_file), exist_ok=True)
+        # 加密 Cookie 后再持久化
+        cookies = self._net_cfg.get("cookies", {})
+        if cookies:
+            from utils.crypto import encrypt_dict
+            encrypt_dict(cookies, "SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid")
         with open(self._net_cfg_file, "w", encoding="utf-8") as f:
             json.dump(self._net_cfg, f, ensure_ascii=False, indent=2)
+        # 保存后恢复明文（UI 继续使用明文）
+        if cookies:
+            from utils.crypto import decrypt_dict
+            decrypt_dict(cookies, "SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid")
 
     # ── UI helpers ──
     @staticmethod
