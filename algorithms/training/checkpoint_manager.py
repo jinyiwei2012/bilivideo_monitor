@@ -82,6 +82,9 @@ class CheckpointManager:
                     "created_at": m.get("created_at", ""),
                     "data_count": m.get("data_count", 0),
                     "val_loss": m.get("val_loss", -1.0),
+                    "learning_rate": m.get("learning_rate", -1.0),
+                    "completed_epochs": m.get("completed_epochs", 0),
+                    "data_trained_until": m.get("data_trained_until", 0.0),
                     "active": version == active_version,
                 }
             )
@@ -112,6 +115,9 @@ class CheckpointManager:
             "val_loss": (metadata or {}).get("val_loss", -1.0),
             "epochs": (metadata or {}).get("epochs", 0),
             "device": (metadata or {}).get("device", "unknown"),
+            "learning_rate": (metadata or {}).get("learning_rate", -1.0),
+            "completed_epochs": (metadata or {}).get("completed_epochs", 0),
+            "data_trained_until": (metadata or {}).get("data_trained_until", 0.0),
         }
         self._write_metadata(meta)
         self._write_active(version)
@@ -231,13 +237,8 @@ def list_video_finetune_bvids(algo_id: str) -> List[str]:
     return sorted(result)
 
 
-def load_best_checkpoint(algo_id: str, bvid: Optional[str] = None) -> Tuple[Optional[Dict], Optional[str]]:
-    """加载最佳可用 checkpoint：优先视频微调，其次全局。
-
-    返回:
-        (state, source_info) — state 为 None 时无可用 checkpoint
-        source_info 如 "微调模型(v3)", "底模", None
-    """
+def _try_load_checkpoint(algo_id: str, bvid: Optional[str] = None) -> Tuple[Optional[Dict], Optional[str]]:
+    """尝试用指定 algo_id 加载 checkpoint，不涉及 fallback。"""
     if bvid:
         video_ckpt = CheckpointManager(algo_id, bvid=bvid)
         if video_ckpt.has_checkpoint():
@@ -255,6 +256,33 @@ def load_best_checkpoint(algo_id: str, bvid: Optional[str] = None) -> Tuple[Opti
             ver = global_ckpt.active_version() or "?"
             logger.info("[模型] [%s] 使用全局预训练模型 (%s)", algo_id, ver)
             return state, f"底模({ver})"
+    return None, None
+
+
+def load_best_checkpoint(algo_id: str, bvid: Optional[str] = None) -> Tuple[Optional[Dict], Optional[str]]:
+    """加载最佳可用 checkpoint：优先视频微调，其次全局。
+
+    会自动适配 registry 包装名（如 chronos_base → [Model] Chronos零样本）。
+
+    返回:
+        (state, source_info) — state 为 None 时无可用 checkpoint
+        source_info 如 "微调模型(v3)", "底模", None
+    """
+    state, info = _try_load_checkpoint(algo_id, bvid)
+    if state is not None:
+        return state, info
+
+    # 尝试 registry 包装名（适配器包装的算法，checkpoint 存于 [Model] X/ 下）
+    try:
+        from algorithms.registry import AlgorithmRegistry
+        mapped = AlgorithmRegistry.get_registry_key(algo_id)
+        if mapped and mapped != algo_id:
+            state, info = _try_load_checkpoint(mapped, bvid)
+            if state is not None:
+                return state, info
+    except Exception:
+        pass
+
     logger.info("[模型] [%s] 无可用 checkpoint，使用 numpy 降级", algo_id)
     return None, None
 

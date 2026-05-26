@@ -136,12 +136,14 @@ class ModelTrainer:
         progress_cb: ProgressCb = None,
         lr: Optional[float] = None,
         control_dict: Optional[Dict] = None,
+        use_new_data_only: bool = False,
     ) -> str:
         """基于全局 active checkpoint 微调，存到 <algo_id>/_video/<bvid>/v*.pt。
 
         Args:
             control_dict: 线程安全的调整指令字典。_train_one 每 epoch 检查其中的
                           early_stop (bool) 和 lr_scale (float) 并自动响应。
+            use_new_data_only: True 时只使用上次训练截止后的新数据。
         """
         if not _torch_available:
             raise RuntimeError("torch 未安装，无法训练")
@@ -150,11 +152,12 @@ class ModelTrainer:
             bvid=bvid,
             epochs=epochs,
             batch_size=batch_size,
-            val_ratio=0.0,
+            val_ratio=0.15,
             progress_cb=progress_cb,
             init_from_global=True,
             lr=lr,
             control_dict=control_dict,
+            use_new_data_only=use_new_data_only,
         )
 
     # ── 内部 ──────────────────────────────────────────
@@ -170,6 +173,7 @@ class ModelTrainer:
         init_from_global: bool = False,
         lr: Optional[float] = None,
         control_dict: Optional[Dict] = None,
+        use_new_data_only: bool = False,
     ) -> str:
         algo = self._instantiate_algorithm(algo_id)
         if algo is None:
@@ -177,22 +181,46 @@ class ModelTrainer:
         if not hasattr(algo, "build_model"):
             raise RuntimeError(f"算法 {algo_id} 未实现 build_model()")
 
-        dataset, train_loader, val_loader = self._prepare_dataset(algo, algo_id, bvid, batch_size, val_ratio)
-        model, optimizer, loss_fn, preprocess = self._init_model_optimizer(algo, algo_id, init_from_global, lr)
+        # 读取已有 checkpoint 的数据范围（仅新数据模式用）
+        prev_epochs = 0
+        data_trained_until = 0.0
+        if bvid:
+            try:
+                _pc_ckpt = CheckpointManager(algo_id, bvid=bvid)
+                _pc_ver = _pc_ckpt.list_versions()
+                for _v in _pc_ver:
+                    if _v["active"]:
+                        prev_epochs = _v.get("completed_epochs", 0)
+                        data_trained_until = _v.get("data_trained_until", 0.0)
+                        break
+            except Exception:
+                pass
 
-        min_epochs = max(1, int(epochs * 0.7))
+        min_timestamp = data_trained_until if (use_new_data_only and data_trained_until > 0) else None
+        dataset, train_loader, val_loader = self._prepare_dataset(algo, algo_id, bvid, batch_size, val_ratio, min_timestamp=min_timestamp)
+        model, optimizer, loss_fn, preprocess = self._init_model_optimizer(algo, algo_id, init_from_global, lr, bvid=bvid)
+
         best_val = float("inf")
         last_val = -1.0
         start_time = time.time()
+        best_model_state = None
+        train_losses = []
         for epoch in range(epochs):
-            if self._check_control(control_dict, epoch, min_epochs, algo_id, bvid, optimizer, progress_cb, epochs):
+            if self._check_control(control_dict, epoch, algo_id, bvid, optimizer, progress_cb, epochs):
                 break
 
             train_loss = self._train_epoch(model, train_loader, optimizer, loss_fn, preprocess, control_dict, algo_id)
+            train_losses.append(train_loss)
 
             if control_dict and control_dict.get("early_stop"):
-                if epoch + 1 >= min_epochs or control_dict.pop("_force_early_stop", False):
+                if control_dict.pop("_force_early_stop", False):
                     break
+                # 动态早停：仅当 loss 改善趋于停滞时才允许提前停止
+                if len(train_losses) >= 6:
+                    recent_3 = sum(train_losses[-3:]) / 3
+                    prev_3 = sum(train_losses[-6:-3]) / 3
+                    if prev_3 > 1e-8 and (prev_3 - recent_3) / prev_3 < 0.015:
+                        break
                 control_dict["early_stop"] = False
 
             last_val = self._validate_and_emit(
@@ -208,13 +236,19 @@ class ModelTrainer:
                 epochs,
                 train_loss,
                 start_time,
+                prev_epochs=prev_epochs,
             )
             if val_loader is not None and last_val < best_val:
                 best_val = last_val
+                best_model_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
 
-        return self._save_checkpoint(model, algo_id, bvid, dataset, best_val, last_val, val_loader, epochs)
+        # 无验证集时保存最终模型；有验证集时保存 val_loss 最低的那个
+        if best_model_state is not None:
+            model.load_state_dict(best_model_state)
+        data_trained_until_new = getattr(dataset, "max_timestamp", 0.0)
+        return self._save_checkpoint(model, algo_id, bvid, dataset, best_val, last_val, val_loader, epochs, optimizer, prev_epochs=prev_epochs, data_trained_until=data_trained_until_new)
 
-    def _prepare_dataset(self, algo, algo_id, bvid, batch_size, val_ratio):
+    def _prepare_dataset(self, algo, algo_id, bvid, batch_size, val_ratio, min_timestamp=None):
         features = getattr(algo, "get_training_features", lambda: None)() or [
             "view_count",
             "like_count",
@@ -226,14 +260,22 @@ class ModelTrainer:
         horizon = getattr(algo, "training_horizon", 3)
 
         dataset = VideoTimeSeriesDataset(
-            window=window, horizon=horizon, bvids=[bvid] if bvid else None, features=features
+            window=window, horizon=horizon, bvids=[bvid] if bvid else None, features=features,
+            min_timestamp=min_timestamp,
         )
         if len(dataset) == 0:
             raise RuntimeError(f"没有足够的训练样本（algo={algo_id}, bvid={bvid}）")
 
-        if val_ratio > 0 and len(dataset) >= 10:
-            val_size = max(1, int(len(dataset) * val_ratio))
-            train_size = len(dataset) - val_size
+        # 自动根据数据量缩放 batch size（连续公式，无硬阈值）
+        _n = len(dataset)
+        _orig_bs = batch_size
+        batch_size = min(batch_size, max(4, int(math.sqrt(_n) * 2)))
+        if batch_size != _orig_bs:
+            logger.info("[trainer] %s batch_size 自动调整: %d → %d (数据量 %d)", algo_id, _orig_bs, batch_size, _n)
+
+        if val_ratio > 0 and _n >= 10:
+            val_size = max(1, int(_n * val_ratio))
+            train_size = _n - val_size
             train_set, val_set = random_split(
                 dataset, [train_size, val_size], generator=torch.Generator().manual_seed(42)
             )
@@ -244,18 +286,32 @@ class ModelTrainer:
         val_loader = DataLoader(val_set, batch_size=batch_size, shuffle=False) if val_set else None
         return dataset, train_loader, val_loader
 
-    def _init_model_optimizer(self, algo, algo_id, init_from_global, lr):
+    def _init_model_optimizer(self, algo, algo_id, init_from_global, lr, bvid=None):
         model = algo.build_model()
         if init_from_global:
-            global_ckpt = CheckpointManager(algo_id)
-            if global_ckpt.has_checkpoint():
-                state = global_ckpt.load()
-                if state is not None:
-                    try:
-                        model.load_state_dict(state)
-                        logger.info("[trainer] %s 从全局 checkpoint 初始化", algo_id)
-                    except Exception as e:
-                        logger.warning("[trainer] %s 加载全局 state_dict 失败: %s", algo_id, e)
+            # 优先从视频级 checkpoint 加载（增量训练续训）
+            loaded = False
+            if bvid:
+                video_ckpt = CheckpointManager(algo_id, bvid=bvid)
+                if video_ckpt.has_checkpoint():
+                    state = video_ckpt.load()
+                    if state is not None:
+                        try:
+                            model.load_state_dict(state)
+                            logger.info("[trainer] %s 从视频 %s checkpoint 续训", algo_id, bvid)
+                            loaded = True
+                        except Exception as e:
+                            logger.warning("[trainer] %s 加载视频 state_dict 失败: %s", algo_id, e)
+            if not loaded:
+                global_ckpt = CheckpointManager(algo_id)
+                if global_ckpt.has_checkpoint():
+                    state = global_ckpt.load()
+                    if state is not None:
+                        try:
+                            model.load_state_dict(state)
+                            logger.info("[trainer] %s 从全局 checkpoint 初始化", algo_id)
+                        except Exception as e:
+                            logger.warning("[trainer] %s 加载全局 state_dict 失败: %s", algo_id, e)
 
         model = model.to(self.device)
         loss_fn = getattr(algo, "get_loss_fn", lambda: torch.nn.MSELoss())()
@@ -267,37 +323,21 @@ class ModelTrainer:
         return model, optimizer, loss_fn, preprocess
 
     @staticmethod
-    def _check_control(control_dict, epoch, min_epochs, algo_id, bvid, optimizer, progress_cb, epochs):
+    def _check_control(control_dict, epoch, algo_id, bvid, optimizer, progress_cb, epochs):
         if control_dict is None:
             return False
-        if control_dict.get("early_stop"):
-            force = control_dict.pop("_force_early_stop", False)
-            if epoch + 1 >= min_epochs or force:
-                logger.info("[trainer] %s early stopping at epoch %d/%d", algo_id, epoch + 1, epochs)
-                ModelTrainer._emit(
-                    progress_cb,
-                    {
-                        "stage": "auto_adjust",
-                        "algo_id": algo_id,
-                        "bvid": bvid,
-                        "action": "early_stop",
-                        "message": f"Epoch {epoch + 1}/{epochs}: 提前停止",
-                        "epoch": epoch + 1,
-                        "epochs": epochs,
-                    },
-                )
-                return True
-            else:
-                logger.debug(
-                    "[trainer] %s early_stop ignored at epoch %d/%d (min %d)", algo_id, epoch + 1, epochs, min_epochs
-                )
-                control_dict["early_stop"] = False
         lr_scale = control_dict.pop("lr_scale", None)
         if lr_scale is not None:
             for pg in optimizer.param_groups:
                 new_lr = pg["lr"] * lr_scale
                 pg["lr"] = new_lr
             logger.info("[trainer] %s LR adjusted by ×%.2f → %.6f", algo_id, lr_scale, optimizer.param_groups[0]["lr"])
+
+        weight_decay = control_dict.pop("weight_decay", None)
+        if weight_decay is not None:
+            for pg in optimizer.param_groups:
+                pg["weight_decay"] = weight_decay
+            logger.info("[trainer] %s weight_decay → %.4f", algo_id, weight_decay)
             ModelTrainer._emit(
                 progress_cb,
                 {
@@ -334,6 +374,8 @@ class ModelTrainer:
                 control_dict["_force_early_stop"] = True
                 break
             loss.backward()
+            if control_dict is not None and control_dict.get("grad_clip", 0) > 0:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), control_dict["grad_clip"])
             optimizer.step()
             train_loss += loss_val
             n_batches += 1
@@ -353,6 +395,7 @@ class ModelTrainer:
         epochs,
         train_loss,
         start_time,
+        prev_epochs=0,
     ):
         last_val = -1.0
         if val_loader is not None:
@@ -365,6 +408,9 @@ class ModelTrainer:
                 "bvid": bvid,
                 "epoch": epoch + 1,
                 "epochs": epochs,
+                "total_epoch": prev_epochs + epoch + 1,
+                "total_epochs": prev_epochs + epochs,
+                "_prev_epochs": prev_epochs,
                 "train_loss": train_loss,
                 "val_loss": last_val,
                 "elapsed_s": time.time() - start_time,
@@ -372,15 +418,19 @@ class ModelTrainer:
         )
         return last_val
 
-    def _save_checkpoint(self, model, algo_id, bvid, dataset, best_val, last_val, val_loader, epochs):
+    def _save_checkpoint(self, model, algo_id, bvid, dataset, best_val, last_val, val_loader, epochs, optimizer=None, prev_epochs=0, data_trained_until=0.0):
         ckpt = CheckpointManager(algo_id, bvid=bvid)
+        lr = optimizer.param_groups[0]["lr"] if optimizer is not None else 0.001
         version = ckpt.save(
             model.state_dict(),
             metadata={
                 "data_count": len(dataset),
                 "val_loss": best_val if val_loader is not None else last_val,
                 "epochs": epochs,
+                "completed_epochs": prev_epochs + epochs,
                 "device": str(self.device),
+                "learning_rate": lr,
+                "data_trained_until": data_trained_until,
             },
         )
         if bvid:

@@ -60,6 +60,19 @@ class AlgorithmRegistry:
         return cls._algorithms.get(name)
 
     @classmethod
+    def get_registry_key(cls, algorithm_id: str) -> str:
+        """根据原始 algorithm_id 查找 registry 存储用的完整 key。"""
+        if not cls._initialized:
+            cls.initialize()
+        for key, adapter in cls._algorithms.items():
+            raw_id = getattr(adapter, "algorithm_id", None) or getattr(adapter, "algo", None)
+            if hasattr(raw_id, "algorithm_id"):
+                raw_id = raw_id.algorithm_id
+            if raw_id == algorithm_id:
+                return key
+        return algorithm_id
+
+    @classmethod
     def get_all_algorithms(cls):
         if not cls._initialized:
             cls.initialize()
@@ -243,7 +256,16 @@ class AlgorithmRegistry:
             return [{"name": n, "accuracy": 0.5, "final_weight": 1.0, "ml_weight": 1.0, "user_weight": None, "is_customized": False, "samples": 0} for n in names]
 
     @classmethod
+    def shutdown(cls):
+        """关闭线程池，释放资源（应用退出时调用）。"""
+        with cls._pool_lock:
+            if cls._pool is not None:
+                cls._pool.shutdown(wait=False)
+                cls._pool = None
+
+    @classmethod
     def reset(cls):
+        cls.shutdown()
         cls._algorithms = {}
         cls._model_adapters = {}
         cls._initialized = False

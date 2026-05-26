@@ -1564,7 +1564,13 @@ class BilibiliMonitorGUI:
         # 关闭中央库
         db.close()
         bilibili_api.close()
+        # 关闭算法线程池
+        from algorithms.registry import AlgorithmRegistry
+
+        AlgorithmRegistry.shutdown()
         self.root.destroy()
+        # 强制退出进程（ThreadPoolExecutor 非 daemon 线程会导致进程挂起）
+        os._exit(0)
 
     def run(self):
         self.root.mainloop()
