@@ -25,7 +25,7 @@ import os
 import json
 import logging
 from datetime import datetime
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List, Any, Tuple
 from utils import project_path
 
 logger = logging.getLogger(__name__)
@@ -231,29 +231,32 @@ def list_video_finetune_bvids(algo_id: str) -> List[str]:
     return sorted(result)
 
 
-def load_best_checkpoint(algo_id: str, bvid: Optional[str] = None) -> Optional[Dict]:
+def load_best_checkpoint(algo_id: str, bvid: Optional[str] = None) -> Tuple[Optional[Dict], Optional[str]]:
     """加载最佳可用 checkpoint：优先视频微调，其次全局。
 
-    预测管线用：让已微调的算法在推理时自动使用视频专属权重，
-    未微调的视频自动回退到全局 checkpoint。
+    返回:
+        (state, source_info) — state 为 None 时无可用 checkpoint
+        source_info 如 "微调模型(v3)", "底模", None
     """
     if bvid:
         video_ckpt = CheckpointManager(algo_id, bvid=bvid)
         if video_ckpt.has_checkpoint():
             state = video_ckpt.load()
             if state is not None:
-                logger.info("[模型] [%s] 使用视频微调模型 (bvid=%s)", algo_id, bvid)
-                return state
+                ver = video_ckpt.active_version() or "?"
+                logger.info("[模型] [%s] 使用视频微调模型 (bvid=%s, %s)", algo_id, bvid, ver)
+                return state, f"微调模型({ver})"
             else:
                 logger.debug("[模型] [%s] 视频微调模型加载失败，降级到全局 (bvid=%s)", algo_id, bvid)
     global_ckpt = CheckpointManager(algo_id)
     if global_ckpt.has_checkpoint():
         state = global_ckpt.load()
         if state is not None:
-            logger.info("[模型] [%s] 使用全局预训练模型", algo_id)
-            return state
+            ver = global_ckpt.active_version() or "?"
+            logger.info("[模型] [%s] 使用全局预训练模型 (%s)", algo_id, ver)
+            return state, f"底模({ver})"
     logger.info("[模型] [%s] 无可用 checkpoint，使用 numpy 降级", algo_id)
-    return None
+    return None, None
 
 
 def list_all_trained_algorithms() -> List[str]:

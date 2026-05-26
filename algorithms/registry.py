@@ -151,23 +151,29 @@ class AlgorithmRegistry:
                         _cached_video_data=cached_video_data,
                     )
                 w = weight_manager.get_weight(n) if weight_manager else getattr(algo, "weight", 1.0)
+                pred = res["prediction"]
+                meta = res.get("metadata", {})
+                model_source = meta.get("model_source", "底模")
                 logger.debug(
-                    "[%s] [%s] 预测: %.0f",
-                    bvid, n, res["prediction"],
+                    "[%s] 视频(%s),使用'%s'预测成功 预测结果: %.0f",
+                    n, bvid, model_source, pred,
                 )
                 return (
                     n,
                     {
-                        "prediction": res["prediction"],
+                        "prediction": pred,
                         "confidence": res["confidence"],
                         "weight": w,
                         "predicted_hours": res.get("predicted_hours", 0),
-                        "metadata": res["metadata"],
+                        "metadata": meta,
                     },
                     None,
                 )
             except Exception as e:
-                logger.info("[predict] %s 降级 → %s", n, e)
+                logger.info(
+                    "[%s] 视频(%s),使用'底模'预测失败 降级原因: %s",
+                    n, bvid, e,
+                )
                 return n, {"prediction": current_value, "confidence": 0, "weight": 0.01, "error": str(e)}, e
 
         with cls._pool_lock:
