@@ -61,7 +61,11 @@ def _machine_secret() -> bytes:
     parts.append(platform.node() or "unknown")
     try:
         if platform.system() == "Windows":
-            output = subprocess.check_output("wmic cpu get processorid", shell=True, timeout=3)
+            output = subprocess.check_output(
+                ["powershell", "-NoProfile", "-Command",
+                 "Get-CimInstance Win32_Processor | Select-Object -ExpandProperty ProcessorId"],
+                timeout=3, stderr=subprocess.DEVNULL,
+            )
             parts.append(output.decode().strip().split("\n")[-1].strip())
     except Exception:
         pass
