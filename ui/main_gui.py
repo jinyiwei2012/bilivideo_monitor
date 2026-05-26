@@ -115,6 +115,13 @@ class BilibiliMonitorGUI:
 
         # UI 子模块
         self._file_logger = FileLogger(project_path("data", "log"))
+        # 统一标准 logging 格式（让 stderr 输出和 FileLogger / LogPanel 一致）
+        if not logging.root.handlers:
+            logging.basicConfig(
+                level=logging.INFO,
+                format="%(asctime)s.%(msecs)03d [%(levelname)-7s] %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S",
+            )
 
         self.root.protocol("WM_DELETE_WINDOW", self._on_exit)
         self._build_ui()

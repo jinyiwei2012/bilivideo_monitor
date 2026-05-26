@@ -242,13 +242,17 @@ def load_best_checkpoint(algo_id: str, bvid: Optional[str] = None) -> Optional[D
         if video_ckpt.has_checkpoint():
             state = video_ckpt.load()
             if state is not None:
-                logger.debug("[%s] 使用视频微调 checkpoint (bvid=%s)", algo_id, bvid)
+                logger.info("[模型] [%s] 使用视频微调模型 (bvid=%s)", algo_id, bvid)
                 return state
+            else:
+                logger.debug("[模型] [%s] 视频微调模型加载失败，降级到全局 (bvid=%s)", algo_id, bvid)
     global_ckpt = CheckpointManager(algo_id)
     if global_ckpt.has_checkpoint():
         state = global_ckpt.load()
         if state is not None:
+            logger.info("[模型] [%s] 使用全局预训练模型", algo_id)
             return state
+    logger.info("[模型] [%s] 无可用 checkpoint，使用 numpy 降级", algo_id)
     return None
 
 
@@ -313,4 +317,15 @@ def activate_latest_for_all() -> Dict[str, str]:
         if latest != active:
             ckpt.activate(latest)
             switched[aid] = latest
+            logger.info("[模型] [%s] 激活最新 checkpoint: %s", aid, latest)
+        else:
+            logger.debug("[模型] [%s] checkpoint 已是最新: %s", aid, active)
+    if switched:
+        logger.info("[模型] 共激活 %d 个算法的最新 checkpoint", len(switched))
+    else:
+        trained = list_all_trained_algorithms()
+        if trained:
+            logger.info("[模型] 所有 %d 个有 checkpoint 的算法均为最新版本", len(trained))
+        else:
+            logger.info("[模型] 无已训练的算法 checkpoint，将使用底模或 numpy 降级")
     return switched
