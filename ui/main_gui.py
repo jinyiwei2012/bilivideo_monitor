@@ -1179,6 +1179,28 @@ class BilibiliMonitorGUI:
 
         return "\n".join(lines)
 
+    def _prompt_backup_sync(self, diffs, db):
+        """数据目录差异弹窗，让用户选择保留哪边的数据"""
+        msg = [f"检测到 {len(diffs)} 个视频在 core/data/ 与 data/ 中存在数据差异：", ""]
+        for d in diffs[:10]:
+            dir_label = "主库更多" if d["primary_records"] > d["backup_records"] else "备份更多"
+            msg.append(f"  {d['bvid']}: core/data/={d['primary_records']}条  data/={d['backup_records']}条 ({dir_label})")
+        if len(diffs) > 10:
+            msg.append(f"  ... 等 {len(diffs)} 个")
+        msg.append("")
+        msg.append("是否将 core/data/ 的数据同步到 data/？")
+        choice = messagebox.askyesno(
+            "数据库差异检测",
+            "\n".join(msg),
+            icon="warning",
+            parent=self.root,
+        )
+        if choice:
+            db.sync_per_video_dbs_to_backup()
+            self.log_panel.add_log("INFO", f"已同步 {len(diffs)} 个视频独立库到 data/")
+        else:
+            self.log_panel.add_log("INFO", "用户跳过数据同步")
+
     def _refresh_data(self):
         """手动刷新数据"""
         self._do_fetch()
@@ -1358,11 +1380,13 @@ class BilibiliMonitorGUI:
             )
         except Exception as e:
             logger.warning("中央库同步失败: %s", e)
-        # 同步视频独立库到备份目录（data/）
+        # 同步视频独立库到备份目录（data/）— 仅在有差异时弹窗询问
         try:
-            db.sync_per_video_dbs_to_backup()
+            diffs = db.check_backup_diffs()
+            if diffs:
+                self._prompt_backup_sync(diffs, db)
         except Exception as e:
-            logger.warning("视频独立库同步到备份目录失败: %s", e)
+            logger.warning("检查备份差异失败: %s", e)
         db.close()
         bilibili_api.close()
         self.root.destroy()

@@ -875,6 +875,34 @@ class Database:
         if synced:
             logger.info("已同步 %d 个视频独立库到 %s", synced, backup_base)
 
+    def check_backup_diffs(self):
+        """比较活跃库与备份库的差异，返回有差异的视频列表。
+
+        Returns:
+            List[Dict]: [{bvid, primary_records, backup_records}, ...]
+        """
+        backup_base = self._get_backup_dir()
+        if backup_base == self.data_dir:
+            return []
+        diffs = []
+        import sqlite3 as _sql
+        for item in os.listdir(self.data_dir):
+            src_dir = os.path.join(self.data_dir, item)
+            if not os.path.isdir(src_dir) or not item.startswith("BV"):
+                continue
+            src_db = os.path.join(src_dir, f"{item}.db")
+            dst_db = os.path.join(backup_base, item, f"{item}.db")
+            if not os.path.exists(src_db) or not os.path.exists(dst_db):
+                continue
+            try:
+                sc = _sql.connect(src_db).execute("SELECT COUNT(*) FROM monitor_records").fetchone()[0]
+                dc = _sql.connect(dst_db).execute("SELECT COUNT(*) FROM monitor_records").fetchone()[0]
+                if sc != dc:
+                    diffs.append({"bvid": item, "primary_records": sc, "backup_records": dc})
+            except Exception:
+                continue
+        return diffs
+
     def _sync_videos_to_central(self, active_cur, central_cur, result):
         active_cur.execute("SELECT * FROM videos")
         for av in (dict(r) for r in active_cur.fetchall()):
