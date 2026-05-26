@@ -405,11 +405,13 @@ class ModelTrainer:
         label_noise = 0.0
         mixup_alpha = 0.0
         amp_weight = False
+        feat_dropout = 0.0
         if control_dict is not None:
             act_decay = control_dict.get("activation_decay", 0.0)
             label_noise = control_dict.get("label_smoothing", 0.0)
             mixup_alpha = control_dict.get("mixup_alpha", 0.0)
             amp_weight = control_dict.get("amplitude_weight", False)
+            feat_dropout = control_dict.get("feat_dropout", 0.0)
         for batch in train_loader:
             x, y = preprocess(batch)
             x = x.to(self.device)
@@ -426,6 +428,18 @@ class ModelTrainer:
                 perm = torch.randperm(x.size(0), device=self.device)
                 x = lam * x + (1 - lam) * x[perm]
                 y = lam * y + (1 - lam) * y[perm]
+
+            # Repulsive Diversity: 特征随机丢弃 → 模型不依赖单一特征
+            if feat_dropout > 0 and x.dim() >= 2:
+                # x shape: [B, W, F] 或 [B, F]
+                feat_dim = x.shape[-1]
+                if feat_dim > 1:
+                    mask = torch.bernoulli(
+                        torch.full((feat_dim,), 1.0 - feat_dropout, device=self.device)
+                    ).view(1, 1, feat_dim) if x.dim() == 3 else torch.bernoulli(
+                        torch.full((feat_dim,), 1.0 - feat_dropout, device=self.device)
+                    ).view(1, feat_dim)
+                    x = x * mask
 
             optimizer.zero_grad()
             pred = model(x)
