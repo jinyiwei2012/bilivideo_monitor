@@ -10,7 +10,7 @@
 """
 
 import logging
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict, List
 
 import numpy as np
 
@@ -36,7 +36,7 @@ DEFAULT_HORIZON = 3
 #  Torch 模型骨架（14 个）
 # ════════════════════════════════════════════════════════
 
-if _torch_available:
+if _torch_available:  # noqa: C901
     # ── 1. LSTM ────────────────────────────────────
     class LSTMTorchModel(nn.Module):
         def __init__(self, in_features=5, hidden=32, layers=1, horizon=3):
@@ -402,7 +402,6 @@ if _torch_available:
         def forward(self, x):
             B = x.shape[0]
             dt = 0.1
-            h = self.proj(x)
             state = torch.zeros(B, self.d_state, device=x.device)
             for t in range(x.shape[1]):
                 b_t = self.B(x[:, t, :])
@@ -437,12 +436,12 @@ if _torch_available:
             even = self.conv_even(x[:, :, ::2])
             odd = self.conv_odd(x[:, :, 1::2])
             if even.shape[-1] > odd.shape[-1]:
-                even = even[..., :odd.shape[-1]]
+                even = even[..., : odd.shape[-1]]
             diff = even - odd
             gate_e = torch.tanh(diff)
             gate_o = torch.tanh(-diff)
             even_out = even + gate_e * odd
-            odd_out = odd + gate_o * even[..., :odd.shape[-1]]
+            odd_out = odd + gate_o * even[..., : odd.shape[-1]]
             combined = torch.cat([even_out, odd_out], dim=1)
             h = self.interact(combined)
             h = h.mean(dim=-1)
@@ -464,9 +463,9 @@ if _torch_available:
             B = x.shape[0]
             patches = []
             for s in range(0, x.shape[1] - self.patch_len + 1, self.patch_len):
-                patches.append(x[:, s:s + self.patch_len, :].flatten(1))
+                patches.append(x[:, s : s + self.patch_len, :].flatten(1))
             if not patches:
-                patches.append(x[:, :self.patch_len, :].flatten(1))
+                patches.append(x[:, : self.patch_len, :].flatten(1))
             p = torch.stack(patches, dim=1)
             mem = self.patch_proj(p)
             tgt = self.tgt.expand(B, -1, -1)
@@ -480,15 +479,17 @@ if _torch_available:
             self.n_experts = n_experts
             self.proj = nn.Linear(window * in_features, d_model)
             self.gate = nn.Linear(d_model, n_experts)
-            self.experts = nn.ModuleList([
-                nn.Sequential(nn.Linear(d_model, d_model), nn.GELU(), nn.Linear(d_model, horizon))
-                for _ in range(n_experts)
-            ])
+            self.experts = nn.ModuleList(
+                [
+                    nn.Sequential(nn.Linear(d_model, d_model), nn.GELU(), nn.Linear(d_model, horizon))
+                    for _ in range(n_experts)
+                ]
+            )
 
         def forward(self, x):
             h = self.proj(x.flatten(1))
             gates = self.gate(h).softmax(dim=-1)
-            out = sum(gates[:, i:i+1] * self.experts[i](h) for i in range(self.n_experts))
+            out = sum(gates[:, i : i + 1] * self.experts[i](h) for i in range(self.n_experts))
             return out
 
     # ── 工具：手写 1D padding + avg pool（避免与外部 import 冲突） ──
@@ -574,7 +575,7 @@ def try_torch_predict(
 
     algo_id = getattr(algorithm, "algorithm_id", "unknown")
     bvid = video_data.get("bvid", "")
-    state = load_best_checkpoint(algo_id, bvid=bvid)
+    state, model_source = load_best_checkpoint(algo_id, bvid=bvid)
     if state is None:
         return fallback_fn(video_data, threshold)
 
@@ -587,6 +588,11 @@ def try_torch_predict(
         model = getattr(algorithm, "_cached_torch_model", None)
         if model is None or (bvid and not getattr(algorithm, "_cached_bvid", "") == bvid):
             model = model_cls(**(model_kwargs or {}))
+            if isinstance(state, (tuple, list)):
+                state = state[0]
+            if not isinstance(state, dict):
+                logger.warning("[%s] checkpoint 格式异常 (type=%s)，跳过 torch 推理", algo_id, type(state).__name__)
+                return fallback_fn(video_data, threshold)
             model.load_state_dict(state)
             model.to(algorithm._device).eval()
             algorithm._cached_torch_model = model
@@ -598,13 +604,7 @@ def try_torch_predict(
             y = model(x).cpu().numpy().reshape(-1)
         predicted_velocity = max(0.0, float(y[0]) * v_std + v_mean)
 
-        # 用算法自带的 _make_result 或者通用构造（许多既有算法都有 _make_result）
-        if hasattr(algorithm, "_make_result"):
-            try:
-                return _try_make_result(algorithm, video_data, threshold, predicted_velocity, y)
-            except Exception as e:
-                logger.debug("[%s] 调用 _make_result 失败，构造通用结果: %s", getattr(algorithm, "algorithm_id", "?"), e)
-        return _generic_result(algorithm, video_data, threshold, predicted_velocity, y)
+        return _generic_result(algorithm, video_data, threshold, predicted_velocity, y, model_source=model_source)
 
     except Exception as e:
         logger.warning("[%s] torch 推理失败，降级 numpy: %s", getattr(algorithm, "algorithm_id", "?"), e)
@@ -654,36 +654,7 @@ def _velocity_series(history):
     return vs
 
 
-def _try_make_result(algorithm, video_data, threshold, velocity, y):
-    """尝试用算法既有的 _make_result（不同算法签名各异）。"""
-    current_views = int(video_data.get("view_count", 0))
-    fn = algorithm._make_result
-    code = getattr(fn, "__code__", None)
-    if code is None:
-        return _generic_result(algorithm, video_data, threshold, velocity, y)
-    arg_count = code.co_argcount
-    # 通用试探：尝试常见签名
-    try:
-        if arg_count >= 6:
-            # 多数: (self, current_views, threshold, velocity, confidence, reason, ...)
-            try:
-                return fn(current_views, threshold, velocity, 0.75, "torch_inference")
-            except TypeError:
-                pass
-            try:
-                return fn(current_views, threshold, velocity, 0.75, "torch_inference", None)
-            except TypeError:
-                pass
-            try:
-                return fn(current_views, threshold, velocity, 0.75, "torch_inference", {"horizon_pred": y.tolist()})
-            except TypeError:
-                pass
-        return _generic_result(algorithm, video_data, threshold, velocity, y)
-    except Exception:
-        return _generic_result(algorithm, video_data, threshold, velocity, y)
-
-
-def _generic_result(algorithm, video_data, threshold, velocity, y):
+def _generic_result(algorithm, video_data, threshold, velocity, y, model_source=None):
     from datetime import datetime
     from algorithms.base import PredictionResult
 
@@ -695,6 +666,13 @@ def _generic_result(algorithm, video_data, threshold, velocity, y):
         remaining = threshold - current_views
         predicted_hours = 0 if remaining <= 0 else remaining / velocity
         confidence = 0.75 if remaining > 0 else 1.0
+    metadata = {
+        "reason": "torch_inference",
+        "horizon_pred": y.tolist() if hasattr(y, "tolist") else list(y),
+        "method": getattr(algorithm, "algorithm_id", "?") + "_torch",
+    }
+    if model_source:
+        metadata["model_source"] = model_source
     return PredictionResult(
         algorithm_name=getattr(algorithm, "name", "?"),
         algorithm_id=getattr(algorithm, "algorithm_id", "?"),
