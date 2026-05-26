@@ -201,6 +201,22 @@ class WeightManager:
             self.accuracy_records = {}
         self._save_weights_async()
 
+    def sync_save(self):
+        """同步写盘（供测试用，确保文件已落盘）"""
+        try:
+            data = {
+                "user_weights": dict(self.user_weights),
+                "ml_weights": dict(self.ml_weights),
+                "accuracy_records": {k: list(v) for k, v in self.accuracy_records.items()},
+                "updated_at": datetime.now().isoformat(),
+            }
+            fpath = self._get_weights_file()
+            os.makedirs(os.path.dirname(fpath), exist_ok=True)
+            with open(fpath, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.warning("同步保存权重失败: %s", e)
+
 
 # 全局权重管理器实例（惰性初始化）
 _weight_manager = None
