@@ -399,6 +399,10 @@ class ModelTrainer:
         model.train()
         train_loss = 0.0
         n_batches = 0
+        # Activation Decay 系数
+        act_decay = 0.0
+        if control_dict is not None:
+            act_decay = control_dict.get("activation_decay", 0.0)
         for batch in train_loader:
             x, y = preprocess(batch)
             x = x.to(self.device)
@@ -408,6 +412,9 @@ class ModelTrainer:
             if pred.dim() == y.dim() + 1 and pred.shape[-1] == 1:
                 pred = pred.squeeze(-1)
             loss = loss_fn(pred, y)
+            # Activation Decay: 对预测输出加 L2 正则，平滑损失曲面
+            if act_decay > 0:
+                loss = loss + act_decay * (pred ** 2).mean()
             loss_val = float(loss.item())
             if control_dict is not None and (math.isnan(loss_val) or math.isinf(loss_val)):
                 logger.warning("[trainer] %s NaN/Inf mid-epoch, early stopping", algo_id)
