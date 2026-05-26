@@ -598,12 +598,6 @@ def try_torch_predict(
             y = model(x).cpu().numpy().reshape(-1)
         predicted_velocity = max(0.0, float(y[0]) * v_std + v_mean)
 
-        # 用算法自带的 _make_result 或者通用构造（许多既有算法都有 _make_result）
-        if hasattr(algorithm, "_make_result"):
-            try:
-                return _try_make_result(algorithm, video_data, threshold, predicted_velocity, y)
-            except Exception as e:
-                logger.debug("[%s] 调用 _make_result 失败，构造通用结果: %s", getattr(algorithm, "algorithm_id", "?"), e)
         return _generic_result(algorithm, video_data, threshold, predicted_velocity, y)
 
     except Exception as e:
@@ -652,35 +646,6 @@ def _velocity_series(history):
         v1 = float(history[i].get("view_count", 0) or 0)
         vs.append((v1 - v0) / dt)
     return vs
-
-
-def _try_make_result(algorithm, video_data, threshold, velocity, y):
-    """尝试用算法既有的 _make_result（不同算法签名各异）。"""
-    current_views = int(video_data.get("view_count", 0))
-    fn = algorithm._make_result
-    code = getattr(fn, "__code__", None)
-    if code is None:
-        return _generic_result(algorithm, video_data, threshold, velocity, y)
-    arg_count = code.co_argcount
-    # 通用试探：尝试常见签名
-    try:
-        if arg_count >= 6:
-            # 多数: (self, current_views, threshold, velocity, confidence, reason, ...)
-            try:
-                return fn(current_views, threshold, velocity, 0.75, "torch_inference")
-            except TypeError:
-                pass
-            try:
-                return fn(current_views, threshold, velocity, 0.75, "torch_inference", None)
-            except TypeError:
-                pass
-            try:
-                return fn(current_views, threshold, velocity, 0.75, "torch_inference", {"horizon_pred": y.tolist()})
-            except TypeError:
-                pass
-        return _generic_result(algorithm, video_data, threshold, velocity, y)
-    except Exception:
-        return _generic_result(algorithm, video_data, threshold, velocity, y)
 
 
 def _generic_result(algorithm, video_data, threshold, velocity, y):
