@@ -199,7 +199,7 @@ class ProphetSimpleAlgorithm(BaseAlgorithm):
             elif isinstance(ts, (int, float)):
                 epoch = ts
             elif isinstance(ts, str):
-                dt_obj = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
+                dt_obj = datetime.fromisoformat(str(ts)[:19].replace("T"," "))
                 epoch = dt_obj.timestamp()
             else:
                 continue
