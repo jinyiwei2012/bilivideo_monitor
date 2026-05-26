@@ -25,7 +25,7 @@ class VideoDatabase:
         _validate_bvid(bvid)
         self.bvid = bvid
         if base_dir is None:
-            base_dir = project_path("data")
+            base_dir = project_path("core", "data")
 
         # 创建以BV号命名的文件夹
         self.video_dir = os.path.join(base_dir, bvid)
@@ -38,6 +38,22 @@ class VideoDatabase:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA synchronous=NORMAL")
+
+        # 镜像连接：同步写入 data/ 目录（退出时同步到 core/data/bilibili_monitor.db 的目标目录）
+        self._mirror_conn = None
+        mirror_base = project_path("data")
+        if mirror_base != base_dir:
+            mirror_dir = os.path.join(mirror_base, bvid)
+            os.makedirs(mirror_dir, exist_ok=True)
+            mirror_path = os.path.join(mirror_dir, f"{bvid}.db")
+            try:
+                self._mirror_conn = sqlite3.connect(mirror_path, check_same_thread=False)
+                self._mirror_conn.execute("PRAGMA journal_mode=WAL")
+                self._mirror_conn.execute("PRAGMA synchronous=NORMAL")
+            except Exception as e:
+                logger.warning("创建镜像数据库连接失败 %s: %s", bvid, e)
+                self._mirror_conn = None
+
         try:
             self._init_db()
         except Exception:
@@ -47,6 +63,18 @@ class VideoDatabase:
     def _get_connection(self):
         """返回线程安全的连接上下文管理器（兼容 with 语法）"""
         return _ConnectionCtx(self._conn, self._lock)
+
+    def _execute_on_all(self, sql: str, params: tuple = ()):
+        """在主连接和镜像连接上同时执行 SQL"""
+        def _exec(conn):
+            try:
+                conn.execute(sql, params) if params else conn.execute(sql)
+                conn.commit()
+            except Exception:
+                pass
+        _exec(self._conn)
+        if self._mirror_conn:
+            _exec(self._mirror_conn)
 
     def _raw_connection(self):
         """返回原始连接（用于需要直接操作的场景）"""
@@ -318,8 +346,48 @@ class VideoDatabase:
                     ),
                 )
                 conn.commit()
+            self._mirror_save_video_info(video_info)
         except Exception as e:
             logger.warning("保存视频信息失败 %s: %s", self.bvid, e)
+
+    def _mirror_save_video_info(self, video_info: Dict):
+        if not self._mirror_conn:
+            return
+        try:
+            self._mirror_conn.execute(
+                """
+                INSERT OR REPLACE INTO video_info
+                (id, title, view_count, like_count, coin_count, share_count,
+                 favorite_count, danmaku_count, reply_count, viewers_app,
+                 viewers_web, viewers_total, cover_path, like_view_ratio,
+                 owner_name, owner_id, pubdate, duration, pic, updated_at)
+                VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    video_info.get("title", ""),
+                    video_info.get("view_count", 0),
+                    video_info.get("like_count", 0),
+                    video_info.get("coin_count", 0),
+                    video_info.get("share_count", 0),
+                    video_info.get("favorite_count", 0),
+                    video_info.get("danmaku_count", 0),
+                    video_info.get("reply_count", 0),
+                    video_info.get("viewers_app", 0),
+                    video_info.get("viewers_web", 0),
+                    video_info.get("viewers_total", 0),
+                    video_info.get("cover_path", ""),
+                    video_info.get("like_view_ratio", 0),
+                    video_info.get("owner_name", ""),
+                    video_info.get("owner_id", 0),
+                    video_info.get("pubdate", ""),
+                    video_info.get("duration", 0),
+                    video_info.get("pic", ""),
+                    datetime.now(),
+                ),
+            )
+            self._mirror_conn.commit()
+        except Exception as e:
+            logger.debug("镜像保存视频信息失败 %s: %s", self.bvid, e)
 
     def add_monitor_record(self, record: MonitorRecord) -> bool:
         """添加监控记录"""
@@ -350,10 +418,42 @@ class VideoDatabase:
                     ),
                 )
                 conn.commit()
-                return True
+            self._mirror_add_monitor_record(record)
+            return True
         except Exception as e:
             logger.warning("添加监控记录失败 %s: %s", record.bvid, e)
             return False
+
+    def _mirror_add_monitor_record(self, record: MonitorRecord):
+        if not self._mirror_conn:
+            return
+        try:
+            self._mirror_conn.execute(
+                """
+                INSERT INTO monitor_records
+                (timestamp, view_count, like_count, coin_count, share_count,
+                 favorite_count, danmaku_count, reply_count, viewers_app,
+                 viewers_web, viewers_total, like_view_ratio)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    record.timestamp,
+                    record.view_count,
+                    record.like_count,
+                    record.coin_count,
+                    record.share_count,
+                    record.favorite_count,
+                    record.danmaku_count,
+                    record.reply_count,
+                    record.viewers_app,
+                    record.viewers_web,
+                    record.viewers_total,
+                    record.like_view_ratio,
+                ),
+            )
+            self._mirror_conn.commit()
+        except Exception as e:
+            logger.debug("镜像添加监控记录失败 %s: %s", record.bvid, e)
 
     def get_all_records(self, limit: int = 0) -> List[Dict]:
         """获取监控记录，limit>0 时仅返回最近 N 条"""
@@ -551,6 +651,12 @@ class VideoDatabase:
             self._conn.close()
         except Exception as e:
             logger.debug("关闭数据库连接失败: %s", e)
+        if self._mirror_conn:
+            try:
+                self._mirror_conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                self._mirror_conn.close()
+            except Exception as e:
+                logger.debug("关闭镜像数据库连接失败: %s", e)
 
     def wal_checkpoint(self):
         """安全执行 WAL checkpoint，持有锁避免与写入冲突。"""

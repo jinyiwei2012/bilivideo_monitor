@@ -20,31 +20,60 @@ logger = logging.getLogger(__name__)
 class Database:
     """总数据库管理类"""
 
-    # 活跃数据目录
-    _ACTIVE_DIR = project_path("data")
+    # 活跃数据目录（主写入），退出时同步到 config 定义的 DATA_DIR
+    _ACTIVE_DIR = project_path("core", "data")
     _BACKUP_DIR = None  # 懒加载
 
     @classmethod
-    def _migrate_old_data(cls):
-        """从旧的 core/data/ 迁移数据到 data/（首次新路径运行时执行）"""
+    def _migrate_old_data(cls):  # noqa: C901
+        """从旧的 core/data/ 迁移数据到 data/"""
         old_dir = project_path("core", "data")
         new_dir = cls._ACTIVE_DIR
         if old_dir == new_dir or not os.path.exists(old_dir):
             return
-        # 只在目标目录为空时迁移
-        if os.path.exists(os.path.join(new_dir, "bilibili_monitor.db")):
-            return
         import shutil
+        import sqlite3 as _sqlite3
+        migrated = 0
         try:
             for item in os.listdir(old_dir):
                 src = os.path.join(old_dir, item)
                 dst = os.path.join(new_dir, item)
-                if not os.path.exists(dst):
-                    if os.path.isdir(src):
+                if os.path.isdir(src):
+                    # 视频独立库：目标不存在或记录数远少于源时覆盖
+                    src_db = os.path.join(src, f"{item}.db")
+                    dst_db = os.path.join(dst, f"{item}.db")
+                    should_copy = not os.path.exists(dst)
+                    if not should_copy and os.path.exists(src_db) and os.path.exists(dst_db):
+                        try:
+                            sc = _sqlite3.connect(src_db).execute("SELECT COUNT(*) FROM monitor_records").fetchone()[0]
+                            dc = _sqlite3.connect(dst_db).execute("SELECT COUNT(*) FROM monitor_records").fetchone()[0]
+                            if sc > dc * 2:
+                                should_copy = True
+                        except Exception:
+                            pass
+                    if should_copy:
+                        if os.path.exists(dst):
+                            # 关闭目标目录下可能打开的数据库连接
+                            try:
+                                for f in os.listdir(dst):
+                                    if f.endswith(".db") or f.endswith(".db-wal") or f.endswith(".db-shm"):
+                                        os.chmod(os.path.join(dst, f), 0o666)
+                            except Exception:
+                                pass
+                            try:
+                                shutil.rmtree(dst)
+                            except PermissionError:
+                                logger.warning("迁移跳过 %s: 文件被占用", item)
+                                continue
                         shutil.copytree(src, dst)
-                    else:
+                        migrated += 1
+                else:
+                    # 中央库等单文件
+                    if not os.path.exists(dst):
                         shutil.copy2(src, dst)
-            logger.info("已从 %s 迁移旧数据到 %s", old_dir, new_dir)
+                        migrated += 1
+            if migrated:
+                logger.info("已从 %s 迁移 %d 项到 %s", old_dir, migrated, new_dir)
         except Exception as e:
             logger.warning("迁移旧数据失败: %s", e)
 
@@ -60,10 +89,12 @@ class Database:
         return cls._BACKUP_DIR
 
     def __init__(self, db_path: str = None):
-        self._migrate_old_data()
         if db_path is None:
             os.makedirs(self._ACTIVE_DIR, exist_ok=True)
             db_path = os.path.join(self._ACTIVE_DIR, "bilibili_monitor.db")
+
+        # 迁移旧数据（在打开连接前执行，避免文件锁定）
+        self._migrate_old_data()
 
         self.db_path = db_path
         self.data_dir = os.path.dirname(db_path)
@@ -806,6 +837,43 @@ class Database:
         except Exception as e:
             logger.warning("中央库同步失败: %s", e)
         return result
+
+    def sync_per_video_dbs_to_backup(self):
+        """关闭前将活跃库的所有视频独立库同步到备份目录（data/）"""
+        backup_base = self._get_backup_dir()
+        if backup_base == self.data_dir:
+            return
+        import shutil
+        synced = 0
+        for item in os.listdir(self.data_dir):
+            src_dir = os.path.join(self.data_dir, item)
+            if not os.path.isdir(src_dir) or not item.startswith("BV"):
+                continue
+            src_db = os.path.join(src_dir, f"{item}.db")
+            if not os.path.exists(src_db):
+                continue
+            dst_dir = os.path.join(backup_base, item)
+            dst_db = os.path.join(dst_dir, f"{item}.db")
+            if os.path.exists(dst_db):
+                # 比较记录数，源更多时才覆盖
+                try:
+                    import sqlite3 as _sql
+                    sc = _sql.connect(src_db).execute("SELECT COUNT(*) FROM monitor_records").fetchone()[0]
+                    dc = _sql.connect(dst_db).execute("SELECT COUNT(*) FROM monitor_records").fetchone()[0]
+                    if sc <= dc:
+                        continue
+                    shutil.rmtree(dst_dir)
+                except Exception:
+                    continue
+            os.makedirs(dst_dir, exist_ok=True)
+            shutil.copy2(src_db, dst_db)
+            for ext in ("-wal", "-shm"):
+                src_ext = src_db + ext
+                if os.path.exists(src_ext):
+                    shutil.copy2(src_ext, dst_db + ext)
+            synced += 1
+        if synced:
+            logger.info("已同步 %d 个视频独立库到 %s", synced, backup_base)
 
     def _sync_videos_to_central(self, active_cur, central_cur, result):
         active_cur.execute("SELECT * FROM videos")

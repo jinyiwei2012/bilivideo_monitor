@@ -1358,6 +1358,11 @@ class BilibiliMonitorGUI:
             )
         except Exception as e:
             logger.warning("中央库同步失败: %s", e)
+        # 同步视频独立库到备份目录（data/）
+        try:
+            db.sync_per_video_dbs_to_backup()
+        except Exception as e:
+            logger.warning("视频独立库同步到备份目录失败: %s", e)
         db.close()
         bilibili_api.close()
         self.root.destroy()
