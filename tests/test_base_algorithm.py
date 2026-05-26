@@ -1,4 +1,5 @@
 """Tests for algorithms/base.py"""
+
 import time
 from datetime import datetime
 import pytest
@@ -7,6 +8,7 @@ from algorithms.base import PredictionResult, BaseAlgorithm
 
 class _ConcreteAlgorithm(BaseAlgorithm):
     """Concrete subclass for testing BaseAlgorithm's helper methods."""
+
     name = "TestAlgo"
     description = "Test algorithm"
     category = "测试"

@@ -29,9 +29,9 @@ class SettingsWindow:
 
     def __init__(self, parent=None, gui=None):
         # 自适应对话框尺寸
-        self.dlg = DialogBase(parent, "系统设置",
-                              DialogBase.calc_geometry(parent, 0.48, 0.68),
-                              resizable=(True, True), modal=False)
+        self.dlg = DialogBase(
+            parent, "系统设置", DialogBase.calc_geometry(parent, 0.48, 0.68), resizable=(True, True), modal=False
+        )
         self.window = self.dlg.window
         self.gui = gui
 
@@ -55,6 +55,7 @@ class SettingsWindow:
                 cookies = cfg.get("cookies", {})
                 if cookies:
                     from utils.crypto import decrypt_dict
+
                     decrypt_dict(cookies, "SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid")
                 return cfg
             except Exception as e:
@@ -67,12 +68,14 @@ class SettingsWindow:
         cookies = self._net_cfg.get("cookies", {})
         if cookies:
             from utils.crypto import encrypt_dict
+
             encrypt_dict(cookies, "SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid")
         with open(self._net_cfg_file, "w", encoding="utf-8") as f:
             json.dump(self._net_cfg, f, ensure_ascii=False, indent=2)
         # 保存后恢复明文（UI 继续使用明文）
         if cookies:
             from utils.crypto import decrypt_dict
+
             decrypt_dict(cookies, "SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid")
 
     # ── UI helpers ──
@@ -189,8 +192,14 @@ class SettingsWindow:
 
         # ── 自定义阈值 ──
         th_sec = self._section(page, "播放量阈值", padding=(16, 8, 12))
-        tk.Label(th_sec, text="每个阈值代表一个里程碑，达到时触发推送提醒",
-                 bg=C["bg_elevated"], fg=C["text_3"], font=FONT_SM, anchor="w").pack(fill=tk.X, pady=(0, 6))
+        tk.Label(
+            th_sec,
+            text="每个阈值代表一个里程碑，达到时触发推送提醒",
+            bg=C["bg_elevated"],
+            fg=C["text_3"],
+            font=FONT_SM,
+            anchor="w",
+        ).pack(fill=tk.X, pady=(0, 6))
 
         # 阈值列表容器
         th_list_frame = tk.Frame(th_sec, bg=C["bg_elevated"])
@@ -203,7 +212,11 @@ class SettingsWindow:
         if raw and isinstance(raw[0], (list, tuple)):
             th_data = [(int(v), str(n)) for v, n in raw]
         else:
-            th_data = [(int(v), auto_threshold_name(v)) for v in raw] if raw else [(100000, "10万"), (1000000, "100万"), (10000000, "1000万")]
+            th_data = (
+                [(int(v), auto_threshold_name(v)) for v in raw]
+                if raw
+                else [(100000, "10万"), (1000000, "100万"), (10000000, "1000万")]
+            )
 
         for v, n in sorted(th_data, key=lambda x: x[0]):
             self._add_threshold_row(th_list_frame, v, n)
@@ -229,8 +242,9 @@ class SettingsWindow:
         n_entry = ttk.Entry(row, textvariable=n_var, width=12, font=FONT_SM)
         n_entry.pack(side=tk.LEFT, padx=(2, 8))
 
-        del_btn = tk.Label(row, text="✕", bg=C["bg_elevated"], fg=C["danger"],
-                           font=("Segoe UI", 10, "bold"), cursor="hand2")
+        del_btn = tk.Label(
+            row, text="✕", bg=C["bg_elevated"], fg=C["danger"], font=("Segoe UI", 10, "bold"), cursor="hand2"
+        )
         del_btn.pack(side=tk.LEFT, padx=2)
         del_btn.bind("<Button-1>", lambda e: (row.destroy(), self._thresh_rows.remove((v_var, n_var, row))))
 
@@ -287,9 +301,9 @@ class SettingsWindow:
         # ── 配置详情 ──
         detail = tk.Frame(sec, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
         detail.pack(fill=tk.X, pady=4, ipadx=10, ipady=10)
-        tk.Label(detail, text="配置详情", bg=C["bg_elevated"], fg=C["text_2"], font=("Microsoft YaHei UI", 8, "bold")).pack(
-            anchor="w", pady=(0, 6)
-        )
+        tk.Label(
+            detail, text="配置详情", bg=C["bg_elevated"], fg=C["text_2"], font=("Microsoft YaHei UI", 8, "bold")
+        ).pack(anchor="w", pady=(0, 6))
 
         def _field_wrapper(parent, label):
             f = tk.Frame(parent, bg=C["bg_elevated"])
@@ -611,7 +625,9 @@ class SettingsWindow:
 
         btn_row = tk.Frame(ctrl_sec, bg=C["bg_elevated"])
         btn_row.pack(fill=tk.X, pady=(2, 4))
-        self._tr_train_btn = ttk.Button(btn_row, text="▶ 训练所有勾选", command=self._on_train_start, style="Primary.TButton")
+        self._tr_train_btn = ttk.Button(
+            btn_row, text="▶ 训练所有勾选", command=self._on_train_start, style="Primary.TButton"
+        )
         self._tr_train_btn.pack(side=tk.LEFT, padx=(0, 6))
         self._tr_cancel_btn = ttk.Button(btn_row, text="✕ 取消", command=self._on_train_cancel, state="disabled")
         self._tr_cancel_btn.pack(side=tk.LEFT)
@@ -802,7 +818,8 @@ class SettingsWindow:
 
         if not messagebox.askyesno(
             "确认训练",
-            f"将训练 {len(selected)} 个算法，epoch={epochs}，batch={batch}。\n" "训练过程不可中途暂停（只能取消未开始的算法）。",
+            f"将训练 {len(selected)} 个算法，epoch={epochs}，batch={batch}。\n"
+            "训练过程不可中途暂停（只能取消未开始的算法）。",
             parent=self.window,
         ):
             return
@@ -858,6 +875,7 @@ class SettingsWindow:
         """导出所有 checkpoint 为 zip 文件"""
         try:
             from utils.checkpoint_io import export_checkpoints
+
             path = export_checkpoints()
             self._tr_status_lbl.config(text=f"导出完成: {os.path.basename(path)}", fg=C["success"])
             if messagebox.askyesno("导出完成", f"模型已导出到:\n{path}\n\n是否打开所在文件夹？", parent=self.window):
@@ -869,6 +887,7 @@ class SettingsWindow:
     def _on_import_checkpoints(self):
         """从 zip 文件导入 checkpoint"""
         from tkinter import filedialog
+
         path = filedialog.askopenfilename(
             title="选择要导入的 checkpoint 文件",
             filetypes=[("Zip 文件", "*.zip"), ("所有文件", "*.*")],
@@ -878,8 +897,11 @@ class SettingsWindow:
             return
         try:
             from utils.checkpoint_io import import_checkpoints
+
             count = import_checkpoints(path)
-            messagebox.showinfo("导入完成", f"已导入 {count} 个算法的模型\n\n请刷新算法列表查看更新。", parent=self.window)
+            messagebox.showinfo(
+                "导入完成", f"已导入 {count} 个算法的模型\n\n请刷新算法列表查看更新。", parent=self.window
+            )
             self._refresh_algo_list()
         except Exception as e:
             messagebox.showerror("导入失败", str(e), parent=self.window)
@@ -1073,7 +1095,9 @@ class SettingsWindow:
 
         sec = tk.Frame(page, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
         sec.pack(fill=tk.BOTH, expand=True, padx=16, pady=12, ipadx=10, ipady=8)
-        tk.Label(sec, text="代理列表（每行一个）", bg=C["bg_elevated"], fg=C["text_2"], font=FONT).pack(anchor="w", pady=(0, 4))
+        tk.Label(sec, text="代理列表（每行一个）", bg=C["bg_elevated"], fg=C["text_2"], font=FONT).pack(
+            anchor="w", pady=(0, 4)
+        )
 
         # 协议选择 + 快速添加行
         add_row = tk.Frame(sec, bg=C["bg_elevated"])
@@ -1120,9 +1144,9 @@ class SettingsWindow:
 
         url_row = tk.Frame(sec, bg=C["bg_elevated"])
         url_row.pack(fill=tk.X, pady=(6, 0))
-        tk.Label(url_row, text="测试地址:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM, width=8, anchor="w").pack(
-            side=tk.LEFT
-        )
+        tk.Label(
+            url_row, text="测试地址:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM, width=8, anchor="w"
+        ).pack(side=tk.LEFT)
         self._test_url_var = tk.StringVar(value="https://api.bilibili.com/x/web-interface/view?bvid=BV1GJ411x7hQ")
         url_entry = ttk.Entry(url_row, textvariable=self._test_url_var, font=FONT_SM)
         url_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 0))
@@ -1281,9 +1305,9 @@ class SettingsWindow:
         # 项目信息
         sec1 = tk.Frame(page, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
         sec1.pack(fill=tk.X, padx=16, pady=(16, 6), ipadx=10, ipady=10)
-        tk.Label(sec1, text="项目信息", bg=C["bg_elevated"], fg=C["text_2"], font=("Microsoft YaHei UI", 9, "bold")).pack(
-            anchor="w"
-        )
+        tk.Label(
+            sec1, text="项目信息", bg=C["bg_elevated"], fg=C["text_2"], font=("Microsoft YaHei UI", 9, "bold")
+        ).pack(anchor="w")
 
         rows = [
             ("项目名称", "B站视频监控与播放量预测系统"),
@@ -1301,9 +1325,9 @@ class SettingsWindow:
         # 链接
         sec2 = tk.Frame(page, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
         sec2.pack(fill=tk.X, padx=16, pady=6, ipadx=10, ipady=10)
-        tk.Label(sec2, text="相关链接", bg=C["bg_elevated"], fg=C["text_2"], font=("Microsoft YaHei UI", 9, "bold")).pack(
-            anchor="w"
-        )
+        tk.Label(
+            sec2, text="相关链接", bg=C["bg_elevated"], fg=C["text_2"], font=("Microsoft YaHei UI", 9, "bold")
+        ).pack(anchor="w")
 
         links = [
             ("GitHub", "https://github.com/jinyiwei2012/bilivideo_monitor", "项目源代码，欢迎 Star ⭐"),
@@ -1330,7 +1354,9 @@ class SettingsWindow:
             anchor="w"
         )
         desc_text = (
-            "本系统用于监控 Bilibili 视频播放量增长趋势，" "支持 55 种预测算法、多阈值告警、QQ 机器人通知等功能。\n\n" "如果您觉得本项目对您有帮助，欢迎在 GitHub 上给项目点一个 Star！"
+            "本系统用于监控 Bilibili 视频播放量增长趋势，"
+            "支持 55 种预测算法、多阈值告警、QQ 机器人通知等功能。\n\n"
+            "如果您觉得本项目对您有帮助，欢迎在 GitHub 上给项目点一个 Star！"
         )
         tk.Label(
             sec3,
@@ -1591,12 +1617,15 @@ class SettingsWindow:
                 lambda: messagebox.showinfo(
                     "导入完成",
                     f"成功导入 {total_count} 条代理\n"
-                    f"当前代理列表共 {len(all_lines)} 条" + (f"\n（其中 {dup_count} 条重复已去重）" if dup_count else ""),
+                    f"当前代理列表共 {len(all_lines)} 条"
+                    + (f"\n（其中 {dup_count} 条重复已去重）" if dup_count else ""),
                     parent=top,
                 ),
             )
 
-        ttk.Button(btn_f, text="导入并追加", command=_do_import, style="Primary.TButton").pack(side=tk.RIGHT, padx=(4, 0))
+        ttk.Button(btn_f, text="导入并追加", command=_do_import, style="Primary.TButton").pack(
+            side=tk.RIGHT, padx=(4, 0)
+        )
         ttk.Button(btn_f, text="取消", command=top.destroy).pack(side=tk.RIGHT, padx=4)
 
     def _apply_proxies(self):
@@ -2005,9 +2034,9 @@ class SettingsWindow:
                 return
             elif result.get("status") == -1:
                 status_lbl.config(fg=C["danger"])
-                ttk.Button(qr_top, text="重新生成二维码", command=lambda: [qr_top.destroy(), self._qrcode_login()]).pack(
-                    pady=4
-                )
+                ttk.Button(
+                    qr_top, text="重新生成二维码", command=lambda: [qr_top.destroy(), self._qrcode_login()]
+                ).pack(pady=4)
                 return
             qr_top.after(1500, _poll)
 
@@ -2127,14 +2156,13 @@ class SettingsWindow:
 
             def _worker():
                 try:
-                    result = get_bilibili_api().login_with_password(
-                        uname, pwd, captcha=captcha_code, captcha_type=ct
-                    )
+                    result = get_bilibili_api().login_with_password(uname, pwd, captcha=captcha_code, captcha_type=ct)
                     pwd_top.after(0, lambda: _handle_result(result))
                 except Exception as e:
                     pwd_top.after(0, lambda e=e: status_var.set(f"异常: {e}"))
 
             import threading
+
             threading.Thread(target=_worker, daemon=True).start()
 
         def _handle_result(result):
@@ -2308,11 +2336,13 @@ class SettingsWindow:
 
         # 立即生效通知配置（无需重启）
         from core.notification import notification_manager
+
         notification_manager.configure(self._cfg)
 
         # 立即生效阈值变更（无需重启）
         try:
             from ui.helpers import reload_thresholds
+
             reload_thresholds()
         except Exception:
             pass

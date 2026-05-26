@@ -33,15 +33,17 @@ class TabnetSimpleAlgorithm(BaseAlgorithm):
             favs = np.array([h.get("favorite", 0) for h in history], dtype=np.float64)
             shares = np.array([h.get("share", 0) for h in history], dtype=np.float64)
 
-            features = np.column_stack([
-                np.log1p(views),
-                np.log1p(likes),
-                np.log1p(coins),
-                np.log1p(favs),
-                np.log1p(shares),
-                np.gradient(views) / np.maximum(views, 1),
-                np.gradient(likes) / np.maximum(likes, 1),
-            ])
+            features = np.column_stack(
+                [
+                    np.log1p(views),
+                    np.log1p(likes),
+                    np.log1p(coins),
+                    np.log1p(favs),
+                    np.log1p(shares),
+                    np.gradient(views) / np.maximum(views, 1),
+                    np.gradient(likes) / np.maximum(likes, 1),
+                ]
+            )
             features = np.nan_to_num(features)
 
             n_features = features.shape[1]
@@ -73,9 +75,12 @@ class TabnetSimpleAlgorithm(BaseAlgorithm):
                 confidence = max(0.1, min(0.8, 0.6 - attn_entropy * 0.3))
 
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=confidence, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=confidence,
+                current_views=current_views,
                 current_velocity=velocity,
                 metadata={"method": "tabnet", "trend_signal": float(trend)},
                 timestamp=datetime.now(),
@@ -86,18 +91,26 @@ class TabnetSimpleAlgorithm(BaseAlgorithm):
     def _fallback(self, velocity, current_views, threshold):
         if velocity <= 0:
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=float("inf"),
-                confidence=0.0, current_views=current_views, current_velocity=velocity,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=float("inf"),
+                confidence=0.0,
+                current_views=current_views,
+                current_velocity=velocity,
                 metadata={"method": "tabnet", "reason": "fallback"},
                 timestamp=datetime.now(),
             )
         remaining = max(0, threshold - current_views)
         predicted_hours = remaining / velocity if remaining > 0 else 0
         return PredictionResult(
-            algorithm_name=self.name, algorithm_id=self.algorithm_id,
-            target_threshold=threshold, predicted_hours=predicted_hours,
-            confidence=0.3, current_views=current_views, current_velocity=velocity,
+            algorithm_name=self.name,
+            algorithm_id=self.algorithm_id,
+            target_threshold=threshold,
+            predicted_hours=predicted_hours,
+            confidence=0.3,
+            current_views=current_views,
+            current_velocity=velocity,
             metadata={"method": "tabnet", "reason": "fallback"},
             timestamp=datetime.now(),
         )

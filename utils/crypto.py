@@ -41,9 +41,7 @@ def _machine_secret() -> bytes:
         try:
             import winreg
 
-            with winreg.OpenKey(
-                winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Cryptography"
-            ) as key:
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Cryptography") as key:
                 guid, _ = winreg.QueryValueEx(key, "MachineGuid")
                 parts.append(guid)
         except Exception:
@@ -63,9 +61,7 @@ def _machine_secret() -> bytes:
     parts.append(platform.node() or "unknown")
     try:
         if platform.system() == "Windows":
-            output = subprocess.check_output(
-                "wmic cpu get processorid", shell=True, timeout=3
-            )
+            output = subprocess.check_output("wmic cpu get processorid", shell=True, timeout=3)
             parts.append(output.decode().strip().split("\n")[-1].strip())
     except Exception:
         pass

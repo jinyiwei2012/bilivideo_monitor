@@ -10,6 +10,7 @@ from algorithms.base import BaseAlgorithm, PredictionResult
 
 try:
     from statsmodels.tsa.seasonal import MSTL as _MSTL
+
     _HAS_MSTL = True
 except ImportError:
     _HAS_MSTL = False
@@ -48,6 +49,7 @@ class MstlDecompositionAlgorithm(BaseAlgorithm):
                     seasonal = np.zeros_like(views)
             else:
                 from scipy.signal import savgol_filter
+
                 window = min(7, len(views) - 1 if len(views) % 2 == 0 else len(views))
                 if window < 3:
                     window = 3
@@ -57,7 +59,7 @@ class MstlDecompositionAlgorithm(BaseAlgorithm):
                 seasonal = views - trend
                 trend_vel = np.mean(np.diff(trend[-5:])) / 3600 if len(trend) >= 5 else velocity
 
-            seasonal_pattern = seasonal[-min(7, len(seasonal)):]
+            seasonal_pattern = seasonal[-min(7, len(seasonal)) :]
             pred_seasonal = np.tile(seasonal_pattern, 3)[:7]
             pred_seasonal_effect = np.mean(pred_seasonal) / max(np.mean(views[-7:]), 1)
 
@@ -73,9 +75,12 @@ class MstlDecompositionAlgorithm(BaseAlgorithm):
                 confidence = min(0.8, 0.4 + 0.04 * np.log1p(len(history)))
 
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=confidence, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=confidence,
+                current_views=current_views,
                 current_velocity=velocity,
                 metadata={"method": "mstl", "history_len": len(history)},
                 timestamp=datetime.now(),
@@ -86,18 +91,26 @@ class MstlDecompositionAlgorithm(BaseAlgorithm):
     def _fallback(self, velocity, current_views, threshold):
         if velocity <= 0:
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=float("inf"),
-                confidence=0.0, current_views=current_views, current_velocity=velocity,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=float("inf"),
+                confidence=0.0,
+                current_views=current_views,
+                current_velocity=velocity,
                 metadata={"method": "mstl", "reason": "fallback"},
                 timestamp=datetime.now(),
             )
         remaining = max(0, threshold - current_views)
         predicted_hours = remaining / velocity if remaining > 0 else 0
         return PredictionResult(
-            algorithm_name=self.name, algorithm_id=self.algorithm_id,
-            target_threshold=threshold, predicted_hours=predicted_hours,
-            confidence=0.3, current_views=current_views, current_velocity=velocity,
+            algorithm_name=self.name,
+            algorithm_id=self.algorithm_id,
+            target_threshold=threshold,
+            predicted_hours=predicted_hours,
+            confidence=0.3,
+            current_views=current_views,
+            current_velocity=velocity,
             metadata={"method": "mstl", "reason": "fallback"},
             timestamp=datetime.now(),
         )

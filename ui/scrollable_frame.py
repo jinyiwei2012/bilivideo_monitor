@@ -33,9 +33,7 @@ class ScrollableFrame(tk.Frame):
 
         self.inner = tk.Frame(self.canvas, bg=bg)
         self.canvas.create_window((0, 0), window=self.inner, anchor="nw")
-        self.inner.bind("<Configure>", lambda e: self.canvas.configure(
-            scrollregion=self.canvas.bbox("all")))
+        self.inner.bind("<Configure>", lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
 
         if mousewheel:
-            self.canvas.bind("<MouseWheel>", lambda ev: self.canvas.yview_scroll(
-                int(-1 * (ev.delta / 120)), "units"))
+            self.canvas.bind("<MouseWheel>", lambda ev: self.canvas.yview_scroll(int(-1 * (ev.delta / 120)), "units"))

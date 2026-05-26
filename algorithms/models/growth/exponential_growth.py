@@ -72,7 +72,7 @@ class ExponentialGrowthAlgorithm(BaseAlgorithm):
                 ts = ts.timestamp()
             elif isinstance(ts, str):
                 try:
-                    ts = datetime.fromisoformat(str(ts)[:19].replace("T"," ")).timestamp()
+                    ts = datetime.fromisoformat(str(ts)[:19].replace("T", " ")).timestamp()
                 except Exception:
                     continue
             timestamps.append(float(ts))

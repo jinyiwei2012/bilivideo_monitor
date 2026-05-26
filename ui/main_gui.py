@@ -973,7 +973,10 @@ class BilibiliMonitorGUI:
         def _on_result(has_update, latest, url, changelog):
             if has_update and latest:
                 from __init__ import __version__
-                self.root.after(0, lambda: self._sb("status", f"发现新版本 v{latest} (当前 v{__version__})", C["warning"]))
+
+                self.root.after(
+                    0, lambda: self._sb("status", f"发现新版本 v{latest} (当前 v{__version__})", C["warning"])
+                )
                 logger.info("有新版本可用: v%s (当前 v%s), %s", latest, __version__, url)
                 self.root.after(0, lambda: self._show_update_dialog(latest, __version__, url, changelog))
 
@@ -993,21 +996,36 @@ class BilibiliMonitorGUI:
         dlg.grab_set()
 
         # 标题
-        tk.Label(dlg, text=f"新版本 v{latest} 可用！", font=("Microsoft YaHei UI", 14, "bold"),
-                 bg=C["bg_base"], fg=C["text_1"]).pack(pady=(16, 4))
-        tk.Label(dlg, text=f"当前版本: v{current}", font=("Microsoft YaHei UI", 10),
-                 bg=C["bg_base"], fg=C["text_3"]).pack(pady=(0, 12))
+        tk.Label(
+            dlg,
+            text=f"新版本 v{latest} 可用！",
+            font=("Microsoft YaHei UI", 14, "bold"),
+            bg=C["bg_base"],
+            fg=C["text_1"],
+        ).pack(pady=(16, 4))
+        tk.Label(
+            dlg, text=f"当前版本: v{current}", font=("Microsoft YaHei UI", 10), bg=C["bg_base"], fg=C["text_3"]
+        ).pack(pady=(0, 12))
 
         # Changelog 区域
         frame = tk.Frame(dlg, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
         frame.pack(fill=tk.BOTH, expand=True, padx=16, pady=(0, 12))
 
-        tk.Label(frame, text="更新内容", font=("Microsoft YaHei UI", 10, "bold"),
-                 bg=C["bg_elevated"], fg=C["text_2"]).pack(anchor="w", padx=8, pady=(8, 4))
+        tk.Label(
+            frame, text="更新内容", font=("Microsoft YaHei UI", 10, "bold"), bg=C["bg_elevated"], fg=C["text_2"]
+        ).pack(anchor="w", padx=8, pady=(8, 4))
 
-        text = tk.Text(frame, wrap=tk.WORD, font=("Consolas", 9),
-                       bg=C["bg_surface"], fg=C["text_1"],
-                       relief=tk.FLAT, borderwidth=0, padx=8, pady=8)
+        text = tk.Text(
+            frame,
+            wrap=tk.WORD,
+            font=("Consolas", 9),
+            bg=C["bg_surface"],
+            fg=C["text_1"],
+            relief=tk.FLAT,
+            borderwidth=0,
+            padx=8,
+            pady=8,
+        )
         text.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
         text.insert("1.0", format_changelog_for_display(changelog))
         text.config(state=tk.DISABLED)
@@ -1020,7 +1038,9 @@ class BilibiliMonitorGUI:
         # 按钮
         btn_frame = tk.Frame(dlg, bg=C["bg_base"])
         btn_frame.pack(fill=tk.X, padx=16, pady=(0, 16))
-        ttk.Button(btn_frame, text="前往下载", command=lambda: (webbrowser.open(url), dlg.destroy())).pack(side=tk.RIGHT, padx=(8, 0))
+        ttk.Button(btn_frame, text="前往下载", command=lambda: (webbrowser.open(url), dlg.destroy())).pack(
+            side=tk.RIGHT, padx=(8, 0)
+        )
         ttk.Button(btn_frame, text="稍后提醒", command=dlg.destroy).pack(side=tk.RIGHT)
 
     def _daily_push(self):

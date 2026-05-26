@@ -114,7 +114,9 @@ class MilestoneStatsWindow:
         monitored_videos: Optional[List[Dict]] = None,
         on_add_monitor: Optional[Callable[[str], None]] = None,
     ):
-        self.dlg = DialogBase(parent, "投稿里程碑 — 一周 / 月 / 年后数据", "1200x760", resizable=(True, True), modal=True)
+        self.dlg = DialogBase(
+            parent, "投稿里程碑 — 一周 / 月 / 年后数据", "1200x760", resizable=(True, True), modal=True
+        )
         self.window = self.dlg.window
 
         self.monitored_videos = monitored_videos or []
@@ -153,7 +155,9 @@ class MilestoneStatsWindow:
         # 左：BV号输入
         bv_col = tk.Frame(cols_frame, bg=C["bg_elevated"])
         bv_col.pack(side=tk.LEFT, padx=(0, 24))
-        tk.Label(bv_col, text="BV号（每行一个，可批量）", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(anchor="w")
+        tk.Label(bv_col, text="BV号（每行一个，可批量）", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(
+            anchor="w"
+        )
         self._bvid_text = tk.Text(
             bv_col,
             width=22,
@@ -259,7 +263,9 @@ class MilestoneStatsWindow:
             else:
                 invalid.append(bv)
         if invalid:
-            messagebox.showwarning("格式错误", "以下 BV 号格式不合法，已跳过：\n" + "\n".join(invalid), parent=self.window)
+            messagebox.showwarning(
+                "格式错误", "以下 BV 号格式不合法，已跳过：\n" + "\n".join(invalid), parent=self.window
+            )
         if not bvids:
             return None
         return bvids
@@ -291,7 +297,9 @@ class MilestoneStatsWindow:
                 row = _EntryRow(self._entry_container, bv, p, existing_map.get((bv, p)))
                 self._entry_rows.append(row)
         total = len(self._entry_rows)
-        self._entry_status.config(text=f"共生成 {total} 行（{len(bvids)} 视频 × {len(periods)} 周期），填写后点击「保存全部」")
+        self._entry_status.config(
+            text=f"共生成 {total} 行（{len(bvids)} 视频 × {len(periods)} 周期），填写后点击「保存全部」"
+        )
 
     def _save_all(self):
         if not self._entry_rows:

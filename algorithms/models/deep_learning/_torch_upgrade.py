@@ -436,12 +436,12 @@ if _torch_available:
             even = self.conv_even(x[:, :, ::2])
             odd = self.conv_odd(x[:, :, 1::2])
             if even.shape[-1] > odd.shape[-1]:
-                even = even[..., :odd.shape[-1]]
+                even = even[..., : odd.shape[-1]]
             diff = even - odd
             gate_e = torch.tanh(diff)
             gate_o = torch.tanh(-diff)
             even_out = even + gate_e * odd
-            odd_out = odd + gate_o * even[..., :odd.shape[-1]]
+            odd_out = odd + gate_o * even[..., : odd.shape[-1]]
             combined = torch.cat([even_out, odd_out], dim=1)
             h = self.interact(combined)
             h = h.mean(dim=-1)
@@ -463,9 +463,9 @@ if _torch_available:
             B = x.shape[0]
             patches = []
             for s in range(0, x.shape[1] - self.patch_len + 1, self.patch_len):
-                patches.append(x[:, s:s + self.patch_len, :].flatten(1))
+                patches.append(x[:, s : s + self.patch_len, :].flatten(1))
             if not patches:
-                patches.append(x[:, :self.patch_len, :].flatten(1))
+                patches.append(x[:, : self.patch_len, :].flatten(1))
             p = torch.stack(patches, dim=1)
             mem = self.patch_proj(p)
             tgt = self.tgt.expand(B, -1, -1)
@@ -479,15 +479,17 @@ if _torch_available:
             self.n_experts = n_experts
             self.proj = nn.Linear(window * in_features, d_model)
             self.gate = nn.Linear(d_model, n_experts)
-            self.experts = nn.ModuleList([
-                nn.Sequential(nn.Linear(d_model, d_model), nn.GELU(), nn.Linear(d_model, horizon))
-                for _ in range(n_experts)
-            ])
+            self.experts = nn.ModuleList(
+                [
+                    nn.Sequential(nn.Linear(d_model, d_model), nn.GELU(), nn.Linear(d_model, horizon))
+                    for _ in range(n_experts)
+                ]
+            )
 
         def forward(self, x):
             h = self.proj(x.flatten(1))
             gates = self.gate(h).softmax(dim=-1)
-            out = sum(gates[:, i:i+1] * self.experts[i](h) for i in range(self.n_experts))
+            out = sum(gates[:, i : i + 1] * self.experts[i](h) for i in range(self.n_experts))
             return out
 
     # ── 工具：手写 1D padding + avg pool（避免与外部 import 冲突） ──

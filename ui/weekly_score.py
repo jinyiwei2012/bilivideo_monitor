@@ -24,9 +24,9 @@ class WeeklyScoreWindow:
     """周刊分数计算窗口（现代化风格）"""
 
     def __init__(self, parent=None, monitored_videos: Optional[List[Dict]] = None, video_dbs: Optional[Dict] = None):
-        self.dlg = DialogBase(parent, "周刊分数计算",
-                              DialogBase.calc_geometry(parent, 0.42, 0.62),
-                              resizable=(True, True), modal=False)
+        self.dlg = DialogBase(
+            parent, "周刊分数计算", DialogBase.calc_geometry(parent, 0.42, 0.62), resizable=(True, True), modal=False
+        )
         self.window = self.dlg.window
         self.monitored_videos = monitored_videos or []
         self.video_dbs = video_dbs or {}
@@ -116,9 +116,9 @@ class WeeklyScoreWindow:
         res_sec = tk.Frame(self.dlg.container, bg=C["bg_base"])
         res_sec.pack(fill=tk.BOTH, expand=True, padx=24, pady=(10, 0))
 
-        tk.Label(res_sec, text="计算结果", bg=C["bg_base"], fg=C["text_2"], font=("Microsoft YaHei UI", 8, "bold")).pack(
-            anchor="w"
-        )
+        tk.Label(
+            res_sec, text="计算结果", bg=C["bg_base"], fg=C["text_2"], font=("Microsoft YaHei UI", 8, "bold")
+        ).pack(anchor="w")
 
         text_frame = tk.Frame(res_sec, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
         text_frame.pack(fill=tk.BOTH, expand=True, pady=(4, 0))

@@ -39,12 +39,13 @@ class HierarchicalBayesAlgorithm(BaseAlgorithm):
             local_var = np.var(views) + 1e-6
 
             sigma_likelihood = np.sqrt(local_var / max(len(views), 1))
-            posterior_mean = (mu_prior / (sigma_prior ** 2) + local_mean / (sigma_likelihood ** 2)) / \
-                             (1 / (sigma_prior ** 2) + 1 / (sigma_likelihood ** 2))
+            posterior_mean = (mu_prior / (sigma_prior**2) + local_mean / (sigma_likelihood**2)) / (
+                1 / (sigma_prior**2) + 1 / (sigma_likelihood**2)
+            )
 
-            posterior_var = 1 / (1 / (sigma_prior ** 2) + 1 / (sigma_likelihood ** 2))
+            posterior_var = 1 / (1 / (sigma_prior**2) + 1 / (sigma_likelihood**2))
 
-            shrinkage = local_var / (local_var + sigma_prior ** 2)
+            shrinkage = local_var / (local_var + sigma_prior**2)
             shrunk_velocity = (1 - shrinkage) * velocity + shrinkage * (mu_up / 3600)
 
             predicted_velocity = max(0, shrunk_velocity)
@@ -61,13 +62,18 @@ class HierarchicalBayesAlgorithm(BaseAlgorithm):
                 confidence = max(0.1, min(0.85, 0.5 - cv * 2 + 0.3 * (1 - shrinkage)))
 
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=confidence, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=confidence,
+                current_views=current_views,
                 current_velocity=velocity,
                 metadata={
-                    "method": "hierarchical_bayes", "shrinkage": float(shrinkage),
-                    "posterior_mean": float(posterior_mean), "up_avg_views": int(up_avg_views),
+                    "method": "hierarchical_bayes",
+                    "shrinkage": float(shrinkage),
+                    "posterior_mean": float(posterior_mean),
+                    "up_avg_views": int(up_avg_views),
                 },
                 timestamp=datetime.now(),
             )
@@ -77,18 +83,26 @@ class HierarchicalBayesAlgorithm(BaseAlgorithm):
     def _fallback(self, velocity, current_views, threshold):
         if velocity <= 0:
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=float("inf"),
-                confidence=0.0, current_views=current_views, current_velocity=velocity,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=float("inf"),
+                confidence=0.0,
+                current_views=current_views,
+                current_velocity=velocity,
                 metadata={"method": "hierarchical_bayes", "reason": "fallback"},
                 timestamp=datetime.now(),
             )
         remaining = max(0, threshold - current_views)
         predicted_hours = remaining / velocity if remaining > 0 else 0
         return PredictionResult(
-            algorithm_name=self.name, algorithm_id=self.algorithm_id,
-            target_threshold=threshold, predicted_hours=predicted_hours,
-            confidence=0.3, current_views=current_views, current_velocity=velocity,
+            algorithm_name=self.name,
+            algorithm_id=self.algorithm_id,
+            target_threshold=threshold,
+            predicted_hours=predicted_hours,
+            confidence=0.3,
+            current_views=current_views,
+            current_velocity=velocity,
             metadata={"method": "hierarchical_bayes", "reason": "fallback"},
             timestamp=datetime.now(),
         )

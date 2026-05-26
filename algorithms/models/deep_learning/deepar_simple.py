@@ -24,8 +24,13 @@ class DeeparSimpleAlgorithm(BaseAlgorithm):
 
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
         return try_torch_predict(
-            self, video_data, threshold, DeepARTorchModel, self._numpy_predict,
-            window=self.training_window, horizon=self.training_horizon,
+            self,
+            video_data,
+            threshold,
+            DeepARTorchModel,
+            self._numpy_predict,
+            window=self.training_window,
+            horizon=self.training_horizon,
         )
 
     def build_model(self):
@@ -60,9 +65,13 @@ class DeeparSimpleAlgorithm(BaseAlgorithm):
             remaining = threshold - current_views
             if remaining <= 0:
                 return PredictionResult(
-                    algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                    target_threshold=threshold, predicted_hours=0, confidence=1.0,
-                    current_views=current_views, current_velocity=velocity,
+                    algorithm_name=self.name,
+                    algorithm_id=self.algorithm_id,
+                    target_threshold=threshold,
+                    predicted_hours=0,
+                    confidence=1.0,
+                    current_views=current_views,
+                    current_velocity=velocity,
                     metadata={"method": "deepar", "mu_return": float(mu_ret), "sigma_return": float(sigma_ret)},
                     timestamp=datetime.now(),
                 )
@@ -78,10 +87,19 @@ class DeeparSimpleAlgorithm(BaseAlgorithm):
             confidence = max(0.05, min(0.85, prob_reach * 0.8 + 0.1 / (1 + uncertainty)))
 
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=confidence, current_views=current_views, current_velocity=velocity,
-                metadata={"method": "deepar", "mu_return": float(mu_ret), "sigma_return": float(sigma_ret), "prob_reach": float(prob_reach)},
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=confidence,
+                current_views=current_views,
+                current_velocity=velocity,
+                metadata={
+                    "method": "deepar",
+                    "mu_return": float(mu_ret),
+                    "sigma_return": float(sigma_ret),
+                    "prob_reach": float(prob_reach),
+                },
                 timestamp=datetime.now(),
             )
         except Exception:
@@ -90,18 +108,26 @@ class DeeparSimpleAlgorithm(BaseAlgorithm):
     def _fallback(self, velocity, current_views, threshold):
         if velocity <= 0:
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=float("inf"),
-                confidence=0.0, current_views=current_views, current_velocity=velocity,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=float("inf"),
+                confidence=0.0,
+                current_views=current_views,
+                current_velocity=velocity,
                 metadata={"method": "deepar", "reason": "fallback"},
                 timestamp=datetime.now(),
             )
         remaining = max(0, threshold - current_views)
         predicted_hours = remaining / velocity if remaining > 0 else 0
         return PredictionResult(
-            algorithm_name=self.name, algorithm_id=self.algorithm_id,
-            target_threshold=threshold, predicted_hours=predicted_hours,
-            confidence=0.3, current_views=current_views, current_velocity=velocity,
+            algorithm_name=self.name,
+            algorithm_id=self.algorithm_id,
+            target_threshold=threshold,
+            predicted_hours=predicted_hours,
+            confidence=0.3,
+            current_views=current_views,
+            current_velocity=velocity,
             metadata={"method": "deepar", "reason": "fallback"},
             timestamp=datetime.now(),
         )

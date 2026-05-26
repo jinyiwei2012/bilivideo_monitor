@@ -15,9 +15,9 @@ class TrendingDiscoveryWindow:
     """热门视频发现窗口"""
 
     def __init__(self, parent=None, api=None, on_add_monitor: Optional[Callable] = None):
-        self.dlg = DialogBase(parent, "热门视频发现",
-                              DialogBase.calc_geometry(parent, 0.48, 0.68),
-                              resizable=(True, True), modal=False)
+        self.dlg = DialogBase(
+            parent, "热门视频发现", DialogBase.calc_geometry(parent, 0.48, 0.68), resizable=(True, True), modal=False
+        )
         self.window = self.dlg.window
         self.api = api
         self.on_add_monitor = on_add_monitor
@@ -55,7 +55,9 @@ class TrendingDiscoveryWindow:
         self._tab_btns["popular"].pack_forget()
         refresh_frame = tk.Frame(self.dlg.container, bg=C["bg_surface"])
         refresh_frame.pack(fill=tk.X, padx=24, pady=(4, 0))
-        ttk.Button(refresh_frame, text="🔄 刷新", command=self._load_popular, style="Primary.TButton").pack(side=tk.RIGHT)
+        ttk.Button(refresh_frame, text="🔄 刷新", command=self._load_popular, style="Primary.TButton").pack(
+            side=tk.RIGHT
+        )
         # Re-pack the first tab
         self._tab_btns["popular"].pack(side=tk.LEFT)
 
@@ -173,9 +175,9 @@ class TrendingDiscoveryWindow:
 
             meta = tk.Frame(card, bg=C["bg_surface"])
             meta.pack(fill=tk.X, pady=(4, 0))
-            tk.Label(meta, text=f"👤 {author}", bg=C["bg_surface"], fg=C["text_2"], font=("Microsoft YaHei UI", 9)).pack(
-                side=tk.LEFT, padx=(0, 12)
-            )
+            tk.Label(
+                meta, text=f"👤 {author}", bg=C["bg_surface"], fg=C["text_2"], font=("Microsoft YaHei UI", 9)
+            ).pack(side=tk.LEFT, padx=(0, 12))
             tk.Label(
                 meta, text=f"▶ {self._fmt(views)}", bg=C["bg_surface"], fg=C["text_2"], font=("Microsoft YaHei UI", 9)
             ).pack(side=tk.LEFT, padx=(0, 12))

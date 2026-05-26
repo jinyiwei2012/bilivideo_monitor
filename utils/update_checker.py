@@ -24,6 +24,7 @@ CACHE_TTL = timedelta(hours=24)
 def _get_local_version() -> str:
     try:
         from __init__ import __version__
+
         return __version__
     except Exception:
         return "0.0.0"
@@ -70,11 +71,13 @@ def check_for_update() -> Tuple[bool, str, str, str]:
         download_url = data.get("html_url", "")
         changelog = data.get("body", "")
 
-        _save_cache({
-            "latest_version": latest,
-            "download_url": download_url,
-            "changelog": changelog,
-        })
+        _save_cache(
+            {
+                "latest_version": latest,
+                "download_url": download_url,
+                "changelog": changelog,
+            }
+        )
 
         local = _get_local_version()
         return latest != local, latest, download_url, changelog

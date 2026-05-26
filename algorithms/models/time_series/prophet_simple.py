@@ -49,9 +49,13 @@ class ProphetSimpleAlgorithm(BaseAlgorithm):
         remaining = threshold - current_views
         if remaining <= 0:
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=0, confidence=1.0,
-                current_views=current_views, current_velocity=velocity,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=0,
+                confidence=1.0,
+                current_views=current_views,
+                current_velocity=velocity,
                 metadata={"method": "prophet", "note": "already_reached"},
                 timestamp=datetime.now(),
             )
@@ -65,9 +69,12 @@ class ProphetSimpleAlgorithm(BaseAlgorithm):
                 if result is not None:
                     predicted_hours, confidence = result
                     return PredictionResult(
-                        algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                        target_threshold=threshold, predicted_hours=predicted_hours,
-                        confidence=confidence, current_views=current_views,
+                        algorithm_name=self.name,
+                        algorithm_id=self.algorithm_id,
+                        target_threshold=threshold,
+                        predicted_hours=predicted_hours,
+                        confidence=confidence,
+                        current_views=current_views,
                         current_velocity=velocity,
                         metadata={"method": "prophet", "data_points": len(history)},
                         timestamp=datetime.now(),
@@ -158,9 +165,12 @@ class ProphetSimpleAlgorithm(BaseAlgorithm):
 
             predicted_hours, confidence = forecast_result
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=confidence, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=confidence,
+                current_views=current_views,
                 current_velocity=velocity,
                 metadata={"method": "prophet_numpy", "data_points": len(history)},
                 timestamp=datetime.now(),
@@ -171,17 +181,25 @@ class ProphetSimpleAlgorithm(BaseAlgorithm):
     def _numpy_predict(self, current_views, velocity, remaining, threshold) -> PredictionResult:
         if velocity <= 0:
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=float("inf"),
-                confidence=0.0, current_views=current_views, current_velocity=velocity,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=float("inf"),
+                confidence=0.0,
+                current_views=current_views,
+                current_velocity=velocity,
                 metadata={"method": "prophet_fallback"},
                 timestamp=datetime.now(),
             )
         predicted_hours = remaining / velocity
         return PredictionResult(
-            algorithm_name=self.name, algorithm_id=self.algorithm_id,
-            target_threshold=threshold, predicted_hours=predicted_hours,
-            confidence=0.3, current_views=current_views, current_velocity=velocity,
+            algorithm_name=self.name,
+            algorithm_id=self.algorithm_id,
+            target_threshold=threshold,
+            predicted_hours=predicted_hours,
+            confidence=0.3,
+            current_views=current_views,
+            current_velocity=velocity,
             metadata={"method": "prophet_fallback"},
             timestamp=datetime.now(),
         )
@@ -199,7 +217,7 @@ class ProphetSimpleAlgorithm(BaseAlgorithm):
             elif isinstance(ts, (int, float)):
                 epoch = ts
             elif isinstance(ts, str):
-                dt_obj = datetime.fromisoformat(str(ts)[:19].replace("T"," "))
+                dt_obj = datetime.fromisoformat(str(ts)[:19].replace("T", " "))
                 epoch = dt_obj.timestamp()
             else:
                 continue

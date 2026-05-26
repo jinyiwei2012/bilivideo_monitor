@@ -120,6 +120,7 @@ class AIQASession:
     def _rate_limit(self):
         """Token bucket 简单限速：每秒最多 1 次 API 调用"""
         import time
+
         elapsed = time.time() - self._last_call_time
         if elapsed < self._min_call_interval:
             time.sleep(self._min_call_interval - elapsed)
@@ -209,7 +210,10 @@ class AIQASession:
         videos = self._monitored_videos
 
         if not videos:
-            return "当前未监控任何视频。请先在主界面添加视频到监控列表，" "或使用「视频搜索」功能查找并添加视频后，再来向我提问。"
+            return (
+                "当前未监控任何视频。请先在主界面添加视频到监控列表，"
+                "或使用「视频搜索」功能查找并添加视频后，再来向我提问。"
+            )
 
         handlers = [
             (["多少", "视频"], lambda: f"当前共监控 {len(videos)} 个视频。"),
@@ -223,7 +227,11 @@ class AIQASession:
             if any(kw in q for kw in keywords):
                 return handler()
 
-        return f"我是监控助手，当前共监控 {len(videos)} 个视频。" f"你可以问我：当前监控多少视频？哪个增长最快？播放量排行？" f"有无异常预警？健康探针情况？"
+        return (
+            f"我是监控助手，当前共监控 {len(videos)} 个视频。"
+            f"你可以问我：当前监控多少视频？哪个增长最快？播放量排行？"
+            f"有无异常预警？健康探针情况？"
+        )
 
     def _answer_anomaly(self) -> str:
         from core.smart_alert import AnomalyDetector
@@ -262,7 +270,7 @@ class AIQASession:
                                 p[0]
                                 if isinstance(p[0], datetime)
                                 else (
-                                    datetime.fromisoformat(str(p[0])[:19].replace("T"," "))
+                                    datetime.fromisoformat(str(p[0])[:19].replace("T", " "))
                                     if isinstance(p[0], str)
                                     else p[0]
                                 )
@@ -279,7 +287,9 @@ class AIQASession:
                             best_v = v
         if best_v:
             return (
-                f"增长最快：{best_v.get('title', '')[:20]} " f"(时速 {best_rate:.0f}/h，" f"当前 {best_v.get('view_count', 0):,})"
+                f"增长最快：{best_v.get('title', '')[:20]} "
+                f"(时速 {best_rate:.0f}/h，"
+                f"当前 {best_v.get('view_count', 0):,})"
             )
         return "暂无足够数据计算增速。"
 

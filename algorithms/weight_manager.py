@@ -82,6 +82,7 @@ class WeightManager:
         """在后台线程中执行实际文件写入"""
         try:
             from utils import project_path
+
             if bvid:
                 fpath = os.path.join(project_path("algorithms", "weights"), f"{bvid}_weights.json")
             else:

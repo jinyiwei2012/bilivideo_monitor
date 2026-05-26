@@ -28,6 +28,7 @@ except ImportError:
 _xpu_available = False
 try:
     import intel_extension_for_pytorch  # noqa: F401 — registers torch.xpu backend (Linux only)
+
     _xpu_available = True
 except ImportError:
     pass
@@ -35,6 +36,7 @@ except ImportError:
 _dml_available = False
 try:
     import torch_directml  # noqa: F401 — DirectML backend for Windows
+
     _dml_available = True
 except ImportError:
     pass

@@ -46,9 +46,13 @@ class XGBoostSimpleAlgorithm(BaseAlgorithm):
         remaining = threshold - current_views
         if remaining <= 0:
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=0, confidence=1.0,
-                current_views=current_views, current_velocity=velocity,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=0,
+                confidence=1.0,
+                current_views=current_views,
+                current_velocity=velocity,
                 metadata={"method": "xgboost", "note": "already_reached"},
                 timestamp=datetime.now(),
             )
@@ -77,10 +81,15 @@ class XGBoostSimpleAlgorithm(BaseAlgorithm):
         for i in range(p, len(views)):
             feat = []
             for j in range(1, p + 1):
-                feat.extend([
-                    views[i - j], likes[i - j], coins[i - j], favs[i - j],
-                    math.log(max(views[i - j], 1)),
-                ])
+                feat.extend(
+                    [
+                        views[i - j],
+                        likes[i - j],
+                        coins[i - j],
+                        favs[i - j],
+                        math.log(max(views[i - j], 1)),
+                    ]
+                )
             X.append(feat)
             y.append(views[i])
 
@@ -89,21 +98,30 @@ class XGBoostSimpleAlgorithm(BaseAlgorithm):
             return None
 
         # 目标：预测下一个周期的增速比
-        y_growth = np.diff(views[-len(X) - 1:]) / np.maximum(views[-len(X) - 1:-1], 1)
-        y_target = y_growth[-len(X):]
+        y_growth = np.diff(views[-len(X) - 1 :]) / np.maximum(views[-len(X) - 1 : -1], 1)
+        y_target = y_growth[-len(X) :]
 
         model = xgb.XGBRegressor(
-            n_estimators=80, max_depth=4, learning_rate=0.1,
-            subsample=0.8, colsample_bytree=0.8, verbosity=0,
+            n_estimators=80,
+            max_depth=4,
+            learning_rate=0.1,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            verbosity=0,
         )
         model.fit(X, y_target)
 
         last_feat = []
         for j in range(1, p + 1):
-            last_feat.extend([
-                views[-j], likes[-j], coins[-j], favs[-j],
-                math.log(max(views[-j], 1)),
-            ])
+            last_feat.extend(
+                [
+                    views[-j],
+                    likes[-j],
+                    coins[-j],
+                    favs[-j],
+                    math.log(max(views[-j], 1)),
+                ]
+            )
         pred_growth = float(model.predict(np.array([last_feat]))[0])
         predicted_velocity = max(0, pred_growth * current_views / 3600)
         if predicted_velocity < 1:
@@ -116,9 +134,12 @@ class XGBoostSimpleAlgorithm(BaseAlgorithm):
         confidence = max(0.1, min(0.85, 0.6 - cv * 0.5))
 
         return PredictionResult(
-            algorithm_name=self.name, algorithm_id=self.algorithm_id,
-            target_threshold=threshold, predicted_hours=pred_hours,
-            confidence=confidence, current_views=current_views,
+            algorithm_name=self.name,
+            algorithm_id=self.algorithm_id,
+            target_threshold=threshold,
+            predicted_hours=pred_hours,
+            confidence=confidence,
+            current_views=current_views,
             current_velocity=velocity,
             metadata={"method": "xgboost", "n_estimators": 80},
             timestamp=datetime.now(),
@@ -127,18 +148,26 @@ class XGBoostSimpleAlgorithm(BaseAlgorithm):
     def _numpy_predict(self, current_views, velocity, remaining, threshold) -> PredictionResult:
         if velocity <= 0:
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=float("inf"),
-                confidence=0.0, current_views=current_views, current_velocity=velocity,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=float("inf"),
+                confidence=0.0,
+                current_views=current_views,
+                current_velocity=velocity,
                 metadata={"method": "xgboost_numpy_fallback"},
                 timestamp=datetime.now(),
             )
         predicted_hours = remaining / velocity
         confidence = 0.3
         return PredictionResult(
-            algorithm_name=self.name, algorithm_id=self.algorithm_id,
-            target_threshold=threshold, predicted_hours=predicted_hours,
-            confidence=confidence, current_views=current_views, current_velocity=velocity,
+            algorithm_name=self.name,
+            algorithm_id=self.algorithm_id,
+            target_threshold=threshold,
+            predicted_hours=predicted_hours,
+            confidence=confidence,
+            current_views=current_views,
+            current_velocity=velocity,
             metadata={"method": "xgboost_numpy_fallback"},
             timestamp=datetime.now(),
         )

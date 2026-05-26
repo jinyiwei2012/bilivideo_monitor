@@ -30,7 +30,7 @@ class TbatsSimpleAlgorithm(BaseAlgorithm):
             views = np.array([h.get("view", 0) for h in history], dtype=np.float64)
 
             boxcox_lambda = 0.5
-            transformed = (views ** boxcox_lambda - 1) / boxcox_lambda if boxcox_lambda != 0 else np.log(views)
+            transformed = (views**boxcox_lambda - 1) / boxcox_lambda if boxcox_lambda != 0 else np.log(views)
 
             n = len(transformed)
             t = np.arange(n)
@@ -59,8 +59,9 @@ class TbatsSimpleAlgorithm(BaseAlgorithm):
             for p in periods:
                 if p > n // 2:
                     continue
-                future_seasonal += (amp_cos * np.cos(2 * np.pi * future_t / p) +
-                                    amp_sin * np.sin(2 * np.pi * future_t / p))
+                future_seasonal += amp_cos * np.cos(2 * np.pi * future_t / p) + amp_sin * np.sin(
+                    2 * np.pi * future_t / p
+                )
 
             future_trend = np.polyval(trend_coeffs, future_t)
             future_ar = np.array([ar_pred * (ar_coeffs[0] ** i) for i in range(future_steps)])
@@ -82,9 +83,12 @@ class TbatsSimpleAlgorithm(BaseAlgorithm):
                 confidence = max(0.1, min(0.85, 0.6 - cv * 5))
 
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=confidence, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=confidence,
+                current_views=current_views,
                 current_velocity=velocity,
                 metadata={"method": "tbats", "periods": list(periods)},
                 timestamp=datetime.now(),
@@ -95,18 +99,26 @@ class TbatsSimpleAlgorithm(BaseAlgorithm):
     def _fallback(self, velocity, current_views, threshold):
         if velocity <= 0:
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=float("inf"),
-                confidence=0.0, current_views=current_views, current_velocity=velocity,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=float("inf"),
+                confidence=0.0,
+                current_views=current_views,
+                current_velocity=velocity,
                 metadata={"method": "tbats", "reason": "fallback"},
                 timestamp=datetime.now(),
             )
         remaining = max(0, threshold - current_views)
         predicted_hours = remaining / velocity if remaining > 0 else 0
         return PredictionResult(
-            algorithm_name=self.name, algorithm_id=self.algorithm_id,
-            target_threshold=threshold, predicted_hours=predicted_hours,
-            confidence=0.3, current_views=current_views, current_velocity=velocity,
+            algorithm_name=self.name,
+            algorithm_id=self.algorithm_id,
+            target_threshold=threshold,
+            predicted_hours=predicted_hours,
+            confidence=0.3,
+            current_views=current_views,
+            current_velocity=velocity,
             metadata={"method": "tbats", "reason": "fallback"},
             timestamp=datetime.now(),
         )

@@ -134,7 +134,10 @@ class AnomalyDetector:
 
         if rate < 5 and total_growth < 100:
             views = recent[-1].get("view_count", 0)
-            return f"💤 播放停滞！近 {span_h:.1f}h 仅增长 {_fmt_count(total_growth)}，" f"增速 {rate:.1f}/h (当前 {_fmt_count(views)})"
+            return (
+                f"💤 播放停滞！近 {span_h:.1f}h 仅增长 {_fmt_count(total_growth)}，"
+                f"增速 {rate:.1f}/h (当前 {_fmt_count(views)})"
+            )
         return None
 
     @staticmethod
@@ -154,7 +157,9 @@ class AnomalyDetector:
 
         if avg_viewers > 0 and last_viewers > avg_viewers * 3 and last_viewers > 50:
             recent[-1].get("bvid", "")
-            return f"🔥 在线人数飙升！当前 {last_viewers} 人在线，" f"是之前的 {last_viewers / max(avg_viewers, 1):.1f}倍"
+            return (
+                f"🔥 在线人数飙升！当前 {last_viewers} 人在线，" f"是之前的 {last_viewers / max(avg_viewers, 1):.1f}倍"
+            )
         return None
 
     @staticmethod
@@ -174,7 +179,8 @@ class AnomalyDetector:
 
         if prev_viewers > 0 and last_viewers < prev_viewers * 0.3 and (prev_viewers - last_viewers) > 100:
             return (
-                f"📉 在线人数骤降！从 {prev_viewers} 人降至 {last_viewers} 人，" f"降幅 {(1 - last_viewers / prev_viewers) * 100:.0f}%"
+                f"📉 在线人数骤降！从 {prev_viewers} 人降至 {last_viewers} 人，"
+                f"降幅 {(1 - last_viewers / prev_viewers) * 100:.0f}%"
             )
         return None
 

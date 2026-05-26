@@ -24,8 +24,13 @@ class TsmixerSimpleAlgorithm(BaseAlgorithm):
 
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
         return try_torch_predict(
-            self, video_data, threshold, TSMixerTorchModel, self._numpy_predict,
-            window=self.training_window, horizon=self.training_horizon,
+            self,
+            video_data,
+            threshold,
+            TSMixerTorchModel,
+            self._numpy_predict,
+            window=self.training_window,
+            horizon=self.training_horizon,
         )
 
     def build_model(self):
@@ -78,9 +83,12 @@ class TsmixerSimpleAlgorithm(BaseAlgorithm):
                 confidence = min(0.8, 0.4 + 0.05 * np.log1p(len(history)))
 
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=confidence, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=confidence,
+                current_views=current_views,
                 current_velocity=velocity,
                 metadata={"method": "tsmixer", "window": len(history)},
                 timestamp=datetime.now(),
@@ -91,18 +99,26 @@ class TsmixerSimpleAlgorithm(BaseAlgorithm):
     def _fallback(self, velocity, current_views, threshold):
         if velocity <= 0:
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=float("inf"),
-                confidence=0.0, current_views=current_views, current_velocity=velocity,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=float("inf"),
+                confidence=0.0,
+                current_views=current_views,
+                current_velocity=velocity,
                 metadata={"method": "tsmixer", "reason": "fallback"},
                 timestamp=datetime.now(),
             )
         remaining = max(0, threshold - current_views)
         predicted_hours = remaining / velocity if remaining > 0 else 0
         return PredictionResult(
-            algorithm_name=self.name, algorithm_id=self.algorithm_id,
-            target_threshold=threshold, predicted_hours=predicted_hours,
-            confidence=0.3, current_views=current_views, current_velocity=velocity,
+            algorithm_name=self.name,
+            algorithm_id=self.algorithm_id,
+            target_threshold=threshold,
+            predicted_hours=predicted_hours,
+            confidence=0.3,
+            current_views=current_views,
+            current_velocity=velocity,
             metadata={"method": "tsmixer", "reason": "fallback"},
             timestamp=datetime.now(),
         )

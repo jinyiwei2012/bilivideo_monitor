@@ -10,6 +10,7 @@ from tkinter import ttk, messagebox
 import time
 import logging
 from typing import Dict, List
+
 logger = logging.getLogger(__name__)
 
 _torch_available = True

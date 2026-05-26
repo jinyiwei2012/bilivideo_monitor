@@ -424,7 +424,10 @@ class VideoWorker:
                 if cid:
                     viewers = bilibili_api.get_video_viewers(bvid, cid)
                     if viewers:
-                        self._log("DEBUG", f"[{bvid}] 在线响应 总:{viewers.get('total', '0')} 网页:{viewers.get('count', '0')}")
+                        self._log(
+                            "DEBUG",
+                            f"[{bvid}] 在线响应 总:{viewers.get('total', '0')} 网页:{viewers.get('count', '0')}",
+                        )
                         video["viewers_total_raw"] = viewers.get("total", "0")
                         video["viewers_web_raw"] = viewers.get("count", "0")
                         video["viewers_total"] = _parse_viewer_count(viewers.get("total", "0"))
@@ -507,7 +510,9 @@ class VideoWorker:
                 self._fetching = False
             return
 
-        self._log("DEBUG", f"[{bvid}] 拉取完成 播放:{video.get('view_count', 0):,} 预测:{result.get('prediction', 0):,}")
+        self._log(
+            "DEBUG", f"[{bvid}] 拉取完成 播放:{video.get('view_count', 0):,} 预测:{result.get('prediction', 0):,}"
+        )
 
         # 同步视频信息到中央数据库（从内存直接写入，避免新建 DB 连接 + 重复读盘）
         try:
@@ -676,7 +681,9 @@ def auto_predict_all(gui):
 
         from ui.theme import C
 
-        gui.root.after(0, lambda: gui._sb("status", f"初始预测完成（{len(gui.monitored_videos)} 个视频）", color=C["success"]))
+        gui.root.after(
+            0, lambda: gui._sb("status", f"初始预测完成（{len(gui.monitored_videos)} 个视频）", color=C["success"])
+        )
         gui.log_panel.add_log("INFO", f"初始预测完成（{len(gui.monitored_videos)} 个视频）")
 
     threading.Thread(target=_worker, daemon=True).start()
@@ -740,7 +747,9 @@ def load_watch_list(gui):
 
         from ui.theme import C as C2
 
-        gui.root.after(0, lambda: gui._sb("status", f"已加载 {len(gui.monitored_videos)} 个监控视频", color=C2["success"]))
+        gui.root.after(
+            0, lambda: gui._sb("status", f"已加载 {len(gui.monitored_videos)} 个监控视频", color=C2["success"])
+        )
 
     threading.Thread(target=_worker, daemon=True).start()
 

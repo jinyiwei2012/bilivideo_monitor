@@ -60,16 +60,27 @@ class ModelAlgorithmAdapter:
             else:
                 current_value = video_data.get("view_count", 0)
                 history_data = video_data.get("history_data", [])
-                history_list = [{"view": d.get("view_count", 0), "view_count": d.get("view_count", 0),
-                                 "timestamp": d.get("timestamp_str", "")} for d in history_data]
+                history_list = [
+                    {
+                        "view": d.get("view_count", 0),
+                        "view_count": d.get("view_count", 0),
+                        "timestamp": d.get("timestamp_str", ""),
+                    }
+                    for d in history_data
+                ]
                 return self.algo.predict(current_value, threshold, history_list, video_data)
         except Exception:
             current_views = video_data.get("view_count", 0)
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=float("inf"),
-                confidence=0.0, current_views=current_views, current_velocity=0,
-                metadata={"error": True}, timestamp=datetime.now(),
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=float("inf"),
+                confidence=0.0,
+                current_views=current_views,
+                current_velocity=0,
+                metadata={"error": True},
+                timestamp=datetime.now(),
             )
 
     def predict_dict(self, history: List[Tuple], current_value: float, **kwargs) -> Dict:

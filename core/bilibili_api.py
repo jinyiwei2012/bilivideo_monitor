@@ -146,10 +146,12 @@ class BilibiliAPI:
 
     def _update_public_headers(self):
         """更新公共 API Session 请求头"""
-        self._public_session.headers.update({
-            "User-Agent": random.choice(self.USER_AGENTS),
-            "Referer": "https://www.bilibili.com/",
-        })
+        self._public_session.headers.update(
+            {
+                "User-Agent": random.choice(self.USER_AGENTS),
+                "Referer": "https://www.bilibili.com/",
+            }
+        )
 
     def _rotate_user_agent(self):
         """轮换User-Agent"""

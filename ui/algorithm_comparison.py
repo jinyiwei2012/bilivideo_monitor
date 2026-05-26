@@ -99,14 +99,18 @@ class AlgorithmComparisonWindow:
         tk.Label(ctrl, text="类别过滤:", bg=C["bg_surface"], fg=C["text_2"], font=FONT).pack(side=tk.LEFT, padx=(0, 4))
         self._cat_var = tk.StringVar(value="全部")
         cats = self._collect_categories()
-        self._cat_combo = ttk.Combobox(ctrl, textvariable=self._cat_var, values=cats, width=16, state="readonly", font=FONT)
+        self._cat_combo = ttk.Combobox(
+            ctrl, textvariable=self._cat_var, values=cats, width=16, state="readonly", font=FONT
+        )
         self._cat_combo.pack(side=tk.LEFT, padx=(0, 12))
         self._cat_combo.bind("<<ComboboxSelected>>", lambda e: self._refresh())
 
         tk.Label(ctrl, text="排序:", bg=C["bg_surface"], fg=C["text_2"], font=FONT).pack(side=tk.LEFT, padx=(0, 4))
         self._sort_var = tk.StringVar(value="准确率 ↓")
         sorts = ["准确率 ↓", "准确率 ↑", "权重 ↓", "权重 ↑", "样本数 ↓", "名称"]
-        self._sort_combo = ttk.Combobox(ctrl, textvariable=self._sort_var, values=sorts, width=12, state="readonly", font=FONT)
+        self._sort_combo = ttk.Combobox(
+            ctrl, textvariable=self._sort_var, values=sorts, width=12, state="readonly", font=FONT
+        )
         self._sort_combo.pack(side=tk.LEFT, padx=(0, 12))
         self._sort_combo.bind("<<ComboboxSelected>>", lambda e: self._refresh())
 
@@ -186,7 +190,7 @@ class AlgorithmComparisonWindow:
         ch = max(50, H - _MT - _MB)
         bar_unit = _BAR_H + _BAR_GAP
         # 如果内容超长，不绘制（需要滚动，但简单起见只适配可见区域）
-        visible = filtered[:max(1, int(ch / bar_unit))]
+        visible = filtered[: max(1, int(ch / bar_unit))]
 
         # 标题
         c.create_text(W // 2, 14, text="算法准确率对比", fill=C["text_1"], font=FONT)
@@ -203,7 +207,9 @@ class AlgorithmComparisonWindow:
 
             # 柱体
             if bar_w > 0:
-                c.create_rectangle(_ML, y0, _ML + bar_w, y0 + _BAR_H, fill=color, outline="", stipple="" if bar_w > 4 else "gray25")
+                c.create_rectangle(
+                    _ML, y0, _ML + bar_w, y0 + _BAR_H, fill=color, outline="", stipple="" if bar_w > 4 else "gray25"
+                )
 
             # 名称（右对齐到柱体起始）
             c.create_text(_ML - 14, y0 + _BAR_H // 2, text=name, anchor="e", fill=C["text_2"], font=FONT_SM)
@@ -215,7 +221,9 @@ class AlgorithmComparisonWindow:
             # 样本数
             samples = info.get("samples", 0)
             if samples:
-                c.create_text(_ML + cw, y0 + _BAR_H // 2, text=f"n={samples}", anchor="e", fill=C["text_3"], font=("Consolas", 7))
+                c.create_text(
+                    _ML + cw, y0 + _BAR_H // 2, text=f"n={samples}", anchor="e", fill=C["text_3"], font=("Consolas", 7)
+                )
 
         # 图例 —— 用到的类别
         used_cats = {info.get("category", "其他") for info in visible}
@@ -247,7 +255,7 @@ class AlgorithmComparisonWindow:
         cw = W - _ML - _MR
         ch = max(50, H - _MT - _MB)
         bar_unit = _BAR_H + _BAR_GAP
-        visible = filtered[:max(1, int(ch / bar_unit))]
+        visible = filtered[: max(1, int(ch / bar_unit))]
 
         max_w = max(info.get("final_weight", 1) for info in visible) or 1
 
@@ -273,7 +281,14 @@ class AlgorithmComparisonWindow:
 
     def _setup_detail_tab(self, parent):
         cols = ("name", "category", "accuracy", "final_weight", "samples", "is_customized")
-        headers = {"name": "算法名称", "category": "类别", "accuracy": "准确率", "final_weight": "权重", "samples": "样本数", "is_customized": "自定义"}
+        headers = {
+            "name": "算法名称",
+            "category": "类别",
+            "accuracy": "准确率",
+            "final_weight": "权重",
+            "samples": "样本数",
+            "is_customized": "自定义",
+        }
 
         container = tk.Frame(parent, bg=C["bg_base"])
         container.pack(fill=tk.BOTH, expand=True)
@@ -334,7 +349,10 @@ class AlgorithmComparisonWindow:
         reverse = self._tree_sort_rev
         # 数值列按数值排序
         if col in ("accuracy", "final_weight", "samples"):
-            items.sort(key=lambda x: float(x[0].replace("%", "")) if x[0].replace("%", "").replace(".", "").isdigit() else 0, reverse=reverse)
+            items.sort(
+                key=lambda x: float(x[0].replace("%", "")) if x[0].replace("%", "").replace(".", "").isdigit() else 0,
+                reverse=reverse,
+            )
         else:
             items.sort(key=lambda x: x[0], reverse=reverse)
 
@@ -348,7 +366,9 @@ class AlgorithmComparisonWindow:
         n_filtered = len(filtered)
         avg_acc = sum(info.get("accuracy", 0) for info in filtered) / max(1, n_filtered)
         avg_weight = sum(info.get("final_weight", 1) for info in filtered) / max(1, n_filtered)
-        self._summary_lbl.config(text=f"展示 {n_filtered}/{n_total} | 平均准确率 {_fmt_pct(avg_acc)} | 平均权重 {avg_weight:.2f}")
+        self._summary_lbl.config(
+            text=f"展示 {n_filtered}/{n_total} | 平均准确率 {_fmt_pct(avg_acc)} | 平均权重 {avg_weight:.2f}"
+        )
 
     def _refresh(self):
         self._draw_accuracy_chart()

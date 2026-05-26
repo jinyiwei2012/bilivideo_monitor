@@ -313,8 +313,11 @@ class DetailPanel:
             row = ctk.CTkFrame(scroll, fg_color="transparent")
             row.pack(fill=tk.X, pady=1)
             ctk.CTkCheckBox(
-                row, text=f"{a['name']} ({a['algorithm_id']})",
-                variable=var, font=FONT_SM, text_color=C["text_1"],
+                row,
+                text=f"{a['name']} ({a['algorithm_id']})",
+                variable=var,
+                font=FONT_SM,
+                text_color=C["text_1"],
                 fg_color=C.get("accent", "#4A90D9"),
             ).pack(side=tk.LEFT, padx=4, pady=2)
 
@@ -341,22 +344,41 @@ class DetailPanel:
         btn_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
         btn_frame.pack(fill=tk.X)
         start_btn = ctk.CTkButton(
-            btn_frame, text="开始微调", font=FONT_SM,
+            btn_frame,
+            text="开始微调",
+            font=FONT_SM,
             fg_color=C.get("accent", "#4A90D9"),
             command=lambda: self._run_finetune(
-                dialog, bvid, algo_vars, epoch_var, batch_var, status_lbl, progress_bar, start_btn,
+                dialog,
+                bvid,
+                algo_vars,
+                epoch_var,
+                batch_var,
+                status_lbl,
+                progress_bar,
+                start_btn,
             ),
         )
         start_btn.pack(side=tk.LEFT, padx=(0, 6))
         ctk.CTkButton(
-            btn_frame, text="取消", font=FONT_SM,
-            fg_color=C["bg_elevated"], text_color=C["text_1"],
+            btn_frame,
+            text="取消",
+            font=FONT_SM,
+            fg_color=C["bg_elevated"],
+            text_color=C["text_1"],
             command=dialog.destroy,
         ).pack(side=tk.LEFT)
 
     def _run_finetune(
-        self, dialog, bvid, algo_vars, epoch_var, batch_var,
-        status_lbl, progress_bar, start_btn,
+        self,
+        dialog,
+        bvid,
+        algo_vars,
+        epoch_var,
+        batch_var,
+        status_lbl,
+        progress_bar,
+        start_btn,
     ):
         """在后台线程运行微调，更新对话框进度。"""
         selected = [aid for aid, var in algo_vars.items() if var.get()]
@@ -382,7 +404,10 @@ class DetailPanel:
                 dialog.after(0, lambda m=gui_msg: self.gui.set_finetune_status(m))
                 try:
                     version = trainer.finetune_for_video(
-                        algo_id=aid, bvid=bvid, epochs=epochs, batch_size=batch,
+                        algo_id=aid,
+                        bvid=bvid,
+                        epochs=epochs,
+                        batch_size=batch,
                     )
                     msg = f"✓ {aid} → {version[:12]}"
                 except Exception as e:

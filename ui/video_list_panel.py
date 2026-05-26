@@ -44,6 +44,7 @@ class VideoListPanel:
         self._parent = parent
         self._video_card_widgets = {}
         from collections import OrderedDict
+
         self._cover_cache = OrderedDict()
         self._search_var = tk.StringVar()
         self._card_wraplength = 180  # 初始默认值，make_card 时会按屏幕更新

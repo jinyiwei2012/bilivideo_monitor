@@ -24,8 +24,13 @@ class TideSimpleAlgorithm(BaseAlgorithm):
 
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
         return try_torch_predict(
-            self, video_data, threshold, TIDETorchModel, self._numpy_predict,
-            window=self.training_window, horizon=self.training_horizon,
+            self,
+            video_data,
+            threshold,
+            TIDETorchModel,
+            self._numpy_predict,
+            window=self.training_window,
+            horizon=self.training_horizon,
         )
 
     def build_model(self):
@@ -41,9 +46,13 @@ class TideSimpleAlgorithm(BaseAlgorithm):
 
         if len(history) < 4 or velocity <= 0:
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=float("inf"),
-                confidence=0.0, current_views=current_views, current_velocity=velocity,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=float("inf"),
+                confidence=0.0,
+                current_views=current_views,
+                current_velocity=velocity,
                 metadata={"method": "tide_simple", "reason": "insufficient_data"},
                 timestamp=datetime.now(),
             )
@@ -64,13 +73,19 @@ class TideSimpleAlgorithm(BaseAlgorithm):
                 predicted_hours = remaining / predicted_velocity
                 confidence = min(0.85, 0.5 + 0.01 * len(history))
         except Exception:
-            predicted_hours = remaining / velocity if velocity > 0 else float("inf") if 'remaining' in dir() else float("inf")
+            predicted_hours = (
+                remaining / velocity if velocity > 0 else float("inf") if "remaining" in dir() else float("inf")
+            )
             confidence = 0.3
 
         return PredictionResult(
-            algorithm_name=self.name, algorithm_id=self.algorithm_id,
-            target_threshold=threshold, predicted_hours=predicted_hours,
-            confidence=confidence, current_views=current_views, current_velocity=velocity,
+            algorithm_name=self.name,
+            algorithm_id=self.algorithm_id,
+            target_threshold=threshold,
+            predicted_hours=predicted_hours,
+            confidence=confidence,
+            current_views=current_views,
+            current_velocity=velocity,
             metadata={"method": "tide_simple", "history_len": len(history)},
             timestamp=datetime.now(),
         )

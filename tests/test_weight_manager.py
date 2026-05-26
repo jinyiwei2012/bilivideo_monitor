@@ -1,4 +1,5 @@
 """Tests for algorithms/weight_manager.py"""
+
 import os
 import json
 import tempfile

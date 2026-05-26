@@ -22,8 +22,7 @@ logger = logging.getLogger(__name__)
 
 _GEETEST_API = "https://api.geetest.com"
 _USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "KHTML, like Gecko Chrome/120.0.0.0 Safari/537.36"
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " "KHTML, like Gecko Chrome/120.0.0.0 Safari/537.36"
 )
 
 
@@ -187,8 +186,7 @@ def _generate_trace(distance: float) -> Tuple[List[Dict], int]:
     return trace, passtime
 
 
-def _encrypt_w(gt: str, challenge: str, userresponse: str,
-               trace: List[Dict], passtime: int) -> str:
+def _encrypt_w(gt: str, challenge: str, userresponse: str, trace: List[Dict], passtime: int) -> str:
     """构造 w 参数（AES-CBC 加密）
 
     使用 md5(gt[:16]) 作为 IV，md5(challenge[:24])[:16] 作为 Key

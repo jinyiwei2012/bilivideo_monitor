@@ -281,7 +281,9 @@ class EntryTab:
                 invalid.append(bv)
 
         if invalid:
-            messagebox.showwarning("格式错误", "以下格式不合法已跳过：\n" + "\n".join(invalid[:10]), parent=self._window)
+            messagebox.showwarning(
+                "格式错误", "以下格式不合法已跳过：\n" + "\n".join(invalid[:10]), parent=self._window
+            )
 
         return bvids, invalid
 
