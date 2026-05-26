@@ -56,7 +56,6 @@ def is_frozen() -> bool:
 
 
 def is_dev_mode() -> bool:
-    """检测本地开发模式标识文件"""
     try:
         _marker = chr(46) + chr(100) + chr(101) + chr(118) + chr(109) + chr(111) + chr(100) + chr(101)
         _base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
