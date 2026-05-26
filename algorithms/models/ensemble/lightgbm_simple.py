@@ -7,6 +7,7 @@ LightGBM 预测算法 — 真实实现 + numpy 降级
 
 import math
 import logging
+import warnings
 from typing import Dict, Any
 from datetime import datetime
 
@@ -71,6 +72,11 @@ class LightGBMSimpleAlgorithm(BaseAlgorithm):
         return self._numpy_predict(current_views, velocity, remaining, threshold)
 
     def _lightgbm_predict(self, history, current_views, velocity, remaining, threshold) -> PredictionResult:
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message="X does not have valid feature names")
+            return self._lightgbm_predict_impl(history, current_views, velocity, remaining, threshold)
+
+    def _lightgbm_predict_impl(self, history, current_views, velocity, remaining, threshold) -> PredictionResult:
         views = np.array([h.get("view_count", 0) for h in history], dtype=np.float64)
         likes = np.array([h.get("like_count", 0) for h in history], dtype=np.float64)
         coins = np.array([h.get("coin_count", 0) for h in history], dtype=np.float64)
