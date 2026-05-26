@@ -10,15 +10,6 @@ from tkinter import ttk, messagebox
 import time
 import logging
 from typing import Dict, List
-
-logger = logging.getLogger(__name__)
-
-_torch_available = True
-try:
-    import torch  # noqa: F401
-except ImportError:
-    _torch_available = False
-
 from ui.theme import C
 from ui.helpers import (
     FONT,
@@ -32,6 +23,14 @@ from ui.helpers import (
 )
 from ui.training_base import BaseTrainingPanel, TrainingMonitor
 from ui.scrollable_frame import ScrollableFrame
+
+logger = logging.getLogger(__name__)
+
+_torch_available = True
+try:
+    import torch  # noqa: F401
+except ImportError:
+    _torch_available = False
 
 
 class FinetunePanel(BaseTrainingPanel):

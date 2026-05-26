@@ -19,6 +19,9 @@ import math
 import time
 from typing import Callable, Dict, List, Optional
 from utils import project_path
+from algorithms.training.checkpoint_manager import CheckpointManager
+from algorithms.training.device import get_device
+from algorithms.training.dataset import VideoTimeSeriesDataset, estimate_dataset_size
 
 logger = logging.getLogger(__name__)
 
@@ -28,10 +31,6 @@ try:
     from torch.utils.data import DataLoader, random_split
 except ImportError:
     _torch_available = False
-
-from algorithms.training.checkpoint_manager import CheckpointManager
-from algorithms.training.device import get_device
-from algorithms.training.dataset import VideoTimeSeriesDataset, estimate_dataset_size
 
 ProgressCb = Optional[Callable[[Dict], None]]
 

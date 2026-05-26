@@ -2,6 +2,7 @@
 通用工具函数和常量
 """
 
+import math
 from ui.theme import C
 
 from utils import PROJECT_ROOT, project_path  # noqa: F401 — re-export for convenience
@@ -200,7 +201,6 @@ def rounded_rect(canvas, x1, y1, x2, y2, r, **kwargs):
 
 
 # ── 置信度辅助 ─────────────────────────────────
-import math
 
 
 def loss_to_confidence(val_loss: float) -> float:

@@ -12,15 +12,6 @@ import threading
 import time
 from typing import Dict, List, Optional
 from datetime import datetime
-
-logger = logging.getLogger(__name__)
-
-_torch_available = True
-try:
-    import torch  # noqa: F401
-except ImportError:
-    _torch_available = False
-
 from ui.theme import C
 from ui.helpers import (
     FONT,
@@ -31,9 +22,18 @@ from ui.helpers import (
     format_confidence,
     load_algo_confidence,
     project_path,
+    clear_loss_chart,
 )
 from ui.scrollable_frame import ScrollableFrame
 from ui.training_base import BaseTrainingPanel, TrainingMonitor
+
+logger = logging.getLogger(__name__)
+
+_torch_available = True
+try:
+    import torch  # noqa: F401
+except ImportError:
+    _torch_available = False
 
 
 class TrainingPanel(BaseTrainingPanel):

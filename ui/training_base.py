@@ -13,18 +13,20 @@ import time
 import math
 import logging
 from typing import Any, Dict, List, Optional
-
-import queue as _q
-
-logger = logging.getLogger(__name__)
-
 from ui.mpl_imports import mpl_available, Figure, FigureCanvasTkAgg
 from ui.theme import C
 from ui.helpers import (
     FONT,
     FONT_SM,
+    FONT_MONO,
+    FONT_BOLD,
+    loss_to_confidence,
+    format_confidence,
     clear_loss_chart,
 )
+from ui.scrollable_frame import ScrollableFrame
+
+logger = logging.getLogger(__name__)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 训练质量监控器
