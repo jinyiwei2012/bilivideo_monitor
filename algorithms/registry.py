@@ -5,6 +5,7 @@
 
 from typing import Dict, List, Tuple
 import logging
+import math
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
@@ -207,20 +208,52 @@ class AlgorithmRegistry:
             if r["weight"] > 0 and r["prediction"] > 0
         ]
 
+        # ── Coherence-aware weight adjustment ────────────
+        # 基于算法间共识度调整权重：偏离中位数越远权重越低
+        if len(valid_predictions) >= 3:
+            values = sorted(p for _, p, _ in valid_predictions)
+            median_val = values[len(values) // 2]
+            if median_val > 0:
+                for name, pred, w in valid_predictions:
+                    coherence = min(pred, median_val) / max(pred, median_val)
+                    coherence_factor = 0.5 + 0.5 * coherence
+                    results[name]["coherence"] = round(coherence, 4)
+                    results[name]["weight"] = w * coherence_factor
+
+        # 重新读取调整后的权重
+        valid_predictions = [
+            (name, r["prediction"], r["weight"])
+            for name, r in results.items()
+            if r["weight"] > 0 and r["prediction"] > 0
+        ]
+
         if valid_predictions:
             total_weight = sum(w for _, _, w in valid_predictions)
             if total_weight > 0:
                 weighted_pred = sum(p * w for _, p, w in valid_predictions) / total_weight
+                # ── Ensemble confidence（基于预测离散度）──
+                # CV 越低表示算法间共识度越高 → 置信度越高
+                valid_vals = [p for _, p, _ in valid_predictions]
+                mean_v = sum(valid_vals) / len(valid_vals)
+                if mean_v > 0:
+                    variance = sum((p - mean_v) ** 2 for p in valid_vals) / len(valid_vals)
+                    cv = (variance ** 0.5) / mean_v
+                    ensemble_conf = max(0.0, min(1.0, math.exp(-cv * 2)))
+                else:
+                    ensemble_conf = 0.0
             else:
                 weighted_pred = current_value
+                ensemble_conf = 0.0
         else:
             weighted_pred = current_value
+            ensemble_conf = 0.0
 
         results["_weighted"] = {
             "prediction": weighted_pred,
             "total_algorithms": len(results),
             "valid_algorithms": valid_count,
             "na_algorithms": na_count,
+            "ensemble_confidence": round(ensemble_conf, 4),
         }
 
         logger.info(
