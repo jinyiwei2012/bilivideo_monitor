@@ -689,6 +689,31 @@ def auto_predict_all(gui):
     threading.Thread(target=_worker, daemon=True).start()
 
 
+def _load_watch_list_from_db():
+    """从数据库加载所有视频 BVid（当配置的 watch_list 为空时兜底）"""
+    try:
+        from config import DATA_DIR as _data_dir
+        import os
+        import sqlite3
+
+        db_path = os.path.join(_data_dir, "bilibili_monitor.db")
+        if not os.path.exists(db_path):
+            return []
+        conn = sqlite3.connect(db_path)
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT bvid FROM videos ORDER BY updated_at DESC")
+            bvids = [r[0] for r in cur.fetchall() if r[0]]
+            if bvids:
+                logger.info("从数据库加载 %d 个视频作为 watch_list 兜底", len(bvids))
+            return bvids
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.debug("从数据库加载 watch_list 失败: %s", e)
+        return []
+
+
 def load_watch_list(gui):
     """启动时加载监控列表，并为每个视频启动独立 Worker"""
     from ui.theme import C
@@ -697,6 +722,8 @@ def load_watch_list(gui):
 
     config = load_config()
     watch_list = config.get("watch_list", [])
+    if not watch_list:
+        watch_list = _load_watch_list_from_db()
     if not watch_list:
         return
 
