@@ -981,3 +981,7 @@ def get_up_stat(uid: int) -> Optional[Dict]:
 def close():
     """模块级便捷函数：关闭 API 实例"""
     bilibili_api.close()
+
+
+# 模块级便捷属性代理（from core import bilibili_api 导入的是模块而非实例）
+proxy_manager = bilibili_api.proxy_manager
