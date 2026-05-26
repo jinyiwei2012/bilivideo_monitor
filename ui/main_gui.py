@@ -81,7 +81,8 @@ class BilibiliMonitorGUI:
     def __init__(self, root=None):
         if root is None:
             root = ctk.CTk()
-            root.title("B站视频监控与播放量预测系统")
+            from __init__ import __version__
+            root.title(f"B站视频监控与播放量预测系统 v{__version__}")
             # 自适应窗口：85% 屏幕尺寸，最低 55%
             sw = root.winfo_screenwidth()
             sh = root.winfo_screenheight()
@@ -983,22 +984,28 @@ class BilibiliMonitorGUI:
         check_for_update_async(_on_result)
 
     def _show_update_dialog(self, latest, current, url, changelog):
-        """显示更新弹窗（含 changelog）"""
-        from utils.update_checker import format_changelog_for_display
-        import webbrowser
+        """显示更新弹窗（含 changelog），根据运行模式提供不同更新方式"""
+        from utils.update_checker import (
+            format_changelog_for_display,
+            is_frozen,
+            perform_source_git_pull,
+            perform_source_download_zip,
+            perform_exe_download,
+        )
 
         dlg = tk.Toplevel(self.root)
         dlg.title("发现新版本")
         dlg.configure(bg=C["bg_base"])
         dlg.resizable(True, True)
-        dlg.geometry("600x450")
+        dlg.geometry("620x520")
         dlg.transient(self.root)
         dlg.grab_set()
 
         # 标题
+        mode_label = "打包版" if is_frozen() else "源码版"
         tk.Label(
             dlg,
-            text=f"新版本 v{latest} 可用！",
+            text=f"新版本 v{latest} 可用 ({mode_label})",
             font=("Microsoft YaHei UI", 14, "bold"),
             bg=C["bg_base"],
             fg=C["text_1"],
@@ -1030,18 +1037,45 @@ class BilibiliMonitorGUI:
         text.insert("1.0", format_changelog_for_display(changelog))
         text.config(state=tk.DISABLED)
 
-        # 滚动条
         scroll = tk.Scrollbar(text, command=text.yview)
         scroll.pack(side=tk.RIGHT, fill=tk.Y)
         text.config(yscrollcommand=scroll.set)
 
-        # 按钮
+        # ── 底部按钮 ─────────────────────────────────
         btn_frame = tk.Frame(dlg, bg=C["bg_base"])
         btn_frame.pack(fill=tk.X, padx=16, pady=(0, 16))
-        ttk.Button(btn_frame, text="前往下载", command=lambda: (webbrowser.open(url), dlg.destroy())).pack(
-            side=tk.RIGHT, padx=(8, 0)
-        )
-        ttk.Button(btn_frame, text="稍后提醒", command=dlg.destroy).pack(side=tk.RIGHT)
+
+        if is_frozen():
+            # EXE 打包版 → 提供下载新 exe + 自动更新
+            ttk.Button(
+                btn_frame,
+                text="🌐 浏览器下载新版本",
+                command=lambda: (perform_exe_download(), dlg.destroy()),
+            ).pack(side=tk.RIGHT, padx=(8, 0))
+            ttk.Button(btn_frame, text="稍后提醒", command=dlg.destroy).pack(side=tk.RIGHT)
+        else:
+            # 源码版 → 提供 git pull + 下载 zip
+            def _on_git_pull():
+                ok, msg = perform_source_git_pull()
+                if ok:
+                    self.log_panel.add_log("INFO", "git pull 更新成功")
+                    self._sb("status", "git pull 更新成功，建议重启应用", C["success"])
+                else:
+                    self.log_panel.add_log("ERROR", f"git pull 失败: {msg}")
+                    self._sb("status", "git pull 失败，请手动更新", C["danger"])
+                dlg.destroy()
+
+            ttk.Button(
+                btn_frame,
+                text="📥 Git Pull 自动拉取",
+                command=_on_git_pull,
+            ).pack(side=tk.RIGHT, padx=(8, 0))
+            ttk.Button(
+                btn_frame,
+                text="📦 下载 ZIP 手动更新",
+                command=lambda: (perform_source_download_zip(), dlg.destroy()),
+            ).pack(side=tk.RIGHT, padx=(8, 0))
+            ttk.Button(btn_frame, text="稍后提醒", command=dlg.destroy).pack(side=tk.RIGHT)
 
     def _daily_push(self):
         """每日 23:50 自动推送日报"""
