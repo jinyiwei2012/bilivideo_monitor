@@ -948,3 +948,36 @@ bilibili_api = BilibiliAPI()
 def get_bilibili_api() -> BilibiliAPI:
     """获取全局 BilibiliAPI 实例"""
     return bilibili_api
+
+
+# ── 模块级便捷函数（兼容 from core import bilibili_api 调用方式）──
+
+
+def get_video_info(bvid: str) -> Optional[Dict]:
+    """模块级便捷函数：获取视频信息"""
+    return bilibili_api.get_video_info(bvid)
+
+
+def get_video_stat(bvid: str) -> Optional[Dict]:
+    """模块级便捷函数：获取视频统计数据"""
+    return bilibili_api.get_video_stat(bvid)
+
+
+def get_video_viewers(bvid: str, cid: int) -> Optional[Dict]:
+    """模块级便捷函数：获取视频观看人数"""
+    return bilibili_api.get_video_viewers(bvid, cid)
+
+
+def get_up_info(uid: int) -> Optional[Dict]:
+    """模块级便捷函数：获取UP主信息"""
+    return bilibili_api.get_up_info(uid)
+
+
+def get_up_stat(uid: int) -> Optional[Dict]:
+    """模块级便捷函数：获取UP主统计数据"""
+    return bilibili_api.get_up_stat(uid)
+
+
+def close():
+    """模块级便捷函数：关闭 API 实例"""
+    bilibili_api.close()
