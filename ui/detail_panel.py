@@ -521,25 +521,10 @@ class DetailPanel:
     # ── 图表渲染控制 ─────────────────────────────────
 
     def _auto_render_chart(self):
-        """自动渲染：新数据到来时自动重绘图表（含预测点更新）"""
+        """自动渲染：新数据到来时自动重绘图表（含指纹缓存，数据未变时跳过）"""
         mode = self._chart_mode.get()
-        # step 模式总是自动；full/delta 模式只在首次手动渲染后自动更新
         if mode != "step" and mode not in self._rendered_modes:
             return
-        bvid = self.gui.selected_bvid
-        if bvid:
-            history = self.gui.history_data.get(bvid, [])
-            pred = self.gui.prediction_results.get(bvid, {})
-            # 标签同时包含历史数据和预测数据，确保预测变化时也能触发重绘
-            new_tag = (
-                len(history),
-                history[-1][1] if history else 0,
-                pred.get("prediction", 0),
-                pred.get("rate_per_sec", 0),
-            )
-            if new_tag == getattr(self, "_last_render_tag", None):
-                return
-            self._last_render_tag = new_tag
         self._do_render_chart()
 
     def _manual_render_chart(self):

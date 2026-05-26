@@ -161,7 +161,7 @@ def draw_chart_grid(c, W, H, ML, MR, MT, MB, cw, ch, min_v, max_v, is_delta=Fals
 
 
 def draw_chart(canvas, history_data, bvid, video, FONT, mode="step", max_points=20, prediction=None):
-    """绘制完整图表
+    """绘制完整图表（带指纹缓存，数据未变更时跳过重绘）
 
     mode: "step"  — 新增模式（v[i]-v[i-1] 每次刷新的播放量增量）
           "delta" — 增量模式（以首个数据点为基准）
@@ -169,6 +169,15 @@ def draw_chart(canvas, history_data, bvid, video, FONT, mode="step", max_points=
     max_points: 图中数据点数量（固定间隔）
     prediction: prediction_results[bvid] dict，含 "prediction" (加权预测值) 等
     """
+    # ── 指纹缓存：数据未变时跳过 delete+重绘 ──
+    history = history_data.get(bvid, [])
+    pred_val = prediction.get("prediction", 0) if prediction else 0
+    rate_val = prediction.get("rate_per_sec", 0) if prediction else 0
+    fp = (bvid, mode, max_points, len(history), history[-1][1] if history else 0, pred_val, rate_val)
+    if getattr(draw_chart, "_last_fp", None) == fp:
+        return
+    draw_chart._last_fp = fp
+
     c = canvas
     c.delete("all")
 
