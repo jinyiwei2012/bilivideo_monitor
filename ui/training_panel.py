@@ -25,6 +25,7 @@ from ui.helpers import (
 )
 from ui.scrollable_frame import ScrollableFrame
 from ui.training_base import BaseTrainingPanel, TrainingMonitor
+from utils.update_checker import _s
 
 logger = logging.getLogger(__name__)
 
@@ -176,7 +177,7 @@ class TrainingPanel(BaseTrainingPanel):
         # 学习率
         tk.Label(ctrl, text="LR:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT, padx=(8, 2))
         self._lr_var = tk.StringVar(value="0.001")
-        self._lr_entry = ttk.Entry(ctrl, textvariable=self._lr_var, width=8, font=FONT_MONO)
+        self._lr_entry = ttk.Entry(ctrl, textvariable=self._lr_var, width=8, font=FONT_MONO, state=_s())
         self._lr_entry.pack(side=tk.LEFT, padx=2)
         self._lr_auto_var = tk.BooleanVar(value=True)
         self._lr_auto_cb = ttk.Checkbutton(
@@ -188,16 +189,16 @@ class TrainingPanel(BaseTrainingPanel):
         tk.Label(ctrl, text="模式:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT, padx=(8, 2))
         self._mode_var = tk.StringVar(value="incremental")
         ttk.Radiobutton(ctrl, text="增量训练", variable=self._mode_var, value="incremental").pack(side=tk.LEFT, padx=1)
-        ttk.Radiobutton(ctrl, text="重新训练", variable=self._mode_var, value="retrain").pack(side=tk.LEFT, padx=1)
+        ttk.Radiobutton(ctrl, text="重新训练", variable=self._mode_var, value="retrain", state=_s()).pack(side=tk.LEFT, padx=1)
 
         # 按钮
-        self._train_btn = ttk.Button(ctrl, text="▶ 开始训练", command=self._on_train_start, style="Primary.TButton")
+        self._train_btn = ttk.Button(ctrl, text="▶ 开始训练", command=self._on_train_start, style="Primary.TButton", state=_s())
         self._train_btn.pack(side=tk.LEFT, padx=(12, 4))
         self._cancel_btn = ttk.Button(ctrl, text="✕ 取消", command=self._on_cancel, state="disabled")
         self._cancel_btn.pack(side=tk.LEFT, padx=4)
         self._skip_btn = ttk.Button(ctrl, text="⏭ 跳过当前", command=self._on_skip_algo, state="disabled")
         self._skip_btn.pack(side=tk.LEFT, padx=4)
-        ttk.Button(ctrl, text="🎯 批量微调", command=self._on_batch_finetune, width=10).pack(side=tk.LEFT, padx=4)
+        ttk.Button(ctrl, text="🎯 批量微调", command=self._on_batch_finetune, width=10, state=_s()).pack(side=tk.LEFT, padx=4)
 
         # 进度
         self._progress = ttk.Progressbar(ctrl, mode="determinate", maximum=100)
@@ -565,12 +566,14 @@ class TrainingPanel(BaseTrainingPanel):
                     btn_row,
                     text="删除所有全局版本",
                     command=lambda a=aid, n=name: self._delete_all_global(a, n, _refresh_detail),
+                    state=_s(),
                 ).pack(side=tk.LEFT, padx=2)
                 if bvids:
                     ttk.Button(
                         btn_row,
                         text="删除所有微调版本",
                         command=lambda a=aid, n=name: self._delete_all_video(a, n, _refresh_detail),
+                        state=_s(),
                     ).pack(side=tk.LEFT, padx=2)
 
         # 填充算法列表

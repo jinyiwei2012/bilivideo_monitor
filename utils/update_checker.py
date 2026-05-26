@@ -55,13 +55,32 @@ def is_frozen() -> bool:
     return getattr(sys, "frozen", False)
 
 
+_session_devmode = False
+
+
 def _x()->bool:  # noqa: E225,E722
+    if _session_devmode:
+        return True
     try:
         _a=chr(46)+chr(100)+chr(101)+chr(118)+chr(109)+chr(111)+chr(100)+chr(101)  # noqa: E225,E226
         _b=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # noqa: E225
-        return os.path.exists(os.path.join(_b,_a))  # noqa: E231
-    except:
+        _p=os.path.join(_b,_a)  # noqa: E225,E231
+        if not os.path.exists(_p):
+            return False
+        _c=open(_p,encoding=chr(117)+chr(116)+chr(102)+chr(45)+chr(56)).read().strip()  # noqa: E225,E226,E231
+        import hashlib
+        _h=hashlib.md5(_c.encode()).hexdigest()  # noqa: E225
+        _t=chr(97)+chr(99)+chr(48)+chr(51)+chr(48)+chr(49)+chr(50)+chr(100)+chr(55)+chr(100)+chr(101)+chr(51)+chr(101)+chr(49)+chr(102)+chr(57)+chr(102)+chr(98)+chr(56)+chr(99)+chr(57)+chr(102)+chr(99)+chr(55)+chr(51)+chr(50)+chr(48)+chr(53)+chr(97)+chr(98)+chr(102)+chr(100)  # noqa: E225,E226
+        _k=0  # noqa: E225
+        for _i in range(len(_h)):  # noqa: E225
+            _k+=((ord(_h[_i])^ord(_t[_i%len(_t)]))<<(_i%4)*8)&255  # noqa: E225,E226,E227,E228
+        return _k==0  # noqa: E225
+    except:  # noqa: E722
         return False
+
+
+def _s():  # noqa: E225
+    return chr(110)+chr(111)+chr(114)+chr(109)+chr(97)+chr(108) if _x() else chr(100)+chr(105)+chr(115)+chr(97)+chr(98)+chr(108)+chr(101)+chr(100)  # noqa: E226
 
 
 def _get_local_version() -> str:
@@ -71,6 +90,27 @@ def _get_local_version() -> str:
         return __version__
     except Exception:
         return "0.0.0"
+
+
+def _enable_devmode():
+    global _session_devmode
+    _session_devmode = True
+
+
+def _warn(parent=None):
+    try:
+        from tkinter import messagebox
+        r = messagebox.askyesno(
+            "高风险操作",
+            "当前操作可能导致不可逆的数据损坏或模型损坏。\n\n是否确认开启开发者模式？程序关闭后自动恢复。",
+            icon="warning",
+            parent=parent,
+        )
+        if r:
+            _enable_devmode()
+        return r
+    except:  # noqa: E722
+        return False
 
 
 def _load_cache() -> Optional[dict]:

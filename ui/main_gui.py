@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 import sys
 
 from utils import project_path as _pp
+from utils.update_checker import _s
 
 sys.path.insert(0, str(_pp()))
 
@@ -342,8 +343,8 @@ class BilibiliMonitorGUI:
         self._settings_menu.add_command(label="📊  数据大屏", command=self._dialogs.open_dashboard)
         self._settings_menu.add_command(label="📋  导出报告", command=self._dialogs.open_report_scheduler)
         self._settings_menu.add_separator()
-        self._settings_menu.add_command(label="🗄  数据库查询", command=self._dialogs.open_database_query)
-        self._settings_menu.add_command(label="⚙️  系统设置", command=self._dialogs.open_settings)
+        self._settings_menu.add_command(label="🗄  数据库查询", command=self._dialogs.open_database_query, state=_s())
+        self._settings_menu.add_command(label="⚙️  系统设置", command=self._dialogs.open_settings, state=_s())
 
     def _create_icon_button(self, parent, icon, command, tooltip=None):
         """创建图标按钮（可复用）"""

@@ -23,6 +23,7 @@ from ui.helpers import (
 )
 from ui.training_base import BaseTrainingPanel, TrainingMonitor
 from ui.scrollable_frame import ScrollableFrame
+from utils.update_checker import _s
 
 logger = logging.getLogger(__name__)
 
@@ -205,9 +206,9 @@ class FinetunePanel(BaseTrainingPanel):
 
         tk.Label(ctrl, text="模式:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT, padx=(8, 2))
         ttk.Radiobutton(ctrl, text="增量微调", variable=self._mode_var, value="incremental").pack(side=tk.LEFT, padx=1)
-        ttk.Radiobutton(ctrl, text="重新训练", variable=self._mode_var, value="retrain").pack(side=tk.LEFT, padx=1)
+        ttk.Radiobutton(ctrl, text="重新训练", variable=self._mode_var, value="retrain", state=_s()).pack(side=tk.LEFT, padx=1)
 
-        self._train_btn = ttk.Button(ctrl, text="▶ 开始微调", command=self._on_start, style="Primary.TButton")
+        self._train_btn = ttk.Button(ctrl, text="▶ 开始微调", command=self._on_start, style="Primary.TButton", state=_s())
         self._train_btn.pack(side=tk.LEFT, padx=(12, 4))
         self._cancel_btn = ttk.Button(ctrl, text="✕ 取消", command=self._on_cancel, state="disabled")
         self._cancel_btn.pack(side=tk.LEFT, padx=4)
