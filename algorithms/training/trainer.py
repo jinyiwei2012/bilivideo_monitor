@@ -436,10 +436,13 @@ class ModelTrainer:
             logger.error("无法导入 AlgorithmRegistry: %s", e)
             return None
         AlgorithmRegistry.initialize()
-        algo = AlgorithmRegistry.get_algorithm_by_id(algo_id)
-        if algo is not None:
-            return algo
-        return None
+        algo = AlgorithmRegistry.get_algorithm(algo_id)
+        if algo is None:
+            return None
+        # 解包 ModelAlgorithmAdapter → 底层算法实例，以访问 build_model / get_loss_fn 等
+        if hasattr(algo, "algo"):
+            return algo.algo
+        return algo
 
 
 def _default_preprocess(batch):
