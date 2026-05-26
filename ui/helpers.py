@@ -46,7 +46,7 @@ def reload_thresholds():
     - 新格式: thresholds = [[100000, "10万"], [1000000, "100万"], ...]
     - 旧格式: thresholds = [100000, 1000000, ...] + 自动生成名称
     """
-    global THRESHOLDS, THRESHOLD_NAMES, THRESH_COLORS
+    global THRESHOLDS, THRESHOLD_NAMES, THRESH_COLORS  # noqa: F824
     try:
         from config import load_config
 

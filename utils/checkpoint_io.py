@@ -43,11 +43,11 @@ def export_checkpoints(output_path: Optional[str] = None) -> str:
 
 def import_checkpoints(zip_path: str, merge: bool = True) -> int:
     """从 zip 文件导入 checkpoint。
-    
+
     Args:
         zip_path: zip 文件路径
         merge: True 时合并（同名跳过），False 时覆盖
-        
+
     Returns:
         导入的算法数量
     """

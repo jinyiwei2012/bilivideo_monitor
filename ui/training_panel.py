@@ -824,7 +824,7 @@ class TrainingPanel(BaseTrainingPanel):
             try:
                 lr = float(self._lr_var.get())
             except (ValueError, TypeError):
-                messagebox.showerror("LR 无效", f"请输入有效的学习率数值", parent=self.frame)
+                messagebox.showerror("LR 无效", "请输入有效的学习率数值", parent=self.frame)
                 return
             lr = max(1e-8, min(1.0, lr))
             lr_label = f"手动 ({lr:.6f})"
