@@ -8,7 +8,6 @@ import time
 import math
 import random
 import logging
-from utils import project_path
 import threading
 import warnings
 from typing import Dict, List, Optional, Any, Tuple
@@ -93,16 +92,10 @@ class BilibiliAPI:
         self._consecutive_412_errors = 0
         self._last_request_time = 0
         self._min_request_interval = 0.5  # 最小请求间隔（秒）
-
-        # 公开 API 复用 Session（首次调用时懒创建）
-        self._public_session = None
         self._interval_lock = threading.Lock()  # 线程安全保护
 
         # cookie支持
         self._cookies: Dict = {}
-        # 扫码登录刷新凭证（快过期时自动续签）
-        self._refresh_token: str = ""
-        self._cfg_path: str = ""
 
         # 启动时加载已保存的 Cookie 和代理
         self._load_saved_network_config()
@@ -110,55 +103,31 @@ class BilibiliAPI:
         self.proxy_manager.init_ua_bindings()
 
     def _load_saved_network_config(self):
-        """从 network_config.json 加载已保存的 Cookie、代理和刷新凭证"""
+        """从 network_config.json 加载已保存的 Cookie 和代理"""
         try:
             import json
             import os
 
-            cfg_path = project_path("data", "network_config.json")
-            self._cfg_path = cfg_path
+            from utils.crypto import decrypt_dict
+
+            cfg_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "network_config.json")
             if os.path.exists(cfg_path):
                 with open(cfg_path, "r", encoding="utf-8") as f:
                     net_cfg = json.load(f)
                 cookies = net_cfg.get("cookies", {})
                 if cookies:
+                    # 解密 Cookie 值
+                    decrypt_dict(cookies, "SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid")
                     self._cookies = cookies
                     self.session.cookies.update(cookies)
-                    logger.debug(f"已加载 {len(cookies)} 个 Cookie")
-                self._refresh_token = net_cfg.get("refresh_token", "")
-                if self._refresh_token:
-                    logger.debug("已加载 Cookie 刷新凭证")
+                    logger.info(f"已加载 {len(cookies)} 个 Cookie")
                 proxy_urls = net_cfg.get("proxies", [])
                 if proxy_urls:
                     for p in proxy_urls:
                         self.proxy_manager.add_proxy({"http": p, "https": p})
-                    logger.debug(f"已加载 {len(proxy_urls)} 个代理")
+                    logger.info(f"已加载 {len(proxy_urls)} 个代理")
         except Exception as e:
             logger.warning(f"加载网络配置失败: {e}")
-
-    def _save_network_config(self):
-        """将当前 Cookie、代理和刷新凭证持久化到 network_config.json"""
-        try:
-            import json
-            import os
-
-            if not self._cfg_path:
-                self._cfg_path = project_path("data", "network_config.json")
-            os.makedirs(os.path.dirname(self._cfg_path), exist_ok=True)
-
-            # 读取已有配置，保留未知字段
-            cfg = {}
-            if os.path.exists(self._cfg_path):
-                with open(self._cfg_path, "r", encoding="utf-8") as f:
-                    cfg = json.load(f)
-
-            cfg["cookies"] = self._cookies
-            cfg["refresh_token"] = self._refresh_token
-            with open(self._cfg_path, "w", encoding="utf-8") as f:
-                json.dump(cfg, f, ensure_ascii=False, indent=2)
-            logger.debug("网络配置已保存")
-        except Exception as e:
-            logger.warning("保存网络配置失败: %s", e)
 
     def _update_headers(self, extra_headers: Dict = None):
         """更新请求头"""
@@ -178,15 +147,6 @@ class BilibiliAPI:
         self._cookies = cookies
         self.session.cookies.update(cookies)
         logger.info("已设置Cookie")
-
-    def set_refresh_token(self, token: str):
-        """设置刷新凭证"""
-        self._refresh_token = token
-        self._save_network_config()
-        logger.debug("已保存 Cookie 刷新凭证")
-
-    def get_refresh_token(self) -> str:
-        return self._refresh_token
 
     def _on_request_failure(self, proxy_idx: Optional[int] = None):
         """标记请求失败：委托 ProxyManager 处理并更新 session UA"""
@@ -304,7 +264,6 @@ class BilibiliAPI:
         if proxy:
             request_kwargs["proxies"] = proxy
             # SOCKS/HTTP代理可能使用自签名证书，关闭SSL验证
-            # 代理使用自签名证书，需关闭验证。确保代理 URL 可信。
             request_kwargs.setdefault("verify", False)  # nosec — local proxies use self-signed certs
             masked = self.proxy_manager.mask_url(proxy.get("http", ""))
             logger.debug(f"→ 请求代理: {masked}")
@@ -355,32 +314,25 @@ class BilibiliAPI:
         return data.get("data") if "data" in data else None, False
 
     def _request_public(self, method: str, url: str, **kwargs) -> Any:
-        """使用复用 Session 请求公开 API（免登录回退，支持代理绑定）"""
+        """使用无Cookie的独立Session请求公开API（免登录回退，支持代理绑定）"""
         import requests as _req
 
-        if self._public_session is None:
-            self._public_session = _req.Session()
-            adapter = _req.adapters.HTTPAdapter(pool_connections=10, pool_maxsize=10)
-            self._public_session.mount("https://", adapter)
-            self._public_session.mount("http://", adapter)
-
-        # 每次按当前代理绑定刷新 UA + 代理
-        idx, proxy, ua = self.proxy_manager.get_proxy_binding()
-        self._public_session.headers.update(
+        public_session = _req.Session()
+        public_session.headers.update(
             {
-                "User-Agent": ua or random.choice(self.USER_AGENTS),
+                "User-Agent": random.choice(self.USER_AGENTS),
                 "Referer": "https://www.bilibili.com/",
             }
         )
+        # 绑定代理
+        idx, proxy, ua = self.proxy_manager.get_proxy_binding()
         if proxy:
-            self._public_session.proxies.update(proxy)
+            public_session.proxies.update(proxy)
+            public_session.headers["User-Agent"] = ua or public_session.headers["User-Agent"]
             kwargs.setdefault("verify", False)  # nosec
-        elif self._public_session.proxies:
-            self._public_session.proxies.clear()
-
         logger.debug("→ [public] %s %s", method.upper(), url.split("?")[0])
         try:
-            resp = self._public_session.request(method, url, timeout=15, **kwargs)
+            resp = public_session.request(method, url, timeout=15, **kwargs)
             logger.debug("← [public] %s", resp.status_code)
             if resp.status_code != 200:
                 return None
@@ -391,7 +343,7 @@ class BilibiliAPI:
             logger.debug(f"公共API请求失败: {e}")
             return None
         finally:
-            self._public_session.close()
+            public_session.close()
         return None
 
     def _get_retry_delay(self, attempt: int) -> float:
@@ -694,8 +646,7 @@ class BilibiliAPI:
                 return []
             import xml.etree.ElementTree as ET
 
-            parser = ET.XMLParser(resolve_entities=False)
-            root = ET.fromstring(resp.content, parser)  # nosec B314
+            root = ET.fromstring(resp.content)  # nosec B314
             danmaku = []
             for d in root.findall(".//d"):
                 p = d.get("p", "")
@@ -917,15 +868,33 @@ class BilibiliAPI:
             cookies = self._extract_login_cookies(resp, d)
             if cookies:
                 self.set_cookies(cookies)
+                self._persist_cookies(cookies)
                 result["cookies"] = cookies
-            # 捕获刷新凭证，用于后续自动续签
-            refresh_token = d.get("refresh_token", "")
-            if refresh_token:
-                self.set_refresh_token(refresh_token)
-                result["refresh_token"] = refresh_token
         except Exception as e:
             result["message"] = f"轮询异常: {e}"
         return result
+
+    def _persist_cookies(self, cookies: dict):
+        """将 Cookie 加密写入 network_config.json"""
+        if not cookies:
+            return
+        try:
+            import json
+            import os
+
+            from utils.crypto import encrypt_dict
+
+            cfg_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "network_config.json")
+            net_cfg = {}
+            if os.path.exists(cfg_path):
+                with open(cfg_path, "r", encoding="utf-8") as f:
+                    net_cfg = json.load(f)
+            net_cfg["cookies"] = cookies
+            encrypt_dict(net_cfg["cookies"], "SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid")
+            with open(cfg_path, "w", encoding="utf-8") as f:
+                json.dump(net_cfg, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.warning("持久化 Cookie 失败: %s", e)
 
     @staticmethod
     def _extract_login_cookies(resp, data: dict) -> dict:
@@ -961,309 +930,6 @@ class BilibiliAPI:
 
         return cookies
 
-    # ── 密码登录 ────────────────────────────────────────────
 
-    def login_with_password(self, username: str, password: str, captcha: str = "",
-                            captcha_type: int = 0) -> Dict:
-        """使用账号密码登录 B站
-
-        B站登录流程：
-        1. GET /api/v2/oauth2/getKey → 获取 RSA 公钥 + hash
-        2. RSA PKCS1_v1_5 加密 hash+password
-        3. POST /api/v2/oauth2/login → 获取 Cookie
-
-        Args:
-            username: 账号
-            password: 密码
-            captcha: 验证码（短信验证码，首次调用填空）
-            captcha_type: 验证码类型（6=短信验证码，0=无）
-
-        Returns:
-            {"code": 0, "cookies": {...}, "refresh_token": "", "message": "",
-             "need_captcha": False, "captcha_type": 0}
-        """
-        result: Dict = {"code": -1, "cookies": {}, "refresh_token": "", "message": "",
-                        "need_captcha": False, "captcha_type": 0}
-
-        # 如果非验证码提交，首次触发可尝试自动重试绕开验证
-        if not captcha:
-            r = self._login_with_password_attempt(username, password, "", 0)
-            if r.get("code") == 0 or not r.get("need_captcha"):
-                return r
-
-            # 有验证码 — 短暂重试一次（可能设备指纹生效后跳过）
-            time.sleep(3)
-            r2 = self._login_with_password_attempt(username, password, "", 0)
-            if r2.get("code") == 0 or not r2.get("need_captcha"):
-                return r2
-
-            # 还是需要验证码 — 尝试自动过滑块验证码（非短信验证时）
-            ct = r.get("captcha_type", 0)
-            gt = r.get("gt", "")
-            challenge = r.get("challenge", "")
-            if ct == 0 and gt and challenge:
-                logger.info("尝试自动过 Geetest 滑块验证码...")
-                try:
-                    from utils.geetest_solver import solve as _solve_geetest
-
-                    result = _solve_geetest(gt, challenge)
-                    if result:
-                        validate, seccode = result
-                        r3 = self._login_with_password_attempt(
-                            username, password, captcha="", captcha_type=0,
-                            geetest_validate=validate, geetest_seccode=seccode,
-                            geetest_challenge=challenge,
-                        )
-                        if r3.get("code") == 0 or not r3.get("need_captcha"):
-                            return r3
-                        logger.warning("geetest 验证通过但登录仍失败")
-                    else:
-                        logger.warning("geetest 自动验证失败")
-                except ImportError:
-                    logger.warning("opencv 未安装，无法自动过滑块验证码")
-                except Exception as e:
-                    logger.warning("geetest 自动求解异常: %s", e)
-
-            # 仍然需要验证码，返回结果让 UI 处理
-            return r
-
-        # 已有验证码，直接提交
-        return self._login_with_password_attempt(username, password, captcha, captcha_type)
-
-    def _login_with_password_attempt(self, username: str, password: str, captcha: str = "",
-                                      captcha_type: int = 0,
-                                      geetest_validate: str = "",
-                                      geetest_seccode: str = "",
-                                      geetest_challenge: str = "") -> Dict:
-        """一次登录尝试（不自动重试）"""
-        result: Dict = {"code": -1, "cookies": {}, "refresh_token": "", "message": "",
-                        "need_captcha": False, "captcha_type": 0}
-        try:
-            # 生成设备指纹，帮助减少验证码触发
-            if not self._session.cookies.get("buvid3"):
-                import uuid as _uuid
-                self._session.cookies.set("buvid3", _uuid.uuid4().hex.upper(), domain=".bilibili.com")
-
-            # Step 1: 获取 RSA 公钥 + token
-            key_resp = requests.get(
-                "https://passport.bilibili.com/x/passport-login/web/key",
-                headers={"User-Agent": random.choice(self.USER_AGENTS), "Referer": "https://www.bilibili.com/"},
-                timeout=15,
-            )
-            if key_resp.status_code != 200:
-                result["message"] = f"获取密钥失败: HTTP {key_resp.status_code}"
-                return result
-            key_data = key_resp.json()
-            if key_data.get("code") != 0:
-                result["message"] = f"获取密钥失败: {key_data.get('message', '')}"
-                return result
-            key_info = key_data.get("data", {})
-            rsa_key = key_info.get("key", "")
-            rsa_hash = key_info.get("hash", "")
-            login_token = key_info.get("token", "")
-
-            # Step 2: RSA 加密密码
-            from Cryptodome.PublicKey import RSA as _RSA
-            from Cryptodome.Cipher import PKCS1_v1_5 as _PKCS1
-
-            pubkey = _RSA.import_key(rsa_key)
-            cipher = _PKCS1.new(pubkey)
-            encrypted = cipher.encrypt((rsa_hash + password).encode("utf-8"))
-            import base64 as _b64
-
-            encrypted_password = _b64.b64encode(encrypted).decode("utf-8")
-
-            # Step 3: 登录
-            login_body = {
-                "username": username,
-                "password": encrypted_password,
-                "keep": "true",
-                "key": rsa_key,
-                "token": login_token,
-            }
-            if captcha:
-                login_body["captcha"] = captcha
-            if captcha_type:
-                login_body["captcha_type"] = str(captcha_type)
-            if geetest_validate:
-                login_body["validate"] = geetest_validate
-                login_body["seccode"] = geetest_seccode
-                login_body["challenge"] = geetest_challenge
-
-            login_resp = self._session.post(
-                "https://passport.bilibili.com/x/passport-login/web/login",
-                data=login_body,
-                headers={
-                    "User-Agent": random.choice(self.USER_AGENTS),
-                    "Referer": "https://www.bilibili.com/",
-                    "Content-Type": "application/x-www-form-urlencoded",
-                },
-                timeout=30,
-            )
-            if login_resp.status_code != 200:
-                result["message"] = f"登录失败: HTTP {login_resp.status_code}"
-                return result
-            resp_data = login_resp.json()
-            if resp_data.get("code") != 0:
-                result["code"] = resp_data.get("code", -1)
-                result["message"] = resp_data.get("message", "登录失败")
-                # -629 = 需要验证码
-                if resp_data.get("code") == -629:
-                    bd = resp_data.get("data", {})
-                    result["need_captcha"] = True
-                    ct = bd.get("captcha_type", 0)
-                    result["captcha_type"] = ct
-                    result["captcha_url"] = bd.get("url", "")
-                    result["captcha_phone"] = bd.get("phone", "")
-                    result["tmp_token"] = bd.get("tmp_token", "")
-                    result["gt"] = bd.get("gt", "")
-                    result["challenge"] = bd.get("challenge", "")
-                    result["message"] = bd.get("message", "需要安全验证")
-                elif resp_data.get("code") == -1057:
-                    result["message"] += "，请检查账号密码"
-                return result
-
-            # 登录成功
-            d = resp_data.get("data", {})
-            token_info = d.get("token_info", d)
-            cookies = {}
-            for k in ("SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid"):
-                val = token_info.get(k, "")
-                if val:
-                    cookies[k] = val
-
-            if not cookies:
-                cookies = self._extract_login_cookies(login_resp, token_info)
-
-            if cookies:
-                self.set_cookies(cookies)
-
-            refresh_token = token_info.get("refresh_token", "")
-            if refresh_token:
-                self.set_refresh_token(refresh_token)
-
-            result["code"] = 0
-            result["cookies"] = cookies
-            result["refresh_token"] = refresh_token
-            result["message"] = "登录成功"
-        except Exception as e:
-            result["message"] = f"登录异常: {e}"
-        return result
-
-    # ── Cookie 刷新 ────────────────────────────────────────────
-
-    def _refresh_cookies(self) -> bool:
-        """使用 refresh_token 刷新过期的 SESSDATA
-
-        B站刷新流程：
-        1. POST /x/passport-login/web/cookie/refresh → 获取新 Cookie
-        2. 若 data.status == 0 需 POST /confirm 确认
-
-        Returns:
-            True 刷新成功，False 失败
-        """
-        if not self._refresh_token or not self._cookies.get("bili_jct"):
-            return False
-
-        csrf = self._cookies["bili_jct"]
-        url = "https://passport.bilibili.com/x/passport-login/web/cookie/refresh"
-        try:
-            resp = self.session.post(
-                url,
-                data={"csrf": csrf, "refresh_token": self._refresh_token},
-                headers={"User-Agent": random.choice(self.USER_AGENTS), "Referer": "https://www.bilibili.com/"},
-                timeout=15,
-            )
-            if resp.status_code != 200:
-                logger.warning("Cookie 刷新失败: HTTP %s", resp.status_code)
-                return False
-            data = resp.json()
-            if data.get("code") != 0:
-                logger.warning("Cookie 刷新失败: %s", data.get("message", ""))
-                return False
-            d = data.get("data", {})
-            refresh_status = d.get("status", 0)
-            # 提取新 Cookie
-            new_cookies = self._extract_login_cookies(resp, d)
-            if not new_cookies and "cookie_info" in d:
-                for c in d["cookie_info"].get("cookies", []):
-                    name = c.get("name", "")
-                    if name in ("SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid"):
-                        new_cookies[name] = c.get("value", "")
-            if not new_cookies:
-                logger.warning("Cookie 刷新失败: 未提取到新 Cookie")
-                return False
-
-            # 需要确认
-            if refresh_status == 0:
-                confirm_url = "https://passport.bilibili.com/x/passport-login/web/cookie/refresh/confirm"
-                confirm_resp = self.session.post(
-                    confirm_url,
-                    data={"csrf": new_cookies.get("bili_jct", csrf), "refresh_token": self._refresh_token},
-                    headers={
-                        "User-Agent": random.choice(self.USER_AGENTS),
-                        "Referer": "https://www.bilibili.com/",
-                    },
-                    timeout=15,
-                )
-                if confirm_resp.status_code == 200:
-                    confirm_data = confirm_resp.json()
-                    if confirm_data.get("code") == 0:
-                        # 确认后可能再返回一次 Cookie
-                        confirm_d = confirm_data.get("data", {})
-                        confirm_cookies = self._extract_login_cookies(confirm_resp, confirm_d)
-                        if confirm_cookies:
-                            new_cookies.update(confirm_cookies)
-
-            # 应用新 Cookie
-            self._cookies.update(new_cookies)
-            self.session.cookies.update(new_cookies)
-            self._save_network_config()
-            logger.info("Cookie 已自动续签刷新")
-            return True
-        except Exception as e:
-            logger.warning("Cookie 刷新异常: %s", e)
-            return False
-
-    def _try_auto_refresh_cookies(self) -> bool:
-        """检查当前 Cookie 状态，快过期时自动刷新
-
-        先通过 nav 接口验证登录状态，若 Cookie 失效但有 refresh_token 则自动刷新。
-
-        Returns:
-            True 刷新成功或无需刷新，False 刷新失败
-        """
-        has_sessdata = bool(self._cookies.get("SESSDATA"))
-        if not has_sessdata:
-            return True  # 没有 Cookie 也就不需要刷新
-
-        # 验证登录状态
-        try:
-            nav = self._request("GET", f"{self.BASE_URL}/x/web-interface/nav", skip_retry=True)
-            if nav and nav.get("isLogin"):
-                return True  # Cookie 仍有效
-        except Exception:
-            pass
-
-        # Cookie 可能已过期，尝试自动刷新
-        if self._refresh_token:
-            logger.info("Cookie 可能已过期，尝试自动续签...")
-            return self._refresh_cookies()
-        return False
-
-
-# 全局API实例（惰性初始化）
-_bilibili_api = None
-
-
-def get_bilibili_api():
-    """获取全局 BilibiliAPI 单例（惰性初始化）"""
-    global _bilibili_api
-    if _bilibili_api is None:
-        _bilibili_api = BilibiliAPI()
-        # 启动后静默检查 Cookie 有效性，过期且可续签则自动刷新
-        try:
-            _bilibili_api._try_auto_refresh_cookies()
-        except Exception:
-            pass
-    return _bilibili_api
+# 全局API实例
+bilibili_api = BilibiliAPI()

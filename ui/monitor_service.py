@@ -8,8 +8,7 @@ import time
 import logging
 from datetime import datetime
 from algorithms.registry import AlgorithmRegistry
-from core import get_bilibili_api, get_db, MonitorRecord, PredictionRecord, notification_manager
-from utils.time_utils import normalize_timestamp, safe_datetime
+from core import bilibili_api, db, MonitorRecord, PredictionRecord
 from ui.helpers import (
     THRESHOLDS,
     THRESHOLD_NAMES,
@@ -27,14 +26,6 @@ _merged_from_db = set()
 # UP主数据库实例 & 拉取频率控制（每 UP主 每小时最多拉取一次）
 _up_db = None
 _last_up_fetch_time = {}  # uid -> time.time
-
-# 单视频内存历史上限 / 保留下限（缓降策略，避免一次性裁剪过多）
-_MAX_HISTORY_PER_VIDEO = 3000
-_KEEP_HISTORY_PER_VIDEO = 2800
-
-# 已通知的阈值追踪，防止同一阈值的重复推送
-_notified_thresholds = {}  # bvid -> set of threshold values
-_notified_lock = threading.Lock()
 
 # ──────────────────────────────────────────────
 #  内部工具
@@ -94,26 +85,31 @@ def _merge_history(gui, bvid: str) -> list:
     with gui._data_lock:
         history = list(gui.history_data.get(bvid, []))
 
-    with _notified_lock:
-        if bvid not in _merged_from_db:
-            try:
-                if bvid in gui.video_dbs:
-                    db_hist = gui.video_dbs[bvid].get_all_records()
-                    if db_hist:
+    if bvid not in _merged_from_db:
+        try:
+            if bvid in gui.video_dbs:
+                db_hist = gui.video_dbs[bvid].get_all_records()
+                if db_hist:
 
-                        def _norm(ts):
-                            """统一时间戳格式用于去重比较"""
-                            _, _, ts_str = normalize_timestamp(ts)
-                            return ts_str
+                    def _norm(ts):
+                        """统一时间戳格式用于去重比较"""
+                        if isinstance(ts, datetime):
+                            return ts.strftime("%Y-%m-%d %H:%M:%S")
+                        dt = (
+                            datetime.fromisoformat(str(ts))
+                            if isinstance(ts, str)
+                            else datetime.fromtimestamp(float(ts))
+                        )
+                        return dt.strftime("%Y-%m-%d %H:%M:%S")
 
-                        existing_ts = {_norm(h[0]) for h in history}
-                        for row in db_hist:
-                            ts_str = _norm(row["timestamp"])
-                            if ts_str not in existing_ts:
-                                history.append((row["timestamp"], row["view_count"]))
-            except Exception as e:
-                logger.warning(f"合并历史记录失败 {bvid}: {e}")
-            _merged_from_db.add(bvid)
+                    existing_ts = {_norm(h[0]) for h in history}
+                    for row in db_hist:
+                        ts_str = _norm(row["timestamp"])
+                        if ts_str not in existing_ts:
+                            history.append((row["timestamp"], row["view_count"]))
+        except Exception as e:
+            logger.warning(f"合并历史记录失败 {bvid}: {e}")
+        _merged_from_db.add(bvid)
 
     history.sort(key=lambda x: _to_dt(x[0]))
 
@@ -122,19 +118,15 @@ def _merge_history(gui, bvid: str) -> list:
         history = [(now, current_view), (now, current_view)]
 
     # 同步回 gui.history_data，让图表也能看到合并后的完整数据
-    # 使用增量替换而非直接覆盖，避免丢失合并期间其他线程新增的记录
     with gui._data_lock:
-        existing = dict(gui.history_data.get(bvid, []))
-        merged = dict(history)
-        existing.update(merged)
-        gui.history_data[bvid] = sorted(existing.items(), key=lambda x: _to_dt(x[0]))
+        gui.history_data[bvid] = [(ts, v) for ts, v in history]
 
     return history
 
 
 def _to_dt(t):
     """统一时间戳转为 datetime"""
-    return safe_datetime(t)
+    return t if isinstance(t, datetime) else datetime.fromisoformat(str(t))
 
 
 def _get_up_db():
@@ -157,12 +149,12 @@ def _save_up_data(uid: int):
     _last_up_fetch_time[uid] = now
 
     try:
-        info = get_bilibili_api().get_up_info(uid)
+        info = bilibili_api.get_up_info(uid)
         if not info:
             logger.debug("获取UP主信息失败 UID:%s", uid)
             return
 
-        stat = get_bilibili_api().get_up_stat(uid)
+        stat = bilibili_api.get_up_stat(uid)
         if stat:
             info["total_views"] = stat.get("total_views", 0)
             info["total_likes"] = stat.get("total_likes", 0)
@@ -188,7 +180,10 @@ def _calc_growth_rate(history: list) -> float:
         if len(history) < 2:
             return 0.0
 
-        first_ts, first_v = safe_datetime(history[0][0]), history[0][1]
+        def _to_dt(t):
+            return t if isinstance(t, datetime) else datetime.fromisoformat(str(t))
+
+        first_ts, first_v = _to_dt(history[0][0]), history[0][1]
         last_ts, last_v = _to_dt(history[-1][0]), history[-1][1]
         dt_sec = (last_ts - first_ts).total_seconds()
         if dt_sec > 0 and last_v > first_v:
@@ -222,25 +217,10 @@ def _predict_single(gui, bvid, video) -> dict:
             if "error" in r:
                 fail_list.append((name, r["error"]))
             else:
-                meta = r.get("metadata", {})
-                predicted_hours = meta.get("predicted_hours", 0)
-                success_list.append((
-                    name,
-                    r["prediction"],
-                    r["weight"],
-                    r["confidence"],
-                    predicted_hours,
-                ))
+                success_list.append((name, r["prediction"], r["weight"], r["confidence"]))
 
         growth = w_pred - current_view
         rate_per_sec = _calc_growth_rate(history)
-
-        # 在线学习反馈
-        _online_learning_feedback(gui, bvid, results, current_view)
-        # 图神经网络更新（内部缓存边，无变更时跳过重建）
-        _update_video_graph(gui, bvid, video)
-        # 写数据库
-        _save_predictions_to_db(gui, bvid, current_view, results)
 
         result = {
             "bvid": bvid,
@@ -253,23 +233,40 @@ def _predict_single(gui, bvid, video) -> dict:
             "valid": weighted.get("valid_algorithms", 0),
             "total": weighted.get("total_algorithms", 0),
         }
+        # 在线学习反馈（使用上次预测值与当前实际值比较）
         with gui._data_lock:
+            prev_result = gui.prediction_results.get(bvid)
             gui.prediction_results[bvid] = result
+        _online_learning_feedback(gui, bvid, results, current_view, prev_result)
+
+        # 图神经网络更新（内部缓存边，无变更时跳过重建）
+        _update_video_graph(gui, bvid, video)
+        # 写数据库
+        _save_predictions_to_db(gui, bvid, current_view, results)
+
         return result
 
 
-def _online_learning_feedback(gui, bvid, results, actual_view):
+def _online_learning_feedback(gui, bvid, results, actual_view, prev_result):
+    """在线学习反馈：使用速度偏差替代绝对值比较
+
+    比较「上次预测的增长量」与「实际增长量」，避免静止期 100% 准确率的虚假提升。
+    """
+    if prev_result is None or actual_view <= 0:
+        return
     try:
         from algorithms.online_learner import get_online_learner
 
-        prev = gui.prediction_results.get(bvid)
-        # 仅在播放量实际发生变化时才反馈，避免静止期虚高准确率
-        if prev and actual_view > 0 and actual_view != prev.get("current_view", actual_view):
+        prev_prediction = prev_result.get("prediction", 0)
+        if prev_prediction > 0:
             learner = get_online_learner()
             learner.register(bvid + "/_weighted")
-            learner.update(bvid + "/_weighted", predicted=prev["prediction"], actual=actual_view)
-            for name, pred_val, _, _, _ in prev.get("success_list", []):
+            learner.update(bvid + "/_weighted", predicted=prev_prediction, actual=actual_view)
+
+        for name, pred_val, _, _ in prev_result.get("success_list", []):
+            if pred_val > 0:
                 algo_key = bvid + "/" + name
+                learner = get_online_learner()
                 learner.register(algo_key)
                 learner.update(algo_key, predicted=pred_val, actual=actual_view)
     except Exception as e:
@@ -350,12 +347,7 @@ class VideoWorker:
             with self._interval_lock:
                 interval = self.interval
 
-            try:
-                self._fetch_and_predict()
-            except Exception as e:
-                logger.exception("[%s] _fetch_and_predict 异常: %s", self.bvid, e)
-                with self._fetching_lock:
-                    self._fetching = False
+            self._fetch_and_predict()
 
             # 分段睡眠，支持中途停止检查
             waited = 0
@@ -378,15 +370,15 @@ class VideoWorker:
                 return
             self._fetching = True
 
-        self._log("INFO", f"[{bvid}] 开始拉取数据…")
+        self._log("DEBUG", f"[{bvid}] 开始拉取数据…")
         # 记录当前使用的代理（脱敏显示协议+IP前3位）
-        proxy_hint = get_bilibili_api().proxy_manager.peek_proxy()
+        proxy_hint = bilibili_api.proxy_manager.peek_proxy()
         if proxy_hint:
-            self._log("DEBUG", f"[{bvid}] 开始通过代理 {proxy_hint} 拉取数据…")
+            self._log("INFO", f"[{bvid}] 开始通过代理 {proxy_hint} 拉取数据…")
         else:
             self._log("INFO", f"[{bvid}] 开始直连拉取数据…")
         try:
-            info = get_bilibili_api().get_video_info(bvid)
+            info = bilibili_api.get_video_info(bvid)
             if not info:
                 self._log("WARNING", f"[{bvid}] 获取视频信息失败（返回 None）")
                 with self._fetching_lock:
@@ -416,7 +408,6 @@ class VideoWorker:
         owner_id = owner.get("mid", 0)
         if owner_id:
             _save_up_data(owner_id)
-        old_views = video.get("view_count", 0)
         video["view_count"] = stat.get("view", video.get("view_count", 0))
         video["like_count"] = stat.get("like", video.get("like_count", 0))
         video["coin_count"] = stat.get("coin", video.get("coin_count", 0))
@@ -429,7 +420,7 @@ class VideoWorker:
         try:
             cid = info.get("cid", 0)
             if cid:
-                viewers = get_bilibili_api().get_video_viewers(bvid, cid)
+                viewers = bilibili_api.get_video_viewers(bvid, cid)
                 if viewers:
                     self._log("DEBUG", f"[{bvid}] 在线响应 总:{viewers.get('total', '0')} 网页:{viewers.get('count', '0')}")
                     video["viewers_total_raw"] = viewers.get("total", "0")
@@ -451,38 +442,15 @@ class VideoWorker:
             video["viewers_web"] = video.get("viewers_web", 0)
             video["viewers_app"] = video.get("viewers_app", 0)
 
-        # ── 阈值突破检测 ──────────────────────────
-        new_views = video["view_count"]
-        if new_views > old_views:
-            try:
-                with _notified_lock:
-                    if bvid not in _notified_thresholds:
-                        _notified_thresholds[bvid] = set()
-                    # 首次拉取（old_views=0）时，标记所有已超越的阈值，避免首次加载爆通知
-                    if old_views == 0:
-                        for thr in THRESHOLDS:
-                            if thr <= new_views:
-                                _notified_thresholds[bvid].add(thr)
-                    else:
-                        for i, thr in enumerate(THRESHOLDS):
-                            if old_views < thr <= new_views and thr not in _notified_thresholds[bvid]:
-                                _notified_thresholds[bvid].add(thr)
-                                name = THRESHOLD_NAMES[i] if i < len(THRESHOLD_NAMES) else f"{thr:,}"
-                                title = video.get("title", bvid)[:30]
-                                notification_manager.send_threshold_notification(bvid, title, thr, new_views)
-                                self._log("INFO", f"[{bvid}] 阈值突破 {name}！当前播放量: {new_views:,}")
-            except Exception as e:
-                logger.debug("阈值突破检测失败: %s", e)
-
         # ── 历史记录 ─────────────────────────────
         ts = datetime.now()
         with gui._data_lock:
             if bvid not in gui.history_data:
                 gui.history_data[bvid] = []
             gui.history_data[bvid].append((ts, video["view_count"]))
-            # 防止内存无界增长，超过上限时缓降保留（避免一次丢掉太多）
-            if len(gui.history_data[bvid]) > _MAX_HISTORY_PER_VIDEO:
-                gui.history_data[bvid] = gui.history_data[bvid][-_KEEP_HISTORY_PER_VIDEO:]
+            # 防止内存无界增长，超过 3000 时保留最近 2800 条（缓降，避免一次丢掉 1000 条）
+            if len(gui.history_data[bvid]) > 3000:
+                gui.history_data[bvid] = gui.history_data[bvid][-2800:]
 
         # ── 写数据库 ─────────────────────────────
         try:
@@ -509,7 +477,7 @@ class VideoWorker:
 
         # 同步当前监控记录到中央数据库（避免全量扫描）
         try:
-            get_db().sync_monitor_record(
+            db.sync_monitor_record(
                 bvid,
                 {
                     "timestamp": ts.isoformat(),
@@ -537,11 +505,11 @@ class VideoWorker:
                 self._fetching = False
             return
 
-        self._log("INFO", f"[{bvid}] 拉取完成 播放:{video.get('view_count', 0):,} 预测:{result.get('prediction', 0):,}")
+        self._log("DEBUG", f"[{bvid}] 拉取完成 播放:{video.get('view_count', 0):,} 预测:{result.get('prediction', 0):,}")
 
         # 同步视频信息到中央数据库（从内存直接写入，避免新建 DB 连接 + 重复读盘）
         try:
-            get_db().sync_video_info(bvid, video)
+            db.sync_video_info(bvid, video)
         except Exception as e:
             self._log("WARNING", f"[{bvid}] 同步中央数据库失败: {e}")
 
@@ -613,10 +581,6 @@ def _stop_worker(bvid):
         worker = _active_workers.pop(bvid, None)
     if worker:
         worker.stop()
-    # 清理该视频的已通知阈值和历史合并标记，避免内存膨胀
-    with _notified_lock:
-        _notified_thresholds.pop(bvid, None)
-        _merged_from_db.discard(bvid)
 
 
 def _stop_all_workers():
@@ -720,7 +684,7 @@ def load_watch_list(gui):
     """启动时加载监控列表，并为每个视频启动独立 Worker"""
     from ui.theme import C
     from config import load_config
-    from core import get_db
+    from core import db
 
     config = load_config()
     watch_list = config.get("watch_list", [])
@@ -735,14 +699,14 @@ def load_watch_list(gui):
             if any(v.get("bvid") == bvid for v in gui.monitored_videos):
                 continue
             try:
-                info = get_bilibili_api().get_video_info(bvid)
+                info = bilibili_api.get_video_info(bvid)
                 if not info:
                     continue
                 video = gui._map_api_to_video_dict(bvid, info)
 
                 # 获取在线人数
                 try:
-                    viewers = get_bilibili_api().get_video_viewers(bvid, info.get("cid", 0))
+                    viewers = bilibili_api.get_video_viewers(bvid, info.get("cid", 0))
                     if viewers:
                         video["viewers_total_raw"] = viewers.get("total", "0")
                         video["viewers_web_raw"] = viewers.get("count", "0")
@@ -754,7 +718,7 @@ def load_watch_list(gui):
 
                 # 初始化数据库和历史
                 try:
-                    video_db = get_db().get_video_db(bvid)
+                    video_db = db.get_video_db(bvid)
                     gui.video_dbs[bvid] = video_db
                     video_db.save_video_info(video)
                     history = video_db.get_all_records()

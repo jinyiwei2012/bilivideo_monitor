@@ -3,18 +3,18 @@
 管理所有预测算法（自动扫描models目录下的所有算法）
 """
 
-from typing import Any, Dict, List, Tuple
+from typing import Dict, List, Tuple
 import logging
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from utils.time_utils import normalize_timestamp
+import threading
 
 logger = logging.getLogger(__name__)
 
 try:
-    from .weight_manager import get_weight_manager
+    from .weight_manager import weight_manager
 except ImportError:
-    get_weight_manager = None
+    weight_manager = None
 
 
 class AlgorithmRegistry:
@@ -23,7 +23,8 @@ class AlgorithmRegistry:
     _algorithms: Dict = {}
     _initialized = False
     _model_adapters = {}
-    _pool = ThreadPoolExecutor(max_workers=4)
+    _pool_lock = threading.Lock()
+    _pool = None
 
     @classmethod
     def initialize(cls):
@@ -57,28 +58,6 @@ class AlgorithmRegistry:
             traceback.print_exc()
 
     @classmethod
-    def get_trainable_algorithms(cls) -> List[Tuple[str, Any, Any]]:
-        """返回所有可训练的算法（有 build_model 方法），每项为 (algorithm_id, algo_instance, adapter)"""
-        results = []
-        for name, adapter in cls._algorithms.items():
-            algo = getattr(adapter, "algo", adapter)
-            if not hasattr(algo, "build_model"):
-                continue
-            aid = getattr(algo, "algorithm_id", None) or ""
-            if aid:
-                results.append((aid, algo, adapter))
-        return results
-
-    @classmethod
-    def get_algorithm_by_id(cls, algo_id: str):
-        """通过 algorithm_id 查找算法实例（扫描 adapter 的 algo 属性）"""
-        for name, adapter in cls._algorithms.items():
-            algo = getattr(adapter, "algo", adapter)
-            if getattr(algo, "algorithm_id", None) == algo_id:
-                return algo
-        return None
-
-    @classmethod
     def get_algorithm(cls, name: str):
         if not cls._initialized:
             cls.initialize()
@@ -102,23 +81,28 @@ class AlgorithmRegistry:
         now = datetime.now()
         history_list = []
         for ts, v in history:
-            try:
-                dt, ts_ts, ts_str = normalize_timestamp(ts)
-            except (ValueError, TypeError):
+            if isinstance(ts, datetime):
+                ts_ts = ts.timestamp()
+                ts_str = ts.strftime("%Y-%m-%d %H:%M:%S")
+            else:
                 try:
-                    ts_ts = float(ts)
-                    ts_str = str(ts)
-                    dt = datetime.fromtimestamp(ts_ts)
+                    # ISO 格式字符串（如 2026-04-21T23:48:17.189827）
+                    dt = datetime.fromisoformat(str(ts))
+                    ts_ts = dt.timestamp()
+                    ts_str = dt.strftime("%Y-%m-%d %H:%M:%S")
                 except (ValueError, TypeError):
-                    ts_ts = 0.0
-                    ts_str = str(ts)
-                    dt = now
+                    try:
+                        ts_ts = float(ts)
+                        ts_str = str(ts)
+                    except (ValueError, TypeError):
+                        ts_ts = 0.0
+                        ts_str = str(ts)
             history_list.append(
                 {
                     "view_count": v,
                     "timestamp": ts_ts,
                     "timestamp_str": ts_str,
-                    "datetime": dt,
+                    "datetime": ts if isinstance(ts, datetime) else datetime.fromtimestamp(ts_ts),
                 }
             )
         return {
@@ -149,14 +133,24 @@ class AlgorithmRegistry:
             """包装单个算法执行，供线程池调度"""
             n, algo = name_algo
             try:
-                res = algo.predict(
-                    history,
-                    current_value,
-                    thresholds=thresholds,
-                    threshold_names=threshold_names,
-                    _cached_video_data=cached_video_data,
-                )
-                w = get_weight_manager().get_weight(n) if get_weight_manager() else getattr(algo, "weight", 1.0)
+                # 使用统一接口：如果 algo 有 predict_dict 方法（ModelAlgorithmAdapter），走 dict 路径
+                if hasattr(algo, "predict_dict"):
+                    res = algo.predict_dict(
+                        history,
+                        current_value,
+                        thresholds=thresholds,
+                        threshold_names=threshold_names,
+                        _cached_video_data=cached_video_data,
+                    )
+                else:
+                    res = algo.predict(
+                        history,
+                        current_value,
+                        thresholds=thresholds,
+                        threshold_names=threshold_names,
+                        _cached_video_data=cached_video_data,
+                    )
+                w = weight_manager.get_weight(n) if weight_manager else getattr(algo, "weight", 1.0)
                 return (
                     n,
                     {
@@ -171,7 +165,11 @@ class AlgorithmRegistry:
                 logger.warning("算法 %s 预测失败: %s", n, e)
                 return n, {"prediction": current_value, "confidence": 0, "weight": 0.01, "error": str(e)}, e
 
-        futures = [cls._pool.submit(_run_single, item) for item in cls._algorithms.items()]
+        with cls._pool_lock:
+            if cls._pool is None:
+                cls._pool = ThreadPoolExecutor(max_workers=4)
+        pool = cls._pool
+        futures = [pool.submit(_run_single, item) for item in cls._algorithms.items()]
 
         for future in as_completed(futures):
             name, result, error = future.result()
@@ -215,8 +213,8 @@ class AlgorithmRegistry:
                 algo.update_accuracy(predicted, actual)
             try:
                 accuracy = algo.get_accuracy() if hasattr(algo, "get_accuracy") else 0.5
-                if get_weight_manager():
-                    get_weight_manager().update_accuracy(algorithm_name, accuracy)
+                if weight_manager is not None:
+                    weight_manager.update_accuracy(algorithm_name, accuracy)
             except Exception as e:
                 logger.debug("更新算法准确率失败 %s: %s", algorithm_name, e)
 
@@ -227,42 +225,20 @@ class AlgorithmRegistry:
 
         names = cls.get_algorithm_names()
 
-        if not get_weight_manager():
+        if weight_manager is None:
             return [{"name": n, "accuracy": 0.5, "weight": 1.0} for n in names]
+
         try:
-            return get_weight_manager().get_algorithm_info(names)
+            return weight_manager.get_algorithm_info(names)
         except Exception as e:
             logger.debug("获取算法权重信息失败: %s", e)
             return [{"name": n, "accuracy": 0.5, "weight": 1.0} for n in names]
-
-    @classmethod
-    def get_trainable_info(cls) -> List[Dict]:
-        """返回可训练算法的元信息（用于训练面板和设置面板）"""
-        from algorithms.training.checkpoint_manager import CheckpointManager
-
-        cls.initialize()
-        result = []
-        for aid, algo, _adapter in cls.get_trainable_algorithms():
-            ckpt = CheckpointManager(aid)
-            versions = ckpt.list_versions()
-            result.append({
-                "algorithm_id": aid,
-                "name": getattr(algo, "name", aid),
-                "category": getattr(algo, "category", ""),
-                "has_ckpt": ckpt.has_checkpoint(),
-                "active_version": ckpt.active_version() or "",
-                "version_count": len(versions),
-            })
-        result.sort(key=lambda r: (not r["has_ckpt"], r["algorithm_id"]))
-        return result
 
     @classmethod
     def reset(cls):
         cls._algorithms = {}
         cls._model_adapters = {}
         cls._initialized = False
-        cls._pool.shutdown(wait=False)
-        cls._pool = ThreadPoolExecutor(max_workers=4)
 
 
 AlgorithmRegistry.initialize()
