@@ -23,6 +23,9 @@ from .causal_inference import CausalAnalyzer, get_causal_analyzer
 # 图神经网络
 from .graph_neural import VideoGraph, get_video_graph
 
+# 保形预测
+from .conformal import ConformalPredictor, get_conformal_predictor
+
 __all__ = [
     # 基类
     "BaseAlgorithm",

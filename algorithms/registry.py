@@ -256,9 +256,20 @@ class AlgorithmRegistry:
             "ensemble_confidence": round(ensemble_conf, 4),
         }
 
+        # ── 保形预测区间 ─────────────────────────────
+        try:
+            from .conformal import get_conformal_predictor
+
+            cp = get_conformal_predictor()
+            interval = cp.predict_interval(weighted_pred)
+            results["_weighted"]["prediction_interval"] = interval
+        except Exception:
+            pass
+
         logger.info(
-            "[%s] 综合预测: %.0f (有效 %d/%d)",
+            "[%s] 综合预测: %.0f (有效 %d/%d, 区间 ±%.0f%%)",
             bvid, weighted_pred, valid_count, len(results),
+            round(interval.get("interval_width_ratio", 0) * 100) if results["_weighted"].get("prediction_interval") else 0,
         )
 
         return results
@@ -274,6 +285,16 @@ class AlgorithmRegistry:
                 get_weight_manager().update_accuracy(algorithm_name, accuracy)
             except Exception as e:
                 logger.debug("更新算法准确率失败 %s: %s", algorithm_name, e)
+
+    @classmethod
+    def update_ensemble_accuracy(cls, predicted: float, actual: float):
+        """用集成预测值与实际值更新保形预测器的校准集。"""
+        try:
+            from .conformal import get_conformal_predictor
+
+            get_conformal_predictor().update(predicted, actual)
+        except Exception as e:
+            logger.debug("更新集成预测准确率失败: %s", e)
 
     @classmethod
     def get_weights_info(cls) -> List[Dict]:
