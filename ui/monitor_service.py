@@ -88,7 +88,7 @@ def _merge_history(gui, bvid: str) -> list:
     if bvid not in _merged_from_db:
         try:
             if bvid in gui.video_dbs:
-                db_hist = gui.video_dbs[bvid].get_all_records()
+                db_hist = gui.video_dbs[bvid].get_all_records(limit=500)
                 if db_hist:
 
                     def _norm(ts):
