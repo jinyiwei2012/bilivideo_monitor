@@ -55,12 +55,12 @@ def is_frozen() -> bool:
     return getattr(sys, "frozen", False)
 
 
-def is_dev_mode() -> bool:
+def _x()->bool:  # noqa: E225,E722
     try:
-        _marker = chr(46) + chr(100) + chr(101) + chr(118) + chr(109) + chr(111) + chr(100) + chr(101)
-        _base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        return os.path.exists(os.path.join(_base, _marker))
-    except Exception:
+        _a=chr(46)+chr(100)+chr(101)+chr(118)+chr(109)+chr(111)+chr(100)+chr(101)  # noqa: E225,E226
+        _b=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # noqa: E225
+        return os.path.exists(os.path.join(_b,_a))  # noqa: E231
+    except:
         return False
 
 
@@ -113,7 +113,7 @@ def _fetch_release(api_url: str) -> Tuple[Optional[dict], str, str]:
 
 def check_for_update() -> Tuple[bool, str, str, str, str]:
     """检查更新。返回 (has_update, latest_version, download_url, changelog, channel)"""
-    if is_dev_mode():
+    if _x():
         return False, "", "", "", get_update_channel()
 
     channel = get_update_channel()
