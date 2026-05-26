@@ -209,8 +209,7 @@
 | 1 | 预测写入限流（差值 > 5% 才写）+ 批量 `executemany` | 高 | 半天 |
 | 2 | SSL verify 恢复 | 高 | 2 小时 |
 | 3 | Predictions 表 TTL 清理 + 周/年分数去重 | 高 | 2 小时 |
-| 5 | `test_proxy` 拆分为小函数（已部分完成，CC 38→4） | 低 | 半天 |
-| 5 | `settings_window.py` 拆分子文件 | 低 | 1 天 |
+| 4 | `settings_window.py` 拆分子文件 | 低 | 1 天 |
 
 ---
 
