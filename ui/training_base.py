@@ -8,23 +8,20 @@
 import tkinter as tk
 from tkinter import ttk
 import threading
-import queue
+import queue as _q
 import time
 import math
 import logging
 from typing import Any, Dict, List, Optional
-
-import queue as _q
-
-logger = logging.getLogger(__name__)
-
-from ui.mpl_imports import mpl_available, Figure, FigureCanvasTkAgg  # noqa: E402
-from ui.theme import C  # noqa: E402
-from ui.helpers import (  # noqa: E402
+from ui.mpl_imports import mpl_available, Figure, FigureCanvasTkAgg
+from ui.theme import C
+from ui.helpers import (
     FONT,
     FONT_SM,
     clear_loss_chart,
 )
+
+logger = logging.getLogger(__name__)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 训练质量监控器
@@ -56,111 +53,100 @@ class TrainingMonitor:
         self._points.append((epoch, train_loss, val_loss))
         self._evaluate()
 
-    def _evaluate(self):
-        pts = self._points
-        n = len(pts)
-        self.suggestions.clear()
+    def _set_finding(self, level, status, suggestions):
+        priority = {"danger": 3, "warning": 2, "good": 1, "info": 0}
+        if priority.get(level, 0) > priority.get(self._finding_level, 0):
+            self._finding_level = level
+            self._finding_status = status
+            self._finding_suggestions = suggestions
 
-        # 1. NaN 检测（最高优先级，即使数据不足也立即返回）
+    def _check_nan(self, pts):
         for _, tl, vl in pts:
             if math.isnan(tl) or (vl >= 0 and math.isnan(vl)):
                 self.status = "Loss = NaN — 训练失败"
                 self.level = "danger"
                 self.suggestions = ["降低学习率", "检查数据中是否有 NaN", "添加 gradient clipping"]
-                return
+                return True
+        return False
 
-        if n < 3:
-            self.status = f"收集数据 ({n}/3 epoch)…"
-            self.level = "info"
-            return
-
-        # 优先级辅助：danger > warning > good
-        found_level = "good"
-        found_status = "训练正常"
-        found_suggestions: List[str] = []
-
-        def _set(level: str, status: str, suggestions: List[str]):
-            nonlocal found_level, found_status, found_suggestions
-            priority = {"danger": 3, "warning": 2, "good": 1, "info": 0}
-            if priority.get(level, 0) > priority.get(found_level, 0):
-                found_level = level
-                found_status = status
-                found_suggestions = suggestions
-
-        # 2. Loss 爆炸
+    def _check_loss_explosion(self, pts):
         recent = [tl for _, tl, _ in pts[-3:]]
         if max(recent) > 10 * (pts[0][1] or 1e-8):
-            _set("danger", "Loss 爆炸 — 梯度可能溢出", ["大幅降低学习率 (÷10)", "检查数据归一化"])
+            self._set_finding("danger", "Loss 爆炸 — 梯度可能溢出", ["大幅降低学习率 (÷10)", "检查数据归一化"])
 
-        # 3. 过拟合 — val_loss 连续上升而 train_loss 下降
-        if n >= 5 and all(vl >= 0 for _, _, vl in pts[-5:]):
-            tl_trend = pts[-1][1] < pts[-5][1]
-            vl_trend = [pts[i][2] for i in range(-5, 0)]
-            vl_up = sum(1 for i in range(1, len(vl_trend)) if vl_trend[i] > vl_trend[i - 1])
-            if tl_trend and vl_up >= 4:
-                self._overfit_streak += 1
-            else:
-                self._overfit_streak = max(0, self._overfit_streak - 1)
+    def _check_overfitting(self, pts, n):
+        if n < 5 or not all(vl >= 0 for _, _, vl in pts[-5:]):
+            return
+        tl_trend = pts[-1][1] < pts[-5][1]
+        vl_trend = [pts[i][2] for i in range(-5, 0)]
+        vl_up = sum(1 for i in range(1, len(vl_trend)) if vl_trend[i] > vl_trend[i - 1])
+        if tl_trend and vl_up >= 4:
+            self._overfit_streak += 1
+        else:
+            self._overfit_streak = max(0, self._overfit_streak - 1)
 
-            if self._overfit_streak >= 4:
-                _set(
-                    "danger",
-                    "🚫 严重过拟合 — 必须停止",
-                    ["立即停止训练", "val_loss 已连续多 epoch 上升", "减小模型或增加正则化后重新训练"],
-                )
-            elif self._overfit_streak >= 2:
-                _set(
-                    "warning",
-                    "⚠️ 过拟合 — val_loss 持续上升",
-                    ["建议停止训练 (early stopping)", "增加 Dropout", "减小模型容量"],
-                )
+        if self._overfit_streak >= 4:
+            self._set_finding(
+                "danger",
+                "🚫 严重过拟合 — 必须停止",
+                ["立即停止训练", "val_loss 已连续多 epoch 上升", "减小模型或增加正则化后重新训练"],
+            )
+        elif self._overfit_streak >= 2:
+            self._set_finding(
+                "warning",
+                "⚠️ 过拟合 — val_loss 持续上升",
+                ["建议停止训练 (early stopping)", "增加 Dropout", "减小模型容量"],
+            )
 
-        # 4. 不再收敛 — val_loss 连续 N epoch 没有下降
-        if n >= 8 and all(vl >= 0 for _, _, vl in pts[-8:]):
-            best_vl = min(vl for _, _, vl in pts)
-            recent_vl = [vl for _, _, vl in pts[-4:]]
-            if all(vl >= best_vl for vl in recent_vl):
-                self._no_improve_streak += 1
-            else:
-                self._no_improve_streak = max(0, self._no_improve_streak - 1)
+    def _check_no_improvement(self, pts, n):
+        if n < 8 or not all(vl >= 0 for _, _, vl in pts[-8:]):
+            return
+        best_vl = min(vl for _, _, vl in pts)
+        recent_vl = [vl for _, _, vl in pts[-4:]]
+        if all(vl >= best_vl for vl in recent_vl):
+            self._no_improve_streak += 1
+        else:
+            self._no_improve_streak = max(0, self._no_improve_streak - 1)
 
-            if self._no_improve_streak >= 2:
-                _set(
-                    "warning",
-                    "📉 不再收敛 — val_loss 已停止下降",
-                    ["可以提前停止 (early stopping)", "尝试降低学习率后继续", "若已训练充足 epoch 则可接受当前结果"],
-                )
+        if self._no_improve_streak >= 2:
+            self._set_finding(
+                "warning",
+                "📉 不再收敛 — val_loss 已停止下降",
+                ["可以提前停止 (early stopping)", "尝试降低学习率后继续", "若已训练充足 epoch 则可接受当前结果"],
+            )
 
-        # 5. 震荡 — loss 波动剧烈
-        if n >= 8:
-            recent_tl = [tl for _, tl, _ in pts[-8:]]
-            is_monotonic_down = all(recent_tl[i] >= recent_tl[i + 1] for i in range(len(recent_tl) - 1))
-            if not is_monotonic_down:
-                mean_tl = sum(recent_tl) / len(recent_tl)
-                cv = math.sqrt(sum((x - mean_tl) ** 2 for x in recent_tl) / len(recent_tl)) / max(1e-8, mean_tl)
-                residual_var = sum(abs(recent_tl[i] - recent_tl[i - 1]) for i in range(1, len(recent_tl))) / (
-                    len(recent_tl) - 1
-                )
-                avg_tl = abs(mean_tl)
-                if cv > 0.3 and residual_var > 0.02 * max(1, avg_tl):
-                    _set("warning", "📊 Loss 波动较大 — 训练不稳定", ["降低学习率", "增大 batch size"])
+    def _check_oscillation(self, pts, n):
+        if n < 8:
+            return
+        recent_tl = [tl for _, tl, _ in pts[-8:]]
+        is_monotonic_down = all(recent_tl[i] >= recent_tl[i + 1] for i in range(len(recent_tl) - 1))
+        if is_monotonic_down:
+            return
+        mean_tl = sum(recent_tl) / len(recent_tl)
+        cv = math.sqrt(sum((x - mean_tl) ** 2 for x in recent_tl) / len(recent_tl)) / max(1e-8, mean_tl)
+        residual_var = sum(abs(recent_tl[i] - recent_tl[i - 1]) for i in range(1, len(recent_tl))) / (
+            len(recent_tl) - 1
+        )
+        if cv > 0.3 and residual_var > 0.02 * max(1, abs(mean_tl)):
+            self._set_finding("warning", "📊 Loss 波动较大 — 训练不稳定", ["降低学习率", "增大 batch size"])
 
-        # 6. 欠拟合 — loss 下降过慢
-        if n >= 3:
-            initial_loss = pts[0][1]
-            current_loss = pts[-1][1]
-            if initial_loss > 0.1 and (initial_loss - current_loss) / initial_loss < 0.05:
-                _set(
-                    "warning",
-                    "🐢 欠拟合 — Loss 下降过慢",
-                    ["增大学习率", "增加模型容量 (更多层 / 更多神经元)", "检查数据是否包含有效信号"],
-                )
+    def _check_underfitting(self, pts, n):
+        if n < 3:
+            return
+        initial_loss = pts[0][1]
+        current_loss = pts[-1][1]
+        if initial_loss > 0.1 and (initial_loss - current_loss) / initial_loss < 0.05:
+            self._set_finding(
+                "warning",
+                "🐢 欠拟合 — Loss 下降过慢",
+                ["增大学习率", "增加模型容量 (更多层 / 更多神经元)", "检查数据是否包含有效信号"],
+            )
 
-        # 7. 应用最佳检测结果
-        if found_level != "good":
-            self.level = found_level
-            self.status = found_status
-            self.suggestions = found_suggestions
+    def _apply_finding(self, pts, n):
+        if self._finding_level != "good":
+            self.level = self._finding_level
+            self.status = self._finding_status
+            self.suggestions = self._finding_suggestions
         elif self._no_improve_streak >= 2:
             self.status = "✅ 训练正常 — 已收敛"
             self.level = "good"
@@ -168,10 +154,32 @@ class TrainingMonitor:
             tl_trend = pts[-1][1] < pts[-3][1]
             if tl_trend:
                 self.status = "✅ 训练正常 — Loss 稳步下降"
-                self.level = "good"
             else:
                 self.status = "✅ 训练正常 — Loss 趋于平稳"
-                self.level = "good"
+            self.level = "good"
+
+    def _evaluate(self):
+        pts = self._points
+        n = len(pts)
+        self.suggestions.clear()
+        self._finding_level = "good"
+        self._finding_status = "训练正常"
+        self._finding_suggestions = []
+
+        if self._check_nan(pts):
+            return
+
+        if n < 3:
+            self.status = f"收集数据 ({n}/3 epoch)…"
+            self.level = "info"
+            return
+
+        self._check_loss_explosion(pts)
+        self._check_overfitting(pts, n)
+        self._check_no_improvement(pts, n)
+        self._check_oscillation(pts, n)
+        self._check_underfitting(pts, n)
+        self._apply_finding(pts, n)
 
     def get_status_display(self):
         """返回 (status_text, color)"""

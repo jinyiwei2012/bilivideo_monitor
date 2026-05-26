@@ -242,7 +242,7 @@ def load_best_checkpoint(algo_id: str, bvid: Optional[str] = None) -> Optional[D
         if video_ckpt.has_checkpoint():
             state = video_ckpt.load()
             if state is not None:
-                logger.info("[%s] 使用视频微调 checkpoint (bvid=%s)", algo_id, bvid)
+                logger.debug("[%s] 使用视频微调 checkpoint (bvid=%s)", algo_id, bvid)
                 return state
     global_ckpt = CheckpointManager(algo_id)
     if global_ckpt.has_checkpoint():

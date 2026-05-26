@@ -735,17 +735,6 @@ class Database:
     # ── 关闭前同步：活跃库 → 中央库（兜底） ─────────────────────────
 
     def sync_to_central(self) -> dict:
-        """关闭前将活跃库数据同步到中央库，修复瑕疵数据。
-
-        同步项:
-          1. videos 表 — 缺失/值异常的视频
-          2. monitor_records — 活跃库有而中央库没有的记录
-          3. predictions — 各视频独立库的预测记录
-          4. weekly_scores — 各视频独立库的周刊分数
-          5. yearly_scores — 各视频独立库的年刊分数
-        返回: {synced_videos, synced_records, fixed_flaws, synced_predictions,
-               synced_weekly, synced_yearly}
-        """
         central_db = os.path.join(self._get_backup_dir(), "bilibili_monitor.db")
         if central_db == self.db_path or not os.path.exists(central_db):
             logger.info("中央数据库不存在或与活跃库相同，跳过同步")
@@ -773,137 +762,10 @@ class Database:
             self._ensure_central_tables(central_cur)
             central_conn.commit()
 
-            # 1. 同步 videos 表
             active_cur = self._conn.cursor()
-            active_cur.execute("SELECT * FROM videos")
-            active_videos = [dict(r) for r in active_cur.fetchall()]
-            for av in active_videos:
-                central_cur.execute("SELECT * FROM videos WHERE bvid=?", (av["bvid"],))
-                existing = central_cur.fetchone()
-                should_update = False
-                if not existing:
-                    should_update = True
-                    result["synced_videos"] += 1
-                else:
-                    ed = dict(existing)
-                    for key in ("view_count", "like_count", "coin_count", "share_count"):
-                        if not ed.get(key) and av.get(key):
-                            should_update = True
-                            result["fixed_flaws"] += 1
-                            break
-                if should_update:
-                    central_cur.execute(
-                        """INSERT OR REPLACE INTO videos
-                        (bvid, title, view_count, like_count, coin_count, share_count,
-                         favorite_count, danmaku_count, reply_count, viewers_app,
-                         viewers_web, viewers_total, cover_path, like_view_ratio,
-                         owner_name, owner_id, pubdate, duration, pic, updated_at)
-                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                        (
-                            av["bvid"],
-                            av.get("title", ""),
-                            av.get("view_count", 0),
-                            av.get("like_count", 0),
-                            av.get("coin_count", 0),
-                            av.get("share_count", 0),
-                            av.get("favorite_count", 0),
-                            av.get("danmaku_count", 0),
-                            av.get("reply_count", 0),
-                            av.get("viewers_app", 0),
-                            av.get("viewers_web", 0),
-                            av.get("viewers_total", 0),
-                            av.get("cover_path", ""),
-                            av.get("like_view_ratio", 0),
-                            av.get("owner_name", ""),
-                            av.get("owner_id", 0),
-                            av.get("pubdate", ""),
-                            av.get("duration", 0),
-                            av.get("pic", ""),
-                            datetime.now(),
-                        ),
-                    )
-
-            # 2. 同步 monitor_records
-            central_cur.execute("SELECT DISTINCT bvid FROM monitor_records")
-            central_bvids = {r["bvid"] for r in central_cur.fetchall()}
-            active_cur.execute("SELECT DISTINCT bvid FROM monitor_records")
-            active_bvids = {r["bvid"] for r in active_cur.fetchall()}
-
-            for bvid in active_bvids:
-                central_cur.execute("SELECT timestamp FROM monitor_records WHERE bvid=?", (bvid,))
-                central_ts = {r["timestamp"] for r in central_cur.fetchall()}
-
-                active_cur.execute(
-                    "SELECT * FROM monitor_records WHERE bvid=? ORDER BY timestamp ASC",
-                    (bvid,),
-                )
-                for row in active_cur.fetchall():
-                    rd = dict(row)
-                    if rd["timestamp"] not in central_ts:
-                        lvr = rd.get("like_view_ratio", 0)
-                        if not lvr and rd.get("view_count") and rd.get("like_count"):
-                            lvr = round(rd["like_count"] / rd["view_count"], 6)
-                        central_cur.execute(
-                            """INSERT INTO monitor_records
-                            (bvid, timestamp, view_count, like_count, coin_count, share_count,
-                             favorite_count, danmaku_count, reply_count, viewers_app,
-                             viewers_web, viewers_total, like_view_ratio)
-                            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                            (
-                                rd["bvid"],
-                                rd["timestamp"],
-                                rd.get("view_count", 0),
-                                rd.get("like_count", 0),
-                                rd.get("coin_count", 0),
-                                rd.get("share_count", 0),
-                                rd.get("favorite_count", 0),
-                                rd.get("danmaku_count", 0),
-                                rd.get("reply_count", 0),
-                                rd.get("viewers_app", 0),
-                                rd.get("viewers_web", 0),
-                                rd.get("viewers_total", 0),
-                                lvr,
-                            ),
-                        )
-                        central_ts.add(rd["timestamp"])
-                        result["synced_records"] += 1
-
-            # 3. 从各视频独立库同步预测/分数等详细数据
-            all_bvids = active_bvids | central_bvids
-            for bvid in all_bvids:
-                video_db = self._open_video_db_ro(bvid)
-                if video_db is None:
-                    continue
-                try:
-                    vcur = video_db.cursor()
-                    # predictions: 比较 distinct (algorithm, predicted_time) 数量
-                    v_count = vcur.execute(
-                        "SELECT COUNT(DISTINCT COALESCE(algorithm,'') || COALESCE(predicted_time,'')) FROM predictions"
-                    ).fetchone()[0]
-                    c_count = central_cur.execute(
-                        "SELECT COUNT(DISTINCT COALESCE(algorithm,'') || COALESCE(predicted_time,'')) FROM predictions WHERE bvid=?",
-                        (bvid,),
-                    ).fetchone()[0]
-                    if v_count != c_count:
-                        result["synced_predictions"] += self._sync_video_predictions(central_cur, bvid, vcur)
-
-                    # weekly max timestamp check
-                    v_max = vcur.execute("SELECT MAX(timestamp) FROM weekly_scores").fetchone()[0]
-                    c_max = central_cur.execute(
-                        "SELECT MAX(timestamp) FROM weekly_scores WHERE bvid=?", (bvid,)
-                    ).fetchone()[0]
-                    if v_max and (c_max is None or v_max > c_max):
-                        result["synced_weekly"] += self._sync_video_weekly_scores(central_cur, bvid, vcur)
-
-                    # yearly max timestamp check
-                    v_max = vcur.execute("SELECT MAX(timestamp) FROM yearly_scores").fetchone()[0]
-                    c_max = central_cur.execute(
-                        "SELECT MAX(timestamp) FROM yearly_scores WHERE bvid=?", (bvid,)
-                    ).fetchone()[0]
-                    if v_max and (c_max is None or v_max > c_max):
-                        result["synced_yearly"] += self._sync_video_yearly_scores(central_cur, bvid, vcur)
-                finally:
-                    video_db.close()
+            self._sync_videos_to_central(active_cur, central_cur, result)
+            active_bvids, central_bvids = self._sync_monitor_records_to_central(active_cur, central_cur, result)
+            self._sync_per_video_details(active_bvids, central_bvids, central_cur, result)
 
             central_conn.commit()
             central_conn.close()
@@ -919,6 +781,129 @@ class Database:
         except Exception as e:
             logger.warning("中央库同步失败: %s", e)
         return result
+
+    def _sync_videos_to_central(self, active_cur, central_cur, result):
+        active_cur.execute("SELECT * FROM videos")
+        for av in (dict(r) for r in active_cur.fetchall()):
+            central_cur.execute("SELECT * FROM videos WHERE bvid=?", (av["bvid"],))
+            existing = central_cur.fetchone()
+            should_update = False
+            if not existing:
+                should_update = True
+                result["synced_videos"] += 1
+            else:
+                ed = dict(existing)
+                for key in ("view_count", "like_count", "coin_count", "share_count"):
+                    if not ed.get(key) and av.get(key):
+                        should_update = True
+                        result["fixed_flaws"] += 1
+                        break
+            if should_update:
+                central_cur.execute(
+                    """INSERT OR REPLACE INTO videos
+                    (bvid, title, view_count, like_count, coin_count, share_count,
+                     favorite_count, danmaku_count, reply_count, viewers_app,
+                     viewers_web, viewers_total, cover_path, like_view_ratio,
+                     owner_name, owner_id, pubdate, duration, pic, updated_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (
+                        av["bvid"],
+                        av.get("title", ""),
+                        av.get("view_count", 0),
+                        av.get("like_count", 0),
+                        av.get("coin_count", 0),
+                        av.get("share_count", 0),
+                        av.get("favorite_count", 0),
+                        av.get("danmaku_count", 0),
+                        av.get("reply_count", 0),
+                        av.get("viewers_app", 0),
+                        av.get("viewers_web", 0),
+                        av.get("viewers_total", 0),
+                        av.get("cover_path", ""),
+                        av.get("like_view_ratio", 0),
+                        av.get("owner_name", ""),
+                        av.get("owner_id", 0),
+                        av.get("pubdate", ""),
+                        av.get("duration", 0),
+                        av.get("pic", ""),
+                        datetime.now(),
+                    ),
+                )
+
+    def _sync_monitor_records_to_central(self, active_cur, central_cur, result):
+        central_cur.execute("SELECT DISTINCT bvid FROM monitor_records")
+        central_bvids = {r["bvid"] for r in central_cur.fetchall()}
+        active_cur.execute("SELECT DISTINCT bvid FROM monitor_records")
+        active_bvids = {r["bvid"] for r in active_cur.fetchall()}
+
+        for bvid in active_bvids:
+            central_cur.execute("SELECT timestamp FROM monitor_records WHERE bvid=?", (bvid,))
+            central_ts = {r["timestamp"] for r in central_cur.fetchall()}
+            active_cur.execute("SELECT * FROM monitor_records WHERE bvid=? ORDER BY timestamp ASC", (bvid,))
+            for row in active_cur.fetchall():
+                rd = dict(row)
+                if rd["timestamp"] not in central_ts:
+                    lvr = rd.get("like_view_ratio", 0)
+                    if not lvr and rd.get("view_count") and rd.get("like_count"):
+                        lvr = round(rd["like_count"] / rd["view_count"], 6)
+                    central_cur.execute(
+                        """INSERT INTO monitor_records
+                        (bvid, timestamp, view_count, like_count, coin_count, share_count,
+                         favorite_count, danmaku_count, reply_count, viewers_app,
+                         viewers_web, viewers_total, like_view_ratio)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        (
+                            rd["bvid"],
+                            rd["timestamp"],
+                            rd.get("view_count", 0),
+                            rd.get("like_count", 0),
+                            rd.get("coin_count", 0),
+                            rd.get("share_count", 0),
+                            rd.get("favorite_count", 0),
+                            rd.get("danmaku_count", 0),
+                            rd.get("reply_count", 0),
+                            rd.get("viewers_app", 0),
+                            rd.get("viewers_web", 0),
+                            rd.get("viewers_total", 0),
+                            lvr,
+                        ),
+                    )
+                    central_ts.add(rd["timestamp"])
+                    result["synced_records"] += 1
+        return active_bvids, central_bvids
+
+    def _sync_per_video_details(self, active_bvids, central_bvids, central_cur, result):
+        for bvid in active_bvids | central_bvids:
+            video_db = self._open_video_db_ro(bvid)
+            if video_db is None:
+                continue
+            try:
+                vcur = video_db.cursor()
+                v_count = vcur.execute(
+                    "SELECT COUNT(DISTINCT COALESCE(algorithm,'') || COALESCE(predicted_time,'')) FROM predictions"
+                ).fetchone()[0]
+                c_count = central_cur.execute(
+                    "SELECT COUNT(DISTINCT COALESCE(algorithm,'') || COALESCE(predicted_time,'')) FROM predictions WHERE bvid=?",
+                    (bvid,),
+                ).fetchone()[0]
+                if v_count != c_count:
+                    result["synced_predictions"] += self._sync_video_predictions(central_cur, bvid, vcur)
+
+                v_max = vcur.execute("SELECT MAX(timestamp) FROM weekly_scores").fetchone()[0]
+                c_max = central_cur.execute(
+                    "SELECT MAX(timestamp) FROM weekly_scores WHERE bvid=?", (bvid,)
+                ).fetchone()[0]
+                if v_max and (c_max is None or v_max > c_max):
+                    result["synced_weekly"] += self._sync_video_weekly_scores(central_cur, bvid, vcur)
+
+                v_max = vcur.execute("SELECT MAX(timestamp) FROM yearly_scores").fetchone()[0]
+                c_max = central_cur.execute(
+                    "SELECT MAX(timestamp) FROM yearly_scores WHERE bvid=?", (bvid,)
+                ).fetchone()[0]
+                if v_max and (c_max is None or v_max > c_max):
+                    result["synced_yearly"] += self._sync_video_yearly_scores(central_cur, bvid, vcur)
+            finally:
+                video_db.close()
 
     def _open_video_db_ro(self, bvid: str) -> Optional[sqlite3.Connection]:
         """以只读方式打开视频独立库，优先活跃目录，回退备份目录"""
@@ -1179,5 +1164,13 @@ class Database:
             logger.warning("关闭数据库失败: %s", e)
 
 
-# 全局数据库实例
-db = Database()
+# 全局数据库实例（惰性初始化）
+_db = None
+
+
+def get_db():
+    """获取全局 Database 单例（惰性初始化）"""
+    global _db
+    if _db is None:
+        _db = Database()
+    return _db

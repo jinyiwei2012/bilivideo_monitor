@@ -255,6 +255,34 @@ class DanmakuAnalysisWindow:
             return 0
         return int(v)
 
+    def _fetch_danmaku(self, bvid, limit):
+        info = self.api.get_video_info(bvid)
+        if not info:
+            return None, "获取视频信息失败"
+        cid = info.get("cid", 0)
+        if not cid:
+            return None, "无法获取cid"
+        danmaku = self.api.get_video_danmaku(cid)
+        if not danmaku:
+            return None, "未获取到弹幕"
+        texts = [d["text"] for d in danmaku if d.get("text")]
+        if limit > 0:
+            texts = texts[:limit]
+        return texts, None
+
+    def _fetch_comments(self, bvid, limit):
+        info = self.api.get_video_info(bvid)
+        if not info:
+            return None, "获取视频信息失败"
+        aid = info.get("aid", 0)
+        if not aid:
+            return None, "无法获取aid"
+        comments = self.api.get_video_comments(aid, limit=limit if limit > 0 else 0)
+        if not comments:
+            return None, "未获取到评论"
+        texts = [c["content"] for c in comments if c.get("content")]
+        return texts, None
+
     def _analyze(self):
         bvid = self._bv_entry.get().strip()
         if not bvid:
@@ -273,61 +301,26 @@ class DanmakuAnalysisWindow:
 
         try:
             mode = self._mode_var.get()  # noqa: F841
-            texts = []
+            texts = None
 
             if mode == "danmaku":
-                # 先获取视频信息得到 cid
-                info = self.api.get_video_info(bvid)
-                if not info:
-                    self._status_lbl.config(text="获取视频信息失败", fg=C["danger"])
-                    self._fetch_btn.config(state="normal")
-                    return
-                cid = info.get("cid", 0)
-                if not cid:
-                    self._status_lbl.config(text="无法获取cid", fg=C["danger"])
-                    self._fetch_btn.config(state="normal")
-                    return
-
-                danmaku = self.api.get_video_danmaku(cid)
-                if not danmaku:
-                    self._status_lbl.config(text="未获取到弹幕", fg=C["warning"])
-                    self._fetch_btn.config(state="normal")
-                    return
-                texts = [d["text"] for d in danmaku if d.get("text")]
-                if limit > 0:
-                    texts = texts[:limit]
+                texts, err = self._fetch_danmaku(bvid, limit)
             else:
-                # 评论：需要 aid
-                info = self.api.get_video_info(bvid)
-                if not info:
-                    self._status_lbl.config(text="获取视频信息失败", fg=C["danger"])
-                    self._fetch_btn.config(state="normal")
-                    return
-                aid = info.get("aid", 0)
-                if not aid:
-                    self._status_lbl.config(text="无法获取aid", fg=C["danger"])
-                    self._fetch_btn.config(state="normal")
-                    return
+                texts, err = self._fetch_comments(bvid, limit)
 
-                comments = self.api.get_video_comments(aid, limit=limit if limit > 0 else 0)
-                if not comments:
-                    self._status_lbl.config(text="未获取到评论", fg=C["warning"])
-                    self._fetch_btn.config(state="normal")
-                    return
-                texts = [c["content"] for c in comments if c.get("content")]
+            if err:
+                self._status_lbl.config(text=err, fg=C["danger"])
+                return
 
             self._texts = texts
             self._current_bvid = bvid
             limit_label = f"（限制 {limit} 条）" if limit > 0 else "（全量）"
             self._status_lbl.config(text=f"抓取成功：共 {len(texts)} 条{mode} {limit_label}", fg=C["success"])
-            # 确保 UI 布局完成后再绘制
             self.window.update_idletasks()
             self._display_results(texts)
             self._save_btn.config(state="normal")
             self._llm_btn.config(state="normal")
-            # 自动保存
             self._save_to_file(silent=True)
-            # 尝试加载本地已有的 LLM 分析结果
             self._load_local_llm_result()
         except Exception as e:
             self._status_lbl.config(text=f"分析失败: {e}", fg=C["danger"])

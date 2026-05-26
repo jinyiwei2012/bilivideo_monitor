@@ -168,5 +168,9 @@ class FileLogger:
             # 重新打开供后续使用（虽然 close 不会再写，但保险起见）
             self._file = open(new_path, "a", encoding="utf-8")
         except Exception as e:
-            # 重命名失败不影响运行，文件内容仍在
+            # 重命名失败后重新打开原文件（防止 self._file 处于已关闭状态）
             logger.debug("重命名日志文件失败: %s", e)
+            try:
+                self._file = open(old_path, "a", encoding="utf-8")
+            except Exception:
+                pass

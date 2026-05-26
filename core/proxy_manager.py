@@ -5,6 +5,7 @@
 import logging
 import random
 import re
+import threading
 import time
 import warnings
 from typing import Dict, List, Optional, Tuple
@@ -34,6 +35,7 @@ class ProxyManager:
         self._MAX_PROXY_FAILURES = 3
         self._current_request_proxy_idx: Optional[int] = None
         self._socks_available = self._check_socks()
+        self._lock = threading.Lock()
 
     # ── SOCKS 检测 ────────────────────────────────────────
 
@@ -83,110 +85,110 @@ class ProxyManager:
             self._proxy_ua_map[i] = random.choice(self.USER_AGENTS)
             self._proxy_failure_count[i] = 0
         if self.proxies:
-            logger.info(f"已为 {len(self.proxies)} 个代理绑定固定UA")
+            logger.debug(f"已为 {len(self.proxies)} 个代理绑定固定UA")
 
     # ── 代理轮询 ──────────────────────────────────────────
 
     def get_proxy_binding(self) -> Tuple[Optional[int], Optional[Dict], Optional[str]]:
-        """获取下一个代理及其绑定UA，跳过失败过多的代理"""
-        if not self.proxies:
-            return None, None, None
+        """获取下一个代理及其绑定UA，跳过失败过多的代理（线程安全）"""
+        with self._lock:
+            if not self.proxies:
+                return None, None, None
 
-        for _ in range(len(self.proxies)):
-            idx = self.current_proxy_index
-            if self._proxy_failure_count.get(idx, 0) < self._MAX_PROXY_FAILURES:
-                proxy = self.proxies[idx]
-                ua = self._proxy_ua_map.get(idx)
-                if not ua:
-                    ua = random.choice(self.USER_AGENTS)
-                    self._proxy_ua_map[idx] = ua
-                self.current_proxy_index = (idx + 1) % len(self.proxies)
-                self._current_request_proxy_idx = idx
-                return idx, proxy, ua
-            self.current_proxy_index = (self.current_proxy_index + 1) % len(self.proxies)
+            for _ in range(len(self.proxies)):
+                idx = self.current_proxy_index
+                if self._proxy_failure_count.get(idx, 0) < self._MAX_PROXY_FAILURES:
+                    proxy = self.proxies[idx]
+                    ua = self._proxy_ua_map.get(idx)
+                    if not ua:
+                        ua = random.choice(self.USER_AGENTS)
+                        self._proxy_ua_map[idx] = ua
+                    self.current_proxy_index = (idx + 1) % len(self.proxies)
+                    self._current_request_proxy_idx = idx
+                    return idx, proxy, ua
+                self.current_proxy_index = (self.current_proxy_index + 1) % len(self.proxies)
 
-        # 所有代理都失败过多，重置后重试第一个
-        self._proxy_failure_count = {i: 0 for i in range(len(self.proxies))}
-        idx = 0
-        self.current_proxy_index = 1 % max(1, len(self.proxies))
-        self._current_request_proxy_idx = idx
-        return idx, self.proxies[0], self._proxy_ua_map.get(0, random.choice(self.USER_AGENTS))
+            # 所有代理都失败过多，重置后重试第一个
+            self._proxy_failure_count = {i: 0 for i in range(len(self.proxies))}
+            idx = 0
+            self.current_proxy_index = 1 % max(1, len(self.proxies))
+            self._current_request_proxy_idx = idx
+            return idx, self.proxies[0], self._proxy_ua_map.get(0, random.choice(self.USER_AGENTS))
 
     def get_next_proxy(self) -> Optional[Dict]:
         """获取下一个代理（简单轮询，不检查失败计数）"""
-        if not self.proxies:
-            return None
-        proxy = self.proxies[self.current_proxy_index]
-        self.current_proxy_index = (self.current_proxy_index + 1) % len(self.proxies)
-        return proxy
+        with self._lock:
+            if not self.proxies:
+                return None
+            proxy = self.proxies[self.current_proxy_index]
+            self.current_proxy_index = (self.current_proxy_index + 1) % len(self.proxies)
+            return proxy
 
     def peek_proxy(self) -> Optional[str]:
         """预览下一个将被使用的代理URL（脱敏），不改变内部状态"""
-        if not self.proxies:
-            return None
-        idx = self.current_proxy_index
-        if self._proxy_failure_count.get(idx, 0) >= self._MAX_PROXY_FAILURES:
-            for i in range(len(self.proxies)):
-                if self._proxy_failure_count.get(i, 0) < self._MAX_PROXY_FAILURES:
-                    idx = i
-                    break
-        proxy = self.proxies[idx]
-        return self.mask_url(proxy.get("http", ""))
+        with self._lock:
+            if not self.proxies:
+                return None
+            idx = self.current_proxy_index
+            if self._proxy_failure_count.get(idx, 0) >= self._MAX_PROXY_FAILURES:
+                for i in range(len(self.proxies)):
+                    if self._proxy_failure_count.get(i, 0) < self._MAX_PROXY_FAILURES:
+                        idx = i
+                        break
+            proxy = self.proxies[idx]
+            return self.mask_url(proxy.get("http", ""))
 
     # ── 添加/清理 ─────────────────────────────────────────
 
     def add_proxy(self, proxy: Dict):
         """添加代理（自动识别协议）"""
-        normalized = {}
-        for scheme, url in proxy.items():
-            normalized[scheme] = self.normalize_url(url)
-        self.proxies.append(normalized)
-        idx = len(self.proxies) - 1
-        self._proxy_ua_map[idx] = random.choice(self.USER_AGENTS)
-        self._proxy_failure_count[idx] = 0
+        with self._lock:
+            normalized = {}
+            for scheme, url in proxy.items():
+                normalized[scheme] = self.normalize_url(url)
+            self.proxies.append(normalized)
+            idx = len(self.proxies) - 1
+            self._proxy_ua_map[idx] = random.choice(self.USER_AGENTS)
+            self._proxy_failure_count[idx] = 0
         masked = self.mask_url(proxy.get("http", "unknown"))
         logger.info(f"已添加代理: {masked}")
 
     def clear_proxies(self):
         """清空代理列表"""
-        self.proxies = []
-        self.current_proxy_index = 0
-        self._proxy_ua_map.clear()
-        self._proxy_failure_count.clear()
-        self._current_request_proxy_idx = None
+        with self._lock:
+            self.proxies = []
+            self.current_proxy_index = 0
+            self._proxy_ua_map.clear()
+            self._proxy_failure_count.clear()
+            self._current_request_proxy_idx = None
         logger.info("已清空代理列表")
 
     # ── 失败处理 ──────────────────────────────────────────
 
     def on_request_failure(self, proxy_idx: Optional[int] = None) -> Optional[str]:
-        """标记请求失败：增加失败计数，更换当前代理绑定的UA
-
-        Args:
-            proxy_idx: 失败代理的索引，None 则使用当前请求索引
-
-        Returns:
-            新的 User-Agent（UA 有变更时），None 表示无变更
-        """
-        if proxy_idx is None:
-            proxy_idx = self._current_request_proxy_idx
-        if proxy_idx is not None and proxy_idx < len(self.proxies):
-            current_failures = self._proxy_failure_count.get(proxy_idx, 0)
-            self._proxy_failure_count[proxy_idx] = current_failures + 1
-            new_ua = random.choice(self.USER_AGENTS)
-            self._proxy_ua_map[proxy_idx] = new_ua
-            masked = self.mask_url(self.proxies[proxy_idx].get("http", ""))
-            total = current_failures + 1
-            if total >= self._MAX_PROXY_FAILURES:
-                logger.error(f"代理 {masked} 请求失败已达 {total} 次，自动移除")
-                self.proxies.pop(proxy_idx)
-                self._proxy_ua_map.pop(proxy_idx, None)
-                self._proxy_failure_count.pop(proxy_idx, None)
-                for i in range(proxy_idx, len(self.proxies)):
-                    self._proxy_ua_map[i] = self._proxy_ua_map.pop(i + 1)
-                    self._proxy_failure_count[i] = self._proxy_failure_count.pop(i + 1)
-            else:
-                logger.warning(f"代理 {masked} 请求失败 ({total}/{self._MAX_PROXY_FAILURES}), 继续使用当前IP")
-            return new_ua
+        """标记请求失败：增加失败计数，更换当前代理绑定的UA（线程安全）"""
+        with self._lock:
+            if proxy_idx is None:
+                proxy_idx = self._current_request_proxy_idx
+            if proxy_idx is not None and proxy_idx < len(self.proxies):
+                current_failures = self._proxy_failure_count.get(proxy_idx, 0)
+                self._proxy_failure_count[proxy_idx] = current_failures + 1
+                new_ua = random.choice(self.USER_AGENTS)
+                self._proxy_ua_map[proxy_idx] = new_ua
+                masked = self.mask_url(self.proxies[proxy_idx].get("http", ""))
+                total = current_failures + 1
+                if total >= self._MAX_PROXY_FAILURES:
+                    logger.error(f"代理 {masked} 请求失败已达 {total} 次，自动移除")
+                    self.proxies.pop(proxy_idx)
+                    self._proxy_ua_map.pop(proxy_idx, None)
+                    self._proxy_failure_count.pop(proxy_idx, None)
+                    # 重新索引后续条目（保持三个集合一致）
+                    for i in range(proxy_idx, len(self.proxies)):
+                        self._proxy_ua_map[i] = self._proxy_ua_map.pop(i + 1)
+                        self._proxy_failure_count[i] = self._proxy_failure_count.pop(i + 1)
+                else:
+                    logger.warning(f"代理 {masked} 请求失败 ({total}/{self._MAX_PROXY_FAILURES}), 继续使用当前IP")
+                return new_ua
         return None
 
     # ── 可用性测试（静态） ───────────────────────────────

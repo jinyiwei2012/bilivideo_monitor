@@ -130,7 +130,7 @@ class PoissonRegressionAlgorithm(BaseAlgorithm):
                 ts = ts.timestamp()
             elif isinstance(ts, str):
                 try:
-                    ts = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S").timestamp()
+                    ts = datetime.fromisoformat(str(ts)[:19].replace("T", " ")).timestamp()
                 except Exception:
                     continue
             timestamps.append(float(ts))

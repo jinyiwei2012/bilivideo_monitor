@@ -10,17 +10,8 @@ from tkinter import ttk, messagebox
 import time
 import logging
 from typing import Dict, List
-
-logger = logging.getLogger(__name__)
-
-_torch_available = True
-try:
-    import torch  # noqa: F401
-except ImportError:
-    _torch_available = False
-
-from ui.theme import C  # noqa: E402
-from ui.helpers import (  # noqa: E402
+from ui.theme import C
+from ui.helpers import (
     FONT,
     FONT_SM,
     FONT_MONO,
@@ -30,8 +21,16 @@ from ui.helpers import (  # noqa: E402
     load_algo_confidence,
     project_path,
 )
-from ui.training_base import BaseTrainingPanel, TrainingMonitor  # noqa: E402
-from ui.scrollable_frame import ScrollableFrame  # noqa: E402
+from ui.training_base import BaseTrainingPanel, TrainingMonitor
+from ui.scrollable_frame import ScrollableFrame
+
+logger = logging.getLogger(__name__)
+
+_torch_available = True
+try:
+    import torch  # noqa: F401
+except ImportError:
+    _torch_available = False
 
 
 class FinetunePanel(BaseTrainingPanel):
@@ -393,7 +392,7 @@ class FinetunePanel(BaseTrainingPanel):
     # 微调执行
     # ══════════════════════════════════════════════
 
-    def _on_start(self):
+    def _on_start(self):  # noqa: C901
         if self._training:
             return
 
@@ -552,7 +551,7 @@ class FinetunePanel(BaseTrainingPanel):
 
                     # 重置跳过标记，启用跳过按钮
                     self._skip_algo_flag[0] = False
-                    self._skip_btn.config(state="normal")
+                    self.frame.after(0, lambda: self._skip_btn.config(state="normal"))
 
                     # 通知开始
                     self._train_queue.put(
@@ -628,179 +627,182 @@ class FinetunePanel(BaseTrainingPanel):
             self._skip_btn.config(state="disabled")
         self._append_log("⏭ 用户请求跳过当前任务")
 
+    STAGE_HANDLERS = {
+        "start": "_on_stage_start",
+        "epoch": "_on_stage_epoch",
+        "done": "_on_stage_done",
+        "error": "_on_stage_error",
+        "auto_adjust": "_on_stage_auto_adjust",
+        "log": "_on_stage_log",
+        "cancelled": "_on_stage_cancelled",
+        "all_done": "_on_stage_all_done",
+    }
+
     def _handle_stage(self, msg) -> bool:
         stage = msg.get("stage")
-
-        if stage == "start":
-            done = msg.get("done", 0)
-            total = msg.get("total", 1)
-            aid = msg.get("aid", "?")
-            bvid = msg.get("bvid", "?")
-            self._current_bvid = bvid
-            self._current_aid = aid
-
-            # 切换到新视频时重置图表
-            if bvid not in self._video_results:
-                self._loss_history.clear()
-                self._clear_chart()
-                self._monitor.reset()
-                self._task_lbl.config(text=f"🎯 视频 {bvid}: 开始微调 {aid}", fg=C["accent"])
-            else:
-                self._task_lbl.config(text=f"🎯 视频 {bvid}: 微调 {aid}", fg=C["accent"])
-            self._task_detail.config(text=f"{done}/{total}")
-            pct = min(100, int(done / max(1, total) * 100))
-            self._progress["value"] = pct
-            self._status_lbl.config(text=f"[{done}/{total}] 微调 {aid} → {bvid}", fg=C["text_2"])
-            self._append_log(f"── [{done}/{total}] 开始微调 {aid}@{bvid} ──")
-            self.main.set_finetune_status(f"🎯 微调 {bvid}: [{done}/{total}] {aid}")
-
-            # 更新算法行状态
-            self._refresh_algo_row(0, aid, "▶ 训练中", C["accent"], "", "", "")
-
-        elif stage == "epoch":
-            aid = msg.get("algo_id", aid)
-            bvid = msg.get("bvid", self._current_bvid)
-            ep = msg.get("epoch", 0)
-            eps = msg.get("epochs", 1)
-            tloss = msg.get("train_loss", 0.0)
-            vloss = msg.get("val_loss", -1.0)
-            elapsed = msg.get("elapsed_s", 0.0)
-
-            # 实时置信度
-            conf = loss_to_confidence(vloss) if vloss >= 0 else 0.0
-            conf_str, _ = format_confidence(conf)
-
-            pct = min(100, int((ep / max(1, eps)) * 100))
-            self._progress["value"] = pct
-            vtxt = f"  val={vloss:.4f}" if vloss >= 0 else ""
-            ctrl_data = msg.get("_control", {})
-            if ctrl_data.get("early_stop"):
-                self._status_lbl.config(
-                    text=f"{aid}@{bvid}  ep{ep}/{eps}  ⏹ 即将停止",
-                    fg=C["warning"],
-                )
-            elif ctrl_data.get("lr_scale"):
-                self._status_lbl.config(
-                    text=f"{aid}@{bvid}  ep{ep}/{eps}  ⚡ 调整LR",
-                    fg=C["warning"],
-                )
-            else:
-                self._status_lbl.config(
-                    text=f"{aid}@{bvid}  ep{ep}/{eps}  train={tloss:.4f}{vtxt}  {conf_str}  {elapsed:.0f}s",
-                    fg=C["text_1"],
-                )
-
-            # 训练质量监控
-            self._monitor.update(ep, tloss, vloss if vloss >= 0 else -1)
-            self._refresh_monitor()
-
-            # 记录 loss 历史 + 更新图表
-            self._loss_history.append(
-                {
-                    "algo": aid,
-                    "bvid": bvid,
-                    "epoch": ep,
-                    "train_loss": tloss,
-                    "val_loss": vloss,
-                }
-            )
-            self._update_chart()
-            adj = msg.get("_adjustment", "")
-            adj_suffix = f"  |  {adj}" if adj else ""
-            self._append_log(
-                f"  epoch {ep:>3}/{eps}  |  "
-                f"train_loss={tloss:.6f}  |  "
-                f"{f'val_loss={vloss:.6f}' if vloss >= 0 else 'val_loss=N/A'}  |  "
-                f"confidence={conf_str}  |  "
-                f"{elapsed:.1f}s{adj_suffix}"
-            )
-
-        elif stage == "done":
-            done = msg.get("done", 0)
-            total = msg.get("total", 1)
-            aid = msg.get("aid", "?")
-            bvid = msg.get("bvid", "?")
-            ver = msg.get("version", "")
-            conf = msg.get("confidence", 0.0)
-            val_loss = msg.get("val_loss", -1.0)
-
-            pct = min(100, int(done / max(1, total) * 100))
-            self._progress["value"] = pct
-            self._task_detail.config(text=f"{done}/{total}")
-            conf_str, conf_color = format_confidence(conf)
-
-            # 缓存视频结果
-            if bvid not in self._video_results:
-                self._video_results[bvid] = []
-            self._video_results[bvid].append(
-                {
-                    "aid": aid,
-                    "version": ver,
-                    "confidence": conf,
-                    "val_loss": val_loss,
-                }
-            )
-
-            # 更新算法行状态
-            self._refresh_algo_row(0, aid, f"✓ {ver}", C["success"], conf_str, conf_color, f"v{msg.get('done', 0)}")
-
-            self._status_lbl.config(text=f"✓ {aid}@{bvid}  → {ver}  conf={conf_str}  ({done}/{total})", fg=C["success"])
-            self._append_log(f"  ✓ {aid}@{bvid} → {ver}  置信度={conf_str}  val_loss={val_loss:.4f}")
-
-        elif stage == "error":
-            done = msg.get("done", 0)
-            total = msg.get("total", 1)
-            aid = msg.get("aid", "?")
-            bvid = msg.get("bvid", "?")
-            err = msg.get("error", "")
-            pct = min(100, int(done / max(1, total) * 100))
-            self._progress["value"] = pct
-            self._task_detail.config(text=f"{done}/{total}")
-            self._status_lbl.config(text=f"✗ {aid}@{bvid}: {err}", fg=C["danger"])
-            self._append_log(f"  ✗ {aid}@{bvid}: {err}")
-            self._refresh_algo_row(0, aid, "✗ 失败", C["danger"], "", "", "")
-
-        elif stage == "auto_adjust":
-            action = msg.get("action", "")
-            message = msg.get("message", "")
-            self._append_log(f"  🔧 自动调整: {message}")
-            self._status_lbl.config(text=f"⚡ {message}", fg=C["warning"])
-            if action == "early_stop":
-                self._monitor_status.config(text="⏹ 自动提前停止", fg=C["warning"])
-
-        elif stage == "log":
-            self._append_log(msg.get("text", ""))
-
-        elif stage == "cancelled":
-            done = msg.get("done", 0)
-            total = msg.get("total", 1)
-            self._status_lbl.config(text=f"已取消 ({done}/{total})", fg=C["warning"])
-            self._append_log(f"⏹ 已取消, {done}/{total} 已完成")
-            return True
-
-        elif stage == "all_done":
-            done = msg.get("done", 0)
-            elapsed = time.time() - self._train_t0 if self._train_t0 else 0
-
-            # 汇总所有置信度
-            conf_summary = ""
-            for bvid, results in self._video_results.items():
-                for r in results:
-                    cs, _ = format_confidence(r["confidence"])
-                    conf_summary += f"\n  {bvid} → {r['aid']}: {cs}"
-
-            self._task_lbl.config(text="✅ 微调全部完成", fg=C["success"])
-            self._task_detail.config(text=f"{done}/{done}")
-            self._status_lbl.config(text=f"全部完成: {done} 任务 · {elapsed:.0f}s", fg=C["success"])
-            self._progress["value"] = 100
-            self._append_log(f"🏁 批量微调全部完成: {done} 任务, 耗时 {elapsed:.0f}s")
-            self._append_log(f"📊 各算法最终置信度:{conf_summary}")
-            self.main.set_finetune_status(f"✅ 批量微调完成 ({done})")
-            # 记录微调结果用于自动回调
-            self._last_finetune_count = done
-            return True
-
+        handler_name = self.STAGE_HANDLERS.get(stage)
+        if handler_name:
+            return getattr(self, handler_name)(msg)
         return False
+
+    def _on_stage_start(self, msg):
+        done = msg.get("done", 0)
+        total = msg.get("total", 1)
+        aid = msg.get("aid", "?")
+        bvid = msg.get("bvid", "?")
+        self._current_bvid = bvid
+        self._current_aid = aid
+
+        if bvid not in self._video_results:
+            self._loss_history.clear()
+            self._clear_chart()
+            self._monitor.reset()
+            self._task_lbl.config(text=f"🎯 视频 {bvid}: 开始微调 {aid}", fg=C["accent"])
+        else:
+            self._task_lbl.config(text=f"🎯 视频 {bvid}: 微调 {aid}", fg=C["accent"])
+        self._task_detail.config(text=f"{done}/{total}")
+        pct = min(100, int(done / max(1, total) * 100))
+        self._progress["value"] = pct
+        self._status_lbl.config(text=f"[{done}/{total}] 微调 {aid} → {bvid}", fg=C["text_2"])
+        self._append_log(f"── [{done}/{total}] 开始微调 {aid}@{bvid} ──")
+        self.main.set_finetune_status(f"🎯 微调 {bvid}: [{done}/{total}] {aid}")
+        self._refresh_algo_row(0, aid, "▶ 训练中", C["accent"], "", "", "")
+
+    def _on_stage_epoch(self, msg):
+        aid = msg.get("algo_id", self._current_aid)
+        bvid = msg.get("bvid", self._current_bvid)
+        ep = msg.get("epoch", 0)
+        eps = msg.get("epochs", 1)
+        tloss = msg.get("train_loss", 0.0)
+        vloss = msg.get("val_loss", -1.0)
+        elapsed = msg.get("elapsed_s", 0.0)
+
+        conf = loss_to_confidence(vloss) if vloss >= 0 else 0.0
+        conf_str, _ = format_confidence(conf)
+
+        pct = min(100, int((ep / max(1, eps)) * 100))
+        self._progress["value"] = pct
+        vtxt = f"  val={vloss:.4f}" if vloss >= 0 else ""
+        ctrl_data = msg.get("_control", {})
+        if ctrl_data.get("early_stop"):
+            self._status_lbl.config(
+                text=f"{aid}@{bvid}  ep{ep}/{eps}  ⏹ 即将停止",
+                fg=C["warning"],
+            )
+        elif ctrl_data.get("lr_scale"):
+            self._status_lbl.config(
+                text=f"{aid}@{bvid}  ep{ep}/{eps}  ⚡ 调整LR",
+                fg=C["warning"],
+            )
+        else:
+            self._status_lbl.config(
+                text=f"{aid}@{bvid}  ep{ep}/{eps}  train={tloss:.4f}{vtxt}  {conf_str}  {elapsed:.0f}s",
+                fg=C["text_1"],
+            )
+
+        self._monitor.update(ep, tloss, vloss if vloss >= 0 else -1)
+        self._refresh_monitor()
+
+        self._loss_history.append(
+            {
+                "algo": aid,
+                "bvid": bvid,
+                "epoch": ep,
+                "train_loss": tloss,
+                "val_loss": vloss,
+            }
+        )
+        self._update_chart()
+        adj = msg.get("_adjustment", "")
+        adj_suffix = f"  |  {adj}" if adj else ""
+        self._append_log(
+            f"  epoch {ep:>3}/{eps}  |  "
+            f"train_loss={tloss:.6f}  |  "
+            f"{f'val_loss={vloss:.6f}' if vloss >= 0 else 'val_loss=N/A'}  |  "
+            f"confidence={conf_str}  |  "
+            f"{elapsed:.1f}s{adj_suffix}"
+        )
+
+    def _on_stage_done(self, msg):
+        done = msg.get("done", 0)
+        total = msg.get("total", 1)
+        aid = msg.get("aid", "?")
+        bvid = msg.get("bvid", "?")
+        ver = msg.get("version", "")
+        conf = msg.get("confidence", 0.0)
+        val_loss = msg.get("val_loss", -1.0)
+
+        pct = min(100, int(done / max(1, total) * 100))
+        self._progress["value"] = pct
+        self._task_detail.config(text=f"{done}/{total}")
+        conf_str, conf_color = format_confidence(conf)
+
+        if bvid not in self._video_results:
+            self._video_results[bvid] = []
+        self._video_results[bvid].append(
+            {
+                "aid": aid,
+                "version": ver,
+                "confidence": conf,
+                "val_loss": val_loss,
+            }
+        )
+
+        self._refresh_algo_row(0, aid, f"✓ {ver}", C["success"], conf_str, conf_color, f"v{msg.get('done', 0)}")
+
+        self._status_lbl.config(text=f"✓ {aid}@{bvid}  → {ver}  conf={conf_str}  ({done}/{total})", fg=C["success"])
+        self._append_log(f"  ✓ {aid}@{bvid} → {ver}  置信度={conf_str}  val_loss={val_loss:.4f}")
+
+    def _on_stage_error(self, msg):
+        done = msg.get("done", 0)
+        total = msg.get("total", 1)
+        aid = msg.get("aid", "?")
+        bvid = msg.get("bvid", "?")
+        err = msg.get("error", "")
+        pct = min(100, int(done / max(1, total) * 100))
+        self._progress["value"] = pct
+        self._task_detail.config(text=f"{done}/{total}")
+        self._status_lbl.config(text=f"✗ {aid}@{bvid}: {err}", fg=C["danger"])
+        self._append_log(f"  ✗ {aid}@{bvid}: {err}")
+        self._refresh_algo_row(0, aid, "✗ 失败", C["danger"], "", "", "")
+
+    def _on_stage_auto_adjust(self, msg):
+        action = msg.get("action", "")
+        message = msg.get("message", "")
+        self._append_log(f"  🔧 自动调整: {message}")
+        self._status_lbl.config(text=f"⚡ {message}", fg=C["warning"])
+        if action == "early_stop":
+            self._monitor_status.config(text="⏹ 自动提前停止", fg=C["warning"])
+
+    def _on_stage_log(self, msg):
+        self._append_log(msg.get("text", ""))
+
+    def _on_stage_cancelled(self, msg):
+        done = msg.get("done", 0)
+        total = msg.get("total", 1)
+        self._status_lbl.config(text=f"已取消 ({done}/{total})", fg=C["warning"])
+        self._append_log(f"⏹ 已取消, {done}/{total} 已完成")
+        return True
+
+    def _on_stage_all_done(self, msg):
+        done = msg.get("done", 0)
+        elapsed = time.time() - self._train_t0 if self._train_t0 else 0
+
+        conf_summary = ""
+        for bvid, results in self._video_results.items():
+            for r in results:
+                cs, _ = format_confidence(r["confidence"])
+                conf_summary += f"\n  {bvid} → {r['aid']}: {cs}"
+
+        self._task_lbl.config(text="✅ 微调全部完成", fg=C["success"])
+        self._task_detail.config(text=f"{done}/{done}")
+        self._status_lbl.config(text=f"全部完成: {done} 任务 · {elapsed:.0f}s", fg=C["success"])
+        self._progress["value"] = 100
+        self._append_log(f"🏁 批量微调全部完成: {done} 任务, 耗时 {elapsed:.0f}s")
+        self._append_log(f"📊 各算法最终置信度:{conf_summary}")
+        self.main.set_finetune_status(f"✅ 批量微调完成 ({done})")
+        self._last_finetune_count = done
+        return True
 
     def _cleanup_training(self):
         super()._cleanup_training()
@@ -811,13 +813,8 @@ class FinetunePanel(BaseTrainingPanel):
         # 微调完成自动回调
         n = getattr(self, "_last_finetune_count", 0)
         if n > 0:
-            # 收集所有微调过的算法 ID（去重）
-            finetuned_ids = set()
-            for _bvid, results in getattr(self, "_video_results", {}).items():
-                for r in results:
-                    finetuned_ids.add(r.get("aid", ""))
             try:
-                self.main._on_training_completed("微调", n, trained_ids=list(finetuned_ids))
+                self.main._on_training_completed("微调", n)
             except Exception:
                 pass
 

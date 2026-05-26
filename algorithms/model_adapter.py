@@ -3,13 +3,13 @@ models算法适配器
 将不同接口的models算法统一适配到注册器系统
 """
 
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Any
 from datetime import datetime
 import importlib
 import os
 import logging
-from utils import project_path
-from utils.time_utils import normalize_timestamp
+
+from algorithms.base import PredictionResult
 
 logger = logging.getLogger(__name__)
 
@@ -25,39 +25,106 @@ class ModelAlgorithmAdapter:
         self.category = getattr(algo_instance, "category", "其他")
         self.default_weight = getattr(algo_instance, "default_weight", 1.0)
 
-    def predict(self, history: List[Tuple], current_value: float, **kwargs) -> Dict:
-        """统一预测接口"""
+        # 检查算法接口类型
+        self._detect_interface()
+
+    def _detect_interface(self):
+        """检测算法接口类型"""
+        import inspect
+
+        sig = inspect.signature(self.algo.predict)
+        params = list(sig.parameters.keys())
+
+        # 类型1: predict(video_data, threshold)
+        if len(params) == 2 and "video_data" in params:
+            self.interface_type = "video_data"
+        # 类型2: predict(current_views, target_views, history_data, video_info)
+        elif len(params) == 4:
+            self.interface_type = "full_params"
+        else:
+            self.interface_type = "unknown"
+
+    def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
+        """统一预测接口（与 BaseAlgorithm 签名一致）
+
+        Args:
+            video_data: 包含视频所有数据的字典
+            threshold: 目标播放量阈值
+
+        Returns:
+            PredictionResult 对象
+        """
+        try:
+            if self.interface_type == "video_data":
+                return self.algo.predict(video_data, threshold)
+            else:
+                current_value = video_data.get("view_count", 0)
+                history_data = video_data.get("history_data", [])
+                history_list = [
+                    {
+                        "view": d.get("view_count", 0),
+                        "view_count": d.get("view_count", 0),
+                        "timestamp": d.get("timestamp_str", ""),
+                    }
+                    for d in history_data
+                ]
+                return self.algo.predict(current_value, threshold, history_list, video_data)
+        except Exception:
+            current_views = video_data.get("view_count", 0)
+            return PredictionResult(
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=float("inf"),
+                confidence=0.0,
+                current_views=current_views,
+                current_velocity=0,
+                metadata={"error": True},
+                timestamp=datetime.now(),
+            )
+
+    def predict_dict(self, history: List[Tuple], current_value: float, **kwargs) -> Dict:
+        """返回 Dict 格式的预测结果（供 registry 调用）"""
         thresholds = kwargs.get("thresholds", [100000, 1000000, 10000000])
         threshold_names = kwargs.get("threshold_names", ["10万", "100万", "1000万"])
 
         try:
-            # 使用预先准备好的video_data（由 registry 集中构建），避免每个 adapter 重复转换
             video_data = kwargs.get("_cached_video_data")
             if video_data is None:
                 video_data = self._prepare_video_data(history, current_value)
 
-            result = self.algo.predict(video_data, thresholds[0])
-
-            # 解析结果
-            if result is None:
+            prediction_result = self.predict(video_data, thresholds[0])
+            if prediction_result is None:
                 return self._make_na_result(current_value)
 
-            return self._parse_result(result, current_value, thresholds, threshold_names, history)
+            return self._parse_result(prediction_result, current_value, thresholds, threshold_names, history)
 
         except Exception as e:
             return self._make_error_result(current_value, str(e))
 
     def _prepare_video_data(self, history: List[Tuple], current_value: float, bvid: str = "") -> Dict:
-        """准备video_data（仅作为 registry 未传入 _cached_video_data 时的保底）"""
+        """准备video_data"""
         history_list = []
         for ts, v in history:
-            dt, ts_ts, ts_str = normalize_timestamp(ts)
+            if isinstance(ts, datetime):
+                # 转换为字符串格式供某些算法使用
+                ts_str = ts.strftime("%Y-%m-%d %H:%M:%S")
+                ts_ts = ts.timestamp()
+            else:
+                try:
+                    dt = datetime.fromisoformat(str(ts))
+                    ts_str = dt.strftime("%Y-%m-%d %H:%M:%S")
+                    ts_ts = dt.timestamp()
+                except (ValueError, TypeError):
+                    ts_str = str(ts)
+                    ts_ts = float(ts)
+
             history_list.append(
                 {
                     "view_count": v,
                     "timestamp": ts_ts,
-                    "timestamp_str": ts_str,
-                    "datetime": dt,
+                    "timestamp_str": ts_str,  # 添加字符串格式
+                    "datetime": ts if isinstance(ts, datetime) else datetime.fromtimestamp(float(ts)),
                 }
             )
 
@@ -222,7 +289,8 @@ def load_all_model_algorithms() -> List[ModelAlgorithmAdapter]:
     adapters = []
 
     # 确保是models目录
-    models_dir = project_path("algorithms", "models")
+    current_dir = os.path.dirname(__file__)
+    models_dir = os.path.join(current_dir, "models")
 
     if not os.path.exists(models_dir):
         logger.warning("models目录不存在: %s", models_dir)

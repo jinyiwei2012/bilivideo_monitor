@@ -60,7 +60,7 @@ def get_up_info_multi(uid: int, own_api_get_up_info: Callable) -> Optional[Dict]
         result = _source_a_up_info(uid)
         tried.append("bilibili-api-python")
         if result:
-            logger.info("UP主信息 来源 A(bilibili-api-python) UID:%s", uid)
+            logger.debug("UP主信息 来源 A(bilibili-api-python) UID:%s", uid)
             return result
 
     # ── Source B: curl_cffi ──
@@ -68,14 +68,14 @@ def get_up_info_multi(uid: int, own_api_get_up_info: Callable) -> Optional[Dict]
         result = _source_b_up_info(uid)
         tried.append("curl_cffi")
         if result:
-            logger.info("UP主信息 来源 B(curl_cffi) UID:%s", uid)
+            logger.debug("UP主信息 来源 B(curl_cffi) UID:%s", uid)
             return result
 
     # ── Source C: 自有 API ──
     result = own_api_get_up_info(uid)
     tried.append("own_api")
     if result:
-        logger.info("UP主信息 来源 C(own_api) UID:%s", uid)
+        logger.debug("UP主信息 来源 C(own_api) UID:%s", uid)
         return result
 
     logger.warning("UP主信息 全部源失败 UID:%s [%s]", uid, _fmt_tried(tried))
@@ -143,7 +143,7 @@ def search_up_users_multi(keyword: str, page: int, own_api_search: Callable) -> 
 # ══════════════════════════════════════════════════════════
 
 
-def _source_a_up_info(uid: int) -> Optional[Dict]:
+def _source_a_up_info(uid: int) -> Optional[Dict]:  # noqa: C901
     try:
         from bilibili_api import sync
         from bilibili_api.user import User

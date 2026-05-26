@@ -244,8 +244,11 @@ class TimesNetSimpleAlgorithm(BaseAlgorithm):
             # 归一化序列
             normalized = (series - np.mean(series)) / (np.std(series) + 1e-6)
 
-            # 计算自相关
-            autocorr = np.corrcoef(normalized[lag:], normalized[:-lag])[0, 1]
+            # 计算自相关（常量序列会导致 np.corrcoef 内部除零）
+            with np.errstate(invalid="ignore"):
+                autocorr = np.corrcoef(normalized[lag:], normalized[:-lag])[0, 1]
+            if not np.isfinite(autocorr):
+                return 0.0
 
             # 映射到[0, 1]
             periodicity = max(0, autocorr)

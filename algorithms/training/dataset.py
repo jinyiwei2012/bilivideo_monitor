@@ -72,6 +72,8 @@ def _load_records(bvid: str, features: Tuple[str, ...], data_root: str = _DATA_R
     try:
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         cursor = conn.cursor()
         cols = ", ".join(features)
         cursor.execute(f"SELECT {cols} FROM monitor_records ORDER BY timestamp ASC")

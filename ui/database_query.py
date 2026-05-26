@@ -6,7 +6,6 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import sqlite3
 import os
-import re
 import csv
 import logging
 from datetime import datetime
@@ -20,7 +19,9 @@ logger = logging.getLogger(__name__)
 
 
 def _validate_bvid(bvid: str) -> bool:
-    return bool(re.match(r"^BV[A-Za-z0-9]{10}$", bvid))
+    from ui.helpers import is_valid_bvid
+
+    return is_valid_bvid(bvid)
 
 
 _BASE_EXPORT_HEADERS = [
@@ -269,6 +270,8 @@ class DatabaseQueryWindow:
 
     def _get_video_db_path(self, bvid: str) -> Optional[str]:
         """查找视频独立库路径：优先 data/，回退 core/data/"""
+        if not _validate_bvid(bvid):
+            return None
         primary = os.path.join(os.path.dirname(self.db_path), bvid, f"{bvid}.db")
         if os.path.exists(primary):
             return primary
@@ -281,6 +284,7 @@ class DatabaseQueryWindow:
         vdp = self._get_video_db_path(bvid)
         if not vdp:
             return extra
+        conn = None
         try:
             uri = "file:{}?mode=ro".format(vdp.replace("\\", "/").replace(" ", "%20"))
             conn = sqlite3.connect(uri, uri=True, check_same_thread=False)
@@ -337,9 +341,11 @@ class DatabaseQueryWindow:
                     "correction_c",
                 ]:
                     extra[f"yearly_{k}"] = yd.get(k, "")
-            conn.close()
         except Exception as e:
             logger.debug("查询视频额外数据失败: %s", e)
+        finally:
+            if conn:
+                conn.close()
         return extra
 
     def _on_mode_change(self):
@@ -506,7 +512,7 @@ class DatabaseQueryWindow:
         else:
             self._reset_query_state()
 
-    def _run_fallback_query(self, mode, filter_bvid, bvid_for_trend):
+    def _run_fallback_query(self, mode, filter_bvid, bvid_for_trend):  # noqa: C901
         """后台线程：在中央数据库中执行查询"""
         raw_rows = []
         try:
@@ -516,11 +522,10 @@ class DatabaseQueryWindow:
             raw_rows = self._run_query(cur, mode, filter_bvid, bvid_for_trend)
             conn.close()
         except Exception as e:
-            err_msg = str(e)
             self.window.after(
                 0,
-                lambda err_msg=err_msg: (
-                    messagebox.showerror("错误", f"中央库查询失败: {err_msg}", parent=self.window),
+                lambda e=e: (
+                    messagebox.showerror("错误", f"中央库查询失败: {e}", parent=self.window),
                     self._reset_query_state(),
                 ),
             )
@@ -531,20 +536,12 @@ class DatabaseQueryWindow:
             extra_list, anames = self._load_query_extra_data(raw_rows)
         except Exception as e:
             logger.exception("加载关联数据失败")
-            err_msg = str(e)
-            self.window.after(0, lambda err_msg=err_msg: self.status_var.set(f"加载关联数据失败: {err_msg}"))
+            self.window.after(0, lambda e=e: self.status_var.set(f"加载关联数据失败: {e}"))
             self.window.after(0, self._reset_query_state)
             return
         self._query_source_bvid = None
         self.window.after(0, lambda: self._finish_query(raw_rows, extra_list, anames))
-        return
-        """后台线程：执行数据库查询并加载关联数据。
 
-        查询顺序：
-        1. 若指定了视频（filter_bvid 或趋势模式的 bvid_for_trend），优先查该视频的独立库
-        2. 独立库无结果时弹窗询问是否查中央数据库
-        3. 未指定视频时直接查中央数据库
-        """
         # ── 确定要查的视频 BVID ──────────────────
         target_bvid = filter_bvid or (bvid_for_trend if mode == "播放趋势" else None)
 
@@ -564,10 +561,7 @@ class DatabaseQueryWindow:
                         extra_list, anames = self._load_query_extra_data(raw_rows)
                     except Exception as e:
                         logger.exception("加载关联数据失败")
-                        err_msg = str(e)
-                        self.window.after(
-                            0, lambda err_msg=err_msg: self.status_var.set(f"加载关联数据失败: {err_msg}")
-                        )
+                        self.window.after(0, lambda e=e: self.status_var.set(f"加载关联数据失败: {e}"))
                         self.window.after(0, self._reset_query_state)
                         return
                     self._query_source_bvid = target_bvid
@@ -578,8 +572,7 @@ class DatabaseQueryWindow:
                 return
             except Exception as e:
                 logger.exception("视频独立库查询失败")
-                err_msg = str(e)
-                self.window.after(0, lambda err_msg=err_msg: self.status_var.set(f"视频库查询失败: {err_msg}"))
+                self.window.after(0, lambda e=e: self.status_var.set(f"视频库查询失败: {e}"))
                 self.window.after(0, self._reset_query_state)
                 return
 
@@ -612,8 +605,7 @@ class DatabaseQueryWindow:
             extra_list, anames = self._load_query_extra_data(raw_rows)
         except Exception as e:
             logger.exception("加载关联数据失败")
-            err_msg = str(e)
-            self.window.after(0, lambda err_msg=err_msg: self.status_var.set(f"加载关联数据失败: {err_msg}"))
+            self.window.after(0, lambda e=e: self.status_var.set(f"加载关联数据失败: {e}"))
             self.window.after(0, self._reset_query_state)
             return
         self._query_source_bvid = None
@@ -816,31 +808,50 @@ class DatabaseQueryWindow:
             return
         if not messagebox.askyesno("确认", f"确定删除选中的 {len(sel)} 条记录？", parent=self.window):
             return
-        try:
-            source_bvid = self._query_source_bvid
-            if source_bvid:
-                db_path = self._get_video_db_path(source_bvid)
-                if not db_path:
-                    messagebox.showerror("错误", "视频独立库文件不存在", parent=self.window)
-                    return
-            else:
-                db_path = self.db_path
-            conn = sqlite3.connect(db_path)
-            cur = conn.cursor()
-            for item in sel:
-                vals = self.result_tree.item(item)["values"]
-                bvid, ts = vals[1], vals[2]
-                if source_bvid:
-                    cur.execute("DELETE FROM monitor_records WHERE timestamp = ?", (ts,))
-                else:
-                    cur.execute("DELETE FROM monitor_records WHERE bvid = ? AND timestamp = ?", (bvid, ts))
-                self.query_results = [r for r in self.query_results if not (r["bvid"] == bvid and r["timestamp"] == ts)]
-            conn.commit()
-            conn.close()
-            self._do_query()
-            self.status_var.set(f"已删除 {len(sel)} 条记录")
-        except Exception as e:
-            messagebox.showerror("错误", f"删除失败: {e}", parent=self.window)
+
+        source_bvid = self._query_source_bvid
+        if source_bvid:
+            db_path = self._get_video_db_path(source_bvid)
+            if not db_path:
+                messagebox.showerror("错误", "视频独立库文件不存在", parent=self.window)
+                return
+        else:
+            db_path = self.db_path
+
+        del_data = []
+        for item in sel:
+            vals = self.result_tree.item(item)["values"]
+            del_data.append((vals[1], vals[2]))  # (bvid, timestamp)
+
+        def _do_delete():
+            try:
+                conn = sqlite3.connect(db_path)
+                cur = conn.cursor()
+                for bvid, ts in del_data:
+                    if source_bvid:
+                        cur.execute("DELETE FROM monitor_records WHERE timestamp = ?", (ts,))
+                    else:
+                        cur.execute("DELETE FROM monitor_records WHERE bvid = ? AND timestamp = ?", (bvid, ts))
+                conn.commit()
+                conn.close()
+                self.window.after(0, lambda: self._finish_delete(del_data, len(sel)))
+            except Exception as e:
+                self.window.after(
+                    0,
+                    lambda e=e: messagebox.showerror("错误", f"删除失败: {e}", parent=self.window),
+                )
+
+        self.status_var.set(f"正在删除 {len(sel)} 条记录…")
+        import threading
+
+        threading.Thread(target=_do_delete, daemon=True).start()
+
+    def _finish_delete(self, del_data: list, count: int):
+        """后台删除完成后在主线程刷新 UI。"""
+        for bvid, ts in del_data:
+            self.query_results = [r for r in self.query_results if not (r["bvid"] == bvid and r["timestamp"] == ts)]
+        self._do_query()
+        self.status_var.set(f"已删除 {count} 条记录")
 
     def _clear_results(self):
         self.result_tree.delete(*self.result_tree.get_children())

@@ -12,17 +12,8 @@ import threading
 import time
 from typing import Dict, List, Optional
 from datetime import datetime
-
-logger = logging.getLogger(__name__)
-
-_torch_available = True
-try:
-    import torch  # noqa: F401
-except ImportError:
-    _torch_available = False
-
-from ui.theme import C  # noqa: E402
-from ui.helpers import (  # noqa: E402
+from ui.theme import C
+from ui.helpers import (
     FONT,
     FONT_SM,
     FONT_MONO,
@@ -32,8 +23,16 @@ from ui.helpers import (  # noqa: E402
     load_algo_confidence,
     project_path,
 )
-from ui.scrollable_frame import ScrollableFrame  # noqa: E402
-from ui.training_base import BaseTrainingPanel, TrainingMonitor  # noqa: E402
+from ui.scrollable_frame import ScrollableFrame
+from ui.training_base import BaseTrainingPanel, TrainingMonitor
+
+logger = logging.getLogger(__name__)
+
+_torch_available = True
+try:
+    import torch  # noqa: F401
+except ImportError:
+    _torch_available = False
 
 
 class TrainingPanel(BaseTrainingPanel):
@@ -293,33 +292,15 @@ class TrainingPanel(BaseTrainingPanel):
                 txt = f"{total} 视频 · {valid} 有效 · {samples:,} 样本 · 约 {eta / 60:.1f} min/algo"
                 self.frame.after(0, lambda: self._data_lbl.config(text=txt, fg=C["text_1"]))
             except Exception as e:
-                err_msg = str(e)
-                self.frame.after(0, lambda err_msg=err_msg: self._data_lbl.config(text=f"⚠ {err_msg}", fg=C["danger"]))
+                self.frame.after(0, lambda e=e: self._data_lbl.config(text=f"⚠ {e}", fg=C["danger"]))
 
         threading.Thread(target=_worker, daemon=True).start()
 
     def _discover_algorithms(self) -> List[Dict]:
         """扫描有 build_model 的算法"""
         from algorithms.registry import AlgorithmRegistry
-        from algorithms.training.checkpoint_manager import CheckpointManager
 
-        AlgorithmRegistry.initialize()
-        result = []
-        for aid, algo, _adapter in AlgorithmRegistry.get_trainable_algorithms():
-            ckpt = CheckpointManager(aid)
-            versions = ckpt.list_versions()
-            result.append(
-                {
-                    "algorithm_id": aid,
-                    "name": getattr(algo, "name", aid),
-                    "category": getattr(algo, "category", ""),
-                    "has_ckpt": ckpt.has_checkpoint(),
-                    "active_version": ckpt.active_version() or "",
-                    "version_count": len(versions),
-                }
-            )
-        result.sort(key=lambda r: (not r["has_ckpt"], r["algorithm_id"]))
-        return result
+        return AlgorithmRegistry.get_trainable_info()
 
     def _refresh_algo_list(self):
         for w in self._algo_frame.winfo_children():
@@ -420,7 +401,7 @@ class TrainingPanel(BaseTrainingPanel):
 
     # ── 版本管理 ──────────────────────────────────
 
-    def _on_manage_versions(self):
+    def _on_manage_versions(self):  # noqa: C901
         """打开 checkpoint 版本管理对话框 — 查看/删除/激活版本。"""
         from algorithms.training.checkpoint_manager import (
             CheckpointManager,
@@ -640,7 +621,7 @@ class TrainingPanel(BaseTrainingPanel):
 
     # ── 批量微调 ──────────────────────────────────
 
-    def _on_batch_finetune(self):
+    def _on_batch_finetune(self):  # noqa: C901
         """打开批量微调对话框：选择视频 + 算法，一键微调。"""
         from algorithms.registry import AlgorithmRegistry
         from algorithms.training.checkpoint_manager import CheckpointManager
@@ -816,7 +797,7 @@ class TrainingPanel(BaseTrainingPanel):
     # 训练执行
     # ══════════════════════════════════════════════
 
-    def _on_train_start(self):
+    def _on_train_start(self):  # noqa: C901
         if self._training:
             return
         if not _torch_available:
@@ -966,7 +947,7 @@ class TrainingPanel(BaseTrainingPanel):
 
                     # 重置跳过标记，启用跳过按钮
                     self._skip_algo_flag[0] = False
-                    self._skip_btn.config(state="normal")
+                    self.frame.after(0, lambda: self._skip_btn.config(state="normal"))
 
                     # 每个算法独立 LR = 基础 LR × 该算法的累积系数
                     aid_factor = algo_lr_factors.get(aid, 1.0)
@@ -1003,137 +984,144 @@ class TrainingPanel(BaseTrainingPanel):
         self._status_lbl.config(text="⏭ 跳过当前算法（等待本轮完成）…", fg=C["warning"])
         self._append_log("⏭ 用户请求跳过当前算法")
 
+    STAGE_HANDLERS = {
+        "start": "_on_stage_start",
+        "epoch": "_on_stage_epoch",
+        "done": "_on_stage_done",
+        "error": "_on_stage_error",
+        "auto_adjust": "_on_stage_auto_adjust",
+        "cancelled": "_on_stage_cancelled",
+        "all_done": "_on_stage_all_done",
+        "fatal": "_on_stage_fatal",
+    }
+
     def _handle_stage(self, msg) -> bool:
         stage = msg.get("stage")
-        total_sel = msg.get("_total_selected", 1)
-
-        if stage == "start":
-            aid = msg.get("algo_id", "?")
-            cur = msg.get("current", 0)
-            tot = msg.get("total", 1)
-            self._current_aid = aid
-            self._status_lbl.config(text=f"[{cur}/{tot}] 训练 {aid} …", fg=C["text_2"])
-            self._append_log(f"── [{cur}/{tot}] 开始训练 {aid} ──")
-            self._update_algo_row(aid, status="▶ 训练中", status_color=C["accent"])
-
-        elif stage == "epoch":
-            aid = msg.get("algo_id", "?")
-            ep = msg.get("epoch", 0)
-            eps = msg.get("epochs", 1)
-            tloss = msg.get("train_loss", 0.0)
-            vloss = msg.get("val_loss", -1.0)
-            elapsed = msg.get("elapsed_s", 0.0)
-
-            # 实时置信度（基于 val_loss）
-            conf = loss_to_confidence(vloss) if vloss >= 0 else 0.0
-            conf_str, conf_color = format_confidence(conf)
-
-            # 更新算法行置信度（每 5 epoch 或最后 epoch 刷新）
-            if ep == 1 or ep % 5 == 0 or ep == eps:
-                self._update_algo_row(aid, conf=conf_str, conf_color=conf_color)
-
-            pct = min(100, int((ep / max(1, eps)) * 100))
-            self._progress["value"] = pct
-            vtxt = f"  val={vloss:.4f}" if vloss >= 0 else ""
-            self._status_lbl.config(
-                text=f"{aid}  ep{ep}/{eps}  train={tloss:.4f}{vtxt}  {conf_str}  {elapsed:.0f}s",
-                fg=C["text_1"],
-            )
-
-            # 训练质量监控
-            self._monitor.update(ep, tloss, vloss if vloss >= 0 else -1)
-            self._refresh_monitor()
-
-            adj = msg.get("_adjustment", "")
-            if adj:
-                self._append_log(f"  {adj}")
-
-            # 记录 loss 历史 + 更新图表
-            self._loss_history.append(
-                {
-                    "algo": aid,
-                    "epoch": ep,
-                    "train_loss": tloss,
-                    "val_loss": vloss,
-                }
-            )
-            self._update_chart()
-            self._append_log(
-                f"  epoch {ep:>3}/{eps}  |  "
-                f"train_loss={tloss:.6f}  |  "
-                f"{f'val_loss={vloss:.6f}' if vloss >= 0 else 'val_loss=N/A'}  |  "
-                f"confidence={conf_str}  |  "
-                f"{elapsed:.1f}s"
-            )
-
-        elif stage == "done":
-            aid = msg.get("algo_id", "?")
-            cur = msg.get("current", 0)
-            ver = msg.get("version", "")
-            self._status_lbl.config(text=f"✓ {aid} → {ver} ({cur}/{total_sel})", fg=C["success"])
-            self._progress["value"] = int(cur / max(1, total_sel) * 100)
-            self._append_log(f"✓ {aid} 完成, 保存为 {ver}")
-            # 读取最终置信度并更新行
-            conf = load_algo_confidence(aid)
-            conf_str, conf_color = format_confidence(conf)
-            self._algo_confidence[aid] = conf
-            self._update_algo_row(
-                aid,
-                status=f"✓ {ver[:10]}",
-                status_color=C["success"],
-                conf=conf_str,
-                conf_color=conf_color,
-                ver=f"v{self._algo_meta.get(aid, {}).get('version_count', 0) + 1}",
-            )
-
-        elif stage == "error":
-            aid = msg.get("algo_id", "?")
-            err = msg.get("error", "")
-            self._status_lbl.config(text=f"✗ {aid} 失败: {err}", fg=C["danger"])
-            self._append_log(f"✗ {aid} 训练失败: {err}")
-            self._update_algo_row(aid, status="✗ 失败", status_color=C["danger"])
-
-        elif stage == "auto_adjust":
-            message = msg.get("message", "")
-            self._append_log(f"  🔧 自动调整: {message}")
-            self._status_lbl.config(text=f"⚡ {message}", fg=C["warning"])
-
-        elif stage == "cancelled":
-            rem = msg.get("remaining", [])
-            self._status_lbl.config(text=f"已取消，剩余 {len(rem)} 个", fg=C["warning"])
-            self._append_log(f"⏹ 已取消, 剩余 {len(rem)} 个算法")
-            return True
-
-        elif stage == "all_done":
-            results = msg.get("results", {})
-            self._last_training_results = results
-            ok = sum(1 for v in results.values() if v)
-            bad = sum(1 for v in results.values() if not v)
-            elapsed = time.time() - self._train_t0 if self._train_t0 else 0
-
-            # 读取每个成功算法的最终置信度
-            conf_summary = ""
-            for aid, ver in results.items():
-                if not ver:
-                    continue
-                conf = load_algo_confidence(aid)
-                self._algo_confidence[aid] = conf
-                conf_str, _ = format_confidence(conf)
-                conf_summary += f"  {aid}: {conf_str}"
-
-            self._status_lbl.config(text=f"全部完成: ✓ {ok}  ✗ {bad}  · {elapsed:.0f}s", fg=C["success"])
-            self._progress["value"] = 100
-            self._append_log(f"🏁 训练全部完成: {ok} 成功, {bad} 失败, 耗时 {elapsed:.0f}s")
-            self._append_log(f"📊 各算法最终置信度:{conf_summary}")
-            return True
-
-        elif stage == "fatal":
-            err = msg.get("error", "")
-            self._status_lbl.config(text=f"训练异常: {err}", fg=C["danger"])
-            self._append_log(f"💥 训练进程异常: {err}")
-            return True
-
+        handler_name = self.STAGE_HANDLERS.get(stage)
+        if handler_name:
+            return getattr(self, handler_name)(msg)
         return False
+
+    def _on_stage_start(self, msg):
+        aid = msg.get("algo_id", "?")
+        cur = msg.get("current", 0)
+        tot = msg.get("total", 1)
+        self._current_aid = aid
+        self._status_lbl.config(text=f"[{cur}/{tot}] 训练 {aid} …", fg=C["text_2"])
+        self._append_log(f"── [{cur}/{tot}] 开始训练 {aid} ──")
+        self._update_algo_row(aid, status="▶ 训练中", status_color=C["accent"])
+
+    def _on_stage_epoch(self, msg):
+        aid = msg.get("algo_id", "?")
+        ep = msg.get("epoch", 0)
+        eps = msg.get("epochs", 1)
+        tloss = msg.get("train_loss", 0.0)
+        vloss = msg.get("val_loss", -1.0)
+        elapsed = msg.get("elapsed_s", 0.0)
+
+        conf = loss_to_confidence(vloss) if vloss >= 0 else 0.0
+        conf_str, conf_color = format_confidence(conf)
+
+        if ep == 1 or ep % 5 == 0 or ep == eps:
+            self._update_algo_row(aid, conf=conf_str, conf_color=conf_color)
+
+        pct = min(100, int((ep / max(1, eps)) * 100))
+        self._progress["value"] = pct
+        vtxt = f"  val={vloss:.4f}" if vloss >= 0 else ""
+        self._status_lbl.config(
+            text=f"{aid}  ep{ep}/{eps}  train={tloss:.4f}{vtxt}  {conf_str}  {elapsed:.0f}s",
+            fg=C["text_1"],
+        )
+
+        self._monitor.update(ep, tloss, vloss if vloss >= 0 else -1)
+        self._refresh_monitor()
+
+        adj = msg.get("_adjustment", "")
+        if adj:
+            self._append_log(f"  {adj}")
+
+        self._loss_history.append(
+            {
+                "algo": aid,
+                "epoch": ep,
+                "train_loss": tloss,
+                "val_loss": vloss,
+            }
+        )
+        self._update_chart()
+        self._append_log(
+            f"  epoch {ep:>3}/{eps}  |  "
+            f"train_loss={tloss:.6f}  |  "
+            f"{f'val_loss={vloss:.6f}' if vloss >= 0 else 'val_loss=N/A'}  |  "
+            f"confidence={conf_str}  |  "
+            f"{elapsed:.1f}s"
+        )
+
+    def _on_stage_done(self, msg):
+        total_sel = msg.get("_total_selected", 1)
+        aid = msg.get("algo_id", "?")
+        cur = msg.get("current", 0)
+        ver = msg.get("version", "")
+        self._status_lbl.config(text=f"✓ {aid} → {ver} ({cur}/{total_sel})", fg=C["success"])
+        self._progress["value"] = int(cur / max(1, total_sel) * 100)
+        self._append_log(f"✓ {aid} 完成, 保存为 {ver}")
+        conf = load_algo_confidence(aid)
+        conf_str, conf_color = format_confidence(conf)
+        self._algo_confidence[aid] = conf
+        self._update_algo_row(
+            aid,
+            status=f"✓ {ver[:10]}",
+            status_color=C["success"],
+            conf=conf_str,
+            conf_color=conf_color,
+            ver=f"v{self._algo_meta.get(aid, {}).get('version_count', 0) + 1}",
+        )
+
+    def _on_stage_error(self, msg):
+        aid = msg.get("algo_id", "?")
+        err = msg.get("error", "")
+        self._status_lbl.config(text=f"✗ {aid} 失败: {err}", fg=C["danger"])
+        self._append_log(f"✗ {aid} 训练失败: {err}")
+        self._update_algo_row(aid, status="✗ 失败", status_color=C["danger"])
+
+    def _on_stage_auto_adjust(self, msg):
+        message = msg.get("message", "")
+        self._append_log(f"  🔧 自动调整: {message}")
+        self._status_lbl.config(text=f"⚡ {message}", fg=C["warning"])
+
+    def _on_stage_cancelled(self, msg):
+        rem = msg.get("remaining", [])
+        self._status_lbl.config(text=f"已取消，剩余 {len(rem)} 个", fg=C["warning"])
+        self._append_log(f"⏹ 已取消, 剩余 {len(rem)} 个算法")
+        return True
+
+    def _on_stage_all_done(self, msg):
+        results = msg.get("results", {})
+        self._last_training_results = results
+        ok = sum(1 for v in results.values() if v)
+        bad = sum(1 for v in results.values() if not v)
+        elapsed = time.time() - self._train_t0 if self._train_t0 else 0
+
+        conf_summary = ""
+        for aid, ver in results.items():
+            if not ver:
+                continue
+            conf = load_algo_confidence(aid)
+            self._algo_confidence[aid] = conf
+            conf_str, _ = format_confidence(conf)
+            conf_summary += f"  {aid}: {conf_str}"
+
+        self._status_lbl.config(text=f"全部完成: ✓ {ok}  ✗ {bad}  · {elapsed:.0f}s", fg=C["success"])
+        self._progress["value"] = 100
+        self._append_log(f"🏁 训练全部完成: {ok} 成功, {bad} 失败, 耗时 {elapsed:.0f}s")
+        self._append_log(f"📊 各算法最终置信度:{conf_summary}")
+        return True
+
+    def _on_stage_fatal(self, msg):
+        err = msg.get("error", "")
+        self._status_lbl.config(text=f"训练异常: {err}", fg=C["danger"])
+        self._append_log(f"💥 训练进程异常: {err}")
+        return True
 
     def _cleanup_training(self):
         self._close_log_file()
@@ -1143,7 +1131,7 @@ class TrainingPanel(BaseTrainingPanel):
             self.main._refresh_model_status()
         except Exception:
             pass
-        # 训练自动回调：通知 + 重新预测 + 更新权重
+        # 训练自动回调：通知 + 重新预测
         trained = getattr(self, "_last_training_results", {})
         ok = [aid for aid, v in trained.items() if v]
         if ok:
@@ -1151,7 +1139,7 @@ class TrainingPanel(BaseTrainingPanel):
             if len(ok) > 6:
                 detail += f" …等{len(ok)}个"
             try:
-                self.main._on_training_completed("训练", len(ok), detail, trained_ids=ok)
+                self.main._on_training_completed("训练", len(ok), detail)
             except Exception:
                 pass
 

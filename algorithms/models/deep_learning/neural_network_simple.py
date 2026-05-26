@@ -4,7 +4,6 @@
 """
 
 from datetime import datetime
-
 import math
 from algorithms.base import BaseAlgorithm, PredictionResult
 from algorithms.models.deep_learning._torch_upgrade import MLPTorchModel, try_torch_predict

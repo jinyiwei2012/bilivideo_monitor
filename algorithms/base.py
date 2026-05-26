@@ -130,7 +130,10 @@ class BaseAlgorithm(ABC):
         # 投币/点赞比（越高表示认可度越高）
         coin_like_ratio = min(1.0, coins / max(likes, 1))
 
-        score = 0.4 * engagement + 0.3 * danmaku_density + 0.3 * coin_like_ratio
+        _W_ENGAGEMENT = 0.4
+        _W_DANMAKU = 0.3
+        _W_COIN_LIKE = 0.3
+        score = _W_ENGAGEMENT * engagement + _W_DANMAKU * danmaku_density + _W_COIN_LIKE * coin_like_ratio
         return min(1.0, max(0.0, score))
 
     def get_video_age_hours(self, video_data: Dict[str, Any]) -> float:

@@ -3,7 +3,6 @@
 """
 
 import math
-
 from ui.theme import C
 
 from utils import PROJECT_ROOT, project_path  # noqa: F401 — re-export for convenience
@@ -49,6 +48,7 @@ def reload_thresholds():
     - 新格式: thresholds = [[100000, "10万"], [1000000, "100万"], ...]
     - 旧格式: thresholds = [100000, 1000000, ...] + 自动生成名称
     """
+    global THRESHOLDS, THRESHOLD_NAMES, THRESH_COLORS  # noqa: F824
     try:
         from config import load_config
 
@@ -257,3 +257,10 @@ def load_algo_confidence(algo_id: str) -> float:
         return loss_to_confidence(versions[0].get("val_loss", -1.0))
     except Exception:
         return 0.0
+
+
+def is_valid_bvid(s: str) -> bool:
+    """校验 BV 号格式，防止路径穿越。"""
+    import re
+
+    return bool(re.match(r"^BV[A-Za-z0-9]{10,12}$", s.strip()))

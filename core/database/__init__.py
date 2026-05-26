@@ -7,7 +7,7 @@
 from .models import VideoInfo, MonitorRecord, PredictionRecord, _validate_bvid
 from .connection import _ConnectionCtx, _http_session
 from .video_db import VideoDatabase
-from .central_db import Database, db
+from .central_db import Database, get_db
 
 __all__ = [
     "VideoInfo",
@@ -18,5 +18,5 @@ __all__ = [
     "_http_session",
     "VideoDatabase",
     "Database",
-    "db",
+    "get_db",
 ]

@@ -116,7 +116,8 @@ def draw_chart_annotations(c, history, views_list, px, py, W, H, ML, MR, MB, bas
             _draw_projection(c, last_x, last_y, proj_x, proj_y, pred_val, is_step=False, base_v=base_v, raw_pred=w_pred)
 
     # ── X 轴时间标签 ────────────────────
-    step = max(1, len(history) // 6)
+    _X_LABEL_COUNT = 6
+    step = max(1, len(history) // _X_LABEL_COUNT)
     for i, (ts, _) in enumerate(history):
         if i % step == 0 or i == len(history) - 1:
             try:
@@ -158,14 +159,14 @@ def draw_chart_grid(c, W, H, ML, MR, MT, MB, cw, ch, min_v, max_v, is_delta=Fals
 
 
 def draw_chart(canvas, history_data, bvid, video, FONT, mode="step", max_points=20, prediction=None):
-    """绘制完整图表
+    history = history_data.get(bvid, [])
+    pred_val = prediction.get("prediction", 0) if prediction else 0
+    rate_val = prediction.get("rate_per_sec", 0) if prediction else 0
+    fp = (bvid, mode, max_points, len(history), history[-1][1] if history else 0, pred_val, rate_val)
+    if getattr(draw_chart, "_last_fp", None) == fp:
+        return
+    draw_chart._last_fp = fp
 
-    mode: "step"  — 新增模式（v[i]-v[i-1] 每次刷新的播放量增量）
-          "delta" — 增量模式（以首个数据点为基准）
-          "full"  — 全量模式（显示绝对值）
-    max_points: 图中数据点数量（固定间隔）
-    prediction: prediction_results[bvid] dict，含 "prediction" (加权预测值) 等
-    """
     c = canvas
     c.delete("all")
 
@@ -178,7 +179,6 @@ def draw_chart(canvas, history_data, bvid, video, FONT, mode="step", max_points=
     cw = W - ML - MR
     ch = H - MT - MB
 
-    history = history_data.get(bvid, [])
     has_data = len(history) >= 2
 
     if not has_data:
@@ -190,6 +190,10 @@ def draw_chart(canvas, history_data, bvid, video, FONT, mode="step", max_points=
         _draw_step_chart(c, history, W, H, ML, MR, MT, MB, cw, ch, FONT, max_points, prediction)
         return
 
+    _draw_delta_or_full_chart(c, history, W, H, ML, MR, MT, MB, cw, ch, FONT, max_points, prediction, mode)
+
+
+def _draw_delta_or_full_chart(c, history, W, H, ML, MR, MT, MB, cw, ch, FONT, max_points, prediction, mode):
     is_delta = mode == "delta" and history[0][1] > 0
     base_v = history[0][1] if is_delta else 0
 
@@ -198,7 +202,6 @@ def draw_chart(canvas, history_data, bvid, video, FONT, mode="step", max_points=
 
     views_list = [v for _, v in history]
 
-    # 将预测值纳入 Y 轴范围，防止被裁切
     pred_val = None
     if prediction:
         w_pred = prediction.get("prediction", 0)
@@ -213,7 +216,6 @@ def draw_chart(canvas, history_data, bvid, video, FONT, mode="step", max_points=
     draw_chart_series(c, history, px, py, ML, MT, W, MR, ch, views_list, max_points)
     draw_chart_annotations(c, history, views_list, px, py, W, H, ML, MR, MB, base_v, prediction)
 
-    # 右上角信息
     mode_name = "增量" if is_delta else "全量"
     shown = min(len(history), max_points)
     c.create_text(

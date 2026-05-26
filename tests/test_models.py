@@ -1,4 +1,5 @@
 """Tests for core/database/models.py"""
+
 import pytest
 from core.database.models import (
     VideoInfo,

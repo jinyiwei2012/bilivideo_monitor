@@ -5,6 +5,7 @@
 
 import os
 import json
+import math
 import threading
 import logging
 from typing import Dict, List
@@ -59,17 +60,35 @@ class WeightManager:
             except Exception as e:
                 logger.warning("加载权重失败: %s", e)
 
-    def _save_weights(self, bvid: str = None):
-        """保存权重"""
+    def _save_weights_async(self, bvid: str = None):
+        """异步保存权重（不阻塞调用线程）"""
         try:
             data = {
-                "user_weights": self.user_weights,
-                "ml_weights": self.ml_weights,
-                "accuracy_records": self.accuracy_records,
+                "user_weights": dict(self.user_weights),
+                "ml_weights": dict(self.ml_weights),
+                "accuracy_records": {k: list(v) for k, v in self.accuracy_records.items()},
                 "updated_at": datetime.now().isoformat(),
             }
+            threading.Thread(
+                target=self._write_weights_file,
+                args=(data, bvid),
+                daemon=True,
+            ).start()
+        except Exception as e:
+            logger.warning("调度异步保存权重失败: %s", e)
 
-            with open(self._get_weights_file(bvid), "w", encoding="utf-8") as f:
+    @staticmethod
+    def _write_weights_file(data: dict, bvid: str = None):
+        """在后台线程中执行实际文件写入"""
+        try:
+            from utils import project_path
+
+            if bvid:
+                fpath = os.path.join(project_path("algorithms", "weights"), f"{bvid}_weights.json")
+            else:
+                fpath = os.path.join(project_path("algorithms", "weights"), "default_weights.json")
+            os.makedirs(os.path.dirname(fpath), exist_ok=True)
+            with open(fpath, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
         except Exception as e:
             logger.warning("保存权重失败: %s", e)
@@ -78,59 +97,62 @@ class WeightManager:
         """设置用户自定义权重"""
         with self._lock:
             self.user_weights[algorithm_name] = max(0.01, min(10.0, weight))
-            self._save_weights()
+        self._save_weights_async()
 
     def clear_user_weight(self, algorithm_name: str):
         """清除用户自定义权重"""
         with self._lock:
             if algorithm_name in self.user_weights:
                 del self.user_weights[algorithm_name]
-                self._save_weights()
+        self._save_weights_async()
 
     def is_user_weight(self, algorithm_name: str) -> bool:
         """检查是否有用户自定义权重"""
         return algorithm_name in self.user_weights
 
     def update_accuracy(self, algorithm_name: str, accuracy: float):
-        """更新算法准确率（线程安全）"""
+        """更新算法准确率（线程安全，写盘异步）"""
         with self._lock:
             if algorithm_name not in self.accuracy_records:
                 self.accuracy_records[algorithm_name] = []
-
             self.accuracy_records[algorithm_name].append(accuracy)
-
-            # 只保留最近100条记录
             if len(self.accuracy_records[algorithm_name]) > 100:
                 self.accuracy_records[algorithm_name] = self.accuracy_records[algorithm_name][-100:]
 
-            # 重新计算ML权重
-            self._recalculate_ml_weights()
-            self._save_weights()
+        # 锁外执行：ML 重算 + 异步写盘，不阻塞其他算法
+        self._recalculate_ml_weights()
+        self._save_weights_async()
 
     def _recalculate_ml_weights(self):
-        """重新计算机器学习权重"""
-        for algo_name, records in self.accuracy_records.items():
+        """重新计算机器学习权重（调用方无需持锁 —— 内部使用快照）"""
+        with self._lock:
+            records_snapshot = {k: list(v) for k, v in self.accuracy_records.items()}
+
+        new_weights = {}
+        for algo_name, records in records_snapshot.items():
             if not records:
-                self.ml_weights[algo_name] = 1.0
+                new_weights[algo_name] = 1.0
                 continue
 
-            # 使用指数加权平均，近期准确率权重更高
             weights = []
             for i, acc in enumerate(records):
-                # 越近期的准确率权重越高
                 w = (i + 1) / len(records) * 0.5 + 0.5
                 weights.append(w * acc)
 
             avg_accuracy = sum(weights) / len(weights) if weights else 0.5
+            new_weights[algo_name] = 0.5 + avg_accuracy * 1.5
 
-            # 将准确率转换为权重 (0.5准确率=1.0权重, 1.0准确率=2.0权重)
-            self.ml_weights[algo_name] = 0.5 + avg_accuracy * 1.5
+        algo_names = list(new_weights.keys())
+        if algo_names:
+            wlist = [new_weights[an] for an in algo_names]
+            max_w = max(wlist)
+            softmax_sum = sum(math.exp(w - max_w) for w in wlist)
+            if softmax_sum > 0:
+                for an, w in zip(algo_names, wlist):
+                    new_weights[an] = math.exp(w - max_w) / softmax_sum * len(algo_names)
 
-        # 归一化权重
-        total = sum(self.ml_weights.values())
-        if total > 0:
-            for algo in self.ml_weights:
-                self.ml_weights[algo] = self.ml_weights[algo] / total * len(self.ml_weights)
+        with self._lock:
+            self.ml_weights = new_weights
 
     def get_weight(self, algorithm_name: str, base_weight: float = 1.0) -> float:
         """获取最终权重"""
@@ -178,8 +200,32 @@ class WeightManager:
             self.user_weights = {}
             self.ml_weights = {}
             self.accuracy_records = {}
-            self._save_weights()
+        self._save_weights_async()
+
+    def sync_save(self):
+        """同步写盘（供测试用，确保文件已落盘）"""
+        try:
+            data = {
+                "user_weights": dict(self.user_weights),
+                "ml_weights": dict(self.ml_weights),
+                "accuracy_records": {k: list(v) for k, v in self.accuracy_records.items()},
+                "updated_at": datetime.now().isoformat(),
+            }
+            fpath = self._get_weights_file()
+            os.makedirs(os.path.dirname(fpath), exist_ok=True)
+            with open(fpath, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.warning("同步保存权重失败: %s", e)
 
 
-# 全局权重管理器实例
-weight_manager = WeightManager()
+# 全局权重管理器实例（惰性初始化）
+_weight_manager = None
+
+
+def get_weight_manager():
+    """获取全局 WeightManager 单例（惰性初始化）"""
+    global _weight_manager
+    if _weight_manager is None:
+        _weight_manager = WeightManager()
+    return _weight_manager

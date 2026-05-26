@@ -72,7 +72,6 @@ class AIQASession:
                     latest = sorted_pts[-1][1]
                     span_h = (sorted_pts[-1][0] - sorted_pts[0][0]).total_seconds() / 3600
                     # 采样关键数据点：首、中、尾
-                    len(sorted_pts) // 2
                     lines.append(f"    历史趋势: {len(sorted_pts)}条记录, 跨度{span_h:.1f}h")
                     lines.append(f"      起始: {sorted_pts[0][1]:,} → 当前: {latest:,}")
                     if span_h > 0:
@@ -104,6 +103,7 @@ class AIQASession:
                 logger.debug("从配置加载API密钥失败: %s", e)
 
         if self.api_key:
+            self._rate_limit()
             answer = self._ask_llm(question)
         else:
             answer = self._ask_rule(question)
@@ -113,6 +113,24 @@ class AIQASession:
             self.history = self.history[-20:]
 
         return answer
+
+    _last_call_time = 0.0
+    _min_call_interval = 1.0  # 最少间隔 1 秒
+
+    def _rate_limit(self):
+        """Token bucket 简单限速：每秒最多 1 次 API 调用"""
+        import time
+
+        elapsed = time.time() - self._last_call_time
+        if elapsed < self._min_call_interval:
+            time.sleep(self._min_call_interval - elapsed)
+        AIQASession._last_call_time = time.time()
+
+    def clear_api_key(self):
+        """使用后清除 API Key（内存安全）"""
+        self.api_key = ""
+        self.model = ""
+        self.endpoint = ""
 
     def _ask_llm(self, question: str) -> str:
         """调用 LLM API（支持 OpenAI 兼容 和 Claude 格式）"""
@@ -252,7 +270,7 @@ class AIQASession:
                                 p[0]
                                 if isinstance(p[0], datetime)
                                 else (
-                                    datetime.strptime(str(p[0])[:19], "%Y-%m-%d %H:%M:%S")
+                                    datetime.fromisoformat(str(p[0])[:19].replace("T", " "))
                                     if isinstance(p[0], str)
                                     else p[0]
                                 )
@@ -285,13 +303,18 @@ class AIQASession:
         return "\n".join(lines)
 
     def _answer_threshold(self) -> str:
-        from ui.helpers import THRESHOLDS, THRESHOLD_NAMES
+        from config import load_config
+
+        cfg = load_config().get("prediction", {})
+        thresholds_raw = cfg.get("thresholds", [[100000, "10万"], [1000000, "100万"], [10000000, "1000万"]])
+        thresholds = [t for t, _ in thresholds_raw]
+        threshold_names = [n for _, n in thresholds_raw]
 
         achieved = 0
         nearing = []
         for v in self._monitored_videos:
             views = v.get("view_count", 0)
-            for t, name in zip(THRESHOLDS, THRESHOLD_NAMES):
+            for t, name in zip(thresholds, threshold_names):
                 if views >= t:
                     achieved += 1
                 elif views >= t * 0.8:

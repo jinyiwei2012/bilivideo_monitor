@@ -88,11 +88,14 @@ class TrendingDiscoveryWindow:
         tk.Label(
             self._card_frame, text="加载中...", bg=C["bg_elevated"], fg=C["text_3"], font=("Microsoft YaHei UI", 10)
         ).pack()
-        self.window.update_idletasks()
 
-        videos = self.api.get_popular_videos()
-        self._videos = videos
-        self._display_videos(videos)
+        def _fetch():
+            videos = self.api.get_popular_videos()
+            self.window.after(0, lambda: self._display_videos(videos))
+
+        import threading
+
+        threading.Thread(target=_fetch, daemon=True).start()
 
     def _load_weekly(self):
         if not self.api:
@@ -101,11 +104,14 @@ class TrendingDiscoveryWindow:
         tk.Label(
             self._card_frame, text="加载中...", bg=C["bg_elevated"], fg=C["text_3"], font=("Microsoft YaHei UI", 10)
         ).pack()
-        self.window.update_idletasks()
 
-        videos = self.api.get_weekly_series()
-        self._videos = videos
-        self._display_videos(videos)
+        def _fetch():
+            videos = self.api.get_weekly_series()
+            self.window.after(0, lambda: self._display_videos(videos))
+
+        import threading
+
+        threading.Thread(target=_fetch, daemon=True).start()
 
     def _clear_cards(self):
         for w in self._card_frame.winfo_children():

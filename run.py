@@ -115,7 +115,7 @@ def main():
     # 启动GUI
     print("\n🚀 启动系统...")
     try:
-        from main_gui import main
+        from ui.main_gui import main
 
         main()
     except ImportError as e:

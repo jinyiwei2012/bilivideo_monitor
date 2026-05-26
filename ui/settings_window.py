@@ -16,10 +16,10 @@ from ui.theme import C
 from ui.helpers import FONT, FONT_BOLD, FONT_SM, FONT_MONO, project_path, auto_threshold_name
 from ui.dialog_base import DialogBase
 from ui.scrollable_frame import ScrollableFrame
-from core.bilibili_api import bilibili_api
+from core.bilibili_api import get_bilibili_api
 from core.proxy_manager import ProxyManager
 from algorithms.registry import AlgorithmRegistry
-from algorithms.weight_manager import weight_manager
+from algorithms.weight_manager import get_weight_manager
 
 logger = logging.getLogger(__name__)
 
@@ -27,12 +27,13 @@ logger = logging.getLogger(__name__)
 class SettingsWindow:
     """统一设置窗口"""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, gui=None):
         # 自适应对话框尺寸
         self.dlg = DialogBase(
             parent, "系统设置", DialogBase.calc_geometry(parent, 0.48, 0.68), resizable=(True, True), modal=False
         )
         self.window = self.dlg.window
+        self.gui = gui
 
         from config import load_config
 
@@ -49,15 +50,33 @@ class SettingsWindow:
         if os.path.exists(self._net_cfg_file):
             try:
                 with open(self._net_cfg_file, "r", encoding="utf-8") as f:
-                    return json.load(f)
+                    cfg = json.load(f)
+                # 解密 Cookie
+                cookies = cfg.get("cookies", {})
+                if cookies:
+                    from utils.crypto import decrypt_dict
+
+                    decrypt_dict(cookies, "SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid")
+                return cfg
             except Exception as e:
                 logger.debug("加载网络配置失败: %s", e)
         return {"proxies": [], "cookies": {}}
 
     def _save_net_config(self):
         os.makedirs(os.path.dirname(self._net_cfg_file), exist_ok=True)
+        # 加密 Cookie 后再持久化
+        cookies = self._net_cfg.get("cookies", {})
+        if cookies:
+            from utils.crypto import encrypt_dict
+
+            encrypt_dict(cookies, "SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid")
         with open(self._net_cfg_file, "w", encoding="utf-8") as f:
             json.dump(self._net_cfg, f, ensure_ascii=False, indent=2)
+        # 保存后恢复明文（UI 继续使用明文）
+        if cookies:
+            from utils.crypto import decrypt_dict
+
+            decrypt_dict(cookies, "SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid")
 
     # ── UI helpers ──
     @staticmethod
@@ -463,7 +482,7 @@ class SettingsWindow:
             ttk.Checkbutton(
                 row,
                 variable=var,
-                command=lambda n=name: self._weight_vars[n].set(weight_manager.ml_weights.get(n, 1.0)),
+                command=lambda n=name: self._weight_vars[n].set(get_weight_manager().ml_weights.get(n, 1.0)),
             ).grid(row=0, column=1, padx=2)
 
             wv = tk.DoubleVar(value=info.get("user_weight") or info.get("final_weight", 1.0))
@@ -494,7 +513,7 @@ class SettingsWindow:
 
     def _reset_all_weights(self):
         if messagebox.askyesno("确认", "确定要重置所有自定义权重吗？", parent=self.window):
-            weight_manager.reset_weights()
+            get_weight_manager().reset_weights()
             self._refresh_weights()
             messagebox.showinfo("成功", "已重置所有权重", parent=self.window)
 
@@ -514,9 +533,9 @@ class SettingsWindow:
                 weight = float(wv.get())
                 weight = max(0.01, min(10.0, weight))
                 if check_var.get():
-                    weight_manager.set_user_weight(name, weight)
+                    get_weight_manager().set_user_weight(name, weight)
                 else:
-                    weight_manager.clear_user_weight(name)
+                    get_weight_manager().clear_user_weight(name)
             except ValueError:
                 messagebox.showerror("错误", f"算法 {name} 的权重值无效", parent=self.window)
                 return
@@ -613,6 +632,10 @@ class SettingsWindow:
         self._tr_cancel_btn = ttk.Button(btn_row, text="✕ 取消", command=self._on_train_cancel, state="disabled")
         self._tr_cancel_btn.pack(side=tk.LEFT)
 
+        # 模型导入/导出
+        ttk.Button(btn_row, text="📤 导出模型", command=self._on_export_checkpoints).pack(side=tk.RIGHT, padx=(4, 0))
+        ttk.Button(btn_row, text="📥 导入模型", command=self._on_import_checkpoints).pack(side=tk.RIGHT, padx=(4, 0))
+
         self._tr_progress = ttk.Progressbar(ctrl_sec, mode="determinate", maximum=100)
         self._tr_progress.pack(fill=tk.X, pady=(4, 2))
         self._tr_status_lbl = tk.Label(
@@ -634,31 +657,10 @@ class SettingsWindow:
     # —— Training tab helpers ——
 
     def _discover_torch_algorithms(self) -> List[Dict[str, Any]]:
-        """扫描注册器，返回有 build_model 方法的算法清单。
-
-        Returns:
-            [{algorithm_id, name, has_ckpt, active_version, version_count}]
-        """
+        """扫描注册器，返回可训练算法清单。"""
         from algorithms.registry import AlgorithmRegistry
-        from algorithms.training.checkpoint_manager import CheckpointManager
 
-        AlgorithmRegistry.initialize()
-        result = []
-        for aid, algo, _adapter in AlgorithmRegistry.get_trainable_algorithms():
-            ckpt = CheckpointManager(aid)
-            versions = ckpt.list_versions()
-            result.append(
-                {
-                    "algorithm_id": aid,
-                    "name": getattr(algo, "name", aid),
-                    "category": getattr(algo, "category", ""),
-                    "has_ckpt": ckpt.has_checkpoint(),
-                    "active_version": ckpt.active_version() or "",
-                    "version_count": len(versions),
-                }
-            )
-        result.sort(key=lambda r: (not r["has_ckpt"], r["algorithm_id"]))
-        return result
+        return AlgorithmRegistry.get_trainable_info()
 
     def _refresh_device_info(self):
         try:
@@ -700,10 +702,7 @@ class SettingsWindow:
                 )
                 self.window.after(0, lambda: self._tr_data_lbl.config(text=txt, fg=C["text_1"]))
             except Exception as e:
-                err_msg = str(e)
-                self.window.after(
-                    0, lambda err_msg=err_msg: self._tr_data_lbl.config(text=f"⚠ 估算失败: {err_msg}", fg=C["danger"])
-                )
+                self.window.after(0, lambda e=e: self._tr_data_lbl.config(text=f"⚠ 估算失败: {e}", fg=C["danger"]))
 
         import threading
 
@@ -872,6 +871,41 @@ class SettingsWindow:
         self._tr_cancel_btn.config(state="disabled")
         self._tr_status_lbl.config(text="正在取消（等待当前算法完成）…", fg=C["warning"])
 
+    def _on_export_checkpoints(self):
+        """导出所有 checkpoint 为 zip 文件"""
+        try:
+            from utils.checkpoint_io import export_checkpoints
+
+            path = export_checkpoints()
+            self._tr_status_lbl.config(text=f"导出完成: {os.path.basename(path)}", fg=C["success"])
+            if messagebox.askyesno("导出完成", f"模型已导出到:\n{path}\n\n是否打开所在文件夹？", parent=self.window):
+                os.startfile(os.path.dirname(path))
+        except Exception as e:
+            messagebox.showerror("导出失败", str(e), parent=self.window)
+            self._tr_status_lbl.config(text=f"导出失败: {e}", fg=C["danger"])
+
+    def _on_import_checkpoints(self):
+        """从 zip 文件导入 checkpoint"""
+        from tkinter import filedialog
+
+        path = filedialog.askopenfilename(
+            title="选择要导入的 checkpoint 文件",
+            filetypes=[("Zip 文件", "*.zip"), ("所有文件", "*.*")],
+            parent=self.window,
+        )
+        if not path:
+            return
+        try:
+            from utils.checkpoint_io import import_checkpoints
+
+            count = import_checkpoints(path)
+            messagebox.showinfo(
+                "导入完成", f"已导入 {count} 个算法的模型\n\n请刷新算法列表查看更新。", parent=self.window
+            )
+            self._refresh_algo_list()
+        except Exception as e:
+            messagebox.showerror("导入失败", str(e), parent=self.window)
+
     def _poll_training_progress(self):
         import queue as _q
         import time as _t
@@ -951,7 +985,7 @@ class SettingsWindow:
 
     # —— 版本管理弹窗 ——
 
-    def _open_version_manager(self, algo_id: str):
+    def _open_version_manager(self, algo_id: str):  # noqa: C901
         from algorithms.training.checkpoint_manager import CheckpointManager
 
         ckpt = CheckpointManager(algo_id)
@@ -1172,6 +1206,7 @@ class SettingsWindow:
             side=tk.LEFT, padx=4
         )
         ttk.Button(import_row, text="📱 扫码登录", command=self._qrcode_login).pack(side=tk.LEFT, padx=4)
+        ttk.Button(import_row, text="🔑 密码登录", command=self._password_login).pack(side=tk.LEFT, padx=4)
 
         self.cookie_text = tk.Text(
             sec,
@@ -1220,9 +1255,9 @@ class SettingsWindow:
             sp.pack(side=tk.LEFT, padx=(6, 0))
             return sv
 
-        self.retry_count_var = _spin_r(sec, "最大重试次数", bilibili_api.max_retries, 1, 10)
-        self.base_delay_var = _spin_r(sec, "基础重试延迟(秒)", bilibili_api.base_retry_delay, 1, 30)
-        self.min_interval_var = _spin_r(sec, "最小请求间隔(秒)", bilibili_api._min_request_interval, 0.1, 10)
+        self.retry_count_var = _spin_r(sec, "最大重试次数", get_bilibili_api().max_retries, 1, 10)
+        self.base_delay_var = _spin_r(sec, "基础重试延迟(秒)", get_bilibili_api().base_retry_delay, 1, 30)
+        self.min_interval_var = _spin_r(sec, "最小请求间隔(秒)", get_bilibili_api()._min_request_interval, 0.1, 10)
 
         ttk.Button(sec, text="应用重试设置", command=self._apply_retry_settings).pack(anchor="w", pady=(8, 0))
 
@@ -1596,9 +1631,9 @@ class SettingsWindow:
     def _apply_proxies(self):
         text = self.proxy_text.get("1.0", "end").strip()
         proxy_list = [line.strip() for line in text.split("\n") if line.strip()]
-        bilibili_api.clear_proxies()
+        get_bilibili_api().clear_proxies()
         for ps in proxy_list:
-            bilibili_api.add_proxy({"http": ps, "https": ps})
+            get_bilibili_api().add_proxy({"http": ps, "https": ps})
         self._net_cfg["proxies"] = proxy_list
         self._save_net_config()
         # 验证文件已持久化
@@ -1724,9 +1759,9 @@ class SettingsWindow:
         self.proxy_text.delete("1.0", "end")
         self.proxy_text.insert("1.0", "\n".join(remaining))
 
-        bilibili_api.clear_proxies()
+        get_bilibili_api().clear_proxies()
         for ps in remaining:
-            bilibili_api.add_proxy({"http": ps, "https": ps})
+            get_bilibili_api().add_proxy({"http": ps, "https": ps})
 
         self._net_cfg["proxies"] = remaining
         self._save_net_config()
@@ -1740,7 +1775,7 @@ class SettingsWindow:
     def _refresh_cookie_display(self):
         self.cookie_text.delete("1.0", tk.END)
         cookies = {}
-        for cookie in bilibili_api.session.cookies:
+        for cookie in get_bilibili_api().session.cookies:
             if "bilibili.com" in (cookie.domain or ""):
                 cookies[cookie.name] = cookie.value
         if cookies:
@@ -1758,8 +1793,9 @@ class SettingsWindow:
         if not cookies:
             messagebox.showerror("错误", "无法解析输入内容，请检查格式", parent=self.window)
             return
-        bilibili_api.set_cookies(cookies)
+        get_bilibili_api().set_cookies(cookies)
         self._net_cfg["cookies"] = cookies
+        self._net_cfg["refresh_token"] = get_bilibili_api().get_refresh_token()
         self._save_net_config()
         self._refresh_status()
         # 验证登录状态
@@ -1809,7 +1845,7 @@ class SettingsWindow:
     def _verify_login(self):
         """验证登录状态并更新 UI"""
         try:
-            status = bilibili_api.get_status()
+            status = get_bilibili_api().get_status()
             is_login = status.get("is_login", False)
             login_name = status.get("login_name", "")
             if hasattr(self, "gui") and self.gui and hasattr(self.gui, "log_panel"):
@@ -1834,9 +1870,11 @@ class SettingsWindow:
                 "buvid4",
                 "buvid_fp",
             ):
-                bilibili_api.session.cookies.set(name, "", domain=".bilibili.com")
-            bilibili_api._cookies = {}
+                get_bilibili_api().session.cookies.set(name, "", domain=".bilibili.com")
+            get_bilibili_api()._cookies = {}
+            get_bilibili_api()._refresh_token = ""
             self._net_cfg["cookies"] = {}
+            self._net_cfg["refresh_token"] = ""
             self._save_net_config()
             self._refresh_cookie_display()
             self._refresh_status()
@@ -1900,8 +1938,9 @@ class SettingsWindow:
             if not cookies:
                 messagebox.showwarning("未找到", "JSON 中未找到 B站 相关 Cookie", parent=top)
                 return
-            bilibili_api.set_cookies(cookies)
+            get_bilibili_api().set_cookies(cookies)
             self._net_cfg["cookies"] = cookies
+            self._net_cfg["refresh_token"] = get_bilibili_api().get_refresh_token()
             self._save_net_config()
             self._refresh_cookie_display()
             self._refresh_status()
@@ -1916,7 +1955,7 @@ class SettingsWindow:
 
     # ──── Cookie: 扫码登录 ────
     def _qrcode_login(self):
-        qr_data = bilibili_api.get_qrcode_login_url()
+        qr_data = get_bilibili_api().get_qrcode_login_url()
         if not qr_data:
             messagebox.showerror("错误", "获取二维码失败", parent=self.window)
             return
@@ -1972,12 +2011,13 @@ class SettingsWindow:
         def _poll():
             if not qr_top.winfo_exists():
                 return
-            result = bilibili_api.poll_qrcode_login(qrcode_key)
+            result = get_bilibili_api().poll_qrcode_login(qrcode_key)
             status_var.set(result.get("message", ""))
             if result.get("status") == 2:
                 cookies = result.get("cookies", {})
                 if cookies:
                     self._net_cfg["cookies"] = cookies
+                    self._net_cfg["refresh_token"] = get_bilibili_api().get_refresh_token()
                     self._save_net_config()
                     self._refresh_cookie_display()
                     self._refresh_status()
@@ -2004,14 +2044,14 @@ class SettingsWindow:
 
     # ──── 重试设置 ────
     def _apply_retry_settings(self):
-        bilibili_api.max_retries = int(self.retry_count_var.get())
-        bilibili_api.base_retry_delay = self.base_delay_var.get()
-        bilibili_api._min_request_interval = self.min_interval_var.get()
+        get_bilibili_api().max_retries = int(self.retry_count_var.get())
+        get_bilibili_api().base_retry_delay = self.base_delay_var.get()
+        get_bilibili_api()._min_request_interval = self.min_interval_var.get()
         messagebox.showinfo("成功", "重试设置已更新", parent=self.window)
 
     # ──── 状态 ────
     def _refresh_status(self):
-        status = bilibili_api.get_status()
+        status = get_bilibili_api().get_status()
         for key, label in self.status_labels.items():
             value = status.get(key, "N/A")
             if key == "is_login":
@@ -2033,8 +2073,182 @@ class SettingsWindow:
 
     def _reset_status(self):
         if messagebox.askyesno("确认", "确定要重置所有状态吗？", parent=self.window):
-            bilibili_api.reset_status()
+            get_bilibili_api().reset_status()
             self._refresh_status()
+
+    # ──── Cookie: 密码登录 ────
+    def _password_login(self):  # noqa: C901
+        pwd_top = tk.Toplevel(self.window)
+        pwd_top.title("密码登录 B站")
+        sw = self.window.winfo_screenwidth()
+        sh = self.window.winfo_screenheight()
+        pwd_top.geometry(f"{int(sw * 0.28)}x{int(sh * 0.36)}")
+        pwd_top.configure(bg=C["bg_surface"])
+        pwd_top.transient(self.window)
+        pwd_top.grab_set()
+        pwd_top.resizable(False, False)
+
+        tk.Label(
+            pwd_top,
+            text="B站 账号密码登录",
+            bg=C["bg_surface"],
+            fg=C["text_1"],
+            font=("Microsoft YaHei UI", 13, "bold"),
+        ).pack(pady=(18, 4))
+        tk.Label(
+            pwd_top,
+            text="部分账号需要手机验证码，建议使用扫码登录",
+            bg=C["bg_surface"],
+            fg=C["text_3"],
+            font=FONT_SM,
+        ).pack()
+
+        form = tk.Frame(pwd_top, bg=C["bg_surface"])
+        form.pack(pady=(12, 0))
+
+        tk.Label(form, text="账号:", bg=C["bg_surface"], fg=C["text_2"], font=FONT).grid(row=0, column=0, sticky="w")
+        username_entry = ttk.Entry(form, width=28, font=FONT)
+        username_entry.grid(row=0, column=1, padx=(8, 0), pady=4)
+
+        tk.Label(form, text="密码:", bg=C["bg_surface"], fg=C["text_2"], font=FONT).grid(row=1, column=0, sticky="w")
+        password_entry = ttk.Entry(form, width=28, font=FONT, show="*")
+        password_entry.grid(row=1, column=1, padx=(8, 0), pady=4)
+
+        # 验证码区域（初始隐藏）
+        captcha_frame = tk.Frame(pwd_top, bg=C["bg_surface"])
+        captcha_row = tk.Frame(captcha_frame, bg=C["bg_surface"])
+        captcha_row.pack()
+        tk.Label(captcha_row, text="验证码:", bg=C["bg_surface"], fg=C["text_2"], font=FONT).pack(side=tk.LEFT)
+        captcha_entry = ttk.Entry(captcha_row, width=14, font=FONT)
+        captcha_entry.pack(side=tk.LEFT, padx=(8, 0))
+        captcha_type_var = tk.IntVar(value=0)
+
+        status_var = tk.StringVar(value="")
+        status_lbl = tk.Label(
+            pwd_top, textvariable=status_var, bg=C["bg_surface"], fg=C["text_2"], font=FONT_SM, wraplength=300
+        )
+        status_lbl.pack(pady=(8, 0))
+
+        # 按钮区域
+        btn_f = tk.Frame(pwd_top, bg=C["bg_surface"])
+        btn_f.pack(pady=(6, 0))
+        login_btn = ttk.Button(btn_f, text="登录", style="Primary.TButton")
+        login_btn.pack(side=tk.LEFT, padx=4)
+
+        captcha_btn_f = tk.Frame(pwd_top, bg=C["bg_surface"])
+        submit_captcha_btn = ttk.Button(captcha_btn_f, text="提交验证码", style="Primary.TButton")
+
+        cancel_btn = ttk.Button(btn_f, text="取消", command=pwd_top.destroy)
+        cancel_btn.pack(side=tk.LEFT, padx=4)
+
+        def _do_login(captcha_code: str = "", ct: int = 0):
+            uname = username_entry.get().strip()
+            pwd = password_entry.get()
+            if not uname or not pwd:
+                messagebox.showwarning("提示", "请输入账号和密码", parent=pwd_top)
+                return
+            for w in (username_entry, password_entry, captcha_entry):
+                w.config(state="disabled")
+            login_btn.config(state="disabled")
+            status_var.set("登录中..." if not captcha_code else "验证中...")
+            status_lbl.config(fg=C["text_2"])
+            pwd_top.update()
+
+            def _worker():
+                try:
+                    result = get_bilibili_api().login_with_password(uname, pwd, captcha=captcha_code, captcha_type=ct)
+                    pwd_top.after(0, lambda: _handle_result(result))
+                except Exception as e:
+                    pwd_top.after(0, lambda e=e: status_var.set(f"异常: {e}"))
+
+            import threading
+
+            threading.Thread(target=_worker, daemon=True).start()
+
+        def _handle_result(result):
+            code = result.get("code", -1)
+            if code == 0:
+                cookies = result.get("cookies", {})
+                self._net_cfg["cookies"] = cookies
+                self._net_cfg["refresh_token"] = result.get("refresh_token", "")
+                self._save_net_config()
+                self._refresh_cookie_display()
+                self._refresh_status()
+                status_var.set("登录成功！")
+                status_lbl.config(fg=C["success"])
+                pwd_top.after(800, pwd_top.destroy)
+                self.window.after(1000, self._verify_login)
+                messagebox.showinfo(
+                    "登录成功",
+                    f"已获取 Cookie: {', '.join(cookies.keys())}",
+                    parent=self.window,
+                )
+            elif result.get("need_captcha") and not captcha_entry.get().strip():
+                ct = result.get("captcha_type", 0)
+                captcha_type_var.set(ct)
+                if ct == 6:
+                    phone = result.get("captcha_phone", "")
+                    hint = f"验证码已发送至 {phone}" if phone else "请输入手机收到的验证码"
+                    status_var.set(hint)
+                    status_lbl.config(fg=C["warning"])
+                    captcha_frame.pack(pady=(6, 0))
+                    captcha_entry.config(state="normal")
+                    captcha_entry.focus_set()
+                    captcha_btn_f.pack(pady=(2, 0))
+                    submit_captcha_btn.pack(side=tk.LEFT, padx=4)
+                    login_btn.pack_forget()
+                    cancel_btn.pack_forget()
+                    ttk.Button(captcha_btn_f, text="取消", command=pwd_top.destroy).pack(side=tk.LEFT, padx=4)
+                else:
+                    status_var.set("需要滑块验证，请使用扫码登录")
+                    status_lbl.config(fg=C["danger"])
+                for w in (username_entry, password_entry):
+                    w.config(state="normal")
+                login_btn.config(state="normal")
+            else:
+                msg = result.get("message", "未知错误")
+                if code == -1057:
+                    msg += "，请检查账号密码"
+                status_var.set(msg)
+                status_lbl.config(fg=C["danger"])
+                for w in (username_entry, password_entry, captcha_entry):
+                    w.config(state="normal")
+                login_btn.config(state="normal")
+
+        def _submit_captcha():
+            code = captcha_entry.get().strip()
+            if not code:
+                messagebox.showwarning("提示", "请输入验证码", parent=pwd_top)
+                return
+            _do_login(captcha_code=code, ct=captcha_type_var.get())
+
+        login_btn.config(command=lambda: _do_login())
+        submit_captcha_btn.config(command=_submit_captcha)
+
+        # 回车触发
+        for w in (username_entry, password_entry):
+            w.bind("<Return>", lambda e: _do_login())
+        captcha_entry.bind("<Return>", lambda e: _submit_captcha())
+        ttk.Button(btn_f, text="取消", command=pwd_top.destroy).pack(side=tk.LEFT, padx=4)
+
+        # 验证码提交按钮（初始隐藏，随 captcha_frame 一起显示）
+        captcha_btn_f = tk.Frame(pwd_top, bg=C["bg_surface"])
+        captcha_submit_btn = ttk.Button(
+            captcha_btn_f, text="提交验证码", command=_submit_captcha, style="Primary.TButton"
+        )
+        captcha_submit_btn.pack()
+
+        # 挂钩 captcha 回车
+        captcha_entry.bind("<Return>", lambda e: _submit_captcha())
+
+        # 主登录回车
+        for w in (username_entry, password_entry):
+            w.bind("<Return>", lambda e: _do_login())
+
+        # 在 _handle_result 的 need_captcha 分支中也 pack captcha_btn_f
+        # 将 captcha_btn_f 放在 status_lbl 下方
+        captcha_btn_f.pack(pady=(4, 0))
+        captcha_btn_f.pack_forget()  # 初始隐藏
 
     # ──── 代理文本同步 ────
     def _sync_proxy_text_to_cfg(self):
@@ -2051,7 +2265,7 @@ class SettingsWindow:
         self.window.destroy()
 
     # ──── 保存系统设置 ────
-    def _save_settings(self):
+    def _save_settings(self):  # noqa: C901
         try:
             interval = int(self.check_interval.get())
             if not (60 <= interval <= 3600):

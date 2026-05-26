@@ -8,8 +8,7 @@ import time
 import logging
 from datetime import datetime
 from algorithms.registry import AlgorithmRegistry
-from core import bilibili_api, db, MonitorRecord, PredictionRecord, notification_manager
-from utils.time_utils import normalize_timestamp, safe_datetime
+from core import bilibili_api, db, MonitorRecord, PredictionRecord
 from ui.helpers import (
     THRESHOLDS,
     THRESHOLD_NAMES,
@@ -27,9 +26,6 @@ _merged_from_db = set()
 # UP主数据库实例 & 拉取频率控制（每 UP主 每小时最多拉取一次）
 _up_db = None
 _last_up_fetch_time = {}  # uid -> time.time
-
-# 已通知的阈值追踪，防止同一阈值的重复推送
-_notified_thresholds = {}  # bvid -> set of threshold values
 
 # ──────────────────────────────────────────────
 #  内部工具
@@ -92,13 +88,19 @@ def _merge_history(gui, bvid: str) -> list:
     if bvid not in _merged_from_db:
         try:
             if bvid in gui.video_dbs:
-                db_hist = gui.video_dbs[bvid].get_all_records()
+                db_hist = gui.video_dbs[bvid].get_all_records(limit=500)
                 if db_hist:
 
                     def _norm(ts):
                         """统一时间戳格式用于去重比较"""
-                        _, _, ts_str = normalize_timestamp(ts)
-                        return ts_str
+                        if isinstance(ts, datetime):
+                            return ts.strftime("%Y-%m-%d %H:%M:%S")
+                        dt = (
+                            datetime.fromisoformat(str(ts))
+                            if isinstance(ts, str)
+                            else datetime.fromtimestamp(float(ts))
+                        )
+                        return dt.strftime("%Y-%m-%d %H:%M:%S")
 
                     existing_ts = {_norm(h[0]) for h in history}
                     for row in db_hist:
@@ -124,7 +126,7 @@ def _merge_history(gui, bvid: str) -> list:
 
 def _to_dt(t):
     """统一时间戳转为 datetime"""
-    return safe_datetime(t)
+    return t if isinstance(t, datetime) else datetime.fromisoformat(str(t))
 
 
 def _get_up_db():
@@ -178,7 +180,10 @@ def _calc_growth_rate(history: list) -> float:
         if len(history) < 2:
             return 0.0
 
-        first_ts, first_v = safe_datetime(history[0][0]), history[0][1]
+        def _to_dt(t):
+            return t if isinstance(t, datetime) else datetime.fromisoformat(str(t))
+
+        first_ts, first_v = _to_dt(history[0][0]), history[0][1]
         last_ts, last_v = _to_dt(history[-1][0]), history[-1][1]
         dt_sec = (last_ts - first_ts).total_seconds()
         if dt_sec > 0 and last_v > first_v:
@@ -212,27 +217,10 @@ def _predict_single(gui, bvid, video) -> dict:
             if "error" in r:
                 fail_list.append((name, r["error"]))
             else:
-                meta = r.get("metadata", {})
-                predicted_hours = meta.get("predicted_hours", 0)
-                success_list.append(
-                    (
-                        name,
-                        r["prediction"],
-                        r["weight"],
-                        r["confidence"],
-                        predicted_hours,
-                    )
-                )
+                success_list.append((name, r["prediction"], r["weight"], r["confidence"]))
 
         growth = w_pred - current_view
         rate_per_sec = _calc_growth_rate(history)
-
-        # 在线学习反馈
-        _online_learning_feedback(gui, bvid, results, current_view)
-        # 图神经网络更新（内部缓存边，无变更时跳过重建）
-        _update_video_graph(gui, bvid, video)
-        # 写数据库
-        _save_predictions_to_db(gui, bvid, current_view, results)
 
         result = {
             "bvid": bvid,
@@ -245,23 +233,40 @@ def _predict_single(gui, bvid, video) -> dict:
             "valid": weighted.get("valid_algorithms", 0),
             "total": weighted.get("total_algorithms", 0),
         }
+        # 在线学习反馈（使用上次预测值与当前实际值比较）
         with gui._data_lock:
+            prev_result = gui.prediction_results.get(bvid)
             gui.prediction_results[bvid] = result
+        _online_learning_feedback(gui, bvid, results, current_view, prev_result)
+
+        # 图神经网络更新（内部缓存边，无变更时跳过重建）
+        _update_video_graph(gui, bvid, video)
+        # 写数据库
+        _save_predictions_to_db(gui, bvid, current_view, results)
+
         return result
 
 
-def _online_learning_feedback(gui, bvid, results, actual_view):
+def _online_learning_feedback(gui, bvid, results, actual_view, prev_result):
+    """在线学习反馈：使用速度偏差替代绝对值比较
+
+    比较「上次预测的增长量」与「实际增长量」，避免静止期 100% 准确率的虚假提升。
+    """
+    if prev_result is None or actual_view <= 0:
+        return
     try:
         from algorithms.online_learner import get_online_learner
 
-        prev = gui.prediction_results.get(bvid)
-        # 仅在播放量实际发生变化时才反馈，避免静止期虚高准确率
-        if prev and actual_view > 0 and actual_view != prev.get("current_view", actual_view):
+        prev_prediction = prev_result.get("prediction", 0)
+        if prev_prediction > 0:
             learner = get_online_learner()
             learner.register(bvid + "/_weighted")
-            learner.update(bvid + "/_weighted", predicted=prev["prediction"], actual=actual_view)
-            for name, pred_val, _, _, _ in prev.get("success_list", []):
+            learner.update(bvid + "/_weighted", predicted=prev_prediction, actual=actual_view)
+
+        for name, pred_val, _, _ in prev_result.get("success_list", []):
+            if pred_val > 0:
                 algo_key = bvid + "/" + name
+                learner = get_online_learner()
                 learner.register(algo_key)
                 learner.update(algo_key, predicted=pred_val, actual=actual_view)
     except Exception as e:
@@ -342,12 +347,7 @@ class VideoWorker:
             with self._interval_lock:
                 interval = self.interval
 
-            try:
-                self._fetch_and_predict()
-            except Exception as e:
-                logger.exception("[%s] _fetch_and_predict 异常: %s", self.bvid, e)
-                with self._fetching_lock:
-                    self._fetching = False
+            self._fetch_and_predict()
 
             # 分段睡眠，支持中途停止检查
             waited = 0
@@ -399,73 +399,53 @@ class VideoWorker:
             f"弹幕:{stat.get('danmaku', 0)} 评论:{stat.get('reply', 0)}",
         )
 
-        # ── 更新视频字段 ──────────────────────────
-        owner = info.get("owner", {})
-        video["title"] = info.get("title", video.get("title", ""))
-        video["author"] = owner.get("name", video.get("author", ""))
-        video["pic"] = info.get("pic", video.get("pic", ""))
-        # 自动保存 UP主 数据到数据库（每小时最多一次）
-        owner_id = owner.get("mid", 0)
-        if owner_id:
-            _save_up_data(owner_id)
-        old_views = video.get("view_count", 0)
-        video["view_count"] = stat.get("view", video.get("view_count", 0))
-        video["like_count"] = stat.get("like", video.get("like_count", 0))
-        video["coin_count"] = stat.get("coin", video.get("coin_count", 0))
-        video["share_count"] = stat.get("share", video.get("share_count", 0))
-        video["favorite_count"] = stat.get("favorite", video.get("favorite_count", 0))
-        video["danmaku_count"] = stat.get("danmaku", video.get("danmaku_count", 0))
-        video["reply_count"] = stat.get("reply", video.get("reply_count", 0))
+        # ── 更新视频字段（持 _data_lock 防止主线程读到半写状态）──
+        with gui._data_lock:
+            owner = info.get("owner", {})
+            video["title"] = info.get("title", video.get("title", ""))
+            video["author"] = owner.get("name", video.get("author", ""))
+            video["pic"] = info.get("pic", video.get("pic", ""))
+            # 自动保存 UP主 数据到数据库（每小时最多一次）
+            owner_id = owner.get("mid", 0)
+            if owner_id:
+                _save_up_data(owner_id)
+            video["view_count"] = stat.get("view", video.get("view_count", 0))
+            video["like_count"] = stat.get("like", video.get("like_count", 0))
+            video["coin_count"] = stat.get("coin", video.get("coin_count", 0))
+            video["share_count"] = stat.get("share", video.get("share_count", 0))
+            video["favorite_count"] = stat.get("favorite", video.get("favorite_count", 0))
+            video["danmaku_count"] = stat.get("danmaku", video.get("danmaku_count", 0))
+            video["reply_count"] = stat.get("reply", video.get("reply_count", 0))
 
-        # ── 在线人数 ─────────────────────────────
-        try:
-            cid = info.get("cid", 0)
-            if cid:
-                viewers = bilibili_api.get_video_viewers(bvid, cid)
-                if viewers:
-                    self._log(
-                        "DEBUG", f"[{bvid}] 在线响应 总:{viewers.get('total', '0')} 网页:{viewers.get('count', '0')}"
-                    )
-                    video["viewers_total_raw"] = viewers.get("total", "0")
-                    video["viewers_web_raw"] = viewers.get("count", "0")
-                    video["viewers_total"] = _parse_viewer_count(viewers.get("total", "0"))
-                    video["viewers_web"] = _parse_viewer_count(viewers.get("count", "0"))
-                    video["viewers_app"] = max(0, video["viewers_total"] - video["viewers_web"])
+        # ── 在线人数（持 _data_lock）──
+        with gui._data_lock:
+            try:
+                cid = info.get("cid", 0)
+                if cid:
+                    viewers = bilibili_api.get_video_viewers(bvid, cid)
+                    if viewers:
+                        self._log(
+                            "DEBUG",
+                            f"[{bvid}] 在线响应 总:{viewers.get('total', '0')} 网页:{viewers.get('count', '0')}",
+                        )
+                        video["viewers_total_raw"] = viewers.get("total", "0")
+                        video["viewers_web_raw"] = viewers.get("count", "0")
+                        video["viewers_total"] = _parse_viewer_count(viewers.get("total", "0"))
+                        video["viewers_web"] = _parse_viewer_count(viewers.get("count", "0"))
+                        video["viewers_app"] = max(0, video["viewers_total"] - video["viewers_web"])
+                    else:
+                        video["viewers_total"] = video.get("viewers_total", 0)
+                        video["viewers_web"] = video.get("viewers_web", 0)
+                        video["viewers_app"] = video.get("viewers_app", 0)
                 else:
                     video["viewers_total"] = video.get("viewers_total", 0)
                     video["viewers_web"] = video.get("viewers_web", 0)
                     video["viewers_app"] = video.get("viewers_app", 0)
-            else:
+            except Exception as e:
+                self._log("WARNING", f"[{bvid}] 获取在线人数失败: {e}")
                 video["viewers_total"] = video.get("viewers_total", 0)
                 video["viewers_web"] = video.get("viewers_web", 0)
                 video["viewers_app"] = video.get("viewers_app", 0)
-        except Exception as e:
-            self._log("WARNING", f"[{bvid}] 获取在线人数失败: {e}")
-            video["viewers_total"] = video.get("viewers_total", 0)
-            video["viewers_web"] = video.get("viewers_web", 0)
-            video["viewers_app"] = video.get("viewers_app", 0)
-
-        # ── 阈值突破检测 ──────────────────────────
-        new_views = video["view_count"]
-        if new_views > old_views:
-            try:
-                if bvid not in _notified_thresholds:
-                    _notified_thresholds[bvid] = set()
-                # 首次拉取（old_views=0）时，标记所有已超越的阈值，避免首次加载爆通知
-                if old_views == 0:
-                    for thr in THRESHOLDS:
-                        if thr <= new_views:
-                            _notified_thresholds[bvid].add(thr)
-                else:
-                    for i, thr in enumerate(THRESHOLDS):
-                        if old_views < thr <= new_views and thr not in _notified_thresholds[bvid]:
-                            _notified_thresholds[bvid].add(thr)
-                            name = THRESHOLD_NAMES[i] if i < len(THRESHOLD_NAMES) else f"{thr:,}"
-                            title = video.get("title", bvid)[:30]
-                            notification_manager.send_threshold_notification(bvid, title, thr, new_views)
-                            self._log("INFO", f"[{bvid}] 阈值突破 {name}！当前播放量: {new_views:,}")
-            except Exception as e:
-                logger.debug("阈值突破检测失败: %s", e)
 
         # ── 历史记录 ─────────────────────────────
         ts = datetime.now()
