@@ -81,7 +81,8 @@ class BilibiliMonitorGUI:
     def __init__(self, root=None):
         if root is None:
             root = ctk.CTk()
-            root.title("B站视频监控与播放量预测系统")
+            from __init__ import __version__
+            root.title(f"B站视频监控与播放量预测系统 v{__version__}")
             # 自适应窗口：85% 屏幕尺寸，最低 55%
             sw = root.winfo_screenwidth()
             sh = root.winfo_screenheight()
@@ -983,22 +984,28 @@ class BilibiliMonitorGUI:
         check_for_update_async(_on_result)
 
     def _show_update_dialog(self, latest, current, url, changelog):
-        """显示更新弹窗（含 changelog）"""
-        from utils.update_checker import format_changelog_for_display
-        import webbrowser
+        """显示更新弹窗（含 changelog），根据运行模式提供不同更新方式"""
+        from utils.update_checker import (
+            format_changelog_for_display,
+            is_frozen,
+            perform_source_git_pull,
+            perform_source_download_zip,
+            perform_exe_self_update,
+        )
 
         dlg = tk.Toplevel(self.root)
         dlg.title("发现新版本")
         dlg.configure(bg=C["bg_base"])
         dlg.resizable(True, True)
-        dlg.geometry("600x450")
+        dlg.geometry("620x520")
         dlg.transient(self.root)
         dlg.grab_set()
 
         # 标题
+        mode_label = "打包版" if is_frozen() else "源码版"
         tk.Label(
             dlg,
-            text=f"新版本 v{latest} 可用！",
+            text=f"新版本 v{latest} 可用 ({mode_label})",
             font=("Microsoft YaHei UI", 14, "bold"),
             bg=C["bg_base"],
             fg=C["text_1"],
@@ -1030,18 +1037,97 @@ class BilibiliMonitorGUI:
         text.insert("1.0", format_changelog_for_display(changelog))
         text.config(state=tk.DISABLED)
 
-        # 滚动条
         scroll = tk.Scrollbar(text, command=text.yview)
         scroll.pack(side=tk.RIGHT, fill=tk.Y)
         text.config(yscrollcommand=scroll.set)
 
-        # 按钮
+        # ── 底部按钮 ─────────────────────────────────
         btn_frame = tk.Frame(dlg, bg=C["bg_base"])
         btn_frame.pack(fill=tk.X, padx=16, pady=(0, 16))
-        ttk.Button(btn_frame, text="前往下载", command=lambda: (webbrowser.open(url), dlg.destroy())).pack(
-            side=tk.RIGHT, padx=(8, 0)
-        )
-        ttk.Button(btn_frame, text="稍后提醒", command=dlg.destroy).pack(side=tk.RIGHT)
+
+        if is_frozen():
+            # EXE 打包版 → aria2 下载 + 自动更新
+            def _download_exe():
+                dlg.destroy()
+                self._show_download_progress("正在下载新版本…", perform_exe_self_update)
+
+            ttk.Button(
+                btn_frame,
+                text="⬇ aria2 下载更新",
+                command=_download_exe,
+            ).pack(side=tk.RIGHT, padx=(8, 0))
+            ttk.Button(btn_frame, text="稍后提醒", command=dlg.destroy).pack(side=tk.RIGHT)
+        else:
+            # 源码版 → 提供 git pull + aria2 下载 zip
+            def _download_zip():
+                dlg.destroy()
+                self._show_download_progress("正在下载最新源码…", perform_source_download_zip)
+
+            def _on_git_pull():
+                ok, msg = perform_source_git_pull()
+                if ok:
+                    self.log_panel.add_log("INFO", "git pull 更新成功")
+                    self._sb("status", "git pull 更新成功，建议重启应用", C["success"])
+                else:
+                    self.log_panel.add_log("ERROR", f"git pull 失败: {msg}")
+                    self._sb("status", "git pull 失败，请手动更新", C["danger"])
+                dlg.destroy()
+
+            ttk.Button(
+                btn_frame,
+                text="📥 Git Pull 自动拉取",
+                command=_on_git_pull,
+            ).pack(side=tk.RIGHT, padx=(8, 0))
+            ttk.Button(
+                btn_frame,
+                text="⬇ aria2 下载 ZIP",
+                command=_download_zip,
+            ).pack(side=tk.RIGHT, padx=(8, 0))
+            ttk.Button(btn_frame, text="稍后提醒", command=dlg.destroy).pack(side=tk.RIGHT)
+
+    def _show_download_progress(self, title, download_fn):
+        """显示 aria2 下载进度窗口"""
+        from utils.update_checker import is_frozen
+        win = tk.Toplevel(self.root)
+        win.title(title)
+        win.configure(bg=C["bg_base"])
+        win.geometry("400x150")
+        win.transient(self.root)
+        win.grab_set()
+
+        tk.Label(win, text=title, bg=C["bg_base"], fg=C["text_1"], font=("Microsoft YaHei UI", 12)).pack(pady=(16, 8))
+
+        progress = ttk.Progressbar(win, mode="determinate", length=320)
+        progress.pack(pady=8)
+
+        status_lbl = tk.Label(win, text="准备中…", bg=C["bg_base"], fg=C["text_3"], font=("Microsoft YaHei UI", 9))
+        status_lbl.pack(pady=4)
+
+        def on_progress(downloaded, total):
+            if total > 0:
+                pct = min(100, int(downloaded / total * 100))
+                progress["value"] = pct
+                from ui.helpers import fmt_num
+                status_lbl.config(text=f"已下载 {fmt_num(downloaded)} / {fmt_num(total)}")
+            else:
+                status_lbl.config(text="已下载…")
+
+        def on_done(success, msg):
+            win.destroy()
+            if success:
+                self._sb("status", "下载完成", C["success"])
+                self.log_panel.add_log("INFO", f"下载完成: {title}")
+                if is_frozen() and "更新" in title:
+                    messagebox.showinfo("更新", "下载完成，程序将自动重启以完成更新", parent=self.root)
+            else:
+                self._sb("status", f"下载失败: {msg}", C["danger"])
+                self.log_panel.add_log("ERROR", f"下载失败: {msg}")
+
+        threading.Thread(
+            target=download_fn,
+            args=(on_progress, on_done),
+            daemon=True,
+        ).start()
 
     def _daily_push(self):
         """每日 23:50 自动推送日报"""
@@ -1178,6 +1264,28 @@ class BilibiliMonitorGUI:
                 lines.extend(algo_lines)
 
         return "\n".join(lines)
+
+    def _prompt_backup_sync(self, diffs, db):
+        """数据目录差异弹窗，让用户选择保留哪边的数据"""
+        msg = [f"检测到 {len(diffs)} 个视频在 core/data/ 与 data/ 中存在数据差异：", ""]
+        for d in diffs[:10]:
+            dir_label = "主库更多" if d["primary_records"] > d["backup_records"] else "备份更多"
+            msg.append(f"  {d['bvid']}: core/data/={d['primary_records']}条  data/={d['backup_records']}条 ({dir_label})")
+        if len(diffs) > 10:
+            msg.append(f"  ... 等 {len(diffs)} 个")
+        msg.append("")
+        msg.append("是否将 core/data/ 的数据同步到 data/？")
+        choice = messagebox.askyesno(
+            "数据库差异检测",
+            "\n".join(msg),
+            icon="warning",
+            parent=self.root,
+        )
+        if choice:
+            db.sync_per_video_dbs_to_backup()
+            self.log_panel.add_log("INFO", f"已同步 {len(diffs)} 个视频独立库到 data/")
+        else:
+            self.log_panel.add_log("INFO", "用户跳过数据同步")
 
     def _refresh_data(self):
         """手动刷新数据"""
@@ -1358,6 +1466,13 @@ class BilibiliMonitorGUI:
             )
         except Exception as e:
             logger.warning("中央库同步失败: %s", e)
+        # 同步视频独立库到备份目录（data/）— 仅在有差异时弹窗询问
+        try:
+            diffs = db.check_backup_diffs()
+            if diffs:
+                self._prompt_backup_sync(diffs, db)
+        except Exception as e:
+            logger.warning("检查备份差异失败: %s", e)
         db.close()
         bilibili_api.close()
         self.root.destroy()
