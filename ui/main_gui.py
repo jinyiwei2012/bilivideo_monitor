@@ -1100,7 +1100,18 @@ class BilibiliMonitorGUI:
         btn_frame = tk.Frame(dlg, bg=C["bg_base"])
         btn_frame.pack(fill=tk.X, padx=16, pady=(0, 16))
 
-        if is_frozen():
+        if is_frozen() and is_beta:
+            # 打包版 + 测试通道：暂不提供 EXE
+            tk.Label(
+                btn_frame,
+                text="测试版暂不提供 EXE 下载，请切换到稳定版通道。\n也可以使用源码版通过 Git/ZIP 更新。",
+                font=("Microsoft YaHei UI", 9),
+                bg=C["bg_base"],
+                fg=C["warning"],
+                justify=tk.CENTER,
+            ).pack(side=tk.TOP, pady=(0, 8))
+            ttk.Button(btn_frame, text="知道了", command=dlg.destroy).pack(side=tk.RIGHT)
+        elif is_frozen():
             def _download_exe():
                 dlg.destroy()
                 self._show_download_progress("正在下载新版本…", perform_exe_self_update)
