@@ -399,48 +399,50 @@ class VideoWorker:
             f"弹幕:{stat.get('danmaku', 0)} 评论:{stat.get('reply', 0)}",
         )
 
-        # ── 更新视频字段 ──────────────────────────
-        owner = info.get("owner", {})
-        video["title"] = info.get("title", video.get("title", ""))
-        video["author"] = owner.get("name", video.get("author", ""))
-        video["pic"] = info.get("pic", video.get("pic", ""))
-        # 自动保存 UP主 数据到数据库（每小时最多一次）
-        owner_id = owner.get("mid", 0)
-        if owner_id:
-            _save_up_data(owner_id)
-        video["view_count"] = stat.get("view", video.get("view_count", 0))
-        video["like_count"] = stat.get("like", video.get("like_count", 0))
-        video["coin_count"] = stat.get("coin", video.get("coin_count", 0))
-        video["share_count"] = stat.get("share", video.get("share_count", 0))
-        video["favorite_count"] = stat.get("favorite", video.get("favorite_count", 0))
-        video["danmaku_count"] = stat.get("danmaku", video.get("danmaku_count", 0))
-        video["reply_count"] = stat.get("reply", video.get("reply_count", 0))
+        # ── 更新视频字段（持 _data_lock 防止主线程读到半写状态）──
+        with gui._data_lock:
+            owner = info.get("owner", {})
+            video["title"] = info.get("title", video.get("title", ""))
+            video["author"] = owner.get("name", video.get("author", ""))
+            video["pic"] = info.get("pic", video.get("pic", ""))
+            # 自动保存 UP主 数据到数据库（每小时最多一次）
+            owner_id = owner.get("mid", 0)
+            if owner_id:
+                _save_up_data(owner_id)
+            video["view_count"] = stat.get("view", video.get("view_count", 0))
+            video["like_count"] = stat.get("like", video.get("like_count", 0))
+            video["coin_count"] = stat.get("coin", video.get("coin_count", 0))
+            video["share_count"] = stat.get("share", video.get("share_count", 0))
+            video["favorite_count"] = stat.get("favorite", video.get("favorite_count", 0))
+            video["danmaku_count"] = stat.get("danmaku", video.get("danmaku_count", 0))
+            video["reply_count"] = stat.get("reply", video.get("reply_count", 0))
 
-        # ── 在线人数 ─────────────────────────────
-        try:
-            cid = info.get("cid", 0)
-            if cid:
-                viewers = bilibili_api.get_video_viewers(bvid, cid)
-                if viewers:
-                    self._log("DEBUG", f"[{bvid}] 在线响应 总:{viewers.get('total', '0')} 网页:{viewers.get('count', '0')}")
-                    video["viewers_total_raw"] = viewers.get("total", "0")
-                    video["viewers_web_raw"] = viewers.get("count", "0")
-                    video["viewers_total"] = _parse_viewer_count(viewers.get("total", "0"))
-                    video["viewers_web"] = _parse_viewer_count(viewers.get("count", "0"))
-                    video["viewers_app"] = max(0, video["viewers_total"] - video["viewers_web"])
+        # ── 在线人数（持 _data_lock）──
+        with gui._data_lock:
+            try:
+                cid = info.get("cid", 0)
+                if cid:
+                    viewers = bilibili_api.get_video_viewers(bvid, cid)
+                    if viewers:
+                        self._log("DEBUG", f"[{bvid}] 在线响应 总:{viewers.get('total', '0')} 网页:{viewers.get('count', '0')}")
+                        video["viewers_total_raw"] = viewers.get("total", "0")
+                        video["viewers_web_raw"] = viewers.get("count", "0")
+                        video["viewers_total"] = _parse_viewer_count(viewers.get("total", "0"))
+                        video["viewers_web"] = _parse_viewer_count(viewers.get("count", "0"))
+                        video["viewers_app"] = max(0, video["viewers_total"] - video["viewers_web"])
+                    else:
+                        video["viewers_total"] = video.get("viewers_total", 0)
+                        video["viewers_web"] = video.get("viewers_web", 0)
+                        video["viewers_app"] = video.get("viewers_app", 0)
                 else:
                     video["viewers_total"] = video.get("viewers_total", 0)
                     video["viewers_web"] = video.get("viewers_web", 0)
                     video["viewers_app"] = video.get("viewers_app", 0)
-            else:
+            except Exception as e:
+                self._log("WARNING", f"[{bvid}] 获取在线人数失败: {e}")
                 video["viewers_total"] = video.get("viewers_total", 0)
                 video["viewers_web"] = video.get("viewers_web", 0)
                 video["viewers_app"] = video.get("viewers_app", 0)
-        except Exception as e:
-            self._log("WARNING", f"[{bvid}] 获取在线人数失败: {e}")
-            video["viewers_total"] = video.get("viewers_total", 0)
-            video["viewers_web"] = video.get("viewers_web", 0)
-            video["viewers_app"] = video.get("viewers_app", 0)
 
         # ── 历史记录 ─────────────────────────────
         ts = datetime.now()
