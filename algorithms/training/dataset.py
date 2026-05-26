@@ -173,7 +173,7 @@ class VideoTimeSeriesDataset(Dataset):
         self.target_idx = self.features.index(target_feature)
         self.normalize = bool(normalize)
         self.max_timestamp = 0.0  # 本次训练用到的最大时间戳
-        self._derived_feature_names = ["roll_mean_5", "roll_std_5", "acceleration", "relative_pos"]
+        self._derived_feature_names = ["roll_mean_5", "roll_std_5", "acceleration", "relative_pos", "lifecycle_phase"]
         self._n_derived = len(self._derived_feature_names)  # 衍生特征数
 
         if bvids is None:
@@ -219,7 +219,10 @@ class VideoTimeSeriesDataset(Dataset):
             # 相对时间位置 [0, 1]
             rel_pos = np.arange(N, dtype=np.float32) / max(N - 1, 1)
 
-            extras = np.column_stack([roll_mean, roll_std, accel, rel_pos])  # [N, 4]
+            # 生命周期阶段：0=早期(20%), 1=增长期(20-60%), 2=成熟期(60-100%)
+            lifecycle_phase = np.where(rel_pos < 0.2, 0.0, np.where(rel_pos < 0.6, 1.0, 2.0)).astype(np.float32)
+
+            extras = np.column_stack([roll_mean, roll_std, accel, rel_pos, lifecycle_phase])  # [N, 5]
             arr_ext = np.column_stack([arr, extras])  # [N, F + 4]
 
             if self.normalize:
