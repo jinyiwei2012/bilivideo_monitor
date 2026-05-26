@@ -151,6 +151,10 @@ class AlgorithmRegistry:
                         _cached_video_data=cached_video_data,
                     )
                 w = weight_manager.get_weight(n) if weight_manager else getattr(algo, "weight", 1.0)
+                logger.debug(
+                    "[predict] %s → pred=%.0f conf=%.2f weight=%.2f",
+                    n, res["prediction"], res["confidence"], w,
+                )
                 return (
                     n,
                     {
@@ -163,7 +167,7 @@ class AlgorithmRegistry:
                     None,
                 )
             except Exception as e:
-                logger.warning("算法 %s 预测失败: %s", n, e)
+                logger.info("[predict] %s 降级 → %s", n, e)
                 return n, {"prediction": current_value, "confidence": 0, "weight": 0.01, "error": str(e)}, e
 
         with cls._pool_lock:
