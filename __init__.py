@@ -7,7 +7,7 @@ B站视频监控与播放量预测系统
   Y = minor — 大更新/必要修复（新功能、架构变更、API 修改）
   X = major — 重大更新（架构重写、不兼容变更）
 
-版本: 2.6.1
+版本: 2.7.1
 功能:
 - 100+ 种预测算法
 - 实时监控视频数据
@@ -31,7 +31,7 @@ B站视频监控与播放量预测系统
 - exports/: 导出目录
 """
 
-__version__ = "2.7.0"
+__version__ = "2.7.1"
 __author__ = "Bilibili Monitor Team"
 
 from config import PROJECT_ROOT, DATA_DIR, COVER_DIR, EXPORT_DIR
