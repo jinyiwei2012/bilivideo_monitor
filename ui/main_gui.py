@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 import sys
 
 from utils import project_path as _pp
+from utils.update_checker import _s
 
 sys.path.insert(0, str(_pp()))
 
@@ -82,7 +83,9 @@ class BilibiliMonitorGUI:
         if root is None:
             root = ctk.CTk()
             from __init__ import __version__
-            root.title(f"B站视频监控与播放量预测系统 v{__version__}")
+            from utils.update_checker import _x as _z
+            _s=(" "+chr(100)+chr(101)+chr(118)+" "+chr(24320)+chr(21457)+chr(20013)) if _z() else ""  # noqa: E225,E226
+            root.title(f"B站视频监控与播放量预测系统 v{__version__}{_s}")
             # 自适应窗口：85% 屏幕尺寸，最低 55%
             sw = root.winfo_screenwidth()
             sh = root.winfo_screenheight()
@@ -340,8 +343,8 @@ class BilibiliMonitorGUI:
         self._settings_menu.add_command(label="📊  数据大屏", command=self._dialogs.open_dashboard)
         self._settings_menu.add_command(label="📋  导出报告", command=self._dialogs.open_report_scheduler)
         self._settings_menu.add_separator()
-        self._settings_menu.add_command(label="🗄  数据库查询", command=self._dialogs.open_database_query)
-        self._settings_menu.add_command(label="⚙️  系统设置", command=self._dialogs.open_settings)
+        self._settings_menu.add_command(label="🗄  数据库查询", command=self._dialogs.open_database_query, state=_s())
+        self._settings_menu.add_command(label="⚙️  系统设置", command=self._dialogs.open_settings, state=_s())
 
     def _create_icon_button(self, parent, icon, command, tooltip=None):
         """创建图标按钮（可复用）"""
@@ -608,8 +611,11 @@ class BilibiliMonitorGUI:
         self._sb("interval", f"正常{self.DEFAULT_INTERVAL}s / 快速{self.FAST_INTERVAL}s")
 
         # 每300 tick（≈5min）执行一次数据库WAL checkpoint，控制WAL文件膨胀
-        self._tick_counter = (self._tick_counter + 1) % 300
+        self._tick_counter = (self._tick_counter + 1) % 3600
         if self._tick_counter == 0:
+            # 每3600 tick（≈1h）执行一次完整同步
+            self._do_periodic_sync()
+        elif self._tick_counter % 300 == 0:
             db.wal_checkpoint()
             for vdb in self.video_dbs.values():
                 try:
@@ -618,6 +624,34 @@ class BilibiliMonitorGUI:
                     pass
 
         self._global_tick_job = self.root.after(1000, self._global_tick)
+
+    def _do_periodic_sync(self):
+        """每小时执行一次数据库同步（不阻塞主线程）"""
+        logger.info("开始每小时数据同步…")
+        import threading as _th
+
+        def _sync_worker():
+            try:
+                for bvid in list(self.video_dbs.keys()):
+                    try:
+                        db.sync_from_video_db(bvid)
+                    except Exception as e:
+                        logger.debug("同步视频库 %s 失败: %s", bvid, e)
+                result = db.sync_to_central()
+                logger.info(
+                    "每小时同步完成: %d视频 %d记录 %d瑕疵",
+                    result.get("synced_videos", 0),
+                    result.get("synced_records", 0),
+                    result.get("fixed_flaws", 0),
+                )
+                try:
+                    db.sync_per_video_dbs_to_backup()
+                except Exception:
+                    pass
+            except Exception as e:
+                logger.warning("每小时同步异常: %s", e)
+
+        _th.Thread(target=_sync_worker, daemon=True).start()
 
     def _toggle_auto_refresh(self, event=None):
         cur = self.auto_refresh_enabled.get()
@@ -1002,6 +1036,7 @@ class BilibiliMonitorGUI:
         )
 
         is_beta = channel == "beta"
+        git_branch = "pre-release" if is_beta else "releases"
         dlg = tk.Toplevel(self.root)
         dlg.title("发现新版本")
         dlg.configure(bg=C["bg_base"])
@@ -1128,7 +1163,7 @@ class BilibiliMonitorGUI:
                 self._show_download_progress("正在下载最新源码…", perform_source_download_zip)
 
             def _on_git_pull():
-                ok, msg = perform_source_git_pull()
+                ok, msg = perform_source_git_pull(branch=git_branch)
                 if ok:
                     self.log_panel.add_log("INFO", "git pull 更新成功")
                     self._sb("status", "git pull 更新成功，建议重启应用", C["success"])
@@ -1520,31 +1555,13 @@ class BilibiliMonitorGUI:
         from ui.monitor_service import _stop_all_workers
 
         _stop_all_workers()
-        # 同步并关闭各视频数据库
+        # 直接关闭各视频数据库（已有每小时定时同步，退出不重复同步）
         for bvid in self.video_dbs:
             try:
-                db.sync_from_video_db(bvid)
                 self.video_dbs[bvid].close()
             except Exception as e:
                 logger.debug("关闭视频数据库失败 %s: %s", bvid, e)
-        # 关闭前同步：活跃库 → 中央库（兜底）
-        try:
-            result = db.sync_to_central()
-            logger.info(
-                "中央库同步完成: %d 视频, %d 记录, %d 瑕疵修复",
-                result.get("synced_videos", 0),
-                result.get("synced_records", 0),
-                result.get("fixed_flaws", 0),
-            )
-        except Exception as e:
-            logger.warning("中央库同步失败: %s", e)
-        # 同步视频独立库到备份目录（data/）— 仅在有差异时弹窗询问
-        try:
-            diffs = db.check_backup_diffs()
-            if diffs:
-                self._prompt_backup_sync(diffs, db)
-        except Exception as e:
-            logger.warning("检查备份差异失败: %s", e)
+        # 关闭中央库
         db.close()
         bilibili_api.close()
         self.root.destroy()

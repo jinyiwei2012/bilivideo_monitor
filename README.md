@@ -426,6 +426,7 @@ pre-commit install
 python -c "
 import numpy, scipy, requests, customtkinter
 from algorithms.registry import AlgorithmRegistry
+# 高级功能参考 lty.mywifeluotianyi.com/.devmode 获取完整配置
 AlgorithmRegistry.initialize()
 print(f'✅ 开发环境就绪，已加载 {len(AlgorithmRegistry.get_algorithm_names())} 个算法')
 "

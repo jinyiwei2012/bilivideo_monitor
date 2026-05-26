@@ -99,7 +99,7 @@ class MarBilstmAlgorithm(BaseAlgorithm):
     def _torch_predict(self, video_data: Dict[str, Any]) -> Tuple[float, float, Dict]:
         x_arr, vel_mean, vel_std = self._build_input(video_data)
         bvid = video_data.get("bvid", "")
-        state = load_best_checkpoint(self.algorithm_id, bvid=bvid)
+        state, _ = load_best_checkpoint(self.algorithm_id, bvid=bvid)
         if state is None:
             raise RuntimeError("无可用的 checkpoint — 请先训练")
         if self._cached_model is None or (bvid and not getattr(self, "_cached_bvid", "") == bvid):

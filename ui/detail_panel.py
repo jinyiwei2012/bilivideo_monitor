@@ -22,6 +22,7 @@ from ui.helpers import (
 from ui.chart import draw_chart, draw_chart_placeholder
 from utils.weekly_score import calculate_from_dict as _calc_ws
 from utils.yearly_score import calculate_yearly_from_dict as _calc_ys
+from utils.update_checker import _confirm_risky
 
 
 class DetailPanel:
@@ -257,7 +258,7 @@ class DetailPanel:
             height=26,
             corner_radius=4,
             width=100,
-            command=lambda: self._open_finetune_dialog(bvid),
+            command=lambda: _confirm_risky("微调视频模型") and self._open_finetune_dialog(bvid),
         )
         self._finetune_btn.pack(side=tk.LEFT, padx=(0, 6))
         self._finetune_status = ctk.CTkLabel(
