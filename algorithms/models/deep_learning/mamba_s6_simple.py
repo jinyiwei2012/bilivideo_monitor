@@ -13,7 +13,7 @@ from algorithms.models.deep_learning._torch_upgrade import MambaS6TorchModel, tr
 class MambaS6Algorithm(BaseAlgorithm):
     """Mamba S6 状态空间模型"""
 
-    name = "Mamba S6状态空间"
+    name = "Mamba S6"
     algorithm_id = "mamba_s6"
     description = "选择性状态空间模型，高效长程依赖建模"
     category = "深度学习"

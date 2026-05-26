@@ -65,6 +65,7 @@ asyncio-mqtt>=0.16.0     # MQTT (通知功能)
 
 transformers>=4.40.0        # HuggingFace 模型加载 (MOIRAI / Lag-Llama)
 huggingface-hub>=0.20.0     # 模型下载与缓存
+torchmetrics>=1.3.0         # Lag-Llama / MOIRAI 隐式依赖（gluonts 需要）
 
 # ==========
 # 其他 (可选)

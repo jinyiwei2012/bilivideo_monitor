@@ -19,7 +19,7 @@ except ImportError:
 class NgboostAlgorithm(BaseAlgorithm):
     """NGBoost 自然梯度提升"""
 
-    name = "NGBoost概率提升"
+    name = "NGBoost"
     algorithm_id = "ngboost"
     description = "自然梯度提升，输出完整概率分布"
     category = "集成学习"
