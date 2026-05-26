@@ -256,5 +256,38 @@ class AlgorithmRegistry:
         cls._model_adapters = {}
         cls._initialized = False
 
+    @classmethod
+    def get_trainable_info(cls) -> List[Dict]:
+        from algorithms.training.checkpoint_manager import CheckpointManager
+        if not cls._initialized:
+            cls.initialize()
+        result = []
+        for aid, adapter in cls._algorithms.items():
+            build_model_fn = getattr(adapter, "build_model", None)
+            if build_model_fn is None:
+                continue
+            ckpt = CheckpointManager(aid)
+            active = ckpt.active_version()
+            result.append({
+                "algorithm_id": aid,
+                "name": getattr(adapter, "name", aid),
+                "category": getattr(adapter, "category", ""),
+                "has_ckpt": ckpt.has_checkpoint(),
+                "active_version": active or "",
+            })
+        return result
+
+    @classmethod
+    def get_trainable_algorithms(cls) -> List:
+        if not cls._initialized:
+            cls.initialize()
+        result = []
+        for aid, adapter in cls._algorithms.items():
+            build_model_fn = getattr(adapter, "build_model", None)
+            if build_model_fn is None:
+                continue
+            result.append((aid, adapter.algo if hasattr(adapter, "algo") else adapter, adapter))
+        return result
+
 
 AlgorithmRegistry.initialize()

@@ -588,6 +588,11 @@ def try_torch_predict(
         model = getattr(algorithm, "_cached_torch_model", None)
         if model is None or (bvid and not getattr(algorithm, "_cached_bvid", "") == bvid):
             model = model_cls(**(model_kwargs or {}))
+            if isinstance(state, (tuple, list)):
+                state = state[0]
+            if not isinstance(state, dict):
+                logger.warning("[%s] checkpoint 格式异常 (type=%s)，跳过 torch 推理", algo_id, type(state).__name__)
+                return fallback_fn(video_data, threshold)
             model.load_state_dict(state)
             model.to(algorithm._device).eval()
             algorithm._cached_torch_model = model
