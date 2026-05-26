@@ -23,7 +23,7 @@ from ui.helpers import (
 )
 from ui.training_base import BaseTrainingPanel, TrainingMonitor
 from ui.scrollable_frame import ScrollableFrame
-from utils.update_checker import _s
+from utils.update_checker import _train
 
 logger = logging.getLogger(__name__)
 
@@ -206,14 +206,20 @@ class FinetunePanel(BaseTrainingPanel):
 
         tk.Label(ctrl, text="模式:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT, padx=(8, 2))
         ttk.Radiobutton(ctrl, text="增量微调", variable=self._mode_var, value="incremental").pack(side=tk.LEFT, padx=1)
-        ttk.Radiobutton(ctrl, text="重新训练", variable=self._mode_var, value="retrain", state=_s()).pack(side=tk.LEFT, padx=1)
+        ttk.Radiobutton(ctrl, text="重新训练", variable=self._mode_var, value="retrain", state=_train()).pack(side=tk.LEFT, padx=1)
 
-        self._train_btn = ttk.Button(ctrl, text="▶ 开始微调", command=self._on_start, style="Primary.TButton", state=_s())
+        self._train_btn = ttk.Button(ctrl, text="▶ 开始微调", command=self._on_start, style="Primary.TButton", state=_train())
         self._train_btn.pack(side=tk.LEFT, padx=(12, 4))
         self._cancel_btn = ttk.Button(ctrl, text="✕ 取消", command=self._on_cancel, state="disabled")
         self._cancel_btn.pack(side=tk.LEFT, padx=4)
         self._skip_btn = ttk.Button(ctrl, text="⏭ 跳过当前", command=self._on_skip_algo, state="disabled")
         self._skip_btn.pack(side=tk.LEFT, padx=4)
+
+        if _train() != "normal":
+            tk.Label(
+                ctrl, text="💡 创建 .enabletraining 文件即可开启微调",
+                bg=C["bg_elevated"], fg=C["warning"], font=("", 8),
+            ).pack(side=tk.LEFT, padx=8)
 
         self._progress = ttk.Progressbar(ctrl, mode="determinate", maximum=100)
         self._progress.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(12, 4))

@@ -1,5 +1,27 @@
 # 更新日志
 
+## Release 2026-05-27 (v2.8.0)
+
+### ✨ 新功能
+- **三层开发者保护模式**: `_hard()`（需 `.devmode` 文件+内容校验）、`_confirm_risky()`（弹窗确认/会话临时启用）、`_s()`（会话级开关）
+- **`.enabletraining` 训练门禁**: 用户自行创建 `.enabletraining` 文件即可解锁训练按钮（无需完整的 devmode），按钮禁用时显示橙色提示引导
+- **危险操作路径引导**: 无 `.devmode` 时，删除检查点/配置按钮替换为文件路径文字提示，引导用户手动删除
+- **每小时数据库自动同步**: 后台线程每小时执行完整同步（WAL checkpoint + 中央库合并 + 备份）
+- **窗口标题 dev 标识**: 开启开发者模式时标题栏显示 "dev 开发中" 标记
+
+### 🛡️ 安全保护
+- **权重编辑 & 学习率编辑**: 转入 `_confirm_risky()` 级别，关闭 devmode 时修改需弹窗确认
+- **数据库删除/里程碑删除**: 右键菜单删除操作全部包裹 `_confirm_risky()` 确认
+- **配置/检查点删除**: 无 `.devmode` 文件时彻底禁用，仅显示文件路径
+- **训练/微调/导入模型**: 由 `_hard()` 降级到 `_train()`，`.enabletraining` 即可解锁
+
+### 🐛 修复
+- **matplotlib CJK 字形缺失**: DejaVu Sans 无中文字形，配置 Microsoft YaHei + 抑制 glyph warning
+- **wmic 已弃用**: 改用 PowerShell `Get-CimInstance` 获取处理器序列号
+- **`_instantiate_algorithm` KeyError**: 调用不存在的 `get_algorithm_by_id`，改用 `get_algorithm` + adapter 解包
+- **`get_trainable_info` 缺少 `version_count`**: 修复 KeyError
+- **`build_model` 为 None 的判断**: 避免 103 个算法全显示为可训练
+
 ## Release 2026-05-26 (v2.7.1)
 
 ### 🐛 修复

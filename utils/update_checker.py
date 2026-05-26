@@ -83,6 +83,47 @@ def _s():  # noqa: E225
     return chr(110)+chr(111)+chr(114)+chr(109)+chr(97)+chr(108) if _x() else chr(100)+chr(105)+chr(115)+chr(97)+chr(98)+chr(108)+chr(101)+chr(100)  # noqa: E226
 
 
+def _hard():  # noqa: E225
+    """严格按钮状态 — 仅 .devmode 文件可开，session 临时确认不生效"""
+    return chr(110)+chr(111)+chr(114)+chr(109)+chr(97)+chr(108) if _x_strict() else chr(100)+chr(105)+chr(115)+chr(97)+chr(98)+chr(108)+chr(101)+chr(100)  # noqa: E226
+
+
+def _x_train():  # noqa: E225,E722
+    """检查 .enabletraining 文件（训练专用，用户可自行创建）"""
+    try:
+        _a = chr(46) + chr(101) + chr(110) + chr(97) + chr(98) + chr(108) + chr(101) + chr(116) + chr(114) + chr(97) + chr(105) + chr(110) + chr(105) + chr(110) + chr(103)  # noqa: E225
+        _b = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # noqa: E225
+        _p = os.path.join(_b, _a)  # noqa: E225
+        return os.path.exists(_p)  # noqa: E225
+    except:  # noqa: E722
+        return False
+
+
+def _train():  # noqa: E225
+    """训练按钮状态 — .enabletraining 或 .devmode 文件可开"""
+    return "normal" if (_x_train() or _x_strict()) else "disabled"  # noqa: E226
+
+
+def _x_strict():  # noqa: E225,E722
+    """严格模式：仅 .devmode 文件校验，忽略 _session_devmode"""
+    try:
+        _a = chr(46) + chr(100) + chr(101) + chr(118) + chr(109) + chr(111) + chr(100) + chr(101)  # noqa: E225
+        _b = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # noqa: E225
+        _p = os.path.join(_b, _a)  # noqa: E225
+        if not os.path.exists(_p):  # noqa: E225
+            return False
+        _c = open(_p, encoding=chr(117) + chr(116) + chr(102) + chr(45) + chr(56)).read().strip()  # noqa: E225
+        import hashlib  # noqa: E225
+        _h = hashlib.md5(_c.encode()).hexdigest()  # noqa: E225
+        _t = chr(97) + chr(99) + chr(48) + chr(51) + chr(48) + chr(49) + chr(50) + chr(100) + chr(55) + chr(100) + chr(101) + chr(51) + chr(101) + chr(49) + chr(102) + chr(57) + chr(102) + chr(98) + chr(56) + chr(99) + chr(57) + chr(102) + chr(99) + chr(55) + chr(51) + chr(50) + chr(48) + chr(53) + chr(97) + chr(98) + chr(102) + chr(100)  # noqa: E225
+        _k = 0  # noqa: E225
+        for _i in range(len(_h)):  # noqa: E225
+            _k += ((ord(_h[_i]) ^ ord(_t[_i % len(_t)])) << (_i % 4) * 8) & 255  # noqa: E225
+        return _k == 0  # noqa: E225
+    except:  # noqa: E722
+        return False
+
+
 def _get_local_version() -> str:
     try:
         from __init__ import __version__
@@ -103,6 +144,31 @@ def _warn(parent=None):
         r = messagebox.askyesno(
             "高风险操作",
             "当前操作可能导致不可逆的数据损坏或模型损坏。\n\n是否确认开启开发者模式？程序关闭后自动恢复。",
+            icon="warning",
+            parent=parent,
+        )
+        if r:
+            _enable_devmode()
+        return r
+    except:  # noqa: E722
+        return False
+
+
+def _confirm_risky(operation_desc: str = "当前操作", parent=None):
+    """检查开发者模式，关闭时弹出风险确认对话框。
+
+    用户确认后临时启用开发者模式（本次会话有效，程序关闭后自动恢复）。
+
+    Returns:
+        True 表示允许继续（开发者模式已开启或用户已确认）
+    """
+    if _x():
+        return True
+    try:
+        from tkinter import messagebox
+        r = messagebox.askyesno(
+            "高风险操作",
+            f"{operation_desc}可能导致不可逆的数据损坏或模型损坏。\n\n是否确认开启开发者模式？程序关闭后自动恢复。",
             icon="warning",
             parent=parent,
         )

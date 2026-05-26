@@ -8,13 +8,9 @@ import logging
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
+from .weight_manager import get_weight_manager
 
 logger = logging.getLogger(__name__)
-
-try:
-    from .weight_manager import weight_manager
-except ImportError:
-    weight_manager = None
 
 
 class AlgorithmRegistry:
@@ -150,7 +146,7 @@ class AlgorithmRegistry:
                         threshold_names=threshold_names,
                         _cached_video_data=cached_video_data,
                     )
-                w = weight_manager.get_weight(n) if weight_manager else getattr(algo, "weight", 1.0)
+                w = get_weight_manager().get_weight(n)
                 pred = res["prediction"]
                 meta = res.get("metadata", {})
                 model_source = meta.get("model_source", "底模")
@@ -229,8 +225,7 @@ class AlgorithmRegistry:
                 algo.update_accuracy(predicted, actual)
             try:
                 accuracy = algo.get_accuracy() if hasattr(algo, "get_accuracy") else 0.5
-                if weight_manager is not None:
-                    weight_manager.update_accuracy(algorithm_name, accuracy)
+                get_weight_manager().update_accuracy(algorithm_name, accuracy)
             except Exception as e:
                 logger.debug("更新算法准确率失败 %s: %s", algorithm_name, e)
 
@@ -241,14 +236,11 @@ class AlgorithmRegistry:
 
         names = cls.get_algorithm_names()
 
-        if weight_manager is None:
-            return [{"name": n, "accuracy": 0.5, "weight": 1.0} for n in names]
-
         try:
-            return weight_manager.get_algorithm_info(names)
+            return get_weight_manager().get_algorithm_info(names)
         except Exception as e:
             logger.debug("获取算法权重信息失败: %s", e)
-            return [{"name": n, "accuracy": 0.5, "weight": 1.0} for n in names]
+            return [{"name": n, "accuracy": 0.5, "final_weight": 1.0, "ml_weight": 1.0, "user_weight": None, "is_customized": False, "samples": 0} for n in names]
 
     @classmethod
     def reset(cls):
