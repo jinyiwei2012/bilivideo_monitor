@@ -152,8 +152,8 @@ class AlgorithmRegistry:
                     )
                 w = weight_manager.get_weight(n) if weight_manager else getattr(algo, "weight", 1.0)
                 logger.debug(
-                    "[predict] %s → pred=%.0f conf=%.2f weight=%.2f",
-                    n, res["prediction"], res["confidence"], w,
+                    "[%s] [%s] 预测: %.0f",
+                    bvid, n, res["prediction"],
                 )
                 return (
                     n,
@@ -207,6 +207,11 @@ class AlgorithmRegistry:
             "valid_algorithms": valid_count,
             "na_algorithms": na_count,
         }
+
+        logger.info(
+            "[%s] 综合预测: %.0f (有效 %d/%d)",
+            bvid, weighted_pred, valid_count, len(results),
+        )
 
         return results
 
