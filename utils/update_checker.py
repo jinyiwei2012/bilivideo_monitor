@@ -3,6 +3,7 @@
 启动时异步检查 GitHub Release，根据运行模式提供不同更新方式：
 - 源码运行 → 提供 git pull / 下载 zip（aria2）两种方式
 - EXE 运行  → 提供下载新 exe（aria2）/ 自动更新
+- 支持稳定版/测试版双通道
 """
 
 import logging
@@ -17,14 +18,36 @@ from pathlib import Path
 
 import requests
 
-from config import DATA_DIR
+from config import DATA_DIR, load_config, save_config
 
 logger = logging.getLogger(__name__)
 
-GITHUB_API = "https://api.github.com/repos/jinyiwei2012/bilivideo_monitor/releases/latest"
+GITHUB_API_STABLE = "https://api.github.com/repos/jinyiwei2012/bilivideo_monitor/releases/latest"
+GITHUB_API_PRERELEASE = "https://api.github.com/repos/jinyiwei2012/bilivideo_monitor/releases?per_page=5"
 GITHUB_REPO = "https://github.com/jinyiwei2012/bilivideo_monitor"
 CACHE_FILE = Path(DATA_DIR) / ".update_cache.json"
 CACHE_TTL = timedelta(hours=24)
+
+
+# ── 更新通道管理 ─────────────────────────────────
+
+
+def get_update_channel() -> str:
+    """获取当前更新通道: 'stable' 或 'beta'"""
+    cfg = load_config()
+    return cfg.get("update_channel", "stable")
+
+
+def set_update_channel(channel: str):
+    """设置更新通道"""
+    cfg = load_config()
+    cfg["update_channel"] = channel
+    save_config(cfg)
+    # 清除缓存以便下次检查使用新通道
+    try:
+        CACHE_FILE.unlink(missing_ok=True)
+    except Exception:
+        pass
 
 
 def is_frozen() -> bool:
@@ -62,49 +85,59 @@ def _save_cache(data: dict):
         logger.debug("保存更新缓存失败: %s", e)
 
 
-def check_for_update() -> Tuple[bool, str, str, str]:
-    """检查更新。返回 (has_update, latest_version, download_url, changelog)"""
+def _fetch_release(api_url: str) -> Tuple[Optional[dict], str, str]:
+    """从 GitHub API 获取最新 release 信息。返回 (data, latest_version, download_url)"""
+    try:
+        resp = requests.get(api_url, timeout=10)
+        if resp.status_code != 200:
+            return None, "", ""
+        if isinstance(resp.json(), list):
+            # pre-release 列表 API：取第一个非 draft 的
+            for item in resp.json():
+                if not item.get("draft") and item.get("tag_name"):
+                    return item, item["tag_name"].lstrip("v"), item.get("html_url", "")
+            return None, "", ""
+        return resp.json(), resp.json().get("tag_name", "").lstrip("v"), resp.json().get("html_url", "")
+    except requests.RequestException:
+        return None, "", ""
+
+
+def check_for_update() -> Tuple[bool, str, str, str, str]:
+    """检查更新。返回 (has_update, latest_version, download_url, changelog, channel)"""
+    channel = get_update_channel()
+    api_url = GITHUB_API_PRERELEASE if channel == "beta" else GITHUB_API_STABLE
+
     cached = _load_cache()
-    if cached:
+    if cached and cached.get("channel") == channel:
         latest = cached.get("latest_version", "")
         local = _get_local_version()
         if latest:
-            return latest != local, latest, cached.get("download_url", ""), cached.get("changelog", "")
+            return latest != local, latest, cached.get("download_url", ""), cached.get("changelog", ""), channel
 
-    try:
-        resp = requests.get(GITHUB_API, timeout=10)
-        if resp.status_code != 200:
-            logger.debug("GitHub API 返回 %s", resp.status_code)
-            return False, "", "", ""
+    data, latest, download_url = _fetch_release(api_url)
+    if not data:
+        return False, "", "", "", channel
 
-        data = resp.json()
-        latest = data.get("tag_name", "").lstrip("v")
-        download_url = data.get("html_url", "")
-        changelog = data.get("body", "")
+    changelog = data.get("body", "")
+    _save_cache({
+        "latest_version": latest,
+        "download_url": download_url,
+        "changelog": changelog,
+        "channel": channel,
+        "assets": [
+            {"name": a.get("name"), "url": a.get("browser_download_url")}
+            for a in data.get("assets", [])
+        ],
+        "zipball_url": data.get("zipball_url", ""),
+        "prerelease": data.get("prerelease", False),
+    })
 
-        _save_cache(
-            {
-                "latest_version": latest,
-                "download_url": download_url,
-                "changelog": changelog,
-                "assets": [
-                    {"name": a.get("name"), "url": a.get("browser_download_url")}
-                    for a in data.get("assets", [])
-                ],
-                "zipball_url": data.get("zipball_url", ""),
-            }
-        )
-
-        local = _get_local_version()
-        return latest != local, latest, download_url, changelog
-
-    except requests.RequestException as e:
-        logger.debug("GitHub API 请求失败: %s", e)
-        return False, "", "", ""
+    local = _get_local_version()
+    return latest != local, latest, download_url, changelog, channel
 
 
 def check_for_update_async(callback):
-    """异步检查更新，完成后调用 callback(has_update, latest_version, download_url, changelog)"""
+    """异步检查更新，完成后调用 callback(has_update, latest_version, download_url, changelog, channel)"""
     threading.Thread(target=lambda: callback(*check_for_update()), daemon=True).start()
 
 
@@ -131,14 +164,15 @@ def get_download_urls() -> dict:
         ),
         "zip": cached.get("zipball_url", ""),
         "release_page": cached.get("download_url", ""),
+        "prerelease": cached.get("prerelease", False),
     }
 
 
-def perform_source_git_pull(parent_widget=None):
+def perform_source_git_pull(branch="main"):
     """源码模式: git pull 拉取最新代码"""
     try:
         result = subprocess.run(
-            ["git", "pull"],
+            ["git", "pull", "origin", branch],
             capture_output=True,
             text=True,
             timeout=60,

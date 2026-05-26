@@ -115,6 +115,13 @@ class BilibiliMonitorGUI:
 
         # UI 子模块
         self._file_logger = FileLogger(project_path("data", "log"))
+        # 统一标准 logging 格式（让 stderr 输出和 FileLogger / LogPanel 一致）
+        if not logging.root.handlers:
+            logging.basicConfig(
+                level=logging.INFO,
+                format="%(asctime)s.%(msecs)03d [%(levelname)-7s] %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S",
+            )
 
         self.root.protocol("WM_DELETE_WINDOW", self._on_exit)
         self._build_ui()
@@ -971,7 +978,7 @@ class BilibiliMonitorGUI:
         """异步检查 GitHub Release 更新，含 changelog 展示"""
         from utils.update_checker import check_for_update_async
 
-        def _on_result(has_update, latest, url, changelog):
+        def _on_result(has_update, latest, url, changelog, channel):
             if has_update and latest:
                 from __init__ import __version__
 
@@ -979,11 +986,11 @@ class BilibiliMonitorGUI:
                     0, lambda: self._sb("status", f"发现新版本 v{latest} (当前 v{__version__})", C["warning"])
                 )
                 logger.info("有新版本可用: v%s (当前 v%s), %s", latest, __version__, url)
-                self.root.after(0, lambda: self._show_update_dialog(latest, __version__, url, changelog))
+                self.root.after(0, lambda: self._show_update_dialog(latest, __version__, url, changelog, channel))
 
         check_for_update_async(_on_result)
 
-    def _show_update_dialog(self, latest, current, url, changelog):
+    def _show_update_dialog(self, latest, current, url, changelog, channel="stable"):
         """显示更新弹窗（含 changelog），根据运行模式提供不同更新方式"""
         from utils.update_checker import (
             format_changelog_for_display,
@@ -991,21 +998,24 @@ class BilibiliMonitorGUI:
             perform_source_git_pull,
             perform_source_download_zip,
             perform_exe_self_update,
+            get_update_channel,
         )
 
+        is_beta = channel == "beta"
         dlg = tk.Toplevel(self.root)
         dlg.title("发现新版本")
         dlg.configure(bg=C["bg_base"])
         dlg.resizable(True, True)
-        dlg.geometry("620x520")
+        dlg.geometry("640x580")
         dlg.transient(self.root)
         dlg.grab_set()
 
         # 标题
         mode_label = "打包版" if is_frozen() else "源码版"
+        channel_label = "测试版" if is_beta else "稳定版"
         tk.Label(
             dlg,
-            text=f"新版本 v{latest} 可用 ({mode_label})",
+            text=f"新版本 v{latest} 可用 ({mode_label} · {channel_label})",
             font=("Microsoft YaHei UI", 14, "bold"),
             bg=C["bg_base"],
             fg=C["text_1"],
@@ -1013,6 +1023,26 @@ class BilibiliMonitorGUI:
         tk.Label(
             dlg, text=f"当前版本: v{current}", font=("Microsoft YaHei UI", 10), bg=C["bg_base"], fg=C["text_3"]
         ).pack(pady=(0, 12))
+
+        # 测试版警告
+        if is_beta:
+            warn_frame = tk.Frame(dlg, bg="#3b1f1f", highlightthickness=1, highlightbackground="#ff4444")
+            warn_frame.pack(fill=tk.X, padx=16, pady=(0, 8))
+            tk.Label(
+                warn_frame,
+                text="⚠ 测试版警告",
+                font=("Microsoft YaHei UI", 10, "bold"),
+                bg="#3b1f1f",
+                fg="#ff6666",
+            ).pack(anchor="w", padx=8, pady=(4, 0))
+            tk.Label(
+                warn_frame,
+                text="当前为测试版更新通道，可能存在不稳定或未完成的功能。\n建议在非生产环境中使用。",
+                font=("Microsoft YaHei UI", 9),
+                bg="#3b1f1f",
+                fg="#ff9999",
+                justify=tk.LEFT,
+            ).pack(anchor="w", padx=8, pady=(0, 4))
 
         # Changelog 区域
         frame = tk.Frame(dlg, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
@@ -1041,12 +1071,47 @@ class BilibiliMonitorGUI:
         scroll.pack(side=tk.RIGHT, fill=tk.Y)
         text.config(yscrollcommand=scroll.set)
 
+        # ── 更新通道切换 ────────────────────────────
+        channel_frame = tk.Frame(dlg, bg=C["bg_base"])
+        channel_frame.pack(fill=tk.X, padx=16, pady=(0, 8))
+        tk.Label(
+            channel_frame,
+            text="更新通道:",
+            font=("Microsoft YaHei UI", 9),
+            bg=C["bg_base"],
+            fg=C["text_3"],
+        ).pack(side=tk.LEFT, padx=(0, 8))
+
+        current_channel = get_update_channel()
+        channel_var = tk.StringVar(value=current_channel)
+        self._channel_var_ref = channel_var  # keep reference
+        stable_rb = ttk.Radiobutton(
+            channel_frame, text="稳定版 (推荐)", variable=channel_var, value="stable",
+            command=lambda: self._on_channel_switch(channel_var.get(), dlg),
+        )
+        stable_rb.pack(side=tk.LEFT, padx=(0, 8))
+        beta_rb = ttk.Radiobutton(
+            channel_frame, text="测试版", variable=channel_var, value="beta",
+            command=lambda: self._on_channel_switch(channel_var.get(), dlg),
+        )
+        beta_rb.pack(side=tk.LEFT)
+
         # ── 底部按钮 ─────────────────────────────────
         btn_frame = tk.Frame(dlg, bg=C["bg_base"])
         btn_frame.pack(fill=tk.X, padx=16, pady=(0, 16))
 
-        if is_frozen():
-            # EXE 打包版 → aria2 下载 + 自动更新
+        if is_frozen() and is_beta:
+            # 打包版 + 测试通道：暂不提供 EXE
+            tk.Label(
+                btn_frame,
+                text="测试版暂不提供 EXE 下载，请切换到稳定版通道。\n也可以使用源码版通过 Git/ZIP 更新。",
+                font=("Microsoft YaHei UI", 9),
+                bg=C["bg_base"],
+                fg=C["warning"],
+                justify=tk.CENTER,
+            ).pack(side=tk.TOP, pady=(0, 8))
+            ttk.Button(btn_frame, text="知道了", command=dlg.destroy).pack(side=tk.RIGHT)
+        elif is_frozen():
             def _download_exe():
                 dlg.destroy()
                 self._show_download_progress("正在下载新版本…", perform_exe_self_update)
@@ -1058,7 +1123,6 @@ class BilibiliMonitorGUI:
             ).pack(side=tk.RIGHT, padx=(8, 0))
             ttk.Button(btn_frame, text="稍后提醒", command=dlg.destroy).pack(side=tk.RIGHT)
         else:
-            # 源码版 → 提供 git pull + aria2 下载 zip
             def _download_zip():
                 dlg.destroy()
                 self._show_download_progress("正在下载最新源码…", perform_source_download_zip)
@@ -1084,6 +1148,14 @@ class BilibiliMonitorGUI:
                 command=_download_zip,
             ).pack(side=tk.RIGHT, padx=(8, 0))
             ttk.Button(btn_frame, text="稍后提醒", command=dlg.destroy).pack(side=tk.RIGHT)
+
+    def _on_channel_switch(self, new_channel, dlg):
+        """切换更新通道"""
+        from utils.update_checker import set_update_channel
+        set_update_channel(new_channel)
+        dlg.destroy()
+        self._sb("status", f"已切换到 {'稳定版' if new_channel == 'stable' else '测试版'} 通道，重新检查更新…", C["info"])
+        self.root.after(500, self._check_update)
 
     def _show_download_progress(self, title, download_fn):
         """显示 aria2 下载进度窗口"""
