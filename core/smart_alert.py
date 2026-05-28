@@ -231,22 +231,79 @@ class AnomalyDetector:
         return None
 
     @staticmethod
-    def detect_all(records: List[Dict], bvid: str = "") -> List[str]:
+    def detect_live_streaming(video: Dict = None, up_info: Dict = None) -> Optional[str]:
+        """检测UP主是否正在直播（推流），直播中的视频数据会有偏差"""
+        if up_info:
+            lr = up_info.get("live_room")
+            if lr and lr.get("live_status", 0) == 1:
+                title = lr.get("live_title", "未命名直播")
+                roomid = lr.get("roomid", 0)
+                return (
+                    f"🔴 UP主正在直播！「{title[:30]}」"
+                    f" (房间 {roomid})，视频数据可能受推流影响"
+                )
+        return None
+
+    @staticmethod
+    def detect_paid_promotion(records: List[Dict], video: Dict = None) -> Optional[str]:
+        """检测疑似买必火/付费推广（基于互动率异常偏低 + 播放突增）
+
+        判断依据：
+        - 点赞/播放比 < 1%（正常通常 2-5%）
+        - 投币/播放比 < 0.3%
+        - 播放增速异常但互动低迷
+        """
+        if not video:
+            return None
+        views = max(video.get("view_count", 0), 1)
+        likes = video.get("like_count", 0) or 0
+        coins = video.get("coin_count", 0) or 0
+        danmaku = video.get("danmaku_count", 0) or 0
+
+        like_rate = likes / views
+        coin_rate = coins / views
+        danmaku_rate = danmaku / views
+
+        # 核心指标：点赞率 < 1% 且 投币率 < 0.3%
+        if like_rate < 0.01 and coin_rate < 0.003 and views > 10000:
+            # 检查近期是否有播放突增（最近3条 vs 之前3条）
+            surge = False
+            if len(records) >= 6:
+                sorted_recs = sorted(records, key=lambda r: r.get("timestamp", ""))
+                recent_views = [r.get("view_count", 0) for r in sorted_recs[-3:]]
+                older_views = [r.get("view_count", 0) for r in sorted_recs[-6:-3]]
+                avg_recent = sum(recent_views) / max(len(recent_views), 1)
+                avg_older = sum(older_views) / max(len(older_views), 1)
+                if avg_older > 0 and avg_recent > avg_older * 1.5:
+                    surge = True
+
+            reason = "疑似付费推广" if surge else "互动率异常偏低"
+            return (
+                f"📢 {reason}！点赞率 {like_rate*100:.1f}%/投币率 {coin_rate*100:.1f}%"
+                f" (正常参考 2-5%/0.5-2%)"
+                f"{'，近期播放突增' if surge else ''}"
+            )
+        return None
+
+    @staticmethod
+    def detect_all(records: List[Dict], bvid: str = "", video: Dict = None, up_info: Dict = None) -> List[str]:
         """运行所有检测，返回预警消息列表"""
         alerts = []
         detectors = [
-            ("growth_spike", AnomalyDetector.detect_growth_spike),
-            ("trend_reversal", AnomalyDetector.detect_trend_reversal),
-            ("stall", AnomalyDetector.detect_stall),
-            ("viewer_surge", AnomalyDetector.detect_viewer_surge),
-            ("viewer_crash", AnomalyDetector.detect_viewer_crash),
-            ("night_surge", AnomalyDetector.detect_night_surge),
+            ("growth_spike", lambda: AnomalyDetector.detect_growth_spike(records)),
+            ("trend_reversal", lambda: AnomalyDetector.detect_trend_reversal(records)),
+            ("stall", lambda: AnomalyDetector.detect_stall(records)),
+            ("viewer_surge", lambda: AnomalyDetector.detect_viewer_surge(records)),
+            ("viewer_crash", lambda: AnomalyDetector.detect_viewer_crash(records)),
+            ("night_surge", lambda: AnomalyDetector.detect_night_surge(records)),
+            ("paid_promo", lambda: AnomalyDetector.detect_paid_promotion(records, video=video)),
+            ("live_stream", lambda: AnomalyDetector.detect_live_streaming(video=video, up_info=up_info)),
         ]
         for key, detector in detectors:
             alert_key = f"{bvid}:{key}" if bvid else key
             if _should_alert(alert_key):
                 try:
-                    msg = detector(records)
+                    msg = detector()
                     if msg:
                         alerts.append(msg)
                 except Exception as e:

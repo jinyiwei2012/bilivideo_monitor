@@ -699,6 +699,7 @@ class BilibiliAPI:
         if data is None:
             data = self._request("GET", f"{self.BASE_URL}/x/space/acc/info", params={"mid": uid})
         if data:
+            lr = data.get("live_room", {})
             return {
                 "uid": data.get("mid", uid),
                 "name": data.get("name", ""),
@@ -709,6 +710,13 @@ class BilibiliAPI:
                 "video_count": data.get("video_count", data.get("videos", 0)),
                 "official_verify": data.get("official_verify", {}),
                 "nameplate": data.get("nameplate", {}),
+                "live_room": {
+                    "roomid": lr.get("roomid", 0),
+                    "live_status": lr.get("liveStatus", 0),
+                    "live_title": lr.get("title", ""),
+                    "live_cover": lr.get("cover", ""),
+                    "live_url": lr.get("url", ""),
+                } if lr else None,
             }
         return None
 

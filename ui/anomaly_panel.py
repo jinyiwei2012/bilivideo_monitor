@@ -126,10 +126,18 @@ class AnomalyPanel:
                 online = video.get("viewers_total", 0)
 
                 try:
-                    alerts = AnomalyDetector.detect_all(full_records, bvid=bvid)
+                    up_info = None
+                    owner_mid = video.get("owner_mid", 0) or video.get("mid", 0)
+                    if owner_mid and hasattr(self.gui, '_cached_up_info'):
+                        up_info = self.gui._cached_up_info.get(str(owner_mid))
+                    alerts = AnomalyDetector.detect_all(full_records, bvid=bvid, video=video, up_info=up_info)
                     for a in alerts:
-                        if "增速" in a:
+                        if "增速" in a and "推广" not in a:
                             type_icon = "📈 增速飙升"
+                        elif "推广" in a or "付费" in a:
+                            type_icon = "📢 疑似买量"
+                        elif "直播" in a:
+                            type_icon = "🔴 正在直播"
                         elif "趋势" in a:
                             type_icon = "📉 趋势反转"
                         elif "停滞" in a:
