@@ -50,6 +50,11 @@ class ReportSchedulerWindow:
         self._export_status = tk.Label(sec, text="", bg=C["bg_elevated"], fg=C["text_2"], font=FONT)
         self._export_status.pack(anchor="w", padx=4, pady=(4, 0))
 
+        # 预测对比导出
+        ttk.Button(sec, text="📊 导出预测vs实际对比表", command=self._export_pred_vs_actual).pack(
+            anchor="w", padx=4, pady=(4, 0)
+        )
+
         # ── 定时导出 ──
         sec2 = self.dlg.section(title="定时导出", padding=10)
         tk.Label(sec2, text="按计划自动导出到 reports/ 目录", bg=C["bg_elevated"], fg=C["text_3"], font=FONT).pack(
@@ -103,6 +108,24 @@ class ReportSchedulerWindow:
         self._load_schedule()
         self._on_schedule_toggle()
 
+    def _export_pred_vs_actual(self):
+        """导出预测值 vs 实际播放量对比表"""
+        if not self.gui or not self.gui.video_dbs:
+            messagebox.showwarning("提示", "暂无预测数据", parent=self.window)
+            return
+        self._export_status.config(text="正在导出预测对比表...", fg=C["text_2"])
+        self.window.update_idletasks()
+        try:
+            from utils.report_exporter import export_prediction_vs_actual
+
+            path = export_prediction_vs_actual(self.gui.video_dbs)
+            if path:
+                self._export_status.config(text=f"✅ 已导出: {path}", fg=C["success"])
+            else:
+                self._export_status.config(text="⚠️ 无有效的预测-实际对照数据", fg=C["warning"])
+        except Exception as e:
+            self._export_status.config(text=f"❌ 导出失败: {e}", fg=C["danger"])
+
     def _export_now(self):
         if not self.gui or not self.gui.monitored_videos:
             messagebox.showwarning("提示", "暂无监控视频数据", parent=self.window)
@@ -144,8 +167,8 @@ class ReportSchedulerWindow:
                 self._interval_var.set(data.get("interval", "daily"))
                 self._schedule_format_var.set(data.get("format", "csv"))
                 self._schedule_status.config(text="已加载保存的定时设置", fg=C["success"])
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("忽略异常: %s", e)
 
     def _save_schedule(self):
         data = {

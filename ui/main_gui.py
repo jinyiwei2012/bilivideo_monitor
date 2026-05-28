@@ -671,8 +671,8 @@ class BilibiliMonitorGUI:
                 )
                 try:
                     db.sync_per_video_dbs_to_backup()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("忽略异常: %s", e)
             except Exception as e:
                 logger.warning("每小时同步异常: %s", e)
 
@@ -703,8 +703,8 @@ class BilibiliMonitorGUI:
             try:
                 for msg in AnomalyDetector.detect_all(records, bvid=bvid, video=video):
                     alerts.append((bvid, video.get("title", bvid)[:20], msg))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("忽略异常: %s", e)
 
         if alerts:
             n = len(alerts)
@@ -735,10 +735,10 @@ class BilibiliMonitorGUI:
             for vdb in list(self.video_dbs.values()):
                 try:
                     vdb._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-                except Exception:
-                    pass
-        except Exception:
-            pass
+                except Exception as e:
+                    logger.debug("忽略异常: %s", e)
+        except Exception as e:
+            logger.debug("忽略异常: %s", e)
 
     def _toggle_auto_refresh(self, event=None):
         cur = self.auto_refresh_enabled.get()
@@ -944,8 +944,8 @@ class BilibiliMonitorGUI:
         if vdb:
             try:
                 vdb.close()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("忽略异常: %s", e)
         self.prediction_results.pop(bvid, None)
         self._video_timers.pop(bvid, None)
         self.video_list.remove_card(bvid)
@@ -1381,8 +1381,8 @@ class BilibiliMonitorGUI:
                         if first_today is None:
                             first_today = vc
                         daily_incr = max(0, vc - first_today)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("忽略异常: %s", e)
 
             # 年刊分数
             ys_text = "—"
@@ -1390,8 +1390,8 @@ class BilibiliMonitorGUI:
                 ys = _calc_ys(v)
                 if ys:
                     ys_text = f"{ys.total_score:,.0f}"
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("忽略异常: %s", e)
 
             # 预测
             pred_info = ""
@@ -1433,8 +1433,8 @@ class BilibiliMonitorGUI:
                 ys = _calc_ys(v)
                 if ys:
                     ys_text = f"  年刊: {ys.total_score:,.0f}"
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("忽略异常: %s", e)
 
             # 速度 + 预计到达阈值时间
             history = self.history_data.get(bvid, [])

@@ -171,8 +171,8 @@ def _source_a_up_info(uid: int) -> Optional[Dict]:  # noqa: C901
             rel = sync(u.get_relation_info())
             if rel:
                 result["follower_count"] = rel.get("follower", 0)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("获取粉丝数失败 UID=%s: %s", uid, e)
 
         # 尝试获取投稿数（可能受 412 限制，失败不影响主流程）
         if not result["video_count"]:
@@ -180,8 +180,8 @@ def _source_a_up_info(uid: int) -> Optional[Dict]:  # noqa: C901
                 vdata = sync(u.get_videos(ps=1, pn=1))
                 if vdata and "page" in vdata:
                     result["video_count"] = vdata["page"].get("count", 0)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("获取投稿数失败 UID=%s: %s", uid, e)
 
         # 如果 bilibili-api-python 无法获取投稿数，尝试自有 API 兜底
         if not result["video_count"]:
@@ -197,8 +197,8 @@ def _source_a_up_info(uid: int) -> Optional[Dict]:  # noqa: C901
                 if data:
                     if data.get("video"):
                         result["video_count"] = data["video"]
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("自有API获取投稿数失败 UID=%s: %s", uid, e)
 
         return result
     except Exception as e:
@@ -219,8 +219,8 @@ def _source_a_up_stat(uid: int) -> Optional[Dict]:
             rel = sync(u.get_relation_info())
             if rel:
                 stat["follower_count"] = rel.get("follower", 0)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("源A获取粉丝数失败 UID=%s: %s", uid, e)
 
         # 视频列表（汇总播放/点赞）
         try:
@@ -230,8 +230,8 @@ def _source_a_up_stat(uid: int) -> Optional[Dict]:
                 likes = sum(int(v.get("like", 0)) for v in vdata["list"])
                 stat["total_views"] = views
                 stat["total_likes"] = likes
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("源A获取视频列表失败 UID=%s: %s", uid, e)
 
         # get_videos 可能被 412 限流，用自有 API 的 upstat 兜底（带 Cookie）
         if not stat["total_views"]:
@@ -245,8 +245,8 @@ def _source_a_up_stat(uid: int) -> Optional[Dict]:
                     stat["total_views"] = data["archive"]["view"]
                 if data and data.get("likes"):
                     stat["total_likes"] = data["likes"]
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("自有API upstat失败 UID=%s: %s", uid, e)
 
         if stat.get("follower_count") or stat.get("total_views"):
             return stat

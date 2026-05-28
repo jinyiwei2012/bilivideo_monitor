@@ -108,8 +108,8 @@ class AnomalyDetector:
                 if h > 0:
                     g = (recent[i].get("view_count", 0) - recent[i - 1].get("view_count", 0)) / h
                     growths.append(g)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("计算历史增速失败: %s", e)
 
         if len(growths) < 4:
             return None
@@ -203,8 +203,8 @@ class AnomalyDetector:
                 h = datetime.fromisoformat(ts).hour if isinstance(ts, str) else now.hour
                 if 9 <= h <= 22:
                     day_viewers.append(r.get("viewers_total", 0))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("解析日间时段失败: %s", e)
         if len(day_viewers) < 3:
             day_viewers = viewers[:-1] if len(viewers) > 1 else [0]
 
@@ -345,11 +345,11 @@ class AnomalyDetector:
                         datetime.fromisoformat(recent[-1]["timestamp"]) - datetime.fromisoformat(recent[0]["timestamp"])
                     ).total_seconds() / 3600
                     night_rate = total_growth / span_h if span_h > 0 else 0
-                    if night_rate > views * 0.001:  # 夜间增速 > 千分之一
+                    if night_rate > views * 0.001:
                         score += 1
                         reasons.append("夜间播放异常增长")
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("计算夜间增长率失败: %s", e)
 
         if score < 3:
             return None

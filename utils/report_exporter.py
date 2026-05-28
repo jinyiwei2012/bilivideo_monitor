@@ -241,3 +241,43 @@ def export_json(videos: List[Dict], output_path: Optional[str] = None) -> str:
         json.dump(data, f, ensure_ascii=False, indent=2)
     logger.info("JSON 导出完成: %s", output_path)
     return output_path
+
+
+def export_prediction_vs_actual(video_dbs: Dict, output_dir: Optional[str] = None) -> str:
+    """导出预测值 vs 实际播放量对比表（CSV）"""
+    import csv
+
+    os.makedirs(output_dir or _OUTPUT_DIR, exist_ok=True)
+    output_path = os.path.join(
+        output_dir or _OUTPUT_DIR,
+        f"pred_vs_actual_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+    )
+    rows = []
+    for bvid, vdb in video_dbs.items():
+        try:
+            predictions = vdb.get_predictions(limit=2000)
+        except Exception:
+            continue
+        for p in predictions:
+            pred = p.get("predicted_views", 0) or p.get("predicted_view", 0) or p.get("current_views", 0)
+            actual = p.get("current_views_at_eval", 0) or p.get("actual_views", 0)
+            algo = p.get("algorithm", p.get("algorithm_name", "未知"))
+            ts = p.get("created_at", p.get("timestamp", ""))
+            if pred > 0 and actual > 0:
+                rows.append({
+                    "bvid": bvid,
+                    "algorithm": algo,
+                    "timestamp": str(ts),
+                    "predicted": pred,
+                    "actual": actual,
+                    "error": pred - actual,
+                    "error_pct": (pred - actual) / actual * 100,
+                })
+    if not rows:
+        return ""
+    with open(output_path, "w", newline="", encoding="utf-8-sig") as f:
+        w = csv.DictWriter(f, fieldnames=["bvid", "algorithm", "timestamp", "predicted", "actual", "error", "error_pct"])
+        w.writeheader()
+        w.writerows(rows)
+    logger.info("预测对比表导出完成: %s (%d 条)", output_path, len(rows))
+    return output_path

@@ -1,3 +1,5 @@
+import logging
+logger = logging.getLogger(__name__)
 """
 现代化视频搜索界面
 支持B站关键词搜索、批量导入到监控列表
@@ -220,8 +222,8 @@ class VideoSearchWindow:
                 img = Image.open(io.BytesIO(resp.content)).resize((320, 180))
                 self._detail_img = ImageTk.PhotoImage(img)
                 tk.Label(top, image=self._detail_img, bg=C["bg_surface"]).pack(pady=8)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("忽略异常: %s", e)
 
         info = tk.Frame(top, bg=C["bg_surface"])
         info.pack(pady=8, padx=30, fill=tk.X)

@@ -100,8 +100,8 @@ class DistdfAlignAlgorithm(BaseAlgorithm):
         if _scipy_available:
             try:
                 return float(wasserstein_distance(a, b))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("忽略异常: %s", e)
         # 1D Wasserstein-1 距离 = 累积分布差的 L1 积分
         a_sorted = np.sort(a)
         b_sorted = np.sort(b)

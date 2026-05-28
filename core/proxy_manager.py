@@ -224,7 +224,7 @@ class ProxyManager:
             if e.args and hasattr(e.args[0], "reason"):
                 root_cause = str(e.args[0].reason)
         except Exception:
-            pass
+            logger.debug("解析代理错误原因失败")
         check = err_str + " " + root_cause
 
         patterns = [

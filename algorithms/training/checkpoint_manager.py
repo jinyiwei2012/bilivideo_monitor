@@ -285,8 +285,8 @@ def load_best_checkpoint(algo_id: str, bvid: Optional[str] = None) -> Tuple[Opti
             state, info = _try_load_checkpoint(mapped, bvid)
             if state is not None:
                 return state, info
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("忽略异常: %s", e)
 
     logger.info("[模型] [%s] 无可用 checkpoint，使用 numpy 降级", algo_id)
     return None, None

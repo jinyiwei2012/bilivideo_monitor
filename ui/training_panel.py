@@ -665,8 +665,8 @@ class TrainingPanel(BaseTrainingPanel):
                 title = v.get("title", bvid)
                 if bvid:
                     videos.append({"bvid": bvid, "title": title[:40]})
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("忽略异常: %s", e)
 
         if not videos:
             messagebox.showwarning("提示", "没有监控中的视频可微调", parent=self.frame)
@@ -1096,8 +1096,8 @@ class TrainingPanel(BaseTrainingPanel):
             _versions = _ckpt.list_versions()
             if _versions:
                 _val_loss = _versions[0].get("val_loss", -1.0)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("忽略异常: %s", e)
         conf = loss_to_confidence(_val_loss) if _val_loss >= 0 else load_algo_confidence(aid)
         conf_str, conf_color = format_confidence(conf)
         self._algo_confidence[aid] = conf
@@ -1163,8 +1163,8 @@ class TrainingPanel(BaseTrainingPanel):
         self._refresh_algo_list()
         try:
             self.main._refresh_model_status()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("忽略异常: %s", e)
         # 训练自动回调：通知 + 重新预测
         trained = getattr(self, "_last_training_results", {})
         ok = [aid for aid, v in trained.items() if v]
@@ -1174,8 +1174,8 @@ class TrainingPanel(BaseTrainingPanel):
                 detail += f" …等{len(ok)}个"
             try:
                 self.main._on_training_completed("训练", len(ok), detail)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("忽略异常: %s", e)
 
     # ══════════════════════════════════════════════
     # 训练质量监控
