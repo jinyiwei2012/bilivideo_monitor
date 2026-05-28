@@ -21,6 +21,18 @@ class Dialogs:
         self.gui = gui
 
     # ──────────────────────────────────────────
+    # 视频标签管理
+    # ──────────────────────────────────────────
+
+    def open_tag_manager(self):
+        try:
+            from ui.tag_manager import TagManagerWindow
+
+            TagManagerWindow(self.gui.root, self.gui)
+        except Exception as e:
+            messagebox.showerror("错误", f"打开标签管理失败:\n{e}")
+
+    # ──────────────────────────────────────────
     # 刷新间隔设置
     # ──────────────────────────────────────────
 

@@ -342,6 +342,7 @@ class BilibiliMonitorGUI:
         self._settings_menu.add_command(label="🆙  UP主追踪", command=self._dialogs.open_up_tracker)
         self._settings_menu.add_command(label="💬  弹幕分析", command=self._dialogs.open_danmaku_analysis)
         self._settings_menu.add_command(label="🔥  热门发现", command=self._dialogs.open_trending_discovery)
+        self._settings_menu.add_command(label="🎫  视频标签", command=self._dialogs.open_tag_manager)
         self._settings_menu.add_separator()
         self._settings_menu.add_command(label="🤖  AI智能问答", command=self._dialogs.open_ai_qa)
         self._settings_menu.add_command(label="📊  数据大屏", command=self._dialogs.open_dashboard)
