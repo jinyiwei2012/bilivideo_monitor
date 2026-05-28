@@ -22,6 +22,7 @@
 """
 
 import os
+import re
 import json
 import logging
 from datetime import datetime
@@ -46,6 +47,8 @@ class CheckpointManager:
         self.algo_id = algo_id
         self.bvid = bvid
         if bvid:
+            if not re.match(r"^BV[A-Za-z0-9]{10,12}$", bvid):
+                raise ValueError(f"无效的 BV 号: {bvid!r}")
             self._dir = os.path.join(_CKPT_ROOT, algo_id, "_video", bvid)
         else:
             self._dir = os.path.join(_CKPT_ROOT, algo_id)
