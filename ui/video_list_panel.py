@@ -321,8 +321,8 @@ class VideoListPanel:
         if not hasattr(self, "_resize_job") or self._resize_job:
             try:
                 self.gui.root.after_cancel(self._resize_job)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("忽略异常: %s", e)
         self._resize_job = self.gui.root.after(150, self._do_update_wraplengths)
 
     def _do_update_wraplengths(self):
@@ -333,8 +333,8 @@ class VideoListPanel:
             new_wl = max(100, parent_w - 100)
             for refs in self._video_card_widgets.values():
                 refs["title"].configure(wraplength=new_wl)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("忽略异常: %s", e)
 
     def _on_search(self, *args):
         q = self._search_var.get().strip().lower()

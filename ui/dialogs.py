@@ -21,6 +21,54 @@ class Dialogs:
         self.gui = gui
 
     # ──────────────────────────────────────────
+    # 视频标签管理
+    # ──────────────────────────────────────────
+
+    def open_tag_manager(self):
+        try:
+            from ui.tag_manager import TagManagerWindow
+
+            TagManagerWindow(self.gui.root, self.gui)
+        except Exception as e:
+            messagebox.showerror("错误", f"打开标签管理失败:\n{e}")
+
+    # ──────────────────────────────────────────
+    # 预测回测
+    # ──────────────────────────────────────────
+
+    def open_backtest(self):
+        try:
+            from ui.backtest_panel import BacktestPanel
+
+            BacktestPanel(self.gui.root, self.gui)
+        except Exception as e:
+            messagebox.showerror("错误", f"打开预测回测失败:\n{e}")
+
+    # ──────────────────────────────────────────
+    # 视频排行榜
+    # ──────────────────────────────────────────
+
+    def open_ranking(self):
+        try:
+            from ui.ranking_panel import RankingPanel
+
+            RankingPanel(self.gui.root, self.gui)
+        except Exception as e:
+            messagebox.showerror("错误", f"打开排行榜失败:\n{e}")
+
+    # ──────────────────────────────────────────
+    # 异常增长检测
+    # ──────────────────────────────────────────
+
+    def open_anomaly_detection(self):
+        try:
+            from ui.anomaly_panel import AnomalyPanel
+
+            AnomalyPanel(self.gui.root, self.gui)
+        except Exception as e:
+            messagebox.showerror("错误", f"打开异常检测失败:\n{e}")
+
+    # ──────────────────────────────────────────
     # 刷新间隔设置
     # ──────────────────────────────────────────
 

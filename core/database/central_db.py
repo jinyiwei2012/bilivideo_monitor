@@ -49,17 +49,17 @@ class Database:
                             dc = _sqlite3.connect(dst_db).execute("SELECT COUNT(*) FROM monitor_records").fetchone()[0]
                             if sc > dc * 2:
                                 should_copy = True
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug("迁移计数检查失败 %s: %s", item, e)
                     if should_copy:
                         if os.path.exists(dst):
                             # 关闭目标目录下可能打开的数据库连接
                             try:
                                 for f in os.listdir(dst):
                                     if f.endswith(".db") or f.endswith(".db-wal") or f.endswith(".db-shm"):
-                                        os.chmod(os.path.join(dst, f), 0o666)
-                            except Exception:
-                                pass
+                                        os.chmod(os.path.join(dst, f), 0o600)
+                            except Exception as e:
+                                logger.debug("修改权限失败 %s: %s", f, e)
                             try:
                                 shutil.rmtree(dst)
                             except PermissionError:
@@ -1036,8 +1036,8 @@ class Database:
                     conn = sqlite3.connect(uri, uri=True)
                     conn.row_factory = sqlite3.Row
                     return conn
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("打开只读连接失败 %s: %s", db_path, e)
         return None
 
     @staticmethod
@@ -1265,8 +1265,8 @@ class Database:
             if col not in existing:
                 try:
                     cur.execute(f"ALTER TABLE predictions ADD COLUMN {col} {definition}")
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("迁移列 %s 失败: %s", col, e)
 
     def wal_checkpoint(self):
         """周期性 WAL checkpoint，控制 WAL 文件大小。"""

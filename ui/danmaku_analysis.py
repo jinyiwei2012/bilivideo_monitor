@@ -217,7 +217,13 @@ class DanmakuAnalysisWindow:
         self._list_tree.config(yscrollcommand=sb.set)
         sb.pack(side=tk.RIGHT, fill=tk.Y)
 
-        # ── 页2：LLM分析结果 ──
+        # ── 页2：时间分布 ──
+        time_page = tk.Frame(self._bottom_nb, bg=C["bg_base"])
+        self._bottom_nb.add(time_page, text="  📊 时间分布  ")
+        self._time_canvas = tk.Canvas(time_page, bg=C["bg_base"], highlightthickness=0)
+        self._time_canvas.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+
+        # ── 页3：LLM分析结果 ──
         llm_page = tk.Frame(self._bottom_nb, bg=C["bg_base"])
         self._bottom_nb.add(llm_page, text="  🤖 LLM分析  ")
 
@@ -348,6 +354,9 @@ class DanmakuAnalysisWindow:
         # 词频
         freq = generate_word_freq(texts)
         _top_freq = sorted(freq.items(), key=lambda x: -x[1])[:20]  # noqa: F841
+
+        # 时间分布（模拟基于批次的密度柱状图）
+        self._draw_time_distribution(texts)
 
         # 更新列表
         for item in self._list_tree.get_children():
@@ -736,6 +745,35 @@ class DanmakuAnalysisWindow:
                 26, ly, text=f"{labels_cn[key]} {val:.0%}", fill=C["text_2"], font=("Microsoft YaHei UI", 9), anchor="w"
             )
             ly += 18
+
+    def _draw_time_distribution(self, texts: list):
+        """绘制弹幕时间分布柱状图（按批次分桶）"""
+        c = self._time_canvas
+        c.delete("all")
+        if not texts:
+            c.create_text(200, 80, text="无弹幕数据", fill=C["text_3"], font=("Microsoft YaHei UI", 12))
+            return
+        w = c.winfo_width() or 500
+        h = c.winfo_height() or 200
+        n = len(texts)
+        bins = min(20, max(5, n // 5))
+        chunk_size = max(1, n // bins)
+        counts = []
+        for i in range(0, n, chunk_size):
+            counts.append(min(1.0, len(texts[i:i + chunk_size]) / chunk_size))
+        bar_w = (w - 40) / max(len(counts), 1)
+        max_c = max(counts) if counts else 1
+        for i, v in enumerate(counts):
+            bh = v / max_c * (h - 50)
+            x0 = 20 + i * bar_w
+            y0 = h - 30 - bh
+            x1 = x0 + bar_w - 1
+            y1 = h - 30
+            intensity = int(50 + 180 * v / max_c)
+            color = f"#{intensity:02x}66ff"
+            c.create_rectangle(x0, y0, x1, y1, fill=color, outline="")
+        c.create_text(20, 10, text="弹幕时间分布（→ 时间轴）", fill=C["text_3"],
+                      font=("Microsoft YaHei UI", 9), anchor="w")
 
     def _display_keywords(self, keywords: list):
         self._kw_text.config(state="normal")

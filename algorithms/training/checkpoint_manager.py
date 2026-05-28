@@ -22,6 +22,7 @@
 """
 
 import os
+import re
 import json
 import logging
 from datetime import datetime
@@ -46,6 +47,8 @@ class CheckpointManager:
         self.algo_id = algo_id
         self.bvid = bvid
         if bvid:
+            if not re.match(r"^BV[A-Za-z0-9]{10,12}$", bvid):
+                raise ValueError(f"无效的 BV 号: {bvid!r}")
             self._dir = os.path.join(_CKPT_ROOT, algo_id, "_video", bvid)
         else:
             self._dir = os.path.join(_CKPT_ROOT, algo_id)
@@ -282,8 +285,8 @@ def load_best_checkpoint(algo_id: str, bvid: Optional[str] = None) -> Tuple[Opti
             state, info = _try_load_checkpoint(mapped, bvid)
             if state is not None:
                 return state, info
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("忽略异常: %s", e)
 
     logger.info("[模型] [%s] 无可用 checkpoint，使用 numpy 降级", algo_id)
     return None, None

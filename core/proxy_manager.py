@@ -2,6 +2,7 @@
 代理管理器 - 代理IP轮询、UA绑定、失败自动清理
 """
 
+import json
 import logging
 import random
 import re
@@ -19,12 +20,12 @@ class ProxyManager:
     """代理管理器：轮询、UA绑定、失败计数与自动清理"""
 
     USER_AGENTS = [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.2 Safari/605.1.15",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 Edg/146.0.0.0",
     ]
 
     def __init__(self):
@@ -36,6 +37,10 @@ class ProxyManager:
         self._current_request_proxy_idx: Optional[int] = None
         self._socks_available = self._check_socks()
         self._lock = threading.Lock()
+        # 代理自动发现
+        self._auto_discovery_running = False
+        self._last_discovery_time = 0
+        self._discovery_interval = 600  # 每10分钟自动发现一次
 
     # ── SOCKS 检测 ────────────────────────────────────────
 
@@ -224,7 +229,7 @@ class ProxyManager:
             if e.args and hasattr(e.args[0], "reason"):
                 root_cause = str(e.args[0].reason)
         except Exception:
-            pass
+            logger.debug("解析代理错误原因失败")
         check = err_str + " " + root_cause
 
         patterns = [
@@ -354,6 +359,119 @@ class ProxyManager:
             )
         else:
             logger.warning(f"代理测试 {masked}: 不可用 — {result.get('error', '未知错误')}")
+
+    # ── 代理自动发现 ──────────────────────────────────
+
+    def start_auto_discovery(self, interval: int = 600):
+        """启动后台线程定期自动发现免费代理"""
+        self._discovery_interval = interval
+        if not self._auto_discovery_running:
+            self._auto_discovery_running = True
+            threading.Thread(target=self._auto_discovery_loop, daemon=True, name="proxy-discovery").start()
+            logger.info(f"代理自动发现已启动（间隔 {interval}s）")
+
+    def _auto_discovery_loop(self):
+        while self._auto_discovery_running:
+            try:
+                self._discover_free_proxies()
+            except Exception as e:
+                logger.debug("代理自动发现异常: %s", e)
+            time.sleep(self._discovery_interval)
+
+    PROXY_SOURCES = [
+        "https://proxylist.geonode.com/api/proxy-list?limit=30&page=1&sort_by=lastChecked&sort_type=desc&protocols=http%2Chttps%2Csocks4%2Csocks5",
+        "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
+        "https://raw.githubusercontent.com/TheSpeedX/SOCKS-List/master/socks4.txt",
+        "https://raw.githubusercontent.com/TheSpeedX/SOCKS-List/master/socks5.txt",
+        "https://raw.githubusercontent.com/hookzof/socks5_list/master/proxy.txt",
+        "https://raw.githubusercontent.com/ProxyScrape/free-proxy-list/refs/heads/main/proxies/all/data.json",
+    ]
+
+    def _discover_free_proxies(self):
+        """从多个免费代理源拉取代理列表并加入池"""
+        added = 0
+        tested = 0
+        for src_url in self.PROXY_SOURCES:
+            try:
+                resp = requests.get(src_url, timeout=10,
+                                    headers={"User-Agent": "Mozilla/5.0"},
+                                    verify=False)
+                if resp.status_code != 200:
+                    continue
+                urls = self._parse_proxy_list(resp.text, src_url)
+                for url in urls:
+                    if self._proxy_exists(url):
+                        continue
+                    # 快速连通性测试
+                    fast_test = ProxyManager._proxy_http_request(url, "http://httpbin.org/ip",
+                                                                   "Mozilla/5.0", 5)
+                    if not fast_test.get("error"):
+                        self.add_proxy({"http": url, "https": url})
+                        added += 1
+                    tested += 1
+            except Exception as e:
+                logger.debug("代理源 %s 获取失败: %s", src_url.split("/")[2], e)
+        if added:
+            self.init_ua_bindings()
+            logger.info(f"代理自动发现: 测试 {tested} 个, 新增 {added} 个可用代理 (共 {len(self.proxies)} 个)")
+
+    @staticmethod
+    def _parse_proxy_list(text: str, src_url: str) -> List[str]:
+        """解析不同格式的代理列表，根据源自动识别协议"""
+        urls = []
+
+        # 根据源 URL 确定默认协议
+        proto = "http"
+        if "socks5" in src_url.lower():
+            proto = "socks5"
+        elif "socks4" in src_url.lower():
+            proto = "socks4"
+
+        # JSON 格式
+        if "geonode" in src_url:
+            try:
+                data = json.loads(text)
+                for item in data.get("data", []):
+                    ip = item.get("ip", "")
+                    port = item.get("port", "")
+                    protocols = item.get("protocols", [])
+                    for p in protocols:
+                        if p in ("http", "https", "socks4", "socks5"):
+                            urls.append(f"{p}://{ip}:{port}")
+            except json.JSONDecodeError:
+                pass
+        elif "proxyscrape" in src_url.lower():
+            try:
+                data = json.loads(text)
+                if isinstance(data, list):
+                    for item in data:
+                        ip = item.get("ip", "")
+                        port = item.get("port", "")
+                        p = str(item.get("protocol", "http")).lower()
+                        if p in ("http", "https", "socks4", "socks5"):
+                            urls.append(f"{p}://{ip}:{port}")
+            except json.JSONDecodeError:
+                pass
+        else:
+            # 纯文本格式 (ip:port 每行一个)
+            for line in text.strip().split("\n"):
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "://" in line:
+                    urls.append(line)
+                else:
+                    urls.append(f"{proto}://{line}")
+        return urls
+
+    def _proxy_exists(self, url: str) -> bool:
+        """检查代理是否已在池中"""
+        norm = ProxyManager.normalize_url(url)
+        with self._lock:
+            for p in self.proxies:
+                if ProxyManager.normalize_url(p.get("http", "")) == norm:
+                    return True
+            return False
 
     @staticmethod
     def test_proxy(proxy_url: str, timeout: int = 30, test_url: str = None) -> dict:

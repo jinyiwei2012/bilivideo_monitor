@@ -24,6 +24,8 @@ class AIQASession:
         self._monitored_videos: List[Dict] = []
         self._history_data: Dict = {}
         self._video_dbs: Dict = {}
+        self._last_call_time = 0.0
+        self._min_call_interval = 1.0
 
     def _load_config(self):
         try:
@@ -114,9 +116,6 @@ class AIQASession:
 
         return answer
 
-    _last_call_time = 0.0
-    _min_call_interval = 1.0  # 最少间隔 1 秒
-
     def _rate_limit(self):
         """Token bucket 简单限速：每秒最多 1 次 API 调用"""
         import time
@@ -124,7 +123,7 @@ class AIQASession:
         elapsed = time.time() - self._last_call_time
         if elapsed < self._min_call_interval:
             time.sleep(self._min_call_interval - elapsed)
-        AIQASession._last_call_time = time.time()
+        self._last_call_time = time.time()
 
     def clear_api_key(self):
         """使用后清除 API Key（内存安全）"""

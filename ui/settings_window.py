@@ -2371,8 +2371,8 @@ class SettingsWindow:
             from ui.helpers import reload_thresholds
 
             reload_thresholds()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("忽略异常: %s", e)
 
         # 同步代理文本到 net_cfg 后再保存（防止跳过"应用代理"直接点保存导致空覆盖）
         self._sync_proxy_text_to_cfg()

@@ -267,8 +267,8 @@ class AlgorithmRegistry:
             cp = get_conformal_predictor()
             interval = cp.predict_interval(weighted_pred)
             results["_weighted"]["prediction_interval"] = interval
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("忽略异常: %s", e)
 
         logger.info(
             "[%s] 综合预测: %.0f (有效 %d/%d, 区间 ±%.0f%%)",

@@ -51,14 +51,14 @@ class BilibiliAPI:
     # wbi 密钥（运行时刷新）
     _wbi_key = None
 
-    # 多个User-Agent轮换使用
+    # 多个User-Agent轮换使用（2026 版本，与 curl_cffi 默认 impersonate Chrome 版本对齐）
     USER_AGENTS = [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.2 Safari/605.1.15",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 Edg/146.0.0.0",
     ]
 
     # 默认请求头
@@ -75,7 +75,7 @@ class BilibiliAPI:
         # 连接池复用：每个 host 最多 10 个连接，减少 TCP 握手开销
         from requests.adapters import HTTPAdapter
 
-        adapter = HTTPAdapter(pool_connections=10, pool_maxsize=10, max_retries=0)  # 重试由 _request 统一管理
+        adapter = HTTPAdapter(pool_connections=10, pool_maxsize=10, max_retries=0)
         self.session.mount("https://", adapter)
         self.session.mount("http://", adapter)
 
@@ -84,13 +84,19 @@ class BilibiliAPI:
         self._public_session.mount("https://", adapter)
         self._public_session.mount("http://", adapter)
 
+        # curl_cffi Session（TLS 指纹伪装，主 API 路径优先使用）
+        self._curl_session = None
+        self._has_curl_cffi = False
+        self._impersonate = ""
+        self._init_curl_cffi()
+
         self._update_headers()
         self._update_public_headers()
 
         # 重试配置
         self.max_retries = 3
-        self.base_retry_delay = 2  # 基础重试延迟（秒）
-        self.max_retry_delay = 60  # 最大重试延迟（秒）
+        self.base_retry_delay = 2
+        self.max_retry_delay = 60
 
         # 代理管理器
         self.proxy_manager = ProxyManager()
@@ -98,17 +104,45 @@ class BilibiliAPI:
         # 全局限流状态
         self._consecutive_412_errors = 0
         self._last_request_time = 0
-        self._min_request_interval = 0.5  # 最小请求间隔（秒）
-        self._interval_lock = threading.Lock()  # 线程安全保护
+        self._min_request_interval = 0.5
+        self._interval_lock = threading.Lock()
 
         # cookie支持
         self._cookies: Dict = {}
         self._refresh_token: str = ""
 
+        # 随机 buvid（模拟不同设备指纹，降低 412 概率）
+        self._buvid3 = self._gen_buvid()
+        self._buvid4 = self._gen_buvid()
+
         # 启动时加载已保存的 Cookie 和代理
         self._load_saved_network_config()
-        # 为每个代理绑定一个固定UA（启动时生成一组）
         self.proxy_manager.init_ua_bindings()
+        # 后台自动发现免费代理
+        self.proxy_manager.start_auto_discovery(interval=600)
+
+    @staticmethod
+    def _gen_buvid() -> str:
+        """生成随机 buvid（模拟浏览器设备指纹）"""
+        import uuid as _uuid
+        return _uuid.uuid4().hex.upper()[:16] + _uuid.uuid4().hex.upper()[:16] + "infoc"
+
+    def _init_curl_cffi(self):
+        """初始化 curl_cffi 会话（TLS 指纹伪装）"""
+        try:
+            from curl_cffi import requests as _curl_req
+            self._curl_session = _curl_req.Session(impersonate="chrome131")
+            self._curl_session.headers.update({
+                "Referer": "https://www.bilibili.com/",
+                "Accept": "application/json, text/plain, */*",
+                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+            })
+            self._has_curl_cffi = True
+            self._impersonate = "chrome131"
+            logger.info("curl_cffi TLS 指纹伪装已启用 (impersonate=chrome131)")
+        except ImportError:
+            self._has_curl_cffi = False
+            logger.info("curl_cffi 未安装，使用 requests 直连 (pip install curl_cffi)")
 
     @staticmethod
     def _sanitize_cookies(cookies: Dict) -> Dict:
@@ -149,6 +183,17 @@ class BilibiliAPI:
                     logger.info(f"已加载 {len(proxy_urls)} 个代理")
         except Exception as e:
             logger.warning(f"加载网络配置失败: {e}")
+
+    def _get_request_cookies(self) -> Dict:
+        """构建请求 Cookie（含随机 buvid 指纹）"""
+        cookies = dict(self._cookies)
+        cookies.setdefault("buvid3", self._buvid3)
+        cookies.setdefault("buvid4", self._buvid4)
+        # 每次请求随机刷新部分 buvid 字段
+        if random.random() < 0.1:
+            self._buvid3 = self._gen_buvid()
+            cookies["buvid3"] = self._buvid3
+        return cookies
 
     def _update_headers(self, extra_headers: Dict = None):
         """更新请求头"""
@@ -323,11 +368,14 @@ class BilibiliAPI:
         self.proxy_manager.clear_proxies()
 
     def _ensure_min_interval(self):
-        """确保请求间隔（线程安全）"""
+        """确保请求间隔（线程安全，正态分布随机抖动以模拟真人节奏）"""
         with self._interval_lock:
+            # 以 _min_request_interval 为均值、30% 为标准差的正态分布抽样
+            # 下限为 _min_request_interval 的一半，避免抖动产生过快请求
+            target = max(self._min_request_interval * 0.5, random.gauss(self._min_request_interval, self._min_request_interval * 0.3))
             elapsed = time.time() - self._last_request_time
-            if elapsed < self._min_request_interval:
-                time.sleep(self._min_request_interval - elapsed)
+            if elapsed < target:
+                time.sleep(target - elapsed)
             self._last_request_time = time.time()
 
     def _is_412_error(self, data: Dict) -> bool:
@@ -346,30 +394,26 @@ class BilibiliAPI:
         self, method: str, url: str, max_retries: int = None, skip_retry: bool = False, **kwargs
     ) -> Optional[Dict]:
         """
-        发送HTTP请求 - 支持412错误重试
-
-        Args:
-            method: 请求方法
-            url: 请求URL
-            max_retries: 最大重试次数（None使用默认值）
-            skip_retry: 是否跳过重试
-            **kwargs: 其他requests参数
-
-        Returns:
-            请求成功的data数据，失败返回None
+        发送HTTP请求 - 优先 curl_cffi（TLS 指纹伪装），回退 requests
+        支持412错误重试 + Agent/代理/间隔递进绕过
         """
         if max_retries is None:
             max_retries = self.max_retries
 
         last_error = None
-
         logger.debug("→ %s %s", method.upper(), url.split("?")[0])
 
         for attempt in range(max_retries + 1):
             try:
                 self._ensure_min_interval()
                 request_kwargs = self._prepare_request_kwargs(attempt, **kwargs)
-                response = self.session.request(method, url, **request_kwargs)
+                cookies = self._get_request_cookies()
+
+                # ── 多客户端请求：curl_cffi → requests ──
+                response = self._do_http_request(method, url, request_kwargs, cookies)
+
+                if response is None:
+                    continue
 
                 # 检查HTTP状态码
                 if response.status_code == 412:
@@ -377,10 +421,16 @@ class BilibiliAPI:
                         continue
                     return None
 
-                response.raise_for_status()
-                data = response.json()
+                status_code = getattr(response, 'status_code', None) or response.status_code
+                if status_code != 200:
+                    raise requests.exceptions.HTTPError(f"HTTP {status_code}")
 
-                logger.debug("← %s %s → %s", method.upper(), url.split("?")[0], response.status_code)
+                # 解析响应
+                raw = getattr(response, 'content', None) or response.raw
+                data = json.loads(raw) if isinstance(raw, (bytes, str)) else getattr(response, 'json', lambda: {})() if hasattr(response, 'json') else {}
+
+                self._consecutive_412_errors = 0  # 成功后重置
+                logger.debug("← %s %s → %s", method.upper(), url.split("?")[0], status_code)
 
                 result, should_retry = self._handle_successful_response(data, attempt, max_retries, skip_retry)
                 if should_retry:
@@ -390,25 +440,22 @@ class BilibiliAPI:
             except requests.exceptions.Timeout:
                 last_error = "请求超时"
                 logger.error(f"请求超时 (第{attempt + 1}次尝试)")
-
             except requests.exceptions.ConnectionError as e:
                 last_error = f"连接错误: {e}"
                 logger.error(f"连接错误 (第{attempt + 1}次尝试): {e}")
-
             except requests.exceptions.HTTPError as e:
                 last_error = f"HTTP错误: {e}"
-                if response.status_code in [502, 503, 504]:
-                    logger.error(f"服务器错误 {response.status_code} (第{attempt + 1}次尝试)")
-                else:
-                    logger.error(f"HTTP错误: {e}")
-                    break
-
+                if attempt < max_retries and not skip_retry:
+                    logger.error(f"HTTP错误 {status_code if 'status_code' in dir() else ''} (第{attempt + 1}次尝试)")
+                    delay = self._get_retry_delay(attempt)
+                    time.sleep(delay)
+                    self._on_request_failure()
+                    continue
+                break
             except UnicodeEncodeError as e:
                 last_error = f"编码错误: {e}"
                 logger.error(f"请求头编码异常 (第{attempt + 1}次尝试): {e}")
-                # 编码错误不是临时性问题，直接退出不重试
                 break
-
             except Exception as e:
                 last_error = str(e)
                 logger.error(f"请求异常: {e}")
@@ -423,19 +470,79 @@ class BilibiliAPI:
         logger.error(f"请求最终失败: {last_error}")
         return None
 
+    def _do_http_request(self, method, url, request_kwargs, cookies):
+        """执行 HTTP 请求，优先 curl_cffi（TLS 指纹），回退 requests"""
+        err = None
+        if self._has_curl_cffi and self._curl_session:
+            try:
+                from curl_cffi import requests as _curl_req
+                proxy = request_kwargs.get("proxies", None)
+                proxy_str = proxy.get("http", "") if proxy else ""
+                curl_kwargs = {
+                    "params": request_kwargs.get("params"),
+                    "data": request_kwargs.get("data"),
+                    "headers": {k: v for k, v in self._curl_session.headers.items()},
+                    "cookies": cookies,
+                    "timeout": request_kwargs.get("timeout", 15),
+                    "verify": request_kwargs.get("verify", True),
+                }
+                if proxy_str:
+                    curl_kwargs["proxies"] = {"all": proxy_str}
+                if self._impersonate:
+                    curl_kwargs["impersonate"] = self._impersonate
+                resp = self._curl_session.request(method, url, **curl_kwargs)
+                # 统一为类 requests.Response 接口
+                return _CurlCffiResponse(resp)
+            except Exception as e:
+                err = e
+                logger.debug("curl_cffi 失败，回退 requests: %s", e)
+
+        try:
+            if cookies:
+                request_kwargs["cookies"] = cookies
+            response = self.session.request(method, url, **request_kwargs)
+            return response
+        except Exception as e:
+            if err:
+                raise err from e
+            raise
+
+
+class _CurlCffiResponse:
+    """将 curl_cffi response 包装为与 requests.Response 兼容的接口"""
+    def __init__(self, resp):
+        self.status_code = resp.status_code
+        self.content = resp.content
+        self.raw = resp.content
+        self.text = resp.text
+        self.headers = resp.headers
+        self.url = str(resp.url)
+        self.cookies = resp.cookies
+        self._resp = resp
+
+    def json(self, **kwargs):
+        return self._resp.json(**kwargs)
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            from requests.exceptions import HTTPError
+            raise HTTPError(f"HTTP {self.status_code}", response=self)
+
     def _prepare_request_kwargs(self, attempt: int, **kwargs) -> Dict:
         """构建请求参数：使用代理绑定UA，跳过失败过多的代理"""
         idx, proxy, ua = self.proxy_manager.get_proxy_binding()
         request_kwargs = {"timeout": 15, **kwargs}
         if proxy:
             request_kwargs["proxies"] = proxy
-            # SOCKS/HTTP代理可能使用自签名证书，关闭SSL验证
-            request_kwargs.setdefault("verify", False)  # nosec — local proxies use self-signed certs
+            request_kwargs.setdefault("verify", False)
             masked = self.proxy_manager.mask_url(proxy.get("http", ""))
             logger.debug(f"→ 请求代理: {masked}")
         else:
             logger.debug("→ 请求直连（无代理）")
-        if ua:
+        # 使用 curl_cffi 时移除 UA（impersonate 自动设置），否则设置 UA
+        if self._has_curl_cffi and self._impersonate:
+            self.session.headers.pop("User-Agent", None)
+        elif ua:
             self.session.headers["User-Agent"] = ua
         return request_kwargs
 
@@ -584,17 +691,90 @@ class BilibiliAPI:
         return None
 
     def search_videos(self, keyword: str, page: int = 1, page_size: int = 20) -> List[Dict]:
-        """搜索视频"""
+        """搜索视频（多源兜底）"""
         params = {"keyword": keyword, "search_type": "video", "page": page, "pagesize": page_size}
         data = self._request("GET", self.SEARCH_URL, params=params)
         if data and "result" in data:
             return data["result"]
+        return self._search_videos_fallback(keyword, page, page_size)
+
+    def _search_videos_fallback(self, keyword: str, page: int, page_size: int) -> List[Dict]:
+        """使用 bilibili-api-python 兜底搜索"""
+        try:
+            from bilibili_api import sync
+            from bilibili_api.search import search_by_type
+            from bilibili_api.search import SearchObjectType
+
+            result = sync(search_by_type(keyword, SearchObjectType.VIDEO, page=page))
+            if result and "result" in result:
+                return result["result"]
+        except ImportError:
+            pass
+        except Exception as e:
+            logger.debug("bilibili-api 兜底搜索失败: %s", e)
         return []
 
     def get_video_info(self, bvid: str) -> Optional[Dict]:
-        """获取视频详细信息"""
+        """获取视频详细信息（多源兜底）"""
         params = {"bvid": bvid}
-        return self._request("GET", self.VIDEO_URL, params=params)
+        result = self._request("GET", self.VIDEO_URL, params=params)
+        if result:
+            return result
+        # 一级兜底：bilibili-api-python
+        result = self._get_video_info_fallback(bvid)
+        if result:
+            return result
+        # 二级兜底：Playwright 无头浏览器
+        return self._get_video_info_browser_fallback(bvid)
+
+    def _get_video_info_browser_fallback(self, bvid: str) -> Optional[Dict]:
+        """二级兜底：使用 Playwright 无头浏览器获取视频信息"""
+        try:
+            from core.browser_fallback import fetch_video_info_playwright
+            return fetch_video_info_playwright(bvid)
+        except ImportError:
+            pass
+        except Exception as e:
+            logger.debug("Playwright 兜底失败: %s", e)
+        return None
+
+    def _get_video_info_fallback(self, bvid: str) -> Optional[Dict]:
+        """一级兜底：使用 bilibili-api-python 作为数据源"""
+        try:
+            from bilibili_api import sync
+            from bilibili_api.video import Video
+
+            v = Video(bvid=bvid)
+            info = sync(v.get_info())
+            if not info:
+                return None
+            stat = info.get("stat", {})
+            owner = info.get("owner", {})
+            return {
+                "title": info.get("title", ""),
+                "pic": info.get("pic", ""),
+                "desc": info.get("desc", ""),
+                "duration": info.get("duration", 0),
+                "aid": info.get("aid", 0),
+                "bvid": bvid,
+                "cid": info.get("cid", 0),
+                "pubdate": info.get("pubdate", 0),
+                "owner": {"mid": owner.get("mid", 0), "name": owner.get("name", "")},
+                "stat": {
+                    "view": stat.get("view", 0),
+                    "like": stat.get("like", 0),
+                    "coin": stat.get("coin", 0),
+                    "favorite": stat.get("favorite", 0),
+                    "share": stat.get("share", 0),
+                    "danmaku": stat.get("danmaku", 0),
+                    "reply": stat.get("reply", 0),
+                },
+            }
+        except ImportError:
+            logger.debug("bilibili-api-python 未安装，跳过兜底")
+        except Exception as e:
+            logger.debug("bilibili-api-python 兜底获取视频信息失败: %s", e)
+        return None
 
     def get_video_viewers(self, bvid: str, cid: int = None) -> Optional[Dict]:
         """获取视频在线观看人数"""
@@ -615,8 +795,30 @@ class BilibiliAPI:
                     "count": data.get("count", 0),
                     "show_switch": data.get("show_switch", {}),
                 }
+            # 兜底
+            return self._get_video_viewers_fallback(bvid, cid)
         except Exception as e:
             logger.error(f"获取观看人数失败: {type(e).__name__}")
+        return None
+
+    def _get_video_viewers_fallback(self, bvid: str, cid: int) -> Optional[Dict]:
+        """使用 bilibili-api-python 兜底获取在线人数"""
+        try:
+            from bilibili_api import sync
+            from bilibili_api.video import Video
+
+            v = Video(bvid=bvid)
+            online = sync(v.get_online(cid=cid))
+            if online:
+                return {
+                    "total": str(online.get("total", "0")),
+                    "count": str(online.get("count", "0")),
+                    "show_switch": {},
+                }
+        except ImportError:
+            pass
+        except Exception as e:
+            logger.debug("bilibili-api 兜底获取在线人数失败: %s", e)
         return None
 
     def get_video_stat(self, bvid: str) -> Optional[Dict]:
@@ -696,6 +898,7 @@ class BilibiliAPI:
         if data is None:
             data = self._request("GET", f"{self.BASE_URL}/x/space/acc/info", params={"mid": uid})
         if data:
+            lr = data.get("live_room", {})
             return {
                 "uid": data.get("mid", uid),
                 "name": data.get("name", ""),
@@ -706,6 +909,13 @@ class BilibiliAPI:
                 "video_count": data.get("video_count", data.get("videos", 0)),
                 "official_verify": data.get("official_verify", {}),
                 "nameplate": data.get("nameplate", {}),
+                "live_room": {
+                    "roomid": lr.get("roomid", 0),
+                    "live_status": lr.get("liveStatus", 0),
+                    "live_title": lr.get("title", ""),
+                    "live_cover": lr.get("cover", ""),
+                    "live_url": lr.get("url", ""),
+                } if lr else None,
             }
         return None
 
@@ -765,7 +975,7 @@ class BilibiliAPI:
         if data:
             return {
                 "total_views": data.get("archive", {}).get("view", 0),
-                "total_likes": data.get("archive", {}).get("like", 0),
+                "total_likes": data.get("likes", 0) or data.get("archive", {}).get("like", 0),
                 "follower_change": data.get("follower_change", data.get("follower", 0)),
                 "follower_count": (
                     data.get("follower", {}).get("follower", 0)
@@ -836,9 +1046,13 @@ class BilibiliAPI:
             logger.debug("← GET %s → %s", self.DANMAKU_URL.split("?")[0], resp.status_code)
             if resp.status_code != 200:
                 return []
-            import xml.etree.ElementTree as ET
+            try:
+                from defusedxml.ElementTree import fromstring as _xml_parse
+            except ImportError:
+                import xml.etree.ElementTree as _ET
+                _xml_parse = _ET.fromstring
 
-            root = ET.fromstring(resp.content)  # nosec B314
+            root = _xml_parse(resp.content)
             danmaku = []
             for d in root.findall(".//d"):
                 p = d.get("p", "")
@@ -951,6 +1165,9 @@ class BilibiliAPI:
             "proxy_count": len(self.proxy_manager.proxies),
             "has_cookies": bool(self._cookies),
             "has_sessdata": bool(has_sessdata),
+            "has_buvid3": bool(
+                self.session.cookies.get("buvid3", domain=".bilibili.com") or self._cookies.get("buvid3")
+            ),
             "is_login": login_status,
             "login_name": login_name,
         }
@@ -1093,35 +1310,36 @@ class BilibiliAPI:
 
     @staticmethod
     def _extract_login_cookies(resp, data: dict) -> dict:
-        """从登录响应中提取 Cookie（多种回退方式）"""
+        """从登录响应中提取 Cookie（多种回退方式，合并三种来源以最大化命中 buvid 等设备指纹字段）"""
+        # buvid3/buvid4/buvid_fp 是 2026 风控核心字段，缺失易触发 -352
+        wanted = ("SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid", "buvid3", "buvid4", "buvid_fp")
         cookies = {}
         from urllib.parse import urlparse, parse_qs
 
-        # 方式1: 从 data.url 中提取 token
+        # 方式1: 从 data.url 的 query 中提取（QR 登录主要返回 SESSDATA/bili_jct 等）
         redirect_url = data.get("url", "")
         if redirect_url:
             parsed = urlparse(redirect_url)
             params = parse_qs(parsed.query)
-            for key in ("SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid"):
-                val = params.get(key, [None])[0]
-                if val:
-                    cookies[key] = val
+            for key in wanted:
+                if key not in cookies:
+                    val = params.get(key, [None])[0]
+                    if val:
+                        cookies[key] = val
 
-        # 方式2: 从 Set-Cookie 响应头
-        if not cookies:
-            set_cookie = resp.headers.get("Set-Cookie", "")
-            for part in set_cookie.split(";"):
-                if "=" in part:
-                    k, v = part.strip().split("=", 1)
-                    k = k.strip()
-                    if k in ("SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid"):
-                        cookies[k] = v.split(";")[0].split(",")[0].strip()
+        # 方式2: 从 Set-Cookie 响应头（buvid 通常在这里）
+        set_cookie = resp.headers.get("Set-Cookie", "")
+        for part in set_cookie.split(";"):
+            if "=" in part:
+                k, v = part.strip().split("=", 1)
+                k = k.strip()
+                if k in wanted and k not in cookies:
+                    cookies[k] = v.split(";")[0].split(",")[0].strip()
 
-        # 方式3: 从 resp.cookies (http.cookiejar)
-        if not cookies:
-            for k in ("SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid"):
-                if k in resp.cookies:
-                    cookies[k] = resp.cookies[k]
+        # 方式3: 从 resp.cookies (http.cookiejar) 兜底
+        for k in wanted:
+            if k not in cookies and k in resp.cookies:
+                cookies[k] = resp.cookies[k]
 
         return cookies
 

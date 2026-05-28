@@ -22,6 +22,7 @@ _prediction_semaphore = threading.Semaphore(2)
 
 # 已从 DB 完成历史合并的视频集合（后续循环中内存数据始终 >= DB，跳过全量读取）
 _merged_from_db = set()
+_merged_from_db_lock = threading.Lock()
 
 # UP主数据库实例 & 拉取频率控制（每 UP主 每小时最多拉取一次）
 _up_db = None
@@ -85,7 +86,12 @@ def _merge_history(gui, bvid: str) -> list:
         current_view = next((v.get("view_count", 0) for v in gui.monitored_videos if v.get("bvid") == bvid), 0)
         history = list(gui.history_data.get(bvid, []))
 
-    if bvid not in _merged_from_db:
+    with _merged_from_db_lock:
+        if bvid in _merged_from_db:
+            already_merged = True
+        else:
+            already_merged = False
+    if not already_merged:
         try:
             if bvid in gui.video_dbs:
                 db_hist = gui.video_dbs[bvid].get_all_records(limit=500)
@@ -109,7 +115,8 @@ def _merge_history(gui, bvid: str) -> list:
                             history.append((row["timestamp"], row["view_count"]))
         except Exception as e:
             logger.warning(f"合并历史记录失败 {bvid}: {e}")
-        _merged_from_db.add(bvid)
+        with _merged_from_db_lock:
+            _merged_from_db.add(bvid)
 
     history.sort(key=lambda x: _to_dt(x[0]))
 

@@ -23,13 +23,21 @@ def _sanitize(title: str) -> str:
     return safe[:_MAX_TITLE_LEN]
 
 
+import re as _re
+_BVID_RE = _re.compile(r"^BV[A-Za-z0-9]{10,12}$")
+
+
 def _cover_path(bvid: str, title: str = "") -> str:
+    if not _BVID_RE.match(bvid):
+        raise ValueError(f"无效的 BV 号: {bvid!r}")
     if title:
         return os.path.join(COVER_DIR, f"{bvid}_{_sanitize(title)}.jpg")
     return os.path.join(COVER_DIR, f"{bvid}.jpg")
 
 
 def _md5_path(bvid: str, title: str = "") -> str:
+    if not _BVID_RE.match(bvid):
+        raise ValueError(f"无效的 BV 号: {bvid!r}")
     if title:
         return os.path.join(COVER_DIR, f"{bvid}_{_sanitize(title)}.jpg.md5")
     return os.path.join(COVER_DIR, f"{bvid}.jpg.md5")

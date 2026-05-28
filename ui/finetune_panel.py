@@ -253,8 +253,8 @@ class FinetunePanel(BaseTrainingPanel):
                 title = v.get("title", bvid)
                 if bvid:
                     videos.append({"bvid": bvid, "title": title[:50]})
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("忽略异常: %s", e)
 
         self._video_count_lbl.config(text=f"{len(videos)} 个视频")
         for v in sorted(videos, key=lambda x: x["bvid"]):
@@ -450,8 +450,8 @@ class FinetunePanel(BaseTrainingPanel):
                             break
                     if has_prev:
                         break
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("忽略异常: %s", e)
             if has_prev:
                 _data_choice = messagebox.askyesno(
                     "增量数据范围",
@@ -598,8 +598,8 @@ class FinetunePanel(BaseTrainingPanel):
                         try:
                             if _os.path.exists(model_path):
                                 _os.remove(model_path)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug("忽略异常: %s", e)
                         if deleted:
                             self._train_queue.put(
                                 {
@@ -640,8 +640,8 @@ class FinetunePanel(BaseTrainingPanel):
                                     if plr > 0:
                                         prev_lr = plr
                                     break
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("忽略异常: %s", e)
                     algo_factor = self._algo_lr_factors.get(aid, 1.0)
                     effective_lr = (prev_lr or 0.001) * algo_factor
                     try:
@@ -887,15 +887,15 @@ class FinetunePanel(BaseTrainingPanel):
         super()._cleanup_training()
         try:
             self.main._refresh_model_status()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("忽略异常: %s", e)
         # 微调完成自动回调
         n = getattr(self, "_last_finetune_count", 0)
         if n > 0:
             try:
                 self.main._on_training_completed("微调", n)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("忽略异常: %s", e)
 
     # ══════════════════════════════════════════════
     # 训练质量监控

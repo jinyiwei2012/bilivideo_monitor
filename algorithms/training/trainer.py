@@ -198,8 +198,8 @@ class ModelTrainer:
                     prev_epochs = _v.get("completed_epochs", 0)
                     data_trained_until = _v.get("data_trained_until", 0.0)
                     break
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("忽略异常: %s", e)
 
         min_timestamp = data_trained_until if (use_new_data_only and data_trained_until > 0) else None
         dataset, train_loader, val_loader = self._prepare_dataset(algo, algo_id, bvid, batch_size, val_ratio, min_timestamp=min_timestamp)
@@ -220,8 +220,8 @@ class ModelTrainer:
                     if _saved_sd:
                         scheduler.load_state_dict(_saved_sd)
                     break
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("忽略异常: %s", e)
 
         best_val = float("inf")
         last_val = -1.0
