@@ -2164,6 +2164,7 @@ class SettingsWindow:
         def _poll():
             if not qr_top.winfo_exists():
                 return
+            import threading
             def _worker():
                 try:
                     result = get_bilibili_api().poll_qrcode_login(qrcode_key)
