@@ -257,16 +257,32 @@ finetune_for_video(algo_id, bvid, epochs=5):
 
 ## 10. 改进建议优先级
 
-### P0 (建议立即修复)
-- `notification.py` 中 `asyncio.run()` 重复创建事件循环 → 改为持久化事件循环
-- `registry.py` 退出时 `pool.shutdown(wait=False)` → 改为 `wait=True`
+### ✅ 已修复 (2026-05-28, fixbug branch)
+
+| 问题 | 状态 | commit |
+|------|------|--------|
+| `hf_loader.py` torch.load unsafe 回退 | ✅ resolved | `6a2013f` |
+| `_merged_from_db` 多线程数据竞争 | ✅ resolved | `5474715` |
+| 数据库写入静默失败 (video_db/central_db) | ✅ resolved | `7f1ab62` |
+| 29 处 `except Exception: pass` 加日志 | ✅ resolved | `d437fa7` |
+| XXE 漏洞 (xml.etree → defusedxml) | ✅ resolved | `0cf2b74` |
+| checkpoint_manager 路径穿越 | ✅ resolved | `9cf1606` |
+| `update_checker.py` bare except | ✅ resolved | `b63a0b8` |
+| `_last_alert_time` 字典无锁 | ✅ resolved | `3ad5ffd` |
+| 训练取消时文件句柄泄漏 | ✅ resolved | `7561473` |
+| 数据库文件权限 0o666→0o600 | ✅ resolved | `7f1ab62` |
+| cover_manager bvid 路径校验 | ✅ resolved | `4e90012` |
+| git pull 分支名注入 | ✅ resolved | `4e90012` |
+| AIQASession 类级竞争 | ✅ resolved | `4e90012` |
 
 ### P1 (建议短期优化)
 - 增加 API mock 测试
 - 数据库每小时同步改为增量标记位，避免全量扫描
 - 买量检测权重可配置化
+- `asyncio.run()` 重复创建事件循环 → 改为持久化事件循环
 
 ### P2 (建议中长期规划)
+- `registry.py` 退出时 `pool.shutdown(wait=False)` → 改为 `wait=True`
 - 主题系统恢复动态切换（浅色/深色）
 - 插件系统允许第三方算法热加载
 - Web 管理界面辅助查看
