@@ -81,8 +81,8 @@ def _merge_history(gui, bvid: str) -> list:
 
     优化：首次从 DB 全量合并后，后续循环跳过 DB 读取（内存数据始终 >= DB）。
     """
-    current_view = next((v.get("view_count", 0) for v in gui.monitored_videos if v.get("bvid") == bvid), 0)
     with gui._data_lock:
+        current_view = next((v.get("view_count", 0) for v in gui.monitored_videos if v.get("bvid") == bvid), 0)
         history = list(gui.history_data.get(bvid, []))
 
     if bvid not in _merged_from_db:
@@ -531,28 +531,15 @@ class VideoWorker:
         """在主线程回调：更新 UI（仅当前选中视频触发完整刷新）"""
         gui = self.gui
         bvid = result["bvid"]
-        if bvid == gui.selected_bvid:
-            gui._prediction_done(
-                result["prediction"],
-                result["current_view"],
-                result["growth"],
-                result["rate_per_sec"],
-                result["success_list"],
-                result["fail_list"],
-                result["valid"],
-                result["total"],
-            )
         gui.video_list.update_card(video)
         if bvid == gui.selected_bvid:
-            gui.detail.update_stat_bar(video)
-            if gui.detail.current_tab == "📈 播放量趋势":
-                # 防抖：100ms 内多次触发只重绘一次
-                if hasattr(gui, "_chart_debounce") and gui._chart_debounce:
-                    gui.root.after_cancel(gui._chart_debounce)
-
-                gui._chart_debounce = gui.root.after(100, lambda: gui.detail._auto_render_chart())
-            elif gui.detail.current_tab == "📋 详细数据":
-                gui.detail._fill_detail_text(video)
+            # 防抖：50ms 内多次触发只执行最后一次选中视频的完整重绘
+            if hasattr(gui, "_selected_debounce") and gui._selected_debounce:
+                gui.root.after_cancel(gui._selected_debounce)
+            gui._selected_debounce = gui.root.after(
+                50,
+                lambda r=result, v=video: self._apply_selected_update(r, v),
+            )
 
         # 刷新状态栏（上次刷新时间、视频计数）
         now_str = datetime.now().strftime("%H:%M:%S")
@@ -560,6 +547,30 @@ class VideoWorker:
         gui._sb("videos", f"监控: {len(gui.monitored_videos)} 个")
         # 重新注册定时器，使倒计时正常显示
         gui._register_video_timer(bvid)
+
+    def _apply_selected_update(self, result, video):
+        """对当前选中视频执行完整的预测+详情+图表更新"""
+        gui = self.gui
+        bvid = result["bvid"]
+        if bvid != gui.selected_bvid:
+            return
+        gui._prediction_done(
+            result["prediction"],
+            result["current_view"],
+            result["growth"],
+            result["rate_per_sec"],
+            result["success_list"],
+            result["fail_list"],
+            result["valid"],
+            result["total"],
+        )
+        gui.detail.update_stat_bar(video)
+        if gui.detail.current_tab == "📈 播放量趋势":
+            if hasattr(gui, "_chart_debounce") and gui._chart_debounce:
+                gui.root.after_cancel(gui._chart_debounce)
+            gui._chart_debounce = gui.root.after(100, lambda: gui.detail._auto_render_chart())
+        elif gui.detail.current_tab == "📋 详细数据":
+            gui.detail._fill_detail_text(video)
 
 
 # ──────────────────────────────────────────────
@@ -732,8 +743,9 @@ def load_watch_list(gui):
     def _worker():
         loaded = 0
         for bvid in watch_list:
-            if any(v.get("bvid") == bvid for v in gui.monitored_videos):
-                continue
+            with gui._data_lock:
+                if any(v.get("bvid") == bvid for v in gui.monitored_videos):
+                    continue
             try:
                 info = bilibili_api.get_video_info(bvid)
                 if not info:
@@ -777,6 +789,9 @@ def load_watch_list(gui):
         gui.root.after(
             0, lambda: gui._sb("status", f"已加载 {len(gui.monitored_videos)} 个监控视频", color=C2["success"])
         )
+
+        # 所有视频加载完成后，立即运行初始预测（无需等待首次 API 拉取）
+        gui.root.after(100, lambda: auto_predict_all(gui))
 
     threading.Thread(target=_worker, daemon=True).start()
 

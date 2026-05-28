@@ -22,18 +22,22 @@ class AlgorithmRegistry:
     _model_adapters = {}
     _pool_lock = threading.Lock()
     _pool = None
+    _init_lock = threading.Lock()
 
     @classmethod
     def initialize(cls):
-        """初始化注册所有算法"""
+        """初始化注册所有算法（线程安全，支持后台预加载）"""
         if cls._initialized:
             return
+        with cls._init_lock:
+            if cls._initialized:
+                return
 
-        # 加载models目录下的所有算法（包括子目录）
-        cls._load_model_algorithms()
+            # 加载models目录下的所有算法（包括子目录）
+            cls._load_model_algorithms()
 
-        cls._initialized = True
-        logger.info("算法注册完成，共 %d 个算法", len(cls._algorithms))
+            cls._initialized = True
+            logger.info("算法注册完成，共 %d 个算法", len(cls._algorithms))
 
     @classmethod
     def _load_model_algorithms(cls):
@@ -360,4 +364,4 @@ class AlgorithmRegistry:
         return result
 
 
-AlgorithmRegistry.initialize()
+# 不再模块级初始化，改为按需(Lazy)初始化——所有公开方法都已检查 _initialized 标志
