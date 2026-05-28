@@ -33,6 +33,18 @@ class Dialogs:
             messagebox.showerror("错误", f"打开标签管理失败:\n{e}")
 
     # ──────────────────────────────────────────
+    # 视频排行榜
+    # ──────────────────────────────────────────
+
+    def open_ranking(self):
+        try:
+            from ui.ranking_panel import RankingPanel
+
+            RankingPanel(self.gui.root, self.gui)
+        except Exception as e:
+            messagebox.showerror("错误", f"打开排行榜失败:\n{e}")
+
+    # ──────────────────────────────────────────
     # 异常增长检测
     # ──────────────────────────────────────────
 

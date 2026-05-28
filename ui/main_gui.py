@@ -344,6 +344,7 @@ class BilibiliMonitorGUI:
         self._settings_menu.add_command(label="🔥  热门发现", command=self._dialogs.open_trending_discovery)
         self._settings_menu.add_command(label="🎫  视频标签", command=self._dialogs.open_tag_manager)
         self._settings_menu.add_command(label="🚨  异常检测", command=self._dialogs.open_anomaly_detection)
+        self._settings_menu.add_command(label="🏆  视频排行", command=self._dialogs.open_ranking)
         self._settings_menu.add_separator()
         self._settings_menu.add_command(label="🤖  AI智能问答", command=self._dialogs.open_ai_qa)
         self._settings_menu.add_command(label="📊  数据大屏", command=self._dialogs.open_dashboard)
