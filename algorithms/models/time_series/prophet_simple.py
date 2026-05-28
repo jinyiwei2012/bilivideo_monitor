@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 _HAS_PROPHET = False
 try:
+    logging.getLogger("prophet.plot").setLevel(logging.CRITICAL)
     from prophet import Prophet
 
     _HAS_PROPHET = True

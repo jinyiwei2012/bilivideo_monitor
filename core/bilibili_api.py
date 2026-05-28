@@ -409,28 +409,22 @@ class BilibiliAPI:
                 request_kwargs = self._prepare_request_kwargs(attempt, **kwargs)
                 cookies = self._get_request_cookies()
 
-                # ── 多客户端请求：curl_cffi → requests ──
                 response = self._do_http_request(method, url, request_kwargs, cookies)
-
                 if response is None:
                     continue
 
-                # 检查HTTP状态码
-                if response.status_code == 412:
+                sc = response.status_code
+                if sc == 412:
                     if self._handle_http_412_response(attempt, max_retries, skip_retry):
                         continue
                     return None
 
-                status_code = getattr(response, 'status_code', None) or response.status_code
-                if status_code != 200:
-                    raise requests.exceptions.HTTPError(f"HTTP {status_code}")
+                if sc != 200:
+                    raise requests.exceptions.HTTPError(f"HTTP {sc}")
 
-                # 解析响应
-                raw = getattr(response, 'content', None) or response.raw
-                data = json.loads(raw) if isinstance(raw, (bytes, str)) else getattr(response, 'json', lambda: {})() if hasattr(response, 'json') else {}
-
-                self._consecutive_412_errors = 0  # 成功后重置
-                logger.debug("← %s %s → %s", method.upper(), url.split("?")[0], status_code)
+                data = response.json()
+                self._consecutive_412_errors = 0
+                logger.debug("← %s %s → %s", method.upper(), url.split("?")[0], sc)
 
                 result, should_retry = self._handle_successful_response(data, attempt, max_retries, skip_retry)
                 if should_retry:
@@ -445,8 +439,8 @@ class BilibiliAPI:
                 logger.error(f"连接错误 (第{attempt + 1}次尝试): {e}")
             except requests.exceptions.HTTPError as e:
                 last_error = f"HTTP错误: {e}"
+                logger.error(f"HTTP错误 (第{attempt + 1}次尝试): {e}")
                 if attempt < max_retries and not skip_retry:
-                    logger.error(f"HTTP错误 {status_code if 'status_code' in dir() else ''} (第{attempt + 1}次尝试)")
                     delay = self._get_retry_delay(attempt)
                     time.sleep(delay)
                     self._on_request_failure()
@@ -463,7 +457,6 @@ class BilibiliAPI:
 
             if attempt < max_retries and not skip_retry:
                 delay = self._get_retry_delay(attempt)
-                logger.info(f"等待 {delay:.1f} 秒后重试...")
                 time.sleep(delay)
                 self._on_request_failure()
 

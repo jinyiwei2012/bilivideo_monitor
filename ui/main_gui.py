@@ -129,6 +129,9 @@ class BilibiliMonitorGUI:
                 format="%(asctime)s.%(msecs)03d [%(levelname)-7s] %(message)s",
                 datefmt="%Y-%m-%d %H:%M:%S",
             )
+        # 压制杂音日志：prophet 缺失 plotly 时的无用 ERROR
+        logging.getLogger("prophet.plot").setLevel(logging.CRITICAL)
+        logging.getLogger("prophet").setLevel(logging.WARNING)
 
         self.root.protocol("WM_DELETE_WINDOW", self._on_exit)
         self._build_ui()
@@ -472,18 +475,20 @@ class BilibiliMonitorGUI:
         self.log_panel.add_log("INFO", f"手动激活模型: {switched}")
 
     def _auto_activate_on_startup(self):
-        """启动时自动激活所有算法的最新 checkpoint"""
-        try:
-            from algorithms.training.checkpoint_manager import activate_latest_for_all
-            switched = activate_latest_for_all()
-            if switched:
-                names = ", ".join(switched.keys())
-                self.log_panel.add_log("INFO", f"启动自动激活模型: {switched}")
-                self._sb("status", f"自动激活 {len(switched)} 个模型: {names}", C["success"])
-            self._refresh_model_status()
-        except Exception as e:
-            logger.debug("自动激活模型失败: %s", e)
-            self._refresh_model_status()
+        """启动时自动激活所有算法的最新 checkpoint（后台线程，避免 torch 导入阻塞主线程）"""
+        def _worker():
+            try:
+                from algorithms.training.checkpoint_manager import activate_latest_for_all
+                switched = activate_latest_for_all()
+                if switched:
+                    names = ", ".join(switched.keys())
+                    self.root.after(0, lambda: self.log_panel.add_log("INFO", f"启动自动激活模型: {switched}"))
+                    self.root.after(0, lambda: self._sb("status", f"自动激活 {len(switched)} 个模型: {names}", C["success"]))
+                self.root.after(0, self._refresh_model_status)
+            except Exception as e:
+                logger.debug("自动激活模型失败: %s", e)
+                self.root.after(0, self._refresh_model_status)
+        threading.Thread(target=_worker, daemon=True, name="auto-activate").start()
 
     def _preload_algorithms(self):
         """后台线程预加载 AlgorithmRegistry，避免首次预测时等待 8s 扫描"""
