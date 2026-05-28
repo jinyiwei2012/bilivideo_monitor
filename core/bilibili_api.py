@@ -128,9 +128,12 @@ class BilibiliAPI:
         self._min_request_interval = 0.5
         self._interval_lock = threading.Lock()
 
-        # cookie支持
+        # cookie支持（多账号）
         self._cookies: Dict = {}
         self._refresh_token: str = ""
+        self._accounts: list = []
+        self._active_account_idx: int = -1
+        self._account_name: str = "默认"
 
         # 随机 buvid（模拟不同设备指纹，降低 412 概率）
         self._buvid3 = self._gen_buvid()
@@ -176,31 +179,50 @@ class BilibiliAPI:
         return sanitized
 
     def _load_saved_network_config(self):
-        """从 network_config.json 加载已保存的 Cookie 和代理"""
+        """从 network_config.json 加载多账号 Cookie 和代理"""
         try:
-            import json
-            import os
-
+            import json, os
             from utils.crypto import decrypt_dict
 
             cfg_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "network_config.json")
-            if os.path.exists(cfg_path):
-                with open(cfg_path, "r", encoding="utf-8") as f:
-                    net_cfg = json.load(f)
+            if not os.path.exists(cfg_path):
+                return
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                net_cfg = json.load(f)
+
+            self._accounts = net_cfg.get("accounts", [])
+            if not self._accounts:
+                # 旧格式兼容：单账号
                 cookies = net_cfg.get("cookies", {})
                 if cookies:
-                    # 解密 Cookie 值
                     decrypt_dict(cookies, "SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid")
                     cookies = self._sanitize_cookies(cookies)
-                    self._cookies = cookies
-                    self.session.cookies.update(cookies)
-                    logger.info(f"已加载 {len(cookies)} 个 Cookie")
-                self._refresh_token = net_cfg.get("refresh_token", "")
-                proxy_urls = net_cfg.get("proxies", [])
-                if proxy_urls:
-                    for p in proxy_urls:
-                        self.proxy_manager.add_proxy({"http": p, "https": p})
-                    logger.info(f"已加载 {len(proxy_urls)} 个代理")
+                    name = net_cfg.get("account_name", "默认")
+                    self._accounts = [{"name": name, "cookies": cookies,
+                                       "refresh_token": net_cfg.get("refresh_token", ""), "active": True}]
+
+            active_name = net_cfg.get("active_account", "")
+            found = False
+            for acc in self._accounts:
+                acc["cookies"] = self._sanitize_cookies(decrypt_dict(acc.get("cookies", {}),
+                    "SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid") if acc.get("cookies") else {})
+                if acc["name"] == active_name:
+                    self._cookies = dict(acc.get("cookies", {}))
+                    self._refresh_token = acc.get("refresh_token", "")
+                    self.session.cookies.update(self._cookies)
+                    self._account_name = active_name
+                    self._active_account_idx = self._accounts.index(acc)
+                    found = True
+            if not found and self._accounts:
+                self.switch_account(self._accounts[0]["name"])
+            if self._cookies:
+                logger.info(f"已加载账号: {self._account_name} ({len(self._cookies)} 个 Cookie)")
+
+            proxy_urls = net_cfg.get("proxies", [])
+            for p in proxy_urls:
+                self.proxy_manager.add_proxy({"http": p, "https": p})
+            if proxy_urls:
+                logger.info(f"已加载 {len(proxy_urls)} 个代理")
         except Exception as e:
             logger.warning(f"加载网络配置失败: {e}")
 
@@ -237,16 +259,57 @@ class BilibiliAPI:
         self.session.headers["User-Agent"] = random.choice(self.USER_AGENTS)
         logger.debug(f"User-Agent已更换: {self.session.headers['User-Agent'][:50]}...")
 
+    # ── 多账号管理 ──────────────────────────────────────
+
     def set_cookies(self, cookies: Dict):
-        """设置Cookie"""
+        """设置当前账号的 Cookie"""
         cookies = self._sanitize_cookies(cookies)
         self._cookies = cookies
         self.session.cookies.update(cookies)
         logger.info("已设置Cookie")
 
     def get_refresh_token(self) -> str:
-        """获取 refresh token（从密码登录或 Cookie 导入时保存）"""
         return self._refresh_token
+
+    def get_accounts(self) -> list:
+        return list(self._accounts)
+
+    def get_active_account(self) -> str:
+        return self._account_name
+
+    def add_account(self, name: str, cookies: dict = None, refresh_token: str = ""):
+        """添加账号"""
+        for acc in self._accounts:
+            if acc["name"] == name:
+                acc["cookies"] = cookies or acc["cookies"]
+                acc["refresh_token"] = refresh_token or acc["refresh_token"]
+                return
+        self._accounts.append({"name": name, "cookies": cookies or {},
+                                "refresh_token": refresh_token, "active": False})
+
+    def remove_account(self, name: str):
+        self._accounts = [a for a in self._accounts if a["name"] != name]
+        if self._account_name == name:
+            self._account_name = self._accounts[0]["name"] if self._accounts else "默认"
+            self._switch_account(self._account_name)
+
+    def switch_account(self, name: str):
+        """切换当前账号"""
+        for acc in self._accounts:
+            if acc["name"] == name:
+                for a in self._accounts:
+                    a["active"] = (a["name"] == name)
+                self._account_name = name
+                self._cookies = dict(acc.get("cookies", {}))
+                self._refresh_token = acc.get("refresh_token", "")
+                self.session.cookies.clear()
+                self.session.cookies.update(self._cookies)
+                logger.info("已切换到账号: %s", name)
+                return True
+        return False
+
+    def get_account_names(self) -> list:
+        return [a["name"] for a in self._accounts]
 
     def login_with_password_fallback(self, username: str, password: str) -> Dict:
         """使用 bilibili-api-python 兜底密码登录"""
@@ -1402,13 +1465,11 @@ class BilibiliAPI:
         return result
 
     def _persist_cookies(self, cookies: dict):
-        """将 Cookie 加密写入 network_config.json"""
+        """将当前账号 Cookie 加密写入 network_config.json"""
         if not cookies:
             return
         try:
-            import json
-            import os
-
+            import json, os
             from utils.crypto import encrypt_dict
 
             cfg_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "network_config.json")
@@ -1416,10 +1477,31 @@ class BilibiliAPI:
             if os.path.exists(cfg_path):
                 with open(cfg_path, "r", encoding="utf-8") as f:
                     net_cfg = json.load(f)
-            net_cfg["cookies"] = cookies
-            encrypt_dict(net_cfg["cookies"], "SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid")
-            if self._refresh_token:
-                net_cfg["refresh_token"] = self._refresh_token
+
+            accounts = net_cfg.get("accounts", [])
+            # 旧格式迁移
+            if not accounts and net_cfg.get("cookies"):
+                accounts = [{"name": net_cfg.get("account_name", "默认"),
+                             "cookies": net_cfg["cookies"],
+                             "refresh_token": net_cfg.get("refresh_token", ""), "active": False}]
+
+            updated = False
+            for acc in accounts:
+                if acc["name"] == self._account_name:
+                    enc = dict(cookies)
+                    encrypt_dict(enc, "SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid")
+                    acc["cookies"] = enc
+                    acc["refresh_token"] = self._refresh_token
+                    updated = True
+                    break
+            if not updated:
+                enc = dict(cookies)
+                encrypt_dict(enc, "SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid")
+                accounts.append({"name": self._account_name, "cookies": enc,
+                                 "refresh_token": self._refresh_token, "active": False})
+
+            net_cfg["accounts"] = accounts
+            net_cfg["active_account"] = self._account_name
             with open(cfg_path, "w", encoding="utf-8") as f:
                 json.dump(net_cfg, f, ensure_ascii=False, indent=2)
         except Exception as e:

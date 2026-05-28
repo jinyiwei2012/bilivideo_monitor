@@ -52,16 +52,20 @@ class SettingsWindow:
             try:
                 with open(self._net_cfg_file, "r", encoding="utf-8") as f:
                     cfg = json.load(f)
-                # 解密 Cookie
+                from utils.crypto import decrypt_dict
+                # 解密当前 Cookie（旧格式兼容）
                 cookies = cfg.get("cookies", {})
                 if cookies:
-                    from utils.crypto import decrypt_dict
-
                     decrypt_dict(cookies, "SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid")
+                # 解密多账号
+                for acc in cfg.get("accounts", []):
+                    acc_cookies = acc.get("cookies", {})
+                    if acc_cookies:
+                        decrypt_dict(acc_cookies, "SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid")
                 return cfg
             except Exception as e:
                 logger.debug("加载网络配置失败: %s", e)
-        return {"proxies": [], "cookies": {}}
+        return {"proxies": [], "cookies": {}, "accounts": []}
 
     def _save_net_config(self):
         os.makedirs(os.path.dirname(self._net_cfg_file), exist_ok=True)
@@ -1250,6 +1254,16 @@ class SettingsWindow:
         ttk.Button(import_row, text="📱 扫码登录", command=self._qrcode_login).pack(side=tk.LEFT, padx=4)
         ttk.Button(import_row, text="🔑 密码登录", command=self._password_login, state=_s()).pack(side=tk.LEFT, padx=4)
 
+        # 多账号管理
+        acct_row = tk.Frame(sec, bg=C["bg_elevated"])
+        acct_row.pack(fill=tk.X, pady=(2, 4))
+        tk.Label(acct_row, text="当前账号:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT).pack(side=tk.LEFT)
+        self._acct_combo = ttk.Combobox(acct_row, font=FONT, state="readonly", width=20)
+        self._acct_combo.pack(side=tk.LEFT, padx=4)
+        self._acct_combo.bind("<<ComboboxSelected>>", lambda e: self._switch_account())
+        ttk.Button(acct_row, text="➕", width=3, command=self._add_account_dialog).pack(side=tk.LEFT, padx=1)
+        ttk.Button(acct_row, text="✕", width=3, command=self._remove_account).pack(side=tk.LEFT, padx=1)
+
         self.cookie_text = tk.Text(
             sec,
             height=5,
@@ -1271,6 +1285,7 @@ class SettingsWindow:
         )
         self._cookie_unlock_btn.pack(side=tk.LEFT, padx=(4, 0))
         self._refresh_cookie_display()
+        self._refresh_account_list()
         ttk.Button(btn_row, text="清空Cookie", command=self._clear_cookies, state=_s()).pack(side=tk.LEFT)
 
         tk.Label(
@@ -2176,6 +2191,68 @@ class SettingsWindow:
             qr_top.after(1500, _poll)
 
         qr_top.after(500, _poll)
+
+    # ──── 多账号管理 ────
+    def _refresh_account_list(self):
+        """刷新账号下拉列表"""
+        api = get_bilibili_api()
+        names = api.get_account_names()
+        self._acct_combo["values"] = names
+        current = api.get_active_account()
+        self._acct_combo.set(current if current in names else (names[0] if names else ""))
+
+    def _switch_account(self):
+        name = self._acct_combo.get()
+        if name:
+            get_bilibili_api().switch_account(name)
+            self._refresh_cookie_display()
+            self._refresh_status()
+
+    def _add_account_dialog(self):
+        dlg = tk.Toplevel(self.window)
+        dlg.title("添加账号")
+        dlg.geometry("400x200")
+        dlg.configure(bg=C["bg_surface"])
+        dlg.transient(self.window)
+        dlg.grab_set()
+        tk.Label(dlg, text="账号名称:", bg=C["bg_surface"], fg=C["text_1"], font=FONT).pack(pady=(12, 4))
+        name_entry = ttk.Entry(dlg, width=30, font=FONT)
+        name_entry.pack()
+        tk.Label(dlg, text="Cookie (SESSDATA=xxx; bili_jct=xxx):", bg=C["bg_surface"], fg=C["text_3"],
+                 font=FONT_SM).pack(pady=(8, 4))
+        cookie_entry = tk.Text(dlg, height=3, font=("Consolas", 9), bg=C["bg_base"], fg=C["text_1"])
+        cookie_entry.pack(padx=16, fill=tk.X)
+        def _save():
+            name = name_entry.get().strip()
+            raw = cookie_entry.get("1.0", "end").strip()
+            if not name or not raw:
+                messagebox.showwarning("提示", "请填写账号名称和 Cookie", parent=dlg)
+                return
+            cookies = SettingsWindow._parse_cookie_input(raw)
+            if not cookies:
+                messagebox.showerror("错误", "无法解析 Cookie，请检查格式", parent=dlg)
+                return
+            get_bilibili_api().add_account(name, cookies)
+            get_bilibili_api().switch_account(name)
+            api = get_bilibili_api()
+            from utils.crypto import encrypt_dict
+            api._persist_cookies(cookies)
+            self._refresh_account_list()
+            self._refresh_cookie_display()
+            self._refresh_status()
+            dlg.destroy()
+        ttk.Button(dlg, text="保存", command=_save).pack(pady=10)
+
+    def _remove_account(self):
+        name = self._acct_combo.get()
+        if not name:
+            return
+        if not messagebox.askyesno("确认", f"确定要删除账号「{name}」吗？", parent=self.window):
+            return
+        get_bilibili_api().remove_account(name)
+        self._refresh_account_list()
+        self._refresh_cookie_display()
+        self._refresh_status()
 
     # ──── 重试设置 ────
     def _apply_retry_settings(self):
