@@ -689,6 +689,15 @@ for name in AlgorithmRegistry.get_algorithm_names():
 - AI 问答 8 种预设模板
 - 预测 vs 实际对比 CSV 导出
 
+**🛡️ 412 绕过增强**
+- curl_cffi 接入主请求路径（TLS 指纹伪装 chrome131）
+- 请求时自动移除 UA（impersonate 模式下由 curl_cffi 接管）
+- 随机 buvid3/buvid4 生成（模拟设备指纹）
+- bilibili-api-python 一级兜底数据源
+- Playwright 无头浏览器二级兜底（解析 `__INITIAL_STATE__`）
+- 代理自动发现：5 个免费代理源定时拉取 + 连通性测试
+- 按源自动识别协议（http/socks4/socks5）
+
 **🔒 安全修复**
 - 反序列化加固 / XXE 防护 / 路径穿越校验
 - 数据竞争加锁 / 静默异常加日志(29处)
