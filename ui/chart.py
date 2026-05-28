@@ -65,7 +65,7 @@ def draw_chart_series(c, history, px, py, ML, MT, W, MR, ch, views_list, max_poi
     for i, (_, v) in enumerate(history):
         pts_area += [px(i), py(v)]
     pts_area += [W - MR, MT + ch]
-    c.create_polygon(pts_area, fill=C["chart_area"], outline="", stipple="gray25")
+    c.create_polygon(pts_area, fill=C["chart_area"], outline="")
 
     pts_line = []
     for i, (_, v) in enumerate(history):

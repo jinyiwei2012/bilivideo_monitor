@@ -70,9 +70,16 @@ class TrainingMonitor:
         return False
 
     def _check_loss_explosion(self, pts):
-        recent = [tl for _, tl, _ in pts[-3:]]
-        if max(recent) > 10 * (pts[0][1] or 1e-8):
-            self._set_finding("danger", "Loss 爆炸 — 梯度可能溢出", ["大幅降低学习率 (÷10)", "检查数据归一化"])
+        if len(pts) < 2:
+            return
+        prev = pts[-2][1]
+        curr = pts[-1][1]
+        if prev > 1e-8 and curr > prev * 2.0:
+            jump_ratio = curr / prev
+            if jump_ratio > 5:
+                self._set_finding("danger", f"Loss 爆炸 (×{jump_ratio:.1f})", ["大幅降低学习率", "检查数据归一化"])
+            else:
+                self._set_finding("warning", f"Loss 跳升 (×{jump_ratio:.1f})", ["适当降低学习率"])
 
     def _check_overfitting(self, pts, n):
         if n < 5 or not all(vl >= 0 for _, _, vl in pts[-5:]):
@@ -88,22 +95,23 @@ class TrainingMonitor:
         if self._overfit_streak >= 4:
             self._set_finding(
                 "danger",
-                "🚫 严重过拟合 — 必须停止",
+                "严重过拟合 — 必须停止",
                 ["立即停止训练", "val_loss 已连续多 epoch 上升", "减小模型或增加正则化后重新训练"],
             )
         elif self._overfit_streak >= 2:
             self._set_finding(
                 "warning",
-                "⚠️ 过拟合 — val_loss 持续上升",
-                ["建议停止训练 (early stopping)", "增加 Dropout", "减小模型容量"],
+                "过拟合 — val_loss 持续上升",
+                ["降低学习率或提前停止", "增加 Dropout", "减小模型容量"],
             )
 
     def _check_no_improvement(self, pts, n):
         if n < 8 or not all(vl >= 0 for _, _, vl in pts[-8:]):
             return
-        best_vl = min(vl for _, _, vl in pts)
-        recent_vl = [vl for _, _, vl in pts[-4:]]
-        if all(vl >= best_vl for vl in recent_vl):
+        best_before = min(vl for _, _, vl in pts[:-4])  # 最近 4 epoch 之前的最佳
+        best_recent = min(vl for _, _, vl in pts[-4:])  # 最近 4 epoch 的最佳
+        # 最近 4 epoch 的最佳没有明显优于之前的最佳 → 趋于收敛
+        if best_before > 0 and best_recent >= best_before * 0.995:
             self._no_improve_streak += 1
         else:
             self._no_improve_streak = max(0, self._no_improve_streak - 1)
@@ -111,35 +119,34 @@ class TrainingMonitor:
         if self._no_improve_streak >= 2:
             self._set_finding(
                 "warning",
-                "📉 不再收敛 — val_loss 已停止下降",
-                ["可以提前停止 (early stopping)", "尝试降低学习率后继续", "若已训练充足 epoch 则可接受当前结果"],
+                "不再收敛 — val_loss 已停止下降",
+                ["可提前停止", "尝试降低学习率后继续", "若已训练充足 epoch 则可接受当前结果"],
             )
 
     def _check_oscillation(self, pts, n):
-        if n < 8:
+        if n < 5:
             return
-        recent_tl = [tl for _, tl, _ in pts[-8:]]
-        is_monotonic_down = all(recent_tl[i] >= recent_tl[i + 1] for i in range(len(recent_tl) - 1))
-        if is_monotonic_down:
+        recent = [tl for _, tl, _ in pts[-5:]]
+        mean_tl = sum(recent) / len(recent)
+        if mean_tl < 1e-8:
             return
-        mean_tl = sum(recent_tl) / len(recent_tl)
-        cv = math.sqrt(sum((x - mean_tl) ** 2 for x in recent_tl) / len(recent_tl)) / max(1e-8, mean_tl)
-        residual_var = sum(abs(recent_tl[i] - recent_tl[i - 1]) for i in range(1, len(recent_tl))) / (
-            len(recent_tl) - 1
-        )
-        if cv > 0.3 and residual_var > 0.02 * max(1, abs(mean_tl)):
-            self._set_finding("warning", "📊 Loss 波动较大 — 训练不稳定", ["降低学习率", "增大 batch size"])
+        max_dev = max(abs(v - mean_tl) for v in recent)
+        cv = max_dev / mean_tl
+        # 连续方向变化次数
+        dir_changes = sum(1 for i in range(2, len(recent)) if (recent[i] - recent[i-1]) * (recent[i-1] - recent[i-2]) < 0)
+        if cv > 0.2 and dir_changes >= 2:
+            self._set_finding("warning", "Loss 震荡 — 训练不稳定", ["降低学习率", "增大 batch size"])
 
     def _check_underfitting(self, pts, n):
-        if n < 3:
+        if n < 5:
             return
-        initial_loss = pts[0][1]
-        current_loss = pts[-1][1]
-        if initial_loss > 0.1 and (initial_loss - current_loss) / initial_loss < 0.05:
+        early_avg = sum(p[1] for p in pts[:3]) / 3
+        late_avg = sum(p[1] for p in pts[-3:]) / 3
+        if early_avg > 0.01 and (early_avg - late_avg) / early_avg < 0.03:
             self._set_finding(
                 "warning",
-                "🐢 欠拟合 — Loss 下降过慢",
-                ["增大学习率", "增加模型容量 (更多层 / 更多神经元)", "检查数据是否包含有效信号"],
+                "Loss 下降过慢 — 可能欠拟合",
+                ["适当增大学习率", "增加模型容量", "检查数据是否包含有效信号"],
             )
 
     def _apply_finding(self, pts, n):
@@ -211,42 +218,113 @@ class TrainingMonitor:
         if issue_type == "explosion":
             prev = pts[-2][1]
             curr = pts[-1][1]
-            if prev > 0 and curr > prev:
+            if prev > 1e-8 and curr > prev:
                 jump_ratio = curr / prev
-                scale = 1.0 / jump_ratio
-                return max(0.05, min(0.8, scale))
+                scale = 1.0 / max(jump_ratio, 1.5)
+                return max(0.1, min(0.6, scale))
             return 0.5
 
         if issue_type == "oscillation":
-            recent = [p[1] for p in pts[-min(8, n) :]]
+            recent = [p[1] for p in pts[-min(6, n) :]]
             mean = sum(recent) / len(recent)
-            if mean > 0:
-                variance = sum((v - mean) ** 2 for v in recent) / len(recent)
-                cv = (variance**0.5) / mean
-                scale = 1.0 / (1.0 + cv * 2)
-                return max(0.2, min(0.95, scale))
+            if mean > 1e-8:
+                max_dev = max(abs(v - mean) for v in recent)
+                cv = max_dev / mean
+                scale = 1.0 / (1.0 + cv * 3.0)
+                return max(0.3, min(0.9, scale))
             return 0.7
 
         if issue_type == "overfitting":
-            curr_tl = pts[-1][1]
-            curr_vl = pts[-1][2]
-            if curr_vl > 0 and curr_tl > 0:
-                gap = curr_vl / curr_tl
-                scale = 1.0 / gap
-                return max(0.2, min(0.9, scale))
+            recent_vl = [p[2] for p in pts[-4:] if p[2] >= 0]
+            if len(recent_vl) >= 3:
+                vl_increasing = sum(1 for i in range(1, len(recent_vl)) if recent_vl[i] > recent_vl[i-1])
+                ratio = vl_increasing / (len(recent_vl) - 1)
+                scale = 1.0 - ratio * 0.5
+                return max(0.3, min(0.85, scale))
             return 0.7
 
         if issue_type == "underfitting":
-            initial = pts[0][1]
-            curr = pts[-1][1]
-            if initial > 0 and curr > 0:
-                total_drop = (initial - curr) / initial
-                rate = total_drop / max(1, n - 1)
-                scale = 0.05 / max(0.001, rate)
-                return max(1.2, min(5.0, scale))
-            return 2.0
+            early_avg = sum(p[1] for p in pts[:3]) / 3
+            late_avg = sum(p[1] for p in pts[-3:]) / 3
+            if early_avg > 1e-8 and late_avg > 0:
+                drop_ratio = (early_avg - late_avg) / early_avg
+                per_epoch = drop_ratio / max(1, n - 1)
+                target_per_epoch = 0.015
+                scale = target_per_epoch / max(1e-4, per_epoch)
+                return max(1.05, min(2.5, scale))
+            return 1.5
 
         return 1.0
+
+    # ── 动态梯度裁剪系数 ──────────────────────
+
+    def compute_grad_clip(self, issue_type: str) -> float:
+        """根据 loss 动态计算梯度裁剪阈值。
+
+        Args:
+            issue_type: "explosion" | "oscillation"
+
+        Returns:
+            裁剪阈值（>0 启用），数值越小裁剪越强。
+        """
+        pts = self._points
+        n = len(pts)
+        if n < 2:
+            return 0.0
+
+        if issue_type == "explosion":
+            prev = pts[-2][1]
+            curr = pts[-1][1]
+            if prev > 1e-8 and curr > prev:
+                jump_ratio = curr / prev
+                return max(0.1, min(10.0, 2.0 / max(1.5, jump_ratio - 0.5)))
+            return 1.0
+
+        if issue_type == "oscillation":
+            recent = [p[1] for p in pts[-min(6, n):]]
+            mean = sum(recent) / len(recent)
+            if mean > 1e-8:
+                max_dev = max(abs(v - mean) for v in recent)
+                cv = max_dev / mean
+                return max(0.5, min(20.0, 5.0 / max(1.0, cv * 2)))
+            return 5.0
+
+        return 0.0
+
+    # ── 动态权重衰减系数 ──────────────────────
+
+    def compute_weight_decay(self) -> float:
+        """根据过拟合程度动态计算 weight_decay。
+
+        Returns:
+            适用的 weight_decay 值（0 表示不启用）。
+        """
+        pts = self._points
+        n = len(pts)
+        if n < 5:
+            return 0.0
+
+        valids = [(tl, vl) for _, tl, vl in pts[-8:] if vl >= 0]
+        if len(valids) < 5:
+            train_only = [tl for _, tl, _ in pts[-8:]]
+            if len(train_only) >= 5:
+                early = sum(train_only[:3]) / 3
+                late = sum(train_only[-3:]) / 3
+                if early > 1e-8 and late / early > 0.95:
+                    return 0.005
+            return 0.0
+
+        tl_trend = valids[-1][0] < valids[-5][0]
+        vl_rising = sum(1 for i in range(1, len(valids)) if valids[i][1] > valids[i-1][1])
+        ratio = vl_rising / (len(valids) - 1)
+
+        if tl_trend and ratio > 0.7:
+            return 0.02
+        if ratio > 0.5:
+            return 0.01
+        if ratio > 0.3:
+            return 0.005
+        return 0.0
 
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -89,7 +89,7 @@ class TCNSimpleAlgorithm(BaseAlgorithm):
         )
 
     def build_model(self):
-        return TCNTorchModel(in_features=5, horizon=self.training_horizon)
+        return TCNTorchModel(in_features=getattr(self, '_training_n_features', 5), horizon=self.training_horizon)
 
     def get_training_features(self):
         return ["view_count", "like_count", "coin_count", "favorite_count", "share_count"]

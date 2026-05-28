@@ -21,6 +21,7 @@ import os
 import re
 import logging
 import sqlite3
+from datetime import datetime
 from typing import List, Optional, Tuple
 from utils import project_path
 
@@ -62,13 +63,40 @@ def _scan_all_bvids(data_root: str = _DATA_ROOT) -> List[str]:
     return result
 
 
-def _load_records(bvid: str, features: Tuple[str, ...], data_root: str = _DATA_ROOT) -> Optional[np.ndarray]:
-    """读取单个视频的 monitor_records，返回 [N, len(features)] 的 float32 数组（按 timestamp 升序）。"""
+def _parse_ts(val) -> float:
+    """将 timestamp 转换为 unix epoch float，支持 ISO 字符串和数字。"""
+    if val is None:
+        return 0.0
+    if isinstance(val, (int, float)):
+        return float(val)
+    try:
+        return datetime.fromisoformat(str(val)).timestamp()
+    except (ValueError, TypeError):
+        try:
+            return float(val)
+        except (ValueError, TypeError):
+            return 0.0
+
+
+def _ts_to_iso(ts: float) -> str:
+    """将 unix epoch float 转换为 ISO 字符串，用于 SQL 比较。"""
+    return datetime.fromtimestamp(ts).isoformat()
+
+
+def _load_records(bvid: str, features: Tuple[str, ...], data_root: str = _DATA_ROOT,
+                  min_timestamp: Optional[float] = None) -> Tuple[Optional[np.ndarray], float]:
+    """读取单个视频的 monitor_records，返回 (arr, max_timestamp)（按 timestamp 升序）。
+
+    Args:
+        min_timestamp: 不为 None 时只加载 timestamp > 该值的记录。
+    Returns:
+        (arr, max_timestamp) — 无数据时 arr=None, max_timestamp=0。
+    """
     if not _safe_bvid(bvid):
-        return None
+        return (None, 0.0)
     db_path = os.path.join(data_root, bvid, f"{bvid}.db")
     if not os.path.exists(db_path):
-        return None
+        return (None, 0.0)
     try:
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
@@ -76,20 +104,30 @@ def _load_records(bvid: str, features: Tuple[str, ...], data_root: str = _DATA_R
         conn.execute("PRAGMA busy_timeout=5000")
         cursor = conn.cursor()
         cols = ", ".join(features)
-        cursor.execute(f"SELECT {cols} FROM monitor_records ORDER BY timestamp ASC")
+        if min_timestamp is not None:
+            # 数据库存储 ISO 字符串，需要转换比较
+            _iso = _ts_to_iso(min_timestamp)
+            cursor.execute(f"SELECT {cols}, timestamp FROM monitor_records WHERE timestamp > ? ORDER BY timestamp ASC",
+                           (_iso,))
+        else:
+            cursor.execute(f"SELECT {cols}, timestamp FROM monitor_records ORDER BY timestamp ASC")
         rows = cursor.fetchall()
         conn.close()
     except sqlite3.Error as e:
         logger.warning("[dataset] 读取 %s 失败: %s", bvid, e)
-        return None
+        return (None, 0.0)
     if not rows:
-        return None
+        return (None, 0.0)
     arr = np.zeros((len(rows), len(features)), dtype=np.float32)
+    max_ts = 0.0
     for i, row in enumerate(rows):
         for j, feat in enumerate(features):
             v = row[feat]
             arr[i, j] = float(v) if v is not None else 0.0
-    return arr
+        ts = _parse_ts(row["timestamp"])
+        if ts > max_ts:
+            max_ts = ts
+    return (arr, max_ts)
 
 
 class VideoTimeSeriesDataset(Dataset):
@@ -121,6 +159,7 @@ class VideoTimeSeriesDataset(Dataset):
         min_records: Optional[int] = None,
         target_feature: str = "view_count",
         normalize: bool = True,
+        min_timestamp: Optional[float] = None,
     ):
         if not _torch_available:
             raise RuntimeError("torch 未安装，无法构造数据集")
@@ -133,28 +172,68 @@ class VideoTimeSeriesDataset(Dataset):
             raise ValueError(f"target_feature={target_feature!r} 不在 features={self.features} 中")
         self.target_idx = self.features.index(target_feature)
         self.normalize = bool(normalize)
+        self.max_timestamp = 0.0  # 本次训练用到的最大时间戳
+        self._derived_feature_names = ["roll_mean_5", "roll_std_5", "acceleration", "relative_pos", "lifecycle_phase"]
+        self._n_derived = len(self._derived_feature_names)  # 衍生特征数
 
         if bvids is None:
             bvids = _scan_all_bvids(self.data_root)
         else:
             bvids = [b for b in bvids if _safe_bvid(b)]
 
-        self._series: List[np.ndarray] = []  # 每个视频归一化后的 [N, F]
+        self._series: List[np.ndarray] = []  # 每个视频归一化后的 [N, F + n_derived]
         self._velocity: List[np.ndarray] = []  # 每个视频的目标速度 [N-1]
         self._index: List[Tuple[int, int]] = []  # (series_idx, start_offset)
+        self._global_max_ts = 0.0  # 所有视频中的最大 timestamp
 
         for bvid in bvids:
-            arr = _load_records(bvid, self.features, self.data_root)
+            arr, max_ts = _load_records(bvid, self.features, self.data_root, min_timestamp=min_timestamp)
             if arr is None or arr.shape[0] < self.min_records:
                 continue
             # 一阶差分得到速度序列；首位补 0
-            velocity = np.diff(arr[:, self.target_idx], prepend=arr[0, self.target_idx]).astype(np.float32)
+            target = arr[:, self.target_idx]
+            velocity = np.diff(target, prepend=target[0]).astype(np.float32)
+
+            # ── 衍生特征 ─────────────────────────────
+            N = arr.shape[0]
+
+            # rolling mean (window=5)
+            if N >= 5:
+                kernel = np.ones(5, dtype=np.float32) / 5
+                roll_mean = np.convolve(target, kernel, mode="same")
+            else:
+                roll_mean = np.full(N, float(target.mean()))
+
+            # rolling std (window=5)
+            if N >= 5:
+                roll_std = np.array([
+                    float(np.std(target[max(0, i-2):min(N, i+3)]))
+                    for i in range(N)
+                ], dtype=np.float32)
+            else:
+                roll_std = np.full(N, float(target.std() or 1.0))
+
+            # 加速度（速度的二阶差分）
+            accel = np.diff(velocity, prepend=velocity[0]).astype(np.float32)
+
+            # 相对时间位置 [0, 1]
+            rel_pos = np.arange(N, dtype=np.float32) / max(N - 1, 1)
+
+            # 生命周期阶段：0=早期(20%), 1=增长期(20-60%), 2=成熟期(60-100%)
+            lifecycle_phase = np.where(rel_pos < 0.2, 0.0, np.where(rel_pos < 0.6, 1.0, 2.0)).astype(np.float32)
+
+            extras = np.column_stack([roll_mean, roll_std, accel, rel_pos, lifecycle_phase])  # [N, 5]
+            arr_ext = np.column_stack([arr, extras])  # [N, F + 4]
+
             if self.normalize:
-                arr_n = _zscore(arr)
+                arr_n = _zscore(arr_ext)
                 vel_n = _zscore_1d(velocity)
             else:
-                arr_n = arr
+                arr_n = arr_ext
                 vel_n = velocity
+
+            if max_ts > self._global_max_ts:
+                self._global_max_ts = max_ts
             sidx = len(self._series)
             self._series.append(arr_n)
             self._velocity.append(vel_n)
@@ -163,13 +242,17 @@ class VideoTimeSeriesDataset(Dataset):
             for s in range(max_start + 1):
                 self._index.append((sidx, s))
 
+        self.max_timestamp = self._global_max_ts
+        n_feat = len(self.features) + self._n_derived
         logger.info(
-            "[dataset] 加载完成: %d 视频, %d 样本 (window=%d, horizon=%d, features=%d)",
+            "[dataset] 加载完成: %d 视频, %d 样本 (window=%d, horizon=%d, features=%d, derived=%d, max_ts=%.0f)",
             len(self._series),
             len(self._index),
             self.window,
             self.horizon,
             len(self.features),
+            self._n_derived,
+            self.max_timestamp,
         )
 
     def __len__(self) -> int:
@@ -184,7 +267,7 @@ class VideoTimeSeriesDataset(Dataset):
         return torch.from_numpy(np.ascontiguousarray(x)), torch.from_numpy(np.ascontiguousarray(y))
 
     def n_features(self) -> int:
-        return len(self.features)
+        return len(self.features) + self._n_derived
 
     def n_videos(self) -> int:
         return len(self._series)

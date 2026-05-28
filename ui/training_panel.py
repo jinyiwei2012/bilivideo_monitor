@@ -25,6 +25,7 @@ from ui.helpers import (
 )
 from ui.scrollable_frame import ScrollableFrame
 from ui.training_base import BaseTrainingPanel, TrainingMonitor
+from utils.update_checker import _hard, _train, _confirm_risky
 
 logger = logging.getLogger(__name__)
 
@@ -188,16 +189,22 @@ class TrainingPanel(BaseTrainingPanel):
         tk.Label(ctrl, text="模式:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT, padx=(8, 2))
         self._mode_var = tk.StringVar(value="incremental")
         ttk.Radiobutton(ctrl, text="增量训练", variable=self._mode_var, value="incremental").pack(side=tk.LEFT, padx=1)
-        ttk.Radiobutton(ctrl, text="重新训练", variable=self._mode_var, value="retrain").pack(side=tk.LEFT, padx=1)
+        ttk.Radiobutton(ctrl, text="重新训练", variable=self._mode_var, value="retrain", state=_train()).pack(side=tk.LEFT, padx=1)
 
         # 按钮
-        self._train_btn = ttk.Button(ctrl, text="▶ 开始训练", command=self._on_train_start, style="Primary.TButton")
+        self._train_btn = ttk.Button(ctrl, text="▶ 开始训练", command=self._on_train_start, style="Primary.TButton", state=_train())
         self._train_btn.pack(side=tk.LEFT, padx=(12, 4))
         self._cancel_btn = ttk.Button(ctrl, text="✕ 取消", command=self._on_cancel, state="disabled")
         self._cancel_btn.pack(side=tk.LEFT, padx=4)
         self._skip_btn = ttk.Button(ctrl, text="⏭ 跳过当前", command=self._on_skip_algo, state="disabled")
         self._skip_btn.pack(side=tk.LEFT, padx=4)
-        ttk.Button(ctrl, text="🎯 批量微调", command=self._on_batch_finetune, width=10).pack(side=tk.LEFT, padx=4)
+        ttk.Button(ctrl, text="🎯 批量微调", command=self._on_batch_finetune, width=10, state=_train()).pack(side=tk.LEFT, padx=4)
+
+        if _train() != "normal":
+            tk.Label(
+                ctrl, text="💡 创建 .enabletraining 文件开启训练 / 完整 devmode 见 README.md",
+                bg=C["bg_elevated"], fg=C["warning"], font=("", 8),
+            ).pack(side=tk.LEFT, padx=8)
 
         # 进度
         self._progress = ttk.Progressbar(ctrl, mode="determinate", maximum=100)
@@ -251,7 +258,10 @@ class TrainingPanel(BaseTrainingPanel):
             auto_lr = self._auto_compute_lr()
             self._lr_var.set(f"{auto_lr:.6f}")
         else:
-            self._lr_entry.config(state="normal")
+            if _confirm_risky("切换到手动学习率模式", self.frame):
+                self._lr_entry.config(state="normal")
+            else:
+                self._lr_auto_var.set(True)
 
     def _auto_compute_lr(self) -> float:
         """根据数据规模和常用经验自动推荐学习率。"""
@@ -561,17 +571,27 @@ class TrainingPanel(BaseTrainingPanel):
                 sep.pack(fill=tk.X, pady=4)
                 btn_row = tk.Frame(detail_frame, bg=C["bg_surface"])
                 btn_row.pack(fill=tk.X)
-                ttk.Button(
-                    btn_row,
-                    text="删除所有全局版本",
-                    command=lambda a=aid, n=name: self._delete_all_global(a, n, _refresh_detail),
-                ).pack(side=tk.LEFT, padx=2)
-                if bvids:
+                if _hard() == "normal":
                     ttk.Button(
                         btn_row,
-                        text="删除所有微调版本",
-                        command=lambda a=aid, n=name: self._delete_all_video(a, n, _refresh_detail),
+                        text="删除所有全局版本",
+                        command=lambda a=aid, n=name: self._delete_all_global(a, n, _refresh_detail),
                     ).pack(side=tk.LEFT, padx=2)
+                    if bvids:
+                        ttk.Button(
+                            btn_row,
+                            text="删除所有微调版本",
+                            command=lambda a=aid, n=name: self._delete_all_video(a, n, _refresh_detail),
+                        ).pack(side=tk.LEFT, padx=2)
+                else:
+                    ckpt_dir = os.path.join(
+                        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "algorithms", "checkpoints", aid,
+                    )
+                    tk.Label(
+                        btn_row, text=f"📁 {os.path.relpath(ckpt_dir)}",
+                        bg=C["bg_surface"], fg=C["text_3"], font=FONT_SM,
+                    ).pack(side=tk.LEFT, padx=4)
 
         # 填充算法列表
         for a in sorted(algos, key=lambda x: x["name"]):
@@ -1010,6 +1030,8 @@ class TrainingPanel(BaseTrainingPanel):
         self._status_lbl.config(text=f"[{cur}/{tot}] 训练 {aid} …", fg=C["text_2"])
         self._append_log(f"── [{cur}/{tot}] 开始训练 {aid} ──")
         self._update_algo_row(aid, status="▶ 训练中", status_color=C["accent"])
+        # 切换算法时重置质量监控，避免跨模型数据污染
+        self._monitor.reset()
 
     def _on_stage_epoch(self, msg):
         aid = msg.get("algo_id", "?")
@@ -1064,10 +1086,21 @@ class TrainingPanel(BaseTrainingPanel):
         ver = msg.get("version", "")
         self._status_lbl.config(text=f"✓ {aid} → {ver} ({cur}/{total_sel})", fg=C["success"])
         self._progress["value"] = int(cur / max(1, total_sel) * 100)
-        self._append_log(f"✓ {aid} 完成, 保存为 {ver}")
-        conf = load_algo_confidence(aid)
+
+        # 从 checkpoint 读取 val_loss 和置信度（与微调面板一致）
+        from algorithms.training.checkpoint_manager import CheckpointManager
+        _val_loss = -1.0
+        try:
+            _ckpt = CheckpointManager(aid)
+            _versions = _ckpt.list_versions()
+            if _versions:
+                _val_loss = _versions[0].get("val_loss", -1.0)
+        except Exception:
+            pass
+        conf = loss_to_confidence(_val_loss) if _val_loss >= 0 else load_algo_confidence(aid)
         conf_str, conf_color = format_confidence(conf)
         self._algo_confidence[aid] = conf
+        self._append_log(f"  ✓ {aid} → {ver}  置信度={conf_str}  val_loss={_val_loss:.4f}" if _val_loss >= 0 else f"  ✓ {aid} → {ver}")
         self._update_algo_row(
             aid,
             status=f"✓ {ver[:10]}",

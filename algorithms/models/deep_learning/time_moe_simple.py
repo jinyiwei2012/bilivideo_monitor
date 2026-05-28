@@ -34,7 +34,7 @@ class TimeMoeSimpleAlgorithm(BaseAlgorithm):
         )
 
     def build_model(self):
-        return TimeMoETorchModel(in_features=5, window=10, n_experts=4, d_model=16, horizon=self.training_horizon)
+        return TimeMoETorchModel(in_features=getattr(self, '_training_n_features', 5), window=10, n_experts=4, d_model=16, horizon=self.training_horizon)
 
     def get_training_features(self) -> List[str]:
         return ["view_count", "like_count", "coin_count", "favorite_count", "share_count"]

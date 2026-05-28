@@ -174,7 +174,7 @@ class DiffusionTSAlgorithm(BaseAlgorithm):
         if len(velocities) < 4:
             raise RuntimeError("速度序列太短")
         bvid = video_data.get("bvid", "")
-        state = load_best_checkpoint(self.algorithm_id, bvid=bvid)
+        state, _ = load_best_checkpoint(self.algorithm_id, bvid=bvid)
         if state is None:
             raise RuntimeError("无可用的 checkpoint — 请先训练")
         # 视频微调不缓存（每次加载最新权重），全局 checkpoint 可缓存
