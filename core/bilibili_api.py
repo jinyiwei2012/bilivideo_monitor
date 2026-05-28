@@ -1508,7 +1508,7 @@ class BilibiliAPI:
             logger.warning("持久化 Cookie 失败: %s", e)
 
     @staticmethod
-    def _extract_login_cookies(resp, data: dict) -> dict:
+    def _extract_login_cookies(self, resp, data: dict) -> dict:
         """从登录响应中提取 Cookie（多种回退方式，合并三种来源以最大化命中 buvid 等设备指纹字段）"""
         # buvid3/buvid4/buvid_fp 是 2026 风控核心字段，缺失易触发 -352
         wanted = ("SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid", "buvid3", "buvid4", "buvid_fp")

@@ -2166,9 +2166,7 @@ class SettingsWindow:
             if result.get("status") == 2:
                 cookies = result.get("cookies", {})
                 if cookies:
-                    self._net_cfg["cookies"] = cookies
-                    self._net_cfg["refresh_token"] = get_bilibili_api().get_refresh_token()
-                    self._save_net_config()
+                    self._refresh_account_list()
                     self._refresh_cookie_display()
                     self._refresh_status()
                     status_lbl.config(fg=C["success"])
