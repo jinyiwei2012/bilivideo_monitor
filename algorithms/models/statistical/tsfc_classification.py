@@ -142,9 +142,10 @@ class TsfcClassificationAlgorithm(BaseAlgorithm):
         # 斜率
         x = np.arange(len(v))
         slope = float(np.polyfit(x, v, 1)[0]) if len(v) > 1 else 0.0
-        # 滞后 1 自相关
+        # 滞后 1 自相关（子序列仍可能近乎常量，抑制除零警告）
         if len(v) > 2 and std > 1e-6:
-            ac1 = float(np.corrcoef(v[:-1], v[1:])[0, 1])
+            with np.errstate(invalid="ignore"):
+                ac1 = float(np.corrcoef(v[:-1], v[1:])[0, 1])
             if not np.isfinite(ac1):
                 ac1 = 0.0
         else:

@@ -1,4 +1,5 @@
 """Tests for algorithms/weight_manager.py"""
+
 import os
 import json
 import tempfile
@@ -92,6 +93,7 @@ class TestWeightManager:
     def test_persistence(self):
         self.wm.set_user_weight("algo_a", 2.5)
         self.wm.update_accuracy("algo_b", 0.75)
+        self.wm.sync_save()
         save_dir = self.wm.save_dir
 
         wm2 = WeightManager(save_dir=save_dir)
@@ -102,12 +104,14 @@ class TestWeightManager:
         self.wm.set_user_weight("algo_a", 2.0)
         self.wm.update_accuracy("algo_b", 0.8)
         self.wm.reset_weights()
+        self.wm.sync_save()
         assert self.wm.user_weights == {}
         assert self.wm.ml_weights == {}
         assert self.wm.accuracy_records == {}
 
     def test_weights_file_created(self):
         self.wm.set_user_weight("algo_a", 1.5)
+        self.wm.sync_save()
         weight_file = os.path.join(self.tmpdir.name, "default_weights.json")
         assert os.path.exists(weight_file)
         with open(weight_file, encoding="utf-8") as f:
@@ -123,4 +127,5 @@ class TestWeightManagerCustomDir:
             wm = WeightManager(save_dir=sub)
             assert os.path.exists(sub)
             wm.set_user_weight("test", 1.0)
+            wm.sync_save()
             assert os.path.exists(os.path.join(sub, "default_weights.json"))

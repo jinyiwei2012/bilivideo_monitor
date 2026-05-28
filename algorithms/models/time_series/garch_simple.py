@@ -44,8 +44,7 @@ class GarchSimpleAlgorithm(BaseAlgorithm):
                 sigma2[t] = omega + alpha * eps[t - 1] ** 2 + beta * sigma2[t - 1]
 
             vol = np.sqrt(sigma2[-1])
-            vol_reg = np.mean(np.sqrt(sigma2[-min(5, T):])) if T >= 5 else vol
-            mean_return = np.mean(eps[-min(5, T):]) if T >= 5 else mu
+            mean_return = np.mean(eps[-min(5, T) :]) if T >= 5 else mu
 
             upside = mean_return + vol
             predicted_velocity = max(0, upside * views[-1] / 3600)
@@ -64,9 +63,12 @@ class GarchSimpleAlgorithm(BaseAlgorithm):
                 confidence = max(0.05, min(0.75, 0.5 / (1 + volatility_ratio)))
 
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=confidence, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=confidence,
+                current_views=current_views,
                 current_velocity=velocity,
                 metadata={"method": "garch", "volatility": float(vol), "lower_velocity": float(lower_bound)},
                 timestamp=datetime.now(),
@@ -77,18 +79,26 @@ class GarchSimpleAlgorithm(BaseAlgorithm):
     def _fallback(self, velocity, current_views, threshold):
         if velocity <= 0:
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=float("inf"),
-                confidence=0.0, current_views=current_views, current_velocity=velocity,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=float("inf"),
+                confidence=0.0,
+                current_views=current_views,
+                current_velocity=velocity,
                 metadata={"method": "garch", "reason": "fallback"},
                 timestamp=datetime.now(),
             )
         remaining = max(0, threshold - current_views)
         predicted_hours = remaining / velocity if remaining > 0 else 0
         return PredictionResult(
-            algorithm_name=self.name, algorithm_id=self.algorithm_id,
-            target_threshold=threshold, predicted_hours=predicted_hours,
-            confidence=0.3, current_views=current_views, current_velocity=velocity,
+            algorithm_name=self.name,
+            algorithm_id=self.algorithm_id,
+            target_threshold=threshold,
+            predicted_hours=predicted_hours,
+            confidence=0.3,
+            current_views=current_views,
+            current_velocity=velocity,
             metadata={"method": "garch", "reason": "fallback"},
             timestamp=datetime.now(),
         )

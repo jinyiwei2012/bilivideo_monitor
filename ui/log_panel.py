@@ -209,6 +209,8 @@ class LogPanel:
             removed = len(self._log_entries) - 1500
             self._log_entries = self._log_entries[-1500:]
             self._rendered_count = max(0, self._rendered_count - removed)
+            if self._rendered_count == 0 and removed > 0:
+                self.root.after(0, self.refresh_log_view)
 
         # 通过队列调度到主线程渲染（避免工作线程直接调用 Tkinter）
         if self._should_show(level):

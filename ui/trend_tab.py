@@ -184,46 +184,52 @@ class TrendTab:
             return False
         return True
 
+    @staticmethod
+    def _normalize_timestamp(ts):
+        if isinstance(ts, str):
+            try:
+                return datetime.fromisoformat(ts)
+            except Exception:
+                return None
+        if isinstance(ts, (int, float)):
+            try:
+                return datetime.fromtimestamp(float(ts))
+            except Exception:
+                return None
+        return ts if isinstance(ts, datetime) else None
+
+    @staticmethod
+    def _normalize_value(val):
+        try:
+            return float(val) if val is not None else 0
+        except (TypeError, ValueError):
+            return 0
+
+    def _parse_raw_item(self, item, metric):
+        if isinstance(item, dict):
+            ts = self._normalize_timestamp(item.get("timestamp", ""))
+            val = self._normalize_value(item.get(metric, 0))
+        elif isinstance(item, (list, tuple)) and len(item) >= 2:
+            ts = self._normalize_timestamp(item[0])
+            val = self._normalize_value(item[1]) if metric == "view_count" else 0
+        else:
+            return None
+        return None if ts is None else (ts, val)
+
     def _collect_data(self):
-        """收集历史数据"""
         metric = self._metric.get()
         series_map = {}
         all_vals, all_ts = [], []
 
         for video in self._selected:
             bvid = video.get("bvid", "")
-            raw = self._history_data.get(bvid, [])
             pts = []
-            for item in raw:
-                # item 可能是 (ts, view) 旧格式，也可能是 dict
-                if isinstance(item, dict):
-                    ts = item.get("timestamp", "")
-                    val = item.get(metric, 0) or 0
-                elif isinstance(item, (list, tuple)) and len(item) >= 2:
-                    ts = item[0]
-                    val = item[1] if metric == "view_count" else 0
-                else:
-                    continue
-
-                if isinstance(ts, str):
-                    try:
-                        ts = datetime.fromisoformat(ts)
-                    except Exception:
-                        continue
-                if not isinstance(ts, datetime):
-                    try:
-                        ts = datetime.fromtimestamp(float(ts))
-                    except Exception:
-                        continue
-
-                try:
-                    val = float(val) if val is not None else 0
-                except (TypeError, ValueError):
-                    val = 0
-
-                pts.append((ts, val))
-                all_vals.append(val)
-                all_ts.append(ts)
+            for item in self._history_data.get(bvid, []):
+                parsed = self._parse_raw_item(item, metric)
+                if parsed:
+                    pts.append(parsed)
+                    all_vals.append(parsed[1])
+                    all_ts.append(parsed[0])
 
             if pts:
                 pts.sort(key=lambda p: p[0])

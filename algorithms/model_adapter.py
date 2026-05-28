@@ -330,8 +330,8 @@ def load_all_model_algorithms() -> List[ModelAlgorithmAdapter]:
                                 instance = attr()
                                 adapter = ModelAlgorithmAdapter(instance)
                                 adapters.append(adapter)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug("忽略异常: %s", e)
 
             except Exception as e:
                 logger.warning("加载算法 %s 失败: %s", module_path, e)

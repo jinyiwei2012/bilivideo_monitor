@@ -4,7 +4,7 @@ ICLR 2020 论文简化版，使用基函数展开捕捉时序模式
 """
 
 import numpy as np
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional
 from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
 from algorithms.models.deep_learning._torch_upgrade import NBeatsTorchModel, try_torch_predict
@@ -52,7 +52,7 @@ class NBeatsSimpleAlgorithm(BaseAlgorithm):
         )
 
     def build_model(self):
-        return NBeatsTorchModel(in_features=5, window=10, horizon=self.training_horizon)
+        return NBeatsTorchModel(in_features=getattr(self, '_training_n_features', 5), window=10, horizon=self.training_horizon)
 
     def get_training_features(self):
         return ["view_count", "like_count", "coin_count", "favorite_count", "share_count"]

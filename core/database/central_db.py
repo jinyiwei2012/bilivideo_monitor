@@ -8,6 +8,7 @@ import logging
 from dataclasses import fields
 from datetime import datetime
 from typing import List, Dict, Optional
+from utils import project_path
 
 from .connection import _ConnectionCtx, _http_session
 from .models import _validate_bvid, VideoInfo, MonitorRecord, PredictionRecord
@@ -19,9 +20,62 @@ logger = logging.getLogger(__name__)
 class Database:
     """总数据库管理类"""
 
-    # 双备份：active_dir = core/data/（活跃写入）, backup_dir = data/（config 定义）
-    _ACTIVE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
+    # 活跃数据目录（主写入），退出时同步到 config 定义的 DATA_DIR
+    _ACTIVE_DIR = project_path("core", "data")
     _BACKUP_DIR = None  # 懒加载
+
+    @classmethod
+    def _migrate_old_data(cls):  # noqa: C901
+        """从旧的 core/data/ 迁移数据到 data/"""
+        old_dir = project_path("core", "data")
+        new_dir = cls._ACTIVE_DIR
+        if old_dir == new_dir or not os.path.exists(old_dir):
+            return
+        import shutil
+        import sqlite3 as _sqlite3
+        migrated = 0
+        try:
+            for item in os.listdir(old_dir):
+                src = os.path.join(old_dir, item)
+                dst = os.path.join(new_dir, item)
+                if os.path.isdir(src):
+                    # 视频独立库：目标不存在或记录数远少于源时覆盖
+                    src_db = os.path.join(src, f"{item}.db")
+                    dst_db = os.path.join(dst, f"{item}.db")
+                    should_copy = not os.path.exists(dst)
+                    if not should_copy and os.path.exists(src_db) and os.path.exists(dst_db):
+                        try:
+                            sc = _sqlite3.connect(src_db).execute("SELECT COUNT(*) FROM monitor_records").fetchone()[0]
+                            dc = _sqlite3.connect(dst_db).execute("SELECT COUNT(*) FROM monitor_records").fetchone()[0]
+                            if sc > dc * 2:
+                                should_copy = True
+                        except Exception as e:
+                            logger.debug("迁移计数检查失败 %s: %s", item, e)
+                    if should_copy:
+                        if os.path.exists(dst):
+                            # 关闭目标目录下可能打开的数据库连接
+                            try:
+                                for f in os.listdir(dst):
+                                    if f.endswith(".db") or f.endswith(".db-wal") or f.endswith(".db-shm"):
+                                        os.chmod(os.path.join(dst, f), 0o600)
+                            except Exception as e:
+                                logger.debug("修改权限失败 %s: %s", f, e)
+                            try:
+                                shutil.rmtree(dst)
+                            except PermissionError:
+                                logger.warning("迁移跳过 %s: 文件被占用", item)
+                                continue
+                        shutil.copytree(src, dst)
+                        migrated += 1
+                else:
+                    # 中央库等单文件
+                    if not os.path.exists(dst):
+                        shutil.copy2(src, dst)
+                        migrated += 1
+            if migrated:
+                logger.info("已从 %s 迁移 %d 项到 %s", old_dir, migrated, new_dir)
+        except Exception as e:
+            logger.warning("迁移旧数据失败: %s", e)
 
     @classmethod
     def _get_backup_dir(cls) -> str:
@@ -38,6 +92,9 @@ class Database:
         if db_path is None:
             os.makedirs(self._ACTIVE_DIR, exist_ok=True)
             db_path = os.path.join(self._ACTIVE_DIR, "bilibili_monitor.db")
+
+        # 迁移旧数据（在打开连接前执行，避免文件锁定）
+        self._migrate_old_data()
 
         self.db_path = db_path
         self.data_dir = os.path.dirname(db_path)
@@ -62,8 +119,7 @@ class Database:
             cursor = conn.cursor()
 
             # 视频信息表
-            cursor.execute(
-                """
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS videos (
                     bvid TEXT PRIMARY KEY,
                     title TEXT,
@@ -87,12 +143,10 @@ class Database:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-            """
-            )
+            """)
 
             # 监控记录表
-            cursor.execute(
-                """
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS monitor_records (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     bvid TEXT,
@@ -110,18 +164,14 @@ class Database:
                     like_view_ratio REAL DEFAULT 0,
                     FOREIGN KEY (bvid) REFERENCES videos(bvid)
                 )
-            """
-            )
-            cursor.execute(
-                """
+            """)
+            cursor.execute("""
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_monitor_bvid_ts
                 ON monitor_records(bvid, timestamp)
-            """
-            )
+            """)
 
             # 预测记录表
-            cursor.execute(
-                """
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS predictions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     bvid TEXT,
@@ -138,13 +188,11 @@ class Database:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (bvid) REFERENCES videos(bvid)
                 )
-            """
-            )
+            """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_predictions_bvid ON predictions(bvid)")
 
             # 投稿里程碑数据表
-            cursor.execute(
-                """
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS video_milestones (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     bvid TEXT NOT NULL,
@@ -160,8 +208,7 @@ class Database:
                     recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(bvid, period)
                 )
-            """
-            )
+            """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_milestones_bvid ON video_milestones(bvid)")
             # 数据库迁移：检查并添加缺少的列
             self._migrate_db(conn)
@@ -744,17 +791,6 @@ class Database:
     # ── 关闭前同步：活跃库 → 中央库（兜底） ─────────────────────────
 
     def sync_to_central(self) -> dict:
-        """关闭前将活跃库数据同步到中央库，修复瑕疵数据。
-
-        同步项:
-          1. videos 表 — 缺失/值异常的视频
-          2. monitor_records — 活跃库有而中央库没有的记录
-          3. predictions — 各视频独立库的预测记录
-          4. weekly_scores — 各视频独立库的周刊分数
-          5. yearly_scores — 各视频独立库的年刊分数
-        返回: {synced_videos, synced_records, fixed_flaws, synced_predictions,
-               synced_weekly, synced_yearly}
-        """
         central_db = os.path.join(self._get_backup_dir(), "bilibili_monitor.db")
         if central_db == self.db_path or not os.path.exists(central_db):
             logger.info("中央数据库不存在或与活跃库相同，跳过同步")
@@ -782,137 +818,10 @@ class Database:
             self._ensure_central_tables(central_cur)
             central_conn.commit()
 
-            # 1. 同步 videos 表
             active_cur = self._conn.cursor()
-            active_cur.execute("SELECT * FROM videos")
-            active_videos = [dict(r) for r in active_cur.fetchall()]
-            for av in active_videos:
-                central_cur.execute("SELECT * FROM videos WHERE bvid=?", (av["bvid"],))
-                existing = central_cur.fetchone()
-                should_update = False
-                if not existing:
-                    should_update = True
-                    result["synced_videos"] += 1
-                else:
-                    ed = dict(existing)
-                    for key in ("view_count", "like_count", "coin_count", "share_count"):
-                        if not ed.get(key) and av.get(key):
-                            should_update = True
-                            result["fixed_flaws"] += 1
-                            break
-                if should_update:
-                    central_cur.execute(
-                        """INSERT OR REPLACE INTO videos
-                        (bvid, title, view_count, like_count, coin_count, share_count,
-                         favorite_count, danmaku_count, reply_count, viewers_app,
-                         viewers_web, viewers_total, cover_path, like_view_ratio,
-                         owner_name, owner_id, pubdate, duration, pic, updated_at)
-                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                        (
-                            av["bvid"],
-                            av.get("title", ""),
-                            av.get("view_count", 0),
-                            av.get("like_count", 0),
-                            av.get("coin_count", 0),
-                            av.get("share_count", 0),
-                            av.get("favorite_count", 0),
-                            av.get("danmaku_count", 0),
-                            av.get("reply_count", 0),
-                            av.get("viewers_app", 0),
-                            av.get("viewers_web", 0),
-                            av.get("viewers_total", 0),
-                            av.get("cover_path", ""),
-                            av.get("like_view_ratio", 0),
-                            av.get("owner_name", ""),
-                            av.get("owner_id", 0),
-                            av.get("pubdate", ""),
-                            av.get("duration", 0),
-                            av.get("pic", ""),
-                            datetime.now(),
-                        ),
-                    )
-
-            # 2. 同步 monitor_records
-            central_cur.execute("SELECT DISTINCT bvid FROM monitor_records")
-            central_bvids = {r["bvid"] for r in central_cur.fetchall()}
-            active_cur.execute("SELECT DISTINCT bvid FROM monitor_records")
-            active_bvids = {r["bvid"] for r in active_cur.fetchall()}
-
-            for bvid in active_bvids:
-                central_cur.execute("SELECT timestamp FROM monitor_records WHERE bvid=?", (bvid,))
-                central_ts = {r["timestamp"] for r in central_cur.fetchall()}
-
-                active_cur.execute(
-                    "SELECT * FROM monitor_records WHERE bvid=? ORDER BY timestamp ASC",
-                    (bvid,),
-                )
-                for row in active_cur.fetchall():
-                    rd = dict(row)
-                    if rd["timestamp"] not in central_ts:
-                        lvr = rd.get("like_view_ratio", 0)
-                        if not lvr and rd.get("view_count") and rd.get("like_count"):
-                            lvr = round(rd["like_count"] / rd["view_count"], 6)
-                        central_cur.execute(
-                            """INSERT INTO monitor_records
-                            (bvid, timestamp, view_count, like_count, coin_count, share_count,
-                             favorite_count, danmaku_count, reply_count, viewers_app,
-                             viewers_web, viewers_total, like_view_ratio)
-                            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                            (
-                                rd["bvid"],
-                                rd["timestamp"],
-                                rd.get("view_count", 0),
-                                rd.get("like_count", 0),
-                                rd.get("coin_count", 0),
-                                rd.get("share_count", 0),
-                                rd.get("favorite_count", 0),
-                                rd.get("danmaku_count", 0),
-                                rd.get("reply_count", 0),
-                                rd.get("viewers_app", 0),
-                                rd.get("viewers_web", 0),
-                                rd.get("viewers_total", 0),
-                                lvr,
-                            ),
-                        )
-                        central_ts.add(rd["timestamp"])
-                        result["synced_records"] += 1
-
-            # 3. 从各视频独立库同步预测/分数等详细数据
-            all_bvids = active_bvids | central_bvids
-            for bvid in all_bvids:
-                video_db = self._open_video_db_ro(bvid)
-                if video_db is None:
-                    continue
-                try:
-                    vcur = video_db.cursor()
-                    # predictions: 比较 distinct (algorithm, predicted_time) 数量
-                    v_count = vcur.execute(
-                        "SELECT COUNT(DISTINCT COALESCE(algorithm,'') || COALESCE(predicted_time,'')) FROM predictions"
-                    ).fetchone()[0]
-                    c_count = central_cur.execute(
-                        "SELECT COUNT(DISTINCT COALESCE(algorithm,'') || COALESCE(predicted_time,'')) FROM predictions WHERE bvid=?",
-                        (bvid,),
-                    ).fetchone()[0]
-                    if v_count != c_count:
-                        result["synced_predictions"] += self._sync_video_predictions(central_cur, bvid, vcur)
-
-                    # weekly max timestamp check
-                    v_max = vcur.execute("SELECT MAX(timestamp) FROM weekly_scores").fetchone()[0]
-                    c_max = central_cur.execute(
-                        "SELECT MAX(timestamp) FROM weekly_scores WHERE bvid=?", (bvid,)
-                    ).fetchone()[0]
-                    if v_max and (c_max is None or v_max > c_max):
-                        result["synced_weekly"] += self._sync_video_weekly_scores(central_cur, bvid, vcur)
-
-                    # yearly max timestamp check
-                    v_max = vcur.execute("SELECT MAX(timestamp) FROM yearly_scores").fetchone()[0]
-                    c_max = central_cur.execute(
-                        "SELECT MAX(timestamp) FROM yearly_scores WHERE bvid=?", (bvid,)
-                    ).fetchone()[0]
-                    if v_max and (c_max is None or v_max > c_max):
-                        result["synced_yearly"] += self._sync_video_yearly_scores(central_cur, bvid, vcur)
-                finally:
-                    video_db.close()
+            self._sync_videos_to_central(active_cur, central_cur, result)
+            active_bvids, central_bvids = self._sync_monitor_records_to_central(active_cur, central_cur, result)
+            self._sync_per_video_details(active_bvids, central_bvids, central_cur, result)
 
             central_conn.commit()
             central_conn.close()
@@ -929,6 +838,194 @@ class Database:
             logger.warning("中央库同步失败: %s", e)
         return result
 
+    def sync_per_video_dbs_to_backup(self):
+        """关闭前将活跃库的所有视频独立库同步到备份目录（data/）"""
+        backup_base = self._get_backup_dir()
+        if backup_base == self.data_dir:
+            return
+        import shutil
+        synced = 0
+        for item in os.listdir(self.data_dir):
+            src_dir = os.path.join(self.data_dir, item)
+            if not os.path.isdir(src_dir) or not item.startswith("BV"):
+                continue
+            src_db = os.path.join(src_dir, f"{item}.db")
+            if not os.path.exists(src_db):
+                continue
+            dst_dir = os.path.join(backup_base, item)
+            dst_db = os.path.join(dst_dir, f"{item}.db")
+            if os.path.exists(dst_db):
+                # 比较记录数，源更多时才覆盖
+                try:
+                    import sqlite3 as _sql
+                    sc = _sql.connect(src_db).execute("SELECT COUNT(*) FROM monitor_records").fetchone()[0]
+                    dc = _sql.connect(dst_db).execute("SELECT COUNT(*) FROM monitor_records").fetchone()[0]
+                    if sc <= dc:
+                        continue
+                    shutil.rmtree(dst_dir)
+                except Exception:
+                    continue
+            os.makedirs(dst_dir, exist_ok=True)
+            shutil.copy2(src_db, dst_db)
+            for ext in ("-wal", "-shm"):
+                src_ext = src_db + ext
+                if os.path.exists(src_ext):
+                    shutil.copy2(src_ext, dst_db + ext)
+            synced += 1
+        if synced:
+            logger.info("已同步 %d 个视频独立库到 %s", synced, backup_base)
+
+    def check_backup_diffs(self):
+        """比较活跃库与备份库的差异，返回有差异的视频列表。
+
+        Returns:
+            List[Dict]: [{bvid, primary_records, backup_records}, ...]
+        """
+        backup_base = self._get_backup_dir()
+        if backup_base == self.data_dir:
+            return []
+        diffs = []
+        import sqlite3 as _sql
+        for item in os.listdir(self.data_dir):
+            src_dir = os.path.join(self.data_dir, item)
+            if not os.path.isdir(src_dir) or not item.startswith("BV"):
+                continue
+            src_db = os.path.join(src_dir, f"{item}.db")
+            dst_db = os.path.join(backup_base, item, f"{item}.db")
+            if not os.path.exists(src_db) or not os.path.exists(dst_db):
+                continue
+            try:
+                sc = _sql.connect(src_db).execute("SELECT COUNT(*) FROM monitor_records").fetchone()[0]
+                dc = _sql.connect(dst_db).execute("SELECT COUNT(*) FROM monitor_records").fetchone()[0]
+                if sc != dc:
+                    diffs.append({"bvid": item, "primary_records": sc, "backup_records": dc})
+            except Exception:
+                continue
+        return diffs
+
+    def _sync_videos_to_central(self, active_cur, central_cur, result):
+        active_cur.execute("SELECT * FROM videos")
+        for av in (dict(r) for r in active_cur.fetchall()):
+            central_cur.execute("SELECT * FROM videos WHERE bvid=?", (av["bvid"],))
+            existing = central_cur.fetchone()
+            should_update = False
+            if not existing:
+                should_update = True
+                result["synced_videos"] += 1
+            else:
+                ed = dict(existing)
+                for key in ("view_count", "like_count", "coin_count", "share_count"):
+                    if not ed.get(key) and av.get(key):
+                        should_update = True
+                        result["fixed_flaws"] += 1
+                        break
+            if should_update:
+                central_cur.execute(
+                    """INSERT OR REPLACE INTO videos
+                    (bvid, title, view_count, like_count, coin_count, share_count,
+                     favorite_count, danmaku_count, reply_count, viewers_app,
+                     viewers_web, viewers_total, cover_path, like_view_ratio,
+                     owner_name, owner_id, pubdate, duration, pic, updated_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (
+                        av["bvid"],
+                        av.get("title", ""),
+                        av.get("view_count", 0),
+                        av.get("like_count", 0),
+                        av.get("coin_count", 0),
+                        av.get("share_count", 0),
+                        av.get("favorite_count", 0),
+                        av.get("danmaku_count", 0),
+                        av.get("reply_count", 0),
+                        av.get("viewers_app", 0),
+                        av.get("viewers_web", 0),
+                        av.get("viewers_total", 0),
+                        av.get("cover_path", ""),
+                        av.get("like_view_ratio", 0),
+                        av.get("owner_name", ""),
+                        av.get("owner_id", 0),
+                        av.get("pubdate", ""),
+                        av.get("duration", 0),
+                        av.get("pic", ""),
+                        datetime.now(),
+                    ),
+                )
+
+    def _sync_monitor_records_to_central(self, active_cur, central_cur, result):
+        central_cur.execute("SELECT DISTINCT bvid FROM monitor_records")
+        central_bvids = {r["bvid"] for r in central_cur.fetchall()}
+        active_cur.execute("SELECT DISTINCT bvid FROM monitor_records")
+        active_bvids = {r["bvid"] for r in active_cur.fetchall()}
+
+        for bvid in active_bvids:
+            central_cur.execute("SELECT timestamp FROM monitor_records WHERE bvid=?", (bvid,))
+            central_ts = {r["timestamp"] for r in central_cur.fetchall()}
+            active_cur.execute("SELECT * FROM monitor_records WHERE bvid=? ORDER BY timestamp ASC", (bvid,))
+            for row in active_cur.fetchall():
+                rd = dict(row)
+                if rd["timestamp"] not in central_ts:
+                    lvr = rd.get("like_view_ratio", 0)
+                    if not lvr and rd.get("view_count") and rd.get("like_count"):
+                        lvr = round(rd["like_count"] / rd["view_count"], 6)
+                    central_cur.execute(
+                        """INSERT INTO monitor_records
+                        (bvid, timestamp, view_count, like_count, coin_count, share_count,
+                         favorite_count, danmaku_count, reply_count, viewers_app,
+                         viewers_web, viewers_total, like_view_ratio)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        (
+                            rd["bvid"],
+                            rd["timestamp"],
+                            rd.get("view_count", 0),
+                            rd.get("like_count", 0),
+                            rd.get("coin_count", 0),
+                            rd.get("share_count", 0),
+                            rd.get("favorite_count", 0),
+                            rd.get("danmaku_count", 0),
+                            rd.get("reply_count", 0),
+                            rd.get("viewers_app", 0),
+                            rd.get("viewers_web", 0),
+                            rd.get("viewers_total", 0),
+                            lvr,
+                        ),
+                    )
+                    central_ts.add(rd["timestamp"])
+                    result["synced_records"] += 1
+        return active_bvids, central_bvids
+
+    def _sync_per_video_details(self, active_bvids, central_bvids, central_cur, result):
+        for bvid in active_bvids | central_bvids:
+            video_db = self._open_video_db_ro(bvid)
+            if video_db is None:
+                continue
+            try:
+                vcur = video_db.cursor()
+                v_count = vcur.execute(
+                    "SELECT COUNT(DISTINCT COALESCE(algorithm,'') || COALESCE(predicted_time,'')) FROM predictions"
+                ).fetchone()[0]
+                c_count = central_cur.execute(
+                    "SELECT COUNT(DISTINCT COALESCE(algorithm,'') || COALESCE(predicted_time,'')) FROM predictions WHERE bvid=?",
+                    (bvid,),
+                ).fetchone()[0]
+                if v_count != c_count:
+                    result["synced_predictions"] += self._sync_video_predictions(central_cur, bvid, vcur)
+
+                v_max = vcur.execute("SELECT MAX(timestamp) FROM weekly_scores").fetchone()[0]
+                c_max = central_cur.execute(
+                    "SELECT MAX(timestamp) FROM weekly_scores WHERE bvid=?", (bvid,)
+                ).fetchone()[0]
+                if v_max and (c_max is None or v_max > c_max):
+                    result["synced_weekly"] += self._sync_video_weekly_scores(central_cur, bvid, vcur)
+
+                v_max = vcur.execute("SELECT MAX(timestamp) FROM yearly_scores").fetchone()[0]
+                c_max = central_cur.execute(
+                    "SELECT MAX(timestamp) FROM yearly_scores WHERE bvid=?", (bvid,)
+                ).fetchone()[0]
+                if v_max and (c_max is None or v_max > c_max):
+                    result["synced_yearly"] += self._sync_video_yearly_scores(central_cur, bvid, vcur)
+            finally:
+                video_db.close()
+
     def _open_video_db_ro(self, bvid: str) -> Optional[sqlite3.Connection]:
         """以只读方式打开视频独立库，优先活跃目录，回退备份目录"""
         for base in (self.data_dir, self._get_backup_dir()):
@@ -939,8 +1036,8 @@ class Database:
                     conn = sqlite3.connect(uri, uri=True)
                     conn.row_factory = sqlite3.Row
                     return conn
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("打开只读连接失败 %s: %s", db_path, e)
         return None
 
     @staticmethod
@@ -954,16 +1051,14 @@ class Database:
             return 0
         try:
             # GROUP BY 只取每个 (algorithm, predicted_time) 组合的最新一条
-            vcur.execute(
-                """
+            vcur.execute("""
                 SELECT algorithm, algorithm_id, target_threshold, predicted_seconds,
                        predicted_time, confidence, current_views, metadata,
                        predicted_hours, current_velocity, is_reached,
                        actual_time, error_rate, MAX(created_at) as created_at
                 FROM predictions
                 GROUP BY algorithm, predicted_time
-            """
-            )
+            """)
         except Exception:
             return 0
         rows = [dict(r) for r in vcur.fetchall()]
@@ -1111,8 +1206,7 @@ class Database:
     @staticmethod
     def _ensure_central_tables(cur):
         """确保中央库有完整的表结构（兼容首次同步）"""
-        cur.execute(
-            """CREATE TABLE IF NOT EXISTS videos (
+        cur.execute("""CREATE TABLE IF NOT EXISTS videos (
             bvid TEXT PRIMARY KEY, title TEXT, view_count INTEGER DEFAULT 0,
             like_count INTEGER DEFAULT 0, coin_count INTEGER DEFAULT 0,
             share_count INTEGER DEFAULT 0, favorite_count INTEGER DEFAULT 0,
@@ -1122,48 +1216,35 @@ class Database:
             like_view_ratio REAL DEFAULT 0, owner_name TEXT, owner_id INTEGER,
             pubdate TEXT, duration INTEGER, pic TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"""
-        )
-        cur.execute(
-            """CREATE TABLE IF NOT EXISTS monitor_records (
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+        cur.execute("""CREATE TABLE IF NOT EXISTS monitor_records (
             id INTEGER PRIMARY KEY AUTOINCREMENT, bvid TEXT,
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             view_count INTEGER, like_count INTEGER, coin_count INTEGER,
             share_count INTEGER, favorite_count INTEGER, danmaku_count INTEGER,
             reply_count INTEGER, viewers_app INTEGER DEFAULT 0,
             viewers_web INTEGER DEFAULT 0, viewers_total INTEGER DEFAULT 0,
-            like_view_ratio REAL DEFAULT 0)"""
-        )
-        cur.execute(
-            """CREATE UNIQUE INDEX IF NOT EXISTS idx_monitor_bvid_ts
-            ON monitor_records(bvid, timestamp)"""
-        )
+            like_view_ratio REAL DEFAULT 0)""")
+        cur.execute("""CREATE UNIQUE INDEX IF NOT EXISTS idx_monitor_bvid_ts
+            ON monitor_records(bvid, timestamp)""")
         # 独立库详细数据表（含 bvid 用于跨视频关联）
-        cur.execute(
-            """CREATE TABLE IF NOT EXISTS weekly_scores (
+        cur.execute("""CREATE TABLE IF NOT EXISTS weekly_scores (
             id INTEGER PRIMARY KEY AUTOINCREMENT, bvid TEXT NOT NULL,
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             total_score REAL, view_score REAL, interaction_score REAL,
             favorite_score REAL, coin_score REAL, like_score REAL,
             correction_a REAL, correction_b REAL, correction_c REAL,
-            correction_d REAL, base_view_score REAL)"""
-        )
-        cur.execute(
-            """CREATE INDEX IF NOT EXISTS idx_weekly_bvid
-            ON weekly_scores(bvid, timestamp)"""
-        )
-        cur.execute(
-            """CREATE TABLE IF NOT EXISTS yearly_scores (
+            correction_d REAL, base_view_score REAL)""")
+        cur.execute("""CREATE INDEX IF NOT EXISTS idx_weekly_bvid
+            ON weekly_scores(bvid, timestamp)""")
+        cur.execute("""CREATE TABLE IF NOT EXISTS yearly_scores (
             id INTEGER PRIMARY KEY AUTOINCREMENT, bvid TEXT NOT NULL,
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             total_score REAL, view_score REAL, interaction_score REAL,
             favorite_score REAL, coin_score REAL, like_score REAL,
-            correction_a REAL, correction_b REAL, correction_c REAL)"""
-        )
-        cur.execute(
-            """CREATE INDEX IF NOT EXISTS idx_yearly_bvid
-            ON yearly_scores(bvid, timestamp)"""
-        )
+            correction_a REAL, correction_b REAL, correction_c REAL)""")
+        cur.execute("""CREATE INDEX IF NOT EXISTS idx_yearly_bvid
+            ON yearly_scores(bvid, timestamp)""")
         # 迁移：确保 predictions 表有完整字段
         Database._migrate_central_predictions(cur)
         # 索引：加速 predictions 按 bvid 查询
@@ -1184,8 +1265,8 @@ class Database:
             if col not in existing:
                 try:
                     cur.execute(f"ALTER TABLE predictions ADD COLUMN {col} {definition}")
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("迁移列 %s 失败: %s", col, e)
 
     def wal_checkpoint(self):
         """周期性 WAL checkpoint，控制 WAL 文件大小。"""
@@ -1204,5 +1285,13 @@ class Database:
             logger.warning("关闭数据库失败: %s", e)
 
 
-# 全局数据库实例
-db = Database()
+# 全局数据库实例（惰性初始化）
+_db = None
+
+
+def get_db():
+    """获取全局 Database 单例（惰性初始化）"""
+    global _db
+    if _db is None:
+        _db = Database()
+    return _db

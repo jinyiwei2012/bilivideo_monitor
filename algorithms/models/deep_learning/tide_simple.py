@@ -24,12 +24,17 @@ class TideSimpleAlgorithm(BaseAlgorithm):
 
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
         return try_torch_predict(
-            self, video_data, threshold, TIDETorchModel, self._numpy_predict,
-            window=self.training_window, horizon=self.training_horizon,
+            self,
+            video_data,
+            threshold,
+            TIDETorchModel,
+            self._numpy_predict,
+            window=self.training_window,
+            horizon=self.training_horizon,
         )
 
     def build_model(self):
-        return TIDETorchModel(in_features=5, window=10, horizon=self.training_horizon)
+        return TIDETorchModel(in_features=getattr(self, '_training_n_features', 5), window=10, horizon=self.training_horizon)
 
     def get_training_features(self) -> List[str]:
         return ["view_count", "like_count", "coin_count", "favorite_count", "share_count"]
@@ -41,9 +46,13 @@ class TideSimpleAlgorithm(BaseAlgorithm):
 
         if len(history) < 4 or velocity <= 0:
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=float("inf"),
-                confidence=0.0, current_views=current_views, current_velocity=velocity,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=float("inf"),
+                confidence=0.0,
+                current_views=current_views,
+                current_velocity=velocity,
                 metadata={"method": "tide_simple", "reason": "insufficient_data"},
                 timestamp=datetime.now(),
             )
@@ -54,16 +63,6 @@ class TideSimpleAlgorithm(BaseAlgorithm):
             n = 2
 
         try:
-            x = np.arange(len(views))
-            coeffs = np.polyfit(x, views, 2)
-            trend = np.polyval(coeffs, x)
-            detrended = views - trend
-
-            encoder = detrended[-n:]
-            seasonal = np.tile(encoder, 3)[:n]
-            decoder = trend[-1] + np.arange(1, n + 1) * (coeffs[0] * 2 + coeffs[1])
-
-            future = decoder + seasonal
             future_velocity = max(0, np.mean(np.diff(views[-5:])) / 3600) if len(views) >= 5 else velocity
             predicted_velocity = max(future_velocity, velocity * 0.5)
 
@@ -74,13 +73,19 @@ class TideSimpleAlgorithm(BaseAlgorithm):
                 predicted_hours = remaining / predicted_velocity
                 confidence = min(0.85, 0.5 + 0.01 * len(history))
         except Exception:
-            predicted_hours = remaining / velocity if velocity > 0 else float("inf") if 'remaining' in dir() else float("inf")
+            predicted_hours = (
+                remaining / velocity if velocity > 0 else float("inf") if "remaining" in dir() else float("inf")
+            )
             confidence = 0.3
 
         return PredictionResult(
-            algorithm_name=self.name, algorithm_id=self.algorithm_id,
-            target_threshold=threshold, predicted_hours=predicted_hours,
-            confidence=confidence, current_views=current_views, current_velocity=velocity,
+            algorithm_name=self.name,
+            algorithm_id=self.algorithm_id,
+            target_threshold=threshold,
+            predicted_hours=predicted_hours,
+            confidence=confidence,
+            current_views=current_views,
+            current_velocity=velocity,
             metadata={"method": "tide_simple", "history_len": len(history)},
             timestamp=datetime.now(),
         )

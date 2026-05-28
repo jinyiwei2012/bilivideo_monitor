@@ -5,7 +5,6 @@ CNN-LSTM混合预测模型
 
 import math
 import numpy as np
-from typing import Dict, Any
 from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
 from algorithms.models.deep_learning._torch_upgrade import CNNLSTMTorchModel, try_torch_predict
@@ -79,7 +78,7 @@ class CNNLSTMHybridAlgorithm(BaseAlgorithm):
         )
 
     def build_model(self):
-        return CNNLSTMTorchModel(in_features=5, horizon=self.training_horizon)
+        return CNNLSTMTorchModel(in_features=getattr(self, '_training_n_features', 5), horizon=self.training_horizon)
 
     def get_training_features(self):
         return ["view_count", "like_count", "coin_count", "favorite_count", "share_count"]
@@ -138,7 +137,7 @@ class CNNLSTMHybridAlgorithm(BaseAlgorithm):
                 ts = ts.timestamp()
             elif isinstance(ts, str):
                 try:
-                    ts = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S").timestamp()
+                    ts = datetime.fromisoformat(str(ts)[:19].replace("T", " ")).timestamp()
                 except Exception:
                     continue
             timestamps.append(float(ts))

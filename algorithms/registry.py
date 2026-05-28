@@ -5,16 +5,13 @@
 
 from typing import Dict, List, Tuple
 import logging
+import math
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
+from .weight_manager import get_weight_manager
 
 logger = logging.getLogger(__name__)
-
-try:
-    from .weight_manager import weight_manager
-except ImportError:
-    weight_manager = None
 
 
 class AlgorithmRegistry:
@@ -25,18 +22,22 @@ class AlgorithmRegistry:
     _model_adapters = {}
     _pool_lock = threading.Lock()
     _pool = None
+    _init_lock = threading.Lock()
 
     @classmethod
     def initialize(cls):
-        """初始化注册所有算法"""
+        """初始化注册所有算法（线程安全，支持后台预加载）"""
         if cls._initialized:
             return
+        with cls._init_lock:
+            if cls._initialized:
+                return
 
-        # 加载models目录下的所有算法（包括子目录）
-        cls._load_model_algorithms()
+            # 加载models目录下的所有算法（包括子目录）
+            cls._load_model_algorithms()
 
-        cls._initialized = True
-        logger.info("算法注册完成，共 %d 个算法", len(cls._algorithms))
+            cls._initialized = True
+            logger.info("算法注册完成，共 %d 个算法", len(cls._algorithms))
 
     @classmethod
     def _load_model_algorithms(cls):
@@ -62,6 +63,19 @@ class AlgorithmRegistry:
         if not cls._initialized:
             cls.initialize()
         return cls._algorithms.get(name)
+
+    @classmethod
+    def get_registry_key(cls, algorithm_id: str) -> str:
+        """根据原始 algorithm_id 查找 registry 存储用的完整 key。"""
+        if not cls._initialized:
+            cls.initialize()
+        for key, adapter in cls._algorithms.items():
+            raw_id = getattr(adapter, "algorithm_id", None) or getattr(adapter, "algo", None)
+            if hasattr(raw_id, "algorithm_id"):
+                raw_id = raw_id.algorithm_id
+            if raw_id == algorithm_id:
+                return key
+        return algorithm_id
 
     @classmethod
     def get_all_algorithms(cls):
@@ -150,7 +164,7 @@ class AlgorithmRegistry:
                         threshold_names=threshold_names,
                         _cached_video_data=cached_video_data,
                     )
-                w = weight_manager.get_weight(n) if weight_manager else getattr(algo, "weight", 1.0)
+                w = get_weight_manager().get_weight(n)
                 pred = res["prediction"]
                 meta = res.get("metadata", {})
                 model_source = meta.get("model_source", "底模")
@@ -198,25 +212,68 @@ class AlgorithmRegistry:
             if r["weight"] > 0 and r["prediction"] > 0
         ]
 
+        # ── Coherence-aware weight adjustment ────────────
+        # 基于算法间共识度调整权重：偏离中位数越远权重越低
+        if len(valid_predictions) >= 3:
+            values = sorted(p for _, p, _ in valid_predictions)
+            median_val = values[len(values) // 2]
+            if median_val > 0:
+                for name, pred, w in valid_predictions:
+                    coherence = min(pred, median_val) / max(pred, median_val)
+                    coherence_factor = 0.5 + 0.5 * coherence
+                    results[name]["coherence"] = round(coherence, 4)
+                    results[name]["weight"] = w * coherence_factor
+
+        # 重新读取调整后的权重
+        valid_predictions = [
+            (name, r["prediction"], r["weight"])
+            for name, r in results.items()
+            if r["weight"] > 0 and r["prediction"] > 0
+        ]
+
         if valid_predictions:
             total_weight = sum(w for _, _, w in valid_predictions)
             if total_weight > 0:
                 weighted_pred = sum(p * w for _, p, w in valid_predictions) / total_weight
+                # ── Ensemble confidence（基于预测离散度）──
+                # CV 越低表示算法间共识度越高 → 置信度越高
+                valid_vals = [p for _, p, _ in valid_predictions]
+                mean_v = sum(valid_vals) / len(valid_vals)
+                if mean_v > 0:
+                    variance = sum((p - mean_v) ** 2 for p in valid_vals) / len(valid_vals)
+                    cv = (variance ** 0.5) / mean_v
+                    ensemble_conf = max(0.0, min(1.0, math.exp(-cv * 2)))
+                else:
+                    ensemble_conf = 0.0
             else:
                 weighted_pred = current_value
+                ensemble_conf = 0.0
         else:
             weighted_pred = current_value
+            ensemble_conf = 0.0
 
         results["_weighted"] = {
             "prediction": weighted_pred,
             "total_algorithms": len(results),
             "valid_algorithms": valid_count,
             "na_algorithms": na_count,
+            "ensemble_confidence": round(ensemble_conf, 4),
         }
 
+        # ── 保形预测区间 ─────────────────────────────
+        try:
+            from .conformal import get_conformal_predictor
+
+            cp = get_conformal_predictor()
+            interval = cp.predict_interval(weighted_pred)
+            results["_weighted"]["prediction_interval"] = interval
+        except Exception as e:
+            logger.debug("忽略异常: %s", e)
+
         logger.info(
-            "[%s] 综合预测: %.0f (有效 %d/%d)",
+            "[%s] 综合预测: %.0f (有效 %d/%d, 区间 ±%.0f%%)",
             bvid, weighted_pred, valid_count, len(results),
+            round(interval.get("interval_width_ratio", 0) * 100) if results["_weighted"].get("prediction_interval") else 0,
         )
 
         return results
@@ -229,10 +286,19 @@ class AlgorithmRegistry:
                 algo.update_accuracy(predicted, actual)
             try:
                 accuracy = algo.get_accuracy() if hasattr(algo, "get_accuracy") else 0.5
-                if weight_manager is not None:
-                    weight_manager.update_accuracy(algorithm_name, accuracy)
+                get_weight_manager().update_accuracy(algorithm_name, accuracy)
             except Exception as e:
                 logger.debug("更新算法准确率失败 %s: %s", algorithm_name, e)
+
+    @classmethod
+    def update_ensemble_accuracy(cls, predicted: float, actual: float):
+        """用集成预测值与实际值更新保形预测器的校准集。"""
+        try:
+            from .conformal import get_conformal_predictor
+
+            get_conformal_predictor().update(predicted, actual)
+        except Exception as e:
+            logger.debug("更新集成预测准确率失败: %s", e)
 
     @classmethod
     def get_weights_info(cls) -> List[Dict]:
@@ -241,17 +307,23 @@ class AlgorithmRegistry:
 
         names = cls.get_algorithm_names()
 
-        if weight_manager is None:
-            return [{"name": n, "accuracy": 0.5, "weight": 1.0} for n in names]
-
         try:
-            return weight_manager.get_algorithm_info(names)
+            return get_weight_manager().get_algorithm_info(names)
         except Exception as e:
             logger.debug("获取算法权重信息失败: %s", e)
-            return [{"name": n, "accuracy": 0.5, "weight": 1.0} for n in names]
+            return [{"name": n, "accuracy": 0.5, "final_weight": 1.0, "ml_weight": 1.0, "user_weight": None, "is_customized": False, "samples": 0} for n in names]
+
+    @classmethod
+    def shutdown(cls):
+        """关闭线程池，释放资源（应用退出时调用）。"""
+        with cls._pool_lock:
+            if cls._pool is not None:
+                cls._pool.shutdown(wait=False)
+                cls._pool = None
 
     @classmethod
     def reset(cls):
+        cls.shutdown()
         cls._algorithms = {}
         cls._model_adapters = {}
         cls._initialized = False
@@ -292,4 +364,4 @@ class AlgorithmRegistry:
         return result
 
 
-AlgorithmRegistry.initialize()
+# 不再模块级初始化，改为按需(Lazy)初始化——所有公开方法都已检查 _initialized 标志

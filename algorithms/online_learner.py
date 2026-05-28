@@ -27,7 +27,8 @@ DEFAULT_DECAY = 0.95  # EWMA 衰减系数（越大越重视历史）
 class _AlgorithmTracker:
     """单个算法的在线学习状态"""
 
-    __slots__ = ("name", "weight", "cumulative_loss", "ewma_loss", "error_count", "last_error", "last_update")
+    __slots__ = ("name", "weight", "cumulative_loss", "ewma_loss", "error_count",
+                 "last_error", "last_update", "recent_errors")
 
     def __init__(self, name: str, initial_weight: float = 1.0):
         self.name = name
@@ -37,6 +38,7 @@ class _AlgorithmTracker:
         self.error_count = 0
         self.last_error: Optional[float] = None
         self.last_update: float = 0.0
+        self.recent_errors: List[float] = []  # 滑动窗口，用于波动率检测
 
 
 class OnlineLearner:
@@ -92,16 +94,20 @@ class OnlineLearner:
         Parameters
         ----------
         name : str          算法名称
-        predicted : float   上次预测值
+        predicted : float   上次预测值（短期预测，如 75 秒后的预估播放量）
         actual : float      当前实际观测值
         """
         if name not in self._trackers:
             return
 
-        # 计算误差
         if actual <= 0:
             return
-        error = abs(predicted - actual) / actual  # 相对误差 [0, +∞)
+
+        # 使用相对误差，但为防止无变化时人为抬高频次，用平滑相对变化：
+        #   error = |predicted - actual| / max(predicted, actual, 1)
+        # 当 predicted == actual == 不变时，error=0 但由 decay 衰减
+        base = max(predicted, actual, 1.0)
+        error = abs(predicted - actual) / base  # 相对误差 [0, +∞)
 
         with self._lock:
             t = self._trackers[name]
@@ -109,7 +115,7 @@ class OnlineLearner:
             t.last_update = time.time()
             t.error_count += 1
 
-            # EWMA 误差
+            # EWMA 误差（decay 防止静止期误差堆积到 0）
             if t.ewma_loss == 0:
                 t.ewma_loss = error
             else:
@@ -119,7 +125,16 @@ class OnlineLearner:
             # 使用 logloss 风格：loss = ln(1 + error)
             t.cumulative_loss += math.log(1 + error)
 
+            # 记录近期误差用于波动率检测
+            t.recent_errors.append(error)
+            if len(t.recent_errors) > 10:
+                t.recent_errors.pop(0)
+
             self._step += 1
+
+            # 每 5 步调整一次学习率
+            if self._step % 5 == 0:
+                self._adjust_eta()
 
     def get_weights(self) -> Dict[str, float]:
         """获取当前在线学习推荐的权重字典。
@@ -215,6 +230,32 @@ class OnlineLearner:
                 t.ewma_loss = 0.0
                 t.error_count = 0
                 t.last_error = None
+                t.recent_errors.clear()
+
+    # ── 自适应学习率 ──────────────────────────
+
+    def _adjust_eta(self):
+        """根据最近误差波动率动态调整 Hedge 学习率 eta。
+
+        高波动率（分布漂移 / 突发变化）→ 增大 eta 加速适应；
+        低波动率（稳定状态）→ 减小 eta 更稳健。
+        """
+        with self._lock:
+            all_errors = []
+            for t in self._trackers.values():
+                all_errors.extend(t.recent_errors)
+            if len(all_errors) < 5:
+                return
+            mean_err = sum(all_errors) / len(all_errors)
+            if mean_err < 1e-8:
+                return
+            variance = sum((e - mean_err) ** 2 for e in all_errors) / len(all_errors)
+            cv = (variance ** 0.5) / mean_err
+            # eta ∈ [0.1, 1.5]，CV 越高 eta 越大
+            new_eta = max(0.1, min(1.5, DEFAULT_ETA * (0.5 + cv * 1.5)))
+            if abs(new_eta - self.eta) > 0.05:
+                logger.debug("[online_learner] eta 自适应: %.3f → %.3f (CV=%.2f)", self.eta, new_eta, cv)
+                self.eta = new_eta
 
     # ── 内部方法 ──────────────────────────────────
 

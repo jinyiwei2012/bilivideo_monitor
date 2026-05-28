@@ -6,7 +6,6 @@ import os
 import json
 import tkinter as tk
 from tkinter import ttk, messagebox
-from datetime import datetime, timedelta
 from pathlib import Path
 
 from ui.theme import C, FONT
@@ -22,7 +21,9 @@ class ReportSchedulerWindow:
     def __init__(self, parent=None, gui=None):
         sw = parent.winfo_screenwidth() if parent else 1920
         sh = parent.winfo_screenheight() if parent else 1080
-        self.dlg = DialogBase(parent, "定时导出报告", f"{int(sw*0.42)}x{int(sh*0.60)}", resizable=(True, True), modal=False)
+        self.dlg = DialogBase(
+            parent, "定时导出报告", f"{int(sw * 0.42)}x{int(sh * 0.60)}", resizable=(True, True), modal=False
+        )
         self.window = self.dlg.window
         self.gui = gui
         self._scheduled_job = None
@@ -39,29 +40,46 @@ class ReportSchedulerWindow:
         tk.Label(row, text="导出格式:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT).pack(side=tk.LEFT)
         self._format_var = tk.StringVar(value="html")
         for fmt, label in [("html", "HTML"), ("excel", "Excel"), ("csv", "CSV"), ("json", "JSON"), ("both", "所有")]:
-            tk.Radiobutton(row, text=label, variable=self._format_var, value=fmt, bg=C["bg_elevated"]).pack(side=tk.LEFT, padx=4)
+            tk.Radiobutton(row, text=label, variable=self._format_var, value=fmt, bg=C["bg_elevated"]).pack(
+                side=tk.LEFT, padx=4
+            )
 
-        ttk.Button(sec, text="立即导出", command=self._export_now, style="Primary.TButton").pack(anchor="w", padx=4, pady=(8, 0))
+        ttk.Button(sec, text="立即导出", command=self._export_now, style="Primary.TButton").pack(
+            anchor="w", padx=4, pady=(8, 0)
+        )
         self._export_status = tk.Label(sec, text="", bg=C["bg_elevated"], fg=C["text_2"], font=FONT)
         self._export_status.pack(anchor="w", padx=4, pady=(4, 0))
 
+        # 预测对比导出
+        ttk.Button(sec, text="📊 导出预测vs实际对比表", command=self._export_pred_vs_actual).pack(
+            anchor="w", padx=4, pady=(4, 0)
+        )
+
         # ── 定时导出 ──
         sec2 = self.dlg.section(title="定时导出", padding=10)
-        tk.Label(sec2, text="按计划自动导出到 reports/ 目录", bg=C["bg_elevated"], fg=C["text_3"], font=FONT).pack(anchor="w")
+        tk.Label(sec2, text="按计划自动导出到 reports/ 目录", bg=C["bg_elevated"], fg=C["text_3"], font=FONT).pack(
+            anchor="w"
+        )
 
         row2 = tk.Frame(sec2, bg=C["bg_elevated"])
         row2.pack(fill=tk.X, pady=(6, 0))
         self._schedule_enabled = tk.BooleanVar(value=False)
-        ttk.Checkbutton(row2, text="启用定时导出", variable=self._schedule_enabled, command=self._on_schedule_toggle).pack(side=tk.LEFT)
+        ttk.Checkbutton(
+            row2, text="启用定时导出", variable=self._schedule_enabled, command=self._on_schedule_toggle
+        ).pack(side=tk.LEFT)
 
         tk.Label(row2, text="  间隔:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT).pack(side=tk.LEFT)
         self._interval_var = tk.StringVar(value="daily")
-        interval_menu = ttk.Combobox(row2, textvariable=self._interval_var, values=["hourly", "daily", "weekly"], state="readonly", width=8)
+        interval_menu = ttk.Combobox(
+            row2, textvariable=self._interval_var, values=["hourly", "daily", "weekly"], state="readonly", width=8
+        )
         interval_menu.pack(side=tk.LEFT, padx=4)
 
         tk.Label(row2, text="  导出格式:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT).pack(side=tk.LEFT)
         self._schedule_format_var = tk.StringVar(value="csv")
-        ttk.Combobox(row2, textvariable=self._schedule_format_var, values=["csv", "json", "html"], state="readonly", width=6).pack(side=tk.LEFT)
+        ttk.Combobox(
+            row2, textvariable=self._schedule_format_var, values=["csv", "json", "html"], state="readonly", width=6
+        ).pack(side=tk.LEFT)
 
         ttk.Button(sec2, text="保存设置", command=self._save_schedule).pack(anchor="w", padx=4, pady=(8, 0))
         self._schedule_status = tk.Label(sec2, text="", bg=C["bg_elevated"], fg=C["text_2"], font=FONT)
@@ -70,8 +88,14 @@ class ReportSchedulerWindow:
         # ── 已导出文件列表 ──
         sec3 = self.dlg.section(title="已导出文件", padding=8)
         self._file_list = tk.Listbox(
-            sec3, bg=C["bg_base"], fg=C["text_1"], font=("Consolas", 9),
-            height=8, relief="flat", highlightthickness=1, highlightbackground=C["border"],
+            sec3,
+            bg=C["bg_base"],
+            fg=C["text_1"],
+            font=("Consolas", 9),
+            height=8,
+            relief="flat",
+            highlightthickness=1,
+            highlightbackground=C["border"],
         )
         self._file_list.pack(fill=tk.BOTH, expand=True)
 
@@ -83,6 +107,24 @@ class ReportSchedulerWindow:
         self._refresh_file_list()
         self._load_schedule()
         self._on_schedule_toggle()
+
+    def _export_pred_vs_actual(self):
+        """导出预测值 vs 实际播放量对比表"""
+        if not self.gui or not self.gui.video_dbs:
+            messagebox.showwarning("提示", "暂无预测数据", parent=self.window)
+            return
+        self._export_status.config(text="正在导出预测对比表...", fg=C["text_2"])
+        self.window.update_idletasks()
+        try:
+            from utils.report_exporter import export_prediction_vs_actual
+
+            path = export_prediction_vs_actual(self.gui.video_dbs)
+            if path:
+                self._export_status.config(text=f"✅ 已导出: {path}", fg=C["success"])
+            else:
+                self._export_status.config(text="⚠️ 无有效的预测-实际对照数据", fg=C["warning"])
+        except Exception as e:
+            self._export_status.config(text=f"❌ 导出失败: {e}", fg=C["danger"])
 
     def _export_now(self):
         if not self.gui or not self.gui.monitored_videos:
@@ -96,11 +138,16 @@ class ReportSchedulerWindow:
 
         results = []
         try:
-            fmts = {"html": [export_html], "excel": [export_excel], "csv": [export_csv],
-                    "json": [export_json], "both": [export_html, export_excel, export_csv, export_json]}
+            fmts = {
+                "html": [export_html],
+                "excel": [export_excel],
+                "csv": [export_csv],
+                "json": [export_json],
+                "both": [export_html, export_excel, export_csv, export_json],
+            }
             for exporter in fmts.get(fmt, [export_html]):
                 path = exporter(self.gui.monitored_videos)
-                results.append(f"{exporter.__name__.replace('export_','').upper()}: {path}")
+                results.append(f"{exporter.__name__.replace('export_', '').upper()}: {path}")
             self._export_status.config(text="导出完成！\n" + "\n".join(results), fg=C["success"])
             self._refresh_file_list()
         except Exception as e:
@@ -109,7 +156,6 @@ class ReportSchedulerWindow:
     # ── 定时导出 ──
 
     def _on_schedule_toggle(self):
-        state = tk.NORMAL if self._schedule_enabled.get() else tk.DISABLED
         self._interval_var.set("daily")
         self._schedule_format_var.set("csv")
 
@@ -121,8 +167,8 @@ class ReportSchedulerWindow:
                 self._interval_var.set(data.get("interval", "daily"))
                 self._schedule_format_var.set(data.get("format", "csv"))
                 self._schedule_status.config(text="已加载保存的定时设置", fg=C["success"])
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("忽略异常: %s", e)
 
     def _save_schedule(self):
         data = {
@@ -155,13 +201,16 @@ class ReportSchedulerWindow:
             return
         try:
             fmt = self._schedule_format_var.get()
+            import logging
             from utils.report_exporter import export_csv, export_json, export_html
+
             exporters = {"csv": export_csv, "json": export_json, "html": export_html}
             exporter = exporters.get(fmt, export_csv)
             path = exporter(self.gui.monitored_videos)
-            logger.info("定时导出完成: %s", path)
+            logging.getLogger(__name__).info("定时导出完成: %s", path)
         except Exception as e:
             import logging
+
             logging.getLogger(__name__).warning("定时导出失败: %s", e)
         self._refresh_file_list()
         self._schedule_next()

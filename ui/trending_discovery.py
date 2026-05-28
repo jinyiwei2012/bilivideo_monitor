@@ -7,6 +7,7 @@ from tkinter import ttk, messagebox
 from typing import Dict, List, Optional, Callable
 
 from ui.theme import C
+from ui.scrollable_frame import ScrollableFrame
 from ui.dialog_base import DialogBase
 
 
@@ -14,10 +15,9 @@ class TrendingDiscoveryWindow:
     """热门视频发现窗口"""
 
     def __init__(self, parent=None, api=None, on_add_monitor: Optional[Callable] = None):
-        sw = parent.winfo_screenwidth() if parent else 1920
-        sh = parent.winfo_screenheight() if parent else 1080
-        w, h = int(sw * 0.48), int(sh * 0.68)
-        self.dlg = DialogBase(parent, "热门视频发现", f"{w}x{h}", resizable=(True, True), modal=False)
+        self.dlg = DialogBase(
+            parent, "热门视频发现", DialogBase.calc_geometry(parent, 0.48, 0.68), resizable=(True, True), modal=False
+        )
         self.window = self.dlg.window
         self.api = api
         self.on_add_monitor = on_add_monitor
@@ -55,7 +55,9 @@ class TrendingDiscoveryWindow:
         self._tab_btns["popular"].pack_forget()
         refresh_frame = tk.Frame(self.dlg.container, bg=C["bg_surface"])
         refresh_frame.pack(fill=tk.X, padx=24, pady=(4, 0))
-        ttk.Button(refresh_frame, text="🔄 刷新", command=self._load_popular, style="Primary.TButton").pack(side=tk.RIGHT)
+        ttk.Button(refresh_frame, text="🔄 刷新", command=self._load_popular, style="Primary.TButton").pack(
+            side=tk.RIGHT
+        )
         # Re-pack the first tab
         self._tab_btns["popular"].pack(side=tk.LEFT)
 
@@ -65,18 +67,9 @@ class TrendingDiscoveryWindow:
         )
         list_frame.pack(fill=tk.BOTH, expand=True, padx=24, pady=(8, 16))
 
-        sc = tk.Frame(list_frame, bg=C["bg_elevated"])
-        sc.pack(fill=tk.BOTH, expand=True)
-
-        self._canvas = tk.Canvas(sc, bg=C["bg_elevated"], highlightthickness=0)
-        vsb = ttk.Scrollbar(sc, orient="vertical", command=self._canvas.yview)
-        self._canvas.config(yscrollcommand=vsb.set)
-        vsb.pack(side=tk.RIGHT, fill=tk.Y)
-        self._canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        self._card_frame = tk.Frame(self._canvas, bg=C["bg_elevated"])
-        self._canvas.create_window((0, 0), window=self._card_frame, anchor="nw")
-        self._card_frame.bind("<Configure>", lambda e: self._canvas.configure(scrollregion=self._canvas.bbox("all")))
+        sf = ScrollableFrame(list_frame, bg=C["bg_elevated"])
+        sf.pack(fill=tk.BOTH, expand=True)
+        self._card_frame = sf.inner
 
         self._load_popular()
 
@@ -95,11 +88,14 @@ class TrendingDiscoveryWindow:
         tk.Label(
             self._card_frame, text="加载中...", bg=C["bg_elevated"], fg=C["text_3"], font=("Microsoft YaHei UI", 10)
         ).pack()
-        self.window.update_idletasks()
 
-        videos = self.api.get_popular_videos()
-        self._videos = videos
-        self._display_videos(videos)
+        def _fetch():
+            videos = self.api.get_popular_videos()
+            self.window.after(0, lambda: self._display_videos(videos))
+
+        import threading
+
+        threading.Thread(target=_fetch, daemon=True).start()
 
     def _load_weekly(self):
         if not self.api:
@@ -108,11 +104,14 @@ class TrendingDiscoveryWindow:
         tk.Label(
             self._card_frame, text="加载中...", bg=C["bg_elevated"], fg=C["text_3"], font=("Microsoft YaHei UI", 10)
         ).pack()
-        self.window.update_idletasks()
 
-        videos = self.api.get_weekly_series()
-        self._videos = videos
-        self._display_videos(videos)
+        def _fetch():
+            videos = self.api.get_weekly_series()
+            self.window.after(0, lambda: self._display_videos(videos))
+
+        import threading
+
+        threading.Thread(target=_fetch, daemon=True).start()
 
     def _clear_cards(self):
         for w in self._card_frame.winfo_children():
@@ -176,9 +175,9 @@ class TrendingDiscoveryWindow:
 
             meta = tk.Frame(card, bg=C["bg_surface"])
             meta.pack(fill=tk.X, pady=(4, 0))
-            tk.Label(meta, text=f"👤 {author}", bg=C["bg_surface"], fg=C["text_2"], font=("Microsoft YaHei UI", 9)).pack(
-                side=tk.LEFT, padx=(0, 12)
-            )
+            tk.Label(
+                meta, text=f"👤 {author}", bg=C["bg_surface"], fg=C["text_2"], font=("Microsoft YaHei UI", 9)
+            ).pack(side=tk.LEFT, padx=(0, 12))
             tk.Label(
                 meta, text=f"▶ {self._fmt(views)}", bg=C["bg_surface"], fg=C["text_2"], font=("Microsoft YaHei UI", 9)
             ).pack(side=tk.LEFT, padx=(0, 12))

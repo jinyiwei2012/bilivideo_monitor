@@ -1,3 +1,5 @@
+import logging
+logger = logging.getLogger(__name__)
 """
 现代化视频搜索界面
 支持B站关键词搜索、批量导入到监控列表
@@ -10,7 +12,7 @@ from typing import List, Dict, Callable, Optional
 import threading
 import webbrowser
 
-from core import bilibili_api
+from core import get_bilibili_api
 from ui.theme import C
 from ui.helpers import FONT, FONT_SM
 from ui.dialog_base import DialogBase
@@ -20,9 +22,7 @@ class VideoSearchWindow:
     """视频搜索窗口（现代化风格）"""
 
     def __init__(self, parent=None, on_import: Optional[Callable[[list], None]] = None):
-        sw = parent.winfo_screenwidth() if parent else 1920
-        sh = parent.winfo_screenheight() if parent else 1080
-        self.dlg = DialogBase(parent, "搜索视频 - B站", f"{int(sw*0.48)}x{int(sh*0.68)}", modal=True)
+        self.dlg = DialogBase(parent, "搜索视频 - B站", DialogBase.calc_geometry(parent, 0.48, 0.68), modal=True)
         self.window = self.dlg.window
         self.on_import = on_import
         self.search_results: List[Dict] = []
@@ -43,7 +43,9 @@ class VideoSearchWindow:
         self.kw_entry.pack(side=tk.LEFT, padx=(0, 8))
         self.kw_entry.bind("<Return>", lambda e: self._start_search())
 
-        ttk.Button(row, text="搜索", command=self._start_search, style="Primary.TButton").pack(side=tk.LEFT, padx=(0, 12))
+        ttk.Button(row, text="搜索", command=self._start_search, style="Primary.TButton").pack(
+            side=tk.LEFT, padx=(0, 12)
+        )
 
         self.status_lbl = tk.Label(row, text="就绪", bg=C["bg_elevated"], fg=C["text_3"], font=FONT_SM)
         self.status_lbl.pack(side=tk.RIGHT, padx=8)
@@ -110,7 +112,7 @@ class VideoSearchWindow:
 
     def _worker(self, kw: str):
         try:
-            results = bilibili_api.search_videos(kw, page=1, page_size=20)
+            results = get_bilibili_api().search_videos(kw, page=1, page_size=20)
             if not results:
                 self.window.after(0, lambda: self.status_lbl.config(text="未找到结果", fg=C["text_2"]))
                 return
@@ -202,14 +204,14 @@ class VideoSearchWindow:
         top.title(f"视频详情 - {bvid}")
         sw = self.window.winfo_screenwidth()
         sh = self.window.winfo_screenheight()
-        top.geometry(f"{int(sw*0.32)}x{int(sh*0.48)}")
+        top.geometry(f"{int(sw * 0.32)}x{int(sh * 0.48)}")
         top.configure(bg=C["bg_surface"])
         top.transient(self.window)
         top.grab_set()
 
-        tk.Label(top, text="视频详情", bg=C["bg_surface"], fg=C["text_1"], font=("Microsoft YaHei UI", 14, "bold")).pack(
-            pady=(20, 4)
-        )
+        tk.Label(
+            top, text="视频详情", bg=C["bg_surface"], fg=C["text_1"], font=("Microsoft YaHei UI", 14, "bold")
+        ).pack(pady=(20, 4))
 
         if pic.startswith("http"):
             try:
@@ -220,8 +222,8 @@ class VideoSearchWindow:
                 img = Image.open(io.BytesIO(resp.content)).resize((320, 180))
                 self._detail_img = ImageTk.PhotoImage(img)
                 tk.Label(top, image=self._detail_img, bg=C["bg_surface"]).pack(pady=8)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("忽略异常: %s", e)
 
         info = tk.Frame(top, bg=C["bg_surface"])
         info.pack(pady=8, padx=30, fill=tk.X)

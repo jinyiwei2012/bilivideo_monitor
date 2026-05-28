@@ -22,10 +22,12 @@
 """
 
 import os
+import re
 import json
 import logging
 from datetime import datetime
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List, Any, Tuple
+from utils import project_path
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +37,7 @@ try:
 except ImportError:
     _torch_available = False
 
-_CKPT_ROOT = os.path.join(os.path.dirname(os.path.dirname(__file__)), "checkpoints")
+_CKPT_ROOT = project_path("algorithms", "checkpoints")
 
 
 class CheckpointManager:
@@ -45,6 +47,8 @@ class CheckpointManager:
         self.algo_id = algo_id
         self.bvid = bvid
         if bvid:
+            if not re.match(r"^BV[A-Za-z0-9]{10,12}$", bvid):
+                raise ValueError(f"无效的 BV 号: {bvid!r}")
             self._dir = os.path.join(_CKPT_ROOT, algo_id, "_video", bvid)
         else:
             self._dir = os.path.join(_CKPT_ROOT, algo_id)
@@ -81,6 +85,10 @@ class CheckpointManager:
                     "created_at": m.get("created_at", ""),
                     "data_count": m.get("data_count", 0),
                     "val_loss": m.get("val_loss", -1.0),
+                    "learning_rate": m.get("learning_rate", -1.0),
+                    "completed_epochs": m.get("completed_epochs", 0),
+                    "data_trained_until": m.get("data_trained_until", 0.0),
+                    "scheduler_state": m.get("scheduler_state"),
                     "active": version == active_version,
                 }
             )
@@ -111,6 +119,10 @@ class CheckpointManager:
             "val_loss": (metadata or {}).get("val_loss", -1.0),
             "epochs": (metadata or {}).get("epochs", 0),
             "device": (metadata or {}).get("device", "unknown"),
+            "learning_rate": (metadata or {}).get("learning_rate", -1.0),
+            "completed_epochs": (metadata or {}).get("completed_epochs", 0),
+            "data_trained_until": (metadata or {}).get("data_trained_until", 0.0),
+            "scheduler_state": (metadata or {}).get("scheduler_state"),
         }
         self._write_metadata(meta)
         self._write_active(version)
@@ -130,7 +142,7 @@ class CheckpointManager:
             logger.warning("[%s] checkpoint 不存在: %s", self.algo_id, path)
             return None
         try:
-            return torch.load(path, map_location="cpu", weights_only=False)
+            return torch.load(path, map_location="cpu", weights_only=True)
         except Exception as e:
             logger.error("[%s] 加载 checkpoint 失败: %s", self.algo_id, e)
             return None
@@ -230,25 +242,54 @@ def list_video_finetune_bvids(algo_id: str) -> List[str]:
     return sorted(result)
 
 
-def load_best_checkpoint(algo_id: str, bvid: Optional[str] = None) -> Optional[Dict]:
-    """加载最佳可用 checkpoint：优先视频微调，其次全局。
-
-    预测管线用：让已微调的算法在推理时自动使用视频专属权重，
-    未微调的视频自动回退到全局 checkpoint。
-    """
+def _try_load_checkpoint(algo_id: str, bvid: Optional[str] = None) -> Tuple[Optional[Dict], Optional[str]]:
+    """尝试用指定 algo_id 加载 checkpoint，不涉及 fallback。"""
     if bvid:
         video_ckpt = CheckpointManager(algo_id, bvid=bvid)
         if video_ckpt.has_checkpoint():
             state = video_ckpt.load()
             if state is not None:
-                logger.info("[%s] 使用视频微调 checkpoint (bvid=%s)", algo_id, bvid)
-                return state
+                ver = video_ckpt.active_version() or "?"
+                logger.info("[模型] [%s] 使用视频微调模型 (bvid=%s, %s)", algo_id, bvid, ver)
+                return state, f"微调模型({ver})"
+            else:
+                logger.debug("[模型] [%s] 视频微调模型加载失败，降级到全局 (bvid=%s)", algo_id, bvid)
     global_ckpt = CheckpointManager(algo_id)
     if global_ckpt.has_checkpoint():
         state = global_ckpt.load()
         if state is not None:
-            return state
-    return None
+            ver = global_ckpt.active_version() or "?"
+            logger.info("[模型] [%s] 使用全局预训练模型 (%s)", algo_id, ver)
+            return state, f"底模({ver})"
+    return None, None
+
+
+def load_best_checkpoint(algo_id: str, bvid: Optional[str] = None) -> Tuple[Optional[Dict], Optional[str]]:
+    """加载最佳可用 checkpoint：优先视频微调，其次全局。
+
+    会自动适配 registry 包装名（如 chronos_base → [Model] Chronos零样本）。
+
+    返回:
+        (state, source_info) — state 为 None 时无可用 checkpoint
+        source_info 如 "微调模型(v3)", "底模", None
+    """
+    state, info = _try_load_checkpoint(algo_id, bvid)
+    if state is not None:
+        return state, info
+
+    # 尝试 registry 包装名（适配器包装的算法，checkpoint 存于 [Model] X/ 下）
+    try:
+        from algorithms.registry import AlgorithmRegistry
+        mapped = AlgorithmRegistry.get_registry_key(algo_id)
+        if mapped and mapped != algo_id:
+            state, info = _try_load_checkpoint(mapped, bvid)
+            if state is not None:
+                return state, info
+    except Exception as e:
+        logger.debug("忽略异常: %s", e)
+
+    logger.info("[模型] [%s] 无可用 checkpoint，使用 numpy 降级", algo_id)
+    return None, None
 
 
 def list_all_trained_algorithms() -> List[str]:
@@ -312,4 +353,15 @@ def activate_latest_for_all() -> Dict[str, str]:
         if latest != active:
             ckpt.activate(latest)
             switched[aid] = latest
+            logger.info("[模型] [%s] 激活最新 checkpoint: %s", aid, latest)
+        else:
+            logger.debug("[模型] [%s] checkpoint 已是最新: %s", aid, active)
+    if switched:
+        logger.info("[模型] 共激活 %d 个算法的最新 checkpoint", len(switched))
+    else:
+        trained = list_all_trained_algorithms()
+        if trained:
+            logger.info("[模型] 所有 %d 个有 checkpoint 的算法均为最新版本", len(trained))
+        else:
+            logger.info("[模型] 无已训练的算法 checkpoint，将使用底模或 numpy 降级")
     return switched

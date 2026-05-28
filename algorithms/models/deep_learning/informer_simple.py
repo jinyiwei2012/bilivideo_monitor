@@ -4,7 +4,7 @@ Informer简化版 (Informer Simplified)
 """
 
 import numpy as np
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional
 from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
 from algorithms.models.deep_learning._torch_upgrade import InformerTorchModel, try_torch_predict
@@ -50,7 +50,7 @@ class InformerSimpleAlgorithm(BaseAlgorithm):
         )
 
     def build_model(self):
-        return InformerTorchModel(in_features=5, window=10, horizon=self.training_horizon)
+        return InformerTorchModel(in_features=getattr(self, '_training_n_features', 5), window=10, horizon=self.training_horizon)
 
     def get_training_features(self):
         return ["view_count", "like_count", "coin_count", "favorite_count", "share_count"]

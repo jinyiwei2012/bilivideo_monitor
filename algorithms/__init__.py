@@ -7,7 +7,7 @@
 from .base import BaseAlgorithm
 
 # 权重管理器
-from .weight_manager import WeightManager, weight_manager
+from .weight_manager import WeightManager, get_weight_manager
 
 # 算法注册器
 from .registry import AlgorithmRegistry
@@ -23,12 +23,15 @@ from .causal_inference import CausalAnalyzer, get_causal_analyzer
 # 图神经网络
 from .graph_neural import VideoGraph, get_video_graph
 
+# 保形预测
+from .conformal import ConformalPredictor, get_conformal_predictor
+
 __all__ = [
     # 基类
     "BaseAlgorithm",
     # 管理器
     "WeightManager",
-    "weight_manager",
+    "get_weight_manager",
     "AlgorithmRegistry",
     # 高级模块
     "OnlineLearner",

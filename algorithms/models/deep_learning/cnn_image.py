@@ -110,13 +110,13 @@ class CnnImageAlgorithm(BaseAlgorithm):
     def _torch_predict(self, video_data: Dict[str, Any]) -> Tuple[float, float, Dict]:
         x_arr, v_mean, v_std = self._build_input(video_data)
         bvid = video_data.get("bvid", "")
-        state = load_best_checkpoint(self.algorithm_id, bvid=bvid)
+        state, _ = load_best_checkpoint(self.algorithm_id, bvid=bvid)
         if state is None:
             raise RuntimeError("无可用的 checkpoint — 请先训练")
         if self._cached_model is None or (bvid and not getattr(self, "_cached_bvid", "") == bvid):
             model = CnnImageTorchModel(
                 window=self.training_window,
-                in_features=len(self._features),
+                in_features=getattr(self, '_training_n_features', len(self._features) + 5),
                 horizon=self.training_horizon,
             )
             model.load_state_dict(state)
@@ -130,6 +130,8 @@ class CnnImageAlgorithm(BaseAlgorithm):
         return predicted, 0.72, {"horizon_pred": y.tolist(), "method": "cnn2d"}
 
     def _build_input(self, video_data) -> Tuple[np.ndarray, float, float]:
+        from algorithms.models.deep_learning._torch_upgrade import _add_derived_features
+
         history = video_data.get("history_data", [])
         n = self.training_window
         arr = np.zeros((n, len(self._features)), dtype=np.float32)
@@ -138,10 +140,13 @@ class CnnImageAlgorithm(BaseAlgorithm):
         for i, e in enumerate(recent):
             for j, f in enumerate(self._features):
                 arr[offset + i, j] = float(e.get(f, 0) or 0)
-        mean = arr.mean(axis=0, keepdims=True)
-        std = arr.std(axis=0, keepdims=True)
+
+        arr_ext = _add_derived_features(arr)
+        mean = arr_ext.mean(axis=0, keepdims=True)
+        std = arr_ext.std(axis=0, keepdims=True)
         std = np.where(std < 1e-8, 1.0, std)
-        arr_n = ((arr - mean) / std).astype(np.float32)
+        arr_n = ((arr_ext - mean) / std).astype(np.float32)
+
         velocities = self._velocity_series(history)
         v_mean = float(np.mean(velocities)) if velocities else 0.0
         v_std = float(np.std(velocities)) if len(velocities) > 1 else 1.0
@@ -198,7 +203,7 @@ class CnnImageAlgorithm(BaseAlgorithm):
     def build_model(self):
         return CnnImageTorchModel(
             window=self.training_window,
-            in_features=len(self._features),
+            in_features=getattr(self, '_training_n_features', len(self._features) + 5),
             horizon=self.training_horizon,
         )
 

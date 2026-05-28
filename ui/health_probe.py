@@ -59,9 +59,9 @@ class HealthProbeWindow:
         tk.Label(summary, text=f"{score:.0f}", bg=C["bg_elevated"], fg=gc, font=("Consolas", 48, "bold")).pack(
             anchor="center", pady=(10, 0)
         )
-        tk.Label(summary, text=f"评级 {grade}", bg=C["bg_elevated"], fg=gc, font=("Microsoft YaHei UI", 16, "bold")).pack(
-            anchor="center"
-        )
+        tk.Label(
+            summary, text=f"评级 {grade}", bg=C["bg_elevated"], fg=gc, font=("Microsoft YaHei UI", 16, "bold")
+        ).pack(anchor="center")
         tk.Label(
             summary,
             text=f"{len(self.result.anomalies)} 项异常",

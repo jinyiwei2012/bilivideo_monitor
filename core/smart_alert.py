@@ -1,5 +1,6 @@
 """
 智能预警模块 — 异常增长检测、趋势反转、在线人数异常
+阈值优化：使用相对百分比替代绝对值，适配不同量级视频
 """
 
 import logging
@@ -8,9 +9,9 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-# 记录上次预警时间，避免重复推送
 _last_alert_time: Dict[str, datetime] = {}
-_ALERT_COOLDOWN_MINUTES = 30  # 同类预警冷却时间
+_last_alert_lock = threading.Lock()
+_ALERT_COOLDOWN_MINUTES = 30
 
 
 def _fmt_count(n: int) -> str:
@@ -23,26 +24,27 @@ def _fmt_count(n: int) -> str:
 
 def _should_alert(alert_key: str) -> bool:
     now = datetime.now()
-    last = _last_alert_time.get(alert_key)
-    if last and (now - last).total_seconds() < _ALERT_COOLDOWN_MINUTES * 60:
-        return False
-    _last_alert_time[alert_key] = now
+    with _last_alert_lock:
+        last = _last_alert_time.get(alert_key)
+        if last and (now - last).total_seconds() < _ALERT_COOLDOWN_MINUTES * 60:
+            return False
+        _last_alert_time[alert_key] = now
     return True
 
 
 class AnomalyDetector:
-    """异常检测器，判断各种异常模式"""
+    """异常检测器，使用相对阈值适配不同量级视频"""
 
     @staticmethod
     def detect_growth_spike(records: List[Dict]) -> Optional[str]:
         """
         检测播放增速异常飙升
-        2小时内播放增速 > 平均增速的3倍
+        大视频(>100万)用1.5倍阈值，小视频用3倍阈值
         """
         if len(records) < 4:
             return None
         sorted_recs = sorted(records, key=lambda r: r.get("timestamp", ""))
-        recent = sorted_recs[-4:]  # 最近4条
+        recent = sorted_recs[-4:]
 
         try:
             now_ts = datetime.fromisoformat(recent[-1]["timestamp"])
@@ -54,39 +56,49 @@ class AnomalyDetector:
         if hours_span < 0.5:
             return None
 
-        # 整体平均增速
         total_growth = recent[-1].get("view_count", 0) - recent[0].get("view_count", 0)
         avg_rate = total_growth / hours_span if hours_span > 0 else 0
 
-        # 最近一段增速（最后一小时）
         last_growth = recent[-1].get("view_count", 0) - recent[-2].get("view_count", 0)
-        last_hours = 0
         try:
             last_hours = (
                 datetime.fromisoformat(recent[-1]["timestamp"]) - datetime.fromisoformat(recent[-2]["timestamp"])
             ).total_seconds() / 3600
-        except Exception as e:
-            logger.debug("计算最近增速时间间隔失败: %s", e)
+        except Exception:
+            last_hours = 0
         last_rate = last_growth / last_hours if last_hours > 0 else 0
 
-        if avg_rate > 10 and last_rate > avg_rate * 3:
-            views = recent[-1].get("view_count", 0)
+        current_views = recent[-1].get("view_count", 0)
+
+        # 自适应阈值：大视频增速更稳定，用更小的倍数
+        if current_views > 1_000_0000:
+            multiplier = 1.5
+        elif current_views > 100_0000:
+            multiplier = 2.0
+        elif current_views > 10_0000:
+            multiplier = 2.5
+        else:
+            multiplier = 3.0
+
+        # 最低增速要求：大视频门槛更高
+        min_rate = max(10, current_views * 0.0001)  # 至少万分之一
+
+        if avg_rate > min_rate and last_rate > avg_rate * multiplier:
             return (
                 f"⚡ 播放飙升！最近增速 {last_rate:.0f}/h，"
                 f"是平均 {avg_rate:.0f}/h 的 {last_rate / avg_rate:.1f}倍 "
-                f"(当前 {_fmt_count(views)})"
+                f"(当前 {_fmt_count(current_views)})"
             )
         return None
 
     @staticmethod
     def detect_trend_reversal(records: List[Dict]) -> Optional[str]:
-        """检测趋势反转（连续3个点增速递减后反弹）"""
+        """检测增长放缓（基于比例，无绝对值门槛）"""
         if len(records) < 6:
             return None
         sorted_recs = sorted(records, key=lambda r: r.get("timestamp", ""))
         recent = sorted_recs[-6:]
 
-        # 计算每段增速
         growths = []
         for i in range(1, len(recent)):
             try:
@@ -102,18 +114,18 @@ class AnomalyDetector:
         if len(growths) < 4:
             return None
 
-        # 最近3段增速 vs 之前
         recent_g = sum(growths[-2:]) / 2
-        prev_g = sum(growths[:-2]) / max(len(growths) - 2, 1) if len(growths) > 2 else 0
+        prev_g = sum(growths[:-2]) / max(len(growths) - 2, 1)
 
-        if prev_g > 100 and recent_g < prev_g * 0.3:
+        # 之前增速需至少 1/h（排除静止视频），且降至 30% 以下
+        if prev_g > 1 and recent_g < prev_g * 0.3:
             views = recent[-1].get("view_count", 0)
-            return f"🔻 增长放缓！增速从 {prev_g:.0f}/h " f"降至 {recent_g:.0f}/h (当前 {_fmt_count(views)})"
+            return f"🔻 增长放缓！增速从 {prev_g:.0f}/h 降至 {recent_g:.0f}/h (当前 {_fmt_count(views)})"
         return None
 
     @staticmethod
     def detect_stall(records: List[Dict]) -> Optional[str]:
-        """检测播放停滞（连续多时段增速极低）"""
+        """检测播放停滞（基于视频量级的比例阈值）"""
         if len(records) < 4:
             return None
         sorted_recs = sorted(records, key=lambda r: r.get("timestamp", ""))
@@ -131,15 +143,85 @@ class AnomalyDetector:
 
         total_growth = recent[-1].get("view_count", 0) - recent[0].get("view_count", 0)
         rate = total_growth / span_h if span_h > 0 else 0
+        current_views = recent[-1].get("view_count", 0)
 
-        if rate < 5 and total_growth < 100:
-            views = recent[-1].get("view_count", 0)
-            return f"💤 播放停滞！近 {span_h:.1f}h 仅增长 {_fmt_count(total_growth)}，" f"增速 {rate:.1f}/h (当前 {_fmt_count(views)})"
+        # 自适应：播放量 < 1万 用绝对阈值，>1万 用相对阈值
+        if current_views < 1_0000:
+            if rate < 5 and total_growth < 100:
+                return f"💤 播放停滞！近 {span_h:.1f}h 仅增长 {_fmt_count(total_growth)} (当前 {_fmt_count(current_views)})"
+        else:
+            min_expected = current_views * 0.00005  # 期望至少十万分之五/小时
+            if rate < min_expected:
+                return (
+                    f"💤 播放近乎停滞！近 {span_h:.1f}h 增速 {rate:.1f}/h"
+                    f" (预期 >{min_expected:.1f}/h，当前 {_fmt_count(current_views)})"
+                )
         return None
 
     @staticmethod
     def detect_viewer_surge(records: List[Dict]) -> Optional[str]:
-        """检测在线人数短时飙升"""
+        """检测在线人数短时飙升（降低触发门槛）"""
+        if len(records) < 3:
+            return None
+        sorted_recs = sorted(records, key=lambda r: r.get("timestamp", ""))
+        recent = sorted_recs[-3:]
+
+        viewers = [r.get("viewers_total", 0) for r in recent]
+        if max(viewers) < 30:
+            return None
+
+        avg_viewers = sum(viewers[:-1]) / max(len(viewers) - 1, 1)
+        last_viewers = viewers[-1]
+
+        if avg_viewers > 0 and last_viewers > avg_viewers * 2.5 and last_viewers > 30:
+            return (
+                f"🔥 在线人数飙升！当前 {last_viewers} 人在线，"
+                f"是之前的 {last_viewers / max(avg_viewers, 1):.1f}倍"
+            )
+        return None
+
+    @staticmethod
+    def detect_night_surge(records: List[Dict]) -> Optional[str]:
+        """检测深夜/凌晨时段异常在线人数（降低触发门槛）"""
+        if len(records) < 4:
+            return None
+        sorted_recs = sorted(records, key=lambda r: r.get("timestamp", ""))
+        now = datetime.now()
+        hour = now.hour
+        if 7 <= hour < 23:
+            return None
+
+        viewers = [r.get("viewers_total", 0) for r in sorted_recs[-4:]]
+        current_v = viewers[-1] if viewers else 0
+        if current_v < 10:
+            return None
+
+        day_viewers = []
+        for r in sorted_recs:
+            try:
+                ts = r.get("timestamp", "")
+                h = datetime.fromisoformat(ts).hour if isinstance(ts, str) else now.hour
+                if 9 <= h <= 22:
+                    day_viewers.append(r.get("viewers_total", 0))
+            except Exception as e:
+                logger.debug("解析日间时段失败: %s", e)
+        if len(day_viewers) < 3:
+            day_viewers = viewers[:-1] if len(viewers) > 1 else [0]
+
+        avg_day = sum(day_viewers) / max(len(day_viewers), 1)
+
+        # 夜间在线 > 日间水平的 40% 即告警
+        if avg_day > 10 and current_v > avg_day * 0.4:
+            return (
+                f"🌙 深夜异常在线！当前 {current_v} 人在线"
+                f"（时段:{hour}:00，日间均{avg_day:.0f}人），"
+                f"可能为机器人刷量"
+            )
+        return None
+
+    @staticmethod
+    def detect_viewer_crash(records: List[Dict]) -> Optional[str]:
+        """检测在线人数断崖下跌（降低门槛）"""
         if len(records) < 3:
             return None
         sorted_recs = sorted(records, key=lambda r: r.get("timestamp", ""))
@@ -149,51 +231,158 @@ class AnomalyDetector:
         if max(viewers) < 50:
             return None
 
-        avg_viewers = sum(viewers[:-1]) / max(len(viewers) - 1, 1)
-        last_viewers = viewers[-1]
-
-        if avg_viewers > 0 and last_viewers > avg_viewers * 3 and last_viewers > 50:
-            recent[-1].get("bvid", "")
-            return f"🔥 在线人数飙升！当前 {last_viewers} 人在线，" f"是之前的 {last_viewers / max(avg_viewers, 1):.1f}倍"
-        return None
-
-    @staticmethod
-    def detect_viewer_crash(records: List[Dict]) -> Optional[str]:
-        """检测在线人数断崖下跌"""
-        if len(records) < 3:
-            return None
-        sorted_recs = sorted(records, key=lambda r: r.get("timestamp", ""))
-        recent = sorted_recs[-3:]
-
-        viewers = [r.get("viewers_total", 0) for r in recent]
-        if max(viewers) < 100:
-            return None
-
         prev_viewers = viewers[0]
         last_viewers = viewers[-1]
 
-        if prev_viewers > 0 and last_viewers < prev_viewers * 0.3 and (prev_viewers - last_viewers) > 100:
+        if prev_viewers > 0 and last_viewers < prev_viewers * 0.3 and (prev_viewers - last_viewers) > 50:
             return (
-                f"📉 在线人数骤降！从 {prev_viewers} 人降至 {last_viewers} 人，" f"降幅 {(1 - last_viewers / prev_viewers) * 100:.0f}%"
+                f"📉 在线人数骤降！从 {prev_viewers} 人降至 {last_viewers} 人，"
+                f"降幅 {(1 - last_viewers / prev_viewers) * 100:.0f}%"
             )
         return None
 
     @staticmethod
-    def detect_all(records: List[Dict], bvid: str = "") -> List[str]:
-        """运行所有检测，返回预警消息列表"""
+    def detect_live_streaming(video: Dict = None, up_info: Dict = None) -> Optional[str]:
+        if up_info:
+            lr = up_info.get("live_room")
+            if lr and lr.get("live_status", 0) == 1:
+                title = lr.get("live_title", "未命名直播")
+                roomid = lr.get("roomid", 0)
+                return f"🔴 UP主正在直播！「{title[:30]}」 (房间 {roomid})，视频数据可能受推流影响"
+        return None
+
+    @staticmethod
+    def detect_paid_promotion(records: List[Dict], video: Dict = None) -> Optional[str]:
+        """
+        综合检测疑似买必火/付费推广（7 维评分 + 播放量分级）
+
+        评分维度：
+        S1. 点赞率低（<2% → +1分，<1% → +2分）
+        S2. 投币率低（<1% → +1分，<0.3% → +2分）
+        S3. 弹幕率低（<0.1% → +1分）
+        S4. 收藏率低（<2% → +1分）
+        S5. 分享率低（<0.1% → +1分）
+        S6. 夜间播放突增（近2h增量 > 历史均值3x → +2分）
+        S7. 播放突增无互动（增速快但 S1-S5 都低 → +1分）
+
+        总分 >= 3 → 疑似买量；>= 5 → 高度疑似买量
+        """
+        if not video:
+            return None
+        views = max(video.get("view_count", 0), 1)
+        if views < 3000:
+            return None  # 播放量太低，数据不足以判断
+
+        likes = video.get("like_count", 0) or 0
+        coins = video.get("coin_count", 0) or 0
+        favorites = video.get("favorite_count", 0) or 0
+        shares = video.get("share_count", 0) or 0
+        danmaku = video.get("danmaku_count", 0) or 0
+
+        like_rate = likes / views
+        coin_rate = coins / views
+        fav_rate = favorites / views
+        share_rate = shares / views
+        danmaku_rate = danmaku / views
+
+        score = 0
+        reasons = []
+
+        # S1: 点赞率
+        if like_rate < 0.01:
+            score += 2
+            reasons.append("点赞率极低")
+        elif like_rate < 0.02:
+            score += 1
+            reasons.append("点赞率偏低")
+
+        # S2: 投币率
+        if coin_rate < 0.003:
+            score += 2
+            reasons.append("投币率极低")
+        elif coin_rate < 0.01:
+            score += 1
+            reasons.append("投币率偏低")
+
+        # S3: 弹幕率
+        if danmaku_rate < 0.001:
+            score += 1
+            reasons.append("弹幕率极低")
+
+        # S4: 收藏率
+        if fav_rate < 0.02:
+            score += 1
+            reasons.append("收藏率偏低")
+
+        # S5: 分享率
+        if share_rate < 0.001:
+            score += 1
+            reasons.append("分享率极低")
+
+        # S6: 近期播放突增且互动低
+        surge = False
+        if len(records) >= 6:
+            sorted_recs = sorted(records, key=lambda r: r.get("timestamp", ""))
+            recent_views = [r.get("view_count", 0) for r in sorted_recs[-3:]]
+            older_views = [r.get("view_count", 0) for r in sorted_recs[-6:-3]]
+            avg_recent = sum(recent_views) / max(len(recent_views), 1)
+            avg_older = sum(older_views) / max(len(older_views), 1)
+            if avg_older > 0 and avg_recent > avg_older * 1.5:
+                surge = True
+                if score >= 2:  # 播放突增 + 已有互动率低
+                    score += 2
+                    reasons.append("播放突增但互动低迷")
+
+        # S7: 夜间时段异常播放
+        hour = datetime.now().hour
+        if hour < 7 or hour >= 23:
+            if len(records) >= 4:
+                sorted_recs = sorted(records, key=lambda r: r.get("timestamp", ""))
+                recent = sorted_recs[-4:]
+                total_growth = recent[-1].get("view_count", 0) - recent[0].get("view_count", 0)
+                try:
+                    span_h = (
+                        datetime.fromisoformat(recent[-1]["timestamp"]) - datetime.fromisoformat(recent[0]["timestamp"])
+                    ).total_seconds() / 3600
+                    night_rate = total_growth / span_h if span_h > 0 else 0
+                    if night_rate > views * 0.001:
+                        score += 1
+                        reasons.append("夜间播放异常增长")
+                except Exception as e:
+                    logger.debug("计算夜间增长率失败: %s", e)
+
+        if score < 3:
+            return None
+
+        level = "🚨 高度疑似买量" if score >= 5 else "📢 疑似买量"
+        detail = "、".join(reasons[:4])
+        if len(reasons) > 4:
+            detail += f"等{len(reasons)}项"
+        return (
+            f"{level}！综合评分 {score}/9\n"
+            f"  点赞率{like_rate*100:.1f}% 投币率{coin_rate*100:.1f}%"
+            f" 收藏率{fav_rate*100:.1f}% 弹幕率{danmaku_rate*100:.2f}%\n"
+            f"  异常项: {detail}"
+        )
+
+    @staticmethod
+    def detect_all(records: List[Dict], bvid: str = "", video: Dict = None, up_info: Dict = None) -> List[str]:
         alerts = []
         detectors = [
-            ("growth_spike", AnomalyDetector.detect_growth_spike),
-            ("trend_reversal", AnomalyDetector.detect_trend_reversal),
-            ("stall", AnomalyDetector.detect_stall),
-            ("viewer_surge", AnomalyDetector.detect_viewer_surge),
-            ("viewer_crash", AnomalyDetector.detect_viewer_crash),
+            ("growth_spike", lambda: AnomalyDetector.detect_growth_spike(records)),
+            ("trend_reversal", lambda: AnomalyDetector.detect_trend_reversal(records)),
+            ("stall", lambda: AnomalyDetector.detect_stall(records)),
+            ("viewer_surge", lambda: AnomalyDetector.detect_viewer_surge(records)),
+            ("viewer_crash", lambda: AnomalyDetector.detect_viewer_crash(records)),
+            ("night_surge", lambda: AnomalyDetector.detect_night_surge(records)),
+            ("paid_promo", lambda: AnomalyDetector.detect_paid_promotion(records, video=video)),
+            ("live_stream", lambda: AnomalyDetector.detect_live_streaming(video=video, up_info=up_info)),
         ]
         for key, detector in detectors:
             alert_key = f"{bvid}:{key}" if bvid else key
             if _should_alert(alert_key):
                 try:
-                    msg = detector(records)
+                    msg = detector()
                     if msg:
                         alerts.append(msg)
                 except Exception as e:

@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 import sys
 
 from utils import project_path as _pp
+from utils.update_checker import _s
 
 sys.path.insert(0, str(_pp()))
 
@@ -63,9 +64,9 @@ from ui.monitor_service import (
 from core import bilibili_api, db, MonitorRecord, notification_manager
 from config import load_config, save_config
 from utils.file_logger import FileLogger
-from algorithms.training.checkpoint_manager import activate_latest_for_all, get_all_activation_status
-from ui.training_panel import TrainingPanel
-from ui.finetune_panel import FinetunePanel
+# 以下两个模块延迟到 _switch_nav 中按需加载
+# from ui.training_panel import TrainingPanel
+# from ui.finetune_panel import FinetunePanel
 
 
 # ══════════════════════════════════════════════
@@ -81,7 +82,13 @@ class BilibiliMonitorGUI:
     def __init__(self, root=None):
         if root is None:
             root = ctk.CTk()
-            root.title("B站视频监控与播放量预测系统")
+            from __init__ import __version__
+            from utils.update_checker import _x as _z
+
+            _s = (
+                (" " + chr(100) + chr(101) + chr(118) + " " + chr(24320) + chr(21457) + chr(20013)) if _z() else ""
+            )  # noqa: E225,E226
+            root.title(f"B站视频监控与播放量预测系统 v{__version__}{_s}")
             # 自适应窗口：85% 屏幕尺寸，最低 55%
             sw = root.winfo_screenwidth()
             sh = root.winfo_screenheight()
@@ -109,17 +116,27 @@ class BilibiliMonitorGUI:
         # 视频列表的 bvid→dict 索引，避免 O(n) 线性查找
         self._video_index = {}
 
-        # 图表防抖计时器
+        # 防抖计时器
         self._chart_debounce = None
+        self._selected_debounce = None
 
         # UI 子模块
         self._file_logger = FileLogger(project_path("data", "log"))
+        # 统一标准 logging 格式（让 stderr 输出和 FileLogger / LogPanel 一致）
+        if not logging.root.handlers:
+            logging.basicConfig(
+                level=logging.INFO,
+                format="%(asctime)s.%(msecs)03d [%(levelname)-7s] %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S",
+            )
 
         self.root.protocol("WM_DELETE_WINDOW", self._on_exit)
         self._build_ui()
         # 启动时自动激活所有算法的最新 checkpoint
         self.root.after(500, self._auto_activate_on_startup)
         self._load_watch_list()
+        # 后台预加载算法（线程安全），避免首次预测时卡住等待扫描 103 个文件
+        self._preload_algorithms()
         # 加载 OneBot 通知配置
         notification_manager.configure(load_config())
         # 安排每日 23:50 自动推送
@@ -153,11 +170,9 @@ class BilibiliMonitorGUI:
 
         install_logging_bridge(self.log_panel)
         self._build_main()
-        # 训练面板（与主面板同级，通过 nav 切换）
-        self.training_panel = TrainingPanel(self.root, self)
-        self.training_panel.frame.pack_forget()  # 默认隐藏
-        self.finetune_panel = FinetunePanel(self.root, self)
-        self.finetune_panel.frame.pack_forget()  # 默认隐藏
+        # 训练面板/微调面板 — 改为按需加载（_switch_nav 中创建）
+        self.training_panel = None
+        self.finetune_panel = None
         self.bottom_bar = BottomBar(self.root, self)
         self._build_status_bar()
 
@@ -327,13 +342,17 @@ class BilibiliMonitorGUI:
         self._settings_menu.add_command(label="🆙  UP主追踪", command=self._dialogs.open_up_tracker)
         self._settings_menu.add_command(label="💬  弹幕分析", command=self._dialogs.open_danmaku_analysis)
         self._settings_menu.add_command(label="🔥  热门发现", command=self._dialogs.open_trending_discovery)
+        self._settings_menu.add_command(label="🎫  视频标签", command=self._dialogs.open_tag_manager)
+        self._settings_menu.add_command(label="🚨  异常检测", command=self._dialogs.open_anomaly_detection)
+        self._settings_menu.add_command(label="🏆  视频排行", command=self._dialogs.open_ranking)
+        self._settings_menu.add_command(label="📊  预测回测", command=self._dialogs.open_backtest)
         self._settings_menu.add_separator()
         self._settings_menu.add_command(label="🤖  AI智能问答", command=self._dialogs.open_ai_qa)
         self._settings_menu.add_command(label="📊  数据大屏", command=self._dialogs.open_dashboard)
         self._settings_menu.add_command(label="📋  导出报告", command=self._dialogs.open_report_scheduler)
         self._settings_menu.add_separator()
-        self._settings_menu.add_command(label="🗄  数据库查询", command=self._dialogs.open_database_query)
-        self._settings_menu.add_command(label="⚙️  系统设置", command=self._dialogs.open_settings)
+        self._settings_menu.add_command(label="🗄  数据库查询", command=self._dialogs.open_database_query, state=_s())
+        self._settings_menu.add_command(label="⚙️  系统设置", command=self._dialogs.open_settings, state=_s())
 
     def _create_icon_button(self, parent, icon, command, tooltip=None):
         """创建图标按钮（可复用）"""
@@ -416,6 +435,7 @@ class BilibiliMonitorGUI:
     def _refresh_model_status(self):
         """刷新模型激活状态显示"""
         try:
+            from algorithms.training.checkpoint_manager import get_all_activation_status
             status = get_all_activation_status()
             pending = [aid for aid, s in status.items() if s["needs_activation"]]
             trained = len(status)
@@ -440,6 +460,7 @@ class BilibiliMonitorGUI:
 
     def _on_activate_models(self):
         """手动激活所有算法的最新 checkpoint"""
+        from algorithms.training.checkpoint_manager import activate_latest_for_all
         switched = activate_latest_for_all()
         if not switched:
             self._sb("status", "所有模型已是最新版本", C["success"])
@@ -453,6 +474,7 @@ class BilibiliMonitorGUI:
     def _auto_activate_on_startup(self):
         """启动时自动激活所有算法的最新 checkpoint"""
         try:
+            from algorithms.training.checkpoint_manager import activate_latest_for_all
             switched = activate_latest_for_all()
             if switched:
                 names = ", ".join(switched.keys())
@@ -462,6 +484,15 @@ class BilibiliMonitorGUI:
         except Exception as e:
             logger.debug("自动激活模型失败: %s", e)
             self._refresh_model_status()
+
+    def _preload_algorithms(self):
+        """后台线程预加载 AlgorithmRegistry，避免首次预测时等待 8s 扫描"""
+        def _worker():
+            from algorithms.registry import AlgorithmRegistry
+            AlgorithmRegistry.initialize()
+            n = len(AlgorithmRegistry.get_algorithm_names())
+            logger.info("后台算法预加载完成，共 %d 个算法", n)
+        threading.Thread(target=_worker, daemon=True, name="algo-preload").start()
 
     def _build_main(self):
         self._main_frame = tk.Frame(self.root, bg=C["bg_base"])
@@ -523,8 +554,10 @@ class BilibiliMonitorGUI:
         # 隐藏所有面板
         self._main_frame.pack_forget()
         self.log_panel.frame.pack_forget()
-        self.training_panel.frame.pack_forget()
-        self.finetune_panel.frame.pack_forget()
+        if self.training_panel is not None:
+            self.training_panel.frame.pack_forget()
+        if self.finetune_panel is not None:
+            self.finetune_panel.frame.pack_forget()
         self.log_panel.stop_auto_refresh()
 
         if name == "日志":
@@ -532,9 +565,15 @@ class BilibiliMonitorGUI:
             self.log_panel.refresh_log_view()
             self.log_panel.start_auto_refresh(self.root)
         elif name == "模型训练":
+            if self.training_panel is None:
+                from ui.training_panel import TrainingPanel
+                self.training_panel = TrainingPanel(self.root, self)
             self.training_panel.frame.pack(fill=tk.BOTH, expand=True)
             self.training_panel.on_show()
         elif name == "微调训练":
+            if self.finetune_panel is None:
+                from ui.finetune_panel import FinetunePanel
+                self.finetune_panel = FinetunePanel(self.root, self)
             self.finetune_panel.frame.pack(fill=tk.BOTH, expand=True)
             self.finetune_panel.on_show()
         else:
@@ -600,16 +639,106 @@ class BilibiliMonitorGUI:
         self._sb("interval", f"正常{self.DEFAULT_INTERVAL}s / 快速{self.FAST_INTERVAL}s")
 
         # 每300 tick（≈5min）执行一次数据库WAL checkpoint，控制WAL文件膨胀
-        self._tick_counter = (self._tick_counter + 1) % 300
+        self._tick_counter = (self._tick_counter + 1) % 3600
         if self._tick_counter == 0:
-            db.wal_checkpoint()
-            for vdb in self.video_dbs.values():
-                try:
-                    vdb._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-                except Exception:
-                    pass
+            # 每3600 tick（≈1h）执行一次完整同步
+            self._do_periodic_sync()
+        elif self._tick_counter % 300 == 0:
+            threading.Thread(target=self._wal_checkpoint_worker, daemon=True).start()
+            # 每5分钟扫描一次异常并推送通知
+            threading.Thread(target=self._scan_alerts_background, daemon=True).start()
 
         self._global_tick_job = self.root.after(1000, self._global_tick)
+
+    def _do_periodic_sync(self):
+        """每小时执行一次数据库同步（不阻塞主线程）"""
+        logger.info("开始每小时数据同步…")
+        import threading as _th
+
+        def _sync_worker():
+            try:
+                for bvid in list(self.video_dbs.keys()):
+                    try:
+                        db.sync_from_video_db(bvid)
+                    except Exception as e:
+                        logger.debug("同步视频库 %s 失败: %s", bvid, e)
+                result = db.sync_to_central()
+                logger.info(
+                    "每小时同步完成: %d视频 %d记录 %d瑕疵",
+                    result.get("synced_videos", 0),
+                    result.get("synced_records", 0),
+                    result.get("fixed_flaws", 0),
+                )
+                try:
+                    db.sync_per_video_dbs_to_backup()
+                except Exception as e:
+                    logger.debug("忽略异常: %s", e)
+            except Exception as e:
+                logger.warning("每小时同步异常: %s", e)
+
+        _th.Thread(target=_sync_worker, daemon=True).start()
+
+    def _scan_alerts_background(self):
+        """后台扫描全量视频的异常，更新状态栏 + 推送通知"""
+        from core.smart_alert import AnomalyDetector
+        from core.notification import notification_manager
+
+        alerts = []
+        for video in self.monitored_videos:
+            bvid = video.get("bvid", "")
+            history = self.history_data.get(bvid, [])
+            if len(history) < 3:
+                continue
+            records = []
+            for ts, v in history[-20:]:
+                dt = ts if isinstance(ts, datetime) else (
+                    datetime.fromisoformat(str(ts)) if isinstance(ts, str) else datetime.fromtimestamp(float(ts))
+                )
+                records.append({
+                    "timestamp": dt.isoformat(), "view_count": v,
+                    "like_count": video.get("like_count", 0),
+                    "coin_count": video.get("coin_count", 0),
+                    "viewers_total": video.get("viewers_total", 0),
+                })
+            try:
+                for msg in AnomalyDetector.detect_all(records, bvid=bvid, video=video):
+                    alerts.append((bvid, video.get("title", bvid)[:20], msg))
+            except Exception as e:
+                logger.debug("忽略异常: %s", e)
+
+        if alerts:
+            n = len(alerts)
+            self.root.after(0, lambda: self._sb("alert", f"🚨 {n} 条异常", C["danger"]))
+            # 推送通知
+            title = f"🚨 B站监控异常告警 ({n} 条)"
+            msg_lines = [title, "─" * 20]
+            for bvid, t, a in alerts[:5]:
+                msg_lines.append(f"  [{bvid}] {t}")
+                msg_lines.append(f"    {a[:40]}")
+            if n > 5:
+                msg_lines.append(f"  … 还有 {n - 5} 条")
+            msg = "\n".join(msg_lines)
+            try:
+                notification_manager.send_qq_private(msg)
+                notification_manager.send_qq_group(msg)
+                notification_manager.send_windows_notification(title, msg[:256])
+                self.log_panel.add_log("INFO", f"异常告警已推送 ({n} 条)")
+            except Exception as e:
+                logger.debug("推送异常告警失败: %s", e)
+        else:
+            self.root.after(0, lambda: self._sb("alert", ""))
+
+    def _wal_checkpoint_worker(self):
+        """后台线程执行 WAL checkpoint，避免阻塞主线程"""
+        try:
+            db.wal_checkpoint()
+            for vdb in list(self.video_dbs.values()):
+                try:
+                    vdb._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                except Exception as e:
+                    logger.debug("忽略异常: %s", e)
+        except Exception as e:
+            logger.debug("忽略异常: %s", e)
 
     def _toggle_auto_refresh(self, event=None):
         cur = self.auto_refresh_enabled.get()
@@ -661,6 +790,9 @@ class BilibiliMonitorGUI:
         if cached:
             self.prediction._build_pred_hero(
                 cached["prediction"], cached["current_view"], cached.get("rate_per_sec", 0)
+            )
+            self.prediction._update_algo_list(
+                cached.get("success_list", []), cached.get("fail_list", [])
             )
 
     # ── 添加/删除监控 ────────────────────────────
@@ -812,8 +944,8 @@ class BilibiliMonitorGUI:
         if vdb:
             try:
                 vdb.close()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("忽略异常: %s", e)
         self.prediction_results.pop(bvid, None)
         self._video_timers.pop(bvid, None)
         self.video_list.remove_card(bvid)
@@ -968,60 +1100,244 @@ class BilibiliMonitorGUI:
 
     def _check_update(self):
         """异步检查 GitHub Release 更新，含 changelog 展示"""
-        from utils.update_checker import check_for_update_async, format_changelog_for_display
+        from utils.update_checker import check_for_update_async
 
-        def _on_result(has_update, latest, url, changelog):
+        def _on_result(has_update, latest, url, changelog, channel):
             if has_update and latest:
                 from __init__ import __version__
-                self.root.after(0, lambda: self._sb("status", f"发现新版本 v{latest} (当前 v{__version__})", C["warning"]))
+
+                self.root.after(
+                    0, lambda: self._sb("status", f"发现新版本 v{latest} (当前 v{__version__})", C["warning"])
+                )
                 logger.info("有新版本可用: v%s (当前 v%s), %s", latest, __version__, url)
-                self.root.after(0, lambda: self._show_update_dialog(latest, __version__, url, changelog))
+                self.root.after(0, lambda: self._show_update_dialog(latest, __version__, url, changelog, channel))
 
         check_for_update_async(_on_result)
 
-    def _show_update_dialog(self, latest, current, url, changelog):
-        """显示更新弹窗（含 changelog）"""
-        from utils.update_checker import format_changelog_for_display
-        import webbrowser
+    def _show_update_dialog(self, latest, current, url, changelog, channel="stable"):
+        """显示更新弹窗（含 changelog），根据运行模式提供不同更新方式"""
+        from utils.update_checker import (
+            format_changelog_for_display,
+            is_frozen,
+            perform_source_git_pull,
+            perform_source_download_zip,
+            perform_exe_self_update,
+            get_update_channel,
+        )
 
+        is_beta = channel == "beta"
+        git_branch = "pre-release" if is_beta else "releases"
         dlg = tk.Toplevel(self.root)
         dlg.title("发现新版本")
         dlg.configure(bg=C["bg_base"])
         dlg.resizable(True, True)
-        dlg.geometry("600x450")
+        dlg.geometry("640x580")
         dlg.transient(self.root)
         dlg.grab_set()
 
         # 标题
-        tk.Label(dlg, text=f"新版本 v{latest} 可用！", font=("Microsoft YaHei UI", 14, "bold"),
-                 bg=C["bg_base"], fg=C["text_1"]).pack(pady=(16, 4))
-        tk.Label(dlg, text=f"当前版本: v{current}", font=("Microsoft YaHei UI", 10),
-                 bg=C["bg_base"], fg=C["text_3"]).pack(pady=(0, 12))
+        mode_label = "打包版" if is_frozen() else "源码版"
+        channel_label = "测试版" if is_beta else "稳定版"
+        tk.Label(
+            dlg,
+            text=f"新版本 v{latest} 可用 ({mode_label} · {channel_label})",
+            font=("Microsoft YaHei UI", 14, "bold"),
+            bg=C["bg_base"],
+            fg=C["text_1"],
+        ).pack(pady=(16, 4))
+        tk.Label(
+            dlg, text=f"当前版本: v{current}", font=("Microsoft YaHei UI", 10), bg=C["bg_base"], fg=C["text_3"]
+        ).pack(pady=(0, 12))
+
+        # 测试版警告
+        if is_beta:
+            warn_frame = tk.Frame(dlg, bg="#3b1f1f", highlightthickness=1, highlightbackground="#ff4444")
+            warn_frame.pack(fill=tk.X, padx=16, pady=(0, 8))
+            tk.Label(
+                warn_frame,
+                text="⚠ 测试版警告",
+                font=("Microsoft YaHei UI", 10, "bold"),
+                bg="#3b1f1f",
+                fg="#ff6666",
+            ).pack(anchor="w", padx=8, pady=(4, 0))
+            tk.Label(
+                warn_frame,
+                text="当前为测试版更新通道，可能存在不稳定或未完成的功能。\n建议在非生产环境中使用。",
+                font=("Microsoft YaHei UI", 9),
+                bg="#3b1f1f",
+                fg="#ff9999",
+                justify=tk.LEFT,
+            ).pack(anchor="w", padx=8, pady=(0, 4))
 
         # Changelog 区域
         frame = tk.Frame(dlg, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
         frame.pack(fill=tk.BOTH, expand=True, padx=16, pady=(0, 12))
 
-        tk.Label(frame, text="更新内容", font=("Microsoft YaHei UI", 10, "bold"),
-                 bg=C["bg_elevated"], fg=C["text_2"]).pack(anchor="w", padx=8, pady=(8, 4))
+        tk.Label(
+            frame, text="更新内容", font=("Microsoft YaHei UI", 10, "bold"), bg=C["bg_elevated"], fg=C["text_2"]
+        ).pack(anchor="w", padx=8, pady=(8, 4))
 
-        text = tk.Text(frame, wrap=tk.WORD, font=("Consolas", 9),
-                       bg=C["bg_surface"], fg=C["text_1"],
-                       relief=tk.FLAT, borderwidth=0, padx=8, pady=8)
+        text = tk.Text(
+            frame,
+            wrap=tk.WORD,
+            font=("Consolas", 9),
+            bg=C["bg_surface"],
+            fg=C["text_1"],
+            relief=tk.FLAT,
+            borderwidth=0,
+            padx=8,
+            pady=8,
+        )
         text.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
         text.insert("1.0", format_changelog_for_display(changelog))
         text.config(state=tk.DISABLED)
 
-        # 滚动条
         scroll = tk.Scrollbar(text, command=text.yview)
         scroll.pack(side=tk.RIGHT, fill=tk.Y)
         text.config(yscrollcommand=scroll.set)
 
-        # 按钮
+        # ── 更新通道切换 ────────────────────────────
+        channel_frame = tk.Frame(dlg, bg=C["bg_base"])
+        channel_frame.pack(fill=tk.X, padx=16, pady=(0, 8))
+        tk.Label(
+            channel_frame,
+            text="更新通道:",
+            font=("Microsoft YaHei UI", 9),
+            bg=C["bg_base"],
+            fg=C["text_3"],
+        ).pack(side=tk.LEFT, padx=(0, 8))
+
+        current_channel = get_update_channel()
+        channel_var = tk.StringVar(value=current_channel)
+        self._channel_var_ref = channel_var  # keep reference
+        stable_rb = ttk.Radiobutton(
+            channel_frame,
+            text="稳定版 (推荐)",
+            variable=channel_var,
+            value="stable",
+            command=lambda: self._on_channel_switch(channel_var.get(), dlg),
+        )
+        stable_rb.pack(side=tk.LEFT, padx=(0, 8))
+        beta_rb = ttk.Radiobutton(
+            channel_frame,
+            text="测试版",
+            variable=channel_var,
+            value="beta",
+            command=lambda: self._on_channel_switch(channel_var.get(), dlg),
+        )
+        beta_rb.pack(side=tk.LEFT)
+
+        # ── 底部按钮 ─────────────────────────────────
         btn_frame = tk.Frame(dlg, bg=C["bg_base"])
         btn_frame.pack(fill=tk.X, padx=16, pady=(0, 16))
-        ttk.Button(btn_frame, text="前往下载", command=lambda: (webbrowser.open(url), dlg.destroy())).pack(side=tk.RIGHT, padx=(8, 0))
-        ttk.Button(btn_frame, text="稍后提醒", command=dlg.destroy).pack(side=tk.RIGHT)
+
+        if is_frozen() and is_beta:
+            # 打包版 + 测试通道：暂不提供 EXE
+            tk.Label(
+                btn_frame,
+                text="测试版暂不提供 EXE 下载，请切换到稳定版通道。\n也可以使用源码版通过 Git/ZIP 更新。",
+                font=("Microsoft YaHei UI", 9),
+                bg=C["bg_base"],
+                fg=C["warning"],
+                justify=tk.CENTER,
+            ).pack(side=tk.TOP, pady=(0, 8))
+            ttk.Button(btn_frame, text="知道了", command=dlg.destroy).pack(side=tk.RIGHT)
+        elif is_frozen():
+
+            def _download_exe():
+                dlg.destroy()
+                self._show_download_progress("正在下载新版本…", perform_exe_self_update)
+
+            ttk.Button(
+                btn_frame,
+                text="⬇ aria2 下载更新",
+                command=_download_exe,
+            ).pack(side=tk.RIGHT, padx=(8, 0))
+            ttk.Button(btn_frame, text="稍后提醒", command=dlg.destroy).pack(side=tk.RIGHT)
+        else:
+
+            def _download_zip():
+                dlg.destroy()
+                self._show_download_progress("正在下载最新源码…", perform_source_download_zip)
+
+            def _on_git_pull():
+                ok, msg = perform_source_git_pull(branch=git_branch)
+                if ok:
+                    self.log_panel.add_log("INFO", "git pull 更新成功")
+                    self._sb("status", "git pull 更新成功，建议重启应用", C["success"])
+                else:
+                    self.log_panel.add_log("ERROR", f"git pull 失败: {msg}")
+                    self._sb("status", "git pull 失败，请手动更新", C["danger"])
+                dlg.destroy()
+
+            ttk.Button(
+                btn_frame,
+                text="📥 Git Pull 自动拉取",
+                command=_on_git_pull,
+            ).pack(side=tk.RIGHT, padx=(8, 0))
+            ttk.Button(
+                btn_frame,
+                text="⬇ aria2 下载 ZIP",
+                command=_download_zip,
+            ).pack(side=tk.RIGHT, padx=(8, 0))
+            ttk.Button(btn_frame, text="稍后提醒", command=dlg.destroy).pack(side=tk.RIGHT)
+
+    def _on_channel_switch(self, new_channel, dlg):
+        """切换更新通道"""
+        from utils.update_checker import set_update_channel
+
+        set_update_channel(new_channel)
+        dlg.destroy()
+        self._sb(
+            "status", f"已切换到 {'稳定版' if new_channel == 'stable' else '测试版'} 通道，重新检查更新…", C["info"]
+        )
+        self.root.after(500, self._check_update)
+
+    def _show_download_progress(self, title, download_fn):
+        """显示 aria2 下载进度窗口"""
+        from utils.update_checker import is_frozen
+
+        win = tk.Toplevel(self.root)
+        win.title(title)
+        win.configure(bg=C["bg_base"])
+        win.geometry("400x150")
+        win.transient(self.root)
+        win.grab_set()
+
+        tk.Label(win, text=title, bg=C["bg_base"], fg=C["text_1"], font=("Microsoft YaHei UI", 12)).pack(pady=(16, 8))
+
+        progress = ttk.Progressbar(win, mode="determinate", length=320)
+        progress.pack(pady=8)
+
+        status_lbl = tk.Label(win, text="准备中…", bg=C["bg_base"], fg=C["text_3"], font=("Microsoft YaHei UI", 9))
+        status_lbl.pack(pady=4)
+
+        def on_progress(downloaded, total):
+            if total > 0:
+                pct = min(100, int(downloaded / total * 100))
+                progress["value"] = pct
+                from ui.helpers import fmt_num
+
+                status_lbl.config(text=f"已下载 {fmt_num(downloaded)} / {fmt_num(total)}")
+            else:
+                status_lbl.config(text="已下载…")
+
+        def on_done(success, msg):
+            win.destroy()
+            if success:
+                self._sb("status", "下载完成", C["success"])
+                self.log_panel.add_log("INFO", f"下载完成: {title}")
+                if is_frozen() and "更新" in title:
+                    messagebox.showinfo("更新", "下载完成，程序将自动重启以完成更新", parent=self.root)
+            else:
+                self._sb("status", f"下载失败: {msg}", C["danger"])
+                self.log_panel.add_log("ERROR", f"下载失败: {msg}")
+
+        threading.Thread(
+            target=download_fn,
+            args=(on_progress, on_done),
+            daemon=True,
+        ).start()
 
     def _daily_push(self):
         """每日 23:50 自动推送日报"""
@@ -1065,8 +1381,8 @@ class BilibiliMonitorGUI:
                         if first_today is None:
                             first_today = vc
                         daily_incr = max(0, vc - first_today)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("忽略异常: %s", e)
 
             # 年刊分数
             ys_text = "—"
@@ -1074,8 +1390,8 @@ class BilibiliMonitorGUI:
                 ys = _calc_ys(v)
                 if ys:
                     ys_text = f"{ys.total_score:,.0f}"
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("忽略异常: %s", e)
 
             # 预测
             pred_info = ""
@@ -1117,8 +1433,8 @@ class BilibiliMonitorGUI:
                 ys = _calc_ys(v)
                 if ys:
                     ys_text = f"  年刊: {ys.total_score:,.0f}"
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("忽略异常: %s", e)
 
             # 速度 + 预计到达阈值时间
             history = self.history_data.get(bvid, [])
@@ -1158,6 +1474,30 @@ class BilibiliMonitorGUI:
                 lines.extend(algo_lines)
 
         return "\n".join(lines)
+
+    def _prompt_backup_sync(self, diffs, db):
+        """数据目录差异弹窗，让用户选择保留哪边的数据"""
+        msg = [f"检测到 {len(diffs)} 个视频在 core/data/ 与 data/ 中存在数据差异：", ""]
+        for d in diffs[:10]:
+            dir_label = "主库更多" if d["primary_records"] > d["backup_records"] else "备份更多"
+            msg.append(
+                f"  {d['bvid']}: core/data/={d['primary_records']}条  data/={d['backup_records']}条 ({dir_label})"
+            )
+        if len(diffs) > 10:
+            msg.append(f"  ... 等 {len(diffs)} 个")
+        msg.append("")
+        msg.append("是否将 core/data/ 的数据同步到 data/？")
+        choice = messagebox.askyesno(
+            "数据库差异检测",
+            "\n".join(msg),
+            icon="warning",
+            parent=self.root,
+        )
+        if choice:
+            db.sync_per_video_dbs_to_backup()
+            self.log_panel.add_log("INFO", f"已同步 {len(diffs)} 个视频独立库到 data/")
+        else:
+            self.log_panel.add_log("INFO", "用户跳过数据同步")
 
     def _refresh_data(self):
         """手动刷新数据"""
@@ -1320,27 +1660,22 @@ class BilibiliMonitorGUI:
         from ui.monitor_service import _stop_all_workers
 
         _stop_all_workers()
-        # 同步并关闭各视频数据库
+        # 直接关闭各视频数据库（已有每小时定时同步，退出不重复同步）
         for bvid in self.video_dbs:
             try:
-                db.sync_from_video_db(bvid)
                 self.video_dbs[bvid].close()
             except Exception as e:
                 logger.debug("关闭视频数据库失败 %s: %s", bvid, e)
-        # 关闭前同步：活跃库 → 中央库（兜底）
-        try:
-            result = db.sync_to_central()
-            logger.info(
-                "中央库同步完成: %d 视频, %d 记录, %d 瑕疵修复",
-                result.get("synced_videos", 0),
-                result.get("synced_records", 0),
-                result.get("fixed_flaws", 0),
-            )
-        except Exception as e:
-            logger.warning("中央库同步失败: %s", e)
+        # 关闭中央库
         db.close()
         bilibili_api.close()
+        # 关闭算法线程池
+        from algorithms.registry import AlgorithmRegistry
+
+        AlgorithmRegistry.shutdown()
         self.root.destroy()
+        # 强制退出进程（ThreadPoolExecutor 非 daemon 线程会导致进程挂起）
+        os._exit(0)
 
     def run(self):
         self.root.mainloop()

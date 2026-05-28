@@ -12,6 +12,7 @@ _HAS_NGBOOST = False
 try:
     from ngboost import NGBRegressor
     from ngboost.distns import Normal
+
     _HAS_NGBOOST = True
 except ImportError:
     pass
@@ -20,7 +21,7 @@ except ImportError:
 class NgboostAlgorithm(BaseAlgorithm):
     """NGBoost 自然梯度提升"""
 
-    name = "NGBoost概率提升"
+    name = "NGBoost"
     algorithm_id = "ngboost"
     description = "自然梯度提升，输出完整概率分布"
     category = "集成学习"
@@ -47,24 +48,30 @@ class NgboostAlgorithm(BaseAlgorithm):
             p = 4
             X, y = [], []
             for i in range(p, len(views)):
-                X.append([views[i - j] for j in range(1, p + 1)] +
-                         [likes[i - j] for j in range(1, p + 1)] +
-                         [coins[i - j] for j in range(1, p + 1)])
+                X.append(
+                    [views[i - j] for j in range(1, p + 1)]
+                    + [likes[i - j] for j in range(1, p + 1)]
+                    + [coins[i - j] for j in range(1, p + 1)]
+                )
                 y.append(views[i])
 
             if len(X) < 5:
                 return self._fallback(velocity, current_views, threshold)
 
             X, y = np.array(X), np.array(y)
-            y_pct = np.diff(views[-len(X) - 1:]) / np.maximum(views[-len(X) - 1:-1], 1)
-            y_target = y_pct[-len(X):]
+            y_pct = np.diff(views[-len(X) - 1 :]) / np.maximum(views[-len(X) - 1 : -1], 1)
+            y_target = y_pct[-len(X) :]
 
             model = NGBRegressor(Dist=Normal, n_estimators=50, learning_rate=0.1, verbose=False)
             model.fit(X, y_target)
 
-            last_X = np.array([[views[-j] for j in range(1, p + 1)] +
-                               [likes[-j] for j in range(1, p + 1)] +
-                               [coins[-j] for j in range(1, p + 1)]])
+            last_X = np.array(
+                [
+                    [views[-j] for j in range(1, p + 1)]
+                    + [likes[-j] for j in range(1, p + 1)]
+                    + [coins[-j] for j in range(1, p + 1)]
+                ]
+            )
 
             pred_dist = model.pred_dist(last_X)
             mu = float(pred_dist.mean())
@@ -83,9 +90,12 @@ class NgboostAlgorithm(BaseAlgorithm):
                 confidence = max(0.05, min(0.8, 0.6 - cv * 3))
 
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=confidence, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=confidence,
+                current_views=current_views,
                 current_velocity=velocity,
                 metadata={"method": "ngboost", "mu": float(mu), "sigma": float(sigma)},
                 timestamp=datetime.now(),
@@ -96,18 +106,26 @@ class NgboostAlgorithm(BaseAlgorithm):
     def _fallback(self, velocity, current_views, threshold):
         if velocity <= 0:
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=float("inf"),
-                confidence=0.0, current_views=current_views, current_velocity=velocity,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=float("inf"),
+                confidence=0.0,
+                current_views=current_views,
+                current_velocity=velocity,
                 metadata={"method": "ngboost", "reason": "fallback"},
                 timestamp=datetime.now(),
             )
         remaining = max(0, threshold - current_views)
         predicted_hours = remaining / velocity if remaining > 0 else 0
         return PredictionResult(
-            algorithm_name=self.name, algorithm_id=self.algorithm_id,
-            target_threshold=threshold, predicted_hours=predicted_hours,
-            confidence=0.3, current_views=current_views, current_velocity=velocity,
+            algorithm_name=self.name,
+            algorithm_id=self.algorithm_id,
+            target_threshold=threshold,
+            predicted_hours=predicted_hours,
+            confidence=0.3,
+            current_views=current_views,
+            current_velocity=velocity,
             metadata={"method": "ngboost", "reason": "fallback"},
             timestamp=datetime.now(),
         )

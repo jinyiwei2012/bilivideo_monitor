@@ -6,11 +6,12 @@ import os
 import logging
 from datetime import datetime
 from typing import List, Dict, Optional
+from utils import project_path
 
 logger = logging.getLogger(__name__)
 
 
-_OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "reports")
+_OUTPUT_DIR = project_path("reports")
 
 
 def _fmt(n):
@@ -205,14 +206,25 @@ def export_csv(videos: List[Dict], output_path: Optional[str] = None) -> str:
     os.makedirs(_OUTPUT_DIR, exist_ok=True)
     output_path = output_path or os.path.join(_OUTPUT_DIR, f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
     import csv
+
     with open(output_path, "w", encoding="utf-8-sig", newline="") as f:
         w = csv.writer(f)
         w.writerow(["BV号", "标题", "UP主", "播放", "点赞", "硬币", "收藏", "弹幕", "评论", "分享"])
         for v in videos:
-            w.writerow([v.get("bvid", ""), v.get("title", ""), v.get("author", ""),
-                        v.get("view_count", 0), v.get("like_count", 0), v.get("coin_count", 0),
-                        v.get("favorite_count", 0), v.get("danmaku_count", 0),
-                        v.get("reply_count", 0), v.get("share_count", 0)])
+            w.writerow(
+                [
+                    v.get("bvid", ""),
+                    v.get("title", ""),
+                    v.get("author", ""),
+                    v.get("view_count", 0),
+                    v.get("like_count", 0),
+                    v.get("coin_count", 0),
+                    v.get("favorite_count", 0),
+                    v.get("danmaku_count", 0),
+                    v.get("reply_count", 0),
+                    v.get("share_count", 0),
+                ]
+            )
     logger.info("CSV 导出完成: %s", output_path)
     return output_path
 
@@ -220,6 +232,7 @@ def export_csv(videos: List[Dict], output_path: Optional[str] = None) -> str:
 def export_json(videos: List[Dict], output_path: Optional[str] = None) -> str:
     """生成 JSON 格式报告"""
     import json
+
     os.makedirs(_OUTPUT_DIR, exist_ok=True)
     output_path = output_path or os.path.join(_OUTPUT_DIR, f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
     summary = generate_summary(videos)
@@ -227,4 +240,44 @@ def export_json(videos: List[Dict], output_path: Optional[str] = None) -> str:
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
     logger.info("JSON 导出完成: %s", output_path)
+    return output_path
+
+
+def export_prediction_vs_actual(video_dbs: Dict, output_dir: Optional[str] = None) -> str:
+    """导出预测值 vs 实际播放量对比表（CSV）"""
+    import csv
+
+    os.makedirs(output_dir or _OUTPUT_DIR, exist_ok=True)
+    output_path = os.path.join(
+        output_dir or _OUTPUT_DIR,
+        f"pred_vs_actual_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+    )
+    rows = []
+    for bvid, vdb in video_dbs.items():
+        try:
+            predictions = vdb.get_predictions(limit=2000)
+        except Exception:
+            continue
+        for p in predictions:
+            pred = p.get("predicted_views", 0) or p.get("predicted_view", 0) or p.get("current_views", 0)
+            actual = p.get("current_views_at_eval", 0) or p.get("actual_views", 0)
+            algo = p.get("algorithm", p.get("algorithm_name", "未知"))
+            ts = p.get("created_at", p.get("timestamp", ""))
+            if pred > 0 and actual > 0:
+                rows.append({
+                    "bvid": bvid,
+                    "algorithm": algo,
+                    "timestamp": str(ts),
+                    "predicted": pred,
+                    "actual": actual,
+                    "error": pred - actual,
+                    "error_pct": (pred - actual) / actual * 100,
+                })
+    if not rows:
+        return ""
+    with open(output_path, "w", newline="", encoding="utf-8-sig") as f:
+        w = csv.DictWriter(f, fieldnames=["bvid", "algorithm", "timestamp", "predicted", "actual", "error", "error_pct"])
+        w.writeheader()
+        w.writerows(rows)
+    logger.info("预测对比表导出完成: %s (%d 条)", output_path, len(rows))
     return output_path

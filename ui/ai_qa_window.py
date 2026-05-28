@@ -13,9 +13,9 @@ class AIQAWindow:
     """AI智能问答窗口"""
 
     def __init__(self, parent=None, gui=None):
-        sw = parent.winfo_screenwidth() if parent else 1920
-        sh = parent.winfo_screenheight() if parent else 1080
-        self.dlg = DialogBase(parent, "AI智能问答助手", f"{int(sw*0.48)}x{int(sh*0.68)}", resizable=(True, True), modal=False)
+        self.dlg = DialogBase(
+            parent, "AI智能问答助手", DialogBase.calc_geometry(parent, 0.48, 0.68), resizable=(True, True), modal=False
+        )
         self.window = self.dlg.window
         self.gui = gui
 
@@ -40,10 +40,23 @@ class AIQAWindow:
         # 快捷问题按钮
         quick = tk.Frame(self.dlg.container, bg=C["bg_surface"])
         quick.pack(fill=tk.X, padx=24, pady=(10, 0))
-        ttk.Button(quick, text="📊 当前监控多少视频？", command=lambda: self._quick_ask("当前监控多少视频？")).pack(side=tk.LEFT, padx=2)
-        ttk.Button(quick, text="⚡ 哪个增长最快？", command=lambda: self._quick_ask("哪个视频增长最快？")).pack(side=tk.LEFT, padx=2)
-        ttk.Button(quick, text="🏆 播放量排行", command=lambda: self._quick_ask("播放量排行？")).pack(side=tk.LEFT, padx=2)
-        ttk.Button(quick, text="⚠️ 有无异常预警", command=lambda: self._quick_ask("有无异常预警？")).pack(side=tk.LEFT, padx=2)
+        qf1 = tk.Frame(quick, bg=C["bg_surface"])
+        qf1.pack(fill=tk.X, pady=1)
+        qf2 = tk.Frame(quick, bg=C["bg_surface"])
+        qf2.pack(fill=tk.X, pady=1)
+        q_buttons = [
+            ("📊 监控概况", "当前监控多少视频？各视频播放量概况？"),
+            ("⚡ 增长最快", "哪个视频增长最快？增速是多少？"),
+            ("🏆 播放排行", "按播放量从高到低列出所有监控视频"),
+            ("🔥 互动排行", "按互动率从高到低排序所有视频有哪些？"),
+            ("📈 今日增量", "今天每个视频的播放增量是多少？"),
+            ("⚠️ 异常预警", "有无播放量异常或增速骤降的视频？"),
+            ("📅 周报总结", "总结本周各视频的表现趋势"),
+            ("🎯 预测分析", "哪个视频最有望在未来一周突破百万播放？"),
+        ]
+        for i, (text, q) in enumerate(q_buttons):
+            parent_frame = qf1 if i < 4 else qf2
+            ttk.Button(parent_frame, text=text, command=lambda q=q: self._quick_ask(q)).pack(side=tk.LEFT, padx=2)
 
         # 对话区
         chat_frame = tk.Frame(

@@ -10,6 +10,7 @@ from algorithms.base import BaseAlgorithm, PredictionResult
 
 try:
     from scipy.integrate import odeint
+
     _HAS_SCIPY = True
 except ImportError:
     _HAS_SCIPY = False
@@ -51,7 +52,7 @@ class SirdModelAlgorithm(BaseAlgorithm):
                 return [dS, dI, dR, dD]
 
             daily_views = np.diff(views) / max(np.mean(np.diff(t)), 1) * 24
-            avg_daily = np.mean(daily_views[-min(5, len(daily_views)):])
+            avg_daily = np.mean(daily_views[-min(5, len(daily_views)) :])
             beta = max(0.01, avg_daily / max(S0, 1))
             gamma = max(0.01, I0 / max(R0, 1)) if R0 > 0 else 0.1
             delta = gamma * 0.5
@@ -72,11 +73,10 @@ class SirdModelAlgorithm(BaseAlgorithm):
             elif remaining <= 0:
                 predicted_hours, confidence = 0, 1.0
             else:
-                peak_infected = np.max(I_pred)
                 peak_time = future_t[np.argmax(I_pred)]
                 max_reach = np.max(total_pred)
                 if max_reach > current_views:
-                    growth_rate = np.mean(np.diff(total_pred[-min(10, len(total_pred)):])) * 24
+                    growth_rate = np.mean(np.diff(total_pred[-min(10, len(total_pred)) :])) * 24
                     predicted_velocity_est = max(0, growth_rate)
                     predicted_hours = remaining / max(predicted_velocity_est, 1)
                 else:
@@ -84,11 +84,19 @@ class SirdModelAlgorithm(BaseAlgorithm):
                 confidence = 0.3
 
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=min(0.85, confidence), current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=min(0.85, confidence),
+                current_views=current_views,
                 current_velocity=velocity,
-                metadata={"method": "sird", "beta": float(beta), "gamma": float(gamma), "peak_hours": float(peak_time * 24) if 'peak_time' in dir() else 0},
+                metadata={
+                    "method": "sird",
+                    "beta": float(beta),
+                    "gamma": float(gamma),
+                    "peak_hours": float(peak_time * 24) if "peak_time" in dir() else 0,
+                },
                 timestamp=datetime.now(),
             )
         except Exception:
@@ -97,18 +105,26 @@ class SirdModelAlgorithm(BaseAlgorithm):
     def _fallback(self, velocity, current_views, threshold):
         if velocity <= 0:
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=float("inf"),
-                confidence=0.0, current_views=current_views, current_velocity=velocity,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=float("inf"),
+                confidence=0.0,
+                current_views=current_views,
+                current_velocity=velocity,
                 metadata={"method": "sird", "reason": "fallback"},
                 timestamp=datetime.now(),
             )
         remaining = max(0, threshold - current_views)
         predicted_hours = remaining / velocity if remaining > 0 else 0
         return PredictionResult(
-            algorithm_name=self.name, algorithm_id=self.algorithm_id,
-            target_threshold=threshold, predicted_hours=predicted_hours,
-            confidence=0.3, current_views=current_views, current_velocity=velocity,
+            algorithm_name=self.name,
+            algorithm_id=self.algorithm_id,
+            target_threshold=threshold,
+            predicted_hours=predicted_hours,
+            confidence=0.3,
+            current_views=current_views,
+            current_velocity=velocity,
             metadata={"method": "sird", "reason": "fallback"},
             timestamp=datetime.now(),
         )

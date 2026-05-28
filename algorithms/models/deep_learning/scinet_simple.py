@@ -24,12 +24,17 @@ class ScinetSimpleAlgorithm(BaseAlgorithm):
 
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
         return try_torch_predict(
-            self, video_data, threshold, SCINetTorchModel, self._numpy_predict,
-            window=self.training_window, horizon=self.training_horizon,
+            self,
+            video_data,
+            threshold,
+            SCINetTorchModel,
+            self._numpy_predict,
+            window=self.training_window,
+            horizon=self.training_horizon,
         )
 
     def build_model(self):
-        return SCINetTorchModel(in_features=5, hidden=16, horizon=self.training_horizon)
+        return SCINetTorchModel(in_features=getattr(self, '_training_n_features', 5), hidden=16, horizon=self.training_horizon)
 
     def get_training_features(self) -> List[str]:
         return ["view_count", "like_count", "coin_count", "favorite_count", "share_count"]
@@ -46,17 +51,15 @@ class ScinetSimpleAlgorithm(BaseAlgorithm):
             views = np.array([h.get("view", 0) for h in history], dtype=np.float64)
 
             def _sci_block(x):
-                n = len(x)
-                half = n // 2
                 even = x[::2]
                 odd = x[1::2]
                 if len(even) > len(odd):
-                    even = even[:len(odd)]
+                    even = even[: len(odd)]
                 diff = even - odd
                 k = np.array([0.5, 0.5])
 
                 def conv1d(signal, kernel):
-                    return np.convolve(signal, kernel, mode='same')[:len(signal)]
+                    return np.convolve(signal, kernel, mode="same")[: len(signal)]
 
                 even_filt = conv1d(even, k)
                 even_out = even - even_filt
@@ -64,16 +67,18 @@ class ScinetSimpleAlgorithm(BaseAlgorithm):
                 return even_out, odd_out, diff
 
             def _interact(even, odd, diff):
-                gate_e = np.tanh(diff[:len(even)] if len(diff) >= len(even) else np.pad(diff, (0, len(even) - len(diff))))
-                gate_o = np.tanh(diff[:len(odd)] if len(diff) >= len(odd) else np.pad(diff, (0, len(odd) - len(diff))))
-                return even + gate_e * odd[:len(even)], odd + gate_o * even[:len(odd)]
+                gate_e = np.tanh(
+                    diff[: len(even)] if len(diff) >= len(even) else np.pad(diff, (0, len(even) - len(diff)))
+                )
+                gate_o = np.tanh(diff[: len(odd)] if len(diff) >= len(odd) else np.pad(diff, (0, len(odd) - len(diff))))
+                return even + gate_e * odd[: len(even)], odd + gate_o * even[: len(odd)]
 
             combined = views
             even1, odd1, diff1 = _sci_block(combined)
             even1_int, odd1_int = _interact(even1, odd1, diff1)
 
             if len(even1_int) >= 4:
-                even2, odd2, diff2 = _sci_block(even1_int[:len(even1_int) // 2 * 2])
+                even2, odd2, diff2 = _sci_block(even1_int[: len(even1_int) // 2 * 2])
                 if len(even2) > 0 and len(odd2) > 0:
                     even2_int, odd2_int = _interact(even2, odd2, diff2)
                     scale2_trend = np.mean(np.abs(even2_int[-3:])) if len(even2_int) >= 3 else 0
@@ -96,9 +101,12 @@ class ScinetSimpleAlgorithm(BaseAlgorithm):
                 confidence = max(0.1, min(0.8, 0.5))
 
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=confidence, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=confidence,
+                current_views=current_views,
                 current_velocity=velocity,
                 metadata={"method": "scinet", "scales": 2},
                 timestamp=datetime.now(),
@@ -109,18 +117,26 @@ class ScinetSimpleAlgorithm(BaseAlgorithm):
     def _fallback(self, velocity, current_views, threshold):
         if velocity <= 0:
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=float("inf"),
-                confidence=0.0, current_views=current_views, current_velocity=velocity,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=float("inf"),
+                confidence=0.0,
+                current_views=current_views,
+                current_velocity=velocity,
                 metadata={"method": "scinet", "reason": "fallback"},
                 timestamp=datetime.now(),
             )
         remaining = max(0, threshold - current_views)
         predicted_hours = remaining / velocity if remaining > 0 else 0
         return PredictionResult(
-            algorithm_name=self.name, algorithm_id=self.algorithm_id,
-            target_threshold=threshold, predicted_hours=predicted_hours,
-            confidence=0.3, current_views=current_views, current_velocity=velocity,
+            algorithm_name=self.name,
+            algorithm_id=self.algorithm_id,
+            target_threshold=threshold,
+            predicted_hours=predicted_hours,
+            confidence=0.3,
+            current_views=current_views,
+            current_velocity=velocity,
             metadata={"method": "scinet", "reason": "fallback"},
             timestamp=datetime.now(),
         )

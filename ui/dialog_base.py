@@ -13,7 +13,7 @@ class DialogBase:
     提供统一的头部、卡片分段、按钮栏与间距控制。
     """
 
-    def __init__(self, parent, title="", geometry="480x360", resizable=(False, False), modal=True):
+    def __init__(self, parent, title="", geometry="480x360", resizable=(True, True), modal=True):
         self.window = tk.Toplevel(parent)
         self.window.title(title)
         self.window.geometry(geometry)
@@ -107,6 +107,16 @@ class DialogBase:
         ).pack(side=tk.LEFT)
         value_widget.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(8, 0))
         return row
+
+    # ── 几何辅助 ──────────────────────────────────────────
+    @staticmethod
+    def calc_geometry(parent, width_ratio=0.5, height_ratio=0.7):
+        """根据父窗口/屏幕尺寸计算居中几何字符串 'WxH+X+Y'"""
+        sw = parent.winfo_screenwidth() if parent else 1920
+        sh = parent.winfo_screenheight() if parent else 1080
+        w, h = int(sw * width_ratio), int(sh * height_ratio)
+        x, y = (sw - w) // 2, (sh - h) // 2
+        return f"{w}x{h}+{x}+{y}"
 
     # ── 内容区（充满剩余空间，用于 Text / Treeview）────────
     def content_area(self, parent=None, **kw):

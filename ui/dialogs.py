@@ -10,6 +10,7 @@ import time
 import customtkinter as ctk
 
 from ui.theme import C
+from ui.scrollable_frame import ScrollableFrame
 from ui.helpers import FONT, FONT_SM, FAST_GAP, FAST_INTERVAL
 
 
@@ -20,6 +21,54 @@ class Dialogs:
         self.gui = gui
 
     # ──────────────────────────────────────────
+    # 视频标签管理
+    # ──────────────────────────────────────────
+
+    def open_tag_manager(self):
+        try:
+            from ui.tag_manager import TagManagerWindow
+
+            TagManagerWindow(self.gui.root, self.gui)
+        except Exception as e:
+            messagebox.showerror("错误", f"打开标签管理失败:\n{e}")
+
+    # ──────────────────────────────────────────
+    # 预测回测
+    # ──────────────────────────────────────────
+
+    def open_backtest(self):
+        try:
+            from ui.backtest_panel import BacktestPanel
+
+            BacktestPanel(self.gui.root, self.gui)
+        except Exception as e:
+            messagebox.showerror("错误", f"打开预测回测失败:\n{e}")
+
+    # ──────────────────────────────────────────
+    # 视频排行榜
+    # ──────────────────────────────────────────
+
+    def open_ranking(self):
+        try:
+            from ui.ranking_panel import RankingPanel
+
+            RankingPanel(self.gui.root, self.gui)
+        except Exception as e:
+            messagebox.showerror("错误", f"打开排行榜失败:\n{e}")
+
+    # ──────────────────────────────────────────
+    # 异常增长检测
+    # ──────────────────────────────────────────
+
+    def open_anomaly_detection(self):
+        try:
+            from ui.anomaly_panel import AnomalyPanel
+
+            AnomalyPanel(self.gui.root, self.gui)
+        except Exception as e:
+            messagebox.showerror("错误", f"打开异常检测失败:\n{e}")
+
+    # ──────────────────────────────────────────
     # 刷新间隔设置
     # ──────────────────────────────────────────
 
@@ -28,23 +77,26 @@ class Dialogs:
         dialog.title("刷新间隔设置")
         sw = self.gui.root.winfo_screenwidth()
         sh = self.gui.root.winfo_screenheight()
-        dialog.geometry(f"{int(sw*0.22)}x{int(sh*0.25)}")
+        dialog.geometry(f"{int(sw * 0.22)}x{int(sh * 0.25)}")
         dialog.transient(self.gui.root)
         dialog.grab_set()
-        dialog.resizable(False, False)
+        dialog.resizable(True, True)
+        # 使主内容区可扩展
+        content = ctk.CTkFrame(dialog, fg_color="transparent")
+        content.pack(fill=tk.BOTH, expand=True, padx=20, pady=(20, 0))
 
-        ctk.CTkLabel(dialog, text="普通刷新间隔（秒）：", text_color=C["text_1"], font=FONT, fg_color="transparent").pack(
-            pady=(20, 6)
-        )
+        ctk.CTkLabel(
+            content, text="普通刷新间隔（秒）：", text_color=C["text_1"], font=FONT, fg_color="transparent"
+        ).pack(pady=(0, 6))
 
         spin_f = ctk.CTkFrame(
-            dialog, fg_color=C["bg_elevated"], border_width=1, border_color=C["border"], corner_radius=6
+            content, fg_color=C["bg_elevated"], border_width=1, border_color=C["border"], corner_radius=6
         )
-        spin_f.pack(padx=40, fill=tk.X)
+        spin_f.pack(fill=tk.X)
         var = tk.IntVar(value=self.gui.DEFAULT_INTERVAL)
         ttk.Spinbox(spin_f, from_=10, to=3600, textvariable=var, width=10).pack(padx=8, pady=6)
         ctk.CTkLabel(
-            dialog,
+            content,
             text=f"距阈值 < {FAST_GAP} 时自动切换快速模式（{FAST_INTERVAL}s）",
             text_color=C["text_3"],
             font=FONT_SM,
@@ -62,7 +114,7 @@ class Dialogs:
             dialog.destroy()
 
         btn_f = ctk.CTkFrame(dialog, fg_color="transparent")
-        btn_f.pack(pady=14)
+        btn_f.pack(side=tk.BOTTOM, pady=14)
         ctk.CTkButton(
             btn_f,
             text="保存",
@@ -185,6 +237,20 @@ class Dialogs:
         self.gui.log_panel.add_log("INFO", f"已将 {bvid} 加入监控列表（里程碑入口）")
 
     # ──────────────────────────────────────────
+    # 算法可视化比较
+    # ──────────────────────────────────────────
+
+    def open_algorithm_comparison(self):
+        try:
+            from .algorithm_comparison import AlgorithmComparisonWindow
+
+            AlgorithmComparisonWindow(self.gui.root)
+        except Exception as e:
+            import traceback
+
+            messagebox.showerror("错误", f"打开算法比较失败: {e}\n{traceback.format_exc()}")
+
+    # ──────────────────────────────────────────
     # 系统设置
     # ──────────────────────────────────────────
 
@@ -192,7 +258,7 @@ class Dialogs:
         try:
             from .settings_window import SettingsWindow
 
-            SettingsWindow(self.gui.root)
+            SettingsWindow(self.gui.root, gui=self.gui)
         except Exception as e:
             messagebox.showerror("错误", f"打开系统设置失败: {e}")
 
@@ -206,7 +272,7 @@ class Dialogs:
 
         def _worker():
             added, skipped = 0, 0
-            from core import bilibili_api
+            from core import get_bilibili_api
 
             for v in videos:
                 bvid = v.get("bvid", "")
@@ -216,7 +282,7 @@ class Dialogs:
                     skipped += 1
                     continue
                 try:
-                    info = bilibili_api.get_video_info(bvid)
+                    info = get_bilibili_api().get_video_info(bvid)
                     if not info:
                         skipped += 1
                         continue
@@ -248,7 +314,7 @@ class Dialogs:
         dialog.title("算法信息")
         sw = self.gui.root.winfo_screenwidth()
         sh = self.gui.root.winfo_screenheight()
-        dialog.geometry(f"{int(sw*0.36)}x{int(sh*0.48)}")
+        dialog.geometry(f"{int(sw * 0.36)}x{int(sh * 0.48)}")
         dialog.configure(bg=C["bg_surface"])
         dialog.transient(self.gui.root)
         dialog.grab_set()
@@ -260,14 +326,8 @@ class Dialogs:
         ).pack(pady=(15, 10))
 
         # 创建滚动框架
-        canvas = tk.Canvas(dialog, bg=C["bg_surface"], highlightthickness=0)
-        scrollbar = ttk.Scrollbar(dialog, orient="vertical", command=canvas.yview)
-        scrollable_frame = tk.Frame(canvas, bg=C["bg_surface"])
-
-        scrollable_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
+        _algo_sf = ScrollableFrame(dialog, bg=C["bg_surface"])
+        scrollable_frame = _algo_sf.inner
 
         # 算法信息
         try:
@@ -333,46 +393,45 @@ class Dialogs:
                 from algorithms.online_learner import get_online_learner
 
                 get_online_learner()
-                tk.Label(scrollable_frame, text="✅ 在线学习模块已加载", bg=C["bg_surface"], fg=C["success"], font=FONT).pack(
-                    anchor="w", padx=20, pady=2
-                )
+                tk.Label(
+                    scrollable_frame, text="✅ 在线学习模块已加载", bg=C["bg_surface"], fg=C["success"], font=FONT
+                ).pack(anchor="w", padx=20, pady=2)
             except ImportError:
-                tk.Label(scrollable_frame, text="❌ 在线学习模块未找到", bg=C["bg_surface"], fg=C["danger"], font=FONT).pack(
-                    anchor="w", padx=20, pady=2
-                )
+                tk.Label(
+                    scrollable_frame, text="❌ 在线学习模块未找到", bg=C["bg_surface"], fg=C["danger"], font=FONT
+                ).pack(anchor="w", padx=20, pady=2)
 
             # 因果推断模块
             try:
                 from algorithms.causal_inference import get_causal_analyzer  # noqa: F401
 
-                tk.Label(scrollable_frame, text="✅ 因果推断模块已加载", bg=C["bg_surface"], fg=C["success"], font=FONT).pack(
-                    anchor="w", padx=20, pady=2
-                )
+                tk.Label(
+                    scrollable_frame, text="✅ 因果推断模块已加载", bg=C["bg_surface"], fg=C["success"], font=FONT
+                ).pack(anchor="w", padx=20, pady=2)
             except ImportError:
-                tk.Label(scrollable_frame, text="❌ 因果推断模块未找到", bg=C["bg_surface"], fg=C["danger"], font=FONT).pack(
-                    anchor="w", padx=20, pady=2
-                )
+                tk.Label(
+                    scrollable_frame, text="❌ 因果推断模块未找到", bg=C["bg_surface"], fg=C["danger"], font=FONT
+                ).pack(anchor="w", padx=20, pady=2)
 
             # 图神经网络模块
             try:
                 from algorithms.graph_neural import get_video_graph  # noqa: F401
 
-                tk.Label(scrollable_frame, text="✅ 图神经网络模块已加载", bg=C["bg_surface"], fg=C["success"], font=FONT).pack(
-                    anchor="w", padx=20, pady=2
-                )
+                tk.Label(
+                    scrollable_frame, text="✅ 图神经网络模块已加载", bg=C["bg_surface"], fg=C["success"], font=FONT
+                ).pack(anchor="w", padx=20, pady=2)
             except ImportError:
-                tk.Label(scrollable_frame, text="❌ 图神经网络模块未找到", bg=C["bg_surface"], fg=C["danger"], font=FONT).pack(
-                    anchor="w", padx=20, pady=2
-                )
+                tk.Label(
+                    scrollable_frame, text="❌ 图神经网络模块未找到", bg=C["bg_surface"], fg=C["danger"], font=FONT
+                ).pack(anchor="w", padx=20, pady=2)
 
         except Exception as e:
-            tk.Label(scrollable_frame, text=f"加载算法信息失败: {e}", bg=C["bg_surface"], fg=C["danger"], font=FONT).pack(
-                padx=20, pady=20
-            )
+            tk.Label(
+                scrollable_frame, text=f"加载算法信息失败: {e}", bg=C["bg_surface"], fg=C["danger"], font=FONT
+            ).pack(padx=20, pady=20)
 
         # 布局滚动区域
-        canvas.pack(side="left", fill="both", expand=True, padx=(20, 0), pady=10)
-        scrollbar.pack(side="right", fill="y", pady=10, padx=(0, 20))
+        _algo_sf.pack(fill=tk.BOTH, expand=True, padx=(20, 20), pady=10)
 
         # 关闭按钮
         ttk.Button(dialog, text="关闭", command=dialog.destroy).pack(pady=(0, 15))
@@ -384,9 +443,9 @@ class Dialogs:
     def open_up_tracker(self):
         try:
             from .up_tracker import UpTrackerWindow
-            from core import bilibili_api
+            from core import get_bilibili_api
 
-            UpTrackerWindow(self.gui.root, api=bilibili_api)
+            UpTrackerWindow(self.gui.root, api=get_bilibili_api())
         except Exception as e:
             import traceback
 
@@ -399,9 +458,9 @@ class Dialogs:
     def open_danmaku_analysis(self):
         try:
             from .danmaku_analysis import DanmakuAnalysisWindow
-            from core import bilibili_api
+            from core import get_bilibili_api
 
-            DanmakuAnalysisWindow(self.gui.root, api=bilibili_api, gui=self.gui)
+            DanmakuAnalysisWindow(self.gui.root, api=get_bilibili_api(), gui=self.gui)
         except Exception as e:
             import traceback
 
@@ -414,9 +473,9 @@ class Dialogs:
     def open_trending_discovery(self):
         try:
             from .trending_discovery import TrendingDiscoveryWindow
-            from core import bilibili_api
+            from core import get_bilibili_api
 
-            TrendingDiscoveryWindow(self.gui.root, api=bilibili_api, on_add_monitor=self.gui._add_bvid_to_monitor)
+            TrendingDiscoveryWindow(self.gui.root, api=get_bilibili_api(), on_add_monitor=self.gui._add_bvid_to_monitor)
         except Exception as e:
             import traceback
 

@@ -5,7 +5,7 @@ DLinear简化版 (DLinear Simplified)
 
 import numpy as np
 import logging
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional
 from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
 from algorithms.models.deep_learning._torch_upgrade import DLinearTorchModel, try_torch_predict
@@ -52,7 +52,7 @@ class DLinearSimpleAlgorithm(BaseAlgorithm):
         )
 
     def build_model(self):
-        return DLinearTorchModel(in_features=5, window=10, horizon=self.training_horizon)
+        return DLinearTorchModel(in_features=getattr(self, '_training_n_features', 5), window=10, horizon=self.training_horizon)
 
     def get_training_features(self):
         return ["view_count", "like_count", "coin_count", "favorite_count", "share_count"]

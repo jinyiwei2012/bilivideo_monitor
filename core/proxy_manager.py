@@ -2,9 +2,11 @@
 代理管理器 - 代理IP轮询、UA绑定、失败自动清理
 """
 
+import json
 import logging
 import random
 import re
+import threading
 import time
 import warnings
 from typing import Dict, List, Optional, Tuple
@@ -18,12 +20,12 @@ class ProxyManager:
     """代理管理器：轮询、UA绑定、失败计数与自动清理"""
 
     USER_AGENTS = [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.2 Safari/605.1.15",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 Edg/146.0.0.0",
     ]
 
     def __init__(self):
@@ -34,6 +36,11 @@ class ProxyManager:
         self._MAX_PROXY_FAILURES = 3
         self._current_request_proxy_idx: Optional[int] = None
         self._socks_available = self._check_socks()
+        self._lock = threading.Lock()
+        # 代理自动发现
+        self._auto_discovery_running = False
+        self._last_discovery_time = 0
+        self._discovery_interval = 600  # 每10分钟自动发现一次
 
     # ── SOCKS 检测 ────────────────────────────────────────
 
@@ -83,110 +90,110 @@ class ProxyManager:
             self._proxy_ua_map[i] = random.choice(self.USER_AGENTS)
             self._proxy_failure_count[i] = 0
         if self.proxies:
-            logger.info(f"已为 {len(self.proxies)} 个代理绑定固定UA")
+            logger.debug(f"已为 {len(self.proxies)} 个代理绑定固定UA")
 
     # ── 代理轮询 ──────────────────────────────────────────
 
     def get_proxy_binding(self) -> Tuple[Optional[int], Optional[Dict], Optional[str]]:
-        """获取下一个代理及其绑定UA，跳过失败过多的代理"""
-        if not self.proxies:
-            return None, None, None
+        """获取下一个代理及其绑定UA，跳过失败过多的代理（线程安全）"""
+        with self._lock:
+            if not self.proxies:
+                return None, None, None
 
-        for _ in range(len(self.proxies)):
-            idx = self.current_proxy_index
-            if self._proxy_failure_count.get(idx, 0) < self._MAX_PROXY_FAILURES:
-                proxy = self.proxies[idx]
-                ua = self._proxy_ua_map.get(idx)
-                if not ua:
-                    ua = random.choice(self.USER_AGENTS)
-                    self._proxy_ua_map[idx] = ua
-                self.current_proxy_index = (idx + 1) % len(self.proxies)
-                self._current_request_proxy_idx = idx
-                return idx, proxy, ua
-            self.current_proxy_index = (self.current_proxy_index + 1) % len(self.proxies)
+            for _ in range(len(self.proxies)):
+                idx = self.current_proxy_index
+                if self._proxy_failure_count.get(idx, 0) < self._MAX_PROXY_FAILURES:
+                    proxy = self.proxies[idx]
+                    ua = self._proxy_ua_map.get(idx)
+                    if not ua:
+                        ua = random.choice(self.USER_AGENTS)
+                        self._proxy_ua_map[idx] = ua
+                    self.current_proxy_index = (idx + 1) % len(self.proxies)
+                    self._current_request_proxy_idx = idx
+                    return idx, proxy, ua
+                self.current_proxy_index = (self.current_proxy_index + 1) % len(self.proxies)
 
-        # 所有代理都失败过多，重置后重试第一个
-        self._proxy_failure_count = {i: 0 for i in range(len(self.proxies))}
-        idx = 0
-        self.current_proxy_index = 1 % max(1, len(self.proxies))
-        self._current_request_proxy_idx = idx
-        return idx, self.proxies[0], self._proxy_ua_map.get(0, random.choice(self.USER_AGENTS))
+            # 所有代理都失败过多，重置后重试第一个
+            self._proxy_failure_count = {i: 0 for i in range(len(self.proxies))}
+            idx = 0
+            self.current_proxy_index = 1 % max(1, len(self.proxies))
+            self._current_request_proxy_idx = idx
+            return idx, self.proxies[0], self._proxy_ua_map.get(0, random.choice(self.USER_AGENTS))
 
     def get_next_proxy(self) -> Optional[Dict]:
         """获取下一个代理（简单轮询，不检查失败计数）"""
-        if not self.proxies:
-            return None
-        proxy = self.proxies[self.current_proxy_index]
-        self.current_proxy_index = (self.current_proxy_index + 1) % len(self.proxies)
-        return proxy
+        with self._lock:
+            if not self.proxies:
+                return None
+            proxy = self.proxies[self.current_proxy_index]
+            self.current_proxy_index = (self.current_proxy_index + 1) % len(self.proxies)
+            return proxy
 
     def peek_proxy(self) -> Optional[str]:
         """预览下一个将被使用的代理URL（脱敏），不改变内部状态"""
-        if not self.proxies:
-            return None
-        idx = self.current_proxy_index
-        if self._proxy_failure_count.get(idx, 0) >= self._MAX_PROXY_FAILURES:
-            for i in range(len(self.proxies)):
-                if self._proxy_failure_count.get(i, 0) < self._MAX_PROXY_FAILURES:
-                    idx = i
-                    break
-        proxy = self.proxies[idx]
-        return self.mask_url(proxy.get("http", ""))
+        with self._lock:
+            if not self.proxies:
+                return None
+            idx = self.current_proxy_index
+            if self._proxy_failure_count.get(idx, 0) >= self._MAX_PROXY_FAILURES:
+                for i in range(len(self.proxies)):
+                    if self._proxy_failure_count.get(i, 0) < self._MAX_PROXY_FAILURES:
+                        idx = i
+                        break
+            proxy = self.proxies[idx]
+            return self.mask_url(proxy.get("http", ""))
 
     # ── 添加/清理 ─────────────────────────────────────────
 
     def add_proxy(self, proxy: Dict):
         """添加代理（自动识别协议）"""
-        normalized = {}
-        for scheme, url in proxy.items():
-            normalized[scheme] = self.normalize_url(url)
-        self.proxies.append(normalized)
-        idx = len(self.proxies) - 1
-        self._proxy_ua_map[idx] = random.choice(self.USER_AGENTS)
-        self._proxy_failure_count[idx] = 0
+        with self._lock:
+            normalized = {}
+            for scheme, url in proxy.items():
+                normalized[scheme] = self.normalize_url(url)
+            self.proxies.append(normalized)
+            idx = len(self.proxies) - 1
+            self._proxy_ua_map[idx] = random.choice(self.USER_AGENTS)
+            self._proxy_failure_count[idx] = 0
         masked = self.mask_url(proxy.get("http", "unknown"))
         logger.info(f"已添加代理: {masked}")
 
     def clear_proxies(self):
         """清空代理列表"""
-        self.proxies = []
-        self.current_proxy_index = 0
-        self._proxy_ua_map.clear()
-        self._proxy_failure_count.clear()
-        self._current_request_proxy_idx = None
+        with self._lock:
+            self.proxies = []
+            self.current_proxy_index = 0
+            self._proxy_ua_map.clear()
+            self._proxy_failure_count.clear()
+            self._current_request_proxy_idx = None
         logger.info("已清空代理列表")
 
     # ── 失败处理 ──────────────────────────────────────────
 
     def on_request_failure(self, proxy_idx: Optional[int] = None) -> Optional[str]:
-        """标记请求失败：增加失败计数，更换当前代理绑定的UA
-
-        Args:
-            proxy_idx: 失败代理的索引，None 则使用当前请求索引
-
-        Returns:
-            新的 User-Agent（UA 有变更时），None 表示无变更
-        """
-        if proxy_idx is None:
-            proxy_idx = self._current_request_proxy_idx
-        if proxy_idx is not None and proxy_idx < len(self.proxies):
-            current_failures = self._proxy_failure_count.get(proxy_idx, 0)
-            self._proxy_failure_count[proxy_idx] = current_failures + 1
-            new_ua = random.choice(self.USER_AGENTS)
-            self._proxy_ua_map[proxy_idx] = new_ua
-            masked = self.mask_url(self.proxies[proxy_idx].get("http", ""))
-            total = current_failures + 1
-            if total >= self._MAX_PROXY_FAILURES:
-                logger.error(f"代理 {masked} 请求失败已达 {total} 次，自动移除")
-                self.proxies.pop(proxy_idx)
-                self._proxy_ua_map.pop(proxy_idx, None)
-                self._proxy_failure_count.pop(proxy_idx, None)
-                for i in range(proxy_idx, len(self.proxies)):
-                    self._proxy_ua_map[i] = self._proxy_ua_map.pop(i + 1)
-                    self._proxy_failure_count[i] = self._proxy_failure_count.pop(i + 1)
-            else:
-                logger.warning(f"代理 {masked} 请求失败 ({total}/{self._MAX_PROXY_FAILURES}), 继续使用当前IP")
-            return new_ua
+        """标记请求失败：增加失败计数，更换当前代理绑定的UA（线程安全）"""
+        with self._lock:
+            if proxy_idx is None:
+                proxy_idx = self._current_request_proxy_idx
+            if proxy_idx is not None and proxy_idx < len(self.proxies):
+                current_failures = self._proxy_failure_count.get(proxy_idx, 0)
+                self._proxy_failure_count[proxy_idx] = current_failures + 1
+                new_ua = random.choice(self.USER_AGENTS)
+                self._proxy_ua_map[proxy_idx] = new_ua
+                masked = self.mask_url(self.proxies[proxy_idx].get("http", ""))
+                total = current_failures + 1
+                if total >= self._MAX_PROXY_FAILURES:
+                    logger.error(f"代理 {masked} 请求失败已达 {total} 次，自动移除")
+                    self.proxies.pop(proxy_idx)
+                    self._proxy_ua_map.pop(proxy_idx, None)
+                    self._proxy_failure_count.pop(proxy_idx, None)
+                    # 重新索引后续条目（保持三个集合一致）
+                    for i in range(proxy_idx, len(self.proxies)):
+                        self._proxy_ua_map[i] = self._proxy_ua_map.pop(i + 1)
+                        self._proxy_failure_count[i] = self._proxy_failure_count.pop(i + 1)
+                else:
+                    logger.warning(f"代理 {masked} 请求失败 ({total}/{self._MAX_PROXY_FAILURES}), 继续使用当前IP")
+                return new_ua
         return None
 
     # ── 可用性测试（静态） ───────────────────────────────
@@ -222,7 +229,7 @@ class ProxyManager:
             if e.args and hasattr(e.args[0], "reason"):
                 root_cause = str(e.args[0].reason)
         except Exception:
-            pass
+            logger.debug("解析代理错误原因失败")
         check = err_str + " " + root_cause
 
         patterns = [
@@ -352,6 +359,119 @@ class ProxyManager:
             )
         else:
             logger.warning(f"代理测试 {masked}: 不可用 — {result.get('error', '未知错误')}")
+
+    # ── 代理自动发现 ──────────────────────────────────
+
+    def start_auto_discovery(self, interval: int = 600):
+        """启动后台线程定期自动发现免费代理"""
+        self._discovery_interval = interval
+        if not self._auto_discovery_running:
+            self._auto_discovery_running = True
+            threading.Thread(target=self._auto_discovery_loop, daemon=True, name="proxy-discovery").start()
+            logger.info(f"代理自动发现已启动（间隔 {interval}s）")
+
+    def _auto_discovery_loop(self):
+        while self._auto_discovery_running:
+            try:
+                self._discover_free_proxies()
+            except Exception as e:
+                logger.debug("代理自动发现异常: %s", e)
+            time.sleep(self._discovery_interval)
+
+    PROXY_SOURCES = [
+        "https://proxylist.geonode.com/api/proxy-list?limit=30&page=1&sort_by=lastChecked&sort_type=desc&protocols=http%2Chttps%2Csocks4%2Csocks5",
+        "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
+        "https://raw.githubusercontent.com/TheSpeedX/SOCKS-List/master/socks4.txt",
+        "https://raw.githubusercontent.com/TheSpeedX/SOCKS-List/master/socks5.txt",
+        "https://raw.githubusercontent.com/hookzof/socks5_list/master/proxy.txt",
+        "https://raw.githubusercontent.com/ProxyScrape/free-proxy-list/refs/heads/main/proxies/all/data.json",
+    ]
+
+    def _discover_free_proxies(self):
+        """从多个免费代理源拉取代理列表并加入池"""
+        added = 0
+        tested = 0
+        for src_url in self.PROXY_SOURCES:
+            try:
+                resp = requests.get(src_url, timeout=10,
+                                    headers={"User-Agent": "Mozilla/5.0"},
+                                    verify=False)
+                if resp.status_code != 200:
+                    continue
+                urls = self._parse_proxy_list(resp.text, src_url)
+                for url in urls:
+                    if self._proxy_exists(url):
+                        continue
+                    # 快速连通性测试
+                    fast_test = ProxyManager._proxy_http_request(url, "http://httpbin.org/ip",
+                                                                   "Mozilla/5.0", 5)
+                    if not fast_test.get("error"):
+                        self.add_proxy({"http": url, "https": url})
+                        added += 1
+                    tested += 1
+            except Exception as e:
+                logger.debug("代理源 %s 获取失败: %s", src_url.split("/")[2], e)
+        if added:
+            self.init_ua_bindings()
+            logger.info(f"代理自动发现: 测试 {tested} 个, 新增 {added} 个可用代理 (共 {len(self.proxies)} 个)")
+
+    @staticmethod
+    def _parse_proxy_list(text: str, src_url: str) -> List[str]:
+        """解析不同格式的代理列表，根据源自动识别协议"""
+        urls = []
+
+        # 根据源 URL 确定默认协议
+        proto = "http"
+        if "socks5" in src_url.lower():
+            proto = "socks5"
+        elif "socks4" in src_url.lower():
+            proto = "socks4"
+
+        # JSON 格式
+        if "geonode" in src_url:
+            try:
+                data = json.loads(text)
+                for item in data.get("data", []):
+                    ip = item.get("ip", "")
+                    port = item.get("port", "")
+                    protocols = item.get("protocols", [])
+                    for p in protocols:
+                        if p in ("http", "https", "socks4", "socks5"):
+                            urls.append(f"{p}://{ip}:{port}")
+            except json.JSONDecodeError:
+                pass
+        elif "proxyscrape" in src_url.lower():
+            try:
+                data = json.loads(text)
+                if isinstance(data, list):
+                    for item in data:
+                        ip = item.get("ip", "")
+                        port = item.get("port", "")
+                        p = str(item.get("protocol", "http")).lower()
+                        if p in ("http", "https", "socks4", "socks5"):
+                            urls.append(f"{p}://{ip}:{port}")
+            except json.JSONDecodeError:
+                pass
+        else:
+            # 纯文本格式 (ip:port 每行一个)
+            for line in text.strip().split("\n"):
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "://" in line:
+                    urls.append(line)
+                else:
+                    urls.append(f"{proto}://{line}")
+        return urls
+
+    def _proxy_exists(self, url: str) -> bool:
+        """检查代理是否已在池中"""
+        norm = ProxyManager.normalize_url(url)
+        with self._lock:
+            for p in self.proxies:
+                if ProxyManager.normalize_url(p.get("http", "")) == norm:
+                    return True
+            return False
 
     @staticmethod
     def test_proxy(proxy_url: str, timeout: int = 30, test_url: str = None) -> dict:

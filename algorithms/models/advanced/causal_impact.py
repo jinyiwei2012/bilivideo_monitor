@@ -33,14 +33,16 @@ class CausalImpactAlgorithm(BaseAlgorithm):
             favs = np.array([h.get("favorite", 0) for h in history], dtype=np.float64)
             shares = np.array([h.get("share", 0) for h in history], dtype=np.float64)
 
-            covariates = np.column_stack([
-                np.log1p(likes),
-                np.log1p(coins),
-                np.log1p(favs),
-                np.log1p(shares),
-                np.gradient(likes),
-                np.gradient(coins),
-            ])
+            covariates = np.column_stack(
+                [
+                    np.log1p(likes),
+                    np.log1p(coins),
+                    np.log1p(favs),
+                    np.log1p(shares),
+                    np.gradient(likes),
+                    np.gradient(coins),
+                ]
+            )
             covariates = np.nan_to_num(covariates)
 
             split = max(len(views) // 2, 3)
@@ -58,7 +60,7 @@ class CausalImpactAlgorithm(BaseAlgorithm):
             impact = y_post - y_pred
             cum_impact = np.cumsum(impact)
 
-            recent_impact = np.mean(impact[-min(5, len(impact)):]) if len(impact) >= 1 else 0
+            recent_impact = np.mean(impact[-min(5, len(impact)) :]) if len(impact) >= 1 else 0
             impact_velocity = recent_impact / 3600
 
             base_velocity = velocity * 0.7
@@ -71,16 +73,22 @@ class CausalImpactAlgorithm(BaseAlgorithm):
                 predicted_hours, confidence = 0, 1.0
             else:
                 predicted_hours = remaining / predicted_velocity
-                rmse = np.sqrt(np.mean((y_post - y_pred) ** 2)) if len(y_post) > 0 else 1
                 r2 = 1 - np.sum((y_post - y_pred) ** 2) / max(np.sum((y_post - np.mean(y_post)) ** 2), 1)
                 confidence = max(0.1, min(0.85, 0.5 + 0.3 * max(0, r2)))
 
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=confidence, current_views=current_views,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=confidence,
+                current_views=current_views,
                 current_velocity=velocity,
-                metadata={"method": "causal_impact", "cum_impact": float(cum_impact[-1]) if len(cum_impact) > 0 else 0, "r2": float(r2)},
+                metadata={
+                    "method": "causal_impact",
+                    "cum_impact": float(cum_impact[-1]) if len(cum_impact) > 0 else 0,
+                    "r2": float(r2),
+                },
                 timestamp=datetime.now(),
             )
         except Exception:
@@ -89,18 +97,26 @@ class CausalImpactAlgorithm(BaseAlgorithm):
     def _fallback(self, velocity, current_views, threshold):
         if velocity <= 0:
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=float("inf"),
-                confidence=0.0, current_views=current_views, current_velocity=velocity,
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=float("inf"),
+                confidence=0.0,
+                current_views=current_views,
+                current_velocity=velocity,
                 metadata={"method": "causal_impact", "reason": "fallback"},
                 timestamp=datetime.now(),
             )
         remaining = max(0, threshold - current_views)
         predicted_hours = remaining / velocity if remaining > 0 else 0
         return PredictionResult(
-            algorithm_name=self.name, algorithm_id=self.algorithm_id,
-            target_threshold=threshold, predicted_hours=predicted_hours,
-            confidence=0.3, current_views=current_views, current_velocity=velocity,
+            algorithm_name=self.name,
+            algorithm_id=self.algorithm_id,
+            target_threshold=threshold,
+            predicted_hours=predicted_hours,
+            confidence=0.3,
+            current_views=current_views,
+            current_velocity=velocity,
             metadata={"method": "causal_impact", "reason": "fallback"},
             timestamp=datetime.now(),
         )

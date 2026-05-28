@@ -6,7 +6,6 @@
 import tkinter as tk
 from tkinter import ttk
 import threading
-import logging
 from datetime import datetime
 import customtkinter as ctk
 
@@ -23,6 +22,7 @@ from ui.helpers import (
 from ui.chart import draw_chart, draw_chart_placeholder
 from utils.weekly_score import calculate_from_dict as _calc_ws
 from utils.yearly_score import calculate_yearly_from_dict as _calc_ys
+from utils.update_checker import _confirm_risky
 
 
 class DetailPanel:
@@ -169,11 +169,19 @@ class DetailPanel:
         )
         self._detail_text.pack(fill=tk.BOTH, expand=True)
         detail_vsb.config(command=self._detail_text.yview)
+        self._configure_detail_tags()
 
         self._ratio_frame = ctk.CTkFrame(self._content_area, fg_color=C["bg_base"], corner_radius=0)
 
         draw_chart_placeholder(self._chart_canvas)
         self._rebuild_stat_bar({})
+
+    def _configure_detail_tags(self):
+        self._detail_text.tag_config("head", foreground=C["bilibili"], font=("Consolas", 10, "bold"))
+        self._detail_text.tag_config("mono", foreground=C["text_1"], font=FONT_MONO)
+        self._detail_text.tag_config("mono_b", foreground=C["bilibili"], font=("Consolas", 10, "bold"))
+        self._detail_text.tag_config("mono_ok", foreground=C["success"], font=FONT_MONO)
+        self._detail_text.tag_config("mono_accent", foreground=C["accent"], font=("Consolas", 10, "bold"))
 
     def _build_center_header_empty(self):
         h = self._detail_header
@@ -258,7 +266,7 @@ class DetailPanel:
             height=26,
             corner_radius=4,
             width=100,
-            command=lambda: self._open_finetune_dialog(bvid),
+            command=lambda: _confirm_risky("微调视频模型") and self._open_finetune_dialog(bvid),
         )
         self._finetune_btn.pack(side=tk.LEFT, padx=(0, 6))
         self._finetune_status = ctk.CTkLabel(
@@ -278,13 +286,7 @@ class DetailPanel:
 
         AlgorithmRegistry.initialize()
         algos = []
-        for adapter in AlgorithmRegistry.get_all_algorithms():
-            algo = getattr(adapter, "algo", adapter)
-            if not hasattr(algo, "build_model"):
-                continue
-            aid = getattr(algo, "algorithm_id", None) or ""
-            if not aid:
-                continue
+        for aid, algo, _adapter in AlgorithmRegistry.get_trainable_algorithms():
             ckpt = CheckpointManager(aid)
             if ckpt.has_checkpoint():
                 algos.append({"algorithm_id": aid, "name": getattr(algo, "name", aid)})
@@ -320,8 +322,11 @@ class DetailPanel:
             row = ctk.CTkFrame(scroll, fg_color="transparent")
             row.pack(fill=tk.X, pady=1)
             ctk.CTkCheckBox(
-                row, text=f"{a['name']} ({a['algorithm_id']})",
-                variable=var, font=FONT_SM, text_color=C["text_1"],
+                row,
+                text=f"{a['name']} ({a['algorithm_id']})",
+                variable=var,
+                font=FONT_SM,
+                text_color=C["text_1"],
                 fg_color=C.get("accent", "#4A90D9"),
             ).pack(side=tk.LEFT, padx=4, pady=2)
 
@@ -348,22 +353,41 @@ class DetailPanel:
         btn_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
         btn_frame.pack(fill=tk.X)
         start_btn = ctk.CTkButton(
-            btn_frame, text="开始微调", font=FONT_SM,
+            btn_frame,
+            text="开始微调",
+            font=FONT_SM,
             fg_color=C.get("accent", "#4A90D9"),
             command=lambda: self._run_finetune(
-                dialog, bvid, algo_vars, epoch_var, batch_var, status_lbl, progress_bar, start_btn,
+                dialog,
+                bvid,
+                algo_vars,
+                epoch_var,
+                batch_var,
+                status_lbl,
+                progress_bar,
+                start_btn,
             ),
         )
         start_btn.pack(side=tk.LEFT, padx=(0, 6))
         ctk.CTkButton(
-            btn_frame, text="取消", font=FONT_SM,
-            fg_color=C["bg_elevated"], text_color=C["text_1"],
+            btn_frame,
+            text="取消",
+            font=FONT_SM,
+            fg_color=C["bg_elevated"],
+            text_color=C["text_1"],
             command=dialog.destroy,
         ).pack(side=tk.LEFT)
 
     def _run_finetune(
-        self, dialog, bvid, algo_vars, epoch_var, batch_var,
-        status_lbl, progress_bar, start_btn,
+        self,
+        dialog,
+        bvid,
+        algo_vars,
+        epoch_var,
+        batch_var,
+        status_lbl,
+        progress_bar,
+        start_btn,
     ):
         """在后台线程运行微调，更新对话框进度。"""
         selected = [aid for aid, var in algo_vars.items() if var.get()]
@@ -382,14 +406,17 @@ class DetailPanel:
             total = len(selected)
             self.gui.set_finetune_status(f"🎯 微调 {bvid} …")
             for i, aid in enumerate(selected):
-                msg = f"[{i+1}/{total}] 微调 {aid}…"
-                gui_msg = f"🎯 微调 {bvid}: [{i+1}/{total}] {aid}"
+                msg = f"[{i + 1}/{total}] 微调 {aid}…"
+                gui_msg = f"🎯 微调 {bvid}: [{i + 1}/{total}] {aid}"
                 dialog.after(0, lambda m=msg: status_lbl.configure(text=m))
                 dialog.after(0, lambda p=(i + 0.5) / total: progress_bar.set(p))
                 dialog.after(0, lambda m=gui_msg: self.gui.set_finetune_status(m))
                 try:
                     version = trainer.finetune_for_video(
-                        algo_id=aid, bvid=bvid, epochs=epochs, batch_size=batch,
+                        algo_id=aid,
+                        bvid=bvid,
+                        epochs=epochs,
+                        batch_size=batch,
                     )
                     msg = f"✓ {aid} → {version[:12]}"
                 except Exception as e:
@@ -527,8 +554,9 @@ class DetailPanel:
     # ── 图表渲染控制 ─────────────────────────────────
 
     def _auto_render_chart(self):
-        """自动渲染：只在 新增(step) 模式下触发"""
-        if self._chart_mode.get() != "step":
+        """自动渲染：新数据到来时自动重绘图表（含指纹缓存，数据未变时跳过）"""
+        mode = self._chart_mode.get()
+        if mode != "step" and mode not in self._rendered_modes:
             return
         self._do_render_chart()
 
@@ -549,6 +577,7 @@ class DetailPanel:
             points = max(2, int(self._chart_max_points.get()))
         except (ValueError, tk.TclError):
             points = 20
+        pred = self.gui.prediction_results.get(self.gui.selected_bvid)
         draw_chart(
             self._chart_canvas,
             self.gui.history_data,
@@ -557,6 +586,7 @@ class DetailPanel:
             FONT,
             mode=self._chart_mode.get(),
             max_points=points,
+            prediction=pred,
         )
         self._rendered_modes.add(self._chart_mode.get())
 
@@ -637,12 +667,6 @@ class DetailPanel:
                 lines.append((f"{name}  {p:.1f}%  (还差 {fmt_num(g)})", "mono"))
             else:
                 lines.append((f"{name}  已达成 ✓", "mono_ok"))
-
-        self._detail_text.tag_config("head", foreground=C["bilibili"], font=("Consolas", 10, "bold"))
-        self._detail_text.tag_config("mono", foreground=C["text_1"], font=FONT_MONO)
-        self._detail_text.tag_config("mono_b", foreground=C["bilibili"], font=("Consolas", 10, "bold"))
-        self._detail_text.tag_config("mono_ok", foreground=C["success"], font=FONT_MONO)
-        self._detail_text.tag_config("mono_accent", foreground=C["accent"], font=("Consolas", 10, "bold"))
 
         for text, tag in lines:
             self._detail_text.insert(tk.END, text + "\n", tag if tag else ())

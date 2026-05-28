@@ -6,6 +6,7 @@ import re
 import threading
 import logging
 from datetime import datetime
+from utils import project_path
 from typing import List, Dict, Optional
 
 from .connection import _ConnectionCtx
@@ -24,7 +25,7 @@ class VideoDatabase:
         _validate_bvid(bvid)
         self.bvid = bvid
         if base_dir is None:
-            base_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
+            base_dir = project_path("core", "data")
 
         # 创建以BV号命名的文件夹
         self.video_dir = os.path.join(base_dir, bvid)
@@ -37,6 +38,22 @@ class VideoDatabase:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA synchronous=NORMAL")
+
+        # 镜像连接：同步写入 data/ 目录（退出时同步到 core/data/bilibili_monitor.db 的目标目录）
+        self._mirror_conn = None
+        mirror_base = project_path("data")
+        if mirror_base != base_dir:
+            mirror_dir = os.path.join(mirror_base, bvid)
+            os.makedirs(mirror_dir, exist_ok=True)
+            mirror_path = os.path.join(mirror_dir, f"{bvid}.db")
+            try:
+                self._mirror_conn = sqlite3.connect(mirror_path, check_same_thread=False)
+                self._mirror_conn.execute("PRAGMA journal_mode=WAL")
+                self._mirror_conn.execute("PRAGMA synchronous=NORMAL")
+            except Exception as e:
+                logger.warning("创建镜像数据库连接失败 %s: %s", bvid, e)
+                self._mirror_conn = None
+
         try:
             self._init_db()
         except Exception:
@@ -46,6 +63,18 @@ class VideoDatabase:
     def _get_connection(self):
         """返回线程安全的连接上下文管理器（兼容 with 语法）"""
         return _ConnectionCtx(self._conn, self._lock)
+
+    def _execute_on_all(self, sql: str, params: tuple = ()):
+        """在主连接和镜像连接上同时执行 SQL"""
+        def _exec(conn, label="main"):
+            try:
+                conn.execute(sql, params) if params else conn.execute(sql)
+                conn.commit()
+            except Exception as e:
+                logger.error("数据库写入失败 [%s]: %s | SQL: %.200s", label, e, sql)
+        _exec(self._conn, "main")
+        if self._mirror_conn:
+            _exec(self._mirror_conn)
 
     def _raw_connection(self):
         """返回原始连接（用于需要直接操作的场景）"""
@@ -58,8 +87,7 @@ class VideoDatabase:
             cursor = conn.cursor()
 
             # 视频信息表
-            cursor.execute(
-                """
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS video_info (
                     id INTEGER PRIMARY KEY,
                     title TEXT,
@@ -82,12 +110,10 @@ class VideoDatabase:
                     pic TEXT,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-            """
-            )
+            """)
 
             # 监控记录表
-            cursor.execute(
-                """
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS monitor_records (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -103,12 +129,10 @@ class VideoDatabase:
                     viewers_total INTEGER DEFAULT 0,
                     like_view_ratio REAL DEFAULT 0
                 )
-            """
-            )
+            """)
 
             # 预测记录表
-            cursor.execute(
-                """
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS predictions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     algorithm TEXT,
@@ -126,12 +150,10 @@ class VideoDatabase:
                     error_rate REAL DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-            """
-            )
+            """)
 
             # 算法性能跟踪表（用于在线学习模块）
-            cursor.execute(
-                """
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS algorithm_performance (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     algorithm TEXT NOT NULL,
@@ -143,8 +165,8 @@ class VideoDatabase:
                     weight REAL DEFAULT 1.0,
                     confidence REAL DEFAULT 0.5
                 )
-            """
-            )
+            """)
+
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_algo_perf_algorithm ON algorithm_performance(algorithm)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_algo_perf_bvid ON algorithm_performance(bvid)")
 
@@ -152,8 +174,7 @@ class VideoDatabase:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_monitor_timestamp ON monitor_records(timestamp)")
 
             # 周刊分数记录表
-            cursor.execute(
-                """
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS weekly_scores (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -169,13 +190,11 @@ class VideoDatabase:
                     correction_d REAL,
                     base_view_score REAL
                 )
-            """
-            )
+            """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_weekly_timestamp ON weekly_scores(timestamp)")
 
             # 年刊分数记录表
-            cursor.execute(
-                """
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS yearly_scores (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -189,8 +208,7 @@ class VideoDatabase:
                     correction_b REAL,
                     correction_c REAL
                 )
-            """
-            )
+            """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_yearly_timestamp ON yearly_scores(timestamp)")
 
             # 数据库迁移：检查并添加缺少的列并自动计算数值
@@ -264,36 +282,30 @@ class VideoDatabase:
     def _migrate_compute_values(self, cursor):
         """自动计算缺失的数值字段"""
         try:
-            cursor.execute(
-                """
+            cursor.execute("""
                 UPDATE monitor_records
                 SET like_view_ratio = ROUND(CAST(like_count AS REAL) / NULLIF(view_count, 0), 6)
                 WHERE like_view_ratio IS NULL OR like_view_ratio = 0
-            """
-            )
+            """)
         except Exception as e:
             logger.debug("更新 monitor_records like_view_ratio 失败: %s", e)
 
         try:
-            cursor.execute(
-                """
+            cursor.execute("""
                 UPDATE video_info
                 SET like_view_ratio = ROUND(CAST(like_count AS REAL) / NULLIF(view_count, 0), 6)
                 WHERE like_view_ratio IS NULL OR like_view_ratio = 0
-            """
-            )
+            """)
         except Exception as e:
             logger.debug("更新 video_info like_view_ratio 失败: %s", e)
 
         try:
-            cursor.execute(
-                """
+            cursor.execute("""
                 UPDATE predictions
                 SET predicted_hours = ROUND(CAST(predicted_seconds AS REAL) / 3600, 2)
                 WHERE (predicted_hours IS NULL OR predicted_hours = 0)
                   AND (predicted_seconds IS NOT NULL AND predicted_seconds > 0)
-            """
-            )
+            """)
         except Exception as e:
             logger.debug("更新 predictions predicted_hours 失败: %s", e)
 
@@ -334,8 +346,48 @@ class VideoDatabase:
                     ),
                 )
                 conn.commit()
+            self._mirror_save_video_info(video_info)
         except Exception as e:
             logger.warning("保存视频信息失败 %s: %s", self.bvid, e)
+
+    def _mirror_save_video_info(self, video_info: Dict):
+        if not self._mirror_conn:
+            return
+        try:
+            self._mirror_conn.execute(
+                """
+                INSERT OR REPLACE INTO video_info
+                (id, title, view_count, like_count, coin_count, share_count,
+                 favorite_count, danmaku_count, reply_count, viewers_app,
+                 viewers_web, viewers_total, cover_path, like_view_ratio,
+                 owner_name, owner_id, pubdate, duration, pic, updated_at)
+                VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    video_info.get("title", ""),
+                    video_info.get("view_count", 0),
+                    video_info.get("like_count", 0),
+                    video_info.get("coin_count", 0),
+                    video_info.get("share_count", 0),
+                    video_info.get("favorite_count", 0),
+                    video_info.get("danmaku_count", 0),
+                    video_info.get("reply_count", 0),
+                    video_info.get("viewers_app", 0),
+                    video_info.get("viewers_web", 0),
+                    video_info.get("viewers_total", 0),
+                    video_info.get("cover_path", ""),
+                    video_info.get("like_view_ratio", 0),
+                    video_info.get("owner_name", ""),
+                    video_info.get("owner_id", 0),
+                    video_info.get("pubdate", ""),
+                    video_info.get("duration", 0),
+                    video_info.get("pic", ""),
+                    datetime.now(),
+                ),
+            )
+            self._mirror_conn.commit()
+        except Exception as e:
+            logger.debug("镜像保存视频信息失败 %s: %s", self.bvid, e)
 
     def add_monitor_record(self, record: MonitorRecord) -> bool:
         """添加监控记录"""
@@ -366,10 +418,42 @@ class VideoDatabase:
                     ),
                 )
                 conn.commit()
-                return True
+            self._mirror_add_monitor_record(record)
+            return True
         except Exception as e:
             logger.warning("添加监控记录失败 %s: %s", record.bvid, e)
             return False
+
+    def _mirror_add_monitor_record(self, record: MonitorRecord):
+        if not self._mirror_conn:
+            return
+        try:
+            self._mirror_conn.execute(
+                """
+                INSERT INTO monitor_records
+                (timestamp, view_count, like_count, coin_count, share_count,
+                 favorite_count, danmaku_count, reply_count, viewers_app,
+                 viewers_web, viewers_total, like_view_ratio)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    record.timestamp,
+                    record.view_count,
+                    record.like_count,
+                    record.coin_count,
+                    record.share_count,
+                    record.favorite_count,
+                    record.danmaku_count,
+                    record.reply_count,
+                    record.viewers_app,
+                    record.viewers_web,
+                    record.viewers_total,
+                    record.like_view_ratio,
+                ),
+            )
+            self._mirror_conn.commit()
+        except Exception as e:
+            logger.debug("镜像添加监控记录失败 %s: %s", record.bvid, e)
 
     def get_all_records(self, limit: int = 0) -> List[Dict]:
         """获取监控记录，limit>0 时仅返回最近 N 条"""
@@ -562,8 +646,22 @@ class VideoDatabase:
 
     def close(self):
         """关闭数据库连接，刷新 WAL。"""
+        self.wal_checkpoint()
         try:
-            self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
             self._conn.close()
         except Exception as e:
             logger.debug("关闭数据库连接失败: %s", e)
+        if self._mirror_conn:
+            try:
+                self._mirror_conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                self._mirror_conn.close()
+            except Exception as e:
+                logger.debug("关闭镜像数据库连接失败: %s", e)
+
+    def wal_checkpoint(self):
+        """安全执行 WAL checkpoint，持有锁避免与写入冲突。"""
+        try:
+            with self._lock:
+                self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        except Exception as e:
+            logger.debug("WAL checkpoint 失败: %s", e)

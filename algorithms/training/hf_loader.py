@@ -67,20 +67,22 @@ def get_moirai_model() -> Tuple[Optional[Any], bool, str]:
             return cached, True, "cached"
     try:
         from uni2ts.model.moirai import MoiraiModule
+        logger.debug("[hf_loader] uni2ts 已安装，MOIRAI 将使用 torch 推理")
     except ImportError as e:
-        logger.info("[hf_loader] uni2ts 未安装，MOIRAI 走 numpy 降级: %s", e)
+        logger.debug("[hf_loader] uni2ts 未安装，MOIRAI 走 numpy 降级: %s", e)
         with _lock:
             _models["moirai"] = None  # 缓存失败结果，避免下次再 import
         return None, False, "需要 pip install uni2ts"
     try:
-        logger.info("[hf_loader] 首次加载 MOIRAI，从 HuggingFace 下载或读缓存: %s", MOIRAI_REPO)
+        logger.debug("[hf_loader] 首次加载 MOIRAI，从 HuggingFace 下载或读缓存: %s", MOIRAI_REPO)
         model = MoiraiModule.from_pretrained(MOIRAI_REPO)
         model.eval()
         with _lock:
             _models["moirai"] = model
+        logger.info("[hf_loader] MOIRAI 模型已加载 → 使用 torch 推理")
         return model, True, "loaded"
     except Exception as e:
-        logger.warning("[hf_loader] MOIRAI 加载失败: %s", e)
+        logger.debug("[hf_loader] MOIRAI 加载失败，走 numpy 降级: %s", e)
         with _lock:
             _models["moirai"] = None
         return None, False, str(e)
@@ -99,19 +101,20 @@ def get_lag_llama_model() -> Tuple[Optional[Any], bool, str]:
     try:
         from huggingface_hub import hf_hub_download
 
-        logger.info("[hf_loader] 首次加载 Lag-Llama，从 HuggingFace 下载或读缓存: %s", LAG_LLAMA_REPO)
+        logger.debug("[hf_loader] 首次加载 Lag-Llama，从 HuggingFace 下载或读缓存: %s", LAG_LLAMA_REPO)
         ckpt_path = hf_hub_download(
             repo_id=LAG_LLAMA_REPO,
             filename="lag-llama.ckpt",
         )
         import torch as _torch
 
-        ckpt = _torch.load(ckpt_path, map_location="cpu", weights_only=False)
+        ckpt = _torch.load(ckpt_path, map_location="cpu", weights_only=True)
         with _lock:
             _models["lag_llama"] = ckpt
+        logger.info("[hf_loader] Lag-Llama 模型已加载 → 使用 torch 推理")
         return ckpt, True, "loaded"
     except Exception as e:
-        logger.warning("[hf_loader] Lag-Llama 加载失败: %s", e)
+        logger.debug("[hf_loader] Lag-Llama 加载失败，走 numpy 降级: %s", e)
         with _lock:
             _models["lag_llama"] = None
         return None, False, str(e)
