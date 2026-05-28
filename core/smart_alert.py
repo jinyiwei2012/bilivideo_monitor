@@ -163,6 +163,52 @@ class AnomalyDetector:
         return None
 
     @staticmethod
+    def detect_night_surge(records: List[Dict]) -> Optional[str]:
+        """检测深夜/凌晨时段异常在线人数飙升（可能为机器人刷量）
+
+        如果当前时间在 23:00-07:00 之间，且在线人数 > 白天均值的 50%，
+        判定为夜间异常。
+        """
+        if len(records) < 4:
+            return None
+        sorted_recs = sorted(records, key=lambda r: r.get("timestamp", ""))
+        now = datetime.now()
+        hour = now.hour
+        # 深夜 / 凌晨时段 23:00-07:00
+        if 7 <= hour < 23:
+            return None
+
+        viewers = [r.get("viewers_total", 0) for r in sorted_recs[-4:]]
+        current_v = viewers[-1] if viewers else 0
+        if current_v < 20:
+            return None
+
+        # 取日间时段（9:00-22:00）的在线数据作为"正常日间水平"
+        day_viewers = []
+        for r in sorted_recs:
+            try:
+                ts = r.get("timestamp", "")
+                h = datetime.fromisoformat(ts).hour if isinstance(ts, str) else now.hour
+                if 9 <= h <= 22:
+                    day_viewers.append(r.get("viewers_total", 0))
+            except Exception:
+                pass
+        # 如果没有足够日间数据，用近期的历史均值做参考
+        if len(day_viewers) < 3:
+            day_viewers = viewers[:-1] if len(viewers) > 1 else [0]
+
+        avg_day = sum(day_viewers) / max(len(day_viewers), 1)
+
+        # 夜间在线 > 日间水平的 50% → 异常
+        if avg_day > 20 and current_v > avg_day * 0.5:
+            return (
+                f"🌙 深夜异常在线！当前 {current_v} 人在线"
+                f"（时段:{hour}:00，日间均{avg_day:.0f}人），"
+                f"可能为机器人刷量"
+            )
+        return None
+
+    @staticmethod
     def detect_viewer_crash(records: List[Dict]) -> Optional[str]:
         """检测在线人数断崖下跌"""
         if len(records) < 3:
@@ -194,6 +240,7 @@ class AnomalyDetector:
             ("stall", AnomalyDetector.detect_stall),
             ("viewer_surge", AnomalyDetector.detect_viewer_surge),
             ("viewer_crash", AnomalyDetector.detect_viewer_crash),
+            ("night_surge", AnomalyDetector.detect_night_surge),
         ]
         for key, detector in detectors:
             alert_key = f"{bvid}:{key}" if bvid else key

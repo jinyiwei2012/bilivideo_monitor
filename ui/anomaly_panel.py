@@ -134,6 +134,8 @@ class AnomalyPanel:
                             type_icon = "📉 趋势反转"
                         elif "停滞" in a:
                             type_icon = "⏸ 播放停滞"
+                        elif "深夜" in a:
+                            type_icon = "🌙 深夜异常"
                         elif "在线人数飙升" in a:
                             type_icon = "👁 在线飙升"
                         elif "暴跌" in a or "断崖" in a:
