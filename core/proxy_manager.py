@@ -385,6 +385,7 @@ class ProxyManager:
         "https://raw.githubusercontent.com/ShiftyTR/Proxy-List/master/https.txt",
         "https://raw.githubusercontent.com/ShiftyTR/Proxy-List/master/socks4.txt",
         "https://raw.githubusercontent.com/ShiftyTR/Proxy-List/master/socks5.txt",
+        "https://raw.githubusercontent.com/hookzof/socks5_list/master/proxy.txt",
     ]
 
     def _discover_free_proxies(self):
