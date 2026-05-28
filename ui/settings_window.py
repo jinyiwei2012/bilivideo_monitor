@@ -1978,19 +1978,19 @@ class SettingsWindow:
         return cookies
 
     def _verify_login(self):
-        """验证登录状态并更新 UI"""
-        try:
-            status = get_bilibili_api().get_status()
-            is_login = status.get("is_login", False)
-            login_name = status.get("login_name", "")
-            if hasattr(self, "gui") and self.gui and hasattr(self.gui, "log_panel"):
-                if is_login:
-                    self.gui.log_panel.add_log("INFO", f"Cookie 登录验证成功: {login_name}")
-                else:
-                    self.gui.log_panel.add_log("WARNING", "Cookie 登录验证失败，请检查 Cookie 是否有效")
-        except Exception as e:
-            logger.debug("检查Cookie登录状态失败: %s", e)
-        self._refresh_status()
+        """验证登录状态并更新 UI（后台线程）"""
+        def _worker():
+            try:
+                status = get_bilibili_api().get_status()
+                is_login = status.get("is_login", False)
+                login_name = status.get("login_name", "")
+                if is_login and hasattr(self, "gui") and self.gui:
+                    self.window.after(0, lambda: self.gui.log_panel.add_log("INFO", f"Cookie 登录验证成功: {login_name}"))
+            except Exception as e:
+                logger.debug("检查Cookie登录状态失败: %s", e)
+            self.window.after(0, self._refresh_status)
+        import threading
+        threading.Thread(target=_worker, daemon=True).start()
 
     # ──── Cookie: 清空 ────
     def _clear_cookies(self):
@@ -2186,7 +2186,18 @@ class SettingsWindow:
 
     # ──── 状态 ────
     def _refresh_status(self):
-        status = get_bilibili_api().get_status()
+        """刷新状态（后台线程，避免 _request 阻塞 UI）"""
+        def _worker():
+            try:
+                status = get_bilibili_api().get_status()
+            except Exception as e:
+                logger.debug("获取状态失败: %s", e)
+                status = {}
+            self.window.after(0, lambda s=status: self._apply_status(s))
+        import threading
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _apply_status(self, status: dict):
         for key, label in self.status_labels.items():
             value = status.get(key, "N/A")
             if key == "is_login":
