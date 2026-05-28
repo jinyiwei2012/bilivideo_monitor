@@ -1253,6 +1253,7 @@ class SettingsWindow:
         )
         ttk.Button(import_row, text="📱 扫码登录", command=self._qrcode_login).pack(side=tk.LEFT, padx=4)
         ttk.Button(import_row, text="🔑 密码登录", command=self._password_login, state=_s()).pack(side=tk.LEFT, padx=4)
+        ttk.Button(import_row, text="🌐 从浏览器提取", command=self._import_from_browser).pack(side=tk.LEFT, padx=4)
 
         # 多账号管理
         acct_row = tk.Frame(sec, bg=C["bg_elevated"])
@@ -2034,6 +2035,33 @@ class SettingsWindow:
             messagebox.showinfo("成功", "Cookie 已清空", parent=self.window)
 
     # ──── Cookie: Cookie-Editor 导入 ────
+    def _import_from_browser(self):
+        """从浏览器提取 B 站 Cookie"""
+        def _worker():
+            try:
+                from utils.browser_cookies import extract_from_all_browsers
+                cookies = extract_from_all_browsers()
+                if cookies:
+                    api = get_bilibili_api()
+                    api.set_cookies(cookies)
+                    api.add_account(api.get_active_account(), cookies, api.get_refresh_token())
+                    api._persist_cookies(cookies)
+                    self.window.after(0, lambda: self._on_browser_cookies(cookies))
+                else:
+                    self.window.after(0, lambda: messagebox.showerror("失败",
+                        "未从浏览器中找到 B 站 Cookie，请确认已登录 bilibili.com", parent=self.window))
+            except Exception as e:
+                self.window.after(0, lambda: messagebox.showerror("错误", f"提取失败: {e}", parent=self.window))
+        import threading
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _on_browser_cookies(self, cookies: dict):
+        self._refresh_account_list()
+        self._refresh_cookie_display()
+        self._refresh_status()
+        self.window.after(500, self._verify_login)
+        messagebox.showinfo("成功", f"已从浏览器提取 Cookie:\n{', '.join(cookies.keys())}", parent=self.window)
+
     def _import_cookie_editor(self):
         top = tk.Toplevel(self.window)
         top.title("导入 Cookie-Editor JSON")
