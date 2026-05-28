@@ -66,13 +66,13 @@ class VideoDatabase:
 
     def _execute_on_all(self, sql: str, params: tuple = ()):
         """在主连接和镜像连接上同时执行 SQL"""
-        def _exec(conn):
+        def _exec(conn, label="main"):
             try:
                 conn.execute(sql, params) if params else conn.execute(sql)
                 conn.commit()
-            except Exception:
-                pass
-        _exec(self._conn)
+            except Exception as e:
+                logger.error("数据库写入失败 [%s]: %s | SQL: %.200s", label, e, sql)
+        _exec(self._conn, "main")
         if self._mirror_conn:
             _exec(self._mirror_conn)
 
