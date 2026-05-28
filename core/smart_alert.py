@@ -10,6 +10,7 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 _last_alert_time: Dict[str, datetime] = {}
+_last_alert_lock = threading.Lock()
 _ALERT_COOLDOWN_MINUTES = 30
 
 
@@ -23,10 +24,11 @@ def _fmt_count(n: int) -> str:
 
 def _should_alert(alert_key: str) -> bool:
     now = datetime.now()
-    last = _last_alert_time.get(alert_key)
-    if last and (now - last).total_seconds() < _ALERT_COOLDOWN_MINUTES * 60:
-        return False
-    _last_alert_time[alert_key] = now
+    with _last_alert_lock:
+        last = _last_alert_time.get(alert_key)
+        if last and (now - last).total_seconds() < _ALERT_COOLDOWN_MINUTES * 60:
+            return False
+        _last_alert_time[alert_key] = now
     return True
 
 
