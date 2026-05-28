@@ -1,6 +1,6 @@
 """
 右侧预测面板模块 - CustomTkinter 版
-负责预测英雄卡、算法列表展示
+负责预测英雄卡 + 最近记录时间线
 """
 
 import tkinter as tk
@@ -19,11 +19,8 @@ class PredictionPanel:
         self._parent = parent
         self._hero_widgets = {}
         self._hero_has_data = False
-        self._algo_cards = {}
-        self._algo_header = None
-        self._algo_count_lbl = None
-        self._algo_failed_header = None
-        self._algo_failed_count_lbl = None
+        self._info_frame = None
+        self._info_content = None
         self._build_right_panel()
 
     def _build_right_panel(self):
@@ -33,16 +30,16 @@ class PredictionPanel:
         tk.Frame(p, bg=C["border"], height=1).pack(fill=tk.X)
         self._build_pred_hero_empty()
 
-        algo_wrap = ctk.CTkFrame(p, fg_color=C["bg_surface"], corner_radius=0)
-        algo_wrap.pack(fill=tk.BOTH, expand=True)
-        self._algo_frame = ctk.CTkScrollableFrame(
-            algo_wrap,
+        info_wrap = ctk.CTkFrame(p, fg_color=C["bg_surface"], corner_radius=0)
+        info_wrap.pack(fill=tk.BOTH, expand=True)
+        self._info_frame = ctk.CTkScrollableFrame(
+            info_wrap,
             fg_color=C["bg_surface"],
             corner_radius=0,
             scrollbar_button_color=C["bg_hover"],
             scrollbar_button_hover_color=C["border"],
         )
-        self._algo_frame.pack(fill=tk.BOTH, expand=True)
+        self._info_frame.pack(fill=tk.BOTH, expand=True)
 
     def _build_pred_hero_empty(self):
         if not self._hero_has_data and self._hero_widgets:
@@ -52,7 +49,7 @@ class PredictionPanel:
             w.destroy()
         self._hero_widgets = {}
         self._hero_has_data = False
-        ctk.CTkLabel(h, text="数据刷新后自动预测", text_color=C["text_3"], font=FONT, fg_color="transparent").pack(
+        ctk.CTkLabel(h, text="选择视频后显示预测", text_color=C["text_3"], font=FONT, fg_color="transparent").pack(
             padx=14, pady=14
         )
 
@@ -90,7 +87,7 @@ class PredictionPanel:
                     need = t - current_views
                     seconds_left = need / rate_per_sec
                     arrive_dt = datetime.now() + timedelta(seconds=seconds_left)
-                    eta_str = arrive_dt.strftime("%Y-%m-%d %H:%M")
+                    eta_str = arrive_dt.strftime("%m-%d %H:%M")
                     eta_c = (
                         C["danger"] if seconds_left < 3600 else C["warning"] if seconds_left < 86400 else C["text_2"]
                     )
@@ -159,7 +156,7 @@ class PredictionPanel:
                 need = t - current_views
                 seconds_left = need / rate_per_sec
                 arrive_dt = datetime.now() + timedelta(seconds=seconds_left)
-                eta_str = arrive_dt.strftime("%Y-%m-%d %H:%M")
+                eta_str = arrive_dt.strftime("%m-%d %H:%M")
                 eta_c = C["danger"] if seconds_left < 3600 else C["warning"] if seconds_left < 86400 else C["text_2"]
             else:
                 eta_str, eta_c = "—", C["text_3"]
@@ -178,169 +175,147 @@ class PredictionPanel:
         }
         self._hero_has_data = True
 
-    def _build_algo_card(self, f, name, pred, conf, predicted_hours, dot_c):
-        card = ctk.CTkFrame(f, fg_color=C["bg_surface"], border_width=1, border_color=C["border_sub"], corner_radius=6)
-        inner = ctk.CTkFrame(card, fg_color=C["bg_surface"], corner_radius=0)
-        inner.pack(fill=tk.X, padx=10, pady=7)
-        top_row = ctk.CTkFrame(inner, fg_color=C["bg_surface"], corner_radius=0)
-        top_row.pack(fill=tk.X)
-        ctk.CTkLabel(top_row, text="●", text_color=dot_c, font=FONT_SM, fg_color="transparent").pack(side=tk.LEFT)
-        ctk.CTkLabel(top_row, text=" " + name[:18], text_color=C["text_1"], font=FONT, fg_color="transparent").pack(
-            side=tk.LEFT
-        )
-        pred_lbl = ctk.CTkLabel(
-            top_row,
-            text=fmt_num(pred),
-            text_color=C["accent"],
-            font=("Consolas", 10, "bold"),
-            fg_color="transparent",
-        )
-        pred_lbl.pack(side=tk.RIGHT)
+    def _clear_info(self):
+        for w in self._info_frame.winfo_children():
+            w.destroy()
+        self._info_content = None
 
-        eta_lbl = None
-        eta_text = ""
-        if predicted_hours > 0:
-            eta_row = ctk.CTkFrame(inner, fg_color=C["bg_surface"], corner_radius=0)
-            eta_row.pack(fill=tk.X)
-            if predicted_hours >= 24:
-                eta_text = f"🎯 预计 {predicted_hours / 24:.1f} 天"
-            elif predicted_hours >= 1:
-                eta_text = f"🎯 预计 {predicted_hours:.1f} 小时"
-            else:
-                eta_text = f"🎯 预计 {predicted_hours * 60:.0f} 分钟"
-            eta_lbl = ctk.CTkLabel(
-                eta_row,
-                text=eta_text,
-                text_color=C["success"],
-                font=("Consolas", 8),
-                fg_color="transparent",
+    def update_info(self, video, history, prediction_result):
+        """更新右侧信息面板：互动率 + 数据健康 + 算法统计"""
+        self._clear_info()
+        f = self._info_frame
+
+        # ── 互动率概览 ──
+        self._section_title(f, "📊 互动率概览")
+        views = max(video.get("view_count", 0), 1)
+        likes = video.get("like_count", 0) or 0
+        coins = video.get("coin_count", 0) or 0
+        favorites = video.get("favorite_count", 0) or 0
+        shares = video.get("share_count", 0) or 0
+        danmaku = video.get("danmaku_count", 0) or 0
+
+        stats = [
+            ("👍 点赞率", f"{likes / views * 100:.2f}%"),
+            ("🪙 投币率", f"{coins / views * 100:.2f}%"),
+            ("⭐ 收藏率", f"{favorites / views * 100:.2f}%"),
+            ("🔗 分享率", f"{shares / views * 100:.2f}%"),
+            ("💬 弹幕率", f"{danmaku / views * 100:.2f}%"),
+        ]
+        grid = ctk.CTkFrame(f, fg_color=C["bg_surface"], corner_radius=0)
+        grid.pack(fill=tk.X, padx=10, pady=(0, 6))
+        for i, (label, val) in enumerate(stats):
+            row, col = divmod(i, 2)
+            cell = ctk.CTkFrame(grid, fg_color=C["bg_elevated"], corner_radius=4, height=28)
+            cell.grid(row=row, column=col, padx=2, pady=1, sticky="ew")
+            grid.grid_columnconfigure(col, weight=1, uniform="stats")
+            ctk.CTkLabel(cell, text=label, text_color=C["text_3"], font=FONT_SM, fg_color="transparent").pack(
+                side=tk.LEFT, padx=(6, 0)
             )
-            eta_lbl.pack(side=tk.LEFT)
+            ctk.CTkLabel(cell, text=val, text_color=C["text_1"], font=("Consolas", 9, "bold"),
+                         fg_color="transparent").pack(side=tk.RIGHT, padx=(0, 6))
 
-        bar_row = ctk.CTkFrame(inner, fg_color=C["bg_surface"], corner_radius=0)
-        bar_row.pack(fill=tk.X, pady=(4, 0))
-        bg_bar = ctk.CTkFrame(bar_row, fg_color=C["bg_hover"], height=3, corner_radius=2)
-        bg_bar.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        bg_bar.pack_propagate(False)
-        fill_bar = tk.Frame(bg_bar, bg=C["accent"], height=3)
-        fill_bar.place(x=0, y=0, relwidth=conf, relheight=1)
-        conf_lbl = ctk.CTkLabel(
-            bar_row,
-            text=f"{conf * 100:.0f}%",
-            text_color=C["text_3"],
-            font=("Consolas", 8),
-            fg_color="transparent",
-            width=30,
-        )
-        conf_lbl.pack(side=tk.LEFT, padx=3)
-        return {
-            "card": card,
-            "pred_lbl": pred_lbl,
-            "conf_lbl": conf_lbl,
-            "fill_bar": fill_bar,
-            "eta_lbl": eta_lbl,
-            "eta_text": eta_text if predicted_hours > 0 else None,
-        }
+        # ── 在线人数 ──
+        online_total = video.get("viewers_total", 0)
+        online_web = video.get("viewers_web", 0)
+        online_app = video.get("viewers_app", 0)
+        if online_total > 0:
+            online_frame = ctk.CTkFrame(f, fg_color=C["bg_surface"], corner_radius=0)
+            online_frame.pack(fill=tk.X, padx=10, pady=(0, 6))
+            row = ctk.CTkFrame(online_frame, fg_color=C["bg_elevated"], corner_radius=4, height=28)
+            row.pack(fill=tk.X)
+            ctk.CTkLabel(row, text="👁 在线人数", text_color=C["text_3"], font=FONT_SM,
+                         fg_color="transparent").pack(side=tk.LEFT, padx=(6, 0))
+            ctk.CTkLabel(row, text=f"{fmt_num(online_total)}  (网页{fmt_num(online_web)}/APP{fmt_num(online_app)})",
+                         text_color=C["accent"], font=("Consolas", 9), fg_color="transparent").pack(side=tk.RIGHT,
+                                                                                                    padx=(0, 6))
 
+        # ── 最近记录 ──
+        self._section_title(f, "📋 最近记录")
+        hist_container = ctk.CTkFrame(f, fg_color=C["bg_surface"], corner_radius=0)
+        hist_container.pack(fill=tk.X, padx=10, pady=(0, 6))
+        if history and len(history) > 1:
+            recent = history[-15:]
+            prev_v = recent[0][1] if len(recent) > 1 else 0
+            for ts, v in recent:
+                dt_str = ts.strftime("%m-%d %H:%M") if isinstance(ts, datetime) else str(ts)[:-3] if len(
+                    str(ts)) > 16 else str(ts)
+                delta_v = v - prev_v if prev_v > 0 else 0
+                delta_str = f"+{fmt_num(delta_v)}" if delta_v > 0 else "—"
+                delta_c = C["success"] if delta_v > 0 else C["text_3"]
+                prev_v = v
+                row = ctk.CTkFrame(hist_container, fg_color=C["bg_surface"], corner_radius=0)
+                row.pack(fill=tk.X, pady=1)
+                ctk.CTkLabel(row, text=dt_str, text_color=C["text_3"], font=("Consolas", 8),
+                             fg_color="transparent", width=60, anchor="w").pack(side=tk.LEFT)
+                ctk.CTkLabel(row, text=fmt_num(v), text_color=C["text_1"], font=("Consolas", 9, "bold"),
+                             fg_color="transparent", width=60, anchor="e").pack(side=tk.RIGHT)
+                ctk.CTkLabel(row, text=delta_str, text_color=delta_c, font=("Consolas", 8),
+                             fg_color="transparent", width=50, anchor="e").pack(side=tk.RIGHT)
+        else:
+            ctk.CTkLabel(hist_container, text="暂无历史数据", text_color=C["text_3"], font=FONT_SM,
+                         fg_color="transparent", anchor="w").pack(fill=tk.X, pady=4)
+
+        # ── 算法统计 ──
+        self._section_title(f, "🧠 算法统计")
+        algo_info = ctk.CTkFrame(f, fg_color=C["bg_surface"], corner_radius=0)
+        algo_info.pack(fill=tk.X, padx=10, pady=(0, 6))
+        if prediction_result:
+            valid = prediction_result.get("valid", 0)
+            total = prediction_result.get("total", 0)
+            ensemble_conf = prediction_result.get("ensemble_confidence", 0)
+            row = ctk.CTkFrame(algo_info, fg_color=C["bg_elevated"], corner_radius=4, height=28)
+            row.pack(fill=tk.X)
+            ctk.CTkLabel(row, text="有效算法", text_color=C["text_3"], font=FONT_SM,
+                         fg_color="transparent").pack(side=tk.LEFT, padx=(6, 0))
+            ctk.CTkLabel(row, text=f"{valid}/{total}", text_color=C["success"] if valid > 0 else C["danger"],
+                         font=("Consolas", 9, "bold"), fg_color="transparent").pack(side=tk.RIGHT, padx=(0, 6))
+            if ensemble_conf > 0:
+                row2 = ctk.CTkFrame(algo_info, fg_color=C["bg_elevated"], corner_radius=4, height=28)
+                row2.pack(fill=tk.X, pady=(2, 0))
+                ctk.CTkLabel(row2, text="集成置信度", text_color=C["text_3"], font=FONT_SM,
+                             fg_color="transparent").pack(side=tk.LEFT, padx=(6, 0))
+                ctk.CTkLabel(row2, text=f"{ensemble_conf * 100:.1f}%",
+                             text_color=C["accent"], font=("Consolas", 9, "bold"),
+                             fg_color="transparent").pack(side=tk.RIGHT, padx=(0, 6))
+        else:
+            ctk.CTkLabel(algo_info, text="等待首次预测", text_color=C["text_3"], font=FONT_SM,
+                         fg_color="transparent", anchor="w").pack(fill=tk.X, pady=4)
+
+        # ── 数据健康 ──
+        self._section_title(f, "📡 数据健康")
+        health = ctk.CTkFrame(f, fg_color=C["bg_surface"], corner_radius=0)
+        health.pack(fill=tk.X, padx=10, pady=(0, 6))
+        n_records = len(history) if history else 0
+        fetch_time = video.get("_last_fetch", "")
+        row = ctk.CTkFrame(health, fg_color=C["bg_elevated"], corner_radius=4, height=28)
+        row.pack(fill=tk.X)
+        ctk.CTkLabel(row, text="数据点数", text_color=C["text_3"], font=FONT_SM,
+                     fg_color="transparent").pack(side=tk.LEFT, padx=(6, 0))
+        ctk.CTkLabel(row, text=str(n_records), text_color=C["text_1"], font=("Consolas", 9, "bold"),
+                     fg_color="transparent").pack(side=tk.RIGHT, padx=(0, 6))
+
+        self._info_content = True
+
+    def _section_title(self, parent, text):
+        row = ctk.CTkFrame(parent, fg_color=C["bg_surface"], corner_radius=0)
+        row.pack(fill=tk.X, padx=10, pady=(8, 2))
+        ctk.CTkLabel(row, text=text, text_color=C["text_3"],
+                     font=("Microsoft YaHei UI", 8, "bold"), fg_color="transparent").pack(side=tk.LEFT)
+
+    # 兼容旧接口 — 不再显示算法列表，转调 update_info
     def _update_algo_list(self, results, failed):
-        f = self._algo_frame
-        ALGO_COLORS = [C["bilibili"], C["accent"], C["success"], C["warning"], "#a78bfa", "#22d3ee"]
-        seen = set()
-
-        if results:
-            if self._algo_header is None or not self._algo_header.winfo_exists():
-                self._algo_header = ctk.CTkFrame(f, fg_color=C["bg_surface"], corner_radius=0)
-                self._algo_header.pack(
-                    fill=tk.X, padx=8, pady=(6, 2), before=f.winfo_children()[0] if f.winfo_children() else None
-                )
-                ctk.CTkLabel(
-                    self._algo_header,
-                    text="✅ 成功算法",
-                    text_color=C["text_3"],
-                    font=("Microsoft YaHei UI", 8, "bold"),
-                    fg_color="transparent",
-                ).pack(side=tk.LEFT)
-                self._algo_count_lbl = ctk.CTkLabel(
-                    self._algo_header,
-                    text=str(len(results)),
-                    fg_color=C["bg_elevated"],
-                    text_color=C["text_2"],
-                    font=FONT_SM,
-                    corner_radius=4,
-                )
-                self._algo_count_lbl.pack(side=tk.LEFT, padx=4)
-            else:
-                self._algo_count_lbl.configure(text=str(len(results)))
-                self._algo_header.pack(fill=tk.X, padx=8, pady=(6, 2))
-
-            for i, (name, pred, weight, conf, predicted_hours) in enumerate(results):
-                seen.add(name)
-                if name in self._algo_cards:
-                    cd = self._algo_cards[name]
-                    cd["pred_lbl"].configure(text=fmt_num(pred))
-                    cd["conf_lbl"].configure(text=f"{conf * 100:.0f}%")
-                    cd["fill_bar"].place(x=0, y=0, relwidth=conf, relheight=1)
-                    if cd.get("eta_lbl") and predicted_hours > 0:
-                        if predicted_hours >= 24:
-                            eta_text = f"🎯 预计 {predicted_hours / 24:.1f} 天"
-                        elif predicted_hours >= 1:
-                            eta_text = f"🎯 预计 {predicted_hours:.1f} 小时"
-                        else:
-                            eta_text = f"🎯 预计 {predicted_hours * 60:.0f} 分钟"
-                        cd["eta_lbl"].configure(text=eta_text)
-                else:
-                    dot_c = ALGO_COLORS[i % len(ALGO_COLORS)]
-                    cd = self._build_algo_card(f, name, pred, conf, predicted_hours, dot_c)
-                    self._algo_cards[name] = cd
-                cd["card"].pack(fill=tk.X, padx=6, pady=2)
-
-        for name in list(self._algo_cards.keys()):
-            if name not in seen:
-                self._algo_cards[name]["card"].destroy()
-                del self._algo_cards[name]
-
-        if failed:
-            if self._algo_failed_header is None or not self._algo_failed_header.winfo_exists():
-                self._algo_failed_header = ctk.CTkFrame(f, fg_color=C["bg_surface"], corner_radius=0)
-                self._algo_failed_header.pack(fill=tk.X, padx=8, pady=(10, 2))
-                ctk.CTkLabel(
-                    self._algo_failed_header,
-                    text="❌ 失败算法",
-                    text_color=C["text_3"],
-                    font=("Microsoft YaHei UI", 8, "bold"),
-                    fg_color="transparent",
-                ).pack(side=tk.LEFT)
-                self._algo_failed_count_lbl = ctk.CTkLabel(
-                    self._algo_failed_header,
-                    text=str(len(failed)),
-                    fg_color=C["bg_elevated"],
-                    text_color=C["danger"],
-                    font=FONT_SM,
-                    corner_radius=4,
-                )
-                self._algo_failed_count_lbl.pack(side=tk.LEFT, padx=4)
-            else:
-                self._algo_failed_count_lbl.configure(text=str(len(failed)))
-                self._algo_failed_header.pack(fill=tk.X, padx=8, pady=(10, 2))
-
-            seen_failed = set()
-            for name, err in failed:
-                seen_failed.add(name)
-                key = f"_failed_{name}"
-                if key in self._algo_cards:
-                    pass
-                else:
-                    row = ctk.CTkFrame(f, fg_color=C["bg_surface"], corner_radius=0)
-                    row.pack(fill=tk.X, padx=10, pady=5)
-                    ctk.CTkLabel(row, text=name[:20], text_color=C["text_3"], font=FONT, fg_color="transparent").pack(
-                        side=tk.LEFT
-                    )
-                    err_lbl = ctk.CTkLabel(
-                        row, text=str(err)[:30], text_color=C["danger"], font=FONT_SM, fg_color="transparent"
-                    )
-                    err_lbl.pack(side=tk.RIGHT)
-                    self._algo_cards[key] = {"card": row}
+        bvid = self.gui.selected_bvid
+        if not bvid:
+            self._clear_info()
+            return
+        video = self.gui._get_video(bvid)
+        if not video:
+            self._clear_info()
+            return
+        history = self.gui.history_data.get(bvid, [])
+        cached = self.gui.prediction_results.get(bvid, {})
+        self.update_info(video, history, cached)
 
     @property
     def algo_frame(self):
-        return self._algo_frame
+        return self._info_frame
