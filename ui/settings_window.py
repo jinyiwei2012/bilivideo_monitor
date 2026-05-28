@@ -1943,12 +1943,15 @@ class SettingsWindow:
         if not cookies:
             messagebox.showerror("错误", "无法解析输入内容，请检查格式", parent=self.window)
             return
-        get_bilibili_api().set_cookies(cookies)
+        api = get_bilibili_api()
+        api.set_cookies(cookies)
+        # 通过多账号系统持久化，确保下次启动能加载
+        api.add_account(api.get_active_account(), cookies, api.get_refresh_token())
+        api._persist_cookies(cookies)
         self._net_cfg["cookies"] = cookies
-        self._net_cfg["refresh_token"] = get_bilibili_api().get_refresh_token()
         self._save_net_config()
+        self._refresh_account_list()
         self._refresh_status()
-        # 验证登录状态
         self.window.after(500, self._verify_login)
         messagebox.showinfo("成功", "已应用 Cookie，正在验证登录状态...", parent=self.window)
 
