@@ -37,6 +37,27 @@ class RateLimitError(BilibiliAPIError):
     """频率限制错误 (412)"""
 
 
+class _CurlCffiResponse:
+    """将 curl_cffi response 包装为与 requests.Response 兼容的接口"""
+    def __init__(self, resp):
+        self.status_code = resp.status_code
+        self.content = resp.content
+        self.raw = resp.content
+        self.text = resp.text
+        self.headers = resp.headers
+        self.url = str(resp.url)
+        self.cookies = resp.cookies
+        self._resp = resp
+
+    def json(self, **kwargs):
+        return self._resp.json(**kwargs)
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            from requests.exceptions import HTTPError
+            raise HTTPError(f"HTTP {self.status_code}", response=self)
+
+
 class BilibiliAPI:
     """B站API封装类 - 支持重试与绕过412错误"""
 
@@ -118,8 +139,7 @@ class BilibiliAPI:
         # 启动时加载已保存的 Cookie 和代理
         self._load_saved_network_config()
         self.proxy_manager.init_ua_bindings()
-        # 后台自动发现免费代理
-        self.proxy_manager.start_auto_discovery(interval=600)
+        # 代理自动发现改由用户在设置界面手动触发，启动时不拉取
 
     @staticmethod
     def _gen_buvid() -> str:
@@ -228,6 +248,40 @@ class BilibiliAPI:
         """获取 refresh token（从密码登录或 Cookie 导入时保存）"""
         return self._refresh_token
 
+    def login_with_password_fallback(self, username: str, password: str) -> Dict:
+        """使用 bilibili-api-python 兜底密码登录"""
+        result = {"code": -1, "message": "", "cookies": {}, "refresh_token": ""}
+        try:
+            from bilibili_api import sync
+            from bilibili_api.login_v2 import login_with_password as _bili_login
+            from bilibili_api.utils.geetest import Geetest, GeetestType
+            from bilibili_api.exceptions import LoginError
+
+            # bilibili-api 需要极验验证码，尝试无验证码模式
+            g = Geetest(GeetestType.LOGIN)
+            try:
+                cred = sync(_bili_login(username, password, g))
+            except Exception:
+                result["message"] = "需通过极验验证码，请在 B站网页端登录后导入 Cookie"
+                return result
+
+            if hasattr(cred, "sessdata") and cred.sessdata:
+                cookies = {
+                    "SESSDATA": str(cred.sessdata),
+                    "bili_jct": str(cred.bili_jct),
+                    "DedeUserID": str(cred.dedeuserid),
+                    "ac_time_value": getattr(cred, "ac_time_value", ""),
+                }
+                self.set_cookies(cookies)
+                self._persist_cookies(cookies)
+                result.update({"code": 0, "message": "登录成功", "cookies": cookies})
+                return result
+        except ImportError:
+            result["message"] = "bilibili-api-python 未安装"
+        except Exception as e:
+            result["message"] = f"兜底登录失败: {e}"
+        return result
+
     def login_with_password(
         self, username: str, password: str, captcha: str = "", captcha_type: int = 0
     ) -> Dict:
@@ -248,8 +302,11 @@ class BilibiliAPI:
         from cryptography.hazmat.backends import default_backend
 
         try:
-            # 1. 获取 RSA 公钥
+            # 1. 获取 RSA 公钥 + 极验参数
             key_url = "https://passport.bilibili.com/x/passport-login/web/key"
+            # 尝试自动求解极验验证码（需要 OpenCV）
+            _geetest_validate = ""
+            _geetest_seccode = ""
             key_resp = self._request("GET", key_url)
             if not key_resp or "key" not in key_resp:
                 return {
@@ -322,15 +379,79 @@ class BilibiliAPI:
                     "captcha_phone": "",
                 }
 
-            # 需要验证码
+            # 处理手动极验提交（validate:seccode）
+            if captcha and captcha_type == -1 and ":" in captcha:
+                validate, seccode = captcha.split(":", 1)
+                _login_data = {
+                    "username": username, "password": encrypted_password,
+                    "keep": 1, "source": "main_web",
+                    "validate": validate, "seccode": seccode,
+                }
+                resp_g = self.session.post(login_url, data=_login_data, headers={
+                    "User-Agent": random.choice(self.USER_AGENTS),
+                    "Referer": "https://www.bilibili.com/",
+                }, timeout=15)
+                data_g = resp_g.json()
+                if data_g.get("code") == 0:
+                    d_g = data_g.get("data", {})
+                    cookies = self._extract_login_cookies(resp_g, d_g) or {k: v for k, v in {
+                        "SESSDATA": d_g.get("sessdata", ""), "bili_jct": d_g.get("bili_jct", ""),
+                        "DedeUserID": str(d_g.get("mid", "")),
+                    }.items() if v}
+                    self.set_cookies(cookies)
+                    return {"code": 0, "message": "登录成功", "cookies": cookies,
+                            "refresh_token": d_g.get("refresh_token", ""),
+                            "need_captcha": False, "captcha_type": 0, "captcha_phone": ""}
+                need_captcha = True
+                data = data_g
+                api_code = data.get("code", -1)
+
+            # 需要验证码 — 尝试自动求解极验
             need_captcha = data.get("need_captcha", False) or api_code in [-629, -352]
+            if need_captcha and not captcha:
+                d = data.get("data", {})
+                gt = d.get("gt", "")
+                challenge = d.get("challenge", "")
+                if gt and challenge:
+                    solved = self._auto_solve_geetest(gt, challenge)
+                    if solved:
+                        validate, seccode = solved
+                        _login_data = {
+                            "username": username,
+                            "password": encrypted_password,
+                            "keep": 1,
+                            "source": "main_web",
+                            "validate": validate,
+                            "seccode": seccode,
+                        }
+                        resp2 = self.session.post(login_url, data=_login_data, headers={
+                            "User-Agent": random.choice(self.USER_AGENTS),
+                            "Referer": "https://www.bilibili.com/",
+                        }, timeout=15)
+                        data2 = resp2.json()
+                        if data2.get("code") == 0:
+                            d2 = data2.get("data", {})
+                            cookies = self._extract_login_cookies(resp2, d2)
+                            if not cookies:
+                                cookies = {k: v for k, v in {
+                                    "SESSDATA": d2.get("sessdata", ""),
+                                    "bili_jct": d2.get("bili_jct", ""),
+                                    "DedeUserID": str(d2.get("mid", "")),
+                                }.items() if v}
+                            self.set_cookies(cookies)
+                            return {"code": 0, "message": "登录成功", "cookies": cookies,
+                                    "refresh_token": d2.get("refresh_token", ""),
+                                    "need_captcha": False, "captcha_type": 0, "captcha_phone": ""}
             ct = 0
             phone = ""
+            gt_val = ""
+            challenge_val = ""
             if need_captcha:
                 d = data.get("data", {})
                 ct = d.get("captcha_type", 6)
                 phone = d.get("phone", "") or d.get("captcha_phone", "")
-
+                gt_val = d.get("gt", "")
+                challenge_val = d.get("challenge", "")
             return {
                 "code": api_code,
                 "message": data.get("message", "登录失败"),
@@ -339,10 +460,15 @@ class BilibiliAPI:
                 "need_captcha": need_captcha,
                 "captcha_type": ct,
                 "captcha_phone": phone,
+                "gt": gt_val,
+                "challenge": challenge_val,
             }
 
         except Exception as e:
-            logger.error(f"密码登录异常: {e}")
+            logger.warning(f"自有密码登录失败，尝试 bilibili-api-python 兜底: {e}")
+            fallback = self.login_with_password_fallback(username, password)
+            if fallback.get("code") == 0:
+                return fallback
             return {
                 "code": -1,
                 "message": f"登录异常: {e}",
@@ -352,6 +478,22 @@ class BilibiliAPI:
                 "captcha_type": 0,
                 "captcha_phone": "",
             }
+
+    @staticmethod
+    def _auto_solve_geetest(gt: str, challenge: str):
+        """使用 OpenCV + 轨迹模拟 自动求解极验滑块验证码"""
+        try:
+            from utils.geetest_solver import solve
+            result = solve(gt, challenge)
+            if result:
+                logger.info("极验验证码自动求解成功")
+                return result
+            logger.warning("极验验证码自动求解失败")
+        except ImportError as e:
+            logger.debug("极验自动求解依赖缺失: %s (需要 opencv-python, pycryptodome)", e)
+        except Exception as e:
+            logger.debug("极验自动求解异常: %s", e)
+        return None
 
     def _on_request_failure(self, proxy_idx: Optional[int] = None):
         """标记请求失败：委托 ProxyManager 处理并更新 session UA"""
@@ -409,28 +551,22 @@ class BilibiliAPI:
                 request_kwargs = self._prepare_request_kwargs(attempt, **kwargs)
                 cookies = self._get_request_cookies()
 
-                # ── 多客户端请求：curl_cffi → requests ──
                 response = self._do_http_request(method, url, request_kwargs, cookies)
-
                 if response is None:
                     continue
 
-                # 检查HTTP状态码
-                if response.status_code == 412:
+                sc = response.status_code
+                if sc == 412:
                     if self._handle_http_412_response(attempt, max_retries, skip_retry):
                         continue
                     return None
 
-                status_code = getattr(response, 'status_code', None) or response.status_code
-                if status_code != 200:
-                    raise requests.exceptions.HTTPError(f"HTTP {status_code}")
+                if sc != 200:
+                    raise requests.exceptions.HTTPError(f"HTTP {sc}")
 
-                # 解析响应
-                raw = getattr(response, 'content', None) or response.raw
-                data = json.loads(raw) if isinstance(raw, (bytes, str)) else getattr(response, 'json', lambda: {})() if hasattr(response, 'json') else {}
-
-                self._consecutive_412_errors = 0  # 成功后重置
-                logger.debug("← %s %s → %s", method.upper(), url.split("?")[0], status_code)
+                data = response.json()
+                self._consecutive_412_errors = 0
+                logger.debug("← %s %s → %s", method.upper(), url.split("?")[0], sc)
 
                 result, should_retry = self._handle_successful_response(data, attempt, max_retries, skip_retry)
                 if should_retry:
@@ -445,8 +581,8 @@ class BilibiliAPI:
                 logger.error(f"连接错误 (第{attempt + 1}次尝试): {e}")
             except requests.exceptions.HTTPError as e:
                 last_error = f"HTTP错误: {e}"
+                logger.error(f"HTTP错误 (第{attempt + 1}次尝试): {e}")
                 if attempt < max_retries and not skip_retry:
-                    logger.error(f"HTTP错误 {status_code if 'status_code' in dir() else ''} (第{attempt + 1}次尝试)")
                     delay = self._get_retry_delay(attempt)
                     time.sleep(delay)
                     self._on_request_failure()
@@ -463,7 +599,6 @@ class BilibiliAPI:
 
             if attempt < max_retries and not skip_retry:
                 delay = self._get_retry_delay(attempt)
-                logger.info(f"等待 {delay:.1f} 秒后重试...")
                 time.sleep(delay)
                 self._on_request_failure()
 
@@ -507,26 +642,6 @@ class BilibiliAPI:
                 raise err from e
             raise
 
-
-class _CurlCffiResponse:
-    """将 curl_cffi response 包装为与 requests.Response 兼容的接口"""
-    def __init__(self, resp):
-        self.status_code = resp.status_code
-        self.content = resp.content
-        self.raw = resp.content
-        self.text = resp.text
-        self.headers = resp.headers
-        self.url = str(resp.url)
-        self.cookies = resp.cookies
-        self._resp = resp
-
-    def json(self, **kwargs):
-        return self._resp.json(**kwargs)
-
-    def raise_for_status(self):
-        if self.status_code >= 400:
-            from requests.exceptions import HTTPError
-            raise HTTPError(f"HTTP {self.status_code}", response=self)
 
     def _prepare_request_kwargs(self, attempt: int, **kwargs) -> Dict:
         """构建请求参数：使用代理绑定UA，跳过失败过多的代理"""
@@ -1188,7 +1303,7 @@ class _CurlCffiResponse:
 
     # ── QR码登录 ─────────────────────────────────────────
     def get_qrcode_login_url(self) -> Optional[Dict]:
-        """获取二维码登录地址（使用独立 session，避免旧 Cookie 干扰）"""
+        """获取二维码登录地址（带 bilibili-api-python 兜底）"""
         import requests as _req
 
         url = "https://passport.bilibili.com/x/passport-login/web/qrcode/generate"
@@ -1201,20 +1316,38 @@ class _CurlCffiResponse:
             resp = clean_session.get(url, timeout=15)
             logger.debug("← passport.bilibili.com/qrcode/generate → %s", resp.status_code)
             if resp.status_code != 200:
-                return None
+                return self._get_qrcode_url_fallback()
             data = resp.json()
             if data.get("code") == 0:
                 d = data.get("data", {})
                 return {"url": d.get("url", ""), "qrcode_key": d.get("qrcode_key", "")}
         except Exception as e:
             logger.warning(f"获取二维码失败: {e}")
-            return None
+            return self._get_qrcode_url_fallback()
         finally:
             clean_session.close()
+        return self._get_qrcode_url_fallback()
+
+    def _get_qrcode_url_fallback(self) -> Optional[Dict]:
+        """使用 bilibili-api-python 兜底获取二维码"""
+        try:
+            from bilibili_api import sync
+            from bilibili_api.login_v2 import QrCodeLogin, QrCodeLoginChannel
+
+            qr = QrCodeLogin(QrCodeLoginChannel.WEB)
+            sync(qr.generate_qrcode())
+            if qr.has_qrcode():
+                return {"url": qr.get_qrcode_picture().url
+                        if hasattr(qr.get_qrcode_picture(), 'url') else "",
+                        "qrcode_key": qr._QrCodeLogin__qr_key if hasattr(qr, '_QrCodeLogin__qr_key') else ""}
+        except ImportError:
+            pass
+        except Exception as e:
+            logger.debug("bilibili-api 兜底二维码失败: %s", e)
         return None
 
     def poll_qrcode_login(self, qrcode_key: str) -> Dict:
-        """轮询二维码扫码状态
+        """轮询二维码扫码状态（使用独立 session，避免旧 Cookie 干扰）
 
         Args:
             qrcode_key: get_qrcode_login_url 返回的 key
@@ -1223,19 +1356,16 @@ class _CurlCffiResponse:
             {"status": int, "message": str, "cookies": dict}
             status: 0=未扫码, 1=已扫码待确认, 2=已确认/成功, -1=已过期
         """
+        import requests as _req
         url = "https://passport.bilibili.com/x/passport-login/web/qrcode/poll"
         result = {"status": 0, "message": "等待扫码", "cookies": {}}
+        clean_session = _req.Session()
+        clean_session.headers.update(
+            {"User-Agent": random.choice(self.USER_AGENTS), "Referer": "https://www.bilibili.com/"}
+        )
         try:
             logger.debug("→ GET passport.bilibili.com/qrcode/poll")
-            resp = self.session.get(
-                url,
-                params={"qrcode_key": qrcode_key},
-                headers={
-                    "User-Agent": random.choice(self.USER_AGENTS),
-                    "Referer": "https://www.bilibili.com/",
-                },
-                timeout=15,
-            )
+            resp = clean_session.get(url, params={"qrcode_key": qrcode_key}, timeout=15)
             logger.debug("← passport.bilibili.com/qrcode/poll → %s", resp.status_code)
             if resp.status_code != 200:
                 result["message"] = f"HTTP {resp.status_code}"
@@ -1253,7 +1383,6 @@ class _CurlCffiResponse:
                 return result
 
             d = data.get("data", {})
-            # B站新API: status 可能是整数 (0=等待, 1=已扫码, 2=已确认)
             raw_status = d.get("status", False)
             if isinstance(raw_status, int):
                 if raw_status == 2:
@@ -1274,7 +1403,6 @@ class _CurlCffiResponse:
                 result["message"] = d.get("message", "等待扫码")
                 return result
 
-            # ── 登录成功，提取 Cookie ──
             cookies = self._extract_login_cookies(resp, d)
             if cookies:
                 self.set_cookies(cookies)
@@ -1282,6 +1410,8 @@ class _CurlCffiResponse:
                 result["cookies"] = cookies
         except Exception as e:
             result["message"] = f"轮询异常: {e}"
+        finally:
+            clean_session.close()
         return result
 
     def _persist_cookies(self, cookies: dict):

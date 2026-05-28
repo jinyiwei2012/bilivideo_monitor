@@ -7,7 +7,7 @@ B站视频监控与播放量预测系统
   Y = minor — 大更新/必要修复（新功能、架构变更、API 修改）
   X = major — 重大更新（架构重写、不兼容变更）
 
-版本: 2.9.0
+版本: 3.0.0
 功能:
 - 103 种预测算法（含 7 大类别）
 - 实时监控视频数据
@@ -24,6 +24,7 @@ B站视频监控与播放量预测系统
 - 视频标签管理 + 排行榜 + 预测回测
 - 弹幕时间分布热力图
 - AI 智能问答（预设模板）
+- 412 限流绕过（curl_cffi TLS 指纹 / 多源兜底 / 代理自动发现 / Playwright）
 
 项目结构:
 - core/: 核心模块（数据库、API、通知）
@@ -35,7 +36,7 @@ B站视频监控与播放量预测系统
 - exports/: 导出目录
 """
 
-__version__ = "2.8.1"
+__version__ = "3.0.0"
 __author__ = "Bilibili Monitor Team"
 
 from config import PROJECT_ROOT, DATA_DIR, COVER_DIR, EXPORT_DIR

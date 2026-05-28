@@ -1168,8 +1168,24 @@ class SettingsWindow:
         self._proxy_test_status = tk.Label(btn_row, text="", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM)
         self._proxy_test_status.pack(side=tk.LEFT, padx=8)
 
+        # 代理自动发现
+        auto_row = tk.Frame(sec, bg=C["bg_elevated"])
+        auto_row.pack(fill=tk.X, pady=(4, 0))
+        ttk.Button(auto_row, text="🌐 自动获取代理", command=self._auto_fetch_proxies).pack(side=tk.LEFT, padx=(0, 4))
+        self._auto_fetch_status = tk.Label(auto_row, text="", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM)
+        self._auto_fetch_status.pack(side=tk.LEFT, padx=8)
+
+        # 自定义代理源
+        src_row = tk.Frame(sec, bg=C["bg_elevated"])
+        src_row.pack(fill=tk.X, pady=(2, 0))
+        tk.Label(src_row, text="自定义代理源:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT)
+        self._proxy_src_entry = ttk.Entry(src_row, width=50, font=FONT_SM)
+        self._proxy_src_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
+        self._proxy_src_entry.bind("<Return>", lambda e: self._add_proxy_source())
+        ttk.Button(src_row, text="添加源", command=self._add_proxy_source).pack(side=tk.LEFT)
+
         url_row = tk.Frame(sec, bg=C["bg_elevated"])
-        url_row.pack(fill=tk.X, pady=(6, 0))
+        url_row.pack(fill=tk.X, pady=(2, 0))
         tk.Label(
             url_row, text="测试地址:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM, width=8, anchor="w"
         ).pack(side=tk.LEFT)
@@ -1524,6 +1540,82 @@ class SettingsWindow:
         messagebox.showinfo("测试中", f"正在测试 {model} 连接...\n请稍候", parent=self.window)
 
     # ──── 代理操作 ────
+    def _auto_fetch_proxies(self):
+        """从所有代理源自动拉取，逐条测试并实时显示结果"""
+        import threading
+        self._auto_fetch_status.config(text="⏳ 获取中…", fg=C["warning"])
+        self._proxy_tree.delete(*self._proxy_tree.get_children())
+        threading.Thread(target=self._auto_fetch_worker, daemon=True).start()
+
+    def _auto_fetch_worker(self):
+        """后台线程：逐源拉取 → 逐条测试 → 实时更新 UI"""
+        import requests as _req
+        from core.proxy_manager import ProxyManager
+        from core import bilibili_api as _api
+
+        api = _api.get_bilibili_api()
+        pm = api.proxy_manager
+        total_found = 0
+        total_tested = 0
+
+        for src_url in pm.PROXY_SOURCES:
+            source_name = src_url.split("/")[2]
+            self.window.after(0, lambda n=source_name: self._auto_fetch_status.config(
+                text=f"⏳ 拉取 {n}…", fg=C["warning"]))
+            try:
+                resp = _req.get(src_url, timeout=10,
+                                headers={"User-Agent": "Mozilla/5.0"}, verify=False)
+                if resp.status_code != 200:
+                    continue
+                urls = pm._parse_proxy_list(resp.text, src_url)
+                for url in urls:
+                    total_tested += 1
+                    item = self._proxy_tree.insert("", "end", values=(url, "⏳", "测试中…", "", "", "", ""))
+                    self.window.after(0, lambda: self._proxy_tree.yview_moveto(1))
+                    # 快速测试
+                    result = ProxyManager.test_proxy(url, timeout=8)
+                    ok = result.get("ok", False)
+                    total_found += 1 if ok else 0
+                    self.window.after(0, lambda i=item, r=result: (
+                        self._proxy_tree.set(i, "status", "✅" if r.get("ok") else "❌"),
+                        self._proxy_tree.set(i, "latency", f"{r['latency_ms']}ms" if r.get("ok") else r.get("error", "超时")[:40]),
+                        self._proxy_tree.set(i, "country", r.get("country", "") or ""),
+                        self._proxy_tree.set(i, "ip", r.get("ip", "") or ""),
+                        self._proxy_tree.set(i, "asn", r.get("asn", "") or ""),
+                        self._proxy_tree.set(i, "isp", r.get("isp", "") or ""),
+                        self._proxy_tree.item(i, tags=("ok" if r.get("ok") else "fail",)),
+                    ))
+                    if result.get("ok"):
+                        pm.add_proxy({"http": url, "https": url})
+            except Exception as e:
+                self.window.after(0, lambda n=source_name: self._auto_fetch_status.config(
+                    text=f"⚠ {n} 失败: {e}", fg=C["danger"]))
+
+        # 完成后刷新代理文本框
+        urls = [p.get("http", "") for p in pm.proxies if p.get("http")]
+        self.window.after(0, lambda: self._update_proxy_text(urls))
+        self.window.after(0, lambda: self._auto_fetch_status.config(
+            text=f"✅ 测试 {total_tested} 个, 可用 {total_found} 个", fg=C["success"]))
+
+    def _update_proxy_text(self, urls):
+        """刷新代理文本框内容"""
+        self.proxy_text.delete("1.0", tk.END)
+        self.proxy_text.insert("1.0", "\n".join(urls))
+
+    def _add_proxy_source(self):
+        """添加自定义代理源到 ProxyManager.PROXY_SOURCES"""
+        url = self._proxy_src_entry.get().strip()
+        if not url:
+            return
+        if not url.startswith("http"):
+            messagebox.showwarning("提示", "代理源地址必须以 http:// 或 https:// 开头", parent=self.window)
+            return
+        from core.proxy_manager import ProxyManager
+        if url not in ProxyManager.PROXY_SOURCES:
+            ProxyManager.PROXY_SOURCES.append(url)
+            self._proxy_src_entry.delete(0, tk.END)
+            messagebox.showinfo("成功", f"已添加代理源:\n{url}\n\n点击「自动获取代理」即可拉取", parent=self.window)
+
     def _add_proxy_entry(self):
         """从协议选择 + 地址输入框添加代理到列表"""
         proto = self._proxy_proto_var.get()
@@ -2245,8 +2337,30 @@ class SettingsWindow:
                     cancel_btn.pack_forget()
                     ttk.Button(captcha_btn_f, text="取消", command=pwd_top.destroy).pack(side=tk.LEFT, padx=4)
                 else:
-                    status_var.set("需要滑块验证，请使用扫码登录")
+                    gt = result.get("gt", "")
+                    challenge = result.get("challenge", "")
+                    geetest_url = f"https://api.geetest.com/get.php?gt={gt}&challenge={challenge}&lang=zh-cn&product=embed"
+                    status_var.set("需要极验滑块验证")
                     status_lbl.config(fg=C["danger"])
+                    # 提供打开浏览器手动验证 + 输入 validate/seccode
+                    def _open_geetest():
+                        import webbrowser
+                        webbrowser.open(geetest_url)
+                        messagebox.showinfo("极验验证", "请在浏览器中完成滑块验证，然后将 validate 和 seccode 值输入下方", parent=pwd_top)
+                    ttk.Button(captcha_btn_f, text="🌐 打开极验验证页", command=_open_geetest).pack(side=tk.LEFT, padx=4)
+                    tk.Label(captcha_frame, text="validate:", bg=C["bg_surface"], fg=C["text_2"], font=FONT_SM).pack()
+                    geetest_validate_entry = ttk.Entry(captcha_frame, width=40, font=("Consolas", 9))
+                    geetest_validate_entry.pack(pady=2)
+                    tk.Label(captcha_frame, text="seccode:", bg=C["bg_surface"], fg=C["text_2"], font=FONT_SM).pack()
+                    geetest_seccode_entry = ttk.Entry(captcha_frame, width=40, font=("Consolas", 9))
+                    geetest_seccode_entry.pack(pady=2)
+                    captcha_frame.pack(pady=(6, 0))
+                    def _submit_geetest():
+                        validate = geetest_validate_entry.get().strip()
+                        seccode = geetest_seccode_entry.get().strip()
+                        if validate and seccode:
+                            _do_login(captcha_code=f"{validate}:{seccode}", ct=-1)  # ct=-1 表示极验
+                    ttk.Button(captcha_btn_f, text="提交极验结果", command=_submit_geetest).pack(side=tk.LEFT, padx=4)
                 for w in (username_entry, password_entry):
                     w.config(state="normal")
                 login_btn.config(state="normal")
