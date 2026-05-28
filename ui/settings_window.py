@@ -2164,7 +2164,15 @@ class SettingsWindow:
         def _poll():
             if not qr_top.winfo_exists():
                 return
-            result = get_bilibili_api().poll_qrcode_login(qrcode_key)
+            def _worker():
+                try:
+                    result = get_bilibili_api().poll_qrcode_login(qrcode_key)
+                except Exception as e:
+                    result = {"status": 0, "message": f"轮询异常: {e}"}
+                qr_top.after(0, lambda r=result: _handle_poll(r))
+            threading.Thread(target=_worker, daemon=True).start()
+
+        def _handle_poll(result):
             status_var.set(result.get("message", ""))
             if result.get("status") == 2:
                 cookies = result.get("cookies", {})
