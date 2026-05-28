@@ -294,6 +294,9 @@ def get_download_urls() -> dict:
 
 def perform_source_git_pull(branch="main"):
     """源码模式: git pull 拉取最新代码"""
+    allowed = {"main", "releases", "pre-release", "dev", "fixbug", "algorithms-dev", "algorithms-optimize", "ui界面", "feat/training-auto-callback"}
+    if branch not in allowed:
+        raise ValueError(f"不允许的分支名: {branch}")
     try:
         result = subprocess.run(
             ["git", "pull", "origin", branch],

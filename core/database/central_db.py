@@ -1265,8 +1265,8 @@ class Database:
             if col not in existing:
                 try:
                     cur.execute(f"ALTER TABLE predictions ADD COLUMN {col} {definition}")
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("迁移列 %s 失败: %s", col, e)
 
     def wal_checkpoint(self):
         """周期性 WAL checkpoint，控制 WAL 文件大小。"""
