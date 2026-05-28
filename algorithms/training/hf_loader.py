@@ -108,11 +108,7 @@ def get_lag_llama_model() -> Tuple[Optional[Any], bool, str]:
         )
         import torch as _torch
 
-        try:
-            ckpt = _torch.load(ckpt_path, map_location="cpu", weights_only=True)
-        except Exception:
-            logger.debug("[hf_loader] weights_only=True 加载失败，回退 trust_load（HF 官方 checkpoint）")
-            ckpt = _torch.load(ckpt_path, map_location="cpu", weights_only=False)
+        ckpt = _torch.load(ckpt_path, map_location="cpu", weights_only=True)
         with _lock:
             _models["lag_llama"] = ckpt
         logger.info("[hf_loader] Lag-Llama 模型已加载 → 使用 torch 推理")
