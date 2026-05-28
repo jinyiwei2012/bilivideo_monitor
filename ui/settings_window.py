@@ -1168,8 +1168,24 @@ class SettingsWindow:
         self._proxy_test_status = tk.Label(btn_row, text="", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM)
         self._proxy_test_status.pack(side=tk.LEFT, padx=8)
 
+        # 代理自动发现
+        auto_row = tk.Frame(sec, bg=C["bg_elevated"])
+        auto_row.pack(fill=tk.X, pady=(4, 0))
+        ttk.Button(auto_row, text="🌐 自动获取代理", command=self._auto_fetch_proxies).pack(side=tk.LEFT, padx=(0, 4))
+        self._auto_fetch_status = tk.Label(auto_row, text="", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM)
+        self._auto_fetch_status.pack(side=tk.LEFT, padx=8)
+
+        # 自定义代理源
+        src_row = tk.Frame(sec, bg=C["bg_elevated"])
+        src_row.pack(fill=tk.X, pady=(2, 0))
+        tk.Label(src_row, text="自定义代理源:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT)
+        self._proxy_src_entry = ttk.Entry(src_row, width=50, font=FONT_SM)
+        self._proxy_src_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
+        self._proxy_src_entry.bind("<Return>", lambda e: self._add_proxy_source())
+        ttk.Button(src_row, text="添加源", command=self._add_proxy_source).pack(side=tk.LEFT)
+
         url_row = tk.Frame(sec, bg=C["bg_elevated"])
-        url_row.pack(fill=tk.X, pady=(6, 0))
+        url_row.pack(fill=tk.X, pady=(2, 0))
         tk.Label(
             url_row, text="测试地址:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM, width=8, anchor="w"
         ).pack(side=tk.LEFT)
@@ -1524,6 +1540,46 @@ class SettingsWindow:
         messagebox.showinfo("测试中", f"正在测试 {model} 连接...\n请稍候", parent=self.window)
 
     # ──── 代理操作 ────
+    def _auto_fetch_proxies(self):
+        """从所有代理源自动拉取并加入列表"""
+        def worker():
+            try:
+                from core.proxy_manager import ProxyManager
+                from core import bilibili_api
+                api = bilibili_api.get_bilibili_api()
+                pm = api.proxy_manager
+                pm._discover_free_proxies()
+                # 将新代理写入文本框
+                urls = [p.get("http", "") for p in pm.proxies if p.get("http")]
+                self.window.after(0, lambda: self._update_proxy_text(urls))
+                self.window.after(0, lambda: self._auto_fetch_status.config(
+                    text=f"✅ 发现 {len(pm.proxies)} 个代理", fg=C["success"]))
+            except Exception as e:
+                self.window.after(0, lambda: self._auto_fetch_status.config(
+                    text=f"❌ {e}", fg=C["danger"]))
+        import threading
+        self._auto_fetch_status.config(text="⏳ 获取中…", fg=C["warning"])
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _update_proxy_text(self, urls):
+        """刷新代理文本框内容"""
+        self.proxy_text.delete("1.0", tk.END)
+        self.proxy_text.insert("1.0", "\n".join(urls))
+
+    def _add_proxy_source(self):
+        """添加自定义代理源到 ProxyManager.PROXY_SOURCES"""
+        url = self._proxy_src_entry.get().strip()
+        if not url:
+            return
+        if not url.startswith("http"):
+            messagebox.showwarning("提示", "代理源地址必须以 http:// 或 https:// 开头", parent=self.window)
+            return
+        from core.proxy_manager import ProxyManager
+        if url not in ProxyManager.PROXY_SOURCES:
+            ProxyManager.PROXY_SOURCES.append(url)
+            self._proxy_src_entry.delete(0, tk.END)
+            messagebox.showinfo("成功", f"已添加代理源:\n{url}\n\n点击「自动获取代理」即可拉取", parent=self.window)
+
     def _add_proxy_entry(self):
         """从协议选择 + 地址输入框添加代理到列表"""
         proto = self._proxy_proto_var.get()
