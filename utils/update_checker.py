@@ -78,7 +78,7 @@ def _x()->bool:  # noqa: E225,E722
         for _i in range(len(_h)):  # noqa: E225
             _k+=((ord(_h[_i])^ord(_t[_i%len(_t)]))<<(_i%4)*8)&255  # noqa: E225,E226,E227,E228
         return _k==0  # noqa: E225
-    except:  # noqa: E722
+    except Exception:
         return False
 
 
@@ -98,7 +98,7 @@ def _x_train():  # noqa: E225,E722
         _b = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # noqa: E225
         _p = os.path.join(_b, _a)  # noqa: E225
         return os.path.exists(_p)  # noqa: E225
-    except:  # noqa: E722
+    except Exception:
         return False
 
 
