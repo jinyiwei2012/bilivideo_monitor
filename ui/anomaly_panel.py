@@ -132,13 +132,13 @@ class AnomalyPanel:
                         up_info = self.gui._cached_up_info.get(str(owner_mid))
                     alerts = AnomalyDetector.detect_all(full_records, bvid=bvid, video=video, up_info=up_info)
                     for a in alerts:
-                        if "增速" in a and "推广" not in a:
-                            type_icon = "📈 增速飙升"
-                        elif "推广" in a or "付费" in a:
+                        if "买量" in a or "疑似买量" in a:
                             type_icon = "📢 疑似买量"
                         elif "直播" in a:
                             type_icon = "🔴 正在直播"
-                        elif "趋势" in a:
+                        elif "增速" in a:
+                            type_icon = "📈 增速飙升"
+                        elif "趋势" in a or "放缓" in a:
                             type_icon = "📉 趋势反转"
                         elif "停滞" in a:
                             type_icon = "⏸ 播放停滞"

@@ -251,35 +251,117 @@ class AnomalyDetector:
 
     @staticmethod
     def detect_paid_promotion(records: List[Dict], video: Dict = None) -> Optional[str]:
-        """检测疑似买必火/付费推广（扩大检测范围）"""
+        """
+        综合检测疑似买必火/付费推广（7 维评分 + 播放量分级）
+
+        评分维度：
+        S1. 点赞率低（<2% → +1分，<1% → +2分）
+        S2. 投币率低（<1% → +1分，<0.3% → +2分）
+        S3. 弹幕率低（<0.1% → +1分）
+        S4. 收藏率低（<2% → +1分）
+        S5. 分享率低（<0.1% → +1分）
+        S6. 夜间播放突增（近2h增量 > 历史均值3x → +2分）
+        S7. 播放突增无互动（增速快但 S1-S5 都低 → +1分）
+
+        总分 >= 3 → 疑似买量；>= 5 → 高度疑似买量
+        """
         if not video:
             return None
         views = max(video.get("view_count", 0), 1)
+        if views < 3000:
+            return None  # 播放量太低，数据不足以判断
+
         likes = video.get("like_count", 0) or 0
         coins = video.get("coin_count", 0) or 0
+        favorites = video.get("favorite_count", 0) or 0
+        shares = video.get("share_count", 0) or 0
+        danmaku = video.get("danmaku_count", 0) or 0
 
         like_rate = likes / views
         coin_rate = coins / views
+        fav_rate = favorites / views
+        share_rate = shares / views
+        danmaku_rate = danmaku / views
 
-        # 扩大检测：点赞率 < 1.5% 且 投币率 < 0.5%，播放量 > 5000
-        if like_rate < 0.015 and coin_rate < 0.005 and views > 5000:
-            surge = False
-            if len(records) >= 6:
+        score = 0
+        reasons = []
+
+        # S1: 点赞率
+        if like_rate < 0.01:
+            score += 2
+            reasons.append("点赞率极低")
+        elif like_rate < 0.02:
+            score += 1
+            reasons.append("点赞率偏低")
+
+        # S2: 投币率
+        if coin_rate < 0.003:
+            score += 2
+            reasons.append("投币率极低")
+        elif coin_rate < 0.01:
+            score += 1
+            reasons.append("投币率偏低")
+
+        # S3: 弹幕率
+        if danmaku_rate < 0.001:
+            score += 1
+            reasons.append("弹幕率极低")
+
+        # S4: 收藏率
+        if fav_rate < 0.02:
+            score += 1
+            reasons.append("收藏率偏低")
+
+        # S5: 分享率
+        if share_rate < 0.001:
+            score += 1
+            reasons.append("分享率极低")
+
+        # S6: 近期播放突增且互动低
+        surge = False
+        if len(records) >= 6:
+            sorted_recs = sorted(records, key=lambda r: r.get("timestamp", ""))
+            recent_views = [r.get("view_count", 0) for r in sorted_recs[-3:]]
+            older_views = [r.get("view_count", 0) for r in sorted_recs[-6:-3]]
+            avg_recent = sum(recent_views) / max(len(recent_views), 1)
+            avg_older = sum(older_views) / max(len(older_views), 1)
+            if avg_older > 0 and avg_recent > avg_older * 1.5:
+                surge = True
+                if score >= 2:  # 播放突增 + 已有互动率低
+                    score += 2
+                    reasons.append("播放突增但互动低迷")
+
+        # S7: 夜间时段异常播放
+        hour = datetime.now().hour
+        if hour < 7 or hour >= 23:
+            if len(records) >= 4:
                 sorted_recs = sorted(records, key=lambda r: r.get("timestamp", ""))
-                recent_views = [r.get("view_count", 0) for r in sorted_recs[-3:]]
-                older_views = [r.get("view_count", 0) for r in sorted_recs[-6:-3]]
-                avg_recent = sum(recent_views) / max(len(recent_views), 1)
-                avg_older = sum(older_views) / max(len(older_views), 1)
-                if avg_older > 0 and avg_recent > avg_older * 1.5:
-                    surge = True
+                recent = sorted_recs[-4:]
+                total_growth = recent[-1].get("view_count", 0) - recent[0].get("view_count", 0)
+                try:
+                    span_h = (
+                        datetime.fromisoformat(recent[-1]["timestamp"]) - datetime.fromisoformat(recent[0]["timestamp"])
+                    ).total_seconds() / 3600
+                    night_rate = total_growth / span_h if span_h > 0 else 0
+                    if night_rate > views * 0.001:  # 夜间增速 > 千分之一
+                        score += 1
+                        reasons.append("夜间播放异常增长")
+                except Exception:
+                    pass
 
-            reason = "疑似付费推广" if surge else "互动率异常偏低"
-            return (
-                f"📢 {reason}！点赞率 {like_rate*100:.1f}%/投币率 {coin_rate*100:.1f}%"
-                f" (正常参考 2-5%/0.5-2%)"
-                f"{'，近期播放突增' if surge else ''}"
-            )
-        return None
+        if score < 3:
+            return None
+
+        level = "🚨 高度疑似买量" if score >= 5 else "📢 疑似买量"
+        detail = "、".join(reasons[:4])
+        if len(reasons) > 4:
+            detail += f"等{len(reasons)}项"
+        return (
+            f"{level}！综合评分 {score}/9\n"
+            f"  点赞率{like_rate*100:.1f}% 投币率{coin_rate*100:.1f}%"
+            f" 收藏率{fav_rate*100:.1f}% 弹幕率{danmaku_rate*100:.2f}%\n"
+            f"  异常项: {detail}"
+        )
 
     @staticmethod
     def detect_all(records: List[Dict], bvid: str = "", video: Dict = None, up_info: Dict = None) -> List[str]:
