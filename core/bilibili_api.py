@@ -1301,53 +1301,39 @@ class BilibiliAPI:
         except Exception as e:
             logger.debug("关闭HTTP Session失败: %s", e)
 
-    # ── QR码登录 ─────────────────────────────────────────
-    def get_qrcode_login_url(self) -> Optional[Dict]:
-        """获取二维码登录地址（带 bilibili-api-python 兜底）"""
-        import requests as _req
+    # ── QR码登录（共享 session，确保整个流程状态一致）─────
+    def __init_qr_session(self):
+        """初始化 QR 登录专用的独立 session（整个流程复用）"""
+        if not hasattr(self, '_qr_session') or self._qr_session is None:
+            import requests as _req
+            self._qr_session = _req.Session()
+            self._qr_session.headers.update({
+                "User-Agent": random.choice(self.USER_AGENTS),
+                "Referer": "https://www.bilibili.com/",
+                "Accept": "application/json, text/plain, */*",
+            })
+        return self._qr_session
 
+    def get_qrcode_login_url(self) -> Optional[Dict]:
+        """获取二维码登录地址（复用 session）"""
+        sess = self.__init_qr_session()
         url = "https://passport.bilibili.com/x/passport-login/web/qrcode/generate"
-        clean_session = _req.Session()
-        clean_session.headers.update(
-            {"User-Agent": random.choice(self.USER_AGENTS), "Referer": "https://www.bilibili.com/"}
-        )
         try:
             logger.debug("→ GET passport.bilibili.com/qrcode/generate")
-            resp = clean_session.get(url, timeout=15)
+            resp = sess.get(url, timeout=15)
             logger.debug("← passport.bilibili.com/qrcode/generate → %s", resp.status_code)
             if resp.status_code != 200:
-                return self._get_qrcode_url_fallback()
+                return None
             data = resp.json()
             if data.get("code") == 0:
                 d = data.get("data", {})
                 return {"url": d.get("url", ""), "qrcode_key": d.get("qrcode_key", "")}
         except Exception as e:
             logger.warning(f"获取二维码失败: {e}")
-            return self._get_qrcode_url_fallback()
-        finally:
-            clean_session.close()
-        return self._get_qrcode_url_fallback()
-
-    def _get_qrcode_url_fallback(self) -> Optional[Dict]:
-        """使用 bilibili-api-python 兜底获取二维码"""
-        try:
-            from bilibili_api import sync
-            from bilibili_api.login_v2 import QrCodeLogin, QrCodeLoginChannel
-
-            qr = QrCodeLogin(QrCodeLoginChannel.WEB)
-            sync(qr.generate_qrcode())
-            if qr.has_qrcode():
-                return {"url": qr.get_qrcode_picture().url
-                        if hasattr(qr.get_qrcode_picture(), 'url') else "",
-                        "qrcode_key": qr._QrCodeLogin__qr_key if hasattr(qr, '_QrCodeLogin__qr_key') else ""}
-        except ImportError:
-            pass
-        except Exception as e:
-            logger.debug("bilibili-api 兜底二维码失败: %s", e)
         return None
 
     def poll_qrcode_login(self, qrcode_key: str) -> Dict:
-        """轮询二维码扫码状态（使用独立 session，避免旧 Cookie 干扰）
+        """轮询二维码扫码状态（复用 QR session，匹配同设备指纹）
 
         Args:
             qrcode_key: get_qrcode_login_url 返回的 key
@@ -1356,62 +1342,63 @@ class BilibiliAPI:
             {"status": int, "message": str, "cookies": dict}
             status: 0=未扫码, 1=已扫码待确认, 2=已确认/成功, -1=已过期
         """
-        import requests as _req
+        sess = self.__init_qr_session()
         url = "https://passport.bilibili.com/x/passport-login/web/qrcode/poll"
         result = {"status": 0, "message": "等待扫码", "cookies": {}}
-        clean_session = _req.Session()
-        clean_session.headers.update(
-            {"User-Agent": random.choice(self.USER_AGENTS), "Referer": "https://www.bilibili.com/"}
-        )
         try:
             logger.debug("→ GET passport.bilibili.com/qrcode/poll")
-            resp = clean_session.get(url, params={"qrcode_key": qrcode_key}, timeout=15)
+            resp = sess.get(url, params={"qrcode_key": qrcode_key}, timeout=15)
             logger.debug("← passport.bilibili.com/qrcode/poll → %s", resp.status_code)
             if resp.status_code != 200:
                 result["message"] = f"HTTP {resp.status_code}"
                 return result
             data = resp.json()
+            log_data = data.get("data", {})
+            logger.debug("QR poll response: code=%s status=%s", data.get("code"), log_data.get("status"))
             code = data.get("code", -1)
-
             if code == 86038:
                 result["status"] = -1
                 result["message"] = "二维码已过期"
                 return result
-
+            if code == 86101:
+                result["message"] = "等待扫码"
+                return result
             if code != 0:
-                result["message"] = data.get("message", f"错误码 {code}")
+                result["message"] = log_data.get("message", data.get("message", f"错误码 {code}"))
                 return result
 
             d = data.get("data", {})
-            raw_status = d.get("status", False)
-            if isinstance(raw_status, int):
-                if raw_status == 2:
-                    result["status"] = 2
-                    result["message"] = "登录成功"
-                elif raw_status == 1:
-                    result["status"] = 1
-                    result["message"] = d.get("message", "已扫码，请在手机上确认")
-                    return result
-                else:
-                    result["message"] = d.get("message", "等待扫码")
-                    return result
-            elif raw_status is True:
+            raw_status = d.get("status")
+            if raw_status == 2:
                 result["status"] = 2
                 result["message"] = "登录成功"
-            else:
-                result["status"] = 1 if d.get("message", "") == "已扫码" else 0
-                result["message"] = d.get("message", "等待扫码")
+            elif raw_status == 1:
+                result["status"] = 1
+                result["message"] = d.get("message", "已扫码，请在手机上确认")
                 return result
+            elif raw_status == 0:
+                result["message"] = "等待扫码"
+                return result
+            else:
+                result["status"] = 2
+                result["message"] = "登录成功"
 
+            # 从 data.url 提取 Cookie（B 站 QR 登录返回方式）
             cookies = self._extract_login_cookies(resp, d)
+            if not cookies:
+                redirect_url = d.get("url", "")
+                if redirect_url:
+                    from urllib.parse import urlparse, parse_qs
+                    parsed = urlparse(redirect_url)
+                    params = parse_qs(parsed.query)
+                    cookies = {k: params.get(k, [None])[0] for k in
+                               ("SESSDATA", "bili_jct", "DedeUserID") if params.get(k, [None])[0]}
             if cookies:
                 self.set_cookies(cookies)
                 self._persist_cookies(cookies)
                 result["cookies"] = cookies
         except Exception as e:
             result["message"] = f"轮询异常: {e}"
-        finally:
-            clean_session.close()
         return result
 
     def _persist_cookies(self, cookies: dict):

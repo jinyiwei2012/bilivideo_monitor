@@ -2340,9 +2340,8 @@ class SettingsWindow:
                     gt = result.get("gt", "")
                     challenge = result.get("challenge", "")
                     geetest_url = f"https://api.geetest.com/get.php?gt={gt}&challenge={challenge}&lang=zh-cn&product=embed"
-                    status_var.set("需要极验滑块验证")
+                    status_var.set("需要极验滑块验证（自动求解失败，请手动完成）")
                     status_lbl.config(fg=C["danger"])
-                    # 提供打开浏览器手动验证 + 输入 validate/seccode
                     def _open_geetest():
                         import webbrowser
                         webbrowser.open(geetest_url)
@@ -2359,11 +2358,41 @@ class SettingsWindow:
                         validate = geetest_validate_entry.get().strip()
                         seccode = geetest_seccode_entry.get().strip()
                         if validate and seccode:
-                            _do_login(captcha_code=f"{validate}:{seccode}", ct=-1)  # ct=-1 表示极验
+                            _do_login(captcha_code=f"{validate}:{seccode}", ct=-1)
                     ttk.Button(captcha_btn_f, text="提交极验结果", command=_submit_geetest).pack(side=tk.LEFT, padx=4)
                 for w in (username_entry, password_entry):
                     w.config(state="normal")
                 login_btn.config(state="normal")
+            elif "验证码" in result.get("message", "") or result.get("code") in (-629, -352):
+                # 自动过码失败也未标记 need_captcha 的情况，强制显示手动验证
+                gt = result.get("gt", "")
+                challenge = result.get("challenge", "")
+                if gt and challenge:
+                    geetest_url = f"https://api.geetest.com/get.php?gt={gt}&challenge={challenge}&lang=zh-cn&product=embed"
+                    status_var.set("需要极验验证（自动求解未触发，请手动完成）")
+                    status_lbl.config(fg=C["danger"])
+                    def _open_geetest():
+                        import webbrowser
+                        webbrowser.open(geetest_url)
+                        messagebox.showinfo("极验验证", "请在浏览器中完成滑块验证，然后将 validate 和 seccode 值输入下方", parent=pwd_top)
+                    ttk.Button(captcha_btn_f, text="🌐 打开极验验证页", command=_open_geetest).pack(side=tk.LEFT, padx=4)
+                    tk.Label(captcha_frame, text="validate:", bg=C["bg_surface"], fg=C["text_2"], font=FONT_SM).pack()
+                    geetest_validate_entry2 = ttk.Entry(captcha_frame, width=40, font=("Consolas", 9))
+                    geetest_validate_entry2.pack(pady=2)
+                    tk.Label(captcha_frame, text="seccode:", bg=C["bg_surface"], fg=C["text_2"], font=FONT_SM).pack()
+                    geetest_seccode_entry2 = ttk.Entry(captcha_frame, width=40, font=("Consolas", 9))
+                    geetest_seccode_entry2.pack(pady=2)
+                    captcha_frame.pack(pady=(6, 0))
+                    def _submit_geetest2():
+                        v = geetest_validate_entry2.get().strip()
+                        s = geetest_seccode_entry2.get().strip()
+                        if v and s:
+                            _do_login(captcha_code=f"{v}:{s}", ct=-1)
+                    ttk.Button(captcha_btn_f, text="提交极验结果", command=_submit_geetest2).pack(side=tk.LEFT, padx=4)
+                    for w in (username_entry, password_entry):
+                        w.config(state="normal")
+                    login_btn.config(state="normal")
+                    return
             else:
                 msg = result.get("message", "未知错误")
                 if code == -1057:
