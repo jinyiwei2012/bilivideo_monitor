@@ -44,3 +44,5 @@ algorithms/checkpoints/*/
 # 敏感配置文件（含Cookie/API密钥）
 data/network_config.json
 data/settings.json
+
+.devmode

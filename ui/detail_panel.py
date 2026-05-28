@@ -22,6 +22,7 @@ from ui.helpers import (
 from ui.chart import draw_chart, draw_chart_placeholder
 from utils.weekly_score import calculate_from_dict as _calc_ws
 from utils.yearly_score import calculate_yearly_from_dict as _calc_ys
+from utils.update_checker import _confirm_risky
 
 
 class DetailPanel:
@@ -168,11 +169,19 @@ class DetailPanel:
         )
         self._detail_text.pack(fill=tk.BOTH, expand=True)
         detail_vsb.config(command=self._detail_text.yview)
+        self._configure_detail_tags()
 
         self._ratio_frame = ctk.CTkFrame(self._content_area, fg_color=C["bg_base"], corner_radius=0)
 
         draw_chart_placeholder(self._chart_canvas)
         self._rebuild_stat_bar({})
+
+    def _configure_detail_tags(self):
+        self._detail_text.tag_config("head", foreground=C["bilibili"], font=("Consolas", 10, "bold"))
+        self._detail_text.tag_config("mono", foreground=C["text_1"], font=FONT_MONO)
+        self._detail_text.tag_config("mono_b", foreground=C["bilibili"], font=("Consolas", 10, "bold"))
+        self._detail_text.tag_config("mono_ok", foreground=C["success"], font=FONT_MONO)
+        self._detail_text.tag_config("mono_accent", foreground=C["accent"], font=("Consolas", 10, "bold"))
 
     def _build_center_header_empty(self):
         h = self._detail_header
@@ -257,7 +266,7 @@ class DetailPanel:
             height=26,
             corner_radius=4,
             width=100,
-            command=lambda: self._open_finetune_dialog(bvid),
+            command=lambda: _confirm_risky("微调视频模型") and self._open_finetune_dialog(bvid),
         )
         self._finetune_btn.pack(side=tk.LEFT, padx=(0, 6))
         self._finetune_status = ctk.CTkLabel(
@@ -658,12 +667,6 @@ class DetailPanel:
                 lines.append((f"{name}  {p:.1f}%  (还差 {fmt_num(g)})", "mono"))
             else:
                 lines.append((f"{name}  已达成 ✓", "mono_ok"))
-
-        self._detail_text.tag_config("head", foreground=C["bilibili"], font=("Consolas", 10, "bold"))
-        self._detail_text.tag_config("mono", foreground=C["text_1"], font=FONT_MONO)
-        self._detail_text.tag_config("mono_b", foreground=C["bilibili"], font=("Consolas", 10, "bold"))
-        self._detail_text.tag_config("mono_ok", foreground=C["success"], font=FONT_MONO)
-        self._detail_text.tag_config("mono_accent", foreground=C["accent"], font=("Consolas", 10, "bold"))
 
         for text, tag in lines:
             self._detail_text.insert(tk.END, text + "\n", tag if tag else ())

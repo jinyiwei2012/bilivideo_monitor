@@ -4,6 +4,7 @@ MSTL (Multiple Seasonal-Trend decomposition using LOESS)
 """
 
 import numpy as np
+import warnings
 from typing import Dict, Any
 from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
@@ -38,8 +39,13 @@ class MstlDecompositionAlgorithm(BaseAlgorithm):
 
             if _HAS_MSTL and len(views) >= 14:
                 try:
-                    stl = _MSTL(views, periods=[7, 14])
-                    res = stl.fit()
+                    # 动态选择周期：避免 period > len/2 触发 statsmodels 警告
+                    max_period = min(14, len(views) // 2)
+                    periods = [p for p in [7, 14] if p <= max_period] or [max(3, max_period)]
+                    with warnings.catch_warnings():
+                        warnings.filterwarnings("ignore", message="A period")
+                        stl = _MSTL(views, periods=periods)
+                        res = stl.fit()
                     trend = res.trend
                     seasonal = res.seasonal
                     trend_grad = np.gradient(trend)

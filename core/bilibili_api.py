@@ -103,11 +103,23 @@ class BilibiliAPI:
 
         # cookie支持
         self._cookies: Dict = {}
+        self._refresh_token: str = ""
 
         # 启动时加载已保存的 Cookie 和代理
         self._load_saved_network_config()
         # 为每个代理绑定一个固定UA（启动时生成一组）
         self.proxy_manager.init_ua_bindings()
+
+    @staticmethod
+    def _sanitize_cookies(cookies: Dict) -> Dict:
+        """清理 cookie 值中非 Latin-1 字符，防止 requests 编码报错"""
+        sanitized = {}
+        for k, v in cookies.items():
+            if isinstance(v, str):
+                sanitized[k] = v.encode("latin-1", errors="replace").decode("latin-1")
+            else:
+                sanitized[k] = v
+        return sanitized
 
     def _load_saved_network_config(self):
         """从 network_config.json 加载已保存的 Cookie 和代理"""
@@ -125,9 +137,11 @@ class BilibiliAPI:
                 if cookies:
                     # 解密 Cookie 值
                     decrypt_dict(cookies, "SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid")
+                    cookies = self._sanitize_cookies(cookies)
                     self._cookies = cookies
                     self.session.cookies.update(cookies)
                     logger.info(f"已加载 {len(cookies)} 个 Cookie")
+                self._refresh_token = net_cfg.get("refresh_token", "")
                 proxy_urls = net_cfg.get("proxies", [])
                 if proxy_urls:
                     for p in proxy_urls:
@@ -160,9 +174,139 @@ class BilibiliAPI:
 
     def set_cookies(self, cookies: Dict):
         """设置Cookie"""
+        cookies = self._sanitize_cookies(cookies)
         self._cookies = cookies
         self.session.cookies.update(cookies)
         logger.info("已设置Cookie")
+
+    def get_refresh_token(self) -> str:
+        """获取 refresh token（从密码登录或 Cookie 导入时保存）"""
+        return self._refresh_token
+
+    def login_with_password(
+        self, username: str, password: str, captcha: str = "", captcha_type: int = 0
+    ) -> Dict:
+        """B站密码登录
+
+        Args:
+            username: 账号
+            password: 明文密码
+            captcha: 短信验证码（首次登录为空）
+            captcha_type: 验证码类型（6 = 短信）
+
+        Returns:
+            {"code": int, "cookies": dict, "refresh_token": str, "message": str,
+             "need_captcha": bool, "captcha_type": int, "captcha_phone": str}
+        """
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import padding, rsa
+        from cryptography.hazmat.backends import default_backend
+
+        try:
+            # 1. 获取 RSA 公钥
+            key_url = "https://passport.bilibili.com/x/passport-login/web/key"
+            key_resp = self._request("GET", key_url)
+            if not key_resp or "key" not in key_resp:
+                return {
+                    "code": -1,
+                    "message": "无法获取登录密钥",
+                    "cookies": {},
+                    "refresh_token": "",
+                    "need_captcha": False,
+                    "captcha_type": 0,
+                    "captcha_phone": "",
+                }
+            pubkey = key_resp["key"]
+            hash_str = key_resp.get("hash", "")
+
+            # 2. RSA 加密密码
+            pub_key_obj = serialization.load_pem_public_key(pubkey.encode(), backend=default_backend())
+            encrypted = pub_key_obj.encrypt(
+                (hash_str + password).encode(),
+                padding.PKCS1v15(),
+            )
+            encrypted_password = encrypted.hex()
+
+            # 3. 发送登录请求
+            login_url = "https://passport.bilibili.com/x/passport-login/web/login"
+            login_data = {
+                "username": username,
+                "password": encrypted_password,
+                "keep": 1,
+                "source": "main_web",
+            }
+            if captcha:
+                login_data["captcha"] = captcha
+                login_data["captcha_type"] = captcha_type
+
+            resp = self.session.post(
+                login_url,
+                data=login_data,
+                headers={
+                    "User-Agent": random.choice(self.USER_AGENTS),
+                    "Referer": "https://www.bilibili.com/",
+                },
+                timeout=15,
+            )
+            data = resp.json()
+            api_code = data.get("code", -1)
+
+            # 4. 解析结果
+            if api_code == 0:
+                d = data.get("data", {})
+                cookies = self._extract_login_cookies(resp, d)
+                if not cookies:
+                    cookies = {
+                        "SESSDATA": d.get("sessdata", ""),
+                        "bili_jct": d.get("bili_jct", ""),
+                        "DedeUserID": str(d.get("mid", "")),
+                        "DedeUserID__ckMd5": d.get("mid", ""),
+                        "sid": d.get("sid", ""),
+                    }
+                    cookies = {k: v for k, v in cookies.items() if v}
+                self.set_cookies(cookies)
+                refresh_token = d.get("refresh_token", "")
+                self._refresh_token = refresh_token
+                return {
+                    "code": 0,
+                    "message": "登录成功",
+                    "cookies": cookies,
+                    "refresh_token": refresh_token,
+                    "need_captcha": False,
+                    "captcha_type": 0,
+                    "captcha_phone": "",
+                }
+
+            # 需要验证码
+            need_captcha = data.get("need_captcha", False) or api_code in [-629, -352]
+            ct = 0
+            phone = ""
+            if need_captcha:
+                d = data.get("data", {})
+                ct = d.get("captcha_type", 6)
+                phone = d.get("phone", "") or d.get("captcha_phone", "")
+
+            return {
+                "code": api_code,
+                "message": data.get("message", "登录失败"),
+                "cookies": {},
+                "refresh_token": "",
+                "need_captcha": need_captcha,
+                "captcha_type": ct,
+                "captcha_phone": phone,
+            }
+
+        except Exception as e:
+            logger.error(f"密码登录异常: {e}")
+            return {
+                "code": -1,
+                "message": f"登录异常: {e}",
+                "cookies": {},
+                "refresh_token": "",
+                "need_captcha": False,
+                "captcha_type": 0,
+                "captcha_phone": "",
+            }
 
     def _on_request_failure(self, proxy_idx: Optional[int] = None):
         """标记请求失败：委托 ProxyManager 处理并更新 session UA"""
@@ -259,6 +403,12 @@ class BilibiliAPI:
                     logger.error(f"HTTP错误: {e}")
                     break
 
+            except UnicodeEncodeError as e:
+                last_error = f"编码错误: {e}"
+                logger.error(f"请求头编码异常 (第{attempt + 1}次尝试): {e}")
+                # 编码错误不是临时性问题，直接退出不重试
+                break
+
             except Exception as e:
                 last_error = str(e)
                 logger.error(f"请求异常: {e}")
@@ -333,26 +483,42 @@ class BilibiliAPI:
         """使用无Cookie的独立Session请求公开API（免登录回退，支持代理绑定）
 
         复用实例级 _public_session（连接池共享），避免每次新建 TCP 连接。
+        失败时最多重试 2 次（指数退避）。
         """
-        self._update_public_headers()
-        # 绑定代理
-        idx, proxy, ua = self.proxy_manager.get_proxy_binding()
-        if proxy:
-            self._public_session.proxies.update(proxy)
-            self._public_session.headers["User-Agent"] = ua or self._public_session.headers["User-Agent"]
-            kwargs.setdefault("verify", False)  # nosec
-        logger.debug("→ [public] %s %s", method.upper(), url.split("?")[0])
-        try:
-            resp = self._public_session.request(method, url, timeout=15, **kwargs)
-            logger.debug("← [public] %s", resp.status_code)
-            if resp.status_code != 200:
+        max_attempts = 3
+        last_error = None
+        for attempt in range(max_attempts):
+            try:
+                self._update_public_headers()
+                idx, proxy, ua = self.proxy_manager.get_proxy_binding()
+                if proxy:
+                    self._public_session.proxies.update(proxy)
+                    self._public_session.headers["User-Agent"] = ua or self._public_session.headers["User-Agent"]
+                    kwargs.setdefault("verify", False)  # nosec
+                logger.debug("→ [public] %s %s", method.upper(), url.split("?")[0])
+                resp = self._public_session.request(method, url, timeout=15, **kwargs)
+                logger.debug("← [public] %s", resp.status_code)
+                if resp.status_code != 200:
+                    last_error = f"HTTP {resp.status_code}"
+                    if attempt < max_attempts - 1:
+                        delay = self._get_retry_delay(attempt)
+                        logger.debug(f"公共API请求 {resp.status_code}，{delay:.1f}s 后重试...")
+                        time.sleep(delay)
+                        continue
+                    return None
+                data = resp.json()
+                if data.get("code") == 0:
+                    return data.get("data")
+                last_error = f"API code {data.get('code')}"
+            except Exception as e:
+                last_error = str(e)
+                logger.debug(f"公共API请求失败 (第{attempt + 1}次): {e}")
+                if attempt < max_attempts - 1:
+                    delay = self._get_retry_delay(attempt)
+                    time.sleep(delay)
+                    continue
                 return None
-            data = resp.json()
-            if data.get("code") == 0:
-                return data.get("data")
-        except Exception as e:
-            logger.debug(f"公共API请求失败: {e}")
-            return None
+        logger.debug(f"公共API请求最终失败: {last_error}")
         return None
 
     def _get_retry_delay(self, attempt: int) -> float:
@@ -452,6 +618,23 @@ class BilibiliAPI:
         except Exception as e:
             logger.error(f"获取观看人数失败: {type(e).__name__}")
         return None
+
+    def get_video_stat(self, bvid: str) -> Optional[Dict]:
+        """获取视频统计数据（播放量/点赞/硬币/收藏/分享/评论）"""
+        video_info = self.get_video_info(bvid)
+        if not video_info:
+            return None
+        stat = video_info.get("stat", {})
+        return {
+            "bvid": bvid,
+            "view": stat.get("view", 0),
+            "like": stat.get("like", 0),
+            "coin": stat.get("coin", 0),
+            "favorite": stat.get("favorite", 0),
+            "share": stat.get("share", 0),
+            "danmaku": stat.get("danmaku", 0),
+            "reply": stat.get("reply", 0),
+        }
 
     def get_video_full_data(self, bvid: str) -> Optional[Dict]:
         """获取视频完整数据"""
@@ -901,6 +1084,8 @@ class BilibiliAPI:
                     net_cfg = json.load(f)
             net_cfg["cookies"] = cookies
             encrypt_dict(net_cfg["cookies"], "SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid")
+            if self._refresh_token:
+                net_cfg["refresh_token"] = self._refresh_token
             with open(cfg_path, "w", encoding="utf-8") as f:
                 json.dump(net_cfg, f, ensure_ascii=False, indent=2)
         except Exception as e:
@@ -941,13 +1126,21 @@ class BilibiliAPI:
         return cookies
 
 
-# 全局API实例
-bilibili_api = BilibiliAPI()
+# 全局API实例（延迟初始化，避免拖慢模块导入）
+_bilibili_api_instance = None
+
+
+def _get_api():
+    """延迟获取/创建 BilibiliAPI 实例"""
+    global _bilibili_api_instance
+    if _bilibili_api_instance is None:
+        _bilibili_api_instance = BilibiliAPI()
+    return _bilibili_api_instance
 
 
 def get_bilibili_api() -> BilibiliAPI:
     """获取全局 BilibiliAPI 实例"""
-    return bilibili_api
+    return _get_api()
 
 
 # ── 模块级便捷函数（兼容 from core import bilibili_api 调用方式）──
@@ -955,33 +1148,38 @@ def get_bilibili_api() -> BilibiliAPI:
 
 def get_video_info(bvid: str) -> Optional[Dict]:
     """模块级便捷函数：获取视频信息"""
-    return bilibili_api.get_video_info(bvid)
+    return _get_api().get_video_info(bvid)
 
 
 def get_video_stat(bvid: str) -> Optional[Dict]:
     """模块级便捷函数：获取视频统计数据"""
-    return bilibili_api.get_video_stat(bvid)
+    return _get_api().get_video_stat(bvid)
 
 
 def get_video_viewers(bvid: str, cid: int) -> Optional[Dict]:
     """模块级便捷函数：获取视频观看人数"""
-    return bilibili_api.get_video_viewers(bvid, cid)
+    return _get_api().get_video_viewers(bvid, cid)
 
 
 def get_up_info(uid: int) -> Optional[Dict]:
     """模块级便捷函数：获取UP主信息"""
-    return bilibili_api.get_up_info(uid)
+    return _get_api().get_up_info(uid)
 
 
 def get_up_stat(uid: int) -> Optional[Dict]:
     """模块级便捷函数：获取UP主统计数据"""
-    return bilibili_api.get_up_stat(uid)
+    return _get_api().get_up_stat(uid)
 
 
 def close():
     """模块级便捷函数：关闭 API 实例"""
-    bilibili_api.close()
+    _get_api().close()
 
 
 # 模块级便捷属性代理（from core import bilibili_api 导入的是模块而非实例）
-proxy_manager = bilibili_api.proxy_manager
+def __getattr__(name):
+    if name == "bilibili_api":
+        return _get_api()
+    if name == "proxy_manager":
+        return _get_api().proxy_manager
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

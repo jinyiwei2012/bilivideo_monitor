@@ -587,7 +587,10 @@ def try_torch_predict(
 
         model = getattr(algorithm, "_cached_torch_model", None)
         if model is None or (bvid and not getattr(algorithm, "_cached_bvid", "") == bvid):
-            model = model_cls(**(model_kwargs or {}))
+            mk = dict(model_kwargs or {})
+            # 真实特征数 = 基础特征 + 5 个衍生特征（roll_mean/roll_std/accel/rel_pos/lifecycle）
+            mk["in_features"] = len(feats) + 5
+            model = model_cls(**mk)
             if isinstance(state, (tuple, list)):
                 state = state[0]
             if not isinstance(state, dict):
@@ -611,8 +614,41 @@ def try_torch_predict(
         return fallback_fn(video_data, threshold)
 
 
+def _add_derived_features(arr: np.ndarray) -> np.ndarray:
+    """为 [N, F] 的特征数组追加 5 个衍生特征，返回 [N, F+5]。
+
+    衍生特征（与 dataset.VideoTimeSeriesDataset 保持一致）：
+        roll_mean_5, roll_std_5, acceleration, relative_pos, lifecycle_phase
+    """
+    target = arr[:, 0]  # view_count
+    N = arr.shape[0]
+    # rolling mean (window=5)
+    if N >= 5:
+        kernel = np.ones(5, dtype=np.float32) / 5
+        roll_mean = np.convolve(target, kernel, mode="same")
+    else:
+        roll_mean = np.full(N, float(target.mean()))
+    # rolling std (window=5)
+    if N >= 5:
+        roll_std = np.array([
+            float(np.std(target[max(0, i-2):min(N, i+3)]))
+            for i in range(N)
+        ], dtype=np.float32)
+    else:
+        roll_std = np.full(N, float(target.std() or 1.0))
+    # 加速度（view_count 的二阶差分）
+    velocity = np.diff(target, prepend=target[0]).astype(np.float32)
+    accel = np.diff(velocity, prepend=velocity[0]).astype(np.float32)
+    # 相对时间位置 [0, 1]
+    rel_pos = np.arange(N, dtype=np.float32) / max(N - 1, 1)
+    # 生命周期阶段
+    lifecycle_phase = np.where(rel_pos < 0.2, 0.0, np.where(rel_pos < 0.6, 1.0, 2.0)).astype(np.float32)
+    extras = np.column_stack([roll_mean, roll_std, accel, rel_pos, lifecycle_phase])
+    return np.column_stack([arr, extras])
+
+
 def _build_torch_input(video_data, features, window):
-    """构造 z-score 归一化的 [W, F] 输入，并返回速度的均值/方差用于反归一化。"""
+    """构造 z-score 归一化的 [W, F+5] 输入（含衍生特征），并返回速度的均值/方差用于反归一化。"""
     history = video_data.get("history_data", [])
     if len(history) < 3:
         return None, 0.0, 1.0
@@ -623,10 +659,12 @@ def _build_torch_input(video_data, features, window):
     for i, e in enumerate(recent):
         for j, f in enumerate(features):
             arr[offset + i, j] = float(e.get(f, 0) or 0)
-    mean = arr.mean(axis=0, keepdims=True)
-    std = arr.std(axis=0, keepdims=True)
+
+    arr_ext = _add_derived_features(arr)
+    mean = arr_ext.mean(axis=0, keepdims=True)
+    std = arr_ext.std(axis=0, keepdims=True)
     std = np.where(std < 1e-8, 1.0, std)
-    arr_n = ((arr - mean) / std).astype(np.float32)
+    arr_n = ((arr_ext - mean) / std).astype(np.float32)
 
     velocities = _velocity_series(history)
     v_mean = float(np.mean(velocities)) if velocities else 0.0

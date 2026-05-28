@@ -34,7 +34,7 @@ class ScinetSimpleAlgorithm(BaseAlgorithm):
         )
 
     def build_model(self):
-        return SCINetTorchModel(in_features=5, hidden=16, horizon=self.training_horizon)
+        return SCINetTorchModel(in_features=getattr(self, '_training_n_features', 5), hidden=16, horizon=self.training_horizon)
 
     def get_training_features(self) -> List[str]:
         return ["view_count", "like_count", "coin_count", "favorite_count", "share_count"]

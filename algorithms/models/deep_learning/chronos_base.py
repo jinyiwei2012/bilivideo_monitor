@@ -34,7 +34,7 @@ class ChronosBaseAlgorithm(BaseAlgorithm):
         )
 
     def build_model(self):
-        return ChronosTorchModel(in_features=5, window=10, d_model=32, n_heads=2, horizon=self.training_horizon)
+        return ChronosTorchModel(in_features=getattr(self, '_training_n_features', 5), window=10, d_model=32, n_heads=2, horizon=self.training_horizon)
 
     def get_training_features(self) -> List[str]:
         return ["view_count", "like_count", "coin_count", "favorite_count", "share_count"]

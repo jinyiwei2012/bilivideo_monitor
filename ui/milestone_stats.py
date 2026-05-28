@@ -12,6 +12,7 @@ from ui.theme import C
 from ui.scrollable_frame import ScrollableFrame
 from ui.helpers import FONT, FONT_BOLD, FONT_SM, fmt_num
 from ui.dialog_base import DialogBase
+from utils.update_checker import _confirm_risky
 
 PERIODS = ["1周", "1月", "1年"]
 PERIOD_COLORS = {"1周": "#58a6ff", "1月": "#3fb950", "1年": "#f5a623"}
@@ -402,7 +403,10 @@ class MilestoneStatsWindow:
             self._tbl.column(col, width=w, minwidth=50, anchor="center")
 
         self._tbl_menu = tk.Menu(self.window, tearoff=0)
-        self._tbl_menu.add_command(label="删除选中行所有里程碑", command=self._delete_selected)
+        self._tbl_menu.add_command(
+            label="删除选中行所有里程碑",
+            command=lambda: _confirm_risky("删除里程碑记录") and self._delete_selected(),
+        )
         self._tbl.bind("<Button-3>", lambda e: self._tbl_menu.tk_popup(e.x_root, e.y_root))
 
         self._cmp_status = tk.Label(tab, text="", bg=C["bg_base"], fg=C["text_2"], font=FONT_SM, anchor="w")

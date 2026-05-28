@@ -20,6 +20,7 @@ from core.bilibili_api import get_bilibili_api
 from core.proxy_manager import ProxyManager
 from algorithms.registry import AlgorithmRegistry
 from algorithms.weight_manager import get_weight_manager
+from utils.update_checker import _s, _hard, _train, _confirm_risky
 
 logger = logging.getLogger(__name__)
 
@@ -324,8 +325,14 @@ class SettingsWindow:
         # ── 操作按钮 ──
         btn_row = tk.Frame(sec, bg=C["bg_elevated"])
         btn_row.pack(fill=tk.X, pady=(6, 0))
-        ttk.Button(btn_row, text="💾 保存配置", command=self._save_ai_profile).pack(side=tk.LEFT, padx=(0, 4))
-        ttk.Button(btn_row, text="🗑 删除配置", command=self._delete_ai_profile).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_row, text="💾 保存配置", command=lambda: _confirm_risky("保存 AI 配置") and self._save_ai_profile()).pack(side=tk.LEFT, padx=(0, 4))
+        if _hard() == "normal":
+            ttk.Button(btn_row, text="🗑 删除配置", command=self._delete_ai_profile).pack(side=tk.LEFT, padx=4)
+        else:
+            cfg_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "settings.json")
+            tk.Label(
+                btn_row, text=f"📁 删除请编辑: data/settings.json", bg=C["bg_elevated"], fg=C["text_3"], font=FONT_SM
+            ).pack(side=tk.LEFT, padx=4)
         ttk.Button(btn_row, text="+ 新增", command=self._new_ai_profile).pack(side=tk.LEFT, padx=4)
 
         # ── 快速填入 ──
@@ -487,7 +494,14 @@ class SettingsWindow:
 
             wv = tk.DoubleVar(value=info.get("user_weight") or info.get("final_weight", 1.0))
             self._weight_vars[name] = wv
-            ttk.Entry(row, textvariable=wv, width=10).grid(row=0, column=2, padx=4)
+            _entry = ttk.Entry(row, textvariable=wv, width=10)
+            _entry.grid(row=0, column=2, padx=4)
+            if _s() != "normal":
+                _entry.configure(state="readonly")
+                _entry.bind("<Button-1>", lambda e, ent=_entry, p=self.window: (
+                    ent.configure(state="normal") or ent.focus_set()
+                    if _confirm_risky("修改算法权重", p) else None
+                ))
 
             ml_w = info.get("ml_weight", 1.0)
             tk.Label(
@@ -507,9 +521,9 @@ class SettingsWindow:
         # 按钮
         btn_row = tk.Frame(page, bg=C["bg_base"])
         btn_row.pack(fill=tk.X, padx=16, pady=(0, 12))
-        ttk.Button(btn_row, text="重置所有权重", command=self._reset_all_weights).pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Button(btn_row, text="重置所有权重", command=lambda: _confirm_risky("重置算法权重") and self._reset_all_weights()).pack(side=tk.LEFT, padx=(0, 4))
         ttk.Button(btn_row, text="刷新", command=self._refresh_weights).pack(side=tk.LEFT, padx=4)
-        ttk.Button(btn_row, text="💾 保存权重", command=self._save_weights, style="Primary.TButton").pack(side=tk.RIGHT)
+        ttk.Button(btn_row, text="💾 保存权重", command=lambda: _confirm_risky("保存算法权重") and self._save_weights(), style="Primary.TButton").pack(side=tk.RIGHT)
 
     def _reset_all_weights(self):
         if messagebox.askyesno("确认", "确定要重置所有自定义权重吗？", parent=self.window):
@@ -626,7 +640,7 @@ class SettingsWindow:
         btn_row = tk.Frame(ctrl_sec, bg=C["bg_elevated"])
         btn_row.pack(fill=tk.X, pady=(2, 4))
         self._tr_train_btn = ttk.Button(
-            btn_row, text="▶ 训练所有勾选", command=self._on_train_start, style="Primary.TButton"
+            btn_row, text="▶ 训练所有勾选", command=self._on_train_start, style="Primary.TButton", state=_train()
         )
         self._tr_train_btn.pack(side=tk.LEFT, padx=(0, 6))
         self._tr_cancel_btn = ttk.Button(btn_row, text="✕ 取消", command=self._on_train_cancel, state="disabled")
@@ -634,7 +648,13 @@ class SettingsWindow:
 
         # 模型导入/导出
         ttk.Button(btn_row, text="📤 导出模型", command=self._on_export_checkpoints).pack(side=tk.RIGHT, padx=(4, 0))
-        ttk.Button(btn_row, text="📥 导入模型", command=self._on_import_checkpoints).pack(side=tk.RIGHT, padx=(4, 0))
+        ttk.Button(btn_row, text="📥 导入模型", command=self._on_import_checkpoints, state=_train()).pack(side=tk.RIGHT, padx=(4, 0))
+
+        if _train() != "normal":
+            tk.Label(
+                btn_row, text="💡 创建 .enabletraining 文件开启训练 / 完整 devmode 见 README.md",
+                bg=C["bg_elevated"], fg=C["warning"], font=("", 8),
+            ).pack(side=tk.LEFT, padx=4)
 
         self._tr_progress = ttk.Progressbar(ctrl_sec, mode="determinate", maximum=100)
         self._tr_progress.pack(fill=tk.X, pady=(4, 2))
@@ -1084,7 +1104,13 @@ class SettingsWindow:
         btn_f = tk.Frame(top, bg=C["bg_surface"])
         btn_f.pack(fill=tk.X, padx=14, pady=(4, 14))
         ttk.Button(btn_f, text="激活", command=_do_activate, style="Primary.TButton").pack(side=tk.LEFT, padx=2)
-        ttk.Button(btn_f, text="删除", command=_do_delete).pack(side=tk.LEFT, padx=2)
+        if _hard() == "normal":
+            ttk.Button(btn_f, text="删除", command=_do_delete).pack(side=tk.LEFT, padx=2)
+        else:
+            ckpt_dir = project_path("algorithms", "checkpoints", algo_id)
+            tk.Label(
+                btn_f, text=f"📁 删除请到: {os.path.relpath(ckpt_dir)}", bg=C["bg_surface"], fg=C["text_3"], font=FONT_SM
+            ).pack(side=tk.LEFT, padx=4)
         ttk.Button(btn_f, text="导出 .pt", command=_do_export).pack(side=tk.LEFT, padx=2)
         ttk.Button(btn_f, text="关闭", command=top.destroy).pack(side=tk.RIGHT, padx=2)
 
@@ -1206,7 +1232,7 @@ class SettingsWindow:
             side=tk.LEFT, padx=4
         )
         ttk.Button(import_row, text="📱 扫码登录", command=self._qrcode_login).pack(side=tk.LEFT, padx=4)
-        ttk.Button(import_row, text="🔑 密码登录", command=self._password_login).pack(side=tk.LEFT, padx=4)
+        ttk.Button(import_row, text="🔑 密码登录", command=self._password_login, state=_s()).pack(side=tk.LEFT, padx=4)
 
         self.cookie_text = tk.Text(
             sec,
@@ -1220,12 +1246,16 @@ class SettingsWindow:
             highlightbackground=C["border"],
         )
         self.cookie_text.pack(fill=tk.BOTH, expand=True, pady=4)
-        self._refresh_cookie_display()
 
         btn_row = tk.Frame(sec, bg=C["bg_elevated"])
         btn_row.pack(fill=tk.X)
         ttk.Button(btn_row, text="应用Cookie", command=self._apply_cookies).pack(side=tk.LEFT, padx=(0, 4))
-        ttk.Button(btn_row, text="清空Cookie", command=self._clear_cookies).pack(side=tk.LEFT)
+        self._cookie_unlock_btn = ttk.Button(
+            btn_row, text="🔒 解锁查看", command=self._toggle_cookie_unlock, width=10,
+        )
+        self._cookie_unlock_btn.pack(side=tk.LEFT, padx=(4, 0))
+        self._refresh_cookie_display()
+        ttk.Button(btn_row, text="清空Cookie", command=self._clear_cookies, state=_s()).pack(side=tk.LEFT)
 
         tk.Label(
             sec,
@@ -1291,7 +1321,7 @@ class SettingsWindow:
         btn_s = tk.Frame(sec, bg=C["bg_elevated"])
         btn_s.pack(fill=tk.X, pady=(8, 0))
         ttk.Button(btn_s, text="刷新状态", command=self._refresh_status).pack(side=tk.LEFT, padx=(0, 4))
-        ttk.Button(btn_s, text="重置状态", command=self._reset_status).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_s, text="重置状态", command=lambda: _confirm_risky("重置 API 状态") and self._reset_status()).pack(side=tk.LEFT, padx=4)
 
         self._refresh_status()
 
@@ -1778,10 +1808,23 @@ class SettingsWindow:
         for cookie in get_bilibili_api().session.cookies:
             if "bilibili.com" in (cookie.domain or ""):
                 cookies[cookie.name] = cookie.value
+        if not cookies:
+            cookies = self._net_cfg.get("cookies", {})
         if cookies:
-            self.cookie_text.insert("1.0", "; ".join(f"{k}={v}" for k, v in cookies.items()))
-        elif self._net_cfg.get("cookies"):
-            self.cookie_text.insert("1.0", "; ".join(f"{k}={v}" for k, v in self._net_cfg["cookies"].items()))
+            show_raw = getattr(self, "_cookie_unlocked", False)
+            self._cookie_unlock_btn.config(text="🔓 已解锁" if show_raw else "🔒 解锁查看")
+            parts = []
+            for k, v in cookies.items():
+                if show_raw:
+                    parts.append(f"{k}={v}")
+                else:
+                    masked = v[:4] + "****" + v[-4:] if len(v) > 8 else "********"
+                    parts.append(f"{k}={masked}")
+            self.cookie_text.insert("1.0", "; ".join(parts))
+
+    def _toggle_cookie_unlock(self):
+        self._cookie_unlocked = not getattr(self, "_cookie_unlocked", False)
+        self._refresh_cookie_display()
 
     # ──── Cookie: 手动应用 ────
     def _apply_cookies(self):
@@ -2137,6 +2180,8 @@ class SettingsWindow:
 
         captcha_btn_f = tk.Frame(pwd_top, bg=C["bg_surface"])
         submit_captcha_btn = ttk.Button(captcha_btn_f, text="提交验证码", style="Primary.TButton")
+        captcha_btn_f.pack(pady=(4, 0))
+        captcha_btn_f.pack_forget()  # 初始隐藏
 
         cancel_btn = ttk.Button(btn_f, text="取消", command=pwd_top.destroy)
         cancel_btn.pack(side=tk.LEFT, padx=4)
@@ -2231,24 +2276,6 @@ class SettingsWindow:
         captcha_entry.bind("<Return>", lambda e: _submit_captcha())
         ttk.Button(btn_f, text="取消", command=pwd_top.destroy).pack(side=tk.LEFT, padx=4)
 
-        # 验证码提交按钮（初始隐藏，随 captcha_frame 一起显示）
-        captcha_btn_f = tk.Frame(pwd_top, bg=C["bg_surface"])
-        captcha_submit_btn = ttk.Button(
-            captcha_btn_f, text="提交验证码", command=_submit_captcha, style="Primary.TButton"
-        )
-        captcha_submit_btn.pack()
-
-        # 挂钩 captcha 回车
-        captcha_entry.bind("<Return>", lambda e: _submit_captcha())
-
-        # 主登录回车
-        for w in (username_entry, password_entry):
-            w.bind("<Return>", lambda e: _do_login())
-
-        # 在 _handle_result 的 need_captcha 分支中也 pack captcha_btn_f
-        # 将 captcha_btn_f 放在 status_lbl 下方
-        captcha_btn_f.pack(pady=(4, 0))
-        captcha_btn_f.pack_forget()  # 初始隐藏
 
     # ──── 代理文本同步 ────
     def _sync_proxy_text_to_cfg(self):

@@ -11,6 +11,7 @@ from core.database import get_db
 from ui.theme import C
 from ui.scrollable_frame import ScrollableFrame
 from .data_comparison import _fmt, _parse_dt
+from utils.update_checker import _confirm_risky
 
 logger = logging.getLogger(__name__)
 
@@ -170,7 +171,10 @@ class EntryTab:
 
         # 右键删除
         self._tbl_menu = tk.Menu(self._window, tearoff=0)
-        self._tbl_menu.add_command(label="删除选中行", command=self._delete_selected)
+        self._tbl_menu.add_command(
+            label="删除选中行",
+            command=lambda: _confirm_risky("删除选中数据行") and self._delete_selected(),
+        )
         self._tbl.bind("<Button-3>", lambda e: self._tbl_menu.tk_popup(e.x_root, e.y_root))
 
         # 状态栏
