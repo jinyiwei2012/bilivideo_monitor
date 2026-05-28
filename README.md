@@ -674,6 +674,32 @@ for name in AlgorithmRegistry.get_algorithm_names():
 
 ## Changelog
 
+### v3.0.0 (2026-05-28)
+
+**🛡️ 412 绕过体系**
+- curl_cffi TLS 指纹伪装 (impersonate=chrome131) 接入主请求路径
+- 请求时自动移除 UA（impersonate 模式下由 curl_cffi 接管）
+- 随机 buvid3/buvid4 生成（模拟设备指纹，降低检测概率）
+- bilibili-api-python 一级兜底数据源（video/search/viewers）
+- Playwright 无头浏览器二级兜底（解析页面 `__INITIAL_STATE__`）
+- 代理自动发现：6 个免费代理源，逐条实时测试显示 ✅/❌
+- 自定义代理源：用户可添加任意代理列表 URL
+
+**🔐 登录模块重写**
+- 极验滑块验证码自动求解（OpenCV 缺口检测 + 类人轨迹模拟）
+- 自动求解失败时手动兜底（浏览器打开极验页 → 填入 validate/seccode）
+- 密码登录使用 bilibili-api-python 兜底
+- 二维码登录使用独立 session，避免旧 Cookie 干扰
+- `cryptography` / `pycryptodome` / `opencv-python` 完备支持
+
+**🐛 安全修复**
+- 反序列化加固 / XXE 防护 / 路径穿越校验
+- 数据竞争加锁 / 静默异常加日志(29处)
+- 文件权限 0o600 / 参数注入白名单
+- 文件句柄泄漏修复
+- `_CurlCffiResponse` 位置错误导致 BilibiliAPI 方法截断修复
+- Merge 冲突导致多处修改回退的恢复
+
 ### v2.9.0 (2026-05-28)
 
 **🚀 性能**
