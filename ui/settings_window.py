@@ -1541,25 +1541,61 @@ class SettingsWindow:
 
     # ──── 代理操作 ────
     def _auto_fetch_proxies(self):
-        """从所有代理源自动拉取并加入列表"""
-        def worker():
-            try:
-                from core.proxy_manager import ProxyManager
-                from core import bilibili_api
-                api = bilibili_api.get_bilibili_api()
-                pm = api.proxy_manager
-                pm._discover_free_proxies()
-                # 将新代理写入文本框
-                urls = [p.get("http", "") for p in pm.proxies if p.get("http")]
-                self.window.after(0, lambda: self._update_proxy_text(urls))
-                self.window.after(0, lambda: self._auto_fetch_status.config(
-                    text=f"✅ 发现 {len(pm.proxies)} 个代理", fg=C["success"]))
-            except Exception as e:
-                self.window.after(0, lambda: self._auto_fetch_status.config(
-                    text=f"❌ {e}", fg=C["danger"]))
+        """从所有代理源自动拉取，逐条测试并实时显示结果"""
         import threading
         self._auto_fetch_status.config(text="⏳ 获取中…", fg=C["warning"])
-        threading.Thread(target=worker, daemon=True).start()
+        self._proxy_tree.delete(*self._proxy_tree.get_children())
+        threading.Thread(target=self._auto_fetch_worker, daemon=True).start()
+
+    def _auto_fetch_worker(self):
+        """后台线程：逐源拉取 → 逐条测试 → 实时更新 UI"""
+        import requests as _req
+        from core.proxy_manager import ProxyManager
+        from core import bilibili_api as _api
+
+        api = _api.get_bilibili_api()
+        pm = api.proxy_manager
+        total_found = 0
+        total_tested = 0
+
+        for src_url in pm.PROXY_SOURCES:
+            source_name = src_url.split("/")[2]
+            self.window.after(0, lambda n=source_name: self._auto_fetch_status.config(
+                text=f"⏳ 拉取 {n}…", fg=C["warning"]))
+            try:
+                resp = _req.get(src_url, timeout=10,
+                                headers={"User-Agent": "Mozilla/5.0"}, verify=False)
+                if resp.status_code != 200:
+                    continue
+                urls = pm._parse_proxy_list(resp.text, src_url)
+                for url in urls:
+                    total_tested += 1
+                    item = self._proxy_tree.insert("", "end", values=(url, "⏳", "测试中…", "", "", "", ""))
+                    self.window.after(0, lambda: self._proxy_tree.yview_moveto(1))
+                    # 快速测试
+                    result = ProxyManager.test_proxy(url, timeout=8)
+                    ok = result.get("ok", False)
+                    total_found += 1 if ok else 0
+                    self.window.after(0, lambda i=item, r=result: (
+                        self._proxy_tree.set(i, "status", "✅" if r.get("ok") else "❌"),
+                        self._proxy_tree.set(i, "latency", f"{r['latency_ms']}ms" if r.get("ok") else r.get("error", "超时")[:40]),
+                        self._proxy_tree.set(i, "country", r.get("country", "") or ""),
+                        self._proxy_tree.set(i, "ip", r.get("ip", "") or ""),
+                        self._proxy_tree.set(i, "asn", r.get("asn", "") or ""),
+                        self._proxy_tree.set(i, "isp", r.get("isp", "") or ""),
+                        self._proxy_tree.item(i, tags=("ok" if r.get("ok") else "fail",)),
+                    ))
+                    if result.get("ok"):
+                        pm.add_proxy({"http": url, "https": url})
+            except Exception as e:
+                self.window.after(0, lambda n=source_name: self._auto_fetch_status.config(
+                    text=f"⚠ {n} 失败: {e}", fg=C["danger"]))
+
+        # 完成后刷新代理文本框
+        urls = [p.get("http", "") for p in pm.proxies if p.get("http")]
+        self.window.after(0, lambda: self._update_proxy_text(urls))
+        self.window.after(0, lambda: self._auto_fetch_status.config(
+            text=f"✅ 测试 {total_tested} 个, 可用 {total_found} 个", fg=C["success"]))
 
     def _update_proxy_text(self, urls):
         """刷新代理文本框内容"""
