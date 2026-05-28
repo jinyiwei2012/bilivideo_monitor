@@ -2337,8 +2337,30 @@ class SettingsWindow:
                     cancel_btn.pack_forget()
                     ttk.Button(captcha_btn_f, text="取消", command=pwd_top.destroy).pack(side=tk.LEFT, padx=4)
                 else:
-                    status_var.set("需要滑块验证，请使用扫码登录")
+                    gt = result.get("gt", "")
+                    challenge = result.get("challenge", "")
+                    geetest_url = f"https://api.geetest.com/get.php?gt={gt}&challenge={challenge}&lang=zh-cn&product=embed"
+                    status_var.set("需要极验滑块验证")
                     status_lbl.config(fg=C["danger"])
+                    # 提供打开浏览器手动验证 + 输入 validate/seccode
+                    def _open_geetest():
+                        import webbrowser
+                        webbrowser.open(geetest_url)
+                        messagebox.showinfo("极验验证", "请在浏览器中完成滑块验证，然后将 validate 和 seccode 值输入下方", parent=pwd_top)
+                    ttk.Button(captcha_btn_f, text="🌐 打开极验验证页", command=_open_geetest).pack(side=tk.LEFT, padx=4)
+                    tk.Label(captcha_frame, text="validate:", bg=C["bg_surface"], fg=C["text_2"], font=FONT_SM).pack()
+                    geetest_validate_entry = ttk.Entry(captcha_frame, width=40, font=("Consolas", 9))
+                    geetest_validate_entry.pack(pady=2)
+                    tk.Label(captcha_frame, text="seccode:", bg=C["bg_surface"], fg=C["text_2"], font=FONT_SM).pack()
+                    geetest_seccode_entry = ttk.Entry(captcha_frame, width=40, font=("Consolas", 9))
+                    geetest_seccode_entry.pack(pady=2)
+                    captcha_frame.pack(pady=(6, 0))
+                    def _submit_geetest():
+                        validate = geetest_validate_entry.get().strip()
+                        seccode = geetest_seccode_entry.get().strip()
+                        if validate and seccode:
+                            _do_login(captcha_code=f"{validate}:{seccode}", ct=-1)  # ct=-1 表示极验
+                    ttk.Button(captcha_btn_f, text="提交极验结果", command=_submit_geetest).pack(side=tk.LEFT, padx=4)
                 for w in (username_entry, password_entry):
                     w.config(state="normal")
                 login_btn.config(state="normal")
