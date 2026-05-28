@@ -137,7 +137,7 @@ class KnfAlgorithm(BaseAlgorithm):
             raise RuntimeError("无可用的 checkpoint — 请先训练")
         if self._cached_model is None or (bvid and not getattr(self, "_cached_bvid", "") == bvid):
             model = KnfTorchModel(
-                in_features=len(self._features), window=self.training_window, horizon=self.training_horizon
+                in_features=getattr(self, '_training_n_features', len(self._features) + 5), window=self.training_window, horizon=self.training_horizon
             )
             model.load_state_dict(state)
             model.to(self._device).eval()
@@ -151,6 +151,8 @@ class KnfAlgorithm(BaseAlgorithm):
         return velocity, 0.78, {"horizon_pred": y.tolist(), "method": "knf_torch"}
 
     def _build_input_array(self, video_data: Dict[str, Any]) -> np.ndarray:
+        from algorithms.models.deep_learning._torch_upgrade import _add_derived_features
+
         history = video_data.get("history_data", [])
         n = self.training_window
         arr = np.zeros((n, len(self._features)), dtype=np.float32)
@@ -159,11 +161,12 @@ class KnfAlgorithm(BaseAlgorithm):
         for i, e in enumerate(recent):
             for j, f in enumerate(self._features):
                 arr[offset + i, j] = float(e.get(f, 0) or 0)
-        # 同样的 z-score
-        mean = arr.mean(axis=0, keepdims=True)
-        std = arr.std(axis=0, keepdims=True)
+
+        arr_ext = _add_derived_features(arr)
+        mean = arr_ext.mean(axis=0, keepdims=True)
+        std = arr_ext.std(axis=0, keepdims=True)
         std = np.where(std < 1e-8, 1.0, std)
-        return ((arr - mean) / std).astype(np.float32)
+        return ((arr_ext - mean) / std).astype(np.float32)
 
     def _denormalize_prediction(self, video_data: Dict[str, Any], y_norm: np.ndarray) -> float:
         """模型预测的是 z-score 后的速度差分，需反归一化。"""
@@ -247,7 +250,7 @@ class KnfAlgorithm(BaseAlgorithm):
 
     def build_model(self):
         return KnfTorchModel(
-            in_features=len(self._features), window=self.training_window, horizon=self.training_horizon
+            in_features=getattr(self, '_training_n_features', len(self._features)), window=self.training_window, horizon=self.training_horizon
         )
 
     def get_training_features(self):

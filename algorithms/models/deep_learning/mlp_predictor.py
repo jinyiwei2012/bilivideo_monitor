@@ -41,7 +41,7 @@ class MLPPredictorAlgorithm(BaseAlgorithm):
         self.b2 = np.zeros(self.output_size)
 
     def build_model(self):
-        return MLPTorchModel(in_features=5, window=self.training_window, horizon=self.training_horizon)
+        return MLPTorchModel(in_features=getattr(self, '_training_n_features', 5), window=self.training_window, horizon=self.training_horizon)
 
     def get_training_features(self):
         return ["view_count", "like_count", "coin_count", "favorite_count", "share_count"]
@@ -210,7 +210,7 @@ class MLPPredictorAlgorithm(BaseAlgorithm):
                 lambda _v, _t: None,
                 window=self.training_window,
                 horizon=self.training_horizon,
-                model_kwargs={"in_features": 5, "window": self.training_window, "horizon": self.training_horizon},
+                model_kwargs={"in_features": getattr(self, '_training_n_features', 5), "window": self.training_window, "horizon": self.training_horizon},
             )
             if result is None or not hasattr(result, "predicted_hours"):
                 return None

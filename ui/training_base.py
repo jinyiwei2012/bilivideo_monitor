@@ -108,9 +108,10 @@ class TrainingMonitor:
     def _check_no_improvement(self, pts, n):
         if n < 8 or not all(vl >= 0 for _, _, vl in pts[-8:]):
             return
-        best_vl = min(vl for _, _, vl in pts)
-        recent_vl = [vl for _, _, vl in pts[-4:]]
-        if all(vl >= best_vl for vl in recent_vl):
+        best_before = min(vl for _, _, vl in pts[:-4])  # 最近 4 epoch 之前的最佳
+        best_recent = min(vl for _, _, vl in pts[-4:])  # 最近 4 epoch 的最佳
+        # 最近 4 epoch 的最佳没有明显优于之前的最佳 → 趋于收敛
+        if best_before > 0 and best_recent >= best_before * 0.995:
             self._no_improve_streak += 1
         else:
             self._no_improve_streak = max(0, self._no_improve_streak - 1)

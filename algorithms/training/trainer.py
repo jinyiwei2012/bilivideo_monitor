@@ -66,6 +66,7 @@ class ModelTrainer:
         init_from_global: bool = False,
         lr: Optional[float] = None,
         control_dict: Optional[Dict] = None,
+        use_new_data_only: bool = False,
     ) -> Dict[str, str]:
         """对一组算法做全局预训练，返回 {algo_id: version_name}。失败的算法 value = ''。
 
@@ -74,6 +75,7 @@ class ModelTrainer:
                               False=重新训练（从随机初始化开始）。
             control_dict: 线程安全的调整指令字典。_train_one 每 epoch 检查其中的
                           early_stop (bool) 和 lr_scale (float) 并自动响应。
+            use_new_data_only: True 时只使用上次训练截止后的新数据。
         """
         if not _torch_available:
             raise RuntimeError("torch 未安装，无法训练")
@@ -101,6 +103,7 @@ class ModelTrainer:
                     init_from_global=init_from_global,
                     lr=lr,
                     control_dict=control_dict,
+                    use_new_data_only=use_new_data_only,
                 )
                 results[algo_id] = version
                 self._emit(
@@ -184,20 +187,19 @@ class ModelTrainer:
         if not hasattr(algo, "build_model"):
             raise RuntimeError(f"算法 {algo_id} 未实现 build_model()")
 
-        # 读取已有 checkpoint 的数据范围（仅新数据模式用）
+        # 读取已有 checkpoint 的数据范围（增量训练 / 新数据模式用）
         prev_epochs = 0
         data_trained_until = 0.0
-        if bvid:
-            try:
-                _pc_ckpt = CheckpointManager(algo_id, bvid=bvid)
-                _pc_ver = _pc_ckpt.list_versions()
-                for _v in _pc_ver:
-                    if _v["active"]:
-                        prev_epochs = _v.get("completed_epochs", 0)
-                        data_trained_until = _v.get("data_trained_until", 0.0)
-                        break
-            except Exception:
-                pass
+        try:
+            _pc_ckpt = CheckpointManager(algo_id, bvid=bvid)
+            _pc_ver = _pc_ckpt.list_versions()
+            for _v in _pc_ver:
+                if _v["active"]:
+                    prev_epochs = _v.get("completed_epochs", 0)
+                    data_trained_until = _v.get("data_trained_until", 0.0)
+                    break
+        except Exception:
+            pass
 
         min_timestamp = data_trained_until if (use_new_data_only and data_trained_until > 0) else None
         dataset, train_loader, val_loader = self._prepare_dataset(algo, algo_id, bvid, batch_size, val_ratio, min_timestamp=min_timestamp)
@@ -210,24 +212,14 @@ class ModelTrainer:
         if prev_epochs > 0:
             scheduler._step_count = prev_epochs
         try:
-            if bvid:
-                _sd_ckpt = CheckpointManager(algo_id, bvid=bvid)
-                _sd_ver = _sd_ckpt.list_versions()
-                for _v in _sd_ver:
-                    if _v["active"]:
-                        _saved_sd = _v.get("scheduler_state")
-                        if _saved_sd:
-                            scheduler.load_state_dict(_saved_sd)
-                        break
-            if not bvid:
-                _sd_ckpt = CheckpointManager(algo_id)
-                _sd_ver = _sd_ckpt.list_versions()
-                for _v in _sd_ver:
-                    if _v["active"]:
-                        _saved_sd = _v.get("scheduler_state")
-                        if _saved_sd:
-                            scheduler.load_state_dict(_saved_sd)
-                        break
+            _sd_ckpt = CheckpointManager(algo_id, bvid=bvid)
+            _sd_ver = _sd_ckpt.list_versions()
+            for _v in _sd_ver:
+                if _v["active"]:
+                    _saved_sd = _v.get("scheduler_state")
+                    if _saved_sd:
+                        scheduler.load_state_dict(_saved_sd)
+                    break
         except Exception:
             pass
 
@@ -235,6 +227,7 @@ class ModelTrainer:
         last_val = -1.0
         start_time = time.time()
         best_model_state = None
+        best_epoch = 0
         train_losses = []
         for epoch in range(epochs):
             if self._check_control(control_dict, epoch, algo_id, bvid, optimizer, progress_cb, epochs, scheduler=scheduler):
@@ -277,6 +270,7 @@ class ModelTrainer:
             )
             if val_loader is not None and last_val < best_val:
                 best_val = last_val
+                best_epoch = epoch + 1
                 best_model_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
 
             # 调度器 plateau 检测
@@ -285,8 +279,10 @@ class ModelTrainer:
         # 无验证集时保存最终模型；有验证集时保存 val_loss 最低的那个
         if best_model_state is not None:
             model.load_state_dict(best_model_state)
+            if best_epoch > 0:
+                logger.info("[trainer] %s 保存最优模型 (epoch %d, val_loss=%.4f)", algo_id, best_epoch, best_val)
         data_trained_until_new = getattr(dataset, "max_timestamp", 0.0)
-        return self._save_checkpoint(model, algo_id, bvid, dataset, best_val, last_val, val_loader, epochs, optimizer, prev_epochs=prev_epochs, data_trained_until=data_trained_until_new, scheduler=scheduler)
+        return self._save_checkpoint(model, algo_id, bvid, dataset, best_val, last_val, val_loader, epochs, optimizer, prev_epochs=prev_epochs, data_trained_until=data_trained_until_new, scheduler=scheduler, best_epoch=best_epoch)
 
     def _prepare_dataset(self, algo, algo_id, bvid, batch_size, val_ratio, min_timestamp=None):
         features = getattr(algo, "get_training_features", lambda: None)() or [
@@ -305,6 +301,9 @@ class ModelTrainer:
         )
         if len(dataset) == 0:
             raise RuntimeError(f"没有足够的训练样本（algo={algo_id}, bvid={bvid}）")
+
+        # 将数据集实际特征维度传递给算法，供 build_model() 使用
+        algo._training_n_features = dataset.n_features()
 
         # 自动根据数据量缩放 batch size（连续公式，无硬阈值）
         _n = len(dataset)
@@ -507,7 +506,7 @@ class ModelTrainer:
         )
         return last_val
 
-    def _save_checkpoint(self, model, algo_id, bvid, dataset, best_val, last_val, val_loader, epochs, optimizer=None, prev_epochs=0, data_trained_until=0.0, scheduler=None):
+    def _save_checkpoint(self, model, algo_id, bvid, dataset, best_val, last_val, val_loader, epochs, optimizer=None, prev_epochs=0, data_trained_until=0.0, scheduler=None, best_epoch=0):
         ckpt = CheckpointManager(algo_id, bvid=bvid)
         lr = optimizer.param_groups[0]["lr"] if optimizer is not None else 0.001
         metadata = {
@@ -515,6 +514,7 @@ class ModelTrainer:
             "val_loss": best_val if val_loader is not None else last_val,
             "epochs": epochs,
             "completed_epochs": prev_epochs + epochs,
+            "best_epoch": best_epoch if val_loader is not None else epochs,
             "device": str(self.device),
             "learning_rate": lr,
             "data_trained_until": data_trained_until,
