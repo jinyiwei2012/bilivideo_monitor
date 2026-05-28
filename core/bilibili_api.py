@@ -1446,9 +1446,10 @@ class BilibiliAPI:
                 result["status"] = 2
                 result["message"] = "登录成功"
 
-            # 从 data.url 提取 Cookie（B 站 QR 登录返回方式）
+            # 从 data.url / data.cookie_info / resp.cookies 提取 Cookie
             cookies = self._extract_login_cookies(resp, d)
             if not cookies:
+                # 方式A: data.url 查询参数
                 redirect_url = d.get("url", "")
                 if redirect_url:
                     from urllib.parse import urlparse, parse_qs
@@ -1456,12 +1457,37 @@ class BilibiliAPI:
                     params = parse_qs(parsed.query)
                     cookies = {k: params.get(k, [None])[0] for k in
                                ("SESSDATA", "bili_jct", "DedeUserID") if params.get(k, [None])[0]}
+            if not cookies:
+                # 方式B: data.cookie_info (B 站新 API 格式)
+                for ci in d.get("cookie_info", {}).get("cookies", []):
+                    name = ci.get("name", "")
+                    if name in ("SESSDATA", "bili_jct", "DedeUserID"):
+                        cookies[name] = ci.get("value", "")
+            if not cookies:
+                # 方式C: resp.cookies 直接提取
+                for k in ("SESSDATA", "bili_jct", "DedeUserID"):
+                    v = resp.cookies.get(k)
+                    if v:
+                        cookies[k] = v
+            if not cookies and d.get("refresh_token"):
+                # 方式D: QR 扫码后 B 站有时返回 token 需二次换取
+                logger.debug("QR 登录未取到 Cookie，尝试从 refresh_token 换票")
+                token_data = {"refresh_token": d["refresh_token"]}
+                try:
+                    ex = sess.post("https://passport.bilibili.com/x/passport-login/web/exchange", data=token_data, timeout=10)
+                    if ex.status_code == 200:
+                        exd = ex.json().get("data", {})
+                        cookies = self._extract_login_cookies(ex, exd)
+                except Exception as e2:
+                    logger.debug("exchange 换票失败: %s", e2)
             if cookies:
                 self.set_cookies(cookies)
                 self._persist_cookies(cookies)
                 result["cookies"] = cookies
+                logger.info("QR 登录成功，已获取 Cookie: %s", list(cookies.keys()))
         except Exception as e:
             result["message"] = f"轮询异常: {e}"
+            logger.debug("QR poll exception: %s", e)
         return result
 
     def _persist_cookies(self, cookies: dict):
@@ -1507,7 +1533,6 @@ class BilibiliAPI:
         except Exception as e:
             logger.warning("持久化 Cookie 失败: %s", e)
 
-    @staticmethod
     def _extract_login_cookies(self, resp, data: dict) -> dict:
         """从登录响应中提取 Cookie（多种回退方式，合并三种来源以最大化命中 buvid 等设备指纹字段）"""
         # buvid3/buvid4/buvid_fp 是 2026 风控核心字段，缺失易触发 -352
