@@ -139,8 +139,7 @@ class BilibiliAPI:
         # 启动时加载已保存的 Cookie 和代理
         self._load_saved_network_config()
         self.proxy_manager.init_ua_bindings()
-        # 后台自动发现免费代理
-        self.proxy_manager.start_auto_discovery(interval=600)
+        # 代理自动发现改由用户在设置界面手动触发，启动时不拉取
 
     @staticmethod
     def _gen_buvid() -> str:
