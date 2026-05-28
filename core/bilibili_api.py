@@ -37,6 +37,27 @@ class RateLimitError(BilibiliAPIError):
     """频率限制错误 (412)"""
 
 
+class _CurlCffiResponse:
+    """将 curl_cffi response 包装为与 requests.Response 兼容的接口"""
+    def __init__(self, resp):
+        self.status_code = resp.status_code
+        self.content = resp.content
+        self.raw = resp.content
+        self.text = resp.text
+        self.headers = resp.headers
+        self.url = str(resp.url)
+        self.cookies = resp.cookies
+        self._resp = resp
+
+    def json(self, **kwargs):
+        return self._resp.json(**kwargs)
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            from requests.exceptions import HTTPError
+            raise HTTPError(f"HTTP {self.status_code}", response=self)
+
+
 class BilibiliAPI:
     """B站API封装类 - 支持重试与绕过412错误"""
 
@@ -500,26 +521,6 @@ class BilibiliAPI:
                 raise err from e
             raise
 
-
-class _CurlCffiResponse:
-    """将 curl_cffi response 包装为与 requests.Response 兼容的接口"""
-    def __init__(self, resp):
-        self.status_code = resp.status_code
-        self.content = resp.content
-        self.raw = resp.content
-        self.text = resp.text
-        self.headers = resp.headers
-        self.url = str(resp.url)
-        self.cookies = resp.cookies
-        self._resp = resp
-
-    def json(self, **kwargs):
-        return self._resp.json(**kwargs)
-
-    def raise_for_status(self):
-        if self.status_code >= 400:
-            from requests.exceptions import HTTPError
-            raise HTTPError(f"HTTP {self.status_code}", response=self)
 
     def _prepare_request_kwargs(self, attempt: int, **kwargs) -> Dict:
         """构建请求参数：使用代理绑定UA，跳过失败过多的代理"""
