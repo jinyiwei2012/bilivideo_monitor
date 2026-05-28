@@ -995,6 +995,7 @@ class TrainingPanel(BaseTrainingPanel):
             self._cancel_btn.config(state="disabled")
         self._status_lbl.config(text="正在取消（等待当前算法完成）…", fg=C["warning"])
         self._append_log("⏹ 用户请求取消训练")
+        self._close_log_file()
 
     def _on_skip_algo(self):
         """跳过当前正在训练的算法，继续下一个。"""
