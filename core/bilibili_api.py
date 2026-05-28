@@ -847,9 +847,13 @@ class BilibiliAPI:
             logger.debug("← GET %s → %s", self.DANMAKU_URL.split("?")[0], resp.status_code)
             if resp.status_code != 200:
                 return []
-            import xml.etree.ElementTree as ET
+            try:
+                from defusedxml.ElementTree import fromstring as _xml_parse
+            except ImportError:
+                import xml.etree.ElementTree as _ET
+                _xml_parse = _ET.fromstring
 
-            root = ET.fromstring(resp.content)  # nosec B314
+            root = _xml_parse(resp.content)
             danmaku = []
             for d in root.findall(".//d"):
                 p = d.get("p", "")
