@@ -416,9 +416,17 @@ class ProxyManager:
 
     @staticmethod
     def _parse_proxy_list(text: str, src_url: str) -> List[str]:
-        """解析不同格式的代理列表"""
+        """解析不同格式的代理列表，根据源自动识别协议"""
         urls = []
-        # GeoNode JSON 格式
+
+        # 根据源 URL 确定默认协议
+        proto = "http"
+        if "socks5" in src_url.lower():
+            proto = "socks5"
+        elif "socks4" in src_url.lower():
+            proto = "socks4"
+
+        # GeoNode JSON 格式（自带协议字段）
         if "geonode" in src_url:
             try:
                 data = json.loads(text)
@@ -438,9 +446,10 @@ class ProxyManager:
                 if not line or line.startswith("#"):
                     continue
                 if "://" in line:
+                    # 已有协议前缀，按原样添加
                     urls.append(line)
                 else:
-                    urls.append(f"http://{line}")
+                    urls.append(f"{proto}://{line}")
         return urls
 
     def _proxy_exists(self, url: str) -> bool:
