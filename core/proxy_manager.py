@@ -384,6 +384,7 @@ class ProxyManager:
         "https://raw.githubusercontent.com/TheSpeedX/SOCKS-List/master/socks4.txt",
         "https://raw.githubusercontent.com/TheSpeedX/SOCKS-List/master/socks5.txt",
         "https://raw.githubusercontent.com/hookzof/socks5_list/master/proxy.txt",
+        "https://raw.githubusercontent.com/ProxyScrape/free-proxy-list/refs/heads/main/proxies/all/data.json",
     ]
 
     def _discover_free_proxies(self):
@@ -426,7 +427,7 @@ class ProxyManager:
         elif "socks4" in src_url.lower():
             proto = "socks4"
 
-        # GeoNode JSON 格式（自带协议字段）
+        # JSON 格式
         if "geonode" in src_url:
             try:
                 data = json.loads(text)
@@ -439,6 +440,18 @@ class ProxyManager:
                             urls.append(f"{p}://{ip}:{port}")
             except json.JSONDecodeError:
                 pass
+        elif "proxyscrape" in src_url.lower():
+            try:
+                data = json.loads(text)
+                if isinstance(data, list):
+                    for item in data:
+                        ip = item.get("ip", "")
+                        port = item.get("port", "")
+                        p = str(item.get("protocol", "http")).lower()
+                        if p in ("http", "https", "socks4", "socks5"):
+                            urls.append(f"{p}://{ip}:{port}")
+            except json.JSONDecodeError:
+                pass
         else:
             # 纯文本格式 (ip:port 每行一个)
             for line in text.strip().split("\n"):
@@ -446,7 +459,6 @@ class ProxyManager:
                 if not line or line.startswith("#"):
                     continue
                 if "://" in line:
-                    # 已有协议前缀，按原样添加
                     urls.append(line)
                 else:
                     urls.append(f"{proto}://{line}")
