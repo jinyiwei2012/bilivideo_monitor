@@ -1030,6 +1030,8 @@ class TrainingPanel(BaseTrainingPanel):
         self._status_lbl.config(text=f"[{cur}/{tot}] 训练 {aid} …", fg=C["text_2"])
         self._append_log(f"── [{cur}/{tot}] 开始训练 {aid} ──")
         self._update_algo_row(aid, status="▶ 训练中", status_color=C["accent"])
+        # 切换算法时重置质量监控，避免跨模型数据污染
+        self._monitor.reset()
 
     def _on_stage_epoch(self, msg):
         aid = msg.get("algo_id", "?")
@@ -1084,10 +1086,21 @@ class TrainingPanel(BaseTrainingPanel):
         ver = msg.get("version", "")
         self._status_lbl.config(text=f"✓ {aid} → {ver} ({cur}/{total_sel})", fg=C["success"])
         self._progress["value"] = int(cur / max(1, total_sel) * 100)
-        self._append_log(f"✓ {aid} 完成, 保存为 {ver}")
-        conf = load_algo_confidence(aid)
+
+        # 从 checkpoint 读取 val_loss 和置信度（与微调面板一致）
+        from algorithms.training.checkpoint_manager import CheckpointManager
+        _val_loss = -1.0
+        try:
+            _ckpt = CheckpointManager(aid)
+            _versions = _ckpt.list_versions()
+            if _versions:
+                _val_loss = _versions[0].get("val_loss", -1.0)
+        except Exception:
+            pass
+        conf = loss_to_confidence(_val_loss) if _val_loss >= 0 else load_algo_confidence(aid)
         conf_str, conf_color = format_confidence(conf)
         self._algo_confidence[aid] = conf
+        self._append_log(f"  ✓ {aid} → {ver}  置信度={conf_str}  val_loss={_val_loss:.4f}" if _val_loss >= 0 else f"  ✓ {aid} → {ver}")
         self._update_algo_row(
             aid,
             status=f"✓ {ver[:10]}",

@@ -1126,13 +1126,21 @@ class BilibiliAPI:
         return cookies
 
 
-# 全局API实例
-bilibili_api = BilibiliAPI()
+# 全局API实例（延迟初始化，避免拖慢模块导入）
+_bilibili_api_instance = None
+
+
+def _get_api():
+    """延迟获取/创建 BilibiliAPI 实例"""
+    global _bilibili_api_instance
+    if _bilibili_api_instance is None:
+        _bilibili_api_instance = BilibiliAPI()
+    return _bilibili_api_instance
 
 
 def get_bilibili_api() -> BilibiliAPI:
     """获取全局 BilibiliAPI 实例"""
-    return bilibili_api
+    return _get_api()
 
 
 # ── 模块级便捷函数（兼容 from core import bilibili_api 调用方式）──
@@ -1140,33 +1148,38 @@ def get_bilibili_api() -> BilibiliAPI:
 
 def get_video_info(bvid: str) -> Optional[Dict]:
     """模块级便捷函数：获取视频信息"""
-    return bilibili_api.get_video_info(bvid)
+    return _get_api().get_video_info(bvid)
 
 
 def get_video_stat(bvid: str) -> Optional[Dict]:
     """模块级便捷函数：获取视频统计数据"""
-    return bilibili_api.get_video_stat(bvid)
+    return _get_api().get_video_stat(bvid)
 
 
 def get_video_viewers(bvid: str, cid: int) -> Optional[Dict]:
     """模块级便捷函数：获取视频观看人数"""
-    return bilibili_api.get_video_viewers(bvid, cid)
+    return _get_api().get_video_viewers(bvid, cid)
 
 
 def get_up_info(uid: int) -> Optional[Dict]:
     """模块级便捷函数：获取UP主信息"""
-    return bilibili_api.get_up_info(uid)
+    return _get_api().get_up_info(uid)
 
 
 def get_up_stat(uid: int) -> Optional[Dict]:
     """模块级便捷函数：获取UP主统计数据"""
-    return bilibili_api.get_up_stat(uid)
+    return _get_api().get_up_stat(uid)
 
 
 def close():
     """模块级便捷函数：关闭 API 实例"""
-    bilibili_api.close()
+    _get_api().close()
 
 
 # 模块级便捷属性代理（from core import bilibili_api 导入的是模块而非实例）
-proxy_manager = bilibili_api.proxy_manager
+def __getattr__(name):
+    if name == "bilibili_api":
+        return _get_api()
+    if name == "proxy_manager":
+        return _get_api().proxy_manager
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

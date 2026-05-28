@@ -58,6 +58,7 @@ class FinetunePanel(BaseTrainingPanel):
         self._auto_control: Dict = {}
         self._auto_monitors: Dict[str, TrainingMonitor] = {}
         self._algo_lr_factors: Dict[str, float] = {}
+        self._use_new_data_only = False
 
         # 当前视频的所有算法结果缓存（用于自动切换显示）
         self._video_results: Dict[str, List[Dict]] = {}
@@ -197,7 +198,7 @@ class FinetunePanel(BaseTrainingPanel):
         tk.Label(ctrl, text="Epochs:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(
             side=tk.LEFT, padx=(8, 2)
         )
-        self._epoch_var = tk.IntVar(value=5)
+        self._epoch_var = tk.IntVar(value=15)
         ttk.Spinbox(ctrl, from_=1, to=100, textvariable=self._epoch_var, width=6).pack(side=tk.LEFT, padx=2)
 
         tk.Label(ctrl, text="Batch:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT, padx=(8, 2))
@@ -435,6 +436,33 @@ class FinetunePanel(BaseTrainingPanel):
         ):
             return
 
+        # 增量模式下：检查是否有已有 checkpoint → 弹窗选择数据范围
+        self._use_new_data_only = False
+        if mode == "incremental":
+            has_prev = False
+            try:
+                from algorithms.training.checkpoint_manager import CheckpointManager
+                for _bv in selected_videos:
+                    for _al in selected_algos:
+                        _cm = CheckpointManager(_al, bvid=_bv)
+                        if _cm.has_checkpoint():
+                            has_prev = True
+                            break
+                    if has_prev:
+                        break
+            except Exception:
+                pass
+            if has_prev:
+                _data_choice = messagebox.askyesno(
+                    "增量数据范围",
+                    "已有微调 checkpoint，训练数据范围如何选择？\n\n"
+                    "「是」 = 仅使用上次训练截止后新增的数据（续训，速度快）\n"
+                    "「否」 = 使用该视频的全部历史数据（更充分）",
+                    parent=self.frame,
+                )
+                # True = 是 = 仅新数据, False = 否 = 全部数据
+                self._use_new_data_only = _data_choice
+
         # 重置状态并锁定 UI
         self._prepare_training()
 
@@ -446,8 +474,9 @@ class FinetunePanel(BaseTrainingPanel):
         self._last_monitor_log_epoch = 0
 
         mode_label = "重新训练" if mode == "retrain" else "增量微调"
+        data_label = "仅新数据" if self._use_new_data_only else "全部数据"
         self._append_log(
-            f"🚀 开始{mode_label}: {len(selected_videos)} 视频 × {len(selected_algos)} 算法, "
+            f"🚀 开始{mode_label}（{data_label}）: {len(selected_videos)} 视频 × {len(selected_algos)} 算法, "
             f"epoch={epochs}, batch={batch}"
         )
         self._task_lbl.config(text=f"{mode_label}进行中…")
@@ -489,30 +518,53 @@ class FinetunePanel(BaseTrainingPanel):
                         payload["_adjustment"] = "🔧 NaN 检测 — 提前停止"
                     elif "爆炸" in status:
                         scale = mon.compute_lr_scale("explosion")
+                        gc = mon.compute_grad_clip("explosion")
                         self._auto_control["lr_scale"] = scale
-                        self._algo_lr_factors[aid] = self._algo_lr_factors.get(aid, 1.0) * scale
-                        payload["_adjustment"] = (
-                            f"🔧 Loss 爆炸 — LR×{scale:.2f} (累计×{self._algo_lr_factors[aid]:.2f})"
-                        )
+                        if gc > 0:
+                            self._auto_control["grad_clip"] = gc
+                        self._algo_lr_factors[aid] = max(0.01, min(10.0, self._algo_lr_factors.get(aid, 1.0) * scale))
+                        parts = [f"LR×{scale:.2f}"]
+                        if gc > 0:
+                            parts.append(f"梯度裁剪={gc:.2f}")
+                        parts.append(f"累计×{self._algo_lr_factors[aid]:.2f}")
+                        payload["_adjustment"] = f"🔧 Loss 爆炸 — {', '.join(parts)}"
                     elif "严重过拟合" in status:
                         self._auto_control["early_stop"] = True
-                        payload["_adjustment"] = "🔧 严重过拟合 — 提前停止"
-                    elif "波动" in status and "不稳定" in status:
-                        scale = mon.compute_lr_scale("oscillation")
-                        self._auto_control["lr_scale"] = scale
-                        self._algo_lr_factors[aid] = self._algo_lr_factors.get(aid, 1.0) * scale
+                        wd = mon.compute_weight_decay()
+                        if wd > 0:
+                            self._auto_control["weight_decay"] = wd
                         payload["_adjustment"] = (
-                            f"🔧 Loss 震荡 — LR×{scale:.2f} (累计×{self._algo_lr_factors[aid]:.2f})"
+                            f"🔧 严重过拟合 — 提前停止"
+                            + (f", weight_decay={wd:.4f}" if wd > 0 else "")
                         )
+                    elif "震荡" in status:
+                        scale = mon.compute_lr_scale("oscillation")
+                        gc = mon.compute_grad_clip("oscillation")
+                        self._auto_control["lr_scale"] = scale
+                        if gc > 0:
+                            self._auto_control["grad_clip"] = gc
+                        self._algo_lr_factors[aid] = max(0.01, min(10.0, self._algo_lr_factors.get(aid, 1.0) * scale))
+                        parts = [f"LR×{scale:.2f}"]
+                        if gc > 0:
+                            parts.append(f"梯度裁剪={gc:.2f}")
+                        parts.append(f"累计×{self._algo_lr_factors[aid]:.2f}")
+                        payload["_adjustment"] = f"🔧 Loss 震荡 — {', '.join(parts)}"
                     elif "过拟合" in status:
                         scale = mon.compute_lr_scale("overfitting")
+                        wd = mon.compute_weight_decay()
                         self._auto_control["lr_scale"] = scale
-                        self._algo_lr_factors[aid] = self._algo_lr_factors.get(aid, 1.0) * scale
-                        payload["_adjustment"] = f"🔧 过拟合 — LR×{scale:.2f} (累计×{self._algo_lr_factors[aid]:.2f})"
+                        if wd > 0:
+                            self._auto_control["weight_decay"] = wd
+                        self._algo_lr_factors[aid] = max(0.01, min(10.0, self._algo_lr_factors.get(aid, 1.0) * scale))
+                        parts = [f"LR×{scale:.2f}"]
+                        if wd > 0:
+                            parts.append(f"weight_decay={wd:.4f}")
+                        parts.append(f"累计×{self._algo_lr_factors[aid]:.2f}")
+                        payload["_adjustment"] = f"🔧 过拟合 — {', '.join(parts)}"
                     elif "欠拟合" in status or "下降过慢" in status:
                         scale = mon.compute_lr_scale("underfitting")
                         self._auto_control["lr_scale"] = scale
-                        self._algo_lr_factors[aid] = self._algo_lr_factors.get(aid, 1.0) * scale
+                        self._algo_lr_factors[aid] = max(0.01, min(10.0, self._algo_lr_factors.get(aid, 1.0) * scale))
                         payload["_adjustment"] = f"🔧 欠拟合 — LR×{scale:.2f} (累计×{self._algo_lr_factors[aid]:.2f})"
                     elif "不再收敛" in status:
                         self._auto_control["early_stop"] = True
@@ -573,9 +625,25 @@ class FinetunePanel(BaseTrainingPanel):
                     # 初始化自动调整控制字典（每个任务独立）
                     self._auto_control = {}
                     default_epochs = epochs
-                    # 应用累积 LR 调整
+                    # 切换到新 (算法, 视频) 时重置 LR 累积因子，防止跨模型累计爆炸
+                    self._algo_lr_factors[aid] = 1.0
+                    # 尝试从已有 checkpoint 恢复上次的 LR
+                    prev_lr = None
+                    try:
+                        prev_ckpt = CheckpointManager(aid, bvid=bvid)
+                        prev_versions = prev_ckpt.list_versions()
+                        if prev_versions:
+                            _active_ver = prev_ckpt.active_version()
+                            for _v in prev_versions:
+                                if _v["active"]:
+                                    plr = _v.get("learning_rate", -1.0)
+                                    if plr > 0:
+                                        prev_lr = plr
+                                    break
+                    except Exception:
+                        pass
                     algo_factor = self._algo_lr_factors.get(aid, 1.0)
-                    effective_lr = 0.001 * algo_factor  # 基于 Adam 默认 1e-3
+                    effective_lr = (prev_lr or 0.001) * algo_factor
                     try:
                         ver = trainer.finetune_for_video(
                             algo_id=aid,
@@ -585,6 +653,7 @@ class FinetunePanel(BaseTrainingPanel):
                             progress_cb=_cb,
                             control_dict=self._auto_control,
                             lr=effective_lr,
+                            use_new_data_only=self._use_new_data_only,
                         )
                         # 读取完成后的置信度
                         ckpt = CheckpointManager(aid, bvid=bvid)
@@ -680,6 +749,8 @@ class FinetunePanel(BaseTrainingPanel):
         bvid = msg.get("bvid", self._current_bvid)
         ep = msg.get("epoch", 0)
         eps = msg.get("epochs", 1)
+        total_ep = msg.get("total_epoch", ep)
+        total_eps = msg.get("total_epochs", eps)
         tloss = msg.get("train_loss", 0.0)
         vloss = msg.get("val_loss", -1.0)
         elapsed = msg.get("elapsed_s", 0.0)
@@ -691,19 +762,20 @@ class FinetunePanel(BaseTrainingPanel):
         self._progress["value"] = pct
         vtxt = f"  val={vloss:.4f}" if vloss >= 0 else ""
         ctrl_data = msg.get("_control", {})
+        ep_display = f"{total_ep}/{total_eps}" if total_eps != eps else f"{ep}/{eps}"
         if ctrl_data.get("early_stop"):
             self._status_lbl.config(
-                text=f"{aid}@{bvid}  ep{ep}/{eps}  ⏹ 即将停止",
+                text=f"{aid}@{bvid}  ep{ep_display}  ⏹ 即将停止",
                 fg=C["warning"],
             )
         elif ctrl_data.get("lr_scale"):
             self._status_lbl.config(
-                text=f"{aid}@{bvid}  ep{ep}/{eps}  ⚡ 调整LR",
+                text=f"{aid}@{bvid}  ep{ep_display}  ⚡ 调整LR",
                 fg=C["warning"],
             )
         else:
             self._status_lbl.config(
-                text=f"{aid}@{bvid}  ep{ep}/{eps}  train={tloss:.4f}{vtxt}  {conf_str}  {elapsed:.0f}s",
+                text=f"{aid}@{bvid}  ep{ep_display}  train={tloss:.4f}{vtxt}  {conf_str}  {elapsed:.0f}s",
                 fg=C["text_1"],
             )
 
@@ -723,7 +795,7 @@ class FinetunePanel(BaseTrainingPanel):
         adj = msg.get("_adjustment", "")
         adj_suffix = f"  |  {adj}" if adj else ""
         self._append_log(
-            f"  epoch {ep:>3}/{eps}  |  "
+            f"  epoch {total_ep:>3}/{total_eps}  |  "
             f"train_loss={tloss:.6f}  |  "
             f"{f'val_loss={vloss:.6f}' if vloss >= 0 else 'val_loss=N/A'}  |  "
             f"confidence={conf_str}  |  "
