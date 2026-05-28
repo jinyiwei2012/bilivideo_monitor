@@ -1,435 +1,273 @@
 # 代码审查报告
 
-> 审查日期：2026-05-26（上次：2026-05-07）
-> 扫描范围：47,003 行 Python 代码，189 个源文件（core/、ui/、algorithms/、utils/、models/）
-> 审查工具：flake8, bandit, radon, 深度依赖链追踪, 人工审查
+**项目:** B站视频监控与播放量预测系统
+**审查日期:** 2026-05-28
+**代码总量:** ~51,307 行 / 199 个 Python 文件
 
 ---
 
-## 目录
+## 1. 架构评价
 
-- [项目概览](#项目概览)
-- [修复状态速览](#修复状态速览)
-- [安全漏洞](#安全漏洞)
-- [架构与分析](#架构与分析)
-- [算法与模型](#算法与模型)
-- [性能瓶颈](#性能瓶颈)
-- [线程安全](#线程安全)
-- [数据库膨胀](#数据库膨胀)
-- [代码复杂度](#代码复杂度)
-- [Lint 与代码质量](#lint-与代码质量)
-- [设计评估](#设计评估)
-- [综合建议](#综合建议)
+### 1.1 优点
 
----
-
-## 项目概览
-
-B站视频监控与播放量预测系统 — Tkinter 桌面应用。核心功能：
-
-- **多视频并行监控**：每视频独立 worker 线程，75s～600s 可调轮询间隔
-- **55 种算法预测**：速度类 / 增长曲线 / 时间序列 / 统计 / 集成学习 / 深度学习 / 高级分析
-- **加权集成预测**：ML-driven 置信度加权，在线学习调整权重
-- **数据持久化**：每视频独立 SQLite + 中央汇总库
-- **B站 API 封装**：412 重试、UA 轮换、代理轮换、QR 登录
-
-### 规模指标
-
-| 指标 | 数值 |
+| 维度 | 评价 |
 |------|------|
-| Python 源文件 | 189 |
-| 测试文件 | 5 |
-| 总行数 (LOC) | 47,003 |
-| 逻辑行 (LLOC) | 28,785 |
-| 源码行 (SLOC) | 35,083 |
-| 注释率 (C%L / C%S) | 5% / 7% |
-| 测试用例 | 84 (全部通过) |
-| 可维护性指数 (MI) | 全部 A 级 |
+| **模块化** | 清晰的3层架构 (algorithms/core/ui)，各模块职责单一、接口明确 |
+| **算法自动发现** | `AlgorithmRegistry` 自动扫描 `models/` 目录，新增算法零配置注册 |
+| **线程模型** | 每视频独立 Worker 线程 + 全局线程池，无共享状态竞争 |
+| **懒加载** | 算法注册器 / torch / API 实例 / UI 面板均按需初始化，启动 ~0.4s |
+| **异常处理** | 591 处 try/except，覆盖网络请求/数据库/算法预测等所有外部调用 |
+| **数据库设计** | 按视频分库 + 中央库同步，避免单点写入瓶颈 |
+| **反爬措施** | 412 重试 + 指数退避 + 代理轮换 + UA 轮换 + WBI 签名 + Cookie 持久化 |
 
-### 最大源文件
+### 1.2 可改进点
 
-| 行数 | 文件 |
-|------|------|
-| 2,325 | `ui/settings_window.py` |
-| 1,355 | `ui/main_gui.py` |
-| 1,249 | `ui/training_panel.py` |
-| 1,176 | `core/database/central_db.py` |
-| 948 | `core/bilibili_api.py` |
-| 908 | `ui/snapshot_tab.py` |
-| 865 | `ui/finetune_panel.py` |
-| 857 | `ui/database_query.py` |
-| 764 | `ui/detail_panel.py` |
-| 677 | `algorithms/models/deep_learning/_torch_upgrade.py` |
-
----
-
-## 修复状态速览
-
-| 状态 | 数量 | 类型 |
+| 问题 | 位置 | 建议 |
 |------|------|------|
-| ✅ 已修复 | 41 | B1-B5, R1-R2, S1(部分), S3, L1-L13, P2-P6, T1-T4, 复杂度11项 |
-| 🔄 重新实现 | 4 | XGBoost, LightGBM, CatBoost, Prophet 算法升级 |
-| 🆕 新增 | 4 | 统一算法接口, Cookie加密, 算法命名规范, 各类别测试套件 |
-| ❌ 待修复 | 4 | P1（部分）, S2, D1-D3 |
+| **`asyncio.run()` 重复创建事件循环** | `core/notification.py:_call_action_ws()` | 改为全局事件循环或使用 `asyncio.run_coroutine_threadsafe` |
+| **ThreadPoolExecutor 单例退出不优雅** | `algorithms/registry.py` | `shutdown(wait=False)` 可能遗留任务，改为 `wait=True` 或注册 atexit 回调 |
+| **bare except 5 处** | `utils/update_checker.py` | 至少改为 `except Exception`，避免吞 `KeyboardInterrupt` |
+| **XML bomb 防护注释** | `core/bilibili_api.py` | `# nosec B314` 注释表明已知风险，建议加 `DefusedParser` |
+| **torch.load 不安全反序列化** | `algorithms/training/hf_loader.py` | `weights_only=False` 加载 Lag-Llama，确认 checkpoint 来源可信 |
 
 ---
 
-## 安全漏洞
+## 2. 算法模块审查 (103 种)
 
-### 当前状态
+### 2.1 注册机制
 
-| # | 问题 | 严重度 | 状态 | 修复方式 |
-|---|------|--------|------|---------|
-| S1 | `torch.load(weights_only=False)` | 中危 | ✅ | checkpoint 管理 + HF 加载均修复 |
-| **S2** | **`verify=False` — SSL 证书验证关闭** | **中危** | **❌** | **`proxy_manager.py:265,327` 待修复** |
-| S3 | Cookie 明文持久化 | 中危 | ✅ | Fernet/XOR 两级加密 |
-| S4 | XML 解析实体注入 | 低危 | ✅ | `resolve_entities=False` |
-| S5 | LLM API Key 内存残留 | 低危 | ✅ | `clear_api_key()` 安全清除 |
-| S6 | LLM API 限速 | 低危 | ✅ | `_rate_limit()` token bucket |
-| S7 | HuggingFace 下载无 revision pin | 低危 | ⚠️ | `hf_loader.py:103` 建议固定版本 |
-| S8 | geetest_solver.py 使用 MD5 | 低危 | ⚠️ | 非安全场景，可加 `usedforsecurity=False` |
-
-### bandit 扫描结果
-
-- **High severity**: 3 个 MD5 使用（`utils/geetest_solver.py`）— 非安全用途，低风险
-- **Medium severity**: 2 个（HF 无 pin + torch.load fallback）— `hf_loader.py` 已设 `weights_only=True` 优先，`False` 为 fallback
-- **0 medium/high severity 未处理漏洞**
-
-### 建议
-
-1. **优先修复 S2**：`proxy_manager.py:265,327` 代理请求禁用 SSL 验证。简单修复：添加 `verify` 配置参数，允许用户控制。
-
----
-
-## 架构与分析
-
-### 通信模式
+`AlgorithmRegistry` 使用双重检查锁定 (`_init_lock`) 保证线程安全的后台预加载。采用 `ThreadPoolExecutor(max_workers=4)` 并行执行所有算法预测。
 
 ```
-┌──────────────┐     msg_queue     ┌───────────────┐
-│  VideoWorker  │ ────────────────> │  MonitorService│
-│  (线程 × N)   │   (queue.Queue)   │  (主线程读取)  │
-└──────────────┘                    └───────┬───────┘
-                                            │
-                    ┌───────────────────────┼───────────────────────┐
-                    ▼                       ▼                       ▼
-            ┌──────────────┐      ┌───────────────┐      ┌──────────────────┐
-            │  DetailPanel  │      │ PredictionPanel│      │  Chart / 通知     │
-            │  (UI 更新)    │      │  (预测展示)    │      │  (Toast/QQ Bot)  │
-            └──────────────┘      └───────────────┘      └──────────────────┘
+predict_all() 流程:
+  prepare_video_data()  →  统一转换历史数据 (缓存)
+  ThreadPoolExecutor    →  并行运行 103 个算法
+  coherence 权重调整    →  偏离中位数越远权重越低
+  加权集成             →  CV 倒数为置信度
+  保形预测             →  预测区间
 ```
 
-### 算法注册机制
+### 2.2 接口设计
 
+`ModelAlgorithmAdapter` 自动检测算法接口类型并桥接：
+- `predict(video_data, threshold)` — 现代接口 (匹配 BaseAlgorithm)
+- `predict(current_views, target_views, history_data, video_info)` — 遗留接口
+- 输出统一转换为 75 秒短期预测窗口
+
+### 2.3 风险
+
+- 当 `_torch_upgrade.py` 导入失败时，28 个深度学习算法全部回退到 numpy 预测
+- `threading.Semaphore(2)` 限制并发预测数，监控视频 >2 个时预测队列可能堆积
+- Prophet 导入时 `prophet.plot` 的 plotly 缺失日志已压制 (CRITICAL)
+
+---
+
+## 3. 核心模块审查
+
+### 3.1 Bilibili API (`core/bilibili_api.py`)
+
+**连接池:** `HTTPAdapter(pool_connections=10, pool_maxsize=10)` 减少 TCP 握手
+
+**反 412 策略链:**
 ```
-AlgorithmRegistry (单例)
-  ├── auto-scan: models/<category>/*.py
-  ├── BaseAlgorithm.predict(video_data, threshold) -> PredictionResult
-  ├── ModelAlgorithmAdapter: 桥接新旧接口
-  └── predict_all() → 55 算法 + 加权集成
+_request() 失败 → rotate UA → double min_interval → rotate proxy → disable cookies
 ```
 
-亮点：新算法只需放入 `models/` 子目录，继承 `BaseAlgorithm`，自动注册。零配置。
+**认证:**
+- QR 扫码登录 (`get_qrcode_login_url` / `poll_qrcode_login`)
+- 密码登录 (RSA 加密)
+- Cookie 使用 XOR + `utils/crypto.py` 加密持久化
 
-### 线程模型评估
+**建议:** QR 登录轮询间隔 3s 固定，可增加指数退避避免高频轮询。
 
-- ✅ **每视频独立 worker 线程** — 互不阻塞
-- ✅ **`msg_queue` + 主线程 `after()` 消费** — 无锁 UI 更新
-- ✅ **`_data_lock` 保护共享 `video` dict** — 主线程/worker 读写安全
-- ✅ **`_pool_lock` 保护 ThreadPoolExecutor** — 避免并发 submit 竞态
-- ⚠️ **数据库写无事务分组** — 每轮刷新写 412+ 行预测，无 batch
+### 3.2 数据库 (`core/database/`)
 
-### 依赖注入评估
+**3 层架构:**
+```
+VideoDatabase (每视频独立 SQLite)  →  按 BV 分库
+    ↓ sync_from_video_db()
+Database (中央库 bilibili_monitor.db)
+    ↓ sync_to_central()
+备份同步
+```
 
-- `Configuration` 全局单例：通过 `config_path()` 访问，部分类硬编码路径
-- `Database` 全局单例：`get_db()` 直接调用，构造函数注入缺失
-- 算法依赖：`AlgorithmRegistry` 单例 + `initialize()` 惰性加载
+**线程安全:** `_ConnectionCtx` 上下文管理器 + `threading.Lock()`
 
-**建议**：对 `Database` 和 `Configuration` 引入构造函数注入，便于测试 mock。
+**Schema 迁移:** 自动检测列变更并 `ALTER TABLE`，`_schema_migrated_version` 缓存避免重复迁移
 
----
+**风险:** `sync_from_video_db()` 每小时同步时持有 `_data_lock`，大量视频可能导致 UI 短暂卡顿。建议使用增量同步标记位。
 
-## 算法与模型
+### 3.3 通知 (`core/notification.py`)
 
-### 算法类别分布
+**双通道:**
+```
+send_*
+  → _call_action_ws()     (asyncio.run + websockets, 首选)
+  → 失败回退 _call_action_http()  (requests, 同步)
+```
 
-| 类别 | 数量 | 典型算法 |
-|------|------|---------|
-| 速度类 | 2 | 线性速度, 加权速度 |
-| 增长曲线 | 5 | Logistic, Gompertz, Richards, Weibull, Bass |
-| 时间序列 | 13 | ARIMA, Holt-Winters, Prophet, seasonal, TBATS |
-| 统计模型 | 10 | SVR, RandomForest, GaussianProcess, Bayesian |
-| 集成学习 | 8 | XGBoost, LightGBM, CatBoost, Voting, Stacking |
-| 深度学习 | 11 | LSTM, MLP, N-BEATS, TFT, Informer, MOIRAI |
-| 高级分析 | 6 | Kalman, CausalImpact, Hawkes, GNN, Survival |
+**安全:** 有 Token 时拒绝明文 WS/HTTP 连接
 
-### 已升级的 4 个算法
-
-| 算法 | 之前 | 之后 | 降级策略 |
-|------|------|------|---------|
-| XGBoost | 3 棵模拟树 | `XGBRegressor(80树)` | numpy 线性回退 |
-| LightGBM | 手写直方图 | `LGBMRegressor(80树)` | numpy 线性回退 |
-| CatBoost | 手写有序提升 | `CatBoostRegressor(80轮)` | numpy 线性回退 |
-| Prophet | numpy 岭回归+傅里叶 | `prophet.Prophet` | numpy 傅里叶回退 |
-
-### 算法可靠性评估
-
-| 指标 | 数值 |
-|------|------|
-| 总算法数 | 55 |
-| 有降级策略 | 100% |
-| 无 torch 依赖 | 53/55（MOIRAI/Lag-Llama 需要） |
-| 有单元测试覆盖 | 32 条 (`test_model_algorithms.py`) |
-
-**建议**：为深度学习类算法补充 fallback 单元测试（当前仅在 `_torch_upgrade.py` 中有集成测试）。
+**问题:** `asyncio.run()` 每次调用创建新事件循环，不兼容 Jupyter/某些调试器。建议在 `NotificationManager.__init__` 中创建持久化事件循环 + 后台线程。
 
 ---
 
-## 性能瓶颈
+## 4. UI 模块审查 (41 文件)
 
-### ❌ P1. 数据库写入风暴（最高优先级）
+### 4.1 主界面 (`main_gui.py`)
 
-| 问题 | 数据 |
-|------|------|
-| 每次刷新 predictions 写入 | 103 算法 × 4 阈值 = **412 行** |
-| 10 视频 × 75s 间隔 | ~475 万行/天 |
-| 建议修复 | 差值 > 5% 才写 + `executemany` 批量 |
+**布局:** 22% 左 | 58% 中 | 20% 右 (三栏)
 
-### ✅ 已修复
+**导航:** 4 标签页 (监控列表/日志/模型训练/微调训练)
 
-| # | 问题 | 文件 | 修复 |
-|---|------|------|------|
-| P2 | `_request_public` 复用 Session | `bilibili_api.py` | 实例级 `_public_session` 连接池 |
-| P3 | 封面缓存 FIFO→LRU | `video_list_panel.py` | `OrderedDict` + `move_to_end` |
-| P4 | 图表缓存防重复重绘 | `chart.py`, `detail_panel.py` | `draw_chart._last_fp` 指纹缓存 |
-| P5 | `_merge_history` 全量返回 | `monitor_service.py` | limit=500 |
-| P6 | WeightManager 持锁写盘 | `weight_manager.py` | 异步 daemon 线程写 |
+**全局时钟 (1s tick):**
+- 倒计时徽章更新
+- 每 300 tick (5min): WAL checkpoint + 异常扫描
+- 每 3600 tick (1h): 数据库同步
+- 每小时模型激活状态刷新
 
----
+**对话框:** 17 种，通过 `Dialogs` 类统一路由，懒加载
 
-## 线程安全
+### 4.2 Worker 模型 (`monitor_service.py`)
 
-**全部已修复 ✅**
+每个视频一个独立 `threading.Thread`:
+```
+_run() 循环:
+  fetch_and_predict()
+    → BilibiliAPI.get_video_info()
+    → 写数据库 (持 _data_lock)
+    → _predict_single()
+    → gui.root.after(0, _on_fetch_done)
+  分段睡眠 (支持中途停止)
+```
 
-| # | 问题 | 修复 |
-|---|------|------|
-| T1 | `registry.py` ThreadPoolExecutor 竞态 | `_pool_lock` 互斥 |
-| T2 | 共享 `video` dict 无保护写入 | Worker 写入块持 `gui._data_lock` |
-| T3 | `weight_manager.py` 持锁写文件 I/O | 同 P6，异步 daemon 线程写 |
-| T4 | `proxy_manager.py` 失败代理移除非原子 | 全部 `_lock` 保护 |
+**防抖:** 选中视频更新 50ms 防抖，图表更新 100ms 防抖
 
----
+### 4.3 主题系统 (`theme.py`)
 
-## 数据库膨胀
-
-### ❌ D1. Predictions 表无保留策略
-
-- 每次刷新写入 412+ 行预测记录
-- 无 TTL 或数据量上限
-- **建议**：保留最近 7 天数据 + 定时 `DELETE FROM predictions WHERE created_at < datetime('now', '-7 days')`
-
-### ❌ D2. Weekly/Yearly 分数无去重
-
-- 相同 bvid+period 组合可能重复插入
-- **建议**：`INSERT OR REPLACE` 或 `ON CONFLICT(bvid, period) DO UPDATE`
-
-### ❌ D3. 中央 DB 全量同步
-
-- 每次同步扫描所有视频库，大数据量下 O(n) 扫描
-- **建议**：增量同步（记录上次同步时间戳）
+`C` 字典定义所有颜色 token，支持深色/浅色统一管理。当前仅使用深色主题。
 
 ---
 
-## 代码复杂度
+## 5. 训练管线审查 (`algorithms/training/`)
 
-### 全库复杂度分布
+### 5.1 组件
 
-| 等级 | CC 范围 | 函数数 | 状态 |
-|------|---------|--------|------|
-| A | 1-5 | 多数 | ✅ |
-| B | 6-10 | 中等 | ✅ |
-| C | 11-20 | ~65 | ⚠️ 仍有优化空间 |
-| D | 21-30 | **0** | ✅ **已清零** |
-| E | 31-40 | **0** | ✅ **已清零** |
-| F | ≥41 | **0** | ✅ **已清零** |
-
-> 本次迭代将 12 个 D/E/F 级函数全部降至 C 级或更低，全库**无 D/E/F 级函数**。
-
-### 最高复杂度排名
-
-| 排名 | 函数 | 文件 | CC |
-|------|------|------|----|
-| 1 | `ExponentialGrowthAlgorithm` (class) | `models/growth/exponential_growth.py` | C (19) |
-| 2 | `draw_chart_annotations` | `ui/chart.py` | C (19) |
-| 3 | `SettingsWindow._poll_training_progress` | `ui/settings_window.py` | C (19) |
-| 4 | `CascadeEnsembleAlgorithm.predict` | `models/ensemble/cascade_ensemble.py` | C (18) |
-| 5 | `NgboostAlgorithm.predict` | `models/ensemble/ngboost_simple.py` | C (18) |
-| 6 | `TrendRegressionAlgorithm.predict` | `models/time_series/trend_regression.py` | C (17) |
-| 7 | `MarkovSwitchingAlgorithm._predict_impl` | `models/time_series/markov_switching.py` | C (17) |
-| 8 | `LifecycleModelAlgorithm._determine_stage` | `models/advanced/lifecycle_modeling.py` | C (17) |
-| 9 | `_draw_step_chart` | `ui/chart.py` | C (17) |
-| 10 | `DatabaseQueryWindow._run_query` | `ui/database_query.py` | C (17) |
-
-### 重构记录
-
-| 原函数 | 原 CC | 现 CC | 策略 |
-|--------|-------|-------|------|
-| `TrainingMonitor._evaluate` | F (42) | A (3) | 7 检测方法 + 实例变量替代闭包 |
-| `ModelTrainer._train_one` | E (35) | C (11) | 6 助手方法 |
-| `Database.sync_to_central` | D (29) | A (4) | 3 同步阶段提取 |
-| `MilestoneStatsWindow._redraw_compare` | D (27) | B (8) | 6 绘图方法 |
-| `TrainingPanel._handle_stage` | D (25) | A (2) | 策略字典调度 |
-| `FinetunePanel._handle_stage` | D (23) | A (2) | 策略字典调度 |
-| `SnapshotTab._quick_filter` | D (22) | A (4) | 策略字典 |
-| `TrendTab._collect_data` | D (22) | C (12) | 3 解析方法 |
-| `draw_chart` | D (22) | C (11) | 抽出 `_draw_delta_or_full_chart` |
-| `DtwKnnAlgorithm.predict` | D (21) | C (11) | 4 static 方法 |
-| `DanmakuAnalysisWindow._analyze` | C (20) | B (9) | 2 fetch 方法 |
-| `ProxyManager.test_proxy` | 38 | A (4) | 先前已拆分 |
-
----
-
-## Lint 与代码质量
-
-### flake8 扫描结果
-
-| 错误代码 | 含义 | 数量 | 状态 |
-|---------|------|------|------|
-| F401 | 未使用的导入 | 43 | 需清理 |
-| E226 | 算术运算符前后缺空格 | 29 | 低优先 |
-| F841 | 未使用的局部变量 | 26 | 需清理 |
-| F821 | 未定义的名称 | 23 | ⚠️ **可能影响运行** |
-| E231 | 逗号后缺空格 | 21 | 低优先 |
-| E402 | 模块级导入不在文件顶部 | 17 | 需重构 |
-| C901 | 函数过于复杂 | 12 | 持续监控 |
-| W504 | 二元运算符后换行 | 6 | 风格 |
-| F824 | — | 4 | 需检查 |
-| W293 | 空行含空白字符 | 3 | 低优先 |
-| **总计** | | **557** | |
-
-### 关键 F821 问题
-
-| 文件 | 行 | 问题 |
-|------|----|------|
-| `models/ensemble/ngboost_simple.py` | 42-70 | `np` 未 import — **需修复** |
-| `ui/database_query.py` | 524,534,556 | `e` 在 f-string 中未定义 — **需修复** |
-
-### 关键 C901 问题
-
-| 文件 | 函数 | CC | 说明 |
-|------|------|----|------|
-| `_torch_upgrade.py` | `If 39` (顶级条件块) | 57 | 自动生成的 torch fallback 代码，结构复杂但逻辑线性 |
-| `finetune_panel.py` | `_on_start` | 32 | 复杂的训练启动流程 |
-| `training_panel.py` | `_on_train_start` | 27 | 同上 |
-| `settings_window.py` | `_save_settings` | 20 | 表单保存逻辑 |
-| `settings_window.py` | `_password_login` | 18 | 登录流程 |
-
-### bandit 扫描
-
-- **0** medium/high severity issue
-- **bare except**: **0**（全部 410 个 `except` 均使用 `except Exception`，符合 PEP 8 ✅）
-
-### 总体质量评估
-
-| 维度 | 评分 | 说明 |
+| 组件 | 职责 | 要点 |
 |------|------|------|
-| 异常处理 | 🅰 | 0 bare except，全部 `except Exception` + 日志 |
-| 安全实践 | 🅱 | S2 pending（SSL verify=False） |
-| 类型提示 | 🅱 | 多数函数有类型注解，部分旧代码缺失 |
-| 无 lint 文件 | 🅲 | 557 flake8 errors 需清理 |
-| 测试覆盖 | 🅲 | 仅 5 个测试文件，84 个测试，覆盖率不可用 |
-| 可维护性 | 🅰 | 全部 MI A 级 |
+| `device.py` | GPU 检测 | CUDA > DirectML > XPU > MPS > CPU，冒烟测试确保可用 |
+| `dataset.py` | 数据加载 | 5 维衍生特征 + Z-score 归一化 + 滑动窗口 |
+| `trainer.py` | 训练编排 | HyperbolicLR + MixUp + Label Smoothing + SPADE-S + Activation Decay |
+| `checkpoint_manager.py` | 版本管理 | `v{N}_{YYYYMMDD_HHMM}.pt` + active.json |
+| `hf_loader.py` | HF 模型 | MOIRAI-2 + Lag-Llama，懒加载 + 线程安全缓存 |
+
+### 5.2 训练流程
+
+```
+train_global(algo_ids, epochs=50):
+  对每个 algo_id:
+    1. build_model() → nn.Module
+    2. 加载数据集 (所有视频数据)
+    3. 训练循环: forward → loss → backward → scheduler.step()
+    4. 保存 checkpoint (含 val_loss/epochs/device/lr)
+
+finetune_for_video(algo_id, bvid, epochs=5):
+    1. 加载全局 checkpoint
+    2. 加载单个视频数据
+    3. 微调
+    4. 保存到 _video/<BVID>/ 子目录
+```
+
+### 5.3 风险
+
+- `torch.load(weights_only=False)` 在 `hf_loader.py` 中加载 Lag-Llama，存在 pickle 反序列化风险
+- 训练时 `data_trained_until` 时间戳标记可能因时区问题导致重复训练
+- 特征标准化使用 Z-score，新视频加入后旧视频标准化参数未更新
 
 ---
 
-## 设计评估
+## 6. 异常检测审查 (`core/smart_alert.py`)
 
-### 优点
+### 6.1 检测器清单 (8 种)
 
-1. **零配置算法注册**：文件系统扫描 + base class 继承即可注册新算法
-2. **优雅的降级策略**：全部 55 算法均有 numpy fallback，无硬依赖崩溃
-3. **指纹缓存**：`draw_chart._last_fp` 防重复重绘，减少 Canvas 操作
-4. **异步写盘**：WeightManager 后台 daemon 线程写 JSON，不阻塞锁区
-5. **多源数据获取**：`BilibiliAPI` 支持 API、网页爬取、第三方 API 等多数据源
+| 检测器 | 方法 | 自适应阈值 |
+|--------|------|-----------|
+| 播放飙升 | 最近增速 vs 平均增速 | 1.5x~3x 按播放量分级 |
+| 增长放缓 | 近期增速 vs 前期增速 | 降至 30% 以下 |
+| 播放停滞 | 近 2h 增速绝对值/相对值 | <1万用绝对值，>1万用十万分之五 |
+| 在线飙升 | 最后在线 vs 之前平均 | 2.5x + 最低 30 人 |
+| 在线暴跌 | 最后 vs 之前比值 | <30% + 差值 >50 |
+| 深夜异常 | 夜间 vs 日间在线比 | >40% + 最低 10 人 |
+| 买量检测 | 7 维评分 (0-9) | ≥3 疑似, ≥5 高度疑似 |
+| 直播检测 | UP 主 live_status | =1 直播中 |
 
-### 可改进点
+### 6.2 冷却机制
 
-1. **`settings_window.py` 需拆分**（2,325 行）：建议按功能拆成 `settings_basic.py`、`settings_proxy.py`、`settings_algo.py` 等
-2. **UI 与业务逻辑耦合**：如 `TrainingPanel._handle_stage` 直接操作 UI 控件，建议引入 MVVM 或 Presenter 模式
-3. **全局单例泛滥**：`get_db()`、`Configuration`、`AlgorithmRegistry` 均为单例，限制可测试性
-4. **测试覆盖不足**：84 个测试对 28,785 LLOC 的代码覆盖率不足，建议目标 >40%
-5. **配置路径硬编码**：部分文件直接使用 `project_path()` 而非通过 `Configuration` 注入
-6. **`ngboost_simple.py` 缺少 `import numpy as np`**：导致 23 个 F821 错误，实际运行时会在特定路径崩溃
+`_last_alert_time` 字典 + 30 分钟 cooldown，避免重复推送。
 
----
+### 6.3 建议
 
-## 综合建议
-
-### 本周期已修复（41 项）
-
-| # | 问题 | 文件 | commit |
-|---|------|------|--------|
-| 1-5 | B1-B5（样式/None检查/定时/ThreadPool/weight_manager） | 多处 | 前置提交 |
-| 6 | Cookie 加密存储 | `utils/crypto.py`（新建） | 前置提交 |
-| 7-10 | XGBoost/LightGBM/CatBoost/Prophet 真实实现 | `models/ensemble/*` | 前置提交 |
-| 11 | requirements.txt 对齐 | `requirements.txt` | 前置提交 |
-| 12 | **L1:** 删除损坏测试文件 | `tests/test_time_utils.py` | `0fe603b` |
-| 13 | **L2:** 消除 _make_result 猜谜 | `_torch_upgrade.py` | `e109d68` |
-| 14 | **L3:** datetime 解析 19 文件 | `algorithms/models/**/*.py` | `c7d3188` |
-| 15 | **L5:** huber_regression 除零 | `huber_regression.py` | `f7bf345` |
-| 16 | **L6:** 清理未使用导入 | `ngboost/catboost/lightgbm` | `26f6ae4` |
-| 17-18 | **L8+L9:** LLM Key 清除 + 限速 | `utils/ai_qa.py` | `2b18fe8` |
-| 19 | **L10:** 算法命名规范 | `mamba_s6/ngboost` 等 | `1488d63` |
-| 20 | **L11:** dataset.py WAL 模式 | `algorithms/training/dataset.py` | `b34c366` |
-| 21 | **L12:** 算法类别测试 32 条 | `tests/test_model_algorithms.py`（新建） | `f009bc8` |
-| 22 | **L13:** torchmetrics 依赖 | `requirements.txt` | `1488d63` |
-| 23 | **P2:** _request_public 复用 Session | `core/bilibili_api.py` | `e533138` |
-| 24 | **P3:** 封面缓存 FIFO→LRU | `ui/video_list_panel.py` | `de96a55` |
-| 25 | **P4:** 图表指纹缓存防重复重绘 | `ui/chart.py`, `ui/detail_panel.py` | `80de20e` |
-| 26 | **P5:** _merge_history limit=500 | `ui/monitor_service.py` | `4458f65` |
-| 27 | **P6+T3:** WeightManager 异步写盘 | `algorithms/weight_manager.py` | `7cebd32` |
-| 28 | **T2:** video dict 持锁写入 | `ui/monitor_service.py` | `3409975` |
-| 29 | **T4:** ProxyManager 线程安全 | `core/proxy_manager.py` | `5b66a64` |
-| 30 | 测试适配异步写盘 | `tests/test_weight_manager.py` | `921ac45` |
-| 31 | **复杂度: _redraw_compare** D(27)→B(8) | `ui/milestone_stats.py` | `59f5213` |
-| 32 | **复杂度: _quick_filter** D(22)→A(4) | `ui/snapshot_tab.py` | `59f5213` |
-| 33 | **复杂度: _collect_data** D(22)→C(12) | `ui/trend_tab.py` | `59f5213` |
-| 34 | **复杂度: _analyze** C(20)→B(9) | `ui/danmaku_analysis.py` | `59f5213` |
-| 35 | **复杂度: _handle_stage TP** D(25)→A(2) | `ui/training_panel.py` | `20a30c7` |
-| 36 | **复杂度: _handle_stage FP** D(23)→A(2) | `ui/finetune_panel.py` | `20a30c7` |
-| 37 | **复杂度: _evaluate** F(42)→A(3) | `ui/training_base.py` | `20a30c7` |
-| 38 | **复杂度: _train_one** E(35)→C(11) | `algorithms/training/trainer.py` | `20a30c7` |
-| 39 | **复杂度: sync_to_central** D(29)→A(4) | `core/database/central_db.py` | `20a30c7` |
-| 40 | **复杂度: draw_chart** D(22)→C(11) | `ui/chart.py` | `20a30c7` |
-| 41 | **复杂度: DtwKnn.predict** D(21)→C(11) | `models/statistical/dtw_knn.py` | `20a30c7` |
-
-### 待修复
-
-| # | 问题 | 优先级 | 预估 |
-|---|------|--------|------|
-| 1 | **P1:** 预测写入限流（差值 > 5% 才写）+ `executemany` 批量 | 🔴 高 | 半天 |
-| 2 | **S2:** `proxy_manager.py` SSL verify 恢复 | 🟠 高 | 2 小时 |
-| 3 | **D1-D3:** 数据库预测表 TTL / 分数去重 / 中央库增量同步 | 🟠 高 | 2 小时 |
-| 4 | **F821:** `ngboost_simple.py` 缺 `import numpy as np`（运行时崩溃） | 🔴 高 | 10 分钟 |
-| 5 | **F821:** `database_query.py` 未定义变量 `e`（运行时崩溃） | 🔴 高 | 10 分钟 |
-| 6 | **F401:** 清理 43 个未使用的 import | 🟡 中 | 1 小时 |
-| 7 | **F841:** 清理 26 个未使用的局部变量 | 🟡 中 | 1 小时 |
-| 8 | `settings_window.py`（2,325 行）拆分子文件 | 🔵 低 | 1 天 |
-| 9 | 补充深度学习算法 fallback 单元测试 | 🔵 低 | 半天 |
-| 10 | 引入 `coverage` 并设定覆盖率目标 | 🔵 低 | 2 小时 |
+- 买量检测的 7 个维度权重相同，可引入 ML 学习各维度权重
+- 深夜异常使用日间均值做对比，对时区非 UTC+8 的用户不准确
+- 冷却时间 30 分钟固定，可改为随异常严重程度动态调整
 
 ---
 
-## 汇总统计
+## 7. 安全审查
 
-| 严重程度 | 已修复 | 待修复 | 总计 |
-|---------|--------|--------|------|
-| 🔴 高危（安全/RCE） | 1 | 2 | 3 |
-| 🟠 中危（安全/Bug） | 5 | 2 | 7 |
-| 🟡 一般（性能/线程） | 9 | 2 | 11 |
-| 🔵 低危（代码质量） | 19 | 4 | 23 |
-| 🆕 架构改进 | 4 | — | 4 |
+| 项目 | 状态 | 说明 |
+|------|------|------|
+| SQL 注入 | ✅ 安全 | 所有 SQL 参数化查询 |
+| 路径遍历 | ✅ 安全 | BV 号正则 `^BV[A-Za-z0-9]{10,12}$` 校验 |
+| Cookie 加密 | ✅ 已实现 | XOR + base64 编码 |
+| 反序列化 | ⚠️ 低风险 | `torch.load(weights_only=False)` 在 hf_loader.py |
+| XML 注入 | ⚠️ 已注释 | `# nosec B314` 在 bilibili_api.py |
+| 文件权限 | ⚠️ 宽松 | `os.chmod(..., 0o666)` 在数据迁移中 |
 
 ---
 
-*报告由自动化工具扫描 + 深度人工审查完成。最后更新：2026-05-26。*
+## 8. 性能评估
+
+| 场景 | 耗时 | 说明 |
+|------|------|------|
+| 模块导入 | ~0.4s | 懒加载后从 ~10.5s 优化至此 |
+| 算法全量扫描 | ~5-6s | 后台线程，不阻塞 UI |
+| 首次 API 初始化 | ~1.5-2s | 懒加载，首次 API 调用时 |
+| torch 导入 | ~1-3s | 按需，仅训练/深度学习算法使用时 |
+| 单次预测 (103 算法) | ~3-8s | 4 线程池并行 |
+| 数据库每小时同步 | ~1-5s | 后台线程 |
+| 异常全量扫描 | ~2-5s | 每 5 分钟后台执行 |
+
+---
+
+## 9. 测试覆盖
+
+| 文件 | 内容 | 行数 |
+|------|------|------|
+| `tests/test_models.py` | 算法模型测试 | — |
+| `tests/test_base_algorithm.py` | 基类测试 | — |
+| `tests/test_weight_manager.py` | 权重管理测试 | — |
+
+**建议:** 测试覆盖不足，核心路径（API 调用/数据库 CRUD/UI 回调）缺少测试。推荐至少增加：
+- API mock 测试 (412 重试、代理切换)
+- 数据库单元测试（分库创建、同步）
+- UI 面板初始化测试（确保懒加载无报错）
+
+---
+
+## 10. 改进建议优先级
+
+### P0 (建议立即修复)
+- `notification.py` 中 `asyncio.run()` 重复创建事件循环 → 改为持久化事件循环
+- `registry.py` 退出时 `pool.shutdown(wait=False)` → 改为 `wait=True`
+
+### P1 (建议短期优化)
+- 增加 API mock 测试
+- 数据库每小时同步改为增量标记位，避免全量扫描
+- 买量检测权重可配置化
+
+### P2 (建议中长期规划)
+- 主题系统恢复动态切换（浅色/深色）
+- 插件系统允许第三方算法热加载
+- Web 管理界面辅助查看
+- 分布式监控避免单 IP 限流
