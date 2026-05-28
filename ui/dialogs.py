@@ -33,6 +33,18 @@ class Dialogs:
             messagebox.showerror("错误", f"打开标签管理失败:\n{e}")
 
     # ──────────────────────────────────────────
+    # 预测回测
+    # ──────────────────────────────────────────
+
+    def open_backtest(self):
+        try:
+            from ui.backtest_panel import BacktestPanel
+
+            BacktestPanel(self.gui.root, self.gui)
+        except Exception as e:
+            messagebox.showerror("错误", f"打开预测回测失败:\n{e}")
+
+    # ──────────────────────────────────────────
     # 视频排行榜
     # ──────────────────────────────────────────
 
