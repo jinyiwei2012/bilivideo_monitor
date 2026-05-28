@@ -381,10 +381,6 @@ class ProxyManager:
     PROXY_SOURCES = [
         "https://proxylist.geonode.com/api/proxy-list?limit=30&page=1&sort_by=lastChecked&sort_type=desc&protocols=http%2Chttps%2Csocks4%2Csocks5",
         "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
-        "https://raw.githubusercontent.com/ShiftyTR/Proxy-List/master/http.txt",
-        "https://raw.githubusercontent.com/ShiftyTR/Proxy-List/master/https.txt",
-        "https://raw.githubusercontent.com/ShiftyTR/Proxy-List/master/socks4.txt",
-        "https://raw.githubusercontent.com/ShiftyTR/Proxy-List/master/socks5.txt",
         "https://raw.githubusercontent.com/hookzof/socks5_list/master/proxy.txt",
     ]
 
