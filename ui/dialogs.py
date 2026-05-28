@@ -33,6 +33,18 @@ class Dialogs:
             messagebox.showerror("错误", f"打开标签管理失败:\n{e}")
 
     # ──────────────────────────────────────────
+    # 异常增长检测
+    # ──────────────────────────────────────────
+
+    def open_anomaly_detection(self):
+        try:
+            from ui.anomaly_panel import AnomalyPanel
+
+            AnomalyPanel(self.gui.root, self.gui)
+        except Exception as e:
+            messagebox.showerror("错误", f"打开异常检测失败:\n{e}")
+
+    # ──────────────────────────────────────────
     # 刷新间隔设置
     # ──────────────────────────────────────────
 
