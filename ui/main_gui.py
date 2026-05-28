@@ -342,6 +342,10 @@ class BilibiliMonitorGUI:
         self._settings_menu.add_command(label="🆙  UP主追踪", command=self._dialogs.open_up_tracker)
         self._settings_menu.add_command(label="💬  弹幕分析", command=self._dialogs.open_danmaku_analysis)
         self._settings_menu.add_command(label="🔥  热门发现", command=self._dialogs.open_trending_discovery)
+        self._settings_menu.add_command(label="🎫  视频标签", command=self._dialogs.open_tag_manager)
+        self._settings_menu.add_command(label="🚨  异常检测", command=self._dialogs.open_anomaly_detection)
+        self._settings_menu.add_command(label="🏆  视频排行", command=self._dialogs.open_ranking)
+        self._settings_menu.add_command(label="📊  预测回测", command=self._dialogs.open_backtest)
         self._settings_menu.add_separator()
         self._settings_menu.add_command(label="🤖  AI智能问答", command=self._dialogs.open_ai_qa)
         self._settings_menu.add_command(label="📊  数据大屏", command=self._dialogs.open_dashboard)
@@ -641,6 +645,8 @@ class BilibiliMonitorGUI:
             self._do_periodic_sync()
         elif self._tick_counter % 300 == 0:
             threading.Thread(target=self._wal_checkpoint_worker, daemon=True).start()
+            # 每5分钟扫描一次异常并推送通知
+            threading.Thread(target=self._scan_alerts_background, daemon=True).start()
 
         self._global_tick_job = self.root.after(1000, self._global_tick)
 
@@ -671,6 +677,56 @@ class BilibiliMonitorGUI:
                 logger.warning("每小时同步异常: %s", e)
 
         _th.Thread(target=_sync_worker, daemon=True).start()
+
+    def _scan_alerts_background(self):
+        """后台扫描全量视频的异常，更新状态栏 + 推送通知"""
+        from core.smart_alert import AnomalyDetector
+        from core.notification import notification_manager
+
+        alerts = []
+        for video in self.monitored_videos:
+            bvid = video.get("bvid", "")
+            history = self.history_data.get(bvid, [])
+            if len(history) < 3:
+                continue
+            records = []
+            for ts, v in history[-20:]:
+                dt = ts if isinstance(ts, datetime) else (
+                    datetime.fromisoformat(str(ts)) if isinstance(ts, str) else datetime.fromtimestamp(float(ts))
+                )
+                records.append({
+                    "timestamp": dt.isoformat(), "view_count": v,
+                    "like_count": video.get("like_count", 0),
+                    "coin_count": video.get("coin_count", 0),
+                    "viewers_total": video.get("viewers_total", 0),
+                })
+            try:
+                for msg in AnomalyDetector.detect_all(records, bvid=bvid, video=video):
+                    alerts.append((bvid, video.get("title", bvid)[:20], msg))
+            except Exception:
+                pass
+
+        if alerts:
+            n = len(alerts)
+            self.root.after(0, lambda: self._sb("alert", f"🚨 {n} 条异常", C["danger"]))
+            # 推送通知
+            title = f"🚨 B站监控异常告警 ({n} 条)"
+            msg_lines = [title, "─" * 20]
+            for bvid, t, a in alerts[:5]:
+                msg_lines.append(f"  [{bvid}] {t}")
+                msg_lines.append(f"    {a[:40]}")
+            if n > 5:
+                msg_lines.append(f"  … 还有 {n - 5} 条")
+            msg = "\n".join(msg_lines)
+            try:
+                notification_manager.send_qq_private(msg)
+                notification_manager.send_qq_group(msg)
+                notification_manager.send_windows_notification(title, msg[:256])
+                self.log_panel.add_log("INFO", f"异常告警已推送 ({n} 条)")
+            except Exception as e:
+                logger.debug("推送异常告警失败: %s", e)
+        else:
+            self.root.after(0, lambda: self._sb("alert", ""))
 
     def _wal_checkpoint_worker(self):
         """后台线程执行 WAL checkpoint，避免阻塞主线程"""

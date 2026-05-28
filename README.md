@@ -1,13 +1,13 @@
 # B站视频监控与播放量预测系统
 
-基于 CustomTkinter 的 B站视频数据监控与播放量预测桌面应用，集成 **103 种预测算法**（含 9 种 2026 前沿算法），支持 Windows 原生推送和 QQ Bot 推送。
+基于 CustomTkinter 的 B站视频数据监控与播放量预测桌面应用，集成 **83 种预测算法**（含 8 种 2026 前沿算法），支持 Windows 原生推送和 QQ Bot 推送。
 
 ## 功能特性
 
 ### 核心功能
 - **视频搜索**: 关键词搜索B站视频，支持多关键词批量搜索与自动去重
 - **数据监控**: 实时监控播放量、点赞、投币、弹幕、在线观看人数等指标
-- **播放量预测**: 103 种算法预测到达 10万 / 100万 / 1000万 播放量所需时间
+- **播放量预测**: 83 种算法预测到达 10万 / 100万 / 1000万 播放量所需时间
 - **算法权重管理**: ML 权重自动调整（含 Hedge 在线学习算法）
 - **因果推断**: Granger 因果检验分析各指标与播放量的领先/滞后关系
 - **图神经网络**: 基于视频关联图的 GCN 节点嵌入增强预测
@@ -32,24 +32,24 @@
 - **弹幕智能分析**: LLM 自动分析弹幕情感倾向与核心关键词，结果本地缓存
 - **历史问答**: 基于视频播放量趋势数据的上下文智能问答
 
-### 预测算法（103种）
+### 预测算法（83种）
 
 | 类别 | 算法 | 数量 |
 |------|------|:----:|
 | **基础速度** | 线性速度、加权速度 | 2 |
 | **增长/衰减** | 指数增长、对数增长、幂律衰减、指数衰减 | 4 |
 | **扩散模型** | Bass扩散、Gompertz、Logistic、Richards、Weibull | 5 |
-| **时间序列** | ARIMA、SARIMA、指数平滑、Holt-Winters、移动平均、加权移动平均、线性增长、多季节分解、马尔可夫体制转换、趋势外推、Theta、Prophet、卡尔曼滤波、**NARX外生自回归**、**MSTL多重季节**、**TBATS季节分解**、**GARCH波动率** | 17 |
-| **深度学习** | MLP、神经网络、LSTM、GRU、BiLSTM、TCN、CNN-LSTM混合、CNN图像化、N-BEATS、TimesNet、DLinear、注意力机制、Diffusion TS、KNF Koopman、Mar-BiLSTM、**TIDE稠密编码器**、**TSMixer混合器**、**DeepAR概率**、**Chronos零样本**、**Mamba S6状态空间**、**iTransformer倒置**、**SCINet卷积交互**、**TimesFM谷歌**、**Time-MoE专家混合** | 24 |
+| **时间序列** | ARIMA、SARIMA、指数平滑、Holt-Winters、移动平均、加权移动平均、线性增长、多季节分解、马尔可夫体制转换、趋势外推、Theta、Prophet、卡尔曼滤波 | 13 |
+| **深度学习** | MLP、神经网络、LSTM、GRU、BiLSTM、TCN、CNN-LSTM混合、CNN图像化、N-BEATS、TimesNet、DLinear、注意力机制、Diffusion TS、KNF Koopman、Mar-BiLSTM | 15 |
 | **Transformer模型** | Informer、TFT、PatchTST、Lag-Llama、MOIRAI | 5 |
-| **统计模型** | SVR、随机森林、高斯过程、贝叶斯回归、ElasticNet、Huber、Theil-Sen、分位数回归、泊松回归、TSFC特征分类、变化点检测、生存分析、**DTW-kNN类比** | 13 |
+| **统计模型** | SVR、随机森林、高斯过程、贝叶斯回归、ElasticNet、Huber、Theil-Sen、分位数回归、泊松回归、TSFC特征分类、变化点检测、生存分析 | 12 |
 | **机器学习** | AdaBoost、GradientBoost、XGBoost、LightGBM、CatBoost、ExtraTrees、Bagging、Cascade级联 | 8 |
-| **集成模型** | 加权集成、投票集成、堆叠集成、平均集成、**NGBoost概率提升**、**TabNet注意力** | 6 |
+| **集成模型** | 加权集成、投票集成、堆叠集成、平均集成 | 4 |
 | **互动率** | 点赞动量、分享速度、评论趋势、投币Boost、互动率综合、质量评分、病毒潜力 | 7 |
-| **高级分析** | Hawkes自激过程、DistDF分布对齐、生命周期建模、多任务学习、UP主贝叶斯、概率模型、**频域分解**、**SIRD传播模型**、**CausalImpact因果**、**层级贝叶斯**、**Mamba S6状态空间** | 11 |
+| **高级分析** | Hawkes自激过程、DistDF分布对齐、生命周期建模、多任务学习、UP主贝叶斯、概率模型 | 6 |
 | **概率/贝叶斯** | 贝叶斯回归、高斯过程 | 2 |
 
-详细说明参见 [algorithms/ALGORITHMS.md](algorithms/ALGORITHMS.md)（含全部 103 种算法说明）
+详细说明参见 [algorithms/ALGORITHMS.md](algorithms/ALGORITHMS.md)
 
 ### 推送通知
 - **Windows 原生通知**: 系统级通知弹窗 + 声音提醒
@@ -257,7 +257,7 @@ python run.py
 
 首次启动会：
 1. 自动创建 `data/` 目录和 SQLite 数据库
-2. 加载 103 种预测算法
+2. 加载 83 种预测算法
 3. 打开主界面
 
 ### 首次使用配置
@@ -430,6 +430,7 @@ from algorithms.registry import AlgorithmRegistry
 AlgorithmRegistry.initialize()
 print(f'✅ 开发环境就绪，已加载 {len(AlgorithmRegistry.get_algorithm_names())} 个算法')
 "
+```
 
 ### 项目架构速览
 
@@ -438,7 +439,7 @@ b站监控/
 ├── __init__.py                 # 包元数据（版本号等）
 ├── main.py                     # 入口：启动 GUI
 ├── run.py                      # 入口：环境检查 → 算法初始化 → 启动
-├── algorithms/                 # 核心：103 种预测算法
+├── algorithms/                 # 核心：83 种预测算法
 │   ├── base.py                 # BaseAlgorithm 基类 + PredictionResult
 │   ├── registry.py             # AlgorithmRegistry：自动发现、集成预测
 │   ├── model_adapter.py        # 新/旧接口桥接
@@ -726,7 +727,7 @@ for name in AlgorithmRegistry.get_algorithm_names():
 |------|------|:----:|
 | **主题切换** | 深色/亮色主题动态切换（主题 token 已定义，切换入口已移除） | 待恢复 |
 | **定时报告自动推送** | 每日 23:50 自动推送日报，含今日增量、年刊分数、预测数据 | 已实现 |
-| **模型批量导出/导入** | 一键导出所有算法 checkpoint 为 zip，跨机器迁移 | 已实现 |
+| **模型批量导出/导入** | 支持一键导出所有算法 checkpoint 和训练配置，跨机器迁移 | 未实现 |
 | **训练完成后自动回调** | 训练完成后自动刷新预测面板、推送通知、更新权重、重绘图表 | 已实现 |
 
 ### 中优先级
@@ -736,8 +737,8 @@ for name in AlgorithmRegistry.get_algorithm_names():
 | **Web 管理界面** | 基于 Flask/FastAPI 的辅助 Web 界面，支持移动端查看 | 未实现 |
 | **Docker 部署** | 容器化支持，降低环境搭建门槛 | 未实现 |
 | **多语言 (i18n)** | 英文/日文等多语言界面支持 | 未实现 |
-| **自动更新检查** | 启动时检查 GitHub Release 版本并弹窗展示 changelog | 已实现 |
-| **CSV/JSON 定时导出** | 按计划任务自动导出监控数据到指定目录 | 已实现 |
+| **自动更新检查** | 启动时检查 GitHub Release 版本并提示更新 | 未实现 |
+| **CSV/JSON 定时导出** | 按计划任务自动导出监控数据到指定目录 | 未实现 |
 | **自定义阈值** | 用户自定义播放量阈值（当前固定 10万/100万/1000万） | 未实现 |
 
 ### 低优先级 / 探索中

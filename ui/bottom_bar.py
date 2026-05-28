@@ -97,6 +97,7 @@ class BottomBar:
             ("videos", "监控: 0 个"),
             ("interval", "刷新间隔: —"),
             ("algo", "算法: —"),
+            ("alert", ""),
             ("finetune", ""),
             ("last_ref", "上次刷新: —"),
             ("status", "就绪"),

@@ -233,6 +233,21 @@ def _source_a_up_stat(uid: int) -> Optional[Dict]:
         except Exception:
             pass
 
+        # get_videos 可能被 412 限流，用自有 API 的 upstat 兜底（带 Cookie）
+        if not stat["total_views"]:
+            try:
+                import core.bilibili_api as _own_api
+                data = _own_api._request(
+                    "GET", f"{_own_api.BASE_URL}/x/space/upstat",
+                    params={"mid": uid},
+                )
+                if data and data.get("archive", {}).get("view"):
+                    stat["total_views"] = data["archive"]["view"]
+                if data and data.get("likes"):
+                    stat["total_likes"] = data["likes"]
+            except Exception:
+                pass
+
         if stat.get("follower_count") or stat.get("total_views"):
             return stat
     except Exception as e:

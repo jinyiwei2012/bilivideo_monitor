@@ -51,14 +51,14 @@ class BilibiliAPI:
     # wbi 密钥（运行时刷新）
     _wbi_key = None
 
-    # 多个User-Agent轮换使用
+    # 多个User-Agent轮换使用（2026 版本，与 curl_cffi 默认 impersonate Chrome 版本对齐）
     USER_AGENTS = [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.2 Safari/605.1.15",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 Edg/146.0.0.0",
     ]
 
     # 默认请求头
@@ -323,11 +323,14 @@ class BilibiliAPI:
         self.proxy_manager.clear_proxies()
 
     def _ensure_min_interval(self):
-        """确保请求间隔（线程安全）"""
+        """确保请求间隔（线程安全，正态分布随机抖动以模拟真人节奏）"""
         with self._interval_lock:
+            # 以 _min_request_interval 为均值、30% 为标准差的正态分布抽样
+            # 下限为 _min_request_interval 的一半，避免抖动产生过快请求
+            target = max(self._min_request_interval * 0.5, random.gauss(self._min_request_interval, self._min_request_interval * 0.3))
             elapsed = time.time() - self._last_request_time
-            if elapsed < self._min_request_interval:
-                time.sleep(self._min_request_interval - elapsed)
+            if elapsed < target:
+                time.sleep(target - elapsed)
             self._last_request_time = time.time()
 
     def _is_412_error(self, data: Dict) -> bool:
@@ -696,6 +699,7 @@ class BilibiliAPI:
         if data is None:
             data = self._request("GET", f"{self.BASE_URL}/x/space/acc/info", params={"mid": uid})
         if data:
+            lr = data.get("live_room", {})
             return {
                 "uid": data.get("mid", uid),
                 "name": data.get("name", ""),
@@ -706,6 +710,13 @@ class BilibiliAPI:
                 "video_count": data.get("video_count", data.get("videos", 0)),
                 "official_verify": data.get("official_verify", {}),
                 "nameplate": data.get("nameplate", {}),
+                "live_room": {
+                    "roomid": lr.get("roomid", 0),
+                    "live_status": lr.get("liveStatus", 0),
+                    "live_title": lr.get("title", ""),
+                    "live_cover": lr.get("cover", ""),
+                    "live_url": lr.get("url", ""),
+                } if lr else None,
             }
         return None
 
@@ -765,7 +776,7 @@ class BilibiliAPI:
         if data:
             return {
                 "total_views": data.get("archive", {}).get("view", 0),
-                "total_likes": data.get("archive", {}).get("like", 0),
+                "total_likes": data.get("likes", 0) or data.get("archive", {}).get("like", 0),
                 "follower_change": data.get("follower_change", data.get("follower", 0)),
                 "follower_count": (
                     data.get("follower", {}).get("follower", 0)
@@ -951,6 +962,9 @@ class BilibiliAPI:
             "proxy_count": len(self.proxy_manager.proxies),
             "has_cookies": bool(self._cookies),
             "has_sessdata": bool(has_sessdata),
+            "has_buvid3": bool(
+                self.session.cookies.get("buvid3", domain=".bilibili.com") or self._cookies.get("buvid3")
+            ),
             "is_login": login_status,
             "login_name": login_name,
         }
@@ -1093,35 +1107,36 @@ class BilibiliAPI:
 
     @staticmethod
     def _extract_login_cookies(resp, data: dict) -> dict:
-        """从登录响应中提取 Cookie（多种回退方式）"""
+        """从登录响应中提取 Cookie（多种回退方式，合并三种来源以最大化命中 buvid 等设备指纹字段）"""
+        # buvid3/buvid4/buvid_fp 是 2026 风控核心字段，缺失易触发 -352
+        wanted = ("SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid", "buvid3", "buvid4", "buvid_fp")
         cookies = {}
         from urllib.parse import urlparse, parse_qs
 
-        # 方式1: 从 data.url 中提取 token
+        # 方式1: 从 data.url 的 query 中提取（QR 登录主要返回 SESSDATA/bili_jct 等）
         redirect_url = data.get("url", "")
         if redirect_url:
             parsed = urlparse(redirect_url)
             params = parse_qs(parsed.query)
-            for key in ("SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid"):
-                val = params.get(key, [None])[0]
-                if val:
-                    cookies[key] = val
+            for key in wanted:
+                if key not in cookies:
+                    val = params.get(key, [None])[0]
+                    if val:
+                        cookies[key] = val
 
-        # 方式2: 从 Set-Cookie 响应头
-        if not cookies:
-            set_cookie = resp.headers.get("Set-Cookie", "")
-            for part in set_cookie.split(";"):
-                if "=" in part:
-                    k, v = part.strip().split("=", 1)
-                    k = k.strip()
-                    if k in ("SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid"):
-                        cookies[k] = v.split(";")[0].split(",")[0].strip()
+        # 方式2: 从 Set-Cookie 响应头（buvid 通常在这里）
+        set_cookie = resp.headers.get("Set-Cookie", "")
+        for part in set_cookie.split(";"):
+            if "=" in part:
+                k, v = part.strip().split("=", 1)
+                k = k.strip()
+                if k in wanted and k not in cookies:
+                    cookies[k] = v.split(";")[0].split(",")[0].strip()
 
-        # 方式3: 从 resp.cookies (http.cookiejar)
-        if not cookies:
-            for k in ("SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid"):
-                if k in resp.cookies:
-                    cookies[k] = resp.cookies[k]
+        # 方式3: 从 resp.cookies (http.cookiejar) 兜底
+        for k in wanted:
+            if k not in cookies and k in resp.cookies:
+                cookies[k] = resp.cookies[k]
 
         return cookies
 
