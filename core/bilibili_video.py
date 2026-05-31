@@ -201,7 +201,4 @@ def get_video_comments(self, aid: int, limit: int = 20) -> List[Dict]:
         if limit > 0 and len(all_replies) >= limit:
             return all_replies[:limit]
 
-        from core.bilibili_request import _ensure_min_interval
-        _ensure_min_interval(self)
-
     return all_replies[:limit] if limit > 0 else all_replies

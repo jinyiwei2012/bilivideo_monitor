@@ -33,7 +33,8 @@ class CentralBackup:
             central_cur = central_conn.cursor()
             self._ensure_central_tables(central_cur)
             central_conn.commit()
-            active_cur = self.db._conn.cursor()
+            with self.db._get_connection() as central_conn:
+                active_cur = central_conn.cursor()
             self._sync_videos_to_central(active_cur, central_cur, result)
             active_bvids, central_bvids = self._sync_monitor_records_to_central(active_cur, central_cur, result)
             self._sync_per_video_details(active_bvids, central_bvids, central_cur, result)
