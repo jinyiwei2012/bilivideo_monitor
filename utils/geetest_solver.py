@@ -210,14 +210,14 @@ def _encrypt_w(gt: str, challenge: str, userresponse: str, trace: List[Dict], pa
         separators=(",", ":"),
     )
 
-    key = hashlib.md5(challenge[:24].encode()).hexdigest()[:16]
-    iv = hashlib.md5(gt[:16].encode()).hexdigest()[:16]
+    key = hashlib.md5(challenge[:24].encode()).digest()[:16]
+    iv = hashlib.md5(gt[:16].encode()).digest()[:16]
 
     # PKCS7 填充
     pad_len = 16 - len(payload) % 16
     payload += chr(pad_len) * pad_len
 
-    cipher = AES.new(key.encode(), AES.MODE_CBC, iv.encode())
+    cipher = AES.new(key, AES.MODE_CBC, iv)
     encrypted = cipher.encrypt(payload.encode())
     return base64.b64encode(encrypted).decode()
 

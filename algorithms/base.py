@@ -72,6 +72,11 @@ class BaseAlgorithm(ABC):
             PredictionResult 对象，包含预测结果和元数据
         """
 
+    # ── 质量评分权重常量 ───────────────────────────
+    _W_ENGAGEMENT = 0.4
+    _W_DANMAKU = 0.3
+    _W_COIN_LIKE = 0.3
+
     # ── 公共辅助方法 ───────────────────────────────
 
     def calculate_velocity(self, video_data: Dict[str, Any]) -> float:
@@ -126,14 +131,10 @@ class BaseAlgorithm(ABC):
         coins = video_data.get("coin_count", 0) or 0
 
         # 弹幕密度（每万播放弹幕数，上限1.0）
-        danmaku_density = min(1.0, danmaku / max(views, 1) * 10000)
+        danmaku_density = min(1.0, danmaku / views * 10000)
         # 投币/点赞比（越高表示认可度越高）
         coin_like_ratio = min(1.0, coins / max(likes, 1))
-
-        _W_ENGAGEMENT = 0.4
-        _W_DANMAKU = 0.3
-        _W_COIN_LIKE = 0.3
-        score = _W_ENGAGEMENT * engagement + _W_DANMAKU * danmaku_density + _W_COIN_LIKE * coin_like_ratio
+        score = self._W_ENGAGEMENT * engagement + self._W_DANMAKU * danmaku_density + self._W_COIN_LIKE * coin_like_ratio
         return min(1.0, max(0.0, score))
 
     def get_video_age_hours(self, video_data: Dict[str, Any]) -> float:

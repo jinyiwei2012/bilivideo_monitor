@@ -598,7 +598,7 @@ class DanmakuAnalysisWindow:
         # 上半区覆盖显示 LLM 摘要
         self._show_llm_summary(result_text, mode, model)
         # 切换到LLM标签页
-        self._bottom_nb.select(1)
+        self._bottom_nb.select(2)
         self._status_lbl.config(text="LLM分析完成", fg=C["success"])
         if self.gui and hasattr(self.gui, "log_panel"):
             self.gui.log_panel.add_log("INFO", f"LLM分析完成（{self._current_bvid}，{mode}）")
@@ -669,7 +669,7 @@ class DanmakuAnalysisWindow:
                 self._llm_text.insert(tk.END, result_text, "body")
                 self._llm_text.config(state="disabled")
                 self._status_lbl.config(text=f"已加载本地 LLM 分析结果（{latest}）", fg=C["success"])
-                self.window.after(100, lambda: self._bottom_nb.select(1))
+                self.window.after(100, lambda: self._bottom_nb.select(2))
                 self._llm_btn.config(state="normal")
         except Exception as e:
             if self.gui and hasattr(self.gui, "log_panel"):

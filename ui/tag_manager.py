@@ -73,6 +73,7 @@ class TagManagerWindow:
     def _refresh(self):
         # 刷新视频列表
         self._video_listbox.delete(0, tk.END)
+        self._bvid_map = []
         filter_tag = self._filter_var.get()
         for v in self.gui.monitored_videos:
             bvid = v.get("bvid", "")
@@ -82,7 +83,7 @@ class TagManagerWindow:
                 continue
             display = f"[{' '.join(tags)}] {title}" if tags else title
             self._video_listbox.insert(tk.END, display)
-            self._video_listbox.itemconfig(tk.END, {"bvid": bvid})
+            self._bvid_map.append(bvid)
 
         # 刷新筛选下拉
         all = sorted(all_tags())
@@ -96,12 +97,9 @@ class TagManagerWindow:
         sel = self._video_listbox.curselection()
         if not sel:
             return
-        # 从显示文本提取 bvid
         idx = sel[0]
-        text = self._video_listbox.get(idx)
-        videos = self.gui.monitored_videos
-        if idx < len(videos):
-            self._selected_bvid = videos[idx].get("bvid", "")
+        if idx < len(self._bvid_map):
+            self._selected_bvid = self._bvid_map[idx]
             self._refresh_tags()
 
     def _refresh_tags(self):
@@ -113,10 +111,17 @@ class TagManagerWindow:
             row = tk.Frame(self._tags_frame, bg=C["bg_surface"])
             row.pack(fill=tk.X, pady=1)
             tk.Label(row, text=f"  #{tag}", bg=C["bg_surface"], fg=C["accent"], font=FONT).pack(side=tk.LEFT)
-            tk.Label(row, text="✕", bg=C["bg_surface"], fg=C["danger"], font=FONT, cursor="hand2").pack(
-                side=tk.RIGHT, padx=4
-            )
-            row.pack_forget()
+            del_btn = tk.Label(row, text="✕", bg=C["bg_surface"], fg=C["danger"], font=FONT, cursor="hand2")
+            del_btn.pack(side=tk.RIGHT, padx=4)
+            del_btn.bind("<Button-1>", lambda e, t=tag: self._delete_tag(t))
+
+    def _delete_tag(self, tag):
+        if self._selected_bvid:
+            existing = get_tags(self._selected_bvid)
+            if tag in existing:
+                existing.remove(tag)
+                set_tags(self._selected_bvid, existing)
+            self._refresh_tags()
 
     def _add_tag(self):
         if not self._selected_bvid:

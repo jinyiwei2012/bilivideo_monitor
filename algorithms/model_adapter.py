@@ -117,14 +117,17 @@ class ModelAlgorithmAdapter:
                     ts_ts = dt.timestamp()
                 except (ValueError, TypeError):
                     ts_str = str(ts)
-                    ts_ts = float(ts)
+                    try:
+                        ts_ts = float(ts)
+                    except (ValueError, TypeError):
+                        ts_ts = datetime.now().timestamp()
 
             history_list.append(
                 {
                     "view_count": v,
                     "timestamp": ts_ts,
                     "timestamp_str": ts_str,  # 添加字符串格式
-                    "datetime": ts if isinstance(ts, datetime) else datetime.fromtimestamp(float(ts)),
+                    "datetime": ts if isinstance(ts, datetime) else datetime.fromtimestamp(ts_ts),
                 }
             )
 
@@ -215,9 +218,13 @@ class ModelAlgorithmAdapter:
                 pred_hours = float("inf")
             else:
                 pred_hours = seconds / 3600
-                # 用历史数据估算短期速率
+                # 用历史数据估算短期速率（基于实际时间差）
                 if len(history_list) > 1:
-                    velocity = (current_value - history_list[0]["view_count"]) / max(len(history_list) - 1, 1)
+                    dt_hours = (history_list[-1]["timestamp"] - history_list[0]["timestamp"]) / 3600.0
+                    if dt_hours > 0:
+                        velocity = (current_value - history_list[0]["view_count"]) / dt_hours
+                    else:
+                        velocity = current_value * 0.01
                 else:
                     velocity = current_value * 0.01
                 # 统一语义：短期预测
@@ -325,7 +332,7 @@ def load_all_model_algorithms() -> List[ModelAlgorithmAdapter]:
                     # 是类且是BaseAlgorithm的子类
                     if isinstance(attr, type) and attr_name.endswith("Algorithm"):
                         try:
-                            base_names = [b.__name__ for b in attr.__bases__]
+                            base_names = [c.__name__ for c in attr.__mro__]
                             if "BaseAlgorithm" in base_names or "BasePredictionAlgorithm" in base_names:
                                 instance = attr()
                                 adapter = ModelAlgorithmAdapter(instance)

@@ -7,11 +7,14 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 import threading
+import logging
 from datetime import datetime
 from ui.theme import C
 from ui.helpers import FONT, FONT_SM, FONT_MONO, fmt_num
 from ui.dialog_base import DialogBase
 from core.smart_alert import AnomalyDetector
+
+logger = logging.getLogger(__name__)
 
 
 class AnomalyPanel:
@@ -92,21 +95,28 @@ class AnomalyPanel:
                 if len(history) < 3:
                     continue
 
-                # 构建 records（含完整上下文）
+                # 构建 records（从DB获取含历史 viewers_total 的完整上下文）
                 full_records = []
-                for ts, v in history[-30:]:
-                    dt = self._parse_dt(ts)
-                    full_records.append({
-                        "timestamp": dt.isoformat(),
-                        "view_count": v,
-                        "like_count": video.get("like_count", 0),
-                        "coin_count": video.get("coin_count", 0),
-                        "favorite_count": video.get("favorite_count", 0),
-                        "share_count": video.get("share_count", 0),
-                        "danmaku_count": video.get("danmaku_count", 0),
-                        "reply_count": video.get("reply_count", 0),
-                        "viewers_total": video.get("viewers_total", 0),
-                    })
+                try:
+                    video_db = self.gui.video_dbs.get(bvid)
+                    if video_db:
+                        raw = video_db.get_all_records(limit=30)
+                        for r in raw:
+                            full_records.append({
+                                "timestamp": r["timestamp"],
+                                "view_count": r["view_count"],
+                                "like_count": r.get("like_count", 0),
+                                "coin_count": r.get("coin_count", 0),
+                                "favorite_count": r.get("favorite_count", 0),
+                                "share_count": r.get("share_count", 0),
+                                "danmaku_count": r.get("danmaku_count", 0),
+                                "reply_count": r.get("reply_count", 0),
+                                "viewers_total": r.get("viewers_total", 0),
+                            })
+                except Exception as e:
+                    logger.debug("从DB获取记录失败 %s: %s", bvid, e)
+                if len(full_records) < 3:
+                    continue
 
                 # 计算最近 2h 增量和速率
                 recent = history[-10:] if len(history) >= 10 else history

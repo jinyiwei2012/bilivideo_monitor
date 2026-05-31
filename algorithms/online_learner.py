@@ -98,9 +98,11 @@ class OnlineLearner:
         actual : float      当前实际观测值
         """
         if name not in self._trackers:
+            logger.debug("在线学习跳过 %s: 未注册的算法", name)
             return
 
         if actual <= 0:
+            logger.debug("在线学习跳过 %s: actual=%s <= 0", name, actual)
             return
 
         # 使用相对误差，但为防止无变化时人为抬高频次，用平滑相对变化：

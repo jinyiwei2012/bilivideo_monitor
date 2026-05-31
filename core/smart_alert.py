@@ -4,6 +4,7 @@
 """
 
 import logging
+import threading
 from typing import List, Dict, Optional
 from datetime import datetime
 
@@ -206,11 +207,10 @@ class AnomalyDetector:
             except Exception as e:
                 logger.debug("解析日间时段失败: %s", e)
         if len(day_viewers) < 3:
-            day_viewers = viewers[:-1] if len(viewers) > 1 else [0]
+            return None
 
         avg_day = sum(day_viewers) / max(len(day_viewers), 1)
 
-        # 夜间在线 > 日间水平的 40% 即告警
         if avg_day > 10 and current_v > avg_day * 0.4:
             return (
                 f"🌙 深夜异常在线！当前 {current_v} 人在线"
@@ -319,16 +319,15 @@ class AnomalyDetector:
             score += 1
             reasons.append("分享率极低")
 
-        # S6: 近期播放突增且互动低
-        surge = False
-        if len(records) >= 6:
+        # S6: 近期播放突增且互动低（使用增量而非累积值）
+        if len(records) >= 7:
             sorted_recs = sorted(records, key=lambda r: r.get("timestamp", ""))
-            recent_views = [r.get("view_count", 0) for r in sorted_recs[-3:]]
-            older_views = [r.get("view_count", 0) for r in sorted_recs[-6:-3]]
-            avg_recent = sum(recent_views) / max(len(recent_views), 1)
-            avg_older = sum(older_views) / max(len(older_views), 1)
-            if avg_older > 0 and avg_recent > avg_older * 1.5:
-                surge = True
+            growths = []
+            for i in range(1, len(sorted_recs)):
+                growths.append(sorted_recs[i].get("view_count", 0) - sorted_recs[i-1].get("view_count", 0))
+            recent_growth = sum(growths[-3:]) / 3 if len(growths) >= 3 else 0
+            older_growth = sum(growths[-6:-3]) / 3 if len(growths) >= 6 else 0
+            if older_growth > 0 and recent_growth > older_growth * 1.5:
                 if score >= 2:  # 播放突增 + 已有互动率低
                     score += 2
                     reasons.append("播放突增但互动低迷")

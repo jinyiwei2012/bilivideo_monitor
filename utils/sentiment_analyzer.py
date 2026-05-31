@@ -168,7 +168,7 @@ def analyze_sentiment(texts: List[str]) -> Dict:
                 weight *= 1.5
             # 检查前面是否有否定词
             if i > 0 and tokens[i - 1] in _NEGATORS:
-                weight *= -0.5
+                weight *= -1.0
 
             if token in _POSITIVE_WORDS:
                 score += weight

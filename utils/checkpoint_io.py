@@ -58,7 +58,16 @@ def import_checkpoints(zip_path: str, merge: bool = True) -> int:
     os.makedirs(dst, exist_ok=True)
 
     with tempfile.TemporaryDirectory() as tmp:
-        shutil.unpack_archive(zip_path, tmp, "zip")
+        # 使用 zipfile 并校验每个条目防止路径穿越
+        import zipfile
+        tmp_abs = os.path.realpath(tmp)
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            for info in zf.infolist():
+                dest_path = os.path.realpath(os.path.join(tmp, info.filename))
+                if not dest_path.startswith(tmp_abs + os.sep):
+                    logger.warning("路径穿越已拦截: %s", info.filename)
+                    continue
+                zf.extract(info, tmp)
         imported = 0
         for algo_id in os.listdir(tmp):
             src_algo = os.path.join(tmp, algo_id)

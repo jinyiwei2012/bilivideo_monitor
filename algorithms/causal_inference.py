@@ -145,7 +145,6 @@ def _rss_multi_regression(
         return sum((y - sum(Y) / n) ** 2 for y in Y)
 
     # 构建设计矩阵
-    len(Xs) * (max_lag - min_lag + 1)
     # X_design[sample_idx][feat_idx]
     X_design: List[List[float]] = []
     Y_design: List[float] = []

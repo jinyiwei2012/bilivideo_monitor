@@ -100,7 +100,7 @@ class BacktestPanel:
         algo_stats = {}
         for p in predictions:
             try:
-                pred_views = p.get("predicted_views", 0) or p.get("predicted_view", 0) or p.get("current_views", 0)
+                pred_views = p.get("predicted_views", 0) or p.get("predicted_view", 0)
                 actual_views = p.get("current_views_at_eval", 0) or p.get("actual_views", 0)
                 algo = p.get("algorithm", p.get("algorithm_name", "未知"))
                 if pred_views <= 0 or actual_views <= 0:

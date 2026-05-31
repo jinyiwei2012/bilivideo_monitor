@@ -33,7 +33,7 @@ def _softmax(x: List[float]) -> List[float]:
     m = max(x)
     exps = [math.exp(xi - m) for xi in x]
     s = sum(exps)
-    return [e / s for s, e in zip([s] * len(exps), exps)]
+    return [e / s for e in exps]
 
 
 def _relu(x: float) -> float:
@@ -200,8 +200,15 @@ class VideoGraph:
 
             # Layer 0: H1 = ReLU(Ã · X · W0 + b0)
             # Ã · X  ->  (n × n) × (n × d) = n × d
-            AX = [self._adj_mat_vec_mul(adj_mat, X[i], n) for i in range(n)]
-            # XW0 + b0  ->  (n × d) × (d × h) + h = n × h
+            # Each AX[i][k] = sum_j Ã[i][j] * X[j][k]
+            AX = []
+            for i in range(n):
+                ax_i = [0.0] * self.FEATURE_DIM
+                for j, w in adj_mat.get(i, {}).items():
+                    for k in range(self.FEATURE_DIM):
+                        ax_i[k] += w * X[j][k]
+                AX.append(ax_i)
+            # (AX · W0) + b0  ->  (n × d) × (d × h) + h = n × h
             H1 = []
             for i in range(n):
                 h_raw = [
@@ -211,7 +218,13 @@ class VideoGraph:
                 H1.append([_relu(x) for x in h_raw])
 
             # Layer 1: H2 = Ã · H1 · W1 + b1  (无激活，直接输出)
-            AH1 = [self._adj_mat_vec_mul(adj_mat, H1[i], n) for i in range(n)]
+            AH1 = []
+            for i in range(n):
+                ah1_i = [0.0] * hidden_dim
+                for j, w in adj_mat.get(i, {}).items():
+                    for k in range(hidden_dim):
+                        ah1_i[k] += w * H1[j][k]
+                AH1.append(ah1_i)
             H2 = []
             for i in range(n):
                 h_raw = [
@@ -235,16 +248,13 @@ class VideoGraph:
             # 邻居聚合特征（加权平均邻居特征）
             neighbors = self._adj.get(bvid, {})
             if neighbors:
-                nb_feats = []
                 total_w = 0.0
-                for nb, w in neighbors.items():
-                    f = self._features.get(nb, [0.0] * self.FEATURE_DIM)
-                    nb_feats.append(f)
+                for _, w in neighbors.items():
                     total_w += w
                 agg = [0.0] * self.FEATURE_DIM
                 if total_w > 0:
-                    for f in nb_feats:
-                        w = self._adj[bvid].get(self._bvid_list[nb_feats.index(f)] if f in nb_feats else "", 0)
+                    for nb, w in neighbors.items():
+                        f = self._features.get(nb, [0.0] * self.FEATURE_DIM)
                         for j in range(self.FEATURE_DIM):
                             agg[j] += f[j] * w / total_w
             else:
@@ -384,7 +394,7 @@ class VideoGraph:
         return result
 
     @staticmethod
-    def _init_weights(in_dim: int, out_dim: float) -> List[List[float]]:
+    def _init_weights(in_dim: int, out_dim: int) -> List[List[float]]:
         """Xavier 初始化权重矩阵"""
         std = math.sqrt(2.0 / (in_dim + out_dim))
         import random

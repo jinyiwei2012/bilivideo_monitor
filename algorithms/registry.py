@@ -184,7 +184,7 @@ class AlgorithmRegistry:
                     None,
                 )
             except Exception as e:
-                logger.info(
+                logger.warning(
                     "[%s] 视频(%s),使用'底模'预测失败 降级原因: %s",
                     n, bvid, e,
                 )
@@ -193,7 +193,7 @@ class AlgorithmRegistry:
         with cls._pool_lock:
             if cls._pool is None:
                 cls._pool = ThreadPoolExecutor(max_workers=4)
-        pool = cls._pool
+            pool = cls._pool
         futures = [pool.submit(_run_single, item) for item in cls._algorithms.items()]
 
         for future in as_completed(futures):
@@ -270,10 +270,15 @@ class AlgorithmRegistry:
         except Exception as e:
             logger.debug("忽略异常: %s", e)
 
+        interval_width = 0
+        if results["_weighted"].get("prediction_interval"):
+            try:
+                interval_width = round(interval.get("interval_width_ratio", 0) * 100)
+            except Exception:
+                interval_width = 0
         logger.info(
-            "[%s] 综合预测: %.0f (有效 %d/%d, 区间 ±%.0f%%)",
-            bvid, weighted_pred, valid_count, len(results),
-            round(interval.get("interval_width_ratio", 0) * 100) if results["_weighted"].get("prediction_interval") else 0,
+            "[%s] 综合预测: %.0f (有效 %d/%d, 区间 ±%d%%)",
+            bvid, weighted_pred, valid_count, len(results), interval_width,
         )
 
         return results
@@ -317,9 +322,10 @@ class AlgorithmRegistry:
     def shutdown(cls):
         """关闭线程池，释放资源（应用退出时调用）。"""
         with cls._pool_lock:
-            if cls._pool is not None:
-                cls._pool.shutdown(wait=False)
-                cls._pool = None
+            pool = cls._pool
+            cls._pool = None
+        if pool is not None:
+            pool.shutdown(wait=False)
 
     @classmethod
     def reset(cls):

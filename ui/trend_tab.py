@@ -135,7 +135,7 @@ class TrendTab:
                 try:
                     records = self._video_dbs[bvid].get_all_records()
                     if records:
-                        self._history_data[bvid] = [(row["timestamp"], row["view_count"]) for row in records]
+                        self._history_data[bvid] = [dict(row) for row in records]
                 except Exception as e:
                     logger.warning("加载 %s 历史数据失败: %s", bvid, e)
 
@@ -209,9 +209,6 @@ class TrendTab:
         if isinstance(item, dict):
             ts = self._normalize_timestamp(item.get("timestamp", ""))
             val = self._normalize_value(item.get(metric, 0))
-        elif isinstance(item, (list, tuple)) and len(item) >= 2:
-            ts = self._normalize_timestamp(item[0])
-            val = self._normalize_value(item[1]) if metric == "view_count" else 0
         else:
             return None
         return None if ts is None else (ts, val)

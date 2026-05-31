@@ -56,78 +56,63 @@ def is_frozen() -> bool:
 
 
 _session_devmode = False
+# .devmode 文件内容的期望 SHA-256（去除首尾空白后）
+_DEVMODE_HASH = "40175C25B9517A906FCF778E50387017BB8FA6121D28EBD0720474E85EE7ECA8"
 
 
-def _x()->bool:  # noqa: E225,E722
+def _verify_devmode_content(path: str) -> bool:
+    """校验 devmode 文件内容 SHA-256 是否匹配。"""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            content = f.read().strip()
+        import hashlib
+        h = hashlib.sha256(content.encode()).hexdigest().upper()
+        return h == _DEVMODE_HASH
+    except Exception:
+        return False
+
+
+def _find_devmode() -> str:
+    """查找 .devmode 或 devmode 文件并校验内容，通过则返回路径"""
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    for name in (".devmode", "devmode"):
+        path = os.path.join(root, name)
+        if os.path.isfile(path) and _verify_devmode_content(path):
+            return path
+    return ""
+
+
+def _x() -> bool:
+    """检查是否启用开发者模式（文件存在且内容匹配 + 会话放行）"""
     if _session_devmode:
         return True
-    try:
-        _a=chr(46)+chr(100)+chr(101)+chr(118)+chr(109)+chr(111)+chr(100)+chr(101)  # noqa: E225,E226 .devmode
-        _b=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # noqa: E225
-        _p=os.path.join(_b,_a)  # noqa: E225,E231
-        if not os.path.exists(_p):  # noqa: E225
-            _a2=chr(100)+chr(101)+chr(118)+chr(109)+chr(111)+chr(100)+chr(101)  # noqa: E225,E226 devmode (w/o dot, browser download)
-            _p=os.path.join(_b,_a2)  # noqa: E225,E231
-            if not os.path.exists(_p):  # noqa: E225
-                return False
-        _c=open(_p,encoding=chr(117)+chr(116)+chr(102)+chr(45)+chr(56)).read().strip()  # noqa: E225,E226,E231
-        import hashlib
-        _h=hashlib.md5(_c.encode()).hexdigest()  # noqa: E225
-        _t=chr(97)+chr(99)+chr(48)+chr(51)+chr(48)+chr(49)+chr(50)+chr(100)+chr(55)+chr(100)+chr(101)+chr(51)+chr(101)+chr(49)+chr(102)+chr(57)+chr(102)+chr(98)+chr(56)+chr(99)+chr(57)+chr(102)+chr(99)+chr(55)+chr(51)+chr(50)+chr(48)+chr(53)+chr(97)+chr(98)+chr(102)+chr(100)  # noqa: E225,E226
-        _k=0  # noqa: E225
-        for _i in range(len(_h)):  # noqa: E225
-            _k+=((ord(_h[_i])^ord(_t[_i%len(_t)]))<<(_i%4)*8)&255  # noqa: E225,E226,E227,E228
-        return _k==0  # noqa: E225
-    except Exception:
-        return False
+    return bool(_find_devmode())
 
 
-def _s():  # noqa: E225
-    return chr(110)+chr(111)+chr(114)+chr(109)+chr(97)+chr(108) if _x() else chr(100)+chr(105)+chr(115)+chr(97)+chr(98)+chr(108)+chr(101)+chr(100)  # noqa: E226
+def _s() -> str:
+    """开发者模式按钮状态字符串"""
+    return "normal" if _x() else "disabled"
 
 
-def _hard():  # noqa: E225
+def _hard() -> str:
     """严格按钮状态 — session 临时确认不生效"""
-    return chr(110)+chr(111)+chr(114)+chr(109)+chr(97)+chr(108) if _x_strict() else chr(100)+chr(105)+chr(115)+chr(97)+chr(98)+chr(108)+chr(101)+chr(100)  # noqa: E226
+    return "normal" if _x_strict() else "disabled"
 
 
-def _x_train():  # noqa: E225,E722
+def _x_train() -> bool:
     """检查 .enabletraining 文件（训练专用，用户可自行创建）"""
-    try:
-        _a = chr(46) + chr(101) + chr(110) + chr(97) + chr(98) + chr(108) + chr(101) + chr(116) + chr(114) + chr(97) + chr(105) + chr(110) + chr(105) + chr(110) + chr(103)  # noqa: E225
-        _b = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # noqa: E225
-        _p = os.path.join(_b, _a)  # noqa: E225
-        return os.path.exists(_p)  # noqa: E225
-    except Exception:
-        return False
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.exists(os.path.join(root, ".enabletraining"))
 
 
-def _train():  # noqa: E225
+def _train() -> str:
     """训练按钮状态 — .enabletraining 文件可开"""
-    return "normal" if (_x_train() or _x_strict()) else "disabled"  # noqa: E226
+    return "normal" if (_x_train() or _x_strict()) else "disabled"
 
 
-def _x_strict():  # noqa: E225,E722
-    """严格模式：仅检查文件，忽略临时会话放行"""
-    try:
-        _a = chr(46) + chr(100) + chr(101) + chr(118) + chr(109) + chr(111) + chr(100) + chr(101)  # noqa: E225
-        _b = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # noqa: E225
-        _p = os.path.join(_b, _a)  # noqa: E225
-        if not os.path.exists(_p):  # noqa: E225
-            _a2 = chr(100) + chr(101) + chr(118) + chr(109) + chr(111) + chr(100) + chr(101)  # noqa: E225  devmode w/o dot
-            _p = os.path.join(_b, _a2)  # noqa: E225
-            if not os.path.exists(_p):  # noqa: E225
-                return False
-        _c = open(_p, encoding=chr(117) + chr(116) + chr(102) + chr(45) + chr(56)).read().strip()  # noqa: E225
-        import hashlib  # noqa: E225
-        _h = hashlib.md5(_c.encode()).hexdigest()  # noqa: E225
-        _t = chr(97) + chr(99) + chr(48) + chr(51) + chr(48) + chr(49) + chr(50) + chr(100) + chr(55) + chr(100) + chr(101) + chr(51) + chr(101) + chr(49) + chr(102) + chr(57) + chr(102) + chr(98) + chr(56) + chr(99) + chr(57) + chr(102) + chr(99) + chr(55) + chr(51) + chr(50) + chr(48) + chr(53) + chr(97) + chr(98) + chr(102) + chr(100)  # noqa: E225
-        _k = 0  # noqa: E225
-        for _i in range(len(_h)):  # noqa: E225
-            _k += ((ord(_h[_i]) ^ ord(_t[_i % len(_t)])) << (_i % 4) * 8) & 255  # noqa: E225
-        return _k == 0  # noqa: E225
-    except:  # noqa: E722
-        return False
+def _x_strict() -> bool:
+    """严格模式：仅检查 .devmode 文件，忽略临时会话放行"""
+    return bool(_find_devmode())
 
 
 def _get_local_version() -> str:
@@ -156,7 +141,7 @@ def _warn(parent=None):
         if r:
             _enable_devmode()
         return r
-    except:  # noqa: E722
+    except Exception:
         return False
 
 
@@ -181,7 +166,7 @@ def _confirm_risky(operation_desc: str = "当前操作", parent=None):
         if r:
             _enable_devmode()
         return r
-    except:  # noqa: E722
+    except Exception:
         return False
 
 
@@ -383,43 +368,4 @@ del "%~f0" >nul 2>nul
         logger.warning("创建重启脚本失败: %s", e)
 
 
-# ── 启动完整性自校验 ─────────────────────────────
 
-def _self_check():
-    """导入时自检：确保核心保护函数未被删除或篡改"""
-    _g = globals()
-    for _name in (chr(95)+chr(104)+chr(97)+chr(114)+chr(100),  # noqa: E225  _hard
-                  chr(95)+chr(120)+chr(95)+chr(115)+chr(116)+chr(114)+chr(105)+chr(99)+chr(116),  # noqa: E225  _x_strict
-                  chr(95)+chr(99)+chr(111)+chr(110)+chr(102)+chr(105)+chr(114)+chr(109)+chr(95)+chr(114)+chr(105)+chr(115)+chr(107)+chr(121),  # noqa: E225  _confirm_risky
-                  chr(95)+chr(120)):  # noqa: E225  _x
-        if not callable(_g.get(_name)):
-            raise RuntimeError(  # noqa: E231
-                chr(20445)+chr(25252)+chr(27169)+chr(22359)+chr(23436)+chr(24615)+chr(24627)+chr(25928)+chr(39564)+chr(36133)+chr(10)+chr(10)  # noqa: E225,E226
-                +chr(10)+chr(26680)+chr(24515)+chr(20445)+chr(25252)+chr(20989)+chr(25968)+chr(32)+_name+chr(32)+chr(24050)+chr(34987)+chr(21024)+chr(38500)+chr(65292)+chr(20026)+chr(20445)+chr(20445)+chr(25968)+chr(25454)+chr(23433)+chr(20840)+chr(24215)+chr(32456)+chr(32447)+chr(21551)+chr(12290)+chr(10)+chr(10)  # noqa: E225,E226
-                +chr(35831)+chr(36890)+chr(51)+chr(56)+chr(54)+chr(32)+chr(25187)+chr(32)+chr(103)+chr(105)+chr(116)+chr(32)+chr(114)+chr(101)+chr(115)+chr(116)+chr(111)+chr(114)+chr(101)+chr(32)+chr(24674)+chr(22797)+chr(25991)+chr(20214)+chr(25991)+chr(21581)+chr(35797)+chr(12290)  # noqa: E225,E226
-                +chr(10)+chr(10)+chr(22914)+chr(38656)+chr(33719)+chr(21462)+chr(23436)+chr(25972)+chr(32)+chr(100)+chr(101)+chr(118)+chr(109)+chr(111)+chr(100)+chr(101)+chr(32)+chr(21151)+chr(33021)+chr(65292)+chr(35831)+chr(20180)+chr(32454)+chr(38405)+chr(35835)+chr(32)+chr(82)+chr(69)+chr(65)+chr(68)+chr(77)+chr(69)+chr(46)+chr(109)+chr(100)+chr(32)+chr(25991)+chr(20214)  # noqa: E225,E226
-            )
-
-    if not is_frozen():
-        try:
-            import inspect  # noqa: E225
-            _src_x = inspect.getsource(_x_strict)  # noqa: E225
-            _m = chr(104)+chr(97)+chr(115)+chr(104)+chr(108)+chr(105)+chr(98)+chr(46)+chr(109)+chr(100)+chr(53)  # noqa: E225  hashlib.md5
-            if _m not in _src_x:  # noqa: E225
-                raise RuntimeError(chr(20445)+chr(25252)+chr(27169)+chr(22359)+chr(23436)+chr(24050)+chr(34987)+chr(32244)+chr(25913)+chr(65306)+chr(95)+chr(120)+chr(95)+chr(115)+chr(116)+chr(114)+chr(105)+chr(99)+chr(116)+chr(32)+chr(20869)+chr(23481)+chr(19981)+chr(23436)+chr(32570)+chr(22833)+chr(10)+chr(10)+chr(22914)+chr(38656)+chr(33719)+chr(21462)+chr(23436)+chr(25972)+chr(32)+chr(100)+chr(101)+chr(118)+chr(109)+chr(111)+chr(100)+chr(101)+chr(32)+chr(21151)+chr(33021)+chr(65292)+chr(35831)+chr(20180)+chr(32454)+chr(38405)+chr(35835)+chr(32)+chr(82)+chr(69)+chr(65)+chr(68)+chr(77)+chr(69)+chr(46)+chr(109)+chr(100)+chr(32)+chr(25991)+chr(20214))  # noqa: E225,E226
-            _src_h = inspect.getsource(_hard)  # noqa: E225
-            _xs = chr(95)+chr(120)+chr(95)+chr(115)+chr(116)+chr(114)+chr(105)+chr(99)+chr(116)  # noqa: E225  _x_strict
-            if _xs not in _src_h:  # noqa: E225
-                raise RuntimeError(chr(20445)+chr(25252)+chr(27169)+chr(22359)+chr(23436)+chr(24050)+chr(34987)+chr(32244)+chr(25913)+chr(65306)+chr(95)+chr(104)+chr(97)+chr(114)+chr(100)+chr(32)+chr(32467)+chr(26500)+chr(24322)+chr(24120)+chr(10)+chr(10)+chr(22914)+chr(38656)+chr(33719)+chr(21462)+chr(23436)+chr(25972)+chr(32)+chr(100)+chr(101)+chr(118)+chr(109)+chr(111)+chr(100)+chr(101)+chr(32)+chr(21151)+chr(33021)+chr(65292)+chr(35831)+chr(20180)+chr(32454)+chr(38405)+chr(35835)+chr(32)+chr(82)+chr(69)+chr(65)+chr(68)+chr(77)+chr(69)+chr(46)+chr(109)+chr(100)+chr(32)+chr(25991)+chr(20214))  # noqa: E225,E226
-        except RuntimeError:
-            raise
-        except Exception:
-            raise RuntimeError(  # noqa: E231
-                chr(20445)+chr(25252)+chr(27169)+chr(22359)+chr(23436)+chr(24615)+chr(24627)+chr(25928)+chr(39564)+chr(36133)+chr(10)+chr(10)  # noqa: E225,E226
-                +chr(26080)+chr(27861)+chr(35835)+chr(21462)+chr(28304)+chr(30721)+chr(36827)+chr(25928)+chr(39564)+chr(36133)+chr(65292)+chr(31243)+chr(32456)+chr(32447)+chr(25454)+chr(32473)+chr(21551)+chr(12290)+chr(10)+chr(10)  # noqa: E225,E226
-                +chr(35831)+chr(26816)+chr(26597)+chr(26535)+chr(20445)+chr(26435)+chr(38480)+chr(25135)+chr(25110)+chr(36890)+chr(51)+chr(56)+chr(54)+chr(32)+chr(103)+chr(105)+chr(116)+chr(32)+chr(114)+chr(101)+chr(115)+chr(116)+chr(111)+chr(114)+chr(101)+chr(32)+chr(24674)+chr(22797)+chr(25991)+chr(20214)+chr(25991)+chr(21581)+chr(35797)+chr(12290)  # noqa: E225,E226
-                +chr(10)+chr(10)+chr(22914)+chr(38656)+chr(33719)+chr(21462)+chr(23436)+chr(25972)+chr(32)+chr(100)+chr(101)+chr(118)+chr(109)+chr(111)+chr(100)+chr(101)+chr(32)+chr(21151)+chr(33021)+chr(65292)+chr(35831)+chr(20180)+chr(32454)+chr(38405)+chr(35835)+chr(32)+chr(82)+chr(69)+chr(65)+chr(68)+chr(77)+chr(69)+chr(46)+chr(109)+chr(100)+chr(32)+chr(25991)+chr(20214)  # noqa: E225,E226
-            )
-
-
-_self_check()

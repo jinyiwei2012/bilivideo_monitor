@@ -4,6 +4,7 @@
 
 import os
 import json
+import logging
 import tkinter as tk
 from tkinter import ttk, messagebox
 from pathlib import Path
@@ -11,6 +12,8 @@ from pathlib import Path
 from ui.theme import C, FONT
 from ui.dialog_base import DialogBase
 from config import DATA_DIR
+
+logger = logging.getLogger(__name__)
 
 _SCHEDULE_CONFIG = Path(DATA_DIR) / ".export_schedule.json"
 
@@ -106,7 +109,6 @@ class ReportSchedulerWindow:
 
         self._refresh_file_list()
         self._load_schedule()
-        self._on_schedule_toggle()
 
     def _export_pred_vs_actual(self):
         """导出预测值 vs 实际播放量对比表"""
@@ -201,17 +203,14 @@ class ReportSchedulerWindow:
             return
         try:
             fmt = self._schedule_format_var.get()
-            import logging
             from utils.report_exporter import export_csv, export_json, export_html
 
             exporters = {"csv": export_csv, "json": export_json, "html": export_html}
             exporter = exporters.get(fmt, export_csv)
             path = exporter(self.gui.monitored_videos)
-            logging.getLogger(__name__).info("定时导出完成: %s", path)
+            logger.info("定时导出完成: %s", path)
         except Exception as e:
-            import logging
-
-            logging.getLogger(__name__).warning("定时导出失败: %s", e)
+            logger.warning("定时导出失败: %s", e)
         self._refresh_file_list()
         self._schedule_next()
 

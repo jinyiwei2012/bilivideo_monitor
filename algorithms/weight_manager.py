@@ -60,8 +60,8 @@ class WeightManager:
             except Exception as e:
                 logger.warning("加载权重失败: %s", e)
 
-    def _save_weights_async(self, bvid: str = None):
-        """异步保存权重（不阻塞调用线程）"""
+    def _save_weights_sync(self, bvid: str = None):
+        """同步保存权重到文件"""
         try:
             data = {
                 "user_weights": dict(self.user_weights),
@@ -69,11 +69,7 @@ class WeightManager:
                 "accuracy_records": {k: list(v) for k, v in self.accuracy_records.items()},
                 "updated_at": datetime.now().isoformat(),
             }
-            threading.Thread(
-                target=self._write_weights_file,
-                args=(data, bvid),
-                daemon=True,
-            ).start()
+            self._write_weights_file(data, bvid)
         except Exception as e:
             logger.warning("调度异步保存权重失败: %s", e)
 
@@ -97,15 +93,15 @@ class WeightManager:
         """设置用户自定义权重"""
         with self._lock:
             self.user_weights[algorithm_name] = max(0.01, min(10.0, weight))
-        self._save_weights_async()
-
+        self._save_weights_sync()
+    
     def clear_user_weight(self, algorithm_name: str):
         """清除用户自定义权重"""
         with self._lock:
             if algorithm_name in self.user_weights:
                 del self.user_weights[algorithm_name]
-        self._save_weights_async()
-
+        self._save_weights_sync()
+    
     def is_user_weight(self, algorithm_name: str) -> bool:
         """检查是否有用户自定义权重"""
         return algorithm_name in self.user_weights
@@ -121,8 +117,8 @@ class WeightManager:
 
         # 锁外执行：ML 重算 + 异步写盘，不阻塞其他算法
         self._recalculate_ml_weights()
-        self._save_weights_async()
-
+        self._save_weights_sync()
+    
     def _recalculate_ml_weights(self):
         """重新计算机器学习权重（调用方无需持锁 —— 内部使用快照）"""
         with self._lock:
@@ -149,7 +145,8 @@ class WeightManager:
             softmax_sum = sum(math.exp(w - max_w) for w in wlist)
             if softmax_sum > 0:
                 for an, w in zip(algo_names, wlist):
-                    new_weights[an] = math.exp(w - max_w) / softmax_sum * len(algo_names)
+                    nw = math.exp(w - max_w) / softmax_sum * len(algo_names)
+                    new_weights[an] = max(0.01, min(10.0, nw))
 
         with self._lock:
             self.ml_weights = new_weights
@@ -200,21 +197,19 @@ class WeightManager:
             self.user_weights = {}
             self.ml_weights = {}
             self.accuracy_records = {}
-        self._save_weights_async()
-
+        self._save_weights_sync()
+    
     def sync_save(self):
         """同步写盘（供测试用，确保文件已落盘）"""
         try:
-            data = {
-                "user_weights": dict(self.user_weights),
-                "ml_weights": dict(self.ml_weights),
-                "accuracy_records": {k: list(v) for k, v in self.accuracy_records.items()},
-                "updated_at": datetime.now().isoformat(),
-            }
-            fpath = self._get_weights_file()
-            os.makedirs(os.path.dirname(fpath), exist_ok=True)
-            with open(fpath, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
+            with self._lock:
+                data = {
+                    "user_weights": dict(self.user_weights),
+                    "ml_weights": dict(self.ml_weights),
+                    "accuracy_records": {k: list(v) for k, v in self.accuracy_records.items()},
+                    "updated_at": datetime.now().isoformat(),
+                }
+            self._write_weights_file(data)
         except Exception as e:
             logger.warning("同步保存权重失败: %s", e)
 

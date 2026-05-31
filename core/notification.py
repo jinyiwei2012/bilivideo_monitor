@@ -47,6 +47,17 @@ class NotificationManager:
 
     # ── OneBot 底层调用（WS → HTTP） ──────────────────────
 
+    def _run_async_safe(self, coro):
+        """安全运行协程，兼容已有事件循环的线程"""
+        try:
+            asyncio.get_running_loop()
+            # 已有事件循环，在独立线程中运行
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                return pool.submit(asyncio.run, coro).result()
+        except RuntimeError:
+            return asyncio.run(coro)
+
     def _call_action_ws(self, action: str, params: dict, timeout: float = 5) -> bool | None:
         """通过 WebSocket 调用 OneBot 动作（主力通道）
 
@@ -84,7 +95,7 @@ class NotificationManager:
                 logger.warning("WS %s 未知异常: %s", action, e)
                 return None
 
-        return asyncio.run(_call())
+        return self._run_async_safe(_call())
 
     def _call_action_http(self, action: str, params: dict, timeout: float = 5) -> bool:
         """通过 HTTP API 调用 OneBot 动作（保底通道）"""
@@ -213,7 +224,7 @@ class NotificationManager:
                 return data
 
         try:
-            data = asyncio.run(_check())
+            data = self._run_async_safe(_check())
             result["ok"] = True
             result["channel"] = "WebSocket"
             d = data.get("data", {})

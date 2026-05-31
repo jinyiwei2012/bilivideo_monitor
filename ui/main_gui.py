@@ -615,44 +615,44 @@ class BilibiliMonitorGUI:
             self._global_tick_job = None
 
     def _global_tick(self):
-        if not self.auto_refresh_enabled.get():
-            self._global_tick_job = None
-            return
+        try:
+            if not self.auto_refresh_enabled.get():
+                self._global_tick_job = None
+                return
 
-        now = time.time()
-        fast_count = 0
-        min_remaining = float("inf")
+            now = time.time()
+            fast_count = 0
+            min_remaining = float("inf")
 
-        for bvid, timer in list(self._video_timers.items()):
-            remaining = timer["next"] - now
-            if timer["interval"] == self.FAST_INTERVAL:
-                fast_count += 1
-            if remaining < min_remaining:
-                min_remaining = remaining
+            for bvid, timer in list(self._video_timers.items()):
+                remaining = timer["next"] - now
+                if timer["interval"] == self.FAST_INTERVAL:
+                    fast_count += 1
+                if remaining < min_remaining:
+                    min_remaining = remaining
 
-        if min_remaining == float("inf"):
-            badge_text = "— s"
-        else:
-            badge_text = f"{int(max(0, min_remaining)):02d} s"
-        self._countdown_badge.config(text=badge_text)
+            if min_remaining == float("inf"):
+                badge_text = "— s"
+            else:
+                badge_text = f"{int(max(0, min_remaining)):02d} s"
+            self._countdown_badge.config(text=badge_text)
 
-        if fast_count > 0:
-            self._mode_pill.config(text=f"⚡ {fast_count}个快速", fg=C["danger"])
-        else:
-            self._mode_pill.config(text="● 正常模式", fg=C["success"])
+            if fast_count > 0:
+                self._mode_pill.config(text=f"⚡ {fast_count}个快速", fg=C["danger"])
+            else:
+                self._mode_pill.config(text="● 正常模式", fg=C["success"])
 
-        self._sb("interval", f"正常{self.DEFAULT_INTERVAL}s / 快速{self.FAST_INTERVAL}s")
+            self._sb("interval", f"正常{self.DEFAULT_INTERVAL}s / 快速{self.FAST_INTERVAL}s")
 
-        # 每300 tick（≈5min）执行一次数据库WAL checkpoint，控制WAL文件膨胀
-        self._tick_counter = (self._tick_counter + 1) % 3600
-        if self._tick_counter == 0:
-            # 每3600 tick（≈1h）执行一次完整同步
-            self._do_periodic_sync()
-        elif self._tick_counter % 300 == 0:
-            threading.Thread(target=self._wal_checkpoint_worker, daemon=True).start()
-            # 每5分钟扫描一次异常并推送通知
-            threading.Thread(target=self._scan_alerts_background, daemon=True).start()
-
+            # 每300 tick（≈5min）执行一次数据库WAL checkpoint，控制WAL文件膨胀
+            self._tick_counter = (self._tick_counter + 1) % 3600
+            if self._tick_counter == 0:
+                self._do_periodic_sync()
+            elif self._tick_counter % 300 == 0:
+                threading.Thread(target=self._wal_checkpoint_worker, daemon=True).start()
+                threading.Thread(target=self._scan_alerts_background, daemon=True).start()
+        except Exception:
+            logger.exception("_global_tick 异常，继续调度")
         self._global_tick_job = self.root.after(1000, self._global_tick)
 
     def _do_periodic_sync(self):
@@ -691,20 +691,23 @@ class BilibiliMonitorGUI:
         alerts = []
         for video in self.monitored_videos:
             bvid = video.get("bvid", "")
-            history = self.history_data.get(bvid, [])
-            if len(history) < 3:
-                continue
             records = []
-            for ts, v in history[-20:]:
-                dt = ts if isinstance(ts, datetime) else (
-                    datetime.fromisoformat(str(ts)) if isinstance(ts, str) else datetime.fromtimestamp(float(ts))
-                )
-                records.append({
-                    "timestamp": dt.isoformat(), "view_count": v,
-                    "like_count": video.get("like_count", 0),
-                    "coin_count": video.get("coin_count", 0),
-                    "viewers_total": video.get("viewers_total", 0),
-                })
+            try:
+                video_db = self.video_dbs.get(bvid)
+                if video_db:
+                    raw = video_db.get_all_records(limit=20)
+                    for r in raw:
+                        records.append({
+                            "timestamp": r["timestamp"],
+                            "view_count": r["view_count"],
+                            "like_count": r.get("like_count", 0),
+                            "coin_count": r.get("coin_count", 0),
+                            "viewers_total": r.get("viewers_total", 0),
+                        })
+            except Exception as e:
+                logger.debug("从DB获取记录失败 %s: %s", bvid, e)
+            if len(records) < 3:
+                continue
             try:
                 for msg in AnomalyDetector.detect_all(records, bvid=bvid, video=video):
                     alerts.append((bvid, video.get("title", bvid)[:20], msg))
@@ -719,7 +722,7 @@ class BilibiliMonitorGUI:
             msg_lines = [title, "─" * 20]
             for bvid, t, a in alerts[:5]:
                 msg_lines.append(f"  [{bvid}] {t}")
-                msg_lines.append(f"    {a[:40]}")
+                msg_lines.append(f"    {a}")
             if n > 5:
                 msg_lines.append(f"  … 还有 {n - 5} 条")
             msg = "\n".join(msg_lines)
@@ -1294,7 +1297,7 @@ class BilibiliMonitorGUI:
         set_update_channel(new_channel)
         dlg.destroy()
         self._sb(
-            "status", f"已切换到 {'稳定版' if new_channel == 'stable' else '测试版'} 通道，重新检查更新…", C["info"]
+            "status", f"已切换到 {'稳定版' if new_channel == 'stable' else '测试版'} 通道，重新检查更新…", C.get("text_2", "#8b949e")
         )
         self.root.after(500, self._check_update)
 
@@ -1680,7 +1683,9 @@ class BilibiliMonitorGUI:
         AlgorithmRegistry.shutdown()
         self.root.destroy()
         # 强制退出进程（ThreadPoolExecutor 非 daemon 线程会导致进程挂起）
-        os._exit(0)
+        # os._exit(0) removed — 改用 root.quit() 确保资源清理
+        import sys
+        sys.exit(0)
 
     def run(self):
         self.root.mainloop()

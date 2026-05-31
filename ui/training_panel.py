@@ -915,7 +915,7 @@ class TrainingPanel(BaseTrainingPanel):
                     elif "严重过拟合" in status:
                         auto_control["early_stop"] = True
                         payload["_adjustment"] = "🔧 严重过拟合 — 提前停止"
-                    elif "波动" in status and "不稳定" in status:
+                    elif "震荡" in status:
                         scale = mon.compute_lr_scale("oscillation")
                         auto_control["lr_scale"] = scale
                         algo_lr_factors[aid] = factor * scale

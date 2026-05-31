@@ -258,7 +258,7 @@ class EntryTab:
         self._prompt_add_monitor(bvids)
 
         # 生成行标签
-        mode, row_labels = self._generate_row_labels(bvids)
+        mode, row_labels, periods, dt_str = self._generate_row_labels(bvids)
         if not row_labels:
             return
 
@@ -266,10 +266,10 @@ class EntryTab:
         self._clear_old_rows()
 
         # 加载已有数据
-        existing_ms, existing_snap = self._load_existing_data(mode, bvids)
+        existing_ms, existing_snap = self._load_existing_data(mode, bvids, dt_str)
 
         # 创建输入行
-        self._create_input_rows(row_labels, mode, existing_ms, existing_snap)
+        self._create_input_rows(row_labels, mode, existing_ms, existing_snap, bvids, periods)
 
     def _validate_bvids(self, raw):
         """验证BV号格式，返回有效的BV号列表和无效列表"""
@@ -306,13 +306,14 @@ class EntryTab:
         """生成行标签（BV号 × 周期/时间点）"""
         mode = self._mode.get()
         periods = []
+        dt_str = ""
         row_labels = []
 
         if mode == "milestone":
             periods = [p for p, v in self._ms_vars.items() if v.get()]
             if not periods:
                 messagebox.showwarning("提示", "请至少选择一个周期", parent=self._window)
-                return mode, None
+                return mode, None, None, None
             for bv in bvids:
                 for p in periods:
                     row_labels.append((bv, p))
@@ -320,16 +321,16 @@ class EntryTab:
             dt_str = self._snap_dt.get().strip()
             if not dt_str:
                 messagebox.showwarning("提示", "请填写日期时间或从下拉选择", parent=self._window)
-                return mode, None
+                return mode, None, None, None
             # 验证格式
             dt = _parse_dt(dt_str)
             if dt is None:
                 messagebox.showwarning("格式错误", "日期格式不正确，请使用 2026-04-22 12:00 格式", parent=self._window)
-                return mode, None
+                return mode, None, None, None
             for bv in bvids:
                 row_labels.append((bv, dt_str[:16]))
 
-        return mode, row_labels
+        return mode, row_labels, periods, dt_str
 
     def _clear_old_rows(self):
         """清空旧的行"""
@@ -337,7 +338,7 @@ class EntryTab:
             w.destroy()
         self._rows.clear()
 
-    def _load_existing_data(self, mode, bvids):
+    def _load_existing_data(self, mode, bvids, dt_str=""):
         """加载已有数据做预填"""
         existing_ms = {}
         if mode == "milestone":
@@ -352,7 +353,7 @@ class EntryTab:
                     try:
                         for rec in self._video_dbs[bvid].get_all_records():
                             rec_ts = str(rec.get("timestamp", ""))[:16]
-                            if rec_ts == dt_str[:16]:  # noqa: F821
+                            if rec_ts == dt_str[:16]:
                                 existing_snap[bvid] = dict(rec)
                                 break
                     except Exception as e:
@@ -360,7 +361,7 @@ class EntryTab:
 
         return existing_ms, existing_snap
 
-    def _create_input_rows(self, row_labels, mode, existing_ms, existing_snap):
+    def _create_input_rows(self, row_labels, mode, existing_ms, existing_snap, bvids, periods):
         """创建输入行UI"""
         fields = [
             ("view_count", "播放量*", True),
@@ -378,8 +379,8 @@ class EntryTab:
 
         n = len(self._rows)
         self._status.config(
-            text=f"已生成 {n} 行输入（{len(bvids)} 视频 × "  # noqa: F821
-            + (f"{len(periods)} 周期" if mode == "milestone" else "1 时间点")  # noqa: F821
+            text=f"已生成 {n} 行输入（{len(bvids)} 视频 × "
+            + (f"{len(periods)} 周期" if mode == "milestone" else "1 时间点")
             + "），填写后点击「保存全部」"
         )
 

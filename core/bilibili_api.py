@@ -290,8 +290,14 @@ class BilibiliAPI:
     def remove_account(self, name: str):
         self._accounts = [a for a in self._accounts if a["name"] != name]
         if self._account_name == name:
-            self._account_name = self._accounts[0]["name"] if self._accounts else "默认"
-            self._switch_account(self._account_name)
+            if not self._accounts:
+                self._account_name = "默认"
+                self._cookies = {}
+                self._refresh_token = ""
+                self.session.cookies.clear()
+                return
+            self._account_name = self._accounts[0]["name"]
+            self.switch_account(self._account_name)
 
     def switch_account(self, name: str):
         """切换当前账号"""
@@ -318,7 +324,6 @@ class BilibiliAPI:
             from bilibili_api import sync
             from bilibili_api.login_v2 import login_with_password as _bili_login
             from bilibili_api.utils.geetest import Geetest, GeetestType
-            from bilibili_api.exceptions import LoginError
 
             # bilibili-api 需要极验验证码，尝试无验证码模式
             g = Geetest(GeetestType.LOGIN)
@@ -360,8 +365,8 @@ class BilibiliAPI:
             {"code": int, "cookies": dict, "refresh_token": str, "message": str,
              "need_captcha": bool, "captcha_type": int, "captcha_phone": str}
         """
-        from cryptography.hazmat.primitives import hashes, serialization
-        from cryptography.hazmat.primitives.asymmetric import padding, rsa
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import padding
         from cryptography.hazmat.backends import default_backend
 
         try:
@@ -1033,7 +1038,7 @@ class BilibiliAPI:
             "stat": video_info.get("stat", {}),
             "viewers_total": viewers_data.get("total", 0) if viewers_data else 0,
             "viewers_web": viewers_data.get("count", 0) if viewers_data else 0,
-            "viewers_app": (viewers_data.get("total", 0) - viewers_data.get("count", 0)) if viewers_data else 0,
+            "viewers_app": max(0, viewers_data.get("total", 0) - viewers_data.get("count", 0)) if viewers_data else 0,
         }
 
     # ── UP主相关 ──────────────────────────────────────────

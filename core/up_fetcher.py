@@ -186,12 +186,13 @@ def _source_a_up_info(uid: int) -> Optional[Dict]:  # noqa: C901
         # 如果 bilibili-api-python 无法获取投稿数，尝试自有 API 兜底
         if not result["video_count"]:
             try:
-                import core.bilibili_api as _own_api
+                from core.bilibili_api import _get_api as _own_api
 
+                _api = _own_api()
                 # 优先使用 navnum 接口（轻量级，同时返回投稿数和粉丝数）
-                data = _own_api._request_public(
+                data = _api._request_public(
                     "GET",
-                    f"{_own_api.BASE_URL}/x/space/navnum",
+                    f"{_api.BASE_URL}/x/space/navnum",
                     params={"mid": uid, "jsonp": "jsonp"},
                 )
                 if data:
@@ -236,9 +237,10 @@ def _source_a_up_stat(uid: int) -> Optional[Dict]:
         # get_videos 可能被 412 限流，用自有 API 的 upstat 兜底（带 Cookie）
         if not stat["total_views"]:
             try:
-                import core.bilibili_api as _own_api
-                data = _own_api._request(
-                    "GET", f"{_own_api.BASE_URL}/x/space/upstat",
+                from core.bilibili_api import _get_api as _own_api
+                _api = _own_api()
+                data = _api._request(
+                    "GET", f"{_api.BASE_URL}/x/space/upstat",
                     params={"mid": uid},
                 )
                 if data and data.get("archive", {}).get("view"):

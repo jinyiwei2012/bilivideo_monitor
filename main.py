@@ -5,6 +5,7 @@ B站视频监控与播放量预测系统
 
 import sys
 import os
+import hashlib
 
 # 添加项目根目录到Python路径（兼容 PyInstaller 打包）
 if getattr(sys, "frozen", False):
@@ -16,21 +17,72 @@ if project_root not in sys.path:
 
 from ui import main
 
-# ── 启动安全校验 — 校验 3/3：源码完整性 ──────
-if not getattr(sys, "frozen", False):
-    try:
-        import inspect as _i
-        from utils.update_checker import _x_strict as _xs
-        _s = _i.getsource(_xs)
-        _m = chr(104)+chr(97)+chr(115)+chr(104)+chr(108)+chr(105)+chr(98)+chr(46)+chr(109)+chr(100)+chr(53)  # hashlib.md5
-        assert _m in _s
-        del _i, _xs, _s, _m
-    except Exception:
-        raise RuntimeError(
-            chr(20445)+chr(25252)+chr(27169)+chr(22359)+chr(23436)+chr(28304)+chr(30721)+chr(34987)+chr(34987)+chr(34945)+chr(24050)+chr(34987)+chr(24050)+chr(34987)+chr(26524)+chr(65292)+chr(31243)+chr(32456)+chr(32447)+chr(25298)+chr(32477)+chr(21551)+chr(12290)+chr(10)
-            +chr(35831)+chr(36890)+chr(32)+chr(103)+chr(105)+chr(116)+chr(32)+chr(114)+chr(101)+chr(115)+chr(116)+chr(111)+chr(114)+chr(101)+chr(32)+chr(24674)+chr(22797)+chr(25991)+chr(20214)+chr(25991)+chr(21581)+chr(35797)+chr(12290)
-            +chr(10)+chr(10)+chr(22914)+chr(38656)+chr(33719)+chr(21462)+chr(23436)+chr(25972)+chr(32)+chr(100)+chr(101)+chr(118)+chr(109)+chr(111)+chr(100)+chr(101)+chr(32)+chr(21151)+chr(33021)+chr(65292)+chr(35831)+chr(20180)+chr(32454)+chr(38405)+chr(35835)+chr(32)+chr(82)+chr(69)+chr(65)+chr(68)+chr(77)+chr(69)+chr(46)+chr(109)+chr(100)+chr(32)+chr(25991)+chr(20214)
-        )
+
+# ── 源码完整性校验 ──────────────────────────
+# SHA-256 哈希列表，在发布前通过 python scripts/update_hashes.py 更新
+# 开发时创建 .devmode 文件（内容 SHA-256 须匹配 _DEVMODE_HASH）可跳过校验
+_INTEGRITY_HASHES: dict[str, str] = {
+    "main.py": "E6D6FF21709DD30514F0425876AC248534811BD8BD5A6F86ED52AA90FD6C6C2F",
+    "core/bilibili_api.py": "53E89671FF3024E282C6CECB8A0D2D0B714D9949E4788EAE7A1973D6718D4BA6",
+    "algorithms/registry.py": "69E9982411ED9A4DEF95B6C2C197B9EB42FD28775763550258D32B4D446EA77E",
+    "algorithms/base.py": "C93D499D9BAF3C1A74C5BBF489F3221BA1EF63368561FEF851143D895F959258",
+    "core/notification.py": "8B48903EDDFE10483486B741422913EA9CB6B4A77BE8885D1937DA4B16CB88BA",
+}
+# .devmode 文件内容的期望 SHA-256（去除首尾空白后）
+_DEVMODE_HASH = "40175C25B9517A906FCF778E50387017BB8FA6121D28EBD0720474E85EE7ECA8"
+
+
+def _verify_devmode() -> bool:
+    """校验 .devmode 文件是否存在且内容哈希匹配。"""
+    devmode = os.path.join(project_root, ".devmode")
+    devmode2 = os.path.join(project_root, "devmode")
+    for path in (devmode, devmode2):
+        if os.path.isfile(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    content = f.read().strip()
+                h = hashlib.sha256(content.encode()).hexdigest().upper()
+                if h == _DEVMODE_HASH:
+                    return True
+            except Exception:
+                pass
+    return False
+
+
+def _verify_source_integrity() -> None:
+    """使用 SHA-256 校验核心源文件完整性。
+
+    开发环境（_verify_devmode 通过 或 frozen 打包）跳过校验。
+    哈希不匹配时给出清晰的错误指引。
+    """
+    if getattr(sys, "frozen", False):
+        return
+    if _verify_devmode():
+        return
+    if not _INTEGRITY_HASHES:
+        return
+
+    for rel_path, expected_hash in _INTEGRITY_HASHES.items():
+        filepath = os.path.join(project_root, rel_path)
+        if not os.path.isfile(filepath):
+            raise RuntimeError(
+                f"文件缺失: {rel_path}\n\n"
+                f"请执行 git restore 还原源文件，或创建 .devmode 文件跳过校验。\n"
+                f"参考 README.md 文件"
+            )
+        with open(filepath, "rb") as f:
+            actual_hash = hashlib.sha256(f.read()).hexdigest().upper()
+        if actual_hash != expected_hash:
+            raise RuntimeError(
+                f"文件已被篡改: {rel_path}\n"
+                f"  预期: {expected_hash}\n"
+                f"  实际: {actual_hash}\n\n"
+                f"请执行 git restore 还原源文件，或创建 .devmode 文件跳过校验。\n"
+                f"参考 README.md 文件"
+            )
+
+
+_verify_source_integrity()
 
 if __name__ == "__main__":
     main()

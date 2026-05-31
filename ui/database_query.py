@@ -8,6 +8,7 @@ import sqlite3
 import os
 import csv
 import logging
+import urllib.parse
 from datetime import datetime
 from typing import Optional
 
@@ -287,7 +288,7 @@ class DatabaseQueryWindow:
             return extra
         conn = None
         try:
-            uri = "file:{}?mode=ro".format(vdp.replace("\\", "/").replace(" ", "%20"))
+            uri = "file:{}?mode=ro".format(urllib.parse.quote(vdp.replace("\\", "/"), safe="/:"))
             conn = sqlite3.connect(uri, uri=True, check_same_thread=False)
             conn.row_factory = sqlite3.Row
             cur = conn.cursor()
@@ -457,14 +458,14 @@ class DatabaseQueryWindow:
 
         import threading
 
-        threading.Thread(target=self._query_worker, args=(mode, filter_bvid, bvid_for_trend), daemon=True).start()
+        threading.Thread(target=self._run_fallback_query, args=(mode, filter_bvid, bvid_for_trend), daemon=True).start()
 
     def _query_video_db(self, bvid: str, mode: str) -> list:
         """在视频独立库中执行查询，返回 dict 行列表。"""
         vdp = self._get_video_db_path(bvid)
         if not vdp:
             return []
-        uri = "file:{}?mode=ro".format(vdp.replace("\\", "/").replace(" ", "%20"))
+        uri = "file:{}?mode=ro".format(urllib.parse.quote(vdp.replace("\\", "/"), safe="/:"))
         conn = sqlite3.connect(uri, uri=True, check_same_thread=False)
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
@@ -533,75 +534,6 @@ class DatabaseQueryWindow:
             return
 
         self.window.after(0, lambda: self.status_var.set(f"中央库查到 {len(raw_rows)} 条，加载关联数据…"))
-        try:
-            extra_list, anames = self._load_query_extra_data(raw_rows)
-        except Exception as e:
-            logger.exception("加载关联数据失败")
-            self.window.after(0, lambda e=e: self.status_var.set(f"加载关联数据失败: {e}"))
-            self.window.after(0, self._reset_query_state)
-            return
-        self._query_source_bvid = None
-        self.window.after(0, lambda: self._finish_query(raw_rows, extra_list, anames))
-
-        # ── 确定要查的视频 BVID ──────────────────
-        target_bvid = filter_bvid or (bvid_for_trend if mode == "播放趋势" else None)
-
-        if target_bvid:
-            try:
-                raw_rows = self._query_video_db(target_bvid, mode)
-                self.window.after(
-                    0,
-                    lambda: self.status_var.set(
-                        f"视频独立库查到 {len(raw_rows)} 条" if raw_rows else "视频独立库无匹配记录"
-                    ),
-                )
-                if raw_rows:
-                    total = len(raw_rows)
-                    self.window.after(0, lambda: self.status_var.set(f"查询到 {total} 条，加载关联数据…"))
-                    try:
-                        extra_list, anames = self._load_query_extra_data(raw_rows)
-                    except Exception as e:
-                        logger.exception("加载关联数据失败")
-                        self.window.after(0, lambda e=e: self.status_var.set(f"加载关联数据失败: {e}"))
-                        self.window.after(0, self._reset_query_state)
-                        return
-                    self._query_source_bvid = target_bvid
-                    self.window.after(0, lambda: self._finish_query(raw_rows, extra_list, anames))
-                    return
-                # 无结果 → 弹窗询问是否查中央库（主线程）
-                self.window.after(0, lambda: self._prompt_fallback(mode, filter_bvid, bvid_for_trend))
-                return
-            except Exception as e:
-                logger.exception("视频独立库查询失败")
-                self.window.after(0, lambda e=e: self.status_var.set(f"视频库查询失败: {e}"))
-                self.window.after(0, self._reset_query_state)
-                return
-
-        # ── 未指定视频 → 直接查中央数据库 ────────
-        raw_rows = []
-        err_msg = None
-        try:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
-            cur = conn.cursor()
-            raw_rows = self._run_query(cur, mode, filter_bvid, bvid_for_trend)
-            conn.close()
-        except Exception as e:
-            err_msg = str(e)
-
-        if err_msg:
-            self.window.after(
-                0,
-                lambda: (
-                    messagebox.showerror("错误", f"查询失败: {err_msg}", parent=self.window),
-                    self._reset_query_state(),
-                ),
-            )
-            return
-
-        total = len(raw_rows)
-        self.window.after(0, lambda: self.status_var.set(f"查询到 {total} 条，加载关联数据…"))
-
         try:
             extra_list, anames = self._load_query_extra_data(raw_rows)
         except Exception as e:

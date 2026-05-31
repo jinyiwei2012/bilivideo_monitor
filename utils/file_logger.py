@@ -164,7 +164,7 @@ class FileLogger:
             new_path = os.path.join(self._log_dir, new_name)
             self._file.flush()
             self._file.close()
-            os.rename(old_path, new_path)
+            os.replace(old_path, new_path)
             # 重新打开供后续使用（虽然 close 不会再写，但保险起见）
             self._file = open(new_path, "a", encoding="utf-8")
         except Exception as e:

@@ -2018,7 +2018,7 @@ class SettingsWindow:
                 "SESSDATA",
                 "bili_jct",
                 "DedeUserID",
-                "DedeUserID__ckMd",
+                "DedeUserID__ckMd5",
                 "sid",
                 "buvid3",
                 "buvid4",

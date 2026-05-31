@@ -186,10 +186,6 @@ def _calc_growth_rate(history: list) -> float:
     try:
         if len(history) < 2:
             return 0.0
-
-        def _to_dt(t):
-            return t if isinstance(t, datetime) else datetime.fromisoformat(str(t))
-
         first_ts, first_v = _to_dt(history[0][0]), history[0][1]
         last_ts, last_v = _to_dt(history[-1][0]), history[-1][1]
         dt_sec = (last_ts - first_ts).total_seconds()
@@ -270,10 +266,10 @@ def _online_learning_feedback(gui, bvid, results, actual_view, prev_result):
             learner.register(bvid + "/_weighted")
             learner.update(bvid + "/_weighted", predicted=prev_prediction, actual=actual_view)
 
+        learner = get_online_learner()
         for name, pred_val, _, _ in prev_result.get("success_list", []):
             if pred_val > 0:
                 algo_key = bvid + "/" + name
-                learner = get_online_learner()
                 learner.register(algo_key)
                 learner.update(algo_key, predicted=pred_val, actual=actual_view)
     except Exception as e:
