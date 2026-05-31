@@ -158,7 +158,7 @@ class NotificationManager:
         def _send():
             self._call_action("send_private_msg", {"user_id": self.qq_private, "message": message})
 
-        threading.Thread(target=_send, daemon=True).start()
+        self._executor.submit(_send)
         return True
 
     def send_qq_group(self, message: str) -> bool:
@@ -169,7 +169,7 @@ class NotificationManager:
         def _send():
             self._call_action("send_group_msg", {"group_id": self.qq_group, "message": message})
 
-        threading.Thread(target=_send, daemon=True).start()
+        self._executor.submit(_send)
         return True
 
     def send_threshold_notification(self, bvid: str, title: str, threshold: int, current_views: int):

@@ -372,6 +372,8 @@ def _qrcode_login(self):
         if result.get("status") == 2:
             cookies = result.get("cookies", {})
             if cookies:
+                get_bilibili_api().set_cookies(cookies)
+                get_bilibili_api().add_account(get_bilibili_api().get_active_account(), cookies, get_bilibili_api().get_refresh_token())
                 self._refresh_account_list()
                 self._refresh_cookie_display()
                 self._refresh_status()
@@ -554,6 +556,8 @@ def _password_login(self):  # noqa: C901
         code = result.get("code", -1)
         if code == 0:
             cookies = result.get("cookies", {})
+            get_bilibili_api().set_cookies(cookies)
+            get_bilibili_api().add_account(get_bilibili_api().get_active_account(), cookies, get_bilibili_api().get_refresh_token())
             self._net_cfg["cookies"] = cookies
             self._net_cfg["refresh_token"] = result.get("refresh_token", "")
             self._save_net_config()

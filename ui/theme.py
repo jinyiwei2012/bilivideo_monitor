@@ -287,7 +287,6 @@ def rounded_rect(canvas, x1, y1, x2, y2, r, **kwargs):
 
 def apply_rounded_style(widget, radius_key="radius_md"):
     """为控件应用圆角样式 (通过 highlightthickness 模拟)"""
-    C.get(radius_key, 8)
     try:
         widget.configure(highlightthickness=1, highlightbackground=C.get("border_default", "#30363d"), relief="flat")
     except Exception as e:

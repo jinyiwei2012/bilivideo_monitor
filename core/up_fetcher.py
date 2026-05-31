@@ -14,6 +14,8 @@ UP主数据多源获取器
 import logging
 from typing import Dict, List, Optional, Callable
 
+import core.bilibili_api as _own_api_mod
+
 logger = logging.getLogger(__name__)
 
 # ── 延迟导入标记 ──────────────────────────────────────────
@@ -189,9 +191,7 @@ def _source_a_up_info(uid: int) -> Optional[Dict]:  # noqa: C901
         # 如果 bilibili-api-python 无法获取投稿数，尝试自有 API 兜底
         if not result["video_count"]:
             try:
-                from core.bilibili_api import _get_api as _own_api
-
-                _api = _own_api()
+                _api = _own_api_mod._get_api()
                 # 优先使用 navnum 接口（轻量级，同时返回投稿数和粉丝数）
                 data = _api._request_public(
                     "GET",

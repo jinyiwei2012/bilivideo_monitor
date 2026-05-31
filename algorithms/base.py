@@ -107,7 +107,17 @@ class BaseAlgorithm(ABC):
             return 0.0
         try:
             # 按时间戳排序，确保取到最新的两个数据点
-            sorted_hist = sorted(history, key=lambda x: x.get("timestamp", 0) if isinstance(x.get("timestamp", 0), (int, float)) else str(x.get("timestamp", "")))
+            def _sort_key(x):
+                ts = x.get("timestamp", 0)
+                if isinstance(ts, (int, float)):
+                    return ts
+                if hasattr(ts, "timestamp"):
+                    return ts.timestamp()
+                try:
+                    return datetime.fromisoformat(str(ts)).timestamp()
+                except Exception:
+                    return 0
+            sorted_hist = sorted(history, key=_sort_key)
             recent = sorted_hist[-2:]
             v0 = float(recent[0].get("view_count", 0))
             v1 = float(recent[-1].get("view_count", 0))

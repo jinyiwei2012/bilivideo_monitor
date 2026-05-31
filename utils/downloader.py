@@ -132,7 +132,11 @@ class Aria2Downloader:
                         downloaded = int(float(m_dl.group(1)) * multiplier.get(m_dl.group(2), 1)) if m_dl else 0
                     if self.progress_cb:
                         self.progress_cb(downloaded, total_size)
-            self._process.wait()
+            try:
+                self._process.wait(timeout=300)
+            except subprocess.TimeoutExpired:
+                self._process.terminate()
+                raise TimeoutError("aria2 下载超时")
             success = self._process.returncode == 0 and os.path.exists(self.dest)
             if self.done_cb:
                 self.done_cb(success, "" if success else f"aria2c 退出码 {self._process.returncode}")

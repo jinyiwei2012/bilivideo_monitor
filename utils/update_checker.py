@@ -84,35 +84,37 @@ def _find_devmode() -> str:
 
 
 def _x() -> bool:
-    """检查是否启用开发者模式（文件存在且内容匹配 + 会话放行）"""
+    """检查 .devmode 文件（内容校验 + 会话放行）
+    
+    检查 .devmode 文件是否存在且内容校验通过，同时允许通过 session 变量临时放行。"""
     if _session_devmode:
         return True
     return bool(_find_devmode())
 
 
 def _s() -> str:
-    """开发者模式按钮状态字符串"""
+    """检查开发者模式是否开启，返回按钮状态（normal/disabled）"""
     return "normal" if _x() else "disabled"
 
 
 def _hard() -> str:
-    """严格按钮状态 — session 临时确认不生效"""
+    """检查严格模式（临时会话放行不生效），返回按钮状态（normal/disabled）"""
     return "normal" if _x_strict() else "disabled"
 
 
 def _x_train() -> bool:
-    """检查 .enabletraining 文件（训练专用，用户可自行创建）"""
+    """检查项目根目录是否包含 .enabletraining 文件（训练专用开关，用户可自行创建该文件来启用训练功能）"""
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     return os.path.exists(os.path.join(root, ".enabletraining"))
 
 
 def _train() -> str:
-    """训练按钮状态 — .enabletraining 文件可开"""
+    """检查训练功能是否可用（.enabletraining 文件或严格模式），返回按钮状态（normal/disabled）"""
     return "normal" if (_x_train() or _x_strict()) else "disabled"
 
 
 def _x_strict() -> bool:
-    """严格模式：仅检查 .devmode 文件，忽略临时会话放行"""
+    """严格模式：仅检查 .devmode 文件是否存在且校验通过，忽略 _session_devmode 临时放行（用于需要强制验证的场景）"""
     return bool(_find_devmode())
 
 

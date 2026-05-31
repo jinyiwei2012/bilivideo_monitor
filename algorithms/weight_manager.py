@@ -206,7 +206,8 @@ class WeightManager:
         """获取多个算法的详细信息（名称、用户权重、ML 权重、准确率等）。"""
         info = []
         for name in algorithm_names:
-            accuracy = self.accuracy_records.get(name, [])
+            with self._lock:
+                accuracy = self.accuracy_records.get(name, [])
             avg_acc = sum(accuracy) / len(accuracy) if accuracy else 0.5
 
             info.append(

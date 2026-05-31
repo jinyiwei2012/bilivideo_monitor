@@ -166,6 +166,6 @@ def decrypt_dict(d: dict, *keys: str) -> dict:
         if k in d and isinstance(d[k], str) and d[k]:
             try:
                 d[k] = decrypt(d[k])
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("解密失败: %s", e)
     return d

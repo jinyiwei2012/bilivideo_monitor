@@ -35,7 +35,7 @@ def export_checkpoints(output_path: Optional[str] = None) -> str:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_path = os.path.join(exports_dir, f"checkpoints_{ts}.zip")
 
-    base_name = output_path.rstrip(".zip")
+    base_name = output_path[:-4] if output_path.endswith(".zip") else output_path
     logger.info("导出 checkpoint 到 %s ...", output_path)
     shutil.make_archive(base_name, "zip", src)
     logger.info("导出完成: %s (%d bytes)", output_path, os.path.getsize(output_path))

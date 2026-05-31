@@ -28,18 +28,18 @@ class CentralBackup:
             "synced_predictions": 0, "synced_weekly": 0, "synced_yearly": 0,
         }
         try:
-            central_conn = sqlite3.connect(central_db)
-            central_conn.row_factory = sqlite3.Row
-            central_cur = central_conn.cursor()
-            self._ensure_central_tables(central_cur)
-            central_conn.commit()
-            with self.db._get_connection() as central_conn:
-                active_cur = central_conn.cursor()
-            self._sync_videos_to_central(active_cur, central_cur, result)
-            active_bvids, central_bvids = self._sync_monitor_records_to_central(active_cur, central_cur, result)
-            self._sync_per_video_details(active_bvids, central_bvids, central_cur, result)
-            central_conn.commit()
-            central_conn.close()
+            backup_conn = sqlite3.connect(central_db)
+            backup_conn.row_factory = sqlite3.Row
+            backup_cur = backup_conn.cursor()
+            self._ensure_central_tables(backup_cur)
+            backup_conn.commit()
+            with self.db._get_connection() as active_conn:
+                active_cur = active_conn.cursor()
+            self._sync_videos_to_central(active_cur, backup_cur, result)
+            active_bvids, central_bvids = self._sync_monitor_records_to_central(active_cur, backup_cur, result)
+            self._sync_per_video_details(active_bvids, central_bvids, backup_cur, result)
+            backup_conn.commit()
+            backup_conn.close()
             logger.info(
                 "中央库同步完成: %d视频 %d记录 %d瑕疵 | 预测%d 周刊%d 年刊%d",
                 result["synced_videos"], result["synced_records"], result["fixed_flaws"],

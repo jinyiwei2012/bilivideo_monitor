@@ -540,13 +540,16 @@ BilibiliAPI.get_up_videos = get_up_videos
 
 # 全局API实例（延迟初始化，避免拖慢模块导入）
 _bilibili_api_instance = None
+_bilibili_api_lock = threading.Lock()
 
 
 def _get_api():
-    """延迟获取/创建 BilibiliAPI 实例"""
+    """延迟获取/创建 BilibiliAPI 实例（双检锁线程安全）"""
     global _bilibili_api_instance
     if _bilibili_api_instance is None:
-        _bilibili_api_instance = BilibiliAPI()
+        with _bilibili_api_lock:
+            if _bilibili_api_instance is None:
+                _bilibili_api_instance = BilibiliAPI()
     return _bilibili_api_instance
 
 

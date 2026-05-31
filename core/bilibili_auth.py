@@ -164,11 +164,14 @@ def login_with_password(
             d = data.get("data", {})
             cookies = _extract_login_cookies(self, resp, d)
             if not cookies:
+                import hashlib as _hl
+                mid_raw = str(d.get("mid", ""))
+                ckMd5 = _hl.md5(mid_raw.encode()).hexdigest() if mid_raw else ""
                 cookies = {
                     "SESSDATA": d.get("sessdata", ""),
                     "bili_jct": d.get("bili_jct", ""),
-                    "DedeUserID": str(d.get("mid", "")),
-                    "DedeUserID__ckMd5": d.get("mid", ""),
+                    "DedeUserID": mid_raw,
+                    "DedeUserID__ckMd5": ckMd5,
                     "sid": d.get("sid", ""),
                 }
                 cookies = {k: v for k, v in cookies.items() if v}
@@ -199,10 +202,11 @@ def login_with_password(
             data_g = resp_g.json()
             if data_g.get("code") == 0:
                 d_g = data_g.get("data", {})
-                cookies = _extract_login_cookies(self, resp_g, d_g) or {k: v for k, v in {
+                cookies = _extract_login_cookies(self, resp_g, d_g) or {
                     "SESSDATA": d_g.get("sessdata", ""), "bili_jct": d_g.get("bili_jct", ""),
                     "DedeUserID": str(d_g.get("mid", "")),
-                }.items() if v}
+                }
+                cookies = {k: v for k, v in cookies.items() if v}
                 set_cookies(self, cookies)
                 return {"code": 0, "message": "登录成功", "cookies": cookies,
                         "refresh_token": d_g.get("refresh_token", ""),
@@ -237,10 +241,12 @@ def login_with_password(
                         d2 = data2.get("data", {})
                         cookies = _extract_login_cookies(self, resp2, d2)
                         if not cookies:
+                            mid2 = str(d2.get("mid", ""))
                             cookies = {k: v for k, v in {
                                 "SESSDATA": d2.get("sessdata", ""),
                                 "bili_jct": d2.get("bili_jct", ""),
-                                "DedeUserID": str(d2.get("mid", "")),
+                                "DedeUserID": mid2,
+                                "DedeUserID__ckMd5": hashlib.md5(mid2.encode()).hexdigest() if mid2 else "",
                             }.items() if v}
                         set_cookies(self, cookies)
                         return {"code": 0, "message": "登录成功", "cookies": cookies,

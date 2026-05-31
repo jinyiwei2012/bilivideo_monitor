@@ -173,7 +173,8 @@ class VideoGraph:
 
         # 特征分解，取第 2 到 embed_dim+1 小的特征向量
         eigenvalues, eigenvectors = np.linalg.eigh(L)
-        embs = eigenvectors[:, 1:embed_dim + 1]
+        actual_dim = min(embed_dim, max(1, n - 1))
+        embs = eigenvectors[:, 1:actual_dim + 1]
         norms = np.linalg.norm(embs, axis=1, keepdims=True)
         norms = np.where(norms > 1e-10, norms, 1.0)
         embs = embs / norms
@@ -372,7 +373,7 @@ class VideoGraph:
         if a.get("owner_name") and b.get("owner_name"):
             if a["owner_name"] == b["owner_name"]:
                 w += 0.5
-            count += 1
+                count += 1
 
         # 2. 发布时间接近度（48 小时以内视为相关，越接近权重越高）
         pa = a.get("pubdate", "")
@@ -384,7 +385,7 @@ class VideoGraph:
                 dt_hours = abs(ta - tb) / 3600.0
                 if dt_hours < 48:
                     w += 0.3 * (1 - dt_hours / 48)
-                count += 1
+                    count += 1
             except Exception as e:
                 logger.debug("计算视频间发布时间特征失败: %s", e)
 

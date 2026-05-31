@@ -338,7 +338,7 @@ class CausalAnalyzer:
                 c_std = math.sqrt(sum((x - c_mean) ** 2 for x in cause) / max(n - 1, 1))
                 if c_std < 1e-10:
                     continue
-                cov = sum((target[i] - t_mean) * (cause[i] - c_mean) for i in range(n)) / n
+                cov = sum((target[i] - t_mean) * (cause[i] - c_mean) for i in range(n)) / max(n - 1, 1)
                 correlations[feat] = cov / (t_std * c_std)
         return correlations
 

@@ -140,6 +140,7 @@ def get_video_cid(self, bvid: str) -> Optional[int]:
 
 def get_video_danmaku(self, oid: int) -> List[Dict]:
     try:
+        self._ensure_min_interval()
         logger.debug("→ GET %s?oid=%s", self.DANMAKU_URL, oid)
         resp = self.session.get(
             self.DANMAKU_URL,
