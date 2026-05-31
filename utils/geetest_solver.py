@@ -196,7 +196,7 @@ def _encrypt_w(gt: str, challenge: str, userresponse: str, trace: List[Dict], pa
     try:
         from Cryptodome.Cipher import AES
     except ImportError:
-        raise ImportError("缺少 Cryptodome 库，请执行: pip install pycryptodome")
+        raise ImportError("缺少 Cryptodome 库，请执行: pip install pycryptodomex")
 
     # 计算 rp 参数
     rp = hashlib.md5(f"{gt}{challenge[:32]}{passtime}".encode(), usedforsecurity=False).hexdigest()

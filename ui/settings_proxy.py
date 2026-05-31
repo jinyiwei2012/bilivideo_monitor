@@ -154,7 +154,7 @@ def _auto_fetch_worker(self):
             text=f"⏳ 拉取 {n}…", fg=C["warning"]))
         try:
             resp = _req.get(src_url, timeout=10,
-                            headers={"User-Agent": "Mozilla/5.0"}, verify=False)
+                            headers={"User-Agent": "Mozilla/5.0"}, verify=False)  # nosec B501 — proxy source testing; no sensitive data
             if resp.status_code != 200:
                 continue
             urls = pm._parse_proxy_list(resp.text, src_url)

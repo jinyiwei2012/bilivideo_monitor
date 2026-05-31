@@ -121,7 +121,8 @@ def _rss_multi_regression(
     sample_start = max_lag
     sample_size = n - sample_start
     if sample_size < 3:
-        return sum((y - sum(Y) / n) ** 2 for y in Y)
+        mean_y = sum(Y) / n
+        return sum((y - mean_y) ** 2 for y in Y)
 
     # 构建设计矩阵 X 和响应向量 Y
     X_design: List[List[float]] = []

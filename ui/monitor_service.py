@@ -367,21 +367,37 @@ class VideoWorker:
                 time.sleep(sleep_for)
                 waited += sleep_for
 
-    def _fetch_and_predict(self):  # noqa: C901
+    def _fetch_and_predict(self):
         """在 worker 线程中执行一次完整的拉取 + 预测"""
         bvid = self.bvid
         video = self.video
         gui = self.gui
 
-        # 防止同一视频的并发拉取
         with self._fetching_lock:
             if self._fetching:
                 self._log("DEBUG", f"[{bvid}] 上次拉取尚未完成，跳过本次")
                 return
             self._fetching = True
 
+        if not self._do_fetch(bvid, video, gui):
+            with self._fetching_lock:
+                self._fetching = False
+            return
+
+        result = self._do_predict(gui, bvid, video)
+        if result is None:
+            with self._fetching_lock:
+                self._fetching = False
+            return
+
+        self._do_post_fetch(bvid, video, gui, result)
+
+        with self._fetching_lock:
+            self._fetching = False
+
+    def _do_fetch(self, bvid, video, gui):
+        """拉取视频数据：获取 info → 更新字段 → 在线人数 → 历史记录 → 写DB"""
         self._log("DEBUG", f"[{bvid}] 开始拉取数据…")
-        # 记录当前使用的代理（脱敏显示协议+IP前3位）
         proxy_hint = bilibili_api.proxy_manager.peek_proxy()
         if proxy_hint:
             self._log("INFO", f"[{bvid}] 开始通过代理 {proxy_hint} 拉取数据…")
@@ -391,16 +407,11 @@ class VideoWorker:
             info = bilibili_api.get_video_info(bvid)
             if not info:
                 self._log("WARNING", f"[{bvid}] 获取视频信息失败（返回 None）")
-                with self._fetching_lock:
-                    self._fetching = False
-                return
+                return False
         except Exception as e:
             self._log("ERROR", f"[{bvid}] 获取视频信息异常: {e}")
-            with self._fetching_lock:
-                self._fetching = False
-            return
+            return False
 
-        # ── 网络响应日志 ────────────────────────────
         stat = info.get("stat", {})
         self._log(
             "DEBUG",
@@ -409,13 +420,11 @@ class VideoWorker:
             f"弹幕:{stat.get('danmaku', 0)} 评论:{stat.get('reply', 0)}",
         )
 
-        # ── 更新视频字段（持 _data_lock 防止主线程读到半写状态）──
         with gui._data_lock:
             owner = info.get("owner", {})
             video["title"] = info.get("title", video.get("title", ""))
             video["author"] = owner.get("name", video.get("author", ""))
             video["pic"] = info.get("pic", video.get("pic", ""))
-            # 自动保存 UP主 数据到数据库（每小时最多一次）
             owner_id = owner.get("mid", 0)
             if owner_id:
                 _save_up_data(owner_id)
@@ -427,7 +436,6 @@ class VideoWorker:
             video["danmaku_count"] = stat.get("danmaku", video.get("danmaku_count", 0))
             video["reply_count"] = stat.get("reply", video.get("reply_count", 0))
 
-        # ── 在线人数（持 _data_lock）──
         with gui._data_lock:
             try:
                 cid = info.get("cid", 0)
@@ -457,17 +465,14 @@ class VideoWorker:
                 video["viewers_web"] = video.get("viewers_web", 0)
                 video["viewers_app"] = video.get("viewers_app", 0)
 
-        # ── 历史记录 ─────────────────────────────
         ts = datetime.now()
         with gui._data_lock:
             if bvid not in gui.history_data:
                 gui.history_data[bvid] = []
             gui.history_data[bvid].append((ts, video["view_count"]))
-            # 防止内存无界增长，超过 3000 时保留最近 2800 条（缓降，避免一次丢掉 1000 条）
             if len(gui.history_data[bvid]) > 3000:
                 gui.history_data[bvid] = gui.history_data[bvid][-2800:]
 
-        # ── 写数据库 ─────────────────────────────
         try:
             if bvid in gui.video_dbs:
                 rec = MonitorRecord(
@@ -490,7 +495,6 @@ class VideoWorker:
         except Exception as e:
             self._log("WARNING", f"[{bvid}] 写数据库失败: {e}")
 
-        # 同步当前监控记录到中央数据库（避免全量扫描）
         try:
             db.sync_monitor_record(
                 bvid,
@@ -511,31 +515,28 @@ class VideoWorker:
         except Exception as e:
             self._log("WARNING", f"[{bvid}] 同步中央监控记录失败: {e}")
 
-        # ── 预测 ─────────────────────────────────
+        return True
+
+    def _do_predict(self, gui, bvid, video):
+        """执行播放量预测"""
         try:
-            result = _predict_single(gui, bvid, video)
+            return _predict_single(gui, bvid, video)
         except Exception as e:
             self._log("ERROR", f"[{bvid}] 预测失败: {e}")
-            with self._fetching_lock:
-                self._fetching = False
-            return
+            return None
 
+    def _do_post_fetch(self, bvid, video, gui, result):
+        """预测完成后的日志、同步和 UI 回调"""
         self._log(
             "DEBUG", f"[{bvid}] 拉取完成 播放:{video.get('view_count', 0):,} 预测:{result.get('prediction', 0):,}"
         )
 
-        # 同步视频信息到中央数据库（从内存直接写入，避免新建 DB 连接 + 重复读盘）
         try:
             db.sync_video_info(bvid, video)
         except Exception as e:
             self._log("WARNING", f"[{bvid}] 同步中央数据库失败: {e}")
 
-        # ── 回调主线程更新 UI ─────────────────────
-        #    仅在选中该视频时触发完整 UI 更新；其他视频静默后台更新
         gui.root.after(0, lambda r=result, v=video: self._on_fetch_done(r, v))
-
-        with self._fetching_lock:
-            self._fetching = False
 
     def _on_fetch_done(self, result, video):
         """在主线程回调：更新 UI（仅当前选中视频触发完整刷新）"""

@@ -315,7 +315,7 @@ class DanmakuAnalysisWindow:
         self.window.update_idletasks()
 
         try:
-            mode = self._mode_var.get()  # noqa: F841
+            mode = self._mode_var.get()
             texts = None
 
             if mode == "danmaku":
@@ -424,7 +424,7 @@ class DanmakuAnalysisWindow:
         bv_dir = os.path.join(DATA_DIR, self._current_bvid, "danmaku")
         os.makedirs(bv_dir, exist_ok=True)
 
-        mode = self._mode_var.get()  # noqa: F841
+        mode = self._mode_var.get()
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"{mode}_{ts}.json"
         filepath = os.path.join(bv_dir, filename)
@@ -472,7 +472,7 @@ class DanmakuAnalysisWindow:
         from config import DATA_DIR
 
         bv_dir = os.path.join(DATA_DIR, self._current_bvid, "danmaku")
-        mode = self._mode_var.get()  # noqa: F841
+        mode = self._mode_var.get()
         local_files = []
         if os.path.isdir(bv_dir):
             local_files = [

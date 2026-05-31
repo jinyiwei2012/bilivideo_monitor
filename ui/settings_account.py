@@ -463,7 +463,62 @@ def _remove_account(self):
     self._refresh_status()
 
 
-def _password_login(self):  # noqa: C901
+def _password_login(self):
+    pwd_top, ui = _draw_login_form(self)
+
+    def _do_login(captcha_code: str = "", ct: int = 0):
+        uname = ui["username_entry"].get().strip()
+        pwd = ui["password_entry"].get()
+        if not uname or not pwd:
+            messagebox.showwarning("提示", "请输入账号和密码", parent=pwd_top)
+            return
+        for w in (ui["username_entry"], ui["password_entry"], ui["captcha_entry"]):
+            w.config(state="disabled")
+        ui["login_btn"].config(state="disabled")
+        ui["status_var"].set("登录中..." if not captcha_code else "验证中...")
+        ui["status_lbl"].config(fg=C["text_2"])
+        pwd_top.update()
+
+        def _worker():
+            try:
+                result = get_bilibili_api().login_with_password(uname, pwd, captcha=captcha_code, captcha_type=ct)
+                pwd_top.after(0, lambda: _handle_result(result))
+            except Exception as e:
+                pwd_top.after(0, lambda e=e: ui["status_var"].set(f"异常: {e}"))
+
+        import threading
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _handle_result(result):
+        code = result.get("code", -1)
+        if code == 0:
+            _handle_login_response(self, pwd_top, ui, result)
+        elif result.get("need_captcha") and not ui["captcha_entry"].get().strip():
+            _handle_captcha_flow(self, pwd_top, ui, result, _do_login)
+        elif "验证码" in result.get("message", "") or result.get("code") in (-629, -352):
+            _handle_captcha_flow(self, pwd_top, ui, result, _do_login)
+        else:
+            _handle_login_response(self, pwd_top, ui, result)
+
+    def _submit_captcha():
+        code = ui["captcha_entry"].get().strip()
+        if not code:
+            messagebox.showwarning("提示", "请输入验证码", parent=pwd_top)
+            return
+        _do_login(captcha_code=code, ct=ui["captcha_type_var"].get())
+
+    ui["login_btn"].config(command=lambda: _do_login())
+    ui["submit_captcha_btn"].config(command=_submit_captcha)
+
+    for w in (ui["username_entry"], ui["password_entry"]):
+        w.bind("<Return>", lambda e: _do_login())
+    ui["captcha_entry"].bind("<Return>", lambda e: _submit_captcha())
+    ttk.Button(ui["btn_f"], text="取消", command=pwd_top.destroy).pack(side=tk.LEFT, padx=4)
+
+
+def _draw_login_form(self):
+    """构建密码登录对话框，返回 (pwd_top, ui_dict)"""
     pwd_top = tk.Toplevel(self.window)
     pwd_top.title("密码登录 B站")
     sw = self.window.winfo_screenwidth()
@@ -527,151 +582,111 @@ def _password_login(self):  # noqa: C901
     cancel_btn = ttk.Button(btn_f, text="取消", command=pwd_top.destroy)
     cancel_btn.pack(side=tk.LEFT, padx=4)
 
-    def _do_login(captcha_code: str = "", ct: int = 0):
-        uname = username_entry.get().strip()
-        pwd = password_entry.get()
-        if not uname or not pwd:
-            messagebox.showwarning("提示", "请输入账号和密码", parent=pwd_top)
-            return
-        for w in (username_entry, password_entry, captcha_entry):
-            w.config(state="disabled")
-        login_btn.config(state="disabled")
-        status_var.set("登录中..." if not captcha_code else "验证中...")
-        status_lbl.config(fg=C["text_2"])
-        pwd_top.update()
+    ui = {
+        "pwd_top": pwd_top,
+        "username_entry": username_entry,
+        "password_entry": password_entry,
+        "captcha_frame": captcha_frame,
+        "captcha_entry": captcha_entry,
+        "captcha_type_var": captcha_type_var,
+        "status_var": status_var,
+        "status_lbl": status_lbl,
+        "btn_f": btn_f,
+        "login_btn": login_btn,
+        "cancel_btn": cancel_btn,
+        "captcha_btn_f": captcha_btn_f,
+        "submit_captcha_btn": submit_captcha_btn,
+    }
+    return pwd_top, ui
 
-        def _worker():
-            try:
-                result = get_bilibili_api().login_with_password(uname, pwd, captcha=captcha_code, captcha_type=ct)
-                pwd_top.after(0, lambda: _handle_result(result))
-            except Exception as e:
-                pwd_top.after(0, lambda e=e: status_var.set(f"异常: {e}"))
 
-        import threading
+def _handle_login_response(self, pwd_top, ui, result):
+    """处理登录响应：成功或通用错误"""
+    code = result.get("code", -1)
+    if code == 0:
+        cookies = result.get("cookies", {})
+        get_bilibili_api().set_cookies(cookies)
+        get_bilibili_api().add_account(
+            get_bilibili_api().get_active_account(), cookies, get_bilibili_api().get_refresh_token()
+        )
+        self._net_cfg["cookies"] = cookies
+        self._net_cfg["refresh_token"] = result.get("refresh_token", "")
+        self._save_net_config()
+        self._refresh_cookie_display()
+        self._refresh_status()
+        ui["status_var"].set("登录成功！")
+        ui["status_lbl"].config(fg=C["success"])
+        pwd_top.after(800, pwd_top.destroy)
+        self.window.after(1000, self._verify_login)
+        messagebox.showinfo(
+            "登录成功",
+            f"已获取 Cookie: {', '.join(cookies.keys())}",
+            parent=self.window,
+        )
+    else:
+        msg = result.get("message", "未知错误")
+        if code == -1057:
+            msg += "，请检查账号密码"
+        ui["status_var"].set(msg)
+        ui["status_lbl"].config(fg=C["danger"])
+        for w in (ui["username_entry"], ui["password_entry"], ui["captcha_entry"]):
+            w.config(state="normal")
+        ui["login_btn"].config(state="normal")
 
-        threading.Thread(target=_worker, daemon=True).start()
 
-    def _handle_result(result):
-        code = result.get("code", -1)
-        if code == 0:
-            cookies = result.get("cookies", {})
-            get_bilibili_api().set_cookies(cookies)
-            get_bilibili_api().add_account(get_bilibili_api().get_active_account(), cookies, get_bilibili_api().get_refresh_token())
-            self._net_cfg["cookies"] = cookies
-            self._net_cfg["refresh_token"] = result.get("refresh_token", "")
-            self._save_net_config()
-            self._refresh_cookie_display()
-            self._refresh_status()
-            status_var.set("登录成功！")
-            status_lbl.config(fg=C["success"])
-            pwd_top.after(800, pwd_top.destroy)
-            self.window.after(1000, self._verify_login)
-            messagebox.showinfo(
-                "登录成功",
-                f"已获取 Cookie: {', '.join(cookies.keys())}",
-                parent=self.window,
-            )
-        elif result.get("need_captcha") and not captcha_entry.get().strip():
-            ct = result.get("captcha_type", 0)
-            captcha_type_var.set(ct)
-            if ct == 6:
-                phone = result.get("captcha_phone", "")
-                hint = f"验证码已发送至 {phone}" if phone else "请输入手机收到的验证码"
-                status_var.set(hint)
-                status_lbl.config(fg=C["warning"])
-                captcha_frame.pack(pady=(6, 0))
-                captcha_entry.config(state="normal")
-                captcha_entry.focus_set()
-                captcha_btn_f.pack(pady=(2, 0))
-                submit_captcha_btn.pack(side=tk.LEFT, padx=4)
-                login_btn.pack_forget()
-                cancel_btn.pack_forget()
-                ttk.Button(captcha_btn_f, text="取消", command=pwd_top.destroy).pack(side=tk.LEFT, padx=4)
-            else:
-                gt = result.get("gt", "")
-                challenge = result.get("challenge", "")
-                geetest_url = f"https://api.geetest.com/get.php?gt={gt}&challenge={challenge}&lang=zh-cn&product=embed"
-                status_var.set("需要极验滑块验证（自动求解失败，请手动完成）")
-                status_lbl.config(fg=C["danger"])
+def _handle_captcha_flow(self, pwd_top, ui, result, do_login_cb):
+    """处理验证码流程：短信验证码 (type 6) 或极验滑块"""
+    captcha_frame = ui["captcha_frame"]
+    captcha_btn_f = ui["captcha_btn_f"]
+    ct = result.get("captcha_type", 0)
+    ui["captcha_type_var"].set(ct)
+    if ct == 6:
+        phone = result.get("captcha_phone", "")
+        hint = f"验证码已发送至 {phone}" if phone else "请输入手机收到的验证码"
+        ui["status_var"].set(hint)
+        ui["status_lbl"].config(fg=C["warning"])
+        captcha_frame.pack(pady=(6, 0))
+        ui["captcha_entry"].config(state="normal")
+        ui["captcha_entry"].focus_set()
+        captcha_btn_f.pack(pady=(2, 0))
+        ui["submit_captcha_btn"].pack(side=tk.LEFT, padx=4)
+        ui["login_btn"].pack_forget()
+        ui["cancel_btn"].pack_forget()
+        ttk.Button(captcha_btn_f, text="取消", command=pwd_top.destroy).pack(side=tk.LEFT, padx=4)
+    else:
+        gt = result.get("gt", "")
+        challenge = result.get("challenge", "")
+        geetest_url = f"https://api.geetest.com/get.php?gt={gt}&challenge={challenge}&lang=zh-cn&product=embed"
+        is_retry = bool(result.get("code") in (-629, -352))
 
-                def _open_geetest():
-                    import webbrowser
-                    webbrowser.open(geetest_url)
-                    messagebox.showinfo("极验验证", "请在浏览器中完成滑块验证，然后将 validate 和 seccode 值输入下方", parent=pwd_top)
-
-                ttk.Button(captcha_btn_f, text="🌐 打开极验验证页", command=_open_geetest).pack(side=tk.LEFT, padx=4)
-                tk.Label(captcha_frame, text="validate:", bg=C["bg_surface"], fg=C["text_2"], font=FONT_SM).pack()
-                geetest_validate_entry = ttk.Entry(captcha_frame, width=40, font=("Consolas", 9))
-                geetest_validate_entry.pack(pady=2)
-                tk.Label(captcha_frame, text="seccode:", bg=C["bg_surface"], fg=C["text_2"], font=FONT_SM).pack()
-                geetest_seccode_entry = ttk.Entry(captcha_frame, width=40, font=("Consolas", 9))
-                geetest_seccode_entry.pack(pady=2)
-                captcha_frame.pack(pady=(6, 0))
-
-                def _submit_geetest():
-                    validate = geetest_validate_entry.get().strip()
-                    seccode = geetest_seccode_entry.get().strip()
-                    if validate and seccode:
-                        _do_login(captcha_code=f"{validate}:{seccode}", ct=-1)
-
-                ttk.Button(captcha_btn_f, text="提交极验结果", command=_submit_geetest).pack(side=tk.LEFT, padx=4)
-            for w in (username_entry, password_entry):
-                w.config(state="normal")
-            login_btn.config(state="normal")
-        elif "验证码" in result.get("message", "") or result.get("code") in (-629, -352):
-            gt = result.get("gt", "")
-            challenge = result.get("challenge", "")
-            if gt and challenge:
-                geetest_url = f"https://api.geetest.com/get.php?gt={gt}&challenge={challenge}&lang=zh-cn&product=embed"
-                status_var.set("需要极验验证（自动求解未触发，请手动完成）")
-                status_lbl.config(fg=C["danger"])
-
-                def _open_geetest():
-                    import webbrowser
-                    webbrowser.open(geetest_url)
-                    messagebox.showinfo("极验验证", "请在浏览器中完成滑块验证，然后将 validate 和 seccode 值输入下方", parent=pwd_top)
-
-                ttk.Button(captcha_btn_f, text="🌐 打开极验验证页", command=_open_geetest).pack(side=tk.LEFT, padx=4)
-                tk.Label(captcha_frame, text="validate:", bg=C["bg_surface"], fg=C["text_2"], font=FONT_SM).pack()
-                geetest_validate_entry2 = ttk.Entry(captcha_frame, width=40, font=("Consolas", 9))
-                geetest_validate_entry2.pack(pady=2)
-                tk.Label(captcha_frame, text="seccode:", bg=C["bg_surface"], fg=C["text_2"], font=FONT_SM).pack()
-                geetest_seccode_entry2 = ttk.Entry(captcha_frame, width=40, font=("Consolas", 9))
-                geetest_seccode_entry2.pack(pady=2)
-                captcha_frame.pack(pady=(6, 0))
-
-                def _submit_geetest2():
-                    v = geetest_validate_entry2.get().strip()
-                    s = geetest_seccode_entry2.get().strip()
-                    if v and s:
-                        _do_login(captcha_code=f"{v}:{s}", ct=-1)
-
-                ttk.Button(captcha_btn_f, text="提交极验结果", command=_submit_geetest2).pack(side=tk.LEFT, padx=4)
-                for w in (username_entry, password_entry):
-                    w.config(state="normal")
-                login_btn.config(state="normal")
-                return
+        if is_retry:
+            ui["status_var"].set("需要极验验证（自动求解未触发，请手动完成）")
         else:
-            msg = result.get("message", "未知错误")
-            if code == -1057:
-                msg += "，请检查账号密码"
-            status_var.set(msg)
-            status_lbl.config(fg=C["danger"])
-            for w in (username_entry, password_entry, captcha_entry):
-                w.config(state="normal")
-            login_btn.config(state="normal")
+            ui["status_var"].set("需要极验滑块验证（自动求解失败，请手动完成）")
+        ui["status_lbl"].config(fg=C["danger"])
 
-    def _submit_captcha():
-        code = captcha_entry.get().strip()
-        if not code:
-            messagebox.showwarning("提示", "请输入验证码", parent=pwd_top)
-            return
-        _do_login(captcha_code=code, ct=captcha_type_var.get())
+        def _open_geetest():
+            import webbrowser
+            webbrowser.open(geetest_url)
+            messagebox.showinfo("极验验证", "请在浏览器中完成滑块验证，然后将 validate 和 seccode 值输入下方", parent=pwd_top)
 
-    login_btn.config(command=lambda: _do_login())
-    submit_captcha_btn.config(command=_submit_captcha)
+        ttk.Button(captcha_btn_f, text="🌐 打开极验验证页", command=_open_geetest).pack(side=tk.LEFT, padx=4)
+        tk.Label(captcha_frame, text="validate:", bg=C["bg_surface"], fg=C["text_2"], font=FONT_SM).pack()
+        geetest_validate_entry = ttk.Entry(captcha_frame, width=40, font=("Consolas", 9))
+        geetest_validate_entry.pack(pady=2)
+        tk.Label(captcha_frame, text="seccode:", bg=C["bg_surface"], fg=C["text_2"], font=FONT_SM).pack()
+        geetest_seccode_entry = ttk.Entry(captcha_frame, width=40, font=("Consolas", 9))
+        geetest_seccode_entry.pack(pady=2)
+        captcha_frame.pack(pady=(6, 0))
 
-    for w in (username_entry, password_entry):
-        w.bind("<Return>", lambda e: _do_login())
-    captcha_entry.bind("<Return>", lambda e: _submit_captcha())
-    ttk.Button(btn_f, text="取消", command=pwd_top.destroy).pack(side=tk.LEFT, padx=4)
+        def _submit_geetest():
+            validate = geetest_validate_entry.get().strip()
+            seccode = geetest_seccode_entry.get().strip()
+            if validate and seccode:
+                do_login_cb(captcha_code=f"{validate}:{seccode}", ct=-1)
+
+        ttk.Button(captcha_btn_f, text="提交极验结果", command=_submit_geetest).pack(side=tk.LEFT, padx=4)
+
+    for w in (ui["username_entry"], ui["password_entry"]):
+        w.config(state="normal")
+    ui["login_btn"].config(state="normal")

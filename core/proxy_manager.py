@@ -238,6 +238,8 @@ class ProxyManager:
         check = err_str + " " + root_cause
 
         # 常见错误模式匹配
+        # NOTE: error message matching depends on OS locale; Chinese patterns may not
+        # match on non-Chinese Windows where error messages are returned in English.
         patterns = [
             (["Connection refused", "连接被拒绝", "积极拒绝"], "连接被拒绝（代理地址或端口无效）"),
             (

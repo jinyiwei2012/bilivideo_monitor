@@ -118,7 +118,7 @@ class TrainingPanel(BaseTrainingPanel):
         toolbar = tk.Frame(left, bg=C["bg_elevated"])
         toolbar.pack(fill=tk.X, padx=4, pady=(2, 2))
         ttk.Button(toolbar, text="全选", command=lambda: self._select_all(True), width=6).pack(side=tk.LEFT, padx=1)
-        ttk.Button(toolbar, text="反选", command=lambda: self._select_all(False), width=6).pack(side=tk.LEFT, padx=1)
+        ttk.Button(toolbar, text="全不选", command=lambda: self._select_all(False), width=6).pack(side=tk.LEFT, padx=1)
         ttk.Button(toolbar, text="仅未训练", command=self._select_untrained, width=8).pack(side=tk.LEFT, padx=1)
         ttk.Button(toolbar, text="🗑️ 版本管理", command=self._on_manage_versions, width=10).pack(side=tk.LEFT, padx=1)
 
@@ -421,7 +421,7 @@ class TrainingPanel(BaseTrainingPanel):
 
     # ── 版本管理 ──────────────────────────────────
 
-    def _on_manage_versions(self):  # noqa: C901
+    def _on_manage_versions(self):
         """打开 checkpoint 版本管理对话框 — 查看/删除/激活版本。"""
         from algorithms.training.checkpoint_manager import (
             CheckpointManager,
@@ -430,7 +430,6 @@ class TrainingPanel(BaseTrainingPanel):
         from algorithms.registry import AlgorithmRegistry
 
         AlgorithmRegistry.initialize()
-        # 收集所有有 checkpoint 的算法
         algos = []
         for aid, algo, _adapter in AlgorithmRegistry.get_trainable_algorithms():
             ckpt = CheckpointManager(aid)
@@ -447,7 +446,15 @@ class TrainingPanel(BaseTrainingPanel):
             messagebox.showinfo("提示", "没有任何已训练的模型", parent=self.frame)
             return
 
-        # 构建版本管理对话框
+        dialog, info_lbl, detail_frame, algo_inner = self._draw_manage_dialog()
+
+        def _refresh_detail(aid, name):
+            self._draw_version_detail(detail_frame, info_lbl, aid, name, _refresh_detail)
+
+        self._draw_version_list(algo_inner, algos, _refresh_detail)
+
+    def _draw_manage_dialog(self):
+        """构建版本管理对话框骨架，返回 (dialog, info_lbl, detail_frame, algo_inner)"""
         dialog = tk.Toplevel(self.frame)
         dialog.title("Checkpoint 版本管理")
         dialog.geometry("700x500")
@@ -458,7 +465,6 @@ class TrainingPanel(BaseTrainingPanel):
         main = tk.Frame(dialog, bg=C["bg_base"])
         main.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
 
-        # 左侧：算法列表 | 右侧：版本详情
         left_panel = tk.Frame(main, bg=C["bg_elevated"], width=220)
         left_panel.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 6))
         left_panel.pack_propagate(False)
@@ -470,7 +476,6 @@ class TrainingPanel(BaseTrainingPanel):
         algo_sf.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         algo_inner = algo_sf.inner
 
-        # 右侧：版本列表
         right_panel = tk.Frame(main, bg=C["bg_surface"])
         right_panel.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
 
@@ -480,132 +485,10 @@ class TrainingPanel(BaseTrainingPanel):
         detail_frame = tk.Frame(right_panel, bg=C["bg_surface"])
         detail_frame.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
 
-        def _refresh_detail(aid, name):
-            """刷新指定算法的版本详情"""
-            for w in detail_frame.winfo_children():
-                w.destroy()
+        return dialog, info_lbl, detail_frame, algo_inner
 
-            info_lbl.pack_forget()
-
-            # 算法标题
-            tk.Label(detail_frame, text=f"{name}  ({aid})", bg=C["bg_surface"], fg=C["text_1"], font=FONT_BOLD).pack(
-                anchor="w", pady=(0, 6)
-            )
-
-            ckpt = CheckpointManager(aid)
-
-            # ── 全局版本 ──
-            tk.Label(detail_frame, text="全局版本", bg=C["bg_surface"], fg=C["text_2"], font=FONT_SM).pack(anchor="w")
-
-            versions = ckpt.list_versions()
-            if not versions:
-                tk.Label(
-                    detail_frame, text="  （无全局 checkpoint）", bg=C["bg_surface"], fg=C["text_3"], font=FONT_SM
-                ).pack(anchor="w", pady=2)
-            else:
-                for v in versions:
-                    row = tk.Frame(detail_frame, bg=C["bg_elevated"])
-                    row.pack(fill=tk.X, pady=1)
-                    active_tag = "★ " if v.get("active") else "  "
-                    tk.Label(
-                        row,
-                        text=f"{active_tag}{v['version']}",
-                        bg=C["bg_elevated"],
-                        fg=C["success"] if v.get("active") else C["text_1"],
-                        font=FONT_MONO,
-                        width=30,
-                        anchor="w",
-                    ).pack(side=tk.LEFT, padx=4, pady=2)
-
-                    # 激活按钮（如果不是当前激活版本）
-                    if not v.get("active") and len(versions) > 1:
-                        ttk.Button(
-                            row,
-                            text="激活",
-                            width=4,
-                            command=lambda ver=v["version"], c=ckpt, a=aid, n=name: (
-                                c.activate(ver),
-                                _refresh_detail(a, n),
-                            ),
-                        ).pack(side=tk.RIGHT, padx=2)
-
-                    # 删除按钮（只有一个版本时不显示）
-                    if len(versions) > 1:
-                        ttk.Button(
-                            row,
-                            text="✕",
-                            width=3,
-                            command=lambda ver=v["version"], c=ckpt, a=aid, n=name: (
-                                c.delete(ver),
-                                _refresh_detail(a, n),
-                            ),
-                        ).pack(side=tk.RIGHT, padx=2)
-
-                    # val_loss 元信息
-                    vl = v.get("val_loss", -1)
-                    vl_txt = f"  val_loss={vl:.4f}" if vl >= 0 else ""
-                    tk.Label(row, text=vl_txt, bg=C["bg_elevated"], fg=C["text_3"], font=FONT_SM).pack(side=tk.LEFT)
-
-            # ── 视频微调版本 ──
-            bvids = list_video_finetune_bvids(aid)
-            if bvids:
-                tk.Label(detail_frame, text="\n视频微调版本", bg=C["bg_surface"], fg=C["text_2"], font=FONT_SM).pack(
-                    anchor="w"
-                )
-                for bvid in bvids:
-                    v_ckpt = CheckpointManager(aid, bvid=bvid)
-                    v_vers = v_ckpt.list_versions()
-                    for v in v_vers:
-                        row = tk.Frame(detail_frame, bg=C["bg_elevated"])
-                        row.pack(fill=tk.X, pady=1)
-                        tk.Label(
-                            row,
-                            text=f"  📺 {bvid}  {v['version']}",
-                            bg=C["bg_elevated"],
-                            fg=C["text_1"],
-                            font=FONT_MONO,
-                            anchor="w",
-                        ).pack(side=tk.LEFT, padx=4, pady=2)
-                        ttk.Button(
-                            row,
-                            text="✕",
-                            width=3,
-                            command=lambda b=bvid, ver=v["version"], a=aid, n=name: (
-                                CheckpointManager(a, bvid=b).delete(ver),
-                                _refresh_detail(a, n),
-                            ),
-                        ).pack(side=tk.RIGHT, padx=2)
-
-            # ── 危险操作 ──
-            if versions or bvids:
-                tk.Label(detail_frame, text="", bg=C["bg_surface"]).pack()
-                sep = tk.Frame(detail_frame, bg=C["border"], height=1)
-                sep.pack(fill=tk.X, pady=4)
-                btn_row = tk.Frame(detail_frame, bg=C["bg_surface"])
-                btn_row.pack(fill=tk.X)
-                if _hard() == "normal":
-                    ttk.Button(
-                        btn_row,
-                        text="删除所有全局版本",
-                        command=lambda a=aid, n=name: self._delete_all_global(a, n, _refresh_detail),
-                    ).pack(side=tk.LEFT, padx=2)
-                    if bvids:
-                        ttk.Button(
-                            btn_row,
-                            text="删除所有微调版本",
-                            command=lambda a=aid, n=name: self._delete_all_video(a, n, _refresh_detail),
-                        ).pack(side=tk.LEFT, padx=2)
-                else:
-                    ckpt_dir = os.path.join(
-                        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                        "algorithms", "checkpoints", aid,
-                    )
-                    tk.Label(
-                        btn_row, text=f"📁 {os.path.relpath(ckpt_dir)}",
-                        bg=C["bg_surface"], fg=C["text_3"], font=FONT_SM,
-                    ).pack(side=tk.LEFT, padx=4)
-
-        # 填充算法列表
+    def _draw_version_list(self, algo_inner, algos, refresh_cb):
+        """填充左侧算法列表按钮"""
         for a in sorted(algos, key=lambda x: x["name"]):
             btn = tk.Label(
                 algo_inner,
@@ -619,9 +502,133 @@ class TrainingPanel(BaseTrainingPanel):
                 pady=3,
             )
             btn.pack(fill=tk.X)
-            btn.bind("<Button-1>", lambda e, aid=a["algorithm_id"], n=a["name"]: _refresh_detail(aid, n))
+            btn.bind("<Button-1>", lambda e, aid=a["algorithm_id"], n=a["name"]: refresh_cb(aid, n))
             btn.bind("<Enter>", lambda e, b=btn: b.configure(bg=C["bg_surface"]))
             btn.bind("<Leave>", lambda e, b=btn: b.configure(bg=C["bg_elevated"]))
+
+    def _draw_version_detail(self, detail_frame, info_lbl, aid, name, refresh_cb):
+        """刷新指定算法的版本详情面板"""
+        from algorithms.training.checkpoint_manager import CheckpointManager, list_video_finetune_bvids
+
+        for w in detail_frame.winfo_children():
+            w.destroy()
+
+        info_lbl.pack_forget()
+
+        tk.Label(detail_frame, text=f"{name}  ({aid})", bg=C["bg_surface"], fg=C["text_1"], font=FONT_BOLD).pack(
+            anchor="w", pady=(0, 6)
+        )
+
+        ckpt = CheckpointManager(aid)
+
+        tk.Label(detail_frame, text="全局版本", bg=C["bg_surface"], fg=C["text_2"], font=FONT_SM).pack(anchor="w")
+
+        versions = ckpt.list_versions()
+        if not versions:
+            tk.Label(
+                detail_frame, text="  （无全局 checkpoint）", bg=C["bg_surface"], fg=C["text_3"], font=FONT_SM
+            ).pack(anchor="w", pady=2)
+        else:
+            for v in versions:
+                row = tk.Frame(detail_frame, bg=C["bg_elevated"])
+                row.pack(fill=tk.X, pady=1)
+                active_tag = "★ " if v.get("active") else "  "
+                tk.Label(
+                    row,
+                    text=f"{active_tag}{v['version']}",
+                    bg=C["bg_elevated"],
+                    fg=C["success"] if v.get("active") else C["text_1"],
+                    font=FONT_MONO,
+                    width=30,
+                    anchor="w",
+                ).pack(side=tk.LEFT, padx=4, pady=2)
+
+                if not v.get("active") and len(versions) > 1:
+                    ttk.Button(
+                        row,
+                        text="激活",
+                        width=4,
+                        command=lambda ver=v["version"], c=ckpt, a=aid, n=name, cb=refresh_cb: (
+                            self._activate_version(c, ver, a, n, cb)
+                        ),
+                    ).pack(side=tk.RIGHT, padx=2)
+
+                if len(versions) > 1:
+                    ttk.Button(
+                        row,
+                        text="✕",
+                        width=3,
+                        command=lambda ver=v["version"], c=ckpt, a=aid, n=name, cb=refresh_cb: (
+                            c.delete(ver),
+                            cb(a, n),
+                        ),
+                    ).pack(side=tk.RIGHT, padx=2)
+
+                vl = v.get("val_loss", -1)
+                vl_txt = f"  val_loss={vl:.4f}" if vl >= 0 else ""
+                tk.Label(row, text=vl_txt, bg=C["bg_elevated"], fg=C["text_3"], font=FONT_SM).pack(side=tk.LEFT)
+
+        bvids = list_video_finetune_bvids(aid)
+        if bvids:
+            tk.Label(detail_frame, text="\n视频微调版本", bg=C["bg_surface"], fg=C["text_2"], font=FONT_SM).pack(
+                anchor="w"
+            )
+            for bvid in bvids:
+                v_ckpt = CheckpointManager(aid, bvid=bvid)
+                v_vers = v_ckpt.list_versions()
+                for v in v_vers:
+                    row = tk.Frame(detail_frame, bg=C["bg_elevated"])
+                    row.pack(fill=tk.X, pady=1)
+                    tk.Label(
+                        row,
+                        text=f"  📺 {bvid}  {v['version']}",
+                        bg=C["bg_elevated"],
+                        fg=C["text_1"],
+                        font=FONT_MONO,
+                        anchor="w",
+                    ).pack(side=tk.LEFT, padx=4, pady=2)
+                    ttk.Button(
+                        row,
+                        text="✕",
+                        width=3,
+                        command=lambda b=bvid, ver=v["version"], a=aid, n=name, cb=refresh_cb: (
+                            CheckpointManager(a, bvid=b).delete(ver),
+                            cb(a, n),
+                        ),
+                    ).pack(side=tk.RIGHT, padx=2)
+
+        if versions or bvids:
+            tk.Label(detail_frame, text="", bg=C["bg_surface"]).pack()
+            sep = tk.Frame(detail_frame, bg=C["border"], height=1)
+            sep.pack(fill=tk.X, pady=4)
+            btn_row = tk.Frame(detail_frame, bg=C["bg_surface"])
+            btn_row.pack(fill=tk.X)
+            if _hard() == "normal":
+                ttk.Button(
+                    btn_row,
+                    text="删除所有全局版本",
+                    command=lambda a=aid, n=name: self._delete_all_global(a, n, refresh_cb),
+                ).pack(side=tk.LEFT, padx=2)
+                if bvids:
+                    ttk.Button(
+                        btn_row,
+                        text="删除所有微调版本",
+                        command=lambda a=aid, n=name: self._delete_all_video(a, n, refresh_cb),
+                    ).pack(side=tk.LEFT, padx=2)
+            else:
+                ckpt_dir = os.path.join(
+                    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                    "algorithms", "checkpoints", aid,
+                )
+                tk.Label(
+                    btn_row, text=f"📁 {os.path.relpath(ckpt_dir)}",
+                    bg=C["bg_surface"], fg=C["text_3"], font=FONT_SM,
+                ).pack(side=tk.LEFT, padx=4)
+
+    def _activate_version(self, ckpt, ver, aid, name, refresh_cb):
+        """激活指定版本并刷新详情"""
+        ckpt.activate(ver)
+        refresh_cb(aid, name)
 
     def _delete_all_global(self, aid, name, refresh_cb):
         """删除算法的所有全局 checkpoint。"""
@@ -653,12 +660,11 @@ class TrainingPanel(BaseTrainingPanel):
 
     # ── 批量微调 ──────────────────────────────────
 
-    def _on_batch_finetune(self):  # noqa: C901
+    def _on_batch_finetune(self):
         """打开批量微调对话框：选择视频 + 算法，一键微调。"""
         from algorithms.registry import AlgorithmRegistry
         from algorithms.training.checkpoint_manager import CheckpointManager
 
-        # 可微调的算法（有全局 checkpoint 的 DL 算法）
         AlgorithmRegistry.initialize()
         algo_list = []
         for aid, algo, _adapter in AlgorithmRegistry.get_trainable_algorithms():
@@ -669,7 +675,6 @@ class TrainingPanel(BaseTrainingPanel):
             messagebox.showwarning("提示", "没有已训练的深度学习算法可供微调", parent=self.frame)
             return
 
-        # 可微调的视频（当前监控中的视频）
         videos = []
         try:
             for v in self.main.monitored_videos:
@@ -684,7 +689,42 @@ class TrainingPanel(BaseTrainingPanel):
             messagebox.showwarning("提示", "没有监控中的视频可微调", parent=self.frame)
             return
 
-        # ── 构建对话框 ──
+        dialog, ui = self._build_batch_dialog(algo_list, videos)
+
+        def _ft_log(msg):
+            ui["log_text"].config(state="normal")
+            ui["log_text"].insert(tk.END, msg + "\n")
+            ui["log_text"].see(tk.END)
+            ui["log_text"].config(state="disabled")
+
+        def _start_ft():
+            selected_videos = [b for b, v in ui["video_vars"].items() if v.get()]
+            selected_algos = [a for a, v in ui["algo_vars"].items() if v.get()]
+            if not selected_videos:
+                messagebox.showwarning("提示", "请至少选择一个视频", parent=dialog)
+                return
+            if not selected_algos:
+                messagebox.showwarning("提示", "请至少选择一个算法", parent=dialog)
+                return
+
+            epochs = max(1, ui["ft_epoch_var"].get())
+            batch = max(1, ui["ft_batch_var"].get())
+            total = len(selected_videos) * len(selected_algos)
+            _ft_log(f"开始批量微调: {len(selected_videos)} 视频 × {len(selected_algos)} 算法 = {total} 任务")
+            ui["start_btn"].config(state="disabled")
+
+            threading.Thread(
+                target=lambda: self._start_batch_worker(
+                    selected_videos, selected_algos, epochs, batch, total, dialog, ui, _ft_log,
+                ),
+                daemon=True,
+            ).start()
+
+        ui["start_btn"].config(command=_start_ft)
+        ui["cancel_btn"].config(command=dialog.destroy)
+
+    def _build_batch_dialog(self, algo_list, videos):
+        """构建批量微调对话框，返回 (dialog, ui_dict)"""
         dialog = tk.Toplevel(self.frame)
         dialog.title("批量微调")
         dialog.geometry("650x500")
@@ -695,7 +735,6 @@ class TrainingPanel(BaseTrainingPanel):
         main = tk.Frame(dialog, bg=C["bg_base"])
         main.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        # 视频选择
         tk.Label(main, text="选择视频", bg=C["bg_base"], fg=C["text_1"], font=FONT_BOLD).pack(anchor="w", pady=(0, 2))
         video_frame = tk.Frame(main, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border"])
         video_frame.pack(fill=tk.X, pady=(0, 8))
@@ -714,7 +753,6 @@ class TrainingPanel(BaseTrainingPanel):
                 row, text=f"{v['title']}  ({v['bvid']})", bg=C["bg_elevated"], fg=C["text_1"], font=FONT_SM, anchor="w"
             ).pack(side=tk.LEFT, padx=2, fill=tk.X)
 
-        # 算法选择
         tk.Label(main, text="选择算法", bg=C["bg_base"], fg=C["text_1"], font=FONT_BOLD).pack(anchor="w", pady=(0, 2))
         algo_frame = tk.Frame(main, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border"])
         algo_frame.pack(fill=tk.X, pady=(0, 8))
@@ -738,7 +776,6 @@ class TrainingPanel(BaseTrainingPanel):
                 anchor="w",
             ).pack(side=tk.LEFT, padx=2, fill=tk.X)
 
-        # 参数行
         param_row = tk.Frame(main, bg=C["bg_base"])
         param_row.pack(fill=tk.X, pady=(0, 8))
         tk.Label(param_row, text="Epochs:", bg=C["bg_base"], fg=C["text_2"], font=FONT_SM).pack(
@@ -752,105 +789,103 @@ class TrainingPanel(BaseTrainingPanel):
         ft_batch_var = tk.IntVar(value=16)
         ttk.Spinbox(param_row, from_=1, to=512, textvariable=ft_batch_var, width=6).pack(side=tk.LEFT)
 
-        # 状态 & 进度
         ft_status = tk.Label(main, text="就绪", bg=C["bg_base"], fg=C["text_3"], font=FONT_SM, anchor="w")
         ft_status.pack(fill=tk.X, pady=(0, 4))
         ft_progress = ttk.Progressbar(main, mode="determinate", maximum=100)
         ft_progress.pack(fill=tk.X, pady=(0, 8))
 
-        # 日志区域
         log_text = tk.Text(
             main, bg=C["bg_base"], fg=C["text_1"], font=("Consolas", 9), relief="flat", height=6, state="disabled"
         )
         log_text.pack(fill=tk.BOTH, expand=True)
 
-        def _ft_log(msg):
-            """向批量微调日志区域追加消息"""
-            log_text.config(state="normal")
-            log_text.insert(tk.END, msg + "\n")
-            log_text.see(tk.END)
-            log_text.config(state="disabled")
-
-        def _start_ft():
-            """启动批量微调任务"""
-            selected_videos = [b for b, v in video_vars.items() if v.get()]
-            selected_algos = [a for a, v in algo_vars.items() if v.get()]
-            if not selected_videos:
-                messagebox.showwarning("提示", "请至少选择一个视频", parent=dialog)
-                return
-            if not selected_algos:
-                messagebox.showwarning("提示", "请至少选择一个算法", parent=dialog)
-                return
-
-            epochs = max(1, ft_epoch_var.get())
-            batch = max(1, ft_batch_var.get())
-            total = len(selected_videos) * len(selected_algos)
-            _ft_log(f"开始批量微调: {len(selected_videos)} 视频 × {len(selected_algos)} 算法 = {total} 任务")
-            start_btn.config(state="disabled")
-
-            def _worker():
-                """工作线程：依次对每个视频的每个算法进行微调"""
-                from algorithms.training.trainer import ModelTrainer
-
-                trainer = ModelTrainer()
-                done = 0
-                self.main.set_finetune_status(f"🎯 批量微调 0/{total}")
-                for bvid in selected_videos:
-                    for aid in selected_algos:
-                        done += 1
-                        pct = int(done / total * 100)
-                        msg = f"[{done}/{total}] 微调 {aid} → {bvid}"
-                        dialog.after(0, lambda m=msg: ft_status.configure(text=m))
-                        dialog.after(0, lambda p=pct: ft_progress.config(value=p))
-                        dialog.after(0, lambda m=msg: _ft_log(m))
-                        dialog.after(0, lambda d=done, t=total: self.main.set_finetune_status(f"🎯 批量微调 {d}/{t}"))
-                        try:
-                            ver = trainer.finetune_for_video(
-                                algo_id=aid,
-                                bvid=bvid,
-                                epochs=epochs,
-                                batch_size=batch,
-                            )
-                            dialog.after(0, lambda a=aid, b=bvid, v=ver: _ft_log(f"  ✓ {a}@{b} → {v[:12]}"))
-                        except Exception as e:
-                            dialog.after(0, lambda a=aid, b=bvid, e=e: _ft_log(f"  ✗ {a}@{b}: {e}"))
-                dialog.after(0, lambda: ft_status.configure(text=f"✅ 微调完成 ({done} 任务)"))
-                dialog.after(0, lambda: ft_progress.config(value=100))
-                dialog.after(0, lambda: self.main.set_finetune_status(f"✅ 批量微调完成 ({done})"))
-                dialog.after(0, lambda: start_btn.config(state="normal"))
-                dialog.after(0, lambda: _ft_log("🏁 批量微调全部完成"))
-
-            threading.Thread(target=_worker, daemon=True).start()
-
         btn_row = tk.Frame(main, bg=C["bg_base"])
         btn_row.pack(fill=tk.X)
-        start_btn = ttk.Button(btn_row, text="▶ 开始微调", command=_start_ft)
+        start_btn = ttk.Button(btn_row, text="▶ 开始微调")
         start_btn.pack(side=tk.LEFT, padx=(0, 6))
-        ttk.Button(btn_row, text="取消", command=dialog.destroy).pack(side=tk.LEFT)
+        cancel_btn = ttk.Button(btn_row, text="取消")
+        cancel_btn.pack(side=tk.LEFT)
+
+        return dialog, {
+            "video_vars": video_vars,
+            "algo_vars": algo_vars,
+            "ft_epoch_var": ft_epoch_var,
+            "ft_batch_var": ft_batch_var,
+            "ft_status": ft_status,
+            "ft_progress": ft_progress,
+            "log_text": log_text,
+            "start_btn": start_btn,
+            "cancel_btn": cancel_btn,
+        }
+
+    def _start_batch_worker(self, selected_videos, selected_algos, epochs, batch, total, dialog, ui, _ft_log):
+        """后台工作线程：依次对每个视频的每个算法进行微调"""
+        from algorithms.training.trainer import ModelTrainer
+
+        trainer = ModelTrainer()
+        done = 0
+        self.main.set_finetune_status(f"🎯 批量微调 0/{total}")
+        for bvid in selected_videos:
+            for aid in selected_algos:
+                done += 1
+                pct = int(done / total * 100)
+                msg = f"[{done}/{total}] 微调 {aid} → {bvid}"
+                dialog.after(0, lambda m=msg: ui["ft_status"].configure(text=m))
+                dialog.after(0, lambda p=pct: ui["ft_progress"].config(value=p))
+                dialog.after(0, lambda m=msg: _ft_log(m))
+                dialog.after(0, lambda d=done, t=total: self.main.set_finetune_status(f"🎯 批量微调 {d}/{t}"))
+                try:
+                    ver = trainer.finetune_for_video(
+                        algo_id=aid,
+                        bvid=bvid,
+                        epochs=epochs,
+                        batch_size=batch,
+                    )
+                    dialog.after(0, lambda a=aid, b=bvid, v=ver: _ft_log(f"  ✓ {a}@{b} → {v[:12]}"))
+                except Exception as e:
+                    dialog.after(0, lambda a=aid, b=bvid, e=e: _ft_log(f"  ✗ {a}@{b}: {e}"))
+        self._batch_done_callback(dialog, ui, _ft_log, done)
+
+    def _batch_done_callback(self, dialog, ui, _ft_log, done):
+        """批量微调完成后的 UI 更新回调"""
+        dialog.after(0, lambda: ui["ft_status"].configure(text=f"✅ 微调完成 ({done} 任务)"))
+        dialog.after(0, lambda: ui["ft_progress"].config(value=100))
+        dialog.after(0, lambda: self.main.set_finetune_status(f"✅ 批量微调完成 ({done})"))
+        dialog.after(0, lambda: ui["start_btn"].config(state="normal"))
+        dialog.after(0, lambda: _ft_log("🏁 批量微调全部完成"))
 
     # ══════════════════════════════════════════════
     # 训练执行
     # ══════════════════════════════════════════════
 
-    def _on_train_start(self):  # noqa: C901
+    def _on_train_start(self):
         """开始训练按钮回调 — 验证参数、确认、启动训练线程"""
-        if self._training:
+        config = self._validate_train_params()
+        if config is None:
             return
+
+        selected, epochs, batch, is_incremental, lr, mode_label, lr_label = config
+        self._build_train_config(selected, epochs, batch, mode_label, lr)
+        self._start_train_thread(selected, is_incremental, lr, epochs, batch)
+
+    def _validate_train_params(self):
+        """校验训练参数并弹出确认对话框，返回训练配置或 None"""
+        if self._training:
+            return None
         if not _torch_available:
             messagebox.showerror("torch 未安装", "请先 pip install torch", parent=self.frame)
-            return
+            return None
 
         selected = [aid for aid, v in self._check_vars.items() if v.get()]
         if not selected:
             messagebox.showwarning("提示", "请至少勾选一个算法", parent=self.frame)
-            return
+            return None
 
         epochs = max(1, int(self._epoch_var.get()))
         batch = max(1, int(self._batch_var.get()))
         is_incremental = self._mode_var.get() == "incremental"
         mode_label = "增量训练" if is_incremental else "重新训练"
 
-        # 学习率：自动模式计算推荐值，手动模式读取用户输入
         if self._lr_auto_var.get():
             lr = self._auto_compute_lr()
             self._lr_var.set(f"{lr:.6f}")
@@ -860,7 +895,7 @@ class TrainingPanel(BaseTrainingPanel):
                 lr = float(self._lr_var.get())
             except (ValueError, TypeError):
                 messagebox.showerror("LR 无效", "请输入有效的学习率数值", parent=self.frame)
-                return
+                return None
             lr = max(1e-8, min(1.0, lr))
             lr_label = f"手动 ({lr:.6f})"
 
@@ -871,19 +906,21 @@ class TrainingPanel(BaseTrainingPanel):
             f"训练过程不可中途暂停（只能取消未开始的算法）。",
             parent=self.frame,
         ):
-            return
+            return None
 
-        # 重置状态并锁定 UI
+        return (selected, epochs, batch, is_incremental, lr, mode_label, lr_label)
+
+    def _build_train_config(self, selected, epochs, batch, mode_label, lr):
+        """重置训练状态、打开日志文件、更新状态标签"""
         self._prepare_training()
-
-        # 打开日志文件
         self._open_log_file(len(selected), epochs, batch, mode_label, lr)
         self._append_log(
             f"🚀 开始训练: {mode_label}, {len(selected)} 个算法, epoch={epochs}, batch={batch}, lr={lr:.6f}"
         )
         self._status_lbl.config(text=f"准备训练 {len(selected)} 个算法 …", fg=C["text_2"])
 
-        # 自动调整状态（每个算法独立 LR 系数）
+    def _start_train_thread(self, selected, is_incremental, lr, epochs, batch):
+        """定义训练回调和后台线程并启动"""
         auto_control: Dict = {}
         auto_monitors: Dict[str, "TrainingMonitor"] = {}
         algo_lr_factors: Dict[str, float] = {}
@@ -893,7 +930,6 @@ class TrainingPanel(BaseTrainingPanel):
             payload["_total_selected"] = len(selected)
             payload["_incremental"] = is_incremental
 
-            # 用户手动跳过当前算法
             if self._skip_algo_flag[0]:
                 auto_control["early_stop"] = True
                 auto_control["_force_early_stop"] = True
@@ -901,7 +937,6 @@ class TrainingPanel(BaseTrainingPanel):
                 self._train_queue.put(payload)
                 return
 
-            # 自动质量检测与参数调整
             if payload.get("stage") == "epoch":
                 aid = payload.get("algo_id", "")
                 ep = payload.get("epoch", 0)
@@ -916,7 +951,6 @@ class TrainingPanel(BaseTrainingPanel):
 
                 if mon.level in ("warning", "danger") and auto_control is not None:
                     status = mon.status
-                    # 每个算法独立 LR 系数
                     factor = algo_lr_factors.get(aid, 1.0)
                     if "nan" in status.lower():
                         auto_control["early_stop"] = True
@@ -968,7 +1002,6 @@ class TrainingPanel(BaseTrainingPanel):
                         break
                     aid = remaining.pop(0)
 
-                    # 重新训练模式：删除已有 checkpoint
                     if not is_incremental:
                         from algorithms.training.checkpoint_manager import CheckpointManager
 
@@ -982,11 +1015,9 @@ class TrainingPanel(BaseTrainingPanel):
                                 }
                             )
 
-                    # 重置跳过标记，启用跳过按钮
                     self._skip_algo_flag[0] = False
                     self.frame.after(0, lambda: self._skip_btn.config(state="normal"))
 
-                    # 每个算法独立 LR = 基础 LR × 该算法的累积系数
                     aid_factor = algo_lr_factors.get(aid, 1.0)
                     effective_lr = lr * aid_factor
                     auto_control.clear()

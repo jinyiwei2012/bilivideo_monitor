@@ -2,6 +2,7 @@
 事件处理器：更新检查、下载、退出、监控管理、推送等回调
 """
 
+import sys
 import threading
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -217,9 +218,7 @@ def on_exit(gui):
 
     AlgorithmRegistry.shutdown()
     gui.root.destroy()
-    import os
-
-    os._exit(0)
+    sys.exit(0)
 
 
 # ── 模型激活 ─────────────────────────────────

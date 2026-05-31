@@ -6,6 +6,7 @@ import threading
 import time
 import logging
 
+from core.smart_alert import AnomalyDetector
 from ui.theme import C
 
 logger = logging.getLogger(__name__)
@@ -99,7 +100,6 @@ def do_periodic_sync(gui):
 
 def scan_alerts_background(gui):
     """后台扫描全量视频的异常，更新状态栏 + 推送通知"""
-    from core.smart_alert import AnomalyDetector
     from core.notification import notification_manager
 
     alerts = []

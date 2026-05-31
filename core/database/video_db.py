@@ -384,6 +384,9 @@ class VideoDatabase:
     def _mirror_save_video_info(self, video_info: Dict):
         """将视频信息同步写入镜像数据库
 
+        注意：双写模式存在一致性风险——若视频独立库写入成功但镜像库写入失败，
+        两端数据将不一致。当前通过 try/except 仅记录日志，不触发回滚或重试。
+
         Args:
             video_info: 视频信息字典
         """
@@ -469,6 +472,9 @@ class VideoDatabase:
 
     def _mirror_add_monitor_record(self, record: MonitorRecord):
         """将监控记录同步写入镜像数据库
+
+        注意：双写模式存在一致性风险——若视频独立库写入成功但镜像库写入失败，
+        两端数据将不一致。当前通过 try/except 仅记录日志，不触发回滚或重试。
 
         Args:
             record: 监控记录数据对象

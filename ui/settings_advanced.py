@@ -88,7 +88,7 @@ def _build_ai_tab(self, nb):
 
     btn_row = tk.Frame(sec, bg=C["bg_elevated"])
     btn_row.pack(fill=tk.X, pady=(6, 0))
-    ttk.Button(btn_row, text="💾 保存配置", command=lambda: _confirm_risky("保存 AI 配置") and self._save_ai_profile()).pack(side=tk.LEFT, padx=(0, 4))
+    ttk.Button(btn_row, text="💾 保存配置", command=lambda: self._save_ai_profile() if _confirm_risky("保存 AI 配置") else None).pack(side=tk.LEFT, padx=(0, 4))
     if _hard() == "normal":
         ttk.Button(btn_row, text="🗑 删除配置", command=self._delete_ai_profile).pack(side=tk.LEFT, padx=4)
     else:
@@ -327,8 +327,7 @@ def _build_weights_tab(self, nb):
         if _s() != "normal":
             _entry.configure(state="readonly")
             _entry.bind("<Button-1>", lambda e, ent=_entry, p=self.window: (
-                ent.configure(state="normal") or ent.focus_set()
-                if _confirm_risky("修改算法权重", p) else None
+                None if not _confirm_risky("修改算法权重", p) else (ent.configure(state="normal") or ent.focus_set())
             ))
 
         ml_w = info.get("ml_weight", 1.0)
@@ -348,7 +347,7 @@ def _build_weights_tab(self, nb):
 
     btn_row = tk.Frame(page, bg=C["bg_base"])
     btn_row.pack(fill=tk.X, padx=16, pady=(0, 12))
-    ttk.Button(btn_row, text="重置所有权重", command=lambda: _confirm_risky("重置算法权重") and self._reset_all_weights()).pack(side=tk.LEFT, padx=(0, 4))
+    ttk.Button(btn_row, text="重置所有权重", command=lambda: self._reset_all_weights() if _confirm_risky("重置算法权重") else None).pack(side=tk.LEFT, padx=(0, 4))
     ttk.Button(btn_row, text="刷新", command=self._refresh_weights).pack(side=tk.LEFT, padx=4)
     ttk.Button(btn_row, text="💾 保存权重", command=lambda: _confirm_risky("保存算法权重") and self._save_weights(), style="Primary.TButton").pack(side=tk.RIGHT)
 
@@ -828,11 +827,17 @@ def _poll_training_progress(self):
         self.window.after(200, self._poll_training_progress)
 
 
-def _open_version_manager(self, algo_id: str):  # noqa: C901
+def _open_version_manager(self, algo_id: str):
     from algorithms.training.checkpoint_manager import CheckpointManager
 
     ckpt = CheckpointManager(algo_id)
+    top, tree = _draw_version_ui(self, algo_id, ckpt)
 
+    _bind_version_events(self, top, tree, ckpt, algo_id)
+
+
+def _draw_version_ui(self, algo_id: str, ckpt):
+    """构建版本管理窗口和版本列表 Treeview"""
     top = tk.Toplevel(self.window)
     top.title(f"版本管理 — {algo_id}")
     sw = self.window.winfo_screenwidth()
@@ -864,19 +869,29 @@ def _open_version_manager(self, algo_id: str):  # noqa: C901
     tree.column("val_loss", width=90, anchor="e", stretch=False)
     tree.pack(fill=tk.BOTH, expand=True, padx=14, pady=6)
 
-    def _reload():
-        for item in tree.get_children():
-            tree.delete(item)
-        for v in ckpt.list_versions():
-            marker = "✅" if v["active"] else ""
-            val_loss = f"{v['val_loss']:.4f}" if v["val_loss"] >= 0 else "—"
-            tree.insert(
-                "",
-                "end",
-                values=(marker, v["version"], v["created_at"], v["data_count"], val_loss),
-            )
+    _refresh_version_detail(tree, ckpt)
+    return top, tree
 
-    _reload()
+
+def _refresh_version_detail(tree, ckpt) -> None:
+    """清空并重新加载 Treeview 中的所有版本列表"""
+    for item in tree.get_children():
+        tree.delete(item)
+    for v in ckpt.list_versions():
+        marker = "✅" if v["active"] else ""
+        val_loss = f"{v['val_loss']:.4f}" if v["val_loss"] >= 0 else "—"
+        tree.insert(
+            "",
+            "end",
+            values=(marker, v["version"], v["created_at"], v["data_count"], val_loss),
+        )
+
+
+def _bind_version_events(self, top, tree, ckpt, algo_id):
+    """绑定版本管理的按钮命令（激活/删除/导出/关闭）"""
+
+    def _reload():
+        _refresh_version_detail(tree, ckpt)
 
     def _selected_version() -> Optional[str]:
         sel = tree.selection()

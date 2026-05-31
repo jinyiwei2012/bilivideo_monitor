@@ -53,9 +53,6 @@ def _compute_md5(data: bytes) -> str:
 def _read_md5(bvid: str, title: str = "") -> str | None:
     """读取本地保存的 MD5 值（优先按标题查找，回退无标题版本）"""
     candidates = [_md5_path(bvid, title), _md5_path(bvid)]
-    if title:
-        # 只有给定标题时才插入带标题路径到首位
-        pass  # candidates 顺序已正确
     for path in candidates:
         try:
             with open(path, "r") as f:

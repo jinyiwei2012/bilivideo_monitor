@@ -4,6 +4,7 @@
 
 import tkinter as tk
 from tkinter import ttk, messagebox, LEFT, RIGHT, BOTH, X, Y
+from decimal import Decimal
 import logging
 from typing import List, Dict
 
@@ -504,8 +505,8 @@ class EntryTab:
         if not raw_view:
             return (0, 1, 0)
         try:
-            view_val = int(float(raw_view))
-        except ValueError:
+            view_val = int(Decimal(raw_view))
+        except (ValueError, ArithmeticError):
             return (0, 0, 1)
 
         data = {"view_count": view_val}

@@ -137,7 +137,7 @@ def _tokenize(text: str) -> List[str]:
                 matched = True
                 break
         if not matched:
-            if re.match(r"[一-鿿]", text_copy[i]):
+            if re.match(r"[\u4e00-\u9fff]", text_copy[i]):
                 tokens.append(text_copy[i])
             elif re.match(r"[a-zA-Z]+", text_copy[i:]):
                 m = re.match(r"[a-zA-Z]+", text_copy[i:])

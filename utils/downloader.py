@@ -37,7 +37,9 @@ def ensure_aria2() -> bool:
     zip_path = ARIA2_DIR / "aria2.zip"
     logger.info("正在下载 aria2c (%s)…", ARIA2_VERSION)
     try:
-        urllib.request.urlretrieve(ARIA2_DOWNLOAD_URL, zip_path)
+        # urlretrieve is deprecated since 3.13; use urlopen for compatibility
+        with urllib.request.urlopen(ARIA2_DOWNLOAD_URL) as resp, open(zip_path, "wb") as f:
+            f.write(resp.read())
         with zipfile.ZipFile(zip_path, "r") as zf:
             zf.extractall(ARIA2_DIR)
         # 移动 aria2c.exe 到根目录

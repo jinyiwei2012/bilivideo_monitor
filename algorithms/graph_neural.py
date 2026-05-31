@@ -187,7 +187,7 @@ class VideoGraph:
         L = np.eye(n) - D_inv_sqrt @ A @ D_inv_sqrt
 
         # 特征分解，取第 2 到 embed_dim+1 小的特征向量
-        eigenvalues, eigenvectors = np.linalg.eigh(L)
+        _, eigenvectors = np.linalg.eigh(L)
         actual_dim = min(embed_dim, max(1, n - 1))
         embs = eigenvectors[:, 1:actual_dim + 1]
         norms = np.linalg.norm(embs, axis=1, keepdims=True)
@@ -406,57 +406,6 @@ class VideoGraph:
             return 0.0
         return min(1.0, w)
 
-    def _build_normalized_adj(self, bvids: List[str], n: int) -> Dict[int, Dict[int, float]]:
-        """构建对称归一化邻接矩阵 Ã = D^{-1/2} A D^{-1/2}（稀疏字典形式）。
-
-        添加自环（self-loop）以保留自身信息。
-
-        Returns:
-            sparse_adj[i][j] = normalized_weight
-        """
-        degree = [0.0] * n
-        idx = {bv: i for i, bv in enumerate(bvids)}
-        for bi in bvids:
-            i = idx[bi]
-            for bj, w in self._adj.get(bi, {}).items():
-                if bj in idx:
-                    degree[i] += w
-
-        # D^{-1/2}
-        d_inv_sqrt = [0.0] * n
-        for i in range(n):
-            d_inv_sqrt[i] = 1.0 / math.sqrt(max(degree[i], 1e-10))
-
-        # Ã = D^{-1/2} A D^{-1/2}，含自环
-        adj: Dict[int, Dict[int, float]] = defaultdict(dict)
-        for bi in bvids:
-            i = idx[bi]
-            adj[i][i] = 1.0
-            for bj, w in self._adj.get(bi, {}).items():
-                if bj in idx:
-                    j = idx[bj]
-                    adj[i][j] = d_inv_sqrt[i] * w * d_inv_sqrt[j]
-
-        return dict(adj)
-
-    def _adj_mat_vec_mul(self, adj: Dict[int, Dict[int, float]], vec: List[float], n: int) -> List[float]:
-        """稀疏邻接矩阵 × 向量乘法（手动实现）。"""
-        result = [0.0] * n
-        for i, row in adj.items():
-            s = 0.0
-            for j, w in row.items():
-                if j < len(vec):
-                    s += w * vec[j]
-            result[i] = s
-        return result
-
-    @staticmethod
-    def _init_weights(in_dim: int, out_dim: int) -> List[List[float]]:
-        """Xavier 均匀初始化权重矩阵。"""
-        std = math.sqrt(2.0 / (in_dim + out_dim))
-        import random
-
-        return [[random.gauss(0, std) for _ in range(out_dim)] for _ in range(in_dim)]
 
 
 # ── 全局单例 ────────────────────────────────────────

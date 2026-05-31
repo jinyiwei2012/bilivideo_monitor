@@ -146,68 +146,84 @@ def search_up_users_multi(keyword: str, page: int, own_api_search: Callable) -> 
 # ══════════════════════════════════════════════════════════
 
 
-def _source_a_up_info(uid: int) -> Optional[Dict]:  # noqa: C901
+def _source_a_up_info(uid: int) -> Optional[Dict]:
     """数据源A：使用 bilibili-api-python 获取 UP 主基本信息"""
     try:
         from bilibili_api import sync
         from bilibili_api.user import User
 
         u = User(uid=uid)
-        info = sync(u.get_user_info())
-        if not info or not info.get("mid"):
+        result = _fetch_from_bilibili_api(u, uid)
+        if result is None:
             return None
 
-        # 构建统一的 UP 主信息字典
-        result = {
-            "uid": info.get("mid", uid),
-            "name": info.get("name", ""),
-            "face": info.get("face", ""),
-            "sign": info.get("sign", ""),
-            "level": info.get("level", 0),
-            "follower_count": 0,
-            "video_count": 0,
-            "official_verify": info.get("official", info.get("official_verify", {})),
-            "nameplate": info.get("nameplate", {}),
-        }
-
-        # bilibili-api-python 新版 get_user_info() 不再返回 fans/videos
-        # 从 get_relation_info() 单独获取粉丝数
-        try:
-            rel = sync(u.get_relation_info())
-            if rel:
-                result["follower_count"] = rel.get("follower", 0)
-        except Exception as e:
-            logger.debug("获取粉丝数失败 UID=%s: %s", uid, e)
-
-        # 尝试获取投稿数（可能受 412 限制，失败不影响主流程）
+        _fetch_relation_info(u, uid, result)
         if not result["video_count"]:
-            try:
-                vdata = sync(u.get_videos(ps=1, pn=1))
-                if vdata and "page" in vdata:
-                    result["video_count"] = vdata["page"].get("count", 0)
-            except Exception as e:
-                logger.debug("获取投稿数失败 UID=%s: %s", uid, e)
-
-        # 如果 bilibili-api-python 无法获取投稿数，尝试自有 API 兜底
-        if not result["video_count"]:
-            try:
-                _api = _own_api_mod._get_api()
-                # 优先使用 navnum 接口（轻量级，同时返回投稿数和粉丝数）
-                data = _api._request_public(
-                    "GET",
-                    f"{_api.BASE_URL}/x/space/navnum",
-                    params={"mid": uid, "jsonp": "jsonp"},
-                )
-                if data:
-                    if data.get("video"):
-                        result["video_count"] = data["video"]
-            except Exception as e:
-                logger.debug("自有API获取投稿数失败 UID=%s: %s", uid, e)
+            _fetch_video_count(u, uid, result)
 
         return result
     except Exception as e:
         logger.debug("源 A get_up_info 失败: %s", e)
     return None
+
+
+def _fetch_from_bilibili_api(u, uid: int) -> Optional[Dict]:
+    """从 bilibili-api-python 的 get_user_info 获取 UP 主基本信息"""
+    from bilibili_api import sync
+
+    info = sync(u.get_user_info())
+    if not info or not info.get("mid"):
+        return None
+
+    return {
+        "uid": info.get("mid", uid),
+        "name": info.get("name", ""),
+        "face": info.get("face", ""),
+        "sign": info.get("sign", ""),
+        "level": info.get("level", 0),
+        "follower_count": 0,
+        "video_count": 0,
+        "official_verify": info.get("official", info.get("official_verify", {})),
+        "nameplate": info.get("nameplate", {}),
+    }
+
+
+def _fetch_relation_info(u, uid: int, result: Dict) -> None:
+    """从 get_relation_info() 获取粉丝数"""
+    from bilibili_api import sync
+
+    try:
+        rel = sync(u.get_relation_info())
+        if rel:
+            result["follower_count"] = rel.get("follower", 0)
+    except Exception as e:
+        logger.debug("获取粉丝数失败 UID=%s: %s", uid, e)
+
+
+def _fetch_video_count(u, uid: int, result: Dict) -> None:
+    """获取投稿数：先用 bilibili-api-python，再用自有 API 兜底"""
+    from bilibili_api import sync
+
+    try:
+        vdata = sync(u.get_videos(ps=1, pn=1))
+        if vdata and "page" in vdata:
+            result["video_count"] = vdata["page"].get("count", 0)
+    except Exception as e:
+        logger.debug("获取投稿数失败 UID=%s: %s", uid, e)
+
+    if not result["video_count"]:
+        try:
+            _api = _own_api_mod._get_api()
+            data = _api._request_public(
+                "GET",
+                f"{_api.BASE_URL}/x/space/navnum",
+                params={"mid": uid, "jsonp": "jsonp"},
+            )
+            if data:
+                if data.get("video"):
+                    result["video_count"] = data["video"]
+        except Exception as e:
+            logger.debug("自有API获取投稿数失败 UID=%s: %s", uid, e)
 
 
 def _source_a_up_stat(uid: int) -> Optional[Dict]:

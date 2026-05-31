@@ -491,16 +491,24 @@ class DatabaseQueryWindow:
             row.setdefault("bvid", bvid)
         return result
 
+    @staticmethod
+    def _get_param_int(obj, attr: str, default: int) -> int:
+        var = getattr(obj, attr, None)
+        if var is None:
+            return default
+        raw = var.get().strip()
+        return int(raw) if raw.isdigit() else default
+
     def _run_video_query(self, cur, mode: str) -> list:
         """在视频独立库上执行模式查询（无需 bvid 过滤，数据已按视频隔离）"""
         if mode == "最新N条":
-            limit = int(getattr(self, "param_var", None) and self.param_var.get() or 100)
+            limit = self._get_param_int(self, "param_var", 100)
             cur.execute("SELECT * FROM monitor_records ORDER BY timestamp DESC LIMIT ?", (limit,))
         elif mode == "播放首次大于X":
-            thr = int(getattr(self, "param_var", None) and self.param_var.get() or 10000)
+            thr = self._get_param_int(self, "param_var", 10000)
             cur.execute("SELECT * FROM monitor_records WHERE view_count > ? ORDER BY timestamp ASC LIMIT 1", (thr,))
         elif mode == "播放量大于X":
-            thr = int(getattr(self, "param_var", None) and self.param_var.get() or 10000)
+            thr = self._get_param_int(self, "param_var", 10000)
             cur.execute("SELECT * FROM monitor_records WHERE view_count > ? ORDER BY timestamp DESC", (thr,))
         elif mode == "播放趋势":
             cur.execute("SELECT * FROM monitor_records ORDER BY timestamp ASC")
@@ -527,8 +535,16 @@ class DatabaseQueryWindow:
         else:
             self._reset_query_state()
 
-    def _run_fallback_query(self, mode, filter_bvid, bvid_for_trend):  # noqa: C901
+    def _run_fallback_query(self, mode, filter_bvid, bvid_for_trend):
         """后台线程：在中央数据库中执行查询并加载关联数据"""
+        raw_rows = self._query_central_db(mode, filter_bvid, bvid_for_trend)
+        if raw_rows is None:
+            return
+        self.window.after(0, lambda: self.status_var.set(f"中央库查到 {len(raw_rows)} 条，加载关联数据…"))
+        self._process_central_results(raw_rows)
+
+    def _query_central_db(self, mode, filter_bvid, bvid_for_trend):
+        """在中央数据库中执行 SQL 查询，返回原始行列表"""
         raw_rows = []
         try:
             conn = sqlite3.connect(self.db_path)
@@ -544,9 +560,11 @@ class DatabaseQueryWindow:
                     self._reset_query_state(),
                 ),
             )
-            return
+            return None
+        return raw_rows
 
-        self.window.after(0, lambda: self.status_var.set(f"中央库查到 {len(raw_rows)} 条，加载关联数据…"))
+    def _process_central_results(self, raw_rows):
+        """加载关联数据并完成查询结果显示"""
         try:
             extra_list, anames = self._load_query_extra_data(raw_rows)
         except Exception as e:
@@ -560,7 +578,7 @@ class DatabaseQueryWindow:
     def _run_query(self, cur, mode, filter_bvid, bvid_for_trend):
         """根据查询模式在中央库上执行 SQL，返回 dict 行列表"""
         if mode == "最新N条":
-            limit = int(getattr(self, "param_var", None) and self.param_var.get() or 100)
+            limit = self._get_param_int(self, "param_var", 100)
             if filter_bvid:
                 cur.execute(
                     "SELECT * FROM monitor_records WHERE bvid = ? ORDER BY timestamp DESC LIMIT ?",
@@ -569,7 +587,7 @@ class DatabaseQueryWindow:
             else:
                 cur.execute("SELECT * FROM monitor_records ORDER BY timestamp DESC LIMIT ?", (limit,))
         elif mode == "播放首次大于X":
-            thr = int(getattr(self, "param_var", None) and self.param_var.get() or 10000)
+            thr = self._get_param_int(self, "param_var", 10000)
             if filter_bvid:
                 cur.execute(
                     "SELECT * FROM monitor_records WHERE bvid = ? AND view_count > ? ORDER BY timestamp ASC LIMIT 1",
@@ -582,7 +600,7 @@ class DatabaseQueryWindow:
                     (thr,),
                 )
         elif mode == "播放量大于X":
-            thr = int(getattr(self, "param_var", None) and self.param_var.get() or 10000)
+            thr = self._get_param_int(self, "param_var", 10000)
             if filter_bvid:
                 cur.execute(
                     "SELECT * FROM monitor_records WHERE bvid = ? AND view_count > ? ORDER BY timestamp DESC",

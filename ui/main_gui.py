@@ -130,9 +130,7 @@ class BilibiliMonitorGUI:
             from __init__ import __version__
             from utils.update_checker import _x as _z
 
-            _s = (
-                (" " + chr(100) + chr(101) + chr(118) + " " + chr(24320) + chr(21457) + chr(20013)) if _z() else ""
-            )
+            _s = " dev 开发中" if _z() else ""
             root.title(f"B站视频监控与播放量预测系统 v{__version__}{_s}")
             sw = root.winfo_screenwidth()
             sh = root.winfo_screenheight()

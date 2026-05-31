@@ -183,15 +183,17 @@ class BaseAlgorithm(ABC):
         """
         history = video_data.get("history_data", [])
         now = datetime.now()
+        def _sort_key(x):
+            ts = x.get("timestamp", 0)
+            if hasattr(ts, "timestamp"):
+                return ts.timestamp()
+            try:
+                return float(ts)
+            except (ValueError, TypeError):
+                return 0.0
+
         if len(history) >= 1:
-            sorted_history = sorted(
-                history,
-                key=lambda x: (
-                    x.get("timestamp", 0).timestamp()
-                    if hasattr(x.get("timestamp", 0), "timestamp")
-                    else float(x.get("timestamp", 0))
-                ),
-            )
+            sorted_history = sorted(history, key=_sort_key)
             t = sorted_history[0].get("timestamp", None)
             if t is not None:
                 try:

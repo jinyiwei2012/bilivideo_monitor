@@ -217,41 +217,54 @@ class SettingsWindow:
         self.window.destroy()
 
     # ──── 保存系统设置 ────
-    def _save_settings(self):  # noqa: C901
+    def _save_settings(self):
+        if not self._validate_settings():
+            return
+        self._persist_settings()
+        self._apply_settings()
+
+    def _validate_settings(self):
         try:
             interval = int(self.check_interval.get())
             if not (60 <= interval <= 3600):
                 messagebox.showerror("验证失败", "检查间隔必须在 60 ~ 3600 秒之间", parent=self.window)
-                return
+                return False
         except ValueError:
             messagebox.showerror("验证失败", "检查间隔必须为整数", parent=self.window)
-            return
+            return False
         try:
             max_m = int(self.max_monitors.get())
             if not (10 <= max_m <= 500):
                 messagebox.showerror("验证失败", "最大监控数必须在 10 ~ 500 之间", parent=self.window)
-                return
+                return False
         except ValueError:
             messagebox.showerror("验证失败", "最大监控数必须为整数", parent=self.window)
-            return
+            return False
         try:
             pred_hours = int(self.predict_hours.get())
             if not (24 <= pred_hours <= 720):
                 messagebox.showerror("验证失败", "预测时长必须在 24 ~ 720 小时之间", parent=self.window)
-                return
+                return False
         except ValueError:
             messagebox.showerror("验证失败", "预测时长必须为整数", parent=self.window)
-            return
+            return False
         try:
             confidence = float(self.min_confidence.get())
             if not (0.1 <= confidence <= 1.0):
                 messagebox.showerror("验证失败", "最小置信度必须在 0.1 ~ 1.0 之间", parent=self.window)
-                return
+                return False
         except ValueError:
             messagebox.showerror("验证失败", "最小置信度必须为数字", parent=self.window)
-            return
+            return False
+        return True
 
+    def _persist_settings(self):
         from config import save_config
+
+        interval = int(self.check_interval.get())
+        max_m = int(self.max_monitors.get())
+        pred_hours = int(self.predict_hours.get())
+        confidence = float(self.min_confidence.get())
 
         self._cfg["onebot"] = {
             "enabled": self.onebot_enabled.get(),
@@ -285,6 +298,7 @@ class SettingsWindow:
         }
         save_config(self._cfg)
 
+    def _apply_settings(self):
         from core.notification import notification_manager
         notification_manager.configure(self._cfg)
 

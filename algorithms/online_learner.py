@@ -41,7 +41,7 @@ class _AlgorithmTracker:
         self.cumulative_loss = 0.0     # Hedge 累积损失
         self.ewma_loss = 0.0           # 指数加权移动平均误差
         self.error_count = 0           # 已收到反馈的次数
-        self.last_error: Optional[float] = None
+        self.last_error: float | None = None
         self.last_update: float = 0.0   # 上次更新时间戳
         self.recent_errors: List[float] = []  # 最近 N 次误差，用于波动率检测
 
@@ -129,7 +129,7 @@ class OnlineLearner:
             t.error_count += 1
 
             # 更新 EWMA 误差
-            if t.ewma_loss == 0:
+            if abs(t.ewma_loss) < 1e-10:
                 t.ewma_loss = error
             else:
                 t.ewma_loss = self.decay * t.ewma_loss + (1 - self.decay) * error
