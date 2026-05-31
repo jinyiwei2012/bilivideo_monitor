@@ -117,8 +117,6 @@ class ReportSchedulerWindow:
             messagebox.showwarning("提示", "暂无预测数据", parent=self.window)
             return
         self._export_status.config(text="正在导出预测对比表...", fg=C["text_2"])
-            messagebox.showwarning("提示", "暂无预测数据", parent=self.window)
-            return
         self.window.update_idletasks()
         try:
             from utils.report_exporter import export_prediction_vs_actual
@@ -168,7 +166,6 @@ class ReportSchedulerWindow:
 
     def _load_schedule(self):
         """从配置文件加载已保存的定时设置"""
-        try:
         try:
             if _SCHEDULE_CONFIG.exists():
                 data = json.loads(_SCHEDULE_CONFIG.read_text(encoding="utf-8"))

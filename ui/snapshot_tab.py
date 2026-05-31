@@ -402,7 +402,6 @@ class SnapshotTab:
     def _smart_sample(self, ts_list, max_per_day=8):
         """智能采样：每天最多保留 max_per_day 个时间点，均匀抽取"""
         if len(ts_list) <= 20:
-        if len(ts_list) <= 20:
             return ts_list
 
         # 按日期分组
@@ -468,7 +467,6 @@ class SnapshotTab:
 
     def _load_records(self, bvid: str):
         """从 video_dbs 加载某视频的完整历史记录，存入 _points"""
-        if bvid in self._video_dbs:
         if bvid in self._video_dbs:
             try:
                 records = self._video_dbs[bvid].get_all_records()
@@ -718,7 +716,6 @@ class SnapshotTab:
     def _draw_all_metrics(self, c, chosen_metrics, all_metric_bars, section_H, max_section_W, real_W, use_milestone):
         """绘制所有选定指标的柱状图"""
         for m_idx, metric in enumerate(chosen_metrics):
-        for m_idx, metric in enumerate(chosen_metrics):
             metric_label = next((lb for k, lb in METRICS if k == metric), metric)
             data = all_metric_bars.get(metric)
             if not isinstance(data, dict):
@@ -776,8 +773,6 @@ class SnapshotTab:
         """绘制当前指标区的网格线、Y 轴刻度和指标标题"""
         # 分隔线
         if m_idx > 0:
-        # 分隔线
-        if m_idx > 0:
             c.create_line(
                 _BAR_ML, sec_y0, max_section_W - _BAR_MR, sec_y0, fill=C.get("border", "#30363d"), dash=(6, 4), width=1
             )
@@ -829,7 +824,6 @@ class SnapshotTab:
         legend_added,
     ):
         """遍历所有分组绘制柱状条、数值标签和图例"""
-        for g_idx, group in enumerate(groups):
         for g_idx, group in enumerate(groups):
             bvid = group["bvid"]
             title = group["title"]

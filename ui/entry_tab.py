@@ -549,7 +549,6 @@ class EntryTab:
     def _save_snapshot_record(self, bvid: str, ts_str: str, data: dict) -> bool:
         """将快照数据写入视频的历史记录表"""
         if bvid not in self._video_dbs:
-        if bvid not in self._video_dbs:
             return False
         try:
             video_db = self._video_dbs[bvid]
@@ -581,7 +580,6 @@ class EntryTab:
     # ── 刷新已有数据表格 ──────────────────────────────────────────────────────
     def _reload_table(self):
         """重新加载里程碑数据到已录入数据表格"""
-        for item in self._tbl.get_children():
         for item in self._tbl.get_children():
             self._tbl.delete(item)
 
