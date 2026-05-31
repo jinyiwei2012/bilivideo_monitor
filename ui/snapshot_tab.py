@@ -252,7 +252,6 @@ class SnapshotTab:
     def _hover_btn(btn: tk.Label, enter: bool):
         """鼠标悬停/离开快捷筛选按钮时的颜色变化效果"""
         if enter:
-        if enter:
             btn.configure(fg=C.get("bilibili", "#fb7299"), bg=C.get("bg_hover", "#30363d"))
         else:
             btn.configure(fg=C.get("text_2", "#8b949e"), bg=C.get("bg_elevated", "#21262d"))
