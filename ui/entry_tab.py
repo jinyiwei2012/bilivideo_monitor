@@ -343,9 +343,6 @@ class EntryTab:
         for w in self._container.winfo_children():
             w.destroy()
         self._rows.clear()
-        for w in self._container.winfo_children():
-            w.destroy()
-        self._rows.clear()
 
     def _load_existing_data(self, mode, bvids, dt_str=""):
         """从数据库加载已有数据用于输入框预填，返回 (existing_ms, existing_snap)"""
@@ -538,7 +535,6 @@ class EntryTab:
 
     def _build_save_msg(self, saved, skipped, errors):
         """构建保存结果摘要消息字符串"""
-        msg = f"✅ 已保存 {saved} 条"
         msg = f"✅ 已保存 {saved} 条"
         if skipped:
             msg += f"，跳过 {skipped} 条（播放量为空）"

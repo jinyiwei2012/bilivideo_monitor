@@ -35,9 +35,9 @@ class CentralBackup:
             backup_conn.commit()
             with self.db._get_connection() as active_conn:
                 active_cur = active_conn.cursor()
-            self._sync_videos_to_central(active_cur, backup_cur, result)
-            active_bvids, central_bvids = self._sync_monitor_records_to_central(active_cur, backup_cur, result)
-            self._sync_per_video_details(active_bvids, central_bvids, backup_cur, result)
+                self._sync_videos_to_central(active_cur, backup_cur, result)
+                active_bvids, central_bvids = self._sync_monitor_records_to_central(active_cur, backup_cur, result)
+                self._sync_per_video_details(active_bvids, central_bvids, backup_cur, result)
             backup_conn.commit()
             backup_conn.close()
             logger.info(

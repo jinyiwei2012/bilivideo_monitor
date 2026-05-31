@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 def search_up_users(self, keyword: str, page: int = 1, order: str = "fans") -> List[Dict]:
     from core.up_fetcher import search_up_users_multi
 
-    return search_up_users_multi(keyword, page, _own_search_up_users)
+    return search_up_users_multi(keyword, page, lambda kw, p: _own_search_up_users(self, kw, p))
 
 
 def _own_search_up_users(self, keyword: str, page: int) -> List[Dict]:
@@ -38,7 +38,7 @@ def _own_search_up_users(self, keyword: str, page: int) -> List[Dict]:
 def get_up_info(self, uid: int) -> Optional[Dict]:
     from core.up_fetcher import get_up_info_multi
 
-    return get_up_info_multi(uid, _own_get_up_info)
+    return get_up_info_multi(uid, lambda u: _own_get_up_info(self, u))
 
 
 def _own_get_up_info(self, uid: int) -> Optional[Dict]:
@@ -71,7 +71,7 @@ def _own_get_up_info(self, uid: int) -> Optional[Dict]:
 def get_up_stat(self, uid: int) -> Optional[Dict]:
     from core.up_fetcher import get_up_stat_multi
 
-    return get_up_stat_multi(uid, _own_get_up_stat)
+    return get_up_stat_multi(uid, lambda u: _own_get_up_stat(self, u))
 
 
 def _own_get_up_stat(self, uid: int) -> Optional[Dict]:

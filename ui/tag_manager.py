@@ -146,5 +146,5 @@ class TagManagerWindow:
         if tag not in existing:
             set_tags(self._selected_bvid, existing + [tag])
         self._tag_entry.delete(0, tk.END)
-        self._refresh()
         self._refresh_tags()
+        self._refresh()
