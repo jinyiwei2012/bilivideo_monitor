@@ -7,8 +7,9 @@
 import numpy as np
 from typing import List, Dict, Any, Optional, Tuple
 import logging
+from datetime import datetime
 
-from algorithms.base import BaseAlgorithm
+from algorithms.base import BaseAlgorithm, PredictionResult
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,7 @@ class KalmanFilterAlgorithm(BaseAlgorithm):
     name = "卡尔曼滤波器"
     description = "最优状态估计，处理噪声数据"
     category = "时间序列"
+    algorithm_id = "kalman_filter"
 
     def __init__(self):
         super().__init__()
@@ -37,54 +39,106 @@ class KalmanFilterAlgorithm(BaseAlgorithm):
         # 观测噪声协方差
         self.R = np.array([[10000]])
 
-    def predict(
-        self, current_views: int, target_views: int, history_data: List[Dict[str, Any]], video_info: Dict[str, Any]
-    ) -> Optional[Tuple[int, float]]:
-        """
-        预测到达目标播放量所需时间
-        """
+    def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
+        current_views = video_data.get("view_count", 0)
+        target_views = threshold
+        history_data = video_data.get("history_data", [])
+
         if not history_data or len(history_data) < 5:
-            return None
+            return PredictionResult(
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=-1,
+                confidence=0.0,
+                current_views=current_views,
+                current_velocity=self.calculate_velocity(video_data),
+                metadata={},
+                timestamp=datetime.now(),
+            )
 
         try:
             views = [d["view"] for d in history_data]
 
-            # 应用卡尔曼滤波
             x, P = self._kalman_filter(views)
 
             if current_views >= target_views:
-                return (0, 1.0)
+                return PredictionResult(
+                    algorithm_name=self.name,
+                    algorithm_id=self.algorithm_id,
+                    target_threshold=threshold,
+                    predicted_hours=0,
+                    confidence=1.0,
+                    current_views=current_views,
+                    current_velocity=self.calculate_velocity(video_data),
+                    metadata={},
+                    timestamp=datetime.now(),
+                )
 
-            # 从状态估计当前值和增长率
-            x[0, 0]
             growth_rate = x[1, 0]
 
             if growth_rate <= 0:
-                # 尝试从历史数据估计增长率
                 if len(views) >= 2:
                     recent_growth = (views[-1] - views[-5]) / 4 if len(views) >= 5 else views[-1] - views[-2]
                     growth_rate = max(1, recent_growth)
                 else:
-                    return None
+                    return PredictionResult(
+                        algorithm_name=self.name,
+                        algorithm_id=self.algorithm_id,
+                        target_threshold=threshold,
+                        predicted_hours=-1,
+                        confidence=0.0,
+                        current_views=current_views,
+                        current_velocity=self.calculate_velocity(video_data),
+                        metadata={},
+                        timestamp=datetime.now(),
+                    )
 
             remaining = target_views - current_views
 
-            # 预测所需时间
             days_needed = remaining / growth_rate
 
             if days_needed < 0 or days_needed > 3650:
-                return None
+                return PredictionResult(
+                    algorithm_name=self.name,
+                    algorithm_id=self.algorithm_id,
+                    target_threshold=threshold,
+                    predicted_hours=-1,
+                    confidence=0.0,
+                    current_views=current_views,
+                    current_velocity=self.calculate_velocity(video_data),
+                    metadata={},
+                    timestamp=datetime.now(),
+                )
 
-            seconds_needed = int(days_needed * 86400)
-
-            # 置信度基于估计协方差
+            predicted_hours = days_needed * 24
             confidence = self._calculate_confidence(P, growth_rate)
 
-            return (seconds_needed, confidence)
+            return PredictionResult(
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=confidence,
+                current_views=current_views,
+                current_velocity=self.calculate_velocity(video_data),
+                metadata={},
+                timestamp=datetime.now(),
+            )
 
         except Exception as e:
             logger.warning(f"卡尔曼滤波预测失败: {e}")
-            return None
+            return PredictionResult(
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=-1,
+                confidence=0.0,
+                current_views=current_views,
+                current_velocity=self.calculate_velocity(video_data),
+                metadata={},
+                timestamp=datetime.now(),
+            )
 
     def _kalman_filter(self, measurements: List[float]) -> Tuple[np.ndarray, np.ndarray]:
         """

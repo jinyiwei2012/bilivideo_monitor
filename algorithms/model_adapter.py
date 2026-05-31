@@ -252,7 +252,11 @@ class ModelAlgorithmAdapter:
                 pred_hours = seconds / 3600
                 # 用历史数据估算短期速率
                 if len(history_list) > 1:
-                    dt_hours = (history_list[-1]["timestamp"] - history_list[0]["timestamp"]) / 3600.0
+                    t0 = history_list[0]["timestamp"]
+                    t1 = history_list[-1]["timestamp"]
+                    t0 = float(t0) if not isinstance(t0, (int, float)) else t0
+                    t1 = float(t1) if not isinstance(t1, (int, float)) else t1
+                    dt_hours = (t1 - t0) / 3600.0
                     if dt_hours > 0:
                         velocity = (current_value - history_list[0]["view_count"]) / dt_hours
                     else:

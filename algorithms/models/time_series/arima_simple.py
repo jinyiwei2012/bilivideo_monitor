@@ -73,7 +73,7 @@ class ArimaSimpleAlgorithm(BaseAlgorithm):
             predicted_hours=predicted_hours,
             confidence=confidence,
             current_views=current_views,
-            current_velocity=velocity if "velocity" in dir() else self.calculate_velocity(video_data),
+            current_velocity=velocity,
             metadata={"method": "arima_simple", "history_points": len(history)},
             timestamp=datetime.now(),
         )

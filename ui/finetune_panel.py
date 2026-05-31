@@ -853,7 +853,6 @@ class FinetunePanel(BaseTrainingPanel):
     def _on_stage_error(self, msg):
         """处理微调出错阶段：显示错误信息并更新 UI"""
         done = msg.get("done", 0)
-        done = msg.get("done", 0)
         total = msg.get("total", 1)
         aid = msg.get("aid", "?")
         bvid = msg.get("bvid", "?")
@@ -868,7 +867,6 @@ class FinetunePanel(BaseTrainingPanel):
     def _on_stage_auto_adjust(self, msg):
         """处理自动调整事件：记录调整操作到日志"""
         action = msg.get("action", "")
-        action = msg.get("action", "")
         message = msg.get("message", "")
         self._append_log(f"  🔧 自动调整: {message}")
         self._status_lbl.config(text=f"⚡ {message}", fg=C["warning"])
@@ -878,11 +876,9 @@ class FinetunePanel(BaseTrainingPanel):
     def _on_stage_log(self, msg):
         """处理日志消息：追加到日志面板"""
         self._append_log(msg.get("text", ""))
-        self._append_log(msg.get("text", ""))
 
     def _on_stage_cancelled(self, msg):
         """处理取消事件：显示当前完成进度"""
-        done = msg.get("done", 0)
         done = msg.get("done", 0)
         total = msg.get("total", 1)
         self._status_lbl.config(text=f"已取消 ({done}/{total})", fg=C["warning"])
@@ -891,7 +887,6 @@ class FinetunePanel(BaseTrainingPanel):
 
     def _on_stage_all_done(self, msg):
         """处理全部微调完成事件：输出汇总信息并清理状态"""
-        done = msg.get("done", 0)
         done = msg.get("done", 0)
         elapsed = time.time() - self._train_t0 if self._train_t0 else 0
 
@@ -962,7 +957,6 @@ class FinetunePanel(BaseTrainingPanel):
 
     def _get_chart_series(self):
         """仅显示当前视频的 Loss 曲线"""
-        current_algos = set(d["algo"] for d in self._loss_history if d.get("bvid") == self._current_bvid)
         current_algos = set(d["algo"] for d in self._loss_history if d.get("bvid") == self._current_bvid)
         if not current_algos:
             current_algos = set(d["algo"] for d in self._loss_history)

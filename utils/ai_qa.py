@@ -81,7 +81,8 @@ class AIQASession:
                         sorted_pts = pts
                     earliest = sorted_pts[0][1]
                     latest = sorted_pts[-1][1]
-                    span_h = (sorted_pts[-1][0] - sorted_pts[0][0]).total_seconds() / 3600
+                    ts_to_dt = lambda t: t if isinstance(t, datetime) else datetime.fromtimestamp(t)
+                    span_h = (ts_to_dt(sorted_pts[-1][0]) - ts_to_dt(sorted_pts[0][0])).total_seconds() / 3600
                     # 采样关键数据点：首、中、尾
                     lines.append(f"    历史趋势: {len(sorted_pts)}条记录, 跨度{span_h:.1f}h")
                     lines.append(f"      起始: {sorted_pts[0][1]:,} → 当前: {latest:,}")
@@ -288,7 +289,8 @@ class AIQASession:
                         )
                     except Exception:
                         sorted_pts = pts
-                    span = (sorted_pts[-1][0] - sorted_pts[0][0]).total_seconds()
+                    ts_to_dt2 = lambda t: t if isinstance(t, datetime) else datetime.fromtimestamp(t)
+                    span = (ts_to_dt2(sorted_pts[-1][0]) - ts_to_dt2(sorted_pts[0][0])).total_seconds()
                     if span > 0:
                         growth = sorted_pts[-1][1] - sorted_pts[0][1]
                         rate = growth / span * 3600

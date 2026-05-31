@@ -164,10 +164,12 @@ def analyze_sentiment(texts: List[str]) -> Dict:
         for i, token in enumerate(tokens):
             weight = 1.0
             # 检查前面是否有程度副词
-            if i > 0 and tokens[i - 1] in _INTENSIFIERS:
+            if i >= 1 and tokens[i - 1] in _INTENSIFIERS:
                 weight *= 1.5
-            # 检查前面是否有否定词
-            if i > 0 and tokens[i - 1] in _NEGATORS:
+            elif i >= 2 and tokens[i - 2] in _INTENSIFIERS:
+                weight *= 1.3
+            # 检查前面是否有否定词（向后看最多2个token）
+            if any(tokens[j] in _NEGATORS for j in range(max(0, i - 2), i)):
                 weight *= -1.0
 
             if token in _POSITIVE_WORDS:

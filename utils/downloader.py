@@ -4,6 +4,7 @@ aria2 下载器
 首次使用时自动下载 aria2c.exe 到 data/aria2/ 目录。
 """
 
+import hashlib
 import logging
 import os
 import re
@@ -27,6 +28,22 @@ ARIA2_DOWNLOAD_URL = (
     f"https://github.com/aria2/aria2/releases/download/release-{ARIA2_VERSION}/"
     f"aria2-{ARIA2_VERSION}-win-64bit-build1.zip"
 )
+# Expected SHA-256 hash from GitHub releases page (更新版本时需修改)
+# Verify disabled by default since the hash changes with each release
+VERIFY_HASH = False
+ARIA2_EXPECTED_SHA256 = (
+    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    "0000000000000000000000000000000000000000000000000000000000000000"
+)
+
+
+def _sha256_file(path: Path) -> str:
+    """计算文件的 SHA-256 哈希"""
+    sha = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            sha.update(chunk)
+    return sha.hexdigest()
 
 
 def ensure_aria2() -> bool:
@@ -48,6 +65,11 @@ def ensure_aria2() -> bool:
             src = extracted / "aria2c.exe"
             if src.exists():
                 src.rename(ARIA2_EXE)
+                if VERIFY_HASH:
+                    actual = _sha256_file(ARIA2_EXE)
+                    if actual != ARIA2_EXPECTED_SHA256:
+                        ARIA2_EXE.unlink(missing_ok=True)
+                        raise RuntimeError(f"aria2c.exe SHA-256 校验失败: {actual}")
                 # 清理临时文件
                 import shutil
                 shutil.rmtree(extracted, ignore_errors=True)

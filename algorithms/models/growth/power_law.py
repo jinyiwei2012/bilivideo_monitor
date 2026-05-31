@@ -49,7 +49,7 @@ class PowerLawAlgorithm(BaseAlgorithm):
                     predicted_hours = float("inf")
                     confidence = 0.3
                 else:
-                    confidence = 0.65
+                    confidence = min(0.9, max(0.3, 1.0 - abs(v0) / max(current_views, 1)))
 
         return PredictionResult(
             algorithm_name=self.name,

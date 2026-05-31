@@ -123,6 +123,7 @@ class ExponentialGrowthAlgorithm(BaseAlgorithm):
             # ── 预测衰减 ─────────────────────────────
             # 指数增长不能长期持续，随时间逐渐衰减到线性增长
             # 半衰期: 与质量分和视频年龄相关
+            quality = max(0.1, min(1.0, quality))
             half_life_hours = 72 + 48 * quality  # 3-5天
             decay_rate = math.log(2) / half_life_hours
 

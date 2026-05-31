@@ -21,6 +21,7 @@ class ViralPotentialAlgorithm(BaseAlgorithm):
         """执行预测"""
         current_views = video_data.get("view_count", 0)
         velocity = self.calculate_velocity(video_data)
+        viral_score = 0.0
         age_hours = self.get_video_age_hours(video_data)
 
         # 计算病毒指标
@@ -56,7 +57,7 @@ class ViralPotentialAlgorithm(BaseAlgorithm):
                 # 置信度基于病毒分数
                 confidence = min(1.0, viral_score / 3)
 
-        viral_score = locals().get("viral_score", 0)
+
 
         return PredictionResult(
             algorithm_name=self.name,

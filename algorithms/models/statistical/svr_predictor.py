@@ -6,8 +6,9 @@
 import numpy as np
 from typing import List, Dict, Any, Optional, Tuple
 import logging
+from datetime import datetime
 
-from algorithms.base import BaseAlgorithm
+from algorithms.base import BaseAlgorithm, PredictionResult
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,7 @@ class SVRPredictorAlgorithm(BaseAlgorithm):
     name = "支持向量回归"
     description = "基于SVM的非线性回归预测"
     category = "机器学习"
+    algorithm_id = "svr_predictor"
 
     def __init__(self):
         super().__init__()
@@ -29,34 +31,60 @@ class SVRPredictorAlgorithm(BaseAlgorithm):
         self.C = 1.0
         self.gamma = 0.1
 
-    def predict(
-        self, current_views: int, target_views: int, history_data: List[Dict[str, Any]], video_info: Dict[str, Any]
-    ) -> Optional[Tuple[int, float]]:
-        """
-        预测到达目标播放量所需时间
-        """
+    def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
+        current_views = video_data.get("view_count", 0)
+        target_views = threshold
+        history_data = video_data.get("history_data", [])
+        video_info = video_data
+
         if not history_data or len(history_data) < 10:
-            return None
+            return PredictionResult(
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=-1,
+                confidence=0.0,
+                current_views=current_views,
+                current_velocity=self.calculate_velocity(video_data),
+                metadata={},
+                timestamp=datetime.now(),
+            )
 
         try:
-            # 准备特征
             X, y = self._prepare_features(history_data)
 
             if len(X) < 5:
-                return None
+                return PredictionResult(
+                    algorithm_name=self.name,
+                    algorithm_id=self.algorithm_id,
+                    target_threshold=threshold,
+                    predicted_hours=-1,
+                    confidence=0.0,
+                    current_views=current_views,
+                    current_velocity=self.calculate_velocity(video_data),
+                    metadata={},
+                    timestamp=datetime.now(),
+                )
 
-            # 训练SVR模型 (简化版，使用梯度下降)
             weights, bias = self._train_svr(X, y)
 
             if current_views >= target_views:
-                return (0, 1.0)
+                return PredictionResult(
+                    algorithm_name=self.name,
+                    algorithm_id=self.algorithm_id,
+                    target_threshold=threshold,
+                    predicted_hours=0,
+                    confidence=1.0,
+                    current_views=current_views,
+                    current_velocity=self.calculate_velocity(video_data),
+                    metadata={},
+                    timestamp=datetime.now(),
+                )
 
-            # 预测未来增长
             last_features = X[-1]
             current_growth = np.dot(weights, last_features) + bias
 
             if current_growth <= 0:
-                # 从历史估计
                 views = [d["view"] for d in history_data]
                 current_growth = max(1, (views[-1] - views[0]) / len(views))
 
@@ -64,16 +92,46 @@ class SVRPredictorAlgorithm(BaseAlgorithm):
             days_needed = remaining / current_growth
 
             if days_needed < 0 or days_needed > 3650:
-                return None
+                return PredictionResult(
+                    algorithm_name=self.name,
+                    algorithm_id=self.algorithm_id,
+                    target_threshold=threshold,
+                    predicted_hours=-1,
+                    confidence=0.0,
+                    current_views=current_views,
+                    current_velocity=self.calculate_velocity(video_data),
+                    metadata={},
+                    timestamp=datetime.now(),
+                )
 
-            seconds_needed = int(days_needed * 86400)
+            predicted_hours = days_needed * 24
             confidence = self._calculate_confidence(X, y, weights, bias)
 
-            return (seconds_needed, confidence)
+            return PredictionResult(
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=confidence,
+                current_views=current_views,
+                current_velocity=self.calculate_velocity(video_data),
+                metadata={},
+                timestamp=datetime.now(),
+            )
 
         except Exception as e:
             logger.warning(f"SVR预测失败: {e}")
-            return None
+            return PredictionResult(
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=-1,
+                confidence=0.0,
+                current_views=current_views,
+                current_velocity=self.calculate_velocity(video_data),
+                metadata={},
+                timestamp=datetime.now(),
+            )
 
     def _prepare_features(self, history_data: List[Dict[str, Any]]) -> Tuple[np.ndarray, np.ndarray]:
         """

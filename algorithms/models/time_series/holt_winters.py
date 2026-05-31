@@ -44,7 +44,7 @@ class HoltWintersAlgorithm(BaseAlgorithm):
             return None
 
         try:
-            views = [d["view"] for d in history_data]
+            views = [d.get("view_count", d.get("view", 0)) for d in history_data]
 
             # 计算增长差分
             diffs = [views[i] - views[i - 1] for i in range(1, len(views))]
