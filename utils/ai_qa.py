@@ -281,7 +281,7 @@ class AIQASession:
                                 p[0]
                                 if isinstance(p[0], datetime)
                                 else (
-                                    datetime.fromisoformat(str(p[0])[:19].replace("T", " "))
+                                    datetime.fromisoformat(str(p[0])[:19])
                                     if isinstance(p[0], str)
                                     else p[0]
                                 )

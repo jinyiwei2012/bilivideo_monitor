@@ -58,7 +58,7 @@ class KalmanFilterAlgorithm(BaseAlgorithm):
             )
 
         try:
-            views = [d["view"] for d in history_data]
+            views = [d.get("view_count", d.get("view", 0)) for d in history_data]
 
             x, P = self._kalman_filter(views)
 

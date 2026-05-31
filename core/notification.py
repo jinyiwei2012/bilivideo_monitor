@@ -263,6 +263,11 @@ class NotificationManager:
         except Exception as e:
             result["error"] = f"HTTP 异常: {e}"
 
+    def shutdown(self):
+        """关闭线程池，释放资源（应用退出时调用）"""
+        self._executor.shutdown(wait=True)
+        self._executor = None
+
 
 # 全局通知管理器实例
 notification_manager = NotificationManager()

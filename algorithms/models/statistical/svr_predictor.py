@@ -85,7 +85,7 @@ class SVRPredictorAlgorithm(BaseAlgorithm):
             current_growth = np.dot(weights, last_features) + bias
 
             if current_growth <= 0:
-                views = [d["view"] for d in history_data]
+                views = [d.get("view_count", d.get("view", 0)) for d in history_data]
                 current_growth = max(1, (views[-1] - views[0]) / len(views))
 
             remaining = target_views - current_views

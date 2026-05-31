@@ -68,8 +68,10 @@ class CentralBackup:
             if os.path.exists(dst_db):
                 try:
                     import sqlite3 as _sql
-                    sc = _sql.connect(src_db).execute("SELECT COUNT(*) FROM monitor_records").fetchone()[0]
-                    dc = _sql.connect(dst_db).execute("SELECT COUNT(*) FROM monitor_records").fetchone()[0]
+                    with _sql.connect(src_db) as _conn:
+                        sc = _conn.execute("SELECT COUNT(*) FROM monitor_records").fetchone()[0]
+                    with _sql.connect(dst_db) as _conn:
+                        dc = _conn.execute("SELECT COUNT(*) FROM monitor_records").fetchone()[0]
                     if sc <= dc:
                         continue
                     shutil.rmtree(dst_dir)
@@ -101,8 +103,10 @@ class CentralBackup:
             if not os.path.exists(src_db) or not os.path.exists(dst_db):
                 continue
             try:
-                sc = _sql.connect(src_db).execute("SELECT COUNT(*) FROM monitor_records").fetchone()[0]
-                dc = _sql.connect(dst_db).execute("SELECT COUNT(*) FROM monitor_records").fetchone()[0]
+                with _sql.connect(src_db) as _conn:
+                    sc = _conn.execute("SELECT COUNT(*) FROM monitor_records").fetchone()[0]
+                with _sql.connect(dst_db) as _conn:
+                    dc = _conn.execute("SELECT COUNT(*) FROM monitor_records").fetchone()[0]
                 if sc != dc:
                     diffs.append({"bvid": item, "primary_records": sc, "backup_records": dc})
             except Exception:
