@@ -29,6 +29,9 @@ from ui.settings_monitor import (
 )
 from ui.settings_general import (
     _build_general_tab,
+    _build_general_predict_section,
+    _build_general_retry_section,
+    _build_general_status_section,
     _apply_retry_settings,
     _refresh_status,
     _apply_status,
@@ -329,6 +332,9 @@ SettingsWindow._add_threshold_row = _add_threshold_row
 
 # General
 SettingsWindow._build_general_tab = _build_general_tab
+SettingsWindow._build_general_predict_section = _build_general_predict_section
+SettingsWindow._build_general_retry_section = _build_general_retry_section
+SettingsWindow._build_general_status_section = _build_general_status_section
 SettingsWindow._apply_retry_settings = _apply_retry_settings
 SettingsWindow._refresh_status = _refresh_status
 SettingsWindow._apply_status = _apply_status

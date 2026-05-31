@@ -587,6 +587,21 @@ class VideoDatabase:
             logger.warning("添加预测记录失败 %s: %s", prediction.bvid, e)
             return False
 
+    def get_predictions(self, limit: int = 100) -> List[Dict]:
+        """获取预测记录列表，按时间倒序返回"""
+
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                if limit > 0:
+                    cursor.execute("SELECT * FROM predictions ORDER BY created_at DESC LIMIT ?", (limit,))
+                else:
+                    cursor.execute("SELECT * FROM predictions ORDER BY created_at DESC")
+                return [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            logger.warning("获取预测记录失败: %s", e)
+            return []
+
     def add_weekly_score(self, timestamp: str, score_data: dict) -> bool:
         """添加周刊分数记录
 
