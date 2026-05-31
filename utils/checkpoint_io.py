@@ -16,6 +16,7 @@ _CKPT_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(__file
 
 
 def get_checkpoints_dir() -> str:
+    """获取 checkpoint 根目录绝对路径"""
     return os.path.abspath(_CKPT_ROOT)
 
 

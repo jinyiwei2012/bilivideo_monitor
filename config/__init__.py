@@ -100,7 +100,7 @@ def load_config() -> Dict[str, Any]:
 
 
 def get_active_ai_profile() -> dict:
-    """获取当前选中的 LLM 配置"""
+    """获取当前选中的 LLM 配置（支持多 profile）"""
     cfg = load_config().get("ai", {})
     profiles = cfg.get("profiles", [])
     selected = cfg.get("selected_profile", "")
@@ -109,7 +109,7 @@ def get_active_ai_profile() -> dict:
             if p.get("name") == selected:
                 return p
         return profiles[0]
-    # 旧版兼容
+    # 旧版单配置兼容
     return {
         "name": "默认配置",
         "api_key": cfg.get("api_key", ""),
@@ -119,7 +119,7 @@ def get_active_ai_profile() -> dict:
 
 
 def save_config(config: Dict[str, Any]) -> bool:
-    """保存配置文件"""
+    """保存配置到 JSON 文件"""
     try:
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(config, f, ensure_ascii=False, indent=2)

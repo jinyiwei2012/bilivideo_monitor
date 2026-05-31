@@ -29,6 +29,7 @@ class SettingsWindow:
     """统一设置窗口"""
 
     def __init__(self, parent=None, gui=None):
+        """初始化设置窗口"""
         # 自适应对话框尺寸
         self.dlg = DialogBase(
             parent, "系统设置", DialogBase.calc_geometry(parent, 0.48, 0.68), resizable=(True, True), modal=False

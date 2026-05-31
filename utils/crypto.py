@@ -76,6 +76,7 @@ def _machine_secret() -> bytes:
         parts.append(os.environ.get("COMPUTERNAME", "localhost"))
 
     seed = "||".join(parts).encode("utf-8")
+    # 使用 PBKDF2 派生 32 字节密钥
     return hashlib.pbkdf2_hmac("sha256", seed, b"bilibili_monitor_salt_2026", 100000, dklen=32)
 
 
@@ -84,16 +85,19 @@ _MACHINE_KEY = _machine_secret()
 
 
 def _fernet_encrypt(plaintext: str) -> str:
+    """使用 Fernet (AES) 加密"""
     f = Fernet(_KEY)
     return f.encrypt(plaintext.encode("utf-8")).decode("utf-8")
 
 
 def _fernet_decrypt(ciphertext: str) -> str:
+    """使用 Fernet (AES) 解密"""
     f = Fernet(_KEY)
     return f.decrypt(ciphertext.encode("utf-8")).decode("utf-8")
 
 
 def _xor_encrypt(plaintext: str) -> str:
+    """使用 XOR + HMAC 流密码加密（无 cryptography 时的回退方案）"""
     data = plaintext.encode("utf-8")
     key = _MACHINE_KEY
     # 用 HMAC-SHA256 生成与明文等长的密钥流
@@ -110,6 +114,7 @@ def _xor_encrypt(plaintext: str) -> str:
 
 
 def _xor_decrypt(ciphertext: str) -> str:
+    """使用 XOR + HMAC 流密码解密"""
     encrypted = base64.urlsafe_b64decode(ciphertext.encode("utf-8"))
     key = _MACHINE_KEY
     stream = bytearray()
@@ -144,7 +149,7 @@ def is_encrypted(value: str) -> bool:
     """粗略判断值是否已加密（非空且不含等号等 json 特征）。"""
     if not value:
         return False
-    return not any(c in value for c in ('"', "{", ":", "="))
+    return not any(c in value for c in ('"', "{", ":"))
 
 
 def encrypt_dict(d: dict, *keys: str) -> dict:

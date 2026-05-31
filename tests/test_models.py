@@ -1,4 +1,4 @@
-"""Tests for core/database/models.py"""
+"""测试 core/database/models.py — 数据库模型"""
 
 import pytest
 from core.database.models import (
@@ -10,33 +10,44 @@ from core.database.models import (
 
 
 class TestValidateBvid:
+    """测试 BV 号校验函数"""
+
     def test_valid_bvid(self):
+        """合法 BV 号应通过校验"""
         assert _validate_bvid("BV1GJ411x7hQ") == "BV1GJ411x7hQ"
         assert _validate_bvid("BV1xx411c7mD") == "BV1xx411c7mD"
 
     def test_invalid_bvid_too_short(self):
+        """过短的 BV 号应触发异常"""
         with pytest.raises(ValueError, match="无效的 BV 号"):
             _validate_bvid("BV1")
 
     def test_invalid_bvid_no_prefix(self):
+        """缺少 BV 前缀应触发异常"""
         with pytest.raises(ValueError):
             _validate_bvid("AB1234567890")
 
     def test_invalid_bvid_special_chars(self):
+        """包含特殊字符应触发异常"""
         with pytest.raises(ValueError):
             _validate_bvid("BV1!@#$%^&*()")
 
     def test_empty_string(self):
+        """空字符串应触发异常"""
         with pytest.raises(ValueError):
             _validate_bvid("")
 
     def test_path_traversal_attempt(self):
+        """路径穿越攻击尝试应触发异常"""
         with pytest.raises(ValueError):
             _validate_bvid("../etc/passwd")
 
 
 class TestVideoInfo:
+    """测试 VideoInfo 模型"""
+
     def test_default_values(self):
+        """默认值检查"""
         v = VideoInfo(bvid="BV1xx411c7mD", title="")
         assert v.view_count == 0
         assert v.like_count == 0
@@ -49,6 +60,7 @@ class TestVideoInfo:
         assert v.like_view_ratio == 0.0
 
     def test_with_full_data(self):
+        """完整数据字段检查"""
         v = VideoInfo(
             bvid="BV1GJ411x7hQ",
             title="Test Video",
@@ -66,7 +78,10 @@ class TestVideoInfo:
 
 
 class TestMonitorRecord:
+    """测试 MonitorRecord 模型"""
+
     def test_required_fields(self):
+        """必填字段检查"""
         r = MonitorRecord(
             bvid="BV1xx411c7mD",
             timestamp="2025-06-01 12:00:00",
@@ -83,6 +98,7 @@ class TestMonitorRecord:
         assert r.like_view_ratio == 0.0
 
     def test_optional_fields(self):
+        """可选字段检查"""
         r = MonitorRecord(
             bvid="BV1xx411c7mD",
             timestamp="2025-06-01 12:00:00",
@@ -101,7 +117,10 @@ class TestMonitorRecord:
 
 
 class TestPredictionRecord:
+    """测试 PredictionRecord 模型"""
+
     def test_required_fields(self):
+        """必填字段检查"""
         p = PredictionRecord(
             bvid="BV1xx411c7mD",
             algorithm="线性速度",
@@ -117,6 +136,7 @@ class TestPredictionRecord:
         assert p.confidence == 0.85
 
     def test_defaults(self):
+        """默认值检查"""
         p = PredictionRecord(
             bvid="BV1xx411c7mD",
             algorithm="test",

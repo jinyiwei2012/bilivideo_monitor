@@ -4,6 +4,7 @@ OneBot 调用策略：主力 WebSocket → 回退 HTTP
 """
 
 import asyncio
+import concurrent.futures
 import json
 import logging
 import threading
@@ -28,12 +29,14 @@ class NotificationManager:
     """通知管理器"""
 
     def __init__(self):
+        """初始化通知管理器，设置默认 OneBot 连接参数"""
         self.onebot_http = "http://127.0.0.1:5700"
         self.onebot_ws = "ws://127.0.0.1:6700"
         self.token = ""
         self.enabled = True
         self.qq_private = ""
         self.qq_group = ""
+        self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 
     def configure(self, config: Dict[str, Any]):
         """从 settings.json 的嵌套结构加载 OneBot 配置"""
@@ -51,10 +54,7 @@ class NotificationManager:
         """安全运行协程，兼容已有事件循环的线程"""
         try:
             asyncio.get_running_loop()
-            # 已有事件循环，在独立线程中运行
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                return pool.submit(asyncio.run, coro).result()
+            return self._executor.submit(asyncio.run, coro).result()
         except RuntimeError:
             return asyncio.run(coro)
 
@@ -123,7 +123,7 @@ class NotificationManager:
             return False
 
     def _call_action(self, action: str, params: dict) -> bool:
-        """先 WS 后 HTTP 的 OneBot 动作调用"""
+        """先 WS 后 HTTP 的 OneBot 动作调用（主力→保底）"""
         r = self._call_action_ws(action, params)
         if r is True:
             return True
@@ -173,7 +173,7 @@ class NotificationManager:
         return True
 
     def send_threshold_notification(self, bvid: str, title: str, threshold: int, current_views: int):
-        """发送阈值突破通知"""
+        """发送阈值突破通知（同时发送 Windows 通知和 QQ 通知）"""
         message = f"视频《{title}》播放量突破{threshold / 10000:.0f}万！\n当前播放量: {current_views}\nBV号: {bvid}"
 
         # Windows通知

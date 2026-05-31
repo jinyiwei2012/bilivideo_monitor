@@ -1,6 +1,7 @@
 """
 对话框模块 - CustomTkinter 版
-集中管理所有弹窗窗口
+
+集中管理所有弹窗窗口的统一入口。
 """
 
 import tkinter as tk
@@ -25,6 +26,7 @@ class Dialogs:
     # ──────────────────────────────────────────
 
     def open_tag_manager(self):
+        """打开视频标签管理窗口"""
         try:
             from ui.tag_manager import TagManagerWindow
 
@@ -37,6 +39,7 @@ class Dialogs:
     # ──────────────────────────────────────────
 
     def open_backtest(self):
+        """打开预测回测面板"""
         try:
             from ui.backtest_panel import BacktestPanel
 
@@ -49,6 +52,7 @@ class Dialogs:
     # ──────────────────────────────────────────
 
     def open_ranking(self):
+        """打开视频排行榜"""
         try:
             from ui.ranking_panel import RankingPanel
 
@@ -61,6 +65,7 @@ class Dialogs:
     # ──────────────────────────────────────────
 
     def open_anomaly_detection(self):
+        """打开异常检测面板"""
         try:
             from ui.anomaly_panel import AnomalyPanel
 
@@ -73,6 +78,7 @@ class Dialogs:
     # ──────────────────────────────────────────
 
     def open_interval_settings(self):
+        """打开刷新间隔设置对话框"""
         dialog = ctk.CTkToplevel(self.gui.root)
         dialog.title("刷新间隔设置")
         sw = self.gui.root.winfo_screenwidth()
@@ -106,6 +112,7 @@ class Dialogs:
 
         def _save():
             self.gui.DEFAULT_INTERVAL = var.get()
+            # 更新所有非快速模式的视频定时器
             for video in self.gui.monitored_videos:
                 bvid = video.get("bvid", "")
                 timer = self.gui._video_timers.get(bvid)
@@ -139,6 +146,7 @@ class Dialogs:
     # ──────────────────────────────────────────
 
     def open_database_query(self):
+        """打开数据库查询窗口"""
         try:
             from .database_query import DatabaseQueryWindow
 
@@ -151,6 +159,7 @@ class Dialogs:
     # ──────────────────────────────────────────
 
     def open_video_search(self):
+        """打开视频搜索窗口"""
         try:
             from .video_search import VideoSearchWindow
 
@@ -163,6 +172,7 @@ class Dialogs:
     # ──────────────────────────────────────────
 
     def open_data_comparison(self):
+        """打开数据对比窗口"""
         try:
             from .data_comparison import DataComparisonWindow
 
@@ -181,6 +191,7 @@ class Dialogs:
     # ──────────────────────────────────────────
 
     def open_crossover_analysis(self):
+        """打开交叉计算窗口"""
         try:
             from .crossover_analysis import CrossoverAnalysisWindow
 
@@ -198,6 +209,7 @@ class Dialogs:
     # ──────────────────────────────────────────
 
     def open_weekly_score(self):
+        """打开周刊分数计算窗口"""
         try:
             from .weekly_score import WeeklyScoreWindow
 
@@ -210,6 +222,7 @@ class Dialogs:
     # ──────────────────────────────────────────
 
     def open_milestone_stats(self):
+        """打开里程碑统计窗口"""
         try:
             from .milestone_stats import MilestoneStatsWindow
 
@@ -228,6 +241,8 @@ class Dialogs:
     # ──────────────────────────────────────────
 
     def add_bvid_to_monitor(self, bvid: str):
+        """添加 BV 号到监控列表（供里程碑等模块回调）"""
+        # 去重检查
         for v in self.gui.monitored_videos:
             if v.get("bvid") == bvid:
                 return
@@ -241,6 +256,7 @@ class Dialogs:
     # ──────────────────────────────────────────
 
     def open_algorithm_comparison(self):
+        """打开算法比较窗口"""
         try:
             from .algorithm_comparison import AlgorithmComparisonWindow
 
@@ -255,6 +271,7 @@ class Dialogs:
     # ──────────────────────────────────────────
 
     def open_settings(self):
+        """打开系统设置窗口"""
         try:
             from .settings_window import SettingsWindow
 
@@ -267,6 +284,7 @@ class Dialogs:
     # ──────────────────────────────────────────
 
     def import_search_results(self, videos: list):
+        """导入搜索到的视频到监控列表"""
         if not videos:
             return
 
@@ -278,6 +296,7 @@ class Dialogs:
                 bvid = v.get("bvid", "")
                 if not bvid:
                     continue
+                # 检查是否已存在
                 if any(mv.get("bvid") == bvid for mv in self.gui.monitored_videos):
                     skipped += 1
                     continue
@@ -349,8 +368,8 @@ class Dialogs:
                 font=("Microsoft YaHei UI", 11, "bold"),
             ).pack(anchor="w", padx=10, pady=5)
 
-            # 显示算法列表
-            for info in algo_infos[:20]:  # 最多显示20个
+            # 显示算法列表（最多 20 个）
+            for info in algo_infos[:20]:
                 algo_frame = tk.Frame(scrollable_frame, bg=C["bg_surface"])
                 algo_frame.pack(fill=tk.X, padx=20, pady=2)
 
@@ -441,6 +460,7 @@ class Dialogs:
     # ──────────────────────────────────────────
 
     def open_up_tracker(self):
+        """打开 UP主 追踪窗口"""
         try:
             from .up_tracker import UpTrackerWindow
             from core import get_bilibili_api
@@ -456,6 +476,7 @@ class Dialogs:
     # ──────────────────────────────────────────
 
     def open_danmaku_analysis(self):
+        """打开弹幕分析窗口"""
         try:
             from .danmaku_analysis import DanmakuAnalysisWindow
             from core import get_bilibili_api
@@ -471,6 +492,7 @@ class Dialogs:
     # ──────────────────────────────────────────
 
     def open_trending_discovery(self):
+        """打开热门发现窗口"""
         try:
             from .trending_discovery import TrendingDiscoveryWindow
             from core import get_bilibili_api
@@ -486,6 +508,7 @@ class Dialogs:
     # ──────────────────────────────────────────
 
     def open_ai_qa(self):
+        """打开 AI 智能问答窗口"""
         try:
             from .ai_qa_window import AIQAWindow
 
@@ -500,6 +523,7 @@ class Dialogs:
     # ──────────────────────────────────────────
 
     def open_dashboard(self):
+        """打开数据大屏窗口"""
         try:
             from .dashboard_mode import DashboardWindow
 
@@ -514,6 +538,7 @@ class Dialogs:
     # ──────────────────────────────────────────
 
     def open_report_scheduler(self):
+        """打开报告导出窗口"""
         try:
             from .report_scheduler import ReportSchedulerWindow
 

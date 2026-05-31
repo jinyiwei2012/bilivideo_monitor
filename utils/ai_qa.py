@@ -14,6 +14,14 @@ class AIQASession:
     """AI问答会话，管理对话历史并生成回答"""
 
     def __init__(self, api_key: str = "", endpoint: str = "", model: str = "gpt-4o-mini"):
+        """
+        初始化 AI 问答会话
+
+        Args:
+            api_key: LLM API 密钥
+            endpoint: API 端点地址
+            model: 模型名称
+        """
         self.api_key = api_key
         self.endpoint = endpoint or "https://api.openai.com/v1/chat/completions"
         self.model = model
@@ -28,6 +36,7 @@ class AIQASession:
         self._min_call_interval = 1.0
 
     def _load_config(self):
+        """从配置文件加载 AI 配置"""
         try:
             from config import get_active_ai_profile
 
@@ -233,6 +242,7 @@ class AIQASession:
         )
 
     def _answer_anomaly(self) -> str:
+        """回答异常预警相关的问题"""
         from core.smart_alert import AnomalyDetector
 
         alert_count = 0
@@ -253,6 +263,7 @@ class AIQASession:
         return "当前无异常预警。"
 
     def _answer_fastest_growth(self) -> str:
+        """回答增长最快的问题"""
         videos = self._monitored_videos
         if not videos:
             return "暂无监控视频。"
@@ -293,6 +304,7 @@ class AIQASession:
         return "暂无足够数据计算增速。"
 
     def _answer_top_views(self) -> str:
+        """回答播放量排行的问题"""
         sorted_v = sorted(self._monitored_videos, key=lambda v: v.get("view_count", 0), reverse=True)
         if not sorted_v:
             return "暂无监控视频。"
@@ -302,6 +314,7 @@ class AIQASession:
         return "\n".join(lines)
 
     def _answer_threshold(self) -> str:
+        """回答阈值达标相关的问题"""
         from config import load_config
 
         cfg = load_config().get("prediction", {})
@@ -325,6 +338,7 @@ class AIQASession:
         return result
 
     def _answer_health(self) -> str:
+        """回答健康探针相关的问题"""
         try:
             from utils.interaction_quality import calculate_probe_from_dict
 

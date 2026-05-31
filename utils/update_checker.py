@@ -22,6 +22,7 @@ from config import DATA_DIR, load_config, save_config
 
 logger = logging.getLogger(__name__)
 
+# GitHub Release API 地址（稳定版和预发布版）
 GITHUB_API_STABLE = "https://api.github.com/repos/jinyiwei2012/bilivideo_monitor/releases/latest"
 GITHUB_API_PRERELEASE = "https://api.github.com/repos/jinyiwei2012/bilivideo_monitor/releases?per_page=5"
 GITHUB_REPO = "https://github.com/jinyiwei2012/bilivideo_monitor"
@@ -116,6 +117,7 @@ def _x_strict() -> bool:
 
 
 def _get_local_version() -> str:
+    """获取本地版本号"""
     try:
         from __init__ import __version__
 
@@ -125,11 +127,13 @@ def _get_local_version() -> str:
 
 
 def _enable_devmode():
+    """启用会话级开发者模式"""
     global _session_devmode
     _session_devmode = True
 
 
 def _warn(parent=None):
+    """弹出高风险操作确认对话框"""
     try:
         from tkinter import messagebox
         r = messagebox.askyesno(
@@ -171,6 +175,7 @@ def _confirm_risky(operation_desc: str = "当前操作", parent=None):
 
 
 def _load_cache() -> Optional[dict]:
+    """加载本地更新缓存（未过期则返回）"""
     try:
         if CACHE_FILE.exists():
             data = json.loads(CACHE_FILE.read_text(encoding="utf-8"))
@@ -183,6 +188,7 @@ def _load_cache() -> Optional[dict]:
 
 
 def _save_cache(data: dict):
+    """保存更新结果到本地缓存"""
     try:
         CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
         data["cached_at"] = datetime.now().isoformat()
@@ -214,6 +220,7 @@ def check_for_update() -> Tuple[bool, str, str, str, str]:
         return False, "", "", "", get_update_channel()
 
     channel = get_update_channel()
+    # 根据通道选择 API 地址
     api_url = GITHUB_API_PRERELEASE if channel == "beta" else GITHUB_API_STABLE
 
     cached = _load_cache()
@@ -268,7 +275,7 @@ def get_download_urls() -> dict:
         return {}
     return {
         "exe": next(
-            (a["url"] for a in cached.get("assets", []) if a["name"].endswith(".exe")),
+            (a["url"] for a in cached.get("assets", []) if a.get("name") and a["name"].endswith(".exe")),
             cached.get("download_url", ""),
         ),
         "zip": cached.get("zipball_url", ""),
@@ -345,6 +352,7 @@ def _create_restart_script():
     exe_dir = os.path.dirname(exe_path)
     new_exe = os.path.join(DATA_DIR, "downloads", "BiliMonitor_new.exe")
     script_path = os.path.join(exe_dir, "update_restart.bat")
+    # 批处理脚本：循环等待原进程退出，复制新 exe 覆盖后启动，最后自删除
     bat_content = f"""@echo off
 chcp 65001 >nul
 echo 正在更新 BiliMonitor…
@@ -366,6 +374,3 @@ del "%~f0" >nul 2>nul
         logger.info("重启脚本已创建: %s", script_path)
     except Exception as e:
         logger.warning("创建重启脚本失败: %s", e)
-
-
-

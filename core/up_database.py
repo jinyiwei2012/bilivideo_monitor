@@ -17,14 +17,17 @@ class UpDatabase:
     """
 
     def __init__(self):
+        """初始化数据库，确保数据目录存在并创建所需的表"""
         os.makedirs(_DATA_DIR, exist_ok=True)
         self._db_path = os.path.join(_DATA_DIR, "bilibili_monitor.db")
         self._init_tables()
 
     def _get_conn(self):
+        """获取数据库连接"""
         return sqlite3.connect(self._db_path)
 
     def _init_tables(self):
+        """初始化 UP 主信息表和趋势历史表"""
         conn = self._get_conn()
         try:
             c = conn.cursor()
@@ -54,6 +57,7 @@ class UpDatabase:
                     total_views   INTEGER DEFAULT 0
                 )
             """)
+            # 为 up_history 表的 uid 列创建索引，加速按 UP 主查询
             c.execute("""
                 CREATE INDEX IF NOT EXISTS idx_up_history_uid
                 ON up_history(uid)
@@ -72,6 +76,7 @@ class UpDatabase:
         conn = self._get_conn()
         try:
             c = conn.cursor()
+            # 使用 UPSERT (ON CONFLICT DO UPDATE) 语法
             c.execute(
                 """
                 INSERT INTO up_info (uid, name, face, sign, level,
@@ -142,7 +147,7 @@ class UpDatabase:
             conn.close()
 
     def get_all_ups(self, only_tracking: bool = True) -> List[Dict]:
-        """获取所有UP主列表"""
+        """获取所有UP主列表（可选仅返回正在追踪的）"""
         conn = self._get_conn()
         try:
             c = conn.cursor()
@@ -214,7 +219,7 @@ class UpDatabase:
             conn.close()
 
     def delete_up(self, uid: int) -> bool:
-        """删除UP主数据"""
+        """删除UP主数据（同时清理信息表和历史表）"""
         conn = self._get_conn()
         try:
             c = conn.cursor()

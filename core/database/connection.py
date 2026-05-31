@@ -1,4 +1,4 @@
-"""数据库连接管理"""
+"""数据库连接管理及全局 HTTP 会话"""
 
 import requests
 
@@ -14,19 +14,29 @@ _http_session.headers.update(
 
 
 class _ConnectionCtx:
-    """线程安全的数据库连接上下文管理器"""
+    """线程安全的数据库连接上下文管理器
+    自动在退出时提交或回滚事务，并释放锁
+    """
 
     __slots__ = ("_conn", "_lock")
 
     def __init__(self, conn, lock):
+        """初始化连接上下文
+
+        Args:
+            conn: SQLite 数据库连接对象
+            lock: 线程锁，用于保证线程安全
+        """
         self._conn = conn
         self._lock = lock
 
     def __enter__(self):
+        """进入上下文：获取锁并返回数据库连接"""
         self._lock.acquire()
         return self._conn
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        """退出上下文：无异常则提交，有异常则回滚，最后释放锁"""
         try:
             if exc_type is None:
                 self._conn.commit()
@@ -37,4 +47,5 @@ class _ConnectionCtx:
         return False
 
     def cursor(self):
+        """获取数据库游标"""
         return self._conn.cursor()

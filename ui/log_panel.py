@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 class LogPanelHandler(logging.Handler):
-    """将 Python logging 接入 GUI 日志面板"""
+    """将 Python logging 标准库的日志接入 GUI 日志面板"""
 
     LEVEL_MAP = {
         logging.DEBUG: "DEBUG",
@@ -30,6 +30,7 @@ class LogPanelHandler(logging.Handler):
         self._log_panel = log_panel
 
     def emit(self, record: logging.LogRecord):
+        """将日志记录转发到 GUI 日志面板"""
         level = self.LEVEL_MAP.get(record.levelno, "INFO")
         msg = self.format(record)
         try:
@@ -44,8 +45,9 @@ _LOGGER_HANDLER_INSTALLED = False
 def install_logging_bridge(log_panel: "LogPanel", level=logging.INFO):
     """将核心模块的 logging 输出桥接到 GUI 日志面板
 
-    调用一次即可，会自动附加到所有关心的 logger。
+    调用一次即可，会自动附加到所有关心的 logger
     """
+    global _LOGGER_HANDLER_INSTALLED
     global _LOGGER_HANDLER_INSTALLED
     if _LOGGER_HANDLER_INSTALLED:
         return
@@ -64,7 +66,7 @@ def install_logging_bridge(log_panel: "LogPanel", level=logging.INFO):
 
 
 class LogPanel:
-    """日志面板 - 构建和管理应用日志显示"""
+    """日志面板 — 构建和管理应用日志显示，支持等级筛选、线程安全添加、增量渲染"""
 
     def __init__(self, parent, file_logger):
         self.root = parent
@@ -176,6 +178,8 @@ class LogPanel:
         return self._log_frame
 
     def set_log_level(self, level):
+        """设置日志过滤等级，更新按钮样式并刷新显示"""
+        self._log_level_var.set(level)
         self._log_level_var.set(level)
         for lvl, btn in self._log_level_btns.items():
             is_active = lvl == level
@@ -189,15 +193,18 @@ class LogPanel:
     _LEVEL_ORDER = {"DEBUG": 0, "INFO": 1, "WARNING": 2, "ERROR": 3}
 
     def _should_show(self, level: str) -> bool:
+        """判断指定级别的日志是否应显示在当前过滤条件下"""
         filter_level = self._log_level_var.get()
         if filter_level == "ALL":
             return True
+        # 比较级别数值，>= 过滤级别才显示
         min_severity = self._LEVEL_ORDER.get(filter_level, 0)
         msg_severity = self._LEVEL_ORDER.get(level, 0)
         return msg_severity >= min_severity
 
     def add_log(self, level: str, message: str):
-        """线程安全地添加日志（可被任何线程调用）"""
+        """线程安全地添加日志（可被任何线程调用），自动裁剪超过 2000 条的旧日志"""
+        ts = datetime.now()
         ts = datetime.now()
         ts_str = ts.strftime("%H:%M:%S")
         self._log_entries.append((level, ts_str, message))
@@ -205,6 +212,7 @@ class LogPanel:
             self._file_logger.write(level, message, ts)
         except Exception as e:
             logger.debug("写文件日志失败: %s", e)
+        # 日志超过 2000 条时裁剪到 1500 条
         if len(self._log_entries) > 2000:
             removed = len(self._log_entries) - 1500
             self._log_entries = self._log_entries[-1500:]
@@ -212,14 +220,15 @@ class LogPanel:
             if self._rendered_count == 0 and removed > 0:
                 self.root.after(0, self.refresh_log_view)
 
-        # 通过队列调度到主线程渲染（避免工作线程直接调用 Tkinter）
+        # 若当前过滤等级满足条件，放入队列等待主线程渲染（避免工作线程直接操作 Tkinter）
         if self._should_show(level):
             self._log_queue.put((level, ts, message))
             if not self._queue_processing:
                 self.root.after(0, self._process_log_queue)
 
     def _process_log_queue(self):
-        """主线程：处理日志队列（由 root.after 调度）"""
+        """主线程：处理日志队列（由 root.after 调度），每次最多处理 100 条"""
+        self._queue_processing = True
         self._queue_processing = True
         processed = 0
         try:
@@ -246,12 +255,12 @@ class LogPanel:
         self._log_text.config(state=tk.DISABLED)
 
     def refresh_log_view(self):
-        """根据当前等级筛选刷新日志（增量追加，避免全量重建）"""
+        """根据当前等级筛选刷新日志显示（增量追加，避免全量重建）"""
         current_count = len(self._log_entries)
         if current_count == 0:
             return
 
-        # 首次刷新或切换过滤条件时全量重建
+        # 首次渲染或过滤条件切换时全量重建
         if self._rendered_count == 0:
             self._log_text.config(state=tk.NORMAL)
             self._log_text.delete("1.0", tk.END)
@@ -278,6 +287,7 @@ class LogPanel:
             self._log_text.config(state=tk.DISABLED)
 
     def clear_log(self):
+        """清空日志缓冲区和显示"""
         self._log_entries.clear()
         self._rendered_count = 0
         self._log_text.config(state=tk.NORMAL)
@@ -285,14 +295,18 @@ class LogPanel:
         self._log_text.config(state=tk.DISABLED)
 
     def start_auto_refresh(self, root):
+        """启动日志自动刷新定时器（每 5 秒）"""
+        self.stop_auto_refresh()
         self.stop_auto_refresh()
         self._log_refresh_job = root.after(5000, self._auto_refresh_tick)
 
     def _auto_refresh_tick(self):
+        """定时器触发：刷新日志并重新调度"""
         self.refresh_log_view()
         self._log_refresh_job = self.root.after(5000, self._auto_refresh_tick)
 
     def stop_auto_refresh(self):
+        """停止自动刷新定时器"""
         if self._log_refresh_job:
             try:
                 self.root.after_cancel(self._log_refresh_job)
@@ -301,4 +315,5 @@ class LogPanel:
             self._log_refresh_job = None
 
     def cleanup(self):
+        """清理资源：停止自动刷新"""
         self.stop_auto_refresh()

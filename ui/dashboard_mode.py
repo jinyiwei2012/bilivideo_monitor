@@ -9,7 +9,7 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 
-# 大屏颜色
+# 大屏颜色主题（深色）
 _DASH_COLORS = {
     "bg": "#0d1117",
     "card_bg": "#161b22",
@@ -24,7 +24,7 @@ _DASH_COLORS = {
 
 
 class DashboardWindow:
-    """全屏数据大屏 — 自动轮播 4 页"""
+    """全屏数据大屏 — 自动轮播 4 页（总览/排行/预测/健康）"""
 
     def __init__(self, gui, parent=None):
         self.gui = gui
@@ -34,19 +34,20 @@ class DashboardWindow:
         self.window.bind("<Escape>", lambda e: self.window.destroy())
         self.window.bind("<F11>", lambda e: self.window.destroy())
 
-        self._page = 0
-        self._total_pages = 4
-        self._animating = True
+        self._page = 0               # 当前页码
+        self._total_pages = 4        # 总页数
+        self._animating = True       # 是否正在轮播
 
         self._setup_ui()
         self._show_page(0)
         self._start_rotation()
 
     def _setup_ui(self):
+        """构建大屏 UI：顶部标题 + 时间、页面指示器、内容区"""
         self._main = tk.Frame(self.window, bg=_DASH_COLORS["bg"])
         self._main.pack(fill=tk.BOTH, expand=True)
 
-        # 顶部标题
+        # 顶部标题栏
         self._header = tk.Frame(self._main, bg=_DASH_COLORS["bg"])
         self._header.pack(fill=tk.X, padx=40, pady=(20, 0))
         tk.Label(
@@ -62,7 +63,7 @@ class DashboardWindow:
         self._time_lbl.pack(side=tk.RIGHT)
         self._update_time()
 
-        # 页面指示器
+        # 页面指示器（圆点）
         self._dots = tk.Frame(self._main, bg=_DASH_COLORS["bg"])
         self._dots.pack(pady=(8, 0))
         self._dot_widgets = []
@@ -73,21 +74,24 @@ class DashboardWindow:
             d.pack(side=tk.LEFT, padx=4)
             self._dot_widgets.append(d)
 
-        # 内容区
+        # 内容区（各页动态填充）
         self._content = tk.Frame(self._main, bg=_DASH_COLORS["bg"])
         self._content.pack(fill=tk.BOTH, expand=True, padx=40, pady=20)
 
     def _update_time(self):
+        """每秒更新右上角当前时间"""
         self._time_lbl.config(text=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         if self._animating:
             self.window.after(1000, self._update_time)
 
     def _start_rotation(self):
+        """启动自动轮播（15 秒切换一页）"""
         if not self._animating:
             return
         self.window.after(15000, self._next_page)
 
     def _next_page(self):
+        """切换到下一页"""
         if not self._animating:
             return
         self._page = (self._page + 1) % self._total_pages
@@ -95,6 +99,7 @@ class DashboardWindow:
         self._start_rotation()
 
     def _show_page(self, page: int):
+        """渲染指定页码的内容"""
         for w in self._content.winfo_children():
             w.destroy()
         for i, d in enumerate(self._dot_widgets):
@@ -111,13 +116,14 @@ class DashboardWindow:
 
     # ── 第1页：总览 ────────────────────────────
     def _build_overview(self):
+        """第 1 页：总览 — 显示监控总数、总播放量、总互动、已达标数、视频列表"""
         videos = self.gui.monitored_videos
         total = len(videos)
         total_views = sum(v.get("view_count", 0) for v in videos)
         total_likes = sum(v.get("like_count", 0) for v in videos)
         achieved = sum(1 for v in videos if v.get("view_count", 0) >= 10000)
 
-        # 4大指标卡
+        # 4 大指标卡片
         stat_row = tk.Frame(self._content, bg=_DASH_COLORS["bg"])
         stat_row.pack(fill=tk.X, pady=20)
         cards = [
@@ -134,7 +140,7 @@ class DashboardWindow:
             ).pack()
             tk.Label(c, text=val, bg=_DASH_COLORS["card_bg"], fg=color, font=("Consolas", 28, "bold")).pack(pady=(8, 0))
 
-        # 最近视频列表
+        # 视频列表（前 8 个）
         titles = ["视频列表"]
         table_frame = tk.Frame(
             self._content, bg=_DASH_COLORS["card_bg"], highlightthickness=1, highlightbackground="#30363d"
@@ -199,6 +205,7 @@ class DashboardWindow:
 
     # ── 第2页：排行 ────────────────────────────
     def _build_ranking(self):
+        """第 2 页：排行 — 播放量 Top10 水平柱状图"""
         videos = sorted(self.gui.monitored_videos, key=lambda v: v.get("view_count", 0), reverse=True)
         if not videos:
             tk.Label(
@@ -236,8 +243,7 @@ class DashboardWindow:
             bar_w = max(40, int(views / max_views * (canvas_w - 200)))
             y = 10 + i * bar_h
 
-            # 排名圆
-            _DASH_COLORS["danger"] if i < 3 else _DASH_COLORS["text_2"]
+            # 柱状条（前 3 名实心，其余半透明）
             c.create_rectangle(
                 10,
                 y + 6,
@@ -259,6 +265,7 @@ class DashboardWindow:
 
     # ── 第3页：预测 ────────────────────────────
     def _build_prediction(self):
+        """第 3 页：预测 — 各视频当前播放量及阈值完成进度"""
         tk.Label(
             self._content,
             text="🎯 预测总览",
@@ -292,10 +299,9 @@ class DashboardWindow:
                 font=("Consolas", 10),
             ).pack(anchor="w", padx=10)
 
-            # 阈值进度
+            # 每个阈值的完成进度
             for t, name in zip(THRESHOLDS, THRESHOLD_NAMES):
                 pct = min(100, views / t * 100) if t > 0 else 0
-                t - views
                 status = "✅" if views >= t else f"{pct:.0f}%"
                 tk.Label(
                     card,
@@ -307,6 +313,7 @@ class DashboardWindow:
 
     # ── 第4页：健康 ────────────────────────────
     def _build_health(self):
+        """第 4 页：健康 — 实时预警列表 + 一键三连健康探针评分"""
         tk.Label(
             self._content,
             text="💚 健康概览",
@@ -315,7 +322,7 @@ class DashboardWindow:
             font=("Microsoft YaHei UI", 14, "bold"),
         ).pack(anchor="w")
 
-        # 预警列表
+        # ── 实时预警卡片 ──
         from core.smart_alert import AnomalyDetector
 
         alert_frame = tk.Frame(
@@ -370,7 +377,7 @@ class DashboardWindow:
                 font=("Microsoft YaHei UI", 12),
             ).pack(pady=10)
 
-        # 健康探针
+        # ── 一键三连健康探针 ──
         try:
             from utils.interaction_quality import calculate_probe_from_dict
 
@@ -422,6 +429,7 @@ class DashboardWindow:
 
 
 def _fmt(n):
+    """格式化大数字：超亿显示亿，超万显示万"""
     if n >= 1_0000_0000:
         return f"{n / 1_0000_0000:.2f}亿"
     if n >= 1_0000:

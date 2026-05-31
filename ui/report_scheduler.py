@@ -33,6 +33,7 @@ class ReportSchedulerWindow:
         self._setup_ui()
 
     def _setup_ui(self):
+        """构建报告定时器设置窗口 UI：手动导出、定时导出、已导出文件列表"""
         self.dlg.header("定时导出报告", "手动导出 / 按计划自动导出 CSV / JSON / HTML / Excel")
 
         # ── 手动导出 ──
@@ -116,6 +117,8 @@ class ReportSchedulerWindow:
             messagebox.showwarning("提示", "暂无预测数据", parent=self.window)
             return
         self._export_status.config(text="正在导出预测对比表...", fg=C["text_2"])
+            messagebox.showwarning("提示", "暂无预测数据", parent=self.window)
+            return
         self.window.update_idletasks()
         try:
             from utils.report_exporter import export_prediction_vs_actual
@@ -129,6 +132,7 @@ class ReportSchedulerWindow:
             self._export_status.config(text=f"❌ 导出失败: {e}", fg=C["danger"])
 
     def _export_now(self):
+        """立即按选定格式导出监控数据报告"""
         if not self.gui or not self.gui.monitored_videos:
             messagebox.showwarning("提示", "暂无监控视频数据", parent=self.window)
             return
@@ -158,10 +162,13 @@ class ReportSchedulerWindow:
     # ── 定时导出 ──
 
     def _on_schedule_toggle(self):
+        """启用定时导出时重置间隔和格式为默认值"""
         self._interval_var.set("daily")
         self._schedule_format_var.set("csv")
 
     def _load_schedule(self):
+        """从配置文件加载已保存的定时设置"""
+        try:
         try:
             if _SCHEDULE_CONFIG.exists():
                 data = json.loads(_SCHEDULE_CONFIG.read_text(encoding="utf-8"))
@@ -173,6 +180,7 @@ class ReportSchedulerWindow:
             logger.debug("忽略异常: %s", e)
 
     def _save_schedule(self):
+        """保存定时设置到配置文件并排程下一次导出"""
         data = {
             "enabled": self._schedule_enabled.get(),
             "interval": self._interval_var.get(),
@@ -217,6 +225,7 @@ class ReportSchedulerWindow:
     # ── 文件列表 ──
 
     def _refresh_file_list(self):
+        """刷新已导出文件列表，显示最近的 30 个文件"""
         self._file_list.delete(0, tk.END)
         reports_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "reports")
         if os.path.isdir(reports_dir):
@@ -227,6 +236,7 @@ class ReportSchedulerWindow:
                 self._file_list.insert(tk.END, f"{f}  ({size_str})")
 
     def _open_folder(self):
+        """打开报告导出目录"""
         reports_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "reports")
         os.makedirs(reports_dir, exist_ok=True)
         os.startfile(reports_dir)

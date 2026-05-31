@@ -15,6 +15,7 @@ _OUTPUT_DIR = project_path("reports")
 
 
 def _fmt(n):
+    """格式化大数字为易读的中文单位"""
     if n >= 1_0000_0000:
         return f"{n / 1_0000_0000:.2f}亿"
     if n >= 1_0000:

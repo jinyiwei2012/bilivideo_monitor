@@ -29,11 +29,12 @@ class ProxyManager:
     ]
 
     def __init__(self):
+        """初始化代理管理器，设置代理列表、UA 映射、失败计数等"""
         self.proxies: List[Dict] = []
         self.current_proxy_index = 0
-        self._proxy_ua_map: Dict[int, str] = {}
-        self._proxy_failure_count: Dict[int, int] = {}
-        self._MAX_PROXY_FAILURES = 3
+        self._proxy_ua_map: Dict[int, str] = {}  # 代理索引 → 绑定 UA
+        self._proxy_failure_count: Dict[int, int] = {}  # 代理索引 → 失败次数
+        self._MAX_PROXY_FAILURES = 3  # 超过此失败次数自动移除代理
         self._current_request_proxy_idx: Optional[int] = None
         self._socks_available = self._check_socks()
         self._lock = threading.Lock()
@@ -100,6 +101,7 @@ class ProxyManager:
             if not self.proxies:
                 return None, None, None
 
+            # 按轮询顺序查找可用代理（失败次数未超限）
             for _ in range(len(self.proxies)):
                 idx = self.current_proxy_index
                 if self._proxy_failure_count.get(idx, 0) < self._MAX_PROXY_FAILURES:
@@ -135,6 +137,7 @@ class ProxyManager:
             if not self.proxies:
                 return None
             idx = self.current_proxy_index
+            # 跳过失败过多的代理，找到第一个可用代理
             if self._proxy_failure_count.get(idx, 0) >= self._MAX_PROXY_FAILURES:
                 for i in range(len(self.proxies)):
                     if self._proxy_failure_count.get(i, 0) < self._MAX_PROXY_FAILURES:
@@ -183,6 +186,7 @@ class ProxyManager:
                 masked = self.mask_url(self.proxies[proxy_idx].get("http", ""))
                 total = current_failures + 1
                 if total >= self._MAX_PROXY_FAILURES:
+                    # 失败次数超过上限，自动移除代理
                     logger.error(f"代理 {masked} 请求失败已达 {total} 次，自动移除")
                     self.proxies.pop(proxy_idx)
                     self._proxy_ua_map.pop(proxy_idx, None)
@@ -209,6 +213,7 @@ class ProxyManager:
 
     @staticmethod
     def _build_result() -> dict:
+        """构建代理测试结果的默认字典"""
         return {
             "ok": False,
             "latency_ms": None,
@@ -232,6 +237,7 @@ class ProxyManager:
             logger.debug("解析代理错误原因失败")
         check = err_str + " " + root_cause
 
+        # 常见错误模式匹配
         patterns = [
             (["Connection refused", "连接被拒绝", "积极拒绝"], "连接被拒绝（代理地址或端口无效）"),
             (
@@ -351,6 +357,7 @@ class ProxyManager:
 
     @staticmethod
     def _log_test_result(proxy_url: str, result: dict):
+        """记录代理测试结果到日志"""
         masked = ProxyManager.mask_url(proxy_url)
         if result.get("ok"):
             logger.info(
@@ -371,6 +378,7 @@ class ProxyManager:
             logger.info(f"代理自动发现已启动（间隔 {interval}s）")
 
     def _auto_discovery_loop(self):
+        """后台自动发现循环"""
         while self._auto_discovery_running:
             try:
                 self._discover_free_proxies()
@@ -404,7 +412,7 @@ class ProxyManager:
                         continue
                     # 快速连通性测试
                     fast_test = ProxyManager._proxy_http_request(url, "http://httpbin.org/ip",
-                                                                   "Mozilla/5.0", 5)
+                                                                    "Mozilla/5.0", 5)
                     if not fast_test.get("error"):
                         self.add_proxy({"http": url, "https": url})
                         added += 1
@@ -427,7 +435,7 @@ class ProxyManager:
         elif "socks4" in src_url.lower():
             proto = "socks4"
 
-        # JSON 格式
+        # JSON 格式（geonode 源）
         if "geonode" in src_url:
             try:
                 data = json.loads(text)
@@ -441,6 +449,7 @@ class ProxyManager:
             except json.JSONDecodeError:
                 pass
         elif "proxyscrape" in src_url.lower():
+            # proxyscrape JSON 格式
             try:
                 data = json.loads(text)
                 if isinstance(data, list):

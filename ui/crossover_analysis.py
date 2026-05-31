@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 # 图表边距
 _ML, _MR, _MT, _MB = 72, 24, 32, 40
 
+# 折线颜色列表（每对 = 主色 + 浅色）
 LINE_COLORS = [
     ("#fb7299", "#ff8db5"),
     ("#23ade5", "#4bbfea"),
@@ -28,6 +29,7 @@ LINE_COLORS = [
 
 
 def _fmt_num(n):
+    """格式化大数字：亿/万/原始"""
     if n >= 1_0000_0000:
         return f"{n / 1_0000_0000:.2f}亿"
     if n >= 1_0000:
@@ -84,7 +86,7 @@ def _find_crossover(
 
 
 class CrossoverAnalysisWindow:
-    """交叉计算窗口"""
+    """交叉计算窗口：选择多个视频，预测播放量交会时间"""
 
     def __init__(
         self,
@@ -107,7 +109,8 @@ class CrossoverAnalysisWindow:
         self._setup_ui()
 
     def _setup_ui(self):
-        # 视频选择
+        """构建界面：视频多选列表、算法选择、图表画布、交会结果表格"""
+        # ── 视频选择区 ──
         sel = tk.LabelFrame(self.window, text="选择视频（2-5个）", padx=8, pady=6)
         sel.pack(fill=X, padx=12, pady=(12, 4))
 
@@ -119,12 +122,13 @@ class CrossoverAnalysisWindow:
         self.listbox.pack(side=LEFT, fill=BOTH, expand=True)
         sb.pack(side=RIGHT, fill=Y)
 
+        # 填充监控视频列表
         for v in self.monitored_videos:
             bvid = v.get("bvid", "")
             title = v.get("title", "未知")[:40]
             self.listbox.insert(tk.END, f"{bvid}  {title}")
 
-        # 算法选择
+        # ── 算法选择区 ──
         algo_frame = tk.Frame(sel)
         algo_frame.pack(fill=X, pady=(4, 0))
         tk.Label(algo_frame, text="预测算法:", fg=C["text_2"], font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT)
@@ -144,19 +148,20 @@ class CrossoverAnalysisWindow:
         )
         self._algo_combo.pack(side=tk.LEFT, padx=6)
 
+        # 按钮 + 状态
         bb = tk.Frame(sel)
         bb.pack(fill=X, pady=(6, 0))
         ttk.Button(bb, text="开始分析", command=self._analyze).pack(side=tk.LEFT, padx=4)
         self.status_lbl = tk.Label(bb, text="", fg=C["text_2"], font=("Microsoft YaHei UI", 9))
         self.status_lbl.pack(side=tk.LEFT, padx=12)
 
-        # 图表
+        # ── 趋势图表 ──
         cf = tk.Frame(self.window)
         cf.pack(fill=BOTH, expand=True, padx=12, pady=6)
         self.canvas = tk.Canvas(cf, bg=C["canvas_bg"], highlightthickness=0)
         self.canvas.pack(fill=BOTH, expand=True)
 
-        # 结果表格
+        # ── 交会结果表格 ──
         rf = tk.LabelFrame(self.window, text="交会分析结果", padx=8, pady=6)
         rf.pack(fill=X, padx=12, pady=(0, 12))
 
@@ -180,6 +185,7 @@ class CrossoverAnalysisWindow:
 
     # ── 分析 ──────────────────────────────────────────
     def _analyze(self):
+        """开始分析：校验选择、加载数据、拟合、计算交会、绘制趋势图"""
         sel_idx = self.listbox.curselection()
         if len(sel_idx) < 2:
             messagebox.showwarning("提示", "请至少选择 2 个视频", parent=self.window)
@@ -198,6 +204,7 @@ class CrossoverAnalysisWindow:
             self.tree.delete(item)
         self.canvas.delete("all")
 
+        # 筛选出拟合成功的视频
         valid = [v for v in self._selected if fits.get(v.get("bvid", ""))]
         if len(valid) < 2:
             self.status_lbl.config(text="所选视频历史数据不足（每个至少需要 2 条记录）", fg=C["danger"])
@@ -218,7 +225,7 @@ class CrossoverAnalysisWindow:
             messagebox.showinfo("结果", "所选视频在当前趋势下没有交会点", parent=self.window)
 
     def _load_history(self):
-        """从视频数据库补充历史播放数据"""
+        """从视频数据库补充历史播放数据到 history_data"""
         for v in self._selected:
             bvid = v.get("bvid", "")
             if bvid in self.video_dbs:
@@ -237,7 +244,7 @@ class CrossoverAnalysisWindow:
         return self._fit_with_algorithms(algo)
 
     def _fit_linear(self) -> dict:
-        """原线性回归拟合"""
+        """原线性回归拟合方法"""
         fits = {}
         for v in self._selected:
             bvid = v.get("bvid", "")
@@ -260,7 +267,7 @@ class CrossoverAnalysisWindow:
         return fits
 
     def _fit_with_algorithms(self, algo_name: str) -> dict:
-        """使用算法预测进行拟合"""
+        """使用算法预测进行拟合：通过算法预测增长率，失败时回退到线性回归"""
         threshold = 100000  # 算法统一使用10万阈值计算增长率
         fits = {}
         for v in self._selected:
@@ -283,7 +290,7 @@ class CrossoverAnalysisWindow:
             growth_rate = self._get_algo_growth_rate(history_pts, current_views, algo_name, threshold)
 
             if growth_rate is None or growth_rate <= 0:
-                # 回退到线性回归
+                # 算法预测失败，回退到线性回归
                 hours = [(p[0] - base_ts).total_seconds() / 3600 for p in pts_parsed]
                 fit_pts = list(zip(hours, [p[1] for p in pts_parsed]))
                 result = _linear_fit(fit_pts)
@@ -298,9 +305,10 @@ class CrossoverAnalysisWindow:
     def _get_algo_growth_rate(self, history_pts, current_views, algo_name, threshold):
         """获取算法预测的增长率 (播放量/小时)"""
         MAX_RATE = 50000  # 超过此值的增长率视为异常（5万/小时已极高）
-        MIN_HOURS = 0.5  # 低于此值的预测时长视为不可信
+        MIN_HOURS = 0.5   # 低于此值的预测时长视为不可信
         try:
             if algo_name == "加权集成(默认)":
+                # 加权集成：遍历所有算法，按权重加权平均增长率
                 results = AlgorithmRegistry.predict_all(history_pts, current_views, thresholds=[threshold])
                 rates, weights = [], []
                 for name, r in results.items():
@@ -315,7 +323,7 @@ class CrossoverAnalysisWindow:
                 if rates:
                     return sum(r * w for r, w in zip(rates, weights)) / sum(weights)
             else:
-                # 单个算法
+                # 单个算法预测
                 algo = AlgorithmRegistry.get_algorithm(algo_name)
                 if algo is None:
                     return None
@@ -331,7 +339,7 @@ class CrossoverAnalysisWindow:
         return None
 
     def _compute_crossovers(self, valid: list, fits: dict) -> int:
-        """两两配对计算交会点，返回总数"""
+        """两两配对计算交会点，返回找到的交会点总数"""
         crossover_count = 0
         now = datetime.now()
 
@@ -344,7 +352,7 @@ class CrossoverAnalysisWindow:
         return crossover_count
 
     def _compute_pair(self, va: dict, vb: dict, fits: dict, now: datetime) -> int:
-        """计算两个视频的交会点，插入表格，成功返回1"""
+        """计算两个视频的交会点，成功则插入结果表格并返回 1"""
         ba = va.get("bvid", "")
         bb = vb.get("bvid", "")
         fa = fits.get(ba)
@@ -356,6 +364,7 @@ class CrossoverAnalysisWindow:
         slope_b, intercept_b, base_b, pts_b = fb
         offset_h = (base_b - base_a).total_seconds() / 3600
 
+        # 找交点
         cross_h = _find_crossover(slope_a, intercept_a, slope_b, intercept_b, offset_h)
         if cross_h is None:
             return 0
@@ -364,6 +373,7 @@ class CrossoverAnalysisWindow:
         if cross_views < 0:
             return 0
 
+        # 计算时间、置信度、剩余时间
         cross_time = base_a + timedelta(hours=cross_h)
         confidence = self._compute_confidence(slope_a, intercept_a, pts_a, slope_b, intercept_b, pts_b)
         time_str = cross_time.strftime("%Y-%m-%d %H:%M")
@@ -391,7 +401,7 @@ class CrossoverAnalysisWindow:
         return 1
 
     def _compute_confidence(self, slope_a, intercept_a, pts_a, slope_b, intercept_b, pts_b) -> float:
-        """基于 R² 和数据点数量计算综合置信度"""
+        """基于 R² 拟合优度和数据点数量计算综合置信度"""
         pts_a_fit = [((p[0] - pts_a[0][0]).total_seconds() / 3600, p[1]) for p in pts_a]
         pts_b_fit = [((p[0] - pts_b[0][0]).total_seconds() / 3600, p[1]) for p in pts_b]
         r2_a = self._r_squared(slope_a, intercept_a, pts_a_fit)
@@ -401,7 +411,7 @@ class CrossoverAnalysisWindow:
         return r2_avg * data_penalty
 
     def _r_squared(self, k: float, b: float, points) -> float:
-        """计算 R² 拟合优度"""
+        """计算 R² 拟合优度（决定系数）"""
         pts = list(points)
         if len(pts) < 2:
             return 0
@@ -415,11 +425,12 @@ class CrossoverAnalysisWindow:
 
     # ── 趋势图 ────────────────────────────────────────
     def _draw_trend(self, fits: dict):
+        """绘制各视频的播放量趋势图（含实际数据折线 + 预测虚线）"""
         c = self.canvas
         W = c.winfo_width()
         H = c.winfo_height()
         if W < 100 or H < 100:
-            # 延迟重绘
+            # 如果 Canvas 还没渲染完成，延迟重绘
             self.window.after(100, lambda: self._draw_trend(fits))
             return
 
@@ -446,7 +457,7 @@ class CrossoverAnalysisWindow:
         self._draw_trend_series(c, series, tx, ty, max_ts)
 
     def _collect_trend_series(self, fits):
-        """收集趋势图数据系列"""
+        """收集趋势图所需的数据系列：时间点、播放量、拟合参数"""
         all_pts = []
         series = {}
         for idx, v in enumerate(self._selected):
@@ -461,7 +472,7 @@ class CrossoverAnalysisWindow:
         return series, all_pts
 
     def _compute_trend_ranges(self, all_pts):
-        """计算趋势图坐标范围"""
+        """计算趋势图的坐标轴范围（时间轴延长到未来 7 天）"""
         all_ts_list = [p[0] for p in all_pts]
         all_v_list = [p[1] for p in all_pts]
         min_ts = min(all_ts_list)
@@ -475,13 +486,15 @@ class CrossoverAnalysisWindow:
         return min_ts, max_ts, max_v, min_v, ts_span, v_span
 
     def _draw_trend_grid(self, c, W, H, cw, ch, min_ts, max_ts, ts_span, max_v, min_v, v_span):
-        """绘制网格线"""
+        """绘制趋势图的网格线和坐标轴标签"""
+        # Y 轴网格线（5条水平线）
         for i in range(5):
             ratio = i / 4
             y = _MT + ch * (1 - ratio)
             val = min_v + v_span * ratio
             c.create_line(_ML, y, W - _MR, y, fill=C["grid_line"], dash=(2, 4))
             c.create_text(_ML - 6, y, text=_fmt_num(val), anchor="e", fill=C["text_2"], font=("Consolas", 9))
+        # X 轴时间标签（5个刻度）
         for i in range(5):
             ratio = i / 4
             ts = min_ts + timedelta(seconds=ts_span * ratio)
@@ -490,17 +503,16 @@ class CrossoverAnalysisWindow:
             c.create_text(x, H - _MB + 16, text=lbl, fill=C["text_2"], font=("Consolas", 8))
 
     def _draw_trend_now_line(self, c, tx, W, ch):
-        """绘制当前时间线"""
+        """绘制"现在"时间参考线"""
         now_x = tx(datetime.now())
         if _ML < now_x < W - _MR:
             c.create_line(now_x, _MT, now_x, _MT + ch, fill=C["warning"], dash=(4, 4), width=1)
             c.create_text(now_x, _MT - 8, text="现在", fill=C["warning"], font=("Microsoft YaHei UI", 8))
 
     def _draw_trend_series(self, c, series, tx, ty, max_ts):
-        """绘制所有数据系列"""
+        """绘制所有视频的数据系列（实际折线 + 预测虚线 + 数据点 + 图例）"""
         for bvid, (slope, intercept, base_ts, pts, idx) in series.items():
             color = LINE_COLORS[idx % len(LINE_COLORS)][0]
-            LINE_COLORS[idx % len(LINE_COLORS)][1]
             title = next((v.get("title", bvid) for v in self._selected if v.get("bvid") == bvid), bvid)[:16]
 
             # 实际数据折线
@@ -510,13 +522,10 @@ class CrossoverAnalysisWindow:
             if len(real_coords) >= 4:
                 c.create_line(*real_coords, fill=color, width=2)
 
-            # 预测虚线
-            pts[-1][0]
-            pts[-1][1]
-            # 延长到 max_ts
+            # 预测虚线：从最后一个实际数据点延长到 max_ts
             future_hours = (max_ts - base_ts).total_seconds() / 3600
             future_v = slope * future_hours + intercept
-            pred_coords = list(real_coords[-2:])  # 从最后一个实际点
+            pred_coords = list(real_coords[-2:])  # 从最后一个实际点开始
             pred_coords.extend([tx(max_ts), ty(max(0, future_v))])
             if len(pred_coords) >= 4:
                 c.create_line(*pred_coords, fill=color, width=1, dash=(6, 4))
@@ -527,8 +536,6 @@ class CrossoverAnalysisWindow:
                 c.create_oval(px - 2, py - 2, px + 2, py + 2, fill=color, outline="")
 
             # 图例
-            tk.Frame(self.window)
-            # 在 canvas 下方用文字代替
             c.create_text(
                 _ML + idx * 160, _MT - 12, text=f"━ {title}", fill=color, anchor="w", font=("Microsoft YaHei UI", 8)
             )

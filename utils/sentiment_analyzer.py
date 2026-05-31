@@ -233,6 +233,7 @@ def generate_word_freq(texts: List[str]) -> Dict[str, int]:
 
 
 def _test():
+    """测试函数"""
     texts = [
         "好棒！太厉害了！",
         "真好看，支持UP主",

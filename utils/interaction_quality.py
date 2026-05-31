@@ -39,6 +39,7 @@ _WEIGHTS = {
 
 
 def _safe_pct(num: float, den: float) -> float:
+    """安全计算百分比，避免除零"""
     return (num / den * 100) if den > 0 else 0.0
 
 
@@ -59,6 +60,7 @@ def _rate_score(value: float, lo: float, hi: float) -> float:
 
 
 def _grade(score: float) -> str:
+    """根据健康分返回评级 S/A/B/C/D"""
     if score >= 90:
         return "S"
     if score >= 75:
@@ -151,7 +153,7 @@ def calculate_probe_from_dict(data: dict) -> ProbeResult:
 
 
 def format_probe_result(result: ProbeResult) -> str:
-    """格式化输出"""
+    """格式化健康探针输出"""
     lines = [
         "=" * 40,
         "一键三连健康探针",

@@ -18,7 +18,15 @@ logger = logging.getLogger(__name__)
 
 
 class AnomalyPanel:
+    """异常增长检测面板：扫描所有监控视频，检测播放量突增/突降/停滞等异常行为"""
+
     def __init__(self, parent, gui):
+        """
+        初始化异常检测面板
+
+        :param parent: 父窗口
+        :param gui: 主 GUI 实例，用于获取视频数据和数据库
+        """
         self.gui = gui
         self.dlg = DialogBase(parent, "🚨 异常增长检测", "960x580")
         self.dlg.header("异常增长检测", "检测播放量突增/突降/停滞等异常行为，附时间/增量/在线上下文")
@@ -26,6 +34,7 @@ class AnomalyPanel:
         self._scan()
 
     def _build_ui(self):
+        """构建界面：扫描按钮、状态标签、结果表格、底部详情区"""
         top = tk.Frame(self.dlg.content_area(), bg=C["bg_base"])
         top.pack(fill=tk.X, padx=10, pady=4)
 
@@ -60,7 +69,7 @@ class AnomalyPanel:
         scroll.pack(side=tk.RIGHT, fill=tk.Y)
         self._tree.configure(yscrollcommand=scroll.set)
 
-        # 底部详情区
+        # 底部详情区：选中异常时显示详细上下文
         self._detail_text = tk.Text(
             self.dlg.content_area(), height=5, bg=C["bg_elevated"], fg=C["text_2"],
             font=("Microsoft YaHei UI", 9), relief=tk.FLAT, wrap=tk.WORD, state=tk.DISABLED
@@ -68,9 +77,10 @@ class AnomalyPanel:
         self._detail_text.pack(fill=tk.X, padx=10, pady=(0, 6))
         self._tree.bind("<<TreeviewSelect>>", self._show_detail)
 
-        self._alert_data = []  # store full alert info for detail view
+        self._alert_data = []  # 存储完整告警信息供详情查看
 
     def _parse_dt(self, ts):
+        """将多种格式的时间戳统一转换为 datetime 对象"""
         if isinstance(ts, datetime):
             return ts
         try:
@@ -79,6 +89,9 @@ class AnomalyPanel:
             return datetime.now()
 
     def _scan(self):
+        """开始扫描所有监控视频，后台线程执行异常检测"""
+
+        # 清空旧数据
         self._status_lbl.config(text="扫描中…")
         self._detail_text.config(state=tk.NORMAL)
         self._detail_text.delete("1.0", tk.END)
@@ -88,6 +101,7 @@ class AnomalyPanel:
         self._alert_data.clear()
 
         def worker():
+            """后台工作线程：遍历每个视频，执行异常检测"""
             results = []
             for video in self.gui.monitored_videos:
                 bvid = video.get("bvid", "")
@@ -95,7 +109,7 @@ class AnomalyPanel:
                 if len(history) < 3:
                     continue
 
-                # 构建 records（从DB获取含历史 viewers_total 的完整上下文）
+                # 构建完整 records（从DB获取含 viewers_total 的上下文）
                 full_records = []
                 try:
                     video_db = self.gui.video_dbs.get(bvid)
@@ -136,12 +150,16 @@ class AnomalyPanel:
                 online = video.get("viewers_total", 0)
 
                 try:
+                    # 获取 UP 主信息（用于买量检测）
                     up_info = None
                     owner_mid = video.get("owner_mid", 0) or video.get("mid", 0)
                     if owner_mid and hasattr(self.gui, '_cached_up_info'):
                         up_info = self.gui._cached_up_info.get(str(owner_mid))
+
+                    # 调用异常检测器
                     alerts = AnomalyDetector.detect_all(full_records, bvid=bvid, video=video, up_info=up_info)
                     for a in alerts:
+                        # 根据告警文本匹配异常类型图标
                         if "买量" in a or "疑似买量" in a:
                             type_icon = "📢 疑似买量"
                         elif "直播" in a:
@@ -182,11 +200,13 @@ class AnomalyPanel:
                         "alert_text": str(e)[:60], "author": "", "pubdate": 0,
                     })
 
+            # 回主线程更新 UI
             self.dlg.window.after(0, lambda: self._show_results(results))
 
         threading.Thread(target=worker, daemon=True).start()
 
     def _show_results(self, results):
+        """在表格中展示异常检测结果，高亮严重异常"""
         self._tree.delete(*self._tree.get_children())
         self._alert_data = results
         for r in results:
@@ -196,7 +216,7 @@ class AnomalyPanel:
                 f"{r['velocity']:.0f}" if r["velocity"] > 0 else "—",
                 fmt_num(r["online"]) if r["online"] > 0 else "—",
             ))
-            # 高亮严重异常
+            # 高亮严重异常（增速飙升、在线暴跌）为红色
             if r["type"] in ("📈 增速飙升", "📉 在线暴跌"):
                 for cid in self._tree.get_children():
                     if self._tree.item(cid, "values")[0] == r["bvid"]:
@@ -210,6 +230,7 @@ class AnomalyPanel:
         )
 
     def _show_detail(self, event):
+        """点击表格行时显示异常详情"""
         sel = self._tree.selection()
         if not sel or not self._alert_data:
             return

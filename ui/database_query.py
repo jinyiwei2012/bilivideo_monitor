@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 def _validate_bvid(bvid: str) -> bool:
+    """验证 BV 号格式是否合法"""
     from ui.helpers import is_valid_bvid
 
     return is_valid_bvid(bvid)
@@ -65,6 +66,7 @@ _BASE_EXPORT_HEADERS = [
 
 
 def _build_export_headers(algo_names: list) -> list:
+    """构建导出 CSV/Excel 的表头行，包含基础字段和算法预测字段"""
     headers = list(_BASE_EXPORT_HEADERS)
     for name in algo_names:
         headers.append(f"{name}_预测时间")
@@ -74,10 +76,12 @@ def _build_export_headers(algo_names: list) -> list:
 
 
 def _build_export_row(index: int, row, extra: dict = None, algo_names: list = None) -> list:
+    """构建导出 CSV/Excel 的单个数据行，包含基础字段和算法预测值"""
     e = extra or {}
     algo_names = algo_names or []
     if hasattr(row, "keys"):
         row = dict(row)
+    # 构建算法预测值映射表，按算法名索引
     algo_pred_map = {}
     for pred in e.get("_predictions", []):
         algo = pred.get("algorithm", "")
@@ -145,6 +149,7 @@ class DatabaseQueryWindow:
         self.load_videos_list()
 
     def _get_db_path(self) -> str:
+        """获取中央数据库文件路径"""
         return project_path("data", "bilibili_monitor.db")
 
     def setup_ui(self):
@@ -265,6 +270,7 @@ class DatabaseQueryWindow:
         ttk.Button(ba, text="清空结果", command=self._clear_results).pack(side=tk.LEFT, padx=4)
 
     def _get_filter_bvid(self) -> Optional[str]:
+        """获取视频筛选器中选中的 BV 号，未选择时返回 None"""
         sel = self.video_filter_var.get()
         if sel == "全部视频" or not sel:
             return None
@@ -277,21 +283,24 @@ class DatabaseQueryWindow:
         primary = os.path.join(os.path.dirname(self.db_path), bvid, f"{bvid}.db")
         if os.path.exists(primary):
             return primary
-        # 互补：备份路径 core/data/BVxxx/BVxxx.db
+        # 回退路径：core/data/BVxxx/BVxxx.db
         backup = project_path("core", "data", bvid, f"{bvid}.db")
         return backup if os.path.exists(backup) else None
 
     def _load_extra_data(self, bvid: str, timestamp: str) -> dict:
+        """从视频独立库加载关联的算法预测和周刊/年刊评分数据"""
         extra = {}
         vdp = self._get_video_db_path(bvid)
         if not vdp:
             return extra
         conn = None
         try:
+            # 以只读模式连接视频独立库
             uri = "file:{}?mode=ro".format(urllib.parse.quote(vdp.replace("\\", "/"), safe="/:"))
             conn = sqlite3.connect(uri, uri=True, check_same_thread=False)
             conn.row_factory = sqlite3.Row
             cur = conn.cursor()
+            # 加载算法预测结果（每个算法只取最新一条）
             cur.execute(
                 "SELECT * FROM predictions WHERE created_at <= ? ORDER BY algorithm, created_at DESC", (timestamp,)
             )
@@ -351,6 +360,7 @@ class DatabaseQueryWindow:
         return extra
 
     def _on_mode_change(self):
+        """切换查询模式时重建参数输入区域"""
         for w in self.param_frame.winfo_children():
             w.destroy()
         mode = self.query_mode.get()
@@ -399,6 +409,7 @@ class DatabaseQueryWindow:
             ).pack(side=tk.LEFT)
 
     def load_videos_list(self):
+        """从中央数据库加载视频列表到筛选下拉框"""
         if not os.path.exists(self.db_path):
             return
         try:
@@ -422,6 +433,7 @@ class DatabaseQueryWindow:
             logger.debug("加载视频列表失败: %s", e)
 
     def _do_query(self):
+        """启动查询，检查参数后在后台线程执行"""
         if not os.path.exists(self.db_path):
             messagebox.showerror("错误", "数据库文件不存在", parent=self.window)
             return
@@ -465,6 +477,7 @@ class DatabaseQueryWindow:
         vdp = self._get_video_db_path(bvid)
         if not vdp:
             return []
+        # 以 URI 只读方式打开独立库
         uri = "file:{}?mode=ro".format(urllib.parse.quote(vdp.replace("\\", "/"), safe="/:"))
         conn = sqlite3.connect(uri, uri=True, check_same_thread=False)
         conn.row_factory = sqlite3.Row
@@ -479,7 +492,7 @@ class DatabaseQueryWindow:
         return result
 
     def _run_video_query(self, cur, mode: str) -> list:
-        """在视频独立库上执行模式查询（无需 bvid 过滤，数据已按视频隔离）。"""
+        """在视频独立库上执行模式查询（无需 bvid 过滤，数据已按视频隔离）"""
         if mode == "最新N条":
             limit = int(getattr(self, "param_var", None) and self.param_var.get() or 100)
             cur.execute("SELECT * FROM monitor_records ORDER BY timestamp DESC LIMIT ?", (limit,))
@@ -496,7 +509,7 @@ class DatabaseQueryWindow:
         return cur.fetchall()
 
     def _prompt_fallback(self, mode, filter_bvid, bvid_for_trend):
-        """主线程：弹窗询问是否查询中央数据库"""
+        """（已弃用回调入口）弹窗询问是否查询中央数据库"""
         ok = messagebox.askyesno(
             "未找到数据",
             "该视频的独立库中没有匹配的记录。\n是否到中央数据库查询？",
@@ -515,7 +528,7 @@ class DatabaseQueryWindow:
             self._reset_query_state()
 
     def _run_fallback_query(self, mode, filter_bvid, bvid_for_trend):  # noqa: C901
-        """后台线程：在中央数据库中执行查询"""
+        """后台线程：在中央数据库中执行查询并加载关联数据"""
         raw_rows = []
         try:
             conn = sqlite3.connect(self.db_path)
@@ -545,7 +558,7 @@ class DatabaseQueryWindow:
         self.window.after(0, lambda: self._finish_query(raw_rows, extra_list, anames))
 
     def _run_query(self, cur, mode, filter_bvid, bvid_for_trend):
-        """根据查询模式执行 SQL，返回 dict 行列表。"""
+        """根据查询模式在中央库上执行 SQL，返回 dict 行列表"""
         if mode == "最新N条":
             limit = int(getattr(self, "param_var", None) and self.param_var.get() or 100)
             if filter_bvid:
@@ -590,7 +603,7 @@ class DatabaseQueryWindow:
         return [dict(r) for r in cur.fetchall()]
 
     def _load_query_extra_data(self, raw_rows):
-        """加载查询结果的关联数据（算法预测等）。返回 (extra_list, algo_names)。"""
+        """加载查询结果的关联数据（算法预测等）。返回 (extra_list, algo_names)"""
         extra_list = []
         all_an = set()
         total = len(raw_rows)
@@ -608,11 +621,13 @@ class DatabaseQueryWindow:
         return extra_list, anames
 
     def _reset_query_state(self):
+        """重置查询状态，恢复按钮和标记"""
         self._query_running = False
         self._query_source_bvid = None
         self._query_btn.config(state="normal", text="查询")
 
     def _finish_query(self, raw_rows, extra_list, algo_names):
+        """在主线程完成查询，填充结果树形视图"""
         self.query_results = raw_rows
         self._extra_data = extra_list
         self._algo_names = algo_names
@@ -645,6 +660,7 @@ class DatabaseQueryWindow:
 
     @staticmethod
     def _safe_fmt(v):
+        """安全格式化数值，为 None 返回 "0"，否则返回千分位格式"""
         if v is None:
             return "0"
         try:
@@ -653,6 +669,7 @@ class DatabaseQueryWindow:
             return str(v)
 
     def _reset_query(self):
+        """重置查询结果，清空所有数据和状态"""
         self.result_tree.delete(*self.result_tree.get_children())
         self.query_results = []
         self._extra_data = []
@@ -660,6 +677,7 @@ class DatabaseQueryWindow:
         self.status_var.set("就绪")
 
     def _get_export_default_name(self, ext: str) -> str:
+        """根据当前查询模式和参数生成默认导出文件名"""
         mode = self.query_mode.get()
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         fb = self._get_filter_bvid()
@@ -674,6 +692,7 @@ class DatabaseQueryWindow:
         return f"{mn}{tag}_{ts}.{ext}"
 
     def _export_csv(self):
+        """将查询结果导出为 CSV 文件"""
         if not self.query_results:
             messagebox.showwarning("提示", "没有可导出的数据", parent=self.window)
             return
@@ -700,6 +719,7 @@ class DatabaseQueryWindow:
             messagebox.showerror("错误", f"导出失败: {e}", parent=self.window)
 
     def _export_excel(self):
+        """将查询结果导出为 Excel 文件（需要 openpyxl 支持）"""
         if not self.query_results:
             messagebox.showwarning("提示", "没有可导出的数据", parent=self.window)
             return
@@ -735,6 +755,7 @@ class DatabaseQueryWindow:
             messagebox.showerror("错误", f"导出失败: {e}", parent=self.window)
 
     def _delete_selected(self):
+        """删除选中的数据库记录，在后台线程执行"""
         sel = self.result_tree.selection()
         if not sel:
             messagebox.showwarning("提示", "请先选择要删除的记录", parent=self.window)
@@ -751,12 +772,14 @@ class DatabaseQueryWindow:
         else:
             db_path = self.db_path
 
+        # 收集待删除的 (bvid, timestamp) 列表
         del_data = []
         for item in sel:
             vals = self.result_tree.item(item)["values"]
             del_data.append((vals[1], vals[2]))  # (bvid, timestamp)
 
         def _do_delete():
+            """后台线程：执行数据库删除操作"""
             try:
                 conn = sqlite3.connect(db_path)
                 cur = conn.cursor()
@@ -787,6 +810,7 @@ class DatabaseQueryWindow:
         self.status_var.set(f"已删除 {count} 条记录")
 
     def _clear_results(self):
+        """清空查询结果列表"""
         self.result_tree.delete(*self.result_tree.get_children())
         self.query_results = []
         self._extra_data = []

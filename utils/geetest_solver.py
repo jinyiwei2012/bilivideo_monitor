@@ -195,6 +195,7 @@ def _encrypt_w(gt: str, challenge: str, userresponse: str, trace: List[Dict], pa
     import hashlib
     import base64
 
+    # 计算 rp 参数
     rp = hashlib.md5(f"{gt}{challenge[:32]}{passtime}".encode()).hexdigest()
 
     payload = json.dumps(

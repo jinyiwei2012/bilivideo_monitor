@@ -31,6 +31,7 @@ class HealthProbeWindow:
         self._setup_ui()
 
     def _setup_ui(self):
+        """构建健康探针窗口的完整 UI：雷达图、分数卡片、异常与建议"""
         title = self.video.get("title", "未知视频")[:30]
         self.dlg.header(f"一键三连健康探针 — {title}", "基于点赞率·硬币率·收藏率·分享率的综合评估")
 
@@ -123,6 +124,7 @@ class HealthProbeWindow:
         self.window.after(200, self._draw_radar)
 
     def _draw_radar(self):
+        """在 Canvas 上绘制五维雷达图（点赞率、硬币率、收藏率、分享率）"""
         c = self._radar_canvas
         W = c.winfo_width()
         H = c.winfo_height()
@@ -132,11 +134,11 @@ class HealthProbeWindow:
 
         c.delete("all")
         cx, cy = W // 2, H // 2
+        # 雷达图半径取画布最小边的 35%
         radius = min(W, H) * 0.35
 
         labels = ["点赞率", "硬币率", "收藏率", "分享率"]
-        # 归一化：0-100% 映射到 0-radius
-        # 正常上界视为 12%（让低值也能看到形状）
+        # 归一化：0-100% 映射到 0-radius，上界设为 15% 以便低值也能看到形状
         values = [
             min(self.result.like_rate, 15),
             min(self.result.coin_rate, 15),
@@ -145,9 +147,10 @@ class HealthProbeWindow:
         ]
         max_val = 15.0
 
+        # 计算四个维度的角度（从正上方开始）
         angles = [i * math.pi * 2 / 4 - math.pi / 2 for i in range(4)]
 
-        # 网格
+        # 绘制同心网格（4 层）
         for ring in range(1, 5):
             r = radius * ring / 4
             pts = []
@@ -155,7 +158,7 @@ class HealthProbeWindow:
                 pts.extend([cx + r * math.cos(ang), cy + r * math.sin(ang)])
             c.create_polygon(*pts, outline=C["border_sub"], fill="", width=1)
 
-        # 轴
+        # 绘制坐标轴和标签
         for ang, lbl in zip(angles, labels):
             x2 = cx + radius * 1.15 * math.cos(ang)
             y2 = cy + radius * 1.15 * math.sin(ang)
@@ -164,14 +167,14 @@ class HealthProbeWindow:
             )
             c.create_text(x2, y2, text=lbl, fill=C["text_2"], font=("Microsoft YaHei UI", 9))
 
-        # 数据多边形
+        # 绘制实际数据的多边形（半透明粉色填充）
         pts = []
         for val, ang in zip(values, angles):
             r = radius * val / max_val
             pts.extend([cx + r * math.cos(ang), cy + r * math.sin(ang)])
         c.create_polygon(*pts, fill="#fb729944", outline="#fb7299", width=2)
 
-        # 数据点
+        # 绘制数据点（粉色圆点）
         for val, ang in zip(values, angles):
             r = radius * val / max_val
             x = cx + r * math.cos(ang)
@@ -180,4 +183,5 @@ class HealthProbeWindow:
 
 
 def open_health_probe(parent, video):
+    """便捷函数：打开健康探针窗口"""
     HealthProbeWindow(parent, video)

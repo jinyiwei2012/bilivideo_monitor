@@ -1,6 +1,9 @@
 """
 算法注册器
-管理所有预测算法（自动扫描models目录下的所有算法）
+
+集中管理所有预测算法。在首次使用时自动扫描 models/ 目录下的所有
+算法文件（通过 ModelAlgorithmAdapter 桥接），并为每个视频运行
+全量算法预测，产生带权重加权的集成预测结果（ensemble prediction）。
 """
 
 from typing import Dict, List, Tuple
@@ -15,7 +18,14 @@ logger = logging.getLogger(__name__)
 
 
 class AlgorithmRegistry:
-    """算法注册器"""
+    """算法注册器 —— 单例风格的类方法容器。
+
+    职责：
+        - 延迟初始化、自动发现 models/ 下的算法
+        - 为每个视频发起并行预测，收集结果
+        - 基于算法间共识度（coherence）调整权重
+        - 输出加权集成预测 + 保形预测区间
+    """
 
     _algorithms: Dict = {}
     _initialized = False
@@ -26,14 +36,17 @@ class AlgorithmRegistry:
 
     @classmethod
     def initialize(cls):
-        """初始化注册所有算法（线程安全，支持后台预加载）"""
+        """初始化：自动加载并注册所有算法（双检锁线程安全）
+
+        只会执行一次，之后的重复调用被忽略。
+        """
         if cls._initialized:
             return
         with cls._init_lock:
             if cls._initialized:
                 return
 
-            # 加载models目录下的所有算法（包括子目录）
+            # 加载 models 目录下的所有算法（含子目录）
             cls._load_model_algorithms()
 
             cls._initialized = True
@@ -41,7 +54,11 @@ class AlgorithmRegistry:
 
     @classmethod
     def _load_model_algorithms(cls):
-        """加载models目录下的所有算法（包括子目录）"""
+        """加载 models/ 目录下的所有算法。
+
+        委托给 model_adapter.load_all_model_algorithms() 扫描文件系统，
+        将每个算法包装为 ModelAlgorithmAdapter 后存入内部字典。
+        """
         try:
             from .model_adapter import load_all_model_algorithms
 
@@ -60,17 +77,23 @@ class AlgorithmRegistry:
 
     @classmethod
     def get_algorithm(cls, name: str):
+        """按名称获取已注册的算法实例。"""
         if not cls._initialized:
             cls.initialize()
         return cls._algorithms.get(name)
 
     @classmethod
     def get_registry_key(cls, algorithm_id: str) -> str:
-        """根据原始 algorithm_id 查找 registry 存储用的完整 key。"""
+        """根据原始 algorithm_id 查找注册表中存储的完整 key。
+
+        注册表 key 格式通常为 "[Model] <name>"，此方法做反向映射。
+        """
         if not cls._initialized:
             cls.initialize()
         for key, adapter in cls._algorithms.items():
-            raw_id = getattr(adapter, "algorithm_id", None) or getattr(adapter, "algo", None)
+            raw_id = getattr(adapter, "algorithm_id", None)
+            if raw_id is None:
+                raw_id = getattr(adapter, "algo", None)
             if hasattr(raw_id, "algorithm_id"):
                 raw_id = raw_id.algorithm_id
             if raw_id == algorithm_id:
@@ -79,19 +102,24 @@ class AlgorithmRegistry:
 
     @classmethod
     def get_all_algorithms(cls):
+        """获取所有已注册算法实例的列表。"""
         if not cls._initialized:
             cls.initialize()
         return list(cls._algorithms.values())
 
     @classmethod
     def get_algorithm_names(cls) -> List[str]:
+        """获取所有已注册算法的名称列表。"""
         if not cls._initialized:
             cls.initialize()
         return list(cls._algorithms.keys())
 
     @classmethod
     def _prepare_video_data(cls, history: List[Tuple], current_value: float, bvid: str = "") -> Dict:
-        """集中准备 video_data，避免每个 adapter 重复转换（提升 ~30% 性能）"""
+        """将 (timestamp, view_count) 历史元组统一转为 video_data 字典。
+
+        避免每个 adapter 重复做同样的类型转换，集中处理可提升约 30% 性能。
+        """
         now = datetime.now()
         history_list = []
         for ts, v in history:
@@ -100,12 +128,13 @@ class AlgorithmRegistry:
                 ts_str = ts.strftime("%Y-%m-%d %H:%M:%S")
             else:
                 try:
-                    # ISO 格式字符串（如 2026-04-21T23:48:17.189827）
+                    # 尝试 ISO 格式字符串解析（如 2026-04-21T23:48:17.189827）
                     dt = datetime.fromisoformat(str(ts))
                     ts_ts = dt.timestamp()
                     ts_str = dt.strftime("%Y-%m-%d %H:%M:%S")
                 except (ValueError, TypeError):
                     try:
+                        # 回退：将 ts 直接视为 float（Unix 时间戳）
                         ts_ts = float(ts)
                         ts_str = str(ts)
                     except (ValueError, TypeError):
@@ -129,12 +158,23 @@ class AlgorithmRegistry:
 
     @classmethod
     def predict_all(cls, history: List, current_value: float, bvid: str = "", **kwargs) -> Dict:
+        """对所有注册算法发起并行预测，返回加权集成结果。
+
+        Args:
+            history: [(timestamp, view_count), ...] 格式的历史数据
+            current_value: 当前播放量
+            bvid: 视频 BV 号（仅用于日志）
+            **kwargs: 可包含 thresholds / threshold_names
+
+        Returns:
+            dict: 每个算法 name -> {prediction, confidence, weight, ...}
+                 以及 "_weighted" 键存储集成预测结果
+        """
         if not cls._initialized:
             cls.initialize()
 
         # ── 集中准备 video_data，避免每个 adapter 重复转换 ────
         cached_video_data = cls._prepare_video_data(history, current_value, bvid=bvid)
-        # _kwargs_with_video = dict(kwargs, _cached_video_data=cached_video_data)
 
         results = {}
         thresholds = kwargs.get("thresholds", [100000, 1000000, 10000000])
@@ -144,10 +184,14 @@ class AlgorithmRegistry:
         na_count = 0
 
         def _run_single(name_algo):
-            """包装单个算法执行，供线程池调度"""
+            """在线程池中执行单个算法的预测包装。
+
+            优先调用适配器的 predict_dict() 接口（接受 dict 参数）；
+            否则回退到原始 predict() 接口。
+            """
             n, algo = name_algo
             try:
-                # 使用统一接口：如果 algo 有 predict_dict 方法（ModelAlgorithmAdapter），走 dict 路径
+                # 如果适配器有 predict_dict 方法，走统一的 dict 参数路径
                 if hasattr(algo, "predict_dict"):
                     res = algo.predict_dict(
                         history,
@@ -184,12 +228,14 @@ class AlgorithmRegistry:
                     None,
                 )
             except Exception as e:
+                # 单个算法失败不阻断整体，降级返回保守值
                 logger.warning(
                     "[%s] 视频(%s),使用'底模'预测失败 降级原因: %s",
                     n, bvid, e,
                 )
                 return n, {"prediction": current_value, "confidence": 0, "weight": 0.01, "error": str(e)}, e
 
+        # 使用线程池并发运行所有算法（最多 4 个 worker）
         with cls._pool_lock:
             if cls._pool is None:
                 cls._pool = ThreadPoolExecutor(max_workers=4)
@@ -201,19 +247,21 @@ class AlgorithmRegistry:
             results[name] = result
             if error:
                 continue
+            # 统计有效 / NA 结果数量
             if result.get("metadata", {}).get("na") or result["confidence"] == 0:
                 na_count += 1
             else:
                 valid_count += 1
 
+        # 筛选出有权重且预测值 > 0 的有效结果
         valid_predictions = [
             (name, r["prediction"], r["weight"])
             for name, r in results.items()
             if r["weight"] > 0 and r["prediction"] > 0
         ]
 
-        # ── Coherence-aware weight adjustment ────────────
-        # 基于算法间共识度调整权重：偏离中位数越远权重越低
+        # ── 基于算法间共识度（coherence）调整权重 ────────────
+        # 核心思想：偏离中位数越远的算法其权重应越低
         if len(valid_predictions) >= 3:
             values = sorted(p for _, p, _ in valid_predictions)
             median_val = values[len(values) // 2]
@@ -224,19 +272,19 @@ class AlgorithmRegistry:
                     results[name]["coherence"] = round(coherence, 4)
                     results[name]["weight"] = w * coherence_factor
 
-        # 重新读取调整后的权重
+        # 重新读取调整后的有效预测
         valid_predictions = [
             (name, r["prediction"], r["weight"])
             for name, r in results.items()
             if r["weight"] > 0 and r["prediction"] > 0
         ]
 
+        # ── 加权集成预测 ──────────────────────────────
         if valid_predictions:
             total_weight = sum(w for _, _, w in valid_predictions)
             if total_weight > 0:
                 weighted_pred = sum(p * w for _, p, w in valid_predictions) / total_weight
-                # ── Ensemble confidence（基于预测离散度）──
-                # CV 越低表示算法间共识度越高 → 置信度越高
+                # 集成置信度：基于预测离散度（CV 越低 → 共识越高 → 置信度越高）
                 valid_vals = [p for _, p, _ in valid_predictions]
                 mean_v = sum(valid_vals) / len(valid_vals)
                 if mean_v > 0:
@@ -252,6 +300,7 @@ class AlgorithmRegistry:
             weighted_pred = current_value
             ensemble_conf = 0.0
 
+        # 存储集成结果
         results["_weighted"] = {
             "prediction": weighted_pred,
             "total_algorithms": len(results),
@@ -260,7 +309,7 @@ class AlgorithmRegistry:
             "ensemble_confidence": round(ensemble_conf, 4),
         }
 
-        # ── 保形预测区间 ─────────────────────────────
+        # ── 保形预测区间（Conformal Prediction）─────────
         try:
             from .conformal import get_conformal_predictor
 
@@ -285,6 +334,7 @@ class AlgorithmRegistry:
 
     @classmethod
     def update_accuracy(cls, algorithm_name: str, predicted: float, actual: float):
+        """更新单个算法的准确率记录并同步到权重管理器。"""
         algo = cls.get_algorithm(algorithm_name)
         if algo:
             if hasattr(algo, "update_accuracy"):
@@ -307,6 +357,7 @@ class AlgorithmRegistry:
 
     @classmethod
     def get_weights_info(cls) -> List[Dict]:
+        """获取所有算法的权重信息（供 UI 展示）。"""
         if not cls._initialized:
             cls.initialize()
 
@@ -329,6 +380,7 @@ class AlgorithmRegistry:
 
     @classmethod
     def reset(cls):
+        """重置注册器：清空所有已注册算法并关闭线程池。"""
         cls.shutdown()
         cls._algorithms = {}
         cls._model_adapters = {}
@@ -336,6 +388,7 @@ class AlgorithmRegistry:
 
     @classmethod
     def get_trainable_info(cls) -> List[Dict]:
+        """获取所有支持训练的算法的检查点信息。"""
         from algorithms.training.checkpoint_manager import CheckpointManager
         if not cls._initialized:
             cls.initialize()
@@ -359,6 +412,7 @@ class AlgorithmRegistry:
 
     @classmethod
     def get_trainable_algorithms(cls) -> List:
+        """获取所有支持训练的算法列表（供训练调度使用）。"""
         if not cls._initialized:
             cls.initialize()
         result = []
@@ -370,4 +424,4 @@ class AlgorithmRegistry:
         return result
 
 
-# 不再模块级初始化，改为按需(Lazy)初始化——所有公开方法都已检查 _initialized 标志
+# 不再模块级初始化，改为按需（Lazy）初始化 —— 所有公开方法都已检查 _initialized 标志

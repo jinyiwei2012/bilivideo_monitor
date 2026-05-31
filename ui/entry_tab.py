@@ -45,8 +45,9 @@ class EntryTab:
 
         self._build()
 
-    # ── 构建UI ──────────────────────────────────────────────────────────────────
+    # ── UI 构建 ──────────────────────────────────────────────────────────────────
     def _build(self):
+        """构建数据录入标签页的完整 UI"""
         f = self._parent
 
         # 录入模式切换
@@ -194,6 +195,7 @@ class EntryTab:
 
     # ── 录入模式切换 ──────────────────────────────────────────────────────────
     def _switch_mode(self):
+        """在里程碑模式和快照模式间切换，更新参数面板"""
         mode = self._mode.get()
         # 切换参数面板
         self._ms_frame.pack_forget()
@@ -207,7 +209,7 @@ class EntryTab:
             self._refresh_snap_combo()
 
     def _refresh_snap_combo(self):
-        """刷新快照模式下拉时间点列表。"""
+        """刷新快照模式下可用的历史时间点下拉列表"""
         ts_set = set()
         for bvid in self._video_dbs:
             try:
@@ -221,12 +223,14 @@ class EntryTab:
         self._snap_combo["values"] = ts_list[:200]
 
     def _on_snap_combo_select(self, event=None):
+        """快照下拉选择后自动填入时间输入框"""
         val = self._snap_combo.get()
         if val:
             self._snap_dt.set(val)
 
     # ── 从监控列表添加全部 ────────────────────────────────────────────────────
     def _add_all_monitored(self):
+        """将当前所有监控视频的 BV 号填入输入框"""
         text = self._bvid_text
         text.delete("1.0", tk.END)
         for v in self._monitored_videos:
@@ -234,16 +238,17 @@ class EntryTab:
             if bvid:
                 text.insert(tk.END, bvid + "\n")
 
-    # ── BV号验证 ──────────────────────────────────────────────────────────────
+    # ── BV 号验证 ──────────────────────────────────────────────────────────────
     @staticmethod
     def _is_valid_bvid(s: str) -> bool:
+        """检查字符串是否为合法的 BV 号"""
         from ui.helpers import is_valid_bvid
 
         return is_valid_bvid(s)
 
     # ── 生成输入行 ────────────────────────────────────────────────────────────
     def _generate_rows(self):
-        """主函数 - 生成数据录入表格"""
+        """主入口：解析 BV 号、加载已有数据、生成数据录入表格"""
         raw = self._bvid_text.get("1.0", tk.END).strip()
         if not raw:
             messagebox.showwarning("提示", "请先输入 BV 号", parent=self._window)
@@ -272,7 +277,8 @@ class EntryTab:
         self._create_input_rows(row_labels, mode, existing_ms, existing_snap, bvids, periods)
 
     def _validate_bvids(self, raw):
-        """验证BV号格式，返回有效的BV号列表和无效列表"""
+        """验证 BV 号格式，返回（有效列表, 无效列表）"""
+        bvids, invalid = [], []
         bvids, invalid = [], []
         for line in raw.splitlines():
             bv = line.strip()
@@ -292,7 +298,7 @@ class EntryTab:
         return bvids, invalid
 
     def _prompt_add_monitor(self, bvids):
-        """提示将不在监控列表的BV号加入监控"""
+        """检查并提示用户将不在监控列表的 BV 号加入监控"""
         not_monitored = [b for b in bvids if b not in self._monitored_set]
         if not_monitored:
             msg = "以下 BV 号不在监控列表：\n" + "\n".join(not_monitored[:10]) + "\n\n是否加入监控？"
@@ -303,7 +309,7 @@ class EntryTab:
                     self._monitored_set.add(bv)
 
     def _generate_row_labels(self, bvids):
-        """生成行标签（BV号 × 周期/时间点）"""
+        """生成行标签组合（BV 号 × 周期/时间点），返回 (mode, row_labels, periods, dt_str)"""
         mode = self._mode.get()
         periods = []
         dt_str = ""
@@ -333,13 +339,16 @@ class EntryTab:
         return mode, row_labels, periods, dt_str
 
     def _clear_old_rows(self):
-        """清空旧的行"""
+        """清空已生成的旧输入行和行数据"""
+        for w in self._container.winfo_children():
+            w.destroy()
+        self._rows.clear()
         for w in self._container.winfo_children():
             w.destroy()
         self._rows.clear()
 
     def _load_existing_data(self, mode, bvids, dt_str=""):
-        """加载已有数据做预填"""
+        """从数据库加载已有数据用于输入框预填，返回 (existing_ms, existing_snap)"""
         existing_ms = {}
         if mode == "milestone":
             for row in get_db().get_milestones():
@@ -362,7 +371,7 @@ class EntryTab:
         return existing_ms, existing_snap
 
     def _create_input_rows(self, row_labels, mode, existing_ms, existing_snap, bvids, periods):
-        """创建输入行UI"""
+        """创建完整的输入行 UI，为每行设置字段输入框"""
         fields = [
             ("view_count", "播放量*", True),
             ("like_count", "点赞", False),
@@ -385,7 +394,7 @@ class EntryTab:
         )
 
     def _create_single_row(self, bv, key, mode, fields, existing_ms, existing_snap):
-        """创建单行输入"""
+        """创建单个 BV × 周期/时间点的输入行 UI"""
         row_frame = tk.Frame(self._container, padx=4, pady=2)
         row_frame.pack(fill=tk.X)
 
@@ -430,7 +439,7 @@ class EntryTab:
     def _create_field_input(
         self, row_frame, bv, key, mode, fkey, flabel, required, col, vars_dict, existing_ms, existing_snap
     ):
-        """创建字段输入框"""
+        """在指定列位置创建单个字段输入框，并设置预填值"""
         tk.Label(
             row_frame,
             text=flabel + ("*" if required else ""),
@@ -472,6 +481,7 @@ class EntryTab:
 
     # ── 保存全部 ──────────────────────────────────────────────────────────────
     def _save_all(self):
+        """保存所有输入行的数据到数据库"""
         if not self._rows:
             messagebox.showwarning("提示", "请先生成输入表", parent=self._window)
             return
@@ -491,8 +501,9 @@ class EntryTab:
             messagebox.showinfo("保存完成", msg, parent=self._window)
 
     def _save_single_row(self, row):
-        """处理单行数据保存。返回 (saved, skipped, errors) 三元组。"""
+        """处理单行数据保存。返回 (saved, skipped, errors) 三元组"""
         vars_d = row["vars"]
+        # 读取播放量（必填）
         raw_view = vars_d["view_count"].get().strip().replace(",", "")
         if not raw_view:
             return (0, 1, 0)
@@ -502,6 +513,7 @@ class EntryTab:
             return (0, 0, 1)
 
         data = {"view_count": view_val}
+        # 读取可选数值字段
         for fkey in ["like_count", "coin_count", "share_count", "favorite_count", "danmaku_count", "reply_count"]:
             val = vars_d[fkey].get().strip()
             if val:
@@ -516,6 +528,7 @@ class EntryTab:
         mode = row["mode"]
         bvid = row["bvid"]
 
+        # 按模式分别写入里程碑或快照
         if mode == "milestone":
             ok = get_db().upsert_milestone(bvid, row["key"], data)
         else:
@@ -524,7 +537,8 @@ class EntryTab:
         return (1, 0, 0) if ok else (0, 0, 1)
 
     def _build_save_msg(self, saved, skipped, errors):
-        """构建保存结果消息。"""
+        """构建保存结果摘要消息字符串"""
+        msg = f"✅ 已保存 {saved} 条"
         msg = f"✅ 已保存 {saved} 条"
         if skipped:
             msg += f"，跳过 {skipped} 条（播放量为空）"
@@ -533,7 +547,8 @@ class EntryTab:
         return msg
 
     def _save_snapshot_record(self, bvid: str, ts_str: str, data: dict) -> bool:
-        """将快照数据写入视频的历史记录表。"""
+        """将快照数据写入视频的历史记录表"""
+        if bvid not in self._video_dbs:
         if bvid not in self._video_dbs:
             return False
         try:
@@ -565,6 +580,8 @@ class EntryTab:
 
     # ── 刷新已有数据表格 ──────────────────────────────────────────────────────
     def _reload_table(self):
+        """重新加载里程碑数据到已录入数据表格"""
+        for item in self._tbl.get_children():
         for item in self._tbl.get_children():
             self._tbl.delete(item)
 
@@ -592,6 +609,7 @@ class EntryTab:
         # 不在里程碑表中，这里主要显示里程碑）
 
     def _delete_selected(self):
+        """删除选中的里程碑数据行"""
         selected = self._tbl.selection()
         if not selected:
             return

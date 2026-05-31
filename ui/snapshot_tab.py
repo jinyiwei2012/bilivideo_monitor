@@ -62,8 +62,10 @@ class SnapshotTab:
 
         self._build()
 
-    # ── 构建UI ──────────────────────────────────────────────────────────────────
+    # ── UI 构建 ──────────────────────────────────────────────────────────────────
     def _build(self):
+        """构建快照对比标签页的完整 UI：控制区、视频选择、时间点选择、图表区"""
+        f = self._parent
         f = self._parent
 
         # ── 顶部控制区 ──
@@ -248,6 +250,8 @@ class SnapshotTab:
     # ── 快捷按钮悬停效果 ────────────────────────────────────────────────────
     @staticmethod
     def _hover_btn(btn: tk.Label, enter: bool):
+        """鼠标悬停/离开快捷筛选按钮时的颜色变化效果"""
+        if enter:
         if enter:
             btn.configure(fg=C.get("bilibili", "#fb7299"), bg=C.get("bg_hover", "#30363d"))
         else:
@@ -255,7 +259,8 @@ class SnapshotTab:
 
     # ── 视频选中回调 ────────────────────────────────────────────────────────
     def _on_video_select(self, event=None):
-        """选中视频后，加载历史时间点到下拉列表（智能采样）"""
+        """选中视频后加载历史时间点到下拉列表，超过 50 个点则智能采样"""
+        sel = self._listbox.curselection()
         sel = self._listbox.curselection()
         if not sel:
             return
@@ -286,14 +291,14 @@ class SnapshotTab:
             self._ts_listbox.insert(tk.END, ts)
 
     def _clear_placeholder(self, event, placeholder):
-        """清除输入框占位符"""
+        """清除自定义时间输入框的占位符文本"""
         entry = event.widget
         if entry.get() == placeholder:
             entry.delete(0, tk.END)
             entry.configure(foreground=C.get("text_1", "#e6edf3"))
 
     def _add_placeholder(self, event, placeholder):
-        """恢复输入框占位符"""
+        """输入框中无内容时恢复占位符"""
         entry = event.widget
         if not entry.get().strip():
             entry.insert(0, placeholder)
@@ -396,7 +401,8 @@ class SnapshotTab:
         return filtered
 
     def _smart_sample(self, ts_list, max_per_day=8):
-        """智能采样：同一天内保留首条、尾条、播放量变化最大的几个时间点"""
+        """智能采样：每天最多保留 max_per_day 个时间点，均匀抽取"""
+        if len(ts_list) <= 20:
         if len(ts_list) <= 20:
             return ts_list
 
@@ -425,6 +431,7 @@ class SnapshotTab:
         return result
 
     def _resolve_quick_filter_ref(self, all_ts):
+        """解析快捷筛选的参考时间（取最新时间点的解析结果）"""
         now = _parse_dt(all_ts[0])
         if not now:
             _snap_logger.warning("无法解析时间戳: %s，使用当前时间", all_ts[0])
@@ -432,6 +439,7 @@ class SnapshotTab:
         return now
 
     def _apply_quick_filter(self, mode, all_ts, now):
+        """根据快捷筛选模式过滤时间点列表（最近1h/今天/最近3天/全部）"""
         filters = {
             "1h": lambda: [ts for ts in all_ts if _parse_dt(ts) and _parse_dt(ts) >= now - timedelta(hours=1)],
             "3d": lambda: [ts for ts in all_ts if _parse_dt(ts) and _parse_dt(ts) >= now - timedelta(days=3)],
@@ -443,6 +451,7 @@ class SnapshotTab:
         return self._smart_sample(all_ts) if len(all_ts) > 50 else all_ts
 
     def _quick_filter(self, mode):
+        """应用快捷时间筛选按钮，更新时间点列表"""
         all_ts = self._ts_avail
         if not all_ts:
             return
@@ -459,7 +468,8 @@ class SnapshotTab:
             self._ts_listbox.insert(tk.END, ts)
 
     def _load_records(self, bvid: str):
-        """从 video_dbs 加载某视频的完整历史，存入 _points"""
+        """从 video_dbs 加载某视频的完整历史记录，存入 _points"""
+        if bvid in self._video_dbs:
         if bvid in self._video_dbs:
             try:
                 records = self._video_dbs[bvid].get_all_records()
@@ -472,6 +482,7 @@ class SnapshotTab:
 
     # ── 生成对比图 ──────────────────────────────────────────────────────────────
     def _compare(self):
+        """从当前选中项生成快照对比图"""
         sel_v = self._listbox.curselection()
         sel_ts = self._ts_listbox.curselection()
 
@@ -492,6 +503,7 @@ class SnapshotTab:
 
     # ── 清空 ────────────────────────────────────────────────────────────────────
     def _clear(self):
+        """清空所有选择和数据"""
         self._selected = []
         self._chosen_ts = {}
         self._ts_listbox.selection_clear(0, tk.END)
@@ -500,7 +512,8 @@ class SnapshotTab:
 
     # ── 绘图 ────────────────────────────────────────────────────────────────────
     def _draw(self):
-        """主绘图函数 - 协调各个子函数"""
+        """主绘图函数：清空画布、收集数据、计算布局、绘制所有指标和状态"""
+        c = self._canvas
         c = self._canvas
         c.delete("all")
         for w in self._legend.winfo_children():
@@ -564,7 +577,8 @@ class SnapshotTab:
         return True
 
     def _collect_data(self):
-        """收集历史和里程碑数据"""
+        """收集所有已选视频的历史数据和里程碑数据，返回 (all_metric_bars, total_data)"""
+        use_milestone = self._use_milestone.get()
         use_milestone = self._use_milestone.get()
         milestone_data = get_db().get_all_milestones_grouped() if use_milestone else {}
 
@@ -588,7 +602,8 @@ class SnapshotTab:
         return all_metric_bars, total_data
 
     def _collect_history_data(self, video, bvid, title, recs, chosen_ts, all_metric_bars):
-        """收集历史数据"""
+        """收集历史记录中各时间点的指标数据"""
+        chosen_metrics = self._chosen_metrics_cache
         chosen_metrics = self._chosen_metrics_cache
         for ts_str in sorted(chosen_ts):
             best_rec = self._find_best_record(recs, ts_str)
@@ -605,7 +620,8 @@ class SnapshotTab:
                     )
 
     def _find_best_record(self, recs, ts_str):
-        """找到最匹配的记录"""
+        """找到与目标时间最匹配的记录：先精确匹配，再找 5 分钟内的最近记录"""
+        best_rec = None
         best_rec = None
         for rec in recs:
             rec_ts = str(rec.get("timestamp", ""))[:16]
@@ -627,7 +643,8 @@ class SnapshotTab:
         return best_rec
 
     def _collect_milestone_data(self, bvid, title, milestone_periods, all_metric_bars):
-        """收集里程碑数据"""
+        """收集里程碑各周期的指标数据"""
+        chosen_metrics = self._chosen_metrics_cache
         chosen_metrics = self._chosen_metrics_cache
         for period, row in milestone_periods.items():
             for metric in chosen_metrics:
@@ -642,7 +659,8 @@ class SnapshotTab:
                     )
 
     def _calculate_layout(self, all_metric_bars):
-        """计算布局和条形图参数"""
+        """计算画布布局和每组柱状图的绘制参数"""
+        c = self._canvas
         c = self._canvas
         chosen_metrics = self._chosen_metrics_cache
 
@@ -699,7 +717,8 @@ class SnapshotTab:
         return chosen_metrics, section_H, all_section_widths, max_section_W, real_W
 
     def _draw_all_metrics(self, c, chosen_metrics, all_metric_bars, section_H, max_section_W, real_W, use_milestone):
-        """绘制所有指标"""
+        """绘制所有选定指标的柱状图"""
+        for m_idx, metric in enumerate(chosen_metrics):
         for m_idx, metric in enumerate(chosen_metrics):
             metric_label = next((lb for k, lb in METRICS if k == metric), metric)
             data = all_metric_bars.get(metric)
@@ -755,7 +774,9 @@ class SnapshotTab:
             self._create_milestone_legend()
 
     def _draw_grid_and_axes(self, c, m_idx, sec_y0, chart_H, max_val, max_section_W, metric_label):
-        """绘制网格和坐标轴"""
+        """绘制当前指标区的网格线、Y 轴刻度和指标标题"""
+        # 分隔线
+        if m_idx > 0:
         # 分隔线
         if m_idx > 0:
             c.create_line(
@@ -808,7 +829,8 @@ class SnapshotTab:
         m_idx,
         legend_added,
     ):
-        """绘制所有条形图"""
+        """遍历所有分组绘制柱状条、数值标签和图例"""
+        for g_idx, group in enumerate(groups):
         for g_idx, group in enumerate(groups):
             bvid = group["bvid"]
             title = group["title"]
@@ -829,6 +851,7 @@ class SnapshotTab:
                 ts_lbl = bar["ts"]
                 source = bar["source"]
 
+                # 里程碑数据使用深色柱，历史数据使用渐变色柱
                 if source == "milestone":
                     bar_color = _darken(g_color, 0.75)
                     bar_color2 = _darken(g_color, 0.55)
@@ -877,7 +900,8 @@ class SnapshotTab:
         return x_cursor
 
     def _create_legend_item(self, bvid, title, g_color):
-        """创建图例项"""
+        """创建单个视频的图例项（色块 + 标题 + BV 号）"""
+        leg = tk.Frame(self._legend, bg=C.get("bg_surface", "#161b22"))
         leg = tk.Frame(self._legend, bg=C.get("bg_surface", "#161b22"))
         leg.pack(side=LEFT, padx=10)
         tk.Canvas(leg, width=14, height=14, bg=g_color, highlightthickness=0).pack(side=LEFT, padx=(0, 3))
@@ -886,7 +910,8 @@ class SnapshotTab:
         ).pack(side=LEFT)
 
     def _create_milestone_legend(self):
-        """创建里程碑图例"""
+        """创建「里程碑（深色柱）」图例项"""
+        leg2 = tk.Frame(self._legend, bg=C.get("bg_surface", "#161b22"))
         leg2 = tk.Frame(self._legend, bg=C.get("bg_surface", "#161b22"))
         leg2.pack(side=LEFT, padx=10)
         c2 = tk.Canvas(leg2, width=14, height=14, bg=C.get("bg_surface", "#161b22"), highlightthickness=0)
@@ -901,7 +926,8 @@ class SnapshotTab:
         ).pack(side=LEFT)
 
     def _update_status(self, chosen_metrics):
-        """更新状态栏"""
+        """更新状态栏显示：视频数、数据条数、当前指标"""
+        collected, _ = self._collect_data()
         collected, _ = self._collect_data()
         total_data = sum(len(v) for v in collected.values())
         metric_labels = ", ".join(next((lb for k, lb in METRICS if k == m), m) for m in chosen_metrics)

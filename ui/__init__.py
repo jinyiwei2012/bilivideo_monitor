@@ -1,6 +1,7 @@
 """
-界面模块
-包含所有GUI界面
+UI 界面模块包
+
+导出所有主要界面类，供外部模块统一导入。
 """
 
 from .main_gui import BilibiliMonitorGUI, main

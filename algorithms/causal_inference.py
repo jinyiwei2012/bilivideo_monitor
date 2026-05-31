@@ -1,12 +1,12 @@
 """
-因果推断模块 — 识别影响播放量的关键因素
+因果推断模块 — 识别影响播放量的关键驱动因素
 
-核心方法：
-1. Granger 因果检验（OLS 简化实现） — 检验各指标是否「领先于」播放量变化
-2. 滑动窗口相关性分析 — 短期动态相关性
-3. 偏相关分析 — 排除其他变量后的净效应
+核心分析方法：
+    1. Granger 因果检验（OLS 简化实现）—— 检验各指标是否「领先于」播放量变化
+    2. Pearson 相关性分析 —— 各指标与播放量的线性相关程度
+    3. Lead-Lag 分析（交叉相关） —— 识别指标领先/滞后于播放量的方向
 
-不依赖 statsmodels，纯 numpy 实现。
+所有计算均基于纯 Python + math 实现，不依赖 statsmodels 或 numpy。
 """
 
 import threading
@@ -14,7 +14,7 @@ from typing import Dict, List, Tuple, Optional
 from datetime import datetime
 import math
 
-# 可检验的指标名称
+# 可检验的指标名称（对应 Bilibili API 返回字段）
 CAUSAL_FEATURES = [
     "like_count",
     "coin_count",
@@ -27,7 +27,7 @@ CAUSAL_FEATURES = [
     "viewers_web",
 ]
 
-# 中文标签映射
+# 字段 → 中文可读标签映射
 FEATURE_LABELS = {
     "like_count": "点赞",
     "coin_count": "投币",
@@ -41,54 +41,25 @@ FEATURE_LABELS = {
 }
 
 
-def _normalize(series: List[float]) -> Tuple[List[float], float, float]:
-    """Z-Score 标准化"""
-    n = len(series)
-    if n == 0:
-        return series, 0.0, 1.0
-    mean = sum(series) / n
-    std = math.sqrt(sum((x - mean) ** 2 for x in series) / max(n - 1, 1))
-    if std < 1e-12:
-        return [0.0] * n, mean, 1.0
-    return [(x - mean) / std for x in series], mean, std
-
-
-def _ols_residuals(X: List[float], Y: List[float]) -> List[float]:
-    """简单线性回归 Y ~ X 的残差列表"""
-    n = len(X)
-    if n < 3:
-        return Y
-    mx = sum(X) / n
-    my = sum(Y) / n
-    cov = sum((X[i] - mx) * (Y[i] - my) for i in range(n))
-    var_x = sum((X[i] - mx) ** 2 for i in range(n))
-    if abs(var_x) < 1e-15:
-        return [y - my for y in Y]
-    beta = cov / var_x
-    alpha = my - beta * mx
-    return [Y[i] - (alpha + beta * X[i]) for i in range(n)]
-
-
-def _ss(residuals: List[float]) -> float:
-    """残差平方和"""
-    return sum(r * r for r in residuals)
-
-
 def _granger_test(
     target: List[float],
     cause: List[float],
     max_lag: int = 3,
 ) -> Tuple[float, int]:
-    """简化的 Granger 因果检验。
+    """简化版 Granger 因果检验。
 
-    对每个 lag k 检验：
-    - 受限模型：target[t] = α + Σ β_j * target[t-j]     (j=1..k)
-    - 无限制模型：target[t] = α + Σ β_j * target[t-j] + Σ γ_j * cause[t-j]
+    对每个滞后阶数 k 做 F 检验：
+        H0: cause 不 Granger 引起 target
+        受限模型（R）：仅用 target 自身滞后预测
+        无限制模型（U）：在 R 基础上加入 cause 的滞后项
 
-    用 F 统计量衡量因果强度。
+    Args:
+        target: 被预测变量时间序列（播放量）
+        cause:  候选因变量时间序列（点赞/投币等）
+        max_lag: 最大滞后阶数
 
     Returns:
-        (f_stat, best_lag)  — best_lag = -1 表示不显著
+        (f_stat, best_lag) —— best_lag = -1 表示不显著
     """
     n = len(target)
     if n < max_lag + 5:
@@ -98,14 +69,12 @@ def _granger_test(
     best_lag = -1
 
     for lag in range(1, max_lag + 1):
-        # 构建样本（跳过前 lag 个无法构成滞后向量的点）
+        # 跳过首 lag 个无法构造滞后向量的样本点
         sample_size = n - lag
         if sample_size < 5:
             continue
 
-        # 受限模型：仅用 target 滞后
-        # target[t] ≈ a0 + a1*target[t-1] + ... + a_lag*target[t-lag]
-        # 用线性代数求解（正规方程）
+        # 受限模型：仅用 target 的滞后项
         rss_r_model = _rss_multi_regression(target, [target], lag_range=(1, lag))
         # 无限制模型：target 滞后 + cause 滞后
         rss_u = _rss_multi_regression(target, [target, cause], lag_range=(1, lag))
@@ -113,13 +82,14 @@ def _granger_test(
         if rss_r_model < 1e-15:
             continue
 
-        p = lag  # 额外参数个数
+        p = lag
         n_eff = sample_size
         df1 = p
         df2 = n_eff - 2 * lag - 1
         if df2 <= 0:
             continue
 
+        # F = (RSS_R - RSS_U) / p  /  (RSS_U / df2)
         f_stat = ((rss_r_model - rss_u) / df1) / (rss_u / df2) if rss_u > 1e-15 else 0.0
         if f_stat > best_f:
             best_f = f_stat
@@ -133,9 +103,18 @@ def _rss_multi_regression(
     Xs: List[List[float]],
     lag_range: Tuple[int, int] = (1, 3),
 ) -> float:
-    """多元线性回归的残差平方和（简化版正规方程）。
+    """多元线性回归残差平方和（使用正规方程求解）。
 
-    Y[t] ≈ β0 + Σ_{X} Σ_{lag} β_{X,lag} * X[t-lag]
+    模型形式：
+        Y[t] ≈ β0 + Σ_{X in Xs} Σ_{lag} β_{X,lag} · X[t - lag]
+
+    Args:
+        Y: 被解释变量
+        Xs: 解释变量列表（每个都应是长度与 Y 相同的列表）
+        lag_range: (min_lag, max_lag) 滞后范围
+
+    Returns:
+        残差平方和 RSS
     """
     n = len(Y)
     min_lag, max_lag = lag_range
@@ -144,8 +123,7 @@ def _rss_multi_regression(
     if sample_size < 3:
         return sum((y - sum(Y) / n) ** 2 for y in Y)
 
-    # 构建设计矩阵
-    # X_design[sample_idx][feat_idx]
+    # 构建设计矩阵 X 和响应向量 Y
     X_design: List[List[float]] = []
     Y_design: List[float] = []
 
@@ -157,9 +135,8 @@ def _rss_multi_regression(
         X_design.append(row)
         Y_design.append(float(Y[t]))
 
-    # 正规方程: β = (X^T X)^{-1} X^T Y
     k = len(X_design[0])  # 参数个数（含截距）
-    # X^T X
+    # 计算 X^T X 和 X^T Y
     XtX = [[0.0] * k for _ in range(k)]
     XtY = [0.0] * k
     for i in range(sample_size):
@@ -168,15 +145,15 @@ def _rss_multi_regression(
             for col in range(k):
                 XtX[j][col] += X_design[i][j] * X_design[i][col]
 
-    # 高斯消元求解
+    # 高斯消元求解正规方程
     aug = [XtX[j][:] + [XtY[j]] for j in range(k)]
     beta = _gauss_solve(aug, k)
     if beta is None:
-        # 退化：返回总方差
+        # 矩阵奇异：返回总方差
         my = sum(Y_design) / sample_size
         return sum((Y_design[i] - my) ** 2 for i in range(sample_size))
 
-    # 计算残差
+    # 计算残差平方和
     rss = 0.0
     for i in range(sample_size):
         pred = sum(beta[j] * X_design[i][j] for j in range(k))
@@ -185,19 +162,29 @@ def _rss_multi_regression(
 
 
 def _gauss_solve(aug: List[List[float]], n: int) -> Optional[List[float]]:
-    """高斯消元（部分主元），返回解向量。"""
+    """高斯消元法求解线性方程组（部分主元 + 列消去）。
+
+    Args:
+        aug: 增广矩阵 [A | b]，size = n × (n+1)
+        n: 变量个数
+
+    Returns:
+        解向量（长度为 n），矩阵奇异时返回 None
+    """
     for col in range(n):
-        # 选主元
+        # 选主元：找到当前列中绝对值最大的行
         max_row = col
         for row in range(col + 1, n):
             if abs(aug[row][col]) > abs(aug[max_row][col]):
                 max_row = row
         aug[col], aug[max_row] = aug[max_row], aug[col]
         if abs(aug[col][col]) < 1e-15:
-            return None
+            return None  # 矩阵接近奇异
+        # 主元归一化
         pivot = aug[col][col]
         for j in range(col, n + 1):
             aug[col][j] /= pivot
+        # 消去其他行的当前列
         for row in range(n):
             if row == col:
                 continue
@@ -208,38 +195,43 @@ def _gauss_solve(aug: List[List[float]], n: int) -> Optional[List[float]]:
 
 
 class CausalAnalyzer:
-    """因果分析器 — 对单个视频的监控数据做因果推断。
+    """因果分析器 —— 对单个视频的监控数据做因果推断。
 
-    Usage
-    -----
+    接收结构化监控记录，维护各指标的时间序列，
+    提供 Granger 因果检验、Pearson 相关性和 Lead-Lag 分析。
+
+    用法
+    ----
     >>> analyzer = CausalAnalyzer()
-    >>> # 喂入结构化记录
     >>> analyzer.feed(record_dicts)
-    >>> # 运行分析
     >>> results = analyzer.analyze()
-    >>> for feature, score in results['granger_ranking']:
-    ...     print(f'{feature}: F={score:.2f}')
     """
 
     def __init__(self, max_history: int = 500, max_lag: int = 3):
+        """初始化。
+
+        Args:
+            max_history: 最多保留的记录条数
+            max_lag: Granger 检验最大滞后阶数
+        """
         self._max_history = max_history
         self._max_lag = max_lag
         self._lock = threading.Lock()
-        # 每个指标的时间序列
-        self._series: Dict[str, List[float]] = {}
-        self._timestamps: List[float] = []
+        self._series: Dict[str, List[float]] = {}  # 各指标时间序列
+        self._timestamps: List[float] = []          # 时间戳列表
 
     def feed(self, records: List[Dict]):
-        """喂入监控记录。
+        """喂入监控记录，追加到内部时间序列。
 
         Parameters
         ----------
         records : list[dict]
-            每条记录需包含 view_count 及可选的 like_count 等字段。
-            至少需要 'timestamp'（ISO 字符串或 datetime）和 'view_count'。
+            每条记录需包含 'timestamp' 和 'view_count'，
+            可选 like_count、coin_count 等 CAUSAL_FEATURES 中定义的字段。
         """
         with self._lock:
             for rec in records:
+                # 解析时间戳（支持 datetime / float / ISO 字符串）
                 ts = rec.get("timestamp", None)
                 if ts is None:
                     continue
@@ -262,7 +254,7 @@ class CausalAnalyzer:
                     if val is not None:
                         self._series.setdefault(feat, []).append(float(val))
 
-            # 裁剪到最大长度
+            # 超过最大长度时从头部裁剪
             if len(self._timestamps) > self._max_history:
                 excess = len(self._timestamps) - self._max_history
                 self._timestamps = self._timestamps[excess:]
@@ -270,16 +262,16 @@ class CausalAnalyzer:
                     self._series[key] = self._series[key][excess:]
 
     def analyze(self) -> Dict:
-        """运行完整因果分析。
+        """运行完整因果分析，返回分析报告。
 
         Returns
         -------
-        dict : {
-            'granger_ranking': [(feature, f_stat, best_lag, label), ...]  # 降序
-            'correlation':    {feature: pearson_r, ...},
-            'lead_lag':       {feature: best_shift, ...},   # 正=领先，负=滞后
-            'key_drivers':    [feature, ...],                # F > threshold 的
-            'sample_size':    int,
+        dict: {
+            'granger_ranking': [(feature, f_stat, best_lag, label), ...],
+            'correlation':     {feature: pearson_r, ...},
+            'lead_lag':        {feature: best_shift, ...},
+            'key_drivers':     [feature, ...],
+            'sample_size':     int,
         }
         """
         with self._lock:
@@ -304,7 +296,7 @@ class CausalAnalyzer:
             # 3) Lead-Lag 分析（交叉相关，shift ∈ [-5, 5]）
             lead_lag = self._analyze_lead_lag(target, n)
 
-            # 4) 关键驱动因素：F > 3.0 视为显著
+            # 4) 关键驱动因素：F > 3.0 且 lag > 0 视为显著
             key_drivers = [feat for feat, f, lag, _ in granger_results if f > 3.0 and lag > 0]
 
             return {
@@ -316,12 +308,13 @@ class CausalAnalyzer:
             }
 
     def _analyze_granger(self, target, n):
-        """Granger 因果检验"""
+        """对所有候选指标执行 Granger 因果检验，按 F 值降序排列。"""
         granger_results = []
         for feat in CAUSAL_FEATURES:
             cause = self._series.get(feat, [])
             if len(cause) != n or len(cause) < self._max_lag + 10:
                 continue
+            # 跳过无变化序列（方差 < 1e-10）
             c_var = sum((x - sum(cause) / len(cause)) ** 2 for x in cause) / len(cause)
             if c_var < 1e-10:
                 continue
@@ -332,7 +325,7 @@ class CausalAnalyzer:
         return granger_results
 
     def _analyze_correlation(self, target, n):
-        """Pearson 相关性分析"""
+        """计算各指标与播放量的 Pearson 相关系数。"""
         correlations = {}
         t_mean = sum(target) / n
         t_std = math.sqrt(sum((x - t_mean) ** 2 for x in target) / max(n - 1, 1))
@@ -350,7 +343,11 @@ class CausalAnalyzer:
         return correlations
 
     def _analyze_lead_lag(self, target, n):
-        """Lead-Lag 分析（交叉相关）"""
+        """对每个指标做滑动交叉相关，找到使相关系数绝对值最大的位移量。
+
+        正 shift → 指标领先于播放量（cause → effect）；
+        负 shift → 指标滞后于播放量。
+        """
         lead_lag = {}
         for feat in CAUSAL_FEATURES:
             cause = self._series.get(feat, [])
@@ -382,10 +379,12 @@ class CausalAnalyzer:
 
     @property
     def sample_count(self) -> int:
+        """当前已记录的时间点数量。"""
         with self._lock:
             return len(self._timestamps)
 
     def clear(self):
+        """清空所有内部时间序列数据。"""
         with self._lock:
             self._series.clear()
             self._timestamps.clear()
@@ -397,7 +396,7 @@ _analyzer_lock = threading.Lock()
 
 
 def get_causal_analyzer(bvid: str) -> CausalAnalyzer:
-    """获取指定视频的因果分析器（懒创建）。"""
+    """获取指定视频的因果分析器（惰性创建，每个 bvid 独立实例）。"""
     with _analyzer_lock:
         if bvid not in _analyzers:
             _analyzers[bvid] = CausalAnalyzer()

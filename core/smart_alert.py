@@ -6,16 +6,28 @@
 import logging
 import threading
 from typing import List, Dict, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
 _last_alert_time: Dict[str, datetime] = {}
 _last_alert_lock = threading.Lock()
-_ALERT_COOLDOWN_MINUTES = 30
+_ALERT_COOLDOWN_MINUTES = 30  # 告警冷却时间（分钟），同一类型告警在此时间内不重复触发
+_STALE_ALERT_CUTOFF_MINUTES = _ALERT_COOLDOWN_MINUTES * 2  # 清理超过此时间的过期记录
+
+
+def _cleanup_stale_alerts():
+    """清理过期的告警冷却记录，防止内存泄漏"""
+    now = datetime.now()
+    cutoff = timedelta(minutes=_STALE_ALERT_CUTOFF_MINUTES)
+    with _last_alert_lock:
+        stale = [k for k, v in _last_alert_time.items() if now - v > cutoff]
+        for k in stale:
+            del _last_alert_time[k]
 
 
 def _fmt_count(n: int) -> str:
+    """将大数字格式化为中文万/亿单位，增强可读性"""
     if n >= 1_0000_0000:
         return f"{n / 1_0000_0000:.2f}亿"
     if n >= 1_0000:
@@ -24,11 +36,13 @@ def _fmt_count(n: int) -> str:
 
 
 def _should_alert(alert_key: str) -> bool:
+    """判断指定类型的告警是否允许触发（基于冷却时间控制）"""
     now = datetime.now()
+    _cleanup_stale_alerts()
     with _last_alert_lock:
         last = _last_alert_time.get(alert_key)
         if last and (now - last).total_seconds() < _ALERT_COOLDOWN_MINUTES * 60:
-            return False
+            return False  # 冷却中，不触发
         _last_alert_time[alert_key] = now
     return True
 
@@ -43,19 +57,19 @@ class AnomalyDetector:
         大视频(>100万)用1.5倍阈值，小视频用3倍阈值
         """
         if len(records) < 4:
-            return None
+            return None  # 数据不足，无法判断
         sorted_recs = sorted(records, key=lambda r: r.get("timestamp", ""))
-        recent = sorted_recs[-4:]
+        recent = sorted_recs[-4:]  # 取最近 4 条记录
 
         try:
             now_ts = datetime.fromisoformat(recent[-1]["timestamp"])
             old_ts = datetime.fromisoformat(recent[0]["timestamp"])
         except Exception:
-            return None
+            return None  # 时间戳格式异常
 
         hours_span = (now_ts - old_ts).total_seconds() / 3600
         if hours_span < 0.5:
-            return None
+            return None  # 时间跨度太短，不具备统计意义
 
         total_growth = recent[-1].get("view_count", 0) - recent[0].get("view_count", 0)
         avg_rate = total_growth / hours_span if hours_span > 0 else 0
@@ -72,7 +86,7 @@ class AnomalyDetector:
         current_views = recent[-1].get("view_count", 0)
 
         # 自适应阈值：大视频增速更稳定，用更小的倍数
-        if current_views > 1_000_0000:
+        if current_views > 1_0000_0000:
             multiplier = 1.5
         elif current_views > 100_0000:
             multiplier = 2.0
@@ -100,6 +114,7 @@ class AnomalyDetector:
         sorted_recs = sorted(records, key=lambda r: r.get("timestamp", ""))
         recent = sorted_recs[-6:]
 
+        # 逐段计算每小时的播放增速
         growths = []
         for i in range(1, len(recent)):
             try:
@@ -115,6 +130,7 @@ class AnomalyDetector:
         if len(growths) < 4:
             return None
 
+        # 近期平均增速（最近两段） vs 历史平均增速（之前各段）
         recent_g = sum(growths[-2:]) / 2
         prev_g = sum(growths[:-2]) / max(len(growths) - 2, 1)
 
@@ -140,7 +156,7 @@ class AnomalyDetector:
             return None
 
         if span_h < 2:
-            return None
+            return None  # 时间跨度不足 2 小时，不判定停滞
 
         total_growth = recent[-1].get("view_count", 0) - recent[0].get("view_count", 0)
         rate = total_growth / span_h if span_h > 0 else 0
@@ -169,11 +185,12 @@ class AnomalyDetector:
 
         viewers = [r.get("viewers_total", 0) for r in recent]
         if max(viewers) < 30:
-            return None
+            return None  # 最大值不足 30 人，不触发告警
 
         avg_viewers = sum(viewers[:-1]) / max(len(viewers) - 1, 1)
         last_viewers = viewers[-1]
 
+        # 当前在线人数超过历史均值 2.5 倍且绝对值 > 30
         if avg_viewers > 0 and last_viewers > avg_viewers * 2.5 and last_viewers > 30:
             return (
                 f"🔥 在线人数飙升！当前 {last_viewers} 人在线，"
@@ -190,13 +207,14 @@ class AnomalyDetector:
         now = datetime.now()
         hour = now.hour
         if 7 <= hour < 23:
-            return None
+            return None  # 白天时段不做深夜检测
 
         viewers = [r.get("viewers_total", 0) for r in sorted_recs[-4:]]
         current_v = viewers[-1] if viewers else 0
         if current_v < 10:
-            return None
+            return None  # 夜间在线人数过少，忽略
 
+        # 收集日间（9:00-22:00）的在线人数做基准
         day_viewers = []
         for r in sorted_recs:
             try:
@@ -207,10 +225,11 @@ class AnomalyDetector:
             except Exception as e:
                 logger.debug("解析日间时段失败: %s", e)
         if len(day_viewers) < 3:
-            return None
+            return None  # 日间数据不足，无法比较
 
         avg_day = sum(day_viewers) / max(len(day_viewers), 1)
 
+        # 夜间在线达到日间均值的 40% 以上，视为异常
         if avg_day > 10 and current_v > avg_day * 0.4:
             return (
                 f"🌙 深夜异常在线！当前 {current_v} 人在线"
@@ -229,11 +248,12 @@ class AnomalyDetector:
 
         viewers = [r.get("viewers_total", 0) for r in recent]
         if max(viewers) < 50:
-            return None
+            return None  # 在线峰值不足 50 人，不判定为断崖
 
         prev_viewers = viewers[0]
         last_viewers = viewers[-1]
 
+        # 当前人数降至初始的 30% 以下且绝对下降超过 50 人
         if prev_viewers > 0 and last_viewers < prev_viewers * 0.3 and (prev_viewers - last_viewers) > 50:
             return (
                 f"📉 在线人数骤降！从 {prev_viewers} 人降至 {last_viewers} 人，"
@@ -242,10 +262,11 @@ class AnomalyDetector:
         return None
 
     @staticmethod
-    def detect_live_streaming(video: Dict = None, up_info: Dict = None) -> Optional[str]:
+    def detect_live_streaming(_video: Dict = None, up_info: Dict = None) -> Optional[str]:
+        """检测 UP 主是否正在直播（直播期间视频数据异常属于正常现象）"""
         if up_info:
             lr = up_info.get("live_room")
-            if lr and lr.get("live_status", 0) == 1:
+            if lr and lr.get("live_status", 0) == 1:  # live_status=1 表示正在直播
                 title = lr.get("live_title", "未命名直播")
                 roomid = lr.get("roomid", 0)
                 return f"🔴 UP主正在直播！「{title[:30]}」 (房间 {roomid})，视频数据可能受推流影响"
@@ -279,6 +300,7 @@ class AnomalyDetector:
         shares = video.get("share_count", 0) or 0
         danmaku = video.get("danmaku_count", 0) or 0
 
+        # 计算各项互动指标的比率
         like_rate = likes / views
         coin_rate = coins / views
         fav_rate = favorites / views
@@ -366,7 +388,9 @@ class AnomalyDetector:
 
     @staticmethod
     def detect_all(records: List[Dict], bvid: str = "", video: Dict = None, up_info: Dict = None) -> List[str]:
+        """运行所有检测器，返回所有触发的告警消息列表"""
         alerts = []
+        # 注册所有检测器及其唯一标识键名
         detectors = [
             ("growth_spike", lambda: AnomalyDetector.detect_growth_spike(records)),
             ("trend_reversal", lambda: AnomalyDetector.detect_trend_reversal(records)),
@@ -379,7 +403,7 @@ class AnomalyDetector:
         ]
         for key, detector in detectors:
             alert_key = f"{bvid}:{key}" if bvid else key
-            if _should_alert(alert_key):
+            if _should_alert(alert_key):  # 未在冷却期，可以触发
                 try:
                     msg = detector()
                     if msg:

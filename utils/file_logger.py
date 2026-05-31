@@ -19,6 +19,8 @@ class FileLogger:
 
     def __init__(self, log_dir: str):
         """
+        初始化文件日志器
+
         Parameters
         ----------
         log_dir : str
@@ -40,7 +42,7 @@ class FileLogger:
 
     def write(self, level: str, message: str, ts: datetime = None):
         """
-        写入一条日志。
+        写入一条日志
 
         Parameters
         ----------
@@ -75,7 +77,7 @@ class FileLogger:
 
     def start_midnight_checker(self, root, check_interval_ms=30000):
         """
-        在 tkinter 主线程中启动跨天定时检查。
+        在 tkinter 主线程中启动跨天定时检查
 
         Parameters
         ----------

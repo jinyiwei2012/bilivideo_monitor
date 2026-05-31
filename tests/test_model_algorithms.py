@@ -1,15 +1,17 @@
-"""Tests for model algorithms — one per category"""
+"""测试各分类的模型算法 — 每类至少测试一个算法"""
 
 from datetime import datetime
 import pytest
 
 
 def _make_history(n=15):
+    """生成 n 个历史数据点，间隔 1 小时，播放量递增 1000"""
     base = datetime(2026, 1, 1, 0, 0, 0)
     return [(datetime.fromtimestamp(base.timestamp() + i * 3600), 1000 + i * 1000) for i in range(n)]
 
 
 def _make_video_data(history, current_views=15000):
+    """构建 video_data 字典，用于调用算法 predict 方法"""
     from datetime import datetime as dt
 
     history_list = []
@@ -38,8 +40,7 @@ def _make_video_data(history, current_views=15000):
     }
 
 
-# Algorithms that still use the old 4-arg interface (predict(cv, tv, hd, vi))
-# These need to be tested via ModelAlgorithmAdapter
+# 仍使用旧版 4 参数接口的算法，需要通过 ModelAlgorithmAdapter 测试
 _OLD_INTERFACE = {
     "LogisticGrowthAlgorithm",
     "WeibullGrowthAlgorithm",
@@ -53,13 +54,13 @@ _OLD_INTERFACE = {
 
 
 def _via_adapter(module_path, cls_name, video_data, threshold=100000):
+    """通过 ModelAlgorithmAdapter 测试旧接口算法"""
     import importlib
     from algorithms.model_adapter import ModelAlgorithmAdapter
 
     mod = importlib.import_module(module_path)
     cls = getattr(mod, cls_name)
     algo = ModelAlgorithmAdapter(cls())
-    # Build history tuples from video_data
     history = []
     for h in video_data.get("history_data", []):
         dt = h.get("datetime", h.get("timestamp", 0))
@@ -75,11 +76,12 @@ def _via_adapter(module_path, cls_name, video_data, threshold=100000):
         threshold_names=["test"],
         _cached_video_data=video_data,
     )
-    # Convert dict result to PredictionResult-like checks
     return result
 
 
 class TestSimpleCategory:
+    """测试简单速度类算法"""
+
     def test_linear_velocity(self):
         from algorithms.models.simple.linear_velocity import LinearVelocityAlgorithm
 
@@ -91,6 +93,8 @@ class TestSimpleCategory:
 
 
 class TestGrowthCategory:
+    """测试增长模型类算法"""
+
     @pytest.mark.parametrize(
         "module_path,cls_name",
         [
@@ -118,6 +122,8 @@ class TestGrowthCategory:
 
 
 class TestTimeSeriesCategory:
+    """测试时间序列类算法"""
+
     @pytest.mark.parametrize(
         "module_path,cls_name",
         [
@@ -145,6 +151,8 @@ class TestTimeSeriesCategory:
 
 
 class TestStatisticalCategory:
+    """测试统计模型类算法"""
+
     @pytest.mark.parametrize(
         "module_path,cls_name",
         [
@@ -171,6 +179,8 @@ class TestStatisticalCategory:
 
 
 class TestEnsembleCategory:
+    """测试集成学习类算法"""
+
     @pytest.mark.parametrize(
         "module_path,cls_name",
         [
@@ -197,6 +207,8 @@ class TestEnsembleCategory:
 
 
 class TestDeepLearningCategory:
+    """测试深度学习类算法"""
+
     @pytest.mark.parametrize(
         "module_path,cls_name",
         [
@@ -221,6 +233,8 @@ class TestDeepLearningCategory:
 
 
 class TestAdvancedCategory:
+    """测试高级分析类算法"""
+
     @pytest.mark.parametrize(
         "module_path,cls_name",
         [
@@ -249,7 +263,10 @@ class TestAdvancedCategory:
 
 
 class TestEdgeCases:
+    """测试边界情况"""
+
     def test_empty_history(self):
+        """空历史数据应能正常返回预测"""
         from algorithms.models.simple.linear_velocity import LinearVelocityAlgorithm
 
         algo = LinearVelocityAlgorithm()
@@ -258,6 +275,7 @@ class TestEdgeCases:
         assert result.predicted_hours == float("inf") or result.predicted_hours > 0
 
     def test_already_reached_threshold(self):
+        """已超过阈值应返回 0 小时"""
         from algorithms.models.simple.linear_velocity import LinearVelocityAlgorithm
 
         algo = LinearVelocityAlgorithm()
@@ -266,6 +284,7 @@ class TestEdgeCases:
         assert result.predicted_hours == 0
 
     def test_single_data_point(self):
+        """单数据点应能正常返回预测"""
         from algorithms.models.growth.logarithmic_growth import LogarithmicGrowthAlgorithm
 
         algo = LogarithmicGrowthAlgorithm()
@@ -274,6 +293,7 @@ class TestEdgeCases:
         assert result.confidence >= 0
 
     def test_fallback_on_low_data(self):
+        """数据量不足时应使用降级预测"""
         from algorithms.registry import AlgorithmRegistry
 
         history = [(datetime(2026, 1, 1, 0, 0, 0), 100)]

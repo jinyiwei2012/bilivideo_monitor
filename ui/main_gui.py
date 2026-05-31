@@ -1,5 +1,6 @@
 """
 主GUI界面 - 深色三栏布局
+
 左侧视频卡片 / 中间图表详情 / 右侧预测分析
 
 UI 已拆分为独立模块：
@@ -80,6 +81,11 @@ class BilibiliMonitorGUI:
     THRESHOLD_GAP = FAST_GAP
 
     def __init__(self, root=None):
+        """
+        初始化主界面
+
+        :param root: 可选的 CTk 根窗口，为 None 时自动创建
+        """
         if root is None:
             root = ctk.CTk()
             from __init__ import __version__
@@ -150,6 +156,7 @@ class BilibiliMonitorGUI:
         self.root.after(3000, self._check_update)
 
     def _set_window_icon(self):
+        """设置窗口图标"""
         try:
             from PIL import Image, ImageTk
 
@@ -166,6 +173,7 @@ class BilibiliMonitorGUI:
     # ──────────────────────────────────────────
 
     def _build_ui(self):
+        """构建整体 UI 布局"""
         self._build_titlebar()
         self.log_panel = LogPanel(self.root, self._file_logger)
         # 将标准 logging 桥接到 GUI 日志面板
@@ -376,8 +384,7 @@ class BilibiliMonitorGUI:
         btn.bind("<Enter>", lambda e, b=btn: b.config(bg=C["bg_hover"], fg=C["text_1"]))
         btn.bind("<Leave>", lambda e, b=btn: b.config(bg=C["bg_elevated"], fg=C["text_2"]))
         if tooltip:
-            # 可选：添加工具提示
-            pass
+            pass  # 可选：添加工具提示
         return btn
 
     def _popup_settings_menu(self):
@@ -500,6 +507,7 @@ class BilibiliMonitorGUI:
         threading.Thread(target=_worker, daemon=True, name="algo-preload").start()
 
     def _build_main(self):
+        """构建主体三栏布局"""
         self._main_frame = tk.Frame(self.root, bg=C["bg_base"])
         self._main_frame.pack(fill=tk.BOTH, expand=True)
 
@@ -537,6 +545,7 @@ class BilibiliMonitorGUI:
         pass  # 已由 BottomBar 构建
 
     def _sb(self, key, text, color=None):
+        """更新状态栏"""
         self.bottom_bar.update_sb(key, text, color)
 
     def set_finetune_status(self, text: str, color=None):
@@ -548,6 +557,7 @@ class BilibiliMonitorGUI:
     # ──────────────────────────────────────────
 
     def _switch_nav(self, name):
+        """切换导航页面"""
         if name == self._current_nav:
             return
         self._current_nav = name
@@ -587,6 +597,7 @@ class BilibiliMonitorGUI:
     # ──────────────────────────────────────────
 
     def _get_video_interval(self, video):
+        """根据视频播放量确定刷新间隔（接近阈值时使用快速模式）"""
         views = video.get("view_count", 0)
         gap, _ = nearest_threshold_gap(views)
         if 0 < gap < self.THRESHOLD_GAP:
@@ -594,6 +605,7 @@ class BilibiliMonitorGUI:
         return self.DEFAULT_INTERVAL
 
     def _register_video_timer(self, bvid):
+        """注册视频定时器"""
         video = self._get_video(bvid)
         if not video:
             return
@@ -601,20 +613,24 @@ class BilibiliMonitorGUI:
         self._video_timers[bvid] = {"next": time.time() + interval, "interval": interval}
 
     def _start_auto_refresh(self):
+        """启动自动刷新"""
         if self.auto_refresh_enabled.get():
             self._start_global_tick()
 
     def _start_global_tick(self):
+        """启动全局 tick 循环"""
         if self._global_tick_job:
             self.root.after_cancel(self._global_tick_job)
         self._global_tick_job = self.root.after(1000, self._global_tick)
 
     def _stop_global_tick(self):
+        """停止全局 tick 循环"""
         if self._global_tick_job:
             self.root.after_cancel(self._global_tick_job)
             self._global_tick_job = None
 
     def _global_tick(self):
+        """每秒一次的全局 tick：更新倒计时、模式指示、周期性维护"""
         try:
             if not self.auto_refresh_enabled.get():
                 self._global_tick_job = None
@@ -624,6 +640,7 @@ class BilibiliMonitorGUI:
             fast_count = 0
             min_remaining = float("inf")
 
+            # 计算最小剩余时间和快速模式数量
             for bvid, timer in list(self._video_timers.items()):
                 remaining = timer["next"] - now
                 if timer["interval"] == self.FAST_INTERVAL:
@@ -742,13 +759,15 @@ class BilibiliMonitorGUI:
             db.wal_checkpoint()
             for vdb in list(self.video_dbs.values()):
                 try:
-                    vdb._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                    with vdb._get_connection() as conn:
+                        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
                 except Exception as e:
                     logger.debug("忽略异常: %s", e)
         except Exception as e:
             logger.debug("忽略异常: %s", e)
 
     def _toggle_auto_refresh(self, event=None):
+        """切换自动刷新开关"""
         cur = self.auto_refresh_enabled.get()
         self.auto_refresh_enabled.set(not cur)
         self.bottom_bar._draw_toggle(not cur)
@@ -762,38 +781,46 @@ class BilibiliMonitorGUI:
             self._sb("status", "自动刷新已禁用", C["warning"])
 
     def _do_fetch(self):
+        """执行数据拉取"""
         fetch_all_video_data(self)
 
     def _post_fetch(self):
+        """拉取完成后的回调处理"""
         now_str = datetime.now().strftime("%H:%M:%S")
         self._sb("status", "刷新完成", C["success"])
         self._sb("last_ref", f"上次刷新: {now_str}")
         self._sb("videos", f"监控: {len(self.monitored_videos)} 个")
+        # 更新所有卡片
         for video in self.monitored_videos:
             bvid = video.get("bvid", "")
             if bvid in self.video_list.get_card_widgets():
                 self.video_list.update_card(video)
+        # 更新选中视频的详情
         if self.selected_bvid:
             video = self._get_video(self.selected_bvid)
             if video:
                 self.detail.update_stat_bar(video)
                 if self.detail.current_tab == "📈 播放量趋势":
                     self.detail._auto_render_chart()
+        # 重新注册定时器
         for video in self.monitored_videos:
             self._register_video_timer(video.get("bvid", ""))
         auto_predict_all(self)
 
     def _show_video_detail(self, video):
+        """显示视频详情"""
         self.detail._build_center_header(video)
         self.detail._rebuild_stat_bar(video)
         self.detail._switch_tab(self.detail.current_tab)
 
     def _select_video(self, bvid):
+        """选中视频"""
         self.selected_bvid = bvid
         self.video_list.highlight_card(bvid)
         video = self._get_video(bvid)
         if video:
             self._show_video_detail(video)
+        # 更新预测面板（如有缓存结果）
         cached = self.prediction_results.get(bvid)
         if cached:
             self.prediction._build_pred_hero(
@@ -937,6 +964,7 @@ class BilibiliMonitorGUI:
         return self._video_index.get(bvid)
 
     def _remove_monitor(self):
+        """删除当前选中视频的监控"""
         if not self.selected_bvid:
             messagebox.showwarning("提示", "请先在左侧选择要删除的视频")
             return
@@ -945,6 +973,7 @@ class BilibiliMonitorGUI:
         title = video.get("title", bvid) if video else bvid
         if not messagebox.askyesno("确认删除", f"确定要删除监控：\n{title[:50]}？"):
             return
+        # 清理所有相关数据
         self.monitored_videos = [v for v in self.monitored_videos if v.get("bvid") != bvid]
         self._video_index.pop(bvid, None)
         self.history_data.pop(bvid, None)
@@ -1514,12 +1543,14 @@ class BilibiliMonitorGUI:
     # ── 预测结果回调 ─────────────────────────────
 
     def _prediction_done(self, w_pred, current_view, growth, rate_per_sec, success_list, fail_list, valid, total):
+        """预测完成回调：更新预测面板和状态栏"""
         self.prediction._build_pred_hero(w_pred, current_view, rate_per_sec)
         self.prediction._update_algo_list(success_list, fail_list)
         self._sb("algo", f"算法: {valid}/{total}")
         self._sb("status", "预测完成", C["success"])
 
     def _copy_bvid(self, bvid):
+        """复制 BV 号到剪贴板"""
         self.root.clipboard_clear()
         self.root.clipboard_append(bvid)
         self._sb("status", f"已复制 {bvid}", C["success"])
@@ -1559,6 +1590,7 @@ class BilibiliMonitorGUI:
         load_watch_list(self)
 
     def _restore_video(self, video):
+        """从 watch_list 恢复视频到界面"""
         bvid = video.get("bvid", "")
         if bvid in self._video_index:
             return
@@ -1571,6 +1603,7 @@ class BilibiliMonitorGUI:
 
     @staticmethod
     def _map_api_to_video_dict(bvid: str, info: dict, fallback: dict = None) -> dict:
+        """将 B站 API 返回的数据映射为统一的视频字典格式"""
         fb = fallback or {}
         stat = info.get("stat", {})
         owner = info.get("owner", {})
@@ -1596,6 +1629,7 @@ class BilibiliMonitorGUI:
         }
 
     def _register_video_to_monitor(self, video: dict) -> None:
+        """注册视频到监控系统：初始化数据库 + 创建卡片 + 启动 Worker"""
         bvid = video["bvid"]
         try:
             video_db = db.get_video_db(bvid)
@@ -1634,6 +1668,7 @@ class BilibiliMonitorGUI:
         _start_worker(self, bvid, video, interval, self.FAST_INTERVAL)
 
     def _save_weekly_score(self, bvid, video, timestamp):
+        """保存周刊分数到数据库"""
         try:
             ws = _calc_ws(video)
             if ws and bvid in self.video_dbs:
@@ -1643,6 +1678,7 @@ class BilibiliMonitorGUI:
             logger.warning("保存周刊分数失败 %s: %s", bvid, e)
 
     def _save_yearly_score(self, bvid, video, timestamp):
+        """保存年刊分数到数据库"""
         try:
             ys = _calc_ys(video)
             if ys and bvid in self.video_dbs:
@@ -1652,6 +1688,7 @@ class BilibiliMonitorGUI:
             logger.warning("保存年刊分数失败 %s: %s", bvid, e)
 
     def _save_watch_list(self):
+        """保存监控列表到配置"""
         config = load_config()
         config["watch_list"] = [v.get("bvid", "") for v in self.monitored_videos]
         save_config(config)
@@ -1659,6 +1696,7 @@ class BilibiliMonitorGUI:
     # ── 退出 ─────────────────────────────────────
 
     def _on_exit(self):
+        """应用退出时的清理工作"""
         self._save_watch_list()
         self.log_panel.cleanup()
         self._stop_global_tick()
@@ -1683,15 +1721,15 @@ class BilibiliMonitorGUI:
         AlgorithmRegistry.shutdown()
         self.root.destroy()
         # 强制退出进程（ThreadPoolExecutor 非 daemon 线程会导致进程挂起）
-        # os._exit(0) removed — 改用 root.quit() 确保资源清理
-        import sys
-        sys.exit(0)
+        os._exit(0)
 
     def run(self):
+        """启动主循环"""
         self.root.mainloop()
 
 
 def main():
+    """主入口函数"""
     app = BilibiliMonitorGUI()
     app.run()
 

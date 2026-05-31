@@ -10,9 +10,10 @@ from ui.dialog_base import DialogBase
 
 
 class AIQAWindow:
-    """AI智能问答窗口"""
+    """AI智能问答窗口 — 聊天气泡风格对话界面"""
 
     def __init__(self, parent=None, gui=None):
+        """初始化 AI 问答窗口"""
         self.dlg = DialogBase(
             parent, "AI智能问答助手", DialogBase.calc_geometry(parent, 0.48, 0.68), resizable=(True, True), modal=False
         )
@@ -28,13 +29,13 @@ class AIQAWindow:
         self._setup_ui()
 
     def _setup_ui(self):
+        """构建对话窗口 UI：API 状态、快捷问题、对话区、输入框"""
         self.dlg.header("AI智能问答助手", "基于监控数据的自然语言问答（可离线使用）")
 
-        # API状态提示
+        # API 状态提示
         self._api_status = tk.Label(self.dlg.container, font=("Microsoft YaHei UI", 8), anchor="w", bg=C["bg_surface"])
         self._api_status.pack(fill=tk.X, padx=28, pady=(4, 0))
 
-        # 检查LLM连接状态
         self.window.after(200, self._check_api_status)
 
         # 快捷问题按钮
@@ -81,7 +82,7 @@ class AIQAWindow:
         self._chat_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         vsb.pack(side=tk.RIGHT, fill=tk.Y)
 
-        # 标签配置
+        # 文本标签配置
         self._chat_text.tag_configure("user", foreground=C["bilibili"], font=("Microsoft YaHei UI", 10, "bold"))
         self._chat_text.tag_configure("assistant", foreground=C["success"], font=("Microsoft YaHei UI", 10, "bold"))
         self._chat_text.tag_configure(
@@ -125,6 +126,7 @@ class AIQAWindow:
             self._api_status.config(text="⚠️ 未配置API密钥，使用离线规则回答（设置 → AI配置）", fg=C["warning"])
 
     def _show_welcome(self):
+        """显示欢迎信息"""
         self._chat_text.config(state="normal")
         self._chat_text.delete("1.0", tk.END)
         self._chat_text.insert(tk.END, "助手\n", "assistant")
@@ -159,18 +161,20 @@ class AIQAWindow:
         self._chat_text.config(state="disabled")
 
     def _quick_ask(self, question: str):
+        """点击快捷问题按钮：填入输入框并自动发送"""
         self._input_entry.delete("1.0", tk.END)
         self._input_entry.insert(tk.END, question)
         self._send()
 
     def _send(self):
+        """发送用户输入的问题"""
         question = self._input_entry.get("1.0", tk.END).strip()
         if not question:
             return
 
         self._input_entry.delete("1.0", tk.END)
 
-        # 更新上下文
+        # 更新上下文（确保数据最新）
         if self.gui:
             self.session.set_context(self.gui.monitored_videos, self.gui.history_data, self.gui.video_dbs)
 
@@ -188,7 +192,7 @@ class AIQAWindow:
     def _do_answer(self, question: str):
         """在后台线程调用 LLM，避免阻塞 UI"""
         self._send_btn.config(state="disabled")
-        # 显示等待提示
+        # 先显示"思考中..."占位
         self._chat_text.config(state="normal")
         self._chat_text.insert(tk.END, "\n助手\n", "assistant")
         self._chat_text.insert(tk.END, "思考中...\n", "content")
@@ -203,9 +207,8 @@ class AIQAWindow:
             self.window.after(0, _update_ui, answer)
 
         def _update_ui(answer):
-            # 删除"思考中..."占位，显示真实回答
+            """用真实回答替换"思考中..."占位"""
             self._chat_text.config(state="normal")
-            # 找到最后一条"思考中..."并替换
             content = self._chat_text.get("1.0", tk.END)
             last_assistant = content.rfind("思考中...")
             if last_assistant >= 0:

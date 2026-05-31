@@ -1,5 +1,10 @@
 """
-图表绘制模块 - Canvas 播放量趋势图（增量/全量模式 + 可配置数据点）
+图表绘制模块 - Canvas 播放量趋势图（增量/全量/新增模式 + 可配置数据点）
+
+提供三种渲染模式：
+- step（新增）：每个数据点= v[i] - v[i-1]，显示播放量增量变化
+- delta（增量）：以第一条记录为基准，显示相对增长量
+- full（全量）：显示完整播放量绝对值
 """
 
 from datetime import datetime
@@ -13,7 +18,7 @@ _PRED_BG = "#ddf4ff"
 
 
 def draw_chart_placeholder(canvas, text=None):
-    """绘制空状态占位"""
+    """绘制空状态占位提示文本"""
     canvas.delete("all")
     w = canvas.winfo_width() or 600
     h = canvas.winfo_height() or 300
@@ -27,6 +32,7 @@ def compute_chart_scale(views_list, history, ML, MR, MT, cw, ch):
     min_v = min(views_list)
     max_v = max(views_list)
     span = max_v - min_v if max_v != min_v else max(1, max_v * 0.01)
+    # 上下各留 5% 边距
     min_v = max(0, min_v - span * 0.05)
     max_v = max_v + span * 0.05
     span = max_v - min_v
@@ -45,7 +51,7 @@ def draw_threshold_lines(c, min_v, max_v, py, W, ML, MR, base_v=0):
     for thr, col in zip(THRESHOLDS, THRESH_COLORS):
         rel_thr = thr - base_v
         if rel_thr <= 0:
-            continue
+            continue  # 低于基准的阈值不显示
         if min_v <= rel_thr <= max_v * 1.05:
             ty = py(rel_thr)
             c.create_line(ML, ty, W - MR, ty, fill=col, width=1, dash=(6, 4))
@@ -53,7 +59,7 @@ def draw_threshold_lines(c, min_v, max_v, py, W, ML, MR, base_v=0):
 
 
 def _pick_dot_indices(n, max_points):
-    """固定间隔选取数据点索引"""
+    """固定间隔选取数据点索引，确保首尾始终包含"""
     num = max(2, min(n, max_points))
     step = (n - 1) / (num - 1)
     return sorted(set(min(n - 1, int(round(i * step))) for i in range(num)))
@@ -61,17 +67,20 @@ def _pick_dot_indices(n, max_points):
 
 def draw_chart_series(c, history, px, py, ML, MT, W, MR, ch, views_list, max_points=20):
     """绘制面积填充 + 折线 + 固定间隔数据点"""
+    # 面积填充：从底部到每个数据点再回到底部
     pts_area = [ML, MT + ch]
     for i, (_, v) in enumerate(history):
         pts_area += [px(i), py(v)]
     pts_area += [W - MR, MT + ch]
     c.create_polygon(pts_area, fill=C["chart_area"], outline="")
 
+    # 折线
     pts_line = []
     for i, (_, v) in enumerate(history):
         pts_line += [px(i), py(v)]
     c.create_line(pts_line, fill=C["chart_line"], width=2.5, smooth=True, joinstyle="round", capstyle="round")
 
+    # 固定间隔数据点
     for i in _pick_dot_indices(len(history), max_points):
         x, y = px(i), py(views_list[i])
         c.create_oval(x - 4, y - 4, x + 4, y + 4, fill=C["chart_dot"], outline=C["bg_base"], width=2)
@@ -96,6 +105,7 @@ def _draw_projection(c, start_x, start_y, end_x, end_y, pred_val=0, is_step=Fals
 
 def draw_chart_annotations(c, history, views_list, px, py, W, H, ML, MR, MB, base_v=0, prediction=None):
     """绘制最新值标注 + X 轴时间标签 + 图例 + 预测点"""
+    # 最新值标注框
     lx = px(len(history) - 1)
     lv = py(views_list[-1])
     cur_val = views_list[-1]
@@ -128,6 +138,7 @@ def draw_chart_annotations(c, history, views_list, px, py, W, H, ML, MR, MB, bas
                 t_str = ""
             c.create_text(px(i), H - MB + 6, text=t_str, fill=C["text_3"], font=("Consolas", 8))
 
+    # 图例
     items = [("播放" + ("增长" if base_v else "量"), C["bilibili"])] + [
         (THRESHOLD_NAMES[i] + "阈值", THRESH_COLORS[i]) for i in range(3)
     ]
@@ -145,9 +156,11 @@ def draw_chart_annotations(c, history, views_list, px, py, W, H, ML, MR, MB, bas
 
 def draw_chart_grid(c, W, H, ML, MR, MT, MB, cw, ch, min_v, max_v, is_delta=False):
     """画坐标轴 + 网格"""
+    # Y 轴和 X 轴线
     c.create_line(ML, MT, ML, MT + ch, fill=C["border"], width=1)
     c.create_line(ML, MT + ch, W - MR, MT + ch, fill=C["border"], width=1)
 
+    # 水平网格线 + Y 轴标签
     rows = 5
     for i in range(rows + 1):
         y = MT + i * ch // rows
@@ -159,9 +172,11 @@ def draw_chart_grid(c, W, H, ML, MR, MT, MB, cw, ch, min_v, max_v, is_delta=Fals
 
 
 def draw_chart(canvas, history_data, bvid, video, FONT, mode="step", max_points=20, prediction=None):
+    """主入口：根据 mode 选择图表渲染方式，带指纹缓存避免重复渲染"""
     history = history_data.get(bvid, [])
     pred_val = prediction.get("prediction", 0) if prediction else 0
     rate_val = prediction.get("rate_per_sec", 0) if prediction else 0
+    # 指纹缓存：数据未变时跳过重绘
     fp = (bvid, mode, max_points, len(history), history[-1][1] if history else 0, pred_val, rate_val)
     if getattr(draw_chart, "_last_fp", None) == fp:
         return
@@ -175,6 +190,7 @@ def draw_chart(canvas, history_data, bvid, video, FONT, mode="step", max_points=
     if W < 100 or H < 60:
         return
 
+    # 边距：左、右、上、下
     ML, MR, MT, MB = 58, 20, 28, 36
     cw = W - ML - MR
     ch = H - MT - MB
@@ -194,10 +210,12 @@ def draw_chart(canvas, history_data, bvid, video, FONT, mode="step", max_points=
 
 
 def _draw_delta_or_full_chart(c, history, W, H, ML, MR, MT, MB, cw, ch, FONT, max_points, prediction, mode):
+    """绘制增量/全量模式图表"""
     is_delta = mode == "delta" and history[0][1] > 0
     base_v = history[0][1] if is_delta else 0
 
     if is_delta:
+        # 增量模式下每个数据点减去起始值
         history = [(ts, v - base_v) for ts, v in history]
 
     views_list = [v for _, v in history]
@@ -263,6 +281,7 @@ def _step_draw_grid(c, W, H, ML, MR, MT, MB, ch, v_min, v_max, py):
         val = v_min + frac * span
         sign = "+" if val > 0 else ""
         c.create_text(ML - 4, y, text=f"{sign}{abbrev(val)}", anchor="e", fill=C["text_3"], font=("Consolas", 8))
+    # 0 基准线
     if v_min <= 0 <= v_max:
         zy = py(0)
         c.create_line(ML, zy, W - MR, zy, fill=C["text_3"], width=1)
@@ -270,17 +289,20 @@ def _step_draw_grid(c, W, H, ML, MR, MT, MB, ch, v_min, v_max, py):
 
 def _step_draw_series(c, deltas, values, px, py, W, H, MR, MB, ML, pred_delta=None):
     """画 step 图的折线、数据点、最新值标注、X 轴时间标签 + 预测投影"""
+    # 折线
     pts = []
     for i, (_, v) in enumerate(deltas):
         pts += [px(i), py(v)]
     if len(pts) >= 4:
         c.create_line(pts, fill=C["chart_line"], width=2.5, smooth=True, joinstyle="round", capstyle="round")
 
+    # 数据点（正值绿色，负值红色）
     for i, (_, v) in enumerate(deltas):
         x, y = px(i), py(v)
         dot_col = C["success"] if v >= 0 else C["danger"]
         c.create_oval(x - 4, y - 4, x + 4, y + 4, fill=dot_col, outline=C["bg_base"], width=2)
 
+    # 最新值标注
     last_v = values[-1]
     last_idx = len(deltas) - 1
     lx = px(last_idx)
@@ -296,6 +318,7 @@ def _step_draw_series(c, deltas, values, px, py, W, H, MR, MB, ML, pred_delta=No
         proj_y = py(pred_delta)
         _draw_projection(c, lx, ly, proj_x, proj_y, pred_delta, is_step=True)
 
+    # X 轴时间标签
     step = max(1, len(deltas) // 6)
     for i, (ts, _) in enumerate(deltas):
         if i % step == 0 or i == len(deltas) - 1:
@@ -350,6 +373,7 @@ def _draw_step_chart(c, history, W, H, ML, MR, MT, MB, cw, ch, FONT, max_points,
     _step_draw_grid(c, W, H, ML, MR, MT, MB, ch, v_min, v_max, py)
     _step_draw_series(c, deltas, values, px, py, W, H, MR, MB, ML, pred_delta)
 
+    # 底部统计信息
     total = sum(values)
     avg = total / len(values) if values else 0
     info = f"新增 | {len(deltas)} 点 | 总+{fmt_num(total)} | 均+{fmt_num(avg)}"

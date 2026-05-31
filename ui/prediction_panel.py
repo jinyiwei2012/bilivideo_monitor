@@ -1,6 +1,7 @@
 """
 右侧预测面板模块 - CustomTkinter 版
-负责预测英雄卡 + 最近记录时间线
+
+负责预测英雄卡（加权预测值 + 阈值进度条 + ETA）+ 信息面板（互动率、最近记录、算法统计）。
 """
 
 import tkinter as tk
@@ -17,13 +18,14 @@ class PredictionPanel:
     def __init__(self, parent, gui):
         self.gui = gui
         self._parent = parent
-        self._hero_widgets = {}
-        self._hero_has_data = False
-        self._info_frame = None
+        self._hero_widgets = {}  # 英雄卡片子控件引用
+        self._hero_has_data = False  # 标记英雄卡是否已有数据
+        self._info_frame = None  # 信息滚动区域
         self._info_content = None
         self._build_right_panel()
 
     def _build_right_panel(self):
+        """构建右侧面板：预测英雄卡 + 信息滚动区"""
         p = self._parent
         self._pred_hero = ctk.CTkFrame(p, fg_color=C["bg_surface"], corner_radius=0)
         self._pred_hero.pack(fill=tk.X)
@@ -42,8 +44,9 @@ class PredictionPanel:
         self._info_frame.pack(fill=tk.BOTH, expand=True)
 
     def _build_pred_hero_empty(self):
+        """显示空状态预测英雄卡"""
         if not self._hero_has_data and self._hero_widgets:
-            return
+            return  # 已有占位，不再重复构建
         h = self._pred_hero
         for w in h.winfo_children():
             w.destroy()
@@ -54,6 +57,13 @@ class PredictionPanel:
         )
 
     def _build_pred_hero(self, weighted_pred, current_views, rate_per_sec):
+        """构建或更新预测英雄卡片
+
+        :param weighted_pred: 加权预测播放量
+        :param current_views: 当前播放量
+        :param rate_per_sec: 每秒播放量增长速率
+        """
+        # ── 已有数据时的增量更新 ──
         if self._hero_has_data and "outer" in self._hero_widgets:
             w = self._hero_widgets
             w["val_lbl"].configure(text=fmt_num(weighted_pred))
@@ -61,6 +71,7 @@ class PredictionPanel:
             delta_text = f"▲ +{fmt_num(delta)}" if delta >= 0 else f"▼ {fmt_num(delta)}"
             delta_color = C["success"] if delta >= 0 else C["danger"]
             w["delta_lbl"].configure(text=delta_text, text_color=delta_color)
+            # 更新速率标签
             if rate_per_sec > 0:
                 per_min = rate_per_sec * 60
                 per_hour = rate_per_sec * 3600
@@ -75,6 +86,7 @@ class PredictionPanel:
             else:
                 if "rate_lbl" in w:
                     w["rate_lbl"].pack_forget()
+            # 更新每个阈值行
             for i, (t, name, col) in enumerate(zip(THRESHOLDS, THRESHOLD_NAMES, THRESH_COLORS)):
                 if i >= len(w["thr_rows"]):
                     break
@@ -96,12 +108,15 @@ class PredictionPanel:
                 row_data["eta_lbl"].configure(text=eta_str, text_color=eta_c)
             return
 
+        # ── 首次构建 ──
         h = self._pred_hero
         for w in h.winfo_children():
             w.destroy()
         self._hero_widgets = {}
         outer = ctk.CTkFrame(h, fg_color=C["bg_surface"], corner_radius=0)
         outer.pack(fill=tk.X, padx=14, pady=12)
+
+        # 标题
         ctk.CTkLabel(
             outer,
             text="🎯 综合加权预测",
@@ -109,6 +124,8 @@ class PredictionPanel:
             font=("Microsoft YaHei UI", 8),
             fg_color="transparent",
         ).pack(anchor="w")
+
+        # 加权预测值
         val_lbl = ctk.CTkLabel(
             outer,
             text=fmt_num(weighted_pred),
@@ -117,11 +134,15 @@ class PredictionPanel:
             fg_color="transparent",
         )
         val_lbl.pack(anchor="w", pady=(2, 0))
+
+        # 增长量
         delta = weighted_pred - current_views
         delta_text = f"▲ +{fmt_num(delta)}" if delta >= 0 else f"▼ {fmt_num(delta)}"
         delta_color = C["success"] if delta >= 0 else C["danger"]
         delta_lbl = ctk.CTkLabel(outer, text=delta_text, text_color=delta_color, font=FONT, fg_color="transparent")
         delta_lbl.pack(anchor="w")
+
+        # 速率指示器
         rate_lbl = None
         if rate_per_sec > 0:
             per_min = rate_per_sec * 60
@@ -136,6 +157,8 @@ class PredictionPanel:
             rate_lbl.pack(anchor="w", pady=(2, 0))
 
         tk.Frame(outer, bg=C["border"], height=1).pack(fill=tk.X, pady=6)
+
+        # ── 各阈值进度条 + ETA ──
         thr_rows = []
         for t, name, col in zip(THRESHOLDS, THRESHOLD_NAMES, THRESH_COLORS):
             row = ctk.CTkFrame(outer, fg_color=C["bg_surface"], corner_radius=0)
@@ -150,6 +173,7 @@ class PredictionPanel:
             pct = min(current_views / t, 1.0)
             fill_frame = tk.Frame(bg_bar, bg=col, height=4)
             fill_frame.place(x=0, y=0, relwidth=pct, relheight=1)
+            # 计算 ETA（预计到达时间）
             if t <= current_views:
                 eta_str, eta_c = "✓ 已达成", C["success"]
             elif rate_per_sec > 0:
@@ -176,6 +200,7 @@ class PredictionPanel:
         self._hero_has_data = True
 
     def _clear_info(self):
+        """清空信息面板内容"""
         for w in self._info_frame.winfo_children():
             w.destroy()
         self._info_content = None
@@ -204,7 +229,7 @@ class PredictionPanel:
         grid = ctk.CTkFrame(f, fg_color=C["bg_surface"], corner_radius=0)
         grid.pack(fill=tk.X, padx=10, pady=(0, 6))
         for i, (label, val) in enumerate(stats):
-            row, col = divmod(i, 2)
+            row, col = divmod(i, 2)  # 两列布局
             cell = ctk.CTkFrame(grid, fg_color=C["bg_elevated"], corner_radius=4, height=28)
             cell.grid(row=row, column=col, padx=2, pady=1, sticky="ew")
             grid.grid_columnconfigure(col, weight=1, uniform="stats")
@@ -234,7 +259,7 @@ class PredictionPanel:
         hist_container = ctk.CTkFrame(f, fg_color=C["bg_surface"], corner_radius=0)
         hist_container.pack(fill=tk.X, padx=10, pady=(0, 6))
         if history and len(history) > 1:
-            recent = history[-15:]
+            recent = history[-15:]  # 只显示最近 15 条
             prev_v = recent[0][1] if len(recent) > 1 else 0
             for ts, v in recent:
                 dt_str = ts.strftime("%m-%d %H:%M") if isinstance(ts, datetime) else str(ts)[:-3] if len(
@@ -297,6 +322,7 @@ class PredictionPanel:
         self._info_content = True
 
     def _section_title(self, parent, text):
+        """绘制一个分节标题"""
         row = ctk.CTkFrame(parent, fg_color=C["bg_surface"], corner_radius=0)
         row.pack(fill=tk.X, padx=10, pady=(8, 2))
         ctk.CTkLabel(row, text=text, text_color=C["text_3"],

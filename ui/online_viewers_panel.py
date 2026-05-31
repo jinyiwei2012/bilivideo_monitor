@@ -26,6 +26,7 @@ class OnlineViewersPanel:
         self._build_ui()
 
     def _build_ui(self):
+        """构建在线人数监控面板的 UI：表头、树形表格、状态栏"""
         header = tk.Frame(self.frame, bg=C["bg_surface"], height=48)
         header.pack(fill=tk.X)
         header.pack_propagate(False)
@@ -140,6 +141,7 @@ class OnlineViewersPanel:
         ).pack(side=tk.RIGHT, padx=4, pady=3)
 
     def _apply_tree_style(self):
+        """为树形视图应用自定义颜色样式"""
         style = ttk.Style()
         style.configure(
             "Treeview",
@@ -163,6 +165,7 @@ class OnlineViewersPanel:
         )
 
     def _sort_by(self, col):
+        """切换排序字段或反转排序方向，然后刷新列表"""
         if self._sort_col == col:
             self._sort_rev = not self._sort_rev
         else:
@@ -174,6 +177,7 @@ class OnlineViewersPanel:
         pass
 
     def _jump_to_video(self):
+        """选中视频后跳转到主界面的监控列表并定位到该视频"""
         sel = self._tree.selection()
         if not sel:
             return
@@ -182,10 +186,12 @@ class OnlineViewersPanel:
         self.gui._select_video(bvid)
 
     def refresh(self):
+        """手动刷新在线人数数据"""
         self._populate()
         self._time_lbl.config(text=f"上次刷新: {datetime.now().strftime('%H:%M:%S')}")
 
     def _populate(self):
+        """填充树形表格数据：遍历所有监控视频，计算在线率并按当前排序方式排列"""
         for row in self._tree.get_children():
             self._tree.delete(row)
 
@@ -204,6 +210,7 @@ class OnlineViewersPanel:
         reverse = self._sort_rev
 
         def _sort_key(r):
+            """根据当前排序列名返回排序键值"""
             idx_map = {
                 "title": 1,
                 "bvid": 0,
@@ -255,21 +262,26 @@ class OnlineViewersPanel:
         self._status_lbl.config(text=f"共 {len(rows)} 个视频 · 按在线人数排序")
 
     def on_show(self):
+        """面板显示时刷新数据并启动自动刷新"""
         self.refresh()
         self._start_auto_refresh()
 
     def on_hide(self):
+        """面板隐藏时停止自动刷新"""
         self._stop_auto_refresh()
 
     def _start_auto_refresh(self):
+        """启动定时自动刷新（间隔 30 秒）"""
         self._stop_auto_refresh()
         self._timer_id = self.frame.after(REFRESH_INTERVAL, self._auto_refresh_tick)
 
     def _stop_auto_refresh(self):
+        """停止自动刷新定时器"""
         if self._timer_id:
             self.frame.after_cancel(self._timer_id)
             self._timer_id = None
 
     def _auto_refresh_tick(self):
+        """自动刷新定时器触发：刷新数据并重新排程"""
         self.refresh()
         self._timer_id = self.frame.after(REFRESH_INTERVAL, self._auto_refresh_tick)

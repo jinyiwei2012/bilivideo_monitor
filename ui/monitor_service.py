@@ -1,6 +1,7 @@
 """
 监控业务逻辑模块 - 独立 Worker 线程模型
-每个视频一个独立线程，自主管刷新间隔，互不阻塞、互不干扰。
+
+每个视频一个独立线程，自主管理刷新间隔，互不阻塞、互不干扰。
 """
 
 import threading
@@ -29,7 +30,7 @@ _up_db = None
 _last_up_fetch_time = {}  # uid -> time.time
 
 # ──────────────────────────────────────────────
-#  内部工具
+#  内部工具函数
 # ──────────────────────────────────────────────
 
 
@@ -39,6 +40,7 @@ def _save_predictions_to_db(gui, bvid, current_view, results):
     if not video_db:
         return
     for name, r in results.items():
+        # 跳过加权集成结果和错误结果
         if name == "_weighted" or "error" in r:
             continue
         metadata = r.get("metadata", {})
@@ -86,6 +88,7 @@ def _merge_history(gui, bvid: str) -> list:
         current_view = next((v.get("view_count", 0) for v in gui.monitored_videos if v.get("bvid") == bvid), 0)
         history = list(gui.history_data.get(bvid, []))
 
+    # 检查是否已从 DB 合并过
     with _merged_from_db_lock:
         if bvid in _merged_from_db:
             already_merged = True
@@ -120,6 +123,7 @@ def _merge_history(gui, bvid: str) -> list:
 
     history.sort(key=lambda x: _to_dt(x[0]))
 
+    # 如果历史不足 2 条，用当前时间补齐
     if len(history) < 2:
         now = datetime.now()
         history = [(now, current_view), (now, current_view)]
@@ -137,6 +141,7 @@ def _to_dt(t):
 
 
 def _get_up_db():
+    """获取 UP主 数据库单例"""
     global _up_db
     if _up_db is None:
         from core.up_database import UpDatabase
@@ -202,6 +207,7 @@ def _predict_single(gui, bvid, video) -> dict:
         current_view = video.get("view_count", 0)
         history = _merge_history(gui, bvid)
 
+        # 运行所有算法进行预测
         results = AlgorithmRegistry.predict_all(
             history,
             current_view,
@@ -277,6 +283,7 @@ def _online_learning_feedback(gui, bvid, results, actual_view, prev_result):
 
 
 def _update_video_graph(gui, bvid, video):
+    """更新视频关系图节点和边"""
     try:
         from algorithms.graph_neural import get_video_graph
 
@@ -602,6 +609,8 @@ def _stop_worker(bvid):
         worker = _active_workers.pop(bvid, None)
     if worker:
         worker.stop()
+    with _merged_from_db_lock:
+        _merged_from_db.discard(bvid)
 
 
 def _stop_all_workers():
@@ -746,6 +755,7 @@ def load_watch_list(gui):
     def _worker():
         loaded = 0
         for bvid in watch_list:
+            # 去重检查
             with gui._data_lock:
                 if any(v.get("bvid") == bvid for v in gui.monitored_videos):
                     continue
@@ -811,5 +821,6 @@ def _start_all_workers(gui):
         bvid = video.get("bvid", "")
         if not bvid:
             continue
+        # 根据视频当前播放量计算合适的刷新间隔
         interval = get_video_interval(video) if get_video_interval else default_interval
         _start_worker(gui, bvid, video, interval, fast_interval)

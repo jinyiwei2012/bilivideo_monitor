@@ -21,9 +21,10 @@ logger = logging.getLogger(__name__)
 
 
 class WeeklyScoreWindow:
-    """周刊分数计算窗口（现代化风格）"""
+    """周刊分数计算窗口（现代化风格）— 手动输入或使用已监控视频计算分数"""
 
     def __init__(self, parent=None, monitored_videos: Optional[List[Dict]] = None, video_dbs: Optional[Dict] = None):
+        """初始化周刊分数计算窗口"""
         self.dlg = DialogBase(
             parent, "周刊分数计算", DialogBase.calc_geometry(parent, 0.42, 0.62), resizable=(True, True), modal=False
         )
@@ -35,11 +36,12 @@ class WeeklyScoreWindow:
         self._setup_ui()
 
     def _setup_ui(self):
+        """构建界面：数据来源选择、输入区域、结果展示"""
         self.dlg.header("周刊分数计算", "虚拟歌手中文曲排行榜分数计算器")
 
-        # 数据来源选择
         sec = self.dlg.section(padding=8)
 
+        # 模式选择：手动输入 / 选择已监控视频
         mode_row = tk.Frame(sec, bg=C["bg_elevated"])
         mode_row.pack(fill=tk.X, pady=(0, 6))
         self._mode = tk.StringVar(value="manual")
@@ -60,7 +62,7 @@ class WeeklyScoreWindow:
             command=self._toggle_mode,
         ).pack(side=tk.LEFT)
 
-        # 手动输入区域
+        # 手动输入区域：6 项指标（3×2 网格）
         self._manual_frame = tk.Frame(sec, bg=C["bg_elevated"])
         self._manual_frame.pack(fill=tk.X)
 
@@ -93,7 +95,7 @@ class WeeklyScoreWindow:
             entry.pack(side=tk.LEFT)
             self._entries[key] = entry
 
-        # 已监控视频下拉
+        # 已监控视频下拉选择
         self._select_frame = tk.Frame(sec, bg=C["bg_elevated"])
         self._select_combo = ttk.Combobox(self._select_frame, state="readonly", width=50, font=FONT)
         for v in self.monitored_videos:
@@ -112,7 +114,7 @@ class WeeklyScoreWindow:
         )
         ttk.Button(btn_row, text="清空", command=self._clear).pack(side=tk.LEFT)
 
-        # 结果区域
+        # 计算结果区域
         res_sec = tk.Frame(self.dlg.container, bg=C["bg_base"])
         res_sec.pack(fill=tk.BOTH, expand=True, padx=24, pady=(10, 0))
 
@@ -149,6 +151,7 @@ class WeeklyScoreWindow:
         self._toggle_mode()
 
     def _toggle_mode(self):
+        """切换手动输入 / 选择视频模式"""
         if self._mode.get() == "manual":
             self._manual_frame.pack(fill=tk.X)
             self._select_frame.pack_forget()
@@ -157,6 +160,7 @@ class WeeklyScoreWindow:
             self._select_frame.pack(fill=tk.X, pady=4)
 
     def _get_video_data(self) -> Optional[VideoData]:
+        """获取输入的视频数据"""
         if self._mode.get() == "select":
             sel = self._select_combo.current()
             if sel < 0 or sel >= len(self.monitored_videos):
@@ -199,6 +203,7 @@ class WeeklyScoreWindow:
                 return None
 
     def _calculate(self):
+        """计算并显示周刊分数"""
         video_data = self._get_video_data()
         if not video_data:
             return
@@ -209,6 +214,7 @@ class WeeklyScoreWindow:
         self._display_result(video_data, result)
 
     def _display_result(self, data: VideoData, result: WeeklyScoreResult):
+        """在文本框中格式化工整地显示计算结果"""
         self._result_text.config(state="normal")
         self._result_text.delete("1.0", "end")
 
@@ -247,6 +253,7 @@ class WeeklyScoreWindow:
         self._result_text.config(state="disabled")
 
     def _clear(self):
+        """清空所有输入和结果"""
         for entry in self._entries.values():
             entry.delete(0, "end")
         self._select_combo.set("")

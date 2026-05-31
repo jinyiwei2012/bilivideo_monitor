@@ -18,6 +18,7 @@ from config import DATA_DIR
 
 logger = logging.getLogger(__name__)
 
+# aria2 相关路径和版本信息
 ARIA2_DIR = Path(DATA_DIR) / "aria2"
 ARIA2_EXE = ARIA2_DIR / "aria2c.exe"
 ARIA2_VERSION = "1.37.0"
@@ -66,6 +67,15 @@ class Aria2Downloader:
         progress_cb: Optional[Callable[[int, int], None]] = None,
         done_cb: Optional[Callable[[bool, str], None]] = None,
     ):
+        """
+        初始化下载器
+
+        Args:
+            url: 下载地址
+            dest: 目标文件路径
+            progress_cb: 进度回调 (已下载字节, 总字节)
+            done_cb: 完成回调 (是否成功, 消息)
+        """
         self.url = url
         self.dest = dest
         self.progress_cb = progress_cb
@@ -85,8 +95,8 @@ class Aria2Downloader:
         cmd = [
             str(ARIA2_EXE),
             "--continue=true",
-            "--console-log-level=error",
-            "--summary-interval=0",
+            "--console-log-level=notice",
+            "--summary-interval=1",
             f"--dir={os.path.dirname(self.dest)}",
             f"--out={os.path.basename(self.dest)}",
             "--max-connection-per-server=4",
@@ -103,25 +113,25 @@ class Aria2Downloader:
                 stderr=subprocess.STDOUT,
                 creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0,
             )
-            # 解析进度行: [DL:xxxB ETA:xx]
-            total = 0
+            # 解析进度行: [#1 SIZE:10.0MiB/100.0MiB(10%) CN:1 DL:1.2MiB ETA:10s]
+            multiplier = {"K": 1024, "M": 1024**2, "G": 1024**3, "T": 1024**4}
+            total_size = 0
             for line in iter(self._process.stdout.readline, b""):
                 if self._stop_event.is_set():
                     self._process.terminate()
                     break
                 text = line.decode("utf-8", errors="replace").strip()
                 if text.startswith("["):
-                    # 解析下载进度
-                    m = re.search(r"DL:([\d.]+)([KMGT])iB", text)
-                    if m:
-                        val = float(m.group(1))
-                        unit = m.group(2)
-                        multiplier = {"K": 1024, "M": 1024**2, "G": 1024**3, "T": 1024**4}
-                        downloaded = int(val * multiplier.get(unit, 1))
+                    # 解析总大小和已下载
+                    m_total = re.search(r"SIZE:([\d.]+)([KMGT])iB/([\d.]+)([KMGT])iB", text)
+                    if m_total:
+                        downloaded = int(float(m_total.group(1)) * multiplier.get(m_total.group(2), 1))
+                        total_size = int(float(m_total.group(3)) * multiplier.get(m_total.group(4), 1))
                     else:
-                        downloaded = 0
+                        m_dl = re.search(r"DL:([\d.]+)([KMGT])iB", text)
+                        downloaded = int(float(m_dl.group(1)) * multiplier.get(m_dl.group(2), 1)) if m_dl else 0
                     if self.progress_cb:
-                        self.progress_cb(downloaded, total)
+                        self.progress_cb(downloaded, total_size)
             self._process.wait()
             success = self._process.returncode == 0 and os.path.exists(self.dest)
             if self.done_cb:

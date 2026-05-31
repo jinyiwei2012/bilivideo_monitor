@@ -1,4 +1,5 @@
-"""训练面板基类 — 提取 TrainingPanel 与 FinetunePanel 的共享逻辑。
+"""
+训练面板基类 — 提取 TrainingPanel 与 FinetunePanel 的共享逻辑。
 
 包含：
 - TrainingMonitor: 实时训练质量监控器（自动检测 NaN/过拟合/欠拟合/震荡/爆炸）
@@ -32,15 +33,17 @@ class TrainingMonitor:
     """实时训练质量监控器 — 自动判断模型好坏并给出建议。"""
 
     def __init__(self):
+        """初始化监控器"""
         self.reset()
 
     def reset(self):
+        """重置所有监控状态"""
         self._points: List[tuple] = []  # [(epoch, train_loss, val_loss)]
         self.status = "等待数据…"
         self.level = "info"  # "good" | "warning" | "danger" | "info"
         self.suggestions: List[str] = []
-        self._overfit_streak = 0
-        self._no_improve_streak = 0
+        self._overfit_streak = 0  # 过拟合连续计数
+        self._no_improve_streak = 0  # 不收敛连续计数
 
     STATUS_LABELS = {
         "good": ("🟢 训练良好", C["success"]),
@@ -50,10 +53,12 @@ class TrainingMonitor:
     }
 
     def update(self, epoch: int, train_loss: float, val_loss: float):
+        """添加一个新的 epoch 数据点并重新评估"""
         self._points.append((epoch, train_loss, val_loss))
         self._evaluate()
 
     def _set_finding(self, level, status, suggestions):
+        """按优先级记录监控发现（高风险优先覆盖低风险）"""
         priority = {"danger": 3, "warning": 2, "good": 1, "info": 0}
         if priority.get(level, 0) > priority.get(self._finding_level, 0):
             self._finding_level = level
@@ -61,6 +66,7 @@ class TrainingMonitor:
             self._finding_suggestions = suggestions
 
     def _check_nan(self, pts):
+        """检查 loss 是否为 NaN"""
         for _, tl, vl in pts:
             if math.isnan(tl) or (vl >= 0 and math.isnan(vl)):
                 self.status = "Loss = NaN — 训练失败"
@@ -70,10 +76,12 @@ class TrainingMonitor:
         return False
 
     def _check_loss_explosion(self, pts):
+        """检查 loss 是否发生爆炸性增长"""
         if len(pts) < 2:
             return
         prev = pts[-2][1]
         curr = pts[-1][1]
+        # 如果 loss 翻倍以上则判定为爆炸
         if prev > 1e-8 and curr > prev * 2.0:
             jump_ratio = curr / prev
             if jump_ratio > 5:
@@ -82,11 +90,12 @@ class TrainingMonitor:
                 self._set_finding("warning", f"Loss 跳升 (×{jump_ratio:.1f})", ["适当降低学习率"])
 
     def _check_overfitting(self, pts, n):
+        """检查是否过拟合：训练 loss 下降但验证 loss 持续上升"""
         if n < 5 or not all(vl >= 0 for _, _, vl in pts[-5:]):
             return
-        tl_trend = pts[-1][1] < pts[-5][1]
+        tl_trend = pts[-1][1] < pts[-5][1]  # 训练 loss 下降趋势
         vl_trend = [pts[i][2] for i in range(-5, 0)]
-        vl_up = sum(1 for i in range(1, len(vl_trend)) if vl_trend[i] > vl_trend[i - 1])
+        vl_up = sum(1 for i in range(1, len(vl_trend)) if vl_trend[i] > vl_trend[i - 1])  # 验证 loss 上升次数
         if tl_trend and vl_up >= 4:
             self._overfit_streak += 1
         else:
@@ -106,11 +115,11 @@ class TrainingMonitor:
             )
 
     def _check_no_improvement(self, pts, n):
+        """检查是否不再收敛：验证 loss 已停止下降"""
         if n < 8 or not all(vl >= 0 for _, _, vl in pts[-8:]):
             return
         best_before = min(vl for _, _, vl in pts[:-4])  # 最近 4 epoch 之前的最佳
         best_recent = min(vl for _, _, vl in pts[-4:])  # 最近 4 epoch 的最佳
-        # 最近 4 epoch 的最佳没有明显优于之前的最佳 → 趋于收敛
         if best_before > 0 and best_recent >= best_before * 0.995:
             self._no_improve_streak += 1
         else:
@@ -124,6 +133,7 @@ class TrainingMonitor:
             )
 
     def _check_oscillation(self, pts, n):
+        """检查 loss 是否震荡：变异系数大且方向频繁变化"""
         if n < 5:
             return
         recent = [tl for _, tl, _ in pts[-5:]]
@@ -131,13 +141,13 @@ class TrainingMonitor:
         if mean_tl < 1e-8:
             return
         max_dev = max(abs(v - mean_tl) for v in recent)
-        cv = max_dev / mean_tl
-        # 连续方向变化次数
+        cv = max_dev / mean_tl  # 变异系数
         dir_changes = sum(1 for i in range(2, len(recent)) if (recent[i] - recent[i-1]) * (recent[i-1] - recent[i-2]) < 0)
         if cv > 0.2 and dir_changes >= 2:
             self._set_finding("warning", "Loss 震荡 — 训练不稳定", ["降低学习率", "增大 batch size"])
 
     def _check_underfitting(self, pts, n):
+        """检查是否欠拟合：训练初期到后期 loss 下降不足 3%"""
         if n < 5:
             return
         early_avg = sum(p[1] for p in pts[:3]) / 3
@@ -150,6 +160,7 @@ class TrainingMonitor:
             )
 
     def _apply_finding(self, pts, n):
+        """根据发现的最高优先级问题，更新最终状态"""
         if self._finding_level != "good":
             self.level = self._finding_level
             self.status = self._finding_status
@@ -166,6 +177,7 @@ class TrainingMonitor:
             self.level = "good"
 
     def _evaluate(self):
+        """执行完整的训练质量评估流水线"""
         pts = self._points
         n = len(pts)
         self.suggestions.clear()
@@ -173,6 +185,7 @@ class TrainingMonitor:
         self._finding_status = "训练正常"
         self._finding_suggestions = []
 
+        # 按优先级依次检查：NaN > 爆炸 > 过拟合 > 不收敛 > 震荡 > 欠拟合
         if self._check_nan(pts):
             return
 
@@ -215,6 +228,7 @@ class TrainingMonitor:
         if n < 2:
             return 1.0
 
+        # 爆炸：按跳升比例大幅降低 LR
         if issue_type == "explosion":
             prev = pts[-2][1]
             curr = pts[-1][1]
@@ -224,6 +238,7 @@ class TrainingMonitor:
                 return max(0.1, min(0.6, scale))
             return 0.5
 
+        # 震荡：按变异系数降低 LR
         if issue_type == "oscillation":
             recent = [p[1] for p in pts[-min(6, n) :]]
             mean = sum(recent) / len(recent)
@@ -234,6 +249,7 @@ class TrainingMonitor:
                 return max(0.3, min(0.9, scale))
             return 0.7
 
+        # 过拟合：按验证 loss 上升比例降低 LR
         if issue_type == "overfitting":
             recent_vl = [p[2] for p in pts[-4:] if p[2] >= 0]
             if len(recent_vl) >= 3:
@@ -243,6 +259,7 @@ class TrainingMonitor:
                 return max(0.3, min(0.85, scale))
             return 0.7
 
+        # 欠拟合：按实际下降速度与目标速度的比值提高 LR
         if issue_type == "underfitting":
             early_avg = sum(p[1] for p in pts[:3]) / 3
             late_avg = sum(p[1] for p in pts[-3:]) / 3
@@ -272,6 +289,7 @@ class TrainingMonitor:
         if n < 2:
             return 0.0
 
+        # 爆炸：按跳升比例计算裁剪阈值
         if issue_type == "explosion":
             prev = pts[-2][1]
             curr = pts[-1][1]
@@ -280,6 +298,7 @@ class TrainingMonitor:
                 return max(0.1, min(10.0, 2.0 / max(1.5, jump_ratio - 0.5)))
             return 1.0
 
+        # 震荡：按变异系数计算裁剪阈值
         if issue_type == "oscillation":
             recent = [p[1] for p in pts[-min(6, n):]]
             mean = sum(recent) / len(recent)
@@ -306,6 +325,7 @@ class TrainingMonitor:
 
         valids = [(tl, vl) for _, tl, vl in pts[-8:] if vl >= 0]
         if len(valids) < 5:
+            # 只有训练 loss 时，如果后期下降很少则启用小幅度 weight_decay
             train_only = [tl for _, tl, _ in pts[-8:]]
             if len(train_only) >= 5:
                 early = sum(train_only[:3]) / 3
@@ -314,10 +334,11 @@ class TrainingMonitor:
                     return 0.005
             return 0.0
 
-        tl_trend = valids[-1][0] < valids[-5][0]
-        vl_rising = sum(1 for i in range(1, len(valids)) if valids[i][1] > valids[i-1][1])
+        tl_trend = valids[-1][0] < valids[-5][0]  # 训练 loss 是否下降
+        vl_rising = sum(1 for i in range(1, len(valids)) if valids[i][1] > valids[i-1][1])  # 验证 loss 上升次数
         ratio = vl_rising / (len(valids) - 1)
 
+        # 训练 loss 下降但验证 loss 持续上升 → 过拟合，按比例启用 weight_decay
         if tl_trend and ratio > 0.7:
             return 0.02
         if ratio > 0.5:
@@ -346,6 +367,7 @@ class BaseTrainingPanel:
     """
 
     def __init__(self, parent: tk.Widget, main_gui):
+        """初始化共享面板基类"""
         self.parent = parent
         self.main = main_gui
         self.frame = tk.Frame(parent, bg=C["bg_base"])
@@ -405,6 +427,7 @@ class BaseTrainingPanel:
             ).pack(expand=True)
             return chart_frame
 
+        # 初始化 matplotlib 图表的样式和轴
         self._fig = Figure(figsize=(5, 2.5), dpi=80, facecolor=C["bg_elevated"])
         self._ax = self._fig.add_subplot(111)
         self._ax.set_facecolor(C["bg_elevated"])
@@ -425,6 +448,7 @@ class BaseTrainingPanel:
         """刷新 Loss 折线图。子类可重写 _get_chart_series 自定义分组。"""
         if not mpl_available or self._ax is None:
             return
+        # 清空并重设样式
         self._ax.clear()
         self._ax.set_facecolor(C["bg_elevated"])
         self._ax.tick_params(colors=C["text_3"], labelsize=7)
@@ -434,6 +458,7 @@ class BaseTrainingPanel:
         for spine in self._ax.spines.values():
             spine.set_color(C["border"])
 
+        # 按算法分组绘制训练/验证 loss 曲线
         for algo_name, pts in self._get_chart_series():
             epochs = [d["epoch"] for d in pts]
             train = [d["train_loss"] for d in pts]
@@ -462,6 +487,7 @@ class BaseTrainingPanel:
         return [(a, [d for d in self._loss_history if d["algo"] == a]) for a in sorted(algos)]
 
     def _clear_chart(self):
+        """清空图表"""
         clear_loss_chart(self._ax, self._fig, self._canvas)
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -500,6 +526,7 @@ class BaseTrainingPanel:
         return log_frame
 
     def _append_log(self, text: str):
+        """向日志文本框追加一条带时间戳的日志"""
         if self._log_text is None:
             return
         ts = time.strftime("%H:%M:%S")
@@ -510,6 +537,7 @@ class BaseTrainingPanel:
         self._log_text.config(state="disabled")
 
     def _clear_log(self):
+        """清空日志文本框"""
         if self._log_text is None:
             return
         self._log_text.config(state="normal")
@@ -538,6 +566,7 @@ class BaseTrainingPanel:
         return monitor_bar
 
     def _refresh_monitor(self):
+        """刷新训练质量监控 UI 显示"""
         text, color = self._monitor.get_status_display()
         if self._monitor_status:
             self._monitor_status.config(text=text, fg=color)
@@ -559,12 +588,14 @@ class BaseTrainingPanel:
     # ══════════════════════════════════════════════════════════════════════════
 
     def _on_cancel(self):
+        """请求取消当前训练"""
         self._cancel_flag[0] = True
         if self._cancel_btn:
             self._cancel_btn.config(state="disabled")
         self._append_log("⏹ 用户请求取消训练")
 
     def _on_skip_algo(self):
+        """请求跳过当前算法"""
         self._skip_algo_flag[0] = True
         if self._skip_btn:
             self._skip_btn.config(state="disabled")

@@ -28,6 +28,7 @@ class BilibiliAPIError(Exception):
     """B站API异常基类"""
 
     def __init__(self, code: int, message: str):
+        """初始化异常，记录错误码和错误信息"""
         self.code = code
         self.message = message
         super().__init__(f"[{code}] {message}")
@@ -39,7 +40,9 @@ class RateLimitError(BilibiliAPIError):
 
 class _CurlCffiResponse:
     """将 curl_cffi response 包装为与 requests.Response 兼容的接口"""
+
     def __init__(self, resp):
+        """包装 curl_cffi 响应对象，暴露与 requests.Response 相同的属性"""
         self.status_code = resp.status_code
         self.content = resp.content
         self.raw = resp.content
@@ -50,9 +53,11 @@ class _CurlCffiResponse:
         self._resp = resp
 
     def json(self, **kwargs):
+        """解析 JSON 响应，委托给内部 curl_cffi 对象"""
         return self._resp.json(**kwargs)
 
     def raise_for_status(self):
+        """检查 HTTP 状态码，>=400 时抛出 HTTPError"""
         if self.status_code >= 400:
             from requests.exceptions import HTTPError
             raise HTTPError(f"HTTP {self.status_code}", response=self)
@@ -91,6 +96,7 @@ class BilibiliAPI:
     }
 
     def __init__(self):
+        """初始化 BilibiliAPI 实例，创建连接池、加载 Cookie 和代理配置"""
         self.session = requests.Session()
 
         # 连接池复用：每个 host 最多 10 个连接，减少 TCP 握手开销
@@ -201,6 +207,7 @@ class BilibiliAPI:
                     self._accounts = [{"name": name, "cookies": cookies,
                                        "refresh_token": net_cfg.get("refresh_token", ""), "active": True}]
 
+            # 根据 active_account 切换当前账号
             active_name = net_cfg.get("active_account", "")
             found = False
             for acc in self._accounts:
@@ -218,6 +225,7 @@ class BilibiliAPI:
             if self._cookies:
                 logger.info(f"已加载账号: {self._account_name} ({len(self._cookies)} 个 Cookie)")
 
+            # 加载代理列表
             proxy_urls = net_cfg.get("proxies", [])
             for p in proxy_urls:
                 self.proxy_manager.add_proxy({"http": p, "https": p})
@@ -269,12 +277,15 @@ class BilibiliAPI:
         logger.info("已设置Cookie")
 
     def get_refresh_token(self) -> str:
+        """获取当前账号的 refresh_token"""
         return self._refresh_token
 
     def get_accounts(self) -> list:
+        """获取所有已保存的账号列表"""
         return list(self._accounts)
 
     def get_active_account(self) -> str:
+        """获取当前活跃的账号名称"""
         return self._account_name
 
     def add_account(self, name: str, cookies: dict = None, refresh_token: str = ""):
@@ -288,6 +299,7 @@ class BilibiliAPI:
                                 "refresh_token": refresh_token, "active": False})
 
     def remove_account(self, name: str):
+        """删除指定名称的账号"""
         self._accounts = [a for a in self._accounts if a["name"] != name]
         if self._account_name == name:
             if not self._accounts:
@@ -315,6 +327,7 @@ class BilibiliAPI:
         return False
 
     def get_account_names(self) -> list:
+        """获取所有账号名称列表"""
         return [a["name"] for a in self._accounts]
 
     def login_with_password_fallback(self, username: str, password: str) -> Dict:
@@ -372,7 +385,7 @@ class BilibiliAPI:
         try:
             # 1. 获取 RSA 公钥 + 极验参数
             key_url = "https://passport.bilibili.com/x/passport-login/web/key"
-            # 尝试自动求解极验验证码（需要 OpenCV）
+            # 极验验证码占位（自动求解时填充）
             _geetest_validate = ""
             _geetest_seccode = ""
             key_resp = self._request("GET", key_url)
@@ -722,11 +735,13 @@ class BilibiliAPI:
             logger.debug(f"→ 请求代理: {masked}")
         else:
             logger.debug("→ 请求直连（无代理）")
-        # 使用 curl_cffi 时移除 UA（impersonate 自动设置），否则设置 UA
+        # 使用 curl_cffi 时临时移除 UA（impersonate 自动设置），否则设置 UA
+        # 不在 session 上永久 pop，避免回退到 requests 后无 UA
         if self._has_curl_cffi and self._impersonate:
-            self.session.headers.pop("User-Agent", None)
+            pass  # curl_cffi impersonate 自动设置 UA
         elif ua:
-            self.session.headers["User-Agent"] = ua
+            request_kwargs.setdefault("headers", {})
+            request_kwargs["headers"]["User-Agent"] = ua
         return request_kwargs
 
     def _handle_http_412_response(self, attempt, max_retries, skip_retry) -> bool:
@@ -843,9 +858,10 @@ class BilibiliAPI:
 
         # 3. 更换代理
         if self.proxy_manager.proxies:
-            new_proxy = self.proxy_manager.get_next_proxy()
-            masked = self.proxy_manager.mask_url(new_proxy.get("http", "N/A"))
-            measures.append(f"更换代理: {masked}")
+            _, new_proxy, _ = self.proxy_manager.get_proxy_binding()
+            if new_proxy:
+                masked = self.proxy_manager.mask_url(new_proxy.get("http", "N/A"))
+                measures.append(f"更换代理: {masked}")
 
         logger.info(f"绕过措施: {', '.join(measures)}")
 
@@ -1036,9 +1052,9 @@ class BilibiliAPI:
             "pic": video_info.get("pic", ""),
             "owner": video_info.get("owner", {}),
             "stat": video_info.get("stat", {}),
-            "viewers_total": viewers_data.get("total", 0) if viewers_data else 0,
-            "viewers_web": viewers_data.get("count", 0) if viewers_data else 0,
-            "viewers_app": max(0, viewers_data.get("total", 0) - viewers_data.get("count", 0)) if viewers_data else 0,
+            "viewers_total": int(viewers_data.get("total", 0)) if viewers_data else 0,
+            "viewers_web": int(viewers_data.get("count", 0)) if viewers_data else 0,
+            "viewers_app": max(0, int(viewers_data.get("total", 0)) - int(viewers_data.get("count", 0))) if viewers_data else 0,
         }
 
     # ── UP主相关 ──────────────────────────────────────────
@@ -1126,7 +1142,7 @@ class BilibiliAPI:
                     total_views += int(v.get("play", 0))
                     total_likes += int(v.get("like", 0))
                 if len(vlist) < 30:
-                    break
+                    break  # 当前页不足 30 条，说明已到最后一页
             if total_views > 0:
                 return {"total_views": total_views, "total_likes": total_likes}
         except Exception as e:
@@ -1625,6 +1641,7 @@ def close():
 
 # 模块级便捷属性代理（from core import bilibili_api 导入的是模块而非实例）
 def __getattr__(name):
+    """模块级属性代理，提供 bilibili_api 和 proxy_manager 的便捷访问"""
     if name == "bilibili_api":
         return _get_api()
     if name == "proxy_manager":

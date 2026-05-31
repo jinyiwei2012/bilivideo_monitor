@@ -1,5 +1,7 @@
 """
 现代化对话框基类 — 统一的弹窗样式、间距、卡片布局
+
+提供可复用的对话框组件：头部标题、卡片分段、按钮栏、字段行等。
 """
 
 import tkinter as tk
@@ -14,6 +16,14 @@ class DialogBase:
     """
 
     def __init__(self, parent, title="", geometry="480x360", resizable=(True, True), modal=True):
+        """初始化对话框窗口
+
+        :param parent: 父窗口
+        :param title: 窗口标题
+        :param geometry: 窗口尺寸字符串
+        :param resizable: 是否可缩放
+        :param modal: 是否为模态对话框
+        """
         self.window = tk.Toplevel(parent)
         self.window.title(title)
         self.window.geometry(geometry)
@@ -23,6 +33,7 @@ class DialogBase:
             self.window.grab_set()
         self.window.resizable(*resizable)
         self.window.minsize(300, 200)
+        # ESC 键关闭对话框
         self.window.bind("<Escape>", lambda e: self.window.destroy())
 
         # 主容器（自带两侧安全边距）
@@ -78,9 +89,11 @@ class DialogBase:
         lefts = [b for b in buttons if b[2] == "default"]
         rights = [b for b in buttons if b[2] != "default"]
 
+        # 左侧按钮依次排列
         for text, cmd, style in lefts:
             ttk.Button(bar, text=text, command=cmd).pack(side=tk.LEFT, padx=(0, 6))
 
+        # 右侧按钮倒序排列（primary 使用高亮样式）
         for text, cmd, style in reversed(rights):
             if style == "primary":
                 ttk.Button(bar, text=text, command=cmd, style="Primary.TButton").pack(side=tk.RIGHT, padx=(6, 0))

@@ -29,6 +29,7 @@ class RankingPanel:
         self._build_ui()
 
     def _build_ui(self):
+        """构建排行榜面板 UI：排序维度选择、树形结果表格"""
         top = tk.Frame(self.dlg.content_area(), bg=C["bg_base"])
         top.pack(fill=tk.X, padx=10, pady=4)
 
@@ -70,6 +71,7 @@ class RankingPanel:
         self._refresh()
 
     def _compute_velocity(self, bvid):
+        """根据最近两条历史记录计算该视频的播放增速（次/小时）"""
         history = self.gui.history_data.get(bvid, [])
         if len(history) < 2:
             return 0
@@ -83,6 +85,7 @@ class RankingPanel:
         return (v0 - v1) / dt
 
     def _refresh(self):
+        """根据当前排序维度重新计算并刷新排行榜"""
         for row in self._tree.get_children():
             self._tree.delete(row)
 
@@ -101,6 +104,7 @@ class RankingPanel:
             pubdate = v.get("pubdate", 0)
             age = (datetime.now().timestamp() - pubdate) / 86400 if pubdate > 0 else 0
 
+            # 根据排序维度确定排序值
             if sort_key == "velocity":
                 sort_val = velocity
             elif sort_key == "views":

@@ -11,16 +11,16 @@ from ui.dialog_base import DialogBase
 
 
 class UpTrackerWindow:
-    """UP主追踪面板"""
+    """UP主追踪面板 — 查询UP主信息、追踪涨粉趋势、查看投稿列表"""
 
     def __init__(self, parent=None, api=None):
+        """初始化 UP 主追踪窗口"""
         self.dlg = DialogBase(
             parent, "UP主追踪", DialogBase.calc_geometry(parent, 0.50, 0.68), resizable=(True, True), modal=False
         )
         self.window = self.dlg.window
         self.api = api
 
-        # 延迟导入避免循环
         from core.up_database import UpDatabase
 
         self.db = UpDatabase()
@@ -29,12 +29,13 @@ class UpTrackerWindow:
         self._load_up_list()
 
     def _setup_ui(self):
+        """构建界面：搜索区 + 列表 + 详情"""
         self.dlg.header("UP主追踪", "查询UP主信息、追踪涨粉与投稿趋势")
 
-        # 添加UP主卡片（双行：UID + 用户名搜索）
+        # 添加UP主卡片（双行：UID 输入 + 用户名搜索）
         add_sec = self.dlg.section(title="添加UP主", padding=8)
 
-        # 第一行：UID输入
+        # 第一行：UID 输入
         uid_row = tk.Frame(add_sec, bg=C["bg_elevated"])
         uid_row.pack(fill=tk.X, pady=(0, 4))
         tk.Label(uid_row, text="UID:", bg=C["bg_elevated"], fg=C["text_2"], font=("Microsoft YaHei UI", 10)).pack(
@@ -83,7 +84,7 @@ class UpTrackerWindow:
         )
         self._up_status.pack(anchor="w", padx=4, pady=(4, 0))
 
-        # 搜索结果（初始隐藏）
+        # 搜索结果列表框（初始隐藏）
         self._search_frame = tk.Frame(
             add_sec, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["accent"]
         )
@@ -164,6 +165,7 @@ class UpTrackerWindow:
         self._detail_text.tag_config("dim", foreground=C["text_3"], font=("Consolas", 9))
 
     def _load_up_list(self):
+        """加载已追踪的 UP 主列表到 Treeview"""
         for item in self._tree.get_children():
             self._tree.delete(item)
         ups = self.db.get_all_ups()
@@ -181,6 +183,7 @@ class UpTrackerWindow:
             )
 
     def _on_up_select(self, event):
+        """UP 主列表选中事件 — 显示选中 UP 主的详情"""
         sel = self._tree.selection()
         if not sel:
             return
@@ -192,6 +195,7 @@ class UpTrackerWindow:
         self._show_detail(up)
 
     def _show_detail(self, up: Dict):
+        """在详情区域显示 UP 主的完整信息"""
         self._detail_text.config(state="normal")
         self._detail_text.delete("1.0", tk.END)
 
@@ -214,7 +218,7 @@ class UpTrackerWindow:
         for text, tag in lines:
             self._detail_text.insert(tk.END, text, tag)
 
-        # 已监控视频
+        # 该 UP 主关联的已监控视频
         videos = self.db.get_up_videos(uid)
         if videos:
             self._detail_text.insert(tk.END, "=== 已监控视频 ===\n", "head")
@@ -225,7 +229,7 @@ class UpTrackerWindow:
                     "val",
                 )
 
-        # 历史趋势
+        # 粉丝历史趋势
         history = self.db.get_history(uid, limit=10)
         if history:
             self._detail_text.insert(tk.END, "\n=== 粉丝趋势(近10条) ===\n", "head")
@@ -320,6 +324,7 @@ class UpTrackerWindow:
         self._add_up()
 
     def _add_up(self):
+        """根据 UID 查询并添加 UP 主到追踪列表"""
         uid_str = self._uid_entry.get().strip()
         if not uid_str.isdigit():
             messagebox.showwarning("提示", "请输入有效的UID（纯数字）", parent=self.window)
@@ -364,6 +369,7 @@ class UpTrackerWindow:
 
     @staticmethod
     def _fmt(n):
+        """格式化大数字为中文单位（万/亿）"""
         if n >= 1_0000_0000:
             return f"{n / 1_0000_0000:.2f}亿"
         if n >= 1_0000:

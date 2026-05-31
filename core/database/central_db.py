@@ -1,4 +1,4 @@
-"""总数据库管理类"""
+"""中央总数据库管理类 —— 管理所有视频的汇总数据、里程碑及多库同步"""
 
 import sqlite3
 import os
@@ -18,7 +18,16 @@ logger = logging.getLogger(__name__)
 
 
 class Database:
-    """总数据库管理类"""
+    """中央总数据库管理类
+
+    管理 bilibili_monitor.db 总库，包含：
+    - 所有视频的元数据（videos 表）
+    - 汇总的监控记录（monitor_records 表）
+    - 预测记录（predictions 表）
+    - 里程碑数据（video_milestones 表）
+    - 周刊/年刊分数（weekly_scores / yearly_scores 表）
+    支持活跃库与备份库之间的双向同步。
+    """
 
     # 活跃数据目录（主写入），退出时同步到 config 定义的 DATA_DIR
     _ACTIVE_DIR = project_path("core", "data")
@@ -26,7 +35,10 @@ class Database:
 
     @classmethod
     def _migrate_old_data(cls):  # noqa: C901
-        """从旧的 core/data/ 迁移数据到 data/"""
+        """从旧的 core/data/ 迁移数据到 data/
+
+        逐项检查并复制，对视频独立库仅在目标不存在或记录数远少于源时覆盖
+        """
         old_dir = project_path("core", "data")
         new_dir = cls._ACTIVE_DIR
         if old_dir == new_dir or not os.path.exists(old_dir):
@@ -47,6 +59,7 @@ class Database:
                         try:
                             sc = _sqlite3.connect(src_db).execute("SELECT COUNT(*) FROM monitor_records").fetchone()[0]
                             dc = _sqlite3.connect(dst_db).execute("SELECT COUNT(*) FROM monitor_records").fetchone()[0]
+                            # 源记录数超过目标 2 倍才覆盖，避免频繁复制
                             if sc > dc * 2:
                                 should_copy = True
                         except Exception as e:
@@ -68,7 +81,7 @@ class Database:
                         shutil.copytree(src, dst)
                         migrated += 1
                 else:
-                    # 中央库等单文件
+                    # 中央库等单文件直接复制
                     if not os.path.exists(dst):
                         shutil.copy2(src, dst)
                         migrated += 1
@@ -79,6 +92,7 @@ class Database:
 
     @classmethod
     def _get_backup_dir(cls) -> str:
+        """获取备份目录路径，优先从 config.DATA_DIR 读取，失败则用活跃目录"""
         if cls._BACKUP_DIR is None:
             try:
                 from config import DATA_DIR
@@ -89,6 +103,11 @@ class Database:
         return cls._BACKUP_DIR
 
     def __init__(self, db_path: str = None):
+        """初始化中央总数据库
+
+        Args:
+            db_path: 数据库文件路径，为 None 时使用默认路径 core/data/bilibili_monitor.db
+        """
         if db_path is None:
             os.makedirs(self._ACTIVE_DIR, exist_ok=True)
             db_path = os.path.join(self._ACTIVE_DIR, "bilibili_monitor.db")
@@ -114,11 +133,14 @@ class Database:
         return _ConnectionCtx(self._conn, self._lock)
 
     def init_database(self):
-        """初始化数据库表"""
+        """初始化总数据库表结构
+
+        创建 videos、monitor_records、predictions、video_milestones 等核心表及索引
+        """
         with self._get_connection() as conn:
             cursor = conn.cursor()
 
-            # 视频信息表
+            # 视频信息表（所有视频的元数据汇总，以 bvid 为主键）
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS videos (
                     bvid TEXT PRIMARY KEY,
@@ -145,7 +167,7 @@ class Database:
                 )
             """)
 
-            # 监控记录表
+            # 监控记录表（汇总所有视频的监控记录，通过 bvid 外键关联）
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS monitor_records (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -165,6 +187,7 @@ class Database:
                     FOREIGN KEY (bvid) REFERENCES videos(bvid)
                 )
             """)
+            # 联合唯一索引，防止同一视频同一时刻的重复记录
             cursor.execute("""
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_monitor_bvid_ts
                 ON monitor_records(bvid, timestamp)
@@ -191,7 +214,7 @@ class Database:
             """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_predictions_bvid ON predictions(bvid)")
 
-            # 投稿里程碑数据表
+            # 投稿里程碑数据表（记录视频在各阶段的指标快照）
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS video_milestones (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -216,7 +239,10 @@ class Database:
             conn.commit()
 
     def _migrate_db(self, conn):
-        """总数据库迁移：检查并添加缺少的列"""
+        """总数据库迁移：检查并添加缺少的列
+
+        对表名和列名做正则校验防止 SQL 注入
+        """
         cursor = conn.cursor()
         schema_upgrades = {
             "videos": [
@@ -262,13 +288,20 @@ class Database:
                         logger.warning(f"迁移失败 {table}.{col_name}: {e}")
 
     def get_video_db(self, bvid: str) -> VideoDatabase:
-        """获取单个视频的数据库实例"""
+        """获取单个视频的独立数据库实例
+
+        Args:
+            bvid: BV 号
+
+        Returns:
+            VideoDatabase 实例
+        """
         return VideoDatabase(bvid, self.data_dir)
 
     def sync_from_video_db(self, bvid: str) -> bool:
-        """从单个视频数据库同步视频信息到总数据库（仅同步元数据，不包含监控记录）
+        """从单个视频独立库同步视频信息到总数据库（仅同步元数据，不包含监控记录）
 
-        优化：优先使用内存数据（sync_video_info），避免新建 DB 连接 + 重复读盘。
+        优化：优先使用内存数据（sync_video_info），避免新建 DB 连接 + 重复读盘
         """
         try:
             with self._get_connection() as conn:
@@ -364,10 +397,14 @@ class Database:
             return False
 
     def sync_monitor_record(self, bvid: str, record: dict) -> bool:
-        """从内存同步单条监控记录到中央数据库（避免全量读取）"""
+        """从内存同步单条监控记录到中央数据库（避免全量读取）
+
+        自动计算缺失的 like_view_ratio
+        """
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
+                # 如果缺少播赞比则自动计算
                 like_view_ratio = record.get("like_view_ratio", 0)
                 if not like_view_ratio:
                     vc = record.get("view_count", 0)
@@ -405,11 +442,15 @@ class Database:
             return False
 
     def sync_all_video_dbs(self) -> Dict[str, bool]:
-        """同步所有视频数据库到总数据库"""
+        """同步所有视频独立库到总数据库
+
+        Returns:
+            BV 号到同步结果的映射字典
+        """
         results = {}
         video_dirs = []
 
-        # 遍历data目录下的所有BV号文件夹
+        # 遍历 data 目录下的所有 BV 号文件夹
         for item in os.listdir(self.data_dir):
             item_path = os.path.join(self.data_dir, item)
             if os.path.isdir(item_path) and item.startswith("BV"):
@@ -421,7 +462,14 @@ class Database:
         return results
 
     def add_video(self, video: VideoInfo) -> bool:
-        """添加视频信息"""
+        """添加视频信息到总库
+
+        Args:
+            video: 视频信息数据对象
+
+        Returns:
+            是否写入成功
+        """
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -464,7 +512,15 @@ class Database:
             return False
 
     def _query_backup(self, sql: str, params: tuple = ()) -> List[sqlite3.Row]:
-        """从备份库（data/）执行只读查询，返回行列表"""
+        """从备份库执行只读查询，返回行列表
+
+        Args:
+            sql: SQL 查询语句
+            params: 查询参数
+
+        Returns:
+            查询结果行列表
+        """
         backup_db = os.path.join(self._get_backup_dir(), "bilibili_monitor.db")
         if backup_db == self.db_path or not os.path.exists(backup_db):
             return []
@@ -481,7 +537,14 @@ class Database:
             return []
 
     def get_video(self, bvid: str) -> Optional[VideoInfo]:
-        """获取视频信息（主库未命中则查备份库）"""
+        """获取视频信息（主库未命中则查备份库）
+
+        Args:
+            bvid: BV 号
+
+        Returns:
+            VideoInfo 对象，未找到则返回 None
+        """
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -489,6 +552,7 @@ class Database:
                 row = cursor.fetchone()
                 if row:
                     data = dict(row)
+                    # 只保留 VideoInfo 数据类中定义的字段，过滤数据库额外字段
                     valid_fields = {f.name for f in fields(VideoInfo)}
                     filtered = {k: v for k, v in data.items() if k in valid_fields}
                     return VideoInfo(**filtered)
@@ -505,7 +569,14 @@ class Database:
         return None
 
     def add_monitor_record(self, record: MonitorRecord) -> bool:
-        """添加监控记录"""
+        """添加监控记录到总库
+
+        Args:
+            record: 监控记录数据对象
+
+        Returns:
+            是否写入成功
+        """
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -540,7 +611,15 @@ class Database:
             return False
 
     def get_monitor_history(self, bvid: str, limit: int = 0) -> List[Dict]:
-        """获取监控历史（双备份互补合并）"""
+        """获取监控历史数据（主库 + 备份库合并去重）
+
+        Args:
+            bvid: BV 号
+            limit: 限制返回条数，0 表示不限制
+
+        Returns:
+            监控记录字典列表，按时间升序排列
+        """
         rows = []
         try:
             with self._get_connection() as conn:
@@ -568,7 +647,7 @@ class Database:
         except Exception as e:
             logger.warning("获取监控历史失败 %s: %s", bvid, e)
 
-        # 互补：从备份库补充缺失的记录
+        # 互补：从备份库补充缺失的记录（按时间戳去重）
         backup_rows = self._query_backup("SELECT * FROM monitor_records WHERE bvid = ? ORDER BY timestamp ASC", (bvid,))
         if backup_rows:
             existing_ts = {r["timestamp"] for r in rows}
@@ -584,7 +663,14 @@ class Database:
         return rows
 
     def add_prediction(self, prediction: PredictionRecord) -> bool:
-        """添加预测记录"""
+        """添加预测记录到总库
+
+        Args:
+            prediction: 预测记录数据对象
+
+        Returns:
+            是否写入成功
+        """
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -613,11 +699,20 @@ class Database:
             return False
 
     def download_cover(self, bvid: str, pic_url: str) -> str:
-        """下载视频封面到集中管理的 cover 目录"""
+        """下载视频封面到集中管理的 cover 目录
+
+        Args:
+            bvid: BV 号
+            pic_url: 封面图片 URL
+
+        Returns:
+            本地封面文件路径，失败则返回空字符串
+        """
         try:
             _validate_bvid(bvid)
             from utils.cover_manager import save_cover, get_valid_cover
 
+            # 检查本地是否已有有效封面，避免重复下载
             local = get_valid_cover(bvid)
             if local is not None:
                 return local
@@ -631,7 +726,15 @@ class Database:
         return ""
 
     def export_video_to_csv(self, bvid: str, filepath: str = None) -> str:
-        """导出视频数据到CSV"""
+        """导出视频数据到 CSV 文件
+
+        Args:
+            bvid: BV 号
+            filepath: 导出路径，为 None 则自动生成
+
+        Returns:
+            导出文件路径，失败则返回空字符串
+        """
         _validate_bvid(bvid)
         import csv
 
@@ -695,12 +798,13 @@ class Database:
     MILESTONE_PERIODS = ["1周", "1月", "1年"]
 
     def upsert_milestone(self, bvid: str, period: str, data: dict) -> bool:
-        """新增或更新一条里程碑记录（同一 bvid+period 唯一）。
+        """新增或更新一条里程碑记录（同一 bvid+period 唯一）
 
         Args:
             bvid:   BV号
             period: 周期，取值 "1周" / "1月" / "1年"
             data:   字段字典，必须包含 view_count；其余字段可选
+
         Returns:
             成功返回 True
         """
@@ -746,10 +850,11 @@ class Database:
             return False
 
     def get_milestones(self, bvid: str = None) -> list:
-        """查询里程碑数据。
+        """查询里程碑数据
 
         Args:
             bvid: 指定 BV 号则只返回该视频，None 返回全部
+
         Returns:
             dict 列表，字段同 video_milestones 表
         """
@@ -766,7 +871,7 @@ class Database:
             return []
 
     def get_all_milestones_grouped(self) -> dict:
-        """返回以 bvid 为键的里程碑字典，值为 period→row 的子字典。"""
+        """返回以 bvid 为键的里程碑字典，值为 period → row 的子字典"""
         rows = self.get_milestones()
         result = {}
         for row in rows:
@@ -777,7 +882,15 @@ class Database:
         return result
 
     def delete_milestone(self, bvid: str, period: str) -> bool:
-        """删除指定里程碑记录。"""
+        """删除指定里程碑记录
+
+        Args:
+            bvid: BV 号
+            period: 周期
+
+        Returns:
+            是否删除成功
+        """
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -791,7 +904,13 @@ class Database:
     # ── 关闭前同步：活跃库 → 中央库（兜底） ─────────────────────────
 
     def sync_to_central(self) -> dict:
+        """将活跃库数据完整同步到中央备份库
+
+        Returns:
+            包含各类型同步数量的统计字典
+        """
         central_db = os.path.join(self._get_backup_dir(), "bilibili_monitor.db")
+        # 如果中央库与活跃库相同或不存在，跳过同步
         if central_db == self.db_path or not os.path.exists(central_db):
             logger.info("中央数据库不存在或与活跃库相同，跳过同步")
             return {
@@ -839,7 +958,10 @@ class Database:
         return result
 
     def sync_per_video_dbs_to_backup(self):
-        """关闭前将活跃库的所有视频独立库同步到备份目录（data/）"""
+        """关闭前将活跃库的所有视频独立库同步到备份目录（data/）
+
+        比较记录数，仅在源库数据更多时覆盖备份
+        """
         backup_base = self._get_backup_dir()
         if backup_base == self.data_dir:
             return
@@ -867,6 +989,7 @@ class Database:
                     continue
             os.makedirs(dst_dir, exist_ok=True)
             shutil.copy2(src_db, dst_db)
+            # 同步 WAL 和 SHM 文件
             for ext in ("-wal", "-shm"):
                 src_ext = src_db + ext
                 if os.path.exists(src_ext):
@@ -876,7 +999,7 @@ class Database:
             logger.info("已同步 %d 个视频独立库到 %s", synced, backup_base)
 
     def check_backup_diffs(self):
-        """比较活跃库与备份库的差异，返回有差异的视频列表。
+        """比较活跃库与备份库的差异，返回有差异的视频列表
 
         Returns:
             List[Dict]: [{bvid, primary_records, backup_records}, ...]
@@ -904,15 +1027,18 @@ class Database:
         return diffs
 
     def _sync_videos_to_central(self, active_cur, central_cur, result):
+        """同步 videos 表到中央库（补全新记录和缺失字段）"""
         active_cur.execute("SELECT * FROM videos")
         for av in (dict(r) for r in active_cur.fetchall()):
             central_cur.execute("SELECT * FROM videos WHERE bvid=?", (av["bvid"],))
             existing = central_cur.fetchone()
             should_update = False
             if not existing:
+                # 中央库没有该视频记录，需要新增
                 should_update = True
                 result["synced_videos"] += 1
             else:
+                # 中央库存在但某些关键字段缺失，需要补充
                 ed = dict(existing)
                 for key in ("view_count", "like_count", "coin_count", "share_count"):
                     if not ed.get(key) and av.get(key):
@@ -952,6 +1078,7 @@ class Database:
                 )
 
     def _sync_monitor_records_to_central(self, active_cur, central_cur, result):
+        """同步 monitor_records 表到中央库（按时间戳去重增量同步）"""
         central_cur.execute("SELECT DISTINCT bvid FROM monitor_records")
         central_bvids = {r["bvid"] for r in central_cur.fetchall()}
         active_cur.execute("SELECT DISTINCT bvid FROM monitor_records")
@@ -964,6 +1091,7 @@ class Database:
             for row in active_cur.fetchall():
                 rd = dict(row)
                 if rd["timestamp"] not in central_ts:
+                    # 自动补全缺失的播赞比
                     lvr = rd.get("like_view_ratio", 0)
                     if not lvr and rd.get("view_count") and rd.get("like_count"):
                         lvr = round(rd["like_count"] / rd["view_count"], 6)
@@ -994,12 +1122,14 @@ class Database:
         return active_bvids, central_bvids
 
     def _sync_per_video_details(self, active_bvids, central_bvids, central_cur, result):
+        """同步每个视频的预测、周刊、年刊数据到中央库"""
         for bvid in active_bvids | central_bvids:
             video_db = self._open_video_db_ro(bvid)
             if video_db is None:
                 continue
             try:
                 vcur = video_db.cursor()
+                # 比较预测记录数，不一致时执行增量同步
                 v_count = vcur.execute(
                     "SELECT COUNT(DISTINCT COALESCE(algorithm,'') || COALESCE(predicted_time,'')) FROM predictions"
                 ).fetchone()[0]
@@ -1010,6 +1140,7 @@ class Database:
                 if v_count != c_count:
                     result["synced_predictions"] += self._sync_video_predictions(central_cur, bvid, vcur)
 
+                # 比较最新周刊分数时间戳
                 v_max = vcur.execute("SELECT MAX(timestamp) FROM weekly_scores").fetchone()[0]
                 c_max = central_cur.execute(
                     "SELECT MAX(timestamp) FROM weekly_scores WHERE bvid=?", (bvid,)
@@ -1017,6 +1148,7 @@ class Database:
                 if v_max and (c_max is None or v_max > c_max):
                     result["synced_weekly"] += self._sync_video_weekly_scores(central_cur, bvid, vcur)
 
+                # 比较最新年刊分数时间戳
                 v_max = vcur.execute("SELECT MAX(timestamp) FROM yearly_scores").fetchone()[0]
                 c_max = central_cur.execute(
                     "SELECT MAX(timestamp) FROM yearly_scores WHERE bvid=?", (bvid,)
@@ -1027,11 +1159,19 @@ class Database:
                 video_db.close()
 
     def _open_video_db_ro(self, bvid: str) -> Optional[sqlite3.Connection]:
-        """以只读方式打开视频独立库，优先活跃目录，回退备份目录"""
+        """以只读方式打开视频独立库，优先活跃目录，回退备份目录
+
+        Args:
+            bvid: BV 号
+
+        Returns:
+            只读 SQLite 连接，失败返回 None
+        """
         for base in (self.data_dir, self._get_backup_dir()):
             db_path = os.path.join(base, bvid, f"{bvid}.db")
             if os.path.exists(db_path):
                 try:
+                    # 使用 URI 模式以只读方式打开
                     uri = f"file:{db_path.replace(chr(92), '/')}?mode=ro"
                     conn = sqlite3.connect(uri, uri=True)
                     conn.row_factory = sqlite3.Row
@@ -1042,7 +1182,17 @@ class Database:
 
     @staticmethod
     def _sync_video_predictions(central_cur, bvid: str, vcur) -> int:
-        """同步视频独立库的 predictions 到中央库"""
+        """同步视频独立库的 predictions 到中央库
+
+        Args:
+            central_cur: 中央库游标
+            bvid: BV 号
+            vcur: 视频独立库游标
+
+        Returns:
+            同步的记录数
+        """
+        # 先检查 predictions 表是否存在 algorithm 列
         try:
             vcur.execute("PRAGMA table_info(predictions)")
             if "algorithm" not in {r["name"] for r in vcur.fetchall()}:
@@ -1065,6 +1215,7 @@ class Database:
         if not rows:
             return 0
 
+        # 获取中央库已有记录，用于去重
         central_cur.execute("SELECT algorithm, predicted_time FROM predictions WHERE bvid=?", (bvid,))
         existing = {(r["algorithm"], r["predicted_time"]) for r in central_cur.fetchall()}
 
@@ -1106,7 +1257,17 @@ class Database:
 
     @staticmethod
     def _sync_video_weekly_scores(central_cur, bvid: str, vcur) -> int:
-        """同步视频独立库的 weekly_scores 到中央库"""
+        """同步视频独立库的 weekly_scores 到中央库
+
+        Args:
+            central_cur: 中央库游标
+            bvid: BV 号
+            vcur: 视频独立库游标
+
+        Returns:
+            同步的记录数
+        """
+        # 检查表是否存在
         try:
             vcur.execute("SELECT timestamp FROM weekly_scores LIMIT 1")
         except Exception:
@@ -1157,7 +1318,16 @@ class Database:
 
     @staticmethod
     def _sync_video_yearly_scores(central_cur, bvid: str, vcur) -> int:
-        """同步视频独立库的 yearly_scores 到中央库"""
+        """同步视频独立库的 yearly_scores 到中央库
+
+        Args:
+            central_cur: 中央库游标
+            bvid: BV 号
+            vcur: 视频独立库游标
+
+        Returns:
+            同步的记录数
+        """
         try:
             vcur.execute("SELECT timestamp FROM yearly_scores LIMIT 1")
         except Exception:
@@ -1269,14 +1439,14 @@ class Database:
                     logger.debug("迁移列 %s 失败: %s", col, e)
 
     def wal_checkpoint(self):
-        """周期性 WAL checkpoint，控制 WAL 文件大小。"""
+        """周期性 WAL checkpoint，控制 WAL 文件大小"""
         try:
             self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         except Exception as e:
             logger.debug("WAL checkpoint 失败: %s", e)
 
     def close(self):
-        """关闭数据库连接，刷新 WAL。"""
+        """关闭数据库连接，刷新 WAL"""
         try:
             self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
             self._conn.commit()
@@ -1290,7 +1460,10 @@ _db = None
 
 
 def get_db():
-    """获取全局 Database 单例（惰性初始化）"""
+    """获取全局 Database 单例（惰性初始化）
+
+    首次调用时创建 Database 实例并复用
+    """
     global _db
     if _db is None:
         _db = Database()

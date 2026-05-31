@@ -35,6 +35,7 @@ except ImportError:
 
 # ── 工具 ──────────────────────────────────────────────────
 def _fmt_tried(sources: list) -> str:
+    """格式化已尝试的数据源列表，用箭头连接"""
     return " → ".join(s for s in sources if s)
 
 
@@ -144,6 +145,7 @@ def search_up_users_multi(keyword: str, page: int, own_api_search: Callable) -> 
 
 
 def _source_a_up_info(uid: int) -> Optional[Dict]:  # noqa: C901
+    """数据源A：使用 bilibili-api-python 获取 UP 主基本信息"""
     try:
         from bilibili_api import sync
         from bilibili_api.user import User
@@ -153,6 +155,7 @@ def _source_a_up_info(uid: int) -> Optional[Dict]:  # noqa: C901
         if not info or not info.get("mid"):
             return None
 
+        # 构建统一的 UP 主信息字典
         result = {
             "uid": info.get("mid", uid),
             "name": info.get("name", ""),
@@ -208,6 +211,7 @@ def _source_a_up_info(uid: int) -> Optional[Dict]:  # noqa: C901
 
 
 def _source_a_up_stat(uid: int) -> Optional[Dict]:
+    """数据源A：使用 bilibili-api-python 获取 UP 主统计数据"""
     try:
         from bilibili_api import sync
         from bilibili_api.user import User
@@ -258,6 +262,7 @@ def _source_a_up_stat(uid: int) -> Optional[Dict]:
 
 
 def _source_a_search(keyword: str, page: int) -> Optional[List[Dict]]:
+    """数据源A：使用 bilibili-api-python 搜索 UP 主"""
     try:
         from bilibili_api import sync
         from bilibili_api.search import search_by_type, SearchObjectType
@@ -313,6 +318,7 @@ def _curl_get(path: str, params: dict = None) -> Optional[Dict]:
 
 
 def _source_b_up_info(uid: int) -> Optional[Dict]:
+    """数据源B：使用 curl_cffi 获取 UP 主基本信息"""
     data = _curl_get("/x/space/acc/info", {"mid": uid})
     if data:
         return {
@@ -330,6 +336,7 @@ def _source_b_up_info(uid: int) -> Optional[Dict]:
 
 
 def _source_b_up_stat(uid: int) -> Optional[Dict]:
+    """数据源B：使用 curl_cffi 获取 UP 主统计数据"""
     data = _curl_get("/x/space/upstat", {"mid": uid})
     if data:
         return {
@@ -347,6 +354,7 @@ def _source_b_up_stat(uid: int) -> Optional[Dict]:
 
 
 def _source_b_stat_from_videos(uid: int, max_pages: int = 5) -> Optional[Dict]:
+    """数据源B 兜底：从 UP 主视频列表逐页汇总总播放量和总点赞数"""
     total_views = 0
     total_likes = 0
     try:
@@ -365,7 +373,7 @@ def _source_b_stat_from_videos(uid: int, max_pages: int = 5) -> Optional[Dict]:
                 total_views += int(v.get("play", 0))
                 total_likes += int(v.get("like", 0))
             if len(vlist) < 30:
-                break
+                break  # 已取完所有视频
         if total_views > 0:
             return {"total_views": total_views, "total_likes": total_likes}
     except Exception as e:
@@ -374,6 +382,7 @@ def _source_b_stat_from_videos(uid: int, max_pages: int = 5) -> Optional[Dict]:
 
 
 def _source_b_search(keyword: str, page: int) -> Optional[List[Dict]]:
+    """数据源B：使用 curl_cffi 搜索 UP 主"""
     data = _curl_get(
         "/x/web-interface/search/type",
         {"search_type": "bili_user", "keyword": keyword, "page": page},

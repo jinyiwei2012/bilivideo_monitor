@@ -46,7 +46,7 @@ __all__ = ["__version__", "__author__", "PROJECT_ROOT", "DATA_DIR", "COVER_DIR",
 
 # ── 启动安全校验 — 校验 1/3：基础导入校验 ──────
 def _startup_integrity_check():
-    """导入时校验保护模块基础完整性"""
+    """启动完整性校验 — 导入时校验保护模块基础完整性"""
     try:
         from utils.update_checker import _hard, _x_strict, _confirm_risky, _x
         assert callable(_hard)

@@ -1,5 +1,8 @@
 """
 主题系统 - 设计令牌（固定亮色主题）
+
+集中管理所有颜色、圆角、间距等设计系统令牌，
+各 UI 模块通过 ``from ui.theme import C`` 获取颜色字典。
 """
 
 import logging
@@ -93,6 +96,7 @@ def _apply_ttk_styles(root):
     style = ttk.Style(root)
     style.theme_use("clam")
 
+    # 全局默认样式
     style.configure(
         ".",
         background=C["bg_base"],
@@ -103,10 +107,12 @@ def _apply_ttk_styles(root):
         selectforeground="#ffffff",
         font=FONT,
     )
+    # Frame 变体
     style.configure("TFrame", background=C["bg_base"])
     style.configure("Surface.TFrame", background=C["bg_surface"])
     style.configure("Elevated.TFrame", background=C["bg_elevated"])
 
+    # Label 变体
     style.configure("TLabel", background=C["bg_base"], foreground=C["text_1"])
     style.configure("Surface.TLabel", background=C["bg_surface"], foreground=C["text_1"])
     style.configure("Muted.TLabel", background=C["bg_surface"], foreground=C["text_3"])
@@ -121,8 +127,10 @@ def _apply_ttk_styles(root):
     style.configure("ELSub.TLabel", background=C["bg_elevated"], foreground=C["text_2"])
     style.configure("ELMuted.TLabel", background=C["bg_elevated"], foreground=C["text_3"])
 
+    # 分隔线
     style.configure("TSeparator", background=C["border"])
 
+    # 滚动条
     style.configure(
         "TScrollbar",
         background=C["bg_elevated"],
@@ -132,6 +140,7 @@ def _apply_ttk_styles(root):
         relief="flat",
     )
 
+    # 普通按钮
     style.configure(
         "TButton",
         background=C["bg_elevated"],
@@ -146,6 +155,7 @@ def _apply_ttk_styles(root):
         background=[("active", C["bg_hover"]), ("pressed", C["bg_hover"])],
         foreground=[("active", C["text_1"])],
     )
+    # 主按钮（B站粉）
     style.configure(
         "Primary.TButton",
         background=C["bilibili"],
@@ -157,6 +167,7 @@ def _apply_ttk_styles(root):
         "Primary.TButton",
         background=[("active", C["bilibili_dim"]), ("pressed", C["bilibili_dim"])],
     )
+    # 危险按钮
     style.configure(
         "Danger.TButton",
         background=C["bg_surface"],
@@ -170,6 +181,7 @@ def _apply_ttk_styles(root):
         background=[("active", "#f8514922")],
     )
 
+    # 输入框
     style.configure(
         "TEntry",
         fieldbackground=C["bg_elevated"],
@@ -181,6 +193,7 @@ def _apply_ttk_styles(root):
     )
     style.map("TEntry", bordercolor=[("focus", C["bilibili"])])
 
+    # 标签页
     style.configure(
         "TNotebook",
         background=C["bg_surface"],
@@ -202,6 +215,7 @@ def _apply_ttk_styles(root):
         focuscolor=[("selected", C["bilibili"])],
     )
 
+    # 树形视图
     style.configure(
         "Treeview",
         background=C["bg_elevated"],
@@ -224,6 +238,7 @@ def _apply_ttk_styles(root):
         foreground=[("selected", "#ffffff")],
     )
 
+    # 数值调节框
     style.configure(
         "TSpinbox",
         fieldbackground=C["bg_elevated"],

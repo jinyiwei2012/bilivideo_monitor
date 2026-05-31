@@ -15,14 +15,13 @@ else:
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from ui import main
-
 
 # ── 源码完整性校验 ──────────────────────────
+# 校验必须在 from ui import main 之前执行，防止篡改代码先于检查加载
 # SHA-256 哈希列表，在发布前通过 python scripts/update_hashes.py 更新
 # 开发时创建 .devmode 文件（内容 SHA-256 须匹配 _DEVMODE_HASH）可跳过校验
+# main.py 不参与自校验（SHA256(self)=H 数学上不可解），由 git 版本控制保证
 _INTEGRITY_HASHES: dict[str, str] = {
-    "main.py": "E6D6FF21709DD30514F0425876AC248534811BD8BD5A6F86ED52AA90FD6C6C2F",
     "core/bilibili_api.py": "53E89671FF3024E282C6CECB8A0D2D0B714D9949E4788EAE7A1973D6718D4BA6",
     "algorithms/registry.py": "69E9982411ED9A4DEF95B6C2C197B9EB42FD28775763550258D32B4D446EA77E",
     "algorithms/base.py": "C93D499D9BAF3C1A74C5BBF489F3221BA1EF63368561FEF851143D895F959258",
@@ -30,6 +29,9 @@ _INTEGRITY_HASHES: dict[str, str] = {
 }
 # .devmode 文件内容的期望 SHA-256（去除首尾空白后）
 _DEVMODE_HASH = "40175C25B9517A906FCF778E50387017BB8FA6121D28EBD0720474E85EE7ECA8"
+
+
+# ── 源码完整性校验 ──────────────────────────
 
 
 def _verify_devmode() -> bool:
@@ -84,5 +86,9 @@ def _verify_source_integrity() -> None:
 
 _verify_source_integrity()
 
+from ui import main
+
+
 if __name__ == "__main__":
+    """主入口 — 启动 GUI 程序"""
     main()

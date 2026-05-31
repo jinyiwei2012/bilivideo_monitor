@@ -12,9 +12,10 @@ from ui.dialog_base import DialogBase
 
 
 class TrendingDiscoveryWindow:
-    """热门视频发现窗口"""
+    """热门视频发现窗口 — 浏览热门榜、每周必看，一键添加监控"""
 
     def __init__(self, parent=None, api=None, on_add_monitor: Optional[Callable] = None):
+        """初始化热门视频发现窗口"""
         self.dlg = DialogBase(
             parent, "热门视频发现", DialogBase.calc_geometry(parent, 0.48, 0.68), resizable=(True, True), modal=False
         )
@@ -25,9 +26,10 @@ class TrendingDiscoveryWindow:
         self._setup_ui()
 
     def _setup_ui(self):
+        """构建窗口界面：标签页切换 + 刷新按钮 + 视频卡片列表"""
         self.dlg.header("热门视频发现", "浏览B站热门榜单，发现潜力视频一键添加监控")
 
-        # 标签页
+        # 标签页：热门榜 / 每周必看
         tab_bar = tk.Frame(self.dlg.container, bg=C["bg_surface"])
         tab_bar.pack(fill=tk.X, padx=24, pady=(10, 0))
 
@@ -48,6 +50,7 @@ class TrendingDiscoveryWindow:
             b.bind("<Button-1>", lambda e, k=key: self._switch_tab(k, tabs))
             self._tab_btns[key] = b
 
+        # 默认选中第一个标签页
         if self._tab_btns:
             list(self._tab_btns.values())[0].config(fg=C["bilibili"])
 
@@ -58,10 +61,9 @@ class TrendingDiscoveryWindow:
         ttk.Button(refresh_frame, text="🔄 刷新", command=self._load_popular, style="Primary.TButton").pack(
             side=tk.RIGHT
         )
-        # Re-pack the first tab
         self._tab_btns["popular"].pack(side=tk.LEFT)
 
-        # 视频列表区
+        # 视频列表区（可滚动卡片）
         list_frame = tk.Frame(
             self.dlg.container, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"]
         )
@@ -71,9 +73,11 @@ class TrendingDiscoveryWindow:
         sf.pack(fill=tk.BOTH, expand=True)
         self._card_frame = sf.inner
 
+        # 默认加载热门榜数据
         self._load_popular()
 
     def _switch_tab(self, key, tabs):
+        """切换标签页：高亮选中标签，加载对应数据"""
         for k, b in self._tab_btns.items():
             b.config(fg=C["bilibili"] if k == key else C["text_2"])
         if key == "popular":
@@ -82,6 +86,7 @@ class TrendingDiscoveryWindow:
             self._load_weekly()
 
     def _load_popular(self):
+        """异步加载热门榜数据"""
         if not self.api:
             return
         self._clear_cards()
@@ -98,6 +103,7 @@ class TrendingDiscoveryWindow:
         threading.Thread(target=_fetch, daemon=True).start()
 
     def _load_weekly(self):
+        """异步加载每周必看数据"""
         if not self.api:
             return
         self._clear_cards()
@@ -114,10 +120,12 @@ class TrendingDiscoveryWindow:
         threading.Thread(target=_fetch, daemon=True).start()
 
     def _clear_cards(self):
+        """清空视频卡片列表"""
         for w in self._card_frame.winfo_children():
             w.destroy()
 
     def _display_videos(self, videos: List[Dict]):
+        """显示视频卡片列表"""
         self._clear_cards()
 
         if not videos:
@@ -140,6 +148,7 @@ class TrendingDiscoveryWindow:
             ).pack()
             return
 
+        # 遍历视频列表，为每个视频创建信息卡片
         for v in videos:
             stat = v.get("stat", v)
             owner_info = v.get("owner", {})
@@ -193,12 +202,14 @@ class TrendingDiscoveryWindow:
             ).pack(side=tk.LEFT)
 
     def _add_monitor(self, bvid: str):
+        """将视频添加到监控列表"""
         if self.on_add_monitor:
             self.on_add_monitor(bvid)
             messagebox.showinfo("提示", f"已添加 {bvid} 到监控列表", parent=self.window)
 
     @staticmethod
     def _fmt(n):
+        """格式化大数字为中文单位（万/亿）"""
         if n >= 1_0000_0000:
             return f"{n / 1_0000_0000:.2f}亿"
         if n >= 1_0000:

@@ -20,6 +20,7 @@ CORE_FILES = [
 
 
 def compute_hashes() -> dict[str, str]:
+    """计算所有核心文件的 SHA-256 哈希值"""
     hashes = {}
     for rel_path in CORE_FILES:
         filepath = os.path.join(PROJECT_ROOT, rel_path)
@@ -33,6 +34,7 @@ def compute_hashes() -> dict[str, str]:
 
 
 def update_main_py(hashes: dict[str, str]) -> None:
+    """用新的哈希列表替换 main.py 中的 _INTEGRITY_HASHES"""
     main_py = os.path.join(PROJECT_ROOT, "main.py")
     with open(main_py, "r", encoding="utf-8") as f:
         content = f.read()

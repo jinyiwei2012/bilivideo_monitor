@@ -58,7 +58,7 @@ _BAR_ML, _BAR_MR, _BAR_MT, _BAR_MB = 76, 20, 36, 60
 
 
 def _fmt(n):
-    """格式化大数字"""
+    """格式化大数字：超亿显示亿，超万显示万，空值显示 N/A"""
     if n is None:
         return "N/A"
     try:
@@ -74,7 +74,7 @@ def _fmt(n):
 
 # ══════════════════════════════════════════════════════════════════════════════
 class DataComparisonWindow:
-    """数据对比窗口（趋势折线图 + 快照柱状图 + 数据录入）"""
+    """数据对比窗口：趋势折线图（TrendTab）+ 快照柱状图（SnapshotTab）+ 数据录入（EntryTab）"""
 
     def __init__(
         self,
@@ -101,6 +101,7 @@ class DataComparisonWindow:
     # ══════════════════════════════════════════════════════════════════════════
     # ── 整体布局 ──────────────────────────────────────────────────────────────
     def _setup_ui(self):
+        """构建三标签页 Notebook：趋势图 / 快照对比 / 数据录入"""
         nb = ttk.Notebook(self.window)
         nb.pack(fill=BOTH, expand=True, padx=8, pady=8)
 
@@ -112,6 +113,7 @@ class DataComparisonWindow:
         nb.add(tab_snap, text="  📊  快照对比  ")
         nb.add(tab_entry, text="  📥  数据录入  ")
 
+        # 延迟初始化各标签页（避免循环导入）
         self.trend_tab = TrendTab(
             tab_trend,
             self.monitored_videos,
@@ -139,6 +141,7 @@ class DataComparisonWindow:
 
 
 def _parse_dt(s: str) -> Optional[datetime]:
+    """将时间字符串解析为 datetime 对象，支持多种格式"""
     if not s:
         return None
     for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M:%S"):
@@ -150,34 +153,36 @@ def _parse_dt(s: str) -> Optional[datetime]:
 
 
 def _hex_to_rgb(hex_color: str) -> Tuple[int, int, int]:
+    """将十六进制颜色转换为 RGB 三元组"""
     h = hex_color.lstrip("#")
     return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
 
 
 def _rgb_to_hex(r: int, g: int, b: int) -> str:
+    """将 RGB 三元组转换为十六进制颜色字符串"""
     return f"#{min(255, max(0, r)):02x}{min(255, max(0, g)):02x}{min(255, max(0, b)):02x}"
 
 
 def _blend(c1: str, c2: str, t: float) -> str:
-    """t=0 → c1, t=1 → c2"""
+    """颜色插值混合：t=0 → c1, t=1 → c2"""
     r1, g1, b1 = _hex_to_rgb(c1)
     r2, g2, b2 = _hex_to_rgb(c2)
     return _rgb_to_hex(int(r1 + (r2 - r1) * t), int(g1 + (g2 - g1) * t), int(b1 + (b2 - b1) * t))
 
 
 def _darken(c1: str, factor: float) -> str:
-    """factor < 1 → 变暗"""
+    """颜色变暗：factor < 1 时变暗"""
     r, g, b = _hex_to_rgb(c1)
     return _rgb_to_hex(int(r * factor), int(g * factor), int(b * factor))
 
 
 def _draw_bar(canvas: tk.Canvas, x0, y0, x1, y1, color_top, color_body):
-    """绘制一根带顶部高亮和圆角的矩形柱"""
+    """绘制一根带顶部高亮渐变和圆角的矩形柱"""
     if y0 >= y1:
         return
     # 圆角半径（不超过柱宽的1/4）
     r = min(3, max(1, (x1 - x0) * 0.15))
-    # 主体（圆角矩形用 polygon 模拟）
+    # 柱体主体（圆角矩形用 polygon 模拟）
     pts = [
         x0 + r,
         y0,
@@ -197,7 +202,7 @@ def _draw_bar(canvas: tk.Canvas, x0, y0, x1, y1, color_top, color_body):
         y0 + r,
     ]
     canvas.create_polygon(pts, fill=color_body, outline="", smooth=True, width=0)
-    # 顶部高亮条（更细腻）
+    # 顶部高亮条（更细腻的渐变效果）
     top_h = max(2, (y1 - y0) * 0.08)
     top_pts = [
         x0 + r,

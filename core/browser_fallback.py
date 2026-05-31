@@ -59,6 +59,7 @@ def fetch_video_info_playwright(bvid: str) -> Optional[Dict]:
         from playwright.sync_api import sync_playwright
 
         with sync_playwright() as p:
+            # 启动 Chromium 无头浏览器，禁用自动化检测特征
             browser = p.chromium.launch(
                 headless=True,
                 args=[
@@ -80,6 +81,7 @@ def fetch_video_info_playwright(bvid: str) -> Optional[Dict]:
             url = f"https://www.bilibili.com/video/{bvid}"
             logger.info("Playwright 正在访问 %s", url)
 
+            # 等待 DOM 加载完成后额外等待 3 秒，确保页面渲染完毕
             page.goto(url, wait_until="domcontentloaded", timeout=30000)
             page.wait_for_timeout(3000)
 

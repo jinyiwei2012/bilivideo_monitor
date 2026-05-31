@@ -13,16 +13,26 @@ from ui.dialog_base import DialogBase
 
 
 class BacktestPanel:
+    """预测回测面板：对比历史预测值与实际播放量，计算 MAE / MAPE，评估各算法表现"""
+
     def __init__(self, parent, gui):
+        """
+        初始化回测面板
+
+        :param parent: 父窗口
+        :param gui: 主 GUI 实例
+        """
         self.gui = gui
         self.dlg = DialogBase(parent, "📊 预测回测", "800x540")
         self.dlg.header("预测回测 — 误差分析", "对比历史预测值 vs 实际播放量")
         self._build_ui()
 
     def _build_ui(self):
+        """构建界面：视频选择下拉框、分析按钮、统计摘要、结果表格"""
         top = tk.Frame(self.dlg.content_area(), bg=C["bg_base"])
         top.pack(fill=tk.X, padx=10, pady=4)
 
+        # 视频选择
         tk.Label(top, text="选择视频:", bg=C["bg_base"], fg=C["text_1"], font=FONT).pack(side=tk.LEFT)
         self._video_var = tk.StringVar()
         self._video_combo = ttk.Combobox(top, textvariable=self._video_var, font=FONT, state="readonly", width=40)
@@ -31,11 +41,11 @@ class BacktestPanel:
 
         ttk.Button(top, text="📊 分析", command=self._analyze).pack(side=tk.LEFT, padx=4)
 
-        # 统计摘要
+        # 统计摘要区
         self._summary_frame = tk.Frame(self.dlg.content_area(), bg=C["bg_base"])
         self._summary_frame.pack(fill=tk.X, padx=10, pady=4)
 
-        # 结果表格
+        # 结果表格：算法、MAE、MAPE、样本数、平均预测、平均实际、偏差倾向
         columns = ("algo", "mae", "mape", "samples", "avg_pred", "avg_actual", "bias")
         self._tree = ttk.Treeview(
             self.dlg.content_area(), columns=columns, show="headings", height=16
@@ -60,7 +70,7 @@ class BacktestPanel:
         scroll.pack(side=tk.RIGHT, fill=tk.Y)
         self._tree.configure(yscrollcommand=scroll.set)
 
-        # 填充视频列表
+        # 填充视频列表并默认选中第一个
         videos = self.gui.monitored_videos
         names = [f"{v.get('title', v.get('bvid', ''))[:35]} ({v.get('bvid', '')})" for v in videos]
         self._video_combo["values"] = names
@@ -69,6 +79,9 @@ class BacktestPanel:
             self._analyze()
 
     def _analyze(self):
+        """对选中视频执行回测分析：读取预测记录 → 按算法分组 → 计算 MAE/MAPE → 展示结果"""
+
+        # 清空旧数据
         for row in self._tree.get_children():
             self._tree.delete(row)
         for w in self._summary_frame.winfo_children():
@@ -117,7 +130,7 @@ class BacktestPanel:
             tk.Label(self._summary_frame, text="无有效的预测-实际对照数据", fg=C["text_3"], bg=C["bg_base"], font=FONT).pack()
             return
 
-        # 计算各项指标
+        # 计算各项指标：MAPE、MAE、平均预测值、平均实际值、偏差倾向
         rows = []
         for algo, data in algo_stats.items():
             preds = data["preds"]
@@ -129,12 +142,13 @@ class BacktestPanel:
             mae = sum(abs(p - a) for p, a in zip(preds, actuals)) / len(preds)
             avg_pred = sum(preds) / len(preds)
             avg_actual = sum(actuals) / len(actuals)
+            # 偏差判定：偏高/偏低/适中（阈值 ±10%）
             bias = "偏高" if avg_pred > avg_actual * 1.1 else "偏低" if avg_pred < avg_actual * 0.9 else "适中"
             rows.append((mape, algo, mae, mape, len(preds), avg_pred, avg_actual, bias))
 
-        rows.sort(key=lambda x: x[0])  # 按 MAPE 升序
+        rows.sort(key=lambda x: x[0])  # 按 MAPE 升序排列
 
-        # 摘要
+        # 最佳/最差算法摘要
         best = rows[0]
         worst = rows[-1] if len(rows) > 1 else None
         summary_text = f"🎯 最佳: {best[1]} (MAPE={best[3]:.1f}%)"
@@ -142,6 +156,7 @@ class BacktestPanel:
             summary_text += f"  |  ❌ 最差: {worst[1]} (MAPE={worst[3]:.1f}%)"
         tk.Label(self._summary_frame, text=summary_text, bg=C["bg_base"], fg=C["text_1"], font=FONT).pack(anchor="w")
 
+        # 填充表格
         for _, algo, mae, mape, samples, avg_pred, avg_actual, bias in rows:
             self._tree.insert("", tk.END, values=(
                 algo[:20], fmt_num(int(mae)), f"{mape:.1f}%", samples,

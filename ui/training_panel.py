@@ -37,9 +37,10 @@ except ImportError:
 
 
 class TrainingPanel(BaseTrainingPanel):
-    """训练面板 - 主界面选项卡"""
+    """训练面板 - 主界面选项卡，支持模型增量训练/重新训练"""
 
     def __init__(self, parent: tk.Widget, main_gui):
+        """初始化训练面板"""
         super().__init__(parent, main_gui)
 
         # 算法列表状态
@@ -62,9 +63,10 @@ class TrainingPanel(BaseTrainingPanel):
     # ══════════════════════════════════════════════
 
     def _build_ui(self):
+        """构建训练面板的完整 UI 布局"""
         outer = self.frame
 
-        # ── 顶部信息栏 ──
+        # ── 顶部信息栏：设备信息、数据规模、强制 CPU 开关 ──
         info_bar = tk.Frame(outer, bg=C["bg_elevated"])
         info_bar.pack(fill=tk.X, padx=8, pady=(8, 4))
 
@@ -100,6 +102,7 @@ class TrainingPanel(BaseTrainingPanel):
     # ── 算法列表 (左侧) ──
 
     def _build_algo_section(self, parent):
+        """构建左侧算法列表区域"""
         left = tk.Frame(parent, bg=C["bg_surface"])
         left.grid(row=0, column=0, sticky="nsew")
         left.grid_rowconfigure(1, weight=1)
@@ -124,7 +127,7 @@ class TrainingPanel(BaseTrainingPanel):
         sf.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self._algo_frame = sf.inner
 
-        # 表头
+        # 表头：复选框、算法名、ID、状态、置信度、版本
         hdr_row = tk.Frame(self._algo_frame, bg=C["bg_surface"])
         hdr_row.pack(fill=tk.X, pady=(0, 1))
         for col, (txt, w) in enumerate([("", 4), ("算法", 16), ("ID", 14), ("状态", 12), ("置信度", 10), ("版本", 8)]):
@@ -141,6 +144,7 @@ class TrainingPanel(BaseTrainingPanel):
     # ── 图表+日志 (右侧) ──
 
     def _build_chart_section(self, parent):
+        """构建右侧图表和日志区域"""
         right = tk.Frame(parent, bg=C["bg_surface"])
         right.grid(row=0, column=1, sticky="nsew", padx=(4, 0))
         right.grid_rowconfigure(0, weight=1)
@@ -162,6 +166,7 @@ class TrainingPanel(BaseTrainingPanel):
     # ── 底部控制栏 ──
 
     def _build_controls(self, parent):
+        """构建底部训练控制栏"""
         ctrl = tk.Frame(parent, bg=C["bg_elevated"])
         ctrl.pack(fill=tk.X, padx=8, pady=(0, 6))
 
@@ -185,7 +190,7 @@ class TrainingPanel(BaseTrainingPanel):
         )
         self._lr_auto_cb.pack(side=tk.LEFT, padx=2)
 
-        # 训练模式
+        # 训练模式：增量训练 / 重新训练
         tk.Label(ctrl, text="模式:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT, padx=(8, 2))
         self._mode_var = tk.StringVar(value="incremental")
         ttk.Radiobutton(ctrl, text="增量训练", variable=self._mode_var, value="incremental").pack(side=tk.LEFT, padx=1)
@@ -206,7 +211,7 @@ class TrainingPanel(BaseTrainingPanel):
                 bg=C["bg_elevated"], fg=C["warning"], font=("", 8),
             ).pack(side=tk.LEFT, padx=8)
 
-        # 进度
+        # 进度条和状态标签
         self._progress = ttk.Progressbar(ctrl, mode="determinate", maximum=100)
         self._progress.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(12, 4))
 
@@ -226,11 +231,13 @@ class TrainingPanel(BaseTrainingPanel):
         self._refresh_algo_list()
 
     def _refresh_all(self):
+        """刷新所有数据：设备、数据规模、算法列表"""
         self._refresh_device()
         self._refresh_data_size()
         self._refresh_algo_list()
 
     def _refresh_device(self):
+        """刷新训练设备信息显示"""
         try:
             from algorithms.training.device import get_device_info, is_torch_available, force_cpu
 
@@ -247,6 +254,7 @@ class TrainingPanel(BaseTrainingPanel):
             self._device_lbl.config(text=f"⚠ {e}", fg=C["danger"])
 
     def _on_force_cpu(self):
+        """强制 CPU 切换时重新检测设备"""
         self._refresh_device()
 
     # ── 学习率控制 ────────────────────────────────
@@ -273,9 +281,7 @@ class TrainingPanel(BaseTrainingPanel):
         except Exception:
             samples = 1000
 
-        # 启发式规则：
         # 样本越多 → 学习率应越小（避免在大数据集上震荡）
-        # 基础值 1e-3 (Adam 常用默认值)
         if samples < 500:
             return 5e-3  # 小数据集：较大学习率快速收敛
         elif samples < 5000:
@@ -288,6 +294,7 @@ class TrainingPanel(BaseTrainingPanel):
             return 1e-4  # 超大数据集
 
     def _refresh_data_size(self):
+        """刷新数据规模估算信息（异步线程）"""
         self._data_lbl.config(text="估算中…", fg=C["text_3"])
 
         def _worker():
@@ -313,6 +320,7 @@ class TrainingPanel(BaseTrainingPanel):
         return AlgorithmRegistry.get_trainable_info()
 
     def _refresh_algo_list(self):
+        """刷新算法列表，显示每个算法的状态、置信度和版本"""
         for w in self._algo_frame.winfo_children():
             w.destroy()
         self._check_vars.clear()
@@ -381,10 +389,12 @@ class TrainingPanel(BaseTrainingPanel):
             self._algo_row_refs[aid] = [status_lbl, conf_lbl, ver_lbl]
 
     def _select_all(self, flag: bool):
+        """全选或全不选所有算法"""
         for v in self._check_vars.values():
             v.set(flag)
 
     def _select_untrained(self):
+        """仅选中尚未训练的算法"""
         for aid, var in self._check_vars.items():
             var.set(not self._algo_meta.get(aid, {}).get("has_ckpt", False))
 
@@ -437,6 +447,7 @@ class TrainingPanel(BaseTrainingPanel):
             messagebox.showinfo("提示", "没有任何已训练的模型", parent=self.frame)
             return
 
+        # 构建版本管理对话框
         dialog = tk.Toplevel(self.frame)
         dialog.title("Checkpoint 版本管理")
         dialog.geometry("700x500")
@@ -470,6 +481,7 @@ class TrainingPanel(BaseTrainingPanel):
         detail_frame.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
 
         def _refresh_detail(aid, name):
+            """刷新指定算法的版本详情"""
             for w in detail_frame.winfo_children():
                 w.destroy()
 
@@ -753,12 +765,14 @@ class TrainingPanel(BaseTrainingPanel):
         log_text.pack(fill=tk.BOTH, expand=True)
 
         def _ft_log(msg):
+            """向批量微调日志区域追加消息"""
             log_text.config(state="normal")
             log_text.insert(tk.END, msg + "\n")
             log_text.see(tk.END)
             log_text.config(state="disabled")
 
         def _start_ft():
+            """启动批量微调任务"""
             selected_videos = [b for b, v in video_vars.items() if v.get()]
             selected_algos = [a for a, v in algo_vars.items() if v.get()]
             if not selected_videos:
@@ -775,6 +789,7 @@ class TrainingPanel(BaseTrainingPanel):
             start_btn.config(state="disabled")
 
             def _worker():
+                """工作线程：依次对每个视频的每个算法进行微调"""
                 from algorithms.training.trainer import ModelTrainer
 
                 trainer = ModelTrainer()
@@ -818,6 +833,7 @@ class TrainingPanel(BaseTrainingPanel):
     # ══════════════════════════════════════════════
 
     def _on_train_start(self):  # noqa: C901
+        """开始训练按钮回调 — 验证参数、确认、启动训练线程"""
         if self._training:
             return
         if not _torch_available:
@@ -939,6 +955,7 @@ class TrainingPanel(BaseTrainingPanel):
             self._train_queue.put(payload)
 
         def _worker():
+            """工作线程：依次训练每个选中的算法"""
             try:
                 from algorithms.training.trainer import ModelTrainer
 
@@ -990,6 +1007,7 @@ class TrainingPanel(BaseTrainingPanel):
         self._launch_worker(_worker)
 
     def _on_cancel(self):
+        """取消训练按钮回调"""
         self._cancel_flag[0] = True
         if self._cancel_btn:
             self._cancel_btn.config(state="disabled")
@@ -1017,6 +1035,7 @@ class TrainingPanel(BaseTrainingPanel):
     }
 
     def _handle_stage(self, msg) -> bool:
+        """根据消息 stage 分发给对应的事件处理器"""
         stage = msg.get("stage")
         handler_name = self.STAGE_HANDLERS.get(stage)
         if handler_name:
@@ -1024,6 +1043,7 @@ class TrainingPanel(BaseTrainingPanel):
         return False
 
     def _on_stage_start(self, msg):
+        """处理训练开始事件"""
         aid = msg.get("algo_id", "?")
         cur = msg.get("current", 0)
         tot = msg.get("total", 1)
@@ -1031,10 +1051,10 @@ class TrainingPanel(BaseTrainingPanel):
         self._status_lbl.config(text=f"[{cur}/{tot}] 训练 {aid} …", fg=C["text_2"])
         self._append_log(f"── [{cur}/{tot}] 开始训练 {aid} ──")
         self._update_algo_row(aid, status="▶ 训练中", status_color=C["accent"])
-        # 切换算法时重置质量监控，避免跨模型数据污染
         self._monitor.reset()
 
     def _on_stage_epoch(self, msg):
+        """处理每个 epoch 完成事件 — 更新图表、进度、日志"""
         aid = msg.get("algo_id", "?")
         ep = msg.get("epoch", 0)
         eps = msg.get("epochs", 1)
@@ -1081,6 +1101,7 @@ class TrainingPanel(BaseTrainingPanel):
         )
 
     def _on_stage_done(self, msg):
+        """处理单个算法训练完成事件"""
         total_sel = msg.get("_total_selected", 1)
         aid = msg.get("algo_id", "?")
         cur = msg.get("current", 0)
@@ -1088,7 +1109,7 @@ class TrainingPanel(BaseTrainingPanel):
         self._status_lbl.config(text=f"✓ {aid} → {ver} ({cur}/{total_sel})", fg=C["success"])
         self._progress["value"] = int(cur / max(1, total_sel) * 100)
 
-        # 从 checkpoint 读取 val_loss 和置信度（与微调面板一致）
+        # 从 checkpoint 读取 val_loss 和置信度
         from algorithms.training.checkpoint_manager import CheckpointManager
         _val_loss = -1.0
         try:
@@ -1112,6 +1133,7 @@ class TrainingPanel(BaseTrainingPanel):
         )
 
     def _on_stage_error(self, msg):
+        """处理训练错误事件"""
         aid = msg.get("algo_id", "?")
         err = msg.get("error", "")
         self._status_lbl.config(text=f"✗ {aid} 失败: {err}", fg=C["danger"])
@@ -1119,17 +1141,20 @@ class TrainingPanel(BaseTrainingPanel):
         self._update_algo_row(aid, status="✗ 失败", status_color=C["danger"])
 
     def _on_stage_auto_adjust(self, msg):
+        """处理自动调整事件"""
         message = msg.get("message", "")
         self._append_log(f"  🔧 自动调整: {message}")
         self._status_lbl.config(text=f"⚡ {message}", fg=C["warning"])
 
     def _on_stage_cancelled(self, msg):
+        """处理取消训练事件"""
         rem = msg.get("remaining", [])
         self._status_lbl.config(text=f"已取消，剩余 {len(rem)} 个", fg=C["warning"])
         self._append_log(f"⏹ 已取消, 剩余 {len(rem)} 个算法")
         return True
 
     def _on_stage_all_done(self, msg):
+        """处理所有算法训练完成事件"""
         results = msg.get("results", {})
         self._last_training_results = results
         ok = sum(1 for v in results.values() if v)
@@ -1152,12 +1177,14 @@ class TrainingPanel(BaseTrainingPanel):
         return True
 
     def _on_stage_fatal(self, msg):
+        """处理训练进程致命错误事件"""
         err = msg.get("error", "")
         self._status_lbl.config(text=f"训练异常: {err}", fg=C["danger"])
         self._append_log(f"💥 训练进程异常: {err}")
         return True
 
     def _cleanup_training(self):
+        """训练清理：关闭日志、刷新列表、通知完成"""
         self._close_log_file()
         super()._cleanup_training()
         self._refresh_algo_list()
@@ -1165,6 +1192,7 @@ class TrainingPanel(BaseTrainingPanel):
             self.main._refresh_model_status()
         except Exception as e:
             logger.debug("忽略异常: %s", e)
+
         # 训练自动回调：通知 + 重新预测
         trained = getattr(self, "_last_training_results", {})
         ok = [aid for aid, v in trained.items() if v]
@@ -1268,6 +1296,7 @@ class TrainingPanel(BaseTrainingPanel):
         logger.info("训练日志已保存: %s", self._log_file_path)
 
     def _append_log(self, text: str):
+        """追加日志到 UI 和文件"""
         super()._append_log(text)
         if self._log_file is not None:
             try:

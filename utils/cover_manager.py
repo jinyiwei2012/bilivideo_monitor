@@ -28,6 +28,7 @@ _BVID_RE = _re.compile(r"^BV[A-Za-z0-9]{10,12}$")
 
 
 def _cover_path(bvid: str, title: str = "") -> str:
+    """构造封面图片的本地路径"""
     if not _BVID_RE.match(bvid):
         raise ValueError(f"无效的 BV 号: {bvid!r}")
     if title:
@@ -36,6 +37,7 @@ def _cover_path(bvid: str, title: str = "") -> str:
 
 
 def _md5_path(bvid: str, title: str = "") -> str:
+    """构造封面 MD5 校验文件的本地路径"""
     if not _BVID_RE.match(bvid):
         raise ValueError(f"无效的 BV 号: {bvid!r}")
     if title:
@@ -44,6 +46,7 @@ def _md5_path(bvid: str, title: str = "") -> str:
 
 
 def _compute_md5(data: bytes) -> str:
+    """计算数据的 MD5 哈希值"""
     return hashlib.md5(data, usedforsecurity=False).hexdigest()
 
 

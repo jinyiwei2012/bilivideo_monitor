@@ -1,25 +1,28 @@
 """
 通用工具函数和常量
+
+提供字体定义、阈值管理、数字格式化、圆角矩形绘制、置信度计算等
+全 UI 模块共享的工具函数。
 """
 
 import math
 from ui.theme import C
 
-from utils import PROJECT_ROOT, project_path  # noqa: F401 — re-export for convenience
+from utils import PROJECT_ROOT, project_path  # noqa: F401 — 重新导出以方便使用
 
 # ── 字体定义 ─────────────────────────────────
-FONT = ("Microsoft YaHei UI", 9)
-FONT_BOLD = ("Microsoft YaHei UI", 9, "bold")
-FONT_SM = ("Microsoft YaHei UI", 8)
-FONT_LG = ("Microsoft YaHei UI", 11, "bold")
-FONT_MONO = ("Consolas", 9)
-FONT_MONO_LG = ("Consolas", 14, "bold")
+FONT = ("Microsoft YaHei UI", 9)            # 标准字体
+FONT_BOLD = ("Microsoft YaHei UI", 9, "bold")  # 粗体
+FONT_SM = ("Microsoft YaHei UI", 8)        # 小号字体
+FONT_LG = ("Microsoft YaHei UI", 11, "bold")  # 大号粗体
+FONT_MONO = ("Consolas", 9)                # 等宽字体
+FONT_MONO_LG = ("Consolas", 14, "bold")    # 大号等宽粗体
 
 # ── 阈值与间隔 ───────────────────────────────
 # 默认值（首次导入时从 config 加载；通过 reload_thresholds() 动态刷新）
-THRESHOLDS: list = []
-THRESHOLD_NAMES: list = []
-THRESH_COLORS: list = []
+THRESHOLDS: list = []        # 阈值数值列表
+THRESHOLD_NAMES: list = []   # 阈值名称列表
+THRESH_COLORS: list = []     # 阈值颜色列表
 
 # 阈值颜色调色板（支持 N 个阈值循环使用）
 _THRESH_PALETTE = [
@@ -95,7 +98,7 @@ def auto_threshold_name(v):
     return str(v)
 
 
-# 首次初始化
+# 模块加载时自动初始化阈值
 reload_thresholds()
 
 DEFAULT_INTERVAL = 75

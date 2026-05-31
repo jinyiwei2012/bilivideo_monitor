@@ -1,4 +1,4 @@
-"""单个视频的独立数据库"""
+"""单个视频的独立数据库 —— 每个 BV 号对应一个独立 SQLite 数据库文件"""
 
 import sqlite3
 import os
@@ -14,14 +14,20 @@ from .models import _validate_bvid, MonitorRecord, PredictionRecord
 
 logger = logging.getLogger(__name__)
 
-# 进程级迁移缓存：避免每个数据库都重复检查同结构的迁移
-_schema_migrated_version = 0
-
 
 class VideoDatabase:
-    """单个视频的独立数据库"""
+    """单个视频的独立数据库
+    每个视频拥有独立的 SQLite 文件（data/<BV>/<BV>.db），
+    同时维护一个镜像连接同步写入 data/ 目录。
+    """
 
     def __init__(self, bvid: str, base_dir: str = None):
+        """初始化视频独立数据库
+
+        Args:
+            bvid: BV 号
+            base_dir: 数据库存放目录，默认为 core/data/
+        """
         _validate_bvid(bvid)
         self.bvid = bvid
         if base_dir is None:
@@ -36,8 +42,8 @@ class VideoDatabase:
         self._lock = threading.Lock()
         self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        self._conn.execute("PRAGMA synchronous=NORMAL")
+        self._conn.execute("PRAGMA journal_mode=WAL")   # 启用 WAL 模式提升并发读性能
+        self._conn.execute("PRAGMA synchronous=NORMAL")  # 平衡写入安全与速度
 
         # 镜像连接：同步写入 data/ 目录（退出时同步到 core/data/bilibili_monitor.db 的目标目录）
         self._mirror_conn = None
@@ -72,21 +78,22 @@ class VideoDatabase:
                 conn.commit()
             except Exception as e:
                 logger.error("数据库写入失败 [%s]: %s | SQL: %.200s", label, e, sql)
-        _exec(self._conn, "main")
+        with self._get_connection() as conn:
+            _exec(conn, "main")
         if self._mirror_conn:
-            _exec(self._mirror_conn)
+            with _ConnectionCtx(self._mirror_conn, self._lock) as conn:
+                _exec(conn, "mirror")
 
     def _raw_connection(self):
         """返回原始连接（用于需要直接操作的场景）"""
         return self._conn
 
     def _init_db(self):
-        """初始化数据库"""
-        global _schema_migrated_version
+        """初始化数据库：创建所需的表、索引，并执行 schema 迁移"""
         with self._get_connection() as conn:
             cursor = conn.cursor()
 
-            # 视频信息表
+            # 视频信息表（id 固定为 1，每库一条）
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS video_info (
                     id INTEGER PRIMARY KEY,
@@ -112,7 +119,7 @@ class VideoDatabase:
                 )
             """)
 
-            # 监控记录表
+            # 监控记录表（每次采集新增一条）
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS monitor_records (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -170,7 +177,7 @@ class VideoDatabase:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_algo_perf_algorithm ON algorithm_performance(algorithm)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_algo_perf_bvid ON algorithm_performance(bvid)")
 
-            # 创建索引
+            # 监控记录时间索引，加速时间范围查询
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_monitor_timestamp ON monitor_records(timestamp)")
 
             # 周刊分数记录表
@@ -211,22 +218,32 @@ class VideoDatabase:
             """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_yearly_timestamp ON yearly_scores(timestamp)")
 
-            # 数据库迁移：检查并添加缺少的列并自动计算数值
-            # 进程级缓存：首次迁移成功后跳过（所有DB共享相同结构）
-            if not _schema_migrated_version:
+            # 数据库迁移：逐库检查 schema 版本（通过 PRAGMA user_version）
+            cursor.execute("PRAGMA user_version")
+            row = cursor.fetchone()
+            db_version = row[0] if row else 0
+            if db_version < 1:
                 self._migrate_db(conn)
-                _schema_migrated_version = 1
+                cursor.execute("PRAGMA user_version = 1")
 
             conn.commit()
 
     def _migrate_db(self, conn):
-        """检查并迁移数据库：添加缺少的列、自动计算默认值"""
+        """检查并迁移数据库：添加缺少的列、自动计算默认值
+
+        Args:
+            conn: 数据库连接
+        """
         cursor = conn.cursor()
         self._migrate_schema_upgrades(cursor)
         self._migrate_compute_values(cursor)
 
     def _migrate_schema_upgrades(self, cursor):
-        """迁移数据库模式：添加缺少的列"""
+        """迁移数据库模式：添加缺少的列
+
+        根据预定义的 schema_upgrades 字典，逐表检查并添加缺失的列，
+        对表名和列名做正则校验防止 SQL 注入
+        """
         schema_upgrades = {
             "video_info": [
                 ("viewers_app", "INTEGER DEFAULT 0"),
@@ -261,6 +278,7 @@ class VideoDatabase:
         }
 
         for table, columns in schema_upgrades.items():
+            # 正则校验表名，防止 SQL 注入
             if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", table):
                 continue
             cursor.execute(f"PRAGMA table_info({table})")
@@ -268,9 +286,11 @@ class VideoDatabase:
             if not existing:
                 continue
             for col_name, col_def in columns:
+                # 正则校验列名，防止 SQL 注入
                 if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", col_name):
                     continue
                 if col_name not in existing:
+                    # 校验列定义格式，防止包含不安全 SQL 片段
                     if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*(\s+DEFAULT\s+[^\s;]+)?$", col_def):
                         logger.warning(f"迁移跳过: {table}.{col_name} 含不安全的列定义 {col_def}")
                         continue
@@ -280,7 +300,11 @@ class VideoDatabase:
                         logger.warning(f"迁移失败 {table}.{col_name}: {e}")
 
     def _migrate_compute_values(self, cursor):
-        """自动计算缺失的数值字段"""
+        """自动计算缺失的数值字段
+
+        补充 like_view_ratio（播赞比）和 predicted_hours 等派生字段
+        """
+        # 补全监控记录的播赞比
         try:
             cursor.execute("""
                 UPDATE monitor_records
@@ -290,6 +314,7 @@ class VideoDatabase:
         except Exception as e:
             logger.debug("更新 monitor_records like_view_ratio 失败: %s", e)
 
+        # 补全视频信息的播赞比
         try:
             cursor.execute("""
                 UPDATE video_info
@@ -299,6 +324,7 @@ class VideoDatabase:
         except Exception as e:
             logger.debug("更新 video_info like_view_ratio 失败: %s", e)
 
+        # 根据 predicted_seconds 自动计算 predicted_hours
         try:
             cursor.execute("""
                 UPDATE predictions
@@ -310,7 +336,11 @@ class VideoDatabase:
             logger.debug("更新 predictions predicted_hours 失败: %s", e)
 
     def save_video_info(self, video_info: Dict):
-        """保存视频信息"""
+        """保存（插入或替换）视频信息到 video_info 表
+
+        Args:
+            video_info: 视频信息字典
+        """
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -346,11 +376,17 @@ class VideoDatabase:
                     ),
                 )
                 conn.commit()
+            # 同步写入镜像数据库
             self._mirror_save_video_info(video_info)
         except Exception as e:
             logger.warning("保存视频信息失败 %s: %s", self.bvid, e)
 
     def _mirror_save_video_info(self, video_info: Dict):
+        """将视频信息同步写入镜像数据库
+
+        Args:
+            video_info: 视频信息字典
+        """
         if not self._mirror_conn:
             return
         try:
@@ -390,7 +426,14 @@ class VideoDatabase:
             logger.debug("镜像保存视频信息失败 %s: %s", self.bvid, e)
 
     def add_monitor_record(self, record: MonitorRecord) -> bool:
-        """添加监控记录"""
+        """添加一条监控记录
+
+        Args:
+            record: 监控记录数据对象
+
+        Returns:
+            是否写入成功
+        """
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -425,6 +468,11 @@ class VideoDatabase:
             return False
 
     def _mirror_add_monitor_record(self, record: MonitorRecord):
+        """将监控记录同步写入镜像数据库
+
+        Args:
+            record: 监控记录数据对象
+        """
         if not self._mirror_conn:
             return
         try:
@@ -456,11 +504,19 @@ class VideoDatabase:
             logger.debug("镜像添加监控记录失败 %s: %s", record.bvid, e)
 
     def get_all_records(self, limit: int = 0) -> List[Dict]:
-        """获取监控记录，limit>0 时仅返回最近 N 条"""
+        """获取监控记录列表
+
+        Args:
+            limit: 限制返回条数，0 表示不限制
+
+        Returns:
+            记录字典列表，按时间升序排列
+        """
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 if limit > 0:
+                    # 倒序取最后 N 条再反转，保证返回结果为升序
                     cursor.execute("SELECT * FROM monitor_records ORDER BY timestamp DESC LIMIT ?", (limit,))
                     rows = list(reversed([dict(row) for row in cursor.fetchall()]))
                 else:
@@ -472,7 +528,11 @@ class VideoDatabase:
             return []
 
     def get_video_info(self) -> Optional[Dict]:
-        """获取视频信息"""
+        """获取视频信息（id=1 的单行记录）
+
+        Returns:
+            视频信息字典，未找到则返回 None
+        """
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -483,7 +543,14 @@ class VideoDatabase:
             return None
 
     def add_prediction(self, prediction: PredictionRecord) -> bool:
-        """添加预测记录"""
+        """添加一条预测记录
+
+        Args:
+            prediction: 预测记录数据对象
+
+        Returns:
+            是否写入成功
+        """
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -520,6 +587,9 @@ class VideoDatabase:
         Args:
             timestamp: 时间戳字符串
             score_data: 包含分数数据的字典，键名与 weekly_scores 表字段对应
+
+        Returns:
+            是否写入成功
         """
         try:
             with self._get_connection() as conn:
@@ -576,7 +646,11 @@ class VideoDatabase:
             return []
 
     def get_latest_weekly_score(self) -> Optional[Dict]:
-        """获取最新一条周刊分数记录"""
+        """获取最新一条周刊分数记录
+
+        Returns:
+            分数记录字典，无记录则返回 None
+        """
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -587,7 +661,15 @@ class VideoDatabase:
             return None
 
     def add_yearly_score(self, timestamp: str, score_data: dict) -> bool:
-        """添加年刊分数记录"""
+        """添加年刊分数记录
+
+        Args:
+            timestamp: 时间戳字符串
+            score_data: 包含分数数据的字典
+
+        Returns:
+            是否写入成功
+        """
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -619,7 +701,14 @@ class VideoDatabase:
             return False
 
     def get_yearly_scores(self, limit: int = 0) -> list:
-        """获取年刊分数历史记录"""
+        """获取年刊分数历史记录
+
+        Args:
+            limit: 限制返回条数，0 表示不限制
+
+        Returns:
+            分数记录列表，按时间升序
+        """
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -633,7 +722,11 @@ class VideoDatabase:
             return []
 
     def get_latest_yearly_score(self) -> Optional[Dict]:
-        """获取最新一条年刊分数记录"""
+        """获取最新一条年刊分数记录
+
+        Returns:
+            分数记录字典，无记录则返回 None
+        """
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -645,7 +738,10 @@ class VideoDatabase:
             return None
 
     def close(self):
-        """关闭数据库连接，刷新 WAL。"""
+        """关闭数据库连接，刷新 WAL
+
+        依次 checkpoint、关闭主连接、关闭镜像连接
+        """
         self.wal_checkpoint()
         try:
             self._conn.close()
@@ -659,7 +755,7 @@ class VideoDatabase:
                 logger.debug("关闭镜像数据库连接失败: %s", e)
 
     def wal_checkpoint(self):
-        """安全执行 WAL checkpoint，持有锁避免与写入冲突。"""
+        """安全执行 WAL checkpoint，持有锁避免与写入冲突"""
         try:
             with self._lock:
                 self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
