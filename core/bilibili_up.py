@@ -133,3 +133,14 @@ def get_up_videos(self, uid: int, page: int = 1, page_size: int = 30) -> List[Di
     if data and "vlist" in data:
         return data["vlist"]
     return []
+
+
+class _UpMixin:
+    search_up_users = search_up_users
+    _own_search_up_users = _own_search_up_users
+    get_up_info = get_up_info
+    _own_get_up_info = _own_get_up_info
+    get_up_stat = get_up_stat
+    _own_get_up_stat = _own_get_up_stat
+    _calc_up_stat_from_videos = _calc_up_stat_from_videos
+    get_up_videos = get_up_videos

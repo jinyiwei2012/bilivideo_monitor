@@ -377,7 +377,7 @@ def _extract_login_cookies(self, resp, data: dict) -> dict:
     return cookies
 
 
-def __init_qr_session(self):
+def _init_qr_session(self):
     if not hasattr(self, "_qr_session") or self._qr_session is None:
         import requests as _req
 
@@ -391,25 +391,20 @@ def __init_qr_session(self):
 
 
 def get_qrcode_login_url(self) -> Optional[Dict]:
-    sess = __init_qr_session(self)
-    url = "https://passport.bilibili.com/x/passport-login/web/qrcode/generate"
+    """获取 QR 扫码登录 URL 和密钥"""
+    sess = _init_qr_session(self)
     try:
-        logger.debug("→ GET passport.bilibili.com/qrcode/generate")
-        resp = sess.get(url, timeout=15)
-        logger.debug("← passport.bilibili.com/qrcode/generate → %s", resp.status_code)
-        if resp.status_code != 200:
-            return None
-        data = resp.json()
-        if data.get("code") == 0:
-            d = data.get("data", {})
+        resp = sess.get("https://passport.bilibili.com/x/passport-login/web/qrcode/generate", timeout=15)
+        if resp.status_code == 200:
+            d = resp.json().get("data", {})
             return {"url": d.get("url", ""), "qrcode_key": d.get("qrcode_key", "")}
     except Exception as e:
-        logger.warning(f"获取二维码失败: {e}")
+        logger.debug("获取 QR 登录 URL 失败: %s", e)
     return None
 
 
-def poll_qrcode_login(self, qrcode_key: str) -> Dict:
-    sess = __init_qr_session(self)
+def poll_qrcode_login(self) -> Optional[Dict]:
+    sess = _init_qr_session(self)
     url = "https://passport.bilibili.com/x/passport-login/web/qrcode/poll"
     result = {"status": 0, "message": "等待扫码", "cookies": {}}
     try:
@@ -487,3 +482,22 @@ def poll_qrcode_login(self, qrcode_key: str) -> Dict:
         result["message"] = f"轮询异常: {e}"
         logger.debug("QR poll exception: %s", e)
     return result
+
+
+class _AuthMixin:
+    set_cookies = set_cookies
+    get_refresh_token = get_refresh_token
+    get_accounts = get_accounts
+    get_active_account = get_active_account
+    get_account_names = get_account_names
+    add_account = add_account
+    remove_account = remove_account
+    switch_account = switch_account
+    login_with_password_fallback = login_with_password_fallback
+    login_with_password = login_with_password
+    _auto_solve_geetest = _auto_solve_geetest
+    _persist_cookies = _persist_cookies
+    _extract_login_cookies = _extract_login_cookies
+    _init_qr_session = _init_qr_session
+    get_qrcode_login_url = get_qrcode_login_url
+    poll_qrcode_login = poll_qrcode_login

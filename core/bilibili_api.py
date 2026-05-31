@@ -57,7 +57,13 @@ class _CurlCffiResponse:
             raise HTTPError(f"HTTP {self.status_code}", response=self)
 
 
-class BilibiliAPI:
+from core.bilibili_request import _RequestMixin
+from core.bilibili_auth import _AuthMixin
+from core.bilibili_video import _VideoMixin
+from core.bilibili_up import _UpMixin
+
+
+class BilibiliAPI(_RequestMixin, _AuthMixin, _VideoMixin, _UpMixin):
     """B站API封装类 - 支持重试与绕过412错误"""
 
     BASE_URL = "https://api.bilibili.com"
@@ -421,119 +427,6 @@ class BilibiliAPI:
             self._public_session.close()
         except Exception as e:
             logger.debug("关闭HTTP Session失败: %s", e)
-
-
-# ── 从子模块导入方法并绑定到 BilibiliAPI ─────────────────
-
-from core.bilibili_request import (
-    _request,
-    _request_public,
-    _prepare_request_kwargs,
-    _do_http_request,
-    _handle_http_412_response,
-    _handle_successful_response,
-    _apply_bypass_measures,
-    _get_retry_delay,
-    _ensure_min_interval,
-    _rotate_user_agent,
-    _get_request_cookies,
-    _update_public_headers,
-    _is_412_error,
-    _get_error_info,
-)
-
-BilibiliAPI._request = _request
-BilibiliAPI._request_public = _request_public
-BilibiliAPI._prepare_request_kwargs = _prepare_request_kwargs
-BilibiliAPI._do_http_request = _do_http_request
-BilibiliAPI._handle_http_412_response = _handle_http_412_response
-BilibiliAPI._handle_successful_response = _handle_successful_response
-BilibiliAPI._apply_bypass_measures = _apply_bypass_measures
-BilibiliAPI._get_retry_delay = _get_retry_delay
-BilibiliAPI._ensure_min_interval = _ensure_min_interval
-BilibiliAPI._rotate_user_agent = _rotate_user_agent
-BilibiliAPI._get_request_cookies = _get_request_cookies
-BilibiliAPI._update_public_headers = _update_public_headers
-BilibiliAPI._is_412_error = _is_412_error
-BilibiliAPI._get_error_info = _get_error_info
-
-from core.bilibili_auth import (
-    set_cookies,
-    get_refresh_token,
-    get_accounts,
-    get_active_account,
-    get_account_names,
-    add_account,
-    remove_account,
-    switch_account,
-    login_with_password_fallback,
-    login_with_password,
-    _auto_solve_geetest,
-    _persist_cookies,
-    _extract_login_cookies,
-    __init_qr_session,
-    get_qrcode_login_url,
-    poll_qrcode_login,
-)
-
-BilibiliAPI.set_cookies = set_cookies
-BilibiliAPI.get_refresh_token = get_refresh_token
-BilibiliAPI.get_accounts = get_accounts
-BilibiliAPI.get_active_account = get_active_account
-BilibiliAPI.get_account_names = get_account_names
-BilibiliAPI.add_account = add_account
-BilibiliAPI.remove_account = remove_account
-BilibiliAPI.switch_account = switch_account
-BilibiliAPI.login_with_password_fallback = login_with_password_fallback
-BilibiliAPI.login_with_password = login_with_password
-BilibiliAPI._auto_solve_geetest = _auto_solve_geetest
-BilibiliAPI._persist_cookies = _persist_cookies
-BilibiliAPI._extract_login_cookies = _extract_login_cookies
-BilibiliAPI.__init_qr_session = __init_qr_session
-BilibiliAPI.get_qrcode_login_url = get_qrcode_login_url
-BilibiliAPI.poll_qrcode_login = poll_qrcode_login
-
-from core.bilibili_video import (
-    get_video_info,
-    _get_video_info_browser_fallback,
-    _get_video_info_fallback,
-    get_video_stat,
-    get_video_viewers,
-    _get_video_viewers_fallback,
-    get_video_cid,
-    get_video_danmaku,
-    get_video_comments,
-)
-
-BilibiliAPI.get_video_info = get_video_info
-BilibiliAPI._get_video_info_browser_fallback = _get_video_info_browser_fallback
-BilibiliAPI._get_video_info_fallback = _get_video_info_fallback
-BilibiliAPI.get_video_stat = get_video_stat
-BilibiliAPI.get_video_viewers = get_video_viewers
-BilibiliAPI._get_video_viewers_fallback = _get_video_viewers_fallback
-BilibiliAPI.get_video_cid = get_video_cid
-BilibiliAPI.get_video_danmaku = get_video_danmaku
-BilibiliAPI.get_video_comments = get_video_comments
-
-from core.bilibili_up import (
-    search_up_users,
-    _own_search_up_users,
-    get_up_info,
-    _own_get_up_info,
-    get_up_stat,
-    _own_get_up_stat,
-    _calc_up_stat_from_videos,
-    get_up_videos,
-)
-
-BilibiliAPI.search_up_users = search_up_users
-BilibiliAPI._own_search_up_users = _own_search_up_users
-BilibiliAPI.get_up_info = get_up_info
-BilibiliAPI._own_get_up_info = _own_get_up_info
-BilibiliAPI.get_up_stat = get_up_stat
-BilibiliAPI._own_get_up_stat = _own_get_up_stat
-BilibiliAPI._calc_up_stat_from_videos = _calc_up_stat_from_videos
-BilibiliAPI.get_up_videos = get_up_videos
 
 
 # 全局API实例（延迟初始化，避免拖慢模块导入）

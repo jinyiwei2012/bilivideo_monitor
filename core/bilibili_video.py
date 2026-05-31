@@ -203,3 +203,15 @@ def get_video_comments(self, aid: int, limit: int = 20) -> List[Dict]:
             return all_replies[:limit]
 
     return all_replies[:limit] if limit > 0 else all_replies
+
+
+class _VideoMixin:
+    get_video_info = get_video_info
+    _get_video_info_browser_fallback = _get_video_info_browser_fallback
+    _get_video_info_fallback = _get_video_info_fallback
+    get_video_stat = get_video_stat
+    get_video_viewers = get_video_viewers
+    _get_video_viewers_fallback = _get_video_viewers_fallback
+    get_video_cid = get_video_cid
+    get_video_danmaku = get_video_danmaku
+    get_video_comments = get_video_comments

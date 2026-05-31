@@ -269,3 +269,20 @@ def _request_public(self, method: str, url: str, **kwargs) -> Any:
             return None
     logger.debug(f"公共API请求最终失败: {last_error}")
     return None
+
+
+class _RequestMixin:
+    _request = _request
+    _request_public = _request_public
+    _prepare_request_kwargs = _prepare_request_kwargs
+    _do_http_request = _do_http_request
+    _handle_http_412_response = _handle_http_412_response
+    _handle_successful_response = _handle_successful_response
+    _apply_bypass_measures = _apply_bypass_measures
+    _get_retry_delay = _get_retry_delay
+    _ensure_min_interval = _ensure_min_interval
+    _rotate_user_agent = _rotate_user_agent
+    _get_request_cookies = _get_request_cookies
+    _update_public_headers = _update_public_headers
+    _is_412_error = _is_412_error
+    _get_error_info = _get_error_info
