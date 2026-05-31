@@ -32,7 +32,7 @@
 - **弹幕智能分析**: LLM 自动分析弹幕情感倾向与核心关键词，结果本地缓存
 - **历史问答**: 基于视频播放量趋势数据的上下文智能问答
 
-### 预测算法（83种）
+### 预测算法（120+种）
 
 | 类别 | 算法 | 数量 |
 |------|------|:----:|
@@ -98,35 +98,39 @@ b站监控/
 │   │   ├── models.py           # 数据模型（VideoInfo, MonitorRecord, PredictionRecord）
 │   │   ├── connection.py       # 连接管理（线程安全上下文）
 │   │   ├── video_db.py         # 单视频数据库（按 BV 分库）
-│   │   └── central_db.py       # 中央数据库（全局实例 db）
-│   ├── bilibili_api.py         # B站 API 封装（412 重试、代理轮换、WBI 签名、Cookie 持久化）
-│   ├── notification.py         # 通知管理（Windows 原生通知 + QQ Bot）
-│   ├── proxy_manager.py        # 代理管理器（轮询、可用性检测、UA 绑定、失败自动剔除）
-│   ├── smart_alert.py          # 智能告警（异常增长检测、趋势反转）
-│   ├── up_database.py          # UP 主数据管理
-│   └── data/                   # 数据库运行时文件（自动生成）
-│       ├── bilibili_monitor.db # 中央数据库
-│       └── <BV号>/             # 按视频分库
+│   │   ├── central_db.py       # 中央数据库 Facade
+│   │   ├── central_crud.py     # 中央库 CRUD 操作
+│   │   ├── central_query.py    # 中央库查询
+│   │   └── central_backup.py   # 中央库备份同步
+│   ├── bilibili_api.py         # B站 API 主文件（Mixin 多继承）
+│   ├── bilibili_request.py     # HTTP 请求核心
+│   ├── bilibili_auth.py        # 登录认证（密码/QR/多账号）
+│   ├── bilibili_video.py       # 视频信息获取
+│   ├── bilibili_up.py          # UP 主信息获取
+│   ├── notification.py         # 通知管理（Windows + QQ Bot）
+│   ├── proxy_manager.py        # 代理管理器
+│   ├── smart_alert.py          # 智能告警
+│   └── up_database.py          # UP 主数据管理
 │
 ├── ui/                         # 界面模块
-│   ├── main_gui.py             # 主界面（三栏布局控制器 + 全局时钟）
-│   ├── theme.py                # 主题系统（深色/浅色，设计令牌 C 字典）
-│   ├── helpers.py              # 界面工具（字体、阈值常量、格式化）
-│   ├── chart.py                # 图表绘制（Canvas 播放量趋势图 + 阈值辅助线 + 预测投影线）
-│   ├── log_panel.py            # 日志面板（线程安全队列，等级过滤）
-│   ├── monitor_service.py      # 业务逻辑（per-video 独立 Worker 线程）
-│   ├── video_list_panel.py     # 左侧视频列表（封面缓存 + 状态标签）
-│   ├── detail_panel.py         # 中间详情+图表（趋势图 / 详细数据 / 互动率）
+│   ├── main_gui.py             # 主界面（三栏布局 + 全局时钟）
+│   ├── main_gui_events.py      # 事件处理（添加/删除/推送/更新）
+│   ├── main_gui_tick.py        # 定时任务（刷新/同步/告警）
+│   ├── main_gui_data.py        # 数据操作（加载/保存/备份）
+│   ├── theme.py                # 主题系统
+│   ├── helpers.py              # 界面工具
+│   ├── chart.py                # 图表绘制
+│   ├── monitor_service.py      # 业务逻辑（per-video Worker 线程）
+│   ├── video_list_panel.py     # 左侧视频列表
+│   ├── detail_panel.py         # 中间详情+图表
 │   ├── prediction_panel.py     # 右侧预测面板
-│   ├── bottom_bar.py           # 底部状态栏
-│   ├── dialogs.py              # 弹窗管理
-│   ├── settings_window.py      # 统一系统设置（LLM、代理、Cookie、权重、通知等全参数）
-│   ├── video_search.py         # 视频搜索
-│   ├── data_comparison.py      # 数据对比主窗口
-│   ├── trend_tab.py            # 趋势折线图标签页
-│   ├── snapshot_tab.py         # 快照柱状图标签页
-│   ├── entry_tab.py            # 数据录入标签页
-│   ├── crossover_analysis.py   # 交叉分析
+│   ├── settings_window.py      # 设置主窗口
+│   ├── settings_general.py     # 通用设置
+│   ├── settings_monitor.py     # 监控设置
+│   ├── settings_notification.py # 通知设置
+│   ├── settings_proxy.py       # 代理设置
+│   ├── settings_account.py     # 账号管理
+│   ├── settings_advanced.py    # 高级设置
 │   ├── danmaku_analysis.py     # 弹幕分析窗口（LLM 情感分析、词云）
 │   ├── ai_qa_window.py         # AI 问答助手
 │   ├── dashboard_mode.py       # 看板模式

@@ -1,5 +1,44 @@
 # 更新日志
 
+## Release 2026-06-01 (v2.8.0)
+
+### 🔧 重构
+- **大文件模块级拆分**：4 个超 1000 行文件拆分为 20 个小模块
+  - `bilibili_api.py` (1414行) → 5 文件：bilibili_api / request / auth / video / up
+  - `central_db.py` (1342行) → 4 文件：central_db / crud / query / backup
+  - `main_gui.py` (1467行) → 4 文件：main_gui / events / tick / data
+  - `settings_window.py` (2653行) → 7 文件：settings_window / general / monitor / notification / proxy / account / advanced
+- **猴子补丁 → Mixin 多继承**：`BilibiliAPI` 的方法从运行时动态绑定改为 `_RequestMixin, _AuthMixin, _VideoMixin, _UpMixin` 类继承，IDE 可跳转/补全
+- **GCN → PyTorch 双引擎**：`graph_neural.py` 优先使用 2 层 PyTorch GCN 训练（100 epochs 自监督图重构），无 torch 时 fallback 到 numpy 拉普拉斯特征映射
+- **完整性校验重写**：`main.py` 的 `chr()` 混淆校验替换为 SHA-256 文件哈希；`run.py` 消除 DRY 重复直接复用 main.py
+- **11 处 `# noqa: C901` 全部移除**：`training_panel.py` (3)、`settings_account.py`、`database_query.py`、`up_fetcher.py` 等函数的圈复杂度通过拆分子方法降低
+
+### 🐛 修复
+- **6 轮代码审查，100+ 问题清零**：
+  - `smart_alert`: 缺 `import threading`、S6 累积值改用增量
+  - `up_fetcher`: `_get_api()` 实例方法调用修正、循环导入缓解
+  - `bilibili_api`: `_switch_account` 方法名、UA 永久移除、单例双检锁
+  - `notification`: `asyncio.run` 兼容已有事件循环、`ThreadPoolExecutor` 复用
+  - `database_query`: `int(0) or 10000` bug、URI 编码、死代码
+  - `entry_tab`: `dt_str/bvids/periods` 未定义、重复行清理
+  - `tag_manager`: `pack_forget` 隐藏、filter 索引错位、`all` 遮蔽内置
+  - `weight_manager`: 加权平均分母 `sum(w_i)` 修复、`get_weight` 加读锁
+  - `graph_neural`: GCN 矩阵计算、RLock 死锁、孤立节点零度
+  - `model_adapter`: `__bases__` → `__mro__`、速度计算时间差
+  - `checkpoint_io`: 路径穿越 + zip bomb 防护
+  - `geetest_solver`: AES 密钥 `digest`、FIPS `usedforsecurity`
+  - `sentiment_analyzer`: 否定词权重 -1.0、扩展 2-token 检测
+  - `downloader`: aria2 超时 + 哈希校验基础设施
+  - 算法签名修复: `svr_predictor` / `kalman_filter` / `holt_winters` 键名兼容
+  - `ai_qa`: `fromisoformat` Python 3.10 兼容
+  - `settings_account`: 多个登录路径补充 `add_account` 调用
+  - `backtest_panel`: `video_db.get_predictions` 方法缺失 → 新增
+  - 注释添加过程引入的 12 处 SyntaxError（重复行）全部修复
+
+### 📝 文档
+- **205 个 Python 文件添加中文注释**：模块级 docstring + 类/方法/函数 docstring + 复杂逻辑行内注释
+- 新增 `scripts/update_hashes.py`：一键更新 main.py 完整性校验哈希
+
 ## Release 2026-05-26 (v2.7.1)
 
 ### 🐛 修复
