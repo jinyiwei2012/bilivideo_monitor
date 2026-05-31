@@ -31,6 +31,21 @@ except ImportError:
     _HAS_TORCH = False
 
 
+if _HAS_TORCH:
+
+    class _GCN(nn.Module):
+        """两层图卷积网络。"""
+
+        def __init__(self, in_dim: int, hidden_dim: int, out_dim: int):
+            super().__init__()
+            self.gcn1 = nn.Linear(in_dim, hidden_dim)
+            self.gcn2 = nn.Linear(hidden_dim, out_dim)
+
+        def forward(self, x, adj):
+            h = torch.relu(adj @ self.gcn1(x))
+            return adj @ self.gcn2(h)
+
+
 class VideoGraph:
     """视频关联图 + 简化图神经网络。
 
@@ -212,17 +227,6 @@ class VideoGraph:
         X_t = torch.tensor(X)
         A_t = torch.tensor(A_norm)
 
-        # 定义两层 GCN
-        class _GCN(nn.Module):
-            def __init__(self, in_dim, hidden_dim, out_dim):
-                super().__init__()
-                self.gcn1 = nn.Linear(in_dim, hidden_dim)
-                self.gcn2 = nn.Linear(hidden_dim, out_dim)
-
-            def forward(self, x, adj):
-                h = torch.relu(adj @ self.gcn1(x))
-                return adj @ self.gcn2(h)
-
         model = _GCN(self.FEATURE_DIM, hidden_dim, embed_dim)
         optimizer = optim.Adam(model.parameters(), lr=lr)
 
@@ -400,7 +404,7 @@ class VideoGraph:
 
         if count == 0:
             return 0.0
-        return min(1.0, w / count)
+        return min(1.0, w)
 
     def _build_normalized_adj(self, bvids: List[str], n: int) -> Dict[int, Dict[int, float]]:
         """构建对称归一化邻接矩阵 Ã = D^{-1/2} A D^{-1/2}（稀疏字典形式）。

@@ -674,8 +674,8 @@ def run_post_training_predict(gui):
             _predict_single(gui, bvid, video)
         except Exception as e:
             logger.debug("训练后预测 %s 失败: %s", bvid, e)
-    trained = sum(1 for _ in gui.monitored_videos)
-    gui.root.after(0, lambda: gui._sb("status", f"训练后预测完成 ({trained} 个视频)", C["success"]))
+    total_videos = len(gui.monitored_videos)
+    gui.root.after(0, lambda: gui._sb("status", f"训练后预测完成 ({total_videos} 个视频)", C["success"]))
     if gui.selected_bvid:
         if gui.selected_bvid in gui.prediction_results:
             r = gui.prediction_results[gui.selected_bvid]
@@ -734,6 +734,7 @@ def build_daily_push_msg(gui):
         coins = v.get("coin_count", 0)
 
         history = gui.history_data.get(bvid, [])
+        history = sorted(history, key=lambda x: safe_timestamp(x[0]))
         daily_incr = 0
         first_today = None
         for ts, vc in history:

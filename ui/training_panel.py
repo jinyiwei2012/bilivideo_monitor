@@ -1122,7 +1122,10 @@ class TrainingPanel(BaseTrainingPanel):
         conf = loss_to_confidence(_val_loss) if _val_loss >= 0 else load_algo_confidence(aid)
         conf_str, conf_color = format_confidence(conf)
         self._algo_confidence[aid] = conf
-        self._append_log(f"  ✓ {aid} → {ver}  置信度={conf_str}  val_loss={_val_loss:.4f}" if _val_loss >= 0 else f"  ✓ {aid} → {ver}")
+        if _val_loss >= 0:
+            self._append_log(f"  ✓ {aid} → {ver}  置信度={conf_str}  val_loss={_val_loss:.4f}")
+        else:
+            self._append_log(f"  ✓ {aid} → {ver}")
         self._update_algo_row(
             aid,
             status=f"✓ {ver[:10]}",

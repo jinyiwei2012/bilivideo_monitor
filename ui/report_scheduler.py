@@ -236,4 +236,8 @@ class ReportSchedulerWindow:
         """打开报告导出目录"""
         reports_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "reports")
         os.makedirs(reports_dir, exist_ok=True)
-        os.startfile(reports_dir)
+        try:
+            os.startfile(reports_dir)
+        except AttributeError:
+            import subprocess
+            subprocess.run(["explorer", reports_dir])

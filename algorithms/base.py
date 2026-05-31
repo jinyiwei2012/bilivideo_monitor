@@ -184,7 +184,15 @@ class BaseAlgorithm(ABC):
         history = video_data.get("history_data", [])
         now = datetime.now()
         if len(history) >= 1:
-            t = history[0].get("timestamp", None)
+            sorted_history = sorted(
+                history,
+                key=lambda x: (
+                    x.get("timestamp", 0).timestamp()
+                    if hasattr(x.get("timestamp", 0), "timestamp")
+                    else float(x.get("timestamp", 0))
+                ),
+            )
+            t = sorted_history[0].get("timestamp", None)
             if t is not None:
                 try:
                     ts_val = safe_timestamp(t)

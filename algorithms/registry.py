@@ -327,7 +327,7 @@ class AlgorithmRegistry:
                 interval_width = 0
         logger.info(
             "[%s] 综合预测: %.0f (有效 %d/%d, 区间 ±%d%%)",
-            bvid, weighted_pred, valid_count, len(results), interval_width,
+            bvid, weighted_pred, valid_count, len(results) - 1, interval_width,
         )
 
         return results

@@ -57,6 +57,7 @@ THEME = {
 }
 
 # 全局颜色字典（所有 UI 模块 from ui.theme import C 后使用）
+# shallow copy to allow runtime overrides without mutating THEME
 C = dict(THEME)
 
 

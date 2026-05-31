@@ -616,6 +616,7 @@ class DatabaseQueryWindow:
             if total > 50 and (idx + 1) % batch == 0:
                 p = idx + 1
                 self.window.after(0, lambda pp=p, tt=total: self.status_var.set(f"加载关联数据 {pp}/{tt}…"))
+        # 硬编码基础算法排序，确保在导出时这些常见算法始终排在前面，保持列顺序稳定
         known = ["线性增长", "移动平均", "加权移动平均", "指数平滑", "趋势外推", "Gompertz"]
         anames = sorted(all_an, key=lambda n: (known.index(n) if n in known else len(known), n))
         return extra_list, anames
@@ -684,7 +685,7 @@ class DatabaseQueryWindow:
         tag = f"_{fb}" if fb else ""
         mn = {
             "最新N条": "latest",
-            "播放首次大于X": f"first_above{self.param_var.get()}",
+            "播放首次大于X": f"first_above{(getattr(self, 'param_var', None) and self.param_var.get()) or '0'}",
             "播放量大于X": f"above{self.param_var.get()}",
             "播放趋势": self.video_combo_var.get().split()[0] if self.video_combo_var.get() else "trend",
             "全量数据": "all",

@@ -191,12 +191,15 @@ def _encrypt_w(gt: str, challenge: str, userresponse: str, trace: List[Dict], pa
 
     使用 md5(gt[:16]) 作为 IV，md5(challenge[:24])[:16] 作为 Key
     """
-    from Cryptodome.Cipher import AES
     import hashlib
     import base64
+    try:
+        from Cryptodome.Cipher import AES
+    except ImportError:
+        raise ImportError("缺少 Cryptodome 库，请执行: pip install pycryptodome")
 
     # 计算 rp 参数
-    rp = hashlib.md5(f"{gt}{challenge[:32]}{passtime}".encode()).hexdigest()
+    rp = hashlib.md5(f"{gt}{challenge[:32]}{passtime}".encode(), usedforsecurity=False).hexdigest()
 
     payload = json.dumps(
         {
@@ -211,8 +214,8 @@ def _encrypt_w(gt: str, challenge: str, userresponse: str, trace: List[Dict], pa
         separators=(",", ":"),
     )
 
-    key = hashlib.md5(challenge[:24].encode()).digest()[:16]
-    iv = hashlib.md5(gt[:16].encode()).digest()[:16]
+    key = hashlib.md5(challenge[:24].encode(), usedforsecurity=False).digest()[:16]
+    iv = hashlib.md5(gt[:16].encode(), usedforsecurity=False).digest()[:16]
 
     # PKCS7 填充
     pad_len = 16 - len(payload) % 16

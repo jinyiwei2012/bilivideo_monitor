@@ -19,8 +19,6 @@ from urllib3.exceptions import InsecureRequestWarning
 
 warnings.filterwarnings("ignore", category=InsecureRequestWarning)
 
-# 配置日志
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 

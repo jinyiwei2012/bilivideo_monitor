@@ -256,7 +256,7 @@ class DanmakuAnalysisWindow:
 
     def _update_hint(self):
         """更新操作提示信息"""
-        mode = self._mode_var.get()  # noqa: F841
+        self._mode_var.get()
         hint = "输入视频BV号，抓取弹幕分析情感倾向与高频内容"
         self._status_lbl.config(text=hint)
 

@@ -10,7 +10,7 @@ from typing import List, Dict
 from core.database import get_db
 from ui.theme import C
 from ui.scrollable_frame import ScrollableFrame
-from .data_comparison import _fmt, _parse_dt
+from .data_comparison import _fmt, _parse_dt  # private helpers reused across modules
 from utils.update_checker import _confirm_risky
 
 logger = logging.getLogger(__name__)
@@ -278,7 +278,6 @@ class EntryTab:
 
     def _validate_bvids(self, raw):
         """验证 BV 号格式，返回（有效列表, 无效列表）"""
-        bvids, invalid = [], []
         bvids, invalid = [], []
         for line in raw.splitlines():
             bv = line.strip()

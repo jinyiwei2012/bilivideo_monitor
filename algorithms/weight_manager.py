@@ -77,7 +77,7 @@ class WeightManager:
             except Exception as e:
                 logger.warning("加载权重失败: %s", e)
 
-    def _save_weights_sync(self, bvid: str = None):
+    def _save_weights_sync(self):
         """在 _lock 外组装数据快照，然后委托 _write_weights_file 落盘。"""
         try:
             with self._lock:
@@ -87,7 +87,7 @@ class WeightManager:
                     "accuracy_records": {k: list(v) for k, v in self.accuracy_records.items()},
                     "updated_at": datetime.now().isoformat(),
                 }
-            self._write_weights_file(data, bvid)
+            self._write_weights_file(data)
         except Exception as e:
             logger.warning("保存权重失败: %s", e)
 
@@ -165,7 +165,7 @@ class WeightManager:
                 w = (i + 1) / len(records) * 0.5 + 0.5
                 weights.append(w * acc)
 
-            avg_accuracy = sum(weights) / len(weights) if weights else 0.5
+            avg_accuracy = sum(weights) / sum(i + 1 for i in range(len(weights))) if weights else 0.5
             # 将 [0, 1] 准确率映射到 [0.5, 2.0] 的原始权重范围
             new_weights[algo_name] = 0.5 + avg_accuracy * 1.5
 

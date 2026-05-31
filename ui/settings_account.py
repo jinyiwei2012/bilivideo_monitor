@@ -442,7 +442,6 @@ def _add_account_dialog(self):
             return
         get_bilibili_api().add_account(name, cookies)
         get_bilibili_api().switch_account(name)
-        from utils.crypto import encrypt_dict
         get_bilibili_api()._persist_cookies(cookies)
         self._refresh_account_list()
         self._refresh_cookie_display()

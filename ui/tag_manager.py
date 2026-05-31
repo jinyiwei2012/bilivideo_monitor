@@ -8,7 +8,7 @@ from tkinter import ttk, messagebox
 from ui.theme import C
 from ui.helpers import FONT, FONT_SM
 from ui.dialog_base import DialogBase
-from utils.tag_manager import get_tags, set_tags, all_tags, remove_tag
+from utils.tag_manager import get_tags, set_tags, all_tags
 
 
 class TagManagerWindow:
@@ -90,9 +90,9 @@ class TagManagerWindow:
             self._bvid_map.append(bvid)
 
         # 刷新筛选下拉框的可选值
-        all = sorted(all_tags())
-        self._filter_combo["values"] = all
-        if self._filter_var.get() not in all:
+        all_tags_sorted = sorted(all_tags())
+        self._filter_combo["values"] = all_tags_sorted
+        if self._filter_var.get() not in all_tags_sorted:
             self._filter_var.set("")
 
         self._selected_bvid = None

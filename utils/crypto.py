@@ -109,14 +109,20 @@ def _xor_encrypt(plaintext: str) -> str:
         counter += 1
     # XOR
     encrypted = bytes(a ^ b for a, b in zip(data, stream[: len(data)]))
-    # 加校验：PKCS7 后 base64
-    return base64.urlsafe_b64encode(encrypted).decode("utf-8")
+    # HMAC-SHA256 标签（前 8 字符）防止篡改
+    tag = hmac.new(key, encrypted, hashlib.sha256).hexdigest()[:8]
+    return base64.urlsafe_b64encode(tag.encode() + encrypted).decode("utf-8")
 
 
 def _xor_decrypt(ciphertext: str) -> str:
-    """使用 XOR + HMAC 流密码解密"""
-    encrypted = base64.urlsafe_b64decode(ciphertext.encode("utf-8"))
+    """使用 XOR + HMAC 流密码解密（验证 HMAC 标签）"""
+    raw = base64.urlsafe_b64decode(ciphertext.encode("utf-8"))
     key = _MACHINE_KEY
+    tag = raw[:8].decode()
+    encrypted = raw[8:]
+    expected = hmac.new(key, encrypted, hashlib.sha256).hexdigest()[:8]
+    if not hmac.compare_digest(tag, expected):
+        raise ValueError("密文 HMAC 校验失败，数据可能被篡改")
     stream = bytearray()
     counter = 0
     while len(stream) < len(encrypted):

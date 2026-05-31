@@ -28,7 +28,7 @@ def export_checkpoints(output_path: Optional[str] = None) -> str:
     if not os.listdir(src):
         raise FileNotFoundError("checkpoints 目录为空，无可导出的模型")
 
-    exports_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(__file__)), "..", "exports"))
+    exports_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(__file__)), "exports"))
     os.makedirs(exports_dir, exist_ok=True)
 
     if output_path is None:

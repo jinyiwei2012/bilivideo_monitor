@@ -83,7 +83,7 @@ def _get_error_info(self, data: Dict):
     return data.get("code", -1), data.get("message", "未知错误")
 
 
-def _prepare_request_kwargs(self, attempt: int, **kwargs) -> Dict:
+def _prepare_request_kwargs(self, **kwargs) -> Dict:
     idx, proxy, ua = self.proxy_manager.get_proxy_binding()
     request_kwargs = {"timeout": 15, **kwargs}
     if proxy:
@@ -183,7 +183,7 @@ def _request(
     for attempt in range(max_retries + 1):
         try:
             _ensure_min_interval(self)
-            request_kwargs = _prepare_request_kwargs(self, attempt, **kwargs)
+            request_kwargs = _prepare_request_kwargs(self, **kwargs)
             cookies = _get_request_cookies(self)
             response = _do_http_request(self, method, url, request_kwargs, cookies)
             if response is None:
@@ -193,7 +193,7 @@ def _request(
                 if _handle_http_412_response(self, attempt, max_retries, skip_retry):
                     continue
                 return None
-            if sc != 200:
+            if sc >= 500 or sc == 429:
                 raise requests.exceptions.HTTPError(f"HTTP {sc}")
             data = response.json()
             self._consecutive_412_errors = 0
