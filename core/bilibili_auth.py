@@ -212,7 +212,7 @@ def login_with_password(
                 return {"code": 0, "message": "登录成功", "cookies": cookies,
                         "refresh_token": d_g.get("refresh_token", ""),
                         "need_captcha": False, "captcha_type": 0, "captcha_phone": ""}
-            need_captcha = True
+            need_captcha = False  # 将在下方根据 API 返回值重新判断
             data = data_g
             api_code = data.get("code", -1)
 
@@ -403,7 +403,7 @@ def get_qrcode_login_url(self) -> Optional[Dict]:
     return None
 
 
-def poll_qrcode_login(self) -> Optional[Dict]:
+def poll_qrcode_login(self, qrcode_key: str) -> Optional[Dict]:
     sess = _init_qr_session(self)
     url = "https://passport.bilibili.com/x/passport-login/web/qrcode/poll"
     result = {"status": 0, "message": "等待扫码", "cookies": {}}

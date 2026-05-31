@@ -199,8 +199,7 @@ class ModelAlgorithmAdapter:
                 # 有速度信息：直接用速度推算短期增长
                 prediction = current_value + velocity * short_hours
             elif pred_hours == float("inf") or pred_hours < 0:
-                # 无法预测时给出保守微增
-                prediction = current_value * 1.01
+                prediction = current_value + current_value * 0.01
             else:
                 # 用 predicted_hours 反推平均速度，缩放到短期
                 if pred_hours > 0:

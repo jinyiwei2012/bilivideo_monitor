@@ -161,11 +161,13 @@ class WeightManager:
 
             # 时间加权：越晚的记录权重越大（递增加权）
             weights = []
+            weight_sum = 0.0
             for i, acc in enumerate(records):
                 w = (i + 1) / len(records) * 0.5 + 0.5
                 weights.append(w * acc)
+                weight_sum += w
 
-            avg_accuracy = sum(weights) / sum(i + 1 for i in range(len(weights))) if weights else 0.5
+            avg_accuracy = sum(weights) / weight_sum if weight_sum > 0 else 0.5
             # 将 [0, 1] 准确率映射到 [0.5, 2.0] 的原始权重范围
             new_weights[algo_name] = 0.5 + avg_accuracy * 1.5
 

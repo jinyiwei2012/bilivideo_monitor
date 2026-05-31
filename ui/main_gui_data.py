@@ -153,7 +153,7 @@ def register_video_to_monitor(gui, video):
 
 
 def prompt_backup_sync(gui, diffs, db):
-    """数据目录差异弹窗，让用户选择保留哪边的数据"""
+    """数据目录差异弹窗，让用户选择保留哪边的数据（必须在主线程调用）"""
     msg = [f"检测到 {len(diffs)} 个视频在 core/data/ 与 data/ 中存在数据差异：", ""]
     for d in diffs[:10]:
         dir_label = "主库更多" if d["primary_records"] > d["backup_records"] else "备份更多"

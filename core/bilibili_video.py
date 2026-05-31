@@ -87,7 +87,7 @@ def get_video_stat(self, bvid: str) -> Optional[Dict]:
     }
 
 
-def get_video_viewers(self, bvid: str, cid: int = None) -> Optional[Dict]:
+def get_video_viewers(self, bvid: str, cid: Optional[int] = None) -> Optional[Dict]:
     try:
         if cid is None:
             video_info = get_video_info(self, bvid)

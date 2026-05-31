@@ -6,55 +6,10 @@ B站监控启动脚本
 import sys
 import os
 import subprocess
-import hashlib
 
-
-# ── 源码完整性校验（与 main.py 共享同一逻辑）──
-# 必须在任何应用模块导入之前执行
-def _verify_source_integrity() -> None:
-    project_root = os.path.dirname(os.path.abspath(__file__))
-    if getattr(sys, "frozen", False):
-        project_root = os.path.dirname(sys.executable)
-
-    devmode_hash = "40175C25B9517A906FCF778E50387017BB8FA6121D28EBD0720474E85EE7ECA8"
-    for name in (".devmode", "devmode"):
-        dp = os.path.join(project_root, name)
-        if os.path.isfile(dp):
-            try:
-                with open(dp, "r", encoding="utf-8") as f:
-                    if hashlib.sha256(f.read().strip().encode()).hexdigest().upper() == devmode_hash:
-                        return
-            except Exception:
-                pass
-
-    # 哈希值与 main.py 完全一致，以 main.py 为准
-    integrity_hashes = {
-        "core/bilibili_api.py": "53E89671FF3024E282C6CECB8A0D2D0B714D9949E4788EAE7A1973D6718D4BA6",
-        "algorithms/registry.py": "69E9982411ED9A4DEF95B6C2C197B9EB42FD28775763550258D32B4D446EA77E",
-        "algorithms/base.py": "C93D499D9BAF3C1A74C5BBF489F3221BA1EF63368561FEF851143D895F959258",
-        "core/notification.py": "8B48903EDDFE10483486B741422913EA9CB6B4A77BE8885D1937DA4B16CB88BA",
-    }
-
-    for rel_path, expected_hash in integrity_hashes.items():
-        filepath = os.path.join(project_root, rel_path)
-        if not os.path.isfile(filepath):
-            raise RuntimeError(
-                f"文件缺失: {rel_path}\n\n"
-                f"请执行 git restore 还原源文件，或创建 .devmode 文件跳过校验。\n"
-                f"参考 README.md 文件"
-            )
-        with open(filepath, "rb") as f:
-            actual_hash = hashlib.sha256(f.read()).hexdigest().upper()
-        if actual_hash != expected_hash:
-            raise RuntimeError(
-                f"文件已被篡改: {rel_path}\n"
-                f"  预期: {expected_hash}\n"
-                f"  实际: {actual_hash}\n\n"
-                f"请执行 git restore 还原源文件，或创建 .devmode 文件跳过校验。\n"
-                f"参考 README.md 文件"
-            )
-
-
+# ── 源码完整性校验 ──────
+# 复用 main.py 中的校验逻辑，以 main.py 为唯一数据源
+from main import _verify_source_integrity
 _verify_source_integrity()
 
 
