@@ -29,12 +29,10 @@ ARIA2_DOWNLOAD_URL = (
     f"aria2-{ARIA2_VERSION}-win-64bit-build1.zip"
 )
 # Expected SHA-256 hash from GitHub releases page (更新版本时需修改)
-# Verify disabled by default since the hash changes with each release
+# 从 GitHub Releases 页面复制对应版本的 aria2c.exe 的 SHA-256
+# 设置 VERIFY_HASH = True 启用下载验证
 VERIFY_HASH = False
-ARIA2_EXPECTED_SHA256 = (
-    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-    "0000000000000000000000000000000000000000000000000000000000000000"
-)
+ARIA2_EXPECTED_SHA256 = ("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
 
 
 def _sha256_file(path: Path) -> str:

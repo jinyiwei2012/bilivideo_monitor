@@ -228,7 +228,7 @@ def check_for_update() -> Tuple[bool, str, str, str, str]:
         latest = cached.get("latest_version", "")
         local = _get_local_version()
         if latest:
-            _pv = lambda v: tuple(int(x) for x in v.split("."))
+            _pv = lambda v: tuple(int(x) for x in v.split("-")[0].split(".") if x.isdigit())
             return _pv(latest) > _pv(local), latest, cached.get("download_url", ""), cached.get("changelog", ""), channel
 
     data, latest, download_url = _fetch_release(api_url)

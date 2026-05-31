@@ -314,6 +314,7 @@ class FinetunePanel(BaseTrainingPanel):
                 self._algo_inner, bg=C["bg_surface"], highlightthickness=1, highlightbackground=C["border_sub"]
             )
             row.pack(fill=tk.X, pady=1)
+            row._algo_row_info = aid  # 供 _refresh_algo_row 按算法ID查找
 
             var = tk.BooleanVar(value=True)
             self._algo_vars[aid] = var
