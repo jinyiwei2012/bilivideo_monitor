@@ -67,6 +67,12 @@ DEFAULT_CONFIG = {
     "ui": {"theme": "darkly", "auto_refresh": True, "refresh_interval": 30, "show_cover": True, "show_chart": True},
     "export": {"default_path": "", "auto_export": False, "export_format": "csv"},
     "ai": {"enabled": False, "api_key": "", "endpoint": "", "model": "gpt-4o-mini"},
+    "web": {
+        "enabled": True,
+        "host": "0.0.0.0",
+        "port": 8800,
+        "auto_start": False,
+    },
 }
 
 

@@ -88,5 +88,10 @@ uni2ts>=0.1.0           # MOIRAI 基础模型加载（hf_loader.py / moirai.py�
 # --- 导出与工具 ---
 openpyxl>=3.1.0         # Excel 导出（database_query.py）
 
+# --- Web 服务 ---
+fastapi>=0.110.0         # REST API 框架
+uvicorn>=0.29.0          # ASGI 服务器
+jinja2>=3.1.0            # 模板引擎（Web Dashboard）
+
 # --- 文档与测试 ---
 pytest>=8.0.0           # 单元测试（tests/）

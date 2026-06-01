@@ -659,8 +659,8 @@ class BilibiliMonitorGUI:
         _restore_video_impl(self, video)
 
     @staticmethod
-    def _map_api_to_video_dict(bvid: str, info: dict, fallback: dict = None) -> dict:
-        return _map_api_to_video_dict_impl(bvid, info, fallback)
+    def _map_api_to_video_dict(bvid: str, info: dict = None, video_info=None) -> dict:
+        return _map_api_to_video_dict_impl(bvid, info, video_info)
 
     def _register_video_to_monitor(self, video: dict) -> None:
         _register_video_to_monitor_impl(self, video)

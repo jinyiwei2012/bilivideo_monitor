@@ -35,7 +35,16 @@ _last_up_fetch_time = {}  # uid -> time.time
 
 
 def _save_predictions_to_db(gui, bvid, current_view, results):
-    """将各算法的阈值预测结果写入视频数据库"""
+    """将各算法的阈值预测结果写入视频数据库。优先使用后端引擎，回退到直接写库。"""
+    try:
+        from backend import get_engine
+        engine = get_engine()
+        if engine._workers:
+            engine._save_predictions(bvid, current_view, results)
+            return
+    except Exception:
+        pass
+
     video_db = gui.video_dbs.get(bvid)
     if not video_db:
         return
@@ -202,24 +211,23 @@ def _calc_growth_rate(history: list) -> float:
 
 
 def _predict_single(gui, bvid, video) -> dict:
-    """在 worker 线程中对单个视频运行预测（纯函数，无 UI 调用）"""
-    with _prediction_semaphore:
-        current_view = video.get("view_count", 0)
+    """在 worker 线程中对单个视频运行预测，优先使用后端引擎"""
+    current_view = video.get("view_count", 0)
+
+    try:
+        from backend import get_engine
+        engine = get_engine()
+        result = engine._run_prediction(bvid, current_view)
+    except Exception:
         history = _merge_history(gui, bvid)
-
-        # 运行所有算法进行预测
-        results = AlgorithmRegistry.predict_all(
-            history,
-            current_view,
-            bvid=bvid,
-            thresholds=THRESHOLDS,
-            threshold_names=THRESHOLD_NAMES,
-        )
-
+        with _prediction_semaphore:
+            results = AlgorithmRegistry.predict_all(
+                history, current_view, bvid=bvid,
+                thresholds=THRESHOLDS, threshold_names=THRESHOLD_NAMES,
+            )
         weighted = results.get("_weighted", {})
         w_pred = weighted.get("prediction", current_view)
-        success_list = []
-        fail_list = []
+        success_list, fail_list = [], []
         for name, r in results.items():
             if name == "_weighted":
                 continue
@@ -227,36 +235,26 @@ def _predict_single(gui, bvid, video) -> dict:
                 fail_list.append((name, r["error"]))
             else:
                 success_list.append((name, r["prediction"], r["weight"], r["confidence"], r.get("predicted_hours", 0)))
-
-        growth = w_pred - current_view
-        rate_per_sec = _calc_growth_rate(history)
-
         result = {
-            "bvid": bvid,
-            "prediction": w_pred,
-            "current_view": current_view,
-            "growth": max(0, growth),
-            "rate_per_sec": rate_per_sec,
-            "success_list": success_list,
-            "fail_list": fail_list,
+            "bvid": bvid, "prediction": w_pred, "current_view": current_view,
+            "growth": max(0, w_pred - current_view),
+            "rate_per_sec": _calc_growth_rate(history),
+            "success_list": success_list, "fail_list": fail_list,
             "valid": weighted.get("valid_algorithms", 0),
             "total": weighted.get("total_algorithms", 0),
         }
-        # 在线学习反馈（使用上次预测值与当前实际值比较）
-        with gui._data_lock:
-            prev_result = gui.prediction_results.get(bvid)
-            gui.prediction_results[bvid] = result
-        _online_learning_feedback(gui, bvid, results, current_view, prev_result)
-
-        # 图神经网络更新（内部缓存边，无变更时跳过重建）
-        _update_video_graph(gui, bvid, video)
-        # 写数据库
         _save_predictions_to_db(gui, bvid, current_view, results)
 
-        return result
+    with gui._data_lock:
+        prev_result = gui.prediction_results.get(bvid)
+        gui.prediction_results[bvid] = result
+    _online_learning_feedback(bvid, {}, current_view, prev_result)
+    _update_video_graph(bvid, video)
+
+    return result
 
 
-def _online_learning_feedback(gui, bvid, results, actual_view, prev_result):
+def _online_learning_feedback(bvid, results, actual_view, prev_result):
     """在线学习反馈：使用速度偏差替代绝对值比较
 
     比较「上次预测的增长量」与「实际增长量」，避免静止期 100% 准确率的虚假提升。
@@ -282,7 +280,7 @@ def _online_learning_feedback(gui, bvid, results, actual_view, prev_result):
         logger.debug("在线学习反馈失败: %s", e)
 
 
-def _update_video_graph(gui, bvid, video):
+def _update_video_graph(bvid, video):
     """更新视频关系图节点和边"""
     try:
         from algorithms.graph_neural import get_video_graph
@@ -656,8 +654,17 @@ def fetch_single_video_data(gui, bvid, callback=None):
 def fetch_all_video_data(gui, callback=None):
     """
     立即触发所有监控视频的一次拉取。
-    对应"立即刷新全部"按钮。
+    优先使用后端引擎，否则使用 GUI Worker。
     """
+    try:
+        from backend import get_engine
+        engine = get_engine()
+        if engine.video_count > 0:
+            engine.refresh_now()
+            return
+    except Exception:
+        pass
+
     for video in gui.monitored_videos:
         bvid = video.get("bvid", "")
         if bvid:
@@ -713,33 +720,8 @@ def auto_predict_all(gui):
     threading.Thread(target=_worker, daemon=True).start()
 
 
-def _load_watch_list_from_db():
-    """从数据库加载所有视频 BVid（当配置的 watch_list 为空时兜底）"""
-    try:
-        from config import DATA_DIR as _data_dir
-        import os
-        import sqlite3
-
-        db_path = os.path.join(_data_dir, "bilibili_monitor.db")
-        if not os.path.exists(db_path):
-            return []
-        conn = sqlite3.connect(db_path)
-        try:
-            cur = conn.cursor()
-            cur.execute("SELECT bvid FROM videos ORDER BY updated_at DESC")
-            bvids = [r[0] for r in cur.fetchall() if r[0]]
-            if bvids:
-                logger.info("从数据库加载 %d 个视频作为 watch_list 兜底", len(bvids))
-            return bvids
-        finally:
-            conn.close()
-    except Exception as e:
-        logger.debug("从数据库加载 watch_list 失败: %s", e)
-        return []
-
-
 def load_watch_list(gui):
-    """启动时加载监控列表，并为每个视频启动独立 Worker"""
+    """启动时从数据库加载监控列表并恢复 UI 卡片。数据由后端引擎写入 DB。"""
     from ui.theme import C
     from config import load_config
     from core import db
@@ -747,7 +729,11 @@ def load_watch_list(gui):
     config = load_config()
     watch_list = config.get("watch_list", [])
     if not watch_list:
-        watch_list = _load_watch_list_from_db()
+        try:
+            from backend.engine import load_watch_list_from_db
+            watch_list = load_watch_list_from_db()
+        except Exception:
+            pass
     if not watch_list:
         return
 
@@ -756,62 +742,49 @@ def load_watch_list(gui):
     def _worker():
         loaded = 0
         for bvid in watch_list:
-            # 去重检查
             with gui._data_lock:
                 if any(v.get("bvid") == bvid for v in gui.monitored_videos):
                     continue
             try:
-                info = bilibili_api.get_video_info(bvid)
-                if not info:
+                video_info = db.get_video(bvid)
+                if not video_info:
+                    gui.log_panel.add_log("WARNING", f"数据库无视频 {bvid}，等待引擎加载")
                     continue
-                video = gui._map_api_to_video_dict(bvid, info)
 
-                # 获取在线人数
-                try:
-                    viewers = bilibili_api.get_video_viewers(bvid, info.get("cid", 0))
-                    if viewers:
-                        video["viewers_total_raw"] = viewers.get("total", "0")
-                        video["viewers_web_raw"] = viewers.get("count", "0")
-                        video["viewers_total"] = _parse_viewer_count(viewers.get("total", "0"))
-                        video["viewers_web"] = _parse_viewer_count(viewers.get("count", "0"))
-                        video["viewers_app"] = max(0, video["viewers_total"] - video["viewers_web"])
-                except Exception as e:
-                    logger.debug("获取视频在线人数失败 %s: %s", bvid, e)
-
-                # 初始化数据库和历史
-                try:
-                    video_db = db.get_video_db(bvid)
-                    gui.video_dbs[bvid] = video_db
-                    video_db.save_video_info(video)
-                    history = video_db.get_all_records()
-                    if history:
-                        gui.history_data[bvid] = [(row["timestamp"], row["view_count"]) for row in history]
-                except Exception as e:
-                    logger.debug("初始化视频数据库失败 %s: %s", bvid, e)
+                video = gui._map_api_to_video_dict(bvid, None, video_info)
+                video_db = db.get_video_db(bvid)
+                gui.video_dbs[bvid] = video_db
+                history = video_db.get_all_records()
+                if history:
+                    gui.history_data[bvid] = [(row["timestamp"], row["view_count"]) for row in history]
 
                 gui.root.after(0, lambda v=video: gui._restore_video(v))
                 loaded += 1
-                time.sleep(0.15)
+                time.sleep(0.05)
             except Exception as e:
                 gui.log_panel.add_log("ERROR", f"加载视频 {bvid} 失败: {e}")
 
-        # 所有视频加载完成后，批量启动独立 Worker
-        gui.root.after(0, lambda: _start_all_workers(gui))
-
         from ui.theme import C as C2
-
         gui.root.after(
             0, lambda: gui._sb("status", f"已加载 {len(gui.monitored_videos)} 个监控视频", color=C2["success"])
         )
-
-        # 所有视频加载完成后，立即运行初始预测（无需等待首次 API 拉取）
         gui.root.after(100, lambda: auto_predict_all(gui))
 
     threading.Thread(target=_worker, daemon=True).start()
 
 
 def _start_all_workers(gui):
-    """为 gui.monitored_videos 中所有视频启动独立 Worker"""
+    """为 gui.monitored_videos 中所有视频启动独立 Worker。
+    如果后端引擎已有活跃 Worker，则跳过以避免重复拉取。"""
+    try:
+        from backend import get_engine
+        engine = get_engine()
+        if engine.video_count > 0:
+            gui.log_panel.add_log("INFO", f"后端引擎已运行 ({engine.video_count} 个视频)，GUI 复用引擎数据")
+            return
+    except Exception:
+        pass
+
     default_interval = getattr(gui, "DEFAULT_INTERVAL", 75)
     fast_interval = getattr(gui, "FAST_INTERVAL", 10)
     get_video_interval = getattr(gui, "_get_video_interval", None)
@@ -822,6 +795,5 @@ def _start_all_workers(gui):
         bvid = video.get("bvid", "")
         if not bvid:
             continue
-        # 根据视频当前播放量计算合适的刷新间隔
         interval = get_video_interval(video) if get_video_interval else default_interval
         _start_worker(gui, bvid, video, interval, fast_interval)

@@ -10,11 +10,43 @@ from dataclasses import asdict
 logger = logging.getLogger(__name__)
 
 
-def map_api_to_video_dict(bvid: str, info: dict, fallback: dict = None) -> dict:
-    """将 B站 API 返回的数据映射为统一的视频字典格式"""
-    fb = fallback or {}
-    stat = info.get("stat", {})
-    owner = info.get("owner", {})
+def _engine_running() -> bool:
+    try:
+        from backend import get_engine
+        return get_engine().video_count > 0
+    except Exception:
+        return False
+
+
+def map_api_to_video_dict(bvid: str, info: dict = None, video_info=None) -> dict:
+    """将 B站 API 数据或 VideoInfo 对象映射为统一的视频字典格式"""
+    if video_info is not None:
+        return {
+            "bvid": video_info.bvid or bvid,
+            "title": video_info.title or "未知标题",
+            "author": video_info.owner_name or "未知UP主",
+            "pic": video_info.pic or "",
+            "view_count": video_info.view_count or 0,
+            "like_count": video_info.like_count or 0,
+            "coin_count": video_info.coin_count or 0,
+            "share_count": video_info.share_count or 0,
+            "favorite_count": video_info.favorite_count or 0,
+            "danmaku_count": video_info.danmaku_count or 0,
+            "reply_count": video_info.reply_count or 0,
+            "duration": video_info.duration or 0,
+            "pubdate": video_info.pubdate or 0,
+            "desc": "",
+            "aid": 0,
+            "viewers_total": video_info.viewers_total or 0,
+            "viewers_web": video_info.viewers_web or 0,
+            "viewers_app": video_info.viewers_app or 0,
+            "owner_name": video_info.owner_name or "",
+            "owner_id": video_info.owner_id or 0,
+        }
+
+    fb = {}
+    stat = info.get("stat", {}) if info else {}
+    owner = info.get("owner", {}) if info else {}
     return {
         "bvid": bvid,
         "title": info.get("title", fb.get("title", "未知标题")),
@@ -76,9 +108,10 @@ def save_weekly_score(gui, bvid, video, timestamp):
     """保存周刊分数到数据库"""
     try:
         ws = _calc_ws(video)
-        if ws and bvid in gui.video_dbs:
-            score_data = asdict(ws)
-            gui.video_dbs[bvid].add_weekly_score(timestamp, score_data)
+        if ws:
+            from core import db
+            video_db = db.get_video_db(bvid)
+            video_db.add_weekly_score(timestamp, asdict(ws))
     except Exception as e:
         logger.warning("保存周刊分数失败 %s: %s", bvid, e)
 
@@ -87,9 +120,10 @@ def save_yearly_score(gui, bvid, video, timestamp):
     """保存年刊分数到数据库"""
     try:
         ys = _calc_ys(video)
-        if ys and bvid in gui.video_dbs:
-            score_data = asdict(ys)
-            gui.video_dbs[bvid].add_yearly_score(timestamp, score_data)
+        if ys:
+            from core import db
+            video_db = db.get_video_db(bvid)
+            video_db.add_yearly_score(timestamp, asdict(ys))
     except Exception as e:
         logger.warning("保存年刊分数失败 %s: %s", bvid, e)
 
@@ -148,8 +182,9 @@ def register_video_to_monitor(gui, video):
     gui.video_list.update_video_count()
     gui._sb("videos", f"监控: {len(gui.monitored_videos)} 个")
     gui._register_video_timer(bvid)
-    interval = gui._get_video_interval(video)
-    _start_worker(gui, bvid, video, interval, gui.FAST_INTERVAL)
+    if not _engine_running():
+        interval = gui._get_video_interval(video)
+        _start_worker(gui, bvid, video, interval, gui.FAST_INTERVAL)
 
 
 def prompt_backup_sync(gui, diffs, db):

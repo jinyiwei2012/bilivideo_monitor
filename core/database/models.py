@@ -30,6 +30,27 @@ class VideoInfo:
     duration: int = 0                        # 视频时长（秒）
     pic: str = ""                            # 封面封面 URL
 
+    @staticmethod
+    def from_api_data(bvid: str, vdata: dict) -> "VideoInfo":
+        stat = vdata.get("stat", {})
+        owner = vdata.get("owner", {})
+        return VideoInfo(
+            bvid=bvid,
+            title=vdata.get("title", ""),
+            view_count=stat.get("view", 0),
+            like_count=stat.get("like", 0),
+            coin_count=stat.get("coin", 0),
+            share_count=stat.get("share", 0),
+            favorite_count=stat.get("favorite", 0),
+            danmaku_count=stat.get("danmaku", 0),
+            reply_count=stat.get("reply", 0),
+            owner_name=owner.get("name", ""),
+            owner_id=owner.get("mid", 0),
+            pubdate=str(vdata.get("pubdate", "")),
+            duration=vdata.get("duration", 0),
+            pic=vdata.get("pic", ""),
+        )
+
 
 @dataclass
 class MonitorRecord:

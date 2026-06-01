@@ -22,10 +22,10 @@ if project_root not in sys.path:
 # 开发时创建 .devmode 文件（内容 SHA-256 须匹配 _DEVMODE_HASH）可跳过校验
 # main.py 不参与自校验（SHA256(self)=H 数学上不可解），由 git 版本控制保证
 _INTEGRITY_HASHES: dict[str, str] = {
-    "core/bilibili_api.py": "53E89671FF3024E282C6CECB8A0D2D0B714D9949E4788EAE7A1973D6718D4BA6",
-    "algorithms/registry.py": "69E9982411ED9A4DEF95B6C2C197B9EB42FD28775763550258D32B4D446EA77E",
-    "algorithms/base.py": "C93D499D9BAF3C1A74C5BBF489F3221BA1EF63368561FEF851143D895F959258",
-    "core/notification.py": "8B48903EDDFE10483486B741422913EA9CB6B4A77BE8885D1937DA4B16CB88BA",
+    "core/bilibili_api.py": "DEF54F55A27B50369F1612CBBC7B8BFB8C766962734424D812E07CB995DFBF5D",
+    "algorithms/registry.py": "3617705AB71B573BF05C3ACACBF7B32C0DFF6AA6BBD73C8B249DAE147CB89EE0",
+    "algorithms/base.py": "0B40B1355723B00EFC95CB19778451231B8DEB0764358FD70E6765A98CDCCDCF",
+    "core/notification.py": "01FC9B3671F4A364E679368FCB1ECA02361892C85FD47C35F79A5E2EB89C8488",
 }
 # .devmode 文件内容的期望 SHA-256（去除首尾空白后）
 _DEVMODE_HASH = "40175C25B9517A906FCF778E50387017BB8FA6121D28EBD0720474E85EE7ECA8"
@@ -89,6 +89,54 @@ _verify_source_integrity()
 from ui import main
 
 
+def _start_backend_engine():
+    """启动后端监控引擎，从 watch_list 加载视频"""
+    import logging
+    logger = logging.getLogger("main")
+
+    from config import load_config
+    from backend import get_engine
+
+    engine = get_engine()
+    cfg = load_config()
+    watch_list = cfg.get("watch_list", [])
+    monitor_cfg = cfg.get("monitor", {})
+    interval = monitor_cfg.get("check_interval", 300)
+
+    logger.info("后端引擎启动，加载 %d 个监控视频", len(watch_list))
+    for bvid in watch_list:
+        engine.add_video(bvid, interval=interval)
+    return engine
+
+
 if __name__ == "__main__":
-    """主入口 — 启动 GUI 程序"""
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="B站视频监控与播放量预测系统")
+    parser.add_argument("--web-only", action="store_true", help="仅启动 Web 服务")
+    parser.add_argument("--web-port", type=int, default=None, help="Web 服务端口")
+    parser.add_argument("--web-host", default="0.0.0.0", help="Web 服务地址")
+    parser.add_argument("--gui-only", action="store_true", help="仅启动 GUI")
+    parser.add_argument("--no-engine", action="store_true", help="不启动后端监控引擎")
+    args, _ = parser.parse_known_args()
+
+    if not args.no_engine:
+        _start_backend_engine()
+
+    if args.web_only:
+        from web_entry import start_api_server
+        port = args.web_port or 8800
+        start_api_server(host=args.web_host, port=port)
+    elif args.gui_only:
+        main()
+    else:
+        from config import load_config
+        cfg = load_config()
+        web_cfg = cfg.get("web", {})
+        port = args.web_port or web_cfg.get("port", 8800)
+        host = web_cfg.get("host", "0.0.0.0")
+
+        if web_cfg.get("enabled", True):
+            from web_entry import start_in_background
+            start_in_background(host=host, port=port)
+        main()

@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>B站监控 - Dashboard</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <header class="topbar">
+        <h1>📊 B站视频监控</h1>
+        <div class="topbar-right">
+            <span id="user-info" class="user-info">未登录</span>
+            <span id="ws-status" class="status-dot disconnected"></span>
+            <span id="clock">--</span>
+            <button id="auth-btn" class="btn btn-sm btn-primary">登录/注册</button>
+            <button id="refresh-btn" class="btn btn-sm">刷新</button>
+        </div>
+    </header>
+
+    <div class="layout">
+        <aside class="sidebar">
+            <div class="sidebar-section">
+                <h3>统计概览</h3>
+                <div class="stat-cards">
+                    <div class="stat-card">
+                        <span class="stat-value" id="stat-videos">--</span>
+                        <span class="stat-label">监控视频</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-value" id="stat-records">--</span>
+                        <span class="stat-label">记录条数</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-value" id="stat-views">--</span>
+                        <span class="stat-label">总播放量</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-value" id="stat-ws">--</span>
+                        <span class="stat-label">WS 连接</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sidebar-section">
+                <h3>搜索</h3>
+                <input type="text" id="search-input" placeholder="标题 / BV号 / UP主..." class="input">
+                <select id="search-field" class="input">
+                    <option value="title">标题</option>
+                    <option value="bvid">BV号</option>
+                    <option value="owner_name">UP主</option>
+                </select>
+            </div>
+
+            <div class="sidebar-section">
+                <h3>添加视频</h3>
+                <div class="input-group">
+                    <input type="text" id="add-bvid" placeholder="输入 BV 号..." class="input">
+                    <button id="add-btn" class="btn btn-primary">添加</button>
+                </div>
+            </div>
+        </aside>
+
+        <main class="content">
+            <div class="toolbar">
+                <span id="result-count"></span>
+                <div class="toolbar-actions">
+                    <select id="sort-by" class="input input-sm">
+                        <option value="updated_at">最近更新</option>
+                        <option value="view_count">播放量</option>
+                        <option value="title">标题</option>
+                        <option value="pubdate">发布时间</option>
+                    </select>
+                    <select id="sort-order" class="input input-sm">
+                        <option value="DESC">降序</option>
+                        <option value="ASC">升序</option>
+                    </select>
+                </div>
+            </div>
+
+            <div id="video-grid" class="video-grid">
+                <div class="empty-state">加载中...</div>
+            </div>
+
+            <div id="detail-panel" class="detail-panel hidden">
+                <div class="detail-header">
+                    <h2 id="detail-title"></h2>
+                    <button id="detail-close" class="btn btn-sm">&times;</button>
+                </div>
+                <div class="detail-tabs">
+                    <button class="tab-btn active" data-tab="info">基本信息</button>
+                    <button class="tab-btn" data-tab="chart">趋势图</button>
+                    <button class="tab-btn" data-tab="predictions">预测</button>
+                    <button class="tab-btn" data-tab="milestones">里程碑</button>
+                </div>
+                <div class="detail-body">
+                    <div id="tab-info" class="tab-content active">
+                        <div id="detail-info" class="info-grid"></div>
+                    </div>
+                    <div id="tab-chart" class="tab-content">
+                        <canvas id="trend-chart" width="800" height="400"></canvas>
+                    </div>
+                    <div id="tab-predictions" class="tab-content">
+                        <div id="predictions-list"></div>
+                    </div>
+                    <div id="tab-milestones" class="tab-content">
+                        <div id="milestones-list"></div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <div id="auth-modal" class="modal hidden">
+        <div class="modal-content">
+            <h2 id="auth-title">登录</h2>
+            <div class="auth-tabs">
+                <button class="auth-tab active" onclick="switchAuthTab('login')">登录</button>
+                <button class="auth-tab" onclick="switchAuthTab('register')">注册</button>
+                <button class="auth-tab" onclick="switchAuthTab('account')" id="account-tab" style="display:none">账户</button>
+            </div>
+
+            <div id="login-fields">
+                <input type="text" id="auth-username" class="input" placeholder="用户名" style="margin-bottom:8px">
+                <input type="password" id="auth-password" class="input" placeholder="密码">
+            </div>
+
+            <div id="register-fields" style="display:none">
+                <input type="text" id="reg-username" class="input" placeholder="用户名 (2字以上)" style="margin-bottom:8px">
+                <input type="password" id="reg-password" class="input" placeholder="密码 (4字以上)" style="margin-bottom:8px">
+                <input type="password" id="reg-password2" class="input" placeholder="确认密码">
+            </div>
+
+            <div id="account-fields" style="display:none">
+                <p style="margin-bottom:10px">当前: <strong id="acc-username"></strong></p>
+                <button class="btn btn-primary" onclick="doRegenerateApikey()" style="width:100%;margin-bottom:8px">重新生成 API Key</button>
+                <button class="btn btn-danger" onclick="doDeleteAccount()" style="width:100%">注销账号</button>
+            </div>
+
+            <div class="modal-actions">
+                <button id="auth-submit" class="btn btn-primary">登录</button>
+                <button id="auth-cancel" class="btn">取消</button>
+            </div>
+            <p id="auth-error" class="error-text hidden"></p>
+        </div>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <script src="/static/js/dashboard.js"></script>
+</body>
+</html>
