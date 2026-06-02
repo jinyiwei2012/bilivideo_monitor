@@ -1,6 +1,20 @@
 """
-现代化周刊分数计算界面
-手动输入或选择已监控视频，计算周刊虚拟歌手中文曲排行榜分数
+周刊分数计算界面模块
+===================
+
+提供 ``WeeklyScoreWindow`` 类，用于计算「虚拟歌手中文曲排行榜」周刊分数。
+
+功能：
+  - 两种数据来源模式：
+    - 手动输入：6 项指标（播放量、点赞、硬币、收藏、弹幕、评论）
+    - 选择已监控视频：从数据库或内存获取最新数据
+  - 调用 ``utils.weekly_score.calculate_weekly_score()`` 计算分数
+  - 结果展示区：
+    - 最终得点（总分，高亮显示）
+    - 各项分项得点（播放、互动、收藏、硬币、点赞）
+    - 修正系数详细说明
+
+计分公式引用自「周刊虚拟歌手中文曲排行榜」公布的计算方式。
 """
 
 import tkinter as tk
@@ -24,24 +38,37 @@ class WeeklyScoreWindow:
     """周刊分数计算窗口（现代化风格）— 手动输入或使用已监控视频计算分数"""
 
     def __init__(self, parent=None, monitored_videos: Optional[List[Dict]] = None, video_dbs: Optional[Dict] = None):
-        """初始化周刊分数计算窗口"""
+        """
+        初始化周刊分数计算窗口。
+
+        :param parent: 父窗口
+        :param monitored_videos: 已监控视频列表 [{"bvid": ..., "title": ..., ...}, ...]
+        :param video_dbs: bvid → VideoDatabase 的映射字典
+        """
         self.dlg = DialogBase(
             parent, "周刊分数计算", DialogBase.calc_geometry(parent, 0.42, 0.62), resizable=(True, True), modal=False
         )
         self.window = self.dlg.window
         self.monitored_videos = monitored_videos or []
         self.video_dbs = video_dbs or {}
-        self._entries: Dict[str, tk.Entry] = {}
+        self._entries: Dict[str, tk.Entry] = {}  # key → Entry 控件引用
 
         self._setup_ui()
 
     def _setup_ui(self):
-        """构建界面：数据来源选择、输入区域、结果展示"""
+        """
+        构建界面：
+          数据来源选择（手动输入 / 选择已监控视频）
+          手动输入区域（6 项指标，2×3 网格布局）
+          已监控视频下拉选择
+          操作按钮（计算 / 清空）
+          计算结果展示区（只读 Text，支持样式）
+        """
         self.dlg.header("周刊分数计算", "虚拟歌手中文曲排行榜分数计算器")
 
         sec = self.dlg.section(padding=8)
 
-        # 模式选择：手动输入 / 选择已监控视频
+        # ── 模式选择：手动输入 / 选择已监控视频 ──
         mode_row = tk.Frame(sec, bg=C["bg_elevated"])
         mode_row.pack(fill=tk.X, pady=(0, 6))
         self._mode = tk.StringVar(value="manual")
@@ -62,7 +89,7 @@ class WeeklyScoreWindow:
             command=self._toggle_mode,
         ).pack(side=tk.LEFT)
 
-        # 手动输入区域：6 项指标（3×2 网格）
+        # ── 手动输入区域：6 项指标（2 行 × 3 列）──
         self._manual_frame = tk.Frame(sec, bg=C["bg_elevated"])
         self._manual_frame.pack(fill=tk.X)
 
@@ -95,7 +122,7 @@ class WeeklyScoreWindow:
             entry.pack(side=tk.LEFT)
             self._entries[key] = entry
 
-        # 已监控视频下拉选择
+        # ── 已监控视频下拉选择 ──
         self._select_frame = tk.Frame(sec, bg=C["bg_elevated"])
         self._select_combo = ttk.Combobox(self._select_frame, state="readonly", width=50, font=FONT)
         for v in self.monitored_videos:
@@ -106,7 +133,7 @@ class WeeklyScoreWindow:
             self._select_combo["values"] = vals
         self._select_combo.pack(fill=tk.X)
 
-        # 操作按钮
+        # ── 操作按钮 ──
         btn_row = tk.Frame(sec, bg=C["bg_elevated"])
         btn_row.pack(fill=tk.X, pady=(8, 0))
         ttk.Button(btn_row, text="计算分数", command=self._calculate, style="Primary.TButton").pack(
@@ -114,7 +141,7 @@ class WeeklyScoreWindow:
         )
         ttk.Button(btn_row, text="清空", command=self._clear).pack(side=tk.LEFT)
 
-        # 计算结果区域
+        # ── 计算结果区域 ──
         res_sec = tk.Frame(self.dlg.container, bg=C["bg_base"])
         res_sec.pack(fill=tk.BOTH, expand=True, padx=24, pady=(10, 0))
 
@@ -141,6 +168,7 @@ class WeeklyScoreWindow:
         self._result_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=2, pady=2)
         sb.pack(side=tk.RIGHT, fill=tk.Y)
 
+        # 结果文本的样式标签
         self._result_text.tag_configure("title", font=("Consolas", 12, "bold"), foreground=C["text_3"])
         self._result_text.tag_configure("total", font=("Consolas", 14, "bold"), foreground=C["bilibili"])
         self._result_text.tag_configure("separator", foreground=C["text_3"])
@@ -148,10 +176,14 @@ class WeeklyScoreWindow:
         self._result_text.tag_configure("value", foreground=C["text_1"])
         self._result_text.tag_configure("detail", foreground=C["accent"], font=("Consolas", 10))
 
+        # 初始化模式切换
         self._toggle_mode()
 
     def _toggle_mode(self):
-        """切换手动输入 / 选择视频模式"""
+        """
+        切换手动输入 / 选择视频模式。
+        显示/隐藏对应的控件组。
+        """
         if self._mode.get() == "manual":
             self._manual_frame.pack(fill=tk.X)
             self._select_frame.pack_forget()
@@ -160,7 +192,15 @@ class WeeklyScoreWindow:
             self._select_frame.pack(fill=tk.X, pady=4)
 
     def _get_video_data(self) -> Optional[VideoData]:
-        """获取输入的视频数据"""
+        """
+        获取输入的视频数据（根据当前模式）。
+
+        手动模式：从 6 个 Entry 读取数值，构建 VideoData
+        选择模式：根据下拉框选中的视频，优先从数据库获取最新记录，
+                  否则使用内存中的视频数据
+
+        :returns: VideoData 对象，获取失败返回 None
+        """
         if self._mode.get() == "select":
             sel = self._select_combo.current()
             if sel < 0 or sel >= len(self.monitored_videos):
@@ -183,6 +223,7 @@ class WeeklyScoreWindow:
                         )
                 except Exception as e:
                     logger.debug("从数据库加载视频数据失败: %s", e)
+            # 数据库无数据 → 使用内存中的视频信息
             return VideoData(
                 view_count=video.get("view_count", 0),
                 like_count=video.get("like_count", 0),
@@ -192,18 +233,22 @@ class WeeklyScoreWindow:
                 reply_count=video.get("reply_count", 0),
             )
         else:
+            # 手动模式：解析 Entry 值
             try:
                 data = {}
                 for key, entry in self._entries.items():
                     val = entry.get().strip()
-                    data[key] = int(float(val)) if val else 0
+                    data[key] = int(float(val)) if val else 0  # 空值当作 0
                 return VideoData(**data)
             except (ValueError, TypeError):
                 messagebox.showwarning("提示", "请输入有效的数字", parent=self.window)
                 return None
 
     def _calculate(self):
-        """计算并显示周刊分数"""
+        """
+        计算并显示周刊分数。
+        获取输入数据 → 校验 → 调用计算函数 → 显示结果。
+        """
         video_data = self._get_video_data()
         if not video_data:
             return
@@ -214,11 +259,23 @@ class WeeklyScoreWindow:
         self._display_result(video_data, result)
 
     def _display_result(self, data: VideoData, result: WeeklyScoreResult):
-        """在文本框中格式化工整地显示计算结果"""
+        """
+        在文本框中格式化工整地显示计算结果。
+
+        包含：
+          - 标题
+          - 输入数据回显
+          - 最终得分（粗体高亮）
+          - 各项分项得分 + 修正系数明细
+
+        :param data: 输入的视频数据
+        :param result: 计算结果对象
+        """
         self._result_text.config(state="normal")
         self._result_text.delete("1.0", "end")
 
         def add(text, tag="value"):
+            """辅助函数：向结果区域插入带样式文本"""
             self._result_text.insert("end", text, tag)
 
         add("周刊虚拟歌手中文曲排行榜分数\n", "title")
@@ -233,6 +290,7 @@ class WeeklyScoreWindow:
         add(f"最终得点: {result.total_score:>12,.2f}\n", "total")
         add("─" * 42 + "\n", "separator")
 
+        # 各项分项得分 + 修正系数说明
         items = [
             ("播放得点", result.view_score, f"基础 {result.base_view_score:,.2f} × 修正D {result.correction_d:.4f}"),
             (
@@ -253,7 +311,12 @@ class WeeklyScoreWindow:
         self._result_text.config(state="disabled")
 
     def _clear(self):
-        """清空所有输入和结果"""
+        """
+        清空所有输入和结果：
+          手动输入框全部清空
+          下拉选择恢复空值
+          结果区域清空
+        """
         for entry in self._entries.values():
             entry.delete(0, "end")
         self._select_combo.set("")

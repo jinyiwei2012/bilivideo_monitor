@@ -13,7 +13,7 @@ import time
 from utils.time_utils import safe_timestamp
 
 
-@dataclass
+@dataclass(slots=True)
 class PredictionResult:
     """预测结果 —— 存储单个算法对单个视频的预测产出。
 
@@ -94,48 +94,154 @@ class BaseAlgorithm(ABC):
     _W_DANMAKU = 0.3      # 弹幕密度权重
     _W_COIN_LIKE = 0.3    # 投币/点赞比权重
 
+    # ── 时间戳格式 ─────────────────────────────────
+    _TS_FMT = "%Y-%m-%d %H:%M:%S"
+
+    # ── 共享时间序列预处理 ─────────────────────────
+
+    def _prepare_timeseries_data(self, history):
+        """将历史数据的混合格式时间戳解析为以天为单位的相对时间及播放量数组。
+
+        Args:
+            history: 历史数据列表, 每项含 timestamp 和 view/view_count
+
+        Returns:
+            (times_days, views, ts_raw_list): times 以天为单位的浮点数组, views 播放量数组,
+                                              ts_raw_list 原始时间戳列表(暂不使用)
+        """
+        import numpy as np
+
+        n = len(history)
+        times = np.empty(n, dtype=float)
+        views = np.empty(n, dtype=float)
+
+        first_ts = history[0]["timestamp"]
+        if isinstance(first_ts, str):
+            base_epoch = datetime.strptime(first_ts, self._TS_FMT).timestamp()
+        elif isinstance(first_ts, datetime):
+            base_epoch = first_ts.timestamp()
+        else:
+            base_epoch = float(first_ts)
+
+        times[0] = 0.0
+        views[0] = history[0].get("view", history[0].get("view_count", 0))
+
+        for i in range(1, n):
+            data = history[i]
+            views[i] = data.get("view", data.get("view_count", 0))
+            ts_raw = data["timestamp"]
+            if isinstance(ts_raw, str):
+                ts_epoch = datetime.strptime(ts_raw, self._TS_FMT).timestamp()
+            elif isinstance(ts_raw, datetime):
+                ts_epoch = ts_raw.timestamp()
+            else:
+                ts_epoch = float(ts_raw)
+            times[i] = (ts_epoch - base_epoch) / 86400.0
+
+        return times, views, None
+
+    # ── 增长模型置信度计算 ─────────────────────────
+
+    def _growth_confidence(self, n_points, predicted, actual, multiplier):
+        """通用的增长模型置信度计算。
+
+        基于数据点数量和 MAPE 拟合误差综合评估。
+        """
+        import numpy as np
+
+        base_conf = min(0.9, 0.4 + n_points * multiplier)
+        if n_points >= 5:
+            try:
+                predicted = np.asarray(predicted, dtype=float)
+                actual = np.asarray(actual, dtype=float)
+                mape = np.mean(np.abs((actual - predicted) / (actual + 1)))
+                fit_quality = max(0.0, 1.0 - mape)
+                base_conf = 0.5 * base_conf + 0.5 * fit_quality
+            except Exception:
+                pass
+        return min(0.95, base_conf)
+
+    # ── 安全曲线拟合封装 ───────────────────────────
+
+    def _safe_curve_fit(self, model_func, times, views, p0, bounds, maxfev=5000):
+        """对 scipy curve_fit 的安全封装, 失败时回退到初始参数。
+
+        Returns:
+            (popt, success): popt 为拟合参数, success 为 True/False
+        """
+        from scipy.optimize import curve_fit
+
+        try:
+            popt, _ = curve_fit(model_func, times, views, p0=p0, bounds=bounds, maxfev=maxfev)
+            return popt, True
+        except Exception:
+            return p0, False
+
     # ── 公共辅助方法 ───────────────────────────────
+
+    @staticmethod
+    def _timestamp_sort_key(item):
+        ts = item.get("timestamp", 0)
+        if isinstance(ts, (int, float)):
+            return ts
+        if hasattr(ts, "timestamp"):
+            return ts.timestamp()
+        try:
+            return datetime.fromisoformat(str(ts)).timestamp()
+        except Exception:
+            return 0
 
     def calculate_velocity(self, video_data: Dict[str, Any]) -> float:
         """根据历史数据计算当前播放速度（播放量/小时）。
 
-        优先取 video_data['history_data'] 中最近的**两个**有效数据点
-        计算速度；若数据不足两则返回 0.0。
+        如果有足够数据点（>=5），使用最近 N=min(10, len) 个点做线性回归；
+        否则回退到最近两个点的简单速度计算。
         """
         history = video_data.get("history_data", [])
         if len(history) < 2:
             return 0.0
         try:
-            # 按时间戳排序，确保取到最新的两个数据点
-            def _sort_key(x):
-                ts = x.get("timestamp", 0)
-                if isinstance(ts, (int, float)):
-                    return ts
-                if hasattr(ts, "timestamp"):
-                    return ts.timestamp()
-                try:
-                    return datetime.fromisoformat(str(ts)).timestamp()
-                except Exception:
-                    return 0
-            sorted_hist = sorted(history, key=_sort_key)
-            recent = sorted_hist[-2:]
-            v0 = float(recent[0].get("view_count", 0))
-            v1 = float(recent[-1].get("view_count", 0))
-            t0 = recent[0].get("timestamp", 0)
-            t1 = recent[-1].get("timestamp", 0)
-            # timestamp 字段可能是 float（Unix 时间戳）或 datetime 对象，统一转为秒
-            if hasattr(t0, "timestamp"):
-                t0 = t0.timestamp()
-            elif not isinstance(t0, (int, float)):
-                t0 = 0
-            if hasattr(t1, "timestamp"):
-                t1 = t1.timestamp()
-            elif not isinstance(t1, (int, float)):
-                t1 = 0
-            dt_hours = (t1 - t0) / 3600.0
-            if dt_hours <= 0:
-                return 0.0
-            return max(0.0, (v1 - v0) / dt_hours)
+            sorted_hist = sorted(history, key=self._timestamp_sort_key)
+
+            if len(sorted_hist) >= 5:
+                import numpy as np
+                n_pts = min(10, len(sorted_hist))
+                recent = sorted_hist[-n_pts:]
+                views_list = []
+                times_list = []
+                for item in recent:
+                    views_list.append(float(item.get("view_count", 0)))
+                    ts = item.get("timestamp", 0)
+                    if hasattr(ts, "timestamp"):
+                        times_list.append(ts.timestamp())
+                    elif isinstance(ts, (int, float)):
+                        times_list.append(float(ts))
+                    else:
+                        times_list.append(0.0)
+                t_arr = np.array(times_list, dtype=float)
+                v_arr = np.array(views_list, dtype=float)
+                if np.max(t_arr) == np.min(t_arr):
+                    return 0.0
+                slope, _ = np.polyfit(t_arr, v_arr, 1)
+                return max(0.0, slope / 3600.0)
+            else:
+                recent = sorted_hist[-2:]
+                v0 = float(recent[0].get("view_count", 0))
+                v1 = float(recent[-1].get("view_count", 0))
+                t0 = recent[0].get("timestamp", 0)
+                t1 = recent[-1].get("timestamp", 0)
+                if hasattr(t0, "timestamp"):
+                    t0 = t0.timestamp()
+                elif not isinstance(t0, (int, float)):
+                    t0 = 0
+                if hasattr(t1, "timestamp"):
+                    t1 = t1.timestamp()
+                elif not isinstance(t1, (int, float)):
+                    t1 = 0
+                dt_hours = (t1 - t0) / 3600.0
+                if dt_hours <= 0:
+                    return 0.0
+                return max(0.0, (v1 - v0) / dt_hours)
         except Exception:
             return 0.0
 
@@ -183,17 +289,9 @@ class BaseAlgorithm(ABC):
         """
         history = video_data.get("history_data", [])
         now = datetime.now()
-        def _sort_key(x):
-            ts = x.get("timestamp", 0)
-            if hasattr(ts, "timestamp"):
-                return ts.timestamp()
-            try:
-                return float(ts)
-            except (ValueError, TypeError):
-                return 0.0
 
         if len(history) >= 1:
-            sorted_history = sorted(history, key=_sort_key)
+            sorted_history = sorted(history, key=self._timestamp_sort_key)
             t = sorted_history[0].get("timestamp", None)
             if t is not None:
                 try:

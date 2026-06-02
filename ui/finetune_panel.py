@@ -1,8 +1,20 @@
 """
-微调面板 — 与训练面板同级同显示
-支持选择多个视频 + 多个算法，一键启动微调
-右侧实时 loss 图表 + 训练质量监控 + 文字日志
-自动切换当前训练视频的模型信息与置信度
+微调面板模块 — 与训练面板同级同显示
+
+本模块提供批量微调深度学习预测模型的功能面板，继承自 BaseTrainingPanel。
+
+主要功能：
+1. 视频和算法的多选列表（含勾选框、置信度、版本号信息）
+2. 支持增量微调（incremental）和重新训练（retrain）两种模式
+3. 右侧实时 Loss 图表 + 训练质量监控 + 文字日志
+4. 自动训练质量调整（Loss 爆炸、过拟合、欠拟合、震荡检测等）
+5. 支持跳过当前任务、取消全部任务
+6. 训练完成自动切换当前视频的模型信息与置信度
+
+自动调整机制：
+- 监控 train_loss 和 val_loss 的变化趋势
+- 检测 NaN / Loss 爆炸 / 严重过拟合 / 震荡 / 欠拟合 / 不再收敛
+- 自动缩放学习率、调整 weight_decay、梯度裁剪或提前停止
 """
 
 import tkinter as tk
@@ -10,86 +22,94 @@ from tkinter import ttk, messagebox
 import time
 import logging
 from typing import Dict, List
-from ui.theme import C
+from ui.theme import C                                     # 颜色主题
 from ui.helpers import (
-    FONT,
-    FONT_SM,
-    FONT_MONO,
-    FONT_BOLD,
-    loss_to_confidence,
-    format_confidence,
-    load_algo_confidence,
-    project_path,
+    FONT, FONT_SM, FONT_MONO, FONT_BOLD,                   # 字体常量
+    loss_to_confidence, format_confidence,                  # 置信度转换
+    load_algo_confidence, project_path,                     # 置信度加载 / 路径
 )
-from ui.training_base import BaseTrainingPanel, TrainingMonitor
-from ui.scrollable_frame import ScrollableFrame
-from utils.update_checker import _train
+from ui.training_base import BaseTrainingPanel, TrainingMonitor  # 训练面板基类 + 质量监控
+from ui.scrollable_frame import ScrollableFrame             # 可滚动容器
+from utils.update_checker import _train                     # 训练开关检查
 
 logger = logging.getLogger(__name__)
 
 _torch_available = True
 try:
-    import torch  # noqa: F401
+    import torch  # noqa: F401                                 # PyTorch 可用性检查
 except ImportError:
     _torch_available = False
 
 
 class FinetunePanel(BaseTrainingPanel):
-    """微调面板 — 与训练面板同级同显示"""
+    """
+    微调面板 — 批量微调深度学习预测模型
+
+    继承自 BaseTrainingPanel（提供图表、日志、进度等基础 UI 组件），
+    在此基础上增加了视频/算法选择、微调模式和训练质量自动控制。
+
+    设计思路：
+    - 左侧：视频列表 + 算法列表（含勾选、版本、置信度）
+    - 右侧：Loss 曲线 + 训练质量监控 + 文字日志
+    - 底部：参数控制（Epochs/Batch/模式） + 进度条 + 操作按钮
+    """
 
     def __init__(self, parent: tk.Widget, main_gui):
+        """初始化微调面板"""
         super().__init__(parent, main_gui)
 
         # 视频 / 算法勾选状态
-        self._video_vars: Dict[str, tk.BooleanVar] = {}
-        self._algo_vars: Dict[str, tk.BooleanVar] = {}
-        self._algo_meta: Dict[str, Dict] = {}
+        self._video_vars: Dict[str, tk.BooleanVar] = {}      # {bvid: BooleanVar}
+        self._algo_vars: Dict[str, tk.BooleanVar] = {}        # {algorithm_id: BooleanVar}
+        self._algo_meta: Dict[str, Dict] = {}                  # 算法元信息 {aid: {name, has_ckpt, ...}}
 
-        # 微调模式
+        # 微调模式（incremental / retrain）
         self._mode_var = tk.StringVar(value="incremental")
 
         # 当前任务上下文
-        self._current_bvid = ""
+        self._current_bvid = ""                                # 当前正在微调的视频 BV 号
 
         # 微调结果回溯（用于训练完成自动回调）
         self._last_finetune_count = 0
 
-        # 自动调整状态
-        self._auto_control: Dict = {}
-        self._auto_monitors: Dict[str, TrainingMonitor] = {}
-        self._algo_lr_factors: Dict[str, float] = {}
-        self._use_new_data_only = False
+        # 自动训练质量监控
+        self._auto_control: Dict = {}                          # 当前自动控制参数
+        self._auto_monitors: Dict[str, TrainingMonitor] = {}   # 每个 (algo@bvid) 的监控器
+        self._algo_lr_factors: Dict[str, float] = {}           # 每个算法的学习率累积因子
+        self._use_new_data_only = False                        # 是否仅使用新增数据
 
         # 当前视频的所有算法结果缓存（用于自动切换显示）
-        self._video_results: Dict[str, List[Dict]] = {}
+        self._video_results: Dict[str, List[Dict]] = {}        # {bvid: [{aid, version, confidence}, ...]}
 
         self._build_ui()
 
-    # ══════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════════════════════════
     # UI 构建
-    # ══════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════════════════════════
 
     def _build_ui(self):
-        """构建微调面板的完整 UI，包含左（视频+算法）、右（图表+监控+日志）、底部控制栏"""
+        """
+        构建微调面板的完整 UI：
+        - 顶部信息栏
+        - 主体区域（左：视频+算法 / 右：图表+监控+日志）
+        - 底部控制栏
+        """
         outer = self.frame
 
         # ── 顶部信息栏 ──
         info_bar = tk.Frame(outer, bg=C["bg_elevated"])
         info_bar.pack(fill=tk.X, padx=8, pady=(8, 4))
         tk.Label(
-            info_bar,
-            text="批量微调 — 选择视频和算法，一键微调已有全局 checkpoint 的模型",
-            bg=C["bg_elevated"],
-            fg=C["text_2"],
-            font=FONT,
+            info_bar, text="批量微调 — 选择视频和算法，一键微调已有全局 checkpoint 的模型",
+            bg=C["bg_elevated"], fg=C["text_2"], font=FONT,
         ).pack(side=tk.LEFT, padx=8)
         ttk.Button(info_bar, text="刷新列表", command=self._refresh_all).pack(side=tk.RIGHT, padx=8)
 
         # ── 主体区域: 左(视频+算法) | 右(图表+监控+日志) ──
         body = tk.Frame(outer, bg=C["bg_base"])
         body.pack(fill=tk.BOTH, expand=True, padx=8, pady=4)
-        body.grid_columnconfigure(0, weight=35, minsize=280)
-        body.grid_columnconfigure(1, weight=65, minsize=400)
+        body.grid_columnconfigure(0, weight=35, minsize=280)   # 左侧 35%
+        body.grid_columnconfigure(1, weight=65, minsize=400)   # 右侧 65%
         body.grid_rowconfigure(0, weight=1)
 
         self._build_left(body)
@@ -98,7 +118,7 @@ class FinetunePanel(BaseTrainingPanel):
         # ── 底部控制栏 ──
         self._build_controls(outer)
 
-    # ── 左侧: 视频 + 算法 ──
+    # ── 左侧: 视频 + 算法 ───────────────────────────────────────────────────
 
     def _build_left(self, parent):
         """构建左侧面板：视频列表和算法列表（含勾选框、置信度、版本信息）"""
@@ -133,6 +153,7 @@ class FinetunePanel(BaseTrainingPanel):
         self._algo_count_lbl = tk.Label(a_hdr, text="", bg=C["bg_elevated"], fg=C["text_3"], font=FONT_SM)
         self._algo_count_lbl.pack(side=tk.RIGHT, padx=4)
 
+        # 工具栏：全选/反选/版本管理
         a_toolbar = tk.Frame(a_frame, bg=C["bg_elevated"])
         a_toolbar.pack(fill=tk.X, padx=4, pady=(2, 2))
         ttk.Button(a_toolbar, text="全选", command=lambda: self._toggle_algos(True), width=6).pack(side=tk.LEFT, padx=1)
@@ -141,18 +162,13 @@ class FinetunePanel(BaseTrainingPanel):
         )
         ttk.Button(a_toolbar, text="🗑️ 版本管理", command=self._on_manage_versions, width=10).pack(side=tk.LEFT, padx=1)
 
-        # 表头
+        # 表头（复选框 + 算法名 + ID + 状态 + 置信度 + 版本号）
         hdr_row = tk.Frame(a_frame, bg=C["bg_surface"])
         hdr_row.pack(fill=tk.X, padx=4, pady=(0, 1))
         for col, (txt, w) in enumerate([("", 4), ("算法", 14), ("ID", 12), ("状态", 10), ("置信度", 8), ("版本", 8)]):
             tk.Label(
-                hdr_row,
-                text=txt,
-                bg=C["bg_surface"],
-                fg=C["text_3"],
-                font=("Microsoft YaHei UI", 8, "bold"),
-                width=w,
-                anchor="w",
+                hdr_row, text=txt, bg=C["bg_surface"], fg=C["text_3"],
+                font=("Microsoft YaHei UI", 8, "bold"), width=w, anchor="w",
             ).grid(row=0, column=col, padx=2, pady=2, sticky="w")
 
         # 滚动容器
@@ -160,14 +176,14 @@ class FinetunePanel(BaseTrainingPanel):
         a_sf.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self._algo_inner = a_sf.inner
 
-    # ── 右侧: 图表 + 监控 + 日志 ──
+    # ── 右侧: 图表 + 监控 + 日志 ──────────────────────────────────────────
 
     def _build_right(self, parent):
         """构建右侧面板：任务信息栏、Loss 图表、训练质量监控、文字日志"""
         right = tk.Frame(parent, bg=C["bg_surface"])
         right.grid(row=0, column=1, sticky="nsew")
-        right.grid_rowconfigure(1, weight=1)  # 图表
-        right.grid_rowconfigure(3, weight=1)  # 日志
+        right.grid_rowconfigure(1, weight=1)                  # 图表可扩展
+        right.grid_rowconfigure(3, weight=1)                  # 日志可扩展
         right.grid_columnconfigure(0, weight=1)
 
         # ── 当前任务信息栏 ──
@@ -192,21 +208,27 @@ class FinetunePanel(BaseTrainingPanel):
         log_frame = self._build_log_widgets(right, title="微调日志")
         log_frame.grid(row=3, column=0, sticky="nsew", padx=4, pady=(2, 4))
 
-    # ── 底部控制栏 ──
+    # ── 底部控制栏 ─────────────────────────────────────────────────────────
 
     def _build_controls(self, parent):
-        """构建底部控制栏：Epochs、Batch、模式选择、开始/取消/跳过按钮、进度条"""
+        """
+        构建底部控制栏：
+        - Epochs / Batch 输入
+        - 模式选择（增量微调 / 重新训练）
+        - 开始 / 取消 / 跳过按钮
+        - 进度条 + 状态标签
+        """
         ctrl = tk.Frame(parent, bg=C["bg_elevated"])
         ctrl.pack(fill=tk.X, padx=8, pady=(0, 6))
 
         tk.Label(ctrl, text="Epochs:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(
             side=tk.LEFT, padx=(8, 2)
         )
-        self._epoch_var = tk.IntVar(value=15)
+        self._epoch_var = tk.IntVar(value=15)                 # 默认 15 轮
         ttk.Spinbox(ctrl, from_=1, to=100, textvariable=self._epoch_var, width=6).pack(side=tk.LEFT, padx=2)
 
         tk.Label(ctrl, text="Batch:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT, padx=(8, 2))
-        self._batch_var = tk.IntVar(value=16)
+        self._batch_var = tk.IntVar(value=16)                 # 默认批大小 16
         ttk.Spinbox(ctrl, from_=1, to=512, textvariable=self._batch_var, width=6).pack(side=tk.LEFT, padx=2)
 
         tk.Label(ctrl, text="模式:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT, padx=(8, 2))
@@ -234,12 +256,12 @@ class FinetunePanel(BaseTrainingPanel):
         )
         self._status_lbl.pack(side=tk.RIGHT, padx=(0, 8))
 
-    # ══════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════════════════════════
     # 数据刷新
-    # ══════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════════════════════════
 
     def on_show(self):
-        """面板显示时刷新视频和算法列表"""
+        """面板显示时刷新视频和算法列表（每次切换到此面板时调用）"""
         self._refresh_all()
 
     def _refresh_all(self):
@@ -265,7 +287,7 @@ class FinetunePanel(BaseTrainingPanel):
 
         self._video_count_lbl.config(text=f"{len(videos)} 个视频")
         for v in sorted(videos, key=lambda x: x["bvid"]):
-            var = tk.BooleanVar(value=True)
+            var = tk.BooleanVar(value=True)                   # 默认全选
             self._video_vars[v["bvid"]] = var
             row = tk.Frame(self._video_inner, bg=C["bg_elevated"])
             row.pack(fill=tk.X)
@@ -275,7 +297,11 @@ class FinetunePanel(BaseTrainingPanel):
             ).pack(side=tk.LEFT, padx=2, fill=tk.X)
 
     def _refresh_algos(self):
-        """从算法注册表刷新算法列表，显示训练状态、置信度和版本号"""
+        """
+        从算法注册表刷新算法列表，显示训练状态、置信度和版本号
+
+        遍历 AlgorithmRegistry 中所有可训练算法，按训练状态和名称排序。
+        """
         for w in self._algo_inner.winfo_children():
             w.destroy()
         self._algo_vars.clear()
@@ -291,16 +317,14 @@ class FinetunePanel(BaseTrainingPanel):
             ckpt = CheckpointManager(aid)
             versions = ckpt.list_versions()
             has_ckpt = ckpt.has_checkpoint()
-            algos.append(
-                {
-                    "algorithm_id": aid,
-                    "name": getattr(algo, "name", aid),
-                    "has_ckpt": has_ckpt,
-                    "active_version": ckpt.active_version() or "",
-                    "version_count": len(versions),
-                    "category": getattr(algo, "category", ""),
-                }
-            )
+            algos.append({
+                "algorithm_id": aid,
+                "name": getattr(algo, "name", aid),
+                "has_ckpt": has_ckpt,
+                "active_version": ckpt.active_version() or "",
+                "version_count": len(versions),
+                "category": getattr(algo, "category", ""),
+            })
 
         trained = sum(1 for a in algos if a["has_ckpt"])
         self._algo_count_lbl.config(text=f"{len(algos)} 算法 · 已训练 {trained}")
@@ -314,9 +338,9 @@ class FinetunePanel(BaseTrainingPanel):
                 self._algo_inner, bg=C["bg_surface"], highlightthickness=1, highlightbackground=C["border_sub"]
             )
             row.pack(fill=tk.X, pady=1)
-            row._algo_row_info = aid  # 供 _refresh_algo_row 按算法ID查找
+            row._algo_row_info = aid                            # 供 _refresh_algo_row 按算法 ID 查找
 
-            var = tk.BooleanVar(value=True)
+            var = tk.BooleanVar(value=True)                     # 默认全选
             self._algo_vars[aid] = var
             ttk.Checkbutton(row, variable=var).grid(row=0, column=0, padx=4, pady=2)
 
@@ -327,9 +351,9 @@ class FinetunePanel(BaseTrainingPanel):
                 row=0, column=2, padx=2, sticky="w"
             )
 
-            # 判断是否已有训练 checkpoint
+            # 状态列
             if a["has_ckpt"]:
-                st = f"✅ {a['active_version'][:10]}"
+                st = f"✅ {a['active_version'][:10]}"           # 已训练
                 sf = C["success"]
             else:
                 st = "□ 未训练"
@@ -338,34 +362,37 @@ class FinetunePanel(BaseTrainingPanel):
                 row=0, column=3, padx=2, sticky="w"
             )
 
-            # 置信度（全局）
+            # 置信度列（全局 checkpoint 的最终置信度）
             conf = load_algo_confidence(aid)
             conf_text, conf_color = format_confidence(conf)
             tk.Label(row, text=conf_text, bg=C["bg_surface"], fg=conf_color, font=FONT_SM, width=8, anchor="w").grid(
                 row=0, column=4, padx=2, sticky="w"
             )
 
+            # 版本数列
             tk.Label(
-                row,
-                text=f"v{a['version_count']}",
-                bg=C["bg_surface"],
-                fg=C["text_3"],
-                font=FONT_SM,
-                width=6,
-                anchor="w",
+                row, text=f"v{a['version_count']}", bg=C["bg_surface"], fg=C["text_3"],
+                font=FONT_SM, width=6, anchor="w",
             ).grid(row=0, column=5, padx=2, sticky="w")
 
     def _refresh_algo_row(
-        self,
-        row_idx: int,
-        aid: str,
-        status_text: str,
-        status_color: str,
-        conf_text: str = "",
-        conf_color: str = "",
-        ver_text: str = "",
+        self, row_idx: int, aid: str,
+        status_text: str, status_color: str,
+        conf_text: str = "", conf_color: str = "", ver_text: str = "",
     ):
-        """更新算法行指定列（不会重建整个列表）。"""
+        """
+        更新算法行指定列（不会重建整个列表，高效 UI 更新）
+
+        遍历 _algo_inner 子组件，找到 aid 匹配的行并更新状态/置信度/版本列。
+
+        :param row_idx: 未使用（兼容旧接口）
+        :param aid: 算法 ID
+        :param status_text: 新状态文本
+        :param status_color: 状态颜色
+        :param conf_text: 置信度文本
+        :param conf_color: 置信度颜色
+        :param ver_text: 版本号文本
+        """
         for w in self._algo_inner.winfo_children():
             info = getattr(w, "_algo_row_info", None)
             if info and info == aid:
@@ -380,14 +407,24 @@ class FinetunePanel(BaseTrainingPanel):
                 break
 
     def _toggle_algos(self, flag: bool):
-        """全选或反选所有算法复选框"""
+        """
+        全选或反选所有算法复选框
+
+        :param flag: True=全选，False=全部取消
+        """
         for v in self._algo_vars.values():
             v.set(flag)
 
-    # ── 置信度辅助（已提取到 helpers）──
+    # ── 置信度辅助 ──────────────────────────────────────────────────────────
 
     def _load_video_confidence(self, algo_id: str, bvid: str) -> float:
-        """读取视频微调 checkpoint 的置信度"""
+        """
+        读取视频微调 checkpoint 的置信度（基于 val_loss）
+
+        :param algo_id: 算法 ID
+        :param bvid: 视频 BV 号
+        :return: 置信度值 (0~1)
+        """
         try:
             from algorithms.training.checkpoint_manager import CheckpointManager
 
@@ -408,19 +445,27 @@ class FinetunePanel(BaseTrainingPanel):
         if hasattr(self.main, "training_panel") and self.main.training_panel is not None:
             self.main.training_panel._on_manage_versions()
 
-    # ══════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════════════════════════
     # 微调执行
-    # ══════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════════════════════════
 
     def _on_start(self):
-        """开始微调：校验选择、确认设置、启动后台训练线程"""
+        """
+        开始微调：校验选择 → 确认设置 → 启动后台训练线程
+
+        流程：
+        1. 校验视频和算法选择
+        2. 确认 epochs/batch/模式
+        3. 如果是增量模式且有历史 checkpoint，询问数据范围
+        4. 启动工作线程执行微调
+        """
         if self._training:
             return
         config = self._build_finetune_config()
         if config is None:
             return
         selected_videos, selected_algos, epochs, batch, total, mode = config
-        self._prepare_training()
+        self._prepare_training()                              # 初始化训练状态
         self._video_results.clear()
         self._auto_monitors.clear()
         self._auto_control = {}
@@ -437,12 +482,17 @@ class FinetunePanel(BaseTrainingPanel):
         self._status_lbl.config(text="准备任务…", fg=C["text_2"])
 
         def _cb(payload: Dict):
+            """训练进度回调（在训练线程中调用）"""
             self._handle_finetune_progress(payload, mode)
 
         self._start_finetune_worker(selected_videos, selected_algos, epochs, batch, total, mode, _cb)
 
     def _build_finetune_config(self):
-        """校验选择、确认设置、检查增量数据范围，返回训练配置或 None"""
+        """
+        校验选择、确认设置、检查增量数据范围
+
+        :return: (selected_videos, selected_algos, epochs, batch, total, mode) 或 None
+        """
         selected_videos = [b for b, v in self._video_vars.items() if v.get()]
         selected_algos = [a for a, v in self._algo_vars.items() if v.get()]
         if not selected_videos:
@@ -457,6 +507,7 @@ class FinetunePanel(BaseTrainingPanel):
         total = len(selected_videos) * len(selected_algos)
         mode = self._mode_var.get()
 
+        # 重新训练模式需要二次确认
         if mode == "retrain":
             if not messagebox.askyesno(
                 "重新训练",
@@ -466,6 +517,7 @@ class FinetunePanel(BaseTrainingPanel):
             ):
                 return None
 
+        # 确认参数
         if not messagebox.askyesno(
             "确认微调",
             f"模式: {'重新训练' if mode == 'retrain' else '增量微调'}\n"
@@ -475,6 +527,7 @@ class FinetunePanel(BaseTrainingPanel):
         ):
             return None
 
+        # 增量模式：询问是否只使用上次训练后的新数据
         self._use_new_data_only = False
         if mode == "incremental":
             has_prev = False
@@ -504,10 +557,25 @@ class FinetunePanel(BaseTrainingPanel):
         return (selected_videos, selected_algos, epochs, batch, total, mode)
 
     def _handle_finetune_progress(self, payload: Dict, mode: str):
-        """训练回调 — 运行在工作线程中，负责通信 + 自动调整"""
+        """
+        训练回调 — 运行在工作线程中，负责通信 + 自动训练质量调整
+
+        在 epoch 阶段进行自动质量监控：
+        - NaN 检测 → 提前停止
+        - Loss 爆炸 → 缩放 LR + 梯度裁剪
+        - 严重过拟合 → 提前停止 + weight_decay
+        - Loss 震荡 → 缩放 LR + 梯度裁剪
+        - 过拟合 → 缩放 LR + weight_decay
+        - 欠拟合 / 下降过慢 → 放大 LR
+        - 不再收敛 → 提前停止
+
+        :param payload: 训练阶段数据字典
+        :param mode: 训练模式
+        """
         payload["_mode"] = mode
         payload["_control"] = dict(self._auto_control) if self._auto_control else {}
 
+        # 检查跳过标记
         if self._skip_algo_flag[0]:
             self._auto_control["early_stop"] = True
             self._auto_control["_force_early_stop"] = True
@@ -515,6 +583,7 @@ class FinetunePanel(BaseTrainingPanel):
             self._train_queue.put(payload)
             return
 
+        # ── epoch 阶段的自动质量监控 ──
         if payload.get("stage") == "epoch":
             aid = payload.get("algo_id", "")
             bvid_ = payload.get("bvid", "") or self._current_bvid
@@ -528,6 +597,7 @@ class FinetunePanel(BaseTrainingPanel):
             mon = self._auto_monitors[key]
             mon.update(ep, tloss, vloss if vloss >= 0 else -1)
 
+            # 根据监控级别触发自动调整
             if mon.level in ("warning", "danger") and self._auto_control is not None:
                 status = mon.status
                 if "nan" in status.lower():
@@ -590,9 +660,20 @@ class FinetunePanel(BaseTrainingPanel):
         self._train_queue.put(payload)
 
     def _start_finetune_worker(self, selected_videos, selected_algos, epochs, batch, total, mode, progress_cb):
-        """创建后台工作线程并启动，遍历选定视频和算法逐一执行微调"""
+        """
+        创建后台工作线程并启动，遍历选定视频和算法逐一执行微调
+
+        :param selected_videos: 选中的视频 BV 号列表
+        :param selected_algos: 选中的算法 ID 列表
+        :param epochs: 训练轮数
+        :param batch: 批大小
+        :param total: 总任务数
+        :param mode: "incremental" 或 "retrain"
+        :param progress_cb: 进度回调函数
+        """
 
         def _worker():
+            """后台微调工作线程"""
             from algorithms.training.trainer import ModelTrainer
             from algorithms.training.checkpoint_manager import CheckpointManager
             import os as _os
@@ -610,6 +691,7 @@ class FinetunePanel(BaseTrainingPanel):
                         return
                     done += 1
 
+                    # 重新训练模式：先清除旧 checkpoint
                     if mode == "retrain":
                         vid_ckpt = CheckpointManager(aid, bvid=bvid)
                         deleted = vid_ckpt.delete_all()
@@ -620,25 +702,18 @@ class FinetunePanel(BaseTrainingPanel):
                         except Exception as e:
                             logger.debug("忽略异常: %s", e)
                         if deleted:
-                            self._train_queue.put(
-                                {
-                                    "stage": "log",
-                                    "text": f"  🗑 已清除 {aid}@{bvid} 的 {deleted} 个旧版本",
-                                }
-                            )
+                            self._train_queue.put({
+                                "stage": "log",
+                                "text": f"  🗑 已清除 {aid}@{bvid} 的 {deleted} 个旧版本",
+                            })
 
                     self._skip_algo_flag[0] = False
                     self.frame.after(0, lambda: self._skip_btn.config(state="normal"))
 
-                    self._train_queue.put(
-                        {
-                            "stage": "start",
-                            "done": done,
-                            "total": total,
-                            "aid": aid,
-                            "bvid": bvid,
-                        }
-                    )
+                    self._train_queue.put({
+                        "stage": "start", "done": done, "total": total,
+                        "aid": aid, "bvid": bvid,
+                    })
                     self._auto_control = {}
                     default_epochs = epochs
                     self._algo_lr_factors[aid] = 1.0
@@ -657,13 +732,11 @@ class FinetunePanel(BaseTrainingPanel):
                     except Exception as e:
                         logger.debug("忽略异常: %s", e)
                     algo_factor = self._algo_lr_factors.get(aid, 1.0)
-                    effective_lr = (prev_lr or 0.001) * algo_factor
+                    effective_lr = (prev_lr or 0.001) * algo_factor   # 应用累积学习率因子
                     try:
                         ver = trainer.finetune_for_video(
-                            algo_id=aid,
-                            bvid=bvid,
-                            epochs=default_epochs,
-                            batch_size=batch,
+                            algo_id=aid, bvid=bvid,
+                            epochs=default_epochs, batch_size=batch,
                             progress_cb=progress_cb,
                             control_dict=self._auto_control,
                             lr=effective_lr,
@@ -675,47 +748,23 @@ class FinetunePanel(BaseTrainingPanel):
                         if versions:
                             val_loss = versions[0].get("val_loss", -1.0)
                         conf = loss_to_confidence(val_loss)
-                        self._train_queue.put(
-                            {
-                                "stage": "done",
-                                "done": done,
-                                "total": total,
-                                "aid": aid,
-                                "bvid": bvid,
-                                "version": ver[:12],
-                                "confidence": conf,
-                                "val_loss": val_loss,
-                            }
-                        )
+                        self._train_queue.put({
+                            "stage": "done", "done": done, "total": total,
+                            "aid": aid, "bvid": bvid,
+                            "version": ver[:12], "confidence": conf, "val_loss": val_loss,
+                        })
                     except Exception as e:
-                        self._train_queue.put(
-                            {
-                                "stage": "error",
-                                "done": done,
-                                "total": total,
-                                "aid": aid,
-                                "bvid": bvid,
-                                "error": str(e),
-                            }
-                        )
+                        self._train_queue.put({
+                            "stage": "error", "done": done, "total": total,
+                            "aid": aid, "bvid": bvid, "error": str(e),
+                        })
             self._train_queue.put({"stage": "all_done", "done": done, "total": total})
 
         self._launch_worker(_worker)
 
-    def _on_cancel(self):
-        """取消当前正在运行的全部微调任务"""
-        self._cancel_flag[0] = True
-        if self._cancel_btn:
-            self._cancel_btn.config(state="disabled")
-        self._append_log("⏹ 用户请求取消")
-        self.main.set_finetune_status("⏹ 微调已取消", color=C["warning"])
-
-    def _on_skip_algo(self):
-        """跳过当前正在微调的（视频,算法）对，继续下一个。"""
-        self._skip_algo_flag[0] = True
-        if self._skip_btn:
-            self._skip_btn.config(state="disabled")
-        self._append_log("⏭ 用户请求跳过当前任务")
+    # ══════════════════════════════════════════════════════════════════════════
+    # 阶段处理（消息驱动 UI 更新）
+    # ══════════════════════════════════════════════════════════════════════════
 
     STAGE_HANDLERS = {
         "start": "_on_stage_start",
@@ -728,8 +777,28 @@ class FinetunePanel(BaseTrainingPanel):
         "all_done": "_on_stage_all_done",
     }
 
+    def _on_cancel(self):
+        """取消当前正在运行的全部微调任务（通过 flag 标记）"""
+        self._cancel_flag[0] = True
+        if self._cancel_btn:
+            self._cancel_btn.config(state="disabled")
+        self._append_log("⏹ 用户请求取消")
+        self.main.set_finetune_status("⏹ 微调已取消", color=C["warning"])
+
+    def _on_skip_algo(self):
+        """跳过当前正在微调的 (视频,算法) 对，继续下一个"""
+        self._skip_algo_flag[0] = True
+        if self._skip_btn:
+            self._skip_btn.config(state="disabled")
+        self._append_log("⏭ 用户请求跳过当前任务")
+
     def _handle_stage(self, msg) -> bool:
-        """根据消息阶段字段分发到对应的处理函数"""
+        """
+        根据消息阶段字段分发到对应的处理函数
+
+        :param msg: 阶段消息字典
+        :return: 是否已处理（True=终止队列循环）
+        """
         stage = msg.get("stage")
         handler_name = self.STAGE_HANDLERS.get(stage)
         if handler_name:
@@ -775,7 +844,7 @@ class FinetunePanel(BaseTrainingPanel):
         conf = loss_to_confidence(vloss) if vloss >= 0 else 0.0
         conf_str, _ = format_confidence(conf)
 
-        # 计算并更新进度百分比
+        # 更新进度百分比
         pct = min(100, int((ep / max(1, eps)) * 100))
         self._progress["value"] = pct
         vtxt = f"  val={vloss:.4f}" if vloss >= 0 else ""
@@ -783,13 +852,11 @@ class FinetunePanel(BaseTrainingPanel):
         ep_display = f"{total_ep}/{total_eps}" if total_eps != eps else f"{ep}/{eps}"
         if ctrl_data.get("early_stop"):
             self._status_lbl.config(
-                text=f"{aid}@{bvid}  ep{ep_display}  ⏹ 即将停止",
-                fg=C["warning"],
+                text=f"{aid}@{bvid}  ep{ep_display}  ⏹ 即将停止", fg=C["warning"],
             )
         elif ctrl_data.get("lr_scale"):
             self._status_lbl.config(
-                text=f"{aid}@{bvid}  ep{ep_display}  ⚡ 调整LR",
-                fg=C["warning"],
+                text=f"{aid}@{bvid}  ep{ep_display}  ⚡ 调整LR", fg=C["warning"],
             )
         else:
             self._status_lbl.config(
@@ -800,15 +867,10 @@ class FinetunePanel(BaseTrainingPanel):
         self._monitor.update(ep, tloss, vloss if vloss >= 0 else -1)
         self._refresh_monitor()
 
-        self._loss_history.append(
-            {
-                "algo": aid,
-                "bvid": bvid,
-                "epoch": ep,
-                "train_loss": tloss,
-                "val_loss": vloss,
-            }
-        )
+        self._loss_history.append({
+            "algo": aid, "bvid": bvid, "epoch": ep,
+            "train_loss": tloss, "val_loss": vloss,
+        })
         self._update_chart()
         adj = msg.get("_adjustment", "")
         adj_suffix = f"  |  {adj}" if adj else ""
@@ -816,8 +878,7 @@ class FinetunePanel(BaseTrainingPanel):
             f"  epoch {total_ep:>3}/{total_eps}  |  "
             f"train_loss={tloss:.6f}  |  "
             f"{f'val_loss={vloss:.6f}' if vloss >= 0 else 'val_loss=N/A'}  |  "
-            f"confidence={conf_str}  |  "
-            f"{elapsed:.1f}s{adj_suffix}"
+            f"confidence={conf_str}  |  {elapsed:.1f}s{adj_suffix}"
         )
 
     def _on_stage_done(self, msg):
@@ -837,14 +898,9 @@ class FinetunePanel(BaseTrainingPanel):
 
         if bvid not in self._video_results:
             self._video_results[bvid] = []
-        self._video_results[bvid].append(
-            {
-                "aid": aid,
-                "version": ver,
-                "confidence": conf,
-                "val_loss": val_loss,
-            }
-        )
+        self._video_results[bvid].append({
+            "aid": aid, "version": ver, "confidence": conf, "val_loss": val_loss,
+        })
 
         self._refresh_algo_row(0, aid, f"✓ {ver}", C["success"], conf_str, conf_color, f"v{msg.get('done', 0)}")
 
@@ -887,7 +943,11 @@ class FinetunePanel(BaseTrainingPanel):
         return True
 
     def _on_stage_all_done(self, msg):
-        """处理全部微调完成事件：输出汇总信息并清理状态"""
+        """
+        处理全部微调完成事件：输出汇总信息并清理状态
+
+        汇总每个视频各算法的最终置信度。
+        """
         done = msg.get("done", 0)
         elapsed = time.time() - self._train_t0 if self._train_t0 else 0
 
@@ -922,12 +982,17 @@ class FinetunePanel(BaseTrainingPanel):
             except Exception as e:
                 logger.debug("忽略异常: %s", e)
 
-    # ══════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════════════════════════
     # 训练质量监控
-    # ══════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════════════════════════
 
     def _on_monitor_changed(self):
-        """记录训练质量变化日志，包含 LR 调整信息"""
+        """
+        记录训练质量变化日志
+
+        当监控级别达到 warning/danger 时输出详细诊断建议，
+        并显示累积学习率调整信息。
+        """
         if self._monitor.level in ("warning", "danger") and self._monitor.suggestions:
             cur_status = self._monitor.status
             last_status = getattr(self, "_last_monitor_status", "")
@@ -948,16 +1013,20 @@ class FinetunePanel(BaseTrainingPanel):
                     base_lr = 0.001
                     cur_lr = base_lr * factor
                     self._append_log(
-                        f"  📐 当前有效学习率: {cur_lr:.6f} (基础 {base_lr} × {factor:.2f}) — 自动调整已应用于后续训练"
+                        f"  📐 当前有效学习率: {cur_lr:.6f} (基础 {base_lr} × {factor:.2f})"
+                        f" — 自动调整已应用于后续训练"
                     )
 
-    # ══════════════════════════════════════════════
-    # 图表（使用基类 _update_chart / _clear_chart，
-    # 但重写 _get_chart_series 以按当前视频过滤）
-    # ══════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════════════════════════
+    # 图表（使用基类 _update_chart / _clear_chart，重写 _get_chart_series）
+    # ══════════════════════════════════════════════════════════════════════════
 
     def _get_chart_series(self):
-        """仅显示当前视频的 Loss 曲线"""
+        """
+        仅显示当前视频的 Loss 曲线
+
+        :return: [(algo_name, [history_points]), ...] 分组后的 Loss 历史数据
+        """
         current_algos = set(d["algo"] for d in self._loss_history if d.get("bvid") == self._current_bvid)
         if not current_algos:
             current_algos = set(d["algo"] for d in self._loss_history)

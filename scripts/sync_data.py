@@ -1,16 +1,28 @@
 """
 一次性数据同步脚本
 将 core/data/ 的旧数据结构数据同步到 data/ 新目录
+
+功能：
+1. 遍历旧目录中的视频专属数据库（每个 BV 号一个 .db 文件）
+2. 检查新目录中对应数据库的记录数
+3. 如果旧库有更多记录，增量合并到新库
+4. 如果新库不存在，直接复制整个数据库文件
+5. 同步中央数据库（bilibili_monitor.db）
+
+用于项目目录结构调整后的数据迁移，确保不丢失历史监控数据。
 """
 import os
 import shutil
 import sqlite3
 import sys
 
+# 将项目根目录加入 sys.path，以便导入 config 模块
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import DATA_DIR
 
+# 旧数据目录（core/data/）
 old_base = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "core", "data")
+# 新数据目录（data/）
 new_base = DATA_DIR
 
 print("=== 同步每个视频的数据库 ===")
@@ -72,6 +84,7 @@ for item in sorted(os.listdir(old_base)):
             print(f"  {item}: {new_cnt} 条记录 (已是最新)")
             new_conn.close()
     else:
+        # 新库不存在：复制整个文件
         os.makedirs(new_dir, exist_ok=True)
         shutil.copy2(old_db, new_db)
         print(f"  {item}: 0 -> {old_cnt} 条记录 (已复制)")

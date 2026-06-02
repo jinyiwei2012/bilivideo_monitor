@@ -1,7 +1,11 @@
 """
-右侧预测面板模块 - CustomTkinter 版
+右侧预测面板模块
 
-负责预测英雄卡（加权预测值 + 阈值进度条 + ETA）+ 信息面板（互动率、最近记录、算法统计）。
+负责展示预测英雄卡（加权预测值 + 阈值进度条 + ETA 预计到达时间）+ 
+信息面板（互动率概览、在线人数、最近历史记录、算法统计、数据健康）。
+
+主要组件:
+    PredictionPanel — 右侧面板的核心类，管理英雄卡和滚动信息区
 """
 
 import tkinter as tk
@@ -13,25 +17,37 @@ from ui.helpers import FONT, FONT_SM, FONT_MONO, THRESHOLDS, THRESHOLD_NAMES, TH
 
 
 class PredictionPanel:
-    """右侧预测面板"""
+    """右侧预测面板
+
+    布局:
+      - 上方: 预测英雄卡（固定高度，含加权预测值 + 增长率 + 各阈值进度条）
+      - 下方: 信息滚动区（互动率、在线人数、最近记录、算法统计、数据健康）
+    """
 
     def __init__(self, parent, gui):
+        """
+        Args:
+            parent: 父容器（右侧 Tkinter Frame）
+            gui: BilibiliMonitorGUI 实例
+        """
         self.gui = gui
         self._parent = parent
-        self._hero_widgets = {}  # 英雄卡片子控件引用
-        self._hero_has_data = False  # 标记英雄卡是否已有数据
-        self._info_frame = None  # 信息滚动区域
-        self._info_content = None
+        self._hero_widgets = {}      # 英雄卡片子控件引用字典
+        self._hero_has_data = False  # 标记英雄卡是否已有数据（用于判断增量更新 vs 首次构建）
+        self._info_frame = None      # 信息滚动区域
+        self._info_content = None    # 信息区域内容标记
         self._build_right_panel()
 
     def _build_right_panel(self):
-        """构建右侧面板：预测英雄卡 + 信息滚动区"""
+        """构建右侧面板：上方预测英雄卡 + 下方信息滚动区"""
         p = self._parent
+        # ── 预测英雄卡（固定高度） ──
         self._pred_hero = ctk.CTkFrame(p, fg_color=C["bg_surface"], corner_radius=0)
         self._pred_hero.pack(fill=tk.X)
-        tk.Frame(p, bg=C["border"], height=1).pack(fill=tk.X)
+        tk.Frame(p, bg=C["border"], height=1).pack(fill=tk.X)  # 分隔线
         self._build_pred_hero_empty()
 
+        # ── 信息滚动区域 ──
         info_wrap = ctk.CTkFrame(p, fg_color=C["bg_surface"], corner_radius=0)
         info_wrap.pack(fill=tk.BOTH, expand=True)
         self._info_frame = ctk.CTkScrollableFrame(
@@ -44,7 +60,7 @@ class PredictionPanel:
         self._info_frame.pack(fill=tk.BOTH, expand=True)
 
     def _build_pred_hero_empty(self):
-        """显示空状态预测英雄卡"""
+        """显示空状态预测英雄卡（未选择视频时的占位）"""
         if not self._hero_has_data and self._hero_widgets:
             return  # 已有占位，不再重复构建
         h = self._pred_hero
@@ -59,14 +75,20 @@ class PredictionPanel:
     def _build_pred_hero(self, weighted_pred, current_views, rate_per_sec):
         """构建或更新预测英雄卡片
 
-        :param weighted_pred: 加权预测播放量
-        :param current_views: 当前播放量
-        :param rate_per_sec: 每秒播放量增长速率
+        如果英雄卡已有数据，执行增量更新（避免重建导致闪烁）；
+        否则执行首次构建。
+
+        Args:
+            weighted_pred: 加权预测播放量（整数）
+            current_views: 当前播放量
+            rate_per_sec: 每秒播放量增长速率（float）
         """
         # ── 已有数据时的增量更新 ──
         if self._hero_has_data and "outer" in self._hero_widgets:
             w = self._hero_widgets
+            # 更新加权预测值
             w["val_lbl"].configure(text=fmt_num(weighted_pred))
+            # 更新增长量标签
             delta = weighted_pred - current_views
             delta_text = f"▲ +{fmt_num(delta)}" if delta >= 0 else f"▼ {fmt_num(delta)}"
             delta_color = C["success"] if delta >= 0 else C["danger"]
@@ -86,13 +108,15 @@ class PredictionPanel:
             else:
                 if "rate_lbl" in w:
                     w["rate_lbl"].pack_forget()
-            # 更新每个阈值行
+            # 更新每个阈值行的进度条宽度和 ETA 时间
             for i, (t, name, col) in enumerate(zip(THRESHOLDS, THRESHOLD_NAMES, THRESH_COLORS)):
                 if i >= len(w["thr_rows"]):
                     break
                 row_data = w["thr_rows"][i]
+                # 计算进度条百分比
                 pct = min(current_views / t, 1.0)
                 row_data["fill_frame"].place(x=0, y=0, relwidth=pct, relheight=1)
+                # 计算预计到达时间
                 if t <= current_views:
                     eta_str, eta_c = "✓ 已达成", C["success"]
                 elif rate_per_sec > 0:
@@ -100,6 +124,7 @@ class PredictionPanel:
                     seconds_left = need / rate_per_sec
                     arrive_dt = datetime.now() + timedelta(seconds=seconds_left)
                     eta_str = arrive_dt.strftime("%m-%d %H:%M")
+                    # 根据紧急程度设置颜色：<1h红 / <1d黄 / 其它灰
                     eta_c = (
                         C["danger"] if seconds_left < 3600 else C["warning"] if seconds_left < 86400 else C["text_2"]
                     )
@@ -116,7 +141,7 @@ class PredictionPanel:
         outer = ctk.CTkFrame(h, fg_color=C["bg_surface"], corner_radius=0)
         outer.pack(fill=tk.X, padx=14, pady=12)
 
-        # 标题
+        # 小标题
         ctk.CTkLabel(
             outer,
             text="🎯 综合加权预测",
@@ -125,7 +150,7 @@ class PredictionPanel:
             fg_color="transparent",
         ).pack(anchor="w")
 
-        # 加权预测值
+        # 加权预测值（大号等宽字体）
         val_lbl = ctk.CTkLabel(
             outer,
             text=fmt_num(weighted_pred),
@@ -135,14 +160,14 @@ class PredictionPanel:
         )
         val_lbl.pack(anchor="w", pady=(2, 0))
 
-        # 增长量
+        # 增长量（相对当前播放量的差值）
         delta = weighted_pred - current_views
         delta_text = f"▲ +{fmt_num(delta)}" if delta >= 0 else f"▼ {fmt_num(delta)}"
         delta_color = C["success"] if delta >= 0 else C["danger"]
         delta_lbl = ctk.CTkLabel(outer, text=delta_text, text_color=delta_color, font=FONT, fg_color="transparent")
         delta_lbl.pack(anchor="w")
 
-        # 速率指示器
+        # 速率指示器（自动选择最佳单位）
         rate_lbl = None
         if rate_per_sec > 0:
             per_min = rate_per_sec * 60
@@ -156,6 +181,7 @@ class PredictionPanel:
             rate_lbl = ctk.CTkLabel(outer, text=rate_str, text_color=C["accent"], font=FONT_SM, fg_color="transparent")
             rate_lbl.pack(anchor="w", pady=(2, 0))
 
+        # 分隔线
         tk.Frame(outer, bg=C["border"], height=1).pack(fill=tk.X, pady=6)
 
         # ── 各阈值进度条 + ETA ──
@@ -163,16 +189,20 @@ class PredictionPanel:
         for t, name, col in zip(THRESHOLDS, THRESHOLD_NAMES, THRESH_COLORS):
             row = ctk.CTkFrame(outer, fg_color=C["bg_surface"], corner_radius=0)
             row.pack(fill=tk.X, pady=2)
+            # 阈值名称标签
             ctk.CTkLabel(row, text=name, text_color=C["text_2"], font=FONT_SM, fg_color="transparent", width=38).pack(
                 side=tk.LEFT
             )
 
+            # 进度条背景
             bg_bar = ctk.CTkFrame(row, fg_color=C["bg_hover"], height=4, corner_radius=2)
             bg_bar.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
             bg_bar.pack_propagate(False)
             pct = min(current_views / t, 1.0)
+            # 进度条填充（使用 place 定位实现宽度动画）
             fill_frame = tk.Frame(bg_bar, bg=col, height=4)
             fill_frame.place(x=0, y=0, relwidth=pct, relheight=1)
+
             # 计算 ETA（预计到达时间）
             if t <= current_views:
                 eta_str, eta_c = "✓ 已达成", C["success"]
@@ -184,12 +214,14 @@ class PredictionPanel:
                 eta_c = C["danger"] if seconds_left < 3600 else C["warning"] if seconds_left < 86400 else C["text_2"]
             else:
                 eta_str, eta_c = "—", C["text_3"]
+            # ETA 标签（右对齐等宽字体）
             eta_lbl = ctk.CTkLabel(
                 row, text=eta_str, text_color=eta_c, font=FONT_MONO, fg_color="transparent", width=88, anchor="e"
             )
             eta_lbl.pack(side=tk.LEFT)
             thr_rows.append({"fill_frame": fill_frame, "eta_lbl": eta_lbl})
 
+        # 保存子控件引用，供增量更新使用
         self._hero_widgets = {
             "outer": outer,
             "val_lbl": val_lbl,
@@ -206,11 +238,17 @@ class PredictionPanel:
         self._info_content = None
 
     def update_info(self, video, history, prediction_result):
-        """更新右侧信息面板：互动率 + 数据健康 + 算法统计"""
+        """更新右侧信息面板：互动率 + 在线人数 + 最近记录 + 算法统计 + 数据健康
+
+        Args:
+            video: 视频数据字典
+            history: 历史数据列表 [(timestamp, view_count), ...]
+            prediction_result: 预测结果缓存字典
+        """
         self._clear_info()
         f = self._info_frame
 
-        # ── 互动率概览 ──
+        # ── 互动率概览（2列网格布局） ──
         self._section_title(f, "📊 互动率概览")
         views = max(video.get("view_count", 0), 1)
         likes = video.get("like_count", 0) or 0
@@ -254,7 +292,7 @@ class PredictionPanel:
                          text_color=C["accent"], font=("Consolas", 9), fg_color="transparent").pack(side=tk.RIGHT,
                                                                                                     padx=(0, 6))
 
-        # ── 最近记录 ──
+        # ── 最近记录（最近 15 条，每行显示时间、播放量、增量） ──
         self._section_title(f, "📋 最近记录")
         hist_container = ctk.CTkFrame(f, fg_color=C["bg_surface"], corner_radius=0)
         hist_container.pack(fill=tk.X, padx=10, pady=(0, 6))
@@ -280,7 +318,7 @@ class PredictionPanel:
             ctk.CTkLabel(hist_container, text="暂无历史数据", text_color=C["text_3"], font=FONT_SM,
                          fg_color="transparent", anchor="w").pack(fill=tk.X, pady=4)
 
-        # ── 算法统计 ──
+        # ── 算法统计（有效算法数 / 总算法数 / 集成置信度） ──
         self._section_title(f, "🧠 算法统计")
         algo_info = ctk.CTkFrame(f, fg_color=C["bg_surface"], corner_radius=0)
         algo_info.pack(fill=tk.X, padx=10, pady=(0, 6))
@@ -306,7 +344,7 @@ class PredictionPanel:
             ctk.CTkLabel(algo_info, text="等待首次预测", text_color=C["text_3"], font=FONT_SM,
                          fg_color="transparent", anchor="w").pack(fill=tk.X, pady=4)
 
-        # ── 数据健康 ──
+        # ── 数据健康（数据点数量） ──
         self._section_title(f, "📡 数据健康")
         health = ctk.CTkFrame(f, fg_color=C["bg_surface"], corner_radius=0)
         health.pack(fill=tk.X, padx=10, pady=(0, 6))
@@ -322,14 +360,24 @@ class PredictionPanel:
         self._info_content = True
 
     def _section_title(self, parent, text):
-        """绘制一个分节标题"""
+        """绘制一个分节标题（小号粗体文字）
+
+        Args:
+            parent: 父容器
+            text: 标题文本
+        """
         row = ctk.CTkFrame(parent, fg_color=C["bg_surface"], corner_radius=0)
         row.pack(fill=tk.X, padx=10, pady=(8, 2))
         ctk.CTkLabel(row, text=text, text_color=C["text_3"],
                      font=("Microsoft YaHei UI", 8, "bold"), fg_color="transparent").pack(side=tk.LEFT)
 
-    # 兼容旧接口 — 不再显示算法列表，转调 update_info
     def _update_algo_list(self, results, failed):
+        """兼容旧接口 — 不再显示单独的算法列表，转调用 update_info 刷新整体信息面板
+
+        Args:
+            results: 成功的算法结果列表
+            failed: 失败的算法结果列表
+        """
         bvid = self.gui.selected_bvid
         if not bvid:
             self._clear_info()
@@ -344,4 +392,5 @@ class PredictionPanel:
 
     @property
     def algo_frame(self):
+        """获取信息滚动区域的 Frame 对象（供外部清理子控件使用）"""
         return self._info_frame

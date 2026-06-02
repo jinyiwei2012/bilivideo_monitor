@@ -1,7 +1,30 @@
 """
-对话框模块 - CustomTkinter 版
+对话框模块 — CustomTkinter 版
 
-集中管理所有弹窗窗口的统一入口。
+本模块集中管理所有弹窗窗口的统一入口，作为主 GUI 与各子窗口之间的调度层。
+通过 Dialogs 类的各个 open_xxx() 方法，主窗口可以一致地打开所有的功能对话框。
+
+已集成的窗口入口：
+- open_tag_manager()          → 视频标签管理
+- open_backtest()             → 预测回测面板
+- open_ranking()              → 视频排行榜
+- open_anomaly_detection()    → 异常增长检测
+- open_interval_settings()    → 刷新间隔设置
+- open_database_query()       → 数据库查询
+- open_video_search()         → 视频搜索
+- open_data_comparison()      → 数据对比（趋势图+快照+录入）
+- open_crossover_analysis()   → 交叉计算
+- open_weekly_score()         → 周刊分数
+- open_milestone_stats()      → 里程碑统计
+- open_algorithm_comparison() → 算法可视化比较
+- open_algorithm_info()       → 算法信息
+- open_settings()             → 系统设置
+- open_up_tracker()           → UP主追踪
+- open_danmaku_analysis()     → 弹幕分析
+- open_trending_discovery()   → 热门发现
+- open_ai_qa()                → AI 智能问答
+- open_dashboard()            → 数据大屏
+- open_report_scheduler()     → 报告导出
 """
 
 import tkinter as tk
@@ -10,20 +33,30 @@ import threading
 import time
 import customtkinter as ctk
 
-from ui.theme import C
-from ui.scrollable_frame import ScrollableFrame
-from ui.helpers import FONT, FONT_SM, FAST_GAP, FAST_INTERVAL
+from ui.theme import C                                     # 颜色主题常量
+from ui.scrollable_frame import ScrollableFrame            # 可滚动 Frame 组件
+from ui.helpers import FONT, FONT_SM, FAST_GAP, FAST_INTERVAL  # UI 辅助
 
 
 class Dialogs:
-    """所有对话框的统一入口"""
+    """
+    所有对话框的统一入口类
+
+    每个 open_xxx() 方法对应一个功能窗口，内部通过 try/except
+    处理导入错误和运行时异常，并通过 messagebox 展示错误信息。
+    """
 
     def __init__(self, gui):
+        """
+        初始化对话框调度器
+
+        :param gui: 主 GUI 实例（BilibiliMonitorGUI），用于数据共享和回调
+        """
         self.gui = gui
 
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
     # 视频标签管理
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
 
     def open_tag_manager(self):
         """打开视频标签管理窗口"""
@@ -34,12 +67,12 @@ class Dialogs:
         except Exception as e:
             messagebox.showerror("错误", f"打开标签管理失败:\n{e}")
 
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
     # 预测回测
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
 
     def open_backtest(self):
-        """打开预测回测面板"""
+        """打开预测回测面板（对比历史预测值 vs 实际播放量）"""
         try:
             from ui.backtest_panel import BacktestPanel
 
@@ -47,12 +80,12 @@ class Dialogs:
         except Exception as e:
             messagebox.showerror("错误", f"打开预测回测失败:\n{e}")
 
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
     # 视频排行榜
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
 
     def open_ranking(self):
-        """打开视频排行榜"""
+        """打开视频排行榜（按播放量排序）"""
         try:
             from ui.ranking_panel import RankingPanel
 
@@ -60,12 +93,12 @@ class Dialogs:
         except Exception as e:
             messagebox.showerror("错误", f"打开排行榜失败:\n{e}")
 
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
     # 异常增长检测
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
 
     def open_anomaly_detection(self):
-        """打开异常检测面板"""
+        """打开异常检测面板（播放量突增/突降/停滞检测）"""
         try:
             from ui.anomaly_panel import AnomalyPanel
 
@@ -73,12 +106,16 @@ class Dialogs:
         except Exception as e:
             messagebox.showerror("错误", f"打开异常检测失败:\n{e}")
 
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
     # 刷新间隔设置
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
 
     def open_interval_settings(self):
-        """打开刷新间隔设置对话框"""
+        """
+        打开刷新间隔设置对话框
+
+        支持设置普通刷新间隔（秒），距阈值较近时自动切换快速模式。
+        """
         dialog = ctk.CTkToplevel(self.gui.root)
         dialog.title("刷新间隔设置")
         sw = self.gui.root.winfo_screenwidth()
@@ -87,7 +124,7 @@ class Dialogs:
         dialog.transient(self.gui.root)
         dialog.grab_set()
         dialog.resizable(True, True)
-        # 使主内容区可扩展
+        # 主内容区
         content = ctk.CTkFrame(dialog, fg_color="transparent")
         content.pack(fill=tk.BOTH, expand=True, padx=20, pady=(20, 0))
 
@@ -111,8 +148,8 @@ class Dialogs:
         ).pack(pady=6)
 
         def _save():
+            """保存设置并更新所有非快速模式的视频定时器"""
             self.gui.DEFAULT_INTERVAL = var.get()
-            # 更新所有非快速模式的视频定时器
             for video in self.gui.monitored_videos:
                 bvid = video.get("bvid", "")
                 timer = self.gui._video_timers.get(bvid)
@@ -123,30 +160,20 @@ class Dialogs:
         btn_f = ctk.CTkFrame(dialog, fg_color="transparent")
         btn_f.pack(side=tk.BOTTOM, pady=14)
         ctk.CTkButton(
-            btn_f,
-            text="保存",
-            fg_color=C["bilibili"],
-            hover_color=C["bilibili_dim"],
-            text_color="#ffffff",
-            font=FONT,
-            command=_save,
+            btn_f, text="保存", fg_color=C["bilibili"], hover_color=C["bilibili_dim"],
+            text_color="#ffffff", font=FONT, command=_save,
         ).pack(side=tk.LEFT, padx=6)
         ctk.CTkButton(
-            btn_f,
-            text="取消",
-            fg_color=C["bg_elevated"],
-            hover_color=C["bg_hover"],
-            text_color=C["text_2"],
-            font=FONT,
-            command=dialog.destroy,
+            btn_f, text="取消", fg_color=C["bg_elevated"], hover_color=C["bg_hover"],
+            text_color=C["text_2"], font=FONT, command=dialog.destroy,
         ).pack(side=tk.LEFT, padx=6)
 
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
     # 数据库查询
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
 
     def open_database_query(self):
-        """打开数据库查询窗口"""
+        """打开数据库查询窗口（查询播放记录、预测数据）"""
         try:
             from .database_query import DatabaseQueryWindow
 
@@ -154,12 +181,12 @@ class Dialogs:
         except Exception as e:
             messagebox.showerror("错误", f"打开数据库查询失败: {e}")
 
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
     # 视频搜索
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
 
     def open_video_search(self):
-        """打开视频搜索窗口"""
+        """打开视频搜索窗口（搜索并添加视频到监控列表）"""
         try:
             from .video_search import VideoSearchWindow
 
@@ -167,12 +194,12 @@ class Dialogs:
         except Exception as e:
             messagebox.showerror("错误", f"打开视频搜索失败: {e}")
 
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
     # 数据对比
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
 
     def open_data_comparison(self):
-        """打开数据对比窗口"""
+        """打开数据对比窗口（趋势折线图 + 快照柱状图 + 数据录入）"""
         try:
             from .data_comparison import DataComparisonWindow
 
@@ -186,12 +213,12 @@ class Dialogs:
         except Exception as e:
             messagebox.showerror("错误", f"打开数据对比失败: {e}")
 
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
     # 交叉计算
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
 
     def open_crossover_analysis(self):
-        """打开交叉计算窗口"""
+        """打开交叉计算窗口（预测多视频播放量交会时间）"""
         try:
             from .crossover_analysis import CrossoverAnalysisWindow
 
@@ -204,9 +231,9 @@ class Dialogs:
         except Exception as e:
             messagebox.showerror("错误", f"打开交叉计算失败: {e}")
 
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
     # 周刊分数
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
 
     def open_weekly_score(self):
         """打开周刊分数计算窗口"""
@@ -217,9 +244,9 @@ class Dialogs:
         except Exception as e:
             messagebox.showerror("错误", f"打开周刊分数计算失败: {e}")
 
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
     # 里程碑统计
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
 
     def open_milestone_stats(self):
         """打开里程碑统计窗口"""
@@ -236,27 +263,32 @@ class Dialogs:
 
             messagebox.showerror("错误", f"打开里程碑统计失败: {e}\n{traceback.format_exc()}")
 
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
     # 添加 BV 到监控（里程碑回调）
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
 
     def add_bvid_to_monitor(self, bvid: str):
-        """添加 BV 号到监控列表（供里程碑等模块回调）"""
-        # 去重检查
+        """
+        添加 BV 号到监控列表（供里程碑等模块回调使用）
+
+        自动去重检查，避免重复添加。
+
+        :param bvid: 视频 BV 号
+        """
         for v in self.gui.monitored_videos:
             if v.get("bvid") == bvid:
-                return
+                return                                      # 已存在，跳过
         entry = {"bvid": bvid, "title": bvid, "view_count": 0}
         self.gui.monitored_videos.append(entry)
-        self.gui._save_watch_list()
+        self.gui._save_watch_list()                         # 持久化到文件
         self.gui.log_panel.add_log("INFO", f"已将 {bvid} 加入监控列表（里程碑入口）")
 
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
     # 算法可视化比较
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
 
     def open_algorithm_comparison(self):
-        """打开算法比较窗口"""
+        """打开算法比较窗口（准确率柱状图 + 权重图 + 详细数据表）"""
         try:
             from .algorithm_comparison import AlgorithmComparisonWindow
 
@@ -266,12 +298,12 @@ class Dialogs:
 
             messagebox.showerror("错误", f"打开算法比较失败: {e}\n{traceback.format_exc()}")
 
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
     # 系统设置
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
 
     def open_settings(self):
-        """打开系统设置窗口"""
+        """打开系统设置窗口（API 密钥、通知、显示等全局配置）"""
         try:
             from .settings_window import SettingsWindow
 
@@ -279,16 +311,28 @@ class Dialogs:
         except Exception as e:
             messagebox.showerror("错误", f"打开系统设置失败: {e}")
 
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
     # 导入搜索结果
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
 
     def import_search_results(self, videos: list):
-        """导入搜索到的视频到监控列表"""
+        """
+        导入搜索到的视频到监控列表
+
+        在后台线程中逐个获取视频信息并添加到监控列表。
+
+        :param videos: [{bvid, title}, ...] 搜索结果列表
+        """
         if not videos:
             return
 
         def _worker():
+            """
+            后台工作线程：
+            1. 逐个检查视频是否已存在
+            2. 获取完整视频信息
+            3. 通过 after 回调主线程注册视频
+            """
             added, skipped = 0, 0
             from core import get_bilibili_api
 
@@ -311,7 +355,7 @@ class Dialogs:
                 except Exception as e:
                     self.gui.log_panel.add_log("WARNING", f"导入 {bvid} 失败: {e}")
                     skipped += 1
-                time.sleep(0.3)
+                time.sleep(0.3)                              # API 请求间隔
 
             self.gui.root.after(0, self.gui._save_watch_list)
             msg = f"成功导入 {added} 个视频"
@@ -323,12 +367,19 @@ class Dialogs:
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
     # 算法信息
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
 
     def open_algorithm_info(self):
-        """打开算法信息对话框"""
+        """
+        打开算法信息对话框
+
+        显示内容：
+        1. 已加载的算法总数
+        2. 前 20 个算法的名称、权重和准确率
+        3. 高级模块状态（在线学习、因果推断、图神经网络是否可用）
+        """
         dialog = tk.Toplevel(self.gui.root)
         dialog.title("算法信息")
         sw = self.gui.root.winfo_screenwidth()
@@ -348,11 +399,9 @@ class Dialogs:
         _algo_sf = ScrollableFrame(dialog, bg=C["bg_surface"])
         scrollable_frame = _algo_sf.inner
 
-        # 算法信息
         try:
             from algorithms.registry import AlgorithmRegistry
 
-            # 获取算法信息
             algo_names = AlgorithmRegistry.get_algorithm_names()
             algo_infos = AlgorithmRegistry.get_weights_info()
 
@@ -455,9 +504,9 @@ class Dialogs:
         # 关闭按钮
         ttk.Button(dialog, text="关闭", command=dialog.destroy).pack(pady=(0, 15))
 
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
     # UP主追踪
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
 
     def open_up_tracker(self):
         """打开 UP主 追踪窗口"""
@@ -471,12 +520,12 @@ class Dialogs:
 
             messagebox.showerror("错误", f"打开UP主追踪失败: {e}\n{traceback.format_exc()}")
 
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
     # 弹幕分析
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
 
     def open_danmaku_analysis(self):
-        """打开弹幕分析窗口"""
+        """打开弹幕分析窗口（情绪分析、关键词提取）"""
         try:
             from .danmaku_analysis import DanmakuAnalysisWindow
             from core import get_bilibili_api
@@ -487,12 +536,12 @@ class Dialogs:
 
             messagebox.showerror("错误", f"打开弹幕分析失败: {e}\n{traceback.format_exc()}")
 
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
     # 热门发现
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
 
     def open_trending_discovery(self):
-        """打开热门发现窗口"""
+        """打开热门发现窗口（发现热门视频并加入监控）"""
         try:
             from .trending_discovery import TrendingDiscoveryWindow
             from core import get_bilibili_api
@@ -503,12 +552,12 @@ class Dialogs:
 
             messagebox.showerror("错误", f"打开热门发现失败: {e}\n{traceback.format_exc()}")
 
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
     # AI智能问答
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
 
     def open_ai_qa(self):
-        """打开 AI 智能问答窗口"""
+        """打开 AI 智能问答窗口（聊天气泡风格对话界面）"""
         try:
             from .ai_qa_window import AIQAWindow
 
@@ -518,12 +567,12 @@ class Dialogs:
 
             messagebox.showerror("错误", f"打开AI问答失败: {e}\n{traceback.format_exc()}")
 
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
     # 数据大屏
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
 
     def open_dashboard(self):
-        """打开数据大屏窗口"""
+        """打开数据大屏窗口（全屏自动轮播展示）"""
         try:
             from .dashboard_mode import DashboardWindow
 
@@ -533,12 +582,12 @@ class Dialogs:
 
             messagebox.showerror("错误", f"打开数据大屏失败: {e}\n{traceback.format_exc()}")
 
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
     # 报告导出
-    # ──────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
 
     def open_report_scheduler(self):
-        """打开报告导出窗口"""
+        """打开报告导出窗口（定时报告生成）"""
         try:
             from .report_scheduler import ReportSchedulerWindow
 

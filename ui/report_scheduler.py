@@ -1,5 +1,16 @@
 """
-报告定时器设置窗口 — 手动或定时生成数据报告（CSV/JSON/HTML/Excel）
+报告定时器设置窗口模块 — 手动或定时生成数据报告（CSV/JSON/HTML/Excel）
+
+支持:
+  - 手动导出: 按选定格式立即导出监控数据报告
+  - 预测对比表导出: 导出预测值 vs 实际播放量的对照表
+  - 定时导出: 按计划自动导出到 reports/ 目录，支持 hourly/daily/weekly 间隔
+  - 已导出文件列表: 查看和打开已导出的报告文件
+
+配置持久化: 定时设置保存到 data/.export_schedule.json
+
+主要组件:
+    ReportSchedulerWindow — 报告导出与定时器设置窗口
 """
 
 import os
@@ -15,13 +26,25 @@ from config import DATA_DIR
 
 logger = logging.getLogger(__name__)
 
+# 定时导出配置文件路径
 _SCHEDULE_CONFIG = Path(DATA_DIR) / ".export_schedule.json"
 
 
 class ReportSchedulerWindow:
-    """报告导出与定时器设置窗口"""
+    """报告导出与定时器设置窗口
+
+    提供三种导出模式:
+      1. 手动导出 — 立即按选定格式导出
+      2. 预测对比 — 导出预测值 vs 实际值对比表
+      3. 定时导出 — 按计划自动导出
+    """
 
     def __init__(self, parent=None, gui=None):
+        """
+        Args:
+            parent: 父窗口
+            gui: BilibiliMonitorGUI 实例（用于访问监控数据）
+        """
         sw = parent.winfo_screenwidth() if parent else 1920
         sh = parent.winfo_screenheight() if parent else 1080
         self.dlg = DialogBase(
@@ -29,11 +52,11 @@ class ReportSchedulerWindow:
         )
         self.window = self.dlg.window
         self.gui = gui
-        self._scheduled_job = None
+        self._scheduled_job = None  # 定时导出的 after 任务 ID
         self._setup_ui()
 
     def _setup_ui(self):
-        """构建报告定时器设置窗口 UI：手动导出、定时导出、已导出文件列表"""
+        """构建报告定时器设置窗口 UI：手动导出 + 定时导出 + 已导出文件列表"""
         self.dlg.header("定时导出报告", "手动导出 / 按计划自动导出 CSV / JSON / HTML / Excel")
 
         # ── 手动导出 ──
@@ -112,7 +135,11 @@ class ReportSchedulerWindow:
         self._load_schedule()
 
     def _export_pred_vs_actual(self):
-        """导出预测值 vs 实际播放量对比表"""
+        """导出预测值 vs 实际播放量对比表
+
+        从数据库中的预测记录和实际监控记录中提取数据，
+        生成预测准确度对比的 CSV 表格。
+        """
         if not self.gui or not self.gui.video_dbs:
             messagebox.showwarning("提示", "暂无预测数据", parent=self.window)
             return
@@ -130,7 +157,15 @@ class ReportSchedulerWindow:
             self._export_status.config(text=f"❌ 导出失败: {e}", fg=C["danger"])
 
     def _export_now(self):
-        """立即按选定格式导出监控数据报告"""
+        """立即按选定格式导出监控数据报告
+
+        支持的格式:
+          - html  : HTML 可视化报告
+          - excel : Excel 表格
+          - csv   : CSV 纯数据
+          - json  : JSON 结构化数据
+          - both  : 同时导出以上四种格式
+        """
         if not self.gui or not self.gui.monitored_videos:
             messagebox.showwarning("提示", "暂无监控视频数据", parent=self.window)
             return
@@ -160,12 +195,22 @@ class ReportSchedulerWindow:
     # ── 定时导出 ──
 
     def _on_schedule_toggle(self):
-        """启用定时导出时重置间隔和格式为默认值"""
+        """启用定时导出时重置间隔和格式为默认值
+
+        默认间隔: daily（每天一次）
+        默认格式: csv
+        """
         self._interval_var.set("daily")
         self._schedule_format_var.set("csv")
 
     def _load_schedule(self):
-        """从配置文件加载已保存的定时设置"""
+        """从配置文件加载已保存的定时设置
+
+        读取 data/.export_schedule.json 中的:
+          - enabled: 是否启用
+          - interval: 导出间隔（hourly/daily/weekly）
+          - format: 导出格式
+        """
         try:
             if _SCHEDULE_CONFIG.exists():
                 data = json.loads(_SCHEDULE_CONFIG.read_text(encoding="utf-8"))
@@ -177,7 +222,10 @@ class ReportSchedulerWindow:
             logger.debug("忽略异常: %s", e)
 
     def _save_schedule(self):
-        """保存定时设置到配置文件并排程下一次导出"""
+        """保存定时设置到配置文件并排程下一次导出
+
+        将当前设置写入 JSON 文件，如果启用了定时导出则排程首次导出。
+        """
         data = {
             "enabled": self._schedule_enabled.get(),
             "interval": self._interval_var.get(),
@@ -193,7 +241,13 @@ class ReportSchedulerWindow:
             self._schedule_status.config(text=f"保存失败: {e}", fg=C["danger"])
 
     def _schedule_next(self):
-        """用 root.after 排程下次导出"""
+        """用 root.after 排程下次导出
+
+        根据间隔计算延迟:
+          - hourly: 3600000ms (1小时)
+          - daily:  86400000ms (24小时)
+          - weekly: 604800000ms (7天)
+        """
         if not self._schedule_enabled.get() or not self.gui:
             return
         interval = self._interval_var.get()
@@ -202,7 +256,10 @@ class ReportSchedulerWindow:
         self._scheduled_job = self.gui.root.after(delay_ms, self._do_scheduled_export)
 
     def _do_scheduled_export(self):
-        """执行定时导出并重新排程"""
+        """执行定时导出并重新排程
+
+        调用对应格式的导出函数，完成后刷新文件列表并排程下一次。
+        """
         if not self.gui or not self.gui.monitored_videos:
             self._schedule_next()
             return
@@ -222,7 +279,10 @@ class ReportSchedulerWindow:
     # ── 文件列表 ──
 
     def _refresh_file_list(self):
-        """刷新已导出文件列表，显示最近的 30 个文件"""
+        """刷新已导出文件列表，显示 recent 的 30 个文件
+
+        展示每个文件的名称和大小（KB/MB）。
+        """
         self._file_list.delete(0, tk.END)
         reports_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "reports")
         if os.path.isdir(reports_dir):
@@ -233,11 +293,11 @@ class ReportSchedulerWindow:
                 self._file_list.insert(tk.END, f"{f}  ({size_str})")
 
     def _open_folder(self):
-        """打开报告导出目录"""
+        """打开报告导出目录（使用系统文件管理器）"""
         reports_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "reports")
         os.makedirs(reports_dir, exist_ok=True)
         try:
-            os.startfile(reports_dir)
+            os.startfile(reports_dir)  # Windows
         except AttributeError:
             import subprocess
             subprocess.run(["explorer", reports_dir])

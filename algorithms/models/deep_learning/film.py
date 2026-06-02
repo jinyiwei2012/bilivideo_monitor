@@ -1,11 +1,13 @@
 """
-FiLM (Frequency improved Legendre Memory Model)
-频率改进的 Legendre 记忆模型，NeurIPS 2022
+FiLM (频率改进的 Legendre 记忆模型 / Frequency improved Legendre Memory Model)
+NeurIPS 2022
 
 核心思路：
-1. Legendre 多项式基底对时间维做正交投影
-2. 频率混合层捕捉时序中的周期性模式
-3. MLP 预测头输出
+1. Legendre 多项式基底对时间维做正交投影——将时间序列映射到正交函数空间
+2. 频率混合层捕捉时序中的周期性模式——通过 FFT 频谱分析找到主导周期
+3. MLP 预测头输出增长预测
+
+与纯 Legendre Memory 的区别：增加了 FFT 频率分析，将周期信息融入记忆
 """
 
 import logging
@@ -19,7 +21,15 @@ logger = logging.getLogger(__name__)
 
 
 class FiLMAlgorithm(BaseAlgorithm):
-    """FiLM 频率 Legendre 记忆"""
+    """FiLM 频率 Legendre 记忆算法。
+
+    核心机制：
+    - Legendre 多项式拟合（3 阶）：前 4 个 Legendre 多项式作为正交基底
+    - FFT 频谱分析：去趋势残差的频谱，找到主导频率周期
+    - 混合预测：趋势增长 × 周期因子 = 综合增长
+
+    适用场景：有明显周期性模式（如周周期）的视频播放量预测
+    """
 
     name = "FiLM频率记忆"
     algorithm_id = "film"
@@ -28,24 +38,58 @@ class FiLMAlgorithm(BaseAlgorithm):
     default_weight = 1.3
 
     training_window = 12
+    """训练窗口长度（时间步数）"""
     training_horizon = 3
+    """预测步数"""
 
     def predict(self, video_data, threshold=100000):
+        """预测到达目标播放量所需时间。
+
+        优先使用 torch 模型推理，失败降级到 numpy。
+
+        Args:
+            video_data: 视频数据字典
+            threshold: 目标播放量阈值，默认 100000
+
+        Returns:
+            PredictionResult 预测结果对象
+        """
         return try_torch_predict(
             self, video_data, threshold, FiLMTorchModel, self._numpy_predict,
             window=self.training_window, horizon=self.training_horizon,
         )
 
     def build_model(self):
+        """构建训练用的 PyTorch 模型。
+
+        Returns:
+            FiLMTorchModel 实例
+        """
         return FiLMTorchModel(
             in_features=getattr(self, '_training_n_features', 5),
             window=self.training_window, horizon=self.training_horizon, d_model=32,
         )
 
     def get_training_features(self) -> List[str]:
+        """获取训练使用的特征列表。
+
+        Returns:
+            特征名称列表
+        """
         return ["view_count", "like_count", "coin_count", "favorite_count", "share_count"]
 
     def _numpy_predict(self, video_data, threshold=100000):
+        """numpy 降级预测 - 简化版 FiLM。
+
+        Legendre 多项式拟合 + FFT 频谱分析。
+
+        Args:
+            video_data: 视频数据字典
+            threshold: 目标播放量阈值
+
+        Returns:
+            PredictionResult 预测结果对象
+        """
         current_views = video_data.get("view_count", 0)
         history = video_data.get("history_data", [])
         velocity = self.calculate_velocity(video_data)
@@ -65,25 +109,26 @@ class FiLMAlgorithm(BaseAlgorithm):
         views = np.array([h.get("view_count", 0) for h in history[-20:]], dtype=np.float64)
         n = len(views)
 
-        # Legendre 多项式拟合（3阶）
+        # Legendre 多项式拟合（3阶，共4个基底）
+        # 将时间映射到 [-1, 1]
         x = np.arange(n) / max(n - 1, 1) * 2 - 1  # [-1, 1]
-        P0 = np.ones(n)
-        P1 = x
-        P2 = 0.5 * (3 * x**2 - 1)
-        P3 = 0.5 * (5 * x**3 - 3 * x)
+        P0 = np.ones(n)  # 0 阶 Legendre
+        P1 = x  # 1 阶
+        P2 = 0.5 * (3 * x**2 - 1)  # 2 阶
+        P3 = 0.5 * (5 * x**3 - 3 * x)  # 3 阶
         polys = np.column_stack([P0, P1, P2, P3])
-        coeffs = np.linalg.lstsq(polys, views, rcond=None)[0]
-        fitted = polys @ coeffs
+        coeffs = np.linalg.lstsq(polys, views, rcond=None)[0]  # 最小二乘拟合
+        fitted = polys @ coeffs  # 拟合值
 
-        # FFT 频谱分析
+        # FFT 频谱分析（在去趋势残差上）
         fft = np.fft.rfft(views - fitted)
         freqs = np.abs(fft)
-        dominant_idx = np.argmax(freqs[1:]) + 1 if len(freqs) > 1 else 0
-        period = n / dominant_idx if dominant_idx > 0 else n
+        dominant_idx = np.argmax(freqs[1:]) + 1 if len(freqs) > 1 else 0  # 跳过直流分量
+        period = n / dominant_idx if dominant_idx > 0 else n  # 主导周期
 
         # 趋势 + 周期混合
-        trend_growth = coeffs[1] * 2 / n if n > 1 else 0
-        cycle_factor = 1 + 0.3 * (freqs[dominant_idx] / max(np.sum(freqs), 1))
+        trend_growth = coeffs[1] * 2 / n if n > 1 else 0  # 一阶系数反映趋势
+        cycle_factor = 1 + 0.3 * (freqs[dominant_idx] / max(np.sum(freqs), 1))  # 周期增强因子
         growth = max(0, trend_growth * cycle_factor)
 
         predicted_velocity = max(0, growth / 3600)

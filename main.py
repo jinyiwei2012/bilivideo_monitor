@@ -16,22 +16,18 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 
-# ── 源码完整性校验 ──────────────────────────
 # 校验必须在 from ui import main 之前执行，防止篡改代码先于检查加载
 # SHA-256 哈希列表，在发布前通过 python scripts/update_hashes.py 更新
 # 开发时创建 .devmode 文件（内容 SHA-256 须匹配 _DEVMODE_HASH）可跳过校验
 # main.py 不参与自校验（SHA256(self)=H 数学上不可解），由 git 版本控制保证
 _INTEGRITY_HASHES: dict[str, str] = {
-    "core/bilibili_api.py": "DEF54F55A27B50369F1612CBBC7B8BFB8C766962734424D812E07CB995DFBF5D",
-    "algorithms/registry.py": "3617705AB71B573BF05C3ACACBF7B32C0DFF6AA6BBD73C8B249DAE147CB89EE0",
-    "algorithms/base.py": "0B40B1355723B00EFC95CB19778451231B8DEB0764358FD70E6765A98CDCCDCF",
-    "core/notification.py": "01FC9B3671F4A364E679368FCB1ECA02361892C85FD47C35F79A5E2EB89C8488",
+    "core/bilibili_api.py": "9DD10A536A1E8235DBCC5AAE53F0CB665776E346E8CCF23761EA31245806C281",
+    "algorithms/registry.py": "F3D4D960D3E4B7642C338CACDDA3BA0F4EFF87CE987450807DCD2F6F40738719",
+    "algorithms/base.py": "1D408E7C07410910379CA00F99D2A396F0716F21B988A18B1C3F6CEEE3B5C56C",
+    "core/notification.py": "19B2222BA483C9BBCFCFD74949190AE9C33EE09DCD2CD43E49795AE080DBB5A3",
 }
 # .devmode 文件内容的期望 SHA-256（去除首尾空白后）
 _DEVMODE_HASH = "40175C25B9517A906FCF778E50387017BB8FA6121D28EBD0720474E85EE7ECA8"
-
-
-# ── 源码完整性校验 ──────────────────────────
 
 
 def _verify_devmode() -> bool:
@@ -46,8 +42,9 @@ def _verify_devmode() -> bool:
                 h = hashlib.sha256(content.encode()).hexdigest().upper()
                 if h == _DEVMODE_HASH:
                     return True
-            except Exception:
-                pass
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).debug("读取 .devmode 文件失败: %s", e)
     return False
 
 
@@ -121,7 +118,8 @@ if __name__ == "__main__":
     args, _ = parser.parse_known_args()
 
     if not args.no_engine:
-        _start_backend_engine()
+        engine = _start_backend_engine()
+        # 引擎通过 get_engine() 全局单例访问，此处仅确保启动
 
     if args.web_only:
         from web_entry import start_api_server

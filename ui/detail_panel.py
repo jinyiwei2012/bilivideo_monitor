@@ -1,7 +1,20 @@
 """
-中间详情面板模块 - CustomTkinter 版
+中间详情面板模块 — CustomTkinter 版
 
-负责视频详情头部、统计栏、图表切换、详细数据文本、互动率等展示。
+本模块负责主窗口中间列的详情展示区域，包含以下功能：
+
+1. 视频详情头部 — 标题、UP主、时长、BV号（可点击复制）、微调工具栏
+2. 统计栏 — 播放量、点赞、投币、收藏、弹幕、评论、在线人数、
+   点赞率、周刊分数、年刊分数（10 个指标卡片）
+3. 图表切换标签页：
+   - 播放量趋势 — Canvas 图表（新增/增量/全量三种模式）
+   - 详细数据 — 视频全量信息的文本展示
+   - 互动率 — 点赞率/投币率/收藏率/弹幕率的进度条展示
+4. 图表控制栏 — 模式切换、数据点数量、渲染按钮
+
+图表支持指纹缓存（数据不变时跳过重绘），三种模式中：
+- step（新增）自动渲染
+- delta（增量）/ full（全量）需要用户手动点击渲染
 """
 
 import tkinter as tk
@@ -10,54 +23,72 @@ import threading
 from datetime import datetime
 import customtkinter as ctk
 
-from ui.theme import C
+from ui.theme import C                                     # 颜色主题常量
 from ui.helpers import (
-    FONT,
-    FONT_SM,
-    FONT_BOLD,
-    FONT_MONO,
-    THRESHOLDS,
-    THRESHOLD_NAMES,
-    fmt_num,
+    FONT, FONT_SM, FONT_BOLD, FONT_MONO,                  # 字体常量
+    THRESHOLDS, THRESHOLD_NAMES,                           # 阈值定义
+    fmt_num,                                                # 数字格式化
 )
-from ui.chart import draw_chart, draw_chart_placeholder
-from utils.weekly_score import calculate_from_dict as _calc_ws
-from utils.yearly_score import calculate_yearly_from_dict as _calc_ys
-from utils.update_checker import _confirm_risky
+from ui.chart import draw_chart, draw_chart_placeholder     # 图表绘制
+from utils.weekly_score import calculate_from_dict as _calc_ws     # 周刊分数计算
+from utils.yearly_score import calculate_yearly_from_dict as _calc_ys  # 年刊分数计算
+from utils.update_checker import _confirm_risky             # 危险操作确认
 
 
 class DetailPanel:
-    """中间详情面板"""
+    """
+    中间详情面板
+
+    管理视频详情的完整展示，包括头部信息、统计数据、图表和互动率。
+    支持标签页切换和图表模式切换。
+    """
 
     def __init__(self, parent, gui):
+        """
+        初始化详情面板
+
+        :param parent: 父容器 Frame
+        :param gui: 主 GUI 实例（用于回调和数据访问）
+        """
         self.gui = gui
         self._parent = parent
-        self._stat_labels = {}
-        self._tab_btns = {}
-        self._current_tab = "📈 播放量趋势"
-        self._chart_resize_job = None
-        self._chart_mode = tk.StringVar(value="step")
-        self._chart_max_points = tk.StringVar(value="20")
+        self._stat_labels = {}                              # 统计栏标签引用字典
+        self._tab_btns = {}                                 # 标签页按钮引用字典
+        self._current_tab = "📈 播放量趋势"                  # 当前选中的标签
+        self._chart_resize_job = None                        # 图表缩放防抖定时器 ID
+        self._chart_mode = tk.StringVar(value="step")        # 图表模式（step/delta/full）
+        self._chart_max_points = tk.StringVar(value="20")    # 图表显示数据点数
         # 标记当前模式是否已经渲染过；防止 resize 绕过 delta/full 的"手动点击"门控
         self._rendered_modes = set()
+        self._score_cache = {}  # {bvid: {"stats_hash": hash, "weekly": text, "yearly": text}}
+        self._detail_text_fingerprint = None  # fast change detection for _fill_detail_text
         self._build()
 
     def _build(self):
+        """构建完整面板布局"""
         self._build_center_panel()
 
     def _build_center_panel(self):
-        """构建中间面板整体布局：头部、统计栏、标签页、内容区"""
+        """
+        构建中间面板整体布局：
+        - 详情头部（视频标题/UP主等信息）
+        - 统计栏（10 个指标卡片）
+        - 标签页栏（3 个标签）
+        - 内容区（图表/详细数据/互动率）
+        """
         p = self._parent
+        # ── 详情头部 ──
         self._detail_header = ctk.CTkFrame(p, fg_color=C["bg_surface"], corner_radius=0)
         self._detail_header.pack(fill=tk.X)
         tk.Frame(p, bg=C["border"], height=1).pack(fill=tk.X)
-        self._build_center_header_empty()
+        self._build_center_header_empty()                    # 初始显示空状态
 
+        # ── 统计栏 ──
         self._stat_bar = ctk.CTkFrame(p, fg_color=C["bg_surface"], corner_radius=0)
         self._stat_bar.pack(fill=tk.X)
         tk.Frame(p, bg=C["border"], height=1).pack(fill=tk.X)
 
-        # 标签页栏
+        # ── 标签页栏 ──
         tab_bar = ctk.CTkFrame(p, fg_color=C["bg_surface"], corner_radius=0)
         tab_bar.pack(fill=tk.X)
         tk.Frame(p, bg=C["border"], height=1).pack(fill=tk.X)
@@ -67,6 +98,7 @@ class DetailPanel:
             )
             b.pack(side=tk.LEFT, padx=14, pady=8)
             b.bind("<Button-1>", lambda e, n=name: self._switch_tab(n))
+            # 鼠标悬停高亮（非当前标签）
             b.bind(
                 "<Enter>",
                 lambda e, b=b, n=name: b.configure(text_color=C["text_1"]) if n != self._current_tab else None,
@@ -79,73 +111,44 @@ class DetailPanel:
         # 默认选中第一个标签
         self._tab_btns["📈 播放量趋势"].configure(text_color=C["bilibili"])
 
-        # 内容区域
+        # ── 内容区域 ──
         self._content_area = ctk.CTkFrame(p, fg_color=C["bg_base"], corner_radius=0)
         self._content_area.pack(fill=tk.BOTH, expand=True)
 
         # 图表控制栏
         bar = tk.Frame(self._content_area, bg=C["bg_base"])
         bar.pack(fill=tk.X, padx=16, pady=(10, 0))
+        # 模式切换单选按钮
         tk.Radiobutton(
-            bar,
-            text="新增",
-            variable=self._chart_mode,
-            value="step",
-            bg=C["bg_base"],
-            fg=C["text_1"],
-            selectcolor=C["bg_base"],
-            font=FONT_SM,
-            command=self._on_chart_mode_change,
+            bar, text="新增", variable=self._chart_mode, value="step",
+            bg=C["bg_base"], fg=C["text_1"], selectcolor=C["bg_base"],
+            font=FONT_SM, command=self._on_chart_mode_change,
         ).pack(side=tk.LEFT)
         tk.Radiobutton(
-            bar,
-            text="增量",
-            variable=self._chart_mode,
-            value="delta",
-            bg=C["bg_base"],
-            fg=C["text_1"],
-            selectcolor=C["bg_base"],
-            font=FONT_SM,
-            command=self._on_chart_mode_change,
+            bar, text="增量", variable=self._chart_mode, value="delta",
+            bg=C["bg_base"], fg=C["text_1"], selectcolor=C["bg_base"],
+            font=FONT_SM, command=self._on_chart_mode_change,
         ).pack(side=tk.LEFT)
         tk.Radiobutton(
-            bar,
-            text="全量",
-            variable=self._chart_mode,
-            value="full",
-            bg=C["bg_base"],
-            fg=C["text_1"],
-            selectcolor=C["bg_base"],
-            font=FONT_SM,
-            command=self._on_chart_mode_change,
+            bar, text="全量", variable=self._chart_mode, value="full",
+            bg=C["bg_base"], fg=C["text_1"], selectcolor=C["bg_base"],
+            font=FONT_SM, command=self._on_chart_mode_change,
         ).pack(side=tk.LEFT)
         tk.Frame(bar, bg=C["border_sub"], width=1, height=14).pack(side=tk.LEFT, padx=6)
         tk.Label(bar, text="显示", bg=C["bg_base"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT)
-        # 点数输入框
+        # 数据点数量输入框
         pt_entry = tk.Entry(
-            bar,
-            textvariable=self._chart_max_points,
-            width=3,
-            font=FONT_MONO,
-            bg=C["bg_elevated"],
-            fg=C["text_1"],
-            insertbackground=C["text_1"],
-            relief="flat",
-            highlightthickness=1,
-            highlightbackground=C["border"],
+            bar, textvariable=self._chart_max_points,
+            width=3, font=FONT_MONO, bg=C["bg_elevated"], fg=C["text_1"],
+            insertbackground=C["text_1"], relief="flat",
+            highlightthickness=1, highlightbackground=C["border"],
         )
         pt_entry.pack(side=tk.LEFT, padx=2)
         tk.Label(bar, text="点", bg=C["bg_base"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT, padx=(0, 6))
         # 渲染按钮
         self._chart_render_btn = tk.Label(
-            bar,
-            text="▶ 渲染",
-            bg=C["bg_elevated"],
-            fg=C["accent"],
-            font=FONT_SM,
-            cursor="hand2",
-            padx=6,
-            pady=1,
+            bar, text="▶ 渲染", bg=C["bg_elevated"], fg=C["accent"],
+            font=FONT_SM, cursor="hand2", padx=6, pady=1,
         )
         self._chart_render_btn.pack(side=tk.LEFT)
         self._chart_render_btn.bind("<Button-1>", lambda e: self._manual_render_chart())
@@ -157,7 +160,7 @@ class DetailPanel:
         # 图表 Canvas
         self._chart_canvas = tk.Canvas(self._content_area, bg=C["bg_base"], bd=0, highlightthickness=0)
         self._chart_canvas.pack(fill=tk.BOTH, expand=True, padx=16, pady=12)
-        self._chart_canvas.bind("<Configure>", self._on_chart_resize)
+        self._chart_canvas.bind("<Configure>", self._on_chart_resize)   # Canvas 尺寸变化时防抖重绘
 
         # 详细数据文本区
         self._detail_text_frame = ctk.CTkFrame(self._content_area, fg_color=C["bg_base"], corner_radius=0)
@@ -165,16 +168,10 @@ class DetailPanel:
         detail_vsb.pack(side=tk.RIGHT, fill=tk.Y)
         self._detail_text = tk.Text(
             self._detail_text_frame,
-            bg=C["bg_elevated"],
-            fg=C["text_1"],
-            font=FONT_MONO,
-            relief="flat",
-            bd=0,
-            padx=12,
-            pady=10,
+            bg=C["bg_elevated"], fg=C["text_1"], font=FONT_MONO,
+            relief="flat", bd=0, padx=12, pady=10,
             yscrollcommand=detail_vsb.set,
-            state="disabled",
-            cursor="arrow",
+            state="disabled", cursor="arrow",
         )
         self._detail_text.pack(fill=tk.BOTH, expand=True)
         detail_vsb.config(command=self._detail_text.yview)
@@ -183,11 +180,17 @@ class DetailPanel:
         # 互动率面板
         self._ratio_frame = ctk.CTkFrame(self._content_area, fg_color=C["bg_base"], corner_radius=0)
 
-        draw_chart_placeholder(self._chart_canvas)
+        # Stack all tab frames; chart is already packed, lower the other two
+        self._detail_text_frame.pack(fill=tk.BOTH, expand=True, padx=16, pady=12)
+        self._detail_text_frame.lower()
+        self._ratio_frame.pack(fill=tk.BOTH, expand=True, padx=16, pady=12)
+        self._ratio_frame.lower()
+
+        draw_chart_placeholder(self._chart_canvas)           # 初始占位
         self._rebuild_stat_bar({})
 
     def _configure_detail_tags(self):
-        """配置详细数据文本的样式标签"""
+        """配置详细数据文本的样式标签（头部/正文/高亮/成功色/强调色）"""
         self._detail_text.tag_config("head", foreground=C["bilibili"], font=("Consolas", 10, "bold"))
         self._detail_text.tag_config("mono", foreground=C["text_1"], font=FONT_MONO)
         self._detail_text.tag_config("mono_b", foreground=C["bilibili"], font=("Consolas", 10, "bold"))
@@ -195,7 +198,7 @@ class DetailPanel:
         self._detail_text.tag_config("mono_accent", foreground=C["accent"], font=("Consolas", 10, "bold"))
 
     def _build_center_header_empty(self):
-        """构建空状态头部提示"""
+        """构建空状态头部提示（无视频选中时显示）"""
         h = self._detail_header
         for w in h.winfo_children():
             w.destroy()
@@ -204,7 +207,17 @@ class DetailPanel:
         )
 
     def _build_center_header(self, video):
-        """构建视频详情头部（标题、UP主、时长、BV号等）"""
+        """
+        构建视频详情头部（标题、UP主、时长、BV号等）
+
+        包含：
+        - 视频标题（自适应折行宽度）
+        - UP主、时长、发布时间
+        - BV 号（可点击复制）
+        - 微调工具栏（微调按钮 + 状态标签）
+
+        :param video: 视频信息字典
+        """
         h = self._detail_header
         for w in h.winfo_children():
             w.destroy()
@@ -221,14 +234,9 @@ class DetailPanel:
         # 自适应标题折行宽度（按屏幕宽度的 55% 计算，避免溢出）
         _center_w = int(self.gui.root.winfo_screenwidth() * 0.55)
         title_lbl = ctk.CTkLabel(
-            info,
-            text=title,
-            text_color=C["text_1"],
-            font=("Microsoft YaHei UI", 12, "bold"),
-            anchor="w",
-            wraplength=max(200, _center_w),
-            justify="left",
-            fg_color="transparent",
+            info, text=title,
+            text_color=C["text_1"], font=("Microsoft YaHei UI", 12, "bold"),
+            anchor="w", wraplength=max(200, _center_w), justify="left", fg_color="transparent",
         )
         title_lbl.pack(fill=tk.X)
 
@@ -255,13 +263,8 @@ class DetailPanel:
 
         # BV 号（可点击复制）
         bv_lbl = ctk.CTkLabel(
-            meta,
-            text=bvid,
-            fg_color=C["bg_elevated"],
-            text_color=C["text_3"],
-            font=FONT_MONO,
-            cursor="hand2",
-            corner_radius=4,
+            meta, text=bvid, fg_color=C["bg_elevated"], text_color=C["text_3"],
+            font=FONT_MONO, cursor="hand2", corner_radius=4,
         )
         bv_lbl.pack(side=tk.LEFT, padx=6)
         bv_lbl.bind("<Button-1>", lambda e: self.gui._copy_bvid(bvid))
@@ -272,30 +275,26 @@ class DetailPanel:
         ft_bar = ctk.CTkFrame(info, fg_color=C["bg_surface"], corner_radius=0)
         ft_bar.pack(fill=tk.X, pady=(6, 0))
         self._finetune_btn = ctk.CTkButton(
-            ft_bar,
-            text="🎯 微调此视频",
-            font=FONT_SM,
-            fg_color=C.get("accent", "#4A90D9"),
-            hover_color=C.get("accent_hover", "#357ABD"),
-            text_color="#FFFFFF",
-            height=26,
-            corner_radius=4,
-            width=100,
+            ft_bar, text="🎯 微调此视频",
+            font=FONT_SM, fg_color=C.get("accent", "#4A90D9"),
+            hover_color=C.get("accent_hover", "#357ABD"), text_color="#FFFFFF",
+            height=26, corner_radius=4, width=100,
             command=lambda: _confirm_risky("微调视频模型") and self._open_finetune_dialog(bvid),
         )
         self._finetune_btn.pack(side=tk.LEFT, padx=(0, 6))
         self._finetune_status = ctk.CTkLabel(
-            ft_bar,
-            text="",
-            text_color=C["text_3"],
-            font=FONT_SM,
-            fg_color="transparent",
+            ft_bar, text="", text_color=C["text_3"], font=FONT_SM, fg_color="transparent",
         )
         self._finetune_status.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
     def _open_finetune_dialog(self, bvid: str):
-        """打开微调对话框，选择算法并启动微调。"""
-        # 扫描有全局 checkpoint 的 DL 算法
+        """
+        打开微调对话框，选择算法并启动微调
+
+        扫描有全局 checkpoint 的深度学习算法，在弹出窗口中勾选后执行微调。
+
+        :param bvid: 要微调的视频 BV 号
+        """
         from algorithms.registry import AlgorithmRegistry
         from algorithms.training.checkpoint_manager import CheckpointManager
 
@@ -310,6 +309,7 @@ class DetailPanel:
             tk.messagebox.showinfo("提示", "没有已训练的深度学习算法可供微调", parent=self.gui.root)
             return
 
+        # ── 对话框 UI ──
         dialog = ctk.CTkToplevel(self.gui.root)
         dialog.title(f"微调 — {bvid}")
         dialog.geometry("480x400")
@@ -320,13 +320,11 @@ class DetailPanel:
         main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
         ctk.CTkLabel(
-            main_frame,
-            text=f"选择要在 {bvid} 上微调的算法",
-            font=FONT_BOLD,
-            text_color=C["text_1"],
+            main_frame, text=f"选择要在 {bvid} 上微调的算法",
+            font=FONT_BOLD, text_color=C["text_1"],
         ).pack(anchor="w", pady=(0, 6))
 
-        # 算法复选框列表
+        # 算法复选框列表（可滚动）
         scroll = ctk.CTkScrollableFrame(main_frame, fg_color=C["bg_surface"], height=180)
         scroll.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
 
@@ -337,11 +335,8 @@ class DetailPanel:
             row = ctk.CTkFrame(scroll, fg_color="transparent")
             row.pack(fill=tk.X, pady=1)
             ctk.CTkCheckBox(
-                row,
-                text=f"{a['name']} ({a['algorithm_id']})",
-                variable=var,
-                font=FONT_SM,
-                text_color=C["text_1"],
+                row, text=f"{a['name']} ({a['algorithm_id']})",
+                variable=var, font=FONT_SM, text_color=C["text_1"],
                 fg_color=C.get("accent", "#4A90D9"),
             ).pack(side=tk.LEFT, padx=4, pady=2)
 
@@ -368,43 +363,34 @@ class DetailPanel:
         btn_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
         btn_frame.pack(fill=tk.X)
         start_btn = ctk.CTkButton(
-            btn_frame,
-            text="开始微调",
-            font=FONT_SM,
+            btn_frame, text="开始微调", font=FONT_SM,
             fg_color=C.get("accent", "#4A90D9"),
             command=lambda: self._run_finetune(
-                dialog,
-                bvid,
-                algo_vars,
-                epoch_var,
-                batch_var,
-                status_lbl,
-                progress_bar,
-                start_btn,
+                dialog, bvid, algo_vars, epoch_var, batch_var, status_lbl, progress_bar, start_btn,
             ),
         )
         start_btn.pack(side=tk.LEFT, padx=(0, 6))
         ctk.CTkButton(
-            btn_frame,
-            text="取消",
-            font=FONT_SM,
-            fg_color=C["bg_elevated"],
-            text_color=C["text_1"],
+            btn_frame, text="取消", font=FONT_SM,
+            fg_color=C["bg_elevated"], text_color=C["text_1"],
             command=dialog.destroy,
         ).pack(side=tk.LEFT)
 
     def _run_finetune(
-        self,
-        dialog,
-        bvid,
-        algo_vars,
-        epoch_var,
-        batch_var,
-        status_lbl,
-        progress_bar,
-        start_btn,
+        self, dialog, bvid, algo_vars, epoch_var, batch_var, status_lbl, progress_bar, start_btn,
     ):
-        """在后台线程运行微调，更新对话框进度。"""
+        """
+        在后台线程运行微调，更新对话框进度
+
+        :param dialog: 对话框窗口
+        :param bvid: 视频 BV 号
+        :param algo_vars: {algorithm_id: BooleanVar} 算法选择
+        :param epoch_var: IntVar，训练轮数
+        :param batch_var: IntVar，批大小
+        :param status_lbl: 状态标签
+        :param progress_bar: 进度条
+        :param start_btn: 开始按钮
+        """
         selected = [aid for aid, var in algo_vars.items() if var.get()]
         if not selected:
             tk.messagebox.showinfo("提示", "请至少选择一个算法", parent=dialog)
@@ -428,10 +414,7 @@ class DetailPanel:
                 dialog.after(0, lambda m=gui_msg: self.gui.set_finetune_status(m))
                 try:
                     version = trainer.finetune_for_video(
-                        algo_id=aid,
-                        bvid=bvid,
-                        epochs=epochs,
-                        batch_size=batch,
+                        algo_id=aid, bvid=bvid, epochs=epochs, batch_size=batch,
                     )
                     msg = f"✓ {aid} → {version[:12]}"
                 except Exception as e:
@@ -445,8 +428,16 @@ class DetailPanel:
 
         threading.Thread(target=_worker, daemon=True).start()
 
+    # ══════════════════════════════════════════════════════════════════════════
+    # ── 统计栏 ───────────────────────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════════
+
     def _rebuild_stat_bar(self, video):
-        """构建统计栏（播放量、点赞、投币、在线人数、分数等）"""
+        """
+        构建统计栏（播放量、点赞、投币、在线人数、分数等 10 个卡片）
+
+        :param video: 视频信息字典
+        """
         bar = self._stat_bar
         for w in bar.winfo_children():
             w.destroy()
@@ -464,6 +455,7 @@ class DetailPanel:
             ("年刊分数", "_yearly_score", C["warning"]),
         ]
         for label, key, color in fields:
+            # 每个指标一个卡片
             card = ctk.CTkFrame(
                 bar, fg_color=C["bg_elevated"], border_width=1, border_color=C["border_sub"], corner_radius=6
             )
@@ -484,29 +476,30 @@ class DetailPanel:
                 val = f"{fmt_num(total)}" if total > 0 else "—"
             else:
                 val = fmt_num(video.get(key, 0)) if video else "—"
+            # 主值标签
             val_lbl = ctk.CTkLabel(
                 card, text=val, text_color=color, font=("Consolas", 13, "bold"), fg_color="transparent", anchor="w"
             )
             val_lbl.pack(fill=tk.X, padx=8)
+            # 变化量标签（预留）
             delta_lbl = ctk.CTkLabel(
                 card, text="", text_color=C["success"], font=FONT_SM, fg_color="transparent", anchor="w"
             )
             delta_lbl.pack(fill=tk.X, padx=8, pady=(0, 4))
-            self._stat_labels[key] = (val_lbl, delta_lbl)
+            self._stat_labels[key] = (val_lbl, delta_lbl)   # 存入引用供 update_stat_bar 使用
 
     def update_stat_bar(self, video):
-        """更新统计栏数据"""
+        """
+        更新统计栏数据
+
+        :param video: 视频信息字典
+        """
         fields = [
-            ("view_count", C["bilibili"]),
-            ("like_count", C["text_1"]),
-            ("coin_count", C["text_1"]),
-            ("favorite_count", C["text_1"]),
-            ("danmaku_count", C["text_1"]),
-            ("reply_count", C["text_1"]),
-            ("_online_viewers", C["accent"]),
-            ("_like_rate", C["success"]),
-            ("_weekly_score", C["accent"]),
-            ("_yearly_score", C["warning"]),
+            ("view_count", C["bilibili"]), ("like_count", C["text_1"]),
+            ("coin_count", C["text_1"]), ("favorite_count", C["text_1"]),
+            ("danmaku_count", C["text_1"]), ("reply_count", C["text_1"]),
+            ("_online_viewers", C["accent"]), ("_like_rate", C["success"]),
+            ("_weekly_score", C["accent"]), ("_yearly_score", C["warning"]),
         ]
         views = video.get("view_count", 1) or 1
         for key, color in fields:
@@ -526,57 +519,68 @@ class DetailPanel:
             else:
                 val_lbl.configure(text=fmt_num(video.get(key, 0)))
 
+    # ══════════════════════════════════════════════════════════════════════════
+    # ── 标签页切换 ──────────────────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════════
+
     def _switch_tab(self, name):
-        """切换标签页"""
+        """
+        切换标签页：
+        - 播放量趋势 → 显示 Canvas 图表
+        - 详细数据 → 显示文本区域
+        - 互动率 → 显示互动率进度条
+
+        :param name: 标签页名称
+        """
         for k, b in self._tab_btns.items():
             b.configure(text_color=C["bilibili"] if k == name else C["text_2"])
         self._current_tab = name
-        # 隐藏所有面板
-        self._chart_canvas.pack_forget()
-        self._detail_text_frame.pack_forget()
-        self._ratio_frame.pack_forget()
         if name == "📈 播放量趋势":
-            self._chart_canvas.pack(fill=tk.BOTH, expand=True, padx=16, pady=12)
+            self._chart_canvas.lift()
             mode = self._chart_mode.get()
             if mode == "step":
                 self._auto_render_chart()
             else:
-                # 非自动模式：切回 tab / 切视频 时清除旧图并显示 placeholder
+                # 非自动模式：清除旧图并显示 placeholder
                 self._rendered_modes.discard(mode)
                 hint = "点击「渲染增量」查看累计增长" if mode == "delta" else "点击「渲染全量」查看完整数据"
                 draw_chart_placeholder(self._chart_canvas, hint)
         elif name == "📋 详细数据":
-            self._detail_text_frame.pack(fill=tk.BOTH, expand=True, padx=16, pady=12)
+            self._detail_text_frame.lift()
             if self.gui.selected_bvid:
                 video = next((v for v in self.gui.monitored_videos if v.get("bvid") == self.gui.selected_bvid), None)
                 if video:
                     self._fill_detail_text(video)
         elif name == "🔄 互动率":
-            self._ratio_frame.pack(fill=tk.BOTH, expand=True, padx=16, pady=12)
+            self._ratio_frame.lift()
             if self.gui.selected_bvid:
                 video = next((v for v in self.gui.monitored_videos if v.get("bvid") == self.gui.selected_bvid), None)
                 if video:
                     self._fill_ratio_frame(video)
 
+    # ══════════════════════════════════════════════════════════════════════════
+    # ── 图表事件与渲染控制 ──────────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════════
+
     def _on_chart_resize(self, event=None):
-        """图表尺寸变化时防抖重绘"""
+        """图表尺寸变化时防抖重绘（200ms 延迟）"""
         if self._chart_resize_job:
             self.gui.root.after_cancel(self._chart_resize_job)
         self._chart_resize_job = self.gui.root.after(200, self._do_chart_redraw)
 
     def _do_chart_redraw(self):
-        """执行图表重绘（delta/full 模式下仅当用户已点过渲染才允许）"""
+        """
+        执行图表重绘
+        delta/full 模式下仅当用户已点过渲染才允许 resize 重绘，否则维持 placeholder
+        """
         self._chart_resize_job = None
-        # delta/full 模式下，仅当用户已点过渲染才允许 resize 重绘；否则维持 placeholder
         mode = self._chart_mode.get()
         if mode != "step" and mode not in self._rendered_modes:
             return
         self._do_render_chart()
 
-    # ── 图表渲染控制 ─────────────────────────────────
-
     def _auto_render_chart(self):
-        """自动渲染：新数据到来时自动重绘图表（含指纹缓存，数据未变时跳过）"""
+        """自动渲染：新数据到来时自动重绘图表（含指纹缓存，数据不变时跳过）"""
         mode = self._chart_mode.get()
         if mode != "step" and mode not in self._rendered_modes:
             return
@@ -587,7 +591,14 @@ class DetailPanel:
         self._do_render_chart()
 
     def _do_render_chart(self):
-        """实际执行渲染"""
+        """
+        实际执行图表渲染：
+        1. 获取当前选中的视频
+        2. 读取数据点数量和图表模式
+        3. 获取预测结果
+        4. 调用 draw_chart() 进行 Canvas 绘制
+        5. 将当前模式记入已渲染集合
+        """
         if not self.gui.selected_bvid:
             draw_chart_placeholder(self._chart_canvas)
             return
@@ -613,7 +624,11 @@ class DetailPanel:
         self._rendered_modes.add(self._chart_mode.get())
 
     def _on_chart_mode_change(self):
-        """模式切换回调：新增 自动渲染；增量/全量 需点击渲染"""
+        """
+        模式切换回调：
+        - step（新增）：自动渲染
+        - delta / full：需手动点击渲染
+        """
         mode = self._chart_mode.get()
         if mode == "step":
             self._chart_render_btn.config(text="⟳ 渲染", fg=C["accent"])
@@ -632,13 +647,39 @@ class DetailPanel:
 
     @property
     def chart_mode(self):
+        """获取当前图表模式"""
         return self._chart_mode.get()
 
+    # ══════════════════════════════════════════════════════════════════════════
+    # ── 详细数据文本 ────────────────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════════
+
     def _fill_detail_text(self, video):
-        """填充详细数据文本区"""
+        """
+        填充详细数据文本区：
+        - 视频信息（BV号、标题、UP主、时长、发布时间）
+        - 播放数据（播放量、点赞、投币、分享、收藏、弹幕、评论）
+        - 互动率（点赞率、投币率、收藏率）
+        - 在线人数（总在线、Web端、APP端）
+        - 阈值进度（各阈值完成百分比）
+        - 周刊/年刊分数详情及历史记录
+
+        :param video: 视频信息字典
+        """
+        bvid = video.get("bvid", "")
+        # Quick change detection: skip full rebuild if video stats unchanged
+        stats_key = (
+            bvid, video.get("view_count", 0), video.get("like_count", 0),
+            video.get("coin_count", 0), video.get("favorite_count", 0),
+            video.get("danmaku_count", 0), video.get("reply_count", 0),
+            video.get("share_count", 0), video.get("viewers_total", 0),
+        )
+        if stats_key == self._detail_text_fingerprint:
+            return
+        self._detail_text_fingerprint = stats_key
+
         self._detail_text.config(state="normal")
         self._detail_text.delete("1.0", tk.END)
-        bvid = video.get("bvid", "")
         title = video.get("title", "N/A")
         author = video.get("author", "未知")
         views = video.get("view_count", 0)
@@ -764,32 +805,72 @@ class DetailPanel:
                     self._detail_text.insert(tk.END, f"  {ts_str}  {total:>10,.2f}\n", "mono")
         self._detail_text.config(state="disabled")
 
+    # ══════════════════════════════════════════════════════════════════════════
+    # ── 分数计算辅助 ────────────────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════════
+
     def _calc_weekly_score(self, video):
-        """计算周刊分数"""
+        """计算周刊分数（委托给 utils.weekly_score）"""
         try:
             return _calc_ws(video)
         except Exception:
             return None
 
     def _calc_weekly_score_text(self, video):
-        """获取周刊分数文本"""
+        """获取周刊分数文本，计算失败返回 "—" """
+        bvid = video.get("bvid", "")
+        shash = hash((
+            video.get("view_count", 0), video.get("like_count", 0),
+            video.get("coin_count", 0), video.get("favorite_count", 0),
+            video.get("danmaku_count", 0), video.get("reply_count", 0),
+        ))
+        entry = self._score_cache.get(bvid)
+        if entry and entry.get("stats_hash") == shash and "weekly" in entry:
+            return entry["weekly"]
         ws = self._calc_weekly_score(video)
-        return f"{ws.total_score:,.0f}" if ws else "—"
+        text = f"{ws.total_score:,.0f}" if ws else "—"
+        if bvid not in self._score_cache:
+            self._score_cache[bvid] = {}
+        self._score_cache[bvid]["weekly"] = text
+        self._score_cache[bvid]["stats_hash"] = shash
+        return text
 
     def _calc_yearly_score(self, video):
-        """计算年刊分数"""
+        """计算年刊分数（委托给 utils.yearly_score）"""
         try:
             return _calc_ys(video)
         except Exception:
             return None
 
     def _calc_yearly_score_text(self, video):
-        """获取年刊分数文本"""
+        """获取年刊分数文本，计算失败返回 "—" """
+        bvid = video.get("bvid", "")
+        shash = hash((
+            video.get("view_count", 0), video.get("like_count", 0),
+            video.get("coin_count", 0), video.get("favorite_count", 0),
+            video.get("danmaku_count", 0), video.get("reply_count", 0),
+        ))
+        entry = self._score_cache.get(bvid)
+        if entry and entry.get("stats_hash") == shash and "yearly" in entry:
+            return entry["yearly"]
         ys = self._calc_yearly_score(video)
-        return f"{ys.total_score:,.0f}" if ys else "—"
+        text = f"{ys.total_score:,.0f}" if ys else "—"
+        if bvid not in self._score_cache:
+            self._score_cache[bvid] = {}
+        self._score_cache[bvid]["yearly"] = text
+        self._score_cache[bvid]["stats_hash"] = shash
+        return text
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # ── 互动率面板 ──────────────────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════════
 
     def _fill_ratio_frame(self, video):
-        """填充互动率面板"""
+        """
+        填充互动率面板：点赞率、投币率、收藏率、弹幕率的进度条展示
+
+        :param video: 视频信息字典
+        """
         for w in self._ratio_frame.winfo_children():
             w.destroy()
         views = video.get("view_count", 1) or 1
@@ -805,10 +886,11 @@ class DetailPanel:
             ctk.CTkLabel(row, text=label, text_color=C["text_2"], font=FONT, fg_color="transparent", width=48).pack(
                 side=tk.LEFT
             )
+            # 进度条背景
             bg_bar = tk.Frame(row, bg=C["bg_elevated"], height=12)
             bg_bar.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=8)
             bg_bar.pack_propagate(False)
-            fill_pct = min(pct / 20, 1.0)
+            fill_pct = min(pct / 20, 1.0)                  # 最大 20% 为满条
             tk.Frame(bg_bar, bg=color, height=12).place(x=0, y=0, relwidth=fill_pct, relheight=1)
             ctk.CTkLabel(
                 row, text=f"{pct:.3f}%", text_color=color, font=FONT_MONO, fg_color="transparent", width=72
@@ -816,8 +898,10 @@ class DetailPanel:
 
     @property
     def chart_canvas(self):
+        """获取图表 Canvas 对象"""
         return self._chart_canvas
 
     @property
     def current_tab(self):
+        """获取当前选中的标签页名称"""
         return self._current_tab

@@ -33,6 +33,8 @@ class AlgorithmRegistry:
     _pool_lock = threading.Lock()
     _pool = None
     _init_lock = threading.Lock()
+    _history_lock = threading.Lock()
+    _derived_cache = {}
 
     @classmethod
     def initialize(cls):
@@ -123,11 +125,6 @@ class AlgorithmRegistry:
         now = datetime.now()
         history_list = []
         view_values = [v for _, v in history]
-        like_values = []
-        coin_values = []
-        share_values = []
-        fav_values = []
-        dk_values = []
 
         for ts, v in history:
             if isinstance(ts, datetime):
@@ -156,43 +153,40 @@ class AlgorithmRegistry:
 
         # ── 派生特征 ──────────────────────────
         n = len(view_values)
-        derived = {}
-        if n >= 2:
-            diffs = [view_values[i] - view_values[i - 1] for i in range(1, n)]
-            derived["velocity_mean"] = sum(diffs) / len(diffs)
-            derived["velocity_std"] = (sum((d - derived["velocity_mean"]) ** 2 for d in diffs) / len(diffs)) ** 0.5 if len(diffs) > 1 else 0
-            derived["velocity_cv"] = derived["velocity_std"] / max(abs(derived["velocity_mean"]), 1e-10)
-        if n >= 3:
-            accels = [diffs[i] - diffs[i - 1] for i in range(1, len(diffs))]
-            derived["acceleration"] = sum(accels) / len(accels) if accels else 0
-        if n >= 4 and len(diffs) >= 3:
-            jerks = [accels[i] - accels[i - 1] for i in range(1, len(accels))]
-            derived["jerk"] = sum(jerks) / len(jerks) if jerks else 0
-        if n >= 5:
-            derived["velocity_ratio"] = derived.get("velocity_mean", 0) / max(view_values[-min(5, n)], 1)
-        if n >= 2:
-            # 互动比特征
-            like_vals = [h.get("like_count", 0) for h in history_list]
-            coin_vals = [h.get("coin_count", 0) for h in history_list]
-            dk_vals = [h.get("danmaku_count", 0) for h in history_list]
-            derived["like_rate"] = sum(like_vals) / max(sum(view_values), 1)
-            derived["coin_like_ratio"] = sum(coin_vals) / max(sum(like_vals), 1)
-            derived["danmaku_density"] = sum(dk_vals) / max(sum(view_values), 1) * 10000
-            derived["like_rate_delta"] = (like_vals[-1] / max(view_values[-1], 1) - like_vals[0] / max(view_values[0], 1)) if n >= 2 else 0
-        # ── 滞后特征 ──────────────────────────
-        if n >= 2:
-            derived["lag_1"] = view_values[-1] - view_values[-2]
-        if n >= 4:
-            derived["lag_3"] = view_values[-1] - view_values[-4] if n >= 4 else 0
-        if n >= 8:
-            derived["lag_7"] = view_values[-1] - view_values[-8] if n >= 8 else 0
-        # ── 滚动统计 ──────────────────────────
-        for win in [3, 7, 14]:
-            if n >= win:
-                win_vals = view_values[-win:]
-                derived[f"roll_mean_{win}"] = sum(win_vals) / len(win_vals)
-                derived[f"roll_std_{win}"] = (sum((v - derived[f"roll_mean_{win}"]) ** 2 for v in win_vals) / len(win_vals)) ** 0.5
-                derived[f"roll_cv_{win}"] = derived[f"roll_std_{win}"] / max(derived[f"roll_mean_{win}"], 1e-10)
+        cache_key = (bvid, n, current_value)
+        if cache_key in cls._derived_cache:
+            derived = cls._derived_cache[cache_key]
+        else:
+            derived = {}
+            diffs = []
+            if n >= 2:
+                diffs = [view_values[i] - view_values[i - 1] for i in range(1, n)]
+                derived["velocity_mean"] = sum(diffs) / len(diffs)
+                derived["velocity_std"] = (sum((d - derived["velocity_mean"]) ** 2 for d in diffs) / len(diffs)) ** 0.5 if len(diffs) > 1 else 0
+                derived["velocity_cv"] = derived["velocity_std"] / max(abs(derived["velocity_mean"]), 1e-10)
+                if n >= 3:
+                    accels = [diffs[i] - diffs[i - 1] for i in range(1, len(diffs))]
+                    derived["acceleration"] = sum(accels) / len(accels) if accels else 0
+                if n >= 4 and len(diffs) >= 3:
+                    jerks = [accels[i] - accels[i - 1] for i in range(1, len(accels))]
+                    derived["jerk"] = sum(jerks) / len(jerks) if jerks else 0
+            if n >= 5:
+                derived["velocity_ratio"] = derived.get("velocity_mean", 0) / max(view_values[-min(5, n)], 1)
+            # ── 滞后特征 ──────────────────────────
+            if n >= 2:
+                derived["lag_1"] = view_values[-1] - view_values[-2]
+            if n >= 4:
+                derived["lag_3"] = view_values[-1] - view_values[-4] if n >= 4 else 0
+            if n >= 8:
+                derived["lag_7"] = view_values[-1] - view_values[-8] if n >= 8 else 0
+            # ── 滚动统计 ──────────────────────────
+            for win in [3, 7, 14]:
+                if n >= win:
+                    win_vals = view_values[-win:]
+                    derived[f"roll_mean_{win}"] = sum(win_vals) / len(win_vals)
+                    derived[f"roll_std_{win}"] = (sum((v - derived[f"roll_mean_{win}"]) ** 2 for v in win_vals) / len(win_vals)) ** 0.5
+                    derived[f"roll_cv_{win}"] = derived[f"roll_std_{win}"] / max(derived[f"roll_mean_{win}"], 1e-10)
+            cls._derived_cache[cache_key] = derived
 
         return {
             "view_count": current_value,
@@ -252,47 +246,14 @@ class AlgorithmRegistry:
         return merged
 
     @classmethod
-    def predict_all(cls, history: List, current_value: float, bvid: str = "",
-                    db_history: List = None, **kwargs) -> Dict:
-        """对所有注册算法发起并行预测，返回加权集成结果。
-
-        Args:
-            history: [(timestamp, view_count), ...] 格式的历史数据（内存缓冲）
-            current_value: 当前播放量
-            bvid: 视频 BV 号（仅用于日志）
-            db_history: [(timestamp, view_count), ...] 从 DB 读取的全量历史，与内存
-                        history 合并后送入算法，确保长期期模型获得完整数据
-            **kwargs: 可包含 thresholds / threshold_names
-
-        Returns:
-            dict: 每个算法 name -> {prediction, confidence, weight, ...}
-                  以及 "_weighted" 键存储集成预测结果
-        """
-        if not cls._initialized:
-            cls.initialize()
-
-        if db_history:
-            history = cls._merge_history(history, db_history)
-
-        # ── 集中准备 video_data，避免每个 adapter 重复转换 ────
-        cached_video_data = cls._prepare_video_data(history, current_value, bvid=bvid)
-
+    def _run_parallel_predictions(cls, history, current_value, bvid, cached_video_data, thresholds, threshold_names):
         results = {}
-        thresholds = kwargs.get("thresholds", [100000, 1000000, 10000000])
-        threshold_names = kwargs.get("threshold_names", ["10万", "100万", "1000万"])
-
         valid_count = 0
         na_count = 0
 
         def _run_single(name_algo):
-            """在线程池中执行单个算法的预测包装。
-
-            优先调用适配器的 predict_dict() 接口（接受 dict 参数）；
-            否则回退到原始 predict() 接口。
-            """
             n, algo = name_algo
             try:
-                # 如果适配器有 predict_dict 方法，走统一的 dict 参数路径
                 if hasattr(algo, "predict_dict"):
                     res = algo.predict_dict(
                         history,
@@ -329,14 +290,12 @@ class AlgorithmRegistry:
                     None,
                 )
             except Exception as e:
-                # 单个算法失败不阻断整体，降级返回保守值
                 logger.warning(
                     "[%s] 视频(%s),使用'底模'预测失败 降级原因: %s",
                     n, bvid, e,
                 )
                 return n, {"prediction": current_value, "confidence": 0, "weight": 0.01, "error": str(e)}, e
 
-        # 使用线程池并发运行所有算法（最多 4 个 worker）
         with cls._pool_lock:
             if cls._pool is None:
                 cls._pool = ThreadPoolExecutor(max_workers=4)
@@ -348,62 +307,58 @@ class AlgorithmRegistry:
             results[name] = result
             if error:
                 continue
-            # 统计有效 / NA 结果数量
             if result.get("metadata", {}).get("na") or result["confidence"] == 0:
                 na_count += 1
             else:
                 valid_count += 1
 
-        # 筛选出有权重且预测值 > 0 的有效结果
-        valid_predictions = [
-            (name, r["prediction"], r["weight"])
-            for name, r in results.items()
-            if r["weight"] > 0 and r["prediction"] > 0
-        ]
+        return results, valid_count, na_count
 
-        # ── 窗口加权（时间衰减）：近期表现好的算法更高权重 ──
-        _window_weight_history = getattr(cls, "_window_weight_history", {})
-        cls._window_weight_history = _window_weight_history
-        if len(valid_predictions) >= 3:
-            for name, pred, w in valid_predictions:
+    @classmethod
+    def _apply_window_weights(cls, results, valid_predictions, current_value):
+        if len(valid_predictions) < 3:
+            return
+
+        with cls._history_lock:
+            _window_weight_history = getattr(cls, "_window_weight_history", {})
+            cls._window_weight_history = _window_weight_history
+
+        decay = 0.85
+        for name, pred, w in valid_predictions:
+            rel_dev = abs(pred - current_value) / max(current_value, 1)
+            with cls._history_lock:
                 hist = _window_weight_history.get(name, [])
-                decay = 0.85
-                # 用预测值相对于当前值的偏差作为"近期误差"代理
-                rel_dev = abs(pred - current_value) / max(current_value, 1)
                 hist.append(rel_dev)
                 if len(hist) > 10:
                     hist = hist[-10:]
                 _window_weight_history[name] = hist
-                # 指数衰减加权误差
-                window_error = sum(h * (decay ** (len(hist) - i)) for i, h in enumerate(hist)) / max(sum(decay ** (len(hist) - i) for i in range(len(hist))), 1e-10)
-                window_factor = max(0.2, 1.0 / (1.0 + window_error * 5))
-                results[name]["weight"] = w * (0.5 + 0.5 * window_factor)
 
-        # ── 基于算法间共识度（coherence）调整权重 ────────────
-        # 核心思想：偏离中位数越远的算法其权重应越低
-        if len(valid_predictions) >= 3:
-            values = sorted(p for _, p, _ in valid_predictions)
-            median_val = values[len(values) // 2]
-            if median_val > 0:
-                for name, pred, w in valid_predictions:
-                    coherence = min(pred, median_val) / max(pred, median_val)
-                    coherence_factor = 0.5 + 0.5 * coherence
-                    results[name]["coherence"] = round(coherence, 4)
-                    results[name]["weight"] = w * coherence_factor
+            window_error = sum(h * (decay ** (len(hist) - i)) for i, h in enumerate(hist)) / max(sum(decay ** (len(hist) - i) for i in range(len(hist))), 1e-10)
+            window_factor = max(0.2, 1.0 / (1.0 + window_error * 5))
+            results[name]["weight"] = w * (0.5 + 0.5 * window_factor)
 
-        # 重新读取调整后的有效预测
-        valid_predictions = [
-            (name, r["prediction"], r["weight"])
-            for name, r in results.items()
-            if r["weight"] > 0 and r["prediction"] > 0
-        ]
+    @classmethod
+    def _apply_coherence_weights(cls, results, valid_predictions):
+        if len(valid_predictions) < 3:
+            return
 
-        # ── 加权集成预测 ──────────────────────────────
+        values = sorted(p for _, p, _ in valid_predictions)
+        median_val = values[len(values) // 2]
+        if not median_val > 0:
+            return
+
+        for name, pred, w in valid_predictions:
+            coherence = min(pred, median_val) / max(pred, median_val)
+            coherence_factor = 0.5 + 0.5 * coherence
+            results[name]["coherence"] = round(coherence, 4)
+            results[name]["weight"] = w * coherence_factor
+
+    @classmethod
+    def _compute_ensemble(cls, results, valid_predictions, current_value, valid_count, na_count):
         if valid_predictions:
             total_weight = sum(w for _, _, w in valid_predictions)
             if total_weight > 0:
                 weighted_pred = sum(p * w for _, p, w in valid_predictions) / total_weight
-                # 集成置信度：基于预测离散度（CV 越低 → 共识越高 → 置信度越高）
                 valid_vals = [p for _, p, _ in valid_predictions]
                 mean_v = sum(valid_vals) / len(valid_vals)
                 if mean_v > 0:
@@ -419,7 +374,6 @@ class AlgorithmRegistry:
             weighted_pred = current_value
             ensemble_conf = 0.0
 
-        # 存储集成结果
         results["_weighted"] = {
             "prediction": weighted_pred,
             "total_algorithms": len(results),
@@ -428,7 +382,6 @@ class AlgorithmRegistry:
             "ensemble_confidence": round(ensemble_conf, 4),
         }
 
-        # ── 保形预测区间（Conformal Prediction）─────────
         try:
             from .conformal import get_conformal_predictor
 
@@ -438,10 +391,62 @@ class AlgorithmRegistry:
         except Exception as e:
             logger.debug("忽略异常: %s", e)
 
+        return weighted_pred
+
+    @classmethod
+    def predict_all(cls, history: List, current_value: float, bvid: str = "",
+                    db_history: List = None, **kwargs) -> Dict:
+        """对所有注册算法发起并行预测，返回加权集成结果。
+
+        Args:
+            history: [(timestamp, view_count), ...] 格式的历史数据（内存缓冲）
+            current_value: 当前播放量
+            bvid: 视频 BV 号（仅用于日志）
+            db_history: [(timestamp, view_count), ...] 从 DB 读取的全量历史，与内存
+                        history 合并后送入算法，确保长期期模型获得完整数据
+            **kwargs: 可包含 thresholds / threshold_names
+
+        Returns:
+            dict: 每个算法 name -> {prediction, confidence, weight, ...}
+                   以及 "_weighted" 键存储集成预测结果
+        """
+        if not cls._initialized:
+            cls.initialize()
+
+        if db_history:
+            history = cls._merge_history(history, db_history)
+
+        cached_video_data = cls._prepare_video_data(history, current_value, bvid=bvid)
+
+        thresholds = kwargs.get("thresholds", [100000, 1000000, 10000000])
+        threshold_names = kwargs.get("threshold_names", ["10万", "100万", "1000万"])
+
+        results, valid_count, na_count = cls._run_parallel_predictions(
+            history, current_value, bvid, cached_video_data, thresholds, threshold_names
+        )
+
+        valid_predictions = [
+            (name, r["prediction"], r["weight"])
+            for name, r in results.items()
+            if r["weight"] > 0 and r["prediction"] > 0
+        ]
+
+        cls._apply_window_weights(results, valid_predictions, current_value)
+
+        cls._apply_coherence_weights(results, valid_predictions)
+
+        valid_predictions = [
+            (name, r["prediction"], r["weight"])
+            for name, r in results.items()
+            if r["weight"] > 0 and r["prediction"] > 0
+        ]
+
+        weighted_pred = cls._compute_ensemble(results, valid_predictions, current_value, valid_count, na_count)
+
         interval_width = 0
         if results["_weighted"].get("prediction_interval"):
             try:
-                interval_width = round(interval.get("interval_width_ratio", 0) * 100)
+                interval_width = round(results["_weighted"]["prediction_interval"].get("interval_width_ratio", 0) * 100)
             except Exception:
                 interval_width = 0
         logger.info(
@@ -503,6 +508,7 @@ class AlgorithmRegistry:
         cls.shutdown()
         cls._algorithms = {}
         cls._model_adapters = {}
+        cls._derived_cache = {}
         cls._initialized = False
 
     @classmethod

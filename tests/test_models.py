@@ -1,4 +1,12 @@
-"""测试 core/database/models.py — 数据库模型"""
+"""
+测试 core/database/models.py — 数据库模型
+
+测试范围：
+- _validate_bvid: BV 号格式校验（合法、非法、路径穿越攻击）
+- VideoInfo: 数据类默认值和完整字段
+- MonitorRecord: 监控记录的必填和可选字段
+- PredictionRecord: 预测记录的字段和默认值
+"""
 
 import pytest
 from core.database.models import (
@@ -38,7 +46,7 @@ class TestValidateBvid:
             _validate_bvid("")
 
     def test_path_traversal_attempt(self):
-        """路径穿越攻击尝试应触发异常"""
+        """路径穿越攻击尝试应触发异常（防御 ../ 路径注入）"""
         with pytest.raises(ValueError):
             _validate_bvid("../etc/passwd")
 
@@ -47,7 +55,7 @@ class TestVideoInfo:
     """测试 VideoInfo 模型"""
 
     def test_default_values(self):
-        """默认值检查"""
+        """默认值检查：播放量等字段应初始化为 0"""
         v = VideoInfo(bvid="BV1xx411c7mD", title="")
         assert v.view_count == 0
         assert v.like_count == 0
@@ -60,7 +68,7 @@ class TestVideoInfo:
         assert v.like_view_ratio == 0.0
 
     def test_with_full_data(self):
-        """完整数据字段检查"""
+        """完整数据字段检查：所有字段值应正确保留"""
         v = VideoInfo(
             bvid="BV1GJ411x7hQ",
             title="Test Video",
@@ -81,7 +89,7 @@ class TestMonitorRecord:
     """测试 MonitorRecord 模型"""
 
     def test_required_fields(self):
-        """必填字段检查"""
+        """必填字段检查：基本字段应正确赋值"""
         r = MonitorRecord(
             bvid="BV1xx411c7mD",
             timestamp="2025-06-01 12:00:00",
@@ -98,7 +106,7 @@ class TestMonitorRecord:
         assert r.like_view_ratio == 0.0
 
     def test_optional_fields(self):
-        """可选字段检查"""
+        """可选字段检查：在线人数和点赞率应正确赋值"""
         r = MonitorRecord(
             bvid="BV1xx411c7mD",
             timestamp="2025-06-01 12:00:00",
@@ -120,7 +128,7 @@ class TestPredictionRecord:
     """测试 PredictionRecord 模型"""
 
     def test_required_fields(self):
-        """必填字段检查"""
+        """必填字段检查：核心预测字段应正确赋值"""
         p = PredictionRecord(
             bvid="BV1xx411c7mD",
             algorithm="线性速度",
@@ -136,7 +144,7 @@ class TestPredictionRecord:
         assert p.confidence == 0.85
 
     def test_defaults(self):
-        """默认值检查"""
+        """默认值检查：metadata、predicted_hours 等应初始化为合理默认值"""
         p = PredictionRecord(
             bvid="BV1xx411c7mD",
             algorithm="test",

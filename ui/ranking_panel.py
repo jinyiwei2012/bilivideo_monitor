@@ -1,6 +1,11 @@
 """
-视频排行榜面板
-按增速/互动率/播放量/在线人数等维度对所有监控视频排序
+视频排行榜面板模块
+
+按多种维度（增速、播放量、点赞率、投币率、互动率、在线人数、发布天数）
+对所有监控视频进行排序，以表格形式展示排名。
+
+主要组件:
+    RankingPanel — 排行榜窗口，支持维度选择和数据排序
 """
 
 import tkinter as tk
@@ -12,6 +17,19 @@ from ui.dialog_base import DialogBase
 
 
 class RankingPanel:
+    """视频排行榜面板
+
+    提供 7 种排序维度:
+      - 增速 (每小时)
+      - 播放量
+      - 点赞率
+      - 投币率
+      - 互动率（点赞+投币+收藏+分享 / 播放量）
+      - 在线人数
+      - 发布天数
+    """
+
+    # 排序选项: (显示名称, 内部键值)
     SORT_OPTIONS = [
         ("📈 增速 (每小时)", "velocity"),
         ("👁 播放量", "views"),
@@ -23,13 +41,21 @@ class RankingPanel:
     ]
 
     def __init__(self, parent, gui):
+        """
+        Args:
+            parent: 父 Tkinter 容器
+            gui: BilibiliMonitorGUI 实例
+        """
         self.gui = gui
         self.dlg = DialogBase(parent, "🏆 视频排行榜", "800x540")
         self.dlg.header("视频排行榜", "按多种维度对所有监控视频排序")
         self._build_ui()
 
     def _build_ui(self):
-        """构建排行榜面板 UI：排序维度选择、树形结果表格"""
+        """构建排行榜面板 UI：排序维度选择 + 树形结果表格
+
+        表格列: #, BV号, 标题, UP主, 播放量, 增速/h, 互动率, 在线人数
+        """
         top = tk.Frame(self.dlg.content_area(), bg=C["bg_base"])
         top.pack(fill=tk.X, padx=10, pady=4)
 
@@ -42,6 +68,7 @@ class RankingPanel:
         self._status_lbl = tk.Label(top, text="", bg=C["bg_base"], fg=C["text_3"], font=FONT_SM)
         self._status_lbl.pack(side=tk.RIGHT)
 
+        # 表格列定义
         columns = ("rank", "bvid", "title", "author", "views", "velocity", "engagement", "online")
         self._tree = ttk.Treeview(
             self.dlg.content_area(), columns=columns, show="headings", height=20
@@ -71,26 +98,35 @@ class RankingPanel:
         self._refresh()
 
     def _compute_velocity(self, bvid):
-        """根据最近两条历史记录计算该视频的播放增速（次/小时）"""
+        """根据最近两条历史记录计算该视频的播放增速（次/小时）
+
+        Args:
+            bvid: 视频 BV 号
+
+        Returns:
+            float: 每小时播放量增量，数据不足返回 0
+        """
         history = self.gui.history_data.get(bvid, [])
         if len(history) < 2:
             return 0
         t1, v1 = history[-2]
         t0, v0 = history[-1]
+        # 统一时间戳格式
         t1 = t1 if isinstance(t1, datetime) else datetime.fromisoformat(str(t1)) if isinstance(t1, str) else datetime.fromtimestamp(float(t1))
         t0 = t0 if isinstance(t0, datetime) else datetime.fromisoformat(str(t0)) if isinstance(t0, str) else datetime.fromtimestamp(float(t0))
-        dt = (t0 - t1).total_seconds() / 3600
+        dt = (t0 - t1).total_seconds() / 3600  # 转为小时
         if dt <= 0 or v0 < v1:
             return 0
         return (v0 - v1) / dt
 
     def _refresh(self):
-        """根据当前排序维度重新计算并刷新排行榜"""
+        """根据当前排序维度重新计算并刷新排行榜数据"""
         for row in self._tree.get_children():
             self._tree.delete(row)
 
         sort_key = self._sort_var.get()
         items = []
+        # 遍历所有监控视频，计算各维度数据
         for v in self.gui.monitored_videos:
             bvid = v.get("bvid", "")
             views = v.get("view_count", 0)
@@ -100,9 +136,10 @@ class RankingPanel:
             velocity = self._compute_velocity(bvid)
             like_rate = likes / max(views, 1)
             coin_rate = coins / max(views, 1)
+            # 互动率 = (点赞+投币+收藏+分享) / 播放量
             engagement = (likes + coins + v.get("favorite_count", 0) + v.get("share_count", 0)) / max(views, 1)
             pubdate = v.get("pubdate", 0)
-            age = (datetime.now().timestamp() - pubdate) / 86400 if pubdate > 0 else 0
+            age = (datetime.now().timestamp() - pubdate) / 86400 if pubdate > 0 else 0  # 发布天数
 
             # 根据排序维度确定排序值
             if sort_key == "velocity":
@@ -124,8 +161,10 @@ class RankingPanel:
 
             items.append((sort_val, bvid, v.get("title", bvid)[:30], v.get("author", ""), views, velocity, engagement, online))
 
+        # 按排序值的绝对值降序排列
         items.sort(key=lambda x: -abs(x[0]))
 
+        # 插入表格
         for i, (_, bvid, title, author, views, velocity, engagement, online) in enumerate(items, 1):
             vel_str = fmt_num(int(velocity)) if velocity > 0 else "—"
             eng_str = f"{engagement * 100:.1f}%" if engagement > 0 else "—"

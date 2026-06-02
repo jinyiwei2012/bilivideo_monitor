@@ -1,6 +1,22 @@
 """
-现代化视频搜索界面
-支持B站关键词搜索、批量导入到监控列表
+视频搜索窗口模块
+===============
+
+提供 ``VideoSearchWindow`` 类，支持 B 站关键词搜索，结果批量导入到监控列表。
+
+功能：
+  - 关键词搜索（调用 get_bilibili_api().search_videos()）
+  - 后台线程搜索，不阻塞 UI
+  - 搜索结果表格（Treeview）：BV号、标题、UP主、播放量、点赞
+  - 全选 / 取消全选
+  - 导入所选到监控列表
+  - 双击单条快速导入
+  - 右键菜单：查看详情、复制BV号、浏览器打开、导入
+  - 视频详情弹窗（封面 + 信息 + 操作按钮）
+
+.. note::
+   搜索使用 ``get_bilibili_api().search_videos()``，默认每页 20 条。
+   通过 ``on_import`` 回调将选中的视频列表传递给调用方。
 """
 
 import logging
@@ -24,21 +40,27 @@ class VideoSearchWindow:
 
     def __init__(self, parent=None, on_import: Optional[Callable[[list], None]] = None):
         """
-        初始化视频搜索窗口
+        初始化视频搜索窗口。
 
         :param parent: 父窗口
-        :param on_import: 导入视频后的回调函数
+        :param on_import: 导入视频后的回调函数，签名为 f(videos: list)
+                          videos 为 [{"bvid": ..., "title": ..., ...}, ...]
         """
         self.dlg = DialogBase(parent, "搜索视频 - B站", DialogBase.calc_geometry(parent, 0.48, 0.68), modal=True)
         self.window = self.dlg.window
         self.on_import = on_import                 # 导入回调
         self.search_results: List[Dict] = []       # 搜索结果列表
-        self.searching = False                      # 是否正在搜索
+        self.searching = False                      # 是否正在搜索（防重复提交）
 
         self._setup_ui()
 
     def _setup_ui(self):
-        """构建搜索界面布局"""
+        """
+        构建搜索界面布局：
+          搜索栏卡片（关键词输入 + 搜索按钮 + 状态标签）
+          搜索结果表格（Treeview，支持多选、右键菜单）
+          底部操作按钮（全选 / 取消全选 / 导入所选到监控）
+        """
         self.dlg.header("搜索视频", "在B站搜索视频并批量导入到监控列表")
 
         # ── 搜索栏卡片 ──
@@ -61,7 +83,7 @@ class VideoSearchWindow:
         self.status_lbl = tk.Label(row, text="就绪", bg=C["bg_elevated"], fg=C["text_3"], font=FONT_SM)
         self.status_lbl.pack(side=tk.RIGHT, padx=8)
 
-        # ── 结果表格 + 底部按钮（注意 packing 顺序：按钮先占底部，表格填剩余空间） ──
+        # ── 底部按钮栏（先 pack 以占据底部空间，表格填剩余）──
         bottom_bar = tk.Frame(self.dlg.container, bg=C["bg_surface"])
         bottom_bar.pack(side=tk.BOTTOM, fill=tk.X, padx=24, pady=(16, 20))
         ttk.Button(bottom_bar, text="全选", command=self._select_all).pack(side=tk.LEFT, padx=(0, 6))
@@ -70,7 +92,7 @@ class VideoSearchWindow:
             side=tk.RIGHT, padx=(6, 0)
         )
 
-        # 搜索结果表格
+        # ── 搜索结果表格 ──
         content = tk.Frame(self.dlg.container, bg=C["bg_base"])
         content.pack(fill=tk.BOTH, expand=True, padx=24, pady=(10, 0))
         cols = ("bvid", "title", "author", "play", "like")
@@ -112,7 +134,10 @@ class VideoSearchWindow:
         )
 
     def _start_search(self):
-        """开始搜索：校验输入、清空旧结果、启动后台搜索线程"""
+        """
+        开始搜索：校验输入 → 清空旧结果 → 启动后台搜索线程。
+        防止重复提交（searching 标志保护）。
+        """
         kw = self.kw_entry.get().strip()
         if not kw:
             messagebox.showwarning("提示", "请输入搜索关键词", parent=self.window)
@@ -131,7 +156,12 @@ class VideoSearchWindow:
         threading.Thread(target=self._worker, args=(kw,), daemon=True).start()
 
     def _worker(self, kw: str):
-        """后台线程：调用 B 站 API 搜索，通过 after() 回写 UI"""
+        """
+        后台线程：调用 B 站 API 搜索，通过 after() 回写 UI。
+        每条结果通过 after 逐个插入表格，保证 UI 响应。
+
+        :param kw: 搜索关键词
+        """
         try:
             results = get_bilibili_api().search_videos(kw, page=1, page_size=20)
             if not results:
@@ -142,9 +172,9 @@ class VideoSearchWindow:
                 if not bvid:
                     continue
                 self.search_results.append(v)
-                # 清除搜索高亮标签
+                # 清除搜索结果中的高亮标签（<em class="keyword">）
                 title = v.get("title", "").replace('<em class="keyword">', "").replace("</em>", "")
-                # 回主线程插入表格行
+                # 回到主线程插入表格行
                 self.window.after(
                     0,
                     lambda b=bvid, t=title, a=v.get("author", ""), p=v.get("play", 0), lk=v.get(
@@ -164,7 +194,7 @@ class VideoSearchWindow:
             self.searching = False
 
     def _select_all(self):
-        """全选所有搜索结果的复选框"""
+        """全选所有搜索结果"""
         self.tree.selection_set(self.tree.get_children())
 
     def _select_none(self):
@@ -172,7 +202,11 @@ class VideoSearchWindow:
         self.tree.selection_remove(self.tree.get_children())
 
     def _do_import(self):
-        """将选中的视频导入到监控列表"""
+        """
+        将选中的视频导入到监控列表。
+        根据 Treeview 选中行匹配 search_results，通过 on_import 回调传递。
+        导入后关闭窗口。
+        """
         sel = self.tree.selection()
         if not sel:
             messagebox.showwarning("提示", "请先选择要导入的视频", parent=self.window)
@@ -185,7 +219,11 @@ class VideoSearchWindow:
             self.on_import(videos)
 
     def _on_tree_double_click(self, event):
-        """双击单条结果快速导入"""
+        """
+        双击单条结果快速导入（仅第一个选中项）。
+
+        :param event: 双击事件
+        """
         sel = self.tree.selection()
         if not sel:
             return
@@ -198,7 +236,12 @@ class VideoSearchWindow:
             self.on_import([video])
 
     def _on_tree_right_click(self, event):
-        """右键菜单：查看详情 / 复制BV号 / 浏览器打开 / 导入"""
+        """
+        右键菜单：查看详情 / 复制BV号 / 浏览器打开 / 导入。
+        使用 tk_popup 在鼠标位置弹出。
+
+        :param event: 右键事件
+        """
         item = self.tree.identify_row(event.y)
         if not item:
             return
@@ -220,7 +263,14 @@ class VideoSearchWindow:
         self._context_menu.tk_popup(event.x_root, event.y_root)
 
     def _show_video_detail(self, video):
-        """弹出详情对话框显示搜索结果的视频信息（封面、标题、UP主、播放量等）"""
+        """
+        弹出详情对话框显示搜索结果的视频信息：
+          封面图（如果可用）
+          BV号 / 标题 / UP主 / 播放量 / 点赞
+          操作按钮（浏览器打开 / 导入监控 / 关闭）
+
+        :param video: 视频信息字典
+        """
         bvid = video.get("bvid", "")
         title = video.get("title", "").replace('<em class="keyword">', "").replace("</em>", "")
         author = video.get("author", "未知")
@@ -287,13 +337,21 @@ class VideoSearchWindow:
         ttk.Button(btn_row, text="关闭", command=top.destroy).pack(side=tk.LEFT, padx=4)
 
     def _copy_bvid(self, bvid):
-        """复制 BV 号到剪贴板"""
+        """
+        复制 BV 号到剪贴板，状态栏显示成功提示。
+
+        :param bvid: BV 号字符串
+        """
         self.window.clipboard_clear()
         self.window.clipboard_append(bvid)
         self.status_lbl.config(text=f"已复制 {bvid}", fg=C["success"])
 
     def _import_single(self, video):
-        """导入单个视频到监控"""
+        """
+        导入单个视频到监控，关闭窗口，触发 on_import 回调。
+
+        :param video: 视频信息字典
+        """
         self.window.destroy()
         if self.on_import:
             self.on_import([video])

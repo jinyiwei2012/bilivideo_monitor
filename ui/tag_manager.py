@@ -1,6 +1,19 @@
 """
-视频标签管理窗口
-为监控视频添加/删除/筛选自定义标签
+视频标签管理窗口模块
+===================
+
+提供 ``TagManagerWindow`` 类，用于为监控视频添加/删除/筛选自定义标签。
+
+功能：
+  - 左侧视频列表（支持按标签筛选）
+  - 右侧当前标签展示（每行一个标签 + 删除按钮）
+  - 添加新标签（输入框 + 添加按钮，禁用空格）
+  - 按标签筛选视频（下拉框 + 清除筛选按钮）
+  - 标签数据通过 ``utils.tag_manager`` 模块持久化
+
+.. note::
+   标签存储在 ``utils.tag_manager`` 中，使用 JSON 文件持久化。
+   标签不允许包含空格。
 """
 
 import tkinter as tk
@@ -12,10 +25,24 @@ from utils.tag_manager import get_tags, set_tags, all_tags
 
 
 class TagManagerWindow:
-    """视频标签管理窗口 — 支持为监控视频添加/删除/筛选自定义标签"""
+    """
+    视频标签管理窗口 — 支持为监控视频添加/删除/筛选自定义标签。
+
+    UI 布局：
+      ┌──────────────────────────────────────┐
+      │ 左侧：视频列表         │ 右侧：标签  │
+      │   [输入框 + 添加按钮]  │   当前标签  │
+      │                        │   筛选下拉  │
+      └──────────────────────────────────────┘
+    """
 
     def __init__(self, parent, gui):
-        """初始化标签管理窗口"""
+        """
+        初始化标签管理窗口。
+
+        :param parent: 父窗口
+        :param gui: 主界面实例（用于获取 monitored_videos 列表）
+        """
         self.gui = gui
         self.dlg = DialogBase(parent, "🎫 视频标签管理", "600x500")
         self.dlg.header("视频标签管理", "为监控视频添加自定义标签，方便分类筛选")
@@ -23,10 +50,15 @@ class TagManagerWindow:
         self._refresh()
 
     def _build_ui(self):
-        """构建界面布局：左侧视频列表 + 标签输入，右侧当前标签 + 筛选"""
+        """
+        构建界面布局：
+          左侧：视频列表 + 标签输入框 + 添加按钮
+          右侧：当前标签展示 + 按标签筛选下拉框 + 清除筛选按钮
+        """
         main = tk.Frame(self.dlg.content_area(), bg=C["bg_base"])
         main.pack(fill=tk.BOTH, expand=True, padx=10, pady=4)
 
+        # ── 左侧：视频列表 + 添加标签 ──
         left = tk.Frame(main, bg=C["bg_base"])
         left.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
@@ -47,10 +79,10 @@ class TagManagerWindow:
             font=FONT, relief=tk.FLAT, bd=0
         )
         self._tag_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4), ipady=4)
-        self._tag_entry.bind("<Return>", lambda e: self._add_tag())
+        self._tag_entry.bind("<Return>", lambda e: self._add_tag())  # 回车快速添加
         ttk.Button(tag_frame, text="添加标签", command=self._add_tag).pack(side=tk.RIGHT)
 
-        # 右侧：当前标签展示
+        # ── 右侧：当前标签展示 + 筛选 ──
         right = tk.Frame(main, bg=C["bg_base"], width=200)
         right.pack(side=tk.RIGHT, fill=tk.Y, padx=(10, 0))
         right.pack_propagate(False)
@@ -74,9 +106,12 @@ class TagManagerWindow:
             fill=tk.X)
 
     def _refresh(self):
-        """刷新视频列表和筛选下拉框"""
+        """
+        刷新视频列表和筛选下拉框。
+        如果设置了筛选标签，只显示包含该标签的视频。
+        """
         self._video_listbox.delete(0, tk.END)
-        self._bvid_map = []
+        self._bvid_map = []  # 索引 → bvid 的映射
         filter_tag = self._filter_var.get()
         # 遍历所有监控视频，按标签筛选后插入列表
         for v in self.gui.monitored_videos:
@@ -84,7 +119,7 @@ class TagManagerWindow:
             title = v.get("title", bvid)[:30]
             tags = get_tags(bvid)
             if filter_tag and filter_tag not in tags:
-                continue
+                continue  # 不匹配筛选条件，跳过
             display = f"[{' '.join(tags)}] {title}" if tags else title
             self._video_listbox.insert(tk.END, display)
             self._bvid_map.append(bvid)
@@ -95,20 +130,27 @@ class TagManagerWindow:
         if self._filter_var.get() not in all_tags_sorted:
             self._filter_var.set("")
 
-        self._selected_bvid = None
+        self._selected_bvid = None  # 清空选中状态
 
     def _on_select(self, event):
-        """视频列表选中事件 — 更新选中视频并显示其标签"""
+        """
+        视频列表选中事件 — 更新选中视频并显示其标签。
+
+        :param event: Tkinter 事件
+        """
         sel = self._video_listbox.curselection()
         if not sel:
             return
         idx = sel[0]
         if idx < len(self._bvid_map):
             self._selected_bvid = self._bvid_map[idx]
-            self._refresh_tags()
+            self._refresh_tags()  # 刷新右侧标签展示
 
     def _refresh_tags(self):
-        """刷新当前选中视频的标签显示"""
+        """
+        刷新当前选中视频的标签显示。
+        为每个标签创建一行（标签名 + 删除按钮）。
+        """
         for w in self._tags_frame.winfo_children():
             w.destroy()
         if not self._selected_bvid:
@@ -120,19 +162,26 @@ class TagManagerWindow:
             tk.Label(row, text=f"  #{tag}", bg=C["bg_surface"], fg=C["accent"], font=FONT).pack(side=tk.LEFT)
             del_btn = tk.Label(row, text="✕", bg=C["bg_surface"], fg=C["danger"], font=FONT, cursor="hand2")
             del_btn.pack(side=tk.RIGHT, padx=4)
-            del_btn.bind("<Button-1>", lambda e, t=tag: self._delete_tag(t))
+            del_btn.bind("<Button-1>", lambda e, t=tag: self._delete_tag(t))  # 点击删除
 
     def _delete_tag(self, tag):
-        """删除指定标签"""
+        """
+        删除指定标签：从视频的标签列表中移除，更新持久化存储，刷新 UI。
+
+        :param tag: 要删除的标签字符串
+        """
         if self._selected_bvid:
             existing = get_tags(self._selected_bvid)
             if tag in existing:
                 existing.remove(tag)
-                set_tags(self._selected_bvid, existing)
+                set_tags(self._selected_bvid, existing)  # 持久化更新
             self._refresh_tags()
 
     def _add_tag(self):
-        """为选中视频添加新标签"""
+        """
+        为选中视频添加新标签。
+        验证标签不为空、不含空格 → 去重 → 持久化 → 刷新 UI。
+        """
         if not self._selected_bvid:
             messagebox.showwarning("提示", "请先在左侧选择一个视频", parent=self.dlg.window)
             return

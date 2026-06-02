@@ -1,12 +1,15 @@
-"""为 14 个既有 numpy 简化版算法定义 PyTorch 模型骨架 + 统一的"torch → numpy 降级"调度器。
+"""PyTorch 模型骨架与降级调度器模块
 
-不直接重写既有算法文件，而是：
+为 14 个既有 numpy 简化版算法定义 PyTorch 模型骨架 + 统一的"torch → numpy 降级"调度器。
+
+功能说明：
 - 每个算法在文件里加 3-5 行接入此模块（保留原 numpy 逻辑作为 `_numpy_predict`）
 - 当 checkpoint 存在 → 用 `XxxTorchModel` 推理
 - 当 torch 不可用 / checkpoint 缺失 / 推理异常 → 回退到 `_numpy_predict`
 
 模型设计统一为：输入 [B, W, F] → 输出 [B, H]（H 步速度预测）
 特征 F 默认 5：view_count, like_count, coin_count, favorite_count, share_count
+衍生特征 +5：roll_mean_5, roll_std_5, acceleration, relative_pos, lifecycle_phase
 """
 
 import logging
@@ -16,6 +19,7 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+# ── 检测 PyTorch 是否可用 ────────────────────────────────
 _torch_available = True
 try:
     import torch
@@ -27,52 +31,133 @@ except ImportError:
     F = None  # type: ignore
 
 
+# ── 默认配置常量 ─────────────────────────────────────────
+
 DEFAULT_FEATURES = ["view_count", "like_count", "coin_count", "favorite_count", "share_count"]
+"""默认输入特征列表"""
 DEFAULT_WINDOW = 10
+"""默认输入窗口长度（时间步数）"""
 DEFAULT_HORIZON = 3
+"""默认预测步数（输出长度）"""
 
 
 # ════════════════════════════════════════════════════════
-#  Torch 模型骨架（14 个）
+#  Torch 模型骨架（14 → 扩展至 39 个）
 # ════════════════════════════════════════════════════════
 
 if _torch_available:  # noqa: C901
     # ── 1. LSTM ────────────────────────────────────
     class LSTMTorchModel(nn.Module):
+        """LSTM 长短期记忆网络 PyTorch 模型骨架。
+
+        输入 [B, W, F] → LSTM 编码 → 取最后时间步 → 线性头输出 [B, H]
+        """
+
         def __init__(self, in_features=5, hidden=32, layers=1, horizon=3):
+            """初始化 LSTM 模型。
+
+            Args:
+                in_features: 输入特征维度，默认 5
+                hidden: LSTM 隐藏层维度，默认 32
+                layers: LSTM 层数，默认 1
+                horizon: 预测步数（输出维度），默认 3
+            """
             super().__init__()
             self.lstm = nn.LSTM(in_features, hidden, num_layers=layers, batch_first=True)
             self.head = nn.Linear(hidden, horizon)
 
         def forward(self, x):
+            """前向传播。
+
+            Args:
+                x: 输入张量 [B, W, F]
+
+            Returns:
+                预测输出 [B, H]
+            """
             out, _ = self.lstm(x)
             return self.head(out[:, -1, :])
 
     # ── 2. GRU ─────────────────────────────────────
     class GRUTorchModel(nn.Module):
+        """GRU 门控循环单元 PyTorch 模型骨架。
+
+        比 LSTM 参数更少，仅含更新门和重置门。
+        """
+
         def __init__(self, in_features=5, hidden=32, layers=1, horizon=3):
+            """初始化 GRU 模型。
+
+            Args:
+                in_features: 输入特征维度，默认 5
+                hidden: GRU 隐藏层维度，默认 32
+                layers: GRU 层数，默认 1
+                horizon: 预测步数（输出维度），默认 3
+            """
             super().__init__()
             self.gru = nn.GRU(in_features, hidden, num_layers=layers, batch_first=True)
             self.head = nn.Linear(hidden, horizon)
 
         def forward(self, x):
+            """前向传播。
+
+            Args:
+                x: 输入张量 [B, W, F]
+
+            Returns:
+                预测输出 [B, H]
+            """
             out, _ = self.gru(x)
             return self.head(out[:, -1, :])
 
     # ── 3. BiLSTM ──────────────────────────────────
     class BiLSTMTorchModel(nn.Module):
+        """BiLSTM 双向长短期记忆网络 PyTorch 模型骨架。
+
+        同时从正向和反向处理序列，隐藏维度加倍（双向拼接）。
+        """
+
         def __init__(self, in_features=5, hidden=32, layers=1, horizon=3):
+            """初始化 BiLSTM 模型。
+
+            Args:
+                in_features: 输入特征维度，默认 5
+                hidden: 单向隐藏层维度（双向后变为 hidden*2），默认 32
+                layers: LSTM 层数，默认 1
+                horizon: 预测步数（输出维度），默认 3
+            """
             super().__init__()
             self.lstm = nn.LSTM(in_features, hidden, num_layers=layers, batch_first=True, bidirectional=True)
             self.head = nn.Linear(hidden * 2, horizon)
 
         def forward(self, x):
+            """前向传播。
+
+            Args:
+                x: 输入张量 [B, W, F]
+
+            Returns:
+                预测输出 [B, H]
+            """
             out, _ = self.lstm(x)
             return self.head(out[:, -1, :])
 
     # ── 4. MLP / Neural Network / NeuralNetwork ──
     class MLPTorchModel(nn.Module):
+        """MLP 多层感知机 PyTorch 模型骨架。
+
+        将时序展平后通过三层全连接网络（含 GELU 激活）输出预测。
+        """
+
         def __init__(self, in_features=5, window=10, hidden=64, horizon=3):
+            """初始化 MLP 模型。
+
+            Args:
+                in_features: 输入特征维度，默认 5
+                window: 输入窗口长度，默认 10
+                hidden: 隐藏层维度，默认 64
+                horizon: 预测步数（输出维度），默认 3
+            """
             super().__init__()
             self.net = nn.Sequential(
                 nn.Flatten(),
@@ -84,11 +169,32 @@ if _torch_available:  # noqa: C901
             )
 
         def forward(self, x):
+            """前向传播。
+
+            Args:
+                x: 输入张量 [B, W, F]
+
+            Returns:
+                预测输出 [B, H]
+            """
             return self.net(x)
 
     # ── 5. TCN（Dilated Conv1d） ─────────────────
     class TCNTorchModel(nn.Module):
+        """TCN 时序卷积网络 PyTorch 模型骨架。
+
+        使用三层扩张卷积（dilation=1,2,4）捕捉多尺度时序模式。
+        """
+
         def __init__(self, in_features=5, channels=16, kernel=3, horizon=3):
+            """初始化 TCN 模型。
+
+            Args:
+                in_features: 输入特征维度，默认 5
+                channels: 卷积通道数，默认 16
+                kernel: 卷积核大小，默认 3
+                horizon: 预测步数（输出维度），默认 3
+            """
             super().__init__()
             # 三层 dilation 1, 2, 4
             self.tcn = nn.Sequential(
@@ -103,6 +209,14 @@ if _torch_available:  # noqa: C901
             self.head = nn.Linear(channels, horizon)
 
         def forward(self, x):
+            """前向传播。
+
+            Args:
+                x: 输入张量 [B, W, F]
+
+            Returns:
+                预测输出 [B, H]
+            """
             # x: [B, W, F] → conv1d 需要 [B, F, W]
             h = x.transpose(1, 2)
             h = self.tcn(h)
@@ -111,7 +225,20 @@ if _torch_available:  # noqa: C901
 
     # ── 6. CNN-LSTM 混合 ──────────────────────────
     class CNNLSTMTorchModel(nn.Module):
+        """CNN-LSTM 混合模型 PyTorch 骨架。
+
+        CNN 提取局部模式 → LSTM 捕获长期依赖 → 线性头输出。
+        """
+
         def __init__(self, in_features=5, conv_channels=16, lstm_hidden=32, horizon=3):
+            """初始化 CNN-LSTM 混合模型。
+
+            Args:
+                in_features: 输入特征维度，默认 5
+                conv_channels: CNN 卷积通道数，默认 16
+                lstm_hidden: LSTM 隐藏层维度，默认 32
+                horizon: 预测步数（输出维度），默认 3
+            """
             super().__init__()
             self.conv = nn.Sequential(
                 nn.Conv1d(in_features, conv_channels, 3, padding=1),
@@ -123,6 +250,14 @@ if _torch_available:  # noqa: C901
             self.head = nn.Linear(lstm_hidden, horizon)
 
         def forward(self, x):
+            """前向传播。
+
+            Args:
+                x: 输入张量 [B, W, F]
+
+            Returns:
+                预测输出 [B, H]
+            """
             h = x.transpose(1, 2)  # [B, F, W]
             h = self.conv(h)
             h = h.transpose(1, 2)  # [B, W, C]
@@ -131,7 +266,21 @@ if _torch_available:  # noqa: C901
 
     # ── 7. Attention（多头注意力） ────────────────
     class AttentionTorchModel(nn.Module):
+        """注意力机制 PyTorch 模型骨架。
+
+        输入投影后经 MultiheadAttention + 残差连接 + LayerNorm，展平后线性输出。
+        """
+
         def __init__(self, in_features=5, d_model=32, n_heads=4, window=10, horizon=3):
+            """初始化注意力模型。
+
+            Args:
+                in_features: 输入特征维度，默认 5
+                d_model: 模型维度（注意力头维度 * 头数），默认 32
+                n_heads: 注意力头数，默认 4
+                window: 输入窗口长度，默认 10
+                horizon: 预测步数（输出维度），默认 3
+            """
             super().__init__()
             self.input_proj = nn.Linear(in_features, d_model)
             self.attn = nn.MultiheadAttention(d_model, n_heads, batch_first=True)
@@ -139,6 +288,14 @@ if _torch_available:  # noqa: C901
             self.head = nn.Linear(d_model * window, horizon)
 
         def forward(self, x):
+            """前向传播。
+
+            Args:
+                x: 输入张量 [B, W, F]
+
+            Returns:
+                预测输出 [B, H]
+            """
             h = self.input_proj(x)
             attn_out, _ = self.attn(h, h, h)
             h = self.norm(h + attn_out)
@@ -146,7 +303,21 @@ if _torch_available:  # noqa: C901
 
     # ── 8. DLinear（trend + seasonal 双分支） ───
     class DLinearTorchModel(nn.Module):
+        """DLinear PyTorch 模型骨架。
+
+        趋势分支（移动平均提取） + 季节分支（残差 = 原始 − 趋势）。
+        对两分支分别线性预测后合并。
+        """
+
         def __init__(self, in_features=5, window=10, horizon=3, kernel=5):
+            """初始化 DLinear 模型。
+
+            Args:
+                in_features: 输入特征维度，默认 5
+                window: 输入窗口长度，默认 10
+                horizon: 预测步数（输出维度），默认 3
+                kernel: 移动平均核大小，默认 5
+            """
             super().__init__()
             self.window = window
             self.horizon = horizon
@@ -160,22 +331,45 @@ if _torch_available:  # noqa: C901
             self.combine = nn.Linear(horizon * in_features, horizon)
 
         def forward(self, x):
+            """前向传播。
+
+            Args:
+                x: 输入张量 [B, W, F]
+
+            Returns:
+                预测输出 [B, H]
+            """
             # x: [B, W, F]
             B, W, F = x.shape
             # 用窗口左右 padding 的 1D moving average
             pad = self.kernel // 2
             x_t = x.transpose(1, 2)  # [B, F, W]
             x_pad = nn_pad1d(x_t, pad, pad)
-            trend = nn_avg_pool1d(x_pad, self.kernel, stride=1)  # [B, F, W]
-            seasonal = x_t - trend  # [B, F, W]
+            trend = nn_avg_pool1d(x_pad, self.kernel, stride=1)  # [B, F, W]  趋势分量（低频）
+            seasonal = x_t - trend  # [B, F, W]  季节分量（高频残差）
             trend_out = self.trend_linear(trend)  # [B, F, H]
             seasonal_out = self.seasonal_linear(seasonal)  # [B, F, H]
-            y = trend_out + seasonal_out  # [B, F, H]
+            y = trend_out + seasonal_out  # [B, F, H]  两分支叠加
             return self.combine(y.transpose(1, 2).flatten(1))  # [B, H]
 
     # ── 9. N-BEATS（block stacking） ─────────────
     class NBeatsTorchModel(nn.Module):
+        """N-BEATS PyTorch 模型骨架。
+
+        多个 block 堆叠，每个 block 输出 backcast（残差）和 forecast（预测增量）。
+        残差连接实现渐进式预测。
+        """
+
         def __init__(self, in_features=5, window=10, horizon=3, n_blocks=3, hidden=64):
+            """初始化 N-BEATS 模型。
+
+            Args:
+                in_features: 输入特征维度，默认 5
+                window: 输入窗口长度，默认 10
+                horizon: 预测步数（输出维度），默认 3
+                n_blocks: 堆叠 block 数量，默认 3
+                hidden: 隐藏层维度，默认 64
+            """
             super().__init__()
             self.window = window
             self.horizon = horizon
@@ -190,22 +384,48 @@ if _torch_available:  # noqa: C901
                 )
 
         def forward(self, x):
+            """前向传播。
+
+            Args:
+                x: 输入张量 [B, W, F]
+
+            Returns:
+                预测输出 [B, H]
+            """
             B = x.shape[0]
-            res = x.flatten(1)  # [B, W*F]
+            res = x.flatten(1)  # [B, W*F]  初始残差即原始输入
             forecast = torch.zeros(B, self.horizon, device=x.device)
             for block in self.blocks:
                 out = block(res)
-                backcast = out[:, : res.shape[1]]
-                f = out[:, res.shape[1] :]
-                res = res - backcast
-                forecast = forecast + f
+                backcast = out[:, : res.shape[1]]  # 历史重建分量（反向预测）
+                f = out[:, res.shape[1] :]  # 前向预测分量
+                res = res - backcast  # 残差连接：减去已建模的部分
+                forecast = forecast + f  # 累加各 block 的预测
             return forecast
 
     # ── 10. PatchTST（Patch + Transformer） ────
     class PatchTSTTorchModel(nn.Module):
+        """PatchTST PyTorch 模型骨架。
+
+        将序列切分为 patch（子序列段），每 patch 投影为 token，
+        经 Transformer Encoder 编码后线性输出。
+        """
+
         def __init__(
             self, in_features=5, window=10, horizon=3, patch_len=4, stride=2, d_model=32, n_heads=4, n_layers=2
         ):
+            """初始化 PatchTST 模型。
+
+            Args:
+                in_features: 输入特征维度，默认 5
+                window: 输入窗口长度，默认 10
+                horizon: 预测步数（输出维度），默认 3
+                patch_len: 每个 patch 的时间步长度，默认 4
+                stride: patch 之间的步长，默认 2
+                d_model: Transformer 模型维度，默认 32
+                n_heads: 注意力头数，默认 4
+                n_layers: Transformer Encoder 层数，默认 2
+            """
             super().__init__()
             self.patch_len = patch_len
             self.stride = stride
@@ -223,6 +443,14 @@ if _torch_available:  # noqa: C901
             self.head = nn.Linear(d_model * self.n_patches, horizon)
 
         def forward(self, x):
+            """前向传播。
+
+            Args:
+                x: 输入张量 [B, W, F]
+
+            Returns:
+                预测输出 [B, H]
+            """
             # x: [B, W, F]，切 patch
             patches = []
             for s in range(0, x.shape[1] - self.patch_len + 1, self.stride):
@@ -230,15 +458,28 @@ if _torch_available:  # noqa: C901
             if not patches:
                 patches.append(x[:, : self.patch_len, :].flatten(1))
             p = torch.stack(patches, dim=1)  # [B, N, P*F]
-            z = self.patch_proj(p)  # [B, N, D]
+            z = self.patch_proj(p)  # [B, N, D]  投影到模型维度
             z = self.encoder(z)
             return self.head(z.flatten(1))
 
     # ── 11. Informer（ProbSparse 简化版） ──────
     class InformerTorchModel(nn.Module):
-        """简化 Informer：用稀疏 Top-K 注意力替代 ProbSparse。"""
+        """Informer PyTorch 模型骨架（简化 ProbSparse）。
+
+        用稀疏 Top-K 注意力替代完整自注意力，降低 O(L²) 复杂度。
+        """
 
         def __init__(self, in_features=5, d_model=32, n_heads=2, window=10, horizon=3, top_k_ratio=0.5):
+            """初始化 Informer 模型。
+
+            Args:
+                in_features: 输入特征维度，默认 5
+                d_model: 模型维度，默认 32
+                n_heads: 注意力头数，默认 2
+                window: 输入窗口长度，默认 10
+                horizon: 预测步数（输出维度），默认 3
+                top_k_ratio: Top-K 稀疏比例，仅保留该比例的最高注意力分，默认 0.5
+            """
             super().__init__()
             self.proj = nn.Linear(in_features, d_model)
             self.qkv = nn.Linear(d_model, 3 * d_model)
@@ -249,12 +490,21 @@ if _torch_available:  # noqa: C901
             self.head = nn.Linear(d_model * window, horizon)
 
         def forward(self, x):
+            """前向传播。
+
+            Args:
+                x: 输入张量 [B, W, F]
+
+            Returns:
+                预测输出 [B, H]
+            """
             h = self.proj(x)  # [B, W, D]
             B, W, D = h.shape
+            # 多头 QKV 投影
             qkv = self.qkv(h).reshape(B, W, 3, self.heads, self.dk).permute(2, 0, 3, 1, 4)
             q, k, v = qkv[0], qkv[1], qkv[2]  # [B, H, W, dk]
             scores = (q @ k.transpose(-2, -1)) / np.sqrt(self.dk)
-            # Top-K mask
+            # Top-K mask 实现稀疏注意力
             top_k = max(1, int(W * self.top_k_ratio))
             top_vals, _ = scores.topk(top_k, dim=-1)
             kth = top_vals[..., -1:].expand_as(scores)
@@ -263,14 +513,27 @@ if _torch_available:  # noqa: C901
             attn = scores.softmax(dim=-1)
             attn = torch.nan_to_num(attn, nan=0.0)
             out = (attn @ v).permute(0, 2, 1, 3).reshape(B, W, D)
-            out = self.norm(out + h)
+            out = self.norm(out + h)  # 残差连接 + LayerNorm
             return self.head(out.flatten(1))
 
     # ── 12. TFT（Variable Selection + LSTM + Attn） ──
     class TFTTorchModel(nn.Module):
+        """TFT（Temporal Fusion Transformer）PyTorch 模型骨架。
+
+        变量选择门控 → LSTM 编码 → 多头注意力 → 残差相加 → 线性输出。
+        """
+
         def __init__(self, in_features=5, hidden=32, horizon=3, n_heads=4):
+            """初始化 TFT 模型。
+
+            Args:
+                in_features: 输入特征维度，默认 5
+                hidden: LSTM 隐藏层维度，默认 32
+                horizon: 预测步数（输出维度），默认 3
+                n_heads: 注意力头数，默认 4
+            """
             super().__init__()
-            # Variable selection: gate over features
+            # Variable selection: gate over features  变量选择门控：对特征维加权
             self.var_gate = nn.Sequential(
                 nn.Linear(in_features, in_features),
                 nn.Sigmoid(),
@@ -280,15 +543,38 @@ if _torch_available:  # noqa: C901
             self.head = nn.Linear(hidden, horizon)
 
         def forward(self, x):
-            gate = self.var_gate(x.mean(dim=1, keepdim=True))
-            x = x * gate
+            """前向传播。
+
+            Args:
+                x: 输入张量 [B, W, F]
+
+            Returns:
+                预测输出 [B, H]
+            """
+            gate = self.var_gate(x.mean(dim=1, keepdim=True))  # 全局池化后门控
+            x = x * gate  # 特征选择
             out, _ = self.lstm(x)
             attn_out, _ = self.attn(out, out, out)
             return self.head((out + attn_out)[:, -1, :])
 
     # ── 13. TimesNet（period-based FFT） ───────
     class TimessNetTorchModel(nn.Module):
+        """TimesNet PyTorch 模型骨架。
+
+        通过 FFT 发现周期，将 1D 序列按周期重塑为 2D 张量，
+        用 Conv2d 捕捉周期内和周期间模式。
+        """
+
         def __init__(self, in_features=5, d_model=32, window=10, horizon=3, top_k=2):
+            """初始化 TimesNet 模型。
+
+            Args:
+                in_features: 输入特征维度，默认 5
+                d_model: 模型维度，默认 32
+                window: 输入窗口长度，默认 10
+                horizon: 预测步数（输出维度），默认 3
+                top_k: 保留的 Top-K 个最强周期，默认 2
+            """
             super().__init__()
             self.proj = nn.Linear(in_features, d_model)
             self.top_k = top_k
@@ -297,13 +583,21 @@ if _torch_available:  # noqa: C901
             self.head = nn.Linear(d_model * window, horizon)
 
         def forward(self, x):
+            """前向传播。
+
+            Args:
+                x: 输入张量 [B, W, F]
+
+            Returns:
+                预测输出 [B, H]
+            """
             # x: [B, W, F]
             h = self.proj(x)  # [B, W, D]
             B, W, D = h.shape
             # FFT 找 top_k 周期
             ft = torch.fft.rfft(h, dim=1)
             amps = ft.abs().mean(dim=(0, 2))
-            amps[0] = 0  # 排除直流
+            amps[0] = 0  # 排除直流分量
             top_idx = amps.topk(min(self.top_k, amps.shape[0])).indices
             outs = []
             for p_idx in top_idx:
@@ -312,15 +606,28 @@ if _torch_available:  # noqa: C901
                 h_pad = torch.nn.functional.pad(h, (0, 0, 0, pad))
                 # 重塑成 [B, n_period, period, D]
                 reshaped = h_pad.reshape(B, -1, period, D).permute(0, 3, 1, 2)
-                conv_out = self.conv(reshaped)  # [B, D, n, p]
+                conv_out = self.conv(reshaped)  # [B, D, n, p]  2D 卷积
                 outs.append(conv_out.permute(0, 2, 3, 1).reshape(B, -1, D)[:, :W])
-            agg = torch.stack(outs, dim=0).mean(dim=0) if outs else h
-            agg = self.norm(agg + h)
+            agg = torch.stack(outs, dim=0).mean(dim=0) if outs else h  # 多周期平均
+            agg = self.norm(agg + h)  # 残差连接 + LayerNorm
             return self.head(agg.flatten(1))
 
     # ── 14. TIDE（残差 MLP 编码器） ─────────────
     class TIDETorchModel(nn.Module):
+        """TiDE（Time-series Dense Encoder）PyTorch 模型骨架。
+
+        残差 MLP 编码器 + 线性解码器 + 全局残差连接。
+        """
+
         def __init__(self, in_features=5, window=10, hidden=64, horizon=3):
+            """初始化 TiDE 模型。
+
+            Args:
+                in_features: 输入特征维度，默认 5
+                window: 输入窗口长度，默认 10
+                hidden: 隐藏层维度，默认 64
+                horizon: 预测步数（输出维度），默认 3
+            """
             super().__init__()
             self.encoder = nn.Sequential(
                 nn.Flatten(),
@@ -330,15 +637,36 @@ if _torch_available:  # noqa: C901
                 nn.GELU(),
             )
             self.decoder = nn.Linear(hidden, horizon)
-            self.residual = nn.Linear(window * in_features, horizon)
+            self.residual = nn.Linear(window * in_features, horizon)  # 全局残差跳过编码器
 
         def forward(self, x):
+            """前向传播。
+
+            Args:
+                x: 输入张量 [B, W, F]
+
+            Returns:
+                预测输出 [B, H]
+            """
             flat = x.flatten(1)
             return self.decoder(self.encoder(flat)) + self.residual(flat)
 
     # ── 15. TSMixer（时间维 + 通道维 MLP 交替混合） ──
     class TSMixerTorchModel(nn.Module):
+        """TSMixer PyTorch 模型骨架。
+
+        交替对时间维和特征（通道）维应用 MLP 混合，残差连接增强。
+        """
+
         def __init__(self, in_features=5, window=10, hidden=64, horizon=3):
+            """初始化 TSMixer 模型。
+
+            Args:
+                in_features: 输入特征维度，默认 5
+                window: 输入窗口长度，默认 10
+                hidden: 隐藏层维度，默认 64
+                horizon: 预测步数（输出维度），默认 3
+            """
             super().__init__()
             self.time_mlp = nn.Sequential(
                 nn.Linear(window, hidden),
@@ -355,28 +683,72 @@ if _torch_available:  # noqa: C901
             self.head = nn.Linear(window * in_features, horizon)
 
         def forward(self, x):
+            """前向传播。
+
+            Args:
+                x: 输入张量 [B, W, F]
+
+            Returns:
+                预测输出 [B, H]
+            """
             x_t = x.transpose(1, 2)
-            x_t = x_t + self.time_mlp(self.norm_time(x_t))
+            x_t = x_t + self.time_mlp(self.norm_time(x_t))  # 时间维混合 + 残差
             h = x_t.transpose(1, 2)
-            h = h + self.channel_mlp(self.norm_channel(h))
+            h = h + self.channel_mlp(self.norm_channel(h))  # 通道维混合 + 残差
             return self.head(h.flatten(1))
 
     # ── 16. DeepAR（GRU 自回归概率） ────────────
     class DeepARTorchModel(nn.Module):
+        """DeepAR 概率自回归 PyTorch 模型骨架。
+
+        GRU 编码 → 输出均值（mu）和标准差（sigma），
+        用重参数化技巧实现概率采样。
+        """
+
         def __init__(self, in_features=5, window=10, hidden=32, horizon=3):
+            """初始化 DeepAR 模型。
+
+            Args:
+                in_features: 输入特征维度，默认 5
+                window: 输入窗口长度，默认 10
+                hidden: GRU 隐藏层维度，默认 32
+                horizon: 预测步数（输出维度），默认 3
+            """
             super().__init__()
             self.gru = nn.GRU(in_features, hidden, batch_first=True)
-            self.mu = nn.Linear(hidden, horizon)
-            self.sigma = nn.Sequential(nn.Linear(hidden, horizon), nn.Softplus())
+            self.mu = nn.Linear(hidden, horizon)  # 均值预测头
+            self.sigma = nn.Sequential(nn.Linear(hidden, horizon), nn.Softplus())  # 标准差预测头（正值）
 
         def forward(self, x):
+            """前向传播。
+
+            Args:
+                x: 输入张量 [B, W, F]
+
+            Returns:
+                采样预测输出 [B, H]
+            """
             out, _ = self.gru(x)
             h = out[:, -1, :]
-            return self.mu(h) + self.sigma(h) * torch.randn_like(self.sigma(h)) * 0.01
+            return self.mu(h) + self.sigma(h) * torch.randn_like(self.sigma(h)) * 0.01  # 重参数化
 
     # ── 17. Chronos（轻量 T5 式编码器） ─────────
     class ChronosTorchModel(nn.Module):
+        """Chronos（轻量 T5 式编码器）PyTorch 模型骨架。
+
+        投影 → Transformer Encoder（2 层）→ 展平后线性输出。
+        """
+
         def __init__(self, in_features=5, window=10, d_model=32, n_heads=2, horizon=3):
+            """初始化 Chronos 模型。
+
+            Args:
+                in_features: 输入特征维度，默认 5
+                window: 输入窗口长度，默认 10
+                d_model: 模型维度，默认 32
+                n_heads: 注意力头数，默认 2
+                horizon: 预测步数（输出维度），默认 3
+            """
             super().__init__()
             self.proj = nn.Linear(in_features, d_model)
             encoder_layer = nn.TransformerEncoderLayer(d_model, n_heads, dim_feedforward=64, batch_first=True)
@@ -384,82 +756,178 @@ if _torch_available:  # noqa: C901
             self.head = nn.Linear(d_model * window, horizon)
 
         def forward(self, x):
+            """前向传播。
+
+            Args:
+                x: 输入张量 [B, W, F]
+
+            Returns:
+                预测输出 [B, H]
+            """
             h = self.proj(x)
             h = self.encoder(h)
             return self.head(h.flatten(1))
 
     # ── 18. Mamba S6（简化 SSM） ───────────────
     class MambaS6TorchModel(nn.Module):
+        """Mamba S6（简化状态空间模型）PyTorch 骨架。
+
+        模拟选择性状态空间模型，通过学到的矩阵 A、B、C 演化隐藏状态。
+        """
+
         def __init__(self, in_features=5, window=10, d_state=4, horizon=3):
+            """初始化 Mamba 模型。
+
+            Args:
+                in_features: 输入特征维度，默认 5
+                window: 输入窗口长度，默认 10
+                d_state: 隐藏状态维度，默认 4
+                horizon: 预测步数（输出维度），默认 3
+            """
             super().__init__()
             self.d_state = d_state
-            self.proj = nn.Linear(in_features, d_state)
-            self.A = nn.Parameter(torch.randn(d_state, d_state) * 0.01)
-            self.B = nn.Linear(in_features, d_state)
-            self.C = nn.Linear(d_state, 1)
+            self.proj = nn.Linear(in_features, d_state)  # 输入投影
+            self.A = nn.Parameter(torch.randn(d_state, d_state) * 0.01)  # 状态转移矩阵（学习）
+            self.B = nn.Linear(in_features, d_state)  # 输入投影矩阵
+            self.C = nn.Linear(d_state, 1)  # 输出投影矩阵
             self.head = nn.Linear(d_state, horizon)
 
         def forward(self, x):
+            """前向传播。
+
+            Args:
+                x: 输入张量 [B, W, F]
+
+            Returns:
+                预测输出 [B, H]
+            """
             B = x.shape[0]
-            dt = 0.1
+            dt = 0.1  # 离散化步长
             state = torch.zeros(B, self.d_state, device=x.device)
             for t in range(x.shape[1]):
                 b_t = self.B(x[:, t, :])
-                state = state @ self.A.T + b_t * dt
+                state = state @ self.A.T + b_t * dt  # 状态更新：离散欧拉法
             return self.head(state)
 
     # ── 19. iTransformer（变量作为 token） ─────
     class ITransformerTorchModel(nn.Module):
+        """iTransformer（倒置 Transformer）PyTorch 模型骨架。
+
+        将变量（特征）维度作为 token，注意力在特征间交互，
+        与标准 Transformer 按时间步分 token 不同。
+        """
+
         def __init__(self, in_features=5, window=10, d_model=32, n_heads=4, horizon=3):
+            """初始化 iTransformer 模型。
+
+            Args:
+                in_features: 输入特征维度，默认 5
+                window: 输入窗口长度，默认 10
+                d_model: 模型维度，默认 32
+                n_heads: 注意力头数，默认 4
+                horizon: 预测步数（输出维度），默认 3
+            """
             super().__init__()
-            self.var_proj = nn.Linear(window, d_model)
+            self.var_proj = nn.Linear(window, d_model)  # 每个变量的整个时间维投影为 token
             encoder_layer = nn.TransformerEncoderLayer(d_model, n_heads, dim_feedforward=64, batch_first=True)
             self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=2)
             self.head = nn.Linear(d_model * in_features, horizon)
 
         def forward(self, x):
-            h = self.var_proj(x.transpose(1, 2))
+            """前向传播。
+
+            Args:
+                x: 输入张量 [B, W, F]
+
+            Returns:
+                预测输出 [B, H]
+            """
+            h = self.var_proj(x.transpose(1, 2))  # [B, F, D]  变量维作为序列
             h = self.encoder(h)
             return self.head(h.flatten(1))
 
     # ── 20. SCINet（二叉树下采样卷积） ─────────
     class SCINetTorchModel(nn.Module):
+        """SCINet（Sample Convolution and Interaction Network）PyTorch 骨架。
+
+        二叉树下采样为奇偶子序列 → 交互式卷积 → 合并输出。
+        """
+
         def __init__(self, in_features=5, window=10, hidden=16, horizon=3):
+            """初始化 SCINet 模型。
+
+            Args:
+                in_features: 输入特征维度，默认 5
+                window: 输入窗口长度，默认 10
+                hidden: 卷积通道数，默认 16
+                horizon: 预测步数（输出维度），默认 3
+            """
             super().__init__()
             self.conv_even = nn.Conv1d(in_features, hidden, 3, padding=1)
             self.conv_odd = nn.Conv1d(in_features, hidden, 3, padding=1)
-            self.interact = nn.Conv1d(hidden * 2, hidden, 1)
+            self.interact = nn.Conv1d(hidden * 2, hidden, 1)  # 1x1 卷积交互
             self.head = nn.Linear(hidden, horizon)
 
         def forward(self, x):
-            x = x.transpose(1, 2)
-            even = self.conv_even(x[:, :, ::2])
-            odd = self.conv_odd(x[:, :, 1::2])
+            """前向传播。
+
+            Args:
+                x: 输入张量 [B, W, F]
+
+            Returns:
+                预测输出 [B, H]
+            """
+            x = x.transpose(1, 2)  # [B, F, W]
+            even = self.conv_even(x[:, :, ::2])  # 偶数位置子序列
+            odd = self.conv_odd(x[:, :, 1::2])  # 奇数位置子序列
             if even.shape[-1] > odd.shape[-1]:
-                even = even[..., : odd.shape[-1]]
-            diff = even - odd
-            gate_e = torch.tanh(diff)
-            gate_o = torch.tanh(-diff)
-            even_out = even + gate_e * odd
-            odd_out = odd + gate_o * even[..., : odd.shape[-1]]
-            combined = torch.cat([even_out, odd_out], dim=1)
-            h = self.interact(combined)
-            h = h.mean(dim=-1)
+                even = even[..., : odd.shape[-1]]  # 对齐长度
+            diff = even - odd  # 奇偶差分
+            gate_e = torch.tanh(diff)  # 偶数门控
+            gate_o = torch.tanh(-diff)  # 奇数门控
+            even_out = even + gate_e * odd  # 偶数增强
+            odd_out = odd + gate_o * even[..., : odd.shape[-1]]  # 奇数增强
+            combined = torch.cat([even_out, odd_out], dim=1)  # 拼接
+            h = self.interact(combined)  # 1x1 交互
+            h = h.mean(dim=-1)  # 全局平均池化
             return self.head(h)
 
     # ── 21. TimesFM（Patch + Decoder） ──────────
     class TimesFMTorchModel(nn.Module):
+        """TimesFM（Time Series Foundation Model）PyTorch 骨架。
+
+        Patch 投影 → Transformer Decoder（含可学习目标 query）→ 线性输出。
+        """
+
         def __init__(self, in_features=5, window=10, patch_len=4, d_model=32, n_heads=2, horizon=3):
+            """初始化 TimesFM 模型。
+
+            Args:
+                in_features: 输入特征维度，默认 5
+                window: 输入窗口长度，默认 10
+                patch_len: 每个 patch 的时间步长度，默认 4
+                d_model: 模型维度，默认 32
+                n_heads: 注意力头数，默认 2
+                horizon: 预测步数（输出维度），默认 3
+            """
             super().__init__()
             self.patch_len = min(patch_len, window)
             self.n_patches = max(1, window // self.patch_len)
             self.patch_proj = nn.Linear(self.patch_len * in_features, d_model)
             decoder_layer = nn.TransformerDecoderLayer(d_model, n_heads, dim_feedforward=64, batch_first=True)
             self.decoder = nn.TransformerDecoder(decoder_layer, num_layers=2)
-            self.tgt = nn.Parameter(torch.randn(1, horizon, d_model) * 0.01)
+            self.tgt = nn.Parameter(torch.randn(1, horizon, d_model) * 0.01)  # 可学习目标序列
             self.head = nn.Linear(d_model, 1)
 
         def forward(self, x):
+            """前向传播。
+
+            Args:
+                x: 输入张量 [B, W, F]
+
+            Returns:
+                预测输出 [B, H]
+            """
             B = x.shape[0]
             patches = []
             for s in range(0, x.shape[1] - self.patch_len + 1, self.patch_len):
@@ -467,18 +935,33 @@ if _torch_available:  # noqa: C901
             if not patches:
                 patches.append(x[:, : self.patch_len, :].flatten(1))
             p = torch.stack(patches, dim=1)
-            mem = self.patch_proj(p)
-            tgt = self.tgt.expand(B, -1, -1)
-            h = self.decoder(tgt, mem)
+            mem = self.patch_proj(p)  # 编码器记忆（历史 patch 投影）
+            tgt = self.tgt.expand(B, -1, -1)  # 目标 query 扩展
+            h = self.decoder(tgt, mem)  # 交叉注意力解码
             return self.head(h).squeeze(-1)
 
     # ── 22. Time-MoE（轻量专家混合） ───────────
     class TimeMoETorchModel(nn.Module):
+        """Time-MoE（混合专家）PyTorch 模型骨架。
+
+        输入经投影后由门控网络选择多个专家网络，
+        各专家输出加权求和。
+        """
+
         def __init__(self, in_features=5, window=10, n_experts=4, d_model=16, horizon=3):
+            """初始化 Time-MoE 模型。
+
+            Args:
+                in_features: 输入特征维度，默认 5
+                window: 输入窗口长度，默认 10
+                n_experts: 专家数量，默认 4
+                d_model: 模型维度，默认 16
+                horizon: 预测步数（输出维度），默认 3
+            """
             super().__init__()
             self.n_experts = n_experts
             self.proj = nn.Linear(window * in_features, d_model)
-            self.gate = nn.Linear(d_model, n_experts)
+            self.gate = nn.Linear(d_model, n_experts)  # 门控网络
             self.experts = nn.ModuleList(
                 [
                     nn.Sequential(nn.Linear(d_model, d_model), nn.GELU(), nn.Linear(d_model, horizon))
@@ -487,54 +970,119 @@ if _torch_available:  # noqa: C901
             )
 
         def forward(self, x):
+            """前向传播。
+
+            Args:
+                x: 输入张量 [B, W, F]
+
+            Returns:
+                预测输出 [B, H]
+            """
             h = self.proj(x.flatten(1))
-            gates = self.gate(h).softmax(dim=-1)
-            out = sum(gates[:, i : i + 1] * self.experts[i](h) for i in range(self.n_experts))
+            gates = self.gate(h).softmax(dim=-1)  # 专家权重（softmax）
+            out = sum(gates[:, i : i + 1] * self.experts[i](h) for i in range(self.n_experts))  # 加权混合
             return out
 
     # ── 27. RevIN（可逆实例归一化） ─────────────
     class RevIN(nn.Module):
+        """RevIN（可逆实例归一化）模块。
+
+        对每个样本做实例归一化，输出时反归一化还原到原始尺度，
+        缓解分布偏移问题。
+        """
+
         def __init__(self, eps=1e-5):
+            """初始化 RevIN 模块。
+
+            Args:
+                eps: 数值稳定性常数，防止除零，默认 1e-5
+            """
             super().__init__()
             self.eps = eps
-            self.affine = nn.Parameter(torch.ones(1))
-            self.shift = nn.Parameter(torch.zeros(1))
+            self.affine = nn.Parameter(torch.ones(1))  # 可学习缩放参数
+            self.shift = nn.Parameter(torch.zeros(1))  # 可学习偏移参数
 
         def forward(self, x, mode="norm"):
+            """前向传播。
+
+            Args:
+                x: 输入张量 [B, W, F]
+                mode: "norm" 归一化或 "denorm" 反归一化
+
+            Returns:
+                归一化/反归一化后的张量
+            """
             if mode == "norm":
-                self.mean = x.mean(dim=1, keepdim=True)
-                self.stdev = x.std(dim=1, keepdim=True) + self.eps
-                x = (x - self.mean) / self.stdev
-                return x * self.affine + self.shift
+                self.mean = x.mean(dim=1, keepdim=True)  # 保存均值用于反归一化
+                self.stdev = x.std(dim=1, keepdim=True) + self.eps  # 保存标准差
+                x = (x - self.mean) / self.stdev  # z-score 归一化
+                return x * self.affine + self.shift  # 仿射变换
             elif mode == "denorm":
-                x = (x - self.shift) / (self.affine + self.eps)
-                return x * self.stdev + self.mean
+                x = (x - self.shift) / (self.affine + self.eps)  # 逆仿射
+                return x * self.stdev + self.mean  # 还原到原始尺度
             return x
 
     # ── 28. NLinear（极简线性模型） ─────────────
     class NLinearTorchModel(nn.Module):
+        """NLinear PyTorch 模型骨架。
+
+        对每个特征独立做线性预测，配合 RevIN 归一化，
+        利用"序列最后值减去"的技巧实现极简模型。
+        """
+
         def __init__(self, in_features=5, window=10, horizon=3):
+            """初始化 NLinear 模型。
+
+            Args:
+                in_features: 输入特征维度，默认 5
+                window: 输入窗口长度，默认 10
+                horizon: 预测步数（输出维度），默认 3
+            """
             super().__init__()
             self.window = window
             self.in_features = in_features
-            self.revin = RevIN()
+            self.revin = RevIN()  # 可逆归一化
             self.linear = nn.Linear(window, horizon)
             self.feat_proj = nn.Linear(in_features, 1)
             self.combine = nn.Linear(horizon * in_features, horizon)
 
         def forward(self, x):
+            """前向传播。
+
+            Args:
+                x: 输入张量 [B, W, F]
+
+            Returns:
+                预测输出 [B, H]
+            """
             x = self.revin(x, "norm")
             B, W, F = x.shape
             outs = []
             for f in range(F):
-                outs.append(self.linear(x[:, :, f]).unsqueeze(-1))
+                outs.append(self.linear(x[:, :, f]).unsqueeze(-1))  # 逐特征线性预测
             y = torch.cat(outs, dim=-1).transpose(1, 2).flatten(1)
-            y = self.combine(y)
+            y = self.combine(y)  # 特征合并
             return self.revin(y.unsqueeze(-1).expand(-1, -1, F).mean(-1, keepdim=True), "denorm").squeeze(-1)
 
     # ── 29. N-HiTS（多尺度分层插值） ─────────────
     class NHiTSTorchModel(nn.Module):
+        """N-HiTS（Neural Hierarchical Interpolation）PyTorch 骨架。
+
+        多尺度下采样 + 残差 block 堆叠，
+        每个 block 在不同分辨率上预测，粗到细分层建模。
+        """
+
         def __init__(self, in_features=5, window=10, horizon=3, n_blocks=3, n_pool_kernel=2, hidden=64):
+            """初始化 N-HiTS 模型。
+
+            Args:
+                in_features: 输入特征维度，默认 5
+                window: 输入窗口长度，默认 10
+                horizon: 预测步数（输出维度），默认 3
+                n_blocks: 堆叠 block 数，默认 3
+                n_pool_kernel: 池化核大小，默认 2
+                hidden: 隐藏层维度，默认 64
+            """
             super().__init__()
             self.window = window
             self.horizon = horizon
@@ -550,26 +1098,48 @@ if _torch_available:  # noqa: C901
                         nn.Linear(hidden, window * in_features + horizon),
                     )
                 )
-            self.pool = nn.MaxPool1d(n_pool_kernel, stride=n_pool_kernel)
+            self.pool = nn.MaxPool1d(n_pool_kernel, stride=n_pool_kernel)  # 下采样
             self.pool_linear = nn.Linear(window // n_pool_kernel * in_features, hidden)
 
         def forward(self, x):
+            """前向传播。
+
+            Args:
+                x: 输入张量 [B, W, F]
+
+            Returns:
+                预测输出 [B, H]
+            """
             B, W, F = x.shape
             residuals = x.flatten(1)
             forecast = torch.zeros(B, self.horizon, device=x.device)
             for i in range(self.n_blocks):
                 block_out = self.blocks[i](residuals)
-                backcast = block_out[:, : W * F]
-                fc = block_out[:, W * F :]
-                forecast = forecast + fc.view(B, self.horizon)
-                residuals = residuals - backcast
-                x_pool = self.pool(x.transpose(1, 2)).transpose(1, 2)
-                residuals = self.pool_linear(x_pool.flatten(1))
+                backcast = block_out[:, : W * F]  # 历史重建
+                fc = block_out[:, W * F :]  # 前向预测增量
+                forecast = forecast + fc.view(B, self.horizon)  # 累加
+                residuals = residuals - backcast  # 减去已建模部分
+                x_pool = self.pool(x.transpose(1, 2)).transpose(1, 2)  # 下采样池化
+                residuals = self.pool_linear(x_pool.flatten(1))  # 投影到更低分辨率
             return forecast
 
     # ── 30. TimeMixer（多尺度混合） ─────────────
     class TimeMixerTorchModel(nn.Module):
+        """TimeMixer PyTorch 模型骨架。
+
+        多尺度下采样 + 各尺度独立 MLP 混合 + 多尺度融合输出。
+        """
+
         def __init__(self, in_features=5, window=10, horizon=3, d_model=32, scales=3):
+            """初始化 TimeMixer 模型。
+
+            Args:
+                in_features: 输入特征维度，默认 5
+                window: 输入窗口长度，默认 10
+                horizon: 预测步数（输出维度），默认 3
+                d_model: 模型维度，默认 32
+                scales: 多尺度数量，默认 3
+            """
             super().__init__()
             self.window = window
             self.horizon = horizon
@@ -583,10 +1153,18 @@ if _torch_available:  # noqa: C901
                 nn.Sequential(nn.Linear(d_model, d_model * 2), nn.GELU(), nn.Linear(d_model * 2, d_model))
                 for _ in range(scales)
             ])
-            self.fusion = nn.Linear(scales * d_model, d_model)
+            self.fusion = nn.Linear(scales * d_model, d_model)  # 多尺度融合
             self.head = nn.Linear(d_model * window, horizon)
 
         def forward(self, x):
+            """前向传播。
+
+            Args:
+                x: 输入张量 [B, W, F]
+
+            Returns:
+                预测输出 [B, H]
+            """
             x_p = self.proj(x)
             scale_outs = []
             for s in range(self.scales):
@@ -594,25 +1172,41 @@ if _torch_available:  # noqa: C901
                 if isinstance(self.down_samples[s], nn.Identity):
                     ds = xs
                 else:
-                    ds = self.down_samples[s](xs).transpose(1, 2)
-                    ds = F.pad(ds, (0, 0, 0, self.window - ds.shape[1]))
-                mixed = self.mixers[s](ds)
-                scale_outs.append(mixed.mean(dim=1))
-            fused = self.fusion(torch.cat(scale_outs, dim=-1))
+                    ds = self.down_samples[s](xs).transpose(1, 2)  # 平均池化下采样
+                    ds = F.pad(ds, (0, 0, 0, self.window - ds.shape[1]))  # 补齐长度
+                mixed = self.mixers[s](ds)  # 各尺度独立 MLP
+                scale_outs.append(mixed.mean(dim=1))  # 全局平均
+            fused = self.fusion(torch.cat(scale_outs, dim=-1))  # 多尺度拼接融合
             return self.head(fused.unsqueeze(1).expand(-1, self.window, -1).flatten(1))
 
     # ── 31. BiTCN（双向时序卷积） ─────────────
     class BiTCNTorchModel(nn.Module):
+        """BiTCN（Bidirectional Temporal Convolutional Network）PyTorch 骨架。
+
+        前向膨胀卷积 + 反向膨胀卷积，双向拼接后经预测头输出，
+        配合 RevIN 归一化。
+        """
+
         def __init__(self, in_features=5, window=10, horizon=3, channels=32, kernel_size=3, layers=3):
+            """初始化 BiTCN 模型。
+
+            Args:
+                in_features: 输入特征维度，默认 5
+                window: 输入窗口长度，默认 10
+                horizon: 预测步数（输出维度），默认 3
+                channels: 卷积通道数，默认 32
+                kernel_size: 卷积核大小，默认 3
+                layers: 层数，默认 3
+            """
             super().__init__()
             self.window = window
             self.horizon = horizon
             self.proj = nn.Linear(in_features, channels)
-            self.revin = RevIN()
+            self.revin = RevIN()  # 可逆归一化
             self.forward_convs = nn.ModuleList()
             self.backward_convs = nn.ModuleList()
             for i in range(layers):
-                dil = 2**i
+                dil = 2**i  # 膨胀系数指数增长
                 self.forward_convs.append(
                     nn.Conv1d(channels, channels, kernel_size, dilation=dil, padding=dil * (kernel_size - 1) // 2)
                 )
@@ -622,20 +1216,42 @@ if _torch_available:  # noqa: C901
             self.head = nn.Sequential(nn.Linear(channels * 2 * window, horizon * 2), nn.GELU(), nn.Linear(horizon * 2, horizon))
 
         def forward(self, x):
+            """前向传播。
+
+            Args:
+                x: 输入张量 [B, W, F]
+
+            Returns:
+                预测输出 [B, H]
+            """
             x = self.revin(x, "norm")
-            h = self.proj(x).transpose(1, 2)
-            h_f = h
-            h_b = h.flip(-1)
+            h = self.proj(x).transpose(1, 2)  # [B, C, W]
+            h_f = h  # 前向分支
+            h_b = h.flip(-1)  # 反向分支（时间轴翻转）
             for f_conv, b_conv in zip(self.forward_convs, self.backward_convs):
                 h_f = F.gelu(f_conv(h_f))
                 h_b = F.gelu(b_conv(h_b))
-            h_cat = torch.cat([h_f, h_b.flip(-1)], dim=1).flatten(1)
+            h_cat = torch.cat([h_f, h_b.flip(-1)], dim=1).flatten(1)  # 双向拼接（反向翻转回正序）
             y = self.head(h_cat)
             return self.revin(y.unsqueeze(-1).expand(-1, -1, x.shape[-1]).mean(-1, keepdim=True), "denorm").squeeze(-1)
 
     # ── 32. WPMixer（小波包多分辨率混合, AAAI 2025） ──
     class WPMixerTorchModel(nn.Module):
+        """WPMixer（Wavelet Packet Mixer）PyTorch 模型骨架。
+
+        多分辨率分支：原始 + 1/2 下采样 + 1/4 下采样，
+        各分支独立 MLP 后融合。
+        """
+
         def __init__(self, in_features=5, window=10, horizon=3, d_model=32):
+            """初始化 WPMixer 模型。
+
+            Args:
+                in_features: 输入特征维度，默认 5
+                window: 输入窗口长度，默认 10
+                horizon: 预测步数（输出维度），默认 3
+                d_model: 模型维度，默认 32
+            """
             super().__init__()
             self.window = window
             self.horizon = horizon
@@ -650,6 +1266,14 @@ if _torch_available:  # noqa: C901
             self.fusion = nn.Linear(3 * horizon, horizon)
 
         def forward(self, x):
+            """前向传播。
+
+            Args:
+                x: 输入张量 [B, W, F]
+
+            Returns:
+                预测输出 [B, H]
+            """
             h = self.proj(x)  # [B, W, D]
             B, W, D = h.shape
             # 原始分辨率
@@ -665,11 +1289,25 @@ if _torch_available:  # noqa: C901
                 y3 = self.branches[2](h4.flatten(1)) if W4 > 0 else y1 * 0.1
             else:
                 y3 = y1 * 0.1
-            return self.fusion(torch.cat([y1, y2, y3], dim=-1))
+            return self.fusion(torch.cat([y1, y2, y3], dim=-1))  # 三分辨率融合
 
     # ── 33. Koopa（Koopman 算子预测, NeurIPS 2023） ──
     class KoopaTorchModel(nn.Module):
+        """Koopa（Koopman Predictor）PyTorch 模型骨架。
+
+        编码器 → Koopman 算子 K（线性演化矩阵）→ 多分量混合 → 解码器输出。
+        """
+
         def __init__(self, in_features=5, window=10, horizon=3, d_model=32, n_components=4):
+            """初始化 Koopa 模型。
+
+            Args:
+                in_features: 输入特征维度，默认 5
+                window: 输入窗口长度，默认 10
+                horizon: 预测步数（输出维度），默认 3
+                d_model: 模型维度，默认 32
+                n_components: Koopman 分量数，默认 4
+            """
             super().__init__()
             self.window = window
             self.horizon = horizon
@@ -678,32 +1316,62 @@ if _torch_available:  # noqa: C901
                 nn.Linear(window * in_features, d_model), nn.GELU(), nn.Linear(d_model, d_model),
             )
             # Koopman 算子 K: 用线性层学习动力系统的演化矩阵
-            self.K = nn.Linear(d_model, d_model * n_components, bias=False)
+            self.K = nn.Linear(d_model, d_model * n_components, bias=False)  # 无偏置的线性变换
             self.decoder = nn.Sequential(
                 nn.Linear(d_model * n_components, d_model), nn.GELU(), nn.Linear(d_model, horizon),
             )
 
         def forward(self, x):
+            """前向传播。
+
+            Args:
+                x: 输入张量 [B, W, F]
+
+            Returns:
+                预测输出 [B, H]
+            """
             B = x.shape[0]
-            z = self.encoder(x.flatten(1))  # [B, D]
-            Kz = self.K(z).view(B, self.n_components, -1)  # [B, C, D]
+            z = self.encoder(x.flatten(1))  # [B, D]  编码到 Koopman 空间
+            Kz = self.K(z).view(B, self.n_components, -1)  # [B, C, D]  多分量演化
             # 多个 Koopman 分量混合
-            mixed = Kz.mean(dim=1).view(B, -1)  # [B, D]
+            mixed = Kz.mean(dim=1).view(B, -1)  # [B, D]  分量平均
             return self.decoder(mixed)
 
     # ── 34. SegRNN（分段 RNN, arXiv 2023） ──
     class SegRNNTorchModel(nn.Module):
+        """SegRNN（Segment RNN）PyTorch 模型骨架。
+
+        将序列切分为定长段，每段投影后经 GRU 编码。
+        """
+
         def __init__(self, in_features=5, window=10, horizon=3, seg_len=3, d_model=32):
+            """初始化 SegRNN 模型。
+
+            Args:
+                in_features: 输入特征维度，默认 5
+                window: 输入窗口长度，默认 10
+                horizon: 预测步数（输出维度），默认 3
+                seg_len: 每段长度，默认 3
+                d_model: 模型维度，默认 32
+            """
             super().__init__()
             self.window = window
             self.horizon = horizon
             self.seg_len = seg_len
-            self.n_segments = max(1, window // seg_len)
-            self.proj = nn.Linear(seg_len * in_features, d_model)
+            self.n_segments = max(1, window // seg_len)  # 分段数
+            self.proj = nn.Linear(seg_len * in_features, d_model)  # 段投影片
             self.gru = nn.GRU(d_model, d_model, batch_first=True)
             self.head = nn.Linear(d_model * self.n_segments, horizon)
 
         def forward(self, x):
+            """前向传播。
+
+            Args:
+                x: 输入张量 [B, W, F]
+
+            Returns:
+                预测输出 [B, H]
+            """
             B, W, F = x.shape
             segs = []
             for i in range(self.n_segments):
@@ -715,58 +1383,116 @@ if _torch_available:  # noqa: C901
                 segs.append(seg.flatten(1))
             x_stacked = torch.stack(segs, dim=1)  # [B, Nseg, seg_len*F]
             h = self.proj(x_stacked)  # [B, Nseg, D]
-            _, hn = self.gru(h)
+            _, hn = self.gru(h)  # 取 GRU 最终隐藏状态
             return self.head(hn.squeeze(0))  # [B, H]
 
     # ── 35. FiLM（频率改进 Legendre Memory, NeurIPS 2022） ──
     class FiLMTorchModel(nn.Module):
+        """FiLM（Frequency improved Legendre Memory）PyTorch 模型骨架。
+
+        Legendre 多项式基底对时间维做正交投影 → 频率混合 → 预测头。
+        """
+
         def __init__(self, in_features=5, window=10, horizon=3, d_model=32):
+            """初始化 FiLM 模型。
+
+            Args:
+                in_features: 输入特征维度，默认 5
+                window: 输入窗口长度，默认 10
+                horizon: 预测步数（输出维度），默认 3
+                d_model: 模型维度，默认 32
+            """
             super().__init__()
             self.window = window
             self.horizon = horizon
             self.proj = nn.Linear(in_features, d_model)
-            self.legendre = nn.Linear(window, 8)  # Legendre 多项式基底
+            self.legendre = nn.Linear(window, 8)  # Legendre 多项式基底（8阶）
             self.freq_mix = nn.Sequential(
                 nn.Linear(8 * d_model, d_model * 2), nn.GELU(), nn.Linear(d_model * 2, d_model),
             )
             self.head = nn.Linear(d_model * window, horizon)
 
         def forward(self, x):
+            """前向传播。
+
+            Args:
+                x: 输入张量 [B, W, F]
+
+            Returns:
+                预测输出 [B, H]
+            """
             h = self.proj(x)  # [B, W, D]
             B, W, D = h.shape
             # Legendre: 对时间维做多项式映射
             leg = self.legendre(torch.arange(W, device=x.device).float().unsqueeze(0).expand(B, W))  # [B, W, 8]
-            h_expanded = h.unsqueeze(-1) * leg.unsqueeze(2)  # [B, W, D, 8]
+            h_expanded = h.unsqueeze(-1) * leg.unsqueeze(2)  # [B, W, D, 8]  外积
             h_freq = h_expanded.flatten(2)  # [B, W, D*8]
-            h_mixed = self.freq_mix(h_freq)  # [B, W, D]
+            h_mixed = self.freq_mix(h_freq)  # [B, W, D]  频率混合
             return self.head(h_mixed.flatten(1))
 
     # ── 36. FreTS（频域 MLP, NeurIPS 2023） ──
     class FreTSTorchModel(nn.Module):
+        """FreTS（Frequency-domain MLPs）PyTorch 模型骨架。
+
+        FFT → MLP 处理幅度 → iFFT 还原 → 预测头。
+        在频域建模自然捕捉周期性。
+        """
+
         def __init__(self, in_features=5, window=10, horizon=3, d_model=32):
+            """初始化 FreTS 模型。
+
+            Args:
+                in_features: 输入特征维度，默认 5
+                window: 输入窗口长度，默认 10
+                horizon: 预测步数（输出维度），默认 3
+                d_model: 模型维度，默认 32
+            """
             super().__init__()
             self.window = window
             self.horizon = horizon
             self.proj = nn.Linear(in_features, d_model)
             self.freq_mlp = nn.Sequential(
                 nn.Linear(window // 2 + 1, d_model), nn.GELU(), nn.Linear(d_model, window // 2 + 1),
-            )
+            )  # 频域 MLP（幅度处理）
             self.head = nn.Linear(d_model * window, horizon)
 
         def forward(self, x):
+            """前向传播。
+
+            Args:
+                x: 输入张量 [B, W, F]
+
+            Returns:
+                预测输出 [B, H]
+            """
             h = self.proj(x)  # [B, W, D]
             B, W, D = h.shape
             # FFT → MLP → iFFT
-            h_freq = torch.fft.rfft(h, dim=1)  # [B, W//2+1, D]
-            h_freq_abs = h_freq.abs()
-            h_freq_mixed = self.freq_mlp(h_freq_abs.transpose(1, 2)).transpose(1, 2)
-            h_freq_new = h_freq * (h_freq_mixed / (h_freq_abs + 1e-8))
-            h_time = torch.fft.irfft(h_freq_new, n=W, dim=1)
+            h_freq = torch.fft.rfft(h, dim=1)  # [B, W//2+1, D] 复频谱
+            h_freq_abs = h_freq.abs()  # 幅度谱
+            h_freq_mixed = self.freq_mlp(h_freq_abs.transpose(1, 2)).transpose(1, 2)  # 频域 MLP 处理
+            h_freq_new = h_freq * (h_freq_mixed / (h_freq_abs + 1e-8))  # 保留相位，调整幅度
+            h_time = torch.fft.irfft(h_freq_new, n=W, dim=1)  # 逆变换回时域
             return self.head(h_time.flatten(1))
 
     # ── 37. Autoformer（自相关Transformer, NeurIPS 2021） ──
     class AutoformerTorchModel(nn.Module):
+        """Autoformer（Auto-Correlation Transformer）PyTorch 模型骨架。
+
+        用 FFT 计算时序自相关系数替代点积注意力，
+        配合移动平均提取趋势分量。
+        """
+
         def __init__(self, in_features=5, window=10, horizon=3, d_model=32, n_heads=2):
+            """初始化 Autoformer 模型。
+
+            Args:
+                in_features: 输入特征维度，默认 5
+                window: 输入窗口长度，默认 10
+                horizon: 预测步数（输出维度），默认 3
+                d_model: 模型维度，默认 32
+                n_heads: 注意力头数，默认 2
+            """
             super().__init__()
             self.window = window
             self.horizon = horizon
@@ -779,29 +1505,59 @@ if _torch_available:  # noqa: C901
             self.head = nn.Sequential(nn.Linear(d_model * window, horizon * 2), nn.GELU(), nn.Linear(horizon * 2, horizon))
 
         def _auto_correlation(self, x):
+            """通过 FFT 计算时序自相关系数。
+
+            Args:
+                x: 输入张量 [B, W, D]
+
+            Returns:
+                归一化自相关系数 [B, W, D]
+            """
             B, W, D = x.shape
-            x_fft = torch.fft.rfft(x, dim=1)
-            corr = torch.fft.irfft(x_fft * x_fft.conj(), n=W, dim=1)
-            return corr / (corr.max(dim=1, keepdim=True)[0] + 1e-8)
+            x_fft = torch.fft.rfft(x, dim=1)  # FFT
+            corr = torch.fft.irfft(x_fft * x_fft.conj(), n=W, dim=1)  # 自相关 = 频谱乘积的逆变换
+            return corr / (corr.max(dim=1, keepdim=True)[0] + 1e-8)  # 归一化
 
         def forward(self, x):
+            """前向传播。
+
+            Args:
+                x: 输入张量 [B, W, F]
+
+            Returns:
+                预测输出 [B, H]
+            """
             h = self.proj(x)  # [B, W, D]
             # 季节性分量：自相关
             qkv = self.qkv(h)
             q, k, v = qkv.chunk(3, dim=-1)
-            autocorr = self._auto_correlation(k)
-            seasonal = autocorr * v
+            autocorr = self._auto_correlation(k)  # 计算自相关
+            seasonal = autocorr * v  # 自相关加权
             seasonal = self.out_proj(seasonal)
             # 趋势分量：移动平均
             trend_h = h.transpose(1, 2)
-            trend = self.trend_avg(trend_h).transpose(1, 2)
+            trend = self.trend_avg(trend_h).transpose(1, 2)  # 移动平均提取低频趋势
             # 合并趋势+季节
             combined = seasonal + trend
             return self.head(combined.flatten(1))
 
     # ── 38. FEDformer（频域增强Transformer, ICML 2022） ──
     class FEDformerTorchModel(nn.Module):
+        """FEDformer（Frequency Enhanced Decomposed Transformer）PyTorch 骨架。
+
+        FFT → Top-K 频率选择 → 频域幅度+相位增强 → 预测。
+        """
+
         def __init__(self, in_features=5, window=10, horizon=3, d_model=32, n_modes=6):
+            """初始化 FEDformer 模型。
+
+            Args:
+                in_features: 输入特征维度，默认 5
+                window: 输入窗口长度，默认 10
+                horizon: 预测步数（输出维度），默认 3
+                d_model: 模型维度，默认 32
+                n_modes: 保留的频率模式数，默认 6
+            """
             super().__init__()
             self.window = window
             self.horizon = horizon
@@ -813,32 +1569,54 @@ if _torch_available:  # noqa: C901
             self.head = nn.Linear(d_model * window, horizon)
 
         def forward(self, x):
+            """前向传播。
+
+            Args:
+                x: 输入张量 [B, W, F]
+
+            Returns:
+                预测输出 [B, H]
+            """
             h = self.proj(x)  # [B, W, D]
             B, W, D = h.shape
             # FFT 取前 n_modes 个频率分量
             h_fft = torch.fft.rfft(h, dim=1)
             n_modes = min(self.n_modes, h_fft.shape[1] - 1)
-            top_vals, top_idx = torch.topk(h_fft.abs().mean(dim=-1), n_modes, dim=1)
+            top_vals, top_idx = torch.topk(h_fft.abs().mean(dim=-1), n_modes, dim=1)  # 选择最强频率
             h_fft_filtered = torch.zeros_like(h_fft)
             for b in range(B):
                 for idx in top_idx[b]:
-                    h_fft_filtered[b, idx] = h_fft[b, idx]
+                    h_fft_filtered[b, idx] = h_fft[b, idx]  # 仅保留 Top-K
             # 频域增强
-            freq_abs = h_fft_filtered.abs()
-            freq_phase = h_fft_filtered.angle()
-            freq_cat = torch.cat([freq_abs, freq_phase], dim=-1)
-            enhanced = self.freq_enhance(freq_cat)  # [B, n_freq, D]
+            freq_abs = h_fft_filtered.abs()  # 幅度
+            freq_phase = h_fft_filtered.angle()  # 相位
+            freq_cat = torch.cat([freq_abs, freq_phase], dim=-1)  # [B, n_freq, 2D]
+            enhanced = self.freq_enhance(freq_cat)  # [B, n_freq, D]  频域增强
             # 平均池化为全局特征
             return self.head(enhanced.mean(dim=1).unsqueeze(1).expand(-1, W, -1).flatten(1))
 
     # ── 39. LightTS（轻量采样MLP, arXiv 2022） ──
     class LightTSTorchModel(nn.Module):
+        """LightTS PyTorch 模型骨架。
+
+        步长采样降维 → MLP → 线性预测头，极致轻量。
+        """
+
         def __init__(self, in_features=5, window=10, horizon=3, d_model=32, stride=2):
+            """初始化 LightTS 模型。
+
+            Args:
+                in_features: 输入特征维度，默认 5
+                window: 输入窗口长度，默认 10
+                horizon: 预测步数（输出维度），默认 3
+                d_model: 模型维度，默认 32
+                stride: 采样步长，默认 2
+            """
             super().__init__()
             self.window = window
             self.horizon = horizon
             self.stride = stride
-            self.n_samples = max(1, window // stride)
+            self.n_samples = max(1, window // stride)  # 采样后点数
             self.proj = nn.Linear(in_features, d_model)
             self.mlp = nn.Sequential(
                 nn.Linear(self.n_samples * d_model, d_model * 2),
@@ -848,18 +1626,40 @@ if _torch_available:  # noqa: C901
             self.head = nn.Linear(d_model, horizon)
 
         def forward(self, x):
+            """前向传播。
+
+            Args:
+                x: 输入张量 [B, W, F]
+
+            Returns:
+                预测输出 [B, H]
+            """
             h = self.proj(x)  # [B, W, D]
             B, W, D = h.shape
             # 步长采样
-            sampled = h[:, ::self.stride, :]  # [B, N, D]
+            sampled = h[:, ::self.stride, :]  # [B, N, D]  每隔 stride 步采样
             if sampled.shape[1] < self.n_samples:
                 pad_len = self.n_samples - sampled.shape[1]
-                sampled = F.pad(sampled, (0, 0, 0, pad_len))
+                sampled = F.pad(sampled, (0, 0, 0, pad_len))  # 补齐不足
             return self.head(self.mlp(sampled.flatten(1)))
 
     # ── 40. Crossformer（跨维依赖Transformer, ICLR 2023） ──
     class CrossformerTorchModel(nn.Module):
+        """Crossformer（Cross-Dimension Dependency Transformer）PyTorch 骨架。
+
+        序列分段 → 段投影 → 段间交叉注意力 → 预测头。
+        """
+
         def __init__(self, in_features=5, window=10, horizon=3, d_model=32, seg_len=4):
+            """初始化 Crossformer 模型。
+
+            Args:
+                in_features: 输入特征维度，默认 5
+                window: 输入窗口长度，默认 10
+                horizon: 预测步数（输出维度），默认 3
+                d_model: 模型维度，默认 32
+                seg_len: 每段长度，默认 4
+            """
             super().__init__()
             self.window = window
             self.horizon = horizon
@@ -871,6 +1671,14 @@ if _torch_available:  # noqa: C901
             self.head = nn.Linear(d_model, horizon)
 
         def forward(self, x):
+            """前向传播。
+
+            Args:
+                x: 输入张量 [B, W, F]
+
+            Returns:
+                预测输出 [B, H]
+            """
             B, W, F = x.shape
             segs = []
             for i in range(self.n_segs):
@@ -882,16 +1690,36 @@ if _torch_available:  # noqa: C901
                 return torch.zeros(B, self.horizon, device=x.device)
             segs_t = torch.stack(segs, dim=1)  # [B, Nseg, seg*F]
             h = self.proj(segs_t)  # [B, Nseg, D]
-            attn_out, _ = self.cross_attn(h, h, h)
+            attn_out, _ = self.cross_attn(h, h, h)  # 段间交叉注意力
             h_pooled = attn_out.flatten(1)  # [B, Nseg*D]
-            h_seg = self.seg_fc(h_pooled)
+            h_seg = self.seg_fc(h_pooled)  # 段特征融合
             return self.head(h_seg)
 
     # ── 工具：手写 1D padding + avg pool（避免与外部 import 冲突） ──
     def nn_pad1d(x, left, right):
+        """手写 1D padding 包装器，使用 replicate 模式填充。
+
+        Args:
+            x: 输入张量 [B, C, L]
+            left: 左侧填充量
+            right: 右侧填充量
+
+        Returns:
+            填充后的张量
+        """
         return torch.nn.functional.pad(x, (left, right), mode="replicate")
 
     def nn_avg_pool1d(x, kernel, stride=1):
+        """手写 1D 平均池化包装器。
+
+        Args:
+            x: 输入张量 [B, C, L]
+            kernel: 池化核大小
+            stride: 步长
+
+        Returns:
+            池化后的张量
+        """
         return torch.nn.functional.avg_pool1d(x, kernel, stride=stride)
 
 else:
@@ -952,19 +1780,28 @@ def try_torch_predict(
 ):
     """统一的预测入口：torch 推理 → numpy 降级。
 
+    尝试加载最优 checkpoint 进行 PyTorch 推理；
+    若失败则回退到 numpy 简化版。
+
+    降级条件：
+    - PyTorch 不可用
+    - 无可用的 checkpoint（全局或视频微调）
+    - 历史数据不足（< 3 条）
+    - 推理过程抛出异常
+
     Args:
         algorithm: 算法实例（需有 `_ckpt`, `_device`, `_cached_torch_model` 属性，name/algorithm_id）
-        video_data: 视频数据
-        threshold: 阈值
+        video_data: 视频数据字典，需含 view_count, history_data, bvid 等字段
+        threshold: 目标播放量阈值
         model_cls: 该算法对应的 torch 模型类（如 LSTMTorchModel）
         fallback_fn: 失败时调用的 numpy predict 函数，签名为 (video_data, threshold) -> PredictionResult
-        model_kwargs: 实例化 model_cls 时的额外参数
-        features: 输入特征列表
+        model_kwargs: 实例化 model_cls 时的额外参数字典
+        features: 输入特征列表（默认使用 DEFAULT_FEATURES）
         window: 输入窗口长度
         horizon: 预测步数
 
     Returns:
-        PredictionResult
+        PredictionResult 预测结果对象
     """
     if not _torch_available or model_cls is None:
         return fallback_fn(video_data, threshold)
@@ -1027,9 +1864,19 @@ def _add_derived_features(arr: np.ndarray) -> np.ndarray:
     """为 [N, F] 的特征数组追加 5 个衍生特征，返回 [N, F+5]。
 
     衍生特征（与 dataset.VideoTimeSeriesDataset 保持一致）：
-        roll_mean_5, roll_std_5, acceleration, relative_pos, lifecycle_phase
+        - roll_mean_5: 5 步滑动均值
+        - roll_std_5: 5 步滑动标准差
+        - acceleration: 播放量二阶差分（加速度）
+        - relative_pos: 相对时间位置 [0, 1]
+        - lifecycle_phase: 生命周期阶段（0=早期, 1=中期, 2=晚期）
+
+    Args:
+        arr: 原始特征数组 [N, F]
+
+    Returns:
+        扩充后的特征数组 [N, F+5]
     """
-    target = arr[:, 0]  # view_count
+    target = arr[:, 0]  # view_count 作为目标列计算衍生特征
     N = arr.shape[0]
     # rolling mean (window=5)
     if N >= 5:
@@ -1050,14 +1897,30 @@ def _add_derived_features(arr: np.ndarray) -> np.ndarray:
     accel = np.diff(velocity, prepend=velocity[0]).astype(np.float32)
     # 相对时间位置 [0, 1]
     rel_pos = np.arange(N, dtype=np.float32) / max(N - 1, 1)
-    # 生命周期阶段
+    # 生命周期阶段（前20%早期、中间40%中期、后40%晚期）
     lifecycle_phase = np.where(rel_pos < 0.2, 0.0, np.where(rel_pos < 0.6, 1.0, 2.0)).astype(np.float32)
     extras = np.column_stack([roll_mean, roll_std, accel, rel_pos, lifecycle_phase])
     return np.column_stack([arr, extras])
 
 
 def _build_torch_input(video_data, features, window):
-    """构造 z-score 归一化的 [W, F+5] 输入（含衍生特征），并返回速度的均值/方差用于反归一化。"""
+    """构造 z-score 归一化的 [W, F+5] 输入（含衍生特征），并返回速度的均值/方差用于反归一化。
+
+    处理流程：
+    1. 从 history_data 提取最近 window 步的特征值
+    2. 追加 5 个衍生特征（_add_derived_features）
+    3. z-score 归一化（mean/std）
+    4. 计算历史速度序列的均值和标准差（用于反归一化预测结果）
+
+    Args:
+        video_data: 视频数据字典
+        features: 基础特征列表
+        window: 窗口长度
+
+    Returns:
+        (归一化数组 [W, F+5], 速度均值, 速度标准差)
+        若历史数据不足 3 条则返回 (None, 0.0, 1.0)
+    """
     history = video_data.get("history_data", [])
     if len(history) < 3:
         return None, 0.0, 1.0
@@ -1072,7 +1935,7 @@ def _build_torch_input(video_data, features, window):
     arr_ext = _add_derived_features(arr)
     mean = arr_ext.mean(axis=0, keepdims=True)
     std = arr_ext.std(axis=0, keepdims=True)
-    std = np.where(std < 1e-8, 1.0, std)
+    std = np.where(std < 1e-8, 1.0, std)  # 防除零
     arr_n = ((arr_ext - mean) / std).astype(np.float32)
 
     velocities = _velocity_series(history)
@@ -1084,6 +1947,16 @@ def _build_torch_input(video_data, features, window):
 
 
 def _velocity_series(history):
+    """从历史数据中提取速度序列（每小时播放量增量）。
+
+    逐对计算相邻记录的播放量差除以时间间隔（小时）。
+
+    Args:
+        history: 历史数据列表，每项含 view_count 和 timestamp
+
+    Returns:
+        速度列表（每小时播放量增量）
+    """
     vs = []
     for i in range(1, len(history)):
         t0 = history[i - 1].get("timestamp", 0)
@@ -1092,16 +1965,31 @@ def _velocity_series(history):
             t0 = t0.timestamp()
         if hasattr(t1, "timestamp"):
             t1 = t1.timestamp()
-        dt = (float(t1) - float(t0)) / 3600.0
+        dt = (float(t1) - float(t0)) / 3600.0  # 转换为小时
         if dt <= 0:
             continue
         v0 = float(history[i - 1].get("view_count", 0) or 0)
         v1 = float(history[i].get("view_count", 0) or 0)
-        vs.append((v1 - v0) / dt)
+        vs.append((v1 - v0) / dt)  # 每小时增量
     return vs
 
 
 def _generic_result(algorithm, video_data, threshold, velocity, y, model_source=None):
+    """构造通用的 PredictionResult。
+
+    根据预测速度和剩余播放量计算预测时间及置信度。
+
+    Args:
+        algorithm: 算法实例
+        video_data: 视频数据字典
+        threshold: 目标播放量阈值
+        velocity: 预测速度（每小时播放量）
+        y: 模型原始输出 [H]（用于记录元数据）
+        model_source: 模型来源标识（global / video_finetune 等）
+
+    Returns:
+        PredictionResult 预测结果对象
+    """
     from datetime import datetime
     from algorithms.base import PredictionResult
 

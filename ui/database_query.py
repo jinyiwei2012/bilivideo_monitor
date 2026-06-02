@@ -1,5 +1,19 @@
 """
-现代化数据库查询界面
+现代化数据库查询界面模块
+
+本模块提供对 B站监控系统的 SQLite 数据库进行查询和导出的图形界面。
+
+主要功能：
+1. 视频筛选 — 从监控列表中选择特定视频或查询全部
+2. 多种查询模式 — 最新N条、播放首次大于X、播放量大于X、播放趋势、全量数据
+3. 结果展示 — Treeview 表格展示播放量/点赞/投币/在线人数等数据
+4. 关联数据 — 自动加载算法预测结果和周刊/年刊评分
+5. 数据导出 — 支持 CSV 和 Excel 格式，包含算法预测字段
+6. 记录删除 — 支持选中行直接删除数据库记录
+
+支持两种数据源：
+- 中央数据库（data/bilibili_monitor.db）：汇总所有视频数据
+- 视频独立库（data/<BV>/<BV>.db）：单视频详细记录
 """
 
 import tkinter as tk
@@ -12,61 +26,43 @@ import urllib.parse
 from datetime import datetime
 from typing import Optional
 
-from ui.theme import C
-from ui.helpers import FONT, FONT_SM, project_path
-from ui.dialog_base import DialogBase
-from utils.update_checker import _confirm_risky
+from ui.theme import C                                     # 颜色主题常量
+from ui.helpers import FONT, FONT_SM, project_path         # UI 辅助工具
+from ui.dialog_base import DialogBase                      # 现代化对话框基类
+from utils.update_checker import _confirm_risky             # 危险操作确认工具
 
 logger = logging.getLogger(__name__)
 
 
 def _validate_bvid(bvid: str) -> bool:
-    """验证 BV 号格式是否合法"""
+    """验证 BV 号格式是否合法（委托给 helpers.is_valid_bvid）"""
     from ui.helpers import is_valid_bvid
 
     return is_valid_bvid(bvid)
 
 
+# ── 导出表头定义 ──
+# 基础字段（序号、BV号、时间、播放/互动数据、在线人数、播赞比、周刊/年刊评分）
 _BASE_EXPORT_HEADERS = [
-    "序号",
-    "BV号",
-    "时间",
-    "播放量",
-    "点赞",
-    "投币",
-    "分享",
-    "收藏",
-    "弹幕",
-    "评论",
-    "APP观看",
-    "网页观看",
-    "总观看",
-    "播赞比",
-    "周刊总分",
-    "周刊播放",
-    "周刊互动",
-    "周刊收藏",
-    "周刊硬币",
-    "周刊点赞",
-    "周刊修正A",
-    "周刊修正B",
-    "周刊修正C",
-    "周刊修正D",
-    "周刊基础播放",
-    "年刊总分",
-    "年刊播放",
-    "年刊互动",
-    "年刊收藏",
-    "年刊硬币",
-    "年刊点赞",
-    "年刊修正A",
-    "年刊修正B",
-    "年刊修正C",
+    "序号", "BV号", "时间",
+    "播放量", "点赞", "投币", "分享", "收藏", "弹幕", "评论",
+    "APP观看", "网页观看", "总观看", "播赞比",
+    "周刊总分", "周刊播放", "周刊互动", "周刊收藏", "周刊硬币", "周刊点赞",
+    "周刊修正A", "周刊修正B", "周刊修正C", "周刊修正D", "周刊基础播放",
+    "年刊总分", "年刊播放", "年刊互动", "年刊收藏", "年刊硬币", "年刊点赞",
+    "年刊修正A", "年刊修正B", "年刊修正C",
 ]
 
 
 def _build_export_headers(algo_names: list) -> list:
-    """构建导出 CSV/Excel 的表头行，包含基础字段和算法预测字段"""
+    """
+    构建导出 CSV/Excel 的表头行，包含基础字段和算法预测字段
+
+    每个算法附加 3 列：预测时间、预测秒数、置信度
+
+    :param algo_names: 算法名称列表
+    :return: 完整表头列表
+    """
     headers = list(_BASE_EXPORT_HEADERS)
     for name in algo_names:
         headers.append(f"{name}_预测时间")
@@ -76,7 +72,15 @@ def _build_export_headers(algo_names: list) -> list:
 
 
 def _build_export_row(index: int, row, extra: dict = None, algo_names: list = None) -> list:
-    """构建导出 CSV/Excel 的单个数据行，包含基础字段和算法预测值"""
+    """
+    构建导出 CSV/Excel 的单个数据行，包含基础字段和算法预测值
+
+    :param index: 行序号
+    :param row: 数据库行数据（dict 或 Row 对象）
+    :param extra: 额外数据（含 _predictions 列表和周刊/年刊评分）
+    :param algo_names: 算法名称列表
+    :return: 数据行列表
+    """
     e = extra or {}
     algo_names = algo_names or []
     if hasattr(row, "keys"):
@@ -103,25 +107,16 @@ def _build_export_row(index: int, row, extra: dict = None, algo_names: list = No
         row.get("viewers_web", "") or "",
         row.get("viewers_total", "") or "",
         row.get("like_view_ratio", "") or "",
-        e.get("weekly_total", ""),
-        e.get("weekly_view", ""),
-        e.get("weekly_interaction", ""),
-        e.get("weekly_favorite", ""),
-        e.get("weekly_coin", ""),
-        e.get("weekly_like", ""),
-        e.get("weekly_corr_a", ""),
-        e.get("weekly_corr_b", ""),
-        e.get("weekly_corr_c", ""),
-        e.get("weekly_corr_d", ""),
+        e.get("weekly_total", ""), e.get("weekly_view", ""),
+        e.get("weekly_interaction", ""), e.get("weekly_favorite", ""),
+        e.get("weekly_coin", ""), e.get("weekly_like", ""),
+        e.get("weekly_corr_a", ""), e.get("weekly_corr_b", ""),
+        e.get("weekly_corr_c", ""), e.get("weekly_corr_d", ""),
         e.get("weekly_base_view", ""),
-        e.get("yearly_total", ""),
-        e.get("yearly_view", ""),
-        e.get("yearly_interaction", ""),
-        e.get("yearly_favorite", ""),
-        e.get("yearly_coin", ""),
-        e.get("yearly_like", ""),
-        e.get("yearly_corr_a", ""),
-        e.get("yearly_corr_b", ""),
+        e.get("yearly_total", ""), e.get("yearly_view", ""),
+        e.get("yearly_interaction", ""), e.get("yearly_favorite", ""),
+        e.get("yearly_coin", ""), e.get("yearly_like", ""),
+        e.get("yearly_corr_a", ""), e.get("yearly_corr_b", ""),
         e.get("yearly_corr_c", ""),
     ]
     for name in algo_names:
@@ -133,29 +128,45 @@ def _build_export_row(index: int, row, extra: dict = None, algo_names: list = No
 
 
 class DatabaseQueryWindow:
-    """数据库查询窗口（现代化风格）"""
+    """
+    数据库查询窗口（现代化风格）
+
+    提供对中央数据库和视频独立库的灵活查询，支持：
+    - 5 种查询模式
+    - 视频筛选
+    - 查询结果表格展示
+    - 关联数据加载（算法预测、周期刊评分）
+    - CSV / Excel 导出
+    - 记录删除
+    """
 
     def __init__(self, parent):
+        """初始化数据库查询窗口"""
         self.dlg = DialogBase(parent, "数据库查询", "1040x720", resizable=(True, True), modal=False)
         self.window = self.dlg.window
-        self.db_path = self._get_db_path()
-        self.query_results = []
-        self._extra_data = []
-        self._algo_names = []
-        self._query_running = False
-        self._query_source_bvid = None  # None=中央库, 有值=视频独立库
+        self.db_path = self._get_db_path()                  # 中央数据库路径
+        self.query_results = []                             # 查询结果（dict 列表）
+        self._extra_data = []                               # 每条结果的关联数据
+        self._algo_names = []                               # 用到的算法名称
+        self._query_running = False                         # 查询进行中标记
+        self._query_source_bvid = None                      # 数据来源：None=中央库，有值=视频独立库
 
         self.setup_ui()
         self.load_videos_list()
 
     def _get_db_path(self) -> str:
-        """获取中央数据库文件路径"""
+        """
+        获取中央数据库文件路径
+
+        :return: 数据库文件绝对路径
+        """
         return project_path("data", "bilibili_monitor.db")
 
     def setup_ui(self):
+        """构建数据库查询界面的完整 UI"""
         self.dlg.header("数据库查询", "查询监控记录、播放趋势与算法预测数据")
 
-        # 查询条件卡片
+        # ── 查询条件卡片 ──
         q_sec = self.dlg.section(padding=6)
 
         # 视频筛选
@@ -188,7 +199,7 @@ class DatabaseQueryWindow:
         mode_combo.pack(side=tk.LEFT, padx=(8, 0))
         mode_combo.bind("<<ComboboxSelected>>", lambda e: self._on_mode_change())
 
-        # 参数
+        # 参数（动态根据查询模式变化）
         self.param_frame = tk.Frame(q_sec, bg=C["bg_elevated"])
         self.param_frame.pack(fill=tk.X, pady=2)
         self.video_combo = None
@@ -203,7 +214,7 @@ class DatabaseQueryWindow:
 
         self._on_mode_change()
 
-        # 结果区域
+        # ── 结果区域 ──
         container = tk.Frame(self.dlg.container, bg=C["bg_base"])
         container.pack(fill=tk.BOTH, expand=True, padx=24, pady=(10, 0))
 
@@ -217,40 +228,21 @@ class DatabaseQueryWindow:
             side=tk.RIGHT
         )
 
+        # ── 结果表格（Treeview） ──
         res_frame = tk.Frame(container, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
         res_frame.pack(fill=tk.BOTH, expand=True, pady=(4, 0))
 
         columns = (
-            "seq",
-            "bv",
-            "timestamp",
-            "views",
-            "likes",
-            "coins",
-            "shares",
-            "favorites",
-            "danmaku",
-            "reply",
-            "viewers_total",
-            "viewers_web",
-            "viewers_app",
-            "like_ratio",
+            "seq", "bv", "timestamp", "views", "likes", "coins", "shares", "favorites",
+            "danmaku", "reply", "viewers_total", "viewers_web", "viewers_app", "like_ratio",
         )
         self.result_tree = ttk.Treeview(res_frame, columns=columns, show="headings", height=15)
         col_configs = [
-            ("seq", "序号", 50),
-            ("bv", "BV号", 120),
-            ("timestamp", "时间", 150),
-            ("views", "播放量", 90),
-            ("likes", "点赞", 75),
-            ("coins", "投币", 75),
-            ("shares", "分享", 75),
-            ("favorites", "收藏", 75),
-            ("danmaku", "弹幕", 75),
-            ("reply", "评论", 75),
-            ("viewers_total", "总在线", 75),
-            ("viewers_web", "Web在线", 75),
-            ("viewers_app", "APP在线", 75),
+            ("seq", "序号", 50), ("bv", "BV号", 120), ("timestamp", "时间", 150),
+            ("views", "播放量", 90), ("likes", "点赞", 75), ("coins", "投币", 75),
+            ("shares", "分享", 75), ("favorites", "收藏", 75), ("danmaku", "弹幕", 75),
+            ("reply", "评论", 75), ("viewers_total", "总在线", 75),
+            ("viewers_web", "Web在线", 75), ("viewers_app", "APP在线", 75),
             ("like_ratio", "播赞比", 75),
         ]
         for col, heading, width in col_configs:
@@ -261,7 +253,7 @@ class DatabaseQueryWindow:
         self.result_tree.pack(side="left", fill="both", expand=True, padx=2, pady=2)
         sb.pack(side="right", fill="y")
 
-        # 底部操作按钮
+        # ── 底部操作按钮 ──
         ba = tk.Frame(self.dlg.container, bg=C["bg_surface"])
         ba.pack(fill=tk.X, padx=24, pady=(8, 16))
         ttk.Button(ba, text="导出CSV", command=self._export_csv).pack(side=tk.LEFT, padx=(0, 4))
@@ -269,15 +261,28 @@ class DatabaseQueryWindow:
         ttk.Button(ba, text="删除选中", command=lambda: _confirm_risky("删除数据库记录") and self._delete_selected()).pack(side=tk.LEFT, padx=4)
         ttk.Button(ba, text="清空结果", command=self._clear_results).pack(side=tk.LEFT, padx=4)
 
+    # ══════════════════════════════════════════════════════════════════════════
+    # ── 视频筛选与数据库路径 ─────────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════════
+
     def _get_filter_bvid(self) -> Optional[str]:
-        """获取视频筛选器中选中的 BV 号，未选择时返回 None"""
+        """
+        获取视频筛选器中选中的 BV 号，未选择时返回 None
+
+        :return: BV 号字符串或 None
+        """
         sel = self.video_filter_var.get()
         if sel == "全部视频" or not sel:
             return None
         return self._video_bvid_map.get(sel)
 
     def _get_video_db_path(self, bvid: str) -> Optional[str]:
-        """查找视频独立库路径：优先 data/，回退 core/data/"""
+        """
+        查找视频独立库路径：优先 data/<bvid>/<bvid>.db，回退 core/data/<bvid>/<bvid>.db
+
+        :param bvid: 视频 BV 号
+        :return: 数据库文件路径或 None
+        """
         if not _validate_bvid(bvid):
             return None
         primary = os.path.join(os.path.dirname(self.db_path), bvid, f"{bvid}.db")
@@ -288,19 +293,27 @@ class DatabaseQueryWindow:
         return backup if os.path.exists(backup) else None
 
     def _load_extra_data(self, bvid: str, timestamp: str) -> dict:
-        """从视频独立库加载关联的算法预测和周刊/年刊评分数据"""
+        """
+        从视频独立库加载关联的算法预测和周刊/年刊评分数据
+
+        算法预测按 algorithm 分组，取时间不超过 timestamp 的最新一条。
+
+        :param bvid: 视频 BV 号
+        :param timestamp: 查询时间戳
+        :return: 包含 _predictions, weekly_*, yearly_* 的字典
+        """
         extra = {}
         vdp = self._get_video_db_path(bvid)
         if not vdp:
             return extra
         conn = None
         try:
-            # 以只读模式连接视频独立库
+            # 以只读 URI 方式连接（避免文件被锁定）
             uri = "file:{}?mode=ro".format(urllib.parse.quote(vdp.replace("\\", "/"), safe="/:"))
             conn = sqlite3.connect(uri, uri=True, check_same_thread=False)
             conn.row_factory = sqlite3.Row
             cur = conn.cursor()
-            # 加载算法预测结果（每个算法只取最新一条）
+            # 加载算法预测结果（每个算法只取最近一条）
             cur.execute(
                 "SELECT * FROM predictions WHERE created_at <= ? ORDER BY algorithm, created_at DESC", (timestamp,)
             )
@@ -321,16 +334,9 @@ class DatabaseQueryWindow:
             if ws:
                 wd = dict(ws)
                 for k in [
-                    "total_score",
-                    "view_score",
-                    "interaction_score",
-                    "favorite_score",
-                    "coin_score",
-                    "like_score",
-                    "correction_a",
-                    "correction_b",
-                    "correction_c",
-                    "correction_d",
+                    "total_score", "view_score", "interaction_score", "favorite_score",
+                    "coin_score", "like_score",
+                    "correction_a", "correction_b", "correction_c", "correction_d",
                     "base_view_score",
                 ]:
                     extra[f"weekly_{k}"] = wd.get(k, "")
@@ -341,15 +347,9 @@ class DatabaseQueryWindow:
             if ys:
                 yd = dict(ys)
                 for k in [
-                    "total_score",
-                    "view_score",
-                    "interaction_score",
-                    "favorite_score",
-                    "coin_score",
-                    "like_score",
-                    "correction_a",
-                    "correction_b",
-                    "correction_c",
+                    "total_score", "view_score", "interaction_score", "favorite_score",
+                    "coin_score", "like_score",
+                    "correction_a", "correction_b", "correction_c",
                 ]:
                     extra[f"yearly_{k}"] = yd.get(k, "")
         except Exception as e:
@@ -359,8 +359,21 @@ class DatabaseQueryWindow:
                 conn.close()
         return extra
 
+    # ══════════════════════════════════════════════════════════════════════════
+    # ── 查询模式切换 ─────────────────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════════
+
     def _on_mode_change(self):
-        """切换查询模式时重建参数输入区域"""
+        """
+        切换查询模式时重建参数输入区域
+
+        不同模式显示不同的参数控件：
+        - 最新N条：数量 N 输入框
+        - 播放首次大于X：播放量 X 输入框
+        - 播放量大于X：播放量 X 输入框
+        - 播放趋势：视频选择下拉框
+        - 全量数据：无额外参数
+        """
         for w in self.param_frame.winfo_children():
             w.destroy()
         mode = self.query_mode.get()
@@ -409,7 +422,11 @@ class DatabaseQueryWindow:
             ).pack(side=tk.LEFT)
 
     def load_videos_list(self):
-        """从中央数据库加载视频列表到筛选下拉框"""
+        """
+        从中央数据库加载视频列表到筛选下拉框
+
+        SQL: SELECT bvid, title FROM videos ORDER BY updated_at DESC
+        """
         if not os.path.exists(self.db_path):
             return
         try:
@@ -432,8 +449,20 @@ class DatabaseQueryWindow:
         except Exception as e:
             logger.debug("加载视频列表失败: %s", e)
 
+    # ══════════════════════════════════════════════════════════════════════════
+    # ── 查询执行 ─────────────────────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════════
+
     def _do_query(self):
-        """启动查询，检查参数后在后台线程执行"""
+        """
+        启动查询：检查参数后在后台线程执行
+
+        查询流程：
+        1. 根据查询模式构建 SQL
+        2. 优先查询视频独立库，无结果则查询中央库
+        3. 加载关联数据（算法预测、周刊/年刊评分）
+        4. 在主线程填充结果表格
+        """
         if not os.path.exists(self.db_path):
             messagebox.showerror("错误", "数据库文件不存在", parent=self.window)
             return
@@ -473,7 +502,13 @@ class DatabaseQueryWindow:
         threading.Thread(target=self._run_fallback_query, args=(mode, filter_bvid, bvid_for_trend), daemon=True).start()
 
     def _query_video_db(self, bvid: str, mode: str) -> list:
-        """在视频独立库中执行查询，返回 dict 行列表。"""
+        """
+        在视频独立库中执行查询
+
+        :param bvid: 视频 BV 号
+        :param mode: 查询模式
+        :return: dict 行列表
+        """
         vdp = self._get_video_db_path(bvid)
         if not vdp:
             return []
@@ -493,6 +528,7 @@ class DatabaseQueryWindow:
 
     @staticmethod
     def _get_param_int(obj, attr: str, default: int) -> int:
+        """安全获取整型参数值，解析失败返回默认值"""
         var = getattr(obj, attr, None)
         if var is None:
             return default
@@ -500,7 +536,13 @@ class DatabaseQueryWindow:
         return int(raw) if raw.isdigit() else default
 
     def _run_video_query(self, cur, mode: str) -> list:
-        """在视频独立库上执行模式查询（无需 bvid 过滤，数据已按视频隔离）"""
+        """
+        在视频独立库上执行模式查询（无需 bvid 过滤，数据已按视频隔离）
+
+        :param cur: SQLite 游标
+        :param mode: 查询模式
+        :return: 原始行列表
+        """
         if mode == "最新N条":
             limit = self._get_param_int(self, "param_var", 100)
             cur.execute("SELECT * FROM monitor_records ORDER BY timestamp DESC LIMIT ?", (limit,))
@@ -517,7 +559,7 @@ class DatabaseQueryWindow:
         return cur.fetchall()
 
     def _prompt_fallback(self, mode, filter_bvid, bvid_for_trend):
-        """（已弃用回调入口）弹窗询问是否查询中央数据库"""
+        """（已弃用）弹窗询问是否查询中央数据库"""
         ok = messagebox.askyesno(
             "未找到数据",
             "该视频的独立库中没有匹配的记录。\n是否到中央数据库查询？",
@@ -536,7 +578,13 @@ class DatabaseQueryWindow:
             self._reset_query_state()
 
     def _run_fallback_query(self, mode, filter_bvid, bvid_for_trend):
-        """后台线程：在中央数据库中执行查询并加载关联数据"""
+        """
+        后台线程：在中央数据库中执行查询并加载关联数据
+
+        :param mode: 查询模式
+        :param filter_bvid: 视频筛选 BV 号
+        :param bvid_for_trend: 趋势模式专用 BV 号
+        """
         raw_rows = self._query_central_db(mode, filter_bvid, bvid_for_trend)
         if raw_rows is None:
             return
@@ -544,7 +592,7 @@ class DatabaseQueryWindow:
         self._process_central_results(raw_rows)
 
     def _query_central_db(self, mode, filter_bvid, bvid_for_trend):
-        """在中央数据库中执行 SQL 查询，返回原始行列表"""
+        """在中央数据库中执行 SQL 查询"""
         raw_rows = []
         try:
             conn = sqlite3.connect(self.db_path)
@@ -576,7 +624,15 @@ class DatabaseQueryWindow:
         self.window.after(0, lambda: self._finish_query(raw_rows, extra_list, anames))
 
     def _run_query(self, cur, mode, filter_bvid, bvid_for_trend):
-        """根据查询模式在中央库上执行 SQL，返回 dict 行列表"""
+        """
+        根据查询模式在中央数据库上执行 SQL
+
+        :param cur: SQLite 游标
+        :param mode: 查询模式
+        :param filter_bvid: 视频筛选 BV 号（可选）
+        :param bvid_for_trend: 趋势模式专用 BV 号
+        :return: dict 行列表
+        """
         if mode == "最新N条":
             limit = self._get_param_int(self, "param_var", 100)
             if filter_bvid:
@@ -621,11 +677,16 @@ class DatabaseQueryWindow:
         return [dict(r) for r in cur.fetchall()]
 
     def _load_query_extra_data(self, raw_rows):
-        """加载查询结果的关联数据（算法预测等）。返回 (extra_list, algo_names)"""
+        """
+        加载查询结果的关联数据（算法预测等）
+
+        :param raw_rows: 查询到的行列表
+        :return: (extra_list, algo_names)
+        """
         extra_list = []
         all_an = set()
         total = len(raw_rows)
-        batch = max(1, total // 20)
+        batch = max(1, total // 20)                         # 每 1/20 进度更新一次
         for idx, row in enumerate(raw_rows):
             extra = self._load_extra_data(row["bvid"], row["timestamp"])
             extra_list.append(extra)
@@ -634,7 +695,7 @@ class DatabaseQueryWindow:
             if total > 50 and (idx + 1) % batch == 0:
                 p = idx + 1
                 self.window.after(0, lambda pp=p, tt=total: self.status_var.set(f"加载关联数据 {pp}/{tt}…"))
-        # 硬编码基础算法排序，确保在导出时这些常见算法始终排在前面，保持列顺序稳定
+        # 硬编码基础算法排序，确保常见算法在导出时排在前面，保持列顺序稳定
         known = ["线性增长", "移动平均", "加权移动平均", "指数平滑", "趋势外推", "Gompertz"]
         anames = sorted(all_an, key=lambda n: (known.index(n) if n in known else len(known), n))
         return extra_list, anames
@@ -646,7 +707,13 @@ class DatabaseQueryWindow:
         self._query_btn.config(state="normal", text="查询")
 
     def _finish_query(self, raw_rows, extra_list, algo_names):
-        """在主线程完成查询，填充结果树形视图"""
+        """
+        在主线程完成查询，填充结果 Treeview 表格
+
+        :param raw_rows: 查询结果行
+        :param extra_list: 关联数据列表
+        :param algo_names: 算法名称列表
+        """
         self.query_results = raw_rows
         self._extra_data = extra_list
         self._algo_names = algo_names
@@ -687,6 +754,10 @@ class DatabaseQueryWindow:
         except (ValueError, TypeError):
             return str(v)
 
+    # ══════════════════════════════════════════════════════════════════════════
+    # ── 导出功能 ─────────────────────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════════
+
     def _reset_query(self):
         """重置查询结果，清空所有数据和状态"""
         self.result_tree.delete(*self.result_tree.get_children())
@@ -711,7 +782,11 @@ class DatabaseQueryWindow:
         return f"{mn}{tag}_{ts}.{ext}"
 
     def _export_csv(self):
-        """将查询结果导出为 CSV 文件"""
+        """
+        将查询结果导出为 CSV 文件
+
+        表头包含基础字段和算法预测字段。
+        """
         if not self.query_results:
             messagebox.showwarning("提示", "没有可导出的数据", parent=self.window)
             return
@@ -738,7 +813,11 @@ class DatabaseQueryWindow:
             messagebox.showerror("错误", f"导出失败: {e}", parent=self.window)
 
     def _export_excel(self):
-        """将查询结果导出为 Excel 文件（需要 openpyxl 支持）"""
+        """
+        将查询结果导出为 Excel 文件（需要 openpyxl 支持）
+
+        表头包含基础字段和算法预测字段。
+        """
         if not self.query_results:
             messagebox.showwarning("提示", "没有可导出的数据", parent=self.window)
             return
@@ -774,7 +853,11 @@ class DatabaseQueryWindow:
             messagebox.showerror("错误", f"导出失败: {e}", parent=self.window)
 
     def _delete_selected(self):
-        """删除选中的数据库记录，在后台线程执行"""
+        """
+        删除选中的数据库记录，在后台线程执行
+
+        支持从中央库和视频独立库中删除。
+        """
         sel = self.result_tree.selection()
         if not sel:
             messagebox.showwarning("提示", "请先选择要删除的记录", parent=self.window)
@@ -795,7 +878,7 @@ class DatabaseQueryWindow:
         del_data = []
         for item in sel:
             vals = self.result_tree.item(item)["values"]
-            del_data.append((vals[1], vals[2]))  # (bvid, timestamp)
+            del_data.append((vals[1], vals[2]))
 
         def _do_delete():
             """后台线程：执行数据库删除操作"""
@@ -822,7 +905,7 @@ class DatabaseQueryWindow:
         threading.Thread(target=_do_delete, daemon=True).start()
 
     def _finish_delete(self, del_data: list, count: int):
-        """后台删除完成后在主线程刷新 UI。"""
+        """后台删除完成后在主线程刷新 UI"""
         for bvid, ts in del_data:
             self.query_results = [r for r in self.query_results if not (r["bvid"] == bvid and r["timestamp"] == ts)]
         self._do_query()

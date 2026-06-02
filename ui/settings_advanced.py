@@ -1,7 +1,13 @@
 """
-高级设置（AI 配置 + 权重设置 + 模型训练 + 关于作者）
+高级设置模块（AI 配置 + 权重设置 + 模型训练 + 关于作者）
 
-Mixin functions for SettingsWindow.
+Mixin 函数模块，为 SettingsWindow 提供高级功能标签页:
+  - AI 配置: LLM 多配置文件管理（保存/切换/删除/测试连接），支持快速填入 DeepSeek/OpenAI/Claude/SiliconFlow
+  - 权重设置: 算法权重可视化表格，支持勾选自定义权重、输入数值、批量重置/保存
+  - 模型训练: PyTorch 算法训练配置（设备检测、数据规模估算、算法勾选、版本管理、导入导出）
+  - 关于作者: 项目信息、版本号、相关链接（GitHub/B站主页）、项目介绍
+
+所有函数以 self 为第一个参数（SettingsWindow 实例）。
 """
 
 import os
@@ -24,12 +30,25 @@ logger = logging.getLogger(__name__)
 
 
 def _build_ai_tab(self, nb):
+    """构建 AI 配置标签页
+
+    包含:
+      - LLM 多配置文件管理（名称/API密钥/接口地址/模型名称）
+      - 配置文件下拉选择器 + 切换/保存/删除/新增
+      - 快速填入预设（DeepSeek/OpenAI/Claude/SiliconFlow）
+      - API 连接测试按钮
+
+    Args:
+        self: SettingsWindow 实例
+        nb: ttk.Notebook 对象
+    """
     page = tk.Frame(nb, bg=C["bg_base"])
     nb.add(page, text="  AI配置  ")
 
     sec = self._section(page, "LLM 配置管理")
     ai_cfg = self._cfg.get("ai", {})
 
+    # ── 配置文件选择行 ──
     sel_row = tk.Frame(sec, bg=C["bg_elevated"])
     sel_row.pack(fill=tk.X, pady=(0, 8))
     tk.Label(sel_row, text="当前配置:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT, width=16, anchor="w").pack(
@@ -42,6 +61,7 @@ def _build_ai_tab(self, nb):
     self._ai_profile_cb.pack(side=tk.LEFT, padx=(8, 0))
     self._ai_profile_cb.bind("<<ComboboxSelected>>", self._on_ai_profile_selected)
 
+    # 兼容旧版 LLM 配置（单配置格式 → 多配置格式转换）
     profiles = ai_cfg.get("profiles", [])
     if not profiles:
         old_key = ai_cfg.get("api_key", "")
@@ -64,6 +84,7 @@ def _build_ai_tab(self, nb):
     self._ai_profile_cb["values"] = names
     self._ai_profile_var.set(selected if selected in names else names[0])
 
+    # ── 配置详情输入区 ──
     detail = tk.Frame(sec, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
     detail.pack(fill=tk.X, pady=4, ipadx=10, ipady=10)
     tk.Label(
@@ -71,6 +92,7 @@ def _build_ai_tab(self, nb):
     ).pack(anchor="w", pady=(0, 6))
 
     def _field_wrapper(parent, label):
+        """创建标签+输入框的横向布局组件"""
         f = tk.Frame(parent, bg=C["bg_elevated"])
         f.pack(fill=tk.X, pady=3)
         tk.Label(f, text=label, bg=C["bg_elevated"], fg=C["text_2"], font=FONT, width=16, anchor="w").pack(
@@ -82,10 +104,11 @@ def _build_ai_tab(self, nb):
 
     self._ai_name_entry = _field_wrapper(detail, "配置名称")
     self._ai_key_entry = _field_wrapper(detail, "API密钥")
-    self._ai_key_entry.config(show="*")
+    self._ai_key_entry.config(show="*")  # 密码掩码
     self._ai_endpoint_entry = _field_wrapper(detail, "接口地址")
     self._ai_model_entry = _field_wrapper(detail, "模型名称")
 
+    # ── 操作按钮行 ──
     btn_row = tk.Frame(sec, bg=C["bg_elevated"])
     btn_row.pack(fill=tk.X, pady=(6, 0))
     ttk.Button(btn_row, text="💾 保存配置", command=lambda: self._save_ai_profile() if _confirm_risky("保存 AI 配置") else None).pack(side=tk.LEFT, padx=(0, 4))
@@ -98,6 +121,7 @@ def _build_ai_tab(self, nb):
         ).pack(side=tk.LEFT, padx=4)
     ttk.Button(btn_row, text="+ 新增", command=self._new_ai_profile).pack(side=tk.LEFT, padx=4)
 
+    # ── 快速填入预设 ──
     preset_f = tk.Frame(page, bg=C["bg_base"])
     preset_f.pack(fill=tk.X, padx=16, pady=(8, 0))
     tk.Label(preset_f, text="快速填入:", bg=C["bg_base"], fg=C["text_2"], font=FONT).pack(side=tk.LEFT)
@@ -126,6 +150,12 @@ def _build_ai_tab(self, nb):
 
 
 def _on_ai_profile_selected(self, event=None):
+    """选中 AI 配置时，回填输入框
+
+    Args:
+        self: SettingsWindow 实例
+        event: Tkinter 事件对象（可选）
+    """
     name = self._ai_profile_var.get()
     for p in self._profiles:
         if p["name"] == name:
@@ -137,6 +167,10 @@ def _on_ai_profile_selected(self, event=None):
 
 
 def _save_ai_profile(self):
+    """保存/更新 AI 配置
+
+    如果配置名已存在则更新，否则作为新配置追加。
+    """
     name = self._ai_name_entry.get().strip()
     if not name:
         messagebox.showwarning("提示", "配置名称不能为空", parent=self.window)
@@ -145,6 +179,7 @@ def _save_ai_profile(self):
     endpoint = self._ai_endpoint_entry.get().strip() or "https://api.openai.com/v1/chat/completions"
     model = self._ai_model_entry.get().strip() or "gpt-4o-mini"
 
+    # 查找并更新已有配置，或新增
     found = False
     for p in self._profiles:
         if p["name"] == name:
@@ -161,6 +196,7 @@ def _save_ai_profile(self):
 
 
 def _delete_ai_profile(self):
+    """删除当前选中的 AI 配置（至少保留一个）"""
     name = self._ai_profile_var.get()
     if not name:
         return
@@ -177,6 +213,7 @@ def _delete_ai_profile(self):
 
 
 def _new_ai_profile(self):
+    """清空输入框以准备创建新配置"""
     self._clear_entry(self._ai_name_entry, "")
     self._clear_entry(self._ai_key_entry, "")
     self._clear_entry(self._ai_endpoint_entry, "https://api.openai.com/v1/chat/completions")
@@ -184,6 +221,10 @@ def _new_ai_profile(self):
 
 
 def _test_ai_connection(self):
+    """测试 AI API 连接（后台线程发送测试请求）
+
+    自动识别 Claude API（通过 anthropic.com URL 判断）使用不同的认证头格式。
+    """
     api_key = self._ai_key_entry.get().strip()
     endpoint = self._ai_endpoint_entry.get().strip()
     model = self._ai_model_entry.get().strip()
@@ -206,6 +247,7 @@ def _test_ai_connection(self):
             import requests as req
 
             if is_claude:
+                # Claude API 使用 x-api-key 头
                 resp = req.post(
                     endpoint,
                     headers={
@@ -225,6 +267,7 @@ def _test_ai_connection(self):
                 else:
                     result.append(f"❌ HTTP {resp.status_code}: {resp.text[:200]}")
             else:
+                # OpenAI 兼容 API 使用 Bearer Token
                 resp = req.post(
                     endpoint,
                     headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
@@ -256,9 +299,19 @@ def _test_ai_connection(self):
 
 
 def _build_weights_tab(self, nb):
+    """构建权重设置标签页
+
+    展示所有算法的权重信息表格（算法名/自定义开关/权重值/ML权重/准确率/样本数），
+    支持勾选自定义权重、输入数值、批量重置、保存。
+
+    Args:
+        self: SettingsWindow 实例
+        nb: ttk.Notebook 对象
+    """
     page = tk.Frame(nb, bg=C["bg_base"])
     nb.add(page, text="  权重设置  ")
 
+    # ── 说明信息 ──
     info_sec = tk.Frame(page, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
     info_sec.pack(fill=tk.X, padx=16, pady=12, ipadx=10, ipady=8)
     for line in [
@@ -270,6 +323,7 @@ def _build_weights_tab(self, nb):
             fill=tk.X, padx=4
         )
 
+    # ── 表头 ──
     hdr = tk.Frame(page, bg=C["bg_surface"], highlightthickness=1, highlightbackground=C["border_sub"])
     hdr.pack(fill=tk.X, padx=16)
     for col_i, (text, w) in enumerate(
@@ -292,6 +346,7 @@ def _build_weights_tab(self, nb):
             anchor="w",
         ).grid(row=0, column=col_i, padx=6, pady=4, sticky="w")
 
+    # ── 可滚动算法列表 ──
     canvas_frame = tk.Frame(page, bg=C["bg_base"])
     canvas_frame.pack(fill=tk.BOTH, expand=True, padx=16, pady=(0, 12))
 
@@ -299,8 +354,8 @@ def _build_weights_tab(self, nb):
     sf.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
     algo_frame = sf.inner
 
-    self._weight_vars = {}
-    self._weight_check_vars = {}
+    self._weight_vars = {}       # {算法名: tk.DoubleVar} 权重值变量
+    self._weight_check_vars = {} # {算法名: tk.BooleanVar} 是否启用自定义权重
 
     algo_info = AlgorithmRegistry.get_weights_info()
     for info in algo_info:
@@ -308,10 +363,12 @@ def _build_weights_tab(self, nb):
         row.pack(fill=tk.X, pady=1)
 
         name = info["name"]
+        # 算法名称
         tk.Label(row, text=name, bg=C["bg_surface"], fg=C["text_1"], font=FONT, width=24, anchor="w").grid(
             row=0, column=0, padx=4, pady=3, sticky="w"
         )
 
+        # 自定义权重勾选框（取消勾选时恢复 ML 权重）
         var = tk.BooleanVar(value=info["is_customized"])
         self._weight_check_vars[name] = var
         ttk.Checkbutton(
@@ -320,31 +377,37 @@ def _build_weights_tab(self, nb):
             command=lambda n=name: self._weight_vars[n].set(get_weight_manager().ml_weights.get(n, 1.0)),
         ).grid(row=0, column=1, padx=2)
 
+        # 权重值输入框
         wv = tk.DoubleVar(value=info.get("user_weight") or info.get("final_weight", 1.0))
         self._weight_vars[name] = wv
         _entry = ttk.Entry(row, textvariable=wv, width=10)
         _entry.grid(row=0, column=2, padx=4)
+        # 开发模式保护：非正常模式需要确认后才能编辑
         if _s() != "normal":
             _entry.configure(state="readonly")
             _entry.bind("<Button-1>", lambda e, ent=_entry, p=self.window: (
                 None if not _confirm_risky("修改算法权重", p) else (ent.configure(state="normal") or ent.focus_set())
             ))
 
+        # ML 权重（只读）
         ml_w = info.get("ml_weight", 1.0)
         tk.Label(
             row, text=f"{ml_w:.2f}", bg=C["bg_surface"], fg=C["text_3"], font=FONT_MONO, width=12, anchor="w"
         ).grid(row=0, column=3)
 
+        # 准确率（百分比）
         acc = info.get("accuracy", 0)
         tk.Label(
             row, text=f"{acc * 100:.1f}%", bg=C["bg_surface"], fg=C["success"], font=FONT_MONO, width=10, anchor="w"
         ).grid(row=0, column=4)
 
+        # 训练样本数
         samples = info.get("samples", 0)
         tk.Label(
             row, text=str(samples), bg=C["bg_surface"], fg=C["text_2"], font=FONT_MONO, width=8, anchor="w"
         ).grid(row=0, column=5)
 
+    # ── 底部操作按钮 ──
     btn_row = tk.Frame(page, bg=C["bg_base"])
     btn_row.pack(fill=tk.X, padx=16, pady=(0, 12))
     ttk.Button(btn_row, text="重置所有权重", command=lambda: self._reset_all_weights() if _confirm_risky("重置算法权重") else None).pack(side=tk.LEFT, padx=(0, 4))
@@ -353,6 +416,7 @@ def _build_weights_tab(self, nb):
 
 
 def _reset_all_weights(self):
+    """重置所有自定义权重为 ML 默认值"""
     if messagebox.askyesno("确认", "确定要重置所有自定义权重吗？", parent=self.window):
         get_weight_manager().reset_weights()
         self._refresh_weights()
@@ -360,6 +424,7 @@ def _reset_all_weights(self):
 
 
 def _refresh_weights(self):
+    """刷新权重表格中的所有值（从 WeightManager 重新加载）"""
     algo_info = AlgorithmRegistry.get_weights_info()
     for info in algo_info:
         name = info["name"]
@@ -369,11 +434,12 @@ def _refresh_weights(self):
 
 
 def _save_weights(self):
+    """保存所有算法权重设置到 WeightManager"""
     for name, check_var in self._weight_check_vars.items():
         wv = self._weight_vars[name]
         try:
             weight = float(wv.get())
-            weight = max(0.01, min(10.0, weight))
+            weight = max(0.01, min(10.0, weight))  # 限制范围 [0.01, 10.0]
             if check_var.get():
                 get_weight_manager().set_user_weight(name, weight)
             else:
@@ -388,9 +454,24 @@ def _save_weights(self):
 
 
 def _build_training_tab(self, nb):
+    """构建模型训练标签页
+
+    包含:
+      - 训练设备检测（GPU/CPU），强制使用 CPU 选项
+      - 数据规模估算（视频数/有效视频/样本数/预计训练时间）
+      - 可训练算法列表（勾选/版本管理/状态显示）
+      - 训练参数设置（epoch/batch）
+      - 训练控制（开始/取消/进度条）
+      - 模型导入/导出
+
+    Args:
+        self: SettingsWindow 实例
+        nb: ttk.Notebook 对象
+    """
     page = tk.Frame(nb, bg=C["bg_base"])
     nb.add(page, text="  模型训练  ")
 
+    # ── 训练设备 ──
     dev_sec = self._section(page, "训练设备", padding=(16, 12, 6))
     dev_row = tk.Frame(dev_sec, bg=C["bg_elevated"])
     dev_row.pack(fill=tk.X, pady=(4, 4))
@@ -407,6 +488,7 @@ def _build_training_tab(self, nb):
     ).pack(side=tk.LEFT)
     ttk.Button(dev_row, text="刷新", command=self._refresh_device_info).pack(side=tk.RIGHT)
 
+    # ── 数据规模 ──
     data_sec = self._section(page, "数据规模", padding=(16, 6, 6))
     self._tr_data_lbl = tk.Label(
         data_sec, text="估算中…", bg=C["bg_elevated"], fg=C["text_1"], font=FONT, anchor="w", justify="left"
@@ -414,6 +496,7 @@ def _build_training_tab(self, nb):
     self._tr_data_lbl.pack(fill=tk.X, padx=4, pady=(4, 4))
     ttk.Button(data_sec, text="重新估算", command=self._refresh_data_size).pack(anchor="w", padx=4)
 
+    # ── 可训练算法列表 ──
     list_sec = self._section(page, "可训练算法（PyTorch）", padding=(16, 6, 6))
 
     hdr = tk.Frame(list_sec, bg=C["bg_surface"], highlightthickness=1, highlightbackground=C["border_sub"])
@@ -429,6 +512,7 @@ def _build_training_tab(self, nb):
             anchor="w",
         ).grid(row=0, column=col_i, padx=4, pady=3, sticky="w")
 
+    # 选择工具条
     toolbar = tk.Frame(list_sec, bg=C["bg_elevated"])
     toolbar.pack(fill=tk.X, pady=(0, 4))
     ttk.Button(toolbar, text="全选", command=lambda: self._tr_select_all(True)).pack(side=tk.LEFT, padx=(0, 4))
@@ -443,9 +527,10 @@ def _build_training_tab(self, nb):
     sf.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
     self._tr_algo_frame = sf.inner
 
-    self._tr_check_vars: Dict[str, tk.BooleanVar] = {}
-    self._tr_algo_meta: Dict[str, Dict[str, Any]] = {}
+    self._tr_check_vars: Dict[str, tk.BooleanVar] = {}  # {算法ID: 勾选变量}
+    self._tr_algo_meta: Dict[str, Dict[str, Any]] = {}  # {算法ID: 元数据字典}
 
+    # ── 训练控制 ──
     ctrl_sec = self._section(page, "训练控制", padding=(16, 6, 12))
 
     param_row = tk.Frame(ctrl_sec, bg=C["bg_elevated"])
@@ -473,6 +558,7 @@ def _build_training_tab(self, nb):
     ttk.Button(btn_row, text="📤 导出模型", command=self._on_export_checkpoints).pack(side=tk.RIGHT, padx=(4, 0))
     ttk.Button(btn_row, text="📥 导入模型", command=self._on_import_checkpoints, state=_train()).pack(side=tk.RIGHT, padx=(4, 0))
 
+    # 开发模式提示
     if _train() != "normal":
         tk.Label(
             btn_row, text="💡 创建 .enabletraining 文件开启训练 / 完整 devmode 见 README.md",
@@ -486,6 +572,7 @@ def _build_training_tab(self, nb):
     )
     self._tr_status_lbl.pack(fill=tk.X, padx=4, pady=(2, 2))
 
+    # 训练状态变量
     self._tr_thread = None
     self._tr_queue = None
     self._tr_cancel_flag = [False]
@@ -500,11 +587,17 @@ def _build_training_tab(self, nb):
 
 
 def _discover_torch_algorithms(self) -> List[Dict[str, Any]]:
+    """获取可训练算法列表（从 AlgorithmRegistry）
+
+    Returns:
+        list: 可训练算法信息列表
+    """
     from algorithms.registry import AlgorithmRegistry
     return AlgorithmRegistry.get_trainable_info()
 
 
 def _refresh_device_info(self):
+    """检测并显示当前训练设备（GPU/CPU）"""
     try:
         from algorithms.training.device import get_device_info, is_torch_available, force_cpu
 
@@ -522,10 +615,12 @@ def _refresh_device_info(self):
 
 
 def _on_force_cpu_changed(self):
+    """强制 CPU 开关变更时重新检测设备"""
     self._refresh_device_info()
 
 
 def _refresh_data_size(self):
+    """后台线程估算数据规模（视频数/有效视频/样本数/预计训练时间）"""
     self._tr_data_lbl.config(text="估算中…", fg=C["text_3"])
 
     def _worker():
@@ -554,6 +649,7 @@ def _refresh_data_size(self):
 
 
 def _refresh_algo_list(self):
+    """刷新可训练算法列表 UI"""
     for w in self._tr_algo_frame.winfo_children():
         w.destroy()
     self._tr_check_vars.clear()
@@ -586,6 +682,7 @@ def _refresh_algo_list(self):
         )
         row.pack(fill=tk.X, pady=1)
 
+        # 默认勾选未训练的算法
         var = tk.BooleanVar(value=not a["has_ckpt"])
         self._tr_check_vars[aid] = var
         ttk.Checkbutton(row, variable=var).grid(row=0, column=0, padx=6, pady=3)
@@ -610,6 +707,7 @@ def _refresh_algo_list(self):
             anchor="w",
         ).grid(row=0, column=2, padx=4, sticky="w")
 
+        # 状态显示：已训练（含版本信息）或未训练
         if a["has_ckpt"]:
             status_txt = f"✅ {a['active_version'][:18]}" + (
                 f" (+{a['version_count'] - 1})" if a["version_count"] > 1 else ""
@@ -637,16 +735,23 @@ def _refresh_algo_list(self):
 
 
 def _tr_select_all(self, flag: bool):
+    """全选/取消全选所有可训练算法
+
+    Args:
+        flag: True=全选, False=全不选
+    """
     for var in self._tr_check_vars.values():
         var.set(flag)
 
 
 def _tr_select_untrained(self):
+    """仅勾选尚未训练过的算法"""
     for aid, var in self._tr_check_vars.items():
         var.set(not self._tr_algo_meta.get(aid, {}).get("has_ckpt", False))
 
 
 def _on_train_start(self):
+    """开始训练：验证环境 + 确认参数 + 启动后台训练线程"""
     from algorithms.training.device import is_torch_available
 
     if not is_torch_available():
@@ -669,6 +774,7 @@ def _on_train_start(self):
     ):
         return
 
+    # 禁用开始按钮，启用取消按钮
     self._tr_train_btn.config(state="disabled")
     self._tr_cancel_btn.config(state="normal")
     self._tr_cancel_flag[0] = False
@@ -683,11 +789,13 @@ def _on_train_start(self):
     self._tr_queue = _q.Queue()
 
     def _cb(payload: Dict):
+        """训练进度回调：将进度信息放入队列，由主线程轮询处理"""
         payload = dict(payload)
         payload["_total_selected"] = len(selected)
         self._tr_queue.put(payload)
 
     def _worker():
+        """后台训练线程"""
         try:
             from algorithms.training.trainer import ModelTrainer
 
@@ -711,12 +819,14 @@ def _on_train_start(self):
 
 
 def _on_train_cancel(self):
+    """取消训练：设置取消标记，当前正在训练的算法会继续完成"""
     self._tr_cancel_flag[0] = True
     self._tr_cancel_btn.config(state="disabled")
     self._tr_status_lbl.config(text="正在取消（等待当前算法完成）…", fg=C["warning"])
 
 
 def _on_export_checkpoints(self):
+    """导出所有 checkpoint 为 ZIP 文件"""
     try:
         from utils.checkpoint_io import export_checkpoints
 
@@ -730,6 +840,7 @@ def _on_export_checkpoints(self):
 
 
 def _on_import_checkpoints(self):
+    """从 ZIP 文件导入 checkpoint"""
     from tkinter import filedialog
 
     path = filedialog.askopenfilename(
@@ -752,6 +863,17 @@ def _on_import_checkpoints(self):
 
 
 def _poll_training_progress(self):
+    """主线程轮询训练进度队列，更新进度条和状态文字
+
+    每 200ms 轮询一次，处理队列中的消息:
+      - start: 开始训练某个算法
+      - epoch: epoch 进度更新（train_loss/val_loss）
+      - done: 单个算法训练完成
+      - error: 单个算法训练失败
+      - cancelled: 用户取消了训练
+      - all_done: 全部训练完成
+      - fatal: 训练进程异常
+    """
     import queue as _q
     import time as _t
 
@@ -828,6 +950,11 @@ def _poll_training_progress(self):
 
 
 def _open_version_manager(self, algo_id: str):
+    """打开版本管理窗口（激活/删除/导出 checkpoint 版本）
+
+    Args:
+        algo_id: 算法标识符
+    """
     from algorithms.training.checkpoint_manager import CheckpointManager
 
     ckpt = CheckpointManager(algo_id)
@@ -837,7 +964,15 @@ def _open_version_manager(self, algo_id: str):
 
 
 def _draw_version_ui(self, algo_id: str, ckpt):
-    """构建版本管理窗口和版本列表 Treeview"""
+    """构建版本管理窗口和版本列表 Treeview
+
+    Args:
+        algo_id: 算法 ID
+        ckpt: CheckpointManager 实例
+
+    Returns:
+        tuple: (top_window, treeview)
+    """
     top = tk.Toplevel(self.window)
     top.title(f"版本管理 — {algo_id}")
     sw = self.window.winfo_screenwidth()
@@ -888,12 +1023,20 @@ def _refresh_version_detail(tree, ckpt) -> None:
 
 
 def _bind_version_events(self, top, tree, ckpt, algo_id):
-    """绑定版本管理的按钮命令（激活/删除/导出/关闭）"""
+    """绑定版本管理窗口的按钮命令（激活/删除/导出/关闭）
+
+    Args:
+        top: 版本管理窗口
+        tree: 版本列表 Treeview
+        ckpt: CheckpointManager 实例
+        algo_id: 算法 ID
+    """
 
     def _reload():
         _refresh_version_detail(tree, ckpt)
 
     def _selected_version() -> Optional[str]:
+        """获取当前选中的版本名称"""
         sel = tree.selection()
         if not sel:
             messagebox.showwarning("提示", "请先选择一个版本", parent=top)
@@ -901,12 +1044,14 @@ def _bind_version_events(self, top, tree, ckpt, algo_id):
         return tree.item(sel[0], "values")[1]
 
     def _do_activate():
+        """激活选中的版本"""
         v = _selected_version()
         if v and ckpt.activate(v):
             _reload()
             self._refresh_algo_list()
 
     def _do_delete():
+        """删除选中的版本（带确认）"""
         v = _selected_version()
         if not v:
             return
@@ -917,6 +1062,7 @@ def _bind_version_events(self, top, tree, ckpt, algo_id):
             self._refresh_algo_list()
 
     def _do_export():
+        """导出选中的 checkpoint 为 .pt 文件"""
         v = _selected_version()
         if not v:
             return
@@ -957,11 +1103,23 @@ def _bind_version_events(self, top, tree, ckpt, algo_id):
 
 
 def _build_about_tab(self, nb):
+    """构建"关于作者"标签页
+
+    展示:
+      - 项目信息（名称/版本/作者）
+      - 相关链接（GitHub / B站主页）
+      - 项目介绍文字
+
+    Args:
+        self: SettingsWindow 实例
+        nb: ttk.Notebook 对象
+    """
     page = tk.Frame(nb, bg=C["bg_base"])
     nb.add(page, text="  关于作者  ")
 
     from __init__ import __version__, __author__
 
+    # ── 项目信息 ──
     sec1 = tk.Frame(page, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
     sec1.pack(fill=tk.X, padx=16, pady=(16, 6), ipadx=10, ipady=10)
     tk.Label(
@@ -981,6 +1139,7 @@ def _build_about_tab(self, nb):
         )
         tk.Label(f, text=value, bg=C["bg_elevated"], fg=C["text_1"], font=FONT, anchor="w").pack(side=tk.LEFT)
 
+    # ── 相关链接 ──
     sec2 = tk.Frame(page, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
     sec2.pack(fill=tk.X, padx=16, pady=6, ipadx=10, ipady=10)
     tk.Label(
@@ -997,6 +1156,7 @@ def _build_about_tab(self, nb):
         tk.Label(f, text=title, bg=C["bg_elevated"], fg=C["text_3"], font=FONT, width=12, anchor="w").pack(
             side=tk.LEFT
         )
+        # 可点击的链接标签（粉色，悬浮变色）
         link_lbl = tk.Label(
             f, text=url, bg=C["bg_elevated"], fg=C["bilibili"], font=FONT, cursor="hand2", anchor="w"
         )
@@ -1005,6 +1165,7 @@ def _build_about_tab(self, nb):
         link_lbl.bind("<Enter>", lambda e: e.widget.config(fg=C.get("accent", "#00a1d6")))
         link_lbl.bind("<Leave>", lambda e: e.widget.config(fg=C["bilibili"]))
 
+    # ── 项目介绍 ──
     sec3 = tk.Frame(page, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
     sec3.pack(fill=tk.X, padx=16, pady=(6, 16), ipadx=10, ipady=10)
     tk.Label(sec3, text="说明", bg=C["bg_elevated"], fg=C["text_2"], font=("Microsoft YaHei UI", 9, "bold")).pack(

@@ -1,6 +1,18 @@
 """
 B站监控启动脚本
-使用conda bilibili虚拟环境
+使用 conda bilibili 虚拟环境启动应用。
+
+启动流程：
+    1. 源码完整性校验（复用 main.py 中的 _verify_source_integrity）
+    2. 检查当前 Python 环境是否为 bilibili/bili 虚拟环境
+    3. 安装 requirements.txt 中的依赖
+    4. 初始化所有算法模块（注册 55+ 算法，检查高级模块可用性）
+    5. 启动 Tkinter GUI 主界面
+
+用法：
+    python run.py
+    或
+    conda run -n bilibili python run.py
 """
 
 import sys
@@ -9,12 +21,18 @@ import subprocess
 
 # ── 源码完整性校验 ──────
 # 复用 main.py 中的校验逻辑，以 main.py 为唯一数据源
+# 防止核心文件被篡改后运行
 from main import _verify_source_integrity
 _verify_source_integrity()
 
 
 def check_conda_env():
-    """检查是否在正确的 conda 环境中（检测路径是否包含 bilibili/bili）"""
+    """
+    检查是否在正确的 conda 环境中（检测路径是否包含 bilibili/bili）。
+
+    Returns:
+        bool: 是否在正确的虚拟环境中
+    """
     current_python = sys.executable
     print(f"当前Python: {current_python}")
 
@@ -28,7 +46,14 @@ def check_conda_env():
 
 
 def install_requirements():
-    """安装 requirements.txt 中的依赖"""
+    """
+    安装 requirements.txt 中的 Python 依赖包。
+    
+    使用 pip install -r requirements.txt，超时时间 120 秒。
+
+    Returns:
+        bool: 安装是否成功
+    """
     req_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "requirements.txt")
     print("\n📦 检查依赖...")
     try:
@@ -44,7 +69,15 @@ def install_requirements():
 
 
 def init_algorithms():
-    """初始化算法模块：注册算法 → 检查高级模块"""
+    """
+    初始化算法模块：注册算法 → 检查高级模块可用性。
+
+    调用 AlgorithmRegistry.initialize() 注册所有 55+ 算法，
+    并检查在线学习、因果推断、图神经网络等高级模块的可导入性。
+
+    Returns:
+        bool: 初始化是否成功
+    """
     print("\n🔧 初始化算法模块...")
     try:
         from algorithms.registry import AlgorithmRegistry
@@ -58,7 +91,7 @@ def init_algorithms():
         if len(algo_names) > 5:
             print(f"   ... 还有 {len(algo_names) - 5} 个算法")
 
-        # 检查各高级模块的可导入性
+        # 检查各高级模块的可导入性（可选依赖）
         try:
             from algorithms.online_learner import get_online_learner  # noqa: F401
 
@@ -90,11 +123,16 @@ def init_algorithms():
 
 
 def main():
-    """主函数：环境检查 → 安装依赖 → 初始化算法 → 启动 GUI"""
+    """
+    主启动函数：环境检查 → 安装依赖 → 初始化算法 → 启动 GUI。
+
+    如果在非 bilibili 环境中运行，会提示用户手动激活 conda 环境后重试。
+    """
     print("=" * 50)
     print("B站视频监控与播放量预测系统")
     print("=" * 50)
 
+    # 1. 检查 conda 环境
     in_env = check_conda_env()
     if not in_env:
         print("\n请手动激活conda环境后运行:")
@@ -104,16 +142,19 @@ def main():
         print("conda run -n bilibili python run.py")
         return
 
+    # 2. 安装依赖
     if not install_requirements():
         response = input("依赖安装失败，是否继续? (y/n): ")
         if response.lower() != "y":
             return
 
+    # 3. 初始化算法
     if not init_algorithms():
         response = input("算法初始化失败，是否继续? (y/n): ")
         if response.lower() != "y":
             return
 
+    # 4. 启动 GUI
     print("\n🚀 启动系统...")
     try:
         from ui.main_gui import main

@@ -1,7 +1,14 @@
 """
-账号 / Cookie 设置
+账号 / Cookie 设置模块
 
-Mixin functions for SettingsWindow.
+Mixin 函数模块，为 SettingsWindow 提供账号相关功能:
+  - Cookie 导入（Cookie-Editor JSON / 浏览器提取 / 扫码登录 / 密码登录）
+  - 多账号管理（添加/切换/删除账号）
+  - Cookie 显示与编辑（加锁/解锁查看）
+  - 登录状态验证
+
+所有函数以 self 为第一个参数（SettingsWindow 实例），通过 Mixin 方式挂载。
+依赖 ui.theme.C 主题色配置和 core.bilibili_api 的 API 实例。
 """
 
 import json
@@ -17,12 +24,25 @@ logger = logging.getLogger(__name__)
 
 
 def _build_account_tab(self, nb):
+    """构建账号设置标签页
+
+    包含:
+      - 导入方式按钮（Cookie-Editor / 扫码 / 密码 / 浏览器提取）
+      - 账号切换下拉框 + 添加/删除按钮
+      - Cookie 文本框（支持加锁/解锁查看）
+      - 应用/清空按钮
+
+    Args:
+        self: SettingsWindow 实例
+        nb: ttk.Notebook 对象
+    """
     page = tk.Frame(nb, bg=C["bg_base"])
     nb.add(page, text="  账号设置  ")
 
     sec = tk.Frame(page, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
     sec.pack(fill=tk.BOTH, expand=True, padx=16, pady=(12, 6), ipadx=10, ipady=6)
 
+    # ── 导入方式按钮行 ──
     import_row = tk.Frame(sec, bg=C["bg_elevated"])
     import_row.pack(fill=tk.X, pady=(0, 6))
     tk.Label(import_row, text="导入方式:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT).pack(side=tk.LEFT)
@@ -33,6 +53,7 @@ def _build_account_tab(self, nb):
     ttk.Button(import_row, text="🔑 密码登录", command=self._password_login, state=_s()).pack(side=tk.LEFT, padx=4)
     ttk.Button(import_row, text="🌐 从浏览器提取", command=self._import_from_browser).pack(side=tk.LEFT, padx=4)
 
+    # ── 当前账号行 ──
     acct_row = tk.Frame(sec, bg=C["bg_elevated"])
     acct_row.pack(fill=tk.X, pady=(2, 4))
     tk.Label(acct_row, text="当前账号:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT).pack(side=tk.LEFT)
@@ -42,6 +63,7 @@ def _build_account_tab(self, nb):
     ttk.Button(acct_row, text="➕", width=3, command=self._add_account_dialog).pack(side=tk.LEFT, padx=1)
     ttk.Button(acct_row, text="✕", width=3, command=self._remove_account).pack(side=tk.LEFT, padx=1)
 
+    # ── Cookie 文本框 ──
     self.cookie_text = tk.Text(
         sec,
         height=5,
@@ -55,6 +77,7 @@ def _build_account_tab(self, nb):
     )
     self.cookie_text.pack(fill=tk.BOTH, expand=True, pady=4)
 
+    # ── 操作按钮行 ──
     btn_row = tk.Frame(sec, bg=C["bg_elevated"])
     btn_row.pack(fill=tk.X)
     ttk.Button(btn_row, text="应用Cookie", command=self._apply_cookies).pack(side=tk.LEFT, padx=(0, 4))
@@ -68,6 +91,7 @@ def _build_account_tab(self, nb):
     from utils.update_checker import _s
     ttk.Button(btn_row, text="清空Cookie", command=self._clear_cookies, state=_s()).pack(side=tk.LEFT)
 
+    # 格式提示
     tk.Label(
         sec,
         text="支持直接粘贴 Cookie 字符串 (key=value; key2=value2) 或 Cookie-Editor JSON 格式，自动识别解析。",
@@ -79,12 +103,18 @@ def _build_account_tab(self, nb):
 
 
 def _refresh_cookie_display(self):
+    """刷新 Cookie 文本框的显示内容
+
+    根据当前锁定状态显示掩码或明文 Cookie。
+    如果 Cookie unlocked 则显示完整值，否则显示掩码 "SESSDATA=abcd****wxyz"。
+    """
     self.cookie_text.delete("1.0", tk.END)
     cookies = {}
     for cookie in get_bilibili_api().session.cookies:
         if "bilibili.com" in (cookie.domain or ""):
             cookies[cookie.name] = cookie.value
     if not cookies:
+        # 回退到网络配置中的 Cookie
         cookies = self._net_cfg.get("cookies", {})
     if cookies:
         show_raw = getattr(self, "_cookie_unlocked", False)
@@ -94,17 +124,24 @@ def _refresh_cookie_display(self):
             if show_raw:
                 parts.append(f"{k}={v}")
             else:
+                # 构造掩码：保留前4和后4字符，中间用 **** 替换
                 masked = v[:4] + "****" + v[-4:] if len(v) > 8 else "********"
                 parts.append(f"{k}={masked}")
         self.cookie_text.insert("1.0", "; ".join(parts))
 
 
 def _toggle_cookie_unlock(self):
+    """切换 Cookie 查看锁定状态（加锁 ⟷ 解锁）"""
     self._cookie_unlocked = not getattr(self, "_cookie_unlocked", False)
     self._refresh_cookie_display()
 
 
 def _apply_cookies(self):
+    """应用 Cookie 文本框中的内容到 API 会话
+
+    解析文本框内容，设置 Cookie 到 API 实例，持久化到配置文件，
+    更新账号列表，验证登录状态。
+    """
     text = self.cookie_text.get("1.0", "end").strip()
     if not text:
         messagebox.showwarning("警告", "Cookie不能为空", parent=self.window)
@@ -126,9 +163,23 @@ def _apply_cookies(self):
 
 
 def _parse_cookie_input(self, text: str) -> dict:
+    """解析 Cookie 输入文本为字典
+
+    支持三种格式:
+      1. Cookie-Editor JSON 数组: [{"name": "SESSDATA", "value": "..."}, ...]
+      2. JSON 对象: {"SESSDATA": "...", "bili_jct": "..."}
+      3. 分号分隔的键值对: "SESSDATA=xxx; bili_jct=yyy"
+
+    Args:
+        text: 用户输入的 Cookie 文本
+
+    Returns:
+        dict: Cookie 键值对字典，解析失败返回空字典
+    """
     import json as _json
 
     stripped = text.strip()
+    # 格式 1: Cookie-Editor JSON 数组
     if stripped.startswith("["):
         try:
             entries = _json.loads(stripped)
@@ -144,6 +195,7 @@ def _parse_cookie_input(self, text: str) -> dict:
                     return cookies
         except _json.JSONDecodeError:
             pass
+    # 格式 2: JSON 对象
     elif stripped.startswith("{"):
         try:
             obj = _json.loads(stripped)
@@ -152,6 +204,7 @@ def _parse_cookie_input(self, text: str) -> dict:
                 return {k: v for k, v in obj.items() if k in valid_keys or not k.startswith("_")}
         except _json.JSONDecodeError:
             pass
+    # 格式 3: 分号分隔的键值对
     cookies = {}
     for item in stripped.split(";"):
         item = item.strip()
@@ -162,6 +215,10 @@ def _parse_cookie_input(self, text: str) -> dict:
 
 
 def _verify_login(self):
+    """验证当前 Cookie 的登录状态（后台线程）
+
+    调用 API get_status() 检查登录状态，在主线程回调中更新日志。
+    """
     def _worker():
         try:
             status = get_bilibili_api().get_status()
@@ -177,6 +234,7 @@ def _verify_login(self):
 
 
 def _clear_cookies(self):
+    """清空所有 Cookie（带确认对话框）"""
     if messagebox.askyesno("确认", "确定要清空所有Cookie吗？", parent=self.window):
         for name in (
             "SESSDATA",
@@ -200,6 +258,11 @@ def _clear_cookies(self):
 
 
 def _import_from_browser(self):
+    """从浏览器自动提取 B站 Cookie（后台线程）
+
+    调用 browser_cookies.extract_from_all_browsers 搜索 Chrome/Edge/Firefox 等浏览器的 Cookie，
+    完成后在主线程回调中更新 UI。
+    """
     def _worker():
         try:
             from utils.browser_cookies import extract_from_all_browsers
@@ -220,6 +283,7 @@ def _import_from_browser(self):
 
 
 def _on_browser_cookies(self, cookies: dict):
+    """浏览器 Cookie 提取成功的回调处理"""
     self._refresh_account_list()
     self._refresh_cookie_display()
     self._refresh_status()
@@ -228,6 +292,11 @@ def _on_browser_cookies(self, cookies: dict):
 
 
 def _import_cookie_editor(self):
+    """打开 Cookie-Editor JSON 导入窗口
+
+    提供一个大文本框让用户粘贴 Cookie-Editor 导出的 JSON 数组格式 Cookie，
+    解析后应用到 API 会话中。
+    """
     top = tk.Toplevel(self.window)
     top.title("导入 Cookie-Editor JSON")
     sw = self.window.winfo_screenwidth()
@@ -262,6 +331,7 @@ def _import_cookie_editor(self):
     text_w.pack(fill=tk.BOTH, expand=True, padx=16, pady=8)
 
     def _do_import():
+        """执行导入操作"""
         raw = text_w.get("1.0", tk.END).strip()
         if not raw:
             messagebox.showwarning("提示", "请粘贴 JSON 内容", parent=top)
@@ -301,6 +371,11 @@ def _import_cookie_editor(self):
 
 
 def _qrcode_login(self):
+    """扫码登录 B站
+
+    获取登录二维码，显示在弹窗中，轮询 API 检查扫码状态。
+    扫码成功后自动设置 Cookie 并更新 UI。
+    """
     qr_data = get_bilibili_api().get_qrcode_login_url()
     if not qr_data:
         messagebox.showerror("错误", "获取二维码失败", parent=self.window)
@@ -308,6 +383,7 @@ def _qrcode_login(self):
     qrcode_key = qr_data.get("qrcode_key", "")
     qr_url = qr_data.get("url", "")
 
+    # 生成二维码图片
     self._qr_img = None
     try:
         import qrcode
@@ -354,6 +430,7 @@ def _qrcode_login(self):
     status_lbl.pack(pady=(6, 4))
 
     def _poll():
+        """轮询扫码状态"""
         if not qr_top.winfo_exists():
             return
         import threading
@@ -368,8 +445,10 @@ def _qrcode_login(self):
         threading.Thread(target=_worker, daemon=True).start()
 
     def _handle_poll(result):
+        """处理轮询返回结果"""
         status_var.set(result.get("message", ""))
         if result.get("status") == 2:
+            # 扫码成功
             cookies = result.get("cookies", {})
             if cookies:
                 get_bilibili_api().set_cookies(cookies)
@@ -389,6 +468,7 @@ def _qrcode_login(self):
                 messagebox.showinfo("登录成功", "扫码成功！Cookie 已通过浏览器同步。", parent=self.window)
             return
         elif result.get("status") == -1:
+            # 二维码过期或失败
             status_lbl.config(fg=C["danger"])
             ttk.Button(
                 qr_top, text="重新生成二维码", command=lambda: [qr_top.destroy(), self._qrcode_login()]
@@ -400,6 +480,10 @@ def _qrcode_login(self):
 
 
 def _refresh_account_list(self):
+    """刷新账号下拉列表
+
+    从 API 实例获取所有已添加的账号名称列表，更新下拉框选项。
+    """
     api = get_bilibili_api()
     names = api.get_account_names()
     self._acct_combo["values"] = names
@@ -408,6 +492,7 @@ def _refresh_account_list(self):
 
 
 def _switch_account(self):
+    """切换到下拉框选中的账号"""
     name = self._acct_combo.get()
     if name:
         get_bilibili_api().switch_account(name)
@@ -416,6 +501,10 @@ def _switch_account(self):
 
 
 def _add_account_dialog(self):
+    """添加新账号对话框
+
+    输入账号名称和 Cookie 文本，解析后添加到 API 的多账号管理。
+    """
     dlg = tk.Toplevel(self.window)
     dlg.title("添加账号")
     dlg.geometry("400x200")
@@ -452,6 +541,7 @@ def _add_account_dialog(self):
 
 
 def _remove_account(self):
+    """删除当前选中的账号（带确认对话框）"""
     name = self._acct_combo.get()
     if not name:
         return
@@ -464,14 +554,23 @@ def _remove_account(self):
 
 
 def _password_login(self):
+    """密码登录 B站
+
+    创建账号密码输入对话框，支持:
+      - 短信验证码验证
+      - 极验滑块验证（手动模式）
+    登录成功后自动设置 Cookie 并更新 UI。
+    """
     pwd_top, ui = _draw_login_form(self)
 
     def _do_login(captcha_code: str = "", ct: int = 0):
+        """执行登录请求"""
         uname = ui["username_entry"].get().strip()
         pwd = ui["password_entry"].get()
         if not uname or not pwd:
             messagebox.showwarning("提示", "请输入账号和密码", parent=pwd_top)
             return
+        # 禁用输入控件，防止重复提交
         for w in (ui["username_entry"], ui["password_entry"], ui["captcha_entry"]):
             w.config(state="disabled")
         ui["login_btn"].config(state="disabled")
@@ -491,6 +590,7 @@ def _password_login(self):
         threading.Thread(target=_worker, daemon=True).start()
 
     def _handle_result(result):
+        """处理登录 API 返回结果"""
         code = result.get("code", -1)
         if code == 0:
             _handle_login_response(self, pwd_top, ui, result)
@@ -502,6 +602,7 @@ def _password_login(self):
             _handle_login_response(self, pwd_top, ui, result)
 
     def _submit_captcha():
+        """提交短信验证码"""
         code = ui["captcha_entry"].get().strip()
         if not code:
             messagebox.showwarning("提示", "请输入验证码", parent=pwd_top)
@@ -518,7 +619,11 @@ def _password_login(self):
 
 
 def _draw_login_form(self):
-    """构建密码登录对话框，返回 (pwd_top, ui_dict)"""
+    """构建密码登录对话框 UI
+
+    Returns:
+        tuple: (pwd_top, ui_dict) 窗口对象和 UI 控件字典
+      """
     pwd_top = tk.Toplevel(self.window)
     pwd_top.title("密码登录 B站")
     sw = self.window.winfo_screenwidth()
@@ -601,7 +706,14 @@ def _draw_login_form(self):
 
 
 def _handle_login_response(self, pwd_top, ui, result):
-    """处理登录响应：成功或通用错误"""
+    """处理登录响应：成功设置 Cookie，失败显示错误信息
+
+    Args:
+        self: SettingsWindow 实例
+        pwd_top: 登录窗口
+        ui: UI 控件字典
+        result: API 返回的登录结果
+    """
     code = result.get("code", -1)
     if code == 0:
         cookies = result.get("cookies", {})
@@ -635,12 +747,21 @@ def _handle_login_response(self, pwd_top, ui, result):
 
 
 def _handle_captcha_flow(self, pwd_top, ui, result, do_login_cb):
-    """处理验证码流程：短信验证码 (type 6) 或极验滑块"""
+    """处理验证码流程：短信验证码 (type 6) 或极验滑块验证
+
+    Args:
+        self: SettingsWindow 实例
+        pwd_top: 登录窗口
+        ui: UI 控件字典
+        result: API 返回的需要验证码的结果
+        do_login_cb: 登录回调函数（用于重试登录）
+    """
     captcha_frame = ui["captcha_frame"]
     captcha_btn_f = ui["captcha_btn_f"]
     ct = result.get("captcha_type", 0)
     ui["captcha_type_var"].set(ct)
     if ct == 6:
+        # 短信验证码流程
         phone = result.get("captcha_phone", "")
         hint = f"验证码已发送至 {phone}" if phone else "请输入手机收到的验证码"
         ui["status_var"].set(hint)
@@ -654,6 +775,7 @@ def _handle_captcha_flow(self, pwd_top, ui, result, do_login_cb):
         ui["cancel_btn"].pack_forget()
         ttk.Button(captcha_btn_f, text="取消", command=pwd_top.destroy).pack(side=tk.LEFT, padx=4)
     else:
+        # 极验滑块验证流程
         gt = result.get("gt", "")
         challenge = result.get("challenge", "")
         geetest_url = f"https://api.geetest.com/get.php?gt={gt}&challenge={challenge}&lang=zh-cn&product=embed"

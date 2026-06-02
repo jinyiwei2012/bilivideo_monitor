@@ -29,11 +29,15 @@ B站视频监控与播放量预测系统
 项目结构:
 - core/: 核心模块（数据库、API、通知）
 - ui/: 界面模块（GUI界面）
-- algorithms/: 预测算法模块
+- algorithms/: 预测算法模块（55+ 算法）
 - utils/: 工具模块
 - config/: 配置模块
-- data/: 数据目录
+- data/: 数据目录（数据库、配置文件）
 - exports/: 导出目录
+- backend/: 后端引擎（独立于 GUI 的监控核心）
+- web/: Web API 服务器（FastAPI + WebSocket）
+- scripts/: 运维脚本（数据同步、哈希更新）
+- tests/: 单元测试（pytest）
 """
 
 __version__ = "3.0.0"
@@ -45,8 +49,19 @@ __all__ = ["__version__", "__author__", "PROJECT_ROOT", "DATA_DIR", "COVER_DIR",
 
 
 # ── 启动安全校验 — 校验 1/3：基础导入校验 ──────
+# 验证关键安全保护模块的完整性和功能性
 def _startup_integrity_check():
-    """启动完整性校验 — 导入时校验保护模块基础完整性"""
+    """启动完整性校验 — 导入时校验保护模块基础完整性。
+
+    校验内容包括：
+    1. 保护模块是否可导入（不存在则抛出 RuntimeError）
+    2. 关键函数是否存在且可调用（_hard, _x_strict, _confirm_risky, _x）
+    3. 关键函数的返回类型是否正确
+
+    Raises:
+        RuntimeError: 保护模块缺失或功能不完整
+        ImportError: 保护模块文件不存在
+    """
     try:
         from utils.update_checker import _hard, _x_strict, _confirm_risky, _x
         assert callable(_hard)
@@ -69,4 +84,5 @@ def _startup_integrity_check():
         )
 
 
+# 模块导入时立即执行启动校验
 _startup_integrity_check()

@@ -1,5 +1,13 @@
 """
-全局 tick 循环与周期性维护任务
+全局 tick 循环与周期性维护任务模块
+
+负责应用程序的定时任务调度，包括:
+  - global_tick           : 每秒一次的主循环，更新倒计时、模式指示、触发周期性任务
+  - do_periodic_sync      : 每小时执行一次数据库同步（后台线程）
+  - scan_alerts_background: 后台扫描全量视频的异常，更新状态栏 + 推送通知
+  - wal_checkpoint_worker : 后台线程执行 SQLite WAL checkpoint 优化
+
+Tkinter 的单线程模型中，所有定时任务通过 root.after() 排程。
 """
 
 import threading
@@ -13,30 +21,53 @@ logger = logging.getLogger(__name__)
 
 
 def start_global_tick(gui):
-    """启动全局 tick 循环"""
+    """启动全局 tick 循环（每秒一次）
+
+    使用 Tkinter 的 after() 方法排程，每次 tick 完成后自动排程下一次。
+
+    Args:
+        gui: BilibiliMonitorGUI 实例
+    """
     if gui._global_tick_job:
         gui.root.after_cancel(gui._global_tick_job)
     gui._global_tick_job = gui.root.after(1000, lambda: global_tick(gui))
 
 
 def stop_global_tick(gui):
-    """停止全局 tick 循环"""
+    """停止全局 tick 循环
+
+    Args:
+        gui: BilibiliMonitorGUI 实例
+    """
     if gui._global_tick_job:
         gui.root.after_cancel(gui._global_tick_job)
         gui._global_tick_job = None
 
 
 def global_tick(gui):
-    """每秒一次的全局 tick：更新倒计时、模式指示、周期性维护"""
+    """每秒一次的全局 tick：更新倒计时、模式指示、周期性维护
+
+    每 tick 执行:
+      1. 遍历所有视频定时器，计算各视频上次刷新后经过的时间
+      2. 更新倒计时徽章（显示距离下次刷新的最短剩余秒数）
+      3. 更新模式指示器（正常模式 / 快速模式 / 已暂停）
+      4. 周期性任务:
+         - 每 3600 秒（1小时）：do_periodic_sync（数据库同步）
+         - 每 300 秒（5分钟）：WAL checkpoint + 异常告警扫描
+
+    Args:
+        gui: BilibiliMonitorGUI 实例
+    """
     try:
         if not gui.auto_refresh_enabled.get():
             gui._global_tick_job = None
             return
 
         now = time.time()
-        fast_count = 0
-        min_remaining = float("inf")
+        fast_count = 0  # 快速模式视频计数
+        min_remaining = float("inf")  # 距离下次刷新的最短剩余时间
 
+        # 遍历所有视频定时器
         for bvid, timer in list(gui._video_timers.items()):
             remaining = timer["next"] - now
             if timer["interval"] == gui.FAST_INTERVAL:
@@ -44,12 +75,14 @@ def global_tick(gui):
             if remaining < min_remaining:
                 min_remaining = remaining
 
+        # 更新倒计时徽章
         if min_remaining == float("inf"):
             badge_text = "— s"
         else:
             badge_text = f"{int(max(0, min_remaining)):02d} s"
         gui._countdown_badge.config(text=badge_text)
 
+        # 更新模式指示器
         if fast_count > 0:
             gui._mode_pill.config(text=f"⚡ {fast_count}个快速", fg=C["danger"])
         else:
@@ -57,25 +90,38 @@ def global_tick(gui):
 
         gui._sb("interval", f"正常{gui.DEFAULT_INTERVAL}s / 快速{gui.FAST_INTERVAL}s")
 
-        gui._tick_counter = (gui._tick_counter + 1) % 3600
+        # 周期性维护任务
+        gui._tick_counter = (gui._tick_counter + 1) % 3600  # 0~3599 循环计数
         if gui._tick_counter == 0:
-            do_periodic_sync(gui)
+            do_periodic_sync(gui)  # 每小时数据库同步
         elif gui._tick_counter % 300 == 0:
+            # 每 5 分钟: WAL checkpoint + 异常告警（后台线程执行）
             threading.Thread(target=lambda: wal_checkpoint_worker(gui), daemon=True).start()
             threading.Thread(target=lambda: scan_alerts_background(gui), daemon=True).start()
     except Exception:
         logger.exception("_global_tick 异常，继续调度")
+    # 排程下一次 tick
     gui._global_tick_job = gui.root.after(1000, lambda: global_tick(gui))
 
 
 def do_periodic_sync(gui):
-    """每小时执行一次数据库同步（不阻塞主线程）"""
+    """每小时执行一次数据库同步（不阻塞主线程）
+
+    同步流程:
+      1. 遍历所有视频独立数据库，同步到中央数据库
+      2. 同步到备份目录（data/）
+      3. 记录同步结果日志
+
+    Args:
+        gui: BilibiliMonitorGUI 实例
+    """
     logger.info("开始每小时数据同步…")
 
     def _sync_worker():
         try:
             from core import db
 
+            # 同步每个视频的独立库 → 中央库
             for bvid in list(gui.video_dbs.keys()):
                 try:
                     db.sync_from_video_db(bvid)
@@ -88,6 +134,7 @@ def do_periodic_sync(gui):
                 result.get("synced_records", 0),
                 result.get("fixed_flaws", 0),
             )
+            # 同步到备份目录
             try:
                 db.sync_per_video_dbs_to_backup()
             except Exception as e:
@@ -99,7 +146,16 @@ def do_periodic_sync(gui):
 
 
 def scan_alerts_background(gui):
-    """后台扫描全量视频的异常，更新状态栏 + 推送通知"""
+    """后台扫描全量视频的异常，更新状态栏 + 推送通知
+
+    流程:
+      1. 遍历所有监控视频，从各自数据库中读取最近 20 条记录
+      2. 使用 AnomalyDetector 检测异常（播放量异常、互动率异常等）
+      3. 如果有异常，更新状态栏并推送通知到 QQ/Windows
+
+    Args:
+        gui: BilibiliMonitorGUI 实例
+    """
     from core.notification import notification_manager
 
     alerts = []
@@ -123,7 +179,7 @@ def scan_alerts_background(gui):
         except Exception as e:
             logger.debug("从DB获取记录失败 %s: %s", bvid, e)
         if len(records) < 3:
-            continue
+            continue  # 数据不足，无法进行有意义的异常检测
         try:
             for msg in AnomalyDetector.detect_all(records, bvid=bvid, video=video):
                 alerts.append((bvid, video.get("title", bvid)[:20], msg))
@@ -153,7 +209,14 @@ def scan_alerts_background(gui):
 
 
 def wal_checkpoint_worker(gui):
-    """后台线程执行 WAL checkpoint，避免阻塞主线程"""
+    """后台线程执行 SQLite WAL checkpoint，避免阻塞主线程
+
+    WAL (Write-Ahead Log) 模式下，checkpoint 将 WAL 文件内容合并回主数据库文件，
+    释放磁盘空间并优化读取性能。对中央数据库和所有视频独立数据库执行。
+
+    Args:
+        gui: BilibiliMonitorGUI 实例
+    """
     try:
         from core import db
 

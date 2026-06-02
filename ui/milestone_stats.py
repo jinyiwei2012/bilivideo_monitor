@@ -1,6 +1,14 @@
 """
-里程碑统计窗口（现代化版）
-投稿一周/月/年后数据录入与对比
+里程碑统计窗口模块
+
+提供投稿后里程碑数据（1周/1月/1年后的播放量、点赞等互动数据）的录入和对比功能。
+包含两个标签页:
+  - 录入数据: 批量输入 BV 号和周期，填写各字段数据，保存到数据库
+  - 对比视图: 按选择的指标绘制可视化柱状图，展示不同视频在不同周期的里程碑达成情况
+
+主要组件:
+    MilestoneStatsWindow — 里程碑统计与对比窗口
+    _EntryRow             — 单行输入控件（BV号 × 周期）
 """
 
 import tkinter as tk
@@ -14,8 +22,11 @@ from ui.helpers import FONT, FONT_BOLD, FONT_SM, fmt_num
 from ui.dialog_base import DialogBase
 from utils.update_checker import _confirm_risky
 
+# 支持的统计周期
 PERIODS = ["1周", "1月", "1年"]
+# 各周期的颜色标识
 PERIOD_COLORS = {"1周": "#58a6ff", "1月": "#3fb950", "1年": "#f5a623"}
+# 里程碑数据字段定义: (键名, 显示名, 是否必填, 提示)
 FIELDS = [
     ("view_count", "播放量", True, "必填"),
     ("like_count", "点赞数", False, ""),
@@ -29,33 +40,57 @@ FIELDS = [
 
 
 def _valid_bvid(s: str) -> bool:
-    """验证字符串是否为合法的 BV 号"""
+    """验证字符串是否为合法的 BV 号
+
+    Args:
+        s: 待验证字符串
+
+    Returns:
+        bool: 是否合法
+    """
     from ui.helpers import is_valid_bvid
 
     return is_valid_bvid(s)
 
 
 class _EntryRow:
-    """单行输入控件——BV号 × 周期"""
+    """单行输入控件 —— 一个 BV 号在一个周期内的里程碑数据输入行
+
+    每行包含:
+      - BV 号标签（蓝色）
+      - 周期标签（彩色）
+      - 各字段输入框（播放量、点赞、投币、分享、收藏、弹幕、评论、备注）
+    """
 
     def __init__(self, parent, bvid: str, period: str, existing: dict = None):
-        """初始化单行输入控件，创建 BV 号标签、周期标签和各字段输入框"""
+        """初始化单行输入控件
+
+        Args:
+            parent: 父容器
+            bvid: 视频 BV 号
+            period: 统计周期（"1周"/"1月"/"1年"）
+            existing: 数据库中已有的数据字典（用于预填）
+        """
         self.bvid = bvid
         self.period = period
-        self._vars: Dict[str, tk.StringVar] = {}
+        self._vars: Dict[str, tk.StringVar] = {}  # 字段 → StringVar 映射
 
         frame = tk.Frame(parent, bg=C["bg_surface"], highlightthickness=1, highlightbackground=C["border_sub"])
         frame.pack(fill=tk.X, pady=2, ipady=2)
 
+        # BV 号标签（蓝色粗体）
         tk.Label(frame, text=bvid, bg=C["bg_surface"], fg=C["accent"], font=FONT_BOLD, width=14, anchor="w").grid(
             row=0, column=0, padx=(6, 4)
         )
+        # 周期标签（对应颜色）
         tk.Label(
             frame, text=period, bg=C["bg_surface"], fg=PERIOD_COLORS[period], font=FONT_BOLD, width=4, anchor="w"
         ).grid(row=0, column=1, padx=(0, 8))
 
+        # 创建各字段的标签和输入框
         col = 2
         for key, label, required, hint in FIELDS:
+            # 字段标签（必填项标红加 *）
             tk.Label(
                 frame,
                 text=label + ("*" if required else ""),
@@ -66,10 +101,11 @@ class _EntryRow:
                 width=6,
             ).grid(row=0, column=col, padx=(4, 2))
             var = tk.StringVar()
+            # 如果有已有数据，预填
             if existing and key in existing and existing[key] is not None:
                 var.set(str(existing[key]))
             self._vars[key] = var
-            w = 20 if key == "note" else 9
+            w = 20 if key == "note" else 9  # 备注列更宽
             entry = tk.Entry(
                 frame,
                 textvariable=var,
@@ -81,14 +117,20 @@ class _EntryRow:
                 bd=1,
                 width=w,
                 highlightthickness=1,
-                highlightcolor=C["accent"],
-                highlightbackground=C["border"],
+                highlightcolor=C["accent"],    # 获得焦点时的边框颜色
+                highlightbackground=C["border"], # 默认边框颜色
             )
             entry.grid(row=0, column=col + 1, padx=(0, 4))
             col += 2
 
     def collect(self) -> Optional[dict]:
-        """收集当前行的输入数据，播放量为空时返回 None"""
+        """收集当前行的输入数据
+
+        播放量为空时返回 None（视为跳过该行）。
+
+        Returns:
+            dict 或 None: 收集到的数据字典（如果播放量为空则返回 None）
+        """
         raw = self._vars["view_count"].get().strip().replace(",", "")
         if not raw:
             return None
@@ -97,6 +139,7 @@ class _EntryRow:
         except ValueError:
             return None
         data = {"view_count": view}
+        # 收集可选字段
         for key, *_ in FIELDS[1:]:
             val = self._vars[key].get().strip()
             if key == "note":
@@ -105,12 +148,17 @@ class _EntryRow:
                 try:
                     data[key] = int(float(val.replace(",", "")))
                 except ValueError:
-                    pass
+                    pass  # 非数字输入忽略
         return data
 
 
 class MilestoneStatsWindow:
-    """投稿里程碑统计与对比窗口（现代化风格）"""
+    """投稿里程碑统计与对比窗口（现代化风格）
+
+    双标签页设计:
+      - 录入数据: 批量输入/编辑里程碑数据
+      - 对比视图: 可视化柱状图 + 明细数据表
+    """
 
     def __init__(
         self,
@@ -118,6 +166,12 @@ class MilestoneStatsWindow:
         monitored_videos: Optional[List[Dict]] = None,
         on_add_monitor: Optional[Callable[[str], None]] = None,
     ):
+        """
+        Args:
+            parent: 父窗口
+            monitored_videos: 监控中的视频列表（用于获取标题等信息）
+            on_add_monitor: 添加视频到监控的回调函数
+        """
         self.dlg = DialogBase(
             parent, "投稿里程碑 — 一周 / 月 / 年后数据", "1200x760", resizable=(True, True), modal=True
         )
@@ -125,8 +179,8 @@ class MilestoneStatsWindow:
 
         self.monitored_videos = monitored_videos or []
         self.on_add_monitor = on_add_monitor
-        self._monitored_set: set = {v.get("bvid", "") for v in self.monitored_videos}
-        self._entry_rows: List[_EntryRow] = []
+        self._monitored_set: set = {v.get("bvid", "") for v in self.monitored_videos}  # 监控视频 BV 号集合
+        self._entry_rows: List[_EntryRow] = []  # 当前的活动输入行列表
 
         self._setup_ui()
         self._reload_comparison()
@@ -140,6 +194,7 @@ class MilestoneStatsWindow:
         nb.add(self._tab_entry, text="  📥 录入数据  ")
         self._tab_compare = tk.Frame(nb, bg=C["bg_base"])
         nb.add(self._tab_compare, text="  📊 对比视图  ")
+        # 切换到对比标签页时自动刷新数据
         nb.bind("<<NotebookTabChanged>>", lambda e: self._reload_comparison() if nb.index("current") == 1 else None)
 
         self._build_entry_tab()
@@ -147,18 +202,17 @@ class MilestoneStatsWindow:
 
     # ── 录入标签页 ──────────────────────────────────────
     def _build_entry_tab(self):
-        """构建录入标签页 UI：BV 号输入、周期勾选、输入行表格"""
+        """构建录入标签页 UI：BV 号输入、周期勾选、列头提示、滚动输入行区域"""
         tab = self._tab_entry
 
-        # 顶部卡片
+        # ── 顶部控制卡片 ──
         top = tk.Frame(tab, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
         top.pack(fill=tk.X, padx=16, pady=(12, 6), ipadx=10, ipady=8)
 
-        # 三列布局
         cols_frame = tk.Frame(top, bg=C["bg_elevated"])
         cols_frame.pack(fill=tk.X)
 
-        # 左：BV号输入
+        # 左列：BV 号输入框
         bv_col = tk.Frame(cols_frame, bg=C["bg_elevated"])
         bv_col.pack(side=tk.LEFT, padx=(0, 24))
         tk.Label(bv_col, text="BV号（每行一个，可批量）", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(
@@ -180,13 +234,13 @@ class MilestoneStatsWindow:
         )
         self._bvid_text.pack()
 
-        # 中：周期勾选
+        # 中列：周期勾选
         period_col = tk.Frame(cols_frame, bg=C["bg_elevated"])
         period_col.pack(side=tk.LEFT, padx=(0, 24))
         tk.Label(period_col, text="统计周期", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(anchor="w")
         self._period_vars: Dict[str, tk.BooleanVar] = {}
         for p in PERIODS:
-            var = tk.BooleanVar(value=True)
+            var = tk.BooleanVar(value=True)  # 默认全选
             self._period_vars[p] = var
             tk.Checkbutton(
                 period_col,
@@ -199,17 +253,17 @@ class MilestoneStatsWindow:
                 font=FONT_BOLD,
             ).pack(anchor="w")
 
-        # 右：按钮
+        # 右列：操作按钮
         btn_col = tk.Frame(cols_frame, bg=C["bg_elevated"])
         btn_col.pack(side=tk.LEFT)
         ttk.Button(btn_col, text="生成输入表", command=self._generate_entry_rows).pack(fill=tk.X, pady=3)
         ttk.Button(btn_col, text="💾 保存全部", style="Primary.TButton", command=self._save_all).pack(fill=tk.X, pady=3)
 
-        # 输入行区域
+        # ── 中间输入行区域 ──
         mid = tk.Frame(tab, bg=C["bg_base"])
         mid.pack(fill=tk.BOTH, expand=True, pady=(6, 0))
 
-        # 列头
+        # 列头固定行（手动 place 定位，与输入行对齐）
         header = tk.Frame(mid, bg=C["bg_surface"], height=24)
         header.pack(fill=tk.X)
         header.pack_propagate(False)
@@ -222,11 +276,12 @@ class MilestoneStatsWindow:
             )
             x += w * 7
 
-        # 可滚动容器
+        # 可滚动内容区域
         sf = ScrollableFrame(mid, bg=C["bg_base"])
         sf.pack(fill=tk.BOTH, expand=True)
         self._entry_container = sf.inner
 
+        # 底部状态行
         self._entry_status = tk.Label(
             tab,
             text="请输入 BV 号并选择周期，然后点击「生成输入表」",
@@ -238,7 +293,7 @@ class MilestoneStatsWindow:
         self._entry_status.pack(fill=tk.X, padx=16, pady=(4, 8))
 
     def _generate_entry_rows(self):
-        """主函数：生成里程碑数据输入行"""
+        """主函数：解析 BV 号，验证并生成里程碑数据输入行"""
         raw = self._bvid_text.get("1.0", tk.END).strip()
         if not raw:
             messagebox.showwarning("提示", "请先输入 BV 号", parent=self.window)
@@ -248,6 +303,7 @@ class MilestoneStatsWindow:
         if not bvids:
             return
 
+        # 提示将不在监控列表的 BV 号加入监控
         self._prompt_not_monitored_bvids(bvids)
 
         periods = [p for p, v in self._period_vars.items() if v.get()]
@@ -258,7 +314,14 @@ class MilestoneStatsWindow:
         self._populate_milestone_entry_rows(bvids, periods)
 
     def _parse_and_validate_bvids(self, raw):
-        """解析并验证 BV 号。返回有效 BV 号列表，或 None（无有效 BV 号）。"""
+        """解析并验证 BV 号
+
+        Args:
+            raw: 原始输入文本（每行一个 BV 号）
+
+        Returns:
+            list 或 None: 有效 BV 号列表；无有效 BV 号时返回 None
+        """
         bvids, invalid = [], []
         for line in raw.splitlines():
             bv = line.strip()
@@ -278,7 +341,11 @@ class MilestoneStatsWindow:
         return bvids
 
     def _prompt_not_monitored_bvids(self, bvids):
-        """提示将不在监控列表的 BV 号加入监控。"""
+        """提示将不在监控列表的 BV 号加入监控
+
+        Args:
+            bvids: BV 号列表
+        """
         not_monitored = [b for b in bvids if b not in self._monitored_set]
         if not_monitored:
             msg = "以下 BV 号不在监控列表中：\n" + "\n".join(not_monitored[:10])
@@ -292,24 +359,37 @@ class MilestoneStatsWindow:
                     self._monitored_set.add(bv)
 
     def _populate_milestone_entry_rows(self, bvids, periods):
-        """生成里程碑输入行 UI，并从数据库加载已有数据进行预填"""
+        """生成里程碑输入行 UI（BV 号 × 周期），从数据库加载已有数据进行预填
+
+        Args:
+            bvids: BV 号列表
+            periods: 选中的周期列表
+        """
+        # 清除旧行
         for w in self._entry_container.winfo_children():
             w.destroy()
         self._entry_rows.clear()
+
+        # 从数据库加载已有数据（用于预填输入框）
         existing_map = {}
         for row in get_db().get_milestones():
             existing_map[(row["bvid"], row["period"])] = row
+
         for bv in bvids:
             for p in periods:
                 row = _EntryRow(self._entry_container, bv, p, existing_map.get((bv, p)))
                 self._entry_rows.append(row)
+
         total = len(self._entry_rows)
         self._entry_status.config(
             text=f"共生成 {total} 行（{len(bvids)} 视频 × {len(periods)} 周期），填写后点击「保存全部」"
         )
 
     def _save_all(self):
-        """保存所有输入行的数据到数据库"""
+        """保存所有输入行的数据到数据库
+
+        遍历所有输入行，收集每行的数据，通过 upsert_milestone 写入 DB。
+        """
         if not self._entry_rows:
             messagebox.showwarning("提示", "请先生成输入表", parent=self.window)
             return
@@ -339,6 +419,7 @@ class MilestoneStatsWindow:
         """构建对比视图标签页 UI：指标选择、筛选、柱状图 Canvas 和明细表格"""
         tab = self._tab_compare
 
+        # 指标选择行
         ctrl = tk.Frame(tab, bg=C["bg_surface"])
         ctrl.pack(fill=tk.X, padx=12, pady=6)
 
@@ -367,7 +448,7 @@ class MilestoneStatsWindow:
             ).pack(side=tk.LEFT, padx=4)
         ttk.Button(ctrl, text="🔄 刷新", command=self._reload_comparison).pack(side=tk.RIGHT, padx=6)
 
-        # 筛选
+        # 筛选行
         ff = tk.Frame(tab, bg=C["bg_base"])
         ff.pack(fill=tk.X, padx=12, pady=(4, 0))
         tk.Label(ff, text="筛选视频：", bg=C["bg_base"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT)
@@ -385,7 +466,7 @@ class MilestoneStatsWindow:
         tk.Label(ff, text="（BV号关键词，逗号分隔）", bg=C["bg_base"], fg=C["text_3"], font=FONT_SM).pack(side=tk.LEFT)
         ttk.Button(ff, text="应用筛选", command=self._redraw_compare).pack(side=tk.LEFT, padx=6)
 
-        # 图表
+        # 柱状图画布（支持水平滚动和鼠标滚轮）
         co = tk.Frame(tab, bg=C["bg_base"])
         co.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
         self._cmp_canvas = tk.Canvas(co, bg=C["canvas_bg"], highlightthickness=0)
@@ -396,7 +477,7 @@ class MilestoneStatsWindow:
         self._cmp_canvas.bind("<Configure>", lambda e: self._redraw_compare())
         self._cmp_canvas.bind("<MouseWheel>", lambda e: self._cmp_canvas.xview_scroll(-1 * (e.delta // 120), "units"))
 
-        # 明细表
+        # 明细数据表格
         tbl_frame = tk.Frame(tab, bg=C["bg_base"])
         tbl_frame.pack(fill=tk.X, padx=8, pady=(0, 8))
         tk.Label(tbl_frame, text="明细数据", bg=C["bg_base"], fg=C["text_3"], font=FONT_SM).pack(anchor="w")
@@ -410,6 +491,7 @@ class MilestoneStatsWindow:
             self._tbl.heading(col, text=col)
             self._tbl.column(col, width=w, minwidth=50, anchor="center")
 
+        # 右键菜单：删除选中行的所有里程碑记录
         self._tbl_menu = tk.Menu(self.window, tearoff=0)
         self._tbl_menu.add_command(
             label="删除选中行所有里程碑",
@@ -419,7 +501,7 @@ class MilestoneStatsWindow:
 
         self._cmp_status = tk.Label(tab, text="", bg=C["bg_base"], fg=C["text_2"], font=FONT_SM, anchor="w")
         self._cmp_status.pack(fill=tk.X, padx=12, pady=2)
-        self._all_data: dict = {}
+        self._all_data: dict = {}  # {bvid: {period: data_dict}}
 
     def _reload_comparison(self):
         """重新加载里程碑数据并刷新对比视图"""
@@ -428,7 +510,14 @@ class MilestoneStatsWindow:
         self._redraw_compare()
 
     def _get_video_title(self, bvid: str) -> str:
-        """根据 BV 号获取监控列表中的视频标题"""
+        """根据 BV 号获取监控列表中的视频标题
+
+        Args:
+            bvid: BV 号
+
+        Returns:
+            str: 视频标题（最多 20 字符），找不到时返回 BV 号本身
+        """
         for v in self.monitored_videos:
             if v.get("bvid") == bvid:
                 t = v.get("title", "")
@@ -436,13 +525,14 @@ class MilestoneStatsWindow:
         return bvid
 
     def _fill_table(self):
-        """填充明细数据表格"""
+        """填充明细数据表格（用于对比标签页底部）"""
         for item in self._tbl.get_children():
             self._tbl.delete(item)
         for bvid, periods in sorted(self._all_data.items()):
             title = self._get_video_title(bvid)
 
             def _v(p, key):
+                """安全获取某个周期某个字段的值"""
                 r = periods.get(p, {})
                 val = r.get(key)
                 return fmt_num(val) if val is not None else "—"
@@ -467,7 +557,7 @@ class MilestoneStatsWindow:
             )
 
     def _delete_selected(self):
-        """删除选中的视频的所有里程碑数据"""
+        """删除选中的视频的所有里程碑数据（需确认）"""
         sel = self._tbl.selection()
         if not sel:
             return
@@ -480,7 +570,11 @@ class MilestoneStatsWindow:
         self._reload_comparison()
 
     def _apply_compare_filter(self):
-        """应用对比视图的 BV 号关键词筛选"""
+        """应用对比视图的 BV 号关键词筛选
+
+        Returns:
+            dict: 筛选后的数据 {bvid: {period: data}}
+        """
         ft = self._filter_entry.get().strip()
         if not ft:
             return self._all_data
@@ -488,7 +582,11 @@ class MilestoneStatsWindow:
         return {bv: pd for bv, pd in self._all_data.items() if any(k.upper() in bv.upper() for k in ks)}
 
     def _draw_compare_empty(self, c):
-        """在画布上绘制「无数据」提示"""
+        """在画布上绘制「无数据」提示
+
+        Args:
+            c: Canvas 画布
+        """
         c.create_text(
             (c.winfo_width() or 600) // 2,
             (c.winfo_height() or 300) // 2,
@@ -499,10 +597,19 @@ class MilestoneStatsWindow:
         self._cmp_status.config(text="无数据")
 
     def _draw_compare_grid(self, c, max_val, cw, ch, ML, MT):
-        """绘制对比图的网格线和 Y 轴刻度标签"""
+        """绘制对比图的网格线和 Y 轴刻度标签（5 条水平线）
+
+        Args:
+            c: Canvas 画布
+            max_val: Y 轴最大值
+            cw: 可用宽度
+            ch: 可用高度
+            ML: 左边距
+            MT: 上边距
+        """
         for i in range(6):
             ratio = i / 5
-            y = MT + ch * (1 - ratio * 0.92)
+            y = MT + ch * (1 - ratio * 0.92)  # 顶部留 8% 空间
             val = max_val * ratio
             c.create_line(ML, y, ML + cw, y, fill=C["border"], dash=(2, 4))
             c.create_text(
@@ -515,9 +622,24 @@ class MilestoneStatsWindow:
             )
 
     def _draw_compare_bars(self, c, data, bvids, metric, max_val, group_w, bar_w, gap_w, bar_total_w, ML, MT, ch):
-        """绘制对比柱状图：每个视频为一组，每组内按周期排列"""
+        """绘制对比柱状图：每个视频为一组，每组内按周期排列三种颜色的柱子
+
+        Args:
+            c: Canvas 画布
+            data: 里程碑数据
+            bvids: 排序后的 BV 号列表
+            metric: 当前选中的指标
+            max_val: Y 轴最大值
+            group_w: 每组的总宽度
+            bar_w: 每根柱子的宽度
+            gap_w: 组间间隙宽度
+            bar_total_w: 柱子区域总宽度
+            ML: 左边距
+            MT: 上边距
+            ch: 绘图高度
+        """
         for vi, bv in enumerate(bvids):
-            gx = ML + vi * group_w + gap_w
+            gx = ML + vi * group_w + gap_w  # 组起始 X 坐标
             title = self._get_video_title(bv)
             for pi, period in enumerate(PERIODS):
                 row = data[bv].get(period) or {}
@@ -528,6 +650,7 @@ class MilestoneStatsWindow:
                 bx2 = bx + bar_w - 2
                 if val:
                     c.create_rectangle(bx, by, bx2, MT + ch, fill=color, outline="")
+                    # 在柱子顶部显示数值（如果柱子足够高）
                     if by < MT + ch - 14:
                         c.create_text(
                             (bx + bx2) / 2,
@@ -538,13 +661,22 @@ class MilestoneStatsWindow:
                             font=("Consolas", 7, "bold"),
                         )
                 else:
+                    # 无数据时显示一个矮灰条
                     c.create_rectangle(bx, MT + ch - 4, bx2, MT + ch, fill=C["border"], outline="")
+            # 在组下方显示标题和 BV 号
             lx = gx + bar_total_w / 2
             c.create_text(lx, MT + ch + 6, text=title, anchor="n", fill=C["text_1"], font=("Microsoft YaHei UI", 8))
             c.create_text(lx, MT + ch + 22, text=bv, anchor="n", fill=C["text_3"], font=("Consolas", 7))
 
     def _draw_compare_legend(self, c, ML, MT, ch):
-        """绘制对比图的颜色图例"""
+        """绘制对比图的颜色图例（三个周期的标签色块）
+
+        Args:
+            c: Canvas 画布
+            ML: 左边距
+            MT: 上边距
+            ch: 绘图高度
+        """
         lgx = ML + 6
         for p in PERIODS:
             c.create_rectangle(lgx, MT + ch + 52, lgx + 10, MT + ch + 62, fill=PERIOD_COLORS[p], outline="")
@@ -559,7 +691,15 @@ class MilestoneStatsWindow:
             lgx += 90
 
     def _draw_compare_title(self, c, ML, cw, metric, n_videos):
-        """绘制对比图标题和状态栏信息"""
+        """绘制对比图标题和状态栏信息
+
+        Args:
+            c: Canvas 画布
+            ML: 左边距
+            cw: 可用宽度
+            metric: 当前指标键名
+            n_videos: 视频数量
+        """
         ml = next((lb for key, lb, *_ in FIELDS if key == metric), metric)
         c.create_text(
             ML + cw // 2,
@@ -573,7 +713,17 @@ class MilestoneStatsWindow:
 
     @staticmethod
     def _to_y(v, max_val, MT, ch):
-        """将数值转换为画布上的 Y 坐标（顶部留空 8%）"""
+        """将数值转换为画布上的 Y 坐标（顶部留空 8%）
+
+        Args:
+            v: 数值
+            max_val: Y 轴最大值
+            MT: 上边距
+            ch: 绘图高度
+
+        Returns:
+            int: Y 坐标像素值
+        """
         return MT + ch - (v / max_val) * ch * 0.92 if v else MT + ch
 
     def _redraw_compare(self):
@@ -591,13 +741,15 @@ class MilestoneStatsWindow:
         n_videos = len(bvids)
         n_periods = len(PERIODS)
 
+        # 计算布局参数
         CW = c.winfo_width() or 800
         CH = c.winfo_height() or 360
-        ML, MR, MT, MB = 70, 20, 30, 80
+        ML, MR, MT, MB = 70, 20, 30, 80  # 四边距
         cw = max(CW - ML - MR, n_videos * (n_periods + 1) * 18)
         ch = CH - MT - MB
         c.configure(scrollregion=(0, 0, cw + ML + MR, CH))
 
+        # 确定 Y 轴最大值
         max_val = 1
         for bv in bvids:
             for p in PERIODS:
@@ -605,6 +757,7 @@ class MilestoneStatsWindow:
                 if v:
                     max_val = max(max_val, v)
 
+        # 绘制各组成部分
         self._draw_compare_grid(c, max_val, cw, ch, ML, MT)
 
         group_w = cw / max(n_videos, 1)

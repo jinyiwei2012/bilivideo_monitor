@@ -1,6 +1,28 @@
 """
 N-BEATS简化版 (Neural Basis Expansion Analysis for Time Series Forecasting)
-ICLR 2020 论文简化版，使用基函数展开捕捉时序模式
+============================================================================
+
+ICLR 2020论文的简化实现，使用基函数展开捕捉时序模式，用于B站视频播放量增长预测。
+
+核心原理:
+    1. 双重残差结构：每个Block输出backcast（回看拟合）和forecast（未来预测）
+    2. 趋势分解：Block 1使用多项式基函数捕捉趋势分量
+    3. 季节性分解：Block 2使用傅里叶基函数（正弦/余弦）捕捉周期分量
+    4. 残差分量：去除趋势和季节后剩余的随机波动
+    5. 层叠架构：多个Block通过残差连接级联，每层预测一层残差
+
+简化版实现：
+    - 趋势Block：polyfit一阶线性拟合 + 外推
+    - 季节Block：FFT提取主要频率分量
+    - 残差Block：简单均值外推
+
+降级链：torch checkpoint（NBeatsTorchModel） → numpy多Block分解
+
+参考论文：
+    "N-BEATS: Neural basis expansion analysis for interpretable time series forecasting"
+    (Oreshkin et al., ICLR 2020)
+
+原始代码已有详细中文注释，此处仅增强模块级文档。
 """
 
 import numpy as np
@@ -29,18 +51,33 @@ class NBeatsSimpleAlgorithm(BaseAlgorithm):
     default_weight = 1.5
 
     def __init__(self):
-        super().__init__()
-        self.lookback_window = 10  # 回看窗口长度
-        self.forecast_horizon = 5  # 预测步长
-        self.hidden_size = 16  # 隐藏层大小（简化版用较小值）
-        self.num_blocks = 2  # block数量
-        self.num_layers = 2  # 每个block的层数
-        self.min_data_points = 12  # 最少需要的序列长度
+        """初始化N-BEATS算法参数
 
-    training_window = 10
-    training_horizon = 3
+        设置神经网络架构参数：回看窗口、预测步长、Block数量和每层数。
+        """
+        super().__init__()
+        self.lookback_window = 10      # 回看窗口长度（输入序列长度）
+        self.forecast_horizon = 5      # 预测步长（输出序列长度）
+        self.hidden_size = 16          # 隐藏层大小（简化版用较小值）
+        self.num_blocks = 2            # Block数量（趋势+季节）
+        self.num_layers = 2            # 每个Block的层数
+        self.min_data_points = 12      # 最少需要的序列长度
+
+    training_window = 10     # 训练时使用的历史窗口长度
+    training_horizon = 3     # 训练时预测的未来步数
 
     def predict(self, video_data, threshold=100000):
+        """执行预测
+
+        优先使用torch模型，否则回退到numpy实现。
+
+        Args:
+            video_data: 视频数据字典
+            threshold: 目标播放量阈值
+
+        Returns:
+            PredictionResult: 预测结果
+        """
         return try_torch_predict(
             self,
             video_data,
@@ -52,9 +89,11 @@ class NBeatsSimpleAlgorithm(BaseAlgorithm):
         )
 
     def build_model(self):
+        """构建N-BEATS PyTorch模型实例"""
         return NBeatsTorchModel(in_features=getattr(self, '_training_n_features', 5), window=10, horizon=self.training_horizon)
 
     def get_training_features(self):
+        """返回训练时使用的多维特征列表"""
         return ["view_count", "like_count", "coin_count", "favorite_count", "share_count"]
 
     def _numpy_predict(self, video_data, threshold=100000):
@@ -70,8 +109,8 @@ class NBeatsSimpleAlgorithm(BaseAlgorithm):
         current_views = video_data.get("view_count", 0)
         history = video_data.get("history_data", [])
 
+        # 数据不足时退化为简单线性预测
         if len(history) < self.min_data_points:
-            # 数据太少，退化为简单预测
             velocity = self.calculate_velocity(video_data)
             return self._make_result(
                 current_views,
@@ -100,7 +139,7 @@ class NBeatsSimpleAlgorithm(BaseAlgorithm):
                 reason="short_series",
             )
 
-        # 计算速度序列（使用速度作为输入特征）
+        # 计算速度序列（使用速度作为输入特征，更稳定）
         velocities, _ = self._calculate_velocity_series(views, timestamps)
 
         if len(velocities) < self.lookback_window:
@@ -117,10 +156,10 @@ class NBeatsSimpleAlgorithm(BaseAlgorithm):
                 reason="insufficient_lookback",
             )
 
-        # N-BEATS核心：分block预测
+        # N-BEATS核心：分block预测趋势、季节和残差分量
         trend_forecast, seasonality_forecast, residual_forecast = self._n_beats_forecast(velocities)
 
-        # 组合预测
+        # 组合三个分量的预测结果
         combined_forecast = trend_forecast + seasonality_forecast + residual_forecast
 
         # 取最后一个预测值作为未来速度
@@ -160,23 +199,22 @@ class NBeatsSimpleAlgorithm(BaseAlgorithm):
         Returns:
             (趋势预测, 季节性预测, 残差预测)
         """
-        # 取最后 lookback_window 个点
+        # 取最后 lookback_window 个点作为输入
         if len(series) > self.lookback_window:
             input_series = series[-self.lookback_window :]
         else:
             input_series = series
 
-        # Block 1: 趋势分量（使用线性趋势）
+        # Block 1: 趋势分量（使用线性趋势拟合 + 外推）
         trend_coeffs = np.polyfit(range(len(input_series)), input_series, 1)
         trend_line = np.polyval(trend_coeffs, np.arange(len(input_series) + self.forecast_horizon))
-        trend_lookback = trend_line[: len(input_series)]
-        trend_forecast = trend_line[len(input_series) :]
+        trend_lookback = trend_line[: len(input_series)]    # 回看部分的趋势拟合
+        trend_forecast = trend_line[len(input_series) :]    # 预测部分的趋势外推
 
-        # 去除趋势
+        # 去除趋势得到残差
         detrended = input_series - trend_lookback
 
-        # Block 2: 季节性分量（使用傅里叶特征简化版）
-        # 简化：使用正弦/余弦组合捕捉季节性
+        # Block 2: 季节性分量（使用FFT频域分析提取周期模式）
         seasonality_lookback = self._extract_seasonality(detrended)
         # 预测未来季节性（假设周期性延续）
         if len(seasonality_lookback) > 0:
@@ -184,9 +222,9 @@ class NBeatsSimpleAlgorithm(BaseAlgorithm):
         else:
             seasonality_forecast = np.zeros(self.forecast_horizon)
 
-        # 残差分量
+        # 残差分量：去除趋势和季节后的剩余
         residual = detrended - seasonality_lookback
-        # 残差预测（使用简单平均）
+        # 残差预测（使用简单均值作为未来值的估计）
         residual_forecast = np.full(self.forecast_horizon, np.mean(residual) if len(residual) > 0 else 0.0)
 
         return trend_forecast, seasonality_forecast, residual_forecast
@@ -194,7 +232,14 @@ class NBeatsSimpleAlgorithm(BaseAlgorithm):
     def _extract_seasonality(self, series: np.ndarray) -> np.ndarray:
         """提取季节性分量（简化版）
 
-        使用移动平均 + 残差法
+        使用FFT快速傅里叶变换提取主要频率分量，保留前20%的频率。
+        如果FFT失败则返回零向量。
+
+        Args:
+            series: 输入序列
+
+        Returns:
+            np.ndarray: 季节性分量（与输入同长度）
         """
         if len(series) < 4:
             return np.array([])
@@ -212,7 +257,7 @@ class NBeatsSimpleAlgorithm(BaseAlgorithm):
 
             # 使用FFT提取主要频率分量（简化）
             fft = rfft(series)
-            # 保留前20%的频率分量
+            # 保留前20%的频率分量，滤除高频噪声
             keep = max(1, len(fft) // 5)
             fft_filtered = np.zeros_like(fft, dtype=complex)
             fft_filtered[:keep] = fft[:keep]
@@ -225,7 +270,14 @@ class NBeatsSimpleAlgorithm(BaseAlgorithm):
     def _forecast_seasonality(self, seasonality: np.ndarray, horizon: int) -> np.ndarray:
         """预测未来季节性
 
-        简化：假设最后一个周期会重复
+        简化：假设最后一个周期会重复，将最近的周期模式平铺到预测步长。
+
+        Args:
+            seasonality: 历史季节性分量
+            horizon: 预测步长
+
+        Returns:
+            np.ndarray: 未来季节性预测（长度=horizon）
         """
         if len(seasonality) == 0:
             return np.zeros(horizon)
@@ -241,16 +293,26 @@ class NBeatsSimpleAlgorithm(BaseAlgorithm):
         return forecast
 
     def _calculate_confidence(self, series: np.ndarray, forecast: np.ndarray) -> float:
-        """计算预测置信度"""
+        """计算预测置信度
+
+        基于历史预测误差估计置信度：
+        用前i个点预测第i+1个点（简易交叉验证），计算MAE并映射到[0.3, 0.9]。
+
+        Args:
+            series: 历史速度序列
+            forecast: 预测序列
+
+        Returns:
+            float: 置信度 [0.3, 0.9]
+        """
         if len(forecast) == 0:
             return 0.3
 
-        # 基于历史误差估计
+        # 基于历史误差估计（简化交叉验证）
         if len(series) >= self.lookback_window:
-            # 使用交叉验证思想（简化）
             errors = []
             for i in range(1, min(len(series), self.lookback_window)):
-                # 用前i个点预测第i+1个点（简单外推）
+                # 用前i个点预测第i+1个点（简单线性外推）
                 if i >= 2:
                     slope = (series[-i + 1] - series[-i]) / 1.0
                     pred = series[-i + 1] + slope
@@ -268,7 +330,17 @@ class NBeatsSimpleAlgorithm(BaseAlgorithm):
         return min(0.9, confidence)
 
     def _extract_series(self, history: List[Dict]) -> Tuple[np.ndarray, np.ndarray]:
-        """提取播放量和时间戳序列"""
+        """提取播放量和时间戳序列
+
+        从历史记录中提取播放量和时间戳，支持多种时间戳格式（float、datetime对象、ISO字符串），
+        按时间排序确保序列时间顺序正确。
+
+        Args:
+            history: 历史数据记录列表
+
+        Returns:
+            (播放量数组, 时间戳数组)
+        """
         views = []
         timestamps = []
 
@@ -276,6 +348,7 @@ class NBeatsSimpleAlgorithm(BaseAlgorithm):
             v = entry.get("view_count", entry.get("view", 0))
             t = entry.get("timestamp", 0)
 
+            # 统一时间戳格式
             if hasattr(t, "timestamp"):
                 t = t.timestamp()
             elif isinstance(t, str):
@@ -290,6 +363,7 @@ class NBeatsSimpleAlgorithm(BaseAlgorithm):
                 views.append(float(v))
                 timestamps.append(float(t))
 
+        # 按时间排序
         if len(views) > 1:
             sorted_indices = np.argsort(timestamps)
             views = [views[i] for i in sorted_indices]
@@ -298,7 +372,17 @@ class NBeatsSimpleAlgorithm(BaseAlgorithm):
         return np.array(views), np.array(timestamps)
 
     def _calculate_velocity_series(self, views: np.ndarray, timestamps: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """计算速度序列"""
+        """计算速度序列
+
+        向前差分计算每两个相邻时间点之间的播放量增长速率（每小时）。
+
+        Args:
+            views: 播放量数组
+            timestamps: 时间戳数组
+
+        Returns:
+            (速度数组, 对应的时间戳数组)
+        """
         if len(views) < 2:
             return np.array([]), np.array([])
 
@@ -306,11 +390,11 @@ class NBeatsSimpleAlgorithm(BaseAlgorithm):
         vel_times = []
 
         for i in range(1, len(views)):
-            dt = (timestamps[i] - timestamps[i - 1]) / 3600.0
+            dt = (timestamps[i] - timestamps[i - 1]) / 3600.0  # 转换为小时
             if dt <= 0:
                 continue
-            dv = views[i] - views[i - 1]
-            velocity = dv / dt
+            dv = views[i] - views[i - 1]                       # 播放量变化
+            velocity = dv / dt                                  # 每小时速度
             velocities.append(velocity)
             vel_times.append(timestamps[i])
 
@@ -327,7 +411,21 @@ class NBeatsSimpleAlgorithm(BaseAlgorithm):
         residual: Optional[List[float]],
         reason: str,
     ) -> PredictionResult:
-        """构造预测结果"""
+        """构造预测结果
+
+        Args:
+            current_views: 当前播放量
+            threshold: 目标阈值
+            velocity: 预测速度（每小时）
+            confidence: 置信度 [0, 1]
+            trend_slope: 趋势斜率
+            seasonality: 季节性分量序列
+            residual: 残差分量序列
+            reason: 预测来源标识
+
+        Returns:
+            PredictionResult: 标准化预测结果
+        """
 
         if velocity <= 0:
             predicted_hours = float("inf")

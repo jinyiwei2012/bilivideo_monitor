@@ -1,6 +1,15 @@
 """
 配置模块
 包含系统配置和常量定义
+
+功能：
+- 项目根目录、数据目录、导出目录等路径常量
+- 数据库路径和配置文件路径
+- 完整的默认配置字典（涵盖监控、预测、通知、UI、导出、AI、Web 等）
+- 配置加载/保存/svg-merge 等工具函数
+- 多 AI profile 支持
+
+兼容 PyInstaller 打包后的路径解析（sys.frozen）。
 """
 
 import os
@@ -11,13 +20,16 @@ from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 
+# ── 路径常量 ──────────────────────────────────
+
 # 项目根目录（兼容 PyInstaller 打包后的路径）
+# 打包后 sys.executable 指向 exe 所在目录，开发时使用源文件路径
 if getattr(sys, "frozen", False):
     PROJECT_ROOT = os.path.dirname(sys.executable)
 else:
     PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# 数据目录
+# 数据目录（存放数据库、封面、配置文件等）
 DATA_DIR = os.path.join(PROJECT_ROOT, "data")
 COVER_DIR = os.path.join(DATA_DIR, "cover")
 EXPORT_DIR = os.path.join(PROJECT_ROOT, "exports")
@@ -33,7 +45,9 @@ DB_PATH = os.path.join(DATA_DIR, "bilibili_monitor.db")
 # 配置文件路径
 CONFIG_FILE = os.path.join(DATA_DIR, "settings.json")
 
-# 默认配置
+# ── 默认配置 ──────────────────────────────────
+# 所有可配置项的默认值，首次启动时自动生成
+
 DEFAULT_CONFIG = {
     "onebot": {
         "enabled": False,
@@ -77,7 +91,19 @@ DEFAULT_CONFIG = {
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
-    """递归合并两个字典，使深层嵌套的默认配置项也能自动生效"""
+    """
+    递归合并两个字典，使深层嵌套的默认配置项也能自动生效。
+    
+    当用户保存了旧版本的配置（缺少新字段）时，通过深度合并
+    自动补全缺失的默认值，避免因配置结构不完整导致的 KeyError。
+    
+    Args:
+        base: 基础字典（默认配置）
+        override: 覆盖字典（用户保存的配置）
+        
+    Returns:
+        dict: 合并后的字典
+    """
     result = {}
     for k in set(base) | set(override):
         if k in override and k in base:
@@ -93,7 +119,16 @@ def _deep_merge(base: dict, override: dict) -> dict:
 
 
 def load_config() -> Dict[str, Any]:
-    """加载配置文件并合并默认值"""
+    """
+    加载配置文件并合并默认值。
+    
+    如果配置文件不存在，返回完整的默认配置。
+    如果配置文件存在但缺少某些字段，自动用默认值补全。
+    对 JSON 解析异常做容错处理，异常时返回默认配置。
+    
+    Returns:
+        dict: 完整的配置字典
+    """
     config = DEFAULT_CONFIG.copy()
     if os.path.exists(CONFIG_FILE):
         try:
@@ -106,7 +141,15 @@ def load_config() -> Dict[str, Any]:
 
 
 def get_active_ai_profile() -> dict:
-    """获取当前选中的 LLM 配置（支持多 profile）"""
+    """
+    获取当前选中的 LLM 配置（支持多 profile）。
+    
+    优先从 profiles 列表中查找与 selected_profile 匹配的项；
+    如果没有 profiles 配置，则回退到旧版单配置兼容模式。
+    
+    Returns:
+        dict: 包含 name, api_key, endpoint, model 的配置字典
+    """
     cfg = load_config().get("ai", {})
     profiles = cfg.get("profiles", [])
     selected = cfg.get("selected_profile", "")
@@ -125,7 +168,15 @@ def get_active_ai_profile() -> dict:
 
 
 def save_config(config: Dict[str, Any]) -> bool:
-    """保存配置到 JSON 文件"""
+    """
+    保存配置到 JSON 文件。
+    
+    Args:
+        config: 要保存的配置字典
+        
+    Returns:
+        bool: 是否保存成功
+    """
     try:
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(config, f, ensure_ascii=False, indent=2)

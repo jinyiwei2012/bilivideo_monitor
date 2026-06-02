@@ -1,21 +1,31 @@
-"""算法可视化比较：准确率 / 权重 / 详细数据对比"""
+"""
+算法可视化比较模块
+
+本模块提供算法性能的可视化比较窗口，包含以下功能：
+1. 准确率柱状图 — 横向柱状图展示各算法预测精度，按类别着色
+2. 权重柱状图 — 展示集成学习中各算法的权重分配
+3. 详细数据表格 — 可排序、可筛选的算法元数据表
+
+支持按算法类别过滤、按多维度排序（准确率/权重/样本数/名称）。
+数据来源于 AlgorithmRegistry（算法注册器）。
+"""
 
 import tkinter as tk
 from tkinter import ttk
 import logging
 from typing import List, Dict
 
-from ui.theme import C
-from ui.helpers import FONT, FONT_SM
+from ui.theme import C                                     # 颜色主题
+from ui.helpers import FONT, FONT_SM                       # 字体常量
 
 logger = logging.getLogger(__name__)
 
-# 图表边距
-_ML, _MR, _MT, _MB = 60, 20, 32, 80
-_BAR_H = 18          # 柱状图每行高度
-_BAR_GAP = 6         # 柱状图行间距
+# ── 图表布局常量 ──
+_ML, _MR, _MT, _MB = 60, 20, 32, 80                        # 左/右/上/下边距（像素）
+_BAR_H = 18                                                 # 柱状图每行高度
+_BAR_GAP = 6                                                # 柱状图行间距
 
-# 按类别分配颜色
+# ── 按算法类别分配颜色 ──
 _CATEGORY_COLORS = {
     "速度类": "#0969da",
     "时间衰减": "#8250df",
@@ -28,40 +38,62 @@ _CATEGORY_COLORS = {
     "基础": "#6e40c9",
     "其他": "#8b949e",
 }
-_CATEGORY_FALLBACK = list(_CATEGORY_COLORS.values())
+_CATEGORY_FALLBACK = list(_CATEGORY_COLORS.values())       # 备用颜色列表
 
 
 def _cat_color(cat: str) -> str:
-    """获取类别对应的颜色"""
+    """获取类别对应的颜色，未匹配则返回灰色"""
     return _CATEGORY_COLORS.get(cat, "#8b949e")
 
 
 def _fmt_pct(v: float) -> str:
-    """将小数格式化为百分比字符串"""
+    """将小数格式化为百分比字符串（如 0.85 → 85.0%）"""
     return f"{v * 100:.1f}%"
 
 
 class AlgorithmComparisonWindow:
-    """算法可视化比较窗口：准确率柱状图、权重柱状图、详细数据表格"""
+    """
+    算法可视化比较窗口
+
+    提供三个标签页：
+    1. 准确率对比 — 横向柱状图，按类别着色，显示样本数
+    2. 权重对比 — 横向柱状图，标注自定义权重标记
+    3. 详细数据 — Treeview 表格，支持表头点击排序
+
+    顶部控制栏允许按类别过滤和按多维度排序。
+    """
 
     def __init__(self, parent=None):
+        """
+        初始化算法比较窗口
+
+        :param parent: 父级 Tkinter 窗口
+        """
         self.window = tk.Toplevel(parent)
         self.window.title("算法可视化比较")
         sw = parent.winfo_screenwidth() if parent else 1920
         sh = parent.winfo_screenheight() if parent else 1080
+        # 按屏幕比例的 52% × 72% 设置窗口尺寸
         self.window.geometry(f"{int(sw * 0.52)}x{int(sh * 0.72)}")
         self.window.minsize(700, 500)
         self.window.configure(bg=C["bg_surface"])
 
-        self._algo_info: List[Dict] = []  # 算法信息列表
-        self._load_data()
+        self._algo_info: List[Dict] = []                    # 算法信息列表，每项含 name/accuracy/weight 等
+        self._load_data()                                   # 从注册器加载数据
 
         self._setup_ui()
 
-    # ── 数据加载 ────────────────────────────────────────
+    # ── 数据加载 ─────────────────────────────────────────────────────────────────
 
     def _load_data(self):
-        """从注册器和权重管理器加载所有算法的准确率、权重、样本数等数据"""
+        """
+        从 AlgorithmRegistry 和 WeightManager 加载所有算法的：
+        - 准确率 (accuracy)
+        - 最终权重 (final_weight)
+        - 样本数 (samples)
+        - 算法类别 (category)
+        - 是否自定义 (is_customized)
+        """
         try:
             from algorithms.registry import AlgorithmRegistry
 
@@ -76,17 +108,22 @@ class AlgorithmComparisonWindow:
                     info["category"] = getattr(algo, "category", "其他")
                 else:
                     info["category"] = "其他"
-                # 设置默认值
+                # 设置默认值，防止数据缺失
                 info.setdefault("samples", 0)
                 info.setdefault("accuracy", 0.5)
                 info.setdefault("final_weight", 1.0)
         except Exception as e:
             logger.warning("加载算法信息失败: %s", e)
 
-    # ── UI ──────────────────────────────────────────────
+    # ── UI ──────────────────────────────────────────────────────────────────────
 
     def _setup_ui(self):
-        """构建比较窗口 UI：标题、过滤控制栏、三标签页（准确率/权重/详细数据）"""
+        """
+        构建比较窗口 UI：
+        - 标题栏（含算法总数）
+        - 控制栏（类别过滤 + 排序方式 + 统计摘要 + 刷新按钮）
+        - 三标签页 Notebook（准确率 / 权重 / 详细数据）
+        """
         # 标题
         tk.Label(
             self.window,
@@ -96,14 +133,14 @@ class AlgorithmComparisonWindow:
             font=("Microsoft YaHei UI", 13, "bold"),
         ).pack(pady=(14, 4))
 
-        # 控制栏：类别过滤 + 排序
+        # ── 控制栏：类别过滤 + 排序 ──
         ctrl = tk.Frame(self.window, bg=C["bg_surface"])
         ctrl.pack(fill=tk.X, padx=14, pady=(0, 6))
 
         # 类别过滤下拉框
         tk.Label(ctrl, text="类别过滤:", bg=C["bg_surface"], fg=C["text_2"], font=FONT).pack(side=tk.LEFT, padx=(0, 4))
         self._cat_var = tk.StringVar(value="全部")
-        cats = self._collect_categories()
+        cats = self._collect_categories()                   # 收集所有类别
         self._cat_combo = ttk.Combobox(
             ctrl, textvariable=self._cat_var, values=cats, width=16, state="readonly", font=FONT
         )
@@ -120,14 +157,14 @@ class AlgorithmComparisonWindow:
         self._sort_combo.pack(side=tk.LEFT, padx=(0, 12))
         self._sort_combo.bind("<<ComboboxSelected>>", lambda e: self._refresh())
 
-        # 统计摘要标签
+        # 统计摘要标签（动态更新）
         self._summary_lbl = tk.Label(ctrl, text="", bg=C["bg_surface"], fg=C["text_3"], font=FONT_SM)
         self._summary_lbl.pack(side=tk.LEFT, padx=6)
 
         # 刷新按钮
         ttk.Button(ctrl, text="↻ 刷新", command=self._refresh).pack(side=tk.RIGHT)
 
-        # 三标签页 Notebook
+        # ── 三标签页 Notebook ──
         nb = ttk.Notebook(self.window)
         nb.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
 
@@ -139,32 +176,42 @@ class AlgorithmComparisonWindow:
         nb.add(tab_weight, text="  权重对比  ")
         nb.add(tab_detail, text="  详细数据  ")
 
-        # 准确率画布
+        # 准确率 Canvas 画布
         self._acc_canvas = tk.Canvas(tab_acc, bg=C["bg_base"], highlightthickness=0)
         self._acc_canvas.pack(fill=tk.BOTH, expand=True)
 
-        # 权重画布
+        # 权重 Canvas 画布
         self._weight_canvas = tk.Canvas(tab_weight, bg=C["bg_base"], highlightthickness=0)
         self._weight_canvas.pack(fill=tk.BOTH, expand=True)
 
         self._setup_detail_tab(tab_detail)
 
-        self._refresh()
+        self._refresh()                                     # 初始渲染
 
     def _collect_categories(self) -> list:
-        """收集所有算法类别，返回排序后的列表（含"全部"）"""
+        """
+        收集所有算法类别，返回排序后的列表（含"全部"）
+
+        :return: ["全部", "其他", "时间序列", ...] 排序后的类别列表
+        """
         cats = set()
         for info in self._algo_info:
             cats.add(info.get("category", "其他"))
         return ["全部"] + sorted(cats)
 
-    # ── 数据过滤与排序 ──────────────────────────────────
+    # ── 数据过滤与排序 ───────────────────────────────────────────────────────────
 
     def _get_filtered(self) -> list:
-        """根据用户选择的类别和排序方式过滤并排序算法数据"""
+        """
+        根据用户选择的类别和排序方式过滤并排序算法数据
+
+        :return: 过滤并排序后的算法信息列表
+        """
         cat = self._cat_var.get()
+        # 按类别过滤
         filtered = [info for info in self._algo_info if cat == "全部" or info.get("category") == cat]
 
+        # 按排序方式排序
         s = self._sort_var.get()
         if s == "准确率 ↓":
             filtered.sort(key=lambda x: x.get("accuracy", 0), reverse=True)
@@ -180,15 +227,22 @@ class AlgorithmComparisonWindow:
             filtered.sort(key=lambda x: x.get("name", ""))
         return filtered
 
-    # ── 准确率柱状图 ────────────────────────────────────
+    # ── 准确率柱状图 ─────────────────────────────────────────────────────────────
 
     def _draw_accuracy_chart(self):
-        """绘制算法准确率横向柱状图"""
+        """
+        绘制算法准确率横向柱状图：
+        - 每行一条柱子，颜色为类别色
+        - 左侧显示算法名，右侧显示百分比
+        - 最后显示样本数（n=xxx）
+        - 顶部图例显示用到的类别及其颜色
+        """
         c = self._acc_canvas
         c.delete("all")
         W = c.winfo_width()
         H = c.winfo_height()
         if W < 100 or H < 100:
+            # Canvas 尚未就绪，延迟重试
             self.window.after(200, self._draw_accuracy_chart)
             return
 
@@ -197,9 +251,9 @@ class AlgorithmComparisonWindow:
             c.create_text(W // 2, H // 2, text="无数据", fill=C["text_3"], font=FONT)
             return
 
-        cw = W - _ML - _MR
-        ch = max(50, H - _MT - _MB)
-        bar_unit = _BAR_H + _BAR_GAP
+        cw = W - _ML - _MR                                    # 图表可用宽度
+        ch = max(50, H - _MT - _MB)                           # 图表可用高度
+        bar_unit = _BAR_H + _BAR_GAP                           # 每行总高度
         # 如果内容超长，只展示可见区域（后续可扩展滚动）
         visible = filtered[: max(1, int(ch / bar_unit))]
 
@@ -207,25 +261,25 @@ class AlgorithmComparisonWindow:
         c.create_text(W // 2, 14, text="算法准确率对比", fill=C["text_1"], font=FONT)
 
         for i, info in enumerate(visible):
-            y0 = _MT + i * bar_unit
-            name = info.get("name", "?")[:28]
-            acc = max(0, min(1, info.get("accuracy", 0.5)))
-            bar_w = acc * cw
+            y0 = _MT + i * bar_unit                            # 当前行 Y 坐标
+            name = info.get("name", "?")[:28]                  # 截断过长的名称
+            acc = max(0, min(1, info.get("accuracy", 0.5)))    # 限制在 [0,1]
+            bar_w = acc * cw                                    # 柱宽 = 准确率 × 可用宽度
             color = _cat_color(info.get("category", "其他"))
 
-            # 类别色条（左侧小色块）
+            # 左侧类别色条（小方块标识）
             c.create_rectangle(_ML - 10, y0, _ML - 4, y0 + _BAR_H, fill=color, outline="")
 
-            # 柱体
+            # 柱体（接近 0 时用点状纹理表示）
             if bar_w > 0:
                 c.create_rectangle(
                     _ML, y0, _ML + bar_w, y0 + _BAR_H, fill=color, outline="", stipple="" if bar_w > 4 else "gray25"
                 )
 
-            # 名称（右对齐到柱体起始）
+            # 名称（右对齐到柱体起始位置）
             c.create_text(_ML - 14, y0 + _BAR_H // 2, text=name, anchor="e", fill=C["text_2"], font=FONT_SM)
 
-            # 数值标签
+            # 数值标签（百分比）
             lbl = _fmt_pct(acc)
             c.create_text(_ML + bar_w + 6, y0 + _BAR_H // 2, text=lbl, anchor="w", fill=C["text_1"], font=FONT_SM)
 
@@ -239,7 +293,7 @@ class AlgorithmComparisonWindow:
         # 图例 —— 用到的类别
         used_cats = {info.get("category", "其他") for info in visible}
         lx = _ML
-        ly = _MT + len(visible) * bar_unit + 10
+        ly = _MT + len(visible) * bar_unit + 10                # 图例放在柱图下方
         for cat in sorted(used_cats):
             c.create_rectangle(lx, ly, lx + 12, ly + 12, fill=_cat_color(cat), outline="")
             c.create_text(lx + 16, ly + 6, text=cat, anchor="w", fill=C["text_2"], font=FONT_SM)
@@ -247,10 +301,13 @@ class AlgorithmComparisonWindow:
 
         self._update_summary(filtered)
 
-    # ── 权重柱状图 ────────────────────────────────────
+    # ── 权重柱状图 ───────────────────────────────────────────────────────────────
 
     def _draw_weight_chart(self):
-        """绘制算法权重横向柱状图（归一化到最大权重）"""
+        """
+        绘制算法权重横向柱状图（归一化到最大权重）
+        自定义权重的算法显示 ✎ 标记
+        """
         c = self._weight_canvas
         c.delete("all")
         W = c.winfo_width()
@@ -269,7 +326,9 @@ class AlgorithmComparisonWindow:
         bar_unit = _BAR_H + _BAR_GAP
         visible = filtered[: max(1, int(ch / bar_unit))]
 
-        max_w = max(info.get("final_weight", 1) for info in visible) or 1
+        max_w = max(info.get("final_weight", 1) for info in visible) or 1   # 最大权重作为归一化基准
+        if max_w <= 0:
+            max_w = 1
 
         c.create_text(W // 2, 14, text="算法权重对比", fill=C["text_1"], font=FONT)
 
@@ -277,22 +336,32 @@ class AlgorithmComparisonWindow:
             y0 = _MT + i * bar_unit
             name = info.get("name", "?")[:28]
             w = max(0, info.get("final_weight", 1.0))
-            bar_w = w / max_w * cw
-            color = "#0969da"
+            bar_w = w / max_w * cw                              # 归一化后的柱宽
+            color = "#0969da"                                   # 统一蓝色
 
             c.create_rectangle(_ML, y0, _ML + bar_w, y0 + _BAR_H, fill=color, outline="")
 
             c.create_text(_ML - 14, y0 + _BAR_H // 2, text=name, anchor="e", fill=C["text_2"], font=FONT_SM)
 
-            is_custom = info.get("is_customized", False)
+            is_custom = info.get("is_customized", False)        # 是否用户自定义权重
             suffix = " ✎" if is_custom else ""
             lbl = f"{w:.2f}{suffix}"
             c.create_text(_ML + bar_w + 6, y0 + _BAR_H // 2, text=lbl, anchor="w", fill=C["text_1"], font=FONT_SM)
 
-    # ── 详细数据表格 ────────────────────────────────────
+    # ── 详细数据表格 ─────────────────────────────────────────────────────────────
 
     def _setup_detail_tab(self, parent):
-        """构建详细数据表格页：包含算法名称、类别、准确率、权重、样本数、自定义标记"""
+        """
+        构建详细数据表格页：包含以下列：
+        - 算法名称 (name)
+        - 类别 (category)
+        - 准确率 (accuracy)
+        - 权重 (final_weight)
+        - 样本数 (samples)
+        - 自定义 (is_customized)
+
+        :param parent: 放置表格的父 Frame
+        """
         cols = ("name", "category", "accuracy", "final_weight", "samples", "is_customized")
         headers = {
             "name": "算法名称",
@@ -320,6 +389,7 @@ class AlgorithmComparisonWindow:
         hsb.config(command=self._tree.xview)
 
         for cid, header in headers.items():
+            # 表头点击触发排序
             self._tree.heading(cid, text=header, command=lambda c=cid: self._sort_tree(c))
             self._tree.column(cid, width=80, anchor="center")
 
@@ -352,12 +422,17 @@ class AlgorithmComparisonWindow:
             )
 
     def _sort_tree(self, col):
-        """点击表头排序：数值列按数值排序，文本列按字典序排序"""
+        """
+        点击表头排序：数值列按数值排序，文本列按字典序排序
+        再次点击同一列时切换升降序
+
+        :param col: 排序的列名
+        """
         if hasattr(self, "_tree_sort_rev") and self._tree_sort_col == col:
-            self._tree_sort_rev = not self._tree_sort_rev
+            self._tree_sort_rev = not self._tree_sort_rev       # 切换升降序
         else:
             self._tree_sort_col = col
-            self._tree_sort_rev = False
+            self._tree_sort_rev = False                          # 默认降序
 
         items = [(self._tree.set(k, col), k) for k in self._tree.get_children("")]
         reverse = self._tree_sort_rev
@@ -373,10 +448,14 @@ class AlgorithmComparisonWindow:
         for idx, (_, k) in enumerate(items):
             self._tree.move(k, "", idx)
 
-    # ── 通用 ────────────────────────────────────────────
+    # ── 通用方法 ─────────────────────────────────────────────────────────────────
 
     def _update_summary(self, filtered):
-        """更新统计摘要：展示总数、平均准确率、平均权重"""
+        """
+        更新统计摘要：展示总数、平均准确率、平均权重
+
+        :param filtered: 当前过滤后的算法列表
+        """
         n_total = len(self._algo_info)
         n_filtered = len(filtered)
         avg_acc = sum(info.get("accuracy", 0) for info in filtered) / max(1, n_filtered)

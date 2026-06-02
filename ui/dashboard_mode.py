@@ -1,5 +1,14 @@
 """
-数据大屏模式 — 全屏无边框自动轮播数据展示
+数据大屏模式 — 全屏无边框自动轮播数据展示模块
+
+本模块提供独立的全屏数据大屏模式，自动轮播 4 个页面：
+
+1. 总览页 — 监控总数、总播放量、总互动、已达标数、视频列表（前 8 个）
+2. 排行页 — 播放量 Top10 水平柱状图（前 3 名实心高亮）
+3. 预测页 — 各视频当前播放量及阈值完成进度（最多 6 个）
+4. 健康页 — 实时预警列表 + 一键三连健康探针评分
+
+每 15 秒自动切换一页，支持 ESC / F11 退出全屏。
 """
 
 import tkinter as tk
@@ -9,77 +18,92 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 
-# 大屏颜色主题（深色）
+# ── 大屏颜色主题（暗色风格） ──
 _DASH_COLORS = {
-    "bg": "#0d1117",
-    "card_bg": "#161b22",
-    "text_1": "#f0f6fc",
-    "text_2": "#8b949e",
-    "accent": "#58a6ff",
-    "success": "#3fb950",
-    "warning": "#d29922",
-    "danger": "#f85149",
-    "bilibili": "#fb7299",
+    "bg": "#0d1117",          # 主背景
+    "card_bg": "#161b22",     # 卡片背景
+    "text_1": "#f0f6fc",      # 主要文字
+    "text_2": "#8b949e",      # 次要文字
+    "accent": "#58a6ff",      # 强调色
+    "success": "#3fb950",     # 成功/绿色
+    "warning": "#d29922",     # 警告/黄色
+    "danger": "#f85149",      # 危险/红色
+    "bilibili": "#fb7299",    # B站粉色
 }
 
 
 class DashboardWindow:
-    """全屏数据大屏 — 自动轮播 4 页（总览/排行/预测/健康）"""
+    """
+    全屏数据大屏 — 自动轮播 4 页
+
+    使用 Toplevel 创建全屏无边框窗口，每 15 秒自动切换到下一页。
+    按 ESC 或 F11 退出全屏模式。
+    """
 
     def __init__(self, gui, parent=None):
+        """
+        初始化数据大屏
+
+        :param gui: 主 GUI 实例
+        :param parent: 父窗口（用于创建 Toplevel）
+        """
         self.gui = gui
         self.window = tk.Toplevel(parent)
-        self.window.attributes("-fullscreen", True)
+        self.window.attributes("-fullscreen", True)          # 全屏模式
         self.window.configure(bg=_DASH_COLORS["bg"])
         self.window.bind("<Escape>", lambda e: self.window.destroy())
         self.window.bind("<F11>", lambda e: self.window.destroy())
 
-        self._page = 0               # 当前页码
-        self._total_pages = 4        # 总页数
-        self._animating = True       # 是否正在轮播
+        self._page = 0                                        # 当前页码（0-3）
+        self._total_pages = 4                                 # 总页数
+        self._animating = True                                # 是否正在轮播
 
         self._setup_ui()
-        self._show_page(0)
-        self._start_rotation()
+        self._show_page(0)                                    # 显示首页
+        self._start_rotation()                                # 启动轮播
 
     def _setup_ui(self):
-        """构建大屏 UI：顶部标题 + 时间、页面指示器、内容区"""
+        """
+        构建大屏 UI：
+        - 顶部标题栏（"数据大屏" + 实时时间 + 页面指示圆点）
+        - 内容区（各页动态填充）
+        """
         self._main = tk.Frame(self.window, bg=_DASH_COLORS["bg"])
         self._main.pack(fill=tk.BOTH, expand=True)
 
-        # 顶部标题栏
+        # ── 顶部标题栏 ──
         self._header = tk.Frame(self._main, bg=_DASH_COLORS["bg"])
         self._header.pack(fill=tk.X, padx=40, pady=(20, 0))
         tk.Label(
-            self._header,
-            text="📊 数据大屏",
-            bg=_DASH_COLORS["bg"],
-            fg=_DASH_COLORS["text_1"],
+            self._header, text="📊 数据大屏",
+            bg=_DASH_COLORS["bg"], fg=_DASH_COLORS["text_1"],
             font=("Microsoft YaHei UI", 20, "bold"),
         ).pack(side=tk.LEFT)
         self._time_lbl = tk.Label(
-            self._header, text="", bg=_DASH_COLORS["bg"], fg=_DASH_COLORS["text_2"], font=("Microsoft YaHei UI", 12)
+            self._header, text="", bg=_DASH_COLORS["bg"], fg=_DASH_COLORS["text_2"],
+            font=("Microsoft YaHei UI", 12)
         )
         self._time_lbl.pack(side=tk.RIGHT)
-        self._update_time()
+        self._update_time()                                   # 启动时间更新循环
 
-        # 页面指示器（圆点）
+        # ── 页面指示器（圆点） ──
         self._dots = tk.Frame(self._main, bg=_DASH_COLORS["bg"])
         self._dots.pack(pady=(8, 0))
         self._dot_widgets = []
         for i in range(self._total_pages):
             d = tk.Label(
-                self._dots, text="●", bg=_DASH_COLORS["bg"], fg=_DASH_COLORS["text_2"], font=("Microsoft YaHei UI", 8)
+                self._dots, text="●", bg=_DASH_COLORS["bg"], fg=_DASH_COLORS["text_2"],
+                font=("Microsoft YaHei UI", 8)
             )
             d.pack(side=tk.LEFT, padx=4)
             self._dot_widgets.append(d)
 
-        # 内容区（各页动态填充）
+        # ── 内容区（各页动态填充） ──
         self._content = tk.Frame(self._main, bg=_DASH_COLORS["bg"])
         self._content.pack(fill=tk.BOTH, expand=True, padx=40, pady=20)
 
     def _update_time(self):
-        """每秒更新右上角当前时间"""
+        """每秒更新右上角当前时间（动画期间持续更新）"""
         self._time_lbl.config(text=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         if self._animating:
             self.window.after(1000, self._update_time)
@@ -91,7 +115,7 @@ class DashboardWindow:
         self.window.after(15000, self._next_page)
 
     def _next_page(self):
-        """切换到下一页"""
+        """切换到下一页，循环轮播"""
         if not self._animating:
             return
         self._page = (self._page + 1) % self._total_pages
@@ -99,31 +123,43 @@ class DashboardWindow:
         self._start_rotation()
 
     def _show_page(self, page: int):
-        """渲染指定页码的内容"""
+        """
+        渲染指定页码的内容
+
+        先销毁旧内容，然后更新页面指示器圆点，最后调用对应页的构建函数。
+
+        :param page: 页码 (0-3)
+        """
         for w in self._content.winfo_children():
             w.destroy()
+        # 更新圆点颜色：当前页高亮，其余灰色
         for i, d in enumerate(self._dot_widgets):
             d.config(fg=_DASH_COLORS["accent"] if i == page else _DASH_COLORS["text_2"])
 
         pages = [
-            self._build_overview,
-            self._build_ranking,
-            self._build_prediction,
-            self._build_health,
+            self._build_overview,     # 总览
+            self._build_ranking,      # 排行
+            self._build_prediction,   # 预测
+            self._build_health,       # 健康
         ]
         if 0 <= page < len(pages):
             pages[page]()
 
-    # ── 第1页：总览 ────────────────────────────
+    # ── 第 1 页：总览 ─────────────────────────────────────────────────────────
+
     def _build_overview(self):
-        """第 1 页：总览 — 显示监控总数、总播放量、总互动、已达标数、视频列表"""
+        """
+        第 1 页：总览
+
+        展示 4 大 KPI 指标卡片 + 前 8 个视频列表（含 BV 号、标题、播放量、点赞、弹幕）
+        """
         videos = self.gui.monitored_videos
         total = len(videos)
         total_views = sum(v.get("view_count", 0) for v in videos)
         total_likes = sum(v.get("like_count", 0) for v in videos)
-        achieved = sum(1 for v in videos if v.get("view_count", 0) >= 10000)
+        achieved = sum(1 for v in videos if v.get("view_count", 0) >= 10000)  # 播放量破万计数
 
-        # 4 大指标卡片
+        # ── 4 大指标卡片 ──
         stat_row = tk.Frame(self._content, bg=_DASH_COLORS["bg"])
         stat_row.pack(fill=tk.X, pady=20)
         cards = [
@@ -136,141 +172,107 @@ class DashboardWindow:
             c = tk.Frame(stat_row, bg=_DASH_COLORS["card_bg"], highlightthickness=1, highlightbackground="#30363d")
             c.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=8, ipady=30)
             tk.Label(
-                c, text=label, bg=_DASH_COLORS["card_bg"], fg=_DASH_COLORS["text_2"], font=("Microsoft YaHei UI", 12)
+                c, text=label, bg=_DASH_COLORS["card_bg"], fg=_DASH_COLORS["text_2"],
+                font=("Microsoft YaHei UI", 12)
             ).pack()
             tk.Label(c, text=val, bg=_DASH_COLORS["card_bg"], fg=color, font=("Consolas", 28, "bold")).pack(pady=(8, 0))
 
-        # 视频列表（前 8 个）
+        # ── 视频列表（前 8 个） ──
         titles = ["视频列表"]
         table_frame = tk.Frame(
             self._content, bg=_DASH_COLORS["card_bg"], highlightthickness=1, highlightbackground="#30363d"
         )
         table_frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=8, ipady=10)
         tk.Label(
-            table_frame,
-            text=titles[0],
-            bg=_DASH_COLORS["card_bg"],
-            fg=_DASH_COLORS["text_2"],
-            font=("Microsoft YaHei UI", 10, "bold"),
-            anchor="w",
+            table_frame, text=titles[0], bg=_DASH_COLORS["card_bg"], fg=_DASH_COLORS["text_2"],
+            font=("Microsoft YaHei UI", 10, "bold"), anchor="w",
         ).pack(fill=tk.X, padx=12, pady=(8, 4))
 
         for v in videos[:8]:
             row = tk.Frame(table_frame, bg=_DASH_COLORS["card_bg"])
             row.pack(fill=tk.X, padx=12, pady=1)
             tk.Label(
-                row,
-                text=v.get("bvid", "")[:12],
-                bg=_DASH_COLORS["card_bg"],
-                fg=_DASH_COLORS["accent"],
-                font=("Consolas", 9),
-                width=14,
+                row, text=v.get("bvid", "")[:12], bg=_DASH_COLORS["card_bg"],
+                fg=_DASH_COLORS["accent"], font=("Consolas", 9), width=14,
             ).pack(side=tk.LEFT)
             tk.Label(
-                row,
-                text=v.get("title", "")[:30],
-                bg=_DASH_COLORS["card_bg"],
-                fg=_DASH_COLORS["text_1"],
-                font=("Microsoft YaHei UI", 9),
-                width=35,
-                anchor="w",
+                row, text=v.get("title", "")[:30], bg=_DASH_COLORS["card_bg"],
+                fg=_DASH_COLORS["text_1"], font=("Microsoft YaHei UI", 9), width=35, anchor="w",
             ).pack(side=tk.LEFT)
             tk.Label(
-                row,
-                text=_fmt(v.get("view_count", 0)),
-                bg=_DASH_COLORS["card_bg"],
-                fg=_DASH_COLORS["text_2"],
-                font=("Consolas", 9),
-                width=12,
-                anchor="e",
+                row, text=_fmt(v.get("view_count", 0)), bg=_DASH_COLORS["card_bg"],
+                fg=_DASH_COLORS["text_2"], font=("Consolas", 9), width=12, anchor="e",
             ).pack(side=tk.LEFT)
             tk.Label(
-                row,
-                text=_fmt(v.get("like_count", 0)),
-                bg=_DASH_COLORS["card_bg"],
-                fg=_DASH_COLORS["text_2"],
-                font=("Consolas", 9),
-                width=10,
-                anchor="e",
+                row, text=_fmt(v.get("like_count", 0)), bg=_DASH_COLORS["card_bg"],
+                fg=_DASH_COLORS["text_2"], font=("Consolas", 9), width=10, anchor="e",
             ).pack(side=tk.LEFT)
             tk.Label(
-                row,
-                text=_fmt(v.get("danmaku_count", 0)),
-                bg=_DASH_COLORS["card_bg"],
-                fg=_DASH_COLORS["text_2"],
-                font=("Consolas", 9),
-                width=10,
-                anchor="e",
+                row, text=_fmt(v.get("danmaku_count", 0)), bg=_DASH_COLORS["card_bg"],
+                fg=_DASH_COLORS["text_2"], font=("Consolas", 9), width=10, anchor="e",
             ).pack(side=tk.LEFT)
 
-    # ── 第2页：排行 ────────────────────────────
+    # ── 第 2 页：排行 ─────────────────────────────────────────────────────────
+
     def _build_ranking(self):
-        """第 2 页：排行 — 播放量 Top10 水平柱状图"""
+        """第 2 页：排行 — 播放量 Top10 水平柱状图（前 3 名实心高亮）"""
         videos = sorted(self.gui.monitored_videos, key=lambda v: v.get("view_count", 0), reverse=True)
         if not videos:
             tk.Label(
-                self._content,
-                text="暂无数据",
-                bg=_DASH_COLORS["bg"],
-                fg=_DASH_COLORS["text_2"],
-                font=("Microsoft YaHei UI", 16),
+                self._content, text="暂无数据",
+                bg=_DASH_COLORS["bg"], fg=_DASH_COLORS["text_2"], font=("Microsoft YaHei UI", 16),
             ).pack()
             return
 
         tk.Label(
-            self._content,
-            text="🏆 播放量排行 Top10",
-            bg=_DASH_COLORS["bg"],
-            fg=_DASH_COLORS["text_1"],
+            self._content, text="🏆 播放量排行 Top10",
+            bg=_DASH_COLORS["bg"], fg=_DASH_COLORS["text_1"],
             font=("Microsoft YaHei UI", 14, "bold"),
         ).pack(anchor="w")
 
         chart_frame = tk.Frame(self._content, bg=_DASH_COLORS["bg"])
         chart_frame.pack(fill=tk.BOTH, expand=True, pady=10)
 
-        max_views = videos[0].get("view_count", 1) or 1
+        max_views = videos[0].get("view_count", 1) or 1        # 最大值（防除零）
         canvas_w = 700
         bar_h = 36
         top = videos[:10]
 
         c = tk.Canvas(
-            chart_frame, bg=_DASH_COLORS["bg"], width=canvas_w, height=len(top) * bar_h + 20, highlightthickness=0
+            chart_frame, bg=_DASH_COLORS["bg"], width=canvas_w,
+            height=len(top) * bar_h + 20, highlightthickness=0
         )
         c.pack(anchor="w")
 
         for i, v in enumerate(top):
             views = v.get("view_count", 0)
-            bar_w = max(40, int(views / max_views * (canvas_w - 200)))
+            bar_w = max(40, int(views / max_views * (canvas_w - 200)))  # 柱宽按比例
             y = 10 + i * bar_h
 
             # 柱状条（前 3 名实心，其余半透明）
             c.create_rectangle(
-                10,
-                y + 6,
-                10 + bar_w,
-                y + bar_h - 6,
-                fill=_DASH_COLORS["accent"],
-                outline="",
-                stipple="" if i < 3 else "gray50",
+                10, y + 6, 10 + bar_w, y + bar_h - 6,
+                fill=_DASH_COLORS["accent"], outline="",
+                stipple="" if i < 3 else "gray50",            # 前 3 名实心
             )
             c.create_text(16, y + bar_h // 2, text=f"#{i + 1}", fill="white", font=("Consolas", 10, "bold"), anchor="w")
             c.create_text(
-                24 + bar_w,
-                y + bar_h // 2,
+                24 + bar_w, y + bar_h // 2,
                 text=f"{v.get('title', '')[:20]}  {_fmt(views)}",
-                fill=_DASH_COLORS["text_1"],
-                font=("Microsoft YaHei UI", 10),
-                anchor="w",
+                fill=_DASH_COLORS["text_1"], font=("Microsoft YaHei UI", 10), anchor="w",
             )
 
-    # ── 第3页：预测 ────────────────────────────
+    # ── 第 3 页：预测 ─────────────────────────────────────────────────────────
+
     def _build_prediction(self):
-        """第 3 页：预测 — 各视频当前播放量及阈值完成进度"""
+        """
+        第 3 页：预测 — 各视频当前播放量及阈值完成进度
+
+        每个视频显示 4 个阈值的完成百分比，已达成显示绿色勾号。
+        """
         tk.Label(
-            self._content,
-            text="🎯 预测总览",
-            bg=_DASH_COLORS["bg"],
-            fg=_DASH_COLORS["text_1"],
+            self._content, text="🎯 预测总览",
+            bg=_DASH_COLORS["bg"], fg=_DASH_COLORS["text_1"],
             font=("Microsoft YaHei UI", 14, "bold"),
         ).pack(anchor="w")
 
@@ -285,18 +287,12 @@ class DashboardWindow:
             card.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=6, ipady=14)
 
             tk.Label(
-                card,
-                text=v.get("title", "")[:18],
-                bg=_DASH_COLORS["card_bg"],
-                fg=_DASH_COLORS["text_1"],
-                font=("Microsoft YaHei UI", 10, "bold"),
+                card, text=v.get("title", "")[:18], bg=_DASH_COLORS["card_bg"],
+                fg=_DASH_COLORS["text_1"], font=("Microsoft YaHei UI", 10, "bold"),
             ).pack(anchor="w", padx=10, pady=(8, 2))
             tk.Label(
-                card,
-                text=f"播放: {_fmt(views)}",
-                bg=_DASH_COLORS["card_bg"],
-                fg=_DASH_COLORS["text_2"],
-                font=("Consolas", 10),
+                card, text=f"播放: {_fmt(views)}", bg=_DASH_COLORS["card_bg"],
+                fg=_DASH_COLORS["text_2"], font=("Consolas", 10),
             ).pack(anchor="w", padx=10)
 
             # 每个阈值的完成进度
@@ -304,21 +300,24 @@ class DashboardWindow:
                 pct = min(100, views / t * 100) if t > 0 else 0
                 status = "✅" if views >= t else f"{pct:.0f}%"
                 tk.Label(
-                    card,
-                    text=f"  {name}: {status}",
-                    bg=_DASH_COLORS["card_bg"],
+                    card, text=f"  {name}: {status}", bg=_DASH_COLORS["card_bg"],
                     fg=_DASH_COLORS["success"] if views >= t else _DASH_COLORS["text_2"],
                     font=("Microsoft YaHei UI", 9),
                 ).pack(anchor="w", padx=10)
 
-    # ── 第4页：健康 ────────────────────────────
+    # ── 第 4 页：健康 ─────────────────────────────────────────────────────────
+
     def _build_health(self):
-        """第 4 页：健康 — 实时预警列表 + 一键三连健康探针评分"""
+        """
+        第 4 页：健康
+
+        分为两个区域：
+        1. 实时预警卡片 — 调用 AnomalyDetector 检测异常
+        2. 一键三连健康探针 — 计算各视频的互动健康评分（S/A/B/C/D 评级）
+        """
         tk.Label(
-            self._content,
-            text="💚 健康概览",
-            bg=_DASH_COLORS["bg"],
-            fg=_DASH_COLORS["text_1"],
+            self._content, text="💚 健康概览",
+            bg=_DASH_COLORS["bg"], fg=_DASH_COLORS["text_1"],
             font=("Microsoft YaHei UI", 14, "bold"),
         ).pack(anchor="w")
 
@@ -331,12 +330,8 @@ class DashboardWindow:
         alert_frame.pack(fill=tk.BOTH, expand=True, pady=10, ipady=16)
 
         tk.Label(
-            alert_frame,
-            text="实时预警",
-            bg=_DASH_COLORS["card_bg"],
-            fg=_DASH_COLORS["text_2"],
-            font=("Microsoft YaHei UI", 10, "bold"),
-            anchor="w",
+            alert_frame, text="实时预警", bg=_DASH_COLORS["card_bg"], fg=_DASH_COLORS["text_2"],
+            font=("Microsoft YaHei UI", 10, "bold"), anchor="w",
         ).pack(fill=tk.X, padx=12, pady=(8, 4))
 
         found_alert = False
@@ -344,7 +339,7 @@ class DashboardWindow:
             bvid = v.get("bvid", "")
             if bvid in self.gui.video_dbs:
                 try:
-                    records = self.gui.video_dbs[bvid].get_all_records(limit=10)
+                    records = self.gui.video_dbs[bvid].get_all_records(limit=10)  # 取最近 10 条
                     alerts = AnomalyDetector.detect_all(records, bvid=bvid)
                     if alerts:
                         found_alert = True
@@ -352,29 +347,20 @@ class DashboardWindow:
                             row = tk.Frame(alert_frame, bg=_DASH_COLORS["card_bg"])
                             row.pack(fill=tk.X, padx=12, pady=2)
                             tk.Label(
-                                row,
-                                text=v.get("title", "")[:18],
-                                bg=_DASH_COLORS["card_bg"],
-                                fg=_DASH_COLORS["warning"],
-                                font=("Microsoft YaHei UI", 9),
+                                row, text=v.get("title", "")[:18], bg=_DASH_COLORS["card_bg"],
+                                fg=_DASH_COLORS["warning"], font=("Microsoft YaHei UI", 9),
                             ).pack(side=tk.LEFT, padx=(0, 8))
                             tk.Label(
-                                row,
-                                text=msg[:60],
-                                bg=_DASH_COLORS["card_bg"],
-                                fg=_DASH_COLORS["text_1"],
-                                font=("Microsoft YaHei UI", 9),
+                                row, text=msg[:60], bg=_DASH_COLORS["card_bg"],
+                                fg=_DASH_COLORS["text_1"], font=("Microsoft YaHei UI", 9),
                             ).pack(side=tk.LEFT)
                 except Exception as e:
                     logger.debug("渲染预警卡片失败: %s", e)
 
         if not found_alert:
             tk.Label(
-                alert_frame,
-                text="✅ 暂无预警",
-                bg=_DASH_COLORS["card_bg"],
-                fg=_DASH_COLORS["success"],
-                font=("Microsoft YaHei UI", 12),
+                alert_frame, text="✅ 暂无预警", bg=_DASH_COLORS["card_bg"],
+                fg=_DASH_COLORS["success"], font=("Microsoft YaHei UI", 12),
             ).pack(pady=10)
 
         # ── 一键三连健康探针 ──
@@ -387,40 +373,28 @@ class DashboardWindow:
             probe_frame.pack(fill=tk.BOTH, expand=True, pady=8, ipady=10)
 
             tk.Label(
-                probe_frame,
-                text="一键三连健康探针",
-                bg=_DASH_COLORS["card_bg"],
-                fg=_DASH_COLORS["text_2"],
-                font=("Microsoft YaHei UI", 10, "bold"),
-                anchor="w",
+                probe_frame, text="一键三连健康探针", bg=_DASH_COLORS["card_bg"],
+                fg=_DASH_COLORS["text_2"], font=("Microsoft YaHei UI", 10, "bold"), anchor="w",
             ).pack(fill=tk.X, padx=12, pady=(8, 4))
 
             for v in self.gui.monitored_videos[:6]:
                 try:
                     r = calculate_probe_from_dict(v)
                     grade_colors = {
-                        "S": _DASH_COLORS["bilibili"],
-                        "A": _DASH_COLORS["accent"],
-                        "B": _DASH_COLORS["success"],
-                        "C": _DASH_COLORS["warning"],
+                        "S": _DASH_COLORS["bilibili"], "A": _DASH_COLORS["accent"],
+                        "B": _DASH_COLORS["success"], "C": _DASH_COLORS["warning"],
                         "D": _DASH_COLORS["danger"],
                     }
                     gc = grade_colors.get(r.health_grade, _DASH_COLORS["text_2"])
                     row = tk.Frame(probe_frame, bg=_DASH_COLORS["card_bg"])
                     row.pack(fill=tk.X, padx=12, pady=1)
                     tk.Label(
-                        row,
-                        text=v.get("title", "")[:20],
-                        bg=_DASH_COLORS["card_bg"],
-                        fg=_DASH_COLORS["text_1"],
-                        font=("Microsoft YaHei UI", 9),
+                        row, text=v.get("title", "")[:20], bg=_DASH_COLORS["card_bg"],
+                        fg=_DASH_COLORS["text_1"], font=("Microsoft YaHei UI", 9),
                     ).pack(side=tk.LEFT)
                     tk.Label(
-                        row,
-                        text=f"{r.health_score:.0f} {r.health_grade}",
-                        bg=_DASH_COLORS["card_bg"],
-                        fg=gc,
-                        font=("Consolas", 11, "bold"),
+                        row, text=f"{r.health_score:.0f} {r.health_grade}", bg=_DASH_COLORS["card_bg"],
+                        fg=gc, font=("Consolas", 11, "bold"),
                     ).pack(side=tk.RIGHT)
                 except Exception as e:
                     logger.debug("渲染单个视频健康探针失败: %s", e)
@@ -429,7 +403,12 @@ class DashboardWindow:
 
 
 def _fmt(n):
-    """格式化大数字：超亿显示亿，超万显示万"""
+    """
+    格式化大数字：超亿显示"亿"，超万显示"万"，其余原始显示
+
+    :param n: 数值
+    :return: 格式化字符串
+    """
     if n >= 1_0000_0000:
         return f"{n / 1_0000_0000:.2f}亿"
     if n >= 1_0000:

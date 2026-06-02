@@ -1,4 +1,13 @@
-"""测试 algorithms/base.py — 基础算法类的辅助方法"""
+"""
+测试 algorithms/base.py — 基础算法类的辅助方法
+
+测试范围：
+- PredictionResult: to_dict() 序列化、metadata 保留
+- BaseAlgorithm.calculate_velocity(): 速度计算（空数据、单点、正向、零变化、时间戳兼容、下降）
+- BaseAlgorithm.get_engagement_rate(): 互动率计算
+- BaseAlgorithm.get_quality_score(): 质量评分计算（范围、高低质量判断）
+- BaseAlgorithm.get_video_age_hours(): 视频年龄计算
+"""
 
 import time
 from datetime import datetime
@@ -7,7 +16,13 @@ from algorithms.base import PredictionResult, BaseAlgorithm
 
 
 class _ConcreteAlgorithm(BaseAlgorithm):
-    """用于测试 BaseAlgorithm 辅助方法的具体子类"""
+    """
+    用于测试 BaseAlgorithm 辅助方法的具体子类。
+    
+    BaseAlgorithm 是抽象类，不能直接实例化。
+    本类提供最简单的 predict 实现，用于测试 calculate_velocity 等
+    从 BaseAlgorithm 继承的具体方法。
+    """
 
     name = "TestAlgo"
     description = "Test algorithm"
@@ -18,7 +33,17 @@ class _ConcreteAlgorithm(BaseAlgorithm):
 
 
 def make_prediction_result(**overrides):
-    """创建一个 PredictionResult 实例，支持覆盖默认字段"""
+    """
+    创建一个 PredictionResult 实例，支持覆盖默认字段。
+    
+    用于快速构造测试数据，可指定任意字段覆盖默认值。
+    
+    Args:
+        **overrides: 要覆盖的字段名和值
+        
+    Returns:
+        PredictionResult: 填充好数据的预测结果对象
+    """
     defaults = dict(
         algorithm_name="test_algo",
         algorithm_id="test_algo_id",
@@ -67,6 +92,7 @@ class TestBaseAlgorithmVelocity:
     """测试 calculate_velocity 速度计算"""
 
     def setup_method(self):
+        """每个测试方法前创建具体算法实例"""
         self.algo = _ConcreteAlgorithm()
 
     def test_empty_history(self):
@@ -75,12 +101,12 @@ class TestBaseAlgorithmVelocity:
         assert self.algo.calculate_velocity(data) == 0.0
 
     def test_single_point(self):
-        """单点数据应返回 0"""
+        """单点数据应返回 0（至少需要两个点才能计算速度）"""
         data = {"history_data": [{"view_count": 100, "timestamp": time.time() - 3600}]}
         assert self.algo.calculate_velocity(data) == 0.0
 
     def test_two_points_positive(self):
-        """两个数据点应计算正速度"""
+        """两个数据点应计算正速度（100 增量 / 约2小时）"""
         t0 = time.time() - 7200
         t1 = time.time()
         data = {
@@ -118,7 +144,7 @@ class TestBaseAlgorithmVelocity:
         assert vel > 0
 
     def test_decreasing_views_returns_zero(self):
-        """播放量下降应返回 0"""
+        """播放量下降应返回 0（负速度视为 0 以保守估计）"""
         t0 = time.time() - 3600
         t1 = time.time()
         data = {
@@ -137,7 +163,7 @@ class TestBaseAlgorithmEngagementRate:
         self.algo = _ConcreteAlgorithm()
 
     def test_zero_views(self):
-        """零播放应返回 0~1 范围内的值"""
+        """零播放应返回 0~1 范围内的值（边界安全）"""
         data = {"view_count": 0}
         rate = self.algo.get_engagement_rate(data)
         assert 0 <= rate <= 1
@@ -160,7 +186,7 @@ class TestBaseAlgorithmEngagementRate:
         assert self.algo.get_engagement_rate(data) == 0.0
 
     def test_all_interaction_types(self):
-        """所有互动类型都参与计算"""
+        """所有互动类型（点赞、投币、收藏、分享）都参与计算"""
         data = {
             "view_count": 1000,
             "like_count": 50,
@@ -169,6 +195,7 @@ class TestBaseAlgorithmEngagementRate:
             "share_count": 5,
         }
         rate = self.algo.get_engagement_rate(data)
+        # (50 + 10 + 20 + 5) / 1000 = 0.085
         assert rate == pytest.approx(0.085, rel=0.01)
 
 
@@ -185,7 +212,7 @@ class TestBaseAlgorithmQualityScore:
         assert 0 <= score <= 1
 
     def test_zero_views(self):
-        """零播放应返回 0~1 范围内的值"""
+        """零播放应返回 0~1 范围内的值（边界安全）"""
         data = {"view_count": 0}
         score = self.algo.get_quality_score(data)
         assert 0 <= score <= 1
@@ -222,7 +249,7 @@ class TestBaseAlgorithmVideoAge:
         assert self.algo.get_video_age_hours(data) == 0.0
 
     def test_with_history(self):
-        """通过历史数据计算视频年龄"""
+        """通过历史数据中最旧的时间戳计算视频年龄（距现在约 24 小时）"""
         t = time.time() - 86400
         data = {
             "history_data": [
@@ -234,14 +261,14 @@ class TestBaseAlgorithmVideoAge:
         assert age == pytest.approx(24.0, rel=0.1)
 
     def test_with_timestamp_field(self):
-        """通过 timestamp 字段计算视频年龄"""
+        """通过 timestamp 字段计算视频年龄（约 2 小时）"""
         pub_ts = time.time() - 7200
         data = {"timestamp": pub_ts}
         age = self.algo.get_video_age_hours(data)
         assert age == pytest.approx(2.0, rel=0.1)
 
     def test_with_datetime_timestamp(self):
-        """datetime 时间戳应正常计算"""
+        """datetime 时间戳应正常计算（约 1 小时）"""
         pub_dt = datetime.now().timestamp() - 3600
         data = {"timestamp": pub_dt}
         age = self.algo.get_video_age_hours(data)

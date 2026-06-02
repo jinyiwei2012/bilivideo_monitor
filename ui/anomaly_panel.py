@@ -1,7 +1,15 @@
 """
-异常增长检测面板
-基于 core/smart_alert.py 对全量监控视频执行异常检测
-展示时间/增量/在线人数等详细上下文信息
+异常增长检测面板模块
+
+本模块基于 core/smart_alert.py 的 AnomalyDetector 对全量监控视频执行异常检测。
+可检测以下异常类型：
+- 疑似买量（播放量异常暴增）
+- 正在直播（直播导致的播放量飙升）
+- 增速飙升 / 趋势反转 / 播放停滞
+- 深夜异常播放 / 在线人数飙升 / 在线暴跌
+
+检测结果以表格形式展示，包含时间、增量、在线人数等详细上下文信息。
+选中某条异常后可查看更详细的描述文本。
 """
 
 import tkinter as tk
@@ -9,32 +17,53 @@ from tkinter import ttk, messagebox
 import threading
 import logging
 from datetime import datetime
-from ui.theme import C
-from ui.helpers import FONT, FONT_SM, FONT_MONO, fmt_num
-from ui.dialog_base import DialogBase
-from core.smart_alert import AnomalyDetector
+from ui.theme import C                                     # 颜色主题常量
+from ui.helpers import FONT, FONT_SM, FONT_MONO, fmt_num   # UI 辅助工具
+from ui.dialog_base import DialogBase                      # 现代化对话框基类
+from core.smart_alert import AnomalyDetector                # 异常检测引擎
 
 logger = logging.getLogger(__name__)
 
 
 class AnomalyPanel:
-    """异常增长检测面板：扫描所有监控视频，检测播放量突增/突降/停滞等异常行为"""
+    """
+    异常增长检测面板
+
+    功能：
+    1. 扫描所有监控视频，检测播放量突增/突降/停滞等异常行为
+    2. 以表格形式展示异常列表（BV号、标题、异常类型、时间、增量、增速、在线人数）
+    3. 选中异常行时显示详细的异常描述文本
+    4. 支持重新扫描按钮
+
+    异常检测通过 AnomalyDetector.detect_all() 调用，该函数内部检查：
+    - 播放量变化趋势
+    - 在线人数波动
+    - 深夜时段异常
+    - 直播状态检测
+    - 买量嫌疑判断
+    """
 
     def __init__(self, parent, gui):
         """
         初始化异常检测面板
 
-        :param parent: 父窗口
-        :param gui: 主 GUI 实例，用于获取视频数据和数据库
+        :param parent: 父窗口（Tkinter Toplevel 的父级）
+        :param gui: 主 GUI 实例，用于获取视频列表、历史数据和数据库连接
         """
         self.gui = gui
         self.dlg = DialogBase(parent, "🚨 异常增长检测", "960x580")
         self.dlg.header("异常增长检测", "检测播放量突增/突降/停滞等异常行为，附时间/增量/在线上下文")
         self._build_ui()
-        self._scan()
+        self._scan()                                        # 打开时自动扫描
 
     def _build_ui(self):
-        """构建界面：扫描按钮、状态标签、结果表格、底部详情区"""
+        """
+        构建界面：
+        - 顶部操作栏：重新扫描按钮 + 扫描状态标签
+        - 中间结果表格：BV号、标题、异常类型、时间、播放量、近2h增量、增速、在线人数
+        - 底部详情文本区：选中异常时显示详细描述
+        """
+        # ── 顶部操作栏 ──
         top = tk.Frame(self.dlg.content_area(), bg=C["bg_base"])
         top.pack(fill=tk.X, padx=10, pady=4)
 
@@ -42,7 +71,7 @@ class AnomalyPanel:
         self._status_lbl = tk.Label(top, text="", bg=C["bg_base"], fg=C["text_3"], font=FONT_SM)
         self._status_lbl.pack(side=tk.LEFT, padx=10)
 
-        # 结果列表 — 增加 时间/增量/在线 列
+        # ── 结果列表表格 ──
         columns = ("bvid", "title", "type", "time", "views", "delta", "velocity", "online")
         self._tree = ttk.Treeview(
             self.dlg.content_area(), columns=columns, show="headings", height=20
@@ -69,18 +98,23 @@ class AnomalyPanel:
         scroll.pack(side=tk.RIGHT, fill=tk.Y)
         self._tree.configure(yscrollcommand=scroll.set)
 
-        # 底部详情区：选中异常时显示详细上下文
+        # ── 底部详情展示区 ──
         self._detail_text = tk.Text(
             self.dlg.content_area(), height=5, bg=C["bg_elevated"], fg=C["text_2"],
             font=("Microsoft YaHei UI", 9), relief=tk.FLAT, wrap=tk.WORD, state=tk.DISABLED
         )
         self._detail_text.pack(fill=tk.X, padx=10, pady=(0, 6))
-        self._tree.bind("<<TreeviewSelect>>", self._show_detail)
+        self._tree.bind("<<TreeviewSelect>>", self._show_detail)   # 选中行显示详情
 
-        self._alert_data = []  # 存储完整告警信息供详情查看
+        self._alert_data = []                                # 存储完整告警信息供详情查看
 
     def _parse_dt(self, ts):
-        """将多种格式的时间戳统一转换为 datetime 对象"""
+        """
+        将多种格式的时间戳统一转换为 datetime 对象
+
+        :param ts: 时间戳，可为 datetime 对象、ISO 格式字符串或数值型时间戳
+        :return: datetime 对象，解析失败返回当前时间
+        """
         if isinstance(ts, datetime):
             return ts
         try:
@@ -89,8 +123,7 @@ class AnomalyPanel:
             return datetime.now()
 
     def _scan(self):
-        """开始扫描所有监控视频，后台线程执行异常检测"""
-
+        """开始扫描所有监控视频，后台线程执行异常检测（以免阻塞 UI）"""
         # 清空旧数据
         self._status_lbl.config(text="扫描中…")
         self._detail_text.config(state=tk.NORMAL)
@@ -101,20 +134,27 @@ class AnomalyPanel:
         self._alert_data.clear()
 
         def worker():
-            """后台工作线程：遍历每个视频，执行异常检测"""
+            """
+            后台工作线程：
+            1. 遍历所有监控视频
+            2. 从数据库获取最近 30 条记录
+            3. 计算近 2h 增量和速率
+            4. 调用 AnomalyDetector.detect_all() 检测异常
+            5. 将结果回主线程更新 UI
+            """
             results = []
             for video in self.gui.monitored_videos:
                 bvid = video.get("bvid", "")
                 history = self.gui.history_data.get(bvid, [])
                 if len(history) < 3:
-                    continue
+                    continue                                # 数据太少，跳过检测
 
-                # 构建完整 records（从DB获取含 viewers_total 的上下文）
+                # 构建完整 records（从 DB 获取含 viewers_total 的上下文）
                 full_records = []
                 try:
                     video_db = self.gui.video_dbs.get(bvid)
                     if video_db:
-                        raw = video_db.get_all_records(limit=30)
+                        raw = video_db.get_all_records(limit=30)   # 最多取 30 条
                         for r in raw:
                             full_records.append({
                                 "timestamp": r["timestamp"],
@@ -132,22 +172,22 @@ class AnomalyPanel:
                 if len(full_records) < 3:
                     continue
 
-                # 计算最近 2h 增量和速率
+                # 计算最近 2h 增量和增速（基于最近 10 条历史记录）
                 recent = history[-10:] if len(history) >= 10 else history
                 if len(recent) >= 2:
                     t_first, v_first = recent[0]
                     t_last, v_last = recent[-1]
                     dt_first = self._parse_dt(t_first)
                     dt_last = self._parse_dt(t_last)
-                    hours = max((dt_last - dt_first).total_seconds() / 3600, 0.01)
-                    delta_views = max(0, v_last - v_first)
-                    velocity = delta_views / hours
+                    hours = max((dt_last - dt_first).total_seconds() / 3600, 0.01)   # 最小 0.01h 防除零
+                    delta_views = max(0, v_last - v_first)          # 增量（负数视为 0）
+                    velocity = delta_views / hours                   # 每小时增速
                 else:
                     delta_views = 0
                     velocity = 0
 
                 current_views = video.get("view_count", 0)
-                online = video.get("viewers_total", 0)
+                online = video.get("viewers_total", 0)               # 当前在线人数
 
                 try:
                     # 获取 UP 主信息（用于买量检测）
@@ -156,10 +196,10 @@ class AnomalyPanel:
                     if owner_mid and hasattr(self.gui, '_cached_up_info'):
                         up_info = self.gui._cached_up_info.get(str(owner_mid))
 
-                    # 调用异常检测器
+                    # 调用异常检测器进行全维度检测
                     alerts = AnomalyDetector.detect_all(full_records, bvid=bvid, video=video, up_info=up_info)
                     for a in alerts:
-                        # 根据告警文本匹配异常类型图标
+                        # 根据告警文本内容匹配异常类型图标
                         if "买量" in a or "疑似买量" in a:
                             type_icon = "📢 疑似买量"
                         elif "直播" in a:
@@ -189,11 +229,12 @@ class AnomalyPanel:
                             "delta": delta_views,
                             "velocity": velocity,
                             "online": online,
-                            "alert_text": a,
+                            "alert_text": a,                     # 完整告警描述文本
                             "author": video.get("author", ""),
                             "pubdate": video.get("pubdate", 0),
                         })
                 except Exception as e:
+                    # 检测出错时记录错误信息
                     results.append({
                         "bvid": bvid, "title": video.get("title", bvid)[:22], "type": "⚠ 错误",
                         "time": "--", "views": current_views, "delta": 0, "velocity": 0, "online": online,
@@ -203,10 +244,14 @@ class AnomalyPanel:
             # 回主线程更新 UI
             self.dlg.window.after(0, lambda: self._show_results(results))
 
-        threading.Thread(target=worker, daemon=True).start()
+        threading.Thread(target=worker, daemon=True).start()    # daemon 线程随窗口关闭自动终止
 
     def _show_results(self, results):
-        """在表格中展示异常检测结果，高亮严重异常"""
+        """
+        在表格中展示异常检测结果，严重异常行标记为红色
+
+        :param results: 异常检测结果列表
+        """
         self._tree.delete(*self._tree.get_children())
         self._alert_data = results
         for r in results:
@@ -230,7 +275,11 @@ class AnomalyPanel:
         )
 
     def _show_detail(self, event):
-        """点击表格行时显示异常详情"""
+        """
+        点击表格行时在底部详情区显示完整的异常描述信息
+
+        :param event: Treeview 选择事件
+        """
         sel = self._tree.selection()
         if not sel or not self._alert_data:
             return

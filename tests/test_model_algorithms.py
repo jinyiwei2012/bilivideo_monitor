@@ -1,17 +1,58 @@
-"""测试各分类的模型算法 — 每类至少测试一个算法"""
+"""
+测试各分类的模型算法 — 每类至少测试一个算法
+
+测试覆盖 7 大算法类别：
+- Simple: 简单速度类（LinearVelocity）
+- Growth: 增长模型类（Exponential, Gompertz, Logistic, PowerLaw, Weibull）
+- TimeSeries: 时间序列类（MovingAverage, ExponentialSmoothing, HoltWinters 等）
+- Statistical: 统计模型类（SVR, GaussianProcess, Bayesian, Huber）
+- Ensemble: 集成学习类（Average, Voting, Weighted, WeightedVelocity）
+- DeepLearning: 深度学习类（NeuralNetwork, MLP, GRU）
+- Advanced: 高级分析类（KalmanFilter, QualityScore, ViralPotential 等）
+
+边界测试：
+- 空历史数据
+- 单数据点
+- 已超过阈值
+- 数据不足时的降级预测
+
+旧接口算法通过 ModelAlgorithmAdapter 桥接测试。
+"""
 
 from datetime import datetime
 import pytest
 
 
 def _make_history(n=15):
-    """生成 n 个历史数据点，间隔 1 小时，播放量递增 1000"""
+    """
+    生成 n 个历史数据点，间隔 1 小时，播放量递增 1000。
+    
+    用于构造测试数据，使各算法都有足够的时序数据来计算预测。
+    
+    Args:
+        n: 数据点个数
+        
+    Returns:
+        list: [(datetime, view_count), ...]
+    """
     base = datetime(2026, 1, 1, 0, 0, 0)
     return [(datetime.fromtimestamp(base.timestamp() + i * 3600), 1000 + i * 1000) for i in range(n)]
 
 
 def _make_video_data(history, current_views=15000):
-    """构建 video_data 字典，用于调用算法 predict 方法"""
+    """
+    构建 video_data 字典，用于调用算法 predict 方法。
+    
+    将 (datetime, view_count) 元组列表转换为算法所需的完整字典格式，
+    包含 timestamp（epoch 浮点）、timestamp_str（日期字符串）、datetime 等字段。
+    
+    Args:
+        history: [(datetime, view_count), ...] 格式的历史数据
+        current_views: 当前播放量
+        
+    Returns:
+        dict: 标准 video_data 字典
+    """
     from datetime import datetime as dt
 
     history_list = []
@@ -41,6 +82,7 @@ def _make_video_data(history, current_views=15000):
 
 
 # 仍使用旧版 4 参数接口的算法，需要通过 ModelAlgorithmAdapter 测试
+# 这些算法保留旧版 predict(current_views, target_views, history_data, video_info) 接口
 _OLD_INTERFACE = {
     "LogisticGrowthAlgorithm",
     "WeibullGrowthAlgorithm",
@@ -54,7 +96,21 @@ _OLD_INTERFACE = {
 
 
 def _via_adapter(module_path, cls_name, video_data, threshold=100000):
-    """通过 ModelAlgorithmAdapter 测试旧接口算法"""
+    """
+    通过 ModelAlgorithmAdapter 测试旧接口算法。
+    
+    旧接口算法使用 predict(current_views, target_views, history_data, video_info) 签名，
+    ModelAlgorithmAdapter 将 video_data 转换为该格式。
+    
+    Args:
+        module_path: 算法模块的导入路径
+        cls_name: 算法类名
+        video_data: 标准 video_data 字典
+        threshold: 目标播放量阈值
+        
+    Returns:
+        dict: 统一格式的预测结果
+    """
     import importlib
     from algorithms.model_adapter import ModelAlgorithmAdapter
 
@@ -83,6 +139,7 @@ class TestSimpleCategory:
     """测试简单速度类算法"""
 
     def test_linear_velocity(self):
+        """线性速度算法：应正确返回阈值为 100000、当前播放 5000 的结果"""
         from algorithms.models.simple.linear_velocity import LinearVelocityAlgorithm
 
         algo = LinearVelocityAlgorithm()
@@ -93,7 +150,7 @@ class TestSimpleCategory:
 
 
 class TestGrowthCategory:
-    """测试增长模型类算法"""
+    """测试增长模型类算法（指数、Gompertz、逻辑斯蒂、幂律、威布尔）"""
 
     @pytest.mark.parametrize(
         "module_path,cls_name",
@@ -106,6 +163,7 @@ class TestGrowthCategory:
         ],
     )
     def test_growth_algorithm(self, module_path, cls_name):
+        """每个增长算法应能正常返回大于 0 的预测值"""
         video_data = _make_video_data(_make_history(15), 15000)
         if cls_name in _OLD_INTERFACE:
             result = _via_adapter(module_path, cls_name, video_data)
@@ -122,7 +180,7 @@ class TestGrowthCategory:
 
 
 class TestTimeSeriesCategory:
-    """测试时间序列类算法"""
+    """测试时间序列类算法（移动平均、指数平滑、Holt-Winters、线性增长、趋势回归）"""
 
     @pytest.mark.parametrize(
         "module_path,cls_name",
@@ -135,6 +193,7 @@ class TestTimeSeriesCategory:
         ],
     )
     def test_time_series_algorithm(self, module_path, cls_name):
+        """每个时间序列算法应能正常返回预测结果"""
         video_data = _make_video_data(_make_history(20), 20000)
         if cls_name in _OLD_INTERFACE:
             result = _via_adapter(module_path, cls_name, video_data)
@@ -151,7 +210,7 @@ class TestTimeSeriesCategory:
 
 
 class TestStatisticalCategory:
-    """测试统计模型类算法"""
+    """测试统计模型类算法（SVR、高斯过程、贝叶斯回归、Huber 回归）"""
 
     @pytest.mark.parametrize(
         "module_path,cls_name",
@@ -163,6 +222,7 @@ class TestStatisticalCategory:
         ],
     )
     def test_statistical_algorithm(self, module_path, cls_name):
+        """每个统计模型算法应能正常返回预测结果和置信度"""
         video_data = _make_video_data(_make_history(20), 20000)
         if cls_name in _OLD_INTERFACE:
             result = _via_adapter(module_path, cls_name, video_data)
@@ -179,7 +239,7 @@ class TestStatisticalCategory:
 
 
 class TestEnsembleCategory:
-    """测试集成学习类算法"""
+    """测试集成学习类算法（平均、投票、加权、加权速度）"""
 
     @pytest.mark.parametrize(
         "module_path,cls_name",
@@ -191,6 +251,7 @@ class TestEnsembleCategory:
         ],
     )
     def test_ensemble_algorithm(self, module_path, cls_name):
+        """每个集成算法应能正常返回预测结果"""
         video_data = _make_video_data(_make_history(10), 10000)
         if cls_name in _OLD_INTERFACE:
             result = _via_adapter(module_path, cls_name, video_data)
@@ -207,7 +268,7 @@ class TestEnsembleCategory:
 
 
 class TestDeepLearningCategory:
-    """测试深度学习类算法"""
+    """测试深度学习类算法（简单神经网络、MLP、GRU）"""
 
     @pytest.mark.parametrize(
         "module_path,cls_name",
@@ -218,6 +279,7 @@ class TestDeepLearningCategory:
         ],
     )
     def test_dl_algorithm(self, module_path, cls_name):
+        """每个深度学习算法应能正常返回预测结果"""
         video_data = _make_video_data(_make_history(15), 15000)
         if cls_name in _OLD_INTERFACE:
             result = _via_adapter(module_path, cls_name, video_data)
@@ -233,7 +295,7 @@ class TestDeepLearningCategory:
 
 
 class TestAdvancedCategory:
-    """测试高级分析类算法"""
+    """测试高级分析类算法（卡尔曼滤波、质量评分、病毒潜力、互动率、点赞动量、分享速度）"""
 
     @pytest.mark.parametrize(
         "module_path,cls_name",
@@ -247,6 +309,7 @@ class TestAdvancedCategory:
         ],
     )
     def test_advanced_algorithm(self, module_path, cls_name):
+        """每个高级分析算法应能正常返回预测结果"""
         video_data = _make_video_data(_make_history(10), 10000)
         if cls_name in _OLD_INTERFACE:
             result = _via_adapter(module_path, cls_name, video_data)
@@ -263,10 +326,10 @@ class TestAdvancedCategory:
 
 
 class TestEdgeCases:
-    """测试边界情况"""
+    """测试边界情况（空历史、单数据点、已超阈值、数据不足降级）"""
 
     def test_empty_history(self):
-        """空历史数据应能正常返回预测"""
+        """空历史数据应能正常返回预测（不应崩溃）"""
         from algorithms.models.simple.linear_velocity import LinearVelocityAlgorithm
 
         algo = LinearVelocityAlgorithm()
@@ -275,7 +338,7 @@ class TestEdgeCases:
         assert result.predicted_hours == float("inf") or result.predicted_hours > 0
 
     def test_already_reached_threshold(self):
-        """已超过阈值应返回 0 小时"""
+        """已超过阈值应返回 0 小时（无需预测）"""
         from algorithms.models.simple.linear_velocity import LinearVelocityAlgorithm
 
         algo = LinearVelocityAlgorithm()
@@ -284,7 +347,7 @@ class TestEdgeCases:
         assert result.predicted_hours == 0
 
     def test_single_data_point(self):
-        """单数据点应能正常返回预测"""
+        """单数据点应能正常返回预测（不至于崩溃）"""
         from algorithms.models.growth.logarithmic_growth import LogarithmicGrowthAlgorithm
 
         algo = LogarithmicGrowthAlgorithm()
@@ -293,7 +356,7 @@ class TestEdgeCases:
         assert result.confidence >= 0
 
     def test_fallback_on_low_data(self):
-        """数据量不足时应使用降级预测"""
+        """数据量不足时应使用降级预测而非崩溃"""
         from algorithms.registry import AlgorithmRegistry
 
         history = [(datetime(2026, 1, 1, 0, 0, 0), 100)]
