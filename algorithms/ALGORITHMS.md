@@ -1,6 +1,6 @@
 # B站视频播放量预测算法说明
 
-本文档详细说明系统中所有103种预测算法的实现原理、数学公式和适用场景。
+本文档详细说明系统中所有141种预测算法的实现原理、数学公式和适用场景。
 
 ## 目录
 
@@ -20,12 +20,18 @@
 14. [生命周期模型](#生命周期模型)
 15. [多任务学习](#多任务学习)
 16. [线性模型](#线性模型)
-17. [算法选择建议](#算法选择建议)
-18. [算法评估指标](#算法评估指标)
-19. [高级模块](#高级模块)
-20. [PyTorch 训练管线](#pytorch-训练管线)
-21. [未来改进方向](#未来改进方向)
-22. [参考论文](#参考论文)
+17. [频域分析](#频域分析)
+18. [事件驱动](#事件驱动)
+19. [内容感知](#内容感知)
+20. [算法选择建议](#算法选择建议)
+21. [算法评估指标](#算法评估指标)
+22. [高级模块](#高级模块)
+23. [时间序列交叉验证与回测](#时间序列交叉验证与回测)
+24. [特征工程](#特征工程)
+25. [数据清洗模块](#数据清洗模块)
+26. [PyTorch 训练管线](#pytorch-训练管线)
+27. [未来改进方向](#未来改进方向)
+28. [参考论文](#参考论文)
 
 ---
 
@@ -1135,6 +1141,365 @@ scipy Wasserstein距离 → numpy 自实现 → 近期均值
 
 ---
 
+## 频域分析
+
+新增类别 (2026-06)，将时序变换到频域进行分析与预测。
+
+### 75. 小波分解 (Wavelet Decomposition)
+
+**文件**: `models/frequency/wavelet_decomp.py`
+
+#### 原理
+用离散小波变换 (Haar小波) 将时序分解为多级近似系数和细节系数。在最低频分量上做多项式趋势拟合，过滤高频噪声（细节系数×0.3衰减）后逐级重建。适合去除非平稳噪声，提取干净的长期趋势。
+
+---
+
+### 76. 频谱残差 (Spectral Residual)
+
+**文件**: `models/frequency/spectral_residual.py`
+
+#### 原理
+FFT → 对数幅度谱 → 均值滤波（背景谱） → 残差 = log谱 - 背景谱 → iFFT → 显著区域检测。将异常突发信号从正常趋势中分离，趋势分量用插值补齐突发区域后再外推。
+
+---
+
+### 77. 希尔伯特-黄变换 (Hilbert-Huang Transform)
+
+**文件**: `models/frequency/hilbert_huang.py`
+
+#### 原理
+简化 EMD (经验模态分解) 迭代提取 IMF (固有模态函数) → 多尺度趋势合成。最低频 IMF 为残差趋势，各 IMF 分别计算增长率后加权。适合非平稳非线性时序。
+
+---
+
+## 事件驱动
+
+新增类别 (2026-06)，借鉴金融技术分析和异常检测，识别播放量突变。
+
+### 78. 脉冲检测 (Anomaly Spike Detection)
+
+**文件**: `models/event/anomaly_spike.py`
+
+#### 原理
+滑动窗口 Z-score (阈值2.0) 检测播放量异常脉冲 → 分离基线增长和脉冲幅度 → 指数衰减建模脉冲后回落。适合区分自然增长与被平台推荐/热搜等事件驱动的短期脉冲。
+
+---
+
+### 79. 动量突破 (Momentum Breakout)
+
+**文件**: `models/event/momentum_breakout.py`
+
+#### 原理
+借鉴金融 MACD/RSI：快均线(5) vs 慢均线(15) → MACD线 = 快-慢，信号线 = EMA → 突破信号 = MACD - 信号。正差分比例 (RSI) 判断动量方向。合成信号调整预测速度。
+
+---
+
+### 80. 热搜趋势 (Hot Trend Detection)
+
+**文件**: `models/event/hot_trend.py`
+
+#### 原理
+二阶导数 (加速度) 持续性检测 → 加速度持续为正(>60%) 判定为"热搜加速" → 二次外推。若加速度为负(<30%)，降为保守估计 (0.7×当前速度)。加急动度 (jerk, 三阶导数) 捕捉趋势拐点。
+
+---
+
+## 内容感知
+
+新增类别 (2026-06)，基于内容质量与互动信号调整预测。
+
+### 81. 互动衰减 (Engagement Decay)
+
+**文件**: `models/content/engagement_decay.py`
+
+#### 原理
+计算互动率序列 (点赞/播放) → 指数衰减拟合 `eng = a * exp(-λt) + c` → 根据衰减率 λ 判定生命周期阶段:
+- λ < -0.02: 成长期 (加速因子 1.3)
+- -0.02 ≤ λ < 0.005: 成熟期 (1.0)
+- 0.005 ≤ λ < 0.02: 缓慢衰减 (0.7)
+- λ ≥ 0.02: 快速衰减 (0.4)
+
+---
+
+### 82. 病毒传播评分 (Virality Score)
+
+**文件**: `models/content/virality_score.py`
+
+#### 原理
+四维度加权评分 (0-1):
+1. 播放增速 (权重0.30)
+2. 互动率 (权重0.35)
+3. 分享率 (权重0.15)
+4. 加速度 (权重0.20)
+→ 综合病毒传播分 → 映射到加速因子 [0.5, 2.5]
+
+---
+
+### 83. 质量衰减 (Quality-Adjusted Decay)
+
+**文件**: `models/content/quality_decay.py`
+
+#### 原理
+`quality_score` (弹幕密度+投币/点赞比+互动率) → 质量加权的指数时间衰减 `decay_rate = 1/age / (0.3+0.7*quality)`。高质量视频衰减更缓。60%质量衰减 + 40%近期趋势。
+
+---
+
+## 新增深度学习模型
+
+### 84. NLinear (AAAI 2023)
+
+**文件**: `models/deep_learning/nlinear.py`
+
+#### 原理
+极简线性预测: RevIN 可逆实例归一化 → 单层线性映射 (window→horizon)。论文证明在很多任务上打平甚至超越复杂 Transformer。TorchModel 含 RevIN 层。
+
+---
+
+### 85. N-HiTS (AAAI 2023)
+
+**文件**: `models/deep_learning/nhits.py`
+
+#### 原理
+多尺度分层插值: 堆叠 N 个 block，每个输出 backcast + forecast。每层对输入做 MaxPool 下采样实现多尺度。残差连接 (每层预测相加，残差回传下层)。
+
+---
+
+### 86. TimeMixer (ICLR 2024)
+
+**文件**: `models/deep_learning/time_mixer.py`
+
+#### 原理
+多尺度可分解混合: AvgPool 不同 kernel (1/2/4) 下采样 → 每个尺度独立 MLP Mixer → 跨尺度融合。排行榜第一梯队模型。
+
+---
+
+### 87. BiTCN
+
+**文件**: `models/deep_learning/bitcn.py`
+
+#### 原理
+双向时序卷积: 前向 TCN (因果卷积) + 反向 TCN (翻转序列) → 双向特征拼接 → 预测头。前向捕获历史→当前，反向捕获远期依赖。含 RevIN 归一化。
+
+---
+
+### 88. WPMixer (AAAI 2025)
+
+**文件**: `models/deep_learning/wpmixer.py`
+
+#### 原理
+小波包多分辨率混合: 原始分辨率 + 2x下采样 + 4x下采样 → 三个独立 MLP Mixer → 融合输出。2025年最新高效架构。
+
+---
+
+### 89. Koopa (NeurIPS 2023)
+
+**文件**: `models/deep_learning/koopa.py`
+
+#### 原理
+Koopman 算子理论: 编码器映射到 Koopman 空间 → 线性算子 K 驱动演化 (多分量) → 解码器映射回预测。比 KNF 更先进。
+
+---
+
+### 90. SegRNN (arXiv 2023)
+
+**文件**: `models/deep_learning/segrnn.py`
+
+#### 原理
+分段 RNN: 将长序列切分为多个等长 segment → 每个独立编码 → GRU 串联所有 segment → 输出预测。处理长序列效果优于单 GRU/LSTM。
+
+---
+
+### 91. FiLM (NeurIPS 2022)
+
+**文件**: `models/deep_learning/film.py`
+
+#### 原理
+频率 Legendre 记忆: Legendre 多项式基底 (P0-P3) 对时间维做正交投影 → 频率混合层捕捉周期模式 → MLP 预测。FFT 频谱分析辅助。
+
+---
+
+### 92. FreTS (NeurIPS 2023)
+
+**文件**: `models/deep_learning/frets.py`
+
+#### 原理
+频域 MLP: FFT 变换 → 在频域用 MLP 处理幅度 → iFFT 还原时域。自然捕捉周期性，对季节性强的时间序列效果好。
+
+---
+
+### 93. LightTS (arXiv 2022)
+
+**文件**: `models/deep_learning/lightts.py`
+
+#### 原理
+轻量采样 MLP: 对输入做步长采样降维 → 轻量 MLP 预测。极低参数量，推理速度快。
+
+---
+
+### 94. Autoformer (NeurIPS 2021)
+
+**文件**: `models/deep_learning/autoformer.py`
+
+#### 原理
+自相关 Transformer: FFT 计算序列自相关代替点积注意力 → 移动平均趋势分解 + 自相关季节性分解 → 渐进式分解架构。经典时序 Transformer。
+
+---
+
+### 95. FEDformer (ICML 2022)
+
+**文件**: `models/deep_learning/fedformer.py`
+
+#### 原理
+频域增强 Transformer: FFT → TopK 频率分量 → 频域幅度/相位增强 (MLP) → 平均池化全局特征。频域建模自然抗噪。
+
+---
+
+### 96. Crossformer (ICLR 2023)
+
+**文件**: `models/deep_learning/crossformer.py`
+
+#### 原理
+跨维依赖 Transformer: 序列分段 → 段间 MultiheadAttention 捕捉跨维依赖关系。适合多变量时序的交叉影响建模。
+
+---
+
+## 新增集成学习
+
+### 97. Stacking 元学习器
+
+**文件**: `models/ensemble/stacking_ensemble.py`
+
+#### 原理
+二级模型架构: Level 0 基模型 (Ridge + GBM) → 预测结果作为 Level 1 元学习器 (Ridge) 的输入特征 → 8:2 train/val split。7维特征工程 (线性/指数/MA/互动率/投币/加速度/CV)。
+
+---
+
+### 98. Blending 集成
+
+**文件**: `models/ensemble/blending_ensemble.py`
+
+#### 原理
+区别于 Stacking 的 K-fold: 固定 8:2 holdout → 基模型在训练集学习，元学习器在 holdout 验证集学习 → 防过拟合。3个基模型 (Ridge+GBM+Ridge) → Ridge 元学习器。
+
+---
+
+### 99. 动态集成策略
+
+**文件**: `models/ensemble/dynamic_ensemble.py`
+
+#### 原理
+根据数据量 N 自适应切换:
+- N<20 (早期): 短期速度权重 0.5
+- 20≤N<100 (成长): 中期趋势权重 0.35
+- N≥100 (成熟): 长期衰减权重 0.35
+阈值灵敏度: 1000万阈值增加长期权重，10万阈值增加短期权重。
+
+---
+
+### 100. 贝叶斯模型平均 (BMA)
+
+**文件**: `models/ensemble/bayesian_averaging.py`
+
+#### 原理
+对 5 个基模型 (线性/二次/MA/指数/三次) 计算 BIC = n·log(MSE) + k·log(n)。后验概率 `w_i ∝ exp(-0.5·ΔBIC_i)` → softmax 加权预测。信息论最优模型选择。
+
+---
+
+### 101. 残差修正
+
+**文件**: `models/ensemble/residual_correction.py`
+
+#### 原理
+GBM 学习历史「预测 vs 真实」残差: 输入特征 (速度/加速度/互动率/滚动统计/质量分) → 预测当前残差 → 对基础预测加修正量。消除系统性偏差。
+
+---
+
+### 102. 分位数集成
+
+**文件**: `models/ensemble/quantile_ensemble.py`
+
+#### 原理
+5 分位数回归 (10%/25%/50%/75%/90%): GBM+Pinball Loss → Bootstrap 200次。50%为中点预测，25%-75%为置信区间，10%-90%为宽区间。输出预测不确定性量化。
+
+---
+
+## 新增统计与时序
+
+### 103. 高斯过程回归
+
+**文件**: `models/statistical/gaussian_process.py`
+
+#### 原理
+sklearn GaussianProcessRegressor (RBF+WhiteKernel) 优先 → numpy RBF 协方差矩阵回退。输出点预测 + 方差 (不确定度)。概率预测方法。
+
+---
+
+### 104. Theta方法
+
+**文件**: `models/time_series/theta_method.py`
+
+#### 原理
+M3竞赛亚军。Theta=2: 对时序做二阶差分提取 Theta 线 → 线性外推趋势 → 季节调整 (半周期均值)。简洁但效果超越许多复杂模型。
+
+---
+
+### 105. Bass 扩散模型
+
+**文件**: `models/growth/bass_diffusion.py`
+
+#### 原理
+`dN/dt = (p+q·N/M)·(M-N)`。最小二乘估计 p (创新系数) 和 q (模仿系数)。市场容量 M 估计为当前播放量的 5-10 倍。模拟 S 曲线达到阈值。
+
+---
+
+## 新增高级分析
+
+### 106. 共形预测
+
+**文件**: `models/advanced/conformal_prediction.py`
+
+#### 原理
+分布无关预测区间: 留一法校准集残差 → 分位数残差边界 → α=0.2 覆盖率保证。区间宽度反映模型不确定性。
+
+---
+
+### 107. 概率校准
+
+**文件**: `models/advanced/prob_calibration.py`
+
+#### 原理
+Isotonic Regression 校准置信度: 交叉验证误差 → 学习「误差→置信度」单调映射。校准后置信度更准确反映真实误差分布。
+
+---
+
+### 108. 多步多频率融合
+
+**文件**: `models/advanced/multi_step_fusion.py`
+
+#### 原理
+seq2seq 多步预测 (线性+二次组合) + 高/中/低频融合 (原始/每3点/每6点) + 加权共形预测 (自适应α)。综合多维信号提升准确度。
+
+---
+
+## 新增工具模块
+
+### 数据清洗 (data_cleaner.py)
+- `detect_view_reversal`: 播放量倒退检测
+- `zscore_filter`: 滑动窗口 Z-score (阈值3.5)
+- `savitzky_golay_smooth`: SG 滤波器去噪
+- `interpolate_outliers`: 异常点线性插值修复
+- `clean_history`: 完整清洗流水线
+
+### 滚动窗口回测 (rollout_backtest.py)
+- `RollingBacktester`: 滑动窗口时间序列交叉验证
+- `backtest_multi_predictor`: 多预测器同台对比
+- `select_top_k`: 自动选最优K个
+- 工厂函数: `make_linear_fn`, `make_moving_avg_fn`, `make_exp_fn`, `make_theta_fn`
+
+### RevIN 层 (_torch_upgrade.py)
+可逆实例归一化: `RevIN(x, mode)` — `norm` 模式做归一化，`denorm` 模式还原。解决时序非平稳问题。
+
+---
+
 ## 算法选择建议
 
 ### 按视频阶段选择
@@ -1432,9 +1797,26 @@ Loss 急跌后横盘         Loss 震荡不降          Loss 先降后升
 37. Bandara, K., et al. (2021). MSTL: A Seasonal-Trend Decomposition Algorithm for Time Series with Multiple Seasonal Patterns.
 38. Bollerslev, T. (1986). Generalized autoregressive conditional heteroskedasticity. (GARCH)
 39. Chen, S.-A., et al. (2023). TSMixer: An All-MLP Architecture for Time Series Forecasting.
+40. Zeng, A., et al. (2023). Are Transformers Effective for Time Series Forecasting? (DLinear, AAAI 2023)
+41. Challu, C., et al. (2023). N-HiTS: Neural Hierarchical Interpolation for Time Series Forecasting. (AAAI 2023)
+42. Wu, H., et al. (2024). TimeMixer: Decomposable Multiscale Mixing for Time Series Forecasting. (ICLR 2024)
+43. Liu, M., et al. (2023). Koopa: Learning Non-stationary Time Series Dynamics with Koopman Predictors. (NeurIPS 2023)
+44. Yi, K., et al. (2024). FreTS: Frequency-domain MLPs are More Effective Learners. (NeurIPS 2023)
+45. Zhou, T., et al. (2023). FiLM: Frequency improved Legendre Memory Model. (NeurIPS 2022)
+46. Zhou, H., et al. (2021). Autoformer: Decomposition Transformers with Auto-Correlation. (NeurIPS 2021)
+47. Zhou, T., et al. (2022). FEDformer: Frequency Enhanced Decomposed Transformer. (ICML 2022)
+48. Zhang, Y., et al. (2023). Crossformer: Transformer Utilizing Cross-Dimension Dependency. (ICLR 2023)
+49. Wu, H., et al. (2025). WPMixer: Efficient Multi-Resolution Mixing. (AAAI 2025)
+50. Lin, J., et al. (2023). SegRNN: Segment Recurrent Neural Network. (arXiv 2023)
+51. Zeng, A., et al. (2023). NLinear: Normalization-Linear Model. (AAAI 2023)
+52. Kim, T., et al. (2022). Reversible Instance Normalization (RevIN). (ICLR 2022)
+53. Assimakopoulos, V., et al. (2000). The theta model: a decomposition approach to forecasting.
+54. Bass, F. M. (1969). A New Product Growth Model for Consumer Durables.
+55. Vovk, V., et al. (2005). Algorithmic Learning in a Random World. (Conformal Prediction)
+56. Hoeting, J. A., et al. (1999). Bayesian Model Averaging: A Tutorial.
 
 ---
 
-*文档版本: 7.0*
-*最后更新: 2026-05-25*
+*文档版本: 8.0*
+*最后更新: 2026-06-02*
 *算法总数: 103*
