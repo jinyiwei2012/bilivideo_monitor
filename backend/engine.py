@@ -170,17 +170,30 @@ class MonitorEngine:
     def _run_prediction(self, bvid: str, current_view: int) -> dict:
         history = self.get_history(bvid)
         history_data = [(h[0], h[1]) for h in history if h]
-        results = self._do_run_prediction(bvid, current_view, history_data)
+        db_history = self._fetch_db_history(bvid)
+        results = self._do_run_prediction(bvid, current_view, history_data, db_history)
         self._save_predictions(bvid, current_view, results)
         return self._build_prediction_result(bvid, current_view, results)
 
+    def _fetch_db_history(self, bvid: str) -> list:
+        try:
+            video_db = central_db.get_video_db(bvid)
+            db_records = video_db.get_all_records(limit=0)
+            if db_records:
+                return [(r["timestamp"], r["view_count"]) for r in db_records]
+        except Exception as e:
+            logger.debug("读取 DB 全量历史失败 %s: %s", bvid, e)
+        return []
+
     @staticmethod
-    def _do_run_prediction(bvid: str, current_view: int, history_data: list) -> dict:
+    def _do_run_prediction(bvid: str, current_view: int, history_data: list,
+                           db_history: list = None) -> dict:
         thresholds, threshold_names = get_thresholds()
         with _prediction_semaphore:
             return AlgorithmRegistry.predict_all(
                 history_data, current_view,
                 bvid=bvid, thresholds=thresholds, threshold_names=threshold_names,
+                db_history=db_history,
             )
 
     @staticmethod
@@ -340,6 +353,9 @@ class VideoWorker:
             self.video["favorite_count"] = stat.get("favorite", self.video.get("favorite_count", 0))
             self.video["danmaku_count"] = stat.get("danmaku", self.video.get("danmaku_count", 0))
             self.video["reply_count"] = stat.get("reply", self.video.get("reply_count", 0))
+            self.video["view_token"] = stat.get("vt", self.video.get("view_token", 0))
+            self.video["tid"] = info.get("tid", self.video.get("tid", 0))
+            self.video["tname"] = info.get("tname", self.video.get("tname", ""))
 
             try:
                 cid = info.get("cid", 0)

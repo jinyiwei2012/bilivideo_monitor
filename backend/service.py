@@ -162,7 +162,9 @@ def predict_video(bvid: str) -> dict:
     history = central_db.get_monitor_history(bvid, limit=500)
     history_data = [(r.get("timestamp", ""), r.get("view_count", 0)) for r in history if r]
 
-    results = engine._do_run_prediction(bvid, current_view, history_data)
+    db_history = engine._fetch_db_history(bvid)
+
+    results = engine._do_run_prediction(bvid, current_view, history_data, db_history)
     engine._save_predictions(bvid, current_view, results)
     return engine._build_prediction_result(bvid, current_view, results)
 
@@ -203,3 +205,50 @@ def auth_regenerate_apikey(user_id: int) -> str:
 
 def auth_delete_user(user_id: int):
     delete_user(user_id)
+
+
+# ── 引擎状态 ──────────────────────────────────
+
+
+def get_engine_status() -> dict:
+    engine = get_engine()
+    return {
+        "video_count": engine.video_count,
+        "worker_count": len(engine._workers),
+        "video_ids": engine.video_ids,
+    }
+
+
+# ── 日聚合统计 ────────────────────────────────
+
+
+def get_daily_stats(bvid: str, days: int = 30) -> dict:
+    _validate_bvid(bvid)
+    records = central_db.query_monitor_records(bvid, limit=days * 144)
+    if not records:
+        return {"bvid": bvid, "daily": []}
+
+    from collections import defaultdict
+    daily = defaultdict(lambda: {"views": 0, "likes": 0, "max_views": 0})
+    for r in records:
+        day = str(r.get("timestamp", ""))[:10]
+        v = r.get("view_count", 0)
+        l = r.get("like_count", 0)
+        daily[day]["max_views"] = max(daily[day]["max_views"], v)
+        daily[day]["likes"] = max(daily[day]["likes"], l)
+
+    sorted_days = sorted(daily.keys())
+    result = []
+    prev_max = 0
+    for day in sorted_days:
+        d = daily[day]
+        increment = max(0, d["max_views"] - prev_max)
+        prev_max = d["max_views"]
+        result.append({
+            "date": day,
+            "view_increment": increment,
+            "max_views": d["max_views"],
+            "likes": d["likes"],
+        })
+
+    return {"bvid": bvid, "daily": result[-days:]}

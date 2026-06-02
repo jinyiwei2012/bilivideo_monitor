@@ -492,6 +492,401 @@ if _torch_available:  # noqa: C901
             out = sum(gates[:, i : i + 1] * self.experts[i](h) for i in range(self.n_experts))
             return out
 
+    # ── 27. RevIN（可逆实例归一化） ─────────────
+    class RevIN(nn.Module):
+        def __init__(self, eps=1e-5):
+            super().__init__()
+            self.eps = eps
+            self.affine = nn.Parameter(torch.ones(1))
+            self.shift = nn.Parameter(torch.zeros(1))
+
+        def forward(self, x, mode="norm"):
+            if mode == "norm":
+                self.mean = x.mean(dim=1, keepdim=True)
+                self.stdev = x.std(dim=1, keepdim=True) + self.eps
+                x = (x - self.mean) / self.stdev
+                return x * self.affine + self.shift
+            elif mode == "denorm":
+                x = (x - self.shift) / (self.affine + self.eps)
+                return x * self.stdev + self.mean
+            return x
+
+    # ── 28. NLinear（极简线性模型） ─────────────
+    class NLinearTorchModel(nn.Module):
+        def __init__(self, in_features=5, window=10, horizon=3):
+            super().__init__()
+            self.window = window
+            self.in_features = in_features
+            self.revin = RevIN()
+            self.linear = nn.Linear(window, horizon)
+            self.feat_proj = nn.Linear(in_features, 1)
+            self.combine = nn.Linear(horizon * in_features, horizon)
+
+        def forward(self, x):
+            x = self.revin(x, "norm")
+            B, W, F = x.shape
+            outs = []
+            for f in range(F):
+                outs.append(self.linear(x[:, :, f]).unsqueeze(-1))
+            y = torch.cat(outs, dim=-1).transpose(1, 2).flatten(1)
+            y = self.combine(y)
+            return self.revin(y.unsqueeze(-1).expand(-1, -1, F).mean(-1, keepdim=True), "denorm").squeeze(-1)
+
+    # ── 29. N-HiTS（多尺度分层插值） ─────────────
+    class NHiTSTorchModel(nn.Module):
+        def __init__(self, in_features=5, window=10, horizon=3, n_blocks=3, n_pool_kernel=2, hidden=64):
+            super().__init__()
+            self.window = window
+            self.horizon = horizon
+            self.n_blocks = n_blocks
+            self.n_pool_kernel = n_pool_kernel
+            self.blocks = nn.ModuleList()
+            self.backcast_projs = nn.ModuleList()
+            for _ in range(n_blocks):
+                self.blocks.append(
+                    nn.Sequential(
+                        nn.Linear(window * in_features, hidden),
+                        nn.GELU(),
+                        nn.Linear(hidden, window * in_features + horizon),
+                    )
+                )
+            self.pool = nn.MaxPool1d(n_pool_kernel, stride=n_pool_kernel)
+            self.pool_linear = nn.Linear(window // n_pool_kernel * in_features, hidden)
+
+        def forward(self, x):
+            B, W, F = x.shape
+            residuals = x.flatten(1)
+            forecast = torch.zeros(B, self.horizon, device=x.device)
+            for i in range(self.n_blocks):
+                block_out = self.blocks[i](residuals)
+                backcast = block_out[:, : W * F]
+                fc = block_out[:, W * F :]
+                forecast = forecast + fc.view(B, self.horizon)
+                residuals = residuals - backcast
+                x_pool = self.pool(x.transpose(1, 2)).transpose(1, 2)
+                residuals = self.pool_linear(x_pool.flatten(1))
+            return forecast
+
+    # ── 30. TimeMixer（多尺度混合） ─────────────
+    class TimeMixerTorchModel(nn.Module):
+        def __init__(self, in_features=5, window=10, horizon=3, d_model=32, scales=3):
+            super().__init__()
+            self.window = window
+            self.horizon = horizon
+            self.scales = scales
+            self.proj = nn.Linear(in_features, d_model)
+            self.down_samples = nn.ModuleList([
+                nn.AvgPool1d(kernel_size=2**s, stride=2**s) if 2**s <= window // 4 else nn.Identity()
+                for s in range(scales)
+            ])
+            self.mixers = nn.ModuleList([
+                nn.Sequential(nn.Linear(d_model, d_model * 2), nn.GELU(), nn.Linear(d_model * 2, d_model))
+                for _ in range(scales)
+            ])
+            self.fusion = nn.Linear(scales * d_model, d_model)
+            self.head = nn.Linear(d_model * window, horizon)
+
+        def forward(self, x):
+            x_p = self.proj(x)
+            scale_outs = []
+            for s in range(self.scales):
+                xs = x_p.transpose(1, 2)
+                if isinstance(self.down_samples[s], nn.Identity):
+                    ds = xs
+                else:
+                    ds = self.down_samples[s](xs).transpose(1, 2)
+                    ds = F.pad(ds, (0, 0, 0, self.window - ds.shape[1]))
+                mixed = self.mixers[s](ds)
+                scale_outs.append(mixed.mean(dim=1))
+            fused = self.fusion(torch.cat(scale_outs, dim=-1))
+            return self.head(fused.unsqueeze(1).expand(-1, self.window, -1).flatten(1))
+
+    # ── 31. BiTCN（双向时序卷积） ─────────────
+    class BiTCNTorchModel(nn.Module):
+        def __init__(self, in_features=5, window=10, horizon=3, channels=32, kernel_size=3, layers=3):
+            super().__init__()
+            self.window = window
+            self.horizon = horizon
+            self.proj = nn.Linear(in_features, channels)
+            self.revin = RevIN()
+            self.forward_convs = nn.ModuleList()
+            self.backward_convs = nn.ModuleList()
+            for i in range(layers):
+                dil = 2**i
+                self.forward_convs.append(
+                    nn.Conv1d(channels, channels, kernel_size, dilation=dil, padding=dil * (kernel_size - 1) // 2)
+                )
+                self.backward_convs.append(
+                    nn.Conv1d(channels, channels, kernel_size, dilation=dil, padding=dil * (kernel_size - 1) // 2)
+                )
+            self.head = nn.Sequential(nn.Linear(channels * 2 * window, horizon * 2), nn.GELU(), nn.Linear(horizon * 2, horizon))
+
+        def forward(self, x):
+            x = self.revin(x, "norm")
+            h = self.proj(x).transpose(1, 2)
+            h_f = h
+            h_b = h.flip(-1)
+            for f_conv, b_conv in zip(self.forward_convs, self.backward_convs):
+                h_f = F.gelu(f_conv(h_f))
+                h_b = F.gelu(b_conv(h_b))
+            h_cat = torch.cat([h_f, h_b.flip(-1)], dim=1).flatten(1)
+            y = self.head(h_cat)
+            return self.revin(y.unsqueeze(-1).expand(-1, -1, x.shape[-1]).mean(-1, keepdim=True), "denorm").squeeze(-1)
+
+    # ── 32. WPMixer（小波包多分辨率混合, AAAI 2025） ──
+    class WPMixerTorchModel(nn.Module):
+        def __init__(self, in_features=5, window=10, horizon=3, d_model=32):
+            super().__init__()
+            self.window = window
+            self.horizon = horizon
+            self.proj = nn.Linear(in_features, d_model)
+            # 多分辨率分支：原始 + 2x down + 4x down
+            self.branches = nn.ModuleList([
+                nn.Sequential(nn.Linear(window * d_model, d_model * 4), nn.GELU(), nn.Linear(d_model * 4, horizon))
+                for _ in range(3)
+            ])
+            self.down2 = nn.AvgPool1d(2, 2)
+            self.down4 = nn.AvgPool1d(4, 4)
+            self.fusion = nn.Linear(3 * horizon, horizon)
+
+        def forward(self, x):
+            h = self.proj(x)  # [B, W, D]
+            B, W, D = h.shape
+            # 原始分辨率
+            y1 = self.branches[0](h.flatten(1))
+            # 2x 下采样
+            h2 = self.down2(h.transpose(1, 2)).transpose(1, 2)
+            B2, W2, D2 = h2.shape
+            y2 = self.branches[1](h2.flatten(1)) if W2 > 0 else torch.zeros(B, self.horizon, device=x.device)
+            # 4x 下采样
+            if W >= 4:
+                h4 = self.down4(h.transpose(1, 2)).transpose(1, 2)
+                B4, W4, D4 = h4.shape
+                y3 = self.branches[2](h4.flatten(1)) if W4 > 0 else y1 * 0.1
+            else:
+                y3 = y1 * 0.1
+            return self.fusion(torch.cat([y1, y2, y3], dim=-1))
+
+    # ── 33. Koopa（Koopman 算子预测, NeurIPS 2023） ──
+    class KoopaTorchModel(nn.Module):
+        def __init__(self, in_features=5, window=10, horizon=3, d_model=32, n_components=4):
+            super().__init__()
+            self.window = window
+            self.horizon = horizon
+            self.n_components = n_components
+            self.encoder = nn.Sequential(
+                nn.Linear(window * in_features, d_model), nn.GELU(), nn.Linear(d_model, d_model),
+            )
+            # Koopman 算子 K: 用线性层学习动力系统的演化矩阵
+            self.K = nn.Linear(d_model, d_model * n_components, bias=False)
+            self.decoder = nn.Sequential(
+                nn.Linear(d_model * n_components, d_model), nn.GELU(), nn.Linear(d_model, horizon),
+            )
+
+        def forward(self, x):
+            B = x.shape[0]
+            z = self.encoder(x.flatten(1))  # [B, D]
+            Kz = self.K(z).view(B, self.n_components, -1)  # [B, C, D]
+            # 多个 Koopman 分量混合
+            mixed = Kz.mean(dim=1).view(B, -1)  # [B, D]
+            return self.decoder(mixed)
+
+    # ── 34. SegRNN（分段 RNN, arXiv 2023） ──
+    class SegRNNTorchModel(nn.Module):
+        def __init__(self, in_features=5, window=10, horizon=3, seg_len=3, d_model=32):
+            super().__init__()
+            self.window = window
+            self.horizon = horizon
+            self.seg_len = seg_len
+            self.n_segments = max(1, window // seg_len)
+            self.proj = nn.Linear(seg_len * in_features, d_model)
+            self.gru = nn.GRU(d_model, d_model, batch_first=True)
+            self.head = nn.Linear(d_model * self.n_segments, horizon)
+
+        def forward(self, x):
+            B, W, F = x.shape
+            segs = []
+            for i in range(self.n_segments):
+                start = i * self.seg_len
+                end = min(start + self.seg_len, W)
+                seg = x[:, start:end, :]
+                if seg.shape[1] < self.seg_len:
+                    seg = F.pad(seg.flatten(1), (0, self.seg_len * F - seg.flatten(1).shape[1])).view(B, self.seg_len, F)
+                segs.append(seg.flatten(1))
+            x_stacked = torch.stack(segs, dim=1)  # [B, Nseg, seg_len*F]
+            h = self.proj(x_stacked)  # [B, Nseg, D]
+            _, hn = self.gru(h)
+            return self.head(hn.squeeze(0))  # [B, H]
+
+    # ── 35. FiLM（频率改进 Legendre Memory, NeurIPS 2022） ──
+    class FiLMTorchModel(nn.Module):
+        def __init__(self, in_features=5, window=10, horizon=3, d_model=32):
+            super().__init__()
+            self.window = window
+            self.horizon = horizon
+            self.proj = nn.Linear(in_features, d_model)
+            self.legendre = nn.Linear(window, 8)  # Legendre 多项式基底
+            self.freq_mix = nn.Sequential(
+                nn.Linear(8 * d_model, d_model * 2), nn.GELU(), nn.Linear(d_model * 2, d_model),
+            )
+            self.head = nn.Linear(d_model * window, horizon)
+
+        def forward(self, x):
+            h = self.proj(x)  # [B, W, D]
+            B, W, D = h.shape
+            # Legendre: 对时间维做多项式映射
+            leg = self.legendre(torch.arange(W, device=x.device).float().unsqueeze(0).expand(B, W))  # [B, W, 8]
+            h_expanded = h.unsqueeze(-1) * leg.unsqueeze(2)  # [B, W, D, 8]
+            h_freq = h_expanded.flatten(2)  # [B, W, D*8]
+            h_mixed = self.freq_mix(h_freq)  # [B, W, D]
+            return self.head(h_mixed.flatten(1))
+
+    # ── 36. FreTS（频域 MLP, NeurIPS 2023） ──
+    class FreTSTorchModel(nn.Module):
+        def __init__(self, in_features=5, window=10, horizon=3, d_model=32):
+            super().__init__()
+            self.window = window
+            self.horizon = horizon
+            self.proj = nn.Linear(in_features, d_model)
+            self.freq_mlp = nn.Sequential(
+                nn.Linear(window // 2 + 1, d_model), nn.GELU(), nn.Linear(d_model, window // 2 + 1),
+            )
+            self.head = nn.Linear(d_model * window, horizon)
+
+        def forward(self, x):
+            h = self.proj(x)  # [B, W, D]
+            B, W, D = h.shape
+            # FFT → MLP → iFFT
+            h_freq = torch.fft.rfft(h, dim=1)  # [B, W//2+1, D]
+            h_freq_abs = h_freq.abs()
+            h_freq_mixed = self.freq_mlp(h_freq_abs.transpose(1, 2)).transpose(1, 2)
+            h_freq_new = h_freq * (h_freq_mixed / (h_freq_abs + 1e-8))
+            h_time = torch.fft.irfft(h_freq_new, n=W, dim=1)
+            return self.head(h_time.flatten(1))
+
+    # ── 37. Autoformer（自相关Transformer, NeurIPS 2021） ──
+    class AutoformerTorchModel(nn.Module):
+        def __init__(self, in_features=5, window=10, horizon=3, d_model=32, n_heads=2):
+            super().__init__()
+            self.window = window
+            self.horizon = horizon
+            self.d_model = d_model
+            self.proj = nn.Linear(in_features, d_model)
+            self.qkv = nn.Linear(d_model, d_model * 3)
+            self.out_proj = nn.Linear(d_model, d_model)
+            # 趋势分解：移动平均
+            self.trend_avg = nn.AvgPool1d(kernel_size=3, stride=1, padding=1)
+            self.head = nn.Sequential(nn.Linear(d_model * window, horizon * 2), nn.GELU(), nn.Linear(horizon * 2, horizon))
+
+        def _auto_correlation(self, x):
+            B, W, D = x.shape
+            x_fft = torch.fft.rfft(x, dim=1)
+            corr = torch.fft.irfft(x_fft * x_fft.conj(), n=W, dim=1)
+            return corr / (corr.max(dim=1, keepdim=True)[0] + 1e-8)
+
+        def forward(self, x):
+            h = self.proj(x)  # [B, W, D]
+            # 季节性分量：自相关
+            qkv = self.qkv(h)
+            q, k, v = qkv.chunk(3, dim=-1)
+            autocorr = self._auto_correlation(k)
+            seasonal = autocorr * v
+            seasonal = self.out_proj(seasonal)
+            # 趋势分量：移动平均
+            trend_h = h.transpose(1, 2)
+            trend = self.trend_avg(trend_h).transpose(1, 2)
+            # 合并趋势+季节
+            combined = seasonal + trend
+            return self.head(combined.flatten(1))
+
+    # ── 38. FEDformer（频域增强Transformer, ICML 2022） ──
+    class FEDformerTorchModel(nn.Module):
+        def __init__(self, in_features=5, window=10, horizon=3, d_model=32, n_modes=6):
+            super().__init__()
+            self.window = window
+            self.horizon = horizon
+            self.n_modes = n_modes
+            self.proj = nn.Linear(in_features, d_model)
+            self.freq_enhance = nn.Sequential(
+                nn.Linear(d_model * 2, d_model * 4), nn.GELU(), nn.Linear(d_model * 4, d_model),
+            )
+            self.head = nn.Linear(d_model * window, horizon)
+
+        def forward(self, x):
+            h = self.proj(x)  # [B, W, D]
+            B, W, D = h.shape
+            # FFT 取前 n_modes 个频率分量
+            h_fft = torch.fft.rfft(h, dim=1)
+            n_modes = min(self.n_modes, h_fft.shape[1] - 1)
+            top_vals, top_idx = torch.topk(h_fft.abs().mean(dim=-1), n_modes, dim=1)
+            h_fft_filtered = torch.zeros_like(h_fft)
+            for b in range(B):
+                for idx in top_idx[b]:
+                    h_fft_filtered[b, idx] = h_fft[b, idx]
+            # 频域增强
+            freq_abs = h_fft_filtered.abs()
+            freq_phase = h_fft_filtered.angle()
+            freq_cat = torch.cat([freq_abs, freq_phase], dim=-1)
+            enhanced = self.freq_enhance(freq_cat)  # [B, n_freq, D]
+            # 平均池化为全局特征
+            return self.head(enhanced.mean(dim=1).unsqueeze(1).expand(-1, W, -1).flatten(1))
+
+    # ── 39. LightTS（轻量采样MLP, arXiv 2022） ──
+    class LightTSTorchModel(nn.Module):
+        def __init__(self, in_features=5, window=10, horizon=3, d_model=32, stride=2):
+            super().__init__()
+            self.window = window
+            self.horizon = horizon
+            self.stride = stride
+            self.n_samples = max(1, window // stride)
+            self.proj = nn.Linear(in_features, d_model)
+            self.mlp = nn.Sequential(
+                nn.Linear(self.n_samples * d_model, d_model * 2),
+                nn.GELU(),
+                nn.Linear(d_model * 2, d_model),
+            )
+            self.head = nn.Linear(d_model, horizon)
+
+        def forward(self, x):
+            h = self.proj(x)  # [B, W, D]
+            B, W, D = h.shape
+            # 步长采样
+            sampled = h[:, ::self.stride, :]  # [B, N, D]
+            if sampled.shape[1] < self.n_samples:
+                pad_len = self.n_samples - sampled.shape[1]
+                sampled = F.pad(sampled, (0, 0, 0, pad_len))
+            return self.head(self.mlp(sampled.flatten(1)))
+
+    # ── 40. Crossformer（跨维依赖Transformer, ICLR 2023） ──
+    class CrossformerTorchModel(nn.Module):
+        def __init__(self, in_features=5, window=10, horizon=3, d_model=32, seg_len=4):
+            super().__init__()
+            self.window = window
+            self.horizon = horizon
+            self.seg_len = seg_len
+            self.n_segs = max(1, window // seg_len)
+            self.proj = nn.Linear(seg_len * in_features, d_model)
+            self.cross_attn = nn.MultiheadAttention(d_model, num_heads=2, batch_first=True)
+            self.seg_fc = nn.Linear(self.n_segs * d_model, d_model)
+            self.head = nn.Linear(d_model, horizon)
+
+        def forward(self, x):
+            B, W, F = x.shape
+            segs = []
+            for i in range(self.n_segs):
+                start = i * self.seg_len
+                end = start + self.seg_len
+                if end <= W:
+                    segs.append(x[:, start:end, :].flatten(1))
+            if not segs:
+                return torch.zeros(B, self.horizon, device=x.device)
+            segs_t = torch.stack(segs, dim=1)  # [B, Nseg, seg*F]
+            h = self.proj(segs_t)  # [B, Nseg, D]
+            attn_out, _ = self.cross_attn(h, h, h)
+            h_pooled = attn_out.flatten(1)  # [B, Nseg*D]
+            h_seg = self.seg_fc(h_pooled)
+            return self.head(h_seg)
+
     # ── 工具：手写 1D padding + avg pool（避免与外部 import 冲突） ──
     def nn_pad1d(x, left, right):
         return torch.nn.functional.pad(x, (left, right), mode="replicate")
@@ -523,6 +918,20 @@ else:
     SCINetTorchModel = None  # type: ignore
     TimesFMTorchModel = None  # type: ignore
     TimeMoETorchModel = None  # type: ignore
+    RevIN = None  # type: ignore
+    NLinearTorchModel = None  # type: ignore
+    NHiTSTorchModel = None  # type: ignore
+    TimeMixerTorchModel = None  # type: ignore
+    BiTCNTorchModel = None  # type: ignore
+    WPMixerTorchModel = None  # type: ignore
+    KoopaTorchModel = None  # type: ignore
+    SegRNNTorchModel = None  # type: ignore
+    FiLMTorchModel = None  # type: ignore
+    FreTSTorchModel = None  # type: ignore
+    AutoformerTorchModel = None  # type: ignore
+    FEDformerTorchModel = None  # type: ignore
+    LightTSTorchModel = None  # type: ignore
+    CrossformerTorchModel = None  # type: ignore
 
 
 # ════════════════════════════════════════════════════════

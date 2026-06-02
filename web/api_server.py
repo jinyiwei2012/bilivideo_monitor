@@ -22,6 +22,7 @@ from backend.service import (
     predict_video, predict_all,
     auth_register, auth_login, auth_get_user,
     auth_regenerate_apikey, auth_delete_user,
+    get_engine_status, get_daily_stats,
 )
 
 from .auth import authenticate, get_optional_user, require_admin
@@ -265,6 +266,22 @@ async def api_update_config(config: dict, user: dict = Depends(require_admin)):
     if not save_config(config):
         raise HTTPException(status_code=500, detail="保存配置失败")
     return {"status": "ok"}
+
+
+# ── 引擎状态 ──────────────────────────────────
+
+
+@app.get(f"{API_PREFIX}/engine/status")
+async def api_engine_status(user: dict = Depends(require_admin)):
+    return get_engine_status()
+
+
+# ── 日聚合 ────────────────────────────────────
+
+
+@app.get(f"{API_PREFIX}/videos/{{bvid}}/stats/daily")
+async def api_daily_stats(bvid: str, days: int = Query(30, ge=1, le=90)):
+    return get_daily_stats(bvid, days=days)
 
 
 # ── WebSocket ─────────────────────────────────

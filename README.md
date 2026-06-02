@@ -1,13 +1,13 @@
 # B站视频监控与播放量预测系统
 
-基于 CustomTkinter 的 B站视频数据监控与播放量预测桌面应用，集成 **103 种预测算法**，支持 Windows 原生推送和 QQ Bot 推送。
+基于 CustomTkinter 的 B站视频数据监控与播放量预测桌面应用，集成 **141 种预测算法**，支持 Windows 原生推送和 QQ Bot 推送。
 
 ## 功能特性
 
 ### 核心功能
 - **视频搜索**: 关键词搜索B站视频，支持多关键词批量搜索与自动去重
 - **数据监控**: 实时监控播放量、点赞、投币、弹幕、在线观看人数等指标
-- **播放量预测**: 103 种算法预测到达 10万 / 100万 / 1000万 播放量所需时间
+- **播放量预测**: 141 种算法预测到达 10万 / 100万 / 1000万 播放量所需时间
 - **算法权重管理**: ML 权重自动调整（含 Hedge 在线学习算法）
 - **因果推断**: Granger 因果检验分析各指标与播放量的领先/滞后关系
 - **图神经网络**: 基于视频关联图的 GCN 节点嵌入增强预测
@@ -32,22 +32,25 @@
 - **弹幕智能分析**: LLM 自动分析弹幕情感倾向与核心关键词，结果本地缓存
 - **历史问答**: 基于视频播放量趋势数据的上下文智能问答
 
-### 预测算法（120+种）
+### 预测算法（141种）
 
 | 类别 | 算法 | 数量 |
 |------|------|:----:|
 | **基础速度** | 线性速度、加权速度 | 2 |
-| **增长/衰减** | 指数增长、对数增长、幂律衰减、指数衰减 | 4 |
+| **增长/衰减** | 指数增长、对数增长、幂律衰减、指数衰减、Bass扩散、Gompertz、Logistic、Richards、Weibull | 9 |
 | **扩散模型** | Bass扩散、Gompertz、Logistic、Richards、Weibull | 5 |
-| **时间序列** | ARIMA、SARIMA、指数平滑、Holt-Winters、移动平均、加权移动平均、线性增长、多季节分解、马尔可夫体制转换、趋势外推、Theta、Prophet、卡尔曼滤波 | 13 |
-| **深度学习** | MLP、神经网络、LSTM、GRU、BiLSTM、TCN、CNN-LSTM混合、CNN图像化、N-BEATS、TimesNet、DLinear、注意力机制、Diffusion TS、KNF Koopman、Mar-BiLSTM | 15 |
-| **Transformer模型** | Informer、TFT、PatchTST、Lag-Llama、MOIRAI | 5 |
+| **时间序列** | ARIMA、SARIMA、指数平滑、Holt-Winters、移动平均、加权移动平均、线性增长、多季节分解、马尔可夫体制转换、趋势外推、Theta方法、Prophet、卡尔曼滤波、GARCH、NARX、TBATS | 16 |
+| **深度学习** | MLP、神经网络、LSTM、GRU、BiLSTM、TCN、CNN-LSTM混合、CNN图像化、N-BEATS、TimesNet、DLinear、注意力机制、Diffusion TS、KNF Koopman、Mar-BiLSTM、NLinear、N-HiTS、TimeMixer、BiTCN、WPMixer、Koopa、SegRNN、FiLM、FreTS、LightTS、Autoformer、FEDformer、Crossformer | 28 |
+| **Transformer模型** | Informer、TFT、PatchTST、Lag-Llama、MOIRAI、iTransformer、TSMixer、TIDE、SCINet、DeepAR、Chronos、Mamba S6、TimesFM、Time-MoE | 14 |
 | **统计模型** | SVR、随机森林、高斯过程、贝叶斯回归、ElasticNet、Huber、Theil-Sen、分位数回归、泊松回归、TSFC特征分类、变化点检测、生存分析 | 12 |
-| **机器学习** | AdaBoost、GradientBoost、XGBoost、LightGBM、CatBoost、ExtraTrees、Bagging、Cascade级联 | 8 |
-| **集成模型** | 加权集成、投票集成、堆叠集成、平均集成 | 4 |
-| **互动率** | 点赞动量、分享速度、评论趋势、投币Boost、互动率综合、质量评分、病毒潜力 | 7 |
-| **高级分析** | Hawkes自激过程、DistDF分布对齐、生命周期建模、多任务学习、UP主贝叶斯、概率模型 | 6 |
-| **概率/贝叶斯** | 贝叶斯回归、高斯过程 | 2 |
+| **机器学习** | AdaBoost、GradientBoost、XGBoost、LightGBM、CatBoost、ExtraTrees、Bagging、Cascade级联、TabNet、NGBoost | 10 |
+| **集成模型** | 加权集成、投票集成、堆叠集成、平均集成、Stacking元学习、Blending集成、动态集成、贝叶斯模型平均、残差修正、分位数集成 | 10 |
+| **互动率** | 点赞动量、分享速度、评论趋势、投币Boost、互动率综合、质量评分、病毒潜力、病毒传播评分 | 8 |
+| **高级分析** | Hawkes自激过程、DistDF分布对齐、生命周期建模、多任务学习、UP主贝叶斯、概率模型、共形预测、概率校准、多步多频率融合 | 9 |
+| **频域分析** | 小波分解、频谱残差、希尔伯特-黄变换 | 3 |
+| **事件驱动** | 脉冲检测、动量突破、热搜趋势 | 3 |
+| **内容感知** | 互动衰减、病毒传播评分、质量衰减 | 3 |
+| **概率/贝叶斯** | 贝叶斯回归、高斯过程、概率校准 | 3 |
 
 详细说明参见 [algorithms/ALGORITHMS.md](algorithms/ALGORITHMS.md)
 
@@ -74,6 +77,8 @@ b站监控/
 │   ├── online_learner.py       # Hedge 在线学习
 │   ├── causal_inference.py     # Granger 因果推断
 │   ├── graph_neural.py         # 图神经网络
+│   ├── rollout_backtest.py       # 滚动窗口回测框架
+│   ├── data_cleaner.py            # 数据清洗（异常检测+平滑+插值）
 │   ├── ALGORITHMS.md           # 算法详细文档
 │   ├── training/               # PyTorch 训练管线
 │   │   ├── trainer.py          # 统一训练编排器
@@ -81,14 +86,17 @@ b站监控/
 │   │   ├── checkpoint_manager.py # 多版本 Checkpoint 管理
 │   │   ├── hf_loader.py        # HuggingFace 模型加载器
 │   │   └── device.py           # 设备管理
-│   └── models/                 # 83 种算法实现（7 个子目录）
+│   └── models/                 # 141 种算法实现（10 个子目录）
 │       ├── simple/             # 基础速度
 │       ├── growth/             # 增长模型
 │       ├── time_series/        # 时间序列
 │       ├── statistical/        # 统计模型
 │       ├── ensemble/           # 集成学习
 │       ├── deep_learning/      # 深度学习
-│       └── advanced/           # 高级分析
+│       ├── advanced/           # 高级分析
+│       ├── frequency/          # 频域分析
+│       ├── event/              # 事件驱动
+│       └── content/            # 内容感知
 │
 ├── config/                     # 配置模块（加载/保存）
 │

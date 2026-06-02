@@ -1,35 +1,159 @@
 """
 SARIMA季节性预测
-在ARIMA基础上加入季节性差分项，处理周/月周期性播放模式
+优先使用 statsmodels SARIMAX 真实实现，不可用时回退 numpy 简化版
 """
 
+import logging
 import numpy as np
 from typing import Dict, Any, List
 from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
 
+logger = logging.getLogger(__name__)
+
+_HAS_STATSMODELS = False
+try:
+    from statsmodels.tsa.statespace.sarimax import SARIMAX
+    _HAS_STATSMODELS = True
+except ImportError:
+    pass
+
+_HAS_PMDARIMA = False
+try:
+    import pmdarima as pm
+    _HAS_PMDARIMA = True
+except ImportError:
+    pass
+
 
 class SARIMASimpleAlgorithm(BaseAlgorithm):
-    """SARIMA (Seasonal ARIMA) 季节性差分自回归移动平均
-
-    在标准 ARIMA(p,d,q) 基础上引入季节性成分 (P,D,Q,m)，
-    捕捉 B 站视频播放量的星期周期性（如周末高峰）。
-
-    参考: Box, Jenkins, Reinsel & Ljung (2015), Time Series Analysis
-    """
+    """SARIMA (Seasonal ARIMA) 季节性差分自回归移动平均"""
 
     name = "SARIMA季节预测"
     algorithm_id = "sarima_simple"
-    description = "季节性差分自回归移动平均，处理周/月周期"
+    description = "季节性差分自回归移动平均（statsmodels 优先，numpy 回退）"
     category = "时间序列"
     default_weight = 1.2
 
     def __init__(self):
         super().__init__()
         self.p, self.d, self.q = 1, 1, 1
-        self.P, self.D, self.Q, self.m = 1, 0, 0, 7  # 周周期=7天
+        self.P, self.D, self.Q, self.m = 1, 0, 0, 7
 
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
+        current_views = video_data.get("view_count", 0)
+        history = video_data.get("history_data", [])
+
+        if _HAS_PMDARIMA and len(history) >= 24:
+            try:
+                result = self._auto_sarima_predict(video_data, threshold)
+                if result is not None:
+                    return result
+            except Exception as e:
+                logger.debug("AutoSARIMA pmdarima 失败: %s", e)
+
+        if _HAS_STATSMODELS and len(history) >= 15:
+            try:
+                result = self._statsmodels_predict(video_data, threshold)
+                if result is not None:
+                    return result
+            except Exception as e:
+                logger.debug("SARIMA statsmodels 失败: %s", e)
+
+        return self._numpy_predict(video_data, threshold)
+
+    def _auto_sarima_predict(self, video_data, threshold):
+        current_views = video_data.get("view_count", 0)
+        history = video_data.get("history_data", [])
+        velocity = self.calculate_velocity(video_data)
+        views_sorted = self._prepare_series(history)
+        n = len(views_sorted)
+        if n < 24:
+            return None
+        try:
+            model = pm.auto_arima(
+                views_sorted, seasonal=True, m=min(7, n // 4), stepwise=True,
+                suppress_warnings=True, max_p=5, max_q=5, max_P=2, max_Q=2,
+                maxiter=10, trace=False, error_action="ignore",
+            )
+            forecast = model.predict(n_periods=30)
+            forecast_views = np.array(forecast)
+            target_idx = np.where(forecast_views >= threshold)[0]
+            if len(target_idx) > 0 and target_idx[0] < 30:
+                predicted_hours = (target_idx[0] + 1) * 24
+                aic = float(model.aic()) if callable(getattr(model, "aic", None)) else 1000
+                confidence = max(0.1, min(0.9, 0.7 - aic * 0.00015))
+            else:
+                remaining = threshold - current_views
+                predicted_hours = remaining / velocity if velocity > 0 else float("inf")
+                confidence = 0.4
+            return PredictionResult(
+                algorithm_name=self.name, algorithm_id=self.algorithm_id,
+                target_threshold=threshold, predicted_hours=predicted_hours,
+                confidence=confidence, current_views=current_views,
+                current_velocity=velocity,
+                metadata={
+                    "method": "auto_sarima",
+                    "order": str(getattr(model, "order", "?")),
+                    "seasonal_order": str(getattr(model, "seasonal_order", "?")),
+                    "aic": round(aic, 1) if "aic" in dir() else 0,
+                },
+                timestamp=datetime.now(),
+            )
+        except Exception:
+            return None
+
+    def _statsmodels_predict(self, video_data: Dict[str, Any], threshold: int) -> PredictionResult:
+        current_views = video_data.get("view_count", 0)
+        history = video_data.get("history_data", [])
+        velocity = self.calculate_velocity(video_data)
+
+        views_sorted = self._prepare_series(history)
+        n = len(views_sorted)
+        if n < 15:
+            return None
+
+        try:
+            model = SARIMAX(
+                views_sorted,
+                order=(self.p, self.d, self.q),
+                seasonal_order=(self.P, self.D, self.Q, min(self.m, n // 2)),
+                enforce_stationarity=False,
+                enforce_invertibility=False,
+            )
+            fitted = model.fit(disp=False)
+            forecast = fitted.forecast(steps=30)
+            forecast_views = np.array(forecast)
+
+            target_idx = np.where(forecast_views >= threshold)[0]
+            if len(target_idx) > 0 and target_idx[0] < 30:
+                predicted_hours = (target_idx[0] + 1) * 24
+                aic = getattr(fitted, "aic", 1000)
+                confidence = max(0.1, min(0.85, 0.7 - aic * 0.0002))
+            else:
+                remaining = threshold - current_views
+                predicted_hours = remaining / velocity if velocity > 0 else float("inf")
+                confidence = 0.35
+
+            return PredictionResult(
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=confidence,
+                current_views=current_views,
+                current_velocity=velocity,
+                metadata={
+                    "method": "sarima_statsmodels",
+                    "order": f"({self.p},{self.d},{self.q})x({self.P},{self.D},{self.Q},{self.m})",
+                    "aic": round(float(aic), 1) if "aic" in dir() else 0,
+                },
+                timestamp=datetime.now(),
+            )
+        except Exception:
+            return None
+
+    def _numpy_predict(self, video_data: Dict[str, Any], threshold: int) -> PredictionResult:
         current_views = video_data.get("view_count", 0)
         history = video_data.get("history_data", [])
         velocity = self.calculate_velocity(video_data)

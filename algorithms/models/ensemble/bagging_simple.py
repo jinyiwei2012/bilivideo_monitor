@@ -1,14 +1,26 @@
 """
 Bagging集成回归预测
-使用Bootstrap采样训练多个基学习器，平均预测降低方差
+优先使用 sklearn.ensemble.BaggingRegressor 真实实现，不可用时回退 numpy 简化版
 """
 
 import math
+import logging
 import random
 import numpy as np
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
+
+logger = logging.getLogger(__name__)
+
+_HAS_SKLEARN = False
+try:
+    from sklearn.ensemble import BaggingRegressor
+    from sklearn.tree import DecisionTreeRegressor
+
+    _HAS_SKLEARN = True
+except ImportError:
+    pass
 
 
 class BaggingSimpleAlgorithm(BaseAlgorithm):
@@ -101,7 +113,6 @@ class BaggingSimpleAlgorithm(BaseAlgorithm):
             return self._predict_one(x, node["right"])
 
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
-        """执行预测"""
         current_views = video_data.get("view_count", 0)
         history = video_data.get("history_data", [])
         velocity = self.calculate_velocity(video_data)
@@ -110,40 +121,94 @@ class BaggingSimpleAlgorithm(BaseAlgorithm):
         if remaining <= 0:
             return self._make_result(0, 1.0, current_views, velocity, {"method": "bagging"}, threshold)
 
+        if _HAS_SKLEARN and len(history) >= 10:
+            try:
+                result = self._sklearn_predict(video_data, threshold)
+                if result is not None:
+                    return result
+            except Exception as e:
+                logger.debug("Bagging sklearn 失败，回退 numpy: %s", e)
+
+        # ── numpy 回退 ───────────────────────────
         if len(history) < 6 or velocity <= 0:
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
             return self._make_result(
-                predicted_hours,
-                0.3,
-                current_views,
-                velocity,
-                {"method": "bagging", "notes": "insufficient_data"},
-                threshold,
+                predicted_hours, 0.3, current_views, velocity,
+                {"method": "bagging", "notes": "insufficient_data"}, threshold,
             )
 
         views_sorted = self._extract_views(history)
         if views_sorted is None or len(views_sorted) < 6:
             return self._make_result(
-                remaining / velocity,
-                0.3,
-                current_views,
-                velocity,
-                {"method": "bagging_fallback"},
-                threshold,
+                remaining / velocity, 0.3, current_views, velocity,
+                {"method": "bagging_fallback"}, threshold,
             )
 
         try:
             return self._predict_impl(views_sorted, current_views, velocity, remaining, threshold, video_data)
         except Exception as e:
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._make_result(
-                predicted_hours,
-                0.0,
-                current_views,
-                velocity,
-                {"error": str(e)},
-                threshold,
-            )
+            return self._make_result(predicted_hours, 0.0, current_views, velocity, {"error": str(e)}, threshold)
+
+    def _sklearn_predict(self, video_data: Dict[str, Any], threshold: int) -> PredictionResult:
+        current_views = video_data.get("view_count", 0)
+        history = video_data.get("history_data", [])
+        velocity = self.calculate_velocity(video_data)
+
+        views = np.array([h.get("view_count", 0) for h in history], dtype=np.float64)
+        likes = np.array([h.get("like_count", 0) for h in history], dtype=np.float64)
+        coins = np.array([h.get("coin_count", 0) for h in history], dtype=np.float64)
+
+        p = 5
+        X, y = [], []
+        for i in range(p, len(views)):
+            feat = []
+            for j in range(1, p + 1):
+                feat.extend([views[i - j], likes[i - j], coins[i - j], np.log(max(views[i - j], 1))])
+            X.append(feat)
+            y.append(views[i])
+
+        X, y = np.array(X), np.array(y)
+        if len(X) < 8:
+            return None
+
+        y_target = np.diff(views[-len(X) - 1:]) / np.maximum(views[-len(X) - 1 : -1], 1)
+        y_target = y_target[-len(X):]
+
+        base = DecisionTreeRegressor(max_depth=4, random_state=42)
+        model = BaggingRegressor(
+            estimator=base, n_estimators=30, max_samples=0.8, random_state=42, n_jobs=-1,
+        )
+        model.fit(X, y_target)
+
+        last_feat = []
+        for j in range(1, p + 1):
+            last_feat.extend([views[-j], likes[-j], coins[-j], np.log(max(views[-j], 1))])
+        pred_growth = float(model.predict(np.array([last_feat]))[0])
+        predicted_velocity = max(0, pred_growth * current_views / 3600)
+        if predicted_velocity < 1:
+            predicted_velocity = velocity
+
+        remaining = threshold - current_views
+        if remaining <= 0:
+            predicted_hours, confidence = 0, 1.0
+        else:
+            predicted_hours = remaining / predicted_velocity if predicted_velocity > 0 else float("inf")
+            residuals = np.abs(y_target - model.predict(X))
+            cv = float(np.std(residuals) / max(np.mean(np.abs(y_target)), 1e-10))
+            confidence = max(0.1, min(0.85, 0.6 - cv * 0.5))
+
+        return PredictionResult(
+            algorithm_name=self.name,
+            algorithm_id=self.algorithm_id,
+            target_threshold=threshold,
+            predicted_hours=predicted_hours,
+            confidence=confidence,
+            current_views=current_views,
+            current_velocity=velocity,
+            metadata={"method": "bagging_sklearn", "n_estimators": 30},
+            timestamp=datetime.now(),
+        )
 
     def _extract_views(self, history):
         """从历史记录中提取并排序播放量序列"""

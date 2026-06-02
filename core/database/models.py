@@ -29,6 +29,13 @@ class VideoInfo:
     pubdate: str = ""                        # 发布时间
     duration: int = 0                        # 视频时长（秒）
     pic: str = ""                            # 封面封面 URL
+    view_token: int = 0                      # B站新播放量令牌 (stat.vt)
+    honor_reply: str = ""                    # 荣誉回复标签 (JSON)
+    ugc_season_id: int = 0                   # 合集 ID
+    no_cache: bool = False                   # 是否禁止缓存
+    is_cooperation: bool = False             # 是否联合投稿
+    tid: int = 0                             # 分区 ID
+    tname: str = ""                          # 分区名称
 
     @staticmethod
     def from_api_data(bvid: str, vdata: dict) -> "VideoInfo":
@@ -49,6 +56,13 @@ class VideoInfo:
             pubdate=str(vdata.get("pubdate", "")),
             duration=vdata.get("duration", 0),
             pic=vdata.get("pic", ""),
+            view_token=stat.get("vt", 0),
+            honor_reply=str(vdata.get("honor_reply", "")),
+            ugc_season_id=vdata.get("ugc_season", {}).get("id", 0) if isinstance(vdata.get("ugc_season"), dict) else 0,
+            no_cache=vdata.get("no_cache", False),
+            is_cooperation=vdata.get("rights", {}).get("is_cooperation", 0) == 1 if isinstance(vdata.get("rights"), dict) else False,
+            tid=vdata.get("tid", 0),
+            tname=vdata.get("tname", ""),
         )
 
 

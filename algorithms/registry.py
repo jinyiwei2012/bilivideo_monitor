@@ -122,19 +122,24 @@ class AlgorithmRegistry:
         """
         now = datetime.now()
         history_list = []
+        view_values = [v for _, v in history]
+        like_values = []
+        coin_values = []
+        share_values = []
+        fav_values = []
+        dk_values = []
+
         for ts, v in history:
             if isinstance(ts, datetime):
                 ts_ts = ts.timestamp()
                 ts_str = ts.strftime("%Y-%m-%d %H:%M:%S")
             else:
                 try:
-                    # 尝试 ISO 格式字符串解析（如 2026-04-21T23:48:17.189827）
                     dt = datetime.fromisoformat(str(ts))
                     ts_ts = dt.timestamp()
                     ts_str = dt.strftime("%Y-%m-%d %H:%M:%S")
                 except (ValueError, TypeError):
                     try:
-                        # 回退：将 ts 直接视为 float（Unix 时间戳）
                         ts_ts = float(ts)
                         ts_str = str(ts)
                     except (ValueError, TypeError):
@@ -148,30 +153,126 @@ class AlgorithmRegistry:
                     "datetime": ts if isinstance(ts, datetime) else datetime.fromtimestamp(ts_ts),
                 }
             )
+
+        # ── 派生特征 ──────────────────────────
+        n = len(view_values)
+        derived = {}
+        if n >= 2:
+            diffs = [view_values[i] - view_values[i - 1] for i in range(1, n)]
+            derived["velocity_mean"] = sum(diffs) / len(diffs)
+            derived["velocity_std"] = (sum((d - derived["velocity_mean"]) ** 2 for d in diffs) / len(diffs)) ** 0.5 if len(diffs) > 1 else 0
+            derived["velocity_cv"] = derived["velocity_std"] / max(abs(derived["velocity_mean"]), 1e-10)
+        if n >= 3:
+            accels = [diffs[i] - diffs[i - 1] for i in range(1, len(diffs))]
+            derived["acceleration"] = sum(accels) / len(accels) if accels else 0
+        if n >= 4 and len(diffs) >= 3:
+            jerks = [accels[i] - accels[i - 1] for i in range(1, len(accels))]
+            derived["jerk"] = sum(jerks) / len(jerks) if jerks else 0
+        if n >= 5:
+            derived["velocity_ratio"] = derived.get("velocity_mean", 0) / max(view_values[-min(5, n)], 1)
+        if n >= 2:
+            # 互动比特征
+            like_vals = [h.get("like_count", 0) for h in history_list]
+            coin_vals = [h.get("coin_count", 0) for h in history_list]
+            dk_vals = [h.get("danmaku_count", 0) for h in history_list]
+            derived["like_rate"] = sum(like_vals) / max(sum(view_values), 1)
+            derived["coin_like_ratio"] = sum(coin_vals) / max(sum(like_vals), 1)
+            derived["danmaku_density"] = sum(dk_vals) / max(sum(view_values), 1) * 10000
+            derived["like_rate_delta"] = (like_vals[-1] / max(view_values[-1], 1) - like_vals[0] / max(view_values[0], 1)) if n >= 2 else 0
+        # ── 滞后特征 ──────────────────────────
+        if n >= 2:
+            derived["lag_1"] = view_values[-1] - view_values[-2]
+        if n >= 4:
+            derived["lag_3"] = view_values[-1] - view_values[-4] if n >= 4 else 0
+        if n >= 8:
+            derived["lag_7"] = view_values[-1] - view_values[-8] if n >= 8 else 0
+        # ── 滚动统计 ──────────────────────────
+        for win in [3, 7, 14]:
+            if n >= win:
+                win_vals = view_values[-win:]
+                derived[f"roll_mean_{win}"] = sum(win_vals) / len(win_vals)
+                derived[f"roll_std_{win}"] = (sum((v - derived[f"roll_mean_{win}"]) ** 2 for v in win_vals) / len(win_vals)) ** 0.5
+                derived[f"roll_cv_{win}"] = derived[f"roll_std_{win}"] / max(derived[f"roll_mean_{win}"], 1e-10)
+
         return {
             "view_count": current_value,
             "history_data": history_list,
             "timestamp": now,
             "timestamp_str": now.strftime("%Y-%m-%d %H:%M:%S"),
             "bvid": bvid,
+            "hour_of_day": now.hour,
+            "day_of_week": now.weekday(),
+            "is_weekend": 1 if now.weekday() >= 5 else 0,
+            "data_points": len(history_list),
+            "derived_features": derived,
         }
 
     @classmethod
-    def predict_all(cls, history: List, current_value: float, bvid: str = "", **kwargs) -> Dict:
+    def _merge_history(cls, memory_history: List, db_history: List) -> List:
+        """合并内存历史与 DB 全量历史，按时间戳去重。
+
+        DB 历史可覆盖更早的区间，确保长期期模型获得完整数据。
+        """
+        from datetime import datetime as dt
+
+        def _norm(ts_val):
+            if isinstance(ts_val, dt):
+                return ts_val.strftime("%Y-%m-%d %H:%M:%S")
+            if isinstance(ts_val, str):
+                try:
+                    return dt.fromisoformat(ts_val).strftime("%Y-%m-%d %H:%M:%S")
+                except (ValueError, TypeError):
+                    return str(ts_val)
+            try:
+                return dt.fromtimestamp(float(ts_val)).strftime("%Y-%m-%d %H:%M:%S")
+            except (ValueError, TypeError, OSError):
+                return str(ts_val)
+
+        existing = {_norm(h[0]) for h in memory_history}
+        merged = list(memory_history)
+        for h in db_history:
+            if _norm(h[0]) not in existing:
+                merged.append(h)
+                existing.add(_norm(h[0]))
+
+        def _to_dt(t):
+            if isinstance(t, dt):
+                return t
+            if isinstance(t, str):
+                try:
+                    return dt.fromisoformat(t)
+                except (ValueError, TypeError):
+                    return dt.min
+            try:
+                return dt.fromtimestamp(float(t))
+            except (ValueError, TypeError, OSError):
+                return dt.min
+
+        merged.sort(key=lambda x: _to_dt(x[0]))
+        return merged
+
+    @classmethod
+    def predict_all(cls, history: List, current_value: float, bvid: str = "",
+                    db_history: List = None, **kwargs) -> Dict:
         """对所有注册算法发起并行预测，返回加权集成结果。
 
         Args:
-            history: [(timestamp, view_count), ...] 格式的历史数据
+            history: [(timestamp, view_count), ...] 格式的历史数据（内存缓冲）
             current_value: 当前播放量
             bvid: 视频 BV 号（仅用于日志）
+            db_history: [(timestamp, view_count), ...] 从 DB 读取的全量历史，与内存
+                        history 合并后送入算法，确保长期期模型获得完整数据
             **kwargs: 可包含 thresholds / threshold_names
 
         Returns:
             dict: 每个算法 name -> {prediction, confidence, weight, ...}
-                 以及 "_weighted" 键存储集成预测结果
+                  以及 "_weighted" 键存储集成预测结果
         """
         if not cls._initialized:
             cls.initialize()
+
+        if db_history:
+            history = cls._merge_history(history, db_history)
 
         # ── 集中准备 video_data，避免每个 adapter 重复转换 ────
         cached_video_data = cls._prepare_video_data(history, current_value, bvid=bvid)
@@ -259,6 +360,24 @@ class AlgorithmRegistry:
             for name, r in results.items()
             if r["weight"] > 0 and r["prediction"] > 0
         ]
+
+        # ── 窗口加权（时间衰减）：近期表现好的算法更高权重 ──
+        _window_weight_history = getattr(cls, "_window_weight_history", {})
+        cls._window_weight_history = _window_weight_history
+        if len(valid_predictions) >= 3:
+            for name, pred, w in valid_predictions:
+                hist = _window_weight_history.get(name, [])
+                decay = 0.85
+                # 用预测值相对于当前值的偏差作为"近期误差"代理
+                rel_dev = abs(pred - current_value) / max(current_value, 1)
+                hist.append(rel_dev)
+                if len(hist) > 10:
+                    hist = hist[-10:]
+                _window_weight_history[name] = hist
+                # 指数衰减加权误差
+                window_error = sum(h * (decay ** (len(hist) - i)) for i, h in enumerate(hist)) / max(sum(decay ** (len(hist) - i) for i in range(len(hist))), 1e-10)
+                window_factor = max(0.2, 1.0 / (1.0 + window_error * 5))
+                results[name]["weight"] = w * (0.5 + 0.5 * window_factor)
 
         # ── 基于算法间共识度（coherence）调整权重 ────────────
         # 核心思想：偏离中位数越远的算法其权重应越低

@@ -1,46 +1,133 @@
 """
-多任务学习简化版 (Multi-Task Learning Simplified)
-同时预测多个阈值（10万/100万/1000万），共享特征提取，提高预测准确性
+多任务学习 (Multi-Task Learning)
+优先使用 PyTorch 真实实现（共享特征提取+多头预测），不可用时回退 numpy 简化版
 """
 
+import logging
 import numpy as np
 from typing import Dict, Any, List, Tuple
 from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
 
+logger = logging.getLogger(__name__)
+
+_HAS_TORCH = False
+try:
+    import torch
+    import torch.nn as nn
+    import torch.optim as optim
+
+    _HAS_TORCH = True
+except ImportError:
+    pass
+
 
 class MultiTaskSimpleAlgorithm(BaseAlgorithm):
-    """多任务学习简化版算法
-
-    同时预测多个阈值，利用任务间的相关性提高预测准确性。
-    核心思路：
-    1. 共享底层速度特征提取
-    2. 不同阈值对应不同的增长模式（短期vs长期）
-    3. 使用一致性检查调整预测
-    """
+    """多任务学习算法"""
 
     name = "多任务学习"
     algorithm_id = "multi_task_simple"
-    description = "同时预测多个阈值，利用任务间相关性提高准确性"
+    description = "共享特征提取+多头预测（PyTorch 优先，numpy 回退）"
     category = "多任务学习"
     default_weight = 1.6
 
     def __init__(self):
         super().__init__()
         self.thresholds = [100000, 1000000, 10000000]
-        self.threshold_weights = [0.4, 0.4, 0.2]  # 短期、中期、长期权重
-        self.consistency_threshold = 0.3  # 一致性检查阈值
+        self.threshold_weights = [0.4, 0.4, 0.2]
+        self.consistency_threshold = 0.3
 
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
-        """执行预测
+        current_views = video_data.get("view_count", 0)
+        history = video_data.get("history_data", [])
 
-        Args:
-            video_data: 视频数据
-            threshold: 目标播放量阈值（会被忽略，算法内部同时预测多个阈值）
+        if _HAS_TORCH and len(history) >= 20:
+            try:
+                result = self._torch_predict(video_data, threshold)
+                if result is not None:
+                    return result
+            except Exception as e:
+                logger.debug("MultiTask PyTorch 失败，回退 numpy: %s", e)
 
-        Returns:
-            PredictionResult（针对最可能的阈值）
-        """
+        return self._numpy_predict(video_data, threshold)
+
+    def _torch_predict(self, video_data: Dict[str, Any], threshold: int) -> PredictionResult:
+        current_views = video_data.get("view_count", 0)
+        history = video_data.get("history_data", [])
+        velocity = self.calculate_velocity(video_data)
+
+        views = np.array([h.get("view_count", 0) for h in history], dtype=np.float32)
+        likes = np.array([h.get("like_count", 0) for h in history], dtype=np.float32)
+        coins = np.array([h.get("coin_count", 0) for h in history], dtype=np.float32)
+
+        n = len(views)
+        if n < 20:
+            return None
+
+        p, n_tasks = 5, 3
+        X_list, y_list = [], []
+        for i in range(p + 10, n - 2):
+            feat = []
+            for j in range(p):
+                feat.extend([views[i - j - 1], likes[i - j - 1], coins[i - j - 1]])
+            X_list.append(feat)
+            y_list.append([
+                views[i - 1] / max(views[i - 2], 1) - 1,
+                views[i] / max(views[i - 1], 1) - 1,
+                views[i + 1] / max(views[i], 1) - 1,
+            ])
+
+        if len(X_list) < 8:
+            return None
+
+        X = torch.tensor(np.array(X_list), dtype=torch.float32)
+        y = torch.tensor(np.array(y_list), dtype=torch.float32)
+
+        try:
+            model = _MultiTaskMLP(in_dim=X.shape[1], n_tasks=n_tasks)
+            opt = optim.Adam(model.parameters(), lr=0.01)
+            for _ in range(100):
+                model.train()
+                opt.zero_grad()
+                pred = model(X)
+                loss = nn.MSELoss()(pred, y)
+                loss.backward()
+                opt.step()
+
+            model.eval()
+            with torch.no_grad():
+                last_feat = []
+                for j in range(p):
+                    last_feat.extend([views[-j - 1], likes[-j - 1] if len(likes) > j + 1 else 0,
+                                      coins[-j - 1] if len(coins) > j + 1 else 0])
+                pred_t = model(torch.tensor([last_feat], dtype=torch.float32)).numpy()[0]
+
+            pred_velocity = max(0, float(np.mean(pred_t)) * current_views / 3600)
+            if pred_velocity < 1:
+                pred_velocity = velocity
+
+            remaining = threshold - current_views
+            if remaining <= 0:
+                predicted_hours, confidence = 0, 1.0
+            else:
+                predicted_hours = remaining / pred_velocity if pred_velocity > 0 else float("inf")
+                confidence = min(0.85, 0.4 + 0.3 * min(1.0, float(len(X_list)) / 30) + 0.15)
+
+            return PredictionResult(
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=predicted_hours,
+                confidence=confidence,
+                current_views=current_views,
+                current_velocity=velocity,
+                metadata={"method": "multi_task_torch", "n_tasks": n_tasks},
+                timestamp=datetime.now(),
+            )
+        except Exception:
+            return None
+
+    def _numpy_predict(self, video_data: Dict[str, Any], threshold: int) -> PredictionResult:
         current_views = video_data.get("view_count", 0)
         history = video_data.get("history_data", [])
 
@@ -342,3 +429,19 @@ class MultiTaskSimpleAlgorithm(BaseAlgorithm):
             metadata=metadata,
             timestamp=datetime.now(),
         )
+
+
+if _HAS_TORCH:
+
+    class _MultiTaskMLP(nn.Module):
+        def __init__(self, in_dim, n_tasks, hidden=64):
+            super().__init__()
+            self.shared = nn.Sequential(
+                nn.Linear(in_dim, hidden), nn.ReLU(),
+                nn.Linear(hidden, hidden), nn.ReLU(),
+            )
+            self.heads = nn.ModuleList([nn.Linear(hidden, 1) for _ in range(n_tasks)])
+
+        def forward(self, x):
+            h = self.shared(x)
+            return torch.cat([head(h) for head in self.heads], dim=1)

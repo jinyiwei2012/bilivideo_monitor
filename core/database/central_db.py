@@ -183,6 +183,10 @@ class Database:
                 ON monitor_records(bvid, timestamp)
             """)
             cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_monitor_bvid_ts_view
+                ON monitor_records(bvid, timestamp, view_count)
+            """)
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS predictions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     bvid TEXT,

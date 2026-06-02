@@ -88,6 +88,21 @@ def _save_predictions_to_db(gui, bvid, current_view, results):
                 gui.log_panel.add_log("WARNING", f"保存预测记录失败 {bvid}/{name}: {e}")
 
 
+def _fetch_db_history(gui, bvid: str) -> list:
+    """从 DB 读取全量历史，供长期期预测算法使用。
+
+    返回 [(timestamp, view_count), ...] 格式，无 DB 时返回空列表。
+    """
+    try:
+        if bvid in gui.video_dbs:
+            db_records = gui.video_dbs[bvid].get_all_records(limit=0)
+            if db_records:
+                return [(r["timestamp"], r["view_count"]) for r in db_records]
+    except Exception as e:
+        logger.debug("读取 DB 全量历史失败 %s: %s", bvid, e)
+    return []
+
+
 def _merge_history(gui, bvid: str) -> list:
     """合并内存历史与数据库历史，同步写回 gui.history_data 确保图表数据完整
 
@@ -220,10 +235,12 @@ def _predict_single(gui, bvid, video) -> dict:
         result = engine._run_prediction(bvid, current_view)
     except Exception:
         history = _merge_history(gui, bvid)
+        db_history = _fetch_db_history(gui, bvid)
         with _prediction_semaphore:
             results = AlgorithmRegistry.predict_all(
                 history, current_view, bvid=bvid,
                 thresholds=THRESHOLDS, threshold_names=THRESHOLD_NAMES,
+                db_history=db_history,
             )
         weighted = results.get("_weighted", {})
         w_pred = weighted.get("prediction", current_view)

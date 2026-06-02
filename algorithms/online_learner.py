@@ -282,6 +282,80 @@ class OnlineLearner:
                 logger.debug("[online_learner] eta 自适应: %.3f → %.3f (CV=%.2f)", self.eta, new_eta, cv)
                 self.eta = new_eta
 
+    # ── OGD / FTRL 高级在线学习 ──────────────────
+
+    def update_ogd(self, name: str, gradient: float, lr: float = 0.01, l2_lambda: float = 0.001):
+        """Online Gradient Descent 更新单个算法的权重。
+
+        适用场景：算法预测值可直接求导（如线性模型、MLP 部分参数）。
+        相比 Hedge（纯权重重新分配），OGD 直接沿梯度方向更新权重向量。
+
+        Args:
+            name: 算法名称
+            gradient: 当前步的梯度（损失对权重的导数）
+            lr: 学习率
+            l2_lambda: L2 正则化系数
+        """
+        if name not in self._trackers:
+            return
+        with self._lock:
+            t = self._trackers[name]
+            if abs(t.weight) < 1e-10 and abs(t.ewma_loss) < 1e-10:
+                t.weight = 1.0
+            t.weight = t.weight - lr * (gradient + l2_lambda * t.weight)
+            t.weight = max(self.min_weight, min(5.0, t.weight))
+            t.error_count += 1
+            t.last_update = time.time()
+
+    def update_ftrl(
+        self, name: str, gradient: float,
+        lr: float = 0.01, l1_lambda: float = 0.001, l2_lambda: float = 0.001,
+        beta: float = 1.0,
+    ):
+        """Follow The Regularized Leader (FTRL-Proximal) 更新单个算法权重。
+
+        FTRL 在在线学习中表现优异，尤其适合稀疏特征场景。
+        相比 OGD，FTRL 对每个维度独立自适应学习率，L1 正则产生稀疏解。
+
+        Args:
+            name: 算法名称
+            gradient: 当前梯度
+            lr: 基础学习率
+            l1_lambda: L1 正则系数
+            l2_lambda: L2 正则系数
+            beta: 自适应学习率平滑系数
+        """
+        if name not in self._trackers:
+            return
+        with self._lock:
+            t = self._trackers[name]
+            # 累积梯度平方（自适应学习率）
+            g2 = getattr(t, "_ftrl_g2", 0.0)
+            g2_new = g2 + gradient * gradient
+            t._ftrl_g2 = g2_new  # type: ignore
+
+            # 累积梯度（带动量）
+            g_accum = getattr(t, "_ftrl_g", 0.0)
+            g_accum_new = beta * g_accum + (1 - beta) * gradient
+            t._ftrl_g = g_accum_new  # type: ignore
+
+            # FTRL 更新公式
+            sigma = (math.sqrt(g2_new) - math.sqrt(g2)) / lr
+            z = getattr(t, "_ftrl_z", 0.0)
+            z_new = z + gradient - sigma * t.weight
+            t._ftrl_z = z_new  # type: ignore
+
+            # 软阈值（L1 正则）
+            eta = lr / (math.sqrt(g2_new) + l2_lambda)
+            if abs(z_new) <= l1_lambda:
+                t.weight = 0.0
+            else:
+                t.weight = -(z_new - l1_lambda * math.copysign(1, z_new)) * eta
+
+            t.weight = max(self.min_weight, min(5.0, t.weight))
+            t.error_count += 1
+            t.last_update = time.time()
+
     # ── 内部方法 ──────────────────────────────────
 
     def _quick_weight(self, name: str) -> float:

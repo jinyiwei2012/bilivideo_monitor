@@ -1,187 +1,133 @@
 """
-高斯过程回归
-非参数化的概率模型，提供不确定性估计
+高斯过程回归 (Gaussian Process Regression)
+概率预测方法，输出预测值+不确定度
+
+优先使用 sklearn GaussianProcessRegressor，不可用时回退 numpy 简化版
 """
 
-import numpy as np
-from scipy import linalg
-from typing import List, Dict, Any, Optional, Tuple
 import logging
-
-from algorithms.base import BaseAlgorithm
+import numpy as np
+from typing import Dict
+from datetime import datetime
+from algorithms.base import BaseAlgorithm, PredictionResult
 
 logger = logging.getLogger(__name__)
 
+_HAS_SKLEARN = False
+try:
+    from sklearn.gaussian_process import GaussianProcessRegressor
+    from sklearn.gaussian_process.kernels import RBF, WhiteKernel
+
+    _HAS_SKLEARN = True
+except ImportError:
+    pass
+
 
 class GaussianProcessAlgorithm(BaseAlgorithm):
-    """
-    Gaussian Process Regression
+    """高斯过程回归"""
 
-    使用高斯过程进行非参数化回归
-    适用于小样本、需要不确定性估计的场景
-    """
+    name = "高斯过程"
+    algorithm_id = "gaussian_process"
+    description = "概率高斯过程回归，输出点预测+不确定性"
+    category = "统计模型"
+    default_weight = 1.3
 
-    name = "高斯过程回归"
-    description = "非参数化概率模型，适合小样本"
-    category = "概率模型"
+    def predict(self, video_data: Dict, threshold: int = 100000) -> PredictionResult:
+        current_views = video_data.get("view_count", 0)
+        history = video_data.get("history_data", [])
+        velocity = self.calculate_velocity(video_data)
 
-    def __init__(self):
-        super().__init__()
-        self.length_scale = 1.0  # RBF核长度尺度
-        self.sigma_f = 1.0  # 信号方差
-        self.sigma_n = 0.1  # 噪声标准差
-        self.X_train = None
-        self.y_train = None
-        self._alpha = None
-        self._L = None
+        if len(history) < 8:
+            remaining = threshold - current_views
+            predicted_hours = remaining / velocity if velocity > 0 else float("inf")
+            return PredictionResult(
+                algorithm_name=self.name, algorithm_id=self.algorithm_id,
+                target_threshold=threshold, predicted_hours=predicted_hours,
+                confidence=0.3, current_views=current_views, current_velocity=velocity,
+                metadata={"method": "gp_fallback"}, timestamp=datetime.now(),
+            )
 
-    def predict(
-        self, current_views: int, target_views: int, history_data: List[Dict[str, Any]], video_info: Dict[str, Any]
-    ) -> Optional[Tuple[int, float]]:
-        """
-        预测到达目标播放量所需时间
-        """
-        if not history_data or len(history_data) < 6:
-            return None
+        if _HAS_SKLEARN and len(history) >= 15:
+            try:
+                result = self._sklearn_predict(video_data, threshold)
+                if result is not None:
+                    return result
+            except Exception as e:
+                logger.debug("GP sklearn failed: %s", e)
 
-        try:
-            # 准备数据
-            X, y = self._prepare_data(history_data)
+        return self._numpy_predict(video_data, threshold)
 
-            if len(X) < 5:
-                return None
+    def _sklearn_predict(self, video_data, threshold):
+        current_views = video_data.get("view_count", 0)
+        velocity = self.calculate_velocity(video_data)
+        history = video_data.get("history_data", [])
 
-            # 训练高斯过程
-            self._fit(X, y)
+        views = np.array([h.get("view_count", 0) for h in history[-30:]], dtype=np.float64)
+        n = len(views)
+        X = np.arange(n).reshape(-1, 1)
 
-            if current_views >= target_views:
-                return (0, 1.0)
+        kernel = RBF(length_scale=3.0) + WhiteKernel(noise_level=0.1)
+        gp = GaussianProcessRegressor(kernel=kernel, normalize_y=True, n_restarts_optimizer=3)
+        gp.fit(X, views)
 
-            # 预测未来多个点
-            last_t = X[-1][0]
-            future_ts = np.array([[last_t + i] for i in range(1, 31)])  # 预测未来30天
+        X_pred = np.arange(n, n + 10).reshape(-1, 1)
+        y_pred, y_std = gp.predict(X_pred, return_std=True)
 
-            predictions, variances = self._predict_points(future_ts)
+        growth = np.mean(np.diff(y_pred)) if len(y_pred) >= 2 else velocity * 3600
+        predicted_velocity = max(0, growth / 3600)
+        if predicted_velocity < 1:
+            predicted_velocity = velocity
 
-            # 累积预测增长
-            cumulative = 0
-            days = 0
-            for pred in predictions:
-                cumulative += max(0, pred)
-                days += 1
-                if current_views + cumulative >= target_views:
-                    break
-
-            if days >= 30 and current_views + cumulative < target_views:
-                # 需要更远的预测
-                remaining = target_views - current_views - cumulative
-                avg_growth = np.mean(predictions) if len(predictions) > 0 else 100
-                if avg_growth > 0:
-                    days += int(remaining / avg_growth)
-
-            if days > 3650:
-                return None
-
-            seconds_needed = days * 86400
-
-            # 置信度基于预测方差
-            avg_variance = np.mean(variances[: min(days, len(variances))])
-            confidence = self._calculate_confidence(avg_variance)
-
-            return (seconds_needed, confidence)
-
-        except Exception as e:
-            logger.warning(f"高斯过程预测失败: {e}")
-            return None
-
-    def _prepare_data(self, history_data: List[Dict[str, Any]]) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        准备数据
-
-        X: 时间步
-        y: 日增长量
-        """
-        X = []
-        y = []
-
-        for i in range(1, len(history_data)):
-            prev = history_data[i - 1]
-            curr = history_data[i]
-
-            t = i
-            growth = curr.get("view", 0) - prev.get("view", 0)
-
-            X.append([t])
-            y.append(growth)
-
-        return np.array(X), np.array(y)
-
-    def _rbf_kernel(self, x1: np.ndarray, x2: np.ndarray) -> np.ndarray:
-        """
-        RBF核函数
-
-        k(x1, x2) = sigma_f^2 * exp(-||x1-x2||^2 / (2*length_scale^2))
-        """
-        # 计算欧氏距离
-        if x1.ndim == 1:
-            x1 = x1.reshape(-1, 1)
-        if x2.ndim == 1:
-            x2 = x2.reshape(-1, 1)
-
-        dist_sq = np.sum(x1**2, axis=1).reshape(-1, 1) + np.sum(x2**2, axis=1) - 2 * x1 @ x2.T
-
-        return self.sigma_f**2 * np.exp(-dist_sq / (2 * self.length_scale**2))
-
-    def _fit(self, X: np.ndarray, y: np.ndarray):
-        """训练高斯过程"""
-        self.X_train = X
-        self.y_train = y
-
-        # 计算核矩阵
-        K = self._rbf_kernel(X, X)
-        K += self.sigma_n**2 * np.eye(len(X))  # 添加噪声
-
-        # Cholesky 分解求解 K^(-1) * y（比直接求逆快 2 倍、数值更稳定）
-        try:
-            L = np.linalg.cholesky(K)
-            self._alpha = linalg.cho_solve((L, False), y)
-            self._L = L
-        except np.linalg.LinAlgError:
-            # fallback：对非正定矩阵使用伪逆
-            self._alpha = np.linalg.lstsq(K, y, rcond=None)[0]
-            self._L = None
-
-    def _predict_points(self, X_test: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        预测新点
-
-        Returns:
-            (均值, 方差)
-        """
-        # 计算测试点与训练点的核
-        K_s = self._rbf_kernel(self.X_train, X_test)
-
-        # 计算测试点之间的核
-        K_ss = self._rbf_kernel(X_test, X_test)
-
-        # 预测均值
-        mu = K_s.T @ self._alpha
-
-        if self._L is not None:
-            v = linalg.cho_solve((self._L, False), K_s)
-            cov = K_ss - K_s.T @ v
+        remaining = threshold - current_views
+        if remaining <= 0:
+            predicted_hours, confidence = 0, 1.0
         else:
-            cov = K_ss - K_s.T @ np.linalg.lstsq(self.X_train, K_s, rcond=None)[0]
-        var = np.diag(cov)
+            predicted_hours = remaining / predicted_velocity
+            uncertainty = float(np.mean(y_std)) / max(float(np.mean(y_pred)), 1)
+            confidence = max(0.1, min(0.9, 0.7 / (1 + uncertainty * 3)))
 
-        return mu, var
+        return PredictionResult(
+            algorithm_name=self.name, algorithm_id=self.algorithm_id,
+            target_threshold=threshold, predicted_hours=predicted_hours,
+            confidence=confidence, current_views=current_views, current_velocity=velocity,
+            metadata={"method": "gp_sklearn", "uncertainty": round(uncertainty, 4)},
+            timestamp=datetime.now(),
+        )
 
-    def _calculate_confidence(self, variance: float) -> float:
-        """计算置信度"""
-        # 方差越小，置信度越高
-        std = np.sqrt(variance)
+    def _numpy_predict(self, video_data, threshold):
+        current_views = video_data.get("view_count", 0)
+        velocity = self.calculate_velocity(video_data)
+        history = video_data.get("history_data", [])
 
-        # 归一化
-        confidence = max(0, 1 - std / 10000)
+        views = np.array([h.get("view_count", 0) for h in history[-20:]], dtype=np.float64)
+        n = len(views)
 
-        return min(0.9, max(0.3, confidence))
+        # 简化 GP: RBF协方差→加权平均
+        x = np.arange(n)
+        rbf = np.exp(-0.5 * ((x[:, None] - x[None, :]) / (n / 4)) ** 2)
+        rbf += np.eye(n) * 0.1
+        try:
+            alpha = np.linalg.solve(rbf, views)
+        except np.linalg.LinAlgError:
+            alpha = views
+
+        # 预测
+        x_pred = np.arange(n + 5)
+        k_star = np.exp(-0.5 * ((x_pred[:, None] - x[None, :]) / (n / 4)) ** 2)
+        y_pred = k_star @ alpha
+        growth = np.mean(np.diff(y_pred[-5:])) if n >= 5 else velocity * 3600
+
+        predicted_velocity = max(0, growth / 3600)
+        if predicted_velocity < 1:
+            predicted_velocity = velocity
+
+        remaining = threshold - current_views
+        predicted_hours = remaining / predicted_velocity if remaining > 0 and predicted_velocity > 0 else float("inf")
+        confidence = min(0.85, 0.35 + 0.02 * min(n, 20))
+
+        return PredictionResult(
+            algorithm_name=self.name, algorithm_id=self.algorithm_id,
+            target_threshold=threshold, predicted_hours=predicted_hours,
+            confidence=confidence, current_views=current_views, current_velocity=velocity,
+            metadata={"method": "gp_numpy", "data_points": n}, timestamp=datetime.now(),
+        )

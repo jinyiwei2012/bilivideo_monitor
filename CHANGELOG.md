@@ -1,5 +1,33 @@
 # 更新日志
 
+## Release 2026-06-02 (v2.9.0)
+
+### 🚀 新算法 (+38)
+- **深度学习 10 个**：NLinear (AAAI 2023)、N-HiTS (AAAI 2023)、TimeMixer (ICLR 2024)、BiTCN、WPMixer (AAAI 2025)、Koopa (NeurIPS 2023)、SegRNN (arXiv 2023)、FiLM (NeurIPS 2022)、FreTS (NeurIPS 2023)、LightTS (arXiv 2022)、Autoformer (NeurIPS 2021)、FEDformer (ICML 2022)、Crossformer (ICLR 2023)
+- **新增 3 个类别**：频域分析 (3个)、事件驱动 (3个)、内容感知 (3个)
+- **集成学习 6 个**：Stacking元学习器、Blending集成、动态集成策略、贝叶斯模型平均、残差修正GBM、分位数集成
+- **统计模型**: 高斯过程回归 (sklearn优先)
+- **时间序列**: Theta方法 (M3竞赛亚军)
+- **扩散模型**: Bass扩散模型
+- **高级分析**: 共形预测、概率校准 (Isotonic Regression)、多步多频率融合预测
+- **增长模型**: 质量衰减、病毒传播评分、互动衰减
+
+### 🔧 优化
+- **AutoARIMA 升级**: `arima_simple` / `sarima_simple` 新增 `pmdarima.auto_arima` 优先路径，自动搜索最优 ARIMA 参数
+- **特征工程**: `_prepare_video_data` 新增时间特征、派生特征 (速度/加速度/急动度)、互动比特征、滞后特征 (lag1/3/7)、滚动统计 (3/7/14日)
+- **窗口加权**: `predict_all` 集成阶段新增指数衰减窗口加权，近期表现好的算法更高权重
+- **数据质量**: 新增 `data_cleaner.py` — 播放量倒退检测、Z-score 异常过滤、Savitzky-Golay 平滑、缺失插值
+- **滚动回测**: 新增 `rollout_backtest.py` — 时间序列交叉验证框架，支持多模型排名
+- **在线学习**: `online_learner.py` 新增 OGD 和 FTRL-Proximal 在线学习算法
+- **RevIN 层**: `_torch_upgrade.py` 新增可逆实例归一化层，供 NLinear、BiTCN 使用
+- **依赖更新**: `requirements.txt` 移除 3 个未使用依赖，补全 5 个缺失依赖，新增 `pmdarima`、`arch`、`tbats`、`pytorch-tabnet`、`playwright`、`opencv-python-headless`
+- **DB 历史修复**: 预测算法可直接从 DB 拉取全量历史数据，不再受内存 3000 条截断影响
+
+### 📝 文档
+- 更新 README.md 算法数量、项目结构
+
+---
+
 ## Release 2026-06-01 (v2.8.0)
 
 ### 🔧 重构
