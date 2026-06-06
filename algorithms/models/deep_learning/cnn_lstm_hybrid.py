@@ -78,7 +78,7 @@ class CNNLSTMHybridAlgorithm(BaseAlgorithm):
         )
 
     def build_model(self):
-        return CNNLSTMTorchModel(in_features=getattr(self, '_training_n_features', 5), horizon=self.training_horizon)
+        return CNNLSTMTorchModel(in_features=getattr(self, "_training_n_features", 5), horizon=self.training_horizon)
 
     def get_training_features(self):
         return ["view_count", "like_count", "coin_count", "favorite_count", "share_count"]

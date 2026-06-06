@@ -2,10 +2,10 @@
 B站API模块 - HTTP请求核心
 支持 curl_cffi TLS 指纹伪装、412 错误重试、代理绑定、指数退避
 """
+
 import time
 import random
 import logging
-import threading
 from typing import Dict, Any, Optional
 
 import requests
@@ -88,8 +88,14 @@ def _prepare_request_kwargs(self, **kwargs) -> Dict:
     request_kwargs = {"timeout": 15, **kwargs}
     if proxy:
         request_kwargs["proxies"] = proxy
-        request_kwargs.setdefault("verify", False)
-        masked = self.proxy_manager.mask_url(proxy.get("http", ""))
+        # 仅在 SOCKS 代理或用户显式配置时禁用 SSL 验证；HTTP/HTTPS 代理保留证书校验
+        proxy_url = proxy.get("http", "") or proxy.get("https", "")
+        if proxy_url.lower().startswith(("socks4", "socks5")):
+            request_kwargs.setdefault("verify", False)
+            logger.debug("→ SOCKS 代理，已禁用 SSL 证书验证")
+        else:
+            logger.info("→ 使用 HTTP/HTTPS 代理，SSL 证书验证已启用（若代理使用自签证书请手动配置）")
+        masked = self.proxy_manager.mask_url(proxy_url)
         logger.debug(f"→ 请求代理: {masked}")
     else:
         logger.debug("→ 请求直连（无代理）")
@@ -105,7 +111,6 @@ def _do_http_request(self, method, url, request_kwargs, cookies):
     err = None
     if self._has_curl_cffi and self._curl_session:
         try:
-            from curl_cffi import requests as _curl_req
             from core.bilibili_api import _CurlCffiResponse
 
             proxy = request_kwargs.get("proxies", None)
@@ -243,7 +248,9 @@ def _request_public(self, method: str, url: str, **kwargs) -> Any:
             if proxy:
                 self._public_session.proxies.update(proxy)
                 self._public_session.headers["User-Agent"] = ua or self._public_session.headers["User-Agent"]
-                kwargs.setdefault("verify", False)
+                proxy_url = proxy.get("http", "") or proxy.get("https", "")
+                if proxy_url.lower().startswith(("socks4", "socks5")):
+                    kwargs.setdefault("verify", False)
             logger.debug("→ [public] %s %s", method.upper(), url.split("?")[0])
             resp = self._public_session.request(method, url, timeout=15, **kwargs)
             logger.debug("← [public] %s", resp.status_code)

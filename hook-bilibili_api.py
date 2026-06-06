@@ -6,6 +6,7 @@ that must be bundled alongside the executable. This hook ensures they are collec
 
 参考: https://github.com/Nemo2011/bilibili-api/issues/39
 """
+
 from PyInstaller.utils.hooks import collect_data_files
 
 datas = collect_data_files("bilibili_api")

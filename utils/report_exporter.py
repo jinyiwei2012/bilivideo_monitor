@@ -265,19 +265,23 @@ def export_prediction_vs_actual(video_dbs: Dict, output_dir: Optional[str] = Non
             algo = p.get("algorithm", p.get("algorithm_name", "未知"))
             ts = p.get("created_at", p.get("timestamp", ""))
             if pred > 0 and actual > 0:
-                rows.append({
-                    "bvid": bvid,
-                    "algorithm": algo,
-                    "timestamp": str(ts),
-                    "predicted": pred,
-                    "actual": actual,
-                    "error": pred - actual,
-                    "error_pct": (pred - actual) / actual * 100,
-                })
+                rows.append(
+                    {
+                        "bvid": bvid,
+                        "algorithm": algo,
+                        "timestamp": str(ts),
+                        "predicted": pred,
+                        "actual": actual,
+                        "error": pred - actual,
+                        "error_pct": (pred - actual) / actual * 100,
+                    }
+                )
     if not rows:
         return ""
     with open(output_path, "w", newline="", encoding="utf-8-sig") as f:
-        w = csv.DictWriter(f, fieldnames=["bvid", "algorithm", "timestamp", "predicted", "actual", "error", "error_pct"])
+        w = csv.DictWriter(
+            f, fieldnames=["bvid", "algorithm", "timestamp", "predicted", "actual", "error", "error_pct"]
+        )
         w.writeheader()
         w.writerows(rows)
     logger.info("预测对比表导出完成: %s (%d 条)", output_path, len(rows))

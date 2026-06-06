@@ -7,7 +7,7 @@ import tkinter as tk
 from tkinter import ttk
 from datetime import datetime
 from ui.theme import C
-from ui.helpers import FONT, FONT_SM, FONT_MONO, fmt_num
+from ui.helpers import FONT, FONT_SM, fmt_num
 from ui.dialog_base import DialogBase
 
 
@@ -35,7 +35,14 @@ class RankingPanel:
 
         tk.Label(top, text="排序维度:", bg=C["bg_base"], fg=C["text_1"], font=FONT).pack(side=tk.LEFT)
         self._sort_var = tk.StringVar(value=self.SORT_OPTIONS[0][1])
-        combo = ttk.Combobox(top, textvariable=self._sort_var, values=[s[0] for s in self.SORT_OPTIONS], state="readonly", font=FONT, width=20)
+        combo = ttk.Combobox(
+            top,
+            textvariable=self._sort_var,
+            values=[s[0] for s in self.SORT_OPTIONS],
+            state="readonly",
+            font=FONT,
+            width=20,
+        )
         combo.pack(side=tk.LEFT, padx=6)
         combo.bind("<<ComboboxSelected>>", lambda e: self._refresh())
 
@@ -43,9 +50,7 @@ class RankingPanel:
         self._status_lbl.pack(side=tk.RIGHT)
 
         columns = ("rank", "bvid", "title", "author", "views", "velocity", "engagement", "online")
-        self._tree = ttk.Treeview(
-            self.dlg.content_area(), columns=columns, show="headings", height=20
-        )
+        self._tree = ttk.Treeview(self.dlg.content_area(), columns=columns, show="headings", height=20)
         self._tree.heading("rank", text="#")
         self._tree.heading("bvid", text="BV号")
         self._tree.heading("title", text="标题")
@@ -77,8 +82,16 @@ class RankingPanel:
             return 0
         t1, v1 = history[-2]
         t0, v0 = history[-1]
-        t1 = t1 if isinstance(t1, datetime) else datetime.fromisoformat(str(t1)) if isinstance(t1, str) else datetime.fromtimestamp(float(t1))
-        t0 = t0 if isinstance(t0, datetime) else datetime.fromisoformat(str(t0)) if isinstance(t0, str) else datetime.fromtimestamp(float(t0))
+        t1 = (
+            t1
+            if isinstance(t1, datetime)
+            else datetime.fromisoformat(str(t1)) if isinstance(t1, str) else datetime.fromtimestamp(float(t1))
+        )
+        t0 = (
+            t0
+            if isinstance(t0, datetime)
+            else datetime.fromisoformat(str(t0)) if isinstance(t0, str) else datetime.fromtimestamp(float(t0))
+        )
         dt = (t0 - t1).total_seconds() / 3600
         if dt <= 0 or v0 < v1:
             return 0
@@ -122,7 +135,9 @@ class RankingPanel:
             else:
                 sort_val = 0
 
-            items.append((sort_val, bvid, v.get("title", bvid)[:30], v.get("author", ""), views, velocity, engagement, online))
+            items.append(
+                (sort_val, bvid, v.get("title", bvid)[:30], v.get("author", ""), views, velocity, engagement, online)
+            )
 
         items.sort(key=lambda x: -abs(x[0]))
 

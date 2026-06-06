@@ -219,7 +219,7 @@ class CausalAnalyzer:
         self._max_lag = max_lag
         self._lock = threading.Lock()
         self._series: Dict[str, List[float]] = {}  # 各指标时间序列
-        self._timestamps: List[float] = []          # 时间戳列表
+        self._timestamps: List[float] = []  # 时间戳列表
 
     def feed(self, records: List[Dict]):
         """喂入监控记录，追加到内部时间序列。

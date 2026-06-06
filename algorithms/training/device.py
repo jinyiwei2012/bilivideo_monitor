@@ -91,6 +91,7 @@ def _try_dml():
         return None
     try:
         import torch_directml
+
         return torch_directml.device()
     except Exception as e:
         logger.warning("DirectML 冒烟测试失败: %s", e)

@@ -174,5 +174,5 @@ class FileLogger:
             logger.debug("重命名日志文件失败: %s", e)
             try:
                 self._file = open(old_path, "a", encoding="utf-8")
-            except Exception:
-                pass
+            except Exception as e2:
+                logger.debug("日志文件重命名回退也失败: %s", e2)

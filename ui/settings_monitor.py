@@ -7,7 +7,7 @@ Mixin functions for SettingsWindow.
 import tkinter as tk
 from tkinter import ttk
 from ui.theme import C
-from ui.helpers import FONT, FONT_SM, auto_threshold_name
+from ui.helpers import FONT_SM, auto_threshold_name
 
 
 def _build_monitor_tab(self, nb):

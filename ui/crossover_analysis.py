@@ -305,7 +305,7 @@ class CrossoverAnalysisWindow:
     def _get_algo_growth_rate(self, history_pts, current_views, algo_name, threshold):
         """获取算法预测的增长率 (播放量/小时)"""
         MAX_RATE = 50000  # 超过此值的增长率视为异常（5万/小时已极高）
-        MIN_HOURS = 0.5   # 低于此值的预测时长视为不可信
+        MIN_HOURS = 0.5  # 低于此值的预测时长视为不可信
         try:
             if algo_name == "加权集成(默认)":
                 # 加权集成：遍历所有算法，按权重加权平均增长率

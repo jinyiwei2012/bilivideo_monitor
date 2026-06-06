@@ -67,6 +67,7 @@ def get_moirai_model() -> Tuple[Optional[Any], bool, str]:
             return cached, True, "cached"
     try:
         from uni2ts.model.moirai import MoiraiModule
+
         logger.debug("[hf_loader] uni2ts 已安装，MOIRAI 将使用 torch 推理")
     except ImportError as e:
         logger.debug("[hf_loader] uni2ts 未安装，MOIRAI 走 numpy 降级: %s", e)
@@ -102,9 +103,10 @@ def get_lag_llama_model() -> Tuple[Optional[Any], bool, str]:
         from huggingface_hub import hf_hub_download
 
         logger.debug("[hf_loader] 首次加载 Lag-Llama，从 HuggingFace 下载或读缓存: %s", LAG_LLAMA_REPO)
-        ckpt_path = hf_hub_download(
+        ckpt_path = hf_hub_download(  # nosec B615 — 模型来源可信，revision 锁定在 main 分支
             repo_id=LAG_LLAMA_REPO,
             filename="lag-llama.ckpt",
+            revision="main",
         )
         import torch as _torch
 

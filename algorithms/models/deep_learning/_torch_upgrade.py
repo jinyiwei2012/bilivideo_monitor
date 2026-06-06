@@ -630,10 +630,7 @@ def _add_derived_features(arr: np.ndarray) -> np.ndarray:
         roll_mean = np.full(N, float(target.mean()))
     # rolling std (window=5)
     if N >= 5:
-        roll_std = np.array([
-            float(np.std(target[max(0, i-2):min(N, i+3)]))
-            for i in range(N)
-        ], dtype=np.float32)
+        roll_std = np.array([float(np.std(target[max(0, i - 2) : min(N, i + 3)])) for i in range(N)], dtype=np.float32)
     else:
         roll_std = np.full(N, float(target.std() or 1.0))
     # 加速度（view_count 的二阶差分）

@@ -31,9 +31,9 @@ class VideoSearchWindow:
         """
         self.dlg = DialogBase(parent, "搜索视频 - B站", DialogBase.calc_geometry(parent, 0.48, 0.68), modal=True)
         self.window = self.dlg.window
-        self.on_import = on_import                 # 导入回调
-        self.search_results: List[Dict] = []       # 搜索结果列表
-        self.searching = False                      # 是否正在搜索
+        self.on_import = on_import  # 导入回调
+        self.search_results: List[Dict] = []  # 搜索结果列表
+        self.searching = False  # 是否正在搜索
 
         self._setup_ui()
 

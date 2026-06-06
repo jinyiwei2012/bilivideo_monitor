@@ -15,13 +15,10 @@ UI 已拆分为独立模块：
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox
 import customtkinter as ctk
 import threading
-import time
 import os
 import logging
-from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -34,21 +31,20 @@ sys.path.insert(0, str(_pp()))
 
 from ui.theme import C, init_theme
 from ui.helpers import (
-    FONT, FONT_SM, FONT_MONO,
-    DEFAULT_INTERVAL, FAST_INTERVAL, FAST_GAP,
-    THRESHOLD_NAMES, fmt_num, nearest_threshold_gap, fmt_eta,
+    FONT,
+    FONT_MONO,
+    DEFAULT_INTERVAL,
+    FAST_INTERVAL,
+    FAST_GAP,
     project_path,
 )
-from ui.chart import draw_chart_placeholder
 from ui.log_panel import LogPanel
 from ui.video_list_panel import VideoListPanel
 from ui.detail_panel import DetailPanel
 from ui.prediction_panel import PredictionPanel
 from ui.bottom_bar import BottomBar
 from ui.dialogs import Dialogs
-from utils.yearly_score import calculate_yearly_from_dict as _calc_ys
-from ui.monitor_service import fetch_all_video_data, auto_predict_all
-from core import bilibili_api, db, notification_manager
+from core import notification_manager
 from config import load_config
 from utils.file_logger import FileLogger
 from ui.main_gui_tick import (
@@ -200,6 +196,7 @@ class BilibiliMonitorGUI:
         self._build_titlebar()
         self.log_panel = LogPanel(self.root, self._file_logger)
         from ui.log_panel import install_logging_bridge
+
         install_logging_bridge(self.log_panel)
         self._build_main()
         self.training_panel = None
@@ -233,8 +230,12 @@ class BilibiliMonitorGUI:
         logo_canvas.pack(side=tk.LEFT, padx=(0, 8))
         title_f = tk.Frame(logo_f, bg=C["bg_surface"])
         title_f.pack(side=tk.LEFT)
-        tk.Label(title_f, text="B站监控", bg=C["bg_surface"], fg=C["bilibili"], font=("Microsoft YaHei UI", 13, "bold")).pack(anchor="w")
-        tk.Label(title_f, text="播放量预测系统", bg=C["bg_surface"], fg=C["text_3"], font=("Microsoft YaHei UI", 10)).pack(anchor="w")
+        tk.Label(
+            title_f, text="B站监控", bg=C["bg_surface"], fg=C["bilibili"], font=("Microsoft YaHei UI", 13, "bold")
+        ).pack(anchor="w")
+        tk.Label(
+            title_f, text="播放量预测系统", bg=C["bg_surface"], fg=C["text_3"], font=("Microsoft YaHei UI", 10)
+        ).pack(anchor="w")
 
     def _build_navigation_buttons(self):
         """构建导航按钮"""
@@ -321,9 +322,15 @@ class BilibiliMonitorGUI:
     def _create_settings_menu(self):
         """创建设置下拉菜单"""
         self._settings_menu = tk.Menu(
-            self.root, tearoff=0, bg=C["bg_elevated"], fg=C["text_1"],
-            activebackground=C["bg_hover"], activeforeground=C["text_1"],
-            font=FONT, bd=0, relief="flat",
+            self.root,
+            tearoff=0,
+            bg=C["bg_elevated"],
+            fg=C["text_1"],
+            activebackground=C["bg_hover"],
+            activeforeground=C["text_1"],
+            font=FONT,
+            bd=0,
+            relief="flat",
         )
         self._settings_menu.add_command(label="⏱  刷新间隔", command=self._dialogs.open_interval_settings)
         self._settings_menu.add_command(label="🧠  算法信息", command=self._dialogs.open_algorithm_info)
@@ -344,13 +351,26 @@ class BilibiliMonitorGUI:
         self._settings_menu.add_command(label="📊  数据大屏", command=self._dialogs.open_dashboard)
         self._settings_menu.add_command(label="📋  导出报告", command=self._dialogs.open_report_scheduler)
         self._settings_menu.add_separator()
-        self._settings_menu.add_command(label="🗄  数据库查询", command=self._dialogs.open_database_query, state="normal" if _x() else "disabled")
-        self._settings_menu.add_command(label="⚙️  系统设置", command=self._dialogs.open_settings, state="normal" if _x() else "disabled")
+        self._settings_menu.add_command(
+            label="🗄  数据库查询", command=self._dialogs.open_database_query, state="normal" if _x() else "disabled"
+        )
+        self._settings_menu.add_command(
+            label="⚙️  系统设置", command=self._dialogs.open_settings, state="normal" if _x() else "disabled"
+        )
 
     def _create_icon_button(self, parent, icon, command, tooltip=None):
         """创建图标按钮（可复用）"""
-        btn = tk.Label(parent, text=icon, bg=C["bg_elevated"], fg=C["text_2"],
-                       font=("Microsoft YaHei UI", 11), cursor="hand2", padx=6, pady=2, relief="flat")
+        btn = tk.Label(
+            parent,
+            text=icon,
+            bg=C["bg_elevated"],
+            fg=C["text_2"],
+            font=("Microsoft YaHei UI", 11),
+            cursor="hand2",
+            padx=6,
+            pady=2,
+            relief="flat",
+        )
         btn.pack(side=tk.RIGHT, padx=2)
         if callable(command):
             btn.bind("<Button-1>", lambda e: command())
@@ -388,15 +408,26 @@ class BilibiliMonitorGUI:
         f = tk.Frame(parent, bg=C["bg_surface"])
         f.pack(side=tk.RIGHT, padx=2)
         self._model_act_btn = tk.Label(
-            f, text="🧠 激活模型", bg=C["bg_elevated"], fg=C["accent"],
-            font=FONT, cursor="hand2", padx=6, pady=2, relief="flat",
+            f,
+            text="🧠 激活模型",
+            bg=C["bg_elevated"],
+            fg=C["accent"],
+            font=FONT,
+            cursor="hand2",
+            padx=6,
+            pady=2,
+            relief="flat",
         )
         self._model_act_btn.pack(side=tk.RIGHT, padx=2)
         self._model_act_btn.bind("<Button-1>", lambda e: self._on_activate_models())
         self._model_act_btn.bind("<Enter>", lambda e: self._model_act_btn.config(bg=C["bg_hover"]))
         self._model_act_btn.bind("<Leave>", lambda e: self._model_act_btn.config(bg=C["bg_elevated"]))
         self._model_act_status = tk.Label(
-            f, text="", bg=C["bg_surface"], fg=C["text_3"], font=("Microsoft YaHei UI", 9),
+            f,
+            text="",
+            bg=C["bg_surface"],
+            fg=C["text_3"],
+            font=("Microsoft YaHei UI", 9),
         )
         self._model_act_status.pack(side=tk.RIGHT, padx=2)
 
@@ -467,12 +498,14 @@ class BilibiliMonitorGUI:
         elif name == "模型训练":
             if self.training_panel is None:
                 from ui.training_panel import TrainingPanel
+
                 self.training_panel = TrainingPanel(self.root, self)
             self.training_panel.frame.pack(fill=tk.BOTH, expand=True)
             self.training_panel.on_show()
         elif name == "微调训练":
             if self.finetune_panel is None:
                 from ui.finetune_panel import FinetunePanel
+
                 self.finetune_panel = FinetunePanel(self.root, self)
             self.finetune_panel.frame.pack(fill=tk.BOTH, expand=True)
             self.finetune_panel.on_show()
@@ -573,6 +606,7 @@ class BilibiliMonitorGUI:
 
     def _get_video(self, bvid):
         from ui.main_gui_events import get_video
+
         return get_video(self, bvid)
 
     # ── 删除监控 ──────────────────────────────

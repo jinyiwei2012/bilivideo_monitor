@@ -78,10 +78,10 @@ class VideoGraph:
         self._lock = threading.RLock()
 
         # 节点数据
-        self._nodes: Dict[str, Dict] = {}                # bvid → video_info
-        self._features: Dict[str, List[float]] = {}      # bvid → 特征向量
+        self._nodes: Dict[str, Dict] = {}  # bvid → video_info
+        self._features: Dict[str, List[float]] = {}  # bvid → 特征向量
         self._adj: Dict[str, Dict[str, float]] = defaultdict(dict)  # 邻接表 {bvid: {nbvid: weight}}
-        self._bvid_list: List[str] = []                   # 有序节点列表
+        self._bvid_list: List[str] = []  # 有序节点列表
 
         # 脏标记：节点有变更时置 True，build_edges 后清 False
         self._edges_dirty = True
@@ -105,8 +105,8 @@ class VideoGraph:
             self._features[bvid] = self._extract_features(video_info)
             if bvid not in self._bvid_list:
                 self._bvid_list.append(bvid)
-            self._edges_dirty = True   # 节点变更，边需重建
-            self._embeddings = None    # 使缓存失效
+            self._edges_dirty = True  # 节点变更，边需重建
+            self._embeddings = None  # 使缓存失效
 
     def remove_node(self, bvid: str):
         """从图中移除指定节点及其所有关联边。"""
@@ -136,7 +136,7 @@ class VideoGraph:
             self._adj.clear()
             bvids = list(self._nodes.keys())
             n = len(bvids)
-            if n < 5:   # 节点太少时建边无意义，保留脏标记等积累更多节点
+            if n < 5:  # 节点太少时建边无意义，保留脏标记等积累更多节点
                 return
 
             # 两两计算相似度
@@ -189,17 +189,16 @@ class VideoGraph:
         # 特征分解，取第 2 到 embed_dim+1 小的特征向量
         _, eigenvectors = np.linalg.eigh(L)
         actual_dim = min(embed_dim, max(1, n - 1))
-        embs = eigenvectors[:, 1:actual_dim + 1]
+        embs = eigenvectors[:, 1 : actual_dim + 1]
         norms = np.linalg.norm(embs, axis=1, keepdims=True)
         norms = np.where(norms > 1e-10, norms, 1.0)
         embs = embs / norms
 
         return {bv: embs[i, :].tolist() for i, bv in enumerate(bvids)}
 
-    def _compute_embedding_torch(self, embed_dim: int = 4,
-                                  hidden_dim: int = 16,
-                                  epochs: int = 100,
-                                  lr: float = 0.01) -> Dict[str, List[float]]:
+    def _compute_embedding_torch(
+        self, embed_dim: int = 4, hidden_dim: int = 16, epochs: int = 100, lr: float = 0.01
+    ) -> Dict[str, List[float]]:
         """PyTorch GCN：两层图卷积网络 + 自监督图重构训练。
 
         训练目标：最小化重构邻接矩阵与原始邻接矩阵的 MSE 损失。
@@ -348,18 +347,18 @@ class VideoGraph:
         duration = max(info.get("duration", 0), 1)
 
         return [
-            math.log10(max(views, 1)),                  # 1. 播放量对数
-            likes / views,                               # 2. 点赞率
-            coins / views,                               # 3. 投币率
-            shares / views,                              # 4. 分享率
-            favs / views,                                # 5. 收藏率
-            danmaku / views,                             # 6. 弹幕率
-            replies / views,                             # 7. 评论率
-            viewers / max(views, 1),                     # 8. 在线率
-            math.log10(max(duration, 1)),                # 9. 时长对数
-            (likes + coins + favs + shares) / views,     # 10. 综合互动率
-            coins / max(likes, 1),                       # 11. 投币/点赞比
-            danmaku / max(replies, 1),                   # 12. 弹幕/评论比
+            math.log10(max(views, 1)),  # 1. 播放量对数
+            likes / views,  # 2. 点赞率
+            coins / views,  # 3. 投币率
+            shares / views,  # 4. 分享率
+            favs / views,  # 5. 收藏率
+            danmaku / views,  # 6. 弹幕率
+            replies / views,  # 7. 评论率
+            viewers / max(views, 1),  # 8. 在线率
+            math.log10(max(duration, 1)),  # 9. 时长对数
+            (likes + coins + favs + shares) / views,  # 10. 综合互动率
+            coins / max(likes, 1),  # 11. 投币/点赞比
+            danmaku / max(replies, 1),  # 12. 弹幕/评论比
         ]
 
     def _compute_edge_weight(self, a: Dict, b: Dict) -> float:
@@ -405,7 +404,6 @@ class VideoGraph:
         if count == 0:
             return 0.0
         return min(1.0, w)
-
 
 
 # ── 全局单例 ────────────────────────────────────────

@@ -214,7 +214,10 @@ class AlgorithmRegistry:
                 model_source = meta.get("model_source", "底模")
                 logger.debug(
                     "[%s] 视频(%s),使用'%s'预测成功 预测结果: %.0f",
-                    n, bvid, model_source, pred,
+                    n,
+                    bvid,
+                    model_source,
+                    pred,
                 )
                 return (
                     n,
@@ -231,7 +234,9 @@ class AlgorithmRegistry:
                 # 单个算法失败不阻断整体，降级返回保守值
                 logger.warning(
                     "[%s] 视频(%s),使用'底模'预测失败 降级原因: %s",
-                    n, bvid, e,
+                    n,
+                    bvid,
+                    e,
                 )
                 return n, {"prediction": current_value, "confidence": 0, "weight": 0.01, "error": str(e)}, e
 
@@ -289,7 +294,7 @@ class AlgorithmRegistry:
                 mean_v = sum(valid_vals) / len(valid_vals)
                 if mean_v > 0:
                     variance = sum((p - mean_v) ** 2 for p in valid_vals) / len(valid_vals)
-                    cv = (variance ** 0.5) / mean_v
+                    cv = (variance**0.5) / mean_v
                     ensemble_conf = max(0.0, min(1.0, math.exp(-cv * 2)))
                 else:
                     ensemble_conf = 0.0
@@ -327,7 +332,11 @@ class AlgorithmRegistry:
                 interval_width = 0
         logger.info(
             "[%s] 综合预测: %.0f (有效 %d/%d, 区间 ±%d%%)",
-            bvid, weighted_pred, valid_count, len(results) - 1, interval_width,
+            bvid,
+            weighted_pred,
+            valid_count,
+            len(results) - 1,
+            interval_width,
         )
 
         return results
@@ -367,7 +376,18 @@ class AlgorithmRegistry:
             return get_weight_manager().get_algorithm_info(names)
         except Exception as e:
             logger.debug("获取算法权重信息失败: %s", e)
-            return [{"name": n, "accuracy": 0.5, "final_weight": 1.0, "ml_weight": 1.0, "user_weight": None, "is_customized": False, "samples": 0} for n in names]
+            return [
+                {
+                    "name": n,
+                    "accuracy": 0.5,
+                    "final_weight": 1.0,
+                    "ml_weight": 1.0,
+                    "user_weight": None,
+                    "is_customized": False,
+                    "samples": 0,
+                }
+                for n in names
+            ]
 
     @classmethod
     def shutdown(cls):
@@ -390,6 +410,7 @@ class AlgorithmRegistry:
     def get_trainable_info(cls) -> List[Dict]:
         """获取所有支持训练的算法的检查点信息。"""
         from algorithms.training.checkpoint_manager import CheckpointManager
+
         if not cls._initialized:
             cls.initialize()
         result = []
@@ -400,14 +421,16 @@ class AlgorithmRegistry:
             ckpt = CheckpointManager(aid)
             versions = ckpt.list_versions()
             active = ckpt.active_version()
-            result.append({
-                "algorithm_id": aid,
-                "name": getattr(adapter, "name", aid),
-                "category": getattr(adapter, "category", ""),
-                "has_ckpt": ckpt.has_checkpoint(),
-                "active_version": active or "",
-                "version_count": len(versions),
-            })
+            result.append(
+                {
+                    "algorithm_id": aid,
+                    "name": getattr(adapter, "name", aid),
+                    "category": getattr(adapter, "category", ""),
+                    "has_ckpt": ckpt.has_checkpoint(),
+                    "active_version": active or "",
+                    "version_count": len(versions),
+                }
+            )
         return result
 
     @classmethod

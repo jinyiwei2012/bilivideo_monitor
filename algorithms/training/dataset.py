@@ -83,8 +83,9 @@ def _ts_to_iso(ts: float) -> str:
     return datetime.fromtimestamp(ts).isoformat()
 
 
-def _load_records(bvid: str, features: Tuple[str, ...], data_root: str = _DATA_ROOT,
-                  min_timestamp: Optional[float] = None) -> Tuple[Optional[np.ndarray], float]:
+def _load_records(
+    bvid: str, features: Tuple[str, ...], data_root: str = _DATA_ROOT, min_timestamp: Optional[float] = None
+) -> Tuple[Optional[np.ndarray], float]:
     """读取单个视频的 monitor_records，返回 (arr, max_timestamp)（按 timestamp 升序）。
 
     Args:
@@ -107,8 +108,9 @@ def _load_records(bvid: str, features: Tuple[str, ...], data_root: str = _DATA_R
         if min_timestamp is not None:
             # 数据库存储 ISO 字符串，需要转换比较
             _iso = _ts_to_iso(min_timestamp)
-            cursor.execute(f"SELECT {cols}, timestamp FROM monitor_records WHERE timestamp > ? ORDER BY timestamp ASC",
-                           (_iso,))
+            cursor.execute(
+                f"SELECT {cols}, timestamp FROM monitor_records WHERE timestamp > ? ORDER BY timestamp ASC", (_iso,)
+            )
         else:
             cursor.execute(f"SELECT {cols}, timestamp FROM monitor_records ORDER BY timestamp ASC")
         rows = cursor.fetchall()
@@ -206,10 +208,9 @@ class VideoTimeSeriesDataset(Dataset):
 
             # rolling std (window=5)
             if N >= 5:
-                roll_std = np.array([
-                    float(np.std(target[max(0, i-2):min(N, i+3)]))
-                    for i in range(N)
-                ], dtype=np.float32)
+                roll_std = np.array(
+                    [float(np.std(target[max(0, i - 2) : min(N, i + 3)])) for i in range(N)], dtype=np.float32
+                )
             else:
                 roll_std = np.full(N, float(target.std() or 1.0))
 
@@ -243,7 +244,6 @@ class VideoTimeSeriesDataset(Dataset):
                 self._index.append((sidx, s))
 
         self.max_timestamp = self._global_max_ts
-        n_feat = len(self.features) + self._n_derived
         logger.info(
             "[dataset] 加载完成: %d 视频, %d 样本 (window=%d, horizon=%d, features=%d, derived=%d, max_ts=%.0f)",
             len(self._series),

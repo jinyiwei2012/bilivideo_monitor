@@ -194,21 +194,30 @@ class TrainingPanel(BaseTrainingPanel):
         tk.Label(ctrl, text="模式:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT, padx=(8, 2))
         self._mode_var = tk.StringVar(value="incremental")
         ttk.Radiobutton(ctrl, text="增量训练", variable=self._mode_var, value="incremental").pack(side=tk.LEFT, padx=1)
-        ttk.Radiobutton(ctrl, text="重新训练", variable=self._mode_var, value="retrain", state=_train()).pack(side=tk.LEFT, padx=1)
+        ttk.Radiobutton(ctrl, text="重新训练", variable=self._mode_var, value="retrain", state=_train()).pack(
+            side=tk.LEFT, padx=1
+        )
 
         # 按钮
-        self._train_btn = ttk.Button(ctrl, text="▶ 开始训练", command=self._on_train_start, style="Primary.TButton", state=_train())
+        self._train_btn = ttk.Button(
+            ctrl, text="▶ 开始训练", command=self._on_train_start, style="Primary.TButton", state=_train()
+        )
         self._train_btn.pack(side=tk.LEFT, padx=(12, 4))
         self._cancel_btn = ttk.Button(ctrl, text="✕ 取消", command=self._on_cancel, state="disabled")
         self._cancel_btn.pack(side=tk.LEFT, padx=4)
         self._skip_btn = ttk.Button(ctrl, text="⏭ 跳过当前", command=self._on_skip_algo, state="disabled")
         self._skip_btn.pack(side=tk.LEFT, padx=4)
-        ttk.Button(ctrl, text="🎯 批量微调", command=self._on_batch_finetune, width=10, state=_train()).pack(side=tk.LEFT, padx=4)
+        ttk.Button(ctrl, text="🎯 批量微调", command=self._on_batch_finetune, width=10, state=_train()).pack(
+            side=tk.LEFT, padx=4
+        )
 
         if _train() != "normal":
             tk.Label(
-                ctrl, text="💡 创建 .enabletraining 文件开启训练 / 完整 devmode 见 README.md",
-                bg=C["bg_elevated"], fg=C["warning"], font=("", 8),
+                ctrl,
+                text="💡 创建 .enabletraining 文件开启训练 / 完整 devmode 见 README.md",
+                bg=C["bg_elevated"],
+                fg=C["warning"],
+                font=("", 8),
             ).pack(side=tk.LEFT, padx=8)
 
         # 进度条和状态标签
@@ -423,10 +432,7 @@ class TrainingPanel(BaseTrainingPanel):
 
     def _on_manage_versions(self):
         """打开 checkpoint 版本管理对话框 — 查看/删除/激活版本。"""
-        from algorithms.training.checkpoint_manager import (
-            CheckpointManager,
-            list_video_finetune_bvids,
-        )
+        from algorithms.training.checkpoint_manager import CheckpointManager
         from algorithms.registry import AlgorithmRegistry
 
         AlgorithmRegistry.initialize()
@@ -618,11 +624,16 @@ class TrainingPanel(BaseTrainingPanel):
             else:
                 ckpt_dir = os.path.join(
                     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                    "algorithms", "checkpoints", aid,
+                    "algorithms",
+                    "checkpoints",
+                    aid,
                 )
                 tk.Label(
-                    btn_row, text=f"📁 {os.path.relpath(ckpt_dir)}",
-                    bg=C["bg_surface"], fg=C["text_3"], font=FONT_SM,
+                    btn_row,
+                    text=f"📁 {os.path.relpath(ckpt_dir)}",
+                    bg=C["bg_surface"],
+                    fg=C["text_3"],
+                    font=FONT_SM,
                 ).pack(side=tk.LEFT, padx=4)
 
     def _activate_version(self, ckpt, ver, aid, name, refresh_cb):
@@ -715,7 +726,14 @@ class TrainingPanel(BaseTrainingPanel):
 
             threading.Thread(
                 target=lambda: self._start_batch_worker(
-                    selected_videos, selected_algos, epochs, batch, total, dialog, ui, _ft_log,
+                    selected_videos,
+                    selected_algos,
+                    epochs,
+                    batch,
+                    total,
+                    dialog,
+                    ui,
+                    _ft_log,
                 ),
                 daemon=True,
             ).start()
@@ -1142,6 +1160,7 @@ class TrainingPanel(BaseTrainingPanel):
 
         # 从 checkpoint 读取 val_loss 和置信度
         from algorithms.training.checkpoint_manager import CheckpointManager
+
         _val_loss = -1.0
         try:
             _ckpt = CheckpointManager(aid)
@@ -1328,6 +1347,16 @@ class TrainingPanel(BaseTrainingPanel):
             logger.debug("关闭训练日志文件失败: %s", e)
         self._log_file = None
         logger.info("训练日志已保存: %s", self._log_file_path)
+
+    def __del__(self):
+        """析构时兜底关闭日志文件，防止异常路径下文件句柄泄漏。"""
+        if getattr(self, "_log_file", None) is not None:
+            try:
+                self._log_file.flush()
+                self._log_file.close()
+            except Exception:
+                pass
+            self._log_file = None
 
     def _append_log(self, text: str):
         """追加日志到 UI 和文件"""

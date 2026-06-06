@@ -47,6 +47,7 @@ class Database:
             return
         import shutil
         import sqlite3 as _sqlite3
+
         migrated = 0
         try:
             for item in os.listdir(old_dir):
@@ -94,6 +95,7 @@ class Database:
         if cls._BACKUP_DIR is None:
             try:
                 from config import DATA_DIR
+
                 cls._BACKUP_DIR = DATA_DIR
             except ImportError:
                 cls._BACKUP_DIR = cls._ACTIVE_DIR
@@ -277,6 +279,7 @@ class Database:
         try:
             _validate_bvid(bvid)
             from utils.cover_manager import save_cover, get_valid_cover
+
             local = get_valid_cover(bvid)
             if local is not None:
                 return local
@@ -353,7 +356,9 @@ class Database:
 
     # ── 查询委托 ──────────────────────────────────────────────────────
 
-    def query_monitor_records(self, bvid: str, start_time: str = None, end_time: str = None, limit: int = 1000) -> List[Dict]:
+    def query_monitor_records(
+        self, bvid: str, start_time: str = None, end_time: str = None, limit: int = 1000
+    ) -> List[Dict]:
         return self._query.query_monitor_records(bvid, start_time, end_time, limit)
 
     def search_videos(self, keyword: str = "", field: str = "title", limit: int = 50) -> List[Dict]:

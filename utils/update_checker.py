@@ -47,8 +47,8 @@ def set_update_channel(channel: str):
     # 清除缓存以便下次检查使用新通道
     try:
         CACHE_FILE.unlink(missing_ok=True)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("清除更新缓存失败: %s", e)
 
 
 def is_frozen() -> bool:
@@ -67,6 +67,7 @@ def _verify_devmode_content(path: str) -> bool:
         with open(path, "r", encoding="utf-8") as f:
             content = f.read().strip()
         import hashlib
+
         h = hashlib.sha256(content.encode()).hexdigest().upper()
         return h == _DEVMODE_HASH
     except Exception:
@@ -136,6 +137,7 @@ def _warn(parent=None):
     """弹出高风险操作确认对话框"""
     try:
         from tkinter import messagebox
+
         r = messagebox.askyesno(
             "高风险操作",
             "当前操作可能导致不可逆的数据损坏或模型损坏。\n\n是否确认开启开发者模式？程序关闭后自动恢复。",
@@ -161,6 +163,7 @@ def _confirm_risky(operation_desc: str = "当前操作", parent=None):
         return True
     try:
         from tkinter import messagebox
+
         r = messagebox.askyesno(
             "高风险操作",
             f"{operation_desc}可能导致不可逆的数据损坏或模型损坏。\n\n是否确认开启开发者模式？程序关闭后自动恢复。",
@@ -228,26 +231,34 @@ def check_for_update() -> Tuple[bool, str, str, str, str]:
         latest = cached.get("latest_version", "")
         local = _get_local_version()
         if latest:
-            _pv = lambda v: tuple(int(x) for x in v.split("-")[0].split(".") if x.isdigit())
-            return _pv(latest) > _pv(local), latest, cached.get("download_url", ""), cached.get("changelog", ""), channel
+
+            def _parse_version(v):
+                return tuple(int(x) for x in v.split("-")[0].split(".") if x.isdigit())
+
+            return (
+                _parse_version(latest) > _parse_version(local),
+                latest,
+                cached.get("download_url", ""),
+                cached.get("changelog", ""),
+                channel,
+            )
 
     data, latest, download_url = _fetch_release(api_url)
     if not data:
         return False, "", "", "", channel
 
     changelog = data.get("body", "")
-    _save_cache({
-        "latest_version": latest,
-        "download_url": download_url,
-        "changelog": changelog,
-        "channel": channel,
-        "assets": [
-            {"name": a.get("name"), "url": a.get("browser_download_url")}
-            for a in data.get("assets", [])
-        ],
-        "zipball_url": data.get("zipball_url", ""),
-        "prerelease": data.get("prerelease", False),
-    })
+    _save_cache(
+        {
+            "latest_version": latest,
+            "download_url": download_url,
+            "changelog": changelog,
+            "channel": channel,
+            "assets": [{"name": a.get("name"), "url": a.get("browser_download_url")} for a in data.get("assets", [])],
+            "zipball_url": data.get("zipball_url", ""),
+            "prerelease": data.get("prerelease", False),
+        }
+    )
 
     local = _get_local_version()
     return latest != local, latest, download_url, changelog, channel
@@ -287,7 +298,17 @@ def get_download_urls() -> dict:
 
 def perform_source_git_pull(branch="main"):
     """源码模式: git pull 拉取最新代码"""
-    allowed = {"main", "releases", "pre-release", "dev", "fixbug", "algorithms-dev", "algorithms-optimize", "ui界面", "feat/training-auto-callback"}
+    allowed = {
+        "main",
+        "releases",
+        "pre-release",
+        "dev",
+        "fixbug",
+        "algorithms-dev",
+        "algorithms-optimize",
+        "ui界面",
+        "feat/training-auto-callback",
+    }
     if branch not in allowed:
         raise ValueError(f"不允许的分支名: {branch}")
     try:
@@ -336,6 +357,7 @@ def perform_exe_download(progress_cb=None, done_cb=None):
 
 def perform_exe_self_update(progress_cb=None, done_cb=None):
     """EXE 模式: 下载新 EXE 并创建重启脚本"""
+
     def _on_done(success, msg):
         if success:
             _create_restart_script()

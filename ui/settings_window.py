@@ -8,11 +8,10 @@ import json
 import os
 import tkinter as tk
 import logging
-from typing import Any
 from tkinter import ttk, messagebox
 
 from ui.theme import C
-from ui.helpers import FONT, FONT_SM, FONT_MONO, project_path, auto_threshold_name
+from ui.helpers import FONT, project_path, auto_threshold_name
 from ui.dialog_base import DialogBase
 
 logger = logging.getLogger(__name__)
@@ -96,7 +95,6 @@ from ui.settings_advanced import (
     _open_version_manager,
     _build_about_tab,
 )
-from utils.update_checker import _s, _hard, _train, _confirm_risky
 
 
 class SettingsWindow:
@@ -303,10 +301,12 @@ class SettingsWindow:
 
     def _apply_settings(self):
         from core.notification import notification_manager
+
         notification_manager.configure(self._cfg)
 
         try:
             from ui.helpers import reload_thresholds
+
             reload_thresholds()
         except Exception as e:
             logger.debug("忽略异常: %s", e)

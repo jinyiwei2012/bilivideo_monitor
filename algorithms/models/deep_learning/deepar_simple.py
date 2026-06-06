@@ -34,7 +34,9 @@ class DeeparSimpleAlgorithm(BaseAlgorithm):
         )
 
     def build_model(self):
-        return DeepARTorchModel(in_features=getattr(self, '_training_n_features', 5), hidden=32, horizon=self.training_horizon)
+        return DeepARTorchModel(
+            in_features=getattr(self, "_training_n_features", 5), hidden=32, horizon=self.training_horizon
+        )
 
     def get_training_features(self) -> List[str]:
         return ["view_count", "like_count", "coin_count", "favorite_count", "share_count"]

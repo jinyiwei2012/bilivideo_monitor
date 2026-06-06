@@ -20,10 +20,10 @@ from typing import Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 # 默认参数
-DEFAULT_ETA = 0.5        # Hedge 学习率
+DEFAULT_ETA = 0.5  # Hedge 学习率
 DEFAULT_MIN_WEIGHT = 0.05  # 最低权重（防止算法被彻底淘汰出局）
-DEFAULT_WARMUP = 5       # 至少需要 N 次反馈才开始调整
-DEFAULT_DECAY = 0.95     # EWMA 衰减系数（越大越重视历史）
+DEFAULT_WARMUP = 5  # 至少需要 N 次反馈才开始调整
+DEFAULT_DECAY = 0.95  # EWMA 衰减系数（越大越重视历史）
 
 
 class _AlgorithmTracker:
@@ -32,17 +32,25 @@ class _AlgorithmTracker:
     使用 __slots__ 节省内存（算法数量可能很多）。
     """
 
-    __slots__ = ("name", "weight", "cumulative_loss", "ewma_loss", "error_count",
-                 "last_error", "last_update", "recent_errors")
+    __slots__ = (
+        "name",
+        "weight",
+        "cumulative_loss",
+        "ewma_loss",
+        "error_count",
+        "last_error",
+        "last_update",
+        "recent_errors",
+    )
 
     def __init__(self, name: str, initial_weight: float = 1.0):
         self.name = name
         self.weight = initial_weight
-        self.cumulative_loss = 0.0     # Hedge 累积损失
-        self.ewma_loss = 0.0           # 指数加权移动平均误差
-        self.error_count = 0           # 已收到反馈的次数
+        self.cumulative_loss = 0.0  # Hedge 累积损失
+        self.ewma_loss = 0.0  # 指数加权移动平均误差
+        self.error_count = 0  # 已收到反馈的次数
         self.last_error: float | None = None
-        self.last_update: float = 0.0   # 上次更新时间戳
+        self.last_update: float = 0.0  # 上次更新时间戳
         self.recent_errors: List[float] = []  # 最近 N 次误差，用于波动率检测
 
 
@@ -275,7 +283,7 @@ class OnlineLearner:
             if mean_err < 1e-8:
                 return
             variance = sum((e - mean_err) ** 2 for e in all_errors) / len(all_errors)
-            cv = (variance ** 0.5) / mean_err
+            cv = (variance**0.5) / mean_err
             # eta 限制在 [0.1, 1.5]，CV 越高 eta 越大
             new_eta = max(0.1, min(1.5, DEFAULT_ETA * (0.5 + cv * 1.5)))
             if abs(new_eta - self.eta) > 0.05:

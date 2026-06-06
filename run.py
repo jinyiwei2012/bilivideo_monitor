@@ -10,6 +10,7 @@ import subprocess
 # ── 源码完整性校验 ──────
 # 复用 main.py 中的校验逻辑，以 main.py 为唯一数据源
 from main import _verify_source_integrity
+
 _verify_source_integrity()
 
 

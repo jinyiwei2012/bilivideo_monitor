@@ -11,18 +11,18 @@ from ui.theme import C
 from utils import PROJECT_ROOT, project_path  # noqa: F401 — 重新导出以方便使用
 
 # ── 字体定义 ─────────────────────────────────
-FONT = ("Microsoft YaHei UI", 9)            # 标准字体
+FONT = ("Microsoft YaHei UI", 9)  # 标准字体
 FONT_BOLD = ("Microsoft YaHei UI", 9, "bold")  # 粗体
-FONT_SM = ("Microsoft YaHei UI", 8)        # 小号字体
+FONT_SM = ("Microsoft YaHei UI", 8)  # 小号字体
 FONT_LG = ("Microsoft YaHei UI", 11, "bold")  # 大号粗体
-FONT_MONO = ("Consolas", 9)                # 等宽字体
-FONT_MONO_LG = ("Consolas", 14, "bold")    # 大号等宽粗体
+FONT_MONO = ("Consolas", 9)  # 等宽字体
+FONT_MONO_LG = ("Consolas", 14, "bold")  # 大号等宽粗体
 
 # ── 阈值与间隔 ───────────────────────────────
 # 默认值（首次导入时从 config 加载；通过 reload_thresholds() 动态刷新）
-THRESHOLDS: list = []        # 阈值数值列表
-THRESHOLD_NAMES: list = []   # 阈值名称列表
-THRESH_COLORS: list = []     # 阈值颜色列表
+THRESHOLDS: list = []  # 阈值数值列表
+THRESHOLD_NAMES: list = []  # 阈值名称列表
+THRESH_COLORS: list = []  # 阈值颜色列表
 
 # 阈值颜色调色板（支持 N 个阈值循环使用）
 _THRESH_PALETTE = [

@@ -24,6 +24,7 @@ def _sanitize(title: str) -> str:
 
 
 import re as _re
+
 _BVID_RE = _re.compile(r"^BV[A-Za-z0-9]{10,12}$")
 
 

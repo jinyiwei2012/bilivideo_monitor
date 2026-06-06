@@ -24,7 +24,7 @@ from utils import project_path
 from algorithms.training.checkpoint_manager import CheckpointManager
 from algorithms.training.device import get_device
 from algorithms.training.dataset import VideoTimeSeriesDataset, estimate_dataset_size
-from algorithms.training.schedulers import HyperbolicLR, ComboScheduler
+from algorithms.training.schedulers import ComboScheduler
 
 logger = logging.getLogger(__name__)
 
@@ -202,8 +202,12 @@ class ModelTrainer:
             logger.debug("忽略异常: %s", e)
 
         min_timestamp = data_trained_until if (use_new_data_only and data_trained_until > 0) else None
-        dataset, train_loader, val_loader = self._prepare_dataset(algo, algo_id, bvid, batch_size, val_ratio, min_timestamp=min_timestamp)
-        model, optimizer, loss_fn, preprocess = self._init_model_optimizer(algo, algo_id, init_from_global, lr, bvid=bvid)
+        dataset, train_loader, val_loader = self._prepare_dataset(
+            algo, algo_id, bvid, batch_size, val_ratio, min_timestamp=min_timestamp
+        )
+        model, optimizer, loss_fn, preprocess = self._init_model_optimizer(
+            algo, algo_id, init_from_global, lr, bvid=bvid
+        )
 
         # 创建调度器
         scheduler = ComboScheduler(optimizer, k=0.1, plateau_patience=5, plateau_factor=0.5, min_lr=1e-6)
@@ -230,7 +234,9 @@ class ModelTrainer:
         best_epoch = 0
         train_losses = []
         for epoch in range(epochs):
-            if self._check_control(control_dict, epoch, algo_id, bvid, optimizer, progress_cb, epochs, scheduler=scheduler):
+            if self._check_control(
+                control_dict, epoch, algo_id, bvid, optimizer, progress_cb, epochs, scheduler=scheduler
+            ):
                 break
 
             train_loss = self._train_epoch(model, train_loader, optimizer, loss_fn, preprocess, control_dict, algo_id)
@@ -282,7 +288,21 @@ class ModelTrainer:
             if best_epoch > 0:
                 logger.info("[trainer] %s 保存最优模型 (epoch %d, val_loss=%.4f)", algo_id, best_epoch, best_val)
         data_trained_until_new = getattr(dataset, "max_timestamp", 0.0)
-        return self._save_checkpoint(model, algo_id, bvid, dataset, best_val, last_val, val_loader, epochs, optimizer, prev_epochs=prev_epochs, data_trained_until=data_trained_until_new, scheduler=scheduler, best_epoch=best_epoch)
+        return self._save_checkpoint(
+            model,
+            algo_id,
+            bvid,
+            dataset,
+            best_val,
+            last_val,
+            val_loader,
+            epochs,
+            optimizer,
+            prev_epochs=prev_epochs,
+            data_trained_until=data_trained_until_new,
+            scheduler=scheduler,
+            best_epoch=best_epoch,
+        )
 
     def _prepare_dataset(self, algo, algo_id, bvid, batch_size, val_ratio, min_timestamp=None):
         features = getattr(algo, "get_training_features", lambda: None)() or [
@@ -296,7 +316,10 @@ class ModelTrainer:
         horizon = getattr(algo, "training_horizon", 3)
 
         dataset = VideoTimeSeriesDataset(
-            window=window, horizon=horizon, bvids=[bvid] if bvid else None, features=features,
+            window=window,
+            horizon=horizon,
+            bvids=[bvid] if bvid else None,
+            features=features,
             min_timestamp=min_timestamp,
         )
         if len(dataset) == 0:
@@ -433,11 +456,15 @@ class ModelTrainer:
                 # x shape: [B, W, F] 或 [B, F]
                 feat_dim = x.shape[-1]
                 if feat_dim > 1:
-                    mask = torch.bernoulli(
-                        torch.full((feat_dim,), 1.0 - feat_dropout, device=self.device)
-                    ).view(1, 1, feat_dim) if x.dim() == 3 else torch.bernoulli(
-                        torch.full((feat_dim,), 1.0 - feat_dropout, device=self.device)
-                    ).view(1, feat_dim)
+                    mask = (
+                        torch.bernoulli(torch.full((feat_dim,), 1.0 - feat_dropout, device=self.device)).view(
+                            1, 1, feat_dim
+                        )
+                        if x.dim() == 3
+                        else torch.bernoulli(torch.full((feat_dim,), 1.0 - feat_dropout, device=self.device)).view(
+                            1, feat_dim
+                        )
+                    )
                     x = x * mask
 
             optimizer.zero_grad()
@@ -447,14 +474,14 @@ class ModelTrainer:
             # SPADE-S 偏斜修正：按幅值加权，避免高播放量支配 loss
             if amp_weight:
                 diff = pred - y
-                sq_err = diff ** 2
+                sq_err = diff**2
                 denom = y.abs().mean(dim=-1, keepdim=True).clamp(min=1.0).detach()
                 loss = (sq_err / denom).mean()
             else:
                 loss = loss_fn(pred, y)
             # Activation Decay: 对预测输出加 L2 正则，平滑损失曲面
             if act_decay > 0:
-                loss = loss + act_decay * (pred ** 2).mean()
+                loss = loss + act_decay * (pred**2).mean()
             loss_val = float(loss.item())
             if control_dict is not None and (math.isnan(loss_val) or math.isinf(loss_val)):
                 logger.warning("[trainer] %s NaN/Inf mid-epoch, early stopping", algo_id)
@@ -506,7 +533,22 @@ class ModelTrainer:
         )
         return last_val
 
-    def _save_checkpoint(self, model, algo_id, bvid, dataset, best_val, last_val, val_loader, epochs, optimizer=None, prev_epochs=0, data_trained_until=0.0, scheduler=None, best_epoch=0):
+    def _save_checkpoint(
+        self,
+        model,
+        algo_id,
+        bvid,
+        dataset,
+        best_val,
+        last_val,
+        val_loader,
+        epochs,
+        optimizer=None,
+        prev_epochs=0,
+        data_trained_until=0.0,
+        scheduler=None,
+        best_epoch=0,
+    ):
         ckpt = CheckpointManager(algo_id, bvid=bvid)
         lr = optimizer.param_groups[0]["lr"] if optimizer is not None else 0.001
         metadata = {

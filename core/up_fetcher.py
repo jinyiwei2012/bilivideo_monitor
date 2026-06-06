@@ -149,7 +149,6 @@ def search_up_users_multi(keyword: str, page: int, own_api_search: Callable) -> 
 def _source_a_up_info(uid: int) -> Optional[Dict]:
     """数据源A：使用 bilibili-api-python 获取 UP 主基本信息"""
     try:
-        from bilibili_api import sync
         from bilibili_api.user import User
 
         u = User(uid=uid)
@@ -258,9 +257,11 @@ def _source_a_up_stat(uid: int) -> Optional[Dict]:
         if not stat["total_views"]:
             try:
                 from core.bilibili_api import _get_api as _own_api
+
                 _api = _own_api()
                 data = _api._request(
-                    "GET", f"{_api.BASE_URL}/x/space/upstat",
+                    "GET",
+                    f"{_api.BASE_URL}/x/space/upstat",
                     params={"mid": uid},
                 )
                 if data and data.get("archive", {}).get("view"):

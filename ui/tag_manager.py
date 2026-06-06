@@ -6,7 +6,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 from ui.theme import C
-from ui.helpers import FONT, FONT_SM
+from ui.helpers import FONT
 from ui.dialog_base import DialogBase
 from utils.tag_manager import get_tags, set_tags, all_tags
 
@@ -33,8 +33,14 @@ class TagManagerWindow:
         # 视频列表
         tk.Label(left, text="监控视频", bg=C["bg_base"], fg=C["text_1"], font=FONT).pack(anchor="w")
         self._video_listbox = tk.Listbox(
-            left, bg=C["bg_elevated"], fg=C["text_1"], selectbackground=C["bilibili"],
-            font=FONT, relief=tk.FLAT, borderwidth=0, highlightthickness=0
+            left,
+            bg=C["bg_elevated"],
+            fg=C["text_1"],
+            selectbackground=C["bilibili"],
+            font=FONT,
+            relief=tk.FLAT,
+            borderwidth=0,
+            highlightthickness=0,
         )
         self._video_listbox.pack(fill=tk.BOTH, expand=True, pady=(4, 6))
         self._video_listbox.bind("<<ListboxSelect>>", self._on_select)
@@ -43,8 +49,13 @@ class TagManagerWindow:
         tag_frame = tk.Frame(left, bg=C["bg_base"])
         tag_frame.pack(fill=tk.X)
         self._tag_entry = tk.Entry(
-            tag_frame, bg=C["bg_elevated"], fg=C["text_1"], insertbackground=C["text_1"],
-            font=FONT, relief=tk.FLAT, bd=0
+            tag_frame,
+            bg=C["bg_elevated"],
+            fg=C["text_1"],
+            insertbackground=C["text_1"],
+            font=FONT,
+            relief=tk.FLAT,
+            bd=0,
         )
         self._tag_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4), ipady=4)
         self._tag_entry.bind("<Return>", lambda e: self._add_tag())
@@ -62,16 +73,15 @@ class TagManagerWindow:
         # 按标签筛选下拉框
         tk.Label(right, text="按标签筛选", bg=C["bg_base"], fg=C["text_1"], font=FONT).pack(anchor="w")
         self._filter_var = tk.StringVar(value="")
-        self._filter_combo = ttk.Combobox(
-            right, textvariable=self._filter_var, font=FONT, state="readonly"
-        )
+        self._filter_combo = ttk.Combobox(right, textvariable=self._filter_var, font=FONT, state="readonly")
         self._filter_combo.pack(fill=tk.X, pady=(4, 0))
         self._filter_combo.bind("<<ComboboxSelected>>", lambda e: self._refresh())
 
         btn_frame = tk.Frame(right, bg=C["bg_base"])
         btn_frame.pack(fill=tk.X, pady=6)
         ttk.Button(btn_frame, text="清除筛选", command=lambda: [self._filter_var.set(""), self._refresh()]).pack(
-            fill=tk.X)
+            fill=tk.X
+        )
 
     def _refresh(self):
         """刷新视频列表和筛选下拉框"""

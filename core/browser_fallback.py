@@ -4,16 +4,16 @@
 """
 
 import logging
-import time
 from typing import Optional, Dict
-from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
 _HAS_PLAYWRIGHT = False
 try:
-    import playwright
+    import playwright as _pw
+
     _HAS_PLAYWRIGHT = True
+    del _pw
 except ImportError:
     pass
 
@@ -23,12 +23,21 @@ def _parse_bilibili_page(html: str, bvid: str) -> Optional[Dict]:
     import re
     import json as _json
 
-    result = {"bvid": bvid, "title": "", "view_count": 0, "like_count": 0,
-              "coin_count": 0, "favorite_count": 0, "share_count": 0,
-              "danmaku_count": 0, "reply_count": 0, "_source": "playwright"}
+    result = {
+        "bvid": bvid,
+        "title": "",
+        "view_count": 0,
+        "like_count": 0,
+        "coin_count": 0,
+        "favorite_count": 0,
+        "share_count": 0,
+        "danmaku_count": 0,
+        "reply_count": 0,
+        "_source": "playwright",
+    }
 
     # 尝试从 window.__INITIAL_STATE__ 提取
-    m = re.search(r'window\.__INITIAL_STATE__\s*=\s*({.*?});', html, re.DOTALL)
+    m = re.search(r"window\.__INITIAL_STATE__\s*=\s*({.*?});", html, re.DOTALL)
     if m:
         try:
             state = _json.loads(m.group(1))
@@ -66,7 +75,7 @@ def fetch_video_info_playwright(bvid: str) -> Optional[Dict]:
                     "--disable-blink-features=AutomationControlled",
                     "--disable-dev-shm-usage",
                     "--no-sandbox",
-                ]
+                ],
             )
             context = browser.new_context(
                 user_agent=(

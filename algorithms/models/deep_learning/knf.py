@@ -137,7 +137,9 @@ class KnfAlgorithm(BaseAlgorithm):
             raise RuntimeError("无可用的 checkpoint — 请先训练")
         if self._cached_model is None or (bvid and not getattr(self, "_cached_bvid", "") == bvid):
             model = KnfTorchModel(
-                in_features=getattr(self, '_training_n_features', len(self._features) + 5), window=self.training_window, horizon=self.training_horizon
+                in_features=getattr(self, "_training_n_features", len(self._features) + 5),
+                window=self.training_window,
+                horizon=self.training_horizon,
             )
             model.load_state_dict(state)
             model.to(self._device).eval()
@@ -250,7 +252,9 @@ class KnfAlgorithm(BaseAlgorithm):
 
     def build_model(self):
         return KnfTorchModel(
-            in_features=getattr(self, '_training_n_features', len(self._features)), window=self.training_window, horizon=self.training_horizon
+            in_features=getattr(self, "_training_n_features", len(self._features)),
+            window=self.training_window,
+            horizon=self.training_horizon,
         )
 
     def get_training_features(self):

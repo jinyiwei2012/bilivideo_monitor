@@ -62,9 +62,14 @@ def _machine_secret() -> bytes:
     try:
         if platform.system() == "Windows":
             output = subprocess.check_output(
-                ["powershell", "-NoProfile", "-Command",
-                 "Get-CimInstance Win32_Processor | Select-Object -ExpandProperty ProcessorId"],
-                timeout=3, stderr=subprocess.DEVNULL,
+                [
+                    "powershell",
+                    "-NoProfile",
+                    "-Command",
+                    "Get-CimInstance Win32_Processor | Select-Object -ExpandProperty ProcessorId",
+                ],
+                timeout=3,
+                stderr=subprocess.DEVNULL,
             )
             parts.append(output.decode().strip().split("\n")[-1].strip())
     except Exception:

@@ -240,4 +240,5 @@ class ReportSchedulerWindow:
             os.startfile(reports_dir)
         except AttributeError:
             import subprocess
+
             subprocess.run(["explorer", reports_dir])

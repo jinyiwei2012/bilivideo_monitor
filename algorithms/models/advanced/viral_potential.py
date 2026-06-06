@@ -57,8 +57,6 @@ class ViralPotentialAlgorithm(BaseAlgorithm):
                 # 置信度基于病毒分数
                 confidence = min(1.0, viral_score / 3)
 
-
-
         return PredictionResult(
             algorithm_name=self.name,
             algorithm_id=self.algorithm_id,

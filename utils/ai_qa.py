@@ -81,8 +81,11 @@ class AIQASession:
                         sorted_pts = pts
                     earliest = sorted_pts[0][1]
                     latest = sorted_pts[-1][1]
-                    ts_to_dt = lambda t: t if isinstance(t, datetime) else datetime.fromtimestamp(t)
-                    span_h = (ts_to_dt(sorted_pts[-1][0]) - ts_to_dt(sorted_pts[0][0])).total_seconds() / 3600
+
+                    def _ts_to_dt(t):
+                        return t if isinstance(t, datetime) else datetime.fromtimestamp(t)
+
+                    span_h = (_ts_to_dt(sorted_pts[-1][0]) - _ts_to_dt(sorted_pts[0][0])).total_seconds() / 3600
                     # 采样关键数据点：首、中、尾
                     lines.append(f"    历史趋势: {len(sorted_pts)}条记录, 跨度{span_h:.1f}h")
                     lines.append(f"      起始: {sorted_pts[0][1]:,} → 当前: {latest:,}")
@@ -280,17 +283,16 @@ class AIQASession:
                             key=lambda p: (
                                 p[0]
                                 if isinstance(p[0], datetime)
-                                else (
-                                    datetime.fromisoformat(str(p[0])[:19])
-                                    if isinstance(p[0], str)
-                                    else p[0]
-                                )
+                                else (datetime.fromisoformat(str(p[0])[:19]) if isinstance(p[0], str) else p[0])
                             ),
                         )
                     except Exception:
                         sorted_pts = pts
-                    ts_to_dt2 = lambda t: t if isinstance(t, datetime) else datetime.fromtimestamp(t)
-                    span = (ts_to_dt2(sorted_pts[-1][0]) - ts_to_dt2(sorted_pts[0][0])).total_seconds()
+
+                    def _ts_to_dt2(t):
+                        return t if isinstance(t, datetime) else datetime.fromtimestamp(t)
+
+                    span = (_ts_to_dt2(sorted_pts[-1][0]) - _ts_to_dt2(sorted_pts[0][0])).total_seconds()
                     if span > 0:
                         growth = sorted_pts[-1][1] - sorted_pts[0][1]
                         rate = growth / span * 3600

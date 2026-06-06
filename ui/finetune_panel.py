@@ -211,9 +211,13 @@ class FinetunePanel(BaseTrainingPanel):
 
         tk.Label(ctrl, text="模式:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT, padx=(8, 2))
         ttk.Radiobutton(ctrl, text="增量微调", variable=self._mode_var, value="incremental").pack(side=tk.LEFT, padx=1)
-        ttk.Radiobutton(ctrl, text="重新训练", variable=self._mode_var, value="retrain", state=_train()).pack(side=tk.LEFT, padx=1)
+        ttk.Radiobutton(ctrl, text="重新训练", variable=self._mode_var, value="retrain", state=_train()).pack(
+            side=tk.LEFT, padx=1
+        )
 
-        self._train_btn = ttk.Button(ctrl, text="▶ 开始微调", command=self._on_start, style="Primary.TButton", state=_train())
+        self._train_btn = ttk.Button(
+            ctrl, text="▶ 开始微调", command=self._on_start, style="Primary.TButton", state=_train()
+        )
         self._train_btn.pack(side=tk.LEFT, padx=(12, 4))
         self._cancel_btn = ttk.Button(ctrl, text="✕ 取消", command=self._on_cancel, state="disabled")
         self._cancel_btn.pack(side=tk.LEFT, padx=4)
@@ -222,8 +226,11 @@ class FinetunePanel(BaseTrainingPanel):
 
         if _train() != "normal":
             tk.Label(
-                ctrl, text="💡 创建 .enabletraining 文件开启微调 / 完整 devmode 见 README.md",
-                bg=C["bg_elevated"], fg=C["warning"], font=("", 8),
+                ctrl,
+                text="💡 创建 .enabletraining 文件开启微调 / 完整 devmode 见 README.md",
+                bg=C["bg_elevated"],
+                fg=C["warning"],
+                font=("", 8),
             ).pack(side=tk.LEFT, padx=8)
 
         self._progress = ttk.Progressbar(ctrl, mode="determinate", maximum=100)
@@ -550,10 +557,7 @@ class FinetunePanel(BaseTrainingPanel):
                     wd = mon.compute_weight_decay()
                     if wd > 0:
                         self._auto_control["weight_decay"] = wd
-                    payload["_adjustment"] = (
-                        f"🔧 严重过拟合 — 提前停止"
-                        + (f", weight_decay={wd:.4f}" if wd > 0 else "")
-                    )
+                    payload["_adjustment"] = "🔧 严重过拟合 — 提前停止" + (f", weight_decay={wd:.4f}" if wd > 0 else "")
                 elif "震荡" in status:
                     scale = mon.compute_lr_scale("oscillation")
                     gc = mon.compute_grad_clip("oscillation")
@@ -647,7 +651,6 @@ class FinetunePanel(BaseTrainingPanel):
                         prev_ckpt = CheckpointManager(aid, bvid=bvid)
                         prev_versions = prev_ckpt.list_versions()
                         if prev_versions:
-                            _active_ver = prev_ckpt.active_version()
                             for _v in prev_versions:
                                 if _v["active"]:
                                     plr = _v.get("learning_rate", -1.0)

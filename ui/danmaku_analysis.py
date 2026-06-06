@@ -26,10 +26,10 @@ class DanmakuAnalysisWindow:
             parent, "弹幕/评论分析", DialogBase.calc_geometry(parent, 0.50, 0.72), resizable=(True, True), modal=False
         )
         self.window = self.dlg.window
-        self.api = api                        # B 站 API 实例
-        self.gui = gui                        # 主 GUI 实例
-        self._texts: List[str] = []           # 抓取到的文本列表
-        self._current_bvid = ""               # 当前分析的 BV 号
+        self.api = api  # B 站 API 实例
+        self.gui = gui  # 主 GUI 实例
+        self._texts: List[str] = []  # 抓取到的文本列表
+        self._current_bvid = ""  # 当前分析的 BV 号
         self._setup_ui()
 
     def _setup_ui(self):
@@ -783,7 +783,7 @@ class DanmakuAnalysisWindow:
         chunk_size = max(1, n // bins)
         counts = []
         for i in range(0, n, chunk_size):
-            counts.append(min(1.0, len(texts[i:i + chunk_size]) / chunk_size))
+            counts.append(min(1.0, len(texts[i : i + chunk_size]) / chunk_size))
         bar_w = (w - 40) / max(len(counts), 1)
         max_c = max(counts) if counts else 1
         for i, v in enumerate(counts):
@@ -795,8 +795,9 @@ class DanmakuAnalysisWindow:
             intensity = int(50 + 180 * v / max_c)
             color = f"#{intensity:02x}66ff"
             c.create_rectangle(x0, y0, x1, y1, fill=color, outline="")
-        c.create_text(20, 10, text="弹幕时间分布（→ 时间轴）", fill=C["text_3"],
-                      font=("Microsoft YaHei UI", 9), anchor="w")
+        c.create_text(
+            20, 10, text="弹幕时间分布（→ 时间轴）", fill=C["text_3"], font=("Microsoft YaHei UI", 9), anchor="w"
+        )
 
     def _display_keywords(self, keywords: list):
         """展示关键词标签云：按词频用不同字号和颜色显示"""

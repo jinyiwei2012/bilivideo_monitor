@@ -266,7 +266,9 @@ class DatabaseQueryWindow:
         ba.pack(fill=tk.X, padx=24, pady=(8, 16))
         ttk.Button(ba, text="导出CSV", command=self._export_csv).pack(side=tk.LEFT, padx=(0, 4))
         ttk.Button(ba, text="导出Excel", command=self._export_excel).pack(side=tk.LEFT, padx=4)
-        ttk.Button(ba, text="删除选中", command=lambda: _confirm_risky("删除数据库记录") and self._delete_selected()).pack(side=tk.LEFT, padx=4)
+        ttk.Button(
+            ba, text="删除选中", command=lambda: _confirm_risky("删除数据库记录") and self._delete_selected()
+        ).pack(side=tk.LEFT, padx=4)
         ttk.Button(ba, text="清空结果", command=self._clear_results).pack(side=tk.LEFT, padx=4)
 
     def _get_filter_bvid(self) -> Optional[str]:

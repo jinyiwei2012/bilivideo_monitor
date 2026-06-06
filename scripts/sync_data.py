@@ -2,6 +2,7 @@
 一次性数据同步脚本
 将 core/data/ 的旧数据结构数据同步到 data/ 新目录
 """
+
 import os
 import shutil
 import sqlite3

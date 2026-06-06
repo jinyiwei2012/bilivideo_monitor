@@ -42,7 +42,7 @@ class VideoDatabase:
         self._lock = threading.Lock()
         self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA journal_mode=WAL")   # 启用 WAL 模式提升并发读性能
+        self._conn.execute("PRAGMA journal_mode=WAL")  # 启用 WAL 模式提升并发读性能
         self._conn.execute("PRAGMA synchronous=NORMAL")  # 平衡写入安全与速度
 
         # 镜像连接：同步写入 data/ 目录（退出时同步到 core/data/bilibili_monitor.db 的目标目录）
@@ -72,12 +72,14 @@ class VideoDatabase:
 
     def _execute_on_all(self, sql: str, params: tuple = ()):
         """在主连接和镜像连接上同时执行 SQL"""
+
         def _exec(conn, label="main"):
             try:
                 conn.execute(sql, params) if params else conn.execute(sql)
                 conn.commit()
             except Exception as e:
                 logger.error("数据库写入失败 [%s]: %s | SQL: %.200s", label, e, sql)
+
         with self._get_connection() as conn:
             _exec(conn, "main")
         if self._mirror_conn:
@@ -545,7 +547,8 @@ class VideoDatabase:
                 cursor.execute("SELECT * FROM video_info WHERE id = 1")
                 row = cursor.fetchone()
                 return dict(row) if row else None
-        except Exception:
+        except Exception as e:
+            logger.debug("获取视频信息失败: %s", e)
             return None
 
     def add_prediction(self, prediction: PredictionRecord) -> bool:

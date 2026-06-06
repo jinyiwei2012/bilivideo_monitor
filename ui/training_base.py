@@ -142,7 +142,9 @@ class TrainingMonitor:
             return
         max_dev = max(abs(v - mean_tl) for v in recent)
         cv = max_dev / mean_tl  # 变异系数
-        dir_changes = sum(1 for i in range(2, len(recent)) if (recent[i] - recent[i-1]) * (recent[i-1] - recent[i-2]) < 0)
+        dir_changes = sum(
+            1 for i in range(2, len(recent)) if (recent[i] - recent[i - 1]) * (recent[i - 1] - recent[i - 2]) < 0
+        )
         if cv > 0.2 and dir_changes >= 2:
             self._set_finding("warning", "Loss 震荡 — 训练不稳定", ["降低学习率", "增大 batch size"])
 
@@ -253,7 +255,7 @@ class TrainingMonitor:
         if issue_type == "overfitting":
             recent_vl = [p[2] for p in pts[-4:] if p[2] >= 0]
             if len(recent_vl) >= 3:
-                vl_increasing = sum(1 for i in range(1, len(recent_vl)) if recent_vl[i] > recent_vl[i-1])
+                vl_increasing = sum(1 for i in range(1, len(recent_vl)) if recent_vl[i] > recent_vl[i - 1])
                 ratio = vl_increasing / (len(recent_vl) - 1)
                 scale = 1.0 - ratio * 0.5
                 return max(0.3, min(0.85, scale))
@@ -300,7 +302,7 @@ class TrainingMonitor:
 
         # 震荡：按变异系数计算裁剪阈值
         if issue_type == "oscillation":
-            recent = [p[1] for p in pts[-min(6, n):]]
+            recent = [p[1] for p in pts[-min(6, n) :]]
             mean = sum(recent) / len(recent)
             if mean > 1e-8:
                 max_dev = max(abs(v - mean) for v in recent)
@@ -335,7 +337,7 @@ class TrainingMonitor:
             return 0.0
 
         tl_trend = valids[-1][0] < valids[-5][0]  # 训练 loss 是否下降
-        vl_rising = sum(1 for i in range(1, len(valids)) if valids[i][1] > valids[i-1][1])  # 验证 loss 上升次数
+        vl_rising = sum(1 for i in range(1, len(valids)) if valids[i][1] > valids[i - 1][1])  # 验证 loss 上升次数
         ratio = vl_rising / (len(valids) - 1)
 
         # 训练 loss 下降但验证 loss 持续上升 → 过拟合，按比例启用 weight_decay

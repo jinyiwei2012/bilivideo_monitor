@@ -1,4 +1,5 @@
 """中央数据库 CRUD 操作模块"""
+
 import sqlite3
 import logging
 import os
@@ -71,12 +72,26 @@ class CentralCRUD:
                      owner_name, owner_id, pubdate, duration, pic, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
-                        video.bvid, video.title, video.view_count, video.like_count,
-                        video.coin_count, video.share_count, video.favorite_count,
-                        video.danmaku_count, video.reply_count, video.viewers_app,
-                        video.viewers_web, video.viewers_total, video.cover_path,
-                        video.like_view_ratio, video.owner_name, video.owner_id,
-                        video.pubdate, video.duration, video.pic, datetime.now(),
+                        video.bvid,
+                        video.title,
+                        video.view_count,
+                        video.like_count,
+                        video.coin_count,
+                        video.share_count,
+                        video.favorite_count,
+                        video.danmaku_count,
+                        video.reply_count,
+                        video.viewers_app,
+                        video.viewers_web,
+                        video.viewers_total,
+                        video.cover_path,
+                        video.like_view_ratio,
+                        video.owner_name,
+                        video.owner_id,
+                        video.pubdate,
+                        video.duration,
+                        video.pic,
+                        datetime.now(),
                     ),
                 )
                 conn.commit()
@@ -252,10 +267,18 @@ class CentralCRUD:
                      viewers_web, viewers_total, like_view_ratio)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
-                        record.bvid, record.timestamp, record.view_count,
-                        record.like_count, record.coin_count, record.share_count,
-                        record.favorite_count, record.danmaku_count, record.reply_count,
-                        record.viewers_app, record.viewers_web, record.viewers_total,
+                        record.bvid,
+                        record.timestamp,
+                        record.view_count,
+                        record.like_count,
+                        record.coin_count,
+                        record.share_count,
+                        record.favorite_count,
+                        record.danmaku_count,
+                        record.reply_count,
+                        record.viewers_app,
+                        record.viewers_web,
+                        record.viewers_total,
                         record.like_view_ratio,
                     ),
                 )
@@ -287,9 +310,7 @@ class CentralCRUD:
         except Exception as e:
             logger.warning("获取监控历史失败 %s: %s", bvid, e)
 
-        backup_rows = self._query_backup(
-            "SELECT * FROM monitor_records WHERE bvid = ? ORDER BY timestamp ASC", (bvid,)
-        )
+        backup_rows = self._query_backup("SELECT * FROM monitor_records WHERE bvid = ? ORDER BY timestamp ASC", (bvid,))
         if backup_rows:
             existing_ts = {r["timestamp"] for r in rows}
             for r in backup_rows:
@@ -314,9 +335,13 @@ class CentralCRUD:
                      predicted_time, confidence, current_views)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
-                        prediction.bvid, prediction.algorithm, prediction.algorithm_id,
-                        prediction.target_threshold, prediction.predicted_seconds,
-                        prediction.predicted_time, prediction.confidence,
+                        prediction.bvid,
+                        prediction.algorithm,
+                        prediction.algorithm_id,
+                        prediction.target_threshold,
+                        prediction.predicted_seconds,
+                        prediction.predicted_time,
+                        prediction.confidence,
                         prediction.current_views,
                     ),
                 )
@@ -371,7 +396,8 @@ class CentralCRUD:
                         note          = excluded.note,
                         recorded_at   = excluded.recorded_at""",
                     (
-                        bvid, period,
+                        bvid,
+                        period,
                         data.get("view_count", 0),
                         data.get("like_count"),
                         data.get("coin_count"),

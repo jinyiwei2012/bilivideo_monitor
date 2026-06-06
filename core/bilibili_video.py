@@ -2,6 +2,7 @@
 B站API模块 - 视频操作
 视频信息、统计数据、观看人数、弹幕、评论获取
 """
+
 import math
 import random
 import logging
@@ -24,6 +25,7 @@ def get_video_info(self, bvid: str) -> Optional[Dict]:
 def _get_video_info_browser_fallback(self, bvid: str) -> Optional[Dict]:
     try:
         from core.browser_fallback import fetch_video_info_playwright
+
         return fetch_video_info_playwright(bvid)
     except ImportError:
         pass
@@ -155,6 +157,7 @@ def get_video_danmaku(self, oid: int) -> List[Dict]:
             from defusedxml.ElementTree import fromstring as _xml_parse
         except ImportError:
             import xml.etree.ElementTree as _ET
+
             _xml_parse = _ET.fromstring
 
         root = _xml_parse(resp.content)

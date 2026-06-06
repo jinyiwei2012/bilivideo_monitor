@@ -193,6 +193,7 @@ def _encrypt_w(gt: str, challenge: str, userresponse: str, trace: List[Dict], pa
     """
     import hashlib
     import base64
+
     try:
         from Cryptodome.Cipher import AES
     except ImportError:

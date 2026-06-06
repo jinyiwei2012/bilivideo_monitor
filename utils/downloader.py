@@ -32,7 +32,7 @@ ARIA2_DOWNLOAD_URL = (
 # 从 GitHub Releases 页面复制对应版本的 aria2c.exe 的 SHA-256
 # 设置 VERIFY_HASH = True 启用下载验证
 VERIFY_HASH = False
-ARIA2_EXPECTED_SHA256 = ("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+ARIA2_EXPECTED_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
 
 def _sha256_file(path: Path) -> str:
@@ -70,6 +70,7 @@ def ensure_aria2() -> bool:
                         raise RuntimeError(f"aria2c.exe SHA-256 校验失败: {actual}")
                 # 清理临时文件
                 import shutil
+
                 shutil.rmtree(extracted, ignore_errors=True)
         zip_path.unlink(missing_ok=True)
         logger.info("aria2c 下载完成: %s", ARIA2_EXE)

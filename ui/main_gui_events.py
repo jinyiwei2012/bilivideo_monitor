@@ -9,14 +9,17 @@ from tkinter import ttk, messagebox
 import math
 import re
 import time
-import os
 import logging
 from datetime import datetime, timedelta
 
 from ui.theme import C
 from ui.helpers import (
-    FONT, FONT_SM, FONT_MONO, THRESHOLD_NAMES,
-    fmt_num, nearest_threshold_gap, fmt_eta,
+    FONT,
+    FONT_SM,
+    THRESHOLD_NAMES,
+    fmt_num,
+    nearest_threshold_gap,
+    fmt_eta,
 )
 from ui.chart import draw_chart_placeholder
 from utils.time_utils import safe_timestamp
@@ -96,9 +99,12 @@ def check_update(gui):
 def show_update_dialog(gui, latest, current, url, changelog, channel="stable"):
     """显示更新弹窗（含 changelog），根据运行模式提供不同更新方式"""
     from utils.update_checker import (
-        format_changelog_for_display, is_frozen,
-        perform_source_git_pull, perform_source_download_zip,
-        perform_exe_self_update, get_update_channel,
+        format_changelog_for_display,
+        is_frozen,
+        perform_source_git_pull,
+        perform_source_download_zip,
+        perform_exe_self_update,
+        get_update_channel,
     )
 
     is_beta = channel == "beta"
@@ -113,28 +119,50 @@ def show_update_dialog(gui, latest, current, url, changelog, channel="stable"):
 
     mode_label = "打包版" if is_frozen() else "源码版"
     channel_label = "测试版" if is_beta else "稳定版"
-    tk.Label(dlg, text=f"新版本 v{latest} 可用 ({mode_label} · {channel_label})",
-             font=("Microsoft YaHei UI", 14, "bold"), bg=C["bg_base"], fg=C["text_1"]).pack(pady=(16, 4))
-    tk.Label(dlg, text=f"当前版本: v{current}", font=("Microsoft YaHei UI", 10),
-             bg=C["bg_base"], fg=C["text_3"]).pack(pady=(0, 12))
+    tk.Label(
+        dlg,
+        text=f"新版本 v{latest} 可用 ({mode_label} · {channel_label})",
+        font=("Microsoft YaHei UI", 14, "bold"),
+        bg=C["bg_base"],
+        fg=C["text_1"],
+    ).pack(pady=(16, 4))
+    tk.Label(dlg, text=f"当前版本: v{current}", font=("Microsoft YaHei UI", 10), bg=C["bg_base"], fg=C["text_3"]).pack(
+        pady=(0, 12)
+    )
 
     if is_beta:
         warn_frame = tk.Frame(dlg, bg="#3b1f1f", highlightthickness=1, highlightbackground="#ff4444")
         warn_frame.pack(fill=tk.X, padx=16, pady=(0, 8))
-        tk.Label(warn_frame, text="⚠ 测试版警告", font=("Microsoft YaHei UI", 10, "bold"),
-                 bg="#3b1f1f", fg="#ff6666").pack(anchor="w", padx=8, pady=(4, 0))
-        tk.Label(warn_frame, text="当前为测试版更新通道，可能存在不稳定或未完成的功能。\n建议在非生产环境中使用。",
-                 font=("Microsoft YaHei UI", 9), bg="#3b1f1f", fg="#ff9999", justify=tk.LEFT
-                 ).pack(anchor="w", padx=8, pady=(0, 4))
+        tk.Label(
+            warn_frame, text="⚠ 测试版警告", font=("Microsoft YaHei UI", 10, "bold"), bg="#3b1f1f", fg="#ff6666"
+        ).pack(anchor="w", padx=8, pady=(4, 0))
+        tk.Label(
+            warn_frame,
+            text="当前为测试版更新通道，可能存在不稳定或未完成的功能。\n建议在非生产环境中使用。",
+            font=("Microsoft YaHei UI", 9),
+            bg="#3b1f1f",
+            fg="#ff9999",
+            justify=tk.LEFT,
+        ).pack(anchor="w", padx=8, pady=(0, 4))
 
     frame = tk.Frame(dlg, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
     frame.pack(fill=tk.BOTH, expand=True, padx=16, pady=(0, 12))
 
-    tk.Label(frame, text="更新内容", font=("Microsoft YaHei UI", 10, "bold"),
-             bg=C["bg_elevated"], fg=C["text_2"]).pack(anchor="w", padx=8, pady=(8, 4))
+    tk.Label(frame, text="更新内容", font=("Microsoft YaHei UI", 10, "bold"), bg=C["bg_elevated"], fg=C["text_2"]).pack(
+        anchor="w", padx=8, pady=(8, 4)
+    )
 
-    text = tk.Text(frame, wrap=tk.WORD, font=("Consolas", 9), bg=C["bg_surface"],
-                   fg=C["text_1"], relief=tk.FLAT, borderwidth=0, padx=8, pady=8)
+    text = tk.Text(
+        frame,
+        wrap=tk.WORD,
+        font=("Consolas", 9),
+        bg=C["bg_surface"],
+        fg=C["text_1"],
+        relief=tk.FLAT,
+        borderwidth=0,
+        padx=8,
+        pady=8,
+    )
     text.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
     text.insert("1.0", format_changelog_for_display(changelog))
     text.config(state=tk.DISABLED)
@@ -145,26 +173,43 @@ def show_update_dialog(gui, latest, current, url, changelog, channel="stable"):
 
     channel_frame = tk.Frame(dlg, bg=C["bg_base"])
     channel_frame.pack(fill=tk.X, padx=16, pady=(0, 8))
-    tk.Label(channel_frame, text="更新通道:", font=("Microsoft YaHei UI", 9),
-             bg=C["bg_base"], fg=C["text_3"]).pack(side=tk.LEFT, padx=(0, 8))
+    tk.Label(channel_frame, text="更新通道:", font=("Microsoft YaHei UI", 9), bg=C["bg_base"], fg=C["text_3"]).pack(
+        side=tk.LEFT, padx=(0, 8)
+    )
 
     current_channel = get_update_channel()
     channel_var = tk.StringVar(value=current_channel)
     gui._channel_var_ref = channel_var
-    ttk.Radiobutton(channel_frame, text="稳定版 (推荐)", variable=channel_var, value="stable",
-                    command=lambda: on_channel_switch(gui, channel_var.get(), dlg)).pack(side=tk.LEFT, padx=(0, 8))
-    ttk.Radiobutton(channel_frame, text="测试版", variable=channel_var, value="beta",
-                    command=lambda: on_channel_switch(gui, channel_var.get(), dlg)).pack(side=tk.LEFT)
+    ttk.Radiobutton(
+        channel_frame,
+        text="稳定版 (推荐)",
+        variable=channel_var,
+        value="stable",
+        command=lambda: on_channel_switch(gui, channel_var.get(), dlg),
+    ).pack(side=tk.LEFT, padx=(0, 8))
+    ttk.Radiobutton(
+        channel_frame,
+        text="测试版",
+        variable=channel_var,
+        value="beta",
+        command=lambda: on_channel_switch(gui, channel_var.get(), dlg),
+    ).pack(side=tk.LEFT)
 
     btn_frame = tk.Frame(dlg, bg=C["bg_base"])
     btn_frame.pack(fill=tk.X, padx=16, pady=(0, 16))
 
     if is_frozen() and is_beta:
-        tk.Label(btn_frame, text="测试版暂不提供 EXE 下载，请切换到稳定版通道。\n也可以使用源码版通过 Git/ZIP 更新。",
-                 font=("Microsoft YaHei UI", 9), bg=C["bg_base"], fg=C["warning"], justify=tk.CENTER
-                 ).pack(side=tk.TOP, pady=(0, 8))
+        tk.Label(
+            btn_frame,
+            text="测试版暂不提供 EXE 下载，请切换到稳定版通道。\n也可以使用源码版通过 Git/ZIP 更新。",
+            font=("Microsoft YaHei UI", 9),
+            bg=C["bg_base"],
+            fg=C["warning"],
+            justify=tk.CENTER,
+        ).pack(side=tk.TOP, pady=(0, 8))
         ttk.Button(btn_frame, text="知道了", command=dlg.destroy).pack(side=tk.RIGHT)
     elif is_frozen():
+
         def _download_exe():
             dlg.destroy()
             show_download_progress(gui, "正在下载新版本…", perform_exe_self_update)
@@ -172,6 +217,7 @@ def show_update_dialog(gui, latest, current, url, changelog, channel="stable"):
         ttk.Button(btn_frame, text="⬇ aria2 下载更新", command=_download_exe).pack(side=tk.RIGHT, padx=(8, 0))
         ttk.Button(btn_frame, text="稍后提醒", command=dlg.destroy).pack(side=tk.RIGHT)
     else:
+
         def _download_zip():
             dlg.destroy()
             show_download_progress(gui, "正在下载最新源码…", perform_source_download_zip)
@@ -322,6 +368,7 @@ def start_auto_refresh(gui):
     """启动自动刷新"""
     if gui.auto_refresh_enabled.get():
         from ui.main_gui_tick import start_global_tick
+
         start_global_tick(gui)
 
 
@@ -335,10 +382,12 @@ def toggle_auto_refresh(gui, event=None):
     gui.bottom_bar._draw_toggle(not cur)
     if not cur:
         from ui.main_gui_tick import start_global_tick
+
         start_global_tick(gui)
         gui._sb("status", "自动刷新已启用", C["success"])
     else:
         from ui.main_gui_tick import stop_global_tick
+
         stop_global_tick(gui)
         gui._countdown_badge.config(text="已暂停")
         gui._mode_pill.config(text="已暂停", fg=C["text_3"])
@@ -348,6 +397,7 @@ def toggle_auto_refresh(gui, event=None):
 def do_fetch(gui):
     """执行数据拉取"""
     from ui.monitor_service import fetch_all_video_data
+
     fetch_all_video_data(gui)
 
 
@@ -370,6 +420,7 @@ def post_fetch(gui):
     for video in gui.monitored_videos:
         register_video_timer(gui, video.get("bvid", ""))
     from ui.monitor_service import auto_predict_all
+
     auto_predict_all(gui)
 
 
@@ -392,9 +443,7 @@ def select_video(gui, bvid):
         show_video_detail(gui, video)
     cached = gui.prediction_results.get(bvid)
     if cached:
-        gui.prediction._build_pred_hero(
-            cached["prediction"], cached["current_view"], cached.get("rate_per_sec", 0)
-        )
+        gui.prediction._build_pred_hero(cached["prediction"], cached["current_view"], cached.get("rate_per_sec", 0))
         gui.prediction._update_algo_list(cached.get("success_list", []), cached.get("fail_list", []))
 
 
@@ -429,11 +478,17 @@ def build_add_dialog_ui(gui, dialog):
 
     tk.Label(content, text="请输入BV号或视频链接：", bg=C["bg_surface"], fg=C["text_1"], font=FONT).pack(pady=(18, 4))
 
-    entry_f = tk.Frame(content, bg=C["bg_elevated"], highlightthickness=1,
-                       highlightbackground=C["border"], highlightcolor=C["bilibili"])
+    entry_f = tk.Frame(
+        content,
+        bg=C["bg_elevated"],
+        highlightthickness=1,
+        highlightbackground=C["border"],
+        highlightcolor=C["bilibili"],
+    )
     entry_f.pack(padx=24, fill=tk.X)
-    entry = tk.Entry(entry_f, bg=C["bg_elevated"], fg=C["text_1"],
-                     insertbackground=C["text_1"], relief="flat", font=FONT, bd=0)
+    entry = tk.Entry(
+        entry_f, bg=C["bg_elevated"], fg=C["text_1"], insertbackground=C["text_1"], relief="flat", font=FONT, bd=0
+    )
     entry.pack(fill=tk.X, padx=8, pady=6)
     entry.focus_set()
     tk.Label(content, text="格式：BV1xxx 或完整链接", bg=C["bg_surface"], fg=C["text_3"], font=FONT_SM).pack()
@@ -513,9 +568,11 @@ def fetch_video_info_and_add(gui, bvid, dialog, status_lbl):
         video = map_api_to_video_dict(bvid, info)
         register_video_to_monitor(gui, video)
         save_watch_list(gui)
-        messagebox.showinfo("成功",
-                            f"已添加监控\n标题：{video['title'][:40]}\nUP主：{video['author']}\n播放：{fmt_num(video['view_count'])}",
-                            parent=dialog)
+        messagebox.showinfo(
+            "成功",
+            f"已添加监控\n标题：{video['title'][:40]}\nUP主：{video['author']}\n播放：{fmt_num(video['view_count'])}",
+            parent=dialog,
+        )
         dialog.destroy()
 
     threading.Thread(target=_fetch, daemon=True).start()
@@ -564,6 +621,7 @@ def remove_monitor(gui):
     gui.video_list.update_video_count()
     gui._sb("videos", f"监控: {len(gui.monitored_videos)} 个")
     from ui.main_gui_data import save_watch_list
+
     save_watch_list(gui)
 
 
@@ -678,10 +736,20 @@ def run_post_training_predict(gui):
     if gui.selected_bvid:
         if gui.selected_bvid in gui.prediction_results:
             r = gui.prediction_results[gui.selected_bvid]
-            gui.root.after(0, lambda: prediction_done(
-                gui, r["prediction"], r["current_view"], r["growth"], r["rate_per_sec"],
-                r.get("success_list", []), r.get("fail_list", []), r["valid"], r["total"],
-            ))
+            gui.root.after(
+                0,
+                lambda: prediction_done(
+                    gui,
+                    r["prediction"],
+                    r["current_view"],
+                    r["growth"],
+                    r["rate_per_sec"],
+                    r.get("success_list", []),
+                    r.get("fail_list", []),
+                    r["valid"],
+                    r["total"],
+                ),
+            )
         gui.root.after(100, lambda: gui.detail._manual_render_chart())
     logger.info("训练后预测完成 (%d 个视频)", len(bvids))
 

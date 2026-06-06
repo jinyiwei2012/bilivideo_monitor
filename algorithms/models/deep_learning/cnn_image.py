@@ -116,7 +116,7 @@ class CnnImageAlgorithm(BaseAlgorithm):
         if self._cached_model is None or (bvid and not getattr(self, "_cached_bvid", "") == bvid):
             model = CnnImageTorchModel(
                 window=self.training_window,
-                in_features=getattr(self, '_training_n_features', len(self._features) + 5),
+                in_features=getattr(self, "_training_n_features", len(self._features) + 5),
                 horizon=self.training_horizon,
             )
             model.load_state_dict(state)
@@ -203,7 +203,7 @@ class CnnImageAlgorithm(BaseAlgorithm):
     def build_model(self):
         return CnnImageTorchModel(
             window=self.training_window,
-            in_features=getattr(self, '_training_n_features', len(self._features) + 5),
+            in_features=getattr(self, "_training_n_features", len(self._features) + 5),
             horizon=self.training_horizon,
         )
 

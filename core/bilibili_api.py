@@ -5,12 +5,11 @@ B站API模块 - 封装B站相关接口
 
 import requests
 import time
-import math
 import random
 import logging
 import threading
 import warnings
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional, Any
 
 from core.proxy_manager import ProxyManager
 
@@ -54,6 +53,7 @@ class _CurlCffiResponse:
     def raise_for_status(self):
         if self.status_code >= 400:
             from requests.exceptions import HTTPError
+
             raise HTTPError(f"HTTP {self.status_code}", response=self)
 
 
@@ -154,18 +154,22 @@ class BilibiliAPI(_RequestMixin, _AuthMixin, _VideoMixin, _UpMixin):
     def _gen_buvid() -> str:
         """生成随机 buvid（模拟浏览器设备指纹）"""
         import uuid as _uuid
+
         return _uuid.uuid4().hex.upper()[:16] + _uuid.uuid4().hex.upper()[:16] + "infoc"
 
     def _init_curl_cffi(self):
         """初始化 curl_cffi 会话（TLS 指纹伪装）"""
         try:
             from curl_cffi import requests as _curl_req
+
             self._curl_session = _curl_req.Session(impersonate="chrome131")
-            self._curl_session.headers.update({
-                "Referer": "https://www.bilibili.com/",
-                "Accept": "application/json, text/plain, */*",
-                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-            })
+            self._curl_session.headers.update(
+                {
+                    "Referer": "https://www.bilibili.com/",
+                    "Accept": "application/json, text/plain, */*",
+                    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+                }
+            )
             self._has_curl_cffi = True
             self._impersonate = "chrome131"
             logger.info("curl_cffi TLS 指纹伪装已启用 (impersonate=chrome131)")
@@ -187,7 +191,8 @@ class BilibiliAPI(_RequestMixin, _AuthMixin, _VideoMixin, _UpMixin):
     def _load_saved_network_config(self):
         """从 network_config.json 加载多账号 Cookie 和代理"""
         try:
-            import json, os
+            import json
+            import os
             from utils.crypto import decrypt_dict
 
             cfg_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "network_config.json")
@@ -204,15 +209,26 @@ class BilibiliAPI(_RequestMixin, _AuthMixin, _VideoMixin, _UpMixin):
                     decrypt_dict(cookies, "SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid")
                     cookies = self._sanitize_cookies(cookies)
                     name = net_cfg.get("account_name", "默认")
-                    self._accounts = [{"name": name, "cookies": cookies,
-                                       "refresh_token": net_cfg.get("refresh_token", ""), "active": True}]
+                    self._accounts = [
+                        {
+                            "name": name,
+                            "cookies": cookies,
+                            "refresh_token": net_cfg.get("refresh_token", ""),
+                            "active": True,
+                        }
+                    ]
 
             # 根据 active_account 切换当前账号
             active_name = net_cfg.get("active_account", "")
             found = False
             for acc in self._accounts:
-                acc["cookies"] = self._sanitize_cookies(decrypt_dict(acc.get("cookies", {}),
-                    "SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid") if acc.get("cookies") else {})
+                acc["cookies"] = self._sanitize_cookies(
+                    decrypt_dict(
+                        acc.get("cookies", {}), "SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid"
+                    )
+                    if acc.get("cookies")
+                    else {}
+                )
                 if acc["name"] == active_name:
                     self._cookies = dict(acc.get("cookies", {}))
                     self._refresh_token = acc.get("refresh_token", "")
@@ -290,6 +306,7 @@ class BilibiliAPI(_RequestMixin, _AuthMixin, _VideoMixin, _UpMixin):
             if result and "result" in result:
                 return result["result"]
         except ImportError:
+            logger.debug("bilibili-api-python 未安装，跳过兜底搜索")
             pass
         except Exception as e:
             logger.debug("bilibili-api 兜底搜索失败: %s", e)
@@ -312,7 +329,9 @@ class BilibiliAPI(_RequestMixin, _AuthMixin, _VideoMixin, _UpMixin):
             "stat": video_info.get("stat", {}),
             "viewers_total": int(viewers_data.get("total", 0)) if viewers_data else 0,
             "viewers_web": int(viewers_data.get("count", 0)) if viewers_data else 0,
-            "viewers_app": max(0, int(viewers_data.get("total", 0)) - int(viewers_data.get("count", 0))) if viewers_data else 0,
+            "viewers_app": (
+                max(0, int(viewers_data.get("total", 0)) - int(viewers_data.get("count", 0))) if viewers_data else 0
+            ),
         }
 
     # ── WBI签名 ───────────────────────────────────────────

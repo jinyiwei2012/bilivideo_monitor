@@ -12,8 +12,8 @@ logger = logging.getLogger(__name__)
 
 # 图表边距
 _ML, _MR, _MT, _MB = 60, 20, 32, 80
-_BAR_H = 18          # 柱状图每行高度
-_BAR_GAP = 6         # 柱状图行间距
+_BAR_H = 18  # 柱状图每行高度
+_BAR_GAP = 6  # 柱状图行间距
 
 # 按类别分配颜色
 _CATEGORY_COLORS = {

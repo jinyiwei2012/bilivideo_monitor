@@ -2,6 +2,7 @@
 B站API模块 - UP主操作
 UP主搜索、信息获取、统计数据和视频列表
 """
+
 import logging
 from typing import Dict, List, Optional
 
@@ -57,13 +58,17 @@ def _own_get_up_info(self, uid: int) -> Optional[Dict]:
             "video_count": data.get("video_count", data.get("videos", 0)),
             "official_verify": data.get("official_verify", {}),
             "nameplate": data.get("nameplate", {}),
-            "live_room": {
-                "roomid": lr.get("roomid", 0),
-                "live_status": lr.get("liveStatus", 0),
-                "live_title": lr.get("title", ""),
-                "live_cover": lr.get("cover", ""),
-                "live_url": lr.get("url", ""),
-            } if lr else None,
+            "live_room": (
+                {
+                    "roomid": lr.get("roomid", 0),
+                    "live_status": lr.get("liveStatus", 0),
+                    "live_title": lr.get("title", ""),
+                    "live_cover": lr.get("cover", ""),
+                    "live_url": lr.get("url", ""),
+                }
+                if lr
+                else None
+            ),
         }
     return None
 

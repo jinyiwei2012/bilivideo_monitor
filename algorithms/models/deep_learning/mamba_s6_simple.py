@@ -34,7 +34,9 @@ class MambaS6Algorithm(BaseAlgorithm):
         )
 
     def build_model(self):
-        return MambaS6TorchModel(in_features=getattr(self, '_training_n_features', 5), d_state=4, horizon=self.training_horizon)
+        return MambaS6TorchModel(
+            in_features=getattr(self, "_training_n_features", 5), d_state=4, horizon=self.training_horizon
+        )
 
     def get_training_features(self) -> List[str]:
         return ["view_count", "like_count", "coin_count", "favorite_count", "share_count"]

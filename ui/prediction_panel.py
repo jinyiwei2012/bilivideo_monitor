@@ -236,8 +236,9 @@ class PredictionPanel:
             ctk.CTkLabel(cell, text=label, text_color=C["text_3"], font=FONT_SM, fg_color="transparent").pack(
                 side=tk.LEFT, padx=(6, 0)
             )
-            ctk.CTkLabel(cell, text=val, text_color=C["text_1"], font=("Consolas", 9, "bold"),
-                         fg_color="transparent").pack(side=tk.RIGHT, padx=(0, 6))
+            ctk.CTkLabel(
+                cell, text=val, text_color=C["text_1"], font=("Consolas", 9, "bold"), fg_color="transparent"
+            ).pack(side=tk.RIGHT, padx=(0, 6))
 
         # ── 在线人数 ──
         online_total = video.get("viewers_total", 0)
@@ -248,11 +249,16 @@ class PredictionPanel:
             online_frame.pack(fill=tk.X, padx=10, pady=(0, 6))
             row = ctk.CTkFrame(online_frame, fg_color=C["bg_elevated"], corner_radius=4, height=28)
             row.pack(fill=tk.X)
-            ctk.CTkLabel(row, text="👁 在线人数", text_color=C["text_3"], font=FONT_SM,
-                         fg_color="transparent").pack(side=tk.LEFT, padx=(6, 0))
-            ctk.CTkLabel(row, text=f"{fmt_num(online_total)}  (网页{fmt_num(online_web)}/APP{fmt_num(online_app)})",
-                         text_color=C["accent"], font=("Consolas", 9), fg_color="transparent").pack(side=tk.RIGHT,
-                                                                                                    padx=(0, 6))
+            ctk.CTkLabel(row, text="👁 在线人数", text_color=C["text_3"], font=FONT_SM, fg_color="transparent").pack(
+                side=tk.LEFT, padx=(6, 0)
+            )
+            ctk.CTkLabel(
+                row,
+                text=f"{fmt_num(online_total)}  (网页{fmt_num(online_web)}/APP{fmt_num(online_app)})",
+                text_color=C["accent"],
+                font=("Consolas", 9),
+                fg_color="transparent",
+            ).pack(side=tk.RIGHT, padx=(0, 6))
 
         # ── 最近记录 ──
         self._section_title(f, "📋 最近记录")
@@ -262,23 +268,53 @@ class PredictionPanel:
             recent = history[-15:]  # 只显示最近 15 条
             prev_v = recent[0][1] if len(recent) > 1 else 0
             for ts, v in recent:
-                dt_str = ts.strftime("%m-%d %H:%M") if isinstance(ts, datetime) else str(ts)[:-3] if len(
-                    str(ts)) > 16 else str(ts)
+                dt_str = (
+                    ts.strftime("%m-%d %H:%M")
+                    if isinstance(ts, datetime)
+                    else str(ts)[:-3] if len(str(ts)) > 16 else str(ts)
+                )
                 delta_v = v - prev_v if prev_v > 0 else 0
                 delta_str = f"+{fmt_num(delta_v)}" if delta_v > 0 else "—"
                 delta_c = C["success"] if delta_v > 0 else C["text_3"]
                 prev_v = v
                 row = ctk.CTkFrame(hist_container, fg_color=C["bg_surface"], corner_radius=0)
                 row.pack(fill=tk.X, pady=1)
-                ctk.CTkLabel(row, text=dt_str, text_color=C["text_3"], font=("Consolas", 8),
-                             fg_color="transparent", width=60, anchor="w").pack(side=tk.LEFT)
-                ctk.CTkLabel(row, text=fmt_num(v), text_color=C["text_1"], font=("Consolas", 9, "bold"),
-                             fg_color="transparent", width=60, anchor="e").pack(side=tk.RIGHT)
-                ctk.CTkLabel(row, text=delta_str, text_color=delta_c, font=("Consolas", 8),
-                             fg_color="transparent", width=50, anchor="e").pack(side=tk.RIGHT)
+                ctk.CTkLabel(
+                    row,
+                    text=dt_str,
+                    text_color=C["text_3"],
+                    font=("Consolas", 8),
+                    fg_color="transparent",
+                    width=60,
+                    anchor="w",
+                ).pack(side=tk.LEFT)
+                ctk.CTkLabel(
+                    row,
+                    text=fmt_num(v),
+                    text_color=C["text_1"],
+                    font=("Consolas", 9, "bold"),
+                    fg_color="transparent",
+                    width=60,
+                    anchor="e",
+                ).pack(side=tk.RIGHT)
+                ctk.CTkLabel(
+                    row,
+                    text=delta_str,
+                    text_color=delta_c,
+                    font=("Consolas", 8),
+                    fg_color="transparent",
+                    width=50,
+                    anchor="e",
+                ).pack(side=tk.RIGHT)
         else:
-            ctk.CTkLabel(hist_container, text="暂无历史数据", text_color=C["text_3"], font=FONT_SM,
-                         fg_color="transparent", anchor="w").pack(fill=tk.X, pady=4)
+            ctk.CTkLabel(
+                hist_container,
+                text="暂无历史数据",
+                text_color=C["text_3"],
+                font=FONT_SM,
+                fg_color="transparent",
+                anchor="w",
+            ).pack(fill=tk.X, pady=4)
 
         # ── 算法统计 ──
         self._section_title(f, "🧠 算法统计")
@@ -290,34 +326,47 @@ class PredictionPanel:
             ensemble_conf = prediction_result.get("ensemble_confidence", 0)
             row = ctk.CTkFrame(algo_info, fg_color=C["bg_elevated"], corner_radius=4, height=28)
             row.pack(fill=tk.X)
-            ctk.CTkLabel(row, text="有效算法", text_color=C["text_3"], font=FONT_SM,
-                         fg_color="transparent").pack(side=tk.LEFT, padx=(6, 0))
-            ctk.CTkLabel(row, text=f"{valid}/{total}", text_color=C["success"] if valid > 0 else C["danger"],
-                         font=("Consolas", 9, "bold"), fg_color="transparent").pack(side=tk.RIGHT, padx=(0, 6))
+            ctk.CTkLabel(row, text="有效算法", text_color=C["text_3"], font=FONT_SM, fg_color="transparent").pack(
+                side=tk.LEFT, padx=(6, 0)
+            )
+            ctk.CTkLabel(
+                row,
+                text=f"{valid}/{total}",
+                text_color=C["success"] if valid > 0 else C["danger"],
+                font=("Consolas", 9, "bold"),
+                fg_color="transparent",
+            ).pack(side=tk.RIGHT, padx=(0, 6))
             if ensemble_conf > 0:
                 row2 = ctk.CTkFrame(algo_info, fg_color=C["bg_elevated"], corner_radius=4, height=28)
                 row2.pack(fill=tk.X, pady=(2, 0))
-                ctk.CTkLabel(row2, text="集成置信度", text_color=C["text_3"], font=FONT_SM,
-                             fg_color="transparent").pack(side=tk.LEFT, padx=(6, 0))
-                ctk.CTkLabel(row2, text=f"{ensemble_conf * 100:.1f}%",
-                             text_color=C["accent"], font=("Consolas", 9, "bold"),
-                             fg_color="transparent").pack(side=tk.RIGHT, padx=(0, 6))
+                ctk.CTkLabel(
+                    row2, text="集成置信度", text_color=C["text_3"], font=FONT_SM, fg_color="transparent"
+                ).pack(side=tk.LEFT, padx=(6, 0))
+                ctk.CTkLabel(
+                    row2,
+                    text=f"{ensemble_conf * 100:.1f}%",
+                    text_color=C["accent"],
+                    font=("Consolas", 9, "bold"),
+                    fg_color="transparent",
+                ).pack(side=tk.RIGHT, padx=(0, 6))
         else:
-            ctk.CTkLabel(algo_info, text="等待首次预测", text_color=C["text_3"], font=FONT_SM,
-                         fg_color="transparent", anchor="w").pack(fill=tk.X, pady=4)
+            ctk.CTkLabel(
+                algo_info, text="等待首次预测", text_color=C["text_3"], font=FONT_SM, fg_color="transparent", anchor="w"
+            ).pack(fill=tk.X, pady=4)
 
         # ── 数据健康 ──
         self._section_title(f, "📡 数据健康")
         health = ctk.CTkFrame(f, fg_color=C["bg_surface"], corner_radius=0)
         health.pack(fill=tk.X, padx=10, pady=(0, 6))
         n_records = len(history) if history else 0
-        fetch_time = video.get("_last_fetch", "")
         row = ctk.CTkFrame(health, fg_color=C["bg_elevated"], corner_radius=4, height=28)
         row.pack(fill=tk.X)
-        ctk.CTkLabel(row, text="数据点数", text_color=C["text_3"], font=FONT_SM,
-                     fg_color="transparent").pack(side=tk.LEFT, padx=(6, 0))
-        ctk.CTkLabel(row, text=str(n_records), text_color=C["text_1"], font=("Consolas", 9, "bold"),
-                     fg_color="transparent").pack(side=tk.RIGHT, padx=(0, 6))
+        ctk.CTkLabel(row, text="数据点数", text_color=C["text_3"], font=FONT_SM, fg_color="transparent").pack(
+            side=tk.LEFT, padx=(6, 0)
+        )
+        ctk.CTkLabel(
+            row, text=str(n_records), text_color=C["text_1"], font=("Consolas", 9, "bold"), fg_color="transparent"
+        ).pack(side=tk.RIGHT, padx=(0, 6))
 
         self._info_content = True
 
@@ -325,8 +374,9 @@ class PredictionPanel:
         """绘制一个分节标题"""
         row = ctk.CTkFrame(parent, fg_color=C["bg_surface"], corner_radius=0)
         row.pack(fill=tk.X, padx=10, pady=(8, 2))
-        ctk.CTkLabel(row, text=text, text_color=C["text_3"],
-                     font=("Microsoft YaHei UI", 8, "bold"), fg_color="transparent").pack(side=tk.LEFT)
+        ctk.CTkLabel(
+            row, text=text, text_color=C["text_3"], font=("Microsoft YaHei UI", 8, "bold"), fg_color="transparent"
+        ).pack(side=tk.LEFT)
 
     # 兼容旧接口 — 不再显示算法列表，转调 update_info
     def _update_algo_list(self, results, failed):

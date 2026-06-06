@@ -61,6 +61,7 @@ def import_checkpoints(zip_path: str, merge: bool = True) -> int:
     with tempfile.TemporaryDirectory() as tmp:
         # 使用 zipfile 并校验每个条目防止路径穿越
         import zipfile
+
         tmp_abs = os.path.realpath(tmp)
         with zipfile.ZipFile(zip_path, "r") as zf:
             for info in zf.infolist():

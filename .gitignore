@@ -45,4 +45,7 @@ algorithms/checkpoints/*/
 data/network_config.json
 data/settings.json
 
+# 代码签名私钥（严禁提交！）
+scripts/.signing_key
+
 .devmode

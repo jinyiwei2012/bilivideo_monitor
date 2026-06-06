@@ -5,12 +5,12 @@
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk
 import threading
 import logging
 from datetime import datetime
 from ui.theme import C
-from ui.helpers import FONT, FONT_SM, FONT_MONO, fmt_num
+from ui.helpers import FONT_SM, fmt_num
 from ui.dialog_base import DialogBase
 from core.smart_alert import AnomalyDetector
 
@@ -44,9 +44,7 @@ class AnomalyPanel:
 
         # 结果列表 — 增加 时间/增量/在线 列
         columns = ("bvid", "title", "type", "time", "views", "delta", "velocity", "online")
-        self._tree = ttk.Treeview(
-            self.dlg.content_area(), columns=columns, show="headings", height=20
-        )
+        self._tree = ttk.Treeview(self.dlg.content_area(), columns=columns, show="headings", height=20)
         self._tree.heading("bvid", text="BV号")
         self._tree.heading("title", text="标题")
         self._tree.heading("type", text="异常类型")
@@ -71,8 +69,14 @@ class AnomalyPanel:
 
         # 底部详情区：选中异常时显示详细上下文
         self._detail_text = tk.Text(
-            self.dlg.content_area(), height=5, bg=C["bg_elevated"], fg=C["text_2"],
-            font=("Microsoft YaHei UI", 9), relief=tk.FLAT, wrap=tk.WORD, state=tk.DISABLED
+            self.dlg.content_area(),
+            height=5,
+            bg=C["bg_elevated"],
+            fg=C["text_2"],
+            font=("Microsoft YaHei UI", 9),
+            relief=tk.FLAT,
+            wrap=tk.WORD,
+            state=tk.DISABLED,
         )
         self._detail_text.pack(fill=tk.X, padx=10, pady=(0, 6))
         self._tree.bind("<<TreeviewSelect>>", self._show_detail)
@@ -116,17 +120,19 @@ class AnomalyPanel:
                     if video_db:
                         raw = video_db.get_all_records(limit=30)
                         for r in raw:
-                            full_records.append({
-                                "timestamp": r["timestamp"],
-                                "view_count": r["view_count"],
-                                "like_count": r.get("like_count", 0),
-                                "coin_count": r.get("coin_count", 0),
-                                "favorite_count": r.get("favorite_count", 0),
-                                "share_count": r.get("share_count", 0),
-                                "danmaku_count": r.get("danmaku_count", 0),
-                                "reply_count": r.get("reply_count", 0),
-                                "viewers_total": r.get("viewers_total", 0),
-                            })
+                            full_records.append(
+                                {
+                                    "timestamp": r["timestamp"],
+                                    "view_count": r["view_count"],
+                                    "like_count": r.get("like_count", 0),
+                                    "coin_count": r.get("coin_count", 0),
+                                    "favorite_count": r.get("favorite_count", 0),
+                                    "share_count": r.get("share_count", 0),
+                                    "danmaku_count": r.get("danmaku_count", 0),
+                                    "reply_count": r.get("reply_count", 0),
+                                    "viewers_total": r.get("viewers_total", 0),
+                                }
+                            )
                 except Exception as e:
                     logger.debug("从DB获取记录失败 %s: %s", bvid, e)
                 if len(full_records) < 3:
@@ -153,7 +159,7 @@ class AnomalyPanel:
                     # 获取 UP 主信息（用于买量检测）
                     up_info = None
                     owner_mid = video.get("owner_mid", 0) or video.get("mid", 0)
-                    if owner_mid and hasattr(self.gui, '_cached_up_info'):
+                    if owner_mid and hasattr(self.gui, "_cached_up_info"):
                         up_info = self.gui._cached_up_info.get(str(owner_mid))
 
                     # 调用异常检测器
@@ -180,25 +186,37 @@ class AnomalyPanel:
                             type_icon = "⚠ 其他"
 
                         time_str = dt_last.strftime("%m-%d %H:%M") if len(recent) >= 2 else "--"
-                        results.append({
+                        results.append(
+                            {
+                                "bvid": bvid,
+                                "title": video.get("title", bvid)[:22],
+                                "type": type_icon,
+                                "time": time_str,
+                                "views": current_views,
+                                "delta": delta_views,
+                                "velocity": velocity,
+                                "online": online,
+                                "alert_text": a,
+                                "author": video.get("author", ""),
+                                "pubdate": video.get("pubdate", 0),
+                            }
+                        )
+                except Exception as e:
+                    results.append(
+                        {
                             "bvid": bvid,
                             "title": video.get("title", bvid)[:22],
-                            "type": type_icon,
-                            "time": time_str,
+                            "type": "⚠ 错误",
+                            "time": "--",
                             "views": current_views,
-                            "delta": delta_views,
-                            "velocity": velocity,
+                            "delta": 0,
+                            "velocity": 0,
                             "online": online,
-                            "alert_text": a,
-                            "author": video.get("author", ""),
-                            "pubdate": video.get("pubdate", 0),
-                        })
-                except Exception as e:
-                    results.append({
-                        "bvid": bvid, "title": video.get("title", bvid)[:22], "type": "⚠ 错误",
-                        "time": "--", "views": current_views, "delta": 0, "velocity": 0, "online": online,
-                        "alert_text": str(e)[:60], "author": "", "pubdate": 0,
-                    })
+                            "alert_text": str(e)[:60],
+                            "author": "",
+                            "pubdate": 0,
+                        }
+                    )
 
             # 回主线程更新 UI
             self.dlg.window.after(0, lambda: self._show_results(results))
@@ -210,12 +228,20 @@ class AnomalyPanel:
         self._tree.delete(*self._tree.get_children())
         self._alert_data = results
         for r in results:
-            self._tree.insert("", tk.END, values=(
-                r["bvid"], r["title"], r["type"], r["time"],
-                fmt_num(r["views"]), fmt_num(r["delta"]) if r["delta"] > 0 else "—",
-                f"{r['velocity']:.0f}" if r["velocity"] > 0 else "—",
-                fmt_num(r["online"]) if r["online"] > 0 else "—",
-            ))
+            self._tree.insert(
+                "",
+                tk.END,
+                values=(
+                    r["bvid"],
+                    r["title"],
+                    r["type"],
+                    r["time"],
+                    fmt_num(r["views"]),
+                    fmt_num(r["delta"]) if r["delta"] > 0 else "—",
+                    f"{r['velocity']:.0f}" if r["velocity"] > 0 else "—",
+                    fmt_num(r["online"]) if r["online"] > 0 else "—",
+                ),
+            )
             # 高亮严重异常（增速飙升、在线暴跌）为红色
             if r["type"] in ("📈 增速飙升", "📉 在线暴跌"):
                 for cid in self._tree.get_children():

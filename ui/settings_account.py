@@ -9,7 +9,7 @@ import tkinter as tk
 import logging
 from tkinter import ttk, messagebox
 from ui.theme import C
-from ui.helpers import FONT, FONT_SM, FONT_MONO
+from ui.helpers import FONT, FONT_SM
 from core.bilibili_api import get_bilibili_api
 from utils.update_checker import _s
 
@@ -26,9 +26,7 @@ def _build_account_tab(self, nb):
     import_row = tk.Frame(sec, bg=C["bg_elevated"])
     import_row.pack(fill=tk.X, pady=(0, 6))
     tk.Label(import_row, text="导入方式:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT).pack(side=tk.LEFT)
-    ttk.Button(import_row, text="📋 Cookie-Editor JSON", command=self._import_cookie_editor).pack(
-        side=tk.LEFT, padx=4
-    )
+    ttk.Button(import_row, text="📋 Cookie-Editor JSON", command=self._import_cookie_editor).pack(side=tk.LEFT, padx=4)
     ttk.Button(import_row, text="📱 扫码登录", command=self._qrcode_login).pack(side=tk.LEFT, padx=4)
     ttk.Button(import_row, text="🔑 密码登录", command=self._password_login, state=_s()).pack(side=tk.LEFT, padx=4)
     ttk.Button(import_row, text="🌐 从浏览器提取", command=self._import_from_browser).pack(side=tk.LEFT, padx=4)
@@ -59,13 +57,17 @@ def _build_account_tab(self, nb):
     btn_row.pack(fill=tk.X)
     ttk.Button(btn_row, text="应用Cookie", command=self._apply_cookies).pack(side=tk.LEFT, padx=(0, 4))
     self._cookie_unlock_btn = ttk.Button(
-        btn_row, text="🔒 解锁查看", command=self._toggle_cookie_unlock, width=10,
+        btn_row,
+        text="🔒 解锁查看",
+        command=self._toggle_cookie_unlock,
+        width=10,
     )
     self._cookie_unlock_btn.pack(side=tk.LEFT, padx=(4, 0))
     self._refresh_cookie_display()
     self._refresh_account_list()
 
     from utils.update_checker import _s
+
     ttk.Button(btn_row, text="清空Cookie", command=self._clear_cookies, state=_s()).pack(side=tk.LEFT)
 
     tk.Label(
@@ -172,7 +174,9 @@ def _verify_login(self):
         except Exception as e:
             logger.debug("检查Cookie登录状态失败: %s", e)
         self.window.after(0, self._refresh_status)
+
     import threading
+
     threading.Thread(target=_worker, daemon=True).start()
 
 
@@ -203,6 +207,7 @@ def _import_from_browser(self):
     def _worker():
         try:
             from utils.browser_cookies import extract_from_all_browsers
+
             cookies = extract_from_all_browsers()
             if cookies:
                 api = get_bilibili_api()
@@ -211,11 +216,18 @@ def _import_from_browser(self):
                 api._persist_cookies(cookies)
                 self.window.after(0, lambda: self._on_browser_cookies(cookies))
             else:
-                self.window.after(0, lambda: messagebox.showerror("失败",
-                    "未从浏览器中找到 B 站 Cookie，请确认已登录 bilibili.com", parent=self.window))
+                self.window.after(
+                    0,
+                    lambda: messagebox.showerror(
+                        "失败", "未从浏览器中找到 B 站 Cookie，请确认已登录 bilibili.com", parent=self.window
+                    ),
+                )
         except Exception as e:
-            self.window.after(0, lambda: messagebox.showerror("错误", f"提取失败: {e}", parent=self.window))
+            err_msg = str(e)
+            self.window.after(0, lambda m=err_msg: messagebox.showerror("错误", f"提取失败: {m}", parent=self.window))
+
     import threading
+
     threading.Thread(target=_worker, daemon=True).start()
 
 
@@ -373,7 +385,9 @@ def _qrcode_login(self):
             cookies = result.get("cookies", {})
             if cookies:
                 get_bilibili_api().set_cookies(cookies)
-                get_bilibili_api().add_account(get_bilibili_api().get_active_account(), cookies, get_bilibili_api().get_refresh_token())
+                get_bilibili_api().add_account(
+                    get_bilibili_api().get_active_account(), cookies, get_bilibili_api().get_refresh_token()
+                )
                 self._refresh_account_list()
                 self._refresh_cookie_display()
                 self._refresh_status()
@@ -390,9 +404,9 @@ def _qrcode_login(self):
             return
         elif result.get("status") == -1:
             status_lbl.config(fg=C["danger"])
-            ttk.Button(
-                qr_top, text="重新生成二维码", command=lambda: [qr_top.destroy(), self._qrcode_login()]
-            ).pack(pady=4)
+            ttk.Button(qr_top, text="重新生成二维码", command=lambda: [qr_top.destroy(), self._qrcode_login()]).pack(
+                pady=4
+            )
             return
         qr_top.after(1500, _poll)
 
@@ -425,8 +439,9 @@ def _add_account_dialog(self):
     tk.Label(dlg, text="账号名称:", bg=C["bg_surface"], fg=C["text_1"], font=FONT).pack(pady=(12, 4))
     name_entry = ttk.Entry(dlg, width=30, font=FONT)
     name_entry.pack()
-    tk.Label(dlg, text="Cookie (SESSDATA=xxx; bili_jct=xxx):", bg=C["bg_surface"], fg=C["text_3"],
-             font=FONT_SM).pack(pady=(8, 4))
+    tk.Label(dlg, text="Cookie (SESSDATA=xxx; bili_jct=xxx):", bg=C["bg_surface"], fg=C["text_3"], font=FONT_SM).pack(
+        pady=(8, 4)
+    )
     cookie_entry = tk.Text(dlg, height=3, font=("Consolas", 9), bg=C["bg_base"], fg=C["text_1"])
     cookie_entry.pack(padx=16, fill=tk.X)
 
@@ -667,8 +682,11 @@ def _handle_captcha_flow(self, pwd_top, ui, result, do_login_cb):
 
         def _open_geetest():
             import webbrowser
+
             webbrowser.open(geetest_url)
-            messagebox.showinfo("极验验证", "请在浏览器中完成滑块验证，然后将 validate 和 seccode 值输入下方", parent=pwd_top)
+            messagebox.showinfo(
+                "极验验证", "请在浏览器中完成滑块验证，然后将 validate 和 seccode 值输入下方", parent=pwd_top
+            )
 
         ttk.Button(captcha_btn_f, text="🌐 打开极验验证页", command=_open_geetest).pack(side=tk.LEFT, padx=4)
         tk.Label(captcha_frame, text="validate:", bg=C["bg_surface"], fg=C["text_2"], font=FONT_SM).pack()

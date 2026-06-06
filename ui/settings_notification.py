@@ -7,7 +7,6 @@ Mixin functions for SettingsWindow.
 import tkinter as tk
 from tkinter import ttk, messagebox
 from ui.theme import C
-from ui.helpers import FONT, FONT_SM
 
 
 def _build_notification_tab(self, nb):
@@ -17,12 +16,8 @@ def _build_notification_tab(self, nb):
     self.onebot_http = self._field(
         sec, "HTTP地址", self._cfg.get("onebot", {}).get("http_url", "http://127.0.0.1:5700")
     )
-    self.onebot_ws = self._field(
-        sec, "WebSocket地址", self._cfg.get("onebot", {}).get("ws_url", "ws://127.0.0.1:6700")
-    )
-    self.onebot_token = self._field(
-        sec, "Access Token", self._cfg.get("onebot", {}).get("access_token", ""), show="*"
-    )
+    self.onebot_ws = self._field(sec, "WebSocket地址", self._cfg.get("onebot", {}).get("ws_url", "ws://127.0.0.1:6700"))
+    self.onebot_token = self._field(sec, "Access Token", self._cfg.get("onebot", {}).get("access_token", ""), show="*")
     self.qq_private = self._field(sec, "私聊QQ号", self._cfg.get("onebot", {}).get("private_qq", ""))
     self.qq_group = self._field(sec, "群号", self._cfg.get("onebot", {}).get("group_qq", ""))
 

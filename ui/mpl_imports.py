@@ -20,6 +20,7 @@ try:
 
     # 抑制 CJK 字体回退时缺失字形的 UserWarning
     import warnings
+
     warnings.filterwarnings("ignore", message="Glyph.*missing from font.*")
 
     from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg

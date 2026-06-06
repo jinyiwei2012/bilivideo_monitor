@@ -5,12 +5,15 @@
 子类需实现 predict() 方法，并可复用基类提供的辅助方法计算播放速度、互动率等。
 """
 
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Dict, Any
 from datetime import datetime
 import time
 from utils.time_utils import safe_timestamp
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -90,9 +93,9 @@ class BaseAlgorithm(ABC):
         """
 
     # ── 质量评分权重常量 ───────────────────────────
-    _W_ENGAGEMENT = 0.4   # 互动率权重
-    _W_DANMAKU = 0.3      # 弹幕密度权重
-    _W_COIN_LIKE = 0.3    # 投币/点赞比权重
+    _W_ENGAGEMENT = 0.4  # 互动率权重
+    _W_DANMAKU = 0.3  # 弹幕密度权重
+    _W_COIN_LIKE = 0.3  # 投币/点赞比权重
 
     # ── 公共辅助方法 ───────────────────────────────
 
@@ -107,7 +110,8 @@ class BaseAlgorithm(ABC):
             return 0.0
         try:
             # 按时间戳排序，确保取到最新的两个数据点
-            def _sort_key(x):
+            # 优化：先检查是否已按时间升序排列，避免不必要的 O(n log n) 排序
+            def _extract_ts(x):
                 ts = x.get("timestamp", 0)
                 if isinstance(ts, (int, float)):
                     return ts
@@ -116,8 +120,14 @@ class BaseAlgorithm(ABC):
                 try:
                     return datetime.fromisoformat(str(ts)).timestamp()
                 except Exception:
-                    return 0
-            sorted_hist = sorted(history, key=_sort_key)
+                    return float("inf")  # 无法解析的时间戳排到最后
+
+            ts_list = [_extract_ts(h) for h in history]
+            already_sorted = all(ts_list[i] <= ts_list[i + 1] for i in range(len(ts_list) - 1))
+            if already_sorted:
+                sorted_hist = history
+            else:
+                sorted_hist = sorted(history, key=lambda x: _extract_ts(x))
             recent = sorted_hist[-2:]
             v0 = float(recent[0].get("view_count", 0))
             v1 = float(recent[-1].get("view_count", 0))
@@ -136,7 +146,8 @@ class BaseAlgorithm(ABC):
             if dt_hours <= 0:
                 return 0.0
             return max(0.0, (v1 - v0) / dt_hours)
-        except Exception:
+        except Exception as e:
+            logger.debug("calculate_velocity 失败: %s", e)
             return 0.0
 
     def get_engagement_rate(self, video_data: Dict[str, Any]) -> float:
@@ -170,7 +181,9 @@ class BaseAlgorithm(ABC):
         danmaku_density = min(1.0, danmaku / views * 10000)
         # 投币/点赞比：比值越高表示用户认可度越高
         coin_like_ratio = min(1.0, coins / max(likes, 1))
-        score = self._W_ENGAGEMENT * engagement + self._W_DANMAKU * danmaku_density + self._W_COIN_LIKE * coin_like_ratio
+        score = (
+            self._W_ENGAGEMENT * engagement + self._W_DANMAKU * danmaku_density + self._W_COIN_LIKE * coin_like_ratio
+        )
         return min(1.0, max(0.0, score))
 
     def get_video_age_hours(self, video_data: Dict[str, Any]) -> float:
@@ -183,6 +196,7 @@ class BaseAlgorithm(ABC):
         """
         history = video_data.get("history_data", [])
         now = datetime.now()
+
         def _sort_key(x):
             ts = x.get("timestamp", 0)
             if hasattr(ts, "timestamp"):

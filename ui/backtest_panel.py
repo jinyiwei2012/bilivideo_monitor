@@ -4,11 +4,9 @@
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox
-from datetime import datetime
-import math
+from tkinter import ttk
 from ui.theme import C
-from ui.helpers import FONT, FONT_SM, FONT_MONO, fmt_num
+from ui.helpers import FONT, fmt_num
 from ui.dialog_base import DialogBase
 
 
@@ -47,9 +45,7 @@ class BacktestPanel:
 
         # 结果表格：算法、MAE、MAPE、样本数、平均预测、平均实际、偏差倾向
         columns = ("algo", "mae", "mape", "samples", "avg_pred", "avg_actual", "bias")
-        self._tree = ttk.Treeview(
-            self.dlg.content_area(), columns=columns, show="headings", height=16
-        )
+        self._tree = ttk.Treeview(self.dlg.content_area(), columns=columns, show="headings", height=16)
         self._tree.heading("algo", text="算法")
         self._tree.heading("mae", text="MAE")
         self._tree.heading("mape", text="MAPE")
@@ -92,7 +88,6 @@ class BacktestPanel:
             return
         video = self.gui.monitored_videos[idx]
         bvid = video.get("bvid", "")
-        title = video.get("title", bvid)[:30]
 
         video_db = self.gui.video_dbs.get(bvid)
         if not video_db:
@@ -102,7 +97,9 @@ class BacktestPanel:
         try:
             predictions = video_db.get_predictions(limit=5000)
         except Exception as e:
-            tk.Label(self._summary_frame, text=f"读取预测记录失败: {e}", fg=C["danger"], bg=C["bg_base"], font=FONT).pack()
+            tk.Label(
+                self._summary_frame, text=f"读取预测记录失败: {e}", fg=C["danger"], bg=C["bg_base"], font=FONT
+            ).pack()
             return
 
         if not predictions:
@@ -127,7 +124,9 @@ class BacktestPanel:
             algo_stats[algo]["actuals"].append(actual_views)
 
         if not algo_stats:
-            tk.Label(self._summary_frame, text="无有效的预测-实际对照数据", fg=C["text_3"], bg=C["bg_base"], font=FONT).pack()
+            tk.Label(
+                self._summary_frame, text="无有效的预测-实际对照数据", fg=C["text_3"], bg=C["bg_base"], font=FONT
+            ).pack()
             return
 
         # 计算各项指标：MAPE、MAE、平均预测值、平均实际值、偏差倾向
@@ -158,7 +157,16 @@ class BacktestPanel:
 
         # 填充表格
         for _, algo, mae, mape, samples, avg_pred, avg_actual, bias in rows:
-            self._tree.insert("", tk.END, values=(
-                algo[:20], fmt_num(int(mae)), f"{mape:.1f}%", samples,
-                fmt_num(int(avg_pred)), fmt_num(int(avg_actual)), bias
-            ))
+            self._tree.insert(
+                "",
+                tk.END,
+                values=(
+                    algo[:20],
+                    fmt_num(int(mae)),
+                    f"{mape:.1f}%",
+                    samples,
+                    fmt_num(int(avg_pred)),
+                    fmt_num(int(avg_actual)),
+                    bias,
+                ),
+            )

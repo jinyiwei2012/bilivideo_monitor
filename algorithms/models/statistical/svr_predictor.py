@@ -4,7 +4,7 @@
 """
 
 import numpy as np
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Tuple
 import logging
 from datetime import datetime
 
@@ -35,7 +35,6 @@ class SVRPredictorAlgorithm(BaseAlgorithm):
         current_views = video_data.get("view_count", 0)
         target_views = threshold
         history_data = video_data.get("history_data", [])
-        video_info = video_data
 
         if not history_data or len(history_data) < 10:
             return PredictionResult(

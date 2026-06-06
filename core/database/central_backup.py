@@ -1,4 +1,5 @@
 """中央数据库备份同步模块"""
+
 import logging
 import os
 import sqlite3
@@ -20,12 +21,20 @@ class CentralBackup:
         if central_db == self.db.db_path or not os.path.exists(central_db):
             logger.info("中央数据库不存在或与活跃库相同，跳过同步")
             return {
-                "synced_videos": 0, "synced_records": 0, "fixed_flaws": 0,
-                "synced_predictions": 0, "synced_weekly": 0, "synced_yearly": 0,
+                "synced_videos": 0,
+                "synced_records": 0,
+                "fixed_flaws": 0,
+                "synced_predictions": 0,
+                "synced_weekly": 0,
+                "synced_yearly": 0,
             }
         result = {
-            "synced_videos": 0, "synced_records": 0, "fixed_flaws": 0,
-            "synced_predictions": 0, "synced_weekly": 0, "synced_yearly": 0,
+            "synced_videos": 0,
+            "synced_records": 0,
+            "fixed_flaws": 0,
+            "synced_predictions": 0,
+            "synced_weekly": 0,
+            "synced_yearly": 0,
         }
         try:
             backup_conn = sqlite3.connect(central_db)
@@ -42,8 +51,12 @@ class CentralBackup:
             backup_conn.close()
             logger.info(
                 "中央库同步完成: %d视频 %d记录 %d瑕疵 | 预测%d 周刊%d 年刊%d",
-                result["synced_videos"], result["synced_records"], result["fixed_flaws"],
-                result["synced_predictions"], result["synced_weekly"], result["synced_yearly"],
+                result["synced_videos"],
+                result["synced_records"],
+                result["fixed_flaws"],
+                result["synced_predictions"],
+                result["synced_weekly"],
+                result["synced_yearly"],
             )
         except Exception as e:
             logger.warning("中央库同步失败: %s", e)
@@ -55,6 +68,7 @@ class CentralBackup:
         if backup_base == self.db.data_dir:
             return
         import shutil
+
         synced = 0
         for item in os.listdir(self.db.data_dir):
             src_dir = os.path.join(self.db.data_dir, item)
@@ -68,6 +82,7 @@ class CentralBackup:
             if os.path.exists(dst_db):
                 try:
                     import sqlite3 as _sql
+
                     with _sql.connect(src_db) as _conn:
                         sc = _conn.execute("SELECT COUNT(*) FROM monitor_records").fetchone()[0]
                     with _sql.connect(dst_db) as _conn:
@@ -75,7 +90,8 @@ class CentralBackup:
                     if sc <= dc:
                         continue
                     shutil.rmtree(dst_dir)
-                except Exception:
+                except Exception as e:
+                    logger.debug("同步视频独立库跳过 %s: %s", item, e)
                     continue
             os.makedirs(dst_dir, exist_ok=True)
             shutil.copy2(src_db, dst_db)
@@ -94,6 +110,7 @@ class CentralBackup:
             return []
         diffs = []
         import sqlite3 as _sql
+
         for item in os.listdir(self.db.data_dir):
             src_dir = os.path.join(self.db.data_dir, item)
             if not os.path.isdir(src_dir) or not item.startswith("BV"):
@@ -141,15 +158,25 @@ class CentralBackup:
                      owner_name, owner_id, pubdate, duration, pic, updated_at)
                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (
-                        av["bvid"], av.get("title", ""), av.get("view_count", 0),
-                        av.get("like_count", 0), av.get("coin_count", 0),
-                        av.get("share_count", 0), av.get("favorite_count", 0),
-                        av.get("danmaku_count", 0), av.get("reply_count", 0),
-                        av.get("viewers_app", 0), av.get("viewers_web", 0),
-                        av.get("viewers_total", 0), av.get("cover_path", ""),
-                        av.get("like_view_ratio", 0), av.get("owner_name", ""),
-                        av.get("owner_id", 0), av.get("pubdate", ""),
-                        av.get("duration", 0), av.get("pic", ""),
+                        av["bvid"],
+                        av.get("title", ""),
+                        av.get("view_count", 0),
+                        av.get("like_count", 0),
+                        av.get("coin_count", 0),
+                        av.get("share_count", 0),
+                        av.get("favorite_count", 0),
+                        av.get("danmaku_count", 0),
+                        av.get("reply_count", 0),
+                        av.get("viewers_app", 0),
+                        av.get("viewers_web", 0),
+                        av.get("viewers_total", 0),
+                        av.get("cover_path", ""),
+                        av.get("like_view_ratio", 0),
+                        av.get("owner_name", ""),
+                        av.get("owner_id", 0),
+                        av.get("pubdate", ""),
+                        av.get("duration", 0),
+                        av.get("pic", ""),
                         datetime.now(),
                     ),
                 )
@@ -178,12 +205,18 @@ class CentralBackup:
                          viewers_web, viewers_total, like_view_ratio)
                         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                         (
-                            rd["bvid"], rd["timestamp"],
-                            rd.get("view_count", 0), rd.get("like_count", 0),
-                            rd.get("coin_count", 0), rd.get("share_count", 0),
-                            rd.get("favorite_count", 0), rd.get("danmaku_count", 0),
-                            rd.get("reply_count", 0), rd.get("viewers_app", 0),
-                            rd.get("viewers_web", 0), rd.get("viewers_total", 0),
+                            rd["bvid"],
+                            rd["timestamp"],
+                            rd.get("view_count", 0),
+                            rd.get("like_count", 0),
+                            rd.get("coin_count", 0),
+                            rd.get("share_count", 0),
+                            rd.get("favorite_count", 0),
+                            rd.get("danmaku_count", 0),
+                            rd.get("reply_count", 0),
+                            rd.get("viewers_app", 0),
+                            rd.get("viewers_web", 0),
+                            rd.get("viewers_total", 0),
                             lvr,
                         ),
                     )
@@ -267,15 +300,25 @@ class CentralBackup:
             key = (rd.get("algorithm", ""), rd.get("predicted_time", ""))
             if key in existing:
                 continue
-            batch.append((
-                bvid, rd.get("algorithm", ""), rd.get("algorithm_id", ""),
-                rd.get("target_threshold", 0), rd.get("predicted_seconds", 0),
-                rd.get("predicted_time", ""), rd.get("confidence", 0),
-                rd.get("current_views", 0), rd.get("metadata", ""),
-                rd.get("predicted_hours", 0), rd.get("current_velocity", 0),
-                rd.get("is_reached", 0), rd.get("actual_time", ""),
-                rd.get("error_rate", 0), rd.get("created_at"),
-            ))
+            batch.append(
+                (
+                    bvid,
+                    rd.get("algorithm", ""),
+                    rd.get("algorithm_id", ""),
+                    rd.get("target_threshold", 0),
+                    rd.get("predicted_seconds", 0),
+                    rd.get("predicted_time", ""),
+                    rd.get("confidence", 0),
+                    rd.get("current_views", 0),
+                    rd.get("metadata", ""),
+                    rd.get("predicted_hours", 0),
+                    rd.get("current_velocity", 0),
+                    rd.get("is_reached", 0),
+                    rd.get("actual_time", ""),
+                    rd.get("error_rate", 0),
+                    rd.get("created_at"),
+                )
+            )
             existing.add(key)
         if batch:
             central_cur.executemany(
@@ -308,14 +351,23 @@ class CentralBackup:
         for rd in rows:
             if rd.get("timestamp") in existing_ts:
                 continue
-            batch.append((
-                bvid, rd.get("timestamp"), rd.get("total_score"),
-                rd.get("view_score"), rd.get("interaction_score"),
-                rd.get("favorite_score"), rd.get("coin_score"),
-                rd.get("like_score"), rd.get("correction_a"),
-                rd.get("correction_b"), rd.get("correction_c"),
-                rd.get("correction_d"), rd.get("base_view_score"),
-            ))
+            batch.append(
+                (
+                    bvid,
+                    rd.get("timestamp"),
+                    rd.get("total_score"),
+                    rd.get("view_score"),
+                    rd.get("interaction_score"),
+                    rd.get("favorite_score"),
+                    rd.get("coin_score"),
+                    rd.get("like_score"),
+                    rd.get("correction_a"),
+                    rd.get("correction_b"),
+                    rd.get("correction_c"),
+                    rd.get("correction_d"),
+                    rd.get("base_view_score"),
+                )
+            )
             existing_ts.add(rd["timestamp"])
         if batch:
             central_cur.executemany(
@@ -348,13 +400,21 @@ class CentralBackup:
         for rd in rows:
             if rd.get("timestamp") in existing_ts:
                 continue
-            batch.append((
-                bvid, rd.get("timestamp"), rd.get("total_score"),
-                rd.get("view_score"), rd.get("interaction_score"),
-                rd.get("favorite_score"), rd.get("coin_score"),
-                rd.get("like_score"), rd.get("correction_a"),
-                rd.get("correction_b"), rd.get("correction_c"),
-            ))
+            batch.append(
+                (
+                    bvid,
+                    rd.get("timestamp"),
+                    rd.get("total_score"),
+                    rd.get("view_score"),
+                    rd.get("interaction_score"),
+                    rd.get("favorite_score"),
+                    rd.get("coin_score"),
+                    rd.get("like_score"),
+                    rd.get("correction_a"),
+                    rd.get("correction_b"),
+                    rd.get("correction_c"),
+                )
+            )
             existing_ts.add(rd["timestamp"])
         if batch:
             central_cur.executemany(

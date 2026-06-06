@@ -7,7 +7,6 @@ import asyncio
 import concurrent.futures
 import json
 import logging
-import threading
 from typing import Dict, Any
 from uuid import uuid4
 

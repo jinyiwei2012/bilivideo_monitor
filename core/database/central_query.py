@@ -1,4 +1,5 @@
 """中央数据库查询模块"""
+
 import csv
 import logging
 import os
@@ -96,19 +97,43 @@ class CentralQuery:
             video = self.db.get_video(bvid)
             with open(filepath, "w", newline="", encoding="utf-8-sig") as f:
                 writer = csv.writer(f)
-                writer.writerow([
-                    "BV号", "标题", "UP主", "播放量", "点赞数", "投币数",
-                    "分享数", "收藏数", "弹幕数", "评论数", "APP观看人数",
-                    "网页观看人数", "总观看人数", "播赞比",
-                ])
+                writer.writerow(
+                    [
+                        "BV号",
+                        "标题",
+                        "UP主",
+                        "播放量",
+                        "点赞数",
+                        "投币数",
+                        "分享数",
+                        "收藏数",
+                        "弹幕数",
+                        "评论数",
+                        "APP观看人数",
+                        "网页观看人数",
+                        "总观看人数",
+                        "播赞比",
+                    ]
+                )
                 if video:
-                    writer.writerow([
-                        video.bvid, video.title, video.owner_name,
-                        video.view_count, video.like_count, video.coin_count,
-                        video.share_count, video.favorite_count, video.danmaku_count,
-                        video.reply_count, video.viewers_app, video.viewers_web,
-                        video.viewers_total, video.like_view_ratio,
-                    ])
+                    writer.writerow(
+                        [
+                            video.bvid,
+                            video.title,
+                            video.owner_name,
+                            video.view_count,
+                            video.like_count,
+                            video.coin_count,
+                            video.share_count,
+                            video.favorite_count,
+                            video.danmaku_count,
+                            video.reply_count,
+                            video.viewers_app,
+                            video.viewers_web,
+                            video.viewers_total,
+                            video.like_view_ratio,
+                        ]
+                    )
             return filepath
         except Exception as e:
             logger.warning("导出失败: %s", e)

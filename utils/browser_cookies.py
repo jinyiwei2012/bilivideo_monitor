@@ -26,6 +26,7 @@ def _get_os_crypt_key(local_state_path: str) -> Optional[bytes]:
     """从 Chrome Local State 中获取加密的 AES key（DPAPI 解密）"""
     try:
         import win32crypt
+
         with open(local_state_path, "r", encoding="utf-8") as f:
             state = json.load(f)
         enc_key = state.get("os_crypt", {}).get("encrypted_key")
@@ -33,6 +34,7 @@ def _get_os_crypt_key(local_state_path: str) -> Optional[bytes]:
             return None
         # 去掉 "DPAPI" 前缀（5 bytes）
         import base64
+
         enc_key_bytes = base64.b64decode(enc_key)
         if enc_key_bytes[:5] == b"DPAPI":
             enc_key_bytes = enc_key_bytes[5:]
@@ -50,6 +52,7 @@ def _decrypt_chrome_cookie(encrypted_value: bytes, key: bytes) -> Optional[str]:
     """解密 Chrome/Edge AES-GCM 加密的 Cookie 值"""
     try:
         from Cryptodome.Cipher import AES
+
         # Chrome 格式: nonce(12) + ciphertext + tag(16)
         nonce = encrypted_value[:12]
         ciphertext = encrypted_value[12:-16]
@@ -113,14 +116,10 @@ def _read_encrypted_cookies(cookie_db: str, key: bytes, browser: str) -> Optiona
         conn = sqlite3.connect(tmp_path)
         cur = conn.cursor()
         # Chrome/Edge 新格式
-        rows = cur.execute(
-            "SELECT name, encrypted_value FROM cookies WHERE host_key LIKE '%bilibili.com%'"
-        ).fetchall()
+        rows = cur.execute("SELECT name, encrypted_value FROM cookies WHERE host_key LIKE '%bilibili.com%'").fetchall()
         if not rows:
             # 有些浏览器用 host_key 字段不同
-            rows = cur.execute(
-                "SELECT name, encrypted_value FROM cookies WHERE host_key LIKE '%bilibili%'"
-            ).fetchall()
+            rows = cur.execute("SELECT name, encrypted_value FROM cookies WHERE host_key LIKE '%bilibili%'").fetchall()
         for name, enc_val in rows:
             if name in ("SESSDATA", "bili_jct", "DedeUserID", "buvid3", "buvid4"):
                 if enc_val and enc_val != b"":
@@ -150,9 +149,7 @@ def _read_plain_cookies(cookie_db: str) -> Optional[Dict]:
 
         conn = sqlite3.connect(tmp_path)
         cur = conn.cursor()
-        rows = cur.execute(
-            "SELECT name, value FROM cookies WHERE host_key LIKE '%bilibili.com%'"
-        ).fetchall()
+        rows = cur.execute("SELECT name, value FROM cookies WHERE host_key LIKE '%bilibili.com%'").fetchall()
         for name, val in rows:
             if name in ("SESSDATA", "bili_jct", "DedeUserID", "buvid3", "buvid4") and val:
                 cookies[name] = val

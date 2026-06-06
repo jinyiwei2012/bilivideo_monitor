@@ -11,7 +11,7 @@ import tkinter as tk
 import logging
 from tkinter import ttk, messagebox
 from ui.theme import C
-from ui.helpers import FONT, FONT_SM, FONT_MONO, project_path
+from ui.helpers import FONT, FONT_SM, project_path
 from core.bilibili_api import get_bilibili_api
 from core.proxy_manager import ProxyManager
 
@@ -86,9 +86,9 @@ def _build_proxy_tab(self, nb):
 
     url_row = tk.Frame(sec, bg=C["bg_elevated"])
     url_row.pack(fill=tk.X, pady=(2, 0))
-    tk.Label(
-        url_row, text="测试地址:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM, width=8, anchor="w"
-    ).pack(side=tk.LEFT)
+    tk.Label(url_row, text="测试地址:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM, width=8, anchor="w").pack(
+        side=tk.LEFT
+    )
     self._test_url_var = tk.StringVar(value="https://api.bilibili.com/x/web-interface/view?bvid=BV1GJ411x7hQ")
     url_entry = ttk.Entry(url_row, textvariable=self._test_url_var, font=FONT_SM)
     url_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 0))
@@ -134,6 +134,7 @@ def _build_proxy_tab(self, nb):
 
 def _auto_fetch_proxies(self):
     import threading
+
     self._auto_fetch_status.config(text="⏳ 获取中…", fg=C["warning"])
     self._proxy_tree.delete(*self._proxy_tree.get_children())
     threading.Thread(target=self._auto_fetch_worker, daemon=True).start()
@@ -150,11 +151,13 @@ def _auto_fetch_worker(self):
 
     for src_url in pm.PROXY_SOURCES:
         source_name = src_url.split("/")[2]
-        self.window.after(0, lambda n=source_name: self._auto_fetch_status.config(
-            text=f"⏳ 拉取 {n}…", fg=C["warning"]))
+        self.window.after(
+            0, lambda n=source_name: self._auto_fetch_status.config(text=f"⏳ 拉取 {n}…", fg=C["warning"])
+        )
         try:
-            resp = _req.get(src_url, timeout=10,
-                            headers={"User-Agent": "Mozilla/5.0"}, verify=False)  # nosec B501 — proxy source testing; no sensitive data
+            resp = _req.get(
+                src_url, timeout=10, headers={"User-Agent": "Mozilla/5.0"}, verify=False
+            )  # nosec B501 — proxy source testing; no sensitive data
             if resp.status_code != 200:
                 continue
             urls = pm._parse_proxy_list(resp.text, src_url)
@@ -165,25 +168,39 @@ def _auto_fetch_worker(self):
                 result = ProxyManager.test_proxy(url, timeout=8)
                 ok = result.get("ok", False)
                 total_found += 1 if ok else 0
-                self.window.after(0, lambda i=item, r=result: (
-                    self._proxy_tree.set(i, "status", "✅" if r.get("ok") else "❌"),
-                    self._proxy_tree.set(i, "latency", f"{r['latency_ms']}ms" if r.get("ok") else r.get("error", "超时")[:40]),
-                    self._proxy_tree.set(i, "country", r.get("country", "") or ""),
-                    self._proxy_tree.set(i, "ip", r.get("ip", "") or ""),
-                    self._proxy_tree.set(i, "asn", r.get("asn", "") or ""),
-                    self._proxy_tree.set(i, "isp", r.get("isp", "") or ""),
-                    self._proxy_tree.item(i, tags=("ok" if r.get("ok") else "fail",)),
-                ))
+                self.window.after(
+                    0,
+                    lambda i=item, r=result: (
+                        self._proxy_tree.set(i, "status", "✅" if r.get("ok") else "❌"),
+                        self._proxy_tree.set(
+                            i, "latency", f"{r['latency_ms']}ms" if r.get("ok") else r.get("error", "超时")[:40]
+                        ),
+                        self._proxy_tree.set(i, "country", r.get("country", "") or ""),
+                        self._proxy_tree.set(i, "ip", r.get("ip", "") or ""),
+                        self._proxy_tree.set(i, "asn", r.get("asn", "") or ""),
+                        self._proxy_tree.set(i, "isp", r.get("isp", "") or ""),
+                        self._proxy_tree.item(i, tags=("ok" if r.get("ok") else "fail",)),
+                    ),
+                )
                 if result.get("ok"):
                     pm.add_proxy({"http": url, "https": url})
         except Exception as e:
-            self.window.after(0, lambda n=source_name: self._auto_fetch_status.config(
-                text=f"⚠ {n} 失败: {e}", fg=C["danger"]))
+            err_msg = str(e)
+            self.window.after(
+                0,
+                lambda n=source_name, m=err_msg: self._auto_fetch_status.config(
+                    text=f"⚠ {n} 失败: {m}", fg=C["danger"]
+                ),
+            )
 
     urls = [p.get("http", "") for p in pm.proxies if p.get("http")]
     self.window.after(0, lambda: self._update_proxy_text(urls))
-    self.window.after(0, lambda: self._auto_fetch_status.config(
-        text=f"✅ 测试 {total_tested} 个, 可用 {total_found} 个", fg=C["success"]))
+    self.window.after(
+        0,
+        lambda: self._auto_fetch_status.config(
+            text=f"✅ 测试 {total_tested} 个, 可用 {total_found} 个", fg=C["success"]
+        ),
+    )
 
 
 def _update_proxy_text(self, urls):
@@ -278,9 +295,7 @@ def _batch_import_proxies(self):
     btn_f.pack(fill=tk.X, padx=20, pady=(4, 14))
 
     status_var = tk.StringVar(value="")
-    status_lbl = tk.Label(
-        btn_f, textvariable=status_var, bg=C["bg_surface"], fg=C["text_3"], font=FONT_SM, anchor="w"
-    )
+    status_lbl = tk.Label(btn_f, textvariable=status_var, bg=C["bg_surface"], fg=C["text_3"], font=FONT_SM, anchor="w")
     status_lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
     def _do_import():
@@ -320,15 +335,12 @@ def _batch_import_proxies(self):
             lambda: messagebox.showinfo(
                 "导入完成",
                 f"成功导入 {total_count} 条代理\n"
-                f"当前代理列表共 {len(all_lines)} 条"
-                + (f"\n（其中 {dup_count} 条重复已去重）" if dup_count else ""),
+                f"当前代理列表共 {len(all_lines)} 条" + (f"\n（其中 {dup_count} 条重复已去重）" if dup_count else ""),
                 parent=top,
             ),
         )
 
-    ttk.Button(btn_f, text="导入并追加", command=_do_import, style="Primary.TButton").pack(
-        side=tk.RIGHT, padx=(4, 0)
-    )
+    ttk.Button(btn_f, text="导入并追加", command=_do_import, style="Primary.TButton").pack(side=tk.RIGHT, padx=(4, 0))
     ttk.Button(btn_f, text="取消", command=top.destroy).pack(side=tk.RIGHT, padx=4)
 
 

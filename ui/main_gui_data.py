@@ -96,9 +96,6 @@ def save_yearly_score(gui, bvid, video, timestamp):
 
 def restore_video(gui, video):
     """从 watch_list 恢复视频到界面"""
-    from core import db, MonitorRecord
-    from ui.monitor_service import _start_worker
-
     bvid = video.get("bvid", "")
     if bvid in gui._video_index:
         return

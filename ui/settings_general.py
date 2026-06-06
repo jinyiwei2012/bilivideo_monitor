@@ -8,7 +8,7 @@ import tkinter as tk
 import logging
 from tkinter import ttk
 from ui.theme import C
-from ui.helpers import FONT, FONT_SM
+from ui.helpers import FONT
 from core.bilibili_api import get_bilibili_api
 from utils.update_checker import _confirm_risky
 
@@ -38,16 +38,14 @@ def _build_general_retry_section(self, page):
     sec = tk.Frame(page, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
     sec.pack(fill=tk.X, padx=16, pady=(0, 8), ipadx=10, ipady=10)
 
-    tk.Label(
-        sec, text="重试参数", bg=C["bg_elevated"], fg=C["text_2"], font=("Microsoft YaHei UI", 8, "bold")
-    ).pack(anchor="w")
+    tk.Label(sec, text="重试参数", bg=C["bg_elevated"], fg=C["text_2"], font=("Microsoft YaHei UI", 8, "bold")).pack(
+        anchor="w"
+    )
 
     def _spin_r(parent, label, default, fr, to):
         f = tk.Frame(parent, bg=C["bg_elevated"])
         f.pack(fill=tk.X, pady=4)
-        tk.Label(f, text=label, bg=C["bg_elevated"], fg=C["text_2"], font=FONT, width=20, anchor="w").pack(
-            side=tk.LEFT
-        )
+        tk.Label(f, text=label, bg=C["bg_elevated"], fg=C["text_2"], font=FONT, width=20, anchor="w").pack(side=tk.LEFT)
         sv = tk.DoubleVar(value=default)
         sp = ttk.Spinbox(f, from_=fr, to=to, textvariable=sv, width=10)
         sp.pack(side=tk.LEFT, padx=(6, 0))
@@ -64,9 +62,9 @@ def _build_general_status_section(self, page):
     sec = tk.Frame(page, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
     sec.pack(fill=tk.X, padx=16, pady=(0, 12), ipadx=10, ipady=8)
 
-    tk.Label(
-        sec, text="运行状态", bg=C["bg_elevated"], fg=C["text_2"], font=("Microsoft YaHei UI", 8, "bold")
-    ).pack(anchor="w")
+    tk.Label(sec, text="运行状态", bg=C["bg_elevated"], fg=C["text_2"], font=("Microsoft YaHei UI", 8, "bold")).pack(
+        anchor="w"
+    )
 
     self.status_labels = {}
     fields = [
@@ -80,9 +78,7 @@ def _build_general_status_section(self, page):
     for key, label in fields:
         f = tk.Frame(sec, bg=C["bg_elevated"])
         f.pack(fill=tk.X, pady=2)
-        tk.Label(f, text=label, bg=C["bg_elevated"], fg=C["text_2"], font=FONT, width=16, anchor="w").pack(
-            side=tk.LEFT
-        )
+        tk.Label(f, text=label, bg=C["bg_elevated"], fg=C["text_2"], font=FONT, width=16, anchor="w").pack(side=tk.LEFT)
         vl = tk.Label(f, text="-", bg=C["bg_elevated"], fg=C["success"], font=FONT)
         vl.pack(side=tk.LEFT)
         self.status_labels[key] = vl
@@ -90,9 +86,9 @@ def _build_general_status_section(self, page):
     btn_s = tk.Frame(sec, bg=C["bg_elevated"])
     btn_s.pack(fill=tk.X, pady=(8, 0))
     ttk.Button(btn_s, text="刷新状态", command=self._refresh_status).pack(side=tk.LEFT, padx=(0, 4))
-    ttk.Button(
-        btn_s, text="重置状态", command=lambda: _confirm_risky("重置 API 状态") and self._reset_status()
-    ).pack(side=tk.LEFT, padx=4)
+    ttk.Button(btn_s, text="重置状态", command=lambda: _confirm_risky("重置 API 状态") and self._reset_status()).pack(
+        side=tk.LEFT, padx=4
+    )
 
     self._refresh_status()
 
@@ -102,6 +98,7 @@ def _apply_retry_settings(self):
     get_bilibili_api().base_retry_delay = self.base_delay_var.get()
     get_bilibili_api()._min_request_interval = self.min_interval_var.get()
     from tkinter import messagebox
+
     messagebox.showinfo("成功", "重试设置已更新", parent=self.window)
 
 
@@ -142,6 +139,7 @@ def _apply_status(self, status: dict):
 
 def _reset_status(self):
     from tkinter import messagebox
+
     if messagebox.askyesno("确认", "确定要重置所有状态吗？", parent=self.window):
         get_bilibili_api().reset_status()
         self._refresh_status()

@@ -35,7 +35,12 @@ class TimesfmSimpleAlgorithm(BaseAlgorithm):
 
     def build_model(self):
         return TimesFMTorchModel(
-            in_features=getattr(self, '_training_n_features', 5), window=12, patch_len=4, d_model=32, n_heads=2, horizon=self.training_horizon
+            in_features=getattr(self, "_training_n_features", 5),
+            window=12,
+            patch_len=4,
+            d_model=32,
+            n_heads=2,
+            horizon=self.training_horizon,
         )
 
     def get_training_features(self) -> List[str]:

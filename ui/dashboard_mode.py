@@ -34,9 +34,9 @@ class DashboardWindow:
         self.window.bind("<Escape>", lambda e: self.window.destroy())
         self.window.bind("<F11>", lambda e: self.window.destroy())
 
-        self._page = 0               # 当前页码
-        self._total_pages = 4        # 总页数
-        self._animating = True       # 是否正在轮播
+        self._page = 0  # 当前页码
+        self._total_pages = 4  # 总页数
+        self._animating = True  # 是否正在轮播
 
         self._setup_ui()
         self._show_page(0)

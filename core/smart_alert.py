@@ -193,8 +193,7 @@ class AnomalyDetector:
         # 当前在线人数超过历史均值 2.5 倍且绝对值 > 30
         if avg_viewers > 0 and last_viewers > avg_viewers * 2.5 and last_viewers > 30:
             return (
-                f"🔥 在线人数飙升！当前 {last_viewers} 人在线，"
-                f"是之前的 {last_viewers / max(avg_viewers, 1):.1f}倍"
+                f"🔥 在线人数飙升！当前 {last_viewers} 人在线，" f"是之前的 {last_viewers / max(avg_viewers, 1):.1f}倍"
             )
         return None
 
@@ -346,7 +345,7 @@ class AnomalyDetector:
             sorted_recs = sorted(records, key=lambda r: r.get("timestamp", ""))
             growths = []
             for i in range(1, len(sorted_recs)):
-                growths.append(sorted_recs[i].get("view_count", 0) - sorted_recs[i-1].get("view_count", 0))
+                growths.append(sorted_recs[i].get("view_count", 0) - sorted_recs[i - 1].get("view_count", 0))
             recent_growth = sum(growths[-3:]) / 3 if len(growths) >= 3 else 0
             older_growth = sum(growths[-6:-3]) / 3 if len(growths) >= 6 else 0
             if older_growth > 0 and recent_growth > older_growth * 1.5:
@@ -381,8 +380,8 @@ class AnomalyDetector:
             detail += f"等{len(reasons)}项"
         return (
             f"{level}！综合评分 {score}/9\n"
-            f"  点赞率{like_rate*100:.1f}% 投币率{coin_rate*100:.1f}%"
-            f" 收藏率{fav_rate*100:.1f}% 弹幕率{danmaku_rate*100:.2f}%\n"
+            f"  点赞率{like_rate * 100:.1f}% 投币率{coin_rate * 100:.1f}%"
+            f" 收藏率{fav_rate * 100:.1f}% 弹幕率{danmaku_rate * 100:.2f}%\n"
             f"  异常项: {detail}"
         )
 

@@ -109,13 +109,13 @@ class BottomBar:
         bar.pack_propagate(False)
         # 定义状态栏各字段
         items = [
-            ("videos", "监控: 0 个"),       # 监控视频数
-            ("interval", "刷新间隔: —"),    # 刷新间隔
-            ("algo", "算法: —"),            # 当前算法
-            ("alert", ""),                  # 预警信息
-            ("finetune", ""),               # 微调信息
-            ("last_ref", "上次刷新: —"),    # 上次刷新时间
-            ("status", "就绪"),             # 系统状态
+            ("videos", "监控: 0 个"),  # 监控视频数
+            ("interval", "刷新间隔: —"),  # 刷新间隔
+            ("algo", "算法: —"),  # 当前算法
+            ("alert", ""),  # 预警信息
+            ("finetune", ""),  # 微调信息
+            ("last_ref", "上次刷新: —"),  # 上次刷新时间
+            ("status", "就绪"),  # 系统状态
         ]
         for key, text in items:
             anchor = "e" if key == "status" else "w"

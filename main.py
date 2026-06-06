@@ -6,6 +6,10 @@ B站视频监控与播放量预测系统
 import sys
 import os
 import hashlib
+import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 # 添加项目根目录到Python路径（兼容 PyInstaller 打包）
 if getattr(sys, "frozen", False):
@@ -17,21 +21,29 @@ if project_root not in sys.path:
 
 
 # ── 源码完整性校验 ──────────────────────────
-# 校验必须在 from ui import main 之前执行，防止篡改代码先于检查加载
-# SHA-256 哈希列表，在发布前通过 python scripts/update_hashes.py 更新
-# 开发时创建 .devmode 文件（内容 SHA-256 须匹配 _DEVMODE_HASH）可跳过校验
-# main.py 不参与自校验（SHA256(self)=H 数学上不可解），由 git 版本控制保证
+# 两层校验机制（由强到弱自动回退）：
+#   第1层 Ed25519 签名清单 → data/integrity_manifest.json（公钥嵌入下方常量）
+#   第2层 嵌入式哈希回退 → _INTEGRITY_HASHES（向后兼容，无 cryptography 时使用）
+#
+# 校验在 from ui import main 之前执行，防止篡改代码先于检查加载。
+# 开发时创建 .devmode 文件（内容 SHA-256 须匹配 _DEVMODE_HASH）可跳过校验。
+# main.py 自身不参与校验（SHA256(self)=H 数学上不可解），信任根由以下保证：
+#   - Ed25519 公钥嵌入本文件（篡改者需同时持有私钥才能伪造签名）
+#   - 打包发布时建议 PyInstaller .spec 嵌入签名清单 + 公钥到二进制
+
+# Ed25519 公钥（由 scripts/sign.py 生成，发布前更新）
+_SIGNING_PUBLIC_KEY = "E7356306F6472CC113456BD5DC75E605486835A71FB7C109E4E718C286D29F65"
+
+# 嵌入式哈希回退列表（向后兼容，手动维护或通过 scripts/update_hashes.py 更新）
 _INTEGRITY_HASHES: dict[str, str] = {
-    "core/bilibili_api.py": "53E89671FF3024E282C6CECB8A0D2D0B714D9949E4788EAE7A1973D6718D4BA6",
-    "algorithms/registry.py": "69E9982411ED9A4DEF95B6C2C197B9EB42FD28775763550258D32B4D446EA77E",
-    "algorithms/base.py": "C93D499D9BAF3C1A74C5BBF489F3221BA1EF63368561FEF851143D895F959258",
-    "core/notification.py": "8B48903EDDFE10483486B741422913EA9CB6B4A77BE8885D1937DA4B16CB88BA",
+    "core/bilibili_api.py": "5849EB9ED6B63894CC64DFDB49B805E46F2A1B83C165DD11F92BC7BC18B802A4",
+    "algorithms/registry.py": "FC286B0791E251D2011E70EDF89EE9AE8307FFE52244D8E6E20544F9AF85CBC3",
+    "algorithms/base.py": "F746D8E7A74B2E8A8AE704B1CD37CB2BD83F8A05AF82E343DAB14D0B5E6666C3",
+    "core/notification.py": "48A1C7C69D41F8F7CB1DF2F12B3F928000C996E5F8957A20D9B88F2C185FF08C",
 }
+
 # .devmode 文件内容的期望 SHA-256（去除首尾空白后）
 _DEVMODE_HASH = "40175C25B9517A906FCF778E50387017BB8FA6121D28EBD0720474E85EE7ECA8"
-
-
-# ── 源码完整性校验 ──────────────────────────
 
 
 def _verify_devmode() -> bool:
@@ -46,25 +58,14 @@ def _verify_devmode() -> bool:
                 h = hashlib.sha256(content.encode()).hexdigest().upper()
                 if h == _DEVMODE_HASH:
                     return True
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("读取 .devmode 文件失败 (%s): %s", path, e)
     return False
 
 
-def _verify_source_integrity() -> None:
-    """使用 SHA-256 校验核心源文件完整性。
-
-    开发环境（_verify_devmode 通过 或 frozen 打包）跳过校验。
-    哈希不匹配时给出清晰的错误指引。
-    """
-    if getattr(sys, "frozen", False):
-        return
-    if _verify_devmode():
-        return
-    if not _INTEGRITY_HASHES:
-        return
-
-    for rel_path, expected_hash in _INTEGRITY_HASHES.items():
+def _verify_file_hashes(hashes: dict[str, str]) -> None:
+    """验证文件哈希是否匹配，不匹配则抛出 RuntimeError。"""
+    for rel_path, expected_hash in hashes.items():
         filepath = os.path.join(project_root, rel_path)
         if not os.path.isfile(filepath):
             raise RuntimeError(
@@ -84,10 +85,90 @@ def _verify_source_integrity() -> None:
             )
 
 
+def _verify_ed25519_signature(hashes: dict, signature_hex: str) -> bool:
+    """使用 Ed25519 公钥验证文件哈希清单的签名。
+
+    返回 True 表示签名有效，False 表示签名无效或 cryptography 不可用。
+    """
+    try:
+        from cryptography.hazmat.primitives.asymmetric import ed25519
+    except ImportError:
+        logger.debug("cryptography 未安装，跳过 Ed25519 签名验证")
+        return False
+
+    try:
+        public_key = ed25519.Ed25519PublicKey.from_public_bytes(bytes.fromhex(_SIGNING_PUBLIC_KEY))
+        payload = json.dumps(hashes, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        signature = bytes.fromhex(signature_hex)
+        public_key.verify(signature, payload)
+        return True
+    except Exception as e:
+        logger.debug("Ed25519 签名验证失败: %s", e)
+        return False
+
+
+def _verify_signed_manifest() -> bool:
+    """尝试加载并验证 Ed25519 签名清单。
+
+    返回 True 表示签名清单存在、签名有效、且所有文件哈希匹配。
+    返回 False 表示清单不存在或签名无效（触发回退到嵌入式哈希）。
+    文件缺失或哈希不匹配时抛出 RuntimeError（与嵌入式哈希行为一致）。
+    """
+    manifest_path = os.path.join(project_root, "data", "integrity_manifest.json")
+    if not os.path.isfile(manifest_path):
+        logger.debug("签名清单不存在，回退到嵌入式哈希验证")
+        return False
+
+    try:
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            manifest = json.load(f)
+    except Exception as e:
+        logger.debug("读取签名清单失败: %s", e)
+        return False
+
+    files = manifest.get("files", {})
+    signature = manifest.get("signature", "")
+    if not files or not signature:
+        logger.debug("签名清单格式无效")
+        return False
+
+    # 1) 验证 Ed25519 签名
+    if not _verify_ed25519_signature(files, signature):
+        logger.warning("Ed25519 签名验证失败！签名清单可能被篡改，回退到嵌入式哈希")
+        return False
+
+    # 2) 验证每个文件的哈希
+    _verify_file_hashes(files)
+
+    logger.debug("Ed25519 签名清单验证通过 (%d 个文件)", len(files))
+    return True
+
+
+def _verify_source_integrity() -> None:
+    """校验核心源文件完整性（两层回退）。
+
+    1. 优先使用 Ed25519 签名清单验证
+    2. 回退到嵌入式 _INTEGRITY_HASHES 验证
+    3. 开发模式（.devmode）或打包模式（frozen）跳过所有校验
+    """
+    if getattr(sys, "frozen", False):
+        return
+    if _verify_devmode():
+        return
+
+    # 第1层：Ed25519 签名清单（最强防护）
+    if _verify_signed_manifest():
+        return
+
+    # 第2层：嵌入式哈希回退（向后兼容）
+    if not _INTEGRITY_HASHES:
+        return
+    _verify_file_hashes(_INTEGRITY_HASHES)
+
+
 _verify_source_integrity()
 
 from ui import main
-
 
 if __name__ == "__main__":
     """主入口 — 启动 GUI 程序"""

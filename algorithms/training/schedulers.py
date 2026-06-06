@@ -1,6 +1,5 @@
 """自定义学习率调度器 — 适配增量训练场景。"""
 
-import math
 import logging
 
 logger = logging.getLogger(__name__)
@@ -98,7 +97,9 @@ class ComboScheduler:
                 pg["lr"] = new_lr
             logger.info(
                 "[ComboScheduler] plateau 检测 (val_loss %.4f 连续 %d 轮未改善)，切换为衰减模式 LR=%.6f",
-                val_loss, self.plateau_patience, new_lrs[0],
+                val_loss,
+                self.plateau_patience,
+                new_lrs[0],
             )
             self._plateau_counter = 0
 

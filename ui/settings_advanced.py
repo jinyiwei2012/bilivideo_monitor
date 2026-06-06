@@ -66,16 +66,14 @@ def _build_ai_tab(self, nb):
 
     detail = tk.Frame(sec, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
     detail.pack(fill=tk.X, pady=4, ipadx=10, ipady=10)
-    tk.Label(
-        detail, text="配置详情", bg=C["bg_elevated"], fg=C["text_2"], font=("Microsoft YaHei UI", 8, "bold")
-    ).pack(anchor="w", pady=(0, 6))
+    tk.Label(detail, text="配置详情", bg=C["bg_elevated"], fg=C["text_2"], font=("Microsoft YaHei UI", 8, "bold")).pack(
+        anchor="w", pady=(0, 6)
+    )
 
     def _field_wrapper(parent, label):
         f = tk.Frame(parent, bg=C["bg_elevated"])
         f.pack(fill=tk.X, pady=3)
-        tk.Label(f, text=label, bg=C["bg_elevated"], fg=C["text_2"], font=FONT, width=16, anchor="w").pack(
-            side=tk.LEFT
-        )
+        tk.Label(f, text=label, bg=C["bg_elevated"], fg=C["text_2"], font=FONT, width=16, anchor="w").pack(side=tk.LEFT)
         e = ttk.Entry(f, width=40, font=FONT)
         e.pack(side=tk.LEFT, padx=(8, 0))
         return e
@@ -88,13 +86,14 @@ def _build_ai_tab(self, nb):
 
     btn_row = tk.Frame(sec, bg=C["bg_elevated"])
     btn_row.pack(fill=tk.X, pady=(6, 0))
-    ttk.Button(btn_row, text="💾 保存配置", command=lambda: self._save_ai_profile() if _confirm_risky("保存 AI 配置") else None).pack(side=tk.LEFT, padx=(0, 4))
+    ttk.Button(
+        btn_row, text="💾 保存配置", command=lambda: self._save_ai_profile() if _confirm_risky("保存 AI 配置") else None
+    ).pack(side=tk.LEFT, padx=(0, 4))
     if _hard() == "normal":
         ttk.Button(btn_row, text="🗑 删除配置", command=self._delete_ai_profile).pack(side=tk.LEFT, padx=4)
     else:
-        cfg_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "settings.json")
         tk.Label(
-            btn_row, text=f"📁 删除请编辑: data/settings.json", bg=C["bg_elevated"], fg=C["text_3"], font=FONT_SM
+            btn_row, text="📁 删除请编辑: data/settings.json", bg=C["bg_elevated"], fg=C["text_3"], font=FONT_SM
         ).pack(side=tk.LEFT, padx=4)
     ttk.Button(btn_row, text="+ 新增", command=self._new_ai_profile).pack(side=tk.LEFT, padx=4)
 
@@ -326,9 +325,14 @@ def _build_weights_tab(self, nb):
         _entry.grid(row=0, column=2, padx=4)
         if _s() != "normal":
             _entry.configure(state="readonly")
-            _entry.bind("<Button-1>", lambda e, ent=_entry, p=self.window: (
-                None if not _confirm_risky("修改算法权重", p) else (ent.configure(state="normal") or ent.focus_set())
-            ))
+            _entry.bind(
+                "<Button-1>",
+                lambda e, ent=_entry, p=self.window: (
+                    None
+                    if not _confirm_risky("修改算法权重", p)
+                    else (ent.configure(state="normal") or ent.focus_set())
+                ),
+            )
 
         ml_w = info.get("ml_weight", 1.0)
         tk.Label(
@@ -341,15 +345,24 @@ def _build_weights_tab(self, nb):
         ).grid(row=0, column=4)
 
         samples = info.get("samples", 0)
-        tk.Label(
-            row, text=str(samples), bg=C["bg_surface"], fg=C["text_2"], font=FONT_MONO, width=8, anchor="w"
-        ).grid(row=0, column=5)
+        tk.Label(row, text=str(samples), bg=C["bg_surface"], fg=C["text_2"], font=FONT_MONO, width=8, anchor="w").grid(
+            row=0, column=5
+        )
 
     btn_row = tk.Frame(page, bg=C["bg_base"])
     btn_row.pack(fill=tk.X, padx=16, pady=(0, 12))
-    ttk.Button(btn_row, text="重置所有权重", command=lambda: self._reset_all_weights() if _confirm_risky("重置算法权重") else None).pack(side=tk.LEFT, padx=(0, 4))
+    ttk.Button(
+        btn_row,
+        text="重置所有权重",
+        command=lambda: self._reset_all_weights() if _confirm_risky("重置算法权重") else None,
+    ).pack(side=tk.LEFT, padx=(0, 4))
     ttk.Button(btn_row, text="刷新", command=self._refresh_weights).pack(side=tk.LEFT, padx=4)
-    ttk.Button(btn_row, text="💾 保存权重", command=lambda: _confirm_risky("保存算法权重") and self._save_weights(), style="Primary.TButton").pack(side=tk.RIGHT)
+    ttk.Button(
+        btn_row,
+        text="💾 保存权重",
+        command=lambda: _confirm_risky("保存算法权重") and self._save_weights(),
+        style="Primary.TButton",
+    ).pack(side=tk.RIGHT)
 
 
 def _reset_all_weights(self):
@@ -452,14 +465,10 @@ def _build_training_tab(self, nb):
     param_row.pack(fill=tk.X, pady=(4, 4))
     tk.Label(param_row, text="Epoch:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT)
     self._tr_epoch_var = tk.IntVar(value=20)
-    ttk.Spinbox(param_row, from_=1, to=500, textvariable=self._tr_epoch_var, width=6).pack(
-        side=tk.LEFT, padx=(4, 12)
-    )
+    ttk.Spinbox(param_row, from_=1, to=500, textvariable=self._tr_epoch_var, width=6).pack(side=tk.LEFT, padx=(4, 12))
     tk.Label(param_row, text="Batch:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT)
     self._tr_batch_var = tk.IntVar(value=32)
-    ttk.Spinbox(param_row, from_=1, to=512, textvariable=self._tr_batch_var, width=6).pack(
-        side=tk.LEFT, padx=(4, 12)
-    )
+    ttk.Spinbox(param_row, from_=1, to=512, textvariable=self._tr_batch_var, width=6).pack(side=tk.LEFT, padx=(4, 12))
 
     btn_row = tk.Frame(ctrl_sec, bg=C["bg_elevated"])
     btn_row.pack(fill=tk.X, pady=(2, 4))
@@ -471,19 +480,22 @@ def _build_training_tab(self, nb):
     self._tr_cancel_btn.pack(side=tk.LEFT)
 
     ttk.Button(btn_row, text="📤 导出模型", command=self._on_export_checkpoints).pack(side=tk.RIGHT, padx=(4, 0))
-    ttk.Button(btn_row, text="📥 导入模型", command=self._on_import_checkpoints, state=_train()).pack(side=tk.RIGHT, padx=(4, 0))
+    ttk.Button(btn_row, text="📥 导入模型", command=self._on_import_checkpoints, state=_train()).pack(
+        side=tk.RIGHT, padx=(4, 0)
+    )
 
     if _train() != "normal":
         tk.Label(
-            btn_row, text="💡 创建 .enabletraining 文件开启训练 / 完整 devmode 见 README.md",
-            bg=C["bg_elevated"], fg=C["warning"], font=("", 8),
+            btn_row,
+            text="💡 创建 .enabletraining 文件开启训练 / 完整 devmode 见 README.md",
+            bg=C["bg_elevated"],
+            fg=C["warning"],
+            font=("", 8),
         ).pack(side=tk.LEFT, padx=4)
 
     self._tr_progress = ttk.Progressbar(ctrl_sec, mode="determinate", maximum=100)
     self._tr_progress.pack(fill=tk.X, pady=(4, 2))
-    self._tr_status_lbl = tk.Label(
-        ctrl_sec, text="就绪", bg=C["bg_elevated"], fg=C["text_3"], font=FONT_SM, anchor="w"
-    )
+    self._tr_status_lbl = tk.Label(ctrl_sec, text="就绪", bg=C["bg_elevated"], fg=C["text_3"], font=FONT_SM, anchor="w")
     self._tr_status_lbl.pack(fill=tk.X, padx=4, pady=(2, 2))
 
     self._tr_thread = None
@@ -501,6 +513,7 @@ def _build_training_tab(self, nb):
 
 def _discover_torch_algorithms(self) -> List[Dict[str, Any]]:
     from algorithms.registry import AlgorithmRegistry
+
     return AlgorithmRegistry.get_trainable_info()
 
 
@@ -743,9 +756,7 @@ def _on_import_checkpoints(self):
         from utils.checkpoint_io import import_checkpoints
 
         count = import_checkpoints(path)
-        messagebox.showinfo(
-            "导入完成", f"已导入 {count} 个算法的模型\n\n请刷新算法列表查看更新。", parent=self.window
-        )
+        messagebox.showinfo("导入完成", f"已导入 {count} 个算法的模型\n\n请刷新算法列表查看更新。", parent=self.window)
         self._refresh_algo_list()
     except Exception as e:
         messagebox.showerror("导入失败", str(e), parent=self.window)
@@ -964,9 +975,9 @@ def _build_about_tab(self, nb):
 
     sec1 = tk.Frame(page, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
     sec1.pack(fill=tk.X, padx=16, pady=(16, 6), ipadx=10, ipady=10)
-    tk.Label(
-        sec1, text="项目信息", bg=C["bg_elevated"], fg=C["text_2"], font=("Microsoft YaHei UI", 9, "bold")
-    ).pack(anchor="w")
+    tk.Label(sec1, text="项目信息", bg=C["bg_elevated"], fg=C["text_2"], font=("Microsoft YaHei UI", 9, "bold")).pack(
+        anchor="w"
+    )
 
     rows = [
         ("项目名称", "B站视频监控与播放量预测系统"),
@@ -976,16 +987,14 @@ def _build_about_tab(self, nb):
     for label, value in rows:
         f = tk.Frame(sec1, bg=C["bg_elevated"])
         f.pack(fill=tk.X, pady=2)
-        tk.Label(f, text=label, bg=C["bg_elevated"], fg=C["text_3"], font=FONT, width=12, anchor="w").pack(
-            side=tk.LEFT
-        )
+        tk.Label(f, text=label, bg=C["bg_elevated"], fg=C["text_3"], font=FONT, width=12, anchor="w").pack(side=tk.LEFT)
         tk.Label(f, text=value, bg=C["bg_elevated"], fg=C["text_1"], font=FONT, anchor="w").pack(side=tk.LEFT)
 
     sec2 = tk.Frame(page, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
     sec2.pack(fill=tk.X, padx=16, pady=6, ipadx=10, ipady=10)
-    tk.Label(
-        sec2, text="相关链接", bg=C["bg_elevated"], fg=C["text_2"], font=("Microsoft YaHei UI", 9, "bold")
-    ).pack(anchor="w")
+    tk.Label(sec2, text="相关链接", bg=C["bg_elevated"], fg=C["text_2"], font=("Microsoft YaHei UI", 9, "bold")).pack(
+        anchor="w"
+    )
 
     links = [
         ("GitHub", "https://github.com/jinyiwei2012/bilivideo_monitor", "项目源代码，欢迎 Star ⭐"),
@@ -994,12 +1003,8 @@ def _build_about_tab(self, nb):
     for title, url, desc in links:
         f = tk.Frame(sec2, bg=C["bg_elevated"])
         f.pack(fill=tk.X, pady=2)
-        tk.Label(f, text=title, bg=C["bg_elevated"], fg=C["text_3"], font=FONT, width=12, anchor="w").pack(
-            side=tk.LEFT
-        )
-        link_lbl = tk.Label(
-            f, text=url, bg=C["bg_elevated"], fg=C["bilibili"], font=FONT, cursor="hand2", anchor="w"
-        )
+        tk.Label(f, text=title, bg=C["bg_elevated"], fg=C["text_3"], font=FONT, width=12, anchor="w").pack(side=tk.LEFT)
+        link_lbl = tk.Label(f, text=url, bg=C["bg_elevated"], fg=C["bilibili"], font=FONT, cursor="hand2", anchor="w")
         link_lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
         link_lbl.bind("<Button-1>", lambda e, u=url: webbrowser.open(u))
         link_lbl.bind("<Enter>", lambda e: e.widget.config(fg=C.get("accent", "#00a1d6")))
