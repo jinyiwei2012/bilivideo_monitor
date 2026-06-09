@@ -56,12 +56,13 @@ class PredictionPanel:
             padx=14, pady=14
         )
 
-    def _build_pred_hero(self, weighted_pred, current_views, rate_per_sec):
+    def _build_pred_hero(self, weighted_pred, current_views, rate_per_sec, surge_info=None):
         """构建或更新预测英雄卡片
 
         :param weighted_pred: 加权预测播放量
         :param current_views: 当前播放量
         :param rate_per_sec: 每秒播放量增长速率
+        :param surge_info: 推流检测信息 dict (is_surging, surge_label, velocity_history, ...)
         """
         # ── 已有数据时的增量更新 ──
         if self._hero_has_data and "outer" in self._hero_widgets:
@@ -86,6 +87,8 @@ class PredictionPanel:
             else:
                 if "rate_lbl" in w:
                     w["rate_lbl"].pack_forget()
+            # 更新推流指示器
+            self._update_surge_badge(w, surge_info)
             # 更新每个阈值行
             for i, (t, name, col) in enumerate(zip(THRESHOLDS, THRESHOLD_NAMES, THRESH_COLORS)):
                 if i >= len(w["thr_rows"]):
@@ -156,6 +159,9 @@ class PredictionPanel:
             rate_lbl = ctk.CTkLabel(outer, text=rate_str, text_color=C["accent"], font=FONT_SM, fg_color="transparent")
             rate_lbl.pack(anchor="w", pady=(2, 0))
 
+        # ── 推流指示器 ──
+        surge_frame = self._build_surge_badge(outer, surge_info)
+
         tk.Frame(outer, bg=C["border"], height=1).pack(fill=tk.X, pady=6)
 
         # ── 各阈值进度条 + ETA ──
@@ -173,7 +179,6 @@ class PredictionPanel:
             pct = min(current_views / t, 1.0)
             fill_frame = tk.Frame(bg_bar, bg=col, height=4)
             fill_frame.place(x=0, y=0, relwidth=pct, relheight=1)
-            # 计算 ETA（预计到达时间）
             if t <= current_views:
                 eta_str, eta_c = "✓ 已达成", C["success"]
             elif rate_per_sec > 0:
@@ -196,8 +201,181 @@ class PredictionPanel:
             "delta_lbl": delta_lbl,
             "rate_lbl": rate_lbl,
             "thr_rows": thr_rows,
+            "surge_frame": surge_frame,
+            "surge_label": surge_frame.winfo_children()[0] if surge_frame and surge_frame.winfo_children() else None,
         }
         self._hero_has_data = True
+
+    # ── 推流指示器构建/更新 ──────────────────────
+
+    def _build_surge_badge(self, parent, surge_info):
+        """构建推流状态指示器，返回容器 frame（无推流时隐藏）。"""
+        frame = ctk.CTkFrame(parent, fg_color=C["bg_surface"], corner_radius=0)
+
+        if not surge_info or not surge_info.get("is_surging"):
+            return frame  # 空 frame，不显示
+
+        surge_type = surge_info.get("surge_type", "moderate")
+        surge_label = surge_info.get("surge_label", "📈 推流中")
+        surge_mag = surge_info.get("surge_magnitude", 1.0)
+        baseline = surge_info.get("baseline_velocity", 0)
+        surge_vel = surge_info.get("surge_velocity", 0)
+        daily_vel = surge_info.get("daily_velocity")
+        decay_hl = surge_info.get("decay_half_life_hours", 6.0)
+        confidence = surge_info.get("surge_confidence", 0.0)
+
+        # 推流颜色
+        if surge_type == "strong":
+            badge_color = "#ff6b35"  # 橙红
+            bg_color = "#fff3e0"
+        elif surge_type == "moderate":
+            badge_color = "#e6a817"  # 琥珀
+            bg_color = "#fffde7"
+        else:
+            badge_color = "#58a6ff"  # 蓝
+            bg_color = "#e8f4fd"
+
+        # 主标签行：🔥 强推流 · 5.0x · 置信度 85%
+        header_row = ctk.CTkFrame(frame, fg_color=bg_color, corner_radius=6)
+        header_row.pack(fill=tk.X, pady=(4, 0))
+
+        badge = ctk.CTkLabel(
+            header_row,
+            text=f"  {surge_label}  ",
+            text_color=badge_color,
+            font=("Microsoft YaHei UI", 9, "bold"),
+            fg_color="transparent",
+        )
+        badge.pack(side=tk.LEFT, padx=(6, 0), pady=3)
+
+        detail = ctk.CTkLabel(
+            header_row,
+            text=f"· {surge_mag:.1f}x · 置信度 {confidence*100:.0f}% · 衰退 {decay_hl:.1f}h",
+            text_color=C["text_3"],
+            font=("Microsoft YaHei UI", 7),
+            fg_color="transparent",
+        )
+        detail.pack(side=tk.LEFT, padx=(4, 6), pady=3)
+
+        # 速度对比行
+        comp_row = ctk.CTkFrame(frame, fg_color=C["bg_surface"], corner_radius=0)
+        comp_row.pack(fill=tk.X, pady=(2, 0))
+
+        # 当前速度
+        cur_text = f"当前 +{fmt_num(surge_vel)}/h"
+        ctk.CTkLabel(
+            comp_row, text=cur_text, text_color=badge_color, font=("Consolas", 8, "bold"), fg_color="transparent"
+        ).pack(side=tk.LEFT, padx=(2, 0))
+
+        ctk.CTkLabel(
+            comp_row, text=" vs ", text_color=C["text_3"], font=("Consolas", 8), fg_color="transparent"
+        ).pack(side=tk.LEFT)
+
+        # 长期基线
+        base_text = f"基线 +{fmt_num(baseline)}/h"
+        ctk.CTkLabel(
+            comp_row, text=base_text, text_color=C["text_2"], font=("Consolas", 8), fg_color="transparent"
+        ).pack(side=tk.LEFT)
+
+        # 同日对比（如有数据）
+        if daily_vel is not None and daily_vel > 0:
+            ctk.CTkLabel(
+                comp_row, text=" | ", text_color=C["text_3"], font=("Consolas", 8), fg_color="transparent"
+            ).pack(side=tk.LEFT)
+            daily_text = f"昨日同期 +{fmt_num(daily_vel)}/h"
+            period_ratio = surge_info.get("period_comparison", {}).get("daily_ratio")
+            daily_color = C["danger"] if (period_ratio and period_ratio >= 2.0) else C["text_2"]
+            ctk.CTkLabel(
+                comp_row, text=daily_text, text_color=daily_color, font=("Consolas", 8), fg_color="transparent"
+            ).pack(side=tk.LEFT)
+
+        return frame
+
+    def _update_surge_badge(self, hero_widgets, surge_info):
+        """增量更新推流指示器（已有 hero card 时调用）。"""
+        frame = hero_widgets.get("surge_frame")
+        if frame is None:
+            return
+
+        # 清除旧内容
+        for w in frame.winfo_children():
+            w.destroy()
+
+        if not surge_info or not surge_info.get("is_surging"):
+            return
+
+        # 重建推流指示器
+        self._build_surge_badge_content(frame, surge_info)
+
+    def _build_surge_badge_content(self, frame, surge_info):
+        """在已有 frame 中填入推流指示器内容（供增量更新用）。"""
+        surge_type = surge_info.get("surge_type", "moderate")
+        surge_label = surge_info.get("surge_label", "📈 推流中")
+        surge_mag = surge_info.get("surge_magnitude", 1.0)
+        baseline = surge_info.get("baseline_velocity", 0)
+        surge_vel = surge_info.get("surge_velocity", 0)
+        daily_vel = surge_info.get("daily_velocity")
+        decay_hl = surge_info.get("decay_half_life_hours", 6.0)
+        confidence = surge_info.get("surge_confidence", 0.0)
+
+        if surge_type == "strong":
+            badge_color = "#ff6b35"
+            bg_color = "#fff3e0"
+        elif surge_type == "moderate":
+            badge_color = "#e6a817"
+            bg_color = "#fffde7"
+        else:
+            badge_color = "#58a6ff"
+            bg_color = "#e8f4fd"
+
+        header_row = ctk.CTkFrame(frame, fg_color=bg_color, corner_radius=6)
+        header_row.pack(fill=tk.X, pady=(4, 0))
+
+        badge = ctk.CTkLabel(
+            header_row,
+            text=f"  {surge_label}  ",
+            text_color=badge_color,
+            font=("Microsoft YaHei UI", 9, "bold"),
+            fg_color="transparent",
+        )
+        badge.pack(side=tk.LEFT, padx=(6, 0), pady=3)
+
+        detail = ctk.CTkLabel(
+            header_row,
+            text=f"· {surge_mag:.1f}x · 置信度 {confidence*100:.0f}% · 衰退 {decay_hl:.1f}h",
+            text_color=C["text_3"],
+            font=("Microsoft YaHei UI", 7),
+            fg_color="transparent",
+        )
+        detail.pack(side=tk.LEFT, padx=(4, 6), pady=3)
+
+        comp_row = ctk.CTkFrame(frame, fg_color=C["bg_surface"], corner_radius=0)
+        comp_row.pack(fill=tk.X, pady=(2, 0))
+
+        cur_text = f"当前 +{fmt_num(surge_vel)}/h"
+        ctk.CTkLabel(
+            comp_row, text=cur_text, text_color=badge_color, font=("Consolas", 8, "bold"), fg_color="transparent"
+        ).pack(side=tk.LEFT, padx=(2, 0))
+
+        ctk.CTkLabel(
+            comp_row, text=" vs ", text_color=C["text_3"], font=("Consolas", 8), fg_color="transparent"
+        ).pack(side=tk.LEFT)
+
+        base_text = f"基线 +{fmt_num(baseline)}/h"
+        ctk.CTkLabel(
+            comp_row, text=base_text, text_color=C["text_2"], font=("Consolas", 8), fg_color="transparent"
+        ).pack(side=tk.LEFT)
+
+        if daily_vel is not None and daily_vel > 0:
+            ctk.CTkLabel(
+                comp_row, text=" | ", text_color=C["text_3"], font=("Consolas", 8), fg_color="transparent"
+            ).pack(side=tk.LEFT)
+            daily_text = f"昨日同期 +{fmt_num(daily_vel)}/h"
+            period_ratio = surge_info.get("period_comparison", {}).get("daily_ratio")
+            daily_color = C["danger"] if (period_ratio and period_ratio >= 2.0) else C["text_2"]
+            ctk.CTkLabel(
+                comp_row, text=daily_text, text_color=daily_color, font=("Consolas", 8), fg_color="transparent"
+            ).pack(side=tk.LEFT)
 
     def _clear_info(self):
         """清空信息面板内容"""

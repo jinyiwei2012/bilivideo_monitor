@@ -748,6 +748,7 @@ def run_post_training_predict(gui):
                     r.get("fail_list", []),
                     r["valid"],
                     r["total"],
+                    r.get("surge_info"),
                 ),
             )
         gui.root.after(100, lambda: gui.detail._manual_render_chart())
@@ -903,9 +904,9 @@ def build_push_msg(gui, videos):
 # ── 预测结果回调 ──────────────────────────────
 
 
-def prediction_done(gui, w_pred, current_view, growth, rate_per_sec, success_list, fail_list, valid, total):
-    """预测完成回调：更新预测面板和状态栏"""
-    gui.prediction._build_pred_hero(w_pred, current_view, rate_per_sec)
+def prediction_done(gui, w_pred, current_view, growth, rate_per_sec, success_list, fail_list, valid, total, surge_info=None):
+    """预测完成回调，更新预测面板状态。"""
+    gui.prediction._build_pred_hero(w_pred, current_view, rate_per_sec, surge_info)
     gui.prediction._update_algo_list(success_list, fail_list)
     gui._sb("algo", f"算法: {valid}/{total}")
     gui._sb("status", "预测完成", C["success"])

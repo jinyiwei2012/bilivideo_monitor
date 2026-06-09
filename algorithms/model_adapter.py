@@ -7,6 +7,15 @@ models 算法适配器
     - 将 registry 传入的 (history, current_value) 格式转换为
       各算法所需的 video_data dict 格式
     - 解析算法原始返回结果，统一为 registry 所需的 dict 格式
+
+支持的接口类型：
+    1. "video_data" : predict(video_data, threshold)  — 新接口
+    2. "full_params" : predict(current_views, target_views, history_data, video_info)  — 旧接口
+    3. "unknown" : 其他签名（触发异常，返回 fallback 结果）
+
+模型加载：
+    load_all_model_algorithms() 递归遍历 models/ 目录树，
+    自动发现所有继承 BaseAlgorithm 且以 Algorithm 结尾的类。
 """
 
 from typing import Dict, List, Tuple, Any
@@ -24,10 +33,21 @@ class ModelAlgorithmAdapter:
     """模型算法适配器 —— 桥接 models/ 中的算法与 AlgorithmRegistry。
 
     通过反射检测底层算法的 predict() 方法签名，自动适配参数传递方式。
+    统一将不同算法的原始返回（PredictionResult / (seconds, confidence) 元组）
+    转换为 registry 所需的标准 dict 格式。
+
+    用法
+    ----
+    >>> from algorithms.models.simple.linear_velocity import LinearVelocityAlgorithm
+    >>> adapter = ModelAlgorithmAdapter(LinearVelocityAlgorithm())
+    >>> result = adapter.predict_dict(history, current_value, thresholds=[100000], ...)
     """
 
     def __init__(self, algo_instance):
         """包装一个算法实例。
+
+        自动提取算法的元信息（名称、ID、描述、分类、默认权重），
+        并通过反射检测 predict() 方法签名以确定接口类型。
 
         Args:
             algo_instance: models/ 下某个算法的实例对象
@@ -45,9 +65,10 @@ class ModelAlgorithmAdapter:
     def _detect_interface(self):
         """检测算法 predict() 方法的参数签名，确定接口类型。
 
-        类型 1 — "video_data":  predict(video_data, threshold)
-        类型 2 — "full_params": predict(current_views, target_views, history_data, video_info)
-        类型 3 — "unknown":     其他签名
+        通过 inspect.signature 分析参数个数和名称：
+        类型 1 — "video_data":  predict(video_data, threshold)  → 新接口（2 参数法含 video_data）
+        类型 2 — "full_params": predict(current_views, target_views, history_data, video_info) → 旧接口（4 参数）
+        类型 3 — "unknown":     其他签名 → 将触发 fallback
         """
         import inspect
 
@@ -64,19 +85,23 @@ class ModelAlgorithmAdapter:
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
         """统一预测接口，与 BaseAlgorithm.predict() 签名一致。
 
+        根据检测到的接口类型，自动适配参数传递：
+        - "video_data": 直接透传
+        - "full_params": 从 video_data 中拆解出四个参数
+
         Args:
-            video_data: 包含视频所有数据的字典
+            video_data: 包含视频所有数据的字典（含 view_count, history_data 等）
             threshold: 目标播放量阈值
 
         Returns:
-            PredictionResult 对象
+            PredictionResult: 预测结果对象（异常时返回零置信度结果）
         """
         try:
             if self.interface_type == "video_data":
-                # 直接透传
+                # 新接口：直接透传
                 return self.algo.predict(video_data, threshold)
             else:
-                # 拆解 video_data 为旧接口所需的四个参数
+                # 旧接口：拆解 video_data 为四个参数
                 current_value = video_data.get("view_count", 0)
                 history_data = video_data.get("history_data", [])
                 history_list = [
@@ -89,7 +114,7 @@ class ModelAlgorithmAdapter:
                 ]
                 return self.algo.predict(current_value, threshold, history_list, video_data)
         except Exception:
-            # 预测失败时返回一个"无置信度"的结果
+            # 预测失败时返回一个"无置信度"的占位结果
             current_views = video_data.get("view_count", 0)
             return PredictionResult(
                 algorithm_name=self.name,
@@ -106,6 +131,8 @@ class ModelAlgorithmAdapter:
     def predict_dict(self, history: List[Tuple], current_value: float, **kwargs) -> Dict:
         """返回 Dict 格式的预测结果，供 registry 的并行预测流程调用。
 
+        这是 AlgorithmRegistry.predict_all() 中多线程调用的核心接口。
+
         Args:
             history: [(timestamp, view_count), ...]
             current_value: 当前播放量
@@ -118,7 +145,7 @@ class ModelAlgorithmAdapter:
         threshold_names = kwargs.get("threshold_names", ["10万", "100万", "1000万"])
 
         try:
-            # 优先使用 registry 缓存的 video_data 以提升性能
+            # 优先使用 registry 缓存的 video_data 以提升性能（避免重复转换）
             video_data = kwargs.get("_cached_video_data")
             if video_data is None:
                 video_data = self._prepare_video_data(history, current_value)
@@ -133,7 +160,21 @@ class ModelAlgorithmAdapter:
             return self._make_error_result(current_value, str(e))
 
     def _prepare_video_data(self, history: List[Tuple], current_value: float, bvid: str = "") -> Dict:
-        """将 (timestamp, view_count) 元组列表统一转为 video_data 字典。"""
+        """将 (timestamp, view_count) 元组列表统一转为 video_data 字典。
+
+        支持多种时间戳格式：
+        - datetime 对象 → .strftime() 和 .timestamp()
+        - ISO 字符串 → datetime.fromisoformat() 解析
+        - 纯数字 → 视为 epoch 秒数
+
+        Args:
+            history: [(timestamp, view_count), ...]
+            current_value: 当前播放量
+            bvid: 视频 BV 号（可选）
+
+        Returns:
+            dict: 标准 video_data 字典
+        """
         history_list = []
         for ts, v in history:
             if isinstance(ts, datetime):
@@ -179,12 +220,23 @@ class ModelAlgorithmAdapter:
         支持解析两种返回格式：
             1. PredictionResult 对象（含 predicted_hours / confidence / velocity）
             2. (seconds, confidence) 元组
+
+        Args:
+            result: 算法的原始返回
+            current_value: 当前播放量
+            thresholds: 目标阈值列表
+            threshold_names: 阈值名称列表
+            history: 原始历史数据
+
+        Returns:
+            dict: 标准化的预测结果字典
         """
         history_list = []
         if history:
             history_list = [{"view_count": v, "timestamp": t} for t, v in history]
 
         # 短期预测窗口（秒），与 DEFAULT_INTERVAL（75 秒）对齐
+        # 预测的是 75 秒后的播放量
         SHORT_TERM_SECONDS = 75
 
         # ── 格式 1：PredictionResult 对象 ────────────────
@@ -199,9 +251,10 @@ class ModelAlgorithmAdapter:
                 # 有速度信息：直接用速度推算短期增长
                 prediction = current_value + velocity * short_hours
             elif pred_hours == float("inf") or pred_hours < 0:
+                # 无法预测：保守估计 1% 增长
                 prediction = current_value + current_value * 0.01
             else:
-                # 用 predicted_hours 反推平均速度，缩放到短期
+                # 用 predicted_hours 反推平均速度，缩放到短期窗口
                 if pred_hours > 0:
                     avg_velocity = (
                         (thresholds[0] - current_value) / max(pred_hours, 1) if thresholds[0] > current_value else 0
@@ -275,7 +328,14 @@ class ModelAlgorithmAdapter:
         return self._make_na_result(current_value)
 
     def _make_na_result(self, current_value: float) -> Dict:
-        """返回 N/A（不可用）结果，保守估计 ~1%/h 的增长。"""
+        """返回 N/A（不可用）结果，保守估计 ~1%/小时 的增长。
+
+        Args:
+            current_value: 当前播放量
+
+        Returns:
+            dict: 带 N/A 标记的保守预测结果
+        """
         short_hours = 75 / 3600.0
         return {
             "prediction": current_value + current_value * 0.01 * short_hours,
@@ -284,7 +344,15 @@ class ModelAlgorithmAdapter:
         }
 
     def _make_error_result(self, current_value: float, error: str) -> Dict:
-        """返回错误结果（预测值为当前播放量，置信度为 0）。"""
+        """返回错误结果（预测值为当前播放量，置信度为 0）。
+
+        Args:
+            current_value: 当前播放量
+            error: 错误描述字符串
+
+        Returns:
+            dict: 错误结果字典
+        """
         return {
             "prediction": current_value,
             "confidence": 0,
@@ -292,36 +360,56 @@ class ModelAlgorithmAdapter:
         }
 
     def update_accuracy(self, predicted: float, actual: float):
-        """向上游算法对象传递准确率更新。"""
+        """向上游算法对象传递准确率更新。
+
+        Args:
+            predicted: 之前的预测值
+            actual: 实际观测值
+        """
         if hasattr(self.algo, "update_accuracy"):
             self.algo.update_accuracy(predicted, actual)
 
     def get_accuracy(self) -> float:
-        """获取上游算法对象的准确率，默认为 0.5。"""
+        """获取上游算法对象的准确率，默认为 0.5。
+
+        Returns:
+            float: 准确率值 [0, 1]
+        """
         if hasattr(self.algo, "get_accuracy"):
             return self.algo.get_accuracy()
         return 0.5
 
     def set_weight(self, weight: float):
-        """设置上游算法对象的权重。"""
+        """设置上游算法对象的权重。
+
+        Args:
+            weight: 新的权重值
+        """
         if hasattr(self.algo, "set_weight"):
             self.algo.set_weight(weight)
         self.algo.weight = weight
 
     @property
     def weight(self):
+        """获取当前权重（优先取 algo.weight，否则取 default_weight）。"""
         return getattr(self.algo, "weight", self.default_weight)
 
     @weight.setter
     def weight(self, value):
+        """设置权重值。"""
         self.algo.weight = value
 
     @property
     def build_model(self):
+        """获取算法的 build_model 属性（如果存在）。"""
         return getattr(self.algo, "build_model", None)
 
     def get_info(self) -> Dict:
-        """获取算法元信息。"""
+        """获取算法元信息（供 UI 展示使用）。
+
+        Returns:
+            dict: {name, description, category, weight, accuracy}
+        """
         return {
             "name": self.name,
             "description": self.description,
@@ -339,8 +427,10 @@ def load_all_model_algorithms() -> List[ModelAlgorithmAdapter]:
         - 仅加载类名以 Algorithm 结尾、且继承 BaseAlgorithm 的类
         - 每个算法实例被包装为 ModelAlgorithmAdapter 返回
 
+    这是算法注册器的核心入口，启动时调用一次即可加载全部 55+ 算法。
+
     Returns:
-        ModelAlgorithmAdapter 列表
+        ModelAlgorithmAdapter 列表（每个元素包装了一个算法实例）
     """
     adapters = []
 
@@ -353,7 +443,7 @@ def load_all_model_algorithms() -> List[ModelAlgorithmAdapter]:
 
     # 递归遍历 models 目录下的所有子目录
     for root, dirs, files in os.walk(models_dir):
-        # 跳过 __pycache__ 目录
+        # 跳过 __pycache__ 目录（Python 字节码缓存）
         dirs[:] = [d for d in dirs if d != "__pycache__"]
 
         for filename in files:
@@ -361,7 +451,7 @@ def load_all_model_algorithms() -> List[ModelAlgorithmAdapter]:
             if not filename.endswith(".py") or filename.startswith("_"):
                 continue
 
-            # 计算相对于 models 的模块路径（如 "simple/linear_velocity"）
+            # 计算相对于 models 的模块路径（如 "simple.linear_velocity"）
             file_path = os.path.join(root, filename)
             rel_path = os.path.relpath(file_path, models_dir)
             module_path = rel_path.replace("\\", "/").replace("/", ".")[:-3]

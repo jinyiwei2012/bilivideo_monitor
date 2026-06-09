@@ -53,7 +53,17 @@ def _save_predictions_to_db(gui, bvid, current_view, results):
         # 将 metadata 字典转换为 JSON 字符串
         import json
 
-        metadata_str = json.dumps(metadata, ensure_ascii=False)
+        # 将 numpy 类型转换为原生 Python 类型，避免 JSON 序列化失败
+        def _convert_numpy(obj):
+            if isinstance(obj, dict):
+                return {k: _convert_numpy(v) for k, v in obj.items()}
+            if isinstance(obj, (list, tuple)):
+                return [_convert_numpy(v) for v in obj]
+            if hasattr(obj, "item"):
+                return obj.item()
+            return obj
+
+        metadata_str = json.dumps(_convert_numpy(metadata), ensure_ascii=False)
 
         for tp in threshold_preds:
             minutes = tp.get("minutes", 0)
@@ -201,6 +211,114 @@ def _calc_growth_rate(history: list) -> float:
     return 0.0
 
 
+def _calc_surge_aware_growth_rate(history: list) -> float:
+    """计算考虑大推流衰减后的播放量增长速率。
+
+    检测到推流时，使用指数衰减模型调整速率，避免 ETA 过于乐观。
+    无推流时等价于 _calc_growth_rate()。
+    """
+    raw_rate = _calc_growth_rate(history)
+    if raw_rate <= 0:
+        return 0.0
+
+    if len(history) < 8:
+        return raw_rate
+
+    try:
+        from algorithms.base import BaseAlgorithm as BA
+
+        # 构建临时 video_data 用于推流检测
+        history_list = []
+        for ts, v in history:
+            if isinstance(ts, datetime):
+                ts_ts = ts.timestamp()
+            else:
+                try:
+                    ts_ts = float(ts)
+                except (ValueError, TypeError):
+                    ts_ts = 0.0
+            history_list.append({"view_count": v, "timestamp": ts_ts})
+
+        video_data = {"history_data": history_list, "view_count": history[-1][1]}
+
+        class _SurgeDetector(BA):
+            def predict(self, video_data=None, threshold=100000):
+                pass
+
+        detector = _SurgeDetector()
+        surge_info = detector.detect_surge(video_data)
+
+        if surge_info.get("is_surging"):
+            surge_mag = surge_info["surge_magnitude"]
+            surge_type = surge_info["surge_type"]
+            adj_vel = surge_info.get("adjusted_velocity", 0)
+            surge_vel = surge_info.get("surge_velocity", raw_rate * 3600)
+
+            if surge_vel > 0 and adj_vel > 0:
+                correction = adj_vel / surge_vel
+                correction = max(0.4, min(1.0, correction))
+                return raw_rate * correction
+    except Exception:
+        pass
+
+    return raw_rate
+
+
+def _detect_surge_for_ui(history: list) -> dict:
+    """检测推流状态并返回 UI 友好格式的信息。
+
+    Returns:
+        dict with: is_surging, surge_type, surge_label, surge_magnitude,
+                   baseline_velocity, surge_velocity, daily_velocity,
+                   velocity_history, decay_half_life_hours
+    """
+    try:
+        from algorithms.base import BaseAlgorithm as BA
+
+        if len(history) < 8:
+            return {"is_surging": False, "surge_type": "none"}
+
+        history_list = []
+        for ts, v in history:
+            if isinstance(ts, datetime):
+                ts_ts = ts.timestamp()
+            else:
+                try:
+                    ts_ts = float(ts)
+                except (ValueError, TypeError):
+                    ts_ts = 0.0
+            history_list.append({"view_count": v, "timestamp": ts_ts})
+
+        video_data = {"history_data": history_list, "view_count": history[-1][1]}
+
+        class _SurgeDetector(BA):
+            def predict(self, video_data=None, threshold=100000):
+                pass
+
+        detector = _SurgeDetector()
+        si = detector.detect_surge(video_data)
+
+        # 构建 UI 友好的标签
+        type_labels = {"strong": "🔥 强推流", "moderate": "📈 推流中", "mild": "📊 轻度推流", "none": ""}
+        surge_label = type_labels.get(si.get("surge_type", "none"), "") if si.get("is_surging") else ""
+
+        return {
+            "is_surging": si.get("is_surging", False),
+            "surge_type": si.get("surge_type", "none"),
+            "surge_label": surge_label,
+            "surge_magnitude": si.get("surge_magnitude", 1.0),
+            "surge_confidence": si.get("surge_confidence", 0.0),
+            "baseline_velocity": round(si.get("baseline_velocity", 0)),
+            "surge_velocity": round(si.get("surge_velocity", 0)),
+            "daily_velocity": si.get("velocity_history", {}).get("daily_same_period"),
+            "velocity_history": si.get("velocity_history", {}),
+            "period_comparison": si.get("period_comparison", {}),
+            "decay_half_life_hours": si.get("decay_half_life_hours", 6.0),
+        }
+    except Exception:
+        return {"is_surging": False, "surge_type": "none"}
+
+
 def _predict_single(gui, bvid, video) -> dict:
     """在 worker 线程中对单个视频运行预测（纯函数，无 UI 调用）"""
     with _prediction_semaphore:
@@ -229,7 +347,10 @@ def _predict_single(gui, bvid, video) -> dict:
                 success_list.append((name, r["prediction"], r["weight"], r["confidence"], r.get("predicted_hours", 0)))
 
         growth = w_pred - current_view
-        rate_per_sec = _calc_growth_rate(history)
+        rate_per_sec = _calc_surge_aware_growth_rate(history)
+
+        # ── 推流检测信息（供 UI 展示）──────────────────
+        surge_info = _detect_surge_for_ui(history)
 
         result = {
             "bvid": bvid,
@@ -237,6 +358,7 @@ def _predict_single(gui, bvid, video) -> dict:
             "current_view": current_view,
             "growth": max(0, growth),
             "rate_per_sec": rate_per_sec,
+            "surge_info": surge_info,
             "success_list": success_list,
             "fail_list": fail_list,
             "valid": weighted.get("valid_algorithms", 0),
@@ -574,6 +696,7 @@ class VideoWorker:
             result["fail_list"],
             result["valid"],
             result["total"],
+            result.get("surge_info"),
         )
         gui.detail.update_stat_bar(video)
         if gui.detail.current_tab == "📈 播放量趋势":
