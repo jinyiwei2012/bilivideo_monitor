@@ -387,7 +387,7 @@ class ModelTrainer:
                 break
 
             # 训练一个 epoch
-            train_loss = self._train_epoch(model, train_loader, optimizer, loss_fn, preprocess, control_dict, algo_id)
+            train_loss = self._train_epoch(model, train_loader, optimizer, loss_fn, preprocess, control_dict, algo_id, progress_cb=progress_cb)
             train_losses.append(train_loss)
 
             # 调度器步进（双曲线模式）
@@ -641,7 +641,7 @@ class ModelTrainer:
             )
         return False
 
-    def _train_epoch(self, model, train_loader, optimizer, loss_fn, preprocess, control_dict, algo_id):
+    def _train_epoch(self, model, train_loader, optimizer, loss_fn, preprocess, control_dict, algo_id, progress_cb=None):
         """执行一个完整 epoch 的训练。
 
         包含以下数据增强和正则化技术：
@@ -660,6 +660,7 @@ class ModelTrainer:
             preprocess:    batch 预处理函数。
             control_dict:  控制指令字典。
             algo_id:       算法标识符。
+            progress_cb:   进度回调（每 10% batch 触发一次）。
 
         Returns:
             float: 平均训练损失（所有 batch 的均值）。
@@ -667,6 +668,18 @@ class ModelTrainer:
         model.train()  # 设为训练模式（启用 dropout/batchnorm 等）
         train_loss = 0.0
         n_batches = 0
+        total_batches = len(train_loader)
+
+        # batch 报告间隔：优先使用用户配置，否则默认每 10%
+        report_interval = max(1, total_batches // 10)  # 默认 10%
+        if control_dict and control_dict.get("_batch_interval"):
+            bi = control_dict["_batch_interval"]
+            mode = control_dict.get("_batch_interval_mode", "%")
+            if mode == "%":
+                report_interval = max(1, int(total_batches * bi))
+            else:
+                report_interval = max(1, int(bi))
+
         # 从 control_dict 读取配置（带默认值）
         act_decay = 0.0
         label_noise = 0.0
@@ -761,6 +774,17 @@ class ModelTrainer:
 
             train_loss += loss_val
             n_batches += 1
+
+            # 每 10% batch 发出一次进度（避免过于频繁）
+            if progress_cb and n_batches % report_interval == 0:
+                self._emit(progress_cb, {
+                    "stage": "batch",
+                    "algo_id": algo_id,
+                    "batch": n_batches,
+                    "total_batches": total_batches,
+                    "batch_loss": round(loss_val, 6),
+                    "avg_loss": round(train_loss / n_batches, 6),
+                })
 
         return train_loss / max(1, n_batches)
 

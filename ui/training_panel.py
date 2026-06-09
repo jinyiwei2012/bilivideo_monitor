@@ -55,6 +55,7 @@ class TrainingPanel(BaseTrainingPanel):
         self._log_dir = project_path("data", "log", "training")
         self._log_file: Optional[io.TextIOWrapper] = None
         self._log_file_path: str = ""
+        self._saved_title: Optional[str] = None  # 训练时保存的窗口标题
 
         self._build_ui()
 
@@ -197,6 +198,20 @@ class TrainingPanel(BaseTrainingPanel):
         ttk.Radiobutton(ctrl, text="重新训练", variable=self._mode_var, value="retrain", state=_train()).pack(
             side=tk.LEFT, padx=1
         )
+
+        # 并行训练数
+        tk.Label(ctrl, text="并行:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT, padx=(8, 2))
+        self._parallel_var = tk.IntVar(value=2)
+        ttk.Spinbox(ctrl, from_=1, to=4, textvariable=self._parallel_var, width=3).pack(side=tk.LEFT, padx=2)
+
+        # 详细日志（batch 级进度 + 用户自定义间隔）
+        self._batch_log_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(ctrl, text="详细日志", variable=self._batch_log_var).pack(side=tk.LEFT, padx=(4, 2))
+        tk.Label(ctrl, text="每", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT)
+        self._batch_interval_val = tk.StringVar(value="10")
+        ttk.Entry(ctrl, textvariable=self._batch_interval_val, width=3, font=FONT_MONO).pack(side=tk.LEFT, padx=1)
+        self._batch_interval_unit = tk.StringVar(value="%")
+        ttk.Combobox(ctrl, textvariable=self._batch_interval_unit, values=["%", "个"], width=3, state="readonly").pack(side=tk.LEFT)
 
         # 按钮
         self._train_btn = ttk.Button(
@@ -882,9 +897,9 @@ class TrainingPanel(BaseTrainingPanel):
         if config is None:
             return
 
-        selected, epochs, batch, is_incremental, lr, mode_label, lr_label = config
+        selected, epochs, batch, is_incremental, lr, mode_label, lr_label, parallel, batch_log, interval_val, interval_unit = config
         self._build_train_config(selected, epochs, batch, mode_label, lr)
-        self._start_train_thread(selected, is_incremental, lr, epochs, batch)
+        self._start_train_thread(selected, is_incremental, lr, epochs, batch, parallel, batch_log, interval_val, interval_unit)
 
     def _validate_train_params(self):
         """校验训练参数并弹出确认对话框，返回训练配置或 None"""
@@ -904,6 +919,28 @@ class TrainingPanel(BaseTrainingPanel):
         is_incremental = self._mode_var.get() == "incremental"
         mode_label = "增量训练" if is_incremental else "重新训练"
 
+        # 并行数 + VRAM 安全检查
+        parallel = max(1, min(4, int(self._parallel_var.get())))
+        if parallel > len(selected):
+            parallel = len(selected)
+        parallel_warning = ""
+        try:
+            from algorithms.training.device import get_device_info
+            dev_info = get_device_info()
+            if dev_info.get("is_gpu") and dev_info.get("total_memory_gb", 0) > 0:
+                vram_gb = dev_info["total_memory_gb"]
+                # 保守估计每个模型 ~0.4GB（实际模型多数 < 50MB，0.4GB 已含余量）
+                est_per_model_gb = 0.4
+                max_safe = max(1, int(vram_gb / est_per_model_gb))
+                if parallel > max_safe:
+                    parallel = max_safe
+                    parallel_warning = (
+                        f"\n⚠️ 显存安全限制：{vram_gb:.1f}GB 显存，"
+                        f"自动降为并行 {parallel}（避免炸显存）"
+                    )
+        except Exception:
+            pass
+
         if self._lr_auto_var.get():
             lr = self._auto_compute_lr()
             self._lr_var.set(f"{lr:.6f}")
@@ -919,14 +956,16 @@ class TrainingPanel(BaseTrainingPanel):
 
         if not messagebox.askyesno(
             "确认训练",
-            f"模式: {mode_label}\n算法: {len(selected)} 个\n"
-            f"epoch={epochs}  batch={batch}  LR={lr_label}\n"
+            f"模式: {mode_label}  并行: {parallel}\n"
+            f"算法: {len(selected)} 个\n"
+            f"epoch={epochs}  batch={batch}  LR={lr_label}"
+            f"{parallel_warning}\n"
             f"训练过程不可中途暂停（只能取消未开始的算法）。",
             parent=self.frame,
         ):
             return None
 
-        return (selected, epochs, batch, is_incremental, lr, mode_label, lr_label)
+        return (selected, epochs, batch, is_incremental, lr, mode_label, lr_label, parallel, self._batch_log_var.get(), self._batch_interval_val.get(), self._batch_interval_unit.get())
 
     def _build_train_config(self, selected, epochs, batch, mode_label, lr):
         """重置训练状态、打开日志文件、更新状态标签"""
@@ -935,120 +974,138 @@ class TrainingPanel(BaseTrainingPanel):
         self._append_log(
             f"🚀 开始训练: {mode_label}, {len(selected)} 个算法, epoch={epochs}, batch={batch}, lr={lr:.6f}"
         )
+        if self._batch_log_var.get():
+            val = self._batch_interval_val.get()
+            unit = self._batch_interval_unit.get()
+            self._append_log(f"📋 详细日志：每 {val}{unit} batch 输出进度")
         self._status_lbl.config(text=f"准备训练 {len(selected)} 个算法 …", fg=C["text_2"])
 
-    def _start_train_thread(self, selected, is_incremental, lr, epochs, batch):
-        """定义训练回调和后台线程并启动"""
-        auto_control: Dict = {}
-        auto_monitors: Dict[str, "TrainingMonitor"] = {}
+        # ── 全局反馈：窗口标题 + 主界面状态栏 ──
+        try:
+            top = self.frame.winfo_toplevel()
+            self._saved_title = top.title()
+            top.title(f"🔴 训练中 — {self._saved_title}")
+        except Exception:
+            self._saved_title = None
+        try:
+            self.main._sb("algo", f"🤖 训练: 0/{len(selected)} 算法", color=C["accent"])
+            self.main._sb("status", "训练中…", color=C["accent"])
+        except Exception:
+            pass
+        self._algo_durations: List[float] = []  # 各算法耗时（用于跨算法 ETA）
+
+    def _start_train_thread(self, selected, is_incremental, lr, epochs, batch, parallel, batch_log, interval_val, interval_unit):
+        """启动训练线程（支持并行模式 + 可配置 batch 级日志间隔）"""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        total = len(selected)
         algo_lr_factors: Dict[str, float] = {}
+        completed_count = [0]
+
+        # 解析 batch 日志间隔
+        batch_interval = None
+        batch_interval_mode = "%"  # % 或 count
+        try:
+            val = float(interval_val)
+            if interval_unit == "%":
+                val = max(1, min(100, val))  # 限制 1%~100%
+                batch_interval = val / 100.0  # 转为比例
+                batch_interval_mode = "%"
+            else:
+                val = max(1, int(val))
+                batch_interval = val
+                batch_interval_mode = "count"
+        except (ValueError, TypeError):
+            batch_interval = 0.1  # 默认 10%
+            batch_interval_mode = "%"
 
         def _cb(payload: Dict):
-            """训练回调 — 运行在工作线程中，负责通信 + 自动调整。"""
-            payload["_total_selected"] = len(selected)
+            """训练回调 — 线程安全。batch_log 关闭时过滤 batch 消息。"""
+            payload["_total_selected"] = total
             payload["_incremental"] = is_incremental
 
+            if not batch_log and payload.get("stage") == "batch":
+                return
+
             if self._skip_algo_flag[0]:
-                auto_control["early_stop"] = True
-                auto_control["_force_early_stop"] = True
                 payload["_adjustment"] = "⏭ 用户手动跳过"
+                payload["early_stop"] = True
                 self._train_queue.put(payload)
                 return
 
-            if payload.get("stage") == "epoch":
-                aid = payload.get("algo_id", "")
-                ep = payload.get("epoch", 0)
-                tloss = payload.get("train_loss", 0.0)
-                vloss = payload.get("val_loss", -1.0)
-
-                key = aid
-                if key not in auto_monitors:
-                    auto_monitors[key] = TrainingMonitor()
-                mon = auto_monitors[key]
-                mon.update(ep, tloss, vloss if vloss >= 0 else -1)
-
-                if mon.level in ("warning", "danger") and auto_control is not None:
-                    status = mon.status
-                    factor = algo_lr_factors.get(aid, 1.0)
-                    if "nan" in status.lower():
-                        auto_control["early_stop"] = True
-                        payload["_adjustment"] = "🔧 NaN 检测 — 提前停止"
-                    elif "爆炸" in status:
-                        scale = mon.compute_lr_scale("explosion")
-                        auto_control["lr_scale"] = scale
-                        algo_lr_factors[aid] = factor * scale
-                        payload["_adjustment"] = (
-                            f"🔧 Loss 爆炸 — {aid} LR×{scale:.2f} (累计 {algo_lr_factors[aid]:.2f})"
-                        )
-                    elif "严重过拟合" in status:
-                        auto_control["early_stop"] = True
-                        payload["_adjustment"] = "🔧 严重过拟合 — 提前停止"
-                    elif "震荡" in status:
-                        scale = mon.compute_lr_scale("oscillation")
-                        auto_control["lr_scale"] = scale
-                        algo_lr_factors[aid] = factor * scale
-                        payload["_adjustment"] = (
-                            f"🔧 Loss 震荡 — {aid} LR×{scale:.2f} (累计 {algo_lr_factors[aid]:.2f})"
-                        )
-                    elif "过拟合" in status:
-                        scale = mon.compute_lr_scale("overfitting")
-                        auto_control["lr_scale"] = scale
-                        algo_lr_factors[aid] = factor * scale
-                        payload["_adjustment"] = f"🔧 过拟合 — {aid} LR×{scale:.2f} (累计 {algo_lr_factors[aid]:.2f})"
-                    elif "欠拟合" in status or "下降过慢" in status:
-                        scale = mon.compute_lr_scale("underfitting")
-                        auto_control["lr_scale"] = scale
-                        algo_lr_factors[aid] = factor * scale
-                        payload["_adjustment"] = f"🔧 欠拟合 — {aid} LR×{scale:.2f} (累计 {algo_lr_factors[aid]:.2f})"
-                    elif "不再收敛" in status:
-                        auto_control["early_stop"] = True
-                        payload["_adjustment"] = "🔧 不再收敛 — 提前停止"
-
             self._train_queue.put(payload)
 
-        def _worker():
-            """工作线程：依次训练每个选中的算法"""
+        def _train_one_algo(aid):
+            """在独立线程中训练单个算法。每个算法有自己的 trainer/control/monitor。"""
+            if self._cancel_flag[0]:
+                return aid, False
+
             try:
                 from algorithms.training.trainer import ModelTrainer
 
+                # 非增量模式：清除旧 checkpoint
+                if not is_incremental:
+                    from algorithms.training.checkpoint_manager import CheckpointManager
+                    _ckpt = CheckpointManager(aid)
+                    _n = _ckpt.delete_all()
+                    if _n:
+                        self._train_queue.put({"stage": "log", "text": f"  🗑 已清除 {aid} 的 {_n} 个旧版本"})
+
+                self._skip_algo_flag[0] = False
+                self.frame.after(0, lambda: self._skip_btn.config(state="normal"))
+
+                aid_factor = algo_lr_factors.get(aid, 1.0)
+                effective_lr = lr * aid_factor
+                control = {}
+                # 注入 batch 日志间隔配置
+                if batch_log and batch_interval is not None:
+                    control["_batch_interval"] = batch_interval
+                    control["_batch_interval_mode"] = batch_interval_mode
                 trainer = ModelTrainer()
-                remaining = list(selected)
+                sub = trainer.train_global(
+                    [aid],
+                    epochs=epochs,
+                    batch_size=batch,
+                    progress_cb=_cb,
+                    init_from_global=is_incremental,
+                    lr=effective_lr,
+                    control_dict=control,
+                )
+                completed_count[0] += 1
+                return aid, bool(sub.get(aid))
+            except Exception as e:
+                self._train_queue.put({"stage": "error", "algo_id": aid, "current": completed_count[0], "total": total, "error": str(e)})
+                return aid, False
+
+        def _worker():
+            """并行训练调度线程"""
+            try:
                 results = {}
-                while remaining:
-                    if self._cancel_flag[0]:
-                        self._train_queue.put({"stage": "cancelled", "remaining": remaining})
-                        break
-                    aid = remaining.pop(0)
+                if parallel <= 1:
+                    # 串行模式（保持原有行为）
+                    for aid in selected:
+                        if self._cancel_flag[0]:
+                            self._train_queue.put({"stage": "cancelled", "remaining": selected[completed_count[0]:]})
+                            break
+                        ok, success = _train_one_algo(aid)
+                        results[ok] = ok if success else ""
+                else:
+                    # 并行模式
+                    self._append_log(f"⚡ 并行训练 ({parallel} 线程)")
+                    with ThreadPoolExecutor(max_workers=parallel) as pool:
+                        futures = {pool.submit(_train_one_algo, aid): aid for aid in selected}
+                        for f in as_completed(futures):
+                            if self._cancel_flag[0]:
+                                # 取消剩余任务
+                                for remaining_f in futures:
+                                    if not remaining_f.done():
+                                        remaining_f.cancel()
+                                remaining_aids = [futures[rf] for rf in futures if not rf.done()]
+                                self._train_queue.put({"stage": "cancelled", "remaining": remaining_aids})
+                                break
+                            aid, success = f.result()
+                            results[aid] = aid if success else ""
 
-                    if not is_incremental:
-                        from algorithms.training.checkpoint_manager import CheckpointManager
-
-                        _ckpt = CheckpointManager(aid)
-                        _n = _ckpt.delete_all()
-                        if _n:
-                            self._train_queue.put(
-                                {
-                                    "stage": "log",
-                                    "text": f"  🗑 已清除 {aid} 的 {_n} 个旧版本",
-                                }
-                            )
-
-                    self._skip_algo_flag[0] = False
-                    self.frame.after(0, lambda: self._skip_btn.config(state="normal"))
-
-                    aid_factor = algo_lr_factors.get(aid, 1.0)
-                    effective_lr = lr * aid_factor
-                    auto_control.clear()
-                    sub = trainer.train_global(
-                        [aid],
-                        epochs=epochs,
-                        batch_size=batch,
-                        progress_cb=_cb,
-                        init_from_global=is_incremental,
-                        lr=effective_lr,
-                        control_dict=auto_control,
-                    )
-                    results.update(sub)
                 self._train_queue.put({"stage": "all_done", "results": results})
             except Exception as e:
                 self._train_queue.put({"stage": "fatal", "error": str(e)})
@@ -1074,6 +1131,7 @@ class TrainingPanel(BaseTrainingPanel):
 
     STAGE_HANDLERS = {
         "start": "_on_stage_start",
+        "batch": "_on_stage_batch",
         "epoch": "_on_stage_epoch",
         "done": "_on_stage_done",
         "error": "_on_stage_error",
@@ -1097,13 +1155,51 @@ class TrainingPanel(BaseTrainingPanel):
         cur = msg.get("current", 0)
         tot = msg.get("total", 1)
         self._current_aid = aid
+        self._total_algos = tot
+        self._algo_start_time = time.time()
+        self._epoch_times: List[float] = []  # 当前算法各 epoch 耗时（秒）
+        self._last_epoch_elapsed = 0.0
         self._status_lbl.config(text=f"[{cur}/{tot}] 训练 {aid} …", fg=C["text_2"])
         self._append_log(f"── [{cur}/{tot}] 开始训练 {aid} ──")
         self._update_algo_row(aid, status="▶ 训练中", status_color=C["accent"])
         self._monitor.reset()
+        # 状态栏 + 进度条动画
+        try:
+            self.main._sb("algo", f"🤖 [{cur}/{tot}] {aid}", color=C["accent"])
+        except Exception:
+            pass
+        if self._progress:
+            self._progress["value"] = 0
+            self._progress.configure(mode="determinate")
+
+    def _on_stage_batch(self, msg):
+        """处理每 10% batch 完成事件 — 更新主窗口状态栏（轻量，不写日志）"""
+        aid = msg.get("algo_id", "?")
+        b = msg.get("batch", 0)
+        tot_b = msg.get("total_batches", 1)
+        avg_loss = msg.get("avg_loss", 0)
+        try:
+            self.main._sb("status", f"🔄 {aid} batch {b}/{tot_b} loss={avg_loss:.4f}", color=C["text_2"])
+        except Exception:
+            pass
+        return False
+
+    @staticmethod
+    def _fmt_duration(seconds: float) -> str:
+        """格式化时长为可读字符串"""
+        if seconds < 0:
+            return "--"
+        if seconds < 60:
+            return f"{seconds:.0f}s"
+        if seconds < 3600:
+            m, s = divmod(int(seconds), 60)
+            return f"{m}m{s}s" if s > 0 else f"{m}m"
+        h, r = divmod(int(seconds), 3600)
+        m = r // 60
+        return f"{h}h{m}m" if m > 0 else f"{h}h"
 
     def _on_stage_epoch(self, msg):
-        """处理每个 epoch 完成事件 — 更新图表、进度、日志"""
+        """处理每个 epoch 完成事件 — 更新图表、进度、日志、EMA 加权 ETA"""
         aid = msg.get("algo_id", "?")
         ep = msg.get("epoch", 0)
         eps = msg.get("epochs", 1)
@@ -1120,10 +1216,63 @@ class TrainingPanel(BaseTrainingPanel):
         pct = min(100, int((ep / max(1, eps)) * 100))
         self._progress["value"] = pct
         vtxt = f"  val={vloss:.4f}" if vloss >= 0 else ""
+
+        # ── EMA 加权 ETA：最近 epoch 权重更高 ──
+        epoch_duration = max(0, elapsed - self._last_epoch_elapsed)
+        self._last_epoch_elapsed = elapsed
+        if epoch_duration > 0 and epoch_duration < 3600:  # 排除异常值
+            self._epoch_times.append(epoch_duration)
+            if len(self._epoch_times) > 10:
+                self._epoch_times = self._epoch_times[-10:]
+
+        total_eta_str = ""
+        if self._epoch_times:
+            # EMA：衰减因子 0.7，最近 epoch 权重指数级更高
+            alpha = 0.7
+            recent_weights = [alpha ** (len(self._epoch_times) - 1 - i) for i in range(len(self._epoch_times))]
+            weight_sum = sum(recent_weights)
+            ema_epoch = sum(t * w for t, w in zip(self._epoch_times, recent_weights)) / max(weight_sum, 1e-10)
+
+            # 本算法剩余时间
+            algo_remaining = ema_epoch * (eps - ep)
+            algo_eta = self._fmt_duration(algo_remaining)
+
+            # 总训练剩余时间 = 本算法剩余 + 未开始算法预估
+            cur = msg.get("current", 0)
+            tot = msg.get("total", 1)
+            remaining_algos = tot - cur
+            if remaining_algos > 0 and hasattr(self, "_algo_durations") and self._algo_durations:
+                avg_algo_time = sum(self._algo_durations) / len(self._algo_durations)
+                # 已完成算法数较少时，用本算法当前速率补充
+                if len(self._algo_durations) < 2:
+                    avg_algo_time = max(avg_algo_time, ema_epoch * eps * 0.8)
+                other_remaining = avg_algo_time * (remaining_algos - 1)  # -1 因为当前算法已在算
+            else:
+                # 无历史数据：用本算法速率外推
+                other_remaining = ema_epoch * eps * max(0, remaining_algos - 1)
+
+            total_remaining = algo_remaining + other_remaining
+            total_eta_str = f"  ⏱本{algo_eta} 总{self._fmt_duration(total_remaining)}"
+
         self._status_lbl.config(
-            text=f"{aid}  ep{ep}/{eps}  train={tloss:.4f}{vtxt}  {conf_str}  {elapsed:.0f}s",
+            text=f"{aid}  ep{ep}/{eps}  train={tloss:.4f}{vtxt}  {conf_str}  {elapsed:.0f}s{total_eta_str}",
             fg=C["text_1"],
         )
+
+        # 主窗口状态栏（含 ETA）
+        try:
+            cur = msg.get("current", 0)
+            tot = msg.get("total", 1)
+            status_text = f"🤖 [{cur}/{tot}] {aid} ep{ep}/{eps}  {elapsed:.0f}s"
+            if total_eta_str:
+                # 提取总 ETA 部分
+                parts = total_eta_str.split("总")
+                if len(parts) > 1:
+                    status_text += f"  ⇨{parts[1]}"
+            self.main._sb("algo", status_text, color=C["accent"])
+            self.main._sb("status", f"训练中  loss={tloss:.4f}", color=C["text_2"])
+        except Exception:
+            pass
 
         self._monitor.update(ep, tloss, vloss if vloss >= 0 else -1)
         self._refresh_monitor()
@@ -1155,8 +1304,28 @@ class TrainingPanel(BaseTrainingPanel):
         aid = msg.get("algo_id", "?")
         cur = msg.get("current", 0)
         ver = msg.get("version", "")
-        self._status_lbl.config(text=f"✓ {aid} → {ver} ({cur}/{total_sel})", fg=C["success"])
+        algo_elapsed = time.time() - getattr(self, "_algo_start_time", time.time())
+
+        # 记录算法耗时用于跨算法 ETA
+        if not hasattr(self, "_algo_durations"):
+            self._algo_durations = []
+        self._algo_durations.append(algo_elapsed)
+
+        self._status_lbl.config(text=f"✓ {aid} → {ver} ({cur}/{total_sel})  {algo_elapsed:.0f}s", fg=C["success"])
         self._progress["value"] = int(cur / max(1, total_sel) * 100)
+
+        # 计算总体 ETA
+        remaining = total_sel - cur
+        total_eta = ""
+        if remaining > 0 and self._algo_durations:
+            avg_dur = sum(self._algo_durations) / len(self._algo_durations)
+            total_eta = f"  ⇨剩余≈{self._fmt_duration(avg_dur * remaining)}"
+
+        # 主窗口状态栏
+        try:
+            self.main._sb("algo", f"🤖 ✓ [{cur}/{total_sel}] {aid}  {algo_elapsed:.0f}s{total_eta}", color=C["success"])
+        except Exception:
+            pass
 
         # 从 checkpoint 读取 val_loss 和置信度
         from algorithms.training.checkpoint_manager import CheckpointManager
@@ -1192,6 +1361,10 @@ class TrainingPanel(BaseTrainingPanel):
         self._status_lbl.config(text=f"✗ {aid} 失败: {err}", fg=C["danger"])
         self._append_log(f"✗ {aid} 训练失败: {err}")
         self._update_algo_row(aid, status="✗ 失败", status_color=C["danger"])
+        try:
+            self.main._sb("algo", f"🤖 ✗ {aid} 失败", color=C["danger"])
+        except Exception:
+            pass
 
     def _on_stage_auto_adjust(self, msg):
         """处理自动调整事件"""
@@ -1204,6 +1377,10 @@ class TrainingPanel(BaseTrainingPanel):
         rem = msg.get("remaining", [])
         self._status_lbl.config(text=f"已取消，剩余 {len(rem)} 个", fg=C["warning"])
         self._append_log(f"⏹ 已取消, 剩余 {len(rem)} 个算法")
+        try:
+            self.main._sb("algo", f"⏹ 训练已取消 (剩余{len(rem)}个)", color=C["warning"])
+        except Exception:
+            pass
         return True
 
     def _on_stage_all_done(self, msg):
@@ -1227,6 +1404,11 @@ class TrainingPanel(BaseTrainingPanel):
         self._progress["value"] = 100
         self._append_log(f"🏁 训练全部完成: {ok} 成功, {bad} 失败, 耗时 {elapsed:.0f}s")
         self._append_log(f"📊 各算法最终置信度:{conf_summary}")
+        # 主窗口状态栏
+        try:
+            self.main._sb("algo", f"🤖 ✓ 训练完成 ({ok}成功 {bad}失败)  {elapsed:.0f}s", color=C["success"])
+        except Exception:
+            pass
         return True
 
     def _on_stage_fatal(self, msg):
@@ -1245,6 +1427,17 @@ class TrainingPanel(BaseTrainingPanel):
             self.main._refresh_model_status()
         except Exception as e:
             logger.debug("忽略异常: %s", e)
+
+        # 恢复窗口标题和状态栏
+        try:
+            if self._saved_title:
+                self.frame.winfo_toplevel().title(self._saved_title)
+        except Exception:
+            pass
+        try:
+            self.main._sb("status", "就绪", color=C["text_3"])
+        except Exception:
+            pass
 
         # 训练自动回调：通知 + 重新预测
         trained = getattr(self, "_last_training_results", {})

@@ -19,7 +19,8 @@ from ui.helpers import (
 logger = logging.getLogger(__name__)
 
 # 限制并发预测数量，防止 GIL 饥饿导致主线程卡顿
-_prediction_semaphore = threading.Semaphore(2)
+# 设为 4 以提升多视频并行吞吐（原为 2），CPU 密集型 numpy 运算会释放 GIL
+_prediction_semaphore = threading.Semaphore(4)
 
 # 已从 DB 完成历史合并的视频集合（后续循环中内存数据始终 >= DB，跳过全量读取）
 _merged_from_db = set()
@@ -370,10 +371,12 @@ def _predict_single(gui, bvid, video) -> dict:
             gui.prediction_results[bvid] = result
         _online_learning_feedback(gui, bvid, results, current_view, prev_result)
 
-        # 图神经网络更新（内部缓存边，无变更时跳过重建）
-        _update_video_graph(gui, bvid, video)
-        # 写数据库
-        _save_predictions_to_db(gui, bvid, current_view, results)
+        # 图神经网络更新 + DB 写入放到后台线程，不阻塞预测返回
+        threading.Thread(
+            target=lambda: (_update_video_graph(gui, bvid, video),
+                            _save_predictions_to_db(gui, bvid, current_view, results)),
+            daemon=True,
+        ).start()
 
         return result
 

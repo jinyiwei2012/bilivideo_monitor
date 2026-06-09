@@ -631,20 +631,37 @@ class BaseTrainingPanel:
         self._train_queue = _q.Queue()
         self._train_thread = threading.Thread(target=worker_func, daemon=True)
         self._train_thread.start()
+        self._last_msg_time = time.time()  # 跟踪最后一条消息的时间
         self.frame.after(150, self._poll_progress)
 
     def _poll_progress(self):
-        """主轮询循环：不断从队列取消息 → _handle_stage → 完成时 _cleanup_training。"""
+        """主轮询循环：不断从队列取消息 → _handle_stage → 完成时 _cleanup_training。
+
+        超过 2 秒无消息时，进度条切换为脉冲动画避免用户以为卡死。
+        """
         if self._train_queue is None:
             return
         done_all = False
+        had_msg = False
         try:
             while True:
                 msg = self._train_queue.get_nowait()
                 if self._handle_stage(msg):
                     done_all = True
+                had_msg = True
+                self._last_msg_time = time.time()
         except _q.Empty:
             pass
+        # 长时间无消息 → 脉冲动画提示仍在运行
+        if self._progress and not done_all:
+            idle_s = time.time() - self._last_msg_time
+            if idle_s > 2:
+                if self._progress.cget("mode") != "indeterminate":
+                    self._progress.configure(mode="indeterminate")
+                    self._progress.start(80)
+            elif had_msg and self._progress.cget("mode") == "indeterminate":
+                self._progress.stop()
+                self._progress.configure(mode="determinate")
         if done_all:
             self._cleanup_training()
         else:

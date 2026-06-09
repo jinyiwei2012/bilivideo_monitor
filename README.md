@@ -678,6 +678,30 @@ for name in AlgorithmRegistry.get_algorithm_names():
 
 ## Changelog
 
+### v3.1.0 (2026-06-09)
+
+**⚡ 训练体验优化**
+- 并行训练：支持 1~4 线程并行训练多个算法，CPU 模式 4 算法从 ~8min → ~3min
+- 显存安全保护：GPU 模式自动检测 VRAM，超出时弹窗提示并限制并行数
+- 训练进度全局可见：主窗口标题 `🔴 训练中`、底部状态栏实时显示算法/epoch/耗时
+- 进度条脉冲动画：超过 2 秒无消息自动切换为脉冲动画，避免用户以为卡死
+- 三层 ETA 估算：
+  - 算法内：EMA 指数加权（衰减因子 0.7，最近 epoch 权重更高）
+  - 跨算法：基于已完成算法实际耗时推算剩余
+  - 显示位置：训练面板 + 主窗口状态栏同步
+- Batch 级日志：可选开启，用户自定义间隔（百分比或具体 batch 数）
+
+**🚀 预测速度优化**
+- 训练后预测并行化：`run_post_training_predict` 从串行 for 改为 ThreadPoolExecutor（N 视频从 N×T → ~T×ceil(N/4)）
+- 预测并发度提升：`_prediction_semaphore` 2→4、`ThreadPoolExecutor` 4→min(8, CPU 核数)
+- 预测后非阻塞：DB 写入 + 图表更新移至后台线程，不阻塞预测返回
+- numpy 噪音抑制：预测时自动过滤 polyfit/LAPACK 数值稳定性噪声警告
+
+**🐛 Bug 修复**
+- `quantile_ensemble.py` 缺少 `Any` 导入导致算法加载失败
+- `monitor_service.py` numpy int64 无法 JSON 序列化崩溃
+- 4 个 growth 模型 `_prepare_data` 传入 list 而非 dict 导致 `.get()` 异常
+
 ### v3.0.0 (2026-05-28)
 
 **🛡️ 412 绕过体系**

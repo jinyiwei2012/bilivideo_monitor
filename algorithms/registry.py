@@ -254,22 +254,28 @@ class AlgorithmRegistry:
         def _run_single(name_algo):
             n, algo = name_algo
             try:
-                if hasattr(algo, "predict_dict"):
-                    res = algo.predict_dict(
-                        history,
-                        current_value,
-                        thresholds=thresholds,
-                        threshold_names=threshold_names,
-                        _cached_video_data=cached_video_data,
-                    )
-                else:
-                    res = algo.predict(
-                        history,
-                        current_value,
-                        thresholds=thresholds,
-                        threshold_names=threshold_names,
-                        _cached_video_data=cached_video_data,
-                    )
+                import warnings
+                import numpy as np
+                # 抑制 polyfit/LAPACK 数值稳定性噪音警告（数据不足时常见）
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", category=RuntimeWarning, module="numpy")
+                    with np.errstate(invalid="ignore", divide="ignore"):
+                        if hasattr(algo, "predict_dict"):
+                            res = algo.predict_dict(
+                                history,
+                                current_value,
+                                thresholds=thresholds,
+                                threshold_names=threshold_names,
+                                _cached_video_data=cached_video_data,
+                            )
+                        else:
+                            res = algo.predict(
+                                history,
+                                current_value,
+                                thresholds=thresholds,
+                                threshold_names=threshold_names,
+                                _cached_video_data=cached_video_data,
+                            )
                 w = get_weight_manager().get_weight(n)
                 pred = res["prediction"]
                 meta = res.get("metadata", {})
@@ -298,7 +304,9 @@ class AlgorithmRegistry:
 
         with cls._pool_lock:
             if cls._pool is None:
-                cls._pool = ThreadPoolExecutor(max_workers=4)
+                import os
+                workers = min(8, os.cpu_count() or 4)
+                cls._pool = ThreadPoolExecutor(max_workers=workers)
             pool = cls._pool
         futures = [pool.submit(_run_single, item) for item in cls._algorithms.items()]
 

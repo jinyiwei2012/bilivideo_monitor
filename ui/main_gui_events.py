@@ -716,21 +716,43 @@ def update_trained_weights(gui, algo_ids):
 
 
 def run_post_training_predict(gui):
-    """后台重跑所有监控视频的预测"""
+    """后台并行重跑所有监控视频的预测
+
+    使用 ThreadPoolExecutor 并行处理多个视频，_prediction_semaphore
+    自动控制实际并发数，避免 CPU/IO 过载。
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     from ui.monitor_service import _predict_single
 
     bvids = [v.get("bvid", "") for v in gui.monitored_videos if v.get("bvid")]
     if not bvids:
         return
-    logger.info("训练完成，开始重新预测 %d 个视频…", len(bvids))
-    for bvid in bvids:
-        video = next((v for v in gui.monitored_videos if v.get("bvid") == bvid), None)
+
+    # 构建 bvid → video 映射，避免循环中重复遍历
+    video_map = {v.get("bvid"): v for v in gui.monitored_videos if v.get("bvid")}
+
+    logger.info("训练完成，开始并行预测 %d 个视频…", len(bvids))
+
+    def _predict_one(bvid):
+        video = video_map.get(bvid)
         if not video:
-            continue
+            return bvid, None
         try:
-            _predict_single(gui, bvid, video)
+            result = _predict_single(gui, bvid, video)
+            return bvid, result
         except Exception as e:
             logger.debug("训练后预测 %s 失败: %s", bvid, e)
+            return bvid, None
+
+    # 提交所有视频到线程池，Semaphore 控制实际并发
+    max_workers = min(len(bvids), 8)
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {pool.submit(_predict_one, bvid): bvid for bvid in bvids}
+        for future in as_completed(futures):
+            bvid, result = future.result()
+            if result:
+                logger.debug("训练后预测 %s 完成: %.0f", bvid, result.get("prediction", 0))
+
     total_videos = len(gui.monitored_videos)
     gui.root.after(0, lambda: gui._sb("status", f"训练后预测完成 ({total_videos} 个视频)", C["success"]))
     if gui.selected_bvid:
