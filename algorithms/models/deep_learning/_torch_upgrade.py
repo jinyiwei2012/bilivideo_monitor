@@ -1232,8 +1232,9 @@ if _torch_available:  # noqa: C901
                 h_f = F.gelu(f_conv(h_f))
                 h_b = F.gelu(b_conv(h_b))
             h_cat = torch.cat([h_f, h_b.flip(-1)], dim=1).flatten(1)  # 双向拼接（反向翻转回正序）
-            y = self.head(h_cat)
-            return self.revin(y.unsqueeze(-1).expand(-1, -1, x.shape[-1]).mean(-1, keepdim=True), "denorm").squeeze(-1)
+            y = self.head(h_cat)                                                  # [B, H]
+            y = self.revin(y.unsqueeze(-1), "denorm")                             # [B, H, F]（denorm 内 stdev 广播）
+            return y.mean(dim=-1)                                                  # [B, H] 聚合回标量预测
 
     # ── 32. WPMixer（小波包多分辨率混合, AAAI 2025） ──
     class WPMixerTorchModel(nn.Module):
@@ -1334,7 +1335,7 @@ if _torch_available:  # noqa: C901
             z = self.encoder(x.flatten(1))  # [B, D]  编码到 Koopman 空间
             Kz = self.K(z).view(B, self.n_components, -1)  # [B, C, D]  多分量演化
             # 多个 Koopman 分量混合
-            mixed = Kz.mean(dim=1).view(B, -1)  # [B, D]  分量平均
+            mixed = Kz.flatten(1)  # [B, C*D]  多分量展平后解码
             return self.decoder(mixed)
 
     # ── 34. SegRNN（分段 RNN, arXiv 2023） ──
@@ -1406,7 +1407,7 @@ if _torch_available:  # noqa: C901
             self.window = window
             self.horizon = horizon
             self.proj = nn.Linear(in_features, d_model)
-            self.legendre = nn.Linear(window, 8)  # Legendre 多项式基底（8阶）
+            self.legendre = nn.Linear(1, 8)  # 每个时间位置独立投影到 8 维 Legendre 基底
             self.freq_mix = nn.Sequential(
                 nn.Linear(8 * d_model, d_model * 2), nn.GELU(), nn.Linear(d_model * 2, d_model),
             )
@@ -1423,8 +1424,8 @@ if _torch_available:  # noqa: C901
             """
             h = self.proj(x)  # [B, W, D]
             B, W, D = h.shape
-            # Legendre: 对时间维做多项式映射
-            leg = self.legendre(torch.arange(W, device=x.device).float().unsqueeze(0).expand(B, W))  # [B, W, 8]
+            # Legendre: 每个时间位置独立投影到 8 维 Legendre 基底
+            leg = self.legendre(torch.arange(W, device=x.device).float().view(1, W, 1).expand(B, -1, -1))  # [B, W, 8]
             h_expanded = h.unsqueeze(-1) * leg.unsqueeze(2)  # [B, W, D, 8]  外积
             h_freq = h_expanded.flatten(2)  # [B, W, D*8]
             h_mixed = self.freq_mix(h_freq)  # [B, W, D]  频率混合
@@ -1836,6 +1837,12 @@ def try_torch_predict(
             mk = dict(model_kwargs or {})
             # 真实特征数 = 基础特征 + 5 个衍生特征（roll_mean/roll_std/accel/rel_pos/lifecycle）
             mk["in_features"] = len(feats) + 5
+            # 模型结构参数必须与训练时一致——只传给接受这些参数的模型
+            import inspect
+            sig_params = set(inspect.signature(model_cls).parameters.keys())
+            for k, v in (("window", window), ("horizon", horizon)):
+                if k in sig_params and k not in mk:
+                    mk[k] = v
             model = model_cls(**mk)
             if isinstance(state, (tuple, list)):
                 state = state[0]

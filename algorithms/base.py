@@ -198,32 +198,34 @@ class BaseAlgorithm(ABC):
     def calculate_velocity(self, video_data: Dict[str, Any]) -> float:
         """根据历史数据计算当前播放速度（播放量/小时）。
 
-        如果有足够数据点（>=5），使用最近 N=min(10, len) 个点做线性回归；
-        否则回退到最近两个点的简单速度计算。
+        优先使用 _prepare_video_data 预计算的速度（避免 100+ 算法重复计算），
+        降级时不再排序（_prepare_video_data 已保证时间升序）。
         """
+        # 优先使用预计算值
+        pre = video_data.get("derived_features", {})
+        if "velocity_polyfit" in pre:
+            return pre["velocity_polyfit"]
+        # 兼容 video_data 直接注入的 velocity 字段
+        vel = video_data.get("velocity", 0)
+        if vel > 0:
+            return vel
+
         history = video_data.get("history_data", [])
         if len(history) < 2:
             return 0.0
         try:
-            sorted_hist = sorted(history, key=self._timestamp_sort_key)
+            # _sorted 标记表示已按时间升序，跳过 sorted()
+            if video_data.get("_sorted"):
+                sorted_hist = history
+            else:
+                sorted_hist = sorted(history, key=self._timestamp_sort_key)
 
             if len(sorted_hist) >= 5:
                 import numpy as np
                 n_pts = min(10, len(sorted_hist))
                 recent = sorted_hist[-n_pts:]
-                views_list = []
-                times_list = []
-                for item in recent:
-                    views_list.append(float(item.get("view_count", 0)))
-                    ts = item.get("timestamp", 0)
-                    if hasattr(ts, "timestamp"):
-                        times_list.append(ts.timestamp())
-                    elif isinstance(ts, (int, float)):
-                        times_list.append(float(ts))
-                    else:
-                        times_list.append(0.0)
-                t_arr = np.array(times_list, dtype=float)
-                v_arr = np.array(views_list, dtype=float)
+                t_arr = np.array([float(h.get("timestamp", 0)) for h in recent], dtype=np.float32)
+                v_arr = np.array([float(h.get("view_count", 0)) for h in recent], dtype=np.float32)
                 if np.max(t_arr) == np.min(t_arr):
                     return 0.0
                 slope, _ = np.polyfit(t_arr, v_arr, 1)

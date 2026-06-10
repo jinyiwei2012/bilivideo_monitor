@@ -254,10 +254,12 @@ class HuberRegressionAlgorithm(BaseAlgorithm):
             # Step 3: 计算 Huber 权重
             w = self._huber_weights(standardized_res)
 
-            # Step 4: 加权最小二乘更新
-            W = np.diag(w)  # 权重对角矩阵
+            # Step 4: 加权最小二乘更新（避免 np.diag 产生 O(n²) 稠密矩阵）
+            Xw = X_aug * w[:, np.newaxis]   # 加权特征 (n, f+1)，O(n) 内存
+            XtWX = X_aug.T @ Xw              # (f+1, f+1)
+            XtWy = Xw.T @ y                  # (f+1,)
             try:
-                beta = np.linalg.solve(X_aug.T @ W @ X_aug, X_aug.T @ W @ y)
+                beta = np.linalg.solve(XtWX, XtWy)
             except np.linalg.LinAlgError:
                 break  # 数值问题，使用上一次结果
 

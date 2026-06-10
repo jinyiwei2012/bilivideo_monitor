@@ -135,9 +135,11 @@ class BassDiffusionAlgorithm(BaseAlgorithm):
             # ── 计算视频已发布的天数 ──
             current_time = datetime.now()
             earliest_ts = history_data[0]["timestamp"]
-            # 时间戳可能是数值（Unix时间戳）或字符串格式
+            # 时间戳可能是数值（Unix时间戳）、datetime 对象或字符串格式
             if isinstance(earliest_ts, (int, float)):
                 earliest = datetime.fromtimestamp(earliest_ts)
+            elif isinstance(earliest_ts, datetime):
+                earliest = earliest_ts
             else:
                 earliest = datetime.strptime(earliest_ts, _TS_FMT)
             t_days = (current_time - earliest).total_seconds() / 86400  # 转换为天数

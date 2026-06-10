@@ -113,6 +113,17 @@ class ModelTrainer:
         自动检测最优计算设备并保存引用。
         """
         self.device = get_device()
+        # AMP 混合精度：CUDA 设备启用 GradScaler，CPU/DirectML 回退到 FP32
+        self._scaler = torch.amp.GradScaler() if self.device.type == "cuda" else None
+        # TF32 张量核心加速：Ampere+ GPU 上 matmul 约 2x 加速，精度损失可忽略
+        if self.device.type == "cuda":
+            torch.set_float32_matmul_precision("high")
+            torch.backends.cudnn.benchmark = True
+
+    @property
+    def _use_amp(self) -> bool:
+        """是否启用 AMP 混合精度训练（仅 CUDA GPU 可用）。"""
+        return self._scaler is not None
 
     # ── 预扫描 ──────────────────────────────────────────
 
@@ -375,11 +386,12 @@ class ModelTrainer:
 
         # 6. 训练循环
         best_val = float("inf")      # 最佳验证损失
+        best_tracked = float("inf")  # 用于 checkpoint 筛选的最佳 loss（含 train_loss）
         last_val = -1.0              # 最近一次验证损失
         start_time = time.time()     # 记录训练开始时间
-        best_model_state = None      # 最佳模型参数快照
         best_epoch = 0               # 最佳 epoch 编号
         train_losses = []            # 训练损失历史（用于早停判断）
+        epoch_versions = []          # 每轮保存的 checkpoint (version, loss, epoch)
 
         for epoch in range(epochs):
             # 检查控制指令（early_stop / lr_scale 等）
@@ -400,17 +412,12 @@ class ModelTrainer:
             # 动态早停检查
             if control_dict and control_dict.get("early_stop"):
                 if control_dict.pop("_force_early_stop", False):
-                    # 强制早停（如 NaN/Inf 检测触发），立即退出
                     break
-                # 平滑早停：仅当 loss 改善趋于停滞时才允许提前停止
-                # 比较最近 3 轮和前 3 轮的平均损失
                 if len(train_losses) >= 6:
                     recent_3 = sum(train_losses[-3:]) / 3
                     prev_3 = sum(train_losses[-6:-3]) / 3
                     if prev_3 > 1e-8 and (prev_3 - recent_3) / prev_3 < 0.015:
-                        # 相对改善小于 1.5% 视为停滞
                         break
-                # 重置早停标志（防止下个 epoch 仍触发）
                 control_dict["early_stop"] = False
 
             # 验证并发送 epoch 进度
@@ -420,29 +427,45 @@ class ModelTrainer:
                 epoch, epochs, train_loss, start_time,
                 prev_epochs=prev_epochs,
             )
-            # 保存最佳模型（验证损失最低的那个）
+            # 更新最佳 epoch 追踪
             if val_loader is not None and last_val < best_val:
                 best_val = last_val
                 best_epoch = epoch + 1
-                # 深拷贝模型参数到 CPU（避免 GPU 内存引用）
-                best_model_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
+            # 用于 checkpoint 筛选：有验证集用 val_loss，否则用 train_loss
+            tracked_loss = last_val if val_loader is not None else train_loss
+            if tracked_loss < best_tracked:
+                best_tracked = tracked_loss
+
+            # ── 每 epoch 保存 checkpoint（断点续训保护） ──
+            data_until = getattr(dataset, "max_timestamp", 0.0)
+            version = self._save_checkpoint(
+                model, algo_id, bvid, dataset, best_val, last_val, val_loader,
+                1, optimizer, prev_epochs=prev_epochs,
+                data_trained_until=data_until,
+                scheduler=scheduler, best_epoch=best_epoch,
+            )
+            epoch_versions.append((version, tracked_loss, epoch + 1))
 
             # 调度器 Plateau 检测
             scheduler.update(last_val)
 
-        # 7. 恢复最佳模型并保存 checkpoint
-        if best_model_state is not None:
-            model.load_state_dict(best_model_state)
-            if best_epoch > 0:
-                logger.info("[trainer] %s 保存最优模型 (epoch %d, val_loss=%.4f)", algo_id, best_epoch, best_val)
-        # 记录本次训练覆盖的数据时间范围
-        data_trained_until_new = getattr(dataset, "max_timestamp", 0.0)
-        return self._save_checkpoint(
-            model, algo_id, bvid, dataset, best_val, last_val, val_loader,
-            epochs, optimizer, prev_epochs=prev_epochs,
-            data_trained_until=data_trained_until_new,
-            scheduler=scheduler, best_epoch=best_epoch
-        )
+        # 7. 清理：仅保留最优 epoch 的 checkpoint，删除中间版本
+        if len(epoch_versions) > 1:
+            epoch_versions.sort(key=lambda x: x[1])  # 按 loss 升序
+            best_version, best_loss, best_ep = epoch_versions[0]
+            ckpt_cleanup = CheckpointManager(algo_id, bvid=bvid)
+            deleted = 0
+            for v, _, _ in epoch_versions[1:]:
+                if ckpt_cleanup.delete(v):
+                    deleted += 1
+            logger.info(
+                "[trainer] %s 保留最优 epoch %d (loss=%.4f)，清理 %d 个中间版本",
+                algo_id, best_ep, best_loss, deleted,
+            )
+            return best_version
+        elif epoch_versions:
+            return epoch_versions[0][0]
+        return ""
 
     # ── 辅助方法 ─────────────────────────────────────
 
@@ -481,11 +504,14 @@ class ModelTrainer:
         horizon = getattr(algo, "training_horizon", 3)
 
         # 构建数据集
+        # GPU 预载模式：将全部时序数据直接加载到显存，消除逐 batch 传输
+        gpu_preload = self.device.type == "cuda"
         dataset = VideoTimeSeriesDataset(
             window=window, horizon=horizon,
             bvids=[bvid] if bvid else None,  # 指定视频 vs 全部视频
             features=features,
             min_timestamp=min_timestamp,
+            device=self.device if gpu_preload else None,
         )
         if len(dataset) == 0:
             raise RuntimeError(f"没有足够的训练样本（algo={algo_id}, bvid={bvid}）")
@@ -519,8 +545,26 @@ class ModelTrainer:
         # 创建 DataLoader
         # 训练集 shuffle=True 打乱顺序；验证集不需要 shuffle
         # drop_last=False 保留最后一个不完整 batch
-        train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, drop_last=False)
-        val_loader = DataLoader(val_set, batch_size=batch_size, shuffle=False) if val_set else None
+        # GPU 预载模式：num_workers=0（GPU tensor 不可跨进程 pickle）
+        # CPU 模式：num_workers=2, pin_memory=True, persistent_workers
+        if gpu_preload:
+            train_loader = DataLoader(
+                train_set, batch_size=batch_size, shuffle=True, drop_last=False,
+            )
+            val_loader = (
+                DataLoader(val_set, batch_size=batch_size, shuffle=False)
+                if val_set else None
+            )
+        else:
+            train_loader = DataLoader(
+                train_set, batch_size=batch_size, shuffle=True, drop_last=False,
+                num_workers=2, pin_memory=True, persistent_workers=True,
+            )
+            val_loader = (
+                DataLoader(val_set, batch_size=batch_size, shuffle=False,
+                           num_workers=1, pin_memory=True)
+                if val_set else None
+            )
         return dataset, train_loader, val_loader
 
     def _init_model_optimizer(self, algo, algo_id, init_from_global, lr, bvid=None):
@@ -570,6 +614,22 @@ class ModelTrainer:
 
         # 将模型移动到检测到的最优设备（GPU/NPU/CPU）
         model = model.to(self.device)
+        # torch.compile: PyTorch 2.0+ 图编译优化
+        # - Triton 可用 → inductor 后端（20-40% 提速，需 Linux 或 triton-windows）
+        # - Triton 不可用 → aot_eager 后端（10-20% 提速，纯 Python，跨平台）
+        if self.device.type == "cuda" and hasattr(torch, "compile"):
+            try:
+                import triton  # noqa: F401
+                model = torch.compile(model, mode="reduce-overhead")
+                logger.info("[trainer] torch.compile (inductor) 已启用")
+            except ImportError:
+                try:
+                    model = torch.compile(model, backend="aot_eager")
+                    logger.info("[trainer] torch.compile (aot_eager, 无 Triton 回退) 已启用")
+                except Exception as e:
+                    logger.debug("[trainer] torch.compile 全部失败，使用 eager 模式: %s", e)
+            except Exception as e:
+                logger.debug("[trainer] torch.compile (inductor) 失败，使用 eager 模式: %s", e)
         # 获取损失函数（默认 MSELoss）
         loss_fn = getattr(algo, "get_loss_fn", lambda: torch.nn.MSELoss())()
         # 创建优化器（默认 Adam(lr=1e-3)）
@@ -696,8 +756,9 @@ class ModelTrainer:
         for batch in train_loader:
             # ── 数据预处理 ────────────────────────────
             x, y = preprocess(batch)
-            x = x.to(self.device)
-            y = y.to(self.device)
+            # non_blocking=True: pin_memory 路径异步传输（GPU 预载时已同设备，no-op）
+            x = x.to(self.device, non_blocking=True)
+            y = y.to(self.device, non_blocking=True)
 
             # ── Label Smoothing: 回归版标签平滑 ────────
             # 给目标加 ~1% 噪声，防止过拟合精确值
@@ -733,30 +794,31 @@ class ModelTrainer:
                         ).view(1, feat_dim)
                     x = x * mask
 
-            # ── 前向传播 ───────────────────────────────
-            optimizer.zero_grad()
-            pred = model(x)
-            # 如果预测输出多了一个维度（如 [B, H, 1] → [B, H]）
-            if pred.dim() == y.dim() + 1 and pred.shape[-1] == 1:
-                pred = pred.squeeze(-1)
+            # ── 前向传播（AMP 混合精度） ─────────────────
+            optimizer.zero_grad(set_to_none=True)
+            with torch.amp.autocast(device_type=self.device.type, enabled=self._use_amp):
+                pred = model(x)
+                # 如果预测输出多了一个维度（如 [B, H, 1] → [B, H]）
+                if pred.dim() == y.dim() + 1 and pred.shape[-1] == 1:
+                    pred = pred.squeeze(-1)
 
-            # ── SPADE-S 偏斜修正：按振幅加权 ────────────
-            # 避免高播放量视频的 loss 主导梯度，按目标振幅归一化
-            if amp_weight:
-                diff = pred - y
-                sq_err = diff ** 2
-                # 分母 = |y| 的均值（按最后一个维度），clamp(min=1.0) 防止除零
-                denom = y.abs().mean(dim=-1, keepdim=True).clamp(min=1.0).detach()
-                loss = (sq_err / denom).mean()
-            else:
-                loss = loss_fn(pred, y)
+                # ── SPADE-S 偏斜修正：按振幅加权 ────────────
+                # 避免高播放量视频的 loss 主导梯度，按目标振幅归一化
+                if amp_weight:
+                    diff = pred - y
+                    sq_err = diff ** 2
+                    # 分母 = |y| 的均值（按最后一个维度），clamp(min=1.0) 防止除零
+                    denom = y.abs().mean(dim=-1, keepdim=True).clamp(min=1.0).detach()
+                    loss = (sq_err / denom).mean()
+                else:
+                    loss = loss_fn(pred, y)
 
-            # ── Activation Decay: 对预测输出加 L2 正则 ──
-            # 平滑损失曲面，提高泛化能力
-            if act_decay > 0:
-                loss = loss + act_decay * (pred ** 2).mean()
+                # ── Activation Decay: 对预测输出加 L2 正则 ──
+                # 平滑损失曲面，提高泛化能力
+                if act_decay > 0:
+                    loss = loss + act_decay * (pred ** 2).mean()
 
-            # ── NaN/Inf 检测 ───────────────────────────
+            # ── NaN/Inf 检测（使用未缩放的原始 loss） ──────
             loss_val = float(loss.item())
             if control_dict is not None and (math.isnan(loss_val) or math.isinf(loss_val)):
                 # 检测到异常值时触发强制早停（直接退出整个训练）
@@ -765,12 +827,22 @@ class ModelTrainer:
                 control_dict["_force_early_stop"] = True
                 break
 
-            # ── 反向传播 ───────────────────────────────
-            loss.backward()
+            # ── 反向传播（AMP: GradScaler 缩放 loss） ──────
+            if self._scaler:
+                self._scaler.scale(loss).backward()
+                # 梯度裁剪前必须先 unscale，还原真实梯度
+                self._scaler.unscale_(optimizer)
+            else:
+                loss.backward()
             # 梯度裁剪（防止梯度爆炸）
             if control_dict is not None and control_dict.get("grad_clip", 0) > 0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), control_dict["grad_clip"])
-            optimizer.step()
+            # 优化器步进（AMP: scaler 控制 step + update）
+            if self._scaler:
+                self._scaler.step(optimizer)
+                self._scaler.update()
+            else:
+                optimizer.step()
 
             train_loss += loss_val
             n_batches += 1
@@ -939,8 +1011,8 @@ class ModelTrainer:
         with torch.no_grad():
             for batch in loader:
                 x, y = preprocess(batch)
-                x = x.to(device)
-                y = y.to(device)
+                x = x.to(device, non_blocking=True)
+                y = y.to(device, non_blocking=True)
                 pred = model(x)
                 # 处理多余的维度（如 [B, H, 1] → [B, H]）
                 if pred.dim() == y.dim() + 1 and pred.shape[-1] == 1:

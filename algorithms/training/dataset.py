@@ -233,11 +233,16 @@ class VideoTimeSeriesDataset(Dataset):
         target_feature: str = "view_count",
         normalize: bool = True,
         min_timestamp: Optional[float] = None,
+        device: Optional["torch.device"] = None,
     ):
         """初始化时序数据集。
 
         会根据 bvids 参数决定是全局模式（扫描全部视频）还是微调模式（指定视频）。
         数据加载完成后内部以索引列表方式存储，每个元素指向 (series_idx, start_offset)。
+
+        Args:
+            device: 不为 None 且为 CUDA 时，将全部时序数据预载入 GPU 显存，
+                    消除训练时的逐 batch CPU→GPU 传输开销。
 
         Raises:
             RuntimeError: PyTorch 未安装。
@@ -341,6 +346,17 @@ class VideoTimeSeriesDataset(Dataset):
                 self._index.append((sidx, s))
 
         self.max_timestamp = self._global_max_ts
+        # ── 预转为 torch Tensor，避免 __getitem__ 中重复 numpy→torch 转换 ──
+        # .copy() 断开与原始 numpy 数组的共享内存，确保 DataLoader 多进程安全
+        self._series = [torch.from_numpy(s.copy()) for s in self._series]
+        self._velocity = [torch.from_numpy(v.copy()) for v in self._velocity]
+        # ── VRAM 预载：将全部时序数据提前移入 GPU 显存 ──
+        # 消除训练时逐 batch 的 CPU→GPU 传输，但会占用显存
+        # 仅 CUDA 设备启用（DirectML/NPU 不适合此模式）
+        self._on_device = device is not None and str(device).startswith("cuda")
+        if self._on_device:
+            self._series = [s.to(device) for s in self._series]
+            self._velocity = [v.to(device) for v in self._velocity]
         n_feat = len(self.features) + self._n_derived
         logger.info(
             "[dataset] 加载完成: %d 视频, %d 样本 (window=%d, horizon=%d, features=%d, derived=%d, max_ts=%.0f)",
@@ -375,12 +391,10 @@ class VideoTimeSeriesDataset(Dataset):
         sidx, s = self._index[idx]
         series = self._series[sidx]
         velocity = self._velocity[sidx]
-        # 取 window 长度的输入窗口
-        x = series[s : s + self.window]  # [W, F]
-        # 取输入窗口后 horizon 步的目标
-        y = velocity[s + self.window : s + self.window + self.horizon]  # [H]
-        # 转为 torch Tensor（使用 ascontiguousarray 确保内存连续性）
-        return torch.from_numpy(np.ascontiguousarray(x)), torch.from_numpy(np.ascontiguousarray(y))
+        # 切片 → clone() 确保返回独立副本（DataLoader 多进程安全，连续内存）
+        x = series[s : s + self.window].clone()  # [W, F]
+        y = velocity[s + self.window : s + self.window + self.horizon].clone()  # [H]
+        return x, y
 
     def n_features(self) -> int:
         """返回特征总数（原始特征 + 衍生特征）。

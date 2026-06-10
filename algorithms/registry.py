@@ -16,6 +16,23 @@ from .weight_manager import get_weight_manager
 
 logger = logging.getLogger(__name__)
 
+# ── 模块级单例：surge detector（避免每轮预测重复创建类） ──
+_surge_detector = None
+
+
+def _get_surge_detector():
+    """获取 surge detector 模块级单例，延迟初始化。"""
+    global _surge_detector
+    if _surge_detector is None:
+        from algorithms.base import BaseAlgorithm as BA
+
+        class _SurgeDetector(BA):
+            def predict(self, video_data=None, threshold=100000):
+                pass
+
+        _surge_detector = _SurgeDetector()
+    return _surge_detector
+
 
 class AlgorithmRegistry:
     """算法注册器 —— 单例风格的类方法容器。
@@ -158,20 +175,37 @@ class AlgorithmRegistry:
             derived = cls._derived_cache[cache_key]
         else:
             derived = {}
-            diffs = []
+            # ── 用 numpy float32 加速，精度足够 ──
+            import numpy as np
+            v_arr = np.array(view_values, dtype=np.float32)
+            ts_arr = np.array([h["timestamp"] for h in history_list], dtype=np.float32)
+
             if n >= 2:
-                diffs = [view_values[i] - view_values[i - 1] for i in range(1, n)]
-                derived["velocity_mean"] = sum(diffs) / len(diffs)
-                derived["velocity_std"] = (sum((d - derived["velocity_mean"]) ** 2 for d in diffs) / len(diffs)) ** 0.5 if len(diffs) > 1 else 0
+                diffs = np.diff(v_arr).astype(np.float32)
+                derived["velocity_mean"] = float(np.mean(diffs))
+                derived["velocity_std"] = float(np.std(diffs)) if n > 2 else 0.0
                 derived["velocity_cv"] = derived["velocity_std"] / max(abs(derived["velocity_mean"]), 1e-10)
+                derived["velocity_median"] = float(np.median(diffs))
+                # ── 预计算 velocity（polyfit），消除 100+ 算法各自重复计算 ──
+                if n >= 5:
+                    k = min(10, n)
+                    slope = np.polyfit(ts_arr[-k:], v_arr[-k:], 1)[0]
+                    derived["velocity_polyfit"] = max(0.0, float(slope / 3600.0))
+                elif n >= 2:
+                    dt = ts_arr[-1] - ts_arr[-2]
+                    derived["velocity_polyfit"] = max(0.0, float((v_arr[-1] - v_arr[-2]) / max(dt, 1e-8) * 3600.0)) if dt > 0 else 0.0
+                else:
+                    derived["velocity_polyfit"] = 0.0
+                # ── 加速度 / 急动度 ──
                 if n >= 3:
-                    accels = [diffs[i] - diffs[i - 1] for i in range(1, len(diffs))]
-                    derived["acceleration"] = sum(accels) / len(accels) if accels else 0
+                    accels = np.diff(diffs)
+                    derived["acceleration"] = float(np.mean(accels)) if len(accels) > 0 else 0.0
                 if n >= 4 and len(diffs) >= 3:
-                    jerks = [accels[i] - accels[i - 1] for i in range(1, len(accels))]
-                    derived["jerk"] = sum(jerks) / len(jerks) if jerks else 0
+                    accels = np.diff(diffs)
+                    jerks = np.diff(accels) if len(accels) >= 2 else np.array([0.0])
+                    derived["jerk"] = float(np.mean(jerks)) if len(jerks) > 0 else 0.0
             if n >= 5:
-                derived["velocity_ratio"] = derived.get("velocity_mean", 0) / max(view_values[-min(5, n)], 1)
+                derived["velocity_ratio"] = derived.get("velocity_mean", 0) / max(v_arr[-min(5, n)], 1)
             # ── 滞后特征 ──────────────────────────
             if n >= 2:
                 derived["lag_1"] = view_values[-1] - view_values[-2]
@@ -179,18 +213,21 @@ class AlgorithmRegistry:
                 derived["lag_3"] = view_values[-1] - view_values[-4] if n >= 4 else 0
             if n >= 8:
                 derived["lag_7"] = view_values[-1] - view_values[-8] if n >= 8 else 0
-            # ── 滚动统计 ──────────────────────────
+            # ── 滚动统计（float32 向量化） ──
             for win in [3, 7, 14]:
                 if n >= win:
-                    win_vals = view_values[-win:]
-                    derived[f"roll_mean_{win}"] = sum(win_vals) / len(win_vals)
-                    derived[f"roll_std_{win}"] = (sum((v - derived[f"roll_mean_{win}"]) ** 2 for v in win_vals) / len(win_vals)) ** 0.5
+                    win_vals = v_arr[-win:]
+                    derived[f"roll_mean_{win}"] = float(np.mean(win_vals))
+                    derived[f"roll_std_{win}"] = float(np.std(win_vals))
                     derived[f"roll_cv_{win}"] = derived[f"roll_std_{win}"] / max(derived[f"roll_mean_{win}"], 1e-10)
             cls._derived_cache[cache_key] = derived
 
         return {
             "view_count": current_value,
             "history_data": history_list,
+            "_sorted": True,                # history_list 已按时间升序，算法无需再次排序
+            "_velocity": derived.get("velocity_polyfit", 0.0),  # 预计算速度，避免各算法重复 compute
+            "velocity": derived.get("velocity_polyfit", 0.0),    # 兼容直接访问
             "timestamp": now,
             "timestamp_str": now.strftime("%Y-%m-%d %H:%M:%S"),
             "bvid": bvid,
@@ -251,6 +288,9 @@ class AlgorithmRegistry:
         valid_count = 0
         na_count = 0
 
+        # 预取全部权重（避免 100+ 线程争抢 WeightManager._lock）
+        _weights = {name: get_weight_manager().get_weight(name) for name in cls._algorithms}
+
         def _run_single(name_algo):
             n, algo = name_algo
             try:
@@ -276,7 +316,7 @@ class AlgorithmRegistry:
                                 threshold_names=threshold_names,
                                 _cached_video_data=cached_video_data,
                             )
-                w = get_weight_manager().get_weight(n)
+                w = _weights.get(n, 1.0)
                 pred = res["prediction"]
                 meta = res.get("metadata", {})
                 model_source = meta.get("model_source", "底模")
@@ -331,19 +371,18 @@ class AlgorithmRegistry:
             _window_weight_history = getattr(cls, "_window_weight_history", {})
             cls._window_weight_history = _window_weight_history
 
-        decay = 0.85
-        for name, pred, w in valid_predictions:
-            rel_dev = abs(pred - current_value) / max(current_value, 1)
-            with cls._history_lock:
+            decay = 0.85
+            for name, pred, w in valid_predictions:
+                rel_dev = abs(pred - current_value) / max(current_value, 1)
                 hist = _window_weight_history.get(name, [])
                 hist.append(rel_dev)
                 if len(hist) > 10:
                     hist = hist[-10:]
                 _window_weight_history[name] = hist
 
-            window_error = sum(h * (decay ** (len(hist) - i)) for i, h in enumerate(hist)) / max(sum(decay ** (len(hist) - i) for i in range(len(hist))), 1e-10)
-            window_factor = max(0.2, 1.0 / (1.0 + window_error * 5))
-            results[name]["weight"] = w * (0.5 + 0.5 * window_factor)
+                window_error = sum(h * (decay ** (len(hist) - i)) for i, h in enumerate(hist)) / max(sum(decay ** (len(hist) - i) for i in range(len(hist))), 1e-10)
+                window_factor = max(0.2, 1.0 / (1.0 + window_error * 5))
+                results[name]["weight"] = w * (0.5 + 0.5 * window_factor)
 
     @classmethod
     def _detect_surge_from_cached(cls, cached_video_data: Dict) -> Dict:
@@ -368,12 +407,8 @@ class AlgorithmRegistry:
                 if cache_key in cls._surge_cache:
                     return cls._surge_cache[cache_key]
 
-            # 使用一个最小具体子类来调用 detect_surge
-            class _SurgeDetector(BA):
-                def predict(self, video_data=None, threshold=100000):
-                    pass
-
-            detector = _SurgeDetector()
+            # 复用模块级单例，避免每次创建新类和实例
+            detector = _get_surge_detector()
             surge_info = detector.detect_surge(cached_video_data)
 
             with cls._history_lock:
