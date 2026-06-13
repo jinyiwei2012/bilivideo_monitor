@@ -318,6 +318,7 @@ def _generate_qr(self, qr_url, qr_lbl):
         from PIL import ImageTk
         img = qrcode.make(qr_url).resize((200, 200))
         self._qr_img = ImageTk.PhotoImage(img)
+        img.close()  # 释放 PIL 缓冲区
         if qr_lbl.winfo_exists():
             qr_lbl.configure(image=self._qr_img)
             qr_lbl.configure(text="")

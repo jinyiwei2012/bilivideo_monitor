@@ -251,6 +251,7 @@ class VideoSearchWindow:
                 resp = requests.get(pic, timeout=5)
                 img = Image.open(io.BytesIO(resp.content)).resize((320, 180))
                 self._detail_img = ImageTk.PhotoImage(img)
+                img.close()  # 释放 PIL 缓冲区
                 tk.Label(top, image=self._detail_img, bg=C["bg_surface"]).pack(pady=8)
             except Exception as e:
                 logger.debug("忽略异常: %s", e)

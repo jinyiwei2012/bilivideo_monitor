@@ -178,6 +178,11 @@ _verify_source_integrity()
 import gc
 gc.set_threshold(50000, 20, 20)  # 默认 (700,10,10)，减少 ~70x 扫描频率
 
+# ── 内存追踪：长期运行中检测泄漏 ──
+import tracemalloc
+tracemalloc.start(1)  # 1 帧深度，开销 <5%，生产级可用
+_last_tracemalloc_snap = None  # 模块级，供定期对比使用
+
 from ui import main
 
 if __name__ == "__main__":

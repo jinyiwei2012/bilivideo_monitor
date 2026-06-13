@@ -182,8 +182,11 @@ class BilibiliMonitorGUI:
             icon_path = project_path("assets", "app_icon.png")
             if os.path.exists(icon_path):
                 img = Image.open(icon_path)
-                photo = ImageTk.PhotoImage(img)
-                self.root.iconphoto(True, photo)
+                try:
+                    photo = ImageTk.PhotoImage(img)
+                    self.root.iconphoto(True, photo)
+                finally:
+                    img.close()  # 释放 PIL 内部缓冲区
         except Exception as e:
             logger.debug("设置窗口图标失败: %s", e)
 

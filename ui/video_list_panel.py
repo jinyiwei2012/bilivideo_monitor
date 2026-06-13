@@ -426,14 +426,17 @@ class VideoListPanel:
 
     @staticmethod
     def _make_thumb_photo(img, target_w=80, target_h=45):
-        """将 PIL Image 缩放到自适应尺寸包装为 CTkImage"""
+        """将 PIL Image 缩放到自适应尺寸包装为 CTkImage（用完释放 PIL 资源）"""
         from PIL import Image
 
-        w, h = img.size
-        ratio = min(target_w / w, target_h / h)
-        new_w, new_h = int(w * ratio), int(h * ratio)
-        img = img.resize((new_w, new_h), Image.LANCZOS)
-        return ctk.CTkImage(light_image=img, size=(new_w, new_h))
+        try:
+            w, h = img.size
+            ratio = min(target_w / w, target_h / h)
+            new_w, new_h = int(w * ratio), int(h * ratio)
+            resized = img.resize((new_w, new_h), Image.LANCZOS)
+            return ctk.CTkImage(light_image=resized, size=(new_w, new_h))
+        finally:
+            img.close()  # 释放 PIL 内部文件缓冲区，避免 Windows GDI 泄漏
 
     def _cache_and_show(self, cache_key, ph, label_widget):
         """缓存 CTkImage 并显示到控件（LRU 淘汰）"""

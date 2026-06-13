@@ -278,10 +278,9 @@ class OnlineViewersPanel:
                 pass
 
     def _populate(self):
-        """填充树形表格数据：遍历所有监控视频，计算在线率并按当前排序方式排列"""
-        for row in self._tree.get_children():
-            self._tree.delete(row)
-
+        """填充树形表格数据：原地更新已有行（避免 delete+insert 产生临时对象），
+        仅在视频增删时创建/销毁行。使用 bvid 作为 iid 便于跟踪。"""
+        # ── 构建排序后的行数据 ──
         rows = []
         for video in self.gui.monitored_videos:
             bvid = video.get("bvid", "")
@@ -297,16 +296,10 @@ class OnlineViewersPanel:
         reverse = self._sort_rev
 
         def _sort_key(r):
-            """根据当前排序列名返回排序键值"""
             idx_map = {
-                "title": 1,
-                "bvid": 0,
-                "view_count": 2,
-                "viewers_total": 3,
-                "viewers_web": 4,
-                "viewers_app": 5,
-                "online_rate": 6,
-                "rank": 3,
+                "title": 1, "bvid": 0, "view_count": 2,
+                "viewers_total": 3, "viewers_web": 4, "viewers_app": 5,
+                "online_rate": 6, "rank": 3,
             }
             val = r[idx_map.get(col_key, 3)]
             if isinstance(val, str):
@@ -316,37 +309,53 @@ class OnlineViewersPanel:
         rows.sort(key=_sort_key, reverse=reverse)
 
         self._count_lbl.config(text=f"共 {len(rows)} 个视频")
+        self._status_lbl.config(text=f"共 {len(rows)} 个视频 · 按在线人数排序")
 
+        # ── 集合运算：增删 vs 更新 ──
+        new_bvids = {r[0] for r in rows}
+        existing = set(self._tree.get_children())  # iid == bvid
+
+        # 删除已移除的视频
+        for iid in existing - new_bvids:
+            self._tree.delete(iid)
+
+        # 更新已有行 / 插入新行
         for i, r in enumerate(rows):
-            bvid, title, view_count, viewers_total, viewers_web, viewers_app, online_rate = r
+            bvid = r[0]
             tag = "even" if i % 2 == 0 else "odd"
-            if viewers_total >= 10000:
+            vt = r[3]
+            if vt >= 10000:
                 rate_tag = "online_high"
-            elif viewers_total >= 1000:
+            elif vt >= 1000:
                 rate_tag = "online_mid"
             else:
                 rate_tag = "online_low"
 
-            title_display = title[:40] + "…" if len(title) > 40 else title
-            rate_display = f"{online_rate:.2f}%" if online_rate > 0 else "—"
+            title_display = r[1][:40] + "\u2026" if len(r[1]) > 40 else r[1]
+            rate_display = f"{r[6]:.2f}%" if r[6] > 0 else "\u2014"
 
-            self._tree.insert(
-                "",
-                tk.END,
-                values=(
-                    i + 1,
-                    title_display,
-                    bvid,
-                    fmt_num(viewers_total),
-                    fmt_num(viewers_web),
-                    fmt_num(viewers_app),
-                    fmt_num(view_count),
-                    rate_display,
-                ),
-                tags=(tag, rate_tag),
+            values = (
+                i + 1, title_display, bvid,
+                fmt_num(r[3]), fmt_num(r[4]), fmt_num(r[5]),
+                fmt_num(r[2]), rate_display,
             )
 
-        self._status_lbl.config(text=f"共 {len(rows)} 个视频 · 按在线人数排序")
+            if bvid in existing:
+                self._tree.item(bvid, values=values, tags=(tag, rate_tag))
+            else:
+                self._tree.insert("", tk.END, iid=bvid, values=values, tags=(tag, rate_tag))
+
+        # ── 排序顺序修正：仅当顺序变化时移动行 ──
+        desired_iids = [r[0] for r in rows]
+        current_iids = list(self._tree.get_children())
+        if desired_iids != current_iids:
+            for target_idx, iid in enumerate(desired_iids):
+                cur_idx = current_iids.index(iid) if iid in current_iids else -1
+                if cur_idx != target_idx and cur_idx >= 0:
+                    self._tree.move(iid, "", target_idx)
+                    # 更新 current_iids 避免 O(n²) 漂移
+                    current_iids.remove(iid)
+                    current_iids.insert(target_idx, iid)
 
     def _update_ui_after_fetch(self):
         """在主线程中更新 UI（API 拉取完成后回调）"""

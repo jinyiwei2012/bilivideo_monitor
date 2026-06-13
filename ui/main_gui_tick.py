@@ -30,6 +30,29 @@ def stop_global_tick(gui):
         gui._global_tick_job = None
 
 
+def do_memory_health_check(gui):
+    """每 30 分钟对比 tracemalloc 快照，检测内存持续增长"""
+    import main as _main
+    import tracemalloc as _tm
+
+    if not _tm.is_tracing():
+        return
+    snap = _tm.take_snapshot()
+    prev = getattr(_main, "_last_tracemalloc_snap", None)
+    _main._last_tracemalloc_snap = snap
+
+    if prev is None:
+        return
+
+    stats = snap.compare_to(prev, "lineno")
+    top_leaks = []
+    for stat in stats[:5]:
+        if stat.size_diff > 5 * 1024 * 1024:  # 5MB+
+            top_leaks.append(f"{stat.traceback}: +{stat.size_diff // 1024 // 1024}MB")
+    if top_leaks:
+        logger.warning("[MemoryHealth] 检测到持续内存增长 (30min):\n  %s", "\n  ".join(top_leaks))
+
+
 def global_tick(gui):
     """每秒一次的全局 tick：更新倒计时、模式指示、周期性维护。
     值未变时跳过 Tkinter .config() 调用，避免无效重绘。"""
@@ -75,6 +98,9 @@ def global_tick(gui):
         elif gui._tick_counter % 300 == 0:
             threading.Thread(target=lambda: wal_checkpoint_worker(gui), daemon=True).start()
             threading.Thread(target=lambda: scan_alerts_background(gui), daemon=True).start()
+        # 每 30 分钟检查内存增长（tracemalloc 快照对比）
+        elif gui._tick_counter % 1800 == 10:
+            do_memory_health_check(gui)
     except Exception:
         logger.exception("_global_tick 异常，继续调度")
     gui._global_tick_job = gui.root.after(1000, lambda: global_tick(gui))
