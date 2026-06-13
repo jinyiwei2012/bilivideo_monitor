@@ -266,7 +266,10 @@ class VideoDatabase:
             """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_danmaku_bvid ON danmaku_records(bvid)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_danmaku_segment ON danmaku_records(bvid, oid, segment_index)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_danmaku_dmid ON danmaku_records(dmid) WHERE dmid > 0")
+            try:
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_danmaku_dmid ON danmaku_records(dmid) WHERE dmid > 0")
+            except sqlite3.OperationalError:
+                pass  # dmid 列可能尚未迁移（将在下方 v3 迁移中处理）
             # 去重：优先用 dmid（Proto 唯一弹幕ID），回退用内容指纹
             try:
                 cursor.execute(
