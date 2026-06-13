@@ -410,6 +410,8 @@ def _build_training_tab(self, nb):
     tk.Label(dev_row, text="当前设备:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT, width=12, anchor="w").pack(
         side=tk.LEFT
     )
+    # 兼容旧 force_cpu 引用
+    self._tr_force_cpu_var = tk.BooleanVar(value=False)
     self._tr_device_lbl = tk.Label(
         dev_row, text="检测中…", bg=C["bg_elevated"], fg=C["text_1"], font=FONT_BOLD, anchor="w"
     )
