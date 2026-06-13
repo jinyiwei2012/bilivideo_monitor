@@ -3,8 +3,14 @@ B站视频监控与播放量预测系统
 主入口文件
 """
 
-import sys
 import os
+import sys
+
+# ── 内存优化：在加载任何重型模块之前设置 ──────────
+# 减少 glibc malloc arena 膨胀，避免长期运行 RSS 线性增长
+os.environ.setdefault("PYTHONMALLOC", "malloc")
+os.environ.setdefault("MALLOC_ARENA_MAX", "2")
+
 import hashlib
 import json
 import logging
@@ -167,6 +173,10 @@ def _verify_source_integrity() -> None:
 
 
 _verify_source_integrity()
+
+# ── GC 调参：长运行桌面应用，减少 GC 检查频率避免随机卡顿 ──
+import gc
+gc.set_threshold(50000, 20, 20)  # 默认 (700,10,10)，减少 ~70x 扫描频率
 
 from ui import main
 

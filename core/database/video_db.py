@@ -44,6 +44,9 @@ class VideoDatabase:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")  # 启用 WAL 模式提升并发读性能
         self._conn.execute("PRAGMA synchronous=NORMAL")  # 平衡写入安全与速度
+        self._conn.execute("PRAGMA cache_size = -8000")  # 8MB 页缓存（负值=KB），减少 fsync
+        self._conn.execute("PRAGMA mmap_size = 134217728")  # 128MB 内存映射 I/O
+        self._conn.execute("PRAGMA temp_store = MEMORY")  # 临时表/排序放内存
 
         # 镜像连接：同步写入 data/ 目录（延迟初始化，首次写入时才创建以节省内存）
         self._mirror_conn = None
@@ -77,6 +80,9 @@ class VideoDatabase:
             self._mirror_conn = _sqlite3.connect(self._mirror_path, check_same_thread=False)
             self._mirror_conn.execute("PRAGMA journal_mode=WAL")
             self._mirror_conn.execute("PRAGMA synchronous=NORMAL")
+            self._mirror_conn.execute("PRAGMA cache_size = -8000")
+            self._mirror_conn.execute("PRAGMA mmap_size = 134217728")
+            self._mirror_conn.execute("PRAGMA temp_store = MEMORY")
             self._init_mirror_tables()
         except Exception as e:
             logger.warning("创建镜像数据库连接失败 %s: %s", self.bvid, e)
@@ -248,6 +254,8 @@ class VideoDatabase:
                     bvid TEXT NOT NULL,
                     oid INTEGER NOT NULL,
                     segment_index INTEGER DEFAULT 0,
+                    dmid INTEGER DEFAULT 0,
+                    id_str TEXT DEFAULT '',
                     content TEXT NOT NULL,
                     video_ts REAL DEFAULT 0,
                     mode INTEGER DEFAULT 1,
@@ -256,11 +264,23 @@ class VideoDatabase:
                     send_time INTEGER DEFAULT 0,
                     weight INTEGER DEFAULT 1,
                     uid TEXT DEFAULT '',
+                    like_count INTEGER DEFAULT 0,
+                    pool INTEGER DEFAULT 0,
+                    dm_from INTEGER DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_danmaku_bvid ON danmaku_records(bvid)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_danmaku_segment ON danmaku_records(bvid, oid, segment_index)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_danmaku_dmid ON danmaku_records(dmid) WHERE dmid > 0")
+            # 去重：优先用 dmid（Proto 唯一弹幕ID），回退用内容指纹
+            try:
+                cursor.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_danmaku_unique "
+                    "ON danmaku_records(bvid, oid, dmid)"
+                )
+            except Exception:
+                pass  # 已有重复数据导致创建失败，由迁移流程清理后重试
 
             # 数据库迁移：逐库检查 schema 版本（通过 PRAGMA user_version）
             cursor.execute("PRAGMA user_version")
@@ -268,7 +288,13 @@ class VideoDatabase:
             db_version = row[0] if row else 0
             if db_version < 1:
                 self._migrate_db(conn)
-                cursor.execute("PRAGMA user_version = 1")
+            if db_version < 2:
+                # v1→v2: 去重弹幕 + 添加 UNIQUE 约束（修复 INSERT OR IGNORE 失效 bug）
+                self._migrate_danmaku_dedup(conn)
+            if db_version < 3:
+                # v2→v3: 添加 Proto 弹幕新字段 (dmid/like_count/pool/dm_from) + 更新 UNIQUE 索引
+                self._migrate_danmaku_v3(conn)
+                cursor.execute("PRAGMA user_version = 3")
 
             conn.commit()
 
@@ -360,15 +386,26 @@ class VideoDatabase:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     bvid TEXT NOT NULL, oid INTEGER NOT NULL,
                     segment_index INTEGER DEFAULT 0,
+                    dmid INTEGER DEFAULT 0, id_str TEXT DEFAULT '',
                     content TEXT NOT NULL, video_ts REAL DEFAULT 0,
                     mode INTEGER DEFAULT 1, font_size INTEGER DEFAULT 25,
                     color INTEGER DEFAULT 16777215, send_time INTEGER DEFAULT 0,
                     weight INTEGER DEFAULT 1, uid TEXT DEFAULT '',
+                    like_count INTEGER DEFAULT 0, pool INTEGER DEFAULT 0,
+                    dm_from INTEGER DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
             mirror_cur.execute("CREATE INDEX IF NOT EXISTS idx_danmaku_bvid ON danmaku_records(bvid)")
             mirror_cur.execute("CREATE INDEX IF NOT EXISTS idx_danmaku_segment ON danmaku_records(bvid, oid, segment_index)")
+            mirror_cur.execute("CREATE INDEX IF NOT EXISTS idx_danmaku_dmid ON danmaku_records(dmid) WHERE dmid > 0")
+            try:
+                mirror_cur.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_danmaku_unique "
+                    "ON danmaku_records(bvid, oid, dmid)"
+                )
+            except Exception:
+                pass
             try:
                 mirror_cur.execute(
                     "CREATE UNIQUE INDEX IF NOT EXISTS idx_predict_unique "
@@ -390,6 +427,119 @@ class VideoDatabase:
         cursor = conn.cursor()
         self._migrate_schema_upgrades(cursor)
         self._migrate_compute_values(cursor)
+
+    def _migrate_danmaku_dedup(self, conn):
+        """v1→v2 迁移：去重弹幕记录并添加 UNIQUE 约束。
+
+        修复旧版 INSERT OR IGNORE 形同虚设的 bug：
+        1. 删除重复弹幕（保留每组首条）
+        2. 创建复合 UNIQUE 索引确保后续不重复
+
+        Args:
+            conn: 数据库连接
+        """
+        import sqlite3
+        cursor = conn.cursor()
+        try:
+            # 检查表是否存在
+            cursor.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='danmaku_records'"
+            )
+            if not cursor.fetchone():
+                return
+
+            # 1) 去重：保留每组 (bvid, oid, segment_index, content, video_ts, uid) 的 MIN(id)
+            cursor.execute("""
+                DELETE FROM danmaku_records
+                WHERE id NOT IN (
+                    SELECT MIN(id) FROM danmaku_records
+                    WHERE bvid = ?
+                    GROUP BY bvid, oid, segment_index, content, video_ts, uid
+                ) AND bvid = ?
+            """, (self.bvid, self.bvid))
+            deleted = cursor.rowcount
+            if deleted > 0:
+                logger.info("v1→v2 去重 %s: 清理 %d 条重复弹幕", self.bvid, deleted)
+
+            # 2) 创建 UNIQUE 约束（如果之前因重复数据创建失败）
+            try:
+                cursor.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_danmaku_unique "
+                    "ON danmaku_records(bvid, oid, segment_index, content, video_ts, uid)"
+                )
+            except sqlite3.OperationalError:
+                # 仍有不可预见的重复，跳过（极端情况）
+                logger.warning("v1→v2: %s 无法创建弹幕 UNIQUE 索引", self.bvid)
+
+            conn.commit()
+        except sqlite3.Error as e:
+            logger.debug("v1→v2 弹幕迁移失败 %s: %s", self.bvid, e)
+
+    def _migrate_danmaku_v3(self, conn):
+        """v2→v3 迁移：添加 Proto 弹幕新字段 + 更新 UNIQUE 索引为 dmid 方案。
+
+        新字段: dmid, id_str, like_count, pool, dm_from
+        UNIQUE: (bvid, oid, dmid) 替代旧的 (bvid, oid, segment_index, content, video_ts, uid)
+
+        Args:
+            conn: 数据库连接
+        """
+        import sqlite3
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='danmaku_records'"
+            )
+            if not cursor.fetchone():
+                return
+
+            # 1) 添加新列（IF NOT EXISTS 在 SQLite < 3.35 不可用，用 try/except）
+            new_columns = {
+                "dmid": "INTEGER DEFAULT 0",
+                "id_str": "TEXT DEFAULT ''",
+                "like_count": "INTEGER DEFAULT 0",
+                "pool": "INTEGER DEFAULT 0",
+                "dm_from": "INTEGER DEFAULT 0",
+            }
+            existing = {row[1] for row in cursor.execute("PRAGMA table_info(danmaku_records)")}
+            for col_name, col_def in new_columns.items():
+                if col_name not in existing:
+                    try:
+                        cursor.execute(
+                            f"ALTER TABLE danmaku_records ADD COLUMN {col_name} {col_def}"
+                        )
+                    except sqlite3.OperationalError:
+                        pass  # 列已存在
+
+            # 2) 创建 dmid 索引
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_danmaku_dmid ON danmaku_records(dmid) WHERE dmid > 0"
+            )
+
+            # 3) 升级 UNIQUE 约束：删除旧的、创建新的
+            try:
+                cursor.execute("DROP INDEX IF EXISTS idx_danmaku_unique")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                cursor.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_danmaku_unique "
+                    "ON danmaku_records(bvid, oid, dmid)"
+                )
+            except sqlite3.OperationalError:
+                # dmid=0 的 XML 弹幕会冲突，降级为内容指纹
+                try:
+                    cursor.execute(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS idx_danmaku_unique "
+                        "ON danmaku_records(bvid, oid, segment_index, content, video_ts)"
+                    )
+                except sqlite3.OperationalError:
+                    logger.warning("v2→v3: %s 无法创建弹幕 UNIQUE 索引", self.bvid)
+
+            conn.commit()
+            logger.info("v2→v3 弹幕 schema 升级完成: %s", self.bvid)
+        except sqlite3.Error as e:
+            logger.debug("v2→v3 弹幕迁移失败 %s: %s", self.bvid, e)
 
     def _migrate_schema_upgrades(self, cursor):
         """迁移数据库模式：添加缺少的列
@@ -1155,10 +1305,10 @@ class VideoDatabase:
     # ── 弹幕记录 ────────────────────────────────
 
     def add_danmaku_batch(self, rows: list) -> int:
-        """批量插入弹幕记录（跳过重复）。
+        """批量插入弹幕记录（跳过重复，基于 (bvid, oid, dmid) 唯一约束）。
 
         Args:
-            rows: [{"bvid", "oid", "content", "video_ts", "mode", ...}, ...]
+            rows: [{"bvid", "oid", "dmid", "content", "video_ts", "like_count", ...}, ...]
 
         Returns:
             int: 实际插入行数
@@ -1172,15 +1322,20 @@ class VideoDatabase:
                     try:
                         cursor.execute(
                             """INSERT OR IGNORE INTO danmaku_records
-                               (bvid, oid, segment_index, content, video_ts,
-                                mode, font_size, color, send_time, weight, uid)
-                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                               (bvid, oid, segment_index, dmid, id_str, content, video_ts,
+                                mode, font_size, color, send_time, weight, uid,
+                                like_count, pool, dm_from)
+                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                             (
-                                r.get("bvid", self.bvid), r.get("oid", 0), r.get("segment_index", 0),
+                                r.get("bvid", self.bvid), r.get("oid", 0),
+                                r.get("segment_index", 0),
+                                r.get("dmid", 0), str(r.get("id_str", "")),
                                 r.get("content", ""), r.get("video_ts", 0),
                                 r.get("mode", 1), r.get("font_size", 25),
                                 r.get("color", 16777215), r.get("send_time", 0),
                                 r.get("weight", 1), str(r.get("uid", "")),
+                                r.get("like_count", 0), r.get("pool", 0),
+                                r.get("dm_from", 0),
                             ),
                         )
                         if cursor.rowcount > 0:
@@ -1243,6 +1398,54 @@ class VideoDatabase:
                 return row[0] if row else 0
         except Exception:
             return 0
+
+    def get_max_danmaku_segment(self) -> int:
+        """获取已拉取的最大弹幕段号（用于恢复拉取进度）。
+
+        Returns:
+            int: 最大 segment_index，无记录时返回 0
+        """
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT COALESCE(MAX(segment_index), 0) FROM danmaku_records WHERE bvid=?",
+                    (self.bvid,),
+                )
+                row = cursor.fetchone()
+                return row[0] if row else 0
+        except Exception:
+            return 0
+
+    def dedup_danmaku(self) -> int:
+        """清理重复弹幕记录，保留每组首条。
+
+        删除复合键 (bvid, oid, segment_index, content, video_ts, uid) 相同的重复行，
+        仅保留每组中 id 最小的一条。
+
+        Returns:
+            int: 删除的重复记录数
+        """
+        import sqlite3
+        deleted = 0
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    DELETE FROM danmaku_records
+                    WHERE id NOT IN (
+                        SELECT MIN(id) FROM danmaku_records
+                        WHERE bvid = ?
+                        GROUP BY bvid, oid, segment_index, content, video_ts, uid
+                    ) AND bvid = ?
+                """, (self.bvid, self.bvid))
+                deleted = cursor.rowcount
+                conn.commit()
+                if deleted > 0:
+                    logger.info("已清理 %s 的 %d 条重复弹幕", self.bvid, deleted)
+        except sqlite3.Error as e:
+            logger.debug("清理重复弹幕失败 %s: %s", self.bvid, e)
+        return deleted
 
     def close(self):
         """关闭数据库连接，刷新 WAL
