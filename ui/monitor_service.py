@@ -577,6 +577,7 @@ class VideoWorker:
             video["title"] = info.get("title", video.get("title", ""))
             video["author"] = owner.get("name", video.get("author", ""))
             video["pic"] = info.get("pic", video.get("pic", ""))
+            video["_cid"] = info.get("cid", 0)  # 存 cid 供弹幕拉取使用
             owner_id = owner.get("mid", 0)
             if owner_id:
                 _save_up_data(owner_id)
@@ -688,7 +689,26 @@ class VideoWorker:
         except Exception as e:
             self._log("WARNING", f"[{bvid}] 同步中央数据库失败: {e}")
 
+        # 后台：增量拉取弹幕（段式 API，只拉新段）
+        cid = video.get("_cid", 0)
+        if cid:
+            threading.Thread(
+                target=self._fetch_danmaku_bg, args=(bvid, cid), daemon=True, name=f"dm-{bvid}"
+            ).start()
+
         gui.root.after(0, lambda r=result, v=video: self._on_fetch_done(r, v))
+
+    def _fetch_danmaku_bg(self, bvid, cid):
+        """后台拉取新弹幕段并存库。"""
+        try:
+            from core.bilibili_danmaku import get_danmaku_monitor
+            monitor = get_danmaku_monitor()
+            video_db = self.gui.video_dbs.get(bvid)
+            new_count = monitor.fetch_new_danmaku(bvid, cid, video_db)
+            if new_count > 0:
+                self._log("INFO", f"[{bvid}] 新增弹幕 {new_count} 条")
+        except Exception as e:
+            self._log("DEBUG", f"[{bvid}] 弹幕拉取跳过: {e}")
 
     def _on_fetch_done(self, result, video):
         """在主线程回调：更新 UI（仅当前选中视频触发完整刷新）"""
@@ -739,6 +759,8 @@ class VideoWorker:
             gui._chart_debounce = gui.root.after(100, lambda: gui.detail._auto_render_chart())
         elif gui.detail.current_tab == "📋 详细数据":
             gui.detail._fill_detail_text(video)
+        elif gui.detail.current_tab == "💬 弹幕":
+            gui.detail._refresh_danmaku_display()
 
 
 # ──────────────────────────────────────────────

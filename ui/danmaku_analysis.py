@@ -268,7 +268,23 @@ class DanmakuAnalysisWindow:
         return int(v)
 
     def _fetch_danmaku(self, bvid, limit):
-        """抓取弹幕数据，返回 (文本列表, 错误信息)"""
+        """抓取弹幕数据，返回 (文本列表, 错误信息)。
+        优先从本地数据库读取已保存的弹幕，无数据时通过 API 拉取并同步保存。"""
+        # 优先从数据库读取已保存的弹幕
+        if self.gui and bvid in self.gui.video_dbs:
+            try:
+                video_db = self.gui.video_dbs[bvid]
+                records = video_db.get_danmaku_records(limit=0)
+                if records:
+                    texts = [r.get("content", "") for r in records if r.get("content")]
+                    if limit > 0:
+                        texts = texts[:limit]
+                    self._status_lbl.config(text=f"从本地数据库加载 {len(texts)} 条弹幕")
+                    return texts, None
+            except Exception:
+                pass
+
+        # 回退到 API 拉取
         info = self.api.get_video_info(bvid)
         if not info:
             return None, "获取视频信息失败"

@@ -61,7 +61,7 @@ class DetailPanel:
         tab_bar = ctk.CTkFrame(p, fg_color=C["bg_surface"], corner_radius=0)
         tab_bar.pack(fill=tk.X)
         tk.Frame(p, bg=C["border"], height=1).pack(fill=tk.X)
-        for name in ["📈 播放量趋势", "📋 详细数据", "🔄 互动率"]:
+        for name in ["📈 播放量趋势", "📋 详细数据", "🔄 互动率", "💬 弹幕"]:
             b = ctk.CTkLabel(
                 tab_bar, text=name, fg_color="transparent", text_color=C["text_2"], font=FONT, cursor="hand2"
             )
@@ -182,6 +182,32 @@ class DetailPanel:
 
         # 互动率面板
         self._ratio_frame = ctk.CTkFrame(self._content_area, fg_color=C["bg_base"], corner_radius=0)
+
+        # 弹幕面板
+        self._danmaku_frame = ctk.CTkFrame(self._content_area, fg_color=C["bg_base"], corner_radius=0)
+        dm_top = ctk.CTkFrame(self._danmaku_frame, fg_color=C["bg_surface"], corner_radius=0)
+        dm_top.pack(fill=tk.X, padx=16, pady=(10, 4))
+        ctk.CTkLabel(dm_top, text="实时弹幕", text_color=C["text_2"],
+                     font=("Microsoft YaHei UI", 9, "bold"), fg_color="transparent").pack(side=tk.LEFT)
+        self._dm_count_lbl = ctk.CTkLabel(dm_top, text="", text_color=C["text_3"],
+                                           font=FONT_SM, fg_color="transparent")
+        self._dm_count_lbl.pack(side=tk.LEFT, padx=8)
+        self._dm_refresh_btn = ctk.CTkLabel(dm_top, text="⟳ 刷新", text_color=C["accent"],
+                                             font=FONT_SM, cursor="hand2", fg_color="transparent")
+        self._dm_refresh_btn.pack(side=tk.RIGHT, padx=(0, 4))
+        self._dm_refresh_btn.bind("<Button-1>", lambda e: self._refresh_danmaku_display())
+        self._dm_text = tk.Text(
+            self._danmaku_frame, bg=C["canvas_bg"], fg=C["canvas_text"],
+            font=("Microsoft YaHei UI", 10), wrap=tk.WORD, bd=0, highlightthickness=0,
+            state=tk.DISABLED, cursor="arrow", padx=12, pady=8,
+        )
+        dm_sb = ttk.Scrollbar(self._danmaku_frame, orient="vertical", command=self._dm_text.yview)
+        self._dm_text.configure(yscrollcommand=dm_sb.set)
+        self._dm_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=16, pady=(0, 8))
+        dm_sb.pack(side=tk.RIGHT, fill=tk.Y, pady=(0, 8))
+        self._dm_text.tag_configure("dm_time", foreground=C["log_time"], font=("Consolas", 9))
+        self._dm_text.tag_configure("dm_text", foreground=C["text_1"], font=("Microsoft YaHei UI", 10))
+        self._dm_text.tag_configure("dm_info", foreground=C["text_3"], font=("Consolas", 8))
 
         draw_chart_placeholder(self._chart_canvas)
         self._rebuild_stat_bar({})
@@ -535,6 +561,7 @@ class DetailPanel:
         self._chart_canvas.pack_forget()
         self._detail_text_frame.pack_forget()
         self._ratio_frame.pack_forget()
+        self._danmaku_frame.pack_forget()
         if name == "📈 播放量趋势":
             self._chart_canvas.pack(fill=tk.BOTH, expand=True, padx=16, pady=12)
             mode = self._chart_mode.get()
@@ -555,6 +582,9 @@ class DetailPanel:
             video = self._get_selected_video()
             if video:
                 self._fill_ratio_frame(video)
+        elif name == "💬 弹幕":
+            self._danmaku_frame.pack(fill=tk.BOTH, expand=True)
+            self._refresh_danmaku_display()
 
     def _get_selected_video(self):
         """获取当前选中视频（缓存 bvid→video 避免重复线性搜索）。"""
@@ -837,6 +867,44 @@ class DetailPanel:
             ctk.CTkLabel(
                 row, text=f"{pct:.3f}%", text_color=color, font=FONT_MONO, fg_color="transparent", width=72
             ).pack(side=tk.LEFT)
+
+    # ── 弹幕显示 ──────────────────────────────────
+
+    def _refresh_danmaku_display(self):
+        """从数据库加载弹幕并刷新显示。"""
+        bvid = self.gui.selected_bvid
+        if not bvid:
+            self._dm_text.config(state=tk.NORMAL)
+            self._dm_text.delete("1.0", tk.END)
+            self._dm_text.insert(tk.END, "请先选择一个视频")
+            self._dm_text.config(state=tk.DISABLED)
+            self._dm_count_lbl.configure(text="")
+            return
+
+        video_db = self.gui.video_dbs.get(bvid)
+        if not video_db:
+            self._dm_count_lbl.configure(text="无数据库")
+            return
+
+        try:
+            records = video_db.get_danmaku_records(limit=200)
+        except Exception:
+            records = []
+        count = video_db.count_danmaku()
+        self._dm_count_lbl.configure(text=f"共 {count} 条")
+
+        self._dm_text.config(state=tk.NORMAL)
+        self._dm_text.delete("1.0", tk.END)
+        if not records:
+            self._dm_text.insert(tk.END, "暂无弹幕数据\n\n弹幕将在视频监控过程中自动拉取并保存。")
+        else:
+            for r in records[-200:]:
+                ts = r.get("video_ts", 0)
+                m, s = divmod(int(ts), 60)
+                self._dm_text.insert(tk.END, f"[{m:02d}:{s:02d}] ", "dm_time")
+                self._dm_text.insert(tk.END, f"{r.get('content', '')}\n", "dm_text")
+        self._dm_text.see(tk.END)
+        self._dm_text.config(state=tk.DISABLED)
 
     @property
     def chart_canvas(self):

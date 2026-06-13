@@ -241,6 +241,27 @@ class VideoDatabase:
             """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_yearly_timestamp ON yearly_scores(timestamp)")
 
+            # 弹幕记录表（实时弹幕拉取 + 供分析模块查询）
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS danmaku_records (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    bvid TEXT NOT NULL,
+                    oid INTEGER NOT NULL,
+                    segment_index INTEGER DEFAULT 0,
+                    content TEXT NOT NULL,
+                    video_ts REAL DEFAULT 0,
+                    mode INTEGER DEFAULT 1,
+                    font_size INTEGER DEFAULT 25,
+                    color INTEGER DEFAULT 16777215,
+                    send_time INTEGER DEFAULT 0,
+                    weight INTEGER DEFAULT 1,
+                    uid TEXT DEFAULT '',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_danmaku_bvid ON danmaku_records(bvid)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_danmaku_segment ON danmaku_records(bvid, oid, segment_index)")
+
             # 数据库迁移：逐库检查 schema 版本（通过 PRAGMA user_version）
             cursor.execute("PRAGMA user_version")
             row = cursor.fetchone()
@@ -334,6 +355,20 @@ class VideoDatabase:
             mirror_cur.execute("CREATE INDEX IF NOT EXISTS idx_monitor_timestamp ON monitor_records(timestamp)")
             mirror_cur.execute("CREATE INDEX IF NOT EXISTS idx_weekly_timestamp ON weekly_scores(timestamp)")
             mirror_cur.execute("CREATE INDEX IF NOT EXISTS idx_yearly_timestamp ON yearly_scores(timestamp)")
+            mirror_cur.execute("""
+                CREATE TABLE IF NOT EXISTS danmaku_records (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    bvid TEXT NOT NULL, oid INTEGER NOT NULL,
+                    segment_index INTEGER DEFAULT 0,
+                    content TEXT NOT NULL, video_ts REAL DEFAULT 0,
+                    mode INTEGER DEFAULT 1, font_size INTEGER DEFAULT 25,
+                    color INTEGER DEFAULT 16777215, send_time INTEGER DEFAULT 0,
+                    weight INTEGER DEFAULT 1, uid TEXT DEFAULT '',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            mirror_cur.execute("CREATE INDEX IF NOT EXISTS idx_danmaku_bvid ON danmaku_records(bvid)")
+            mirror_cur.execute("CREATE INDEX IF NOT EXISTS idx_danmaku_segment ON danmaku_records(bvid, oid, segment_index)")
             try:
                 mirror_cur.execute(
                     "CREATE UNIQUE INDEX IF NOT EXISTS idx_predict_unique "
@@ -1116,6 +1151,98 @@ class VideoDatabase:
         except Exception as e:
             logger.warning("清理预测重复失败 %s: %s", self.bvid, e)
         return result
+
+    # ── 弹幕记录 ────────────────────────────────
+
+    def add_danmaku_batch(self, rows: list) -> int:
+        """批量插入弹幕记录（跳过重复）。
+
+        Args:
+            rows: [{"bvid", "oid", "content", "video_ts", "mode", ...}, ...]
+
+        Returns:
+            int: 实际插入行数
+        """
+        inserted = 0
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("BEGIN")
+                for r in rows:
+                    try:
+                        cursor.execute(
+                            """INSERT OR IGNORE INTO danmaku_records
+                               (bvid, oid, segment_index, content, video_ts,
+                                mode, font_size, color, send_time, weight, uid)
+                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                            (
+                                r.get("bvid", self.bvid), r.get("oid", 0), r.get("segment_index", 0),
+                                r.get("content", ""), r.get("video_ts", 0),
+                                r.get("mode", 1), r.get("font_size", 25),
+                                r.get("color", 16777215), r.get("send_time", 0),
+                                r.get("weight", 1), str(r.get("uid", "")),
+                            ),
+                        )
+                        if cursor.rowcount > 0:
+                            inserted += 1
+                    except Exception:
+                        pass
+                conn.commit()
+        except Exception as e:
+            logger.debug("批量插入弹幕失败 %s: %s", self.bvid, e)
+        return inserted
+
+    def get_danmaku_records(self, limit: int = 5000) -> List[Dict]:
+        """获取弹幕记录列表（按 video_ts 排序）。
+
+        Args:
+            limit: 最多返回条数，0 表示全量
+
+        Returns:
+            弹幕记录列表
+        """
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                if limit and limit > 0:
+                    cursor.execute(
+                        "SELECT * FROM danmaku_records WHERE bvid=? ORDER BY video_ts ASC LIMIT ?",
+                        (self.bvid, limit),
+                    )
+                else:
+                    cursor.execute(
+                        "SELECT * FROM danmaku_records WHERE bvid=? ORDER BY video_ts ASC",
+                        (self.bvid,),
+                    )
+                return [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            logger.debug("查询弹幕记录失败 %s: %s", self.bvid, e)
+            return []
+
+    def count_danmaku(self) -> int:
+        """统计弹幕总数。"""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(*) FROM danmaku_records WHERE bvid=?", (self.bvid,))
+                row = cursor.fetchone()
+                return row[0] if row else 0
+        except Exception:
+            return 0
+
+    def get_danmaku_segment_count(self) -> int:
+        """获取已拉取的弹幕段数。"""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT COUNT(DISTINCT segment_index) FROM danmaku_records WHERE bvid=?",
+                    (self.bvid,),
+                )
+                row = cursor.fetchone()
+                return row[0] if row else 0
+        except Exception:
+            return 0
 
     def close(self):
         """关闭数据库连接，刷新 WAL
