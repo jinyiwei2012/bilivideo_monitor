@@ -1,17 +1,17 @@
 # B站视频播放量监控系统 - 依赖清单
-# 更新日期: 2026-06-13 (修复 numpy ABI 兼容性)
+# 更新日期: 2026-06-13
 
-# ⚠️ numpy 版本约束说明：
-#    numpy 2.x 改变了 C struct 布局，导致 torch/xgboost/lightgbm 等
-#    编译扩展产生 "expected np.ndarray (got NoneType)" ABI 不兼容错误。
-#    必须使用 numpy 1.26.x（最后一个 1.x ABI 稳定版本）。
+# ⚠️ numpy 版本说明：
+#    numpy 1.x → 2.x 有 ABI 断裂。本项目使用 numpy 2.x + scipy>=1.13
+#    + sklearn>=1.6 即可兼容。Checkpoint 文件由 torch 序列化，numpy
+#    版本必须与保存时一致（2.x checkpoint 无法被 1.x 加载）。
 
 # ==========
 # 核心依赖 (必需)
 # ==========
 
-numpy>=1.26.0,<2         # 数组计算 (⚠ 锁定 1.x ABI，2.x 有二进制不兼容)
-scipy>=1.11.0             # 科学计算 (增长曲线算法必需)
+numpy>=2.0               # 数组计算 (checkpoint 兼容性要求 2.x)
+scipy>=1.13.0             # 科学计算 (numpy 2.x 需要 >=1.13)
 requests>=2.31.0          # HTTP请求 (B站API调用)
 pillow>=10.0.0            # 图片处理 (封面下载)
 urllib3>=2.0.0            # HTTP连接池 (requests底层，直接导入用于 Suppress Warnings)
