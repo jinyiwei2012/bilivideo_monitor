@@ -98,7 +98,7 @@ class TrendTab:
 
         self._canvas = tk.Canvas(mid, bg=C.get("canvas_bg", "#0d1117"), highlightthickness=0)
         self._canvas.pack(fill=BOTH, expand=True, padx=4, pady=4)
-        self._canvas.bind("<Configure>", lambda e: self._draw())
+        self._canvas.bind("<Configure>", self._on_canvas_resize)
 
         # 图例
         leg_bg = tk.Frame(f, bg=C.get("bg_surface", "#161b22"), pady=4)
@@ -143,6 +143,12 @@ class TrendTab:
                     logger.warning("加载 %s 历史数据失败: %s", bvid, e)
 
         self._draw()
+
+    def _on_canvas_resize(self, event=None):
+        """防抖重绘：延迟 200ms 避免缩放时频繁渲染。"""
+        if getattr(self, "_trend_resize_job", None):
+            self._window.after_cancel(self._trend_resize_job)
+        self._trend_resize_job = self._window.after(200, self._draw)
 
     # ── 绘制 ────────────────────────────────────────────────────────────────────
     def _draw(self):

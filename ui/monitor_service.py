@@ -783,6 +783,22 @@ def _stop_all_workers():
         bvids = list(_active_workers.keys())
     for bvid in bvids:
         _stop_worker(bvid)
+    # 取消悬而未决的 after ID
+    for bvid in bvids:
+        worker = _active_workers.get(bvid) if bvid in _active_workers else None
+        if worker:
+            gui = worker.gui
+            if hasattr(gui, "_selected_debounce") and gui._selected_debounce:
+                try:
+                    gui.root.after_cancel(gui._selected_debounce)
+                except Exception:
+                    pass
+            if hasattr(gui, "_chart_debounce") and gui._chart_debounce:
+                try:
+                    gui.root.after_cancel(gui._chart_debounce)
+                except Exception:
+                    pass
+            break  # 所有 debounce 共用同一个 gui，只需一次
 
 
 def _refresh_worker_now(bvid):

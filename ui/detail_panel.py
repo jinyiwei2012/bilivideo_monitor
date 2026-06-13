@@ -547,16 +547,27 @@ class DetailPanel:
                 draw_chart_placeholder(self._chart_canvas, hint)
         elif name == "📋 详细数据":
             self._detail_text_frame.pack(fill=tk.BOTH, expand=True, padx=16, pady=12)
-            if self.gui.selected_bvid:
-                video = next((v for v in self.gui.monitored_videos if v.get("bvid") == self.gui.selected_bvid), None)
-                if video:
-                    self._fill_detail_text(video)
+            video = self._get_selected_video()
+            if video:
+                self._fill_detail_text(video)
         elif name == "🔄 互动率":
             self._ratio_frame.pack(fill=tk.BOTH, expand=True, padx=16, pady=12)
-            if self.gui.selected_bvid:
-                video = next((v for v in self.gui.monitored_videos if v.get("bvid") == self.gui.selected_bvid), None)
-                if video:
-                    self._fill_ratio_frame(video)
+            video = self._get_selected_video()
+            if video:
+                self._fill_ratio_frame(video)
+
+    def _get_selected_video(self):
+        """获取当前选中视频（缓存 bvid→video 避免重复线性搜索）。"""
+        bvid = self.gui.selected_bvid
+        if not bvid:
+            return None
+        if not hasattr(self, "_video_index"):
+            self._video_index = {}
+        if bvid not in self._video_index:
+            self._video_index[bvid] = next(
+                (v for v in self.gui.monitored_videos if v.get("bvid") == bvid), None
+            )
+        return self._video_index[bvid]
 
     def _on_chart_resize(self, event=None):
         """图表尺寸变化时防抖重绘"""

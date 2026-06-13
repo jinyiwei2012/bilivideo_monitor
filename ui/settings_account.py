@@ -7,6 +7,7 @@ Mixin functions for SettingsWindow.
 import json
 import tkinter as tk
 import logging
+import threading
 from tkinter import ttk, messagebox
 from ui.theme import C
 from ui.helpers import FONT, FONT_SM
@@ -312,6 +313,20 @@ def _import_cookie_editor(self):
     ttk.Button(btn_f, text="取消", command=top.destroy).pack(side=tk.LEFT, padx=4)
 
 
+def _generate_qr(self, qr_url, qr_lbl):
+    """后台线程生成二维码图片，完成后更新 label。"""
+    try:
+        import qrcode
+        from PIL import ImageTk
+        img = qrcode.make(qr_url).resize((200, 200))
+        self._qr_img = ImageTk.PhotoImage(img)
+        if qr_lbl.winfo_exists():
+            qr_lbl.configure(image=self._qr_img)
+            qr_lbl.configure(text="")
+    except Exception:
+        pass
+
+
 def _qrcode_login(self):
     qr_data = get_bilibili_api().get_qrcode_login_url()
     if not qr_data:
@@ -321,14 +336,6 @@ def _qrcode_login(self):
     qr_url = qr_data.get("url", "")
 
     self._qr_img = None
-    try:
-        import qrcode
-        from PIL import ImageTk
-
-        img = qrcode.make(qr_url).resize((200, 200))
-        self._qr_img = ImageTk.PhotoImage(img)
-    except ImportError:
-        pass
 
     qr_top = tk.Toplevel(self.window)
     qr_top.title("扫码登录 B站")
@@ -348,18 +355,24 @@ def _qrcode_login(self):
         font=("Microsoft YaHei UI", 11, "bold"),
     ).pack(pady=(14, 6))
 
-    if self._qr_img:
-        tk.Label(qr_top, image=self._qr_img, bg=C["bg_surface"]).pack(pady=6)
-    else:
-        tk.Label(
-            qr_top,
-            text=f"扫码链接:\n{qr_url}",
-            bg=C["bg_surface"],
-            fg=C["text_1"],
-            font=("Consolas", 9),
-            wraplength=280,
-            justify="left",
-        ).pack(pady=6, padx=10)
+    qr_lbl = tk.Label(
+        qr_top,
+        text="正在生成二维码…" if qr_url else "扫码链接:\n" + qr_url,
+        bg=C["bg_surface"],
+        fg=C["text_1"],
+        font=("Consolas", 9),
+        wraplength=280,
+        justify="left",
+    )
+    qr_lbl.pack(pady=6, padx=10)
+
+    # 后台线程生成 QR，避免主线程阻塞
+    try:
+        import qrcode
+    except ImportError:
+        qrcode = None
+    if qrcode and qr_url:
+        threading.Thread(target=self._generate_qr, args=(qr_url, qr_lbl), daemon=True).start()
 
     status_var = tk.StringVar(value="等待扫码...")
     status_lbl = tk.Label(qr_top, textvariable=status_var, bg=C["bg_surface"], fg=C["text_2"], font=FONT)

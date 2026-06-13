@@ -489,8 +489,19 @@ class BaseTrainingPanel:
         return [(a, [d for d in self._loss_history if d["algo"] == a]) for a in sorted(algos)]
 
     def _clear_chart(self):
-        """清空图表"""
+        """清空图表并释放 matplotlib 资源。"""
         clear_loss_chart(self._ax, self._fig, self._canvas)
+        # 释放 matplotlib figure，避免内存泄漏
+        try:
+            import matplotlib.pyplot as plt
+            plt.close(self._fig)
+        except Exception:
+            pass
+        if self._canvas and hasattr(self._canvas, "get_tk_widget"):
+            try:
+                self._canvas.get_tk_widget().destroy()
+            except Exception:
+                pass
 
     # ══════════════════════════════════════════════════════════════════════════
     # Log

@@ -393,7 +393,7 @@ class MilestoneStatsWindow:
         self._cmp_canvas.configure(xscrollcommand=hsb.set)
         hsb.pack(side=tk.BOTTOM, fill=tk.X)
         self._cmp_canvas.pack(fill=tk.BOTH, expand=True)
-        self._cmp_canvas.bind("<Configure>", lambda e: self._redraw_compare())
+        self._cmp_canvas.bind("<Configure>", self._on_cmp_resize)
         self._cmp_canvas.bind("<MouseWheel>", lambda e: self._cmp_canvas.xview_scroll(-1 * (e.delta // 120), "units"))
 
         # 明细表
@@ -575,6 +575,12 @@ class MilestoneStatsWindow:
     def _to_y(v, max_val, MT, ch):
         """将数值转换为画布上的 Y 坐标（顶部留空 8%）"""
         return MT + ch - (v / max_val) * ch * 0.92 if v else MT + ch
+
+    def _on_cmp_resize(self, event=None):
+        """防抖重绘：延迟 200ms 避免缩放时频繁渲染。"""
+        if hasattr(self, "_cmp_resize_job") and self._cmp_resize_job:
+            self.window.after_cancel(self._cmp_resize_job)
+        self._cmp_resize_job = self.window.after(200, self._redraw_compare)
 
     def _redraw_compare(self):
         """主绘图函数：清空画布、筛选数据、绘制网格、柱状图和图例"""

@@ -34,11 +34,20 @@ class DialogBase:
         self.window.resizable(*resizable)
         self.window.minsize(300, 200)
         # ESC 键关闭对话框
-        self.window.bind("<Escape>", lambda e: self.window.destroy())
+        self.window.bind("<Escape>", lambda e: self.destroy())
 
         # 主容器（自带两侧安全边距）
         self.container = tk.Frame(self.window, bg=C["bg_surface"])
         self.container.pack(fill=tk.BOTH, expand=True)
+
+    def destroy(self):
+        """递归销毁窗口及其所有子 widget，释放资源。"""
+        try:
+            self.window.destroy()
+        except Exception:
+            pass
+        self.window = None
+        self.container = None
 
     # ── 头部 ────────────────────────────────────────────
     def header(self, title, subtitle=None):

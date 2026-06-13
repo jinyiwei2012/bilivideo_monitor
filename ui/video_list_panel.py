@@ -48,10 +48,22 @@ class VideoListPanel:
 
         self._cover_cache = OrderedDict()  # LRU 封面缓存
         self._search_var = tk.StringVar()
-        self._card_wraplength = 180  # 初始默认值，make_card 时会按屏幕更新
+        # 自适应缩略图尺寸（初始化时计算一次，resize 时更新）
+        self._thumb_w = 80
+        self._thumb_h = 45
+        self._card_wraplength = 180
+        self._update_thumb_dims()
         self._build_left_panel()
         # 监听面板尺寸变化，动态调整卡片 wraplength
         parent.bind("<Configure>", self._on_panel_resize)
+
+    def _update_thumb_dims(self):
+        """根据屏幕/面板宽度计算缩略图尺寸和文字折行宽度（缓存避免 per-card 重复计算）。"""
+        _sw = self.gui.root.winfo_screenwidth()
+        _left_w = int(_sw * 0.22)
+        self._thumb_w = max(60, min(100, _left_w // 4))
+        self._thumb_h = int(self._thumb_w * 0.56)
+        self._card_wraplength = max(100, _left_w - self._thumb_w - 60)
 
     # ──────────────────────────────────────────
     # UI 构建
@@ -170,12 +182,10 @@ class VideoListPanel:
 
         top = ctk.CTkFrame(inner, fg_color=C["bg_surface"], corner_radius=0)
         top.pack(fill=tk.X)
-        # 自适应缩略图尺寸：按侧栏宽度缩放，最小 60×34
-        _sw = self.gui.root.winfo_screenwidth()
-        _left_w = int(_sw * 0.22)
-        _thumb_w = max(60, min(100, _left_w // 4))
-        _thumb_h = int(_thumb_w * 0.56)
-        self._card_wraplength = max(100, _left_w - _thumb_w - 60)
+        # 自适应缩略图尺寸（使用类级缓存，避免 per-card 重复计算）
+        _thumb_w = self._thumb_w
+        _thumb_h = self._thumb_h
+        _card_wl = self._card_wraplength
 
         thumb_frame = ctk.CTkFrame(top, fg_color=C["bg_elevated"], width=_thumb_w, height=_thumb_h, corner_radius=4)
         thumb_frame.pack(side=tk.LEFT)
@@ -379,21 +389,23 @@ class VideoListPanel:
         """批量更新所有卡片标题折行宽度"""
         self._resize_job = None
         try:
-            parent_w = self._parent.winfo_width()
-            new_wl = max(100, parent_w - 100)
+            self._update_thumb_dims()
+            new_wl = self._card_wraplength
             for refs in self._video_card_widgets.values():
                 refs["title"].configure(wraplength=new_wl)
         except Exception as e:
             logger.debug("忽略异常: %s", e)
 
     def _on_search(self, *args):
-        """根据搜索关键词过滤卡片显示（匹配标题、BV号、UP主名）"""
+        """根据搜索关键词过滤卡片显示（匹配标题、BV号、UP主名）。
+        预建 {bvid: video} dict，O(1) 查找替代 O(N×M)。"""
         q = self._search_var.get().strip().lower()
+        bvid_map = {v.get("bvid"): v for v in self.gui.monitored_videos}
         for bvid, refs in self._video_card_widgets.items():
-            video = next((v for v in self.gui.monitored_videos if v.get("bvid") == bvid), None)
+            video = bvid_map.get(bvid)
             if not video:
+                refs["card"].pack_forget()
                 continue
-            # 检查是否匹配搜索关键词
             visible = (
                 not q
                 or q in video.get("title", "").lower()

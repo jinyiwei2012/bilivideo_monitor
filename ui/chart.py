@@ -176,11 +176,11 @@ def draw_chart(canvas, history_data, bvid, video, FONT, mode="step", max_points=
     history = history_data.get(bvid, [])
     pred_val = prediction.get("prediction", 0) if prediction else 0
     rate_val = prediction.get("rate_per_sec", 0) if prediction else 0
-    # 指纹缓存：数据未变时跳过重绘
+    # 指纹缓存（per-canvas，避免多 Canvas 共享导致跳帧）
     fp = (bvid, mode, max_points, len(history), history[-1][1] if history else 0, pred_val, rate_val)
-    if getattr(draw_chart, "_last_fp", None) == fp:
+    if getattr(canvas, "_chart_fp", None) == fp:
         return
-    draw_chart._last_fp = fp
+    canvas._chart_fp = fp
 
     c = canvas
     c.delete("all")

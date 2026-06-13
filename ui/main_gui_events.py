@@ -424,18 +424,18 @@ def post_fetch(gui):
     gui._sb("status", "刷新完成", C["success"])
     gui._sb("last_ref", f"上次刷新: {now_str}")
     gui._sb("videos", f"监控: {len(gui.monitored_videos)} 个")
+    card_widgets = gui.video_list.get_card_widgets()
     for video in gui.monitored_videos:
         bvid = video.get("bvid", "")
-        if bvid in gui.video_list.get_card_widgets():
+        if bvid in card_widgets:
             gui.video_list.update_card(video)
+        register_video_timer(gui, bvid)
     if gui.selected_bvid:
         video = get_video(gui, gui.selected_bvid)
         if video:
             gui.detail.update_stat_bar(video)
             if gui.detail.current_tab == "📈 播放量趋势":
                 gui.detail._auto_render_chart()
-    for video in gui.monitored_videos:
-        register_video_timer(gui, video.get("bvid", ""))
     from ui.monitor_service import auto_predict_all
 
     auto_predict_all(gui)
@@ -637,9 +637,9 @@ def remove_monitor(gui):
         w.destroy()
     gui.video_list.update_video_count()
     gui._sb("videos", f"监控: {len(gui.monitored_videos)} 个")
+    # 异步持久化，避免主线程 IO 阻塞
     from ui.main_gui_data import save_watch_list
-
-    save_watch_list(gui)
+    threading.Thread(target=save_watch_list, args=(gui,), daemon=True).start()
 
 
 # ── 推送 ──────────────────────────────────────

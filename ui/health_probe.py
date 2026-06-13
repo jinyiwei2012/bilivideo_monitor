@@ -45,7 +45,7 @@ class HealthProbeWindow:
 
         self._radar_canvas = tk.Canvas(radar_frame, bg=C["bg_elevated"], width=280, height=240, highlightthickness=0)
         self._radar_canvas.pack(fill=tk.BOTH, expand=True)
-        self._radar_canvas.bind("<Configure>", lambda e: self._draw_radar())
+        self._radar_canvas.bind("<Configure>", self._on_radar_resize)
 
         # 右侧摘要卡片
         summary = tk.Frame(top, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
@@ -122,6 +122,12 @@ class HealthProbeWindow:
 
         # 延迟绘制雷达图
         self.window.after(200, self._draw_radar)
+
+    def _on_radar_resize(self, event=None):
+        """防抖重绘：延迟 200ms 避免缩放时频繁渲染。"""
+        if getattr(self, "_radar_resize_job", None):
+            self.window.after_cancel(self._radar_resize_job)
+        self._radar_resize_job = self.window.after(200, self._draw_radar)
 
     def _draw_radar(self):
         """在 Canvas 上绘制五维雷达图（点赞率、硬币率、收藏率、分享率）"""

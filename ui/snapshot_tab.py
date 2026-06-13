@@ -233,7 +233,7 @@ class SnapshotTab:
         )
         self._canvas.pack(fill=BOTH, expand=True, padx=4, pady=4)
         h_scroll.config(command=self._canvas.xview)
-        self._canvas.bind("<Configure>", lambda e: self._draw())
+        self._canvas.bind("<Configure>", self._on_canvas_resize)
 
         # 图例区（带底部分隔线，更有层次）
         leg_bg = tk.Frame(f, bg=C.get("bg_surface", "#161b22"), pady=4)
@@ -504,6 +504,12 @@ class SnapshotTab:
         self._ts_listbox.selection_clear(0, tk.END)
         self._listbox.selection_clear(0, tk.END)
         self._draw()
+
+    def _on_canvas_resize(self, event=None):
+        """防抖重绘：延迟 200ms 避免缩放时频繁渲染。"""
+        if getattr(self, "_snap_resize_job", None):
+            self._window.after_cancel(self._snap_resize_job)
+        self._snap_resize_job = self._window.after(200, self._draw)
 
     # ── 绘图 ────────────────────────────────────────────────────────────────────
     def _draw(self):
