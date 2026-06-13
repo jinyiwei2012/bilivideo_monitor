@@ -43,6 +43,11 @@ class ModelAlgorithmAdapter:
     >>> result = adapter.predict_dict(history, current_value, thresholds=[100000], ...)
     """
 
+    __slots__ = (
+        "algo", "name", "algorithm_id", "description", "category",
+        "default_weight", "interface_type",
+    )
+
     def __init__(self, algo_instance):
         """包装一个算法实例。
 

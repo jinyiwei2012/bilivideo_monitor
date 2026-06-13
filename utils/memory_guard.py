@@ -116,18 +116,24 @@ def get_safe_model_slots() -> int:
 def get_safe_workers() -> int:
     """计算线程池推荐大小。
 
-    基于总内存，大于 16GB 的系统可以支持更多并发。
-    返回 2~8 之间的整数。
+    基于 CPU 核心数和总内存综合计算。
+    由于大多数算法使用 NumPy/PyTorch/scipy（释放 GIL），
+    线程数可以超过 CPU 核心数。
+
+    Returns:
+        2~16 之间的整数
     """
     total_mb, _ = _get_memory_info()
+    cpu_count = os.cpu_count() or 4
+
     if total_mb >= 32768:   # 32GB+
-        return 6
+        return min(16, max(4, cpu_count * 2))
     elif total_mb >= 16384:  # 16GB+
-        return 4
+        return min(12, max(3, int(cpu_count * 1.5)))
     elif total_mb >= 8192:   # 8GB+
-        return 3
+        return min(8, max(2, cpu_count))
     else:
-        return 2
+        return min(4, max(2, cpu_count // 2))
 
 
 def get_memory_usage_mb() -> int:
