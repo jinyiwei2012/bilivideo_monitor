@@ -34,6 +34,9 @@ except ImportError:
 # 全局标记：torch.onnx 导出是否因版本不兼容而永久失败
 _onnx_export_broken = False
 
+# DML 性能标记：首次推理后缓存
+_dml_faster_than_cpu: Optional[bool] = None  # None=未测试, True=DML更快, False=CPU更快
+
 # ONNX 模型缓存目录
 _ONNX_DIR = None
 
@@ -191,12 +194,18 @@ class ONNXInferenceSession:
             return None
 
         try:
-            # EP 优先级: DirectML(NPU/GPU) > CPU
-            providers = ["CPUExecutionProvider"]
-            try:
-                sess = _ort.InferenceSession(onnx_path, providers=["DmlExecutionProvider", "CPUExecutionProvider"])
-                providers = ["DmlExecutionProvider", "CPUExecutionProvider"]
-            except Exception:
+            # EP 选择：DML 仅在确实加速时才使用
+            global _dml_faster_than_cpu
+            if _dml_faster_than_cpu is None:
+                _dml_faster_than_cpu = _benchmark_dml_vs_cpu(onnx_path)
+
+            if _dml_faster_than_cpu:
+                try:
+                    sess = _ort.InferenceSession(onnx_path,
+                        providers=["DmlExecutionProvider", "CPUExecutionProvider"])
+                except Exception:
+                    sess = _ort.InferenceSession(onnx_path, providers=["CPUExecutionProvider"])
+            else:
                 sess = _ort.InferenceSession(onnx_path, providers=["CPUExecutionProvider"])
             self._sessions[key] = sess
             return sess
@@ -249,6 +258,53 @@ def get_onnx_session() -> ONNXInferenceSession:
     if _onnx_session is None:
         _onnx_session = ONNXInferenceSession()
     return _onnx_session
+
+
+def _benchmark_dml_vs_cpu(onnx_path: str) -> bool:
+    """对比 DML 和 CPU 推理速度，返回 True 表示 DML 更快。
+
+    用 100 次小推理取均值，避免一次性测试误差。
+    结果缓存在全局 _dml_faster_than_cpu 中。
+    """
+    import time
+    import numpy as np
+
+    try:
+        sess_dml = _ort.InferenceSession(onnx_path, providers=["DmlExecutionProvider"])
+        sess_cpu = _ort.InferenceSession(onnx_path, providers=["CPUExecutionProvider"])
+
+        # 取第一个输入的形状
+        inp = sess_dml.get_inputs()[0]
+        shape = [d if isinstance(d, int) and d > 0 else 10 for d in inp.shape]
+        x = np.random.randn(*shape).astype(np.float32)
+
+        # 预热 3 次
+        for _ in range(3):
+            sess_dml.run(None, {"input": x})
+            sess_cpu.run(None, {"input": x})
+
+        # 基准 100 次
+        t0 = time.perf_counter()
+        for _ in range(100):
+            sess_dml.run(None, {"input": x})
+        dml_t = time.perf_counter() - t0
+
+        t0 = time.perf_counter()
+        for _ in range(100):
+            sess_cpu.run(None, {"input": x})
+        cpu_t = time.perf_counter() - t0
+
+        faster = dml_t < cpu_t
+        speedup = cpu_t / max(dml_t, 0.0001)
+        logger.info(
+            "[ONNX] DML %.2fms vs CPU %.2fms (%.1fx) → %s",
+            dml_t * 10, cpu_t * 10, speedup,
+            "DML" if faster else "CPU"
+        )
+        return faster
+    except Exception as e:
+        logger.debug("[ONNX] DML benchmark failed: %s", e)
+        return False
 
 
 def _export_from_checkpoint(
