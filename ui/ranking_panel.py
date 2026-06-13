@@ -98,10 +98,7 @@ class RankingPanel:
         return (v0 - v1) / dt
 
     def _refresh(self):
-        """根据当前排序维度重新计算并刷新排行榜"""
-        for row in self._tree.get_children():
-            self._tree.delete(row)
-
+        """根据当前排序维度重新计算并刷新排行榜（原地更新，不删行重建）"""
         sort_key = self._sort_var.get()
         items = []
         for v in self.gui.monitored_videos:
@@ -117,7 +114,6 @@ class RankingPanel:
             pubdate = v.get("pubdate", 0)
             age = (datetime.now().timestamp() - pubdate) / 86400 if pubdate > 0 else 0
 
-            # 根据排序维度确定排序值
             if sort_key == "velocity":
                 sort_val = velocity
             elif sort_key == "views":
@@ -141,10 +137,32 @@ class RankingPanel:
 
         items.sort(key=lambda x: -abs(x[0]))
 
+        # ── 原地更新 (bvid=iid) ──
+        new_bvids = {it[1] for it in items}
+        existing = set(self._tree.get_children())
+        for iid in existing - new_bvids:
+            self._tree.delete(iid)
+
         for i, (_, bvid, title, author, views, velocity, engagement, online) in enumerate(items, 1):
             vel_str = fmt_num(int(velocity)) if velocity > 0 else "—"
             eng_str = f"{engagement * 100:.1f}%" if engagement > 0 else "—"
             online_str = fmt_num(online) if online > 0 else "—"
-            self._tree.insert("", tk.END, values=(i, bvid, title, author, fmt_num(views), vel_str, eng_str, online_str))
+            values = (i, bvid, title, author, fmt_num(views), vel_str, eng_str, online_str)
+
+            if bvid in existing:
+                self._tree.item(bvid, values=values)
+            else:
+                self._tree.insert("", tk.END, iid=bvid, values=values)
+
+        # 修正排序
+        desired = [it[1] for it in items]
+        current = list(self._tree.get_children())
+        if desired != current:
+            for ti, iid in enumerate(desired):
+                ci = current.index(iid) if iid in current else -1
+                if ci != ti and ci >= 0:
+                    self._tree.move(iid, "", ti)
+                    current.remove(iid)
+                    current.insert(ti, iid)
 
         self._status_lbl.config(text=f"{len(items)} 个视频")

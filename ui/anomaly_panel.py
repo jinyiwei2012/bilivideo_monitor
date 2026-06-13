@@ -224,30 +224,27 @@ class AnomalyPanel:
         threading.Thread(target=worker, daemon=True).start()
 
     def _show_results(self, results):
-        """在表格中展示异常检测结果，高亮严重异常"""
-        self._tree.delete(*self._tree.get_children())
+        """在表格中展示异常检测结果，高亮严重异常（bvid=iid 原地更新）"""
+        self._tree.tag_configure("danger", foreground=C["danger"])
+        new_bvids = {r["bvid"] for r in results}
+        existing = set(self._tree.get_children())
+        for iid in existing - new_bvids:
+            self._tree.delete(iid)
+
         self._alert_data = results
         for r in results:
-            self._tree.insert(
-                "",
-                tk.END,
-                values=(
-                    r["bvid"],
-                    r["title"],
-                    r["type"],
-                    r["time"],
-                    fmt_num(r["views"]),
-                    fmt_num(r["delta"]) if r["delta"] > 0 else "—",
-                    f"{r['velocity']:.0f}" if r["velocity"] > 0 else "—",
-                    fmt_num(r["online"]) if r["online"] > 0 else "—",
-                ),
+            values = (
+                r["bvid"], r["title"], r["type"], r["time"],
+                fmt_num(r["views"]),
+                fmt_num(r["delta"]) if r["delta"] > 0 else "\u2014",
+                f"{r['velocity']:.0f}" if r["velocity"] > 0 else "\u2014",
+                fmt_num(r["online"]) if r["online"] > 0 else "\u2014",
             )
-            # 高亮严重异常（增速飙升、在线暴跌）为红色
-            if r["type"] in ("📈 增速飙升", "📉 在线暴跌"):
-                for cid in self._tree.get_children():
-                    if self._tree.item(cid, "values")[0] == r["bvid"]:
-                        self._tree.tag_configure("danger", foreground=C["danger"])
-                        self._tree.item(cid, tags=("danger",))
+            tags = ("danger",) if r["type"] in ("📈 增速飙升", "📉 在线暴跌") else ()
+            if r["bvid"] in existing:
+                self._tree.item(r["bvid"], values=values, tags=tags)
+            else:
+                self._tree.insert("", tk.END, iid=r["bvid"], values=values, tags=tags)
 
         count = len(results)
         self._status_lbl.config(
