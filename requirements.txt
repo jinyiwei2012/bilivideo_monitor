@@ -2,15 +2,15 @@
 # 更新日期: 2026-06-13
 
 # ⚠️ numpy 版本说明：
-#    numpy 1.x → 2.x 有 ABI 断裂。本项目使用 numpy 2.x + scipy>=1.13
-#    + sklearn>=1.6 即可兼容。Checkpoint 文件由 torch 序列化，numpy
-#    版本必须与保存时一致（2.x checkpoint 无法被 1.x 加载）。
+#    numpy>=2.4 改变了 0-dim 数组行为(不再自动转标量)，导致 torch 模型
+#    推理时产生 "expected np.ndarray (got NoneType)"。锁定 2.2.x 稳定。
+#    torch 2.11 + numpy 2.2.x 兼容，scipy>=1.13 兼容。
 
 # ==========
 # 核心依赖 (必需)
 # ==========
 
-numpy>=2.0               # 数组计算 (checkpoint 兼容性要求 2.x)
+numpy>=2.2.0,<2.3.0     # 数组计算 (锁定 2.2.x, 2.4+ 有 torch 兼容问题)
 scipy>=1.13.0             # 科学计算 (numpy 2.x 需要 >=1.13)
 requests>=2.31.0          # HTTP请求 (B站API调用)
 pillow>=10.0.0            # 图片处理 (封面下载)
