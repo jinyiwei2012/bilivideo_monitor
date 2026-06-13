@@ -296,11 +296,10 @@ def _benchmark_dml_vs_cpu(onnx_path: str) -> bool:
 
         faster = dml_t < cpu_t
         speedup = cpu_t / max(dml_t, 0.0001)
-        logger.info(
-            "[ONNX] DML %.2fms vs CPU %.2fms (%.1fx) → %s",
-            dml_t * 10, cpu_t * 10, speedup,
-            "DML" if faster else "CPU"
-        )
+        if faster:
+            logger.info("[ONNX] NPU 加速 %.1fx (DML %.2fms vs CPU %.2fms) — 已启用 DML", speedup, dml_t*10, cpu_t*10)
+        else:
+            logger.warning("[ONNX] NPU 不可用 (DML %.2fms vs CPU %.2fms, %.1fx) — 已降级 CPU EP (需 Win11 24H2+ + NPU驱动)", dml_t*10, cpu_t*10, speedup)
         return faster
     except Exception as e:
         logger.debug("[ONNX] DML benchmark failed: %s", e)
