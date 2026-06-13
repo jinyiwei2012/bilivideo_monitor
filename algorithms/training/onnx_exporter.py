@@ -31,6 +31,9 @@ try:
 except ImportError:
     pass
 
+# 全局标记：torch.onnx 导出是否因版本不兼容而永久失败
+_onnx_export_broken = False
+
 # ONNX 模型缓存目录
 _ONNX_DIR = None
 
@@ -45,8 +48,8 @@ def _get_onnx_dir():
 
 
 def is_onnx_available() -> bool:
-    """检查 ONNX Runtime 是否可用。"""
-    return _onnx_available
+    """检查 ONNX Runtime 是否可用（含 torch.onnx 兼容性）。"""
+    return _onnx_available and not _onnx_export_broken
 
 
 def get_onnx_path(algo_id: str, bvid: str = "") -> str:
@@ -97,6 +100,9 @@ def export_to_onnx(
         logger.debug("[ONNX] onnxruntime 未安装，跳过导出")
         return None
 
+    if _onnx_export_broken:
+        return None  # 已知 torch.onnx 不兼容，不再重试
+
     onnx_path = get_onnx_path(algo_id, bvid)
     if os.path.exists(onnx_path) and not force:
         return onnx_path
@@ -108,24 +114,31 @@ def export_to_onnx(
         device = next(model.parameters()).device
         dummy = torch.randn(1, window, in_features, device=device)
 
-        torch.onnx.export(
-            model,
-            dummy,
-            onnx_path,
-            input_names=["input"],
-            output_names=["output"],
-            dynamic_axes={
-                "input": {1: "window"},   # 窗口维度动态
-                "output": {1: "horizon"},
-            },
-            opset_version=14,
-            do_constant_folding=True,
-        )
+        # torch >= 2.6 重构了 onnx 内部 API，用 dynamo 导出兜底
+        try:
+            torch.onnx.export(
+                model, dummy, onnx_path,
+                input_names=["input"], output_names=["output"],
+                dynamic_axes={"input": {1: "window"}, "output": {1: "horizon"}},
+                opset_version=14, do_constant_folding=True,
+            )
+        except (ImportError, AttributeError, ModuleNotFoundError):
+            # torch.onnx 内部 API 不兼容（如 _compat 缺失），降级为静态导出
+            torch.onnx.export(
+                model, dummy, onnx_path,
+                input_names=["input"], output_names=["output"],
+                opset_version=14, do_constant_folding=True,
+            )
         logger.info("[ONNX] 导出成功 %s → %s", algo_id, os.path.basename(onnx_path))
         return onnx_path
+    except (ImportError, AttributeError, ModuleNotFoundError) as e:
+        # torch.onnx 内部 API 不兼容（如 torch >= 2.6 重构），永久跳过
+        global _onnx_export_broken
+        _onnx_export_broken = True
+        logger.warning("[ONNX] torch.onnx 不兼容，已禁用 ONNX 导出: %s", e)
+        return None
     except Exception as e:
         logger.warning("[ONNX] 导出失败 %s: %s", algo_id, e)
-        # 清理失败的文件
         if os.path.exists(onnx_path):
             try:
                 os.remove(onnx_path)
