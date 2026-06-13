@@ -430,6 +430,13 @@ def _build_training_tab(self, nb):
     infer_cb.pack(side=tk.LEFT, padx=4)
     infer_cb.bind("<<ComboboxSelected>>", lambda e: self._on_infer_device_changed())
     ttk.Button(dev_row, text="刷新", command=self._refresh_device_info).pack(side=tk.RIGHT)
+    # 内存信息行
+    mem_row = tk.Frame(dev_sec, bg=C["bg_elevated"])
+    mem_row.pack(fill=tk.X, pady=(2, 0))
+    self._tr_mem_lbl = tk.Label(
+        mem_row, text="", bg=C["bg_elevated"], fg=C["text_3"], font=("Consolas", 8), anchor="w"
+    )
+    self._tr_mem_lbl.pack(fill=tk.X)
 
     data_sec = self._section(page, "数据规模", padding=(16, 6, 6))
     self._tr_data_lbl = tk.Label(
@@ -541,6 +548,15 @@ def _refresh_device_info(self):
             self._tr_device_lbl.config(text=f"✅ {info['name']} ({mem:.1f} GB) [{info['device']}]", fg=C["success"])
         else:
             self._tr_device_lbl.config(text=f"💻 {info['name']} ({info.get('device', 'cpu')})", fg=C["warning"])
+
+        # 显示系统内存 + 并发限制
+        try:
+            from utils.memory_guard import format_memory_info
+            mem_str = format_memory_info()
+            if hasattr(self, "_tr_mem_lbl"):
+                self._tr_mem_lbl.config(text=mem_str)
+        except Exception:
+            pass
     except Exception as e:
         self._tr_device_lbl.config(text=f"⚠ 检测失败: {e}", fg=C["danger"])
 

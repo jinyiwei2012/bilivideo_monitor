@@ -38,9 +38,12 @@ DEFAULT_FEATURES = ["view_count", "like_count", "coin_count", "favorite_count", 
 DEFAULT_WINDOW = 10
 """默认输入窗口长度（时间步数）"""
 
-# 模型加载信号量：防止多线程同时加载大模型导致内存峰值
+# 模型加载信号量：基于系统可用内存动态限制并发
 import threading
-_model_load_semaphore = threading.Semaphore(2)
+from utils.memory_guard import get_safe_model_slots
+
+_model_load_semaphore = threading.BoundedSemaphore(get_safe_model_slots())
+_model_sem_lock = threading.Lock()
 DEFAULT_HORIZON = 3
 """默认预测步数（输出长度）"""
 
