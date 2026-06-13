@@ -203,6 +203,14 @@ class Database:
                 )
             """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_predictions_bvid ON predictions(bvid)")
+            try:
+                cursor.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_central_predict_unique "
+                    "ON predictions(bvid, algorithm, target_threshold)"
+                )
+            except Exception:
+                # 已有重复数据时 UNIQUE 索引创建会失败，由定期清理修复后下次重启生效
+                pass
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS video_milestones (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -221,6 +229,59 @@ class Database:
                 )
             """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_milestones_bvid ON video_milestones(bvid)")
+
+            # 集成预测记录表
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS prediction_ensemble (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    bvid TEXT NOT NULL,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    prediction INTEGER DEFAULT 0,
+                    confidence REAL DEFAULT 0,
+                    valid_algos INTEGER DEFAULT 0,
+                    total_algos INTEGER DEFAULT 0,
+                    interval_lower INTEGER,
+                    interval_upper INTEGER,
+                    interval_width_ratio REAL,
+                    surge_correction_applied BOOLEAN DEFAULT 0,
+                    surge_magnitude REAL,
+                    surge_type TEXT
+                )
+            """)
+            # 算法共识度表
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS algorithm_coherence (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    bvid TEXT NOT NULL,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    algorithm TEXT,
+                    coherence REAL DEFAULT 0
+                )
+            """)
+            # 周刊分数表
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS weekly_scores (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    bvid TEXT NOT NULL,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    total_score REAL, view_score REAL, interaction_score REAL,
+                    favorite_score REAL, coin_score REAL, like_score REAL,
+                    correction_a REAL, correction_b REAL, correction_c REAL,
+                    correction_d REAL, base_view_score REAL
+                )
+            """)
+            # 年刊分数表
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS yearly_scores (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    bvid TEXT NOT NULL,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    total_score REAL, view_score REAL, interaction_score REAL,
+                    favorite_score REAL, coin_score REAL, like_score REAL,
+                    correction_a REAL, correction_b REAL, correction_c REAL
+                )
+            """)
+            # predictions 表补全字段（迁移）
             self._migrate_db(conn)
             conn.commit()
 
@@ -246,6 +307,7 @@ class Database:
                 ("like_view_ratio", "REAL DEFAULT 0"),
             ],
             "predictions": [
+                ("predicted_views", "INTEGER DEFAULT 0"),
                 ("metadata", "TEXT DEFAULT ''"),
                 ("predicted_hours", "REAL DEFAULT 0"),
                 ("current_velocity", "REAL DEFAULT 0"),
@@ -271,8 +333,10 @@ class Database:
                         logger.warning(f"迁移失败 {table}.{col_name}: {e}")
 
     def get_video_db(self, bvid: str) -> VideoDatabase:
-        """获取单个视频的独立数据库实例"""
-        return VideoDatabase(bvid, self.data_dir)
+        """获取单个视频的独立数据库实例，自动注入中央库引用用于写入兜底"""
+        vdb = VideoDatabase(bvid, self.data_dir)
+        vdb.set_central_db(self)
+        return vdb
 
     def download_cover(self, bvid: str, pic_url: str) -> str:
         """下载视频封面到集中管理的 cover 目录"""
@@ -326,6 +390,21 @@ class Database:
 
     def sync_monitor_record(self, bvid: str, record: dict) -> bool:
         return self._crud.sync_monitor_record(bvid, record)
+
+    def sync_predictions(self, bvid: str, rows: list) -> bool:
+        return self._crud.sync_predictions(bvid, rows)
+
+    def sync_prediction_ensemble(self, bvid: str, timestamp: str, data: dict) -> bool:
+        return self._crud.sync_prediction_ensemble(bvid, timestamp, data)
+
+    def sync_algorithm_coherence(self, bvid: str, timestamp: str, rows: list) -> bool:
+        return self._crud.sync_algorithm_coherence(bvid, timestamp, rows)
+
+    def sync_weekly_score(self, bvid: str, timestamp: str, score_data: dict) -> bool:
+        return self._crud.sync_weekly_score(bvid, timestamp, score_data)
+
+    def sync_yearly_score(self, bvid: str, timestamp: str, score_data: dict) -> bool:
+        return self._crud.sync_yearly_score(bvid, timestamp, score_data)
 
     def sync_all_video_dbs(self) -> Dict[str, bool]:
         return self._crud.sync_all_video_dbs()
@@ -383,6 +462,10 @@ class Database:
 
     def check_backup_diffs(self) -> List[Dict]:
         return self._backup.check_backup_diffs()
+
+    def cleanup_duplicate_predictions(self) -> dict:
+        """清理中央库 predictions 表中的重复行（仅保留最新）"""
+        return self._crud.cleanup_duplicate_predictions()
 
 
 _db = None

@@ -291,36 +291,70 @@ class VideoListPanel:
         return card
 
     def update_card(self, video):
-        """更新卡片数据（播放量、阈值进度等）"""
+        """更新卡片数据（播放量、阈值进度等），跳过未变更字段避免无效重绘。"""
         bvid = video.get("bvid", "")
         refs = self._video_card_widgets.get(bvid)
         if not refs:
             return
         views = video.get("view_count", 0)
         gap, tidx = nearest_threshold_gap(views)
-        refs["title"].configure(text=video.get("title", "")[:28] + ("…" if len(video.get("title", "")) > 28 else ""))
-        refs["author"].configure(text=video.get("author", "")[:16])
-        refs["views"].configure(text=fmt_num(views))
+
+        # 缓存上次显示的值，仅在变更时调用 .configure()
+        cache = refs.setdefault("_val_cache", {})
+        new = {}
+
+        new["title"] = video.get("title", "")[:28] + ("…" if len(video.get("title", "")) > 28 else "")
+        new["author"] = video.get("author", "")[:16]
+        new["views"] = fmt_num(views)
         online_total = video.get("viewers_total", 0)
-        online_text = f"👁 {fmt_num(online_total)}" if online_total > 0 else ""
-        refs["online"].configure(text=online_text)
+        new["online"] = f"👁 {fmt_num(online_total)}" if online_total > 0 else ""
         stag, stag_fg = card_status_tag(gap)
-        refs["tag"].configure(text=stag, text_color=stag_fg)
+        new["tag"] = stag
+        new["tag_fg"] = stag_fg
+
+        for field, key in [("title", "title"), ("author", "author"), ("views", "views"), ("online", "online")]:
+            if new[field] != cache.get(field):
+                refs[key].configure(text=new[field])
+                cache[field] = new[field]
+        if new["tag"] != cache.get("tag") or new.get("tag_fg", "") != cache.get("tag_fg", ""):
+            refs["tag"].configure(text=new["tag"], text_color=new["tag_fg"])
+            cache["tag"] = new["tag"]
+            cache["tag_fg"] = new["tag_fg"]
+
         if tidx >= 0:
             thr = THRESHOLDS[tidx]
             pct = min(views / thr, 1.0)
             fill_c = THRESH_COLORS[tidx]
-            refs["gap_lbl"].configure(text=f"距{THRESHOLD_NAMES[tidx]}：{fmt_num(gap)}")
-            refs["pct_lbl"].configure(text=f"{pct * 100:.1f}%")
+            new_gap = f"距{THRESHOLD_NAMES[tidx]}：{fmt_num(gap)}"
+            new_pct = f"{pct * 100:.1f}%"
+            if new_gap != cache.get("gap_lbl"):
+                refs["gap_lbl"].configure(text=new_gap)
+                cache["gap_lbl"] = new_gap
+            if new_pct != cache.get("pct_lbl"):
+                refs["pct_lbl"].configure(text=new_pct)
+                cache["pct_lbl"] = new_pct
         else:
             pct, fill_c = 1.0, C["success"]
-            refs["gap_lbl"].configure(text="已全部达标 ✓")
-            refs["pct_lbl"].configure(text="")
-        refs["prog_fill"].config(bg=fill_c)
-        refs["prog_fill"].place(relwidth=pct)
+            if cache.get("gap_lbl") != "✓":
+                refs["gap_lbl"].configure(text="已全部达标 ✓")
+                refs["pct_lbl"].configure(text="")
+                cache["gap_lbl"] = "✓"
+
+        # 进度条：仅百分比变化 >0.5% 时更新（减少 place 调用）
+        if tidx >= 0 and abs(pct - cache.get("_last_pct", -1)) > 0.005:
+            refs["prog_fill"].config(bg=fill_c)
+            refs["prog_fill"].place(relwidth=pct)
+            cache["_last_pct"] = pct
+            cache["_last_fill"] = fill_c
+        elif cache.get("_last_fill") != fill_c:
+            refs["prog_fill"].config(bg=fill_c)
+            cache["_last_fill"] = fill_c
+
         is_sel = bvid == self.gui.selected_bvid
         hl_bg = C["bg_elevated"] if is_sel else C["border_sub"]
-        refs["card"].configure(border_color=hl_bg)
+        if cache.get("_sel_border") != hl_bg:
+            refs["card"].configure(border_color=hl_bg)
+            cache["_sel_border"] = hl_bg
 
     def highlight_card(self, bvid):
         """高亮指定卡片（选中态）"""

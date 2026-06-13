@@ -18,10 +18,6 @@ from ui.helpers import (
 
 logger = logging.getLogger(__name__)
 
-# 限制并发预测数量，防止 GIL 饥饿导致主线程卡顿
-# 设为 4 以提升多视频并行吞吐（原为 2），CPU 密集型 numpy 运算会释放 GIL
-_prediction_semaphore = threading.Semaphore(4)
-
 # 已从 DB 完成历史合并的视频集合（后续循环中内存数据始终 >= DB，跳过全量读取）
 _merged_from_db = set()
 _merged_from_db_lock = threading.Lock()
@@ -35,59 +31,75 @@ _last_up_fetch_time = {}  # uid -> time.time
 # ──────────────────────────────────────────────
 
 
+def _sync_predictions_to_central(bvid, rows, ensemble_data, coherence_rows):
+    """将预测数据同步到中央库（预测 + 集成 + 共识度）"""
+    try:
+        from core import db
+        db.sync_predictions(bvid, rows)
+        if ensemble_data:
+            db.sync_prediction_ensemble(bvid, datetime.now().isoformat(), ensemble_data)
+        if coherence_rows:
+            db.sync_algorithm_coherence(bvid, datetime.now().isoformat(), coherence_rows)
+    except Exception as e:
+        logger.debug("同步预测数据到中央库失败 %s: %s", bvid, e)
+
+
+def _json_default(obj):
+    """JSON 序列化辅助：将 numpy 类型转为 Python 原生类型"""
+    import numpy as np
+    if isinstance(obj, (np.integer,)):
+        return int(obj)
+    if isinstance(obj, (np.floating,)):
+        return float(obj)
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
 def _save_predictions_to_db(gui, bvid, current_view, results):
-    """将各算法的阈值预测结果写入视频数据库"""
+    """将预测结果写入视频库，并返回数据供中央库同步"""
     video_db = gui.video_dbs.get(bvid)
-    if not video_db:
-        return
-    for name, r in results.items():
-        # 跳过加权集成结果和错误结果
-        if name == "_weighted" or "error" in r:
-            continue
-        metadata = r.get("metadata", {})
-        threshold_preds = metadata.get("threshold_predictions", [])
-        confidence = r.get("confidence", 0)
+    rows = []
+    ensemble_data = None
+    coherence_rows = []
 
-        # 获取额外的元数据
-        predicted_hours = metadata.get("predicted_hours", 0)
-        velocity = metadata.get("velocity", 0)
-        # 将 metadata 字典转换为 JSON 字符串
+    if video_db:
         import json
+        for name, r in results.items():
+            if name == "_weighted" or "error" in r:
+                continue
+            metadata = r.get("metadata", {})
+            threshold_preds = metadata.get("threshold_predictions", [])
+            if not threshold_preds:
+                continue
+            confidence = r.get("confidence", 0)
+            predicted_hours = metadata.get("predicted_hours", 0)
+            velocity = metadata.get("velocity", 0)
+            metadata_str = json.dumps(metadata, ensure_ascii=False, default=_json_default)
 
-        # 将 numpy 类型转换为原生 Python 类型，避免 JSON 序列化失败
-        def _convert_numpy(obj):
-            if isinstance(obj, dict):
-                return {k: _convert_numpy(v) for k, v in obj.items()}
-            if isinstance(obj, (list, tuple)):
-                return [_convert_numpy(v) for v in obj]
-            if hasattr(obj, "item"):
-                return obj.item()
-            return obj
+            for tp in threshold_preds:
+                row = {
+                    "algorithm": name,
+                    "algorithm_id": name,
+                    "target_threshold": tp.get("threshold", 0),
+                    "predicted_seconds": int(tp.get("minutes", 0) * 60) if tp.get("minutes") else 0,
+                    "predicted_time": tp.get("name", ""),
+                    "confidence": confidence,
+                    "current_views": current_view,
+                    "predicted_views": int(r.get("prediction", current_view)),
+                    "metadata": metadata_str,
+                    "predicted_hours": predicted_hours,
+                    "current_velocity": velocity,
+                }
+                rows.append(row)
 
-        metadata_str = json.dumps(_convert_numpy(metadata), ensure_ascii=False)
-
-        for tp in threshold_preds:
-            minutes = tp.get("minutes", 0)
-            pred_seconds = int(minutes * 60) if minutes else 0
-            pred_time = tp.get("name", "")
-
-            rec = PredictionRecord(
-                bvid=bvid,
-                algorithm=name,
-                algorithm_id=name,
-                target_threshold=tp.get("threshold", 0),
-                predicted_seconds=pred_seconds,
-                predicted_time=pred_time,
-                confidence=confidence,
-                current_views=current_view,
-                metadata=metadata_str,  # 存储 JSON 字符串
-                predicted_hours=predicted_hours,
-                current_velocity=velocity,
-            )
+        if rows:
             try:
-                video_db.add_prediction(rec)
+                video_db.add_predictions_batch(rows)
             except Exception as e:
-                gui.log_panel.add_log("WARNING", f"保存预测记录失败 {bvid}/{name}: {e}")
+                gui.log_panel.add_log("WARNING", f"批量保存预测记录失败 {bvid}: {e}")
+
+    return rows, ensemble_data, coherence_rows
 
 
 def _merge_history(gui, bvid: str) -> list:
@@ -322,63 +334,78 @@ def _detect_surge_for_ui(history: list) -> dict:
 
 def _predict_single(gui, bvid, video) -> dict:
     """在 worker 线程中对单个视频运行预测（纯函数，无 UI 调用）"""
-    with _prediction_semaphore:
-        current_view = video.get("view_count", 0)
-        history = _merge_history(gui, bvid)
+    current_view = video.get("view_count", 0)
+    history = _merge_history(gui, bvid)
 
-        # 运行所有算法进行预测
-        results = AlgorithmRegistry.predict_all(
-            history,
-            current_view,
-            bvid=bvid,
-            thresholds=THRESHOLDS,
-            threshold_names=THRESHOLD_NAMES,
-        )
+    # 运行所有算法进行预测
+    results = AlgorithmRegistry.predict_all(
+        history,
+        current_view,
+        bvid=bvid,
+        thresholds=THRESHOLDS,
+        threshold_names=THRESHOLD_NAMES,
+    )
 
-        weighted = results.get("_weighted", {})
-        w_pred = weighted.get("prediction", current_view)
-        success_list = []
-        fail_list = []
-        for name, r in results.items():
-            if name == "_weighted":
-                continue
-            if "error" in r:
-                fail_list.append((name, r["error"]))
-            else:
-                success_list.append((name, r["prediction"], r["weight"], r["confidence"], r.get("predicted_hours", 0)))
+    weighted = results.get("_weighted", {})
+    w_pred = weighted.get("prediction", current_view)
+    success_list = []
+    fail_list = []
+    for name, r in results.items():
+        if name == "_weighted":
+            continue
+        if "error" in r:
+            fail_list.append((name, r["error"]))
+        else:
+            success_list.append((name, r["prediction"], r["weight"], r["confidence"], r.get("predicted_hours", 0)))
 
-        growth = w_pred - current_view
-        rate_per_sec = _calc_surge_aware_growth_rate(history)
+    growth = w_pred - current_view
+    rate_per_sec = _calc_surge_aware_growth_rate(history)
 
-        # ── 推流检测信息（供 UI 展示）──────────────────
-        surge_info = _detect_surge_for_ui(history)
+    # ── 推流检测信息（供 UI 展示）──────────────────
+    surge_info = _detect_surge_for_ui(history)
 
-        result = {
-            "bvid": bvid,
+    result = {
+        "bvid": bvid,
+        "prediction": w_pred,
+        "current_view": current_view,
+        "growth": max(0, growth),
+        "rate_per_sec": rate_per_sec,
+        "surge_info": surge_info,
+        "success_list": success_list,
+        "fail_list": fail_list,
+        "valid": weighted.get("valid_algorithms", 0),
+        "total": weighted.get("total_algorithms", 0),
+        # ── 传递给中央库同步的额外数据 ──
+        "ensemble": {
             "prediction": w_pred,
-            "current_view": current_view,
-            "growth": max(0, growth),
-            "rate_per_sec": rate_per_sec,
-            "surge_info": surge_info,
-            "success_list": success_list,
-            "fail_list": fail_list,
-            "valid": weighted.get("valid_algorithms", 0),
-            "total": weighted.get("total_algorithms", 0),
-        }
-        # 在线学习反馈（使用上次预测值与当前实际值比较）
-        with gui._data_lock:
-            prev_result = gui.prediction_results.get(bvid)
-            gui.prediction_results[bvid] = result
-        _online_learning_feedback(gui, bvid, results, current_view, prev_result)
+            "confidence": weighted.get("ensemble_confidence", 0),
+            "valid_algos": weighted.get("valid_algorithms", 0),
+            "total_algos": weighted.get("total_algorithms", 0),
+            "prediction_interval": weighted.get("prediction_interval"),
+            "surge_correction_applied": weighted.get("surge_correction_applied", False),
+            "surge_magnitude": weighted.get("surge_magnitude"),
+            "surge_type": weighted.get("surge_type", ""),
+        },
+        "coherence_list": [
+            (name, r.get("coherence", 0)) for name, r in results.items()
+            if name != "_weighted" and "error" not in r and r.get("coherence")
+        ],
+    }
+    # 在线学习反馈
+    with gui._data_lock:
+        prev_result = gui.prediction_results.get(bvid)
+        gui.prediction_results[bvid] = result
+    _online_learning_feedback(gui, bvid, results, current_view, prev_result)
 
-        # 图神经网络更新 + DB 写入放到后台线程，不阻塞预测返回
-        threading.Thread(
-            target=lambda: (_update_video_graph(gui, bvid, video),
-                            _save_predictions_to_db(gui, bvid, current_view, results)),
-            daemon=True,
-        ).start()
+    # 后台：图更新 + 视频库保存 + 中央库同步
+    def _save_all():
+        _update_video_graph(gui, bvid, video)
+        rows, ensemble, coherence = _save_predictions_to_db(gui, bvid, current_view, results)
+        _sync_predictions_to_central(bvid, rows, ensemble, coherence)
 
-        return result
+    threading.Thread(target=_save_all, daemon=True).start()
+
+    return result
 
 
 def _online_learning_feedback(gui, bvid, results, actual_view, prev_result):
@@ -677,10 +704,14 @@ class VideoWorker:
                 lambda r=result, v=video: self._apply_selected_update(r, v),
             )
 
-        # 刷新状态栏（上次刷新时间、视频计数）
-        now_str = datetime.now().strftime("%H:%M:%S")
-        gui._sb("last_ref", f"上次刷新: {now_str}")
-        gui._sb("videos", f"监控: {len(gui.monitored_videos)} 个")
+        # 刷新状态栏（去抖：200ms 内多次触发只更新一次，避免 13 个 worker 同时刷屏）
+        now = time.time()
+        last_sb = getattr(gui, "_last_sb_update", 0)
+        if now - last_sb > 0.2:
+            gui._last_sb_update = now
+            now_str = datetime.now().strftime("%H:%M:%S")
+            gui._sb("last_ref", f"上次刷新: {now_str}")
+            gui._sb("videos", f"监控: {len(gui.monitored_videos)} 个")
         # 重新注册定时器，使倒计时正常显示
         gui._register_video_timer(bvid)
 
@@ -738,6 +769,12 @@ def _stop_worker(bvid):
         worker.stop()
     with _merged_from_db_lock:
         _merged_from_db.discard(bvid)
+    # 清理该视频的 OnlineLearner 追踪器，释放内存
+    try:
+        from algorithms.online_learner import get_online_learner
+        get_online_learner().remove_by_prefix(bvid + "/")
+    except Exception:
+        pass
 
 
 def _stop_all_workers():

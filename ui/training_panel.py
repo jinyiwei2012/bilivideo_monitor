@@ -1173,15 +1173,19 @@ class TrainingPanel(BaseTrainingPanel):
             self._progress.configure(mode="determinate")
 
     def _on_stage_batch(self, msg):
-        """处理每 10% batch 完成事件 — 更新主窗口状态栏（轻量，不写日志）"""
+        """处理 batch 完成事件 — 更新状态栏并写入详细日志"""
         aid = msg.get("algo_id", "?")
         b = msg.get("batch", 0)
         tot_b = msg.get("total_batches", 1)
         avg_loss = msg.get("avg_loss", 0)
+        batch_loss = msg.get("batch_loss", 0)
         try:
             self.main._sb("status", f"🔄 {aid} batch {b}/{tot_b} loss={avg_loss:.4f}", color=C["text_2"])
         except Exception:
             pass
+        # 详细日志：batch 级损失写入日志面板和文件
+        pct = b / max(tot_b, 1) * 100
+        self._append_log(f"  📊 {aid} batch {b}/{tot_b} ({pct:.0f}%) | batch_loss={batch_loss:.6f} | avg_loss={avg_loss:.6f}")
         return False
 
     @staticmethod

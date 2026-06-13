@@ -469,6 +469,13 @@ class CentralBackup:
             ON yearly_scores(bvid, timestamp)""")
         CentralBackup._migrate_central_predictions(cur)
         cur.execute("CREATE INDEX IF NOT EXISTS idx_predictions_bvid ON predictions(bvid)")
+        try:
+            cur.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_central_predict_unique "
+                "ON predictions(bvid, algorithm, target_threshold)"
+            )
+        except Exception:
+            pass
 
     @staticmethod
     def _migrate_central_predictions(cur):

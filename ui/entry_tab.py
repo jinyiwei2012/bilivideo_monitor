@@ -568,6 +568,20 @@ class EntryTab:
                 reply_count=data.get("reply_count", 0),
             )
             video_db.add_monitor_record(record)
+            # 同步写入中央数据库作为兜底
+            try:
+                get_db().sync_monitor_record(bvid, {
+                    "timestamp": ts_str_full,
+                    "view_count": data.get("view_count", 0),
+                    "like_count": data.get("like_count", 0),
+                    "coin_count": data.get("coin_count", 0),
+                    "share_count": data.get("share_count", 0),
+                    "favorite_count": data.get("favorite_count", 0),
+                    "danmaku_count": data.get("danmaku_count", 0),
+                    "reply_count": data.get("reply_count", 0),
+                })
+            except Exception as e:
+                logger.debug("entry_tab 同步中央库失败 %s: %s", bvid, e)
             return True
         except Exception as e:
             logger.warning("快照写入失败 [%s]: %s", bvid, e)

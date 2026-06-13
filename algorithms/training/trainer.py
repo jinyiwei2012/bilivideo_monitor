@@ -595,6 +595,7 @@ class ModelTrainer:
                     state = video_ckpt.load()
                     if state is not None:
                         try:
+                            state = {k[len("_orig_mod."):] if k.startswith("_orig_mod.") else k: v for k, v in state.items()}
                             model.load_state_dict(state)
                             logger.info("[trainer] %s 从视频 %s checkpoint 续训", algo_id, bvid)
                             loaded = True
@@ -607,6 +608,7 @@ class ModelTrainer:
                     state = global_ckpt.load()
                     if state is not None:
                         try:
+                            state = {k[len("_orig_mod."):] if k.startswith("_orig_mod.") else k: v for k, v in state.items()}
                             model.load_state_dict(state)
                             logger.info("[trainer] %s 从全局 checkpoint 初始化", algo_id)
                         except Exception as e:
@@ -614,22 +616,12 @@ class ModelTrainer:
 
         # 将模型移动到检测到的最优设备（GPU/NPU/CPU）
         model = model.to(self.device)
-        # torch.compile: PyTorch 2.0+ 图编译优化
-        # - Triton 可用 → inductor 后端（20-40% 提速，需 Linux 或 triton-windows）
-        # - Triton 不可用 → aot_eager 后端（10-20% 提速，纯 Python，跨平台）
-        if self.device.type == "cuda" and hasattr(torch, "compile"):
-            try:
-                import triton  # noqa: F401
-                model = torch.compile(model, mode="reduce-overhead")
-                logger.info("[trainer] torch.compile (inductor) 已启用")
-            except ImportError:
-                try:
-                    model = torch.compile(model, backend="aot_eager")
-                    logger.info("[trainer] torch.compile (aot_eager, 无 Triton 回退) 已启用")
-                except Exception as e:
-                    logger.debug("[trainer] torch.compile 全部失败，使用 eager 模式: %s", e)
-            except Exception as e:
-                logger.debug("[trainer] torch.compile (inductor) 失败，使用 eager 模式: %s", e)
+        # torch.compile 已禁用：多种模型结构（BiTCN 的 Python for 循环、Crossformer 的动态
+        # segs 列表、FEDformer/FreTS 的 FFT 操作）与 dynamo 的 FX tracing / CUDA graph 的
+        # graph break 机制冲突，导致 "FX to symbolically trace a dynamo-optimized function"
+        # 或 "torch._C._is_key_in_tls" AssertionError。按模型逐一适配成本过高，统一禁用。
+        # 需要时可重新启用：torch.compile(model, mode="default")
+
         # 获取损失函数（默认 MSELoss）
         loss_fn = getattr(algo, "get_loss_fn", lambda: torch.nn.MSELoss())()
         # 创建优化器（默认 Adam(lr=1e-3)）
@@ -958,8 +950,9 @@ class ModelTrainer:
         # 保存调度器状态（支持增量训练续训）
         if scheduler is not None:
             metadata["scheduler_state"] = scheduler.state_dict()
+        model_to_save = model._orig_mod if hasattr(model, '_orig_mod') else model
         version = ckpt.save(
-            model.state_dict(),
+            model_to_save.state_dict(),
             metadata=metadata,
         )
         # 视频微调时也保存到 data/<bvid>/model/ 目录（供推理快速访问）
@@ -984,7 +977,8 @@ class ModelTrainer:
         os.makedirs(video_model_dir, exist_ok=True)
         path = os.path.join(video_model_dir, f"{algo_id}.pt")
         try:
-            torch.save(model.state_dict(), path)
+            model_to_save = model._orig_mod if hasattr(model, '_orig_mod') else model
+            torch.save(model_to_save.state_dict(), path)
             logger.info("[trainer] 模型已保存到 %s", path)
         except Exception as e:
             logger.warning("[trainer] 保存模型到视频目录失败: %s", e)

@@ -635,7 +635,20 @@ class DetailPanel:
         return self._chart_mode.get()
 
     def _fill_detail_text(self, video):
-        """填充详细数据文本区"""
+        """填充详细数据文本区。数据指纹未变时跳过全量重建。"""
+        # 计算数据指纹，避免无变更时的无效重建
+        fp_fields = (
+            video.get("view_count", 0), video.get("like_count", 0),
+            video.get("coin_count", 0), video.get("favorite_count", 0),
+            video.get("share_count", 0), video.get("danmaku_count", 0),
+            video.get("reply_count", 0), video.get("viewers_total", 0),
+            video.get("title", ""), video.get("author", ""),
+        )
+        new_fp = hash(fp_fields)
+        if new_fp == getattr(self, "_detail_text_fp", None):
+            return
+        self._detail_text_fp = new_fp
+
         self._detail_text.config(state="normal")
         self._detail_text.delete("1.0", tk.END)
         bvid = video.get("bvid", "")

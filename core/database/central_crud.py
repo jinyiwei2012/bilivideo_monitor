@@ -451,3 +451,170 @@ class CentralCRUD:
         except Exception as e:
             logger.warning("里程碑删除失败: %s", e)
             return False
+
+    # ── 预测/分数/共识度 同步 ─────────────────────
+
+    def sync_predictions(self, bvid: str, rows: list) -> bool:
+        """批量同步预测记录到中央库（INSERT OR REPLACE 按 bvid+algorithm+threshold 去重）
+
+        不再 DELETE 全表，改为逐行 upsert，保留历史预测记录不被清空。
+        """
+        if not rows:
+            return True
+        # SQLite INTEGER 最大值 (64位带符号)
+        _SQLITE_INT_MAX = 2**63 - 1
+        _clamp_int = lambda v: min(max(int(v or 0), -_SQLITE_INT_MAX), _SQLITE_INT_MAX)
+        try:
+            with self.db._get_connection() as conn:
+                cursor = conn.cursor()
+                # 确保 UNIQUE 索引存在
+                cursor.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_central_predict_unique "
+                    "ON predictions(bvid, algorithm, target_threshold)"
+                )
+                for r in rows:
+                    cursor.execute(
+                        """INSERT OR REPLACE INTO predictions
+                        (bvid, algorithm, algorithm_id, target_threshold,
+                         predicted_seconds, predicted_time, confidence, current_views,
+                         predicted_views, metadata, predicted_hours, current_velocity)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (bvid, r["algorithm"], r["algorithm_id"],
+                         _clamp_int(r.get("target_threshold", 0)),
+                         _clamp_int(r.get("predicted_seconds", 0)),
+                         r.get("predicted_time", ""), r["confidence"],
+                         _clamp_int(r.get("current_views", 0)),
+                         _clamp_int(r.get("predicted_views", 0)),
+                         r.get("metadata", ""), r.get("predicted_hours", 0),
+                         r.get("current_velocity", 0)),
+                    )
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.warning("批量同步预测失败 %s: %s", bvid, e)
+            return False
+
+    def sync_prediction_ensemble(self, bvid: str, timestamp: str, data: dict) -> bool:
+        """同步集成预测到中央库"""
+        try:
+            with self.db._get_connection() as conn:
+                interval = data.get("prediction_interval", {}) or {}
+                conn.execute(
+                    """INSERT INTO prediction_ensemble
+                    (bvid, timestamp, prediction, confidence, valid_algos, total_algos,
+                     interval_lower, interval_upper, interval_width_ratio,
+                     surge_correction_applied, surge_magnitude, surge_type)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (bvid, timestamp,
+                     int(data.get("prediction", 0)), data.get("confidence", 0),
+                     data.get("valid_algos", 0), data.get("total_algos", 0),
+                     interval.get("lower"), interval.get("upper"),
+                     interval.get("interval_width_ratio"),
+                     int(data.get("surge_correction_applied", False)),
+                     data.get("surge_magnitude"), data.get("surge_type", "")),
+                )
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.warning("同步集成预测失败 %s: %s", bvid, e)
+            return False
+
+    def sync_algorithm_coherence(self, bvid: str, timestamp: str, rows: list) -> bool:
+        """批量同步算法共识度到中央库"""
+        if not rows:
+            return True
+        try:
+            with self.db._get_connection() as conn:
+                cursor = conn.cursor()
+                for algo, coh in rows:
+                    cursor.execute(
+                        "INSERT INTO algorithm_coherence (bvid, timestamp, algorithm, coherence) VALUES (?, ?, ?, ?)",
+                        (bvid, timestamp, algo, round(coh, 4)),
+                    )
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.warning("同步共识度失败 %s: %s", bvid, e)
+            return False
+
+    def sync_weekly_score(self, bvid: str, timestamp: str, score_data: dict) -> bool:
+        """同步周刊分数到中央库"""
+        try:
+            with self.db._get_connection() as conn:
+                conn.execute(
+                    """INSERT INTO weekly_scores
+                    (bvid, timestamp, total_score, view_score, interaction_score,
+                     favorite_score, coin_score, like_score, correction_a, correction_b,
+                     correction_c, correction_d, base_view_score)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (bvid, timestamp,
+                     score_data.get("total_score", 0), score_data.get("view_score", 0),
+                     score_data.get("interaction_score", 0), score_data.get("favorite_score", 0),
+                     score_data.get("coin_score", 0), score_data.get("like_score", 0),
+                     score_data.get("correction_a", 0), score_data.get("correction_b", 0),
+                     score_data.get("correction_c", 0), score_data.get("correction_d", 0),
+                     score_data.get("base_view_score", 0)),
+                )
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.warning("同步周刊分数失败 %s: %s", bvid, e)
+            return False
+
+    def sync_yearly_score(self, bvid: str, timestamp: str, score_data: dict) -> bool:
+        """同步年刊分数到中央库"""
+        try:
+            with self.db._get_connection() as conn:
+                conn.execute(
+                    """INSERT INTO yearly_scores
+                    (bvid, timestamp, total_score, view_score, interaction_score,
+                     favorite_score, coin_score, like_score, correction_a, correction_b,
+                     correction_c)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (bvid, timestamp,
+                     score_data.get("total_score", 0), score_data.get("view_score", 0),
+                     score_data.get("interaction_score", 0), score_data.get("favorite_score", 0),
+                     score_data.get("coin_score", 0), score_data.get("like_score", 0),
+                     score_data.get("correction_a", 0), score_data.get("correction_b", 0),
+                     score_data.get("correction_c", 0)),
+                )
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.warning("同步年刊分数失败 %s: %s", bvid, e)
+            return False
+
+    def cleanup_duplicate_predictions(self) -> dict:
+        """清理中央库 predictions 表中的重复行
+
+        按 (bvid, algorithm, target_threshold) 分组，每组仅保留最新一条。
+        prediction_ensemble 表（综合预测数据）不受影响。
+
+        Returns:
+            {"deleted": int, "kept": int}
+        """
+        result = {"deleted": 0, "kept": 0}
+        try:
+            with self.db._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(*) FROM predictions")
+                before = cursor.fetchone()[0]
+                cursor.execute("""
+                    DELETE FROM predictions
+                    WHERE id NOT IN (
+                        SELECT MAX(id) FROM predictions
+                        GROUP BY bvid, algorithm, target_threshold
+                    )
+                """)
+                conn.commit()
+                cursor.execute("SELECT COUNT(*) FROM predictions")
+                result["kept"] = cursor.fetchone()[0]
+                result["deleted"] = before - result["kept"]
+                if result["deleted"] > 0:
+                    logger.info(
+                        "中央库预测清理完成: 删除%d行, 保留%d行",
+                        result["deleted"], result["kept"],
+                    )
+        except Exception as e:
+            logger.warning("中央库预测清理失败: %s", e)
+        return result

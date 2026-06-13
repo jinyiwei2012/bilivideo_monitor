@@ -204,6 +204,9 @@ class PredictionPanel:
             "surge_frame": surge_frame,
             "surge_label": surge_frame.winfo_children()[0] if surge_frame and surge_frame.winfo_children() else None,
         }
+        # 缓存推流指示器动态标签引用，后续增量更新直接用
+        if surge_info and surge_info.get("is_surging"):
+            self._cache_surge_refs(self._hero_widgets, surge_frame, surge_info)
         self._hero_has_data = True
 
     # ── 推流指示器构建/更新 ──────────────────────
@@ -292,20 +295,79 @@ class PredictionPanel:
         return frame
 
     def _update_surge_badge(self, hero_widgets, surge_info):
-        """增量更新推流指示器（已有 hero card 时调用）。"""
+        """增量更新推流指示器（已有 hero card 时调用）。
+        首次渲染创建 widget 并缓存引用，后续仅 .configure() 数值。"""
         frame = hero_widgets.get("surge_frame")
         if frame is None:
             return
 
-        # 清除旧内容
-        for w in frame.winfo_children():
-            w.destroy()
+        is_surging = surge_info and surge_info.get("is_surging")
+        cached = hero_widgets.get("_surge_dynamic")
 
-        if not surge_info or not surge_info.get("is_surging"):
+        # 推流状态切换：需要全量重建或清空
+        was_surging = bool(cached)
+        if is_surging != was_surging:
+            for w in frame.winfo_children():
+                w.destroy()
+            hero_widgets["_surge_dynamic"] = None
+            if is_surging:
+                self._build_surge_badge_content(frame, surge_info)
+                # 缓存首次创建后的动态标签引用
+                self._cache_surge_refs(hero_widgets, frame, surge_info)
             return
 
-        # 重建推流指示器
-        self._build_surge_badge_content(frame, surge_info)
+        if not is_surging:
+            return
+
+        # 同状态：仅更新数值
+        self._update_surge_values(cached, surge_info)
+
+    def _cache_surge_refs(self, hero_widgets, frame, surge_info):
+        """缓存推流指示器中的动态标签引用，供增量更新使用。"""
+        refs = {}
+        surge_type = surge_info.get("surge_type", "moderate")
+        # 遍历 frame 子 widget 找到所有 CTkLabel
+        all_labels = []
+        def _collect(w):
+            for child in w.winfo_children():
+                if isinstance(child, ctk.CTkLabel):
+                    all_labels.append(child)
+                _collect(child)
+        _collect(frame)
+        # 按顺序缓存：badge_text, detail_text, cur_vel, baseline_vel, daily_vel
+        refs["badge"] = all_labels[0] if len(all_labels) > 0 else None
+        refs["detail"] = all_labels[1] if len(all_labels) > 1 else None
+        refs["cur_vel"] = all_labels[2] if len(all_labels) > 2 else None
+        refs["baseline"] = all_labels[3] if len(all_labels) > 3 else None
+        refs["daily"] = all_labels[5] if len(all_labels) > 5 else None  # skip separator at idx 4
+        hero_widgets["_surge_dynamic"] = refs
+
+    @staticmethod
+    def _update_surge_values(refs, surge_info):
+        """仅更新推流指示器的数值文本。"""
+        if not refs:
+            return
+        surge_label = surge_info.get("surge_label", "📈 推流中")
+        surge_mag = surge_info.get("surge_magnitude", 1.0)
+        confidence = surge_info.get("surge_confidence", 0.0)
+        decay_hl = surge_info.get("decay_half_life_hours", 6.0)
+        surge_vel = surge_info.get("surge_velocity", 0)
+        baseline = surge_info.get("baseline_velocity", 0)
+        daily_vel = surge_info.get("daily_velocity")
+        period_ratio = surge_info.get("period_comparison", {}).get("daily_ratio")
+
+        if refs.get("badge"):
+            refs["badge"].configure(text=f"  {surge_label}  ")
+        if refs.get("detail"):
+            refs["detail"].configure(
+                text=f"· {surge_mag:.1f}x · 置信度 {confidence*100:.0f}% · 衰退 {decay_hl:.1f}h"
+            )
+        if refs.get("cur_vel"):
+            refs["cur_vel"].configure(text=f"当前 +{fmt_num(surge_vel)}/h")
+        if refs.get("baseline"):
+            refs["baseline"].configure(text=f"基线 +{fmt_num(baseline)}/h")
+        if refs.get("daily") and daily_vel is not None:
+            refs["daily"].configure(text=f"昨日同期 +{fmt_num(daily_vel)}/h")
 
     def _build_surge_badge_content(self, frame, surge_info):
         """在已有 frame 中填入推流指示器内容（供增量更新用）。"""
@@ -382,14 +444,125 @@ class PredictionPanel:
         for w in self._info_frame.winfo_children():
             w.destroy()
         self._info_content = None
+        self._info_bvid = None
+        self._info_dynamic = {}  # {key: widget} for incremental value updates
 
     def update_info(self, video, history, prediction_result):
-        """更新右侧信息面板：互动率 + 数据健康 + 算法统计"""
+        """更新右侧信息面板。
+        首次渲染创建全部 widget 并缓存动态标签引用；
+        同视频后续更新仅 .configure() 数值文本。"""
+        bvid = video.get("bvid", "")
+        same_video = bvid and bvid == getattr(self, "_info_bvid", None) and self._info_content
+
+        if same_video:
+            self._update_info_values(video, history, prediction_result)
+            return
+
+        self._info_bvid = bvid
         self._clear_info()
+        self._build_info_static(video, history, prediction_result)
+        self._info_content = True
+
+    # ── Phase 1: full widget creation (first render) ──
+
+    def _build_info_static(self, video, history, prediction_result):
+        """创建全部信息面板 widget 并缓存动态标签引用。"""
         f = self._info_frame
+        dyn = self._info_dynamic = {}
+        views = max(video.get("view_count", 0), 1)
 
         # ── 互动率概览 ──
         self._section_title(f, "📊 互动率概览")
+        grid = ctk.CTkFrame(f, fg_color=C["bg_surface"], corner_radius=0)
+        grid.pack(fill=tk.X, padx=10, pady=(0, 6))
+        rate_keys = ["like", "coin", "favorite", "share", "danmaku"]
+        rate_labels = ["👍 点赞率", "🪙 投币率", "⭐ 收藏率", "🔗 分享率", "💬 弹幕率"]
+        for i, (rlbl, rkey) in enumerate(zip(rate_labels, rate_keys)):
+            row, col = divmod(i, 2)
+            cell = ctk.CTkFrame(grid, fg_color=C["bg_elevated"], corner_radius=4, height=28)
+            cell.grid(row=row, column=col, padx=2, pady=1, sticky="ew")
+            grid.grid_columnconfigure(col, weight=1, uniform="stats")
+            ctk.CTkLabel(cell, text=rlbl, text_color=C["text_3"], font=FONT_SM, fg_color="transparent").pack(
+                side=tk.LEFT, padx=(6, 0)
+            )
+            val_lbl = ctk.CTkLabel(
+                cell, text="", text_color=C["text_1"], font=("Consolas", 9, "bold"), fg_color="transparent"
+            )
+            val_lbl.pack(side=tk.RIGHT, padx=(0, 6))
+            dyn[f"rate_{rkey}"] = val_lbl
+
+        # ── 在线人数 ──
+        online_frame = ctk.CTkFrame(f, fg_color=C["bg_surface"], corner_radius=0)
+        online_frame.pack(fill=tk.X, padx=10, pady=(0, 6))
+        online_row = ctk.CTkFrame(online_frame, fg_color=C["bg_elevated"], corner_radius=4, height=28)
+        online_row.pack(fill=tk.X)
+        ctk.CTkLabel(online_row, text="👁 在线人数", text_color=C["text_3"], font=FONT_SM, fg_color="transparent").pack(
+            side=tk.LEFT, padx=(6, 0)
+        )
+        online_val = ctk.CTkLabel(
+            online_row, text="", text_color=C["accent"], font=("Consolas", 9), fg_color="transparent"
+        )
+        online_val.pack(side=tk.RIGHT, padx=(0, 6))
+        dyn["online"] = online_val
+
+        # ── 最近记录（容器 + 动态行在 _update 中处理）──
+        self._section_title(f, "📋 最近记录")
+        dyn["hist_container"] = ctk.CTkFrame(f, fg_color=C["bg_surface"], corner_radius=0)
+        dyn["hist_container"].pack(fill=tk.X, padx=10, pady=(0, 6))
+        dyn["hist_rows"] = []  # list of (row_frame, ts_lbl, view_lbl, delta_lbl)
+
+        # ── 算法统计 ──
+        self._section_title(f, "🧠 算法统计")
+        algo_info = ctk.CTkFrame(f, fg_color=C["bg_surface"], corner_radius=0)
+        algo_info.pack(fill=tk.X, padx=10, pady=(0, 6))
+        ar1 = ctk.CTkFrame(algo_info, fg_color=C["bg_elevated"], corner_radius=4, height=28)
+        ar1.pack(fill=tk.X)
+        ctk.CTkLabel(ar1, text="有效算法", text_color=C["text_3"], font=FONT_SM, fg_color="transparent").pack(
+            side=tk.LEFT, padx=(6, 0)
+        )
+        algo_valid = ctk.CTkLabel(
+            ar1, text="", text_color=C["success"], font=("Consolas", 9, "bold"), fg_color="transparent"
+        )
+        algo_valid.pack(side=tk.RIGHT, padx=(0, 6))
+        dyn["algo_valid"] = algo_valid
+
+        ar2 = ctk.CTkFrame(algo_info, fg_color=C["bg_elevated"], corner_radius=4, height=28)
+        ar2.pack(fill=tk.X, pady=(2, 0))
+        ctk.CTkLabel(ar2, text="集成置信度", text_color=C["text_3"], font=FONT_SM, fg_color="transparent").pack(
+            side=tk.LEFT, padx=(6, 0)
+        )
+        ensemble_lbl = ctk.CTkLabel(
+            ar2, text="", text_color=C["accent"], font=("Consolas", 9, "bold"), fg_color="transparent"
+        )
+        ensemble_lbl.pack(side=tk.RIGHT, padx=(0, 6))
+        dyn["ensemble"] = ensemble_lbl
+
+        # ── 数据健康 ──
+        self._section_title(f, "📡 数据健康")
+        health = ctk.CTkFrame(f, fg_color=C["bg_surface"], corner_radius=0)
+        health.pack(fill=tk.X, padx=10, pady=(0, 6))
+        hr = ctk.CTkFrame(health, fg_color=C["bg_elevated"], corner_radius=4, height=28)
+        hr.pack(fill=tk.X)
+        ctk.CTkLabel(hr, text="数据点数", text_color=C["text_3"], font=FONT_SM, fg_color="transparent").pack(
+            side=tk.LEFT, padx=(6, 0)
+        )
+        n_records_lbl = ctk.CTkLabel(
+            hr, text="", text_color=C["text_1"], font=("Consolas", 9, "bold"), fg_color="transparent"
+        )
+        n_records_lbl.pack(side=tk.RIGHT, padx=(0, 6))
+        dyn["n_records"] = n_records_lbl
+
+        # 首次渲染后立即填充数值
+        self._update_info_values(video, history, prediction_result)
+
+    # ── Phase 2: value-only updates ──
+
+    def _update_info_values(self, video, history, prediction_result):
+        """仅更新动态数值标签，不创建/销毁任何 widget。"""
+        dyn = getattr(self, "_info_dynamic", {})
+        if not dyn:
+            return
+
         views = max(video.get("view_count", 0), 1)
         likes = video.get("like_count", 0) or 0
         coins = video.get("coin_count", 0) or 0
@@ -397,156 +570,113 @@ class PredictionPanel:
         shares = video.get("share_count", 0) or 0
         danmaku = video.get("danmaku_count", 0) or 0
 
-        stats = [
-            ("👍 点赞率", f"{likes / views * 100:.2f}%"),
-            ("🪙 投币率", f"{coins / views * 100:.2f}%"),
-            ("⭐ 收藏率", f"{favorites / views * 100:.2f}%"),
-            ("🔗 分享率", f"{shares / views * 100:.2f}%"),
-            ("💬 弹幕率", f"{danmaku / views * 100:.2f}%"),
-        ]
-        grid = ctk.CTkFrame(f, fg_color=C["bg_surface"], corner_radius=0)
-        grid.pack(fill=tk.X, padx=10, pady=(0, 6))
-        for i, (label, val) in enumerate(stats):
-            row, col = divmod(i, 2)  # 两列布局
-            cell = ctk.CTkFrame(grid, fg_color=C["bg_elevated"], corner_radius=4, height=28)
-            cell.grid(row=row, column=col, padx=2, pady=1, sticky="ew")
-            grid.grid_columnconfigure(col, weight=1, uniform="stats")
-            ctk.CTkLabel(cell, text=label, text_color=C["text_3"], font=FONT_SM, fg_color="transparent").pack(
-                side=tk.LEFT, padx=(6, 0)
-            )
-            ctk.CTkLabel(
-                cell, text=val, text_color=C["text_1"], font=("Consolas", 9, "bold"), fg_color="transparent"
-            ).pack(side=tk.RIGHT, padx=(0, 6))
+        # 互动率
+        for rkey, val, fmt_fn in [
+            ("like", likes, lambda v: f"{v / views * 100:.2f}%"),
+            ("coin", coins, lambda v: f"{v / views * 100:.2f}%"),
+            ("favorite", favorites, lambda v: f"{v / views * 100:.2f}%"),
+            ("share", shares, lambda v: f"{v / views * 100:.2f}%"),
+            ("danmaku", danmaku, lambda v: f"{v / views * 100:.2f}%"),
+        ]:
+            lbl = dyn.get(f"rate_{rkey}")
+            if lbl:
+                lbl.configure(text=fmt_fn(val))
 
-        # ── 在线人数 ──
+        # 在线人数
         online_total = video.get("viewers_total", 0)
         online_web = video.get("viewers_web", 0)
         online_app = video.get("viewers_app", 0)
-        if online_total > 0:
-            online_frame = ctk.CTkFrame(f, fg_color=C["bg_surface"], corner_radius=0)
-            online_frame.pack(fill=tk.X, padx=10, pady=(0, 6))
-            row = ctk.CTkFrame(online_frame, fg_color=C["bg_elevated"], corner_radius=4, height=28)
-            row.pack(fill=tk.X)
-            ctk.CTkLabel(row, text="👁 在线人数", text_color=C["text_3"], font=FONT_SM, fg_color="transparent").pack(
-                side=tk.LEFT, padx=(6, 0)
-            )
-            ctk.CTkLabel(
-                row,
-                text=f"{fmt_num(online_total)}  (网页{fmt_num(online_web)}/APP{fmt_num(online_app)})",
-                text_color=C["accent"],
-                font=("Consolas", 9),
-                fg_color="transparent",
-            ).pack(side=tk.RIGHT, padx=(0, 6))
-
-        # ── 最近记录 ──
-        self._section_title(f, "📋 最近记录")
-        hist_container = ctk.CTkFrame(f, fg_color=C["bg_surface"], corner_radius=0)
-        hist_container.pack(fill=tk.X, padx=10, pady=(0, 6))
-        if history and len(history) > 1:
-            recent = history[-15:]  # 只显示最近 15 条
-            prev_v = recent[0][1] if len(recent) > 1 else 0
-            for ts, v in recent:
-                dt_str = (
-                    ts.strftime("%m-%d %H:%M")
-                    if isinstance(ts, datetime)
-                    else str(ts)[:-3] if len(str(ts)) > 16 else str(ts)
+        if dyn.get("online"):
+            if online_total > 0:
+                dyn["online"].configure(
+                    text=f"{fmt_num(online_total)}  (网页{fmt_num(online_web)}/APP{fmt_num(online_app)})"
                 )
-                delta_v = v - prev_v if prev_v > 0 else 0
-                delta_str = f"+{fmt_num(delta_v)}" if delta_v > 0 else "—"
-                delta_c = C["success"] if delta_v > 0 else C["text_3"]
-                prev_v = v
-                row = ctk.CTkFrame(hist_container, fg_color=C["bg_surface"], corner_radius=0)
-                row.pack(fill=tk.X, pady=1)
-                ctk.CTkLabel(
-                    row,
-                    text=dt_str,
-                    text_color=C["text_3"],
-                    font=("Consolas", 8),
-                    fg_color="transparent",
-                    width=60,
-                    anchor="w",
-                ).pack(side=tk.LEFT)
-                ctk.CTkLabel(
-                    row,
-                    text=fmt_num(v),
-                    text_color=C["text_1"],
-                    font=("Consolas", 9, "bold"),
-                    fg_color="transparent",
-                    width=60,
-                    anchor="e",
-                ).pack(side=tk.RIGHT)
-                ctk.CTkLabel(
-                    row,
-                    text=delta_str,
-                    text_color=delta_c,
-                    font=("Consolas", 8),
-                    fg_color="transparent",
-                    width=50,
-                    anchor="e",
-                ).pack(side=tk.RIGHT)
-        else:
-            ctk.CTkLabel(
-                hist_container,
-                text="暂无历史数据",
-                text_color=C["text_3"],
-                font=FONT_SM,
-                fg_color="transparent",
-                anchor="w",
-            ).pack(fill=tk.X, pady=4)
+            else:
+                dyn["online"].configure(text="—")
 
-        # ── 算法统计 ──
-        self._section_title(f, "🧠 算法统计")
-        algo_info = ctk.CTkFrame(f, fg_color=C["bg_surface"], corner_radius=0)
-        algo_info.pack(fill=tk.X, padx=10, pady=(0, 6))
+        # 最近记录（增量更新行，避免全量重建）
+        self._update_history_rows(history)
+
+        # 算法统计
         if prediction_result:
             valid = prediction_result.get("valid", 0)
             total = prediction_result.get("total", 0)
             ensemble_conf = prediction_result.get("ensemble_confidence", 0)
-            row = ctk.CTkFrame(algo_info, fg_color=C["bg_elevated"], corner_radius=4, height=28)
-            row.pack(fill=tk.X)
-            ctk.CTkLabel(row, text="有效算法", text_color=C["text_3"], font=FONT_SM, fg_color="transparent").pack(
-                side=tk.LEFT, padx=(6, 0)
-            )
-            ctk.CTkLabel(
-                row,
-                text=f"{valid}/{total}",
-                text_color=C["success"] if valid > 0 else C["danger"],
-                font=("Consolas", 9, "bold"),
-                fg_color="transparent",
-            ).pack(side=tk.RIGHT, padx=(0, 6))
-            if ensemble_conf > 0:
-                row2 = ctk.CTkFrame(algo_info, fg_color=C["bg_elevated"], corner_radius=4, height=28)
-                row2.pack(fill=tk.X, pady=(2, 0))
+            if dyn.get("algo_valid"):
+                fg = C["success"] if valid > 0 else C["danger"]
+                dyn["algo_valid"].configure(text=f"{valid}/{total}", text_color=fg)
+            if dyn.get("ensemble"):
+                dyn["ensemble"].configure(text=f"{ensemble_conf * 100:.1f}%" if ensemble_conf > 0 else "—")
+
+        # 数据健康
+        if dyn.get("n_records"):
+            dyn["n_records"].configure(text=str(len(history)) if history else "0")
+
+    def _update_history_rows(self, history):
+        """增量更新最近记录行：复用已有 widget，仅在行数变化时增/删。"""
+        dyn = getattr(self, "_info_dynamic", {})
+        rows = dyn.get("hist_rows", [])
+        container = dyn.get("hist_container")
+        if not container:
+            return
+
+        if not history or len(history) < 2:
+            # 清空已有行，显示占位
+            for _, _, _, _ in rows:
+                pass  # will be destroyed below
+            for _, row_fr, _, _ in rows:
+                row_fr.destroy()
+            rows.clear()
+            if not container.winfo_children():
                 ctk.CTkLabel(
-                    row2, text="集成置信度", text_color=C["text_3"], font=FONT_SM, fg_color="transparent"
-                ).pack(side=tk.LEFT, padx=(6, 0))
-                ctk.CTkLabel(
-                    row2,
-                    text=f"{ensemble_conf * 100:.1f}%",
-                    text_color=C["accent"],
-                    font=("Consolas", 9, "bold"),
-                    fg_color="transparent",
-                ).pack(side=tk.RIGHT, padx=(0, 6))
+                    container, text="暂无历史数据", text_color=C["text_3"],
+                    font=FONT_SM, fg_color="transparent", anchor="w"
+                ).pack(fill=tk.X, pady=4)
+            return
+
+        # 清除占位文本
+        for w in container.winfo_children():
+            if isinstance(w, ctk.CTkLabel) and w.cget("text") == "暂无历史数据":
+                w.destroy()
+
+        recent = history[-15:]
+        prev_vals = [prev[1] if i > 0 else recent[0][1] for i, prev in enumerate(recent)]
+
+        # 行数不变：复用 widget，只更新文本
+        if len(rows) == len(recent):
+            for i, (ts, v) in enumerate(recent):
+                _, ts_lbl, view_lbl, delta_lbl = rows[i]
+                dt_str = ts.strftime("%m-%d %H:%M") if isinstance(ts, datetime) else str(ts)[:16]
+                ts_lbl.configure(text=dt_str)
+                view_lbl.configure(text=fmt_num(v))
+                delta_v = v - prev_vals[i] if i > 0 and prev_vals[i] > 0 else 0
+                if delta_v > 0:
+                    delta_lbl.configure(text=f"+{fmt_num(delta_v)}", text_color=C["success"])
+                else:
+                    delta_lbl.configure(text="—", text_color=C["text_3"])
         else:
-            ctk.CTkLabel(
-                algo_info, text="等待首次预测", text_color=C["text_3"], font=FONT_SM, fg_color="transparent", anchor="w"
-            ).pack(fill=tk.X, pady=4)
+            # 行数变了，全量重建
+            for _, row_fr, _, _ in rows:
+                row_fr.destroy()
+            rows.clear()
+            for i, (ts, v) in enumerate(recent):
+                dt_str = ts.strftime("%m-%d %H:%M") if isinstance(ts, datetime) else str(ts)[:16]
+                delta_v = v - prev_vals[i] if i > 0 and prev_vals[i] > 0 else 0
+                delta_str = f"+{fmt_num(delta_v)}" if delta_v > 0 else "—"
+                delta_c = C["success"] if delta_v > 0 else C["text_3"]
 
-        # ── 数据健康 ──
-        self._section_title(f, "📡 数据健康")
-        health = ctk.CTkFrame(f, fg_color=C["bg_surface"], corner_radius=0)
-        health.pack(fill=tk.X, padx=10, pady=(0, 6))
-        n_records = len(history) if history else 0
-        row = ctk.CTkFrame(health, fg_color=C["bg_elevated"], corner_radius=4, height=28)
-        row.pack(fill=tk.X)
-        ctk.CTkLabel(row, text="数据点数", text_color=C["text_3"], font=FONT_SM, fg_color="transparent").pack(
-            side=tk.LEFT, padx=(6, 0)
-        )
-        ctk.CTkLabel(
-            row, text=str(n_records), text_color=C["text_1"], font=("Consolas", 9, "bold"), fg_color="transparent"
-        ).pack(side=tk.RIGHT, padx=(0, 6))
-
-        self._info_content = True
+                row_fr = ctk.CTkFrame(container, fg_color=C["bg_surface"], corner_radius=0)
+                row_fr.pack(fill=tk.X, pady=1)
+                ts_lbl = ctk.CTkLabel(row_fr, text=dt_str, text_color=C["text_3"],
+                                      font=("Consolas", 8), fg_color="transparent", width=60, anchor="w")
+                ts_lbl.pack(side=tk.LEFT)
+                view_lbl = ctk.CTkLabel(row_fr, text=fmt_num(v), text_color=C["text_1"],
+                                        font=("Consolas", 9, "bold"), fg_color="transparent", width=60, anchor="e")
+                view_lbl.pack(side=tk.RIGHT)
+                delta_lbl = ctk.CTkLabel(row_fr, text=delta_str, text_color=delta_c,
+                                         font=("Consolas", 8), fg_color="transparent", width=50, anchor="e")
+                delta_lbl.pack(side=tk.RIGHT)
+                rows.append((row_fr, ts_lbl, view_lbl, delta_lbl))
 
     def _section_title(self, parent, text):
         """绘制一个分节标题"""

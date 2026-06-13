@@ -9,12 +9,34 @@
 from typing import Dict, List, Tuple
 import logging
 import math
+from collections import OrderedDict
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 from .weight_manager import get_weight_manager
 
 logger = logging.getLogger(__name__)
+
+# ── LRU 缓存工具 ───────────────────────────────
+_MAX_CACHE_SIZE = 200
+
+
+class _LRUDict(OrderedDict):
+    """固定容量的 LRU 字典，超出容量时自动淘汰最久未使用的条目。"""
+    __slots__ = ("maxsize",)
+
+    def __init__(self, maxsize=_MAX_CACHE_SIZE, *args, **kwargs):
+        self.maxsize = maxsize
+        super().__init__(*args, **kwargs)
+
+    def __setitem__(self, key, value):
+        super().__setitem__(key, value)
+        if len(self) > self.maxsize:
+            self.popitem(last=False)
+
+    def __getitem__(self, key):
+        self.move_to_end(key)
+        return super().__getitem__(key)
 
 # ── 模块级单例：surge detector（避免每轮预测重复创建类） ──
 _surge_detector = None
@@ -51,7 +73,7 @@ class AlgorithmRegistry:
     _pool = None
     _init_lock = threading.Lock()
     _history_lock = threading.Lock()
-    _derived_cache = {}
+    _derived_cache: _LRUDict = _LRUDict(maxsize=_MAX_CACHE_SIZE)
 
     @classmethod
     def initialize(cls):
@@ -345,7 +367,7 @@ class AlgorithmRegistry:
         with cls._pool_lock:
             if cls._pool is None:
                 import os
-                workers = min(8, os.cpu_count() or 4)
+                workers = os.cpu_count() or 8
                 cls._pool = ThreadPoolExecutor(max_workers=workers)
             pool = cls._pool
         futures = [pool.submit(_run_single, item) for item in cls._algorithms.items()]
@@ -403,7 +425,7 @@ class AlgorithmRegistry:
 
             with cls._history_lock:
                 if not hasattr(cls, "_surge_cache"):
-                    cls._surge_cache = {}
+                    cls._surge_cache = _LRUDict(maxsize=100)
                 if cache_key in cls._surge_cache:
                     return cls._surge_cache[cache_key]
 
@@ -413,10 +435,6 @@ class AlgorithmRegistry:
 
             with cls._history_lock:
                 cls._surge_cache[cache_key] = surge_info
-                # 限制缓存大小
-                if len(cls._surge_cache) > 100:
-                    oldest = next(iter(cls._surge_cache))
-                    del cls._surge_cache[oldest]
 
             return surge_info
         except Exception as e:
@@ -648,7 +666,7 @@ class AlgorithmRegistry:
         cls.shutdown()
         cls._algorithms = {}
         cls._model_adapters = {}
-        cls._derived_cache = {}
+        cls._derived_cache = _LRUDict(maxsize=_MAX_CACHE_SIZE)
         cls._initialized = False
 
     @classmethod

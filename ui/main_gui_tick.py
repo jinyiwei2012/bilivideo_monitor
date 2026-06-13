@@ -16,6 +16,10 @@ def start_global_tick(gui):
     """启动全局 tick 循环"""
     if gui._global_tick_job:
         gui.root.after_cancel(gui._global_tick_job)
+    # 缓存上一次显示的倒计时文本，避免无变更时的无效 .config() 调用
+    gui._last_countdown_text = ""
+    gui._last_mode_text = ""
+    gui._last_interval_text = ""
     gui._global_tick_job = gui.root.after(1000, lambda: global_tick(gui))
 
 
@@ -27,7 +31,8 @@ def stop_global_tick(gui):
 
 
 def global_tick(gui):
-    """每秒一次的全局 tick：更新倒计时、模式指示、周期性维护"""
+    """每秒一次的全局 tick：更新倒计时、模式指示、周期性维护。
+    值未变时跳过 Tkinter .config() 调用，避免无效重绘。"""
     try:
         if not gui.auto_refresh_enabled.get():
             gui._global_tick_job = None
@@ -44,18 +49,25 @@ def global_tick(gui):
             if remaining < min_remaining:
                 min_remaining = remaining
 
+        # 只在文本变更时才调用 .config()（Tkinter .config 会触发 widget 重绘）
         if min_remaining == float("inf"):
             badge_text = "— s"
         else:
             badge_text = f"{int(max(0, min_remaining)):02d} s"
-        gui._countdown_badge.config(text=badge_text)
+        if badge_text != getattr(gui, "_last_countdown_text", ""):
+            gui._countdown_badge.config(text=badge_text)
+            gui._last_countdown_text = badge_text
 
-        if fast_count > 0:
-            gui._mode_pill.config(text=f"⚡ {fast_count}个快速", fg=C["danger"])
-        else:
-            gui._mode_pill.config(text="● 正常模式", fg=C["success"])
+        mode_text = f"⚡ {fast_count}个快速" if fast_count > 0 else "● 正常模式"
+        mode_fg = C["danger"] if fast_count > 0 else C["success"]
+        if mode_text != getattr(gui, "_last_mode_text", ""):
+            gui._mode_pill.config(text=mode_text, fg=mode_fg)
+            gui._last_mode_text = mode_text
 
-        gui._sb("interval", f"正常{gui.DEFAULT_INTERVAL}s / 快速{gui.FAST_INTERVAL}s")
+        interval_text = f"正常{gui.DEFAULT_INTERVAL}s / 快速{gui.FAST_INTERVAL}s"
+        if interval_text != getattr(gui, "_last_interval_text", ""):
+            gui._sb("interval", interval_text)
+            gui._last_interval_text = interval_text
 
         gui._tick_counter = (gui._tick_counter + 1) % 3600
         if gui._tick_counter == 0:
@@ -92,10 +104,68 @@ def do_periodic_sync(gui):
                 db.sync_per_video_dbs_to_backup()
             except Exception as e:
                 logger.debug("忽略异常: %s", e)
+
+            # 每15天清理一次 predictions 历史重复行
+            _maybe_cleanup_predictions(gui)
+
+            # 每24小时清理一次 OnlineLearner 过期追踪器
+            _maybe_cleanup_online_learner(gui)
         except Exception as e:
             logger.warning("每小时同步异常: %s", e)
 
     threading.Thread(target=_sync_worker, daemon=True).start()
+
+
+def _maybe_cleanup_predictions(gui):
+    """每15天清理一次预测表中的历史重复行（保留综合预测数据，清理多算法详细预测的重复）"""
+    import time
+
+    now = time.time()
+    last = getattr(gui, "_last_prediction_cleanup", 0)
+    fifteen_days = 15 * 24 * 3600
+    if now - last < fifteen_days:
+        return
+    gui._last_prediction_cleanup = now
+
+    try:
+        from core import db
+
+        # 清理中央库
+        central_result = db.cleanup_duplicate_predictions()
+        # 清理各视频独立库
+        total_deleted = central_result.get("deleted", 0)
+        total_mirror_deleted = central_result.get("mirror_deleted", 0) if "mirror_deleted" in central_result else 0
+        for bvid, video_db in list(gui.video_dbs.items()):
+            try:
+                vr = video_db.cleanup_duplicate_predictions()
+                total_deleted += vr.get("deleted", 0)
+                total_mirror_deleted += vr.get("mirror_deleted", 0)
+            except Exception as e:
+                logger.debug("清理视频库预测失败 %s: %s", bvid, e)
+
+        if total_deleted > 0:
+            logger.info(
+                "15天预测清理完成: 共删除 %d 行重复数据 (镜像 %d 行)",
+                total_deleted, total_mirror_deleted,
+            )
+    except Exception as e:
+        logger.warning("预测清理异常: %s", e)
+
+
+def _maybe_cleanup_online_learner(gui):
+    """每24小时清理一次 OnlineLearner 中过期（超过48小时未更新）的追踪器。"""
+    import time
+
+    now = time.time()
+    last = getattr(gui, "_last_learner_cleanup", 0)
+    if now - last < 86400:  # 24 hours
+        return
+    gui._last_learner_cleanup = now
+    try:
+        from algorithms.online_learner import get_online_learner
+        get_online_learner().cleanup_stale(max_age_seconds=172800)  # 48h
+    except Exception as e:
+        logger.debug("OnlineLearner 清理失败: %s", e)
 
 
 def scan_alerts_background(gui):

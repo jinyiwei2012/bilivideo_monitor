@@ -1,87 +1,163 @@
 """
-预测回测（误差分析）面板
-对比历史预测值 vs 实际播放量，计算 MAE/MAPE，评估各算法表现
+预测回测面板 — 基于 RolloutBacktester 滚动窗口交叉验证
+评估各算法在历史数据上的离线预测表现（RMSE / MAE / MAPE）
 """
 
 import tkinter as tk
 from tkinter import ttk
+import threading
+import numpy as np
+from datetime import datetime
+
 from ui.theme import C
-from ui.helpers import FONT, fmt_num
+from ui.helpers import FONT, FONT_SM, fmt_num
 from ui.dialog_base import DialogBase
+from algorithms.rollout_backtest import (
+    RollingBacktester,
+    make_linear_fn,
+    make_moving_avg_fn,
+    make_exp_fn,
+    make_theta_fn,
+)
 
 
 class BacktestPanel:
-    """预测回测面板：对比历史预测值与实际播放量，计算 MAE / MAPE，评估各算法表现"""
+    """预测回测面板：使用滚动窗口交叉验证评估算法离线表现"""
 
     def __init__(self, parent, gui):
-        """
-        初始化回测面板
-
-        :param parent: 父窗口
-        :param gui: 主 GUI 实例
-        """
         self.gui = gui
-        self.dlg = DialogBase(parent, "📊 预测回测", "800x540")
-        self.dlg.header("预测回测 — 误差分析", "对比历史预测值 vs 实际播放量")
+        self.dlg = DialogBase(parent, "📊 预测回测", "820x580")
+        self.dlg.header("预测回测 — 滚动窗口交叉验证", "在历史数据上评估各算法预测准确度")
         self._build_ui()
 
     def _build_ui(self):
-        """构建界面：视频选择下拉框、分析按钮、统计摘要、结果表格"""
+        """构建界面"""
         top = tk.Frame(self.dlg.content_area(), bg=C["bg_base"])
         top.pack(fill=tk.X, padx=10, pady=4)
 
-        # 视频选择
         tk.Label(top, text="选择视频:", bg=C["bg_base"], fg=C["text_1"], font=FONT).pack(side=tk.LEFT)
         self._video_var = tk.StringVar()
         self._video_combo = ttk.Combobox(top, textvariable=self._video_var, font=FONT, state="readonly", width=40)
         self._video_combo.pack(side=tk.LEFT, padx=6)
-        self._video_combo.bind("<<ComboboxSelected>>", lambda e: self._analyze())
 
-        ttk.Button(top, text="📊 分析", command=self._analyze).pack(side=tk.LEFT, padx=4)
+        # 参数
+        tk.Label(top, text="窗口:", bg=C["bg_base"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT, padx=(8, 2))
+        self._window_var = tk.IntVar(value=10)
+        ttk.Spinbox(top, from_=5, to=50, textvariable=self._window_var, width=4).pack(side=tk.LEFT, padx=2)
 
-        # 统计摘要区
+        tk.Label(top, text="步长:", bg=C["bg_base"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT, padx=(6, 2))
+        self._step_var = tk.IntVar(value=3)
+        ttk.Spinbox(top, from_=1, to=10, textvariable=self._step_var, width=4).pack(side=tk.LEFT, padx=2)
+
+        # 算法来源
+        self._use_factories = tk.BooleanVar(value=True)
+        ttk.Checkbutton(top, text="基础模型", variable=self._use_factories).pack(side=tk.LEFT, padx=(8, 2))
+        self._use_algorithms = tk.BooleanVar(value=True)
+        ttk.Checkbutton(top, text="注册算法", variable=self._use_algorithms).pack(side=tk.LEFT, padx=2)
+
+        ttk.Button(top, text="📊 开始回测", command=self._analyze).pack(side=tk.LEFT, padx=(8, 4))
+
+        # 状态区
+        self._status_lbl = tk.Label(top, text="", bg=C["bg_base"], fg=C["text_3"], font=FONT_SM)
+        self._status_lbl.pack(side=tk.LEFT, padx=8)
+
+        # 摘要
         self._summary_frame = tk.Frame(self.dlg.content_area(), bg=C["bg_base"])
         self._summary_frame.pack(fill=tk.X, padx=10, pady=4)
 
-        # 结果表格：算法、MAE、MAPE、样本数、平均预测、平均实际、偏差倾向
-        columns = ("algo", "mae", "mape", "samples", "avg_pred", "avg_actual", "bias")
-        self._tree = ttk.Treeview(self.dlg.content_area(), columns=columns, show="headings", height=16)
+        # 表格
+        columns = ("algo", "rmse", "mae", "mape", "n_tests", "rank")
+        self._tree = ttk.Treeview(self.dlg.content_area(), columns=columns, show="headings", height=18)
         self._tree.heading("algo", text="算法")
+        self._tree.heading("rmse", text="RMSE")
         self._tree.heading("mae", text="MAE")
         self._tree.heading("mape", text="MAPE")
-        self._tree.heading("samples", text="样本数")
-        self._tree.heading("avg_pred", text="平均预测")
-        self._tree.heading("avg_actual", text="平均实际")
-        self._tree.heading("bias", text="偏差倾向")
-        self._tree.column("algo", width=160)
-        self._tree.column("mae", width=80, anchor="e")
+        self._tree.heading("n_tests", text="测试次数")
+        self._tree.heading("rank", text="排名")
+        self._tree.column("algo", width=180)
+        self._tree.column("rmse", width=90, anchor="e")
+        self._tree.column("mae", width=90, anchor="e")
         self._tree.column("mape", width=70, anchor="e")
-        self._tree.column("samples", width=60, anchor="center")
-        self._tree.column("avg_pred", width=90, anchor="e")
-        self._tree.column("avg_actual", width=90, anchor="e")
-        self._tree.column("bias", width=70, anchor="center")
+        self._tree.column("n_tests", width=70, anchor="center")
+        self._tree.column("rank", width=50, anchor="center")
         self._tree.pack(fill=tk.BOTH, expand=True, padx=10, pady=4)
 
-        scroll = ttk.Scrollbar(self._tree, command=self._tree.yview)
-        scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        self._tree.configure(yscrollcommand=scroll.set)
-
-        # 填充视频列表并默认选中第一个
+        # 填充视频列表
         videos = self.gui.monitored_videos
         names = [f"{v.get('title', v.get('bvid', ''))[:35]} ({v.get('bvid', '')})" for v in videos]
         self._video_combo["values"] = names
         if names:
             self._video_combo.current(0)
-            self._analyze()
+            self._video_combo.bind("<<ComboboxSelected>>", lambda e: self._analyze())
+            self.dlg.window.after(200, self._analyze)
+
+    def _get_series(self, bvid: str):
+        """从数据库提取播放量时间序列（一维 numpy 数组）"""
+        video_db = self.gui.video_dbs.get(bvid)
+        if not video_db:
+            return None
+        try:
+            records = video_db.get_all_records(limit=3000)
+            if not records:
+                return None
+            views = []
+            for r in records:
+                v = r.get("view_count", 0)
+                if isinstance(v, (int, float)) and v > 0:
+                    views.append(float(v))
+            return np.array(views, dtype=np.float64) if views else None
+        except Exception:
+            return None
+
+    def _make_algo_predict_fn(self, algo_name: str):
+        """为注册算法创建 predict_fn 适配器。
+
+        将算法需要的 video_data dict 封装为 backtester 所需的
+        predict_fn(series) -> float 接口。
+        """
+        from algorithms.registry import AlgorithmRegistry
+
+        adapter = AlgorithmRegistry.get_algorithm(algo_name)
+        if adapter is None:
+            return None
+
+        def predict_fn(train: np.ndarray) -> float:
+            current_views = float(train[-1])
+            n = len(train)
+            # 构建 history_data（算法需要的格式）
+            history = []
+            for i in range(n):
+                history.append({
+                    "view_count": int(train[i]),
+                    "view": int(train[i]),
+                    "timestamp": datetime.now(),  # 不影响速度计算
+                })
+            video_data = {
+                "view_count": int(current_views),
+                "history_data": history,
+                "timestamp": datetime.now(),
+                "data_points": n,
+            }
+            try:
+                result = adapter.predict(video_data, threshold=100000)
+                predicted_hours = getattr(result, "predicted_hours", float("inf"))
+                velocity = getattr(result, "current_velocity", 0)
+                # 用预测小时数和速度反推下一个值
+                if velocity > 0 and predicted_hours != float("inf") and predicted_hours > 0:
+                    remaining = (predicted_hours * 3600) * velocity / 3600
+                    return current_views + velocity * (75.0 / 3600.0)  # 75秒短周期
+                elif velocity > 0:
+                    return current_views + velocity * (75.0 / 3600.0)
+                else:
+                    return current_views * 1.005
+            except Exception:
+                return current_views * 1.01
+
+        return predict_fn
 
     def _analyze(self):
-        """对选中视频执行回测分析：读取预测记录 → 按算法分组 → 计算 MAE/MAPE → 展示结果"""
-
-        # 清空旧数据
-        for row in self._tree.get_children():
-            self._tree.delete(row)
-        for w in self._summary_frame.winfo_children():
-            w.destroy()
+        """在后台线程执行回测，避免阻塞 UI"""
+        self._status_lbl.config(text="⏳ 回测中…", fg=C["accent"])
 
         idx = self._video_combo.current()
         if idx < 0:
@@ -89,84 +165,129 @@ class BacktestPanel:
         video = self.gui.monitored_videos[idx]
         bvid = video.get("bvid", "")
 
-        video_db = self.gui.video_dbs.get(bvid)
-        if not video_db:
-            tk.Label(self._summary_frame, text="该视频无数据库记录", fg=C["text_3"], bg=C["bg_base"], font=FONT).pack()
+        params = {
+            "bvid": bvid,
+            "min_train": self._window_var.get(),
+            "step": self._step_var.get(),
+            "use_factories": self._use_factories.get(),
+            "use_algorithms": self._use_algorithms.get(),
+        }
+        threading.Thread(target=self._run_backtest, args=(params,), daemon=True).start()
+
+    def _run_backtest(self, params):
+        """后台执行回测并更新 UI"""
+        bvid = params["bvid"]
+        series = self._get_series(bvid)
+        if series is None or len(series) < params["min_train"] + 5:
+            self.dlg.window.after(0, lambda: self._status_lbl.config(
+                text="数据不足" if series is None else f"数据点不足（{len(series)} < {params['min_train'] + 5}）",
+                fg=C["danger"]
+            ))
             return
 
-        try:
-            predictions = video_db.get_predictions(limit=5000)
-        except Exception as e:
-            tk.Label(
-                self._summary_frame, text=f"读取预测记录失败: {e}", fg=C["danger"], bg=C["bg_base"], font=FONT
-            ).pack()
-            return
+        self.dlg.window.after(0, lambda: self._status_lbl.config(
+            text=f"⏳ 回测中… {len(series)} 个数据点", fg=C["accent"]
+        ))
 
-        if not predictions:
-            tk.Label(self._summary_frame, text="暂无预测记录", fg=C["text_3"], bg=C["bg_base"], font=FONT).pack()
-            return
+        # 构建预测器字典
+        predictors = {}
 
-        # 按算法分组计算误差
-        algo_stats = {}
-        for p in predictions:
+        # 基础模型工厂
+        if params["use_factories"]:
+            predictors.update({
+                "线性回归": make_linear_fn(order=1),
+                "二次回归": make_linear_fn(order=2),
+                "移动平均(5)": make_moving_avg_fn(window=5),
+                "移动平均(10)": make_moving_avg_fn(window=10),
+                "指数增长": make_exp_fn(),
+                "Theta(2.0)": make_theta_fn(theta=2.0),
+            })
+
+        # 注册算法
+        if params["use_algorithms"]:
             try:
-                pred_views = p.get("predicted_views", 0) or p.get("predicted_view", 0)
-                actual_views = p.get("current_views_at_eval", 0) or p.get("actual_views", 0)
-                algo = p.get("algorithm", p.get("algorithm_name", "未知"))
-                if pred_views <= 0 or actual_views <= 0:
-                    continue
-            except Exception:
-                continue
+                from algorithms.registry import AlgorithmRegistry
+                AlgorithmRegistry.initialize()
+                # 取前 30 个算法（避免回测太慢）
+                algo_names = AlgorithmRegistry.get_algorithm_names()[:30]
+                for name in algo_names:
+                    fn = self._make_algo_predict_fn(name)
+                    if fn:
+                        short = name.replace("[Model] ", "")
+                        predictors[short] = fn
+            except Exception as e:
+                self.dlg.window.after(0, lambda: self._status_lbl.config(
+                    text=f"加载算法失败: {e}", fg=C["danger"]
+                ))
+                return
 
-            if algo not in algo_stats:
-                algo_stats[algo] = {"preds": [], "actuals": []}
-            algo_stats[algo]["preds"].append(pred_views)
-            algo_stats[algo]["actuals"].append(actual_views)
-
-        if not algo_stats:
-            tk.Label(
-                self._summary_frame, text="无有效的预测-实际对照数据", fg=C["text_3"], bg=C["bg_base"], font=FONT
-            ).pack()
+        if not predictors:
+            self.dlg.window.after(0, lambda: self._status_lbl.config(
+                text="无可用预测器", fg=C["danger"]
+            ))
             return
 
-        # 计算各项指标：MAPE、MAE、平均预测值、平均实际值、偏差倾向
-        rows = []
-        for algo, data in algo_stats.items():
-            preds = data["preds"]
-            actuals = data["actuals"]
-            if len(preds) < 2:
-                continue
-            errors = [abs(p - a) / max(a, 1) for p, a in zip(preds, actuals)]
-            mape = sum(errors) / len(errors) * 100
-            mae = sum(abs(p - a) for p, a in zip(preds, actuals)) / len(preds)
-            avg_pred = sum(preds) / len(preds)
-            avg_actual = sum(actuals) / len(actuals)
-            # 偏差判定：偏高/偏低/适中（阈值 ±10%）
-            bias = "偏高" if avg_pred > avg_actual * 1.1 else "偏低" if avg_pred < avg_actual * 0.9 else "适中"
-            rows.append((mape, algo, mae, mape, len(preds), avg_pred, avg_actual, bias))
+        # 执行回测
+        backtester = RollingBacktester(
+            min_train=params["min_train"],
+            step=params["step"],
+            horizon=1,
+        )
+        results = backtester.backtest_multi_predictor(series, predictors)
 
-        rows.sort(key=lambda x: x[0])  # 按 MAPE 升序排列
+        # 更新 UI（主线程）
+        self.dlg.window.after(0, lambda: self._show_results(results, params))
 
-        # 最佳/最差算法摘要
-        best = rows[0]
-        worst = rows[-1] if len(rows) > 1 else None
-        summary_text = f"🎯 最佳: {best[1]} (MAPE={best[3]:.1f}%)"
-        if worst:
-            summary_text += f"  |  ❌ 最差: {worst[1]} (MAPE={worst[3]:.1f}%)"
-        tk.Label(self._summary_frame, text=summary_text, bg=C["bg_base"], fg=C["text_1"], font=FONT).pack(anchor="w")
+    def _show_results(self, results, params):
+        """在主线程更新 UI 显示回测结果"""
+        # 清空旧数据
+        for row in self._tree.get_children():
+            self._tree.delete(row)
+        for w in self._summary_frame.winfo_children():
+            w.destroy()
 
-        # 填充表格
-        for _, algo, mae, mape, samples, avg_pred, avg_actual, bias in rows:
-            self._tree.insert(
-                "",
-                tk.END,
-                values=(
-                    algo[:20],
-                    fmt_num(int(mae)),
-                    f"{mape:.1f}%",
-                    samples,
-                    fmt_num(int(avg_pred)),
-                    fmt_num(int(avg_actual)),
-                    bias,
-                ),
-            )
+        # 过滤和排序
+        valid = [
+            (name, r["rmse"], r["mae"], r["mape"], r["n_tests"])
+            for name, r in results.items()
+            if r["n_tests"] >= 3 and r["mape"] != float("inf")
+        ]
+        valid.sort(key=lambda x: x[3])  # 按 MAPE 升序
+
+        if not valid:
+            tk.Label(
+                self._summary_frame, text="无有效回测结果（测试次数不足）",
+                fg=C["text_3"], bg=C["bg_base"], font=FONT
+            ).pack()
+            self._status_lbl.config(text="完成（无有效结果）", fg=C["text_3"])
+            return
+
+        # 摘要
+        best = valid[0]
+        worst = valid[-1] if len(valid) > 1 else None
+        summary = f"🎯 最佳: {best[0]} (MAPE={best[3]*100:.1f}%, RMSE={int(best[1])})"
+        if worst and len(valid) > 1:
+            summary += f"  |  ❌ 最差: {worst[0]} (MAPE={worst[3]*100:.1f}%)"
+        tk.Label(self._summary_frame, text=summary, bg=C["bg_base"], fg=C["text_1"], font=FONT).pack(anchor="w")
+        tk.Label(
+            self._summary_frame,
+            text=f"数据点: {params['min_train']} 窗口 / {params['step']} 步长 / 共 {len(valid)} 个预测器",
+            bg=C["bg_base"], fg=C["text_3"], font=FONT_SM,
+        ).pack(anchor="w")
+
+        # 表格
+        for rank, (name, rmse, mae, mape, n_tests) in enumerate(valid, 1):
+            # 颜色：top 3 绿色，后 3 红色
+            tag = ""
+            if rank <= 3:
+                tag = "best"
+            elif rank >= len(valid) - 2:
+                tag = "worst"
+            self._tree.insert("", tk.END, values=(
+                name[:25], fmt_num(int(rmse)), fmt_num(int(mae)),
+                f"{mape*100:.1f}%", n_tests, f"#{rank}",
+            ), tags=(tag,) if tag else ())
+
+        self._tree.tag_configure("best", foreground=C["success"])
+        self._tree.tag_configure("worst", foreground=C["danger"])
+        self._status_lbl.config(text=f"✅ 完成 — {len(valid)} 个预测器", fg=C["success"])

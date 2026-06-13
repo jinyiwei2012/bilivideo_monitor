@@ -32,6 +32,7 @@ DEFAULT_ETA = 0.5        # Hedge 学习率（越大权重对误差越敏感）
 DEFAULT_MIN_WEIGHT = 0.05  # 最低权重（防止算法被彻底淘汰出局）
 DEFAULT_WARMUP = 5       # 至少需要 N 次反馈才开始调整（冷启动保护）
 DEFAULT_DECAY = 0.95     # EWMA 衰减系数（越大越重视历史，越平滑）
+MAX_TRACKERS = 5000      # 最大追踪器数量，超出时清理最久未更新的
 
 
 class _AlgorithmTracker:
@@ -122,6 +123,45 @@ class OnlineLearner:
         """
         with self._lock:
             self._trackers.pop(name, None)
+
+    def remove_by_prefix(self, prefix: str):
+        """按前缀移除追踪器（删除视频时调用，清理该视频的所有算法追踪器）。
+
+        Args:
+            prefix: 键名前缀（如 bvid + "/"）
+        """
+        with self._lock:
+            to_remove = [k for k in self._trackers if k.startswith(prefix)]
+            for k in to_remove:
+                del self._trackers[k]
+            if to_remove:
+                logger.debug("[online_learner] 清理 %d 个追踪器 (prefix=%s)", len(to_remove), prefix)
+
+    def cleanup_stale(self, max_age_seconds: float = 86400):
+        """清理过期追踪器（超过 max_age_seconds 未更新的条目）。
+
+        定期调用以防止内存无限增长。当追踪器总数超过 MAX_TRACKERS 时，
+        优先清理最久未更新的条目。
+
+        Args:
+            max_age_seconds: 最大空闲时间（秒），默认 24 小时
+        """
+        now = time.time()
+        with self._lock:
+            # 按 last_update 升序排列（最旧的在前）
+            sorted_trackers = sorted(self._trackers.items(),
+                                     key=lambda kv: kv[1].last_update)
+            removed = 0
+            for name, t in sorted_trackers:
+                # 超过容量上限或超过最大空闲时间，则移除
+                if len(self._trackers) - removed > MAX_TRACKERS or \
+                   (t.last_update > 0 and now - t.last_update > max_age_seconds):
+                    del self._trackers[name]
+                    removed += 1
+                else:
+                    break
+            if removed:
+                logger.debug("[online_learner] 清理 %d 个过期追踪器 (剩余 %d)", removed, len(self._trackers))
 
     def update(self, name: str, predicted: float, actual: float):
         """用最新真实值更新指定算法的学习状态。

@@ -190,6 +190,7 @@ class MarBilstmAlgorithm(BaseAlgorithm):
                 in_features=getattr(self, '_training_n_features', len(self._features) + 5),
                 horizon=self.training_horizon,
             )
+            state = {k[len("_orig_mod."):] if k.startswith("_orig_mod.") else k: v for k, v in state.items()}
             model.load_state_dict(state)
             model.to(self._device).eval()     # 送入设备并设为评估模式
             self._cached_model = model

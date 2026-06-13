@@ -226,14 +226,6 @@ class SettingsWindow:
 
     def _validate_settings(self):
         try:
-            interval = int(self.check_interval.get())
-            if not (60 <= interval <= 3600):
-                messagebox.showerror("验证失败", "检查间隔必须在 60 ~ 3600 秒之间", parent=self.window)
-                return False
-        except ValueError:
-            messagebox.showerror("验证失败", "检查间隔必须为整数", parent=self.window)
-            return False
-        try:
             max_m = int(self.max_monitors.get())
             if not (10 <= max_m <= 500):
                 messagebox.showerror("验证失败", "最大监控数必须在 10 ~ 500 之间", parent=self.window)
@@ -262,7 +254,6 @@ class SettingsWindow:
     def _persist_settings(self):
         from config import save_config
 
-        interval = int(self.check_interval.get())
         max_m = int(self.max_monitors.get())
         pred_hours = int(self.predict_hours.get())
         confidence = float(self.min_confidence.get())
@@ -275,7 +266,6 @@ class SettingsWindow:
             "private_qq": self.qq_private.get().strip(),
             "group_qq": self.qq_group.get().strip(),
         }
-        self._cfg["monitor"]["check_interval"] = interval
         self._cfg["monitor"]["max_monitor_count"] = max_m
         self._cfg["prediction"]["prediction_hours"] = pred_hours
         self._cfg["prediction"]["min_confidence"] = confidence

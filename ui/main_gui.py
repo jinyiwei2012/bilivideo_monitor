@@ -649,8 +649,8 @@ class BilibiliMonitorGUI:
 
     # ── 预测结果回调 ──────────────────────────
 
-    def _prediction_done(self, w_pred, current_view, growth, rate_per_sec, success_list, fail_list, valid, total):
-        _prediction_done_impl(self, w_pred, current_view, growth, rate_per_sec, success_list, fail_list, valid, total)
+    def _prediction_done(self, w_pred, current_view, growth, rate_per_sec, success_list, fail_list, valid, total, surge_info=None):
+        _prediction_done_impl(self, w_pred, current_view, growth, rate_per_sec, success_list, fail_list, valid, total, surge_info)
 
     def _copy_bvid(self, bvid):
         _copy_bvid_impl(self, bvid)

@@ -1,6 +1,9 @@
 """数据库连接管理及全局 HTTP 会话"""
 
 import requests
+import logging
+
+logger = logging.getLogger(__name__)
 
 # 模块级共享 Session，复用 TCP 连接，提升封面下载性能
 _http_session = requests.Session()
@@ -11,6 +14,16 @@ _http_session.headers.update(
         "Referer": "https://www.bilibili.com/",
     }
 )
+
+
+def close_http_session():
+    """关闭全局 HTTP Session，释放连接池内存（应用退出时调用）。"""
+    global _http_session
+    try:
+        _http_session.close()
+    except Exception as e:
+        logger.debug("关闭 HTTP Session 失败: %s", e)
+    _http_session = None
 
 
 class _ConnectionCtx:

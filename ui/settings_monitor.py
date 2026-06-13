@@ -15,9 +15,6 @@ def _build_monitor_tab(self, nb):
     nb.add(page, text="  监控参数  ")
 
     sec = self._section(page, "基础参数")
-    self.check_interval = self._spin_field(
-        sec, "检查间隔(秒)", self._cfg.get("monitor", {}).get("check_interval", 300), 60, 3600
-    )
     self.max_monitors = self._spin_field(
         sec, "最大监控数", self._cfg.get("monitor", {}).get("max_monitor_count", 100), 10, 500
     )

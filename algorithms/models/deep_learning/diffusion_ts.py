@@ -299,6 +299,7 @@ class DiffusionTSAlgorithm(BaseAlgorithm):
         # 视频微调不缓存（每次加载最新权重），全局 checkpoint 可缓存
         if self._cached_model is None or (bvid and not getattr(self, "_cached_bvid", "") == bvid):
             model = DiffusionTSTorchModel(in_channels=1, base=32, t_dim=64, n_steps=100)
+            state = {k[len("_orig_mod."):] if k.startswith("_orig_mod.") else k: v for k, v in state.items()}
             model.load_state_dict(state)
             model.to(self._device).eval()
             self._cached_model = model

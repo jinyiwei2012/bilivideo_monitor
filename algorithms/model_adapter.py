@@ -265,9 +265,11 @@ class ModelAlgorithmAdapter:
 
             # 计算各阈值所需时间
             threshold_preds = []
+            # 极低速度视为无法预测（避免 predicted_seconds 溢出 SQLite INTEGER）
+            MIN_VELOCITY = 1e-8  # ≈ 1 播放/11,000 年
             for thresh, name in zip(thresholds, threshold_names):
                 if thresh > current_value:
-                    if velocity > 0:
+                    if velocity > MIN_VELOCITY:
                         hours_needed = (thresh - current_value) / velocity
                     else:
                         hours_needed = float("inf")

@@ -503,7 +503,7 @@ if _torch_available:  # noqa: C901
             # 多头 QKV 投影
             qkv = self.qkv(h).reshape(B, W, 3, self.heads, self.dk).permute(2, 0, 3, 1, 4)
             q, k, v = qkv[0], qkv[1], qkv[2]  # [B, H, W, dk]
-            scores = (q @ k.transpose(-2, -1)) / np.sqrt(self.dk)
+            scores = (q @ k.transpose(-2, -1)) / (self.dk ** 0.5)  # 避免 np.sqrt 导致 torch.compile 失败
             # Top-K mask 实现稀疏注意力
             top_k = max(1, int(W * self.top_k_ratio))
             top_vals, _ = scores.topk(top_k, dim=-1)
@@ -594,8 +594,8 @@ if _torch_available:  # noqa: C901
             # x: [B, W, F]
             h = self.proj(x)  # [B, W, D]
             B, W, D = h.shape
-            # FFT 找 top_k 周期
-            ft = torch.fft.rfft(h, dim=1)
+            # FFT 找 top_k 周期（cuFFT 半精度仅支持 2 的幂次维度，AMP 下强制 float32）
+            ft = torch.fft.rfft(h.float(), dim=1)
             amps = ft.abs().mean(dim=(0, 2))
             amps[0] = 0  # 排除直流分量
             top_idx = amps.topk(min(self.top_k, amps.shape[0])).indices
@@ -1170,7 +1170,7 @@ if _torch_available:  # noqa: C901
             for s in range(self.scales):
                 xs = x_p.transpose(1, 2)
                 if isinstance(self.down_samples[s], nn.Identity):
-                    ds = xs
+                    ds = x_p  # [B, W, D] — 无需下采样，直接使用原始投影
                 else:
                     ds = self.down_samples[s](xs).transpose(1, 2)  # 平均池化下采样
                     ds = F.pad(ds, (0, 0, 0, self.window - ds.shape[1]))  # 补齐长度
@@ -1468,12 +1468,12 @@ if _torch_available:  # noqa: C901
             """
             h = self.proj(x)  # [B, W, D]
             B, W, D = h.shape
-            # FFT → MLP → iFFT
-            h_freq = torch.fft.rfft(h, dim=1)  # [B, W//2+1, D] 复频谱
+            # FFT → MLP → iFFT（cuFFT 半精度仅支持 2 的幂次维度，AMP 下强制 float32）
+            h_freq = torch.fft.rfft(h.float(), dim=1)  # [B, W//2+1, D] 复频谱
             h_freq_abs = h_freq.abs()  # 幅度谱
             h_freq_mixed = self.freq_mlp(h_freq_abs.transpose(1, 2)).transpose(1, 2)  # 频域 MLP 处理
             h_freq_new = h_freq * (h_freq_mixed / (h_freq_abs + 1e-8))  # 保留相位，调整幅度
-            h_time = torch.fft.irfft(h_freq_new, n=W, dim=1)  # 逆变换回时域
+            h_time = torch.fft.irfft(h_freq_new, n=W, dim=1).to(h.dtype)  # 逆变换回时域
             return self.head(h_time.flatten(1))
 
     # ── 37. Autoformer（自相关Transformer, NeurIPS 2021） ──
@@ -1515,8 +1515,9 @@ if _torch_available:  # noqa: C901
                 归一化自相关系数 [B, W, D]
             """
             B, W, D = x.shape
-            x_fft = torch.fft.rfft(x, dim=1)  # FFT
-            corr = torch.fft.irfft(x_fft * x_fft.conj(), n=W, dim=1)  # 自相关 = 频谱乘积的逆变换
+            # cuFFT 半精度仅支持 2 的幂次维度，AMP 下强制 float32
+            x_fft = torch.fft.rfft(x.float(), dim=1)  # FFT
+            corr = torch.fft.irfft(x_fft * x_fft.conj(), n=W, dim=1).to(x.dtype)  # 自相关 = 频谱乘积的逆变换
             return corr / (corr.max(dim=1, keepdim=True)[0] + 1e-8)  # 归一化
 
         def forward(self, x):
@@ -1581,20 +1582,23 @@ if _torch_available:  # noqa: C901
             h = self.proj(x)  # [B, W, D]
             B, W, D = h.shape
             # FFT 取前 n_modes 个频率分量
-            h_fft = torch.fft.rfft(h, dim=1)
+            # cuFFT 半精度仅支持 2 的幂次维度，且 angle() 不支持 Half，
+            # 因此整个频域处理均在 float32 下完成
+            h_fft = torch.fft.rfft(h.float(), dim=1)
             n_modes = min(self.n_modes, h_fft.shape[1] - 1)
             top_vals, top_idx = torch.topk(h_fft.abs().mean(dim=-1), n_modes, dim=1)  # 选择最强频率
             h_fft_filtered = torch.zeros_like(h_fft)
             for b in range(B):
                 for idx in top_idx[b]:
                     h_fft_filtered[b, idx] = h_fft[b, idx]  # 仅保留 Top-K
-            # 频域增强
+            # 频域增强（float32）
             freq_abs = h_fft_filtered.abs()  # 幅度
             freq_phase = h_fft_filtered.angle()  # 相位
             freq_cat = torch.cat([freq_abs, freq_phase], dim=-1)  # [B, n_freq, 2D]
             enhanced = self.freq_enhance(freq_cat)  # [B, n_freq, D]  频域增强
-            # 平均池化为全局特征
-            return self.head(enhanced.mean(dim=1).unsqueeze(1).expand(-1, W, -1).flatten(1))
+            # 平均池化为全局特征，恢复原始精度
+            pooled = enhanced.mean(dim=1).unsqueeze(1).expand(-1, W, -1).flatten(1).to(h.dtype)
+            return self.head(pooled)
 
     # ── 39. LightTS（轻量采样MLP, arXiv 2022） ──
     class LightTSTorchModel(nn.Module):
@@ -1764,6 +1768,119 @@ else:
 
 
 # ════════════════════════════════════════════════════════
+#  VRAM 感知的 GPU 模型缓存（LRU 淘汰）
+# ════════════════════════════════════════════════════════
+
+import threading
+import time
+from collections import OrderedDict
+
+_GPU_MODEL_LRU: OrderedDict = OrderedDict()  # algo_bvid_key → (model, vram_mb, ts)
+_GPU_LRU_LOCK = threading.Lock()
+_GPU_VRAM_RESERVE_MB = 512     # 保留 512MB 给其他操作
+_GPU_VRAM_MIN_FREE_RATIO = 0.15  # 至少保留 15% 显存空闲
+
+
+def _estimate_model_vram(model) -> int:
+    """估算模型占用显存（MB），含 20% CUDA 上下文开销。"""
+    try:
+        total_bytes = sum(p.numel() * p.element_size() for p in model.parameters())
+        return int(total_bytes * 1.2 / (1024 * 1024))
+    except Exception:
+        return 0
+
+
+def _get_free_vram_mb(device) -> int:
+    """获取 GPU 空闲显存（MB），不可用时返回 -1。"""
+    try:
+        if device.type == "cuda":
+            total = torch.cuda.get_device_properties(device).total_memory
+            reserved = torch.cuda.memory_reserved(device)
+            return (total - reserved) // (1024 * 1024)
+    except Exception:
+        pass
+    return -1
+
+
+def _evict_lru_gpu_model():
+    """将最久未用的模型从 GPU 移回 CPU，释放显存。"""
+    with _GPU_LRU_LOCK:
+        if not _GPU_MODEL_LRU:
+            return
+        key, (model, vram_mb, _ts) = _GPU_MODEL_LRU.popitem(last=False)
+    try:
+        model.cpu()
+        torch.cuda.empty_cache()
+        logger.debug("[VRAM] 驱逐 %s → CPU，释放 ~%dMB", key, vram_mb)
+    except Exception as e:
+        logger.debug("[VRAM] 驱逐模型 %s 失败: %s", key, e)
+
+
+def _ensure_vram(headroom_needed_mb: int, device):
+    """确保有足够显存加载新模型，不足时淘汰 LRU 模型。"""
+    free_mb = _get_free_vram_mb(device)
+    if free_mb < 0:
+        return  # 无法检测，直接放行
+
+    try:
+        total_mb = torch.cuda.get_device_properties(device).total_memory // (1024 * 1024)
+    except Exception:
+        return
+    target = max(_GPU_VRAM_RESERVE_MB, int(total_mb * _GPU_VRAM_MIN_FREE_RATIO))
+
+    while (free_mb - headroom_needed_mb) < target:
+        with _GPU_LRU_LOCK:
+            if len(_GPU_MODEL_LRU) <= 1:
+                break
+        _evict_lru_gpu_model()
+        free_mb = _get_free_vram_mb(device)
+        if free_mb < 0:
+            break
+
+
+def _touch_gpu_lru(key: str):
+    """标记模型为最近使用。"""
+    with _GPU_LRU_LOCK:
+        if key in _GPU_MODEL_LRU:
+            _GPU_MODEL_LRU.move_to_end(key)
+
+
+def _register_gpu_model(key: str, model, device):
+    """将模型注册到 GPU LRU 缓存。"""
+    if device.type != "cuda":
+        return
+    vram_mb = _estimate_model_vram(model)
+    _ensure_vram(vram_mb, device)
+    with _GPU_LRU_LOCK:
+        _GPU_MODEL_LRU.pop(key, None)
+        _GPU_MODEL_LRU[key] = (model, vram_mb, time.time())
+
+
+def _unregister_gpu_model(key: str):
+    """从 GPU LRU 移除模型（预测完成后释放显存）。"""
+    with _GPU_LRU_LOCK:
+        _GPU_MODEL_LRU.pop(key, None)
+
+
+def clear_all_gpu_models():
+    """释放所有 GPU 缓存的模型（退出时调用）。"""
+    with _GPU_LRU_LOCK:
+        keys = list(_GPU_MODEL_LRU.keys())
+    for key in keys:
+        with _GPU_LRU_LOCK:
+            entry = _GPU_MODEL_LRU.pop(key, None)
+        if entry:
+            try:
+                entry[0].cpu()
+            except Exception:
+                pass
+    try:
+        torch.cuda.empty_cache()
+    except Exception:
+        pass
+
+
+# ════════════════════════════════════════════════════════
 #  统一的"torch → numpy 降级"调度器
 # ════════════════════════════════════════════════════════
 
@@ -1826,6 +1943,8 @@ def try_torch_predict(
     if state is None:
         return fallback_fn(video_data, threshold)
 
+    gpu_key = f"{algo_id}@{bvid}" if bvid else algo_id
+
     try:
         feats = features or DEFAULT_FEATURES
         x_arr, v_mean, v_std = _build_torch_input(video_data, feats, window)
@@ -1834,10 +1953,14 @@ def try_torch_predict(
 
         model = getattr(algorithm, "_cached_torch_model", None)
         if model is None or (bvid and not getattr(algorithm, "_cached_bvid", "") == bvid):
+            # 淘汰旧模型显存
+            old_bvid = getattr(algorithm, "_cached_bvid", "")
+            if old_bvid and hasattr(algorithm, "_cached_torch_model"):
+                old_key = f"{algo_id}@{old_bvid}"
+                _unregister_gpu_model(old_key)
+
             mk = dict(model_kwargs or {})
-            # 真实特征数 = 基础特征 + 5 个衍生特征（roll_mean/roll_std/accel/rel_pos/lifecycle）
             mk["in_features"] = len(feats) + 5
-            # 模型结构参数必须与训练时一致——只传给接受这些参数的模型
             import inspect
             sig_params = set(inspect.signature(model_cls).parameters.keys())
             for k, v in (("window", window), ("horizon", horizon)):
@@ -1849,10 +1972,35 @@ def try_torch_predict(
             if not isinstance(state, dict):
                 logger.warning("[%s] checkpoint 格式异常 (type=%s)，跳过 torch 推理", algo_id, type(state).__name__)
                 return fallback_fn(video_data, threshold)
+            state = {k[len("_orig_mod."):] if k.startswith("_orig_mod.") else k: v for k, v in state.items()}
             model.load_state_dict(state)
-            model.to(algorithm._device).eval()
+
+            # 尝试放入 GPU 显存，OOM 时淘汰 LRU 模型后重试
+            if algorithm._device.type == "cuda":
+                _ensure_vram(_estimate_model_vram(model), algorithm._device)
+                try:
+                    model.to(algorithm._device)
+                except RuntimeError as oom:
+                    if "out of memory" in str(oom).lower():
+                        logger.debug("[%s] GPU OOM，淘汰模型后重试", algo_id)
+                        _evict_lru_gpu_model()
+                        torch.cuda.empty_cache()
+                        model.to(algorithm._device)
+                    else:
+                        raise
+            else:
+                model.to(algorithm._device)
+            model.eval()
+
             algorithm._cached_torch_model = model
             algorithm._cached_bvid = bvid or ""
+
+            # 注册到 GPU LRU
+            if algorithm._device.type == "cuda":
+                _register_gpu_model(gpu_key, model, algorithm._device)
+        else:
+            # 命中缓存，刷新 LRU 时间戳
+            _touch_gpu_lru(gpu_key)
 
         device = next(model.parameters()).device
         x = torch.from_numpy(x_arr).unsqueeze(0).to(device)
@@ -1863,6 +2011,17 @@ def try_torch_predict(
         return _generic_result(algorithm, video_data, threshold, predicted_velocity, y, model_source=model_source)
 
     except Exception as e:
+        # GPU OOM 时尝试淘汰后重试一次
+        if "out of memory" in str(e).lower() and algorithm._device.type == "cuda":
+            try:
+                _evict_lru_gpu_model()
+                torch.cuda.empty_cache()
+                # 清除当前算法缓存，强制重新加载
+                algorithm._cached_torch_model = None
+                return try_torch_predict(algorithm, video_data, threshold, model_cls,
+                                         fallback_fn, model_kwargs, features, window, horizon)
+            except Exception:
+                pass
         logger.warning("[%s] torch 推理失败，降级 numpy: %s", getattr(algorithm, "algorithm_id", "?"), e)
         return fallback_fn(video_data, threshold)
 

@@ -263,6 +263,23 @@ def on_exit(gui):
     from algorithms.registry import AlgorithmRegistry
 
     AlgorithmRegistry.shutdown()
+
+    # 持久化在线学习状态 + 清理
+    try:
+        from algorithms.online_learner import get_online_learner
+        from utils import project_path
+        learner = get_online_learner()
+        learner.save(project_path("data", "online_learner_state.json"))
+    except Exception:
+        pass
+
+    # 关闭全局 HTTP Session 连接池
+    try:
+        from core.database.connection import close_http_session
+        close_http_session()
+    except Exception:
+        pass
+
     gui.root.destroy()
     sys.exit(0)
 

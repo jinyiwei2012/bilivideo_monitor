@@ -45,23 +45,21 @@ class VideoDatabase:
         self._conn.execute("PRAGMA journal_mode=WAL")  # 启用 WAL 模式提升并发读性能
         self._conn.execute("PRAGMA synchronous=NORMAL")  # 平衡写入安全与速度
 
-        # 镜像连接：同步写入 data/ 目录（退出时同步到 core/data/bilibili_monitor.db 的目标目录）
+        # 镜像连接：同步写入 data/ 目录（延迟初始化，首次写入时才创建以节省内存）
         self._mirror_conn = None
+        self._mirror_path = None
         mirror_base = project_path("data")
         if mirror_base != base_dir:
             mirror_dir = os.path.join(mirror_base, bvid)
             os.makedirs(mirror_dir, exist_ok=True)
-            mirror_path = os.path.join(mirror_dir, f"{bvid}.db")
-            try:
-                self._mirror_conn = sqlite3.connect(mirror_path, check_same_thread=False)
-                self._mirror_conn.execute("PRAGMA journal_mode=WAL")
-                self._mirror_conn.execute("PRAGMA synchronous=NORMAL")
-            except Exception as e:
-                logger.warning("创建镜像数据库连接失败 %s: %s", bvid, e)
-                self._mirror_conn = None
+            self._mirror_path = os.path.join(mirror_dir, f"{bvid}.db")
+
+        # 中央数据库引用（用于写入兜底，由调用方通过 set_central_db 注入）
+        self._central_db = None
 
         try:
             self._init_db()
+            # 镜像表延迟初始化：首次 _execute_on_all() 写入时才创建连接
         except Exception:
             self._conn.close()
             raise
@@ -69,6 +67,20 @@ class VideoDatabase:
     def _get_connection(self):
         """返回线程安全的连接上下文管理器（兼容 with 语法）"""
         return _ConnectionCtx(self._conn, self._lock)
+
+    def _ensure_mirror(self):
+        """延迟创建镜像数据库连接（首次写入时调用，节省内存）。"""
+        if self._mirror_conn is not None or self._mirror_path is None:
+            return
+        try:
+            import sqlite3 as _sqlite3
+            self._mirror_conn = _sqlite3.connect(self._mirror_path, check_same_thread=False)
+            self._mirror_conn.execute("PRAGMA journal_mode=WAL")
+            self._mirror_conn.execute("PRAGMA synchronous=NORMAL")
+            self._init_mirror_tables()
+        except Exception as e:
+            logger.warning("创建镜像数据库连接失败 %s: %s", self.bvid, e)
+            self._mirror_conn = None
 
     def _execute_on_all(self, sql: str, params: tuple = ()):
         """在主连接和镜像连接上同时执行 SQL"""
@@ -82,6 +94,7 @@ class VideoDatabase:
 
         with self._get_connection() as conn:
             _exec(conn, "main")
+        self._ensure_mirror()
         if self._mirror_conn:
             with _ConnectionCtx(self._mirror_conn, self._lock) as conn:
                 _exec(conn, "mirror")
@@ -140,7 +153,7 @@ class VideoDatabase:
                 )
             """)
 
-            # 预测记录表
+            # 预测记录表：UNIQUE 约束防止每次预测运行产生重复行
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS predictions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -160,6 +173,14 @@ class VideoDatabase:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            try:
+                cursor.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_predict_unique "
+                    "ON predictions(algorithm, target_threshold)"
+                )
+            except Exception:
+                # 已有重复数据时 UNIQUE 索引创建会失败（罕见），由后续清理修复
+                pass
 
             # 算法性能跟踪表（用于在线学习模块）
             cursor.execute("""
@@ -229,6 +250,101 @@ class VideoDatabase:
                 cursor.execute("PRAGMA user_version = 1")
 
             conn.commit()
+
+    def set_central_db(self, central_db):
+        """注入中央数据库引用，用于写入时同步兜底
+
+        Args:
+            central_db: core.database.Database 实例
+        """
+        self._central_db = central_db
+
+    def _init_mirror_tables(self):
+        """在镜像连接上创建与主库相同的表结构（仅当镜像连接存在时）"""
+        if not self._mirror_conn:
+            return
+        try:
+            mirror_cur = self._mirror_conn.cursor()
+            # 与 _init_db 中相同的 CREATE TABLE IF NOT EXISTS 语句
+            mirror_cur.execute("""
+                CREATE TABLE IF NOT EXISTS video_info (
+                    id INTEGER PRIMARY KEY, title TEXT, view_count INTEGER DEFAULT 0,
+                    like_count INTEGER DEFAULT 0, coin_count INTEGER DEFAULT 0,
+                    share_count INTEGER DEFAULT 0, favorite_count INTEGER DEFAULT 0,
+                    danmaku_count INTEGER DEFAULT 0, reply_count INTEGER DEFAULT 0,
+                    viewers_app INTEGER DEFAULT 0, viewers_web INTEGER DEFAULT 0,
+                    viewers_total INTEGER DEFAULT 0, cover_path TEXT,
+                    like_view_ratio REAL DEFAULT 0, owner_name TEXT, owner_id INTEGER,
+                    pubdate TEXT, duration INTEGER, pic TEXT,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            mirror_cur.execute("""
+                CREATE TABLE IF NOT EXISTS monitor_records (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    view_count INTEGER, like_count INTEGER, coin_count INTEGER,
+                    share_count INTEGER, favorite_count INTEGER, danmaku_count INTEGER,
+                    reply_count INTEGER, viewers_app INTEGER DEFAULT 0,
+                    viewers_web INTEGER DEFAULT 0, viewers_total INTEGER DEFAULT 0,
+                    like_view_ratio REAL DEFAULT 0
+                )
+            """)
+            mirror_cur.execute("""
+                CREATE TABLE IF NOT EXISTS predictions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    algorithm TEXT, algorithm_id TEXT, target_threshold INTEGER,
+                    predicted_seconds INTEGER, predicted_time TIMESTAMP,
+                    confidence REAL, current_views INTEGER,
+                    metadata TEXT DEFAULT '', predicted_hours REAL DEFAULT 0,
+                    current_velocity REAL DEFAULT 0, is_reached BOOLEAN DEFAULT 0,
+                    actual_time TIMESTAMP, error_rate REAL DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            mirror_cur.execute("""
+                CREATE TABLE IF NOT EXISTS weekly_scores (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    total_score REAL, view_score REAL, interaction_score REAL,
+                    favorite_score REAL, coin_score REAL, like_score REAL,
+                    correction_a REAL, correction_b REAL, correction_c REAL,
+                    correction_d REAL, base_view_score REAL
+                )
+            """)
+            mirror_cur.execute("""
+                CREATE TABLE IF NOT EXISTS yearly_scores (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    total_score REAL, view_score REAL, interaction_score REAL,
+                    favorite_score REAL, coin_score REAL, like_score REAL,
+                    correction_a REAL, correction_b REAL, correction_c REAL
+                )
+            """)
+            mirror_cur.execute("""
+                CREATE TABLE IF NOT EXISTS algorithm_performance (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    algorithm TEXT NOT NULL, bvid TEXT NOT NULL,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    predicted_value REAL, actual_value REAL,
+                    error_rate REAL, weight REAL DEFAULT 1.0,
+                    confidence REAL DEFAULT 0.5
+                )
+            """)
+            mirror_cur.execute("CREATE INDEX IF NOT EXISTS idx_monitor_timestamp ON monitor_records(timestamp)")
+            mirror_cur.execute("CREATE INDEX IF NOT EXISTS idx_weekly_timestamp ON weekly_scores(timestamp)")
+            mirror_cur.execute("CREATE INDEX IF NOT EXISTS idx_yearly_timestamp ON yearly_scores(timestamp)")
+            try:
+                mirror_cur.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_predict_unique "
+                    "ON predictions(algorithm, target_threshold)"
+                )
+            except Exception:
+                # 镜像库已有重复数据时 UNIQUE 索引创建会失败，由后续清理修复
+                pass
+            self._mirror_conn.commit()
+        except Exception as e:
+            logger.warning("初始化镜像数据库表失败 %s: %s", self.bvid, e)
 
     def _migrate_db(self, conn):
         """检查并迁移数据库：添加缺少的列、自动计算默认值
@@ -511,6 +627,99 @@ class VideoDatabase:
         except Exception as e:
             logger.debug("镜像添加监控记录失败 %s: %s", record.bvid, e)
 
+    def _mirror_add_prediction(self, row: dict):
+        """将预测记录同步写入镜像数据库"""
+        if not self._mirror_conn:
+            return
+        try:
+            self._mirror_conn.execute(
+                """
+                INSERT INTO predictions
+                (algorithm, algorithm_id, target_threshold, predicted_seconds,
+                 predicted_time, confidence, current_views,
+                 metadata, predicted_hours, current_velocity)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    row.get("algorithm", ""),
+                    row.get("algorithm_id", ""),
+                    row.get("target_threshold", 0),
+                    row.get("predicted_seconds", 0),
+                    row.get("predicted_time", ""),
+                    row.get("confidence", 0),
+                    row.get("current_views", 0),
+                    row.get("metadata", ""),
+                    row.get("predicted_hours", 0),
+                    row.get("current_velocity", 0),
+                ),
+            )
+            self._mirror_conn.commit()
+        except Exception as e:
+            logger.debug("镜像添加预测记录失败 %s: %s", self.bvid, e)
+
+    def _mirror_add_weekly_score(self, timestamp: str, score_data: dict):
+        """将周刊分数同步写入镜像数据库"""
+        if not self._mirror_conn:
+            return
+        try:
+            self._mirror_conn.execute(
+                """
+                INSERT INTO weekly_scores
+                (timestamp, total_score, view_score, interaction_score,
+                 favorite_score, coin_score, like_score,
+                 correction_a, correction_b, correction_c, correction_d,
+                 base_view_score)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    timestamp,
+                    score_data.get("total_score", 0),
+                    score_data.get("view_score", 0),
+                    score_data.get("interaction_score", 0),
+                    score_data.get("favorite_score", 0),
+                    score_data.get("coin_score", 0),
+                    score_data.get("like_score", 0),
+                    score_data.get("correction_a", 0),
+                    score_data.get("correction_b", 0),
+                    score_data.get("correction_c", 0),
+                    score_data.get("correction_d", 0),
+                    score_data.get("base_view_score", 0),
+                ),
+            )
+            self._mirror_conn.commit()
+        except Exception as e:
+            logger.debug("镜像添加周刊分数失败 %s: %s", self.bvid, e)
+
+    def _mirror_add_yearly_score(self, timestamp: str, score_data: dict):
+        """将年刊分数同步写入镜像数据库"""
+        if not self._mirror_conn:
+            return
+        try:
+            self._mirror_conn.execute(
+                """
+                INSERT INTO yearly_scores
+                (timestamp, total_score, view_score, interaction_score,
+                 favorite_score, coin_score, like_score,
+                 correction_a, correction_b, correction_c)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    timestamp,
+                    score_data.get("total_score", 0),
+                    score_data.get("view_score", 0),
+                    score_data.get("interaction_score", 0),
+                    score_data.get("favorite_score", 0),
+                    score_data.get("coin_score", 0),
+                    score_data.get("like_score", 0),
+                    score_data.get("correction_a", 0),
+                    score_data.get("correction_b", 0),
+                    score_data.get("correction_c", 0),
+                ),
+            )
+            self._mirror_conn.commit()
+        except Exception as e:
+            logger.debug("镜像添加年刊分数失败 %s: %s", self.bvid, e)
+
     def get_all_records(self, limit: int = 0) -> List[Dict]:
         """获取监控记录列表
 
@@ -552,7 +761,7 @@ class VideoDatabase:
             return None
 
     def add_prediction(self, prediction: PredictionRecord) -> bool:
-        """添加一条预测记录
+        """添加或替换一条预测记录（按 algorithm + target_threshold 去重）
 
         Args:
             prediction: 预测记录数据对象
@@ -565,7 +774,7 @@ class VideoDatabase:
                 cursor = conn.cursor()
                 cursor.execute(
                     """
-                    INSERT INTO predictions
+                    INSERT OR REPLACE INTO predictions
                     (algorithm, algorithm_id, target_threshold, predicted_seconds,
                      predicted_time, confidence, current_views,
                      metadata, predicted_hours, current_velocity)
@@ -585,7 +794,36 @@ class VideoDatabase:
                     ),
                 )
                 conn.commit()
-                return True
+            self._mirror_add_prediction({
+                "algorithm": prediction.algorithm,
+                "algorithm_id": prediction.algorithm_id,
+                "target_threshold": prediction.target_threshold,
+                "predicted_seconds": prediction.predicted_seconds,
+                "predicted_time": prediction.predicted_time,
+                "confidence": prediction.confidence,
+                "current_views": prediction.current_views,
+                "metadata": prediction.metadata,
+                "predicted_hours": prediction.predicted_hours,
+                "current_velocity": prediction.current_velocity,
+            })
+            # 中央库兜底同步
+            if self._central_db:
+                try:
+                    self._central_db.sync_predictions(self.bvid, [{
+                        "algorithm": prediction.algorithm,
+                        "algorithm_id": prediction.algorithm_id,
+                        "target_threshold": prediction.target_threshold,
+                        "predicted_seconds": prediction.predicted_seconds,
+                        "predicted_time": prediction.predicted_time,
+                        "confidence": prediction.confidence,
+                        "current_views": prediction.current_views,
+                        "metadata": prediction.metadata,
+                        "predicted_hours": prediction.predicted_hours,
+                        "current_velocity": prediction.current_velocity,
+                    }])
+                except Exception as e:
+                    logger.debug("同步预测到中央库失败 %s: %s", self.bvid, e)
+            return True
         except Exception as e:
             logger.warning("添加预测记录失败 %s: %s", prediction.bvid, e)
             return False
@@ -604,6 +842,68 @@ class VideoDatabase:
         except Exception as e:
             logger.warning("获取预测记录失败: %s", e)
             return []
+
+    def add_predictions_batch(self, rows: list) -> bool:
+        """批量添加或替换预测记录（按 algorithm + target_threshold 去重）
+
+        每条记录使用 INSERT OR REPLACE，同时同步写入镜像和中央库。
+
+        Args:
+            rows: 预测记录字典列表，每条需包含:
+                algorithm, algorithm_id, target_threshold, predicted_seconds,
+                predicted_time, confidence, current_views, metadata,
+                predicted_hours, current_velocity
+
+        Returns:
+            是否写入成功
+        """
+        if not rows:
+            return True
+        # SQLite INTEGER 最大值 (64位带符号)
+        _SQLITE_INT_MAX = 2**63 - 1
+        _clamp_int = lambda v: min(max(int(v or 0), -_SQLITE_INT_MAX), _SQLITE_INT_MAX)
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.executemany(
+                    """
+                    INSERT OR REPLACE INTO predictions
+                    (algorithm, algorithm_id, target_threshold, predicted_seconds,
+                     predicted_time, confidence, current_views,
+                     metadata, predicted_hours, current_velocity)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                    [
+                        (
+                            r.get("algorithm", ""),
+                            r.get("algorithm_id", ""),
+                            _clamp_int(r.get("target_threshold", 0)),
+                            _clamp_int(r.get("predicted_seconds", 0)),
+                            r.get("predicted_time", ""),
+                            r.get("confidence", 0),
+                            _clamp_int(r.get("current_views", 0)),
+                            r.get("metadata", ""),
+                            r.get("predicted_hours", 0),
+                            r.get("current_velocity", 0),
+                        )
+                        for r in rows
+                    ],
+                )
+                conn.commit()
+            # 镜像批量同步
+            if self._mirror_conn:
+                for r in rows:
+                    self._mirror_add_prediction(r)
+            # 中央库兜底同步
+            if self._central_db:
+                try:
+                    self._central_db.sync_predictions(self.bvid, rows)
+                except Exception as e:
+                    logger.debug("批量同步预测到中央库失败 %s: %s", self.bvid, e)
+            return True
+        except Exception as e:
+            logger.warning("批量添加预测记录失败 %s: %s", self.bvid, e)
+            return False
 
     def add_weekly_score(self, timestamp: str, score_data: dict) -> bool:
         """添加周刊分数记录
@@ -643,7 +943,8 @@ class VideoDatabase:
                     ),
                 )
                 conn.commit()
-                return True
+            self._mirror_add_weekly_score(timestamp, score_data)
+            return True
         except Exception as e:
             logger.warning("添加周刊分数记录失败 %s: %s", self.bvid, e)
             return False
@@ -719,7 +1020,8 @@ class VideoDatabase:
                     ),
                 )
                 conn.commit()
-                return True
+            self._mirror_add_yearly_score(timestamp, score_data)
+            return True
         except Exception as e:
             logger.warning("添加年刊分数记录失败 %s: %s", self.bvid, e)
             return False
@@ -760,6 +1062,60 @@ class VideoDatabase:
         except Exception as e:
             logger.debug("获取最新年刊分数失败: %s", e)
             return None
+
+    def cleanup_duplicate_predictions(self) -> dict:
+        """清理预测表中的重复行，每个 (algorithm, target_threshold) 仅保留最新一条
+
+        已有的 UNIQUE 约束确保新写入不再产生重复，此方法用于清除历史遗留的重复数据。
+        镜像库同步清理。
+
+        Returns:
+            {"deleted": int, "kept": int, "mirror_deleted": int}
+        """
+        result = {"deleted": 0, "kept": 0, "mirror_deleted": 0}
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                # 先统计总数
+                cursor.execute("SELECT COUNT(*) FROM predictions")
+                before = cursor.fetchone()[0]
+                # 删除每个 (algorithm, target_threshold) 分组中除最新 id 之外的行
+                cursor.execute("""
+                    DELETE FROM predictions
+                    WHERE id NOT IN (
+                        SELECT MAX(id) FROM predictions
+                        GROUP BY algorithm, target_threshold
+                    )
+                """)
+                result["deleted"] = before - (cursor.execute("SELECT COUNT(*) FROM predictions").fetchone()[0])
+                result["kept"] = cursor.execute("SELECT COUNT(*) FROM predictions").fetchone()[0]
+                conn.commit()
+            # 镜像同步清理
+            if self._mirror_conn:
+                try:
+                    mirror_cur = self._mirror_conn.cursor()
+                    mirror_before = mirror_cur.execute("SELECT COUNT(*) FROM predictions").fetchone()[0]
+                    mirror_cur.execute("""
+                        DELETE FROM predictions
+                        WHERE id NOT IN (
+                            SELECT MAX(id) FROM predictions
+                            GROUP BY algorithm, target_threshold
+                        )
+                    """)
+                    self._mirror_conn.commit()
+                    result["mirror_deleted"] = (
+                        mirror_before - mirror_cur.execute("SELECT COUNT(*) FROM predictions").fetchone()[0]
+                    )
+                except Exception as e:
+                    logger.debug("镜像清理预测重复失败 %s: %s", self.bvid, e)
+            if result["deleted"] > 0 or result["mirror_deleted"] > 0:
+                logger.info(
+                    "预测清理完成 %s: 主库删除%d行(保留%d), 镜像删除%d行",
+                    self.bvid, result["deleted"], result["kept"], result["mirror_deleted"],
+                )
+        except Exception as e:
+            logger.warning("清理预测重复失败 %s: %s", self.bvid, e)
+        return result
 
     def close(self):
         """关闭数据库连接，刷新 WAL

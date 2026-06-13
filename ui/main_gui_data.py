@@ -73,23 +73,35 @@ def save_watch_list(gui):
 
 
 def save_weekly_score(gui, bvid, video, timestamp):
-    """保存周刊分数到数据库"""
+    """保存周刊分数到视频数据库 + 同步到中央库"""
     try:
         ws = _calc_ws(video)
         if ws and bvid in gui.video_dbs:
             score_data = asdict(ws)
             gui.video_dbs[bvid].add_weekly_score(timestamp, score_data)
+            # 同步到中央库
+            try:
+                from core import db
+                db.sync_weekly_score(bvid, timestamp, score_data)
+            except Exception:
+                pass
     except Exception as e:
         logger.warning("保存周刊分数失败 %s: %s", bvid, e)
 
 
 def save_yearly_score(gui, bvid, video, timestamp):
-    """保存年刊分数到数据库"""
+    """保存年刊分数到视频数据库 + 同步到中央库"""
     try:
         ys = _calc_ys(video)
         if ys and bvid in gui.video_dbs:
             score_data = asdict(ys)
             gui.video_dbs[bvid].add_yearly_score(timestamp, score_data)
+            # 同步到中央库
+            try:
+                from core import db
+                db.sync_yearly_score(bvid, timestamp, score_data)
+            except Exception:
+                pass
     except Exception as e:
         logger.warning("保存年刊分数失败 %s: %s", bvid, e)
 

@@ -44,7 +44,6 @@ DEFAULT_CONFIG = {
         "group_qq": "",
     },
     "monitor": {
-        "check_interval": 300,
         "auto_start_monitor": True,
         "max_monitor_count": 100,
         "save_history": True,
