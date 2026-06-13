@@ -1,18 +1,23 @@
 """
 在线人数监控面板 — 实时查看所有监控视频的在线观看人数
+秒级刷新，独立于主监控线程直接调用 B站 API 获取在线人数。
 """
 
 import tkinter as tk
 from tkinter import ttk
 import logging
+import threading
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from ui.theme import C
-from ui.helpers import FONT, FONT_SM, fmt_num
+from ui.helpers import FONT, FONT_SM, fmt_num, _parse_viewer_count
 
 logger = logging.getLogger(__name__)
 
-REFRESH_INTERVAL = 30000
+REFRESH_INTERVAL = 5000  # 毫秒，秒级刷新（5 秒）
+MAX_VIEWER_FETCH_WORKERS = 4  # 并发上限（按需拉取模式下 4 线程足够）
+TOP_N_FETCH = 20  # 每次只拉取在线人数最高的前 N 个视频
 
 
 class OnlineViewersPanel:
@@ -23,6 +28,9 @@ class OnlineViewersPanel:
         self._sort_col = "viewers_total"
         self._sort_rev = True
         self._timer_id = None
+        self._refresh_lock = threading.Lock()  # 防止并发刷新
+        self._fetch_pool = None  # 延迟初始化，仅面板可见时创建
+        self._active = False  # 面板是否可见
         self._build_ui()
 
     def _build_ui(self):
@@ -186,9 +194,88 @@ class OnlineViewersPanel:
         self.gui._select_video(bvid)
 
     def refresh(self):
-        """手动刷新在线人数数据"""
-        self._populate()
-        self._time_lbl.config(text=f"上次刷新: {datetime.now().strftime('%H:%M:%S')}")
+        """刷新在线人数数据：从 B站 API 拉取最新在线人数，然后更新列表"""
+        if not self._refresh_lock.acquire(blocking=False):
+            return  # 上一次刷新尚未完成，跳过
+        threading.Thread(target=self._async_refresh, daemon=True).start()
+
+    def _async_refresh(self):
+        """后台线程：并发拉取所有视频的在线人数，完成后回主线程更新 UI"""
+        try:
+            self._fetch_all_viewers()
+        finally:
+            self._refresh_lock.release()
+        # 回主线程更新 UI
+        if self._active:
+            self.frame.after(0, self._update_ui_after_fetch)
+
+    def _fetch_all_viewers(self):
+        """并发拉取高优先级视频的在线观看人数（按需拉取，非全量）。
+
+        策略：只拉取在线人数最高的前 TOP_N_FETCH 个视频 + 当前选中的视频。
+        避免 100+ 视频全量拉取导致秒级刷新无法达标。
+        """
+        videos = self.gui.monitored_videos
+        if not videos:
+            return
+
+        # ── 优先级筛选：在线人数 Top N + 当前选中 ──
+        selected_bvid = None
+        sel = self._tree.selection()
+        if sel:
+            selected_bvid = self._tree.item(sel[0], "values")[2]
+
+        # 按当前已知在线人数排序（近似，无需精确）
+        ranked = sorted(
+            [(v, v.get("viewers_total", 0)) for v in videos],
+            key=lambda x: x[1], reverse=True,
+        )
+        priority_videos = [v for v, _ in ranked[:TOP_N_FETCH]]
+
+        # 确保选中的视频也在拉取列表中
+        if selected_bvid:
+            for v in videos:
+                if v.get("bvid") == selected_bvid and v not in priority_videos:
+                    priority_videos.append(v)
+                    break
+
+        # ── 筛选有 cid 的视频 ──
+        fetchable = []
+        for v in priority_videos:
+            cid = v.get("_cid", 0) or v.get("cid", 0)
+            if cid:
+                fetchable.append((v, v.get("bvid", ""), cid))
+
+        if not fetchable:
+            return
+
+        # 延迟初始化线程池（仅在面板可见时）
+        if self._fetch_pool is None:
+            self._fetch_pool = ThreadPoolExecutor(max_workers=MAX_VIEWER_FETCH_WORKERS)
+
+        def _fetch_one(video, bvid, cid):
+            """拉取单个视频的在线人数（持有 gui._data_lock 写入，与 worker 线程互斥）"""
+            try:
+                from core import bilibili_api
+                viewers = bilibili_api.get_video_viewers(bvid, cid)
+                if viewers:
+                    with self.gui._data_lock:
+                        video["viewers_total_raw"] = viewers.get("total", "0")
+                        video["viewers_web_raw"] = viewers.get("count", "0")
+                        video["viewers_total"] = _parse_viewer_count(viewers.get("total", "0"))
+                        video["viewers_web"] = _parse_viewer_count(viewers.get("count", "0"))
+                        video["viewers_app"] = max(0, video["viewers_total"] - video["viewers_web"])
+                        video["_viewers_updated_at"] = datetime.now().timestamp()  # 供 worker 判断是否跳过
+            except Exception:
+                pass  # 单个视频失败不阻塞其他
+
+        futures = [self._fetch_pool.submit(_fetch_one, v, bvid, cid) for v, bvid, cid in fetchable]
+        # 等待全部完成（或超时 10 秒）
+        for f in as_completed(futures, timeout=10):
+            try:
+                f.result()
+            except Exception:
+                pass
 
     def _populate(self):
         """填充树形表格数据：遍历所有监控视频，计算在线率并按当前排序方式排列"""
@@ -261,17 +348,27 @@ class OnlineViewersPanel:
 
         self._status_lbl.config(text=f"共 {len(rows)} 个视频 · 按在线人数排序")
 
+    def _update_ui_after_fetch(self):
+        """在主线程中更新 UI（API 拉取完成后回调）"""
+        self._populate()
+        self._time_lbl.config(text=f"上次刷新: {datetime.now().strftime('%H:%M:%S')}")
+
     def on_show(self):
-        """面板显示时刷新数据并启动自动刷新"""
-        self.refresh()
+        """面板显示时立即刷新并启动秒级自动刷新"""
+        self._active = True
         self._start_auto_refresh()
+        self.refresh()  # 在 _active=True 之后调用，确保 UI 更新回调执行
 
     def on_hide(self):
-        """面板隐藏时停止自动刷新"""
+        """面板隐藏时停止自动刷新，释放线程池"""
+        self._active = False
         self._stop_auto_refresh()
+        if self._fetch_pool:
+            self._fetch_pool.shutdown(wait=False)
+            self._fetch_pool = None
 
     def _start_auto_refresh(self):
-        """启动定时自动刷新（间隔 30 秒）"""
+        """启动定时自动刷新（秒级间隔）"""
         self._stop_auto_refresh()
         self._timer_id = self.frame.after(REFRESH_INTERVAL, self._auto_refresh_tick)
 
