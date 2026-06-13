@@ -285,3 +285,31 @@ def get_device_info() -> Dict[str, Any]:
         info["is_gpu"] = True
 
     return info
+
+
+# ── 用户推理设备偏好 ────────────────────────────
+
+_preferred_device: str = "auto"  # "auto" | "onnx_dml" | "cuda" | "cpu"
+
+
+def set_preferred_device(pref: str):
+    """设置用户推理设备偏好。
+
+    Args:
+        pref: "auto" | "onnx_dml" | "cuda" | "cpu"
+    """
+    global _preferred_device
+    valid = {"auto", "onnx_dml", "cuda", "cpu"}
+    if pref in valid:
+        _preferred_device = pref
+        # 同步 force_cpu 状态
+        if pref == "cpu":
+            force_cpu(True)
+        else:
+            force_cpu(False)
+        logger.info("推理设备偏好: %s", pref)
+
+
+def get_preferred_device() -> str:
+    """获取用户推理设备偏好。"""
+    return _preferred_device

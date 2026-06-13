@@ -1929,14 +1929,18 @@ def try_torch_predict(
     window: int = DEFAULT_WINDOW,
     horizon: int = DEFAULT_HORIZON,
 ):
-    """统一的预测入口：torch 推理 → numpy 降级。
+    """统一的预测入口：ONNX(NPU) → torch → ONNX(CPU) → numpy 降级。
 
-    尝试加载最优 checkpoint 进行 PyTorch 推理；
-    若失败则回退到 numpy 简化版。
+    推理优先级：
+        1. ONNX Runtime + DirectML（NPU/GPU 加速）
+        2. PyTorch（CUDA / DirectML）
+        3. ONNX Runtime CPU
+        4. numpy 降级
 
     降级条件：
-    - PyTorch 不可用
-    - 无可用的 checkpoint（全局或视频微调）
+    - ONNX Runtime 不可用 / 模型未导出
+    - PyTorch 不可用 / CUDA OOM
+    - 无可用的 checkpoint
     - 历史数据不足（< 3 条）
     - 推理过程抛出异常
 
@@ -1980,10 +1984,30 @@ def try_torch_predict(
     feats = features or DEFAULT_FEATURES
     x_arr = v_mean = v_std = None  # 初始化，供 except 中使用
 
+    # ── Phase 1: ONNX Runtime（NPU/CPU 优先）──────────
+    from algorithms.training.device import get_preferred_device
+    prefer = get_preferred_device()
+    skip_onnx = (prefer == "cuda")  # 用户指定 CUDA 时跳过 ONNX
+    skip_torch = (prefer == "onnx_dml" or prefer == "cpu")  # 用户指定 ONNX/CPU 时跳过 torch 加载
+
+    x_arr, v_mean, v_std = _build_torch_input(video_data, feats, window)
+    if not skip_onnx and x_arr is not None:
+        onnx_result = _try_onnx_predict(
+            algo_id, bvid, x_arr, window, len(feats) + 5,
+            v_mean, v_std, algorithm, video_data, threshold, model_source
+        )
+        if onnx_result is not None:
+            return onnx_result
+    elif x_arr is None and not _torch_available:
+        return fallback_fn(video_data, threshold)
+
+    # ── Phase 2: PyTorch（GPU/CPU）──────────────────────
+    if skip_torch:
+        # 直接走 numpy 降级（ONNX 前面已试过）
+        return fallback_fn(video_data, threshold)
+
+    # ── Phase 2: PyTorch（GPU/CPU）──────────────────────
     try:
-        x_arr, v_mean, v_std = _build_torch_input(video_data, feats, window)
-        if x_arr is None:
-            return fallback_fn(video_data, threshold)
 
         model = getattr(algorithm, "_cached_torch_model", None)
         if model is None or (bvid and not getattr(algorithm, "_cached_bvid", "") == bvid):

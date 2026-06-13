@@ -83,6 +83,7 @@ from ui.settings_advanced import (
     _discover_torch_algorithms,
     _refresh_device_info,
     _on_force_cpu_changed,
+    _on_infer_device_changed,
     _refresh_data_size,
     _refresh_algo_list,
     _tr_select_all,
@@ -379,6 +380,7 @@ SettingsWindow._build_training_tab = _build_training_tab
 SettingsWindow._discover_torch_algorithms = _discover_torch_algorithms
 SettingsWindow._refresh_device_info = _refresh_device_info
 SettingsWindow._on_force_cpu_changed = _on_force_cpu_changed
+SettingsWindow._on_infer_device_changed = _on_infer_device_changed
 SettingsWindow._refresh_data_size = _refresh_data_size
 SettingsWindow._refresh_algo_list = _refresh_algo_list
 SettingsWindow._tr_select_all = _tr_select_all

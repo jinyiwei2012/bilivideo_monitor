@@ -414,10 +414,19 @@ def _build_training_tab(self, nb):
         dev_row, text="检测中…", bg=C["bg_elevated"], fg=C["text_1"], font=FONT_BOLD, anchor="w"
     )
     self._tr_device_lbl.pack(side=tk.LEFT, padx=(4, 12))
-    self._tr_force_cpu_var = tk.BooleanVar(value=False)
-    ttk.Checkbutton(
-        dev_row, text="强制使用 CPU", variable=self._tr_force_cpu_var, command=self._on_force_cpu_changed
-    ).pack(side=tk.LEFT)
+
+    # 推理设备选择
+    tk.Label(dev_row, text="推理设备:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT, width=10, anchor="w").pack(
+        side=tk.LEFT
+    )
+    self._tr_infer_device_var = tk.StringVar(value="auto")
+    infer_cb = ttk.Combobox(
+        dev_row, textvariable=self._tr_infer_device_var, width=20,
+        font=("Consolas", 9), state="readonly",
+        values=["auto - 自动选择", "onnx_dml - ONNX DirectML (NPU)", "cuda - NVIDIA GPU", "cpu - CPU only"]
+    )
+    infer_cb.pack(side=tk.LEFT, padx=4)
+    infer_cb.bind("<<ComboboxSelected>>", lambda e: self._on_infer_device_changed())
     ttk.Button(dev_row, text="刷新", command=self._refresh_device_info).pack(side=tk.RIGHT)
 
     data_sec = self._section(page, "数据规模", padding=(16, 6, 6))
@@ -532,6 +541,17 @@ def _refresh_device_info(self):
             self._tr_device_lbl.config(text=f"💻 {info['name']} ({info.get('device', 'cpu')})", fg=C["warning"])
     except Exception as e:
         self._tr_device_lbl.config(text=f"⚠ 检测失败: {e}", fg=C["danger"])
+
+
+def _on_infer_device_changed(self):
+    """推理设备偏好变更，持久化到 config 并更新全局。"""
+    val = self._tr_infer_device_var.get().split(" - ")[0]  # "auto" / "onnx_dml" / "cuda" / "cpu"
+    try:
+        from algorithms.training.device import set_preferred_device
+        set_preferred_device(val)
+        self._refresh_device_info()
+    except Exception as e:
+        logger.debug("设置推理设备失败: %s", e)
 
 
 def _on_force_cpu_changed(self):

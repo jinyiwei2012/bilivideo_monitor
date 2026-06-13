@@ -958,6 +958,15 @@ class ModelTrainer:
         # 视频微调时也保存到 data/<bvid>/model/ 目录（供推理快速访问）
         if bvid:
             self._save_model_to_video_dir(model, bvid, algo_id)
+
+        # 训练完成后自动导出 ONNX 模型（供 ONNX Runtime / NPU 推理使用）
+        try:
+            from algorithms.training.onnx_exporter import export_to_onnx, is_onnx_available
+            if is_onnx_available():
+                export_to_onnx(model_to_save, algo_id, bvid or "", force=True)
+        except Exception:
+            pass
+
         return version
 
     def _save_model_to_video_dir(self, model: "torch.nn.Module", bvid: str, algo_id: str):
