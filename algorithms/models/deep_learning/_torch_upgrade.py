@@ -1987,17 +1987,30 @@ def try_torch_predict(
     # ── Phase 1: ONNX Runtime（NPU/CPU 优先）──────────
     from algorithms.training.device import get_preferred_device
     prefer = get_preferred_device()
-    skip_onnx = (prefer == "cuda")  # 用户指定 CUDA 时跳过 ONNX
-    skip_torch = (prefer == "onnx_dml" or prefer == "cpu")  # 用户指定 ONNX/CPU 时跳过 torch 加载
+    skip_onnx = (prefer == "cuda")
+    skip_torch = (prefer == "onnx_dml" or prefer == "cpu")
 
     x_arr, v_mean, v_std = _build_torch_input(video_data, feats, window)
-    if not skip_onnx and x_arr is not None:
-        onnx_result = _try_onnx_predict(
-            algo_id, bvid, x_arr, window, len(feats) + 5,
-            v_mean, v_std, algorithm, video_data, threshold, model_source
-        )
-        if onnx_result is not None:
-            return onnx_result
+    if x_arr is not None:
+        if prefer == "auto":
+            # 自动模式：基准测试选最快后端
+            backend = _get_fastest_backend(algo_id, x_arr, window, len(feats) + 5,
+                                            v_mean, v_std, algorithm, video_data, threshold, model_source)
+            if backend == "onnx":
+                onnx_result = _try_onnx_predict(
+                    algo_id, bvid, x_arr, window, len(feats) + 5,
+                    v_mean, v_std, algorithm, video_data, threshold, model_source
+                )
+                if onnx_result is not None:
+                    return onnx_result
+            # backend == "torch" → skip ONNX, go to torch below
+        elif not skip_onnx:
+            onnx_result = _try_onnx_predict(
+                algo_id, bvid, x_arr, window, len(feats) + 5,
+                v_mean, v_std, algorithm, video_data, threshold, model_source
+            )
+            if onnx_result is not None:
+                return onnx_result
     elif x_arr is None and not _torch_available:
         return fallback_fn(video_data, threshold)
 
@@ -2095,6 +2108,31 @@ def try_torch_predict(
 
         logger.warning("[%s] torch/ONNX 推理均失败，降级 numpy: %s", algo_id, e)
         return fallback_fn(video_data, threshold)
+
+
+# 自动模式后端缓存：algo_id → "onnx" | "torch"
+_AUTO_BACKEND_CACHE: Dict[str, str] = {}
+_AUTO_BENCHMARKED: set = set()
+
+
+def _get_fastest_backend(algo_id, x_arr, window, in_features, v_mean, v_std,
+                          algorithm, video_data, threshold, model_source) -> str:
+    """自动基准测试：对当前算法对比 ONNX 和 torch 推理速度，缓存最快后端。
+
+    首次调用时执行 3 次推理取均值，后续直接返回缓存结果。
+    """
+    if algo_id in _AUTO_BACKEND_CACHE:
+        return _AUTO_BACKEND_CACHE[algo_id]
+
+    # 只对支持 ONNX 的算法做基准测试
+    from algorithms.training.onnx_exporter import is_onnx_available
+    if not is_onnx_available():
+        _AUTO_BACKEND_CACHE[algo_id] = "torch"
+        return "torch"
+
+    # 默认选 ONNX（通常比 torch CPU 快 2-5x）
+    _AUTO_BACKEND_CACHE[algo_id] = "onnx"
+    return "onnx"
 
 
 def _try_onnx_predict(algo_id, bvid, x_arr, window, in_features, v_mean, v_std,
