@@ -15,6 +15,7 @@ from ui.helpers import (
     THRESHOLD_NAMES,
     _parse_viewer_count,
 )
+from utils.history_buffer import HistoryBuffer
 
 logger = logging.getLogger(__name__)
 
@@ -153,7 +154,10 @@ def _merge_history(gui, bvid: str) -> list:
 
     # 同步回 gui.history_data，让图表也能看到合并后的完整数据
     with gui._data_lock:
-        gui.history_data[bvid] = [(ts, v) for ts, v in history]
+        buf = HistoryBuffer()
+        for ts, v in history:
+            buf.append((ts, v))
+        gui.history_data[bvid] = buf
 
     return history
 
@@ -600,6 +604,7 @@ class VideoWorker:
             video["author"] = owner.get("name", video.get("author", ""))
             video["pic"] = info.get("pic", video.get("pic", ""))
             video["_cid"] = info.get("cid", 0)  # 存 cid 供弹幕拉取使用
+            video["_aid"] = info.get("aid", 0)  # 存 aid 供 Protobuf 弹幕 API 使用
             owner_id = owner.get("mid", 0)
             if owner_id:
                 _save_up_data(owner_id)
@@ -614,7 +619,10 @@ class VideoWorker:
         with gui._data_lock:
             try:
                 cid = info.get("cid", 0)
-                if cid:
+                # 如果在线人数面板在 30 秒内已更新过，跳过 API 调用避免覆盖
+                _panel_ts = video.get("_viewers_updated_at", 0)
+                _panel_fresh = (time.time() - _panel_ts) < 30 if _panel_ts else False
+                if cid and not _panel_fresh:
                     viewers = bilibili_api.get_video_viewers(bvid, cid)
                     if viewers:
                         self._log(
@@ -630,10 +638,11 @@ class VideoWorker:
                         video["viewers_total"] = video.get("viewers_total", 0)
                         video["viewers_web"] = video.get("viewers_web", 0)
                         video["viewers_app"] = video.get("viewers_app", 0)
-                else:
+                elif not cid:
                     video["viewers_total"] = video.get("viewers_total", 0)
                     video["viewers_web"] = video.get("viewers_web", 0)
                     video["viewers_app"] = video.get("viewers_app", 0)
+                # else: _panel_fresh=True → 保留面板刚写入的新鲜数据
             except Exception as e:
                 self._log("WARNING", f"[{bvid}] 获取在线人数失败: {e}")
                 video["viewers_total"] = video.get("viewers_total", 0)
@@ -643,10 +652,8 @@ class VideoWorker:
         ts = datetime.now()
         with gui._data_lock:
             if bvid not in gui.history_data:
-                gui.history_data[bvid] = []
+                gui.history_data[bvid] = HistoryBuffer()
             gui.history_data[bvid].append((ts, video["view_count"]))
-            if len(gui.history_data[bvid]) > 1000:
-                gui.history_data[bvid] = gui.history_data[bvid][-800:]
 
         try:
             if bvid in gui.video_dbs:
@@ -726,7 +733,9 @@ class VideoWorker:
             from core.bilibili_danmaku import get_danmaku_monitor
             monitor = get_danmaku_monitor()
             video_db = self.gui.video_dbs.get(bvid)
-            new_count = monitor.fetch_new_danmaku(bvid, cid, video_db)
+            # 传递 aid(avid) 给新 Protobuf API
+            aid = self.video.get("_aid", 0)
+            new_count = monitor.fetch_new_danmaku(bvid, cid, video_db, aid=aid)
             if new_count > 0:
                 self._log("INFO", f"[{bvid}] 新增弹幕 {new_count} 条")
         except Exception as e:
@@ -1008,7 +1017,10 @@ def load_watch_list(gui):
                     video_db.save_video_info(video)
                     history = video_db.get_all_records()
                     if history:
-                        gui.history_data[bvid] = [(row["timestamp"], row["view_count"]) for row in history]
+                        buf = HistoryBuffer()
+                        for row in history:
+                            buf.append((row["timestamp"], row["view_count"]))
+                        gui.history_data[bvid] = buf
                 except Exception as e:
                     logger.debug("初始化视频数据库失败 %s: %s", bvid, e)
 

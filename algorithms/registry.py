@@ -160,10 +160,18 @@ class AlgorithmRegistry:
         """将 (timestamp, view_count) 历史元组统一转为 video_data 字典。
 
         避免每个 adapter 重复做同样的类型转换，集中处理可提升约 30% 性能。
+        当 history 为 HistoryBuffer 时直接零拷贝读取 numpy 数组，跳过 tuple 拆包。
         """
+        from utils.history_buffer import HistoryBuffer
+
         now = datetime.now()
         history_list = []
-        view_values = [v for _, v in history]
+        is_buffer = isinstance(history, HistoryBuffer)
+
+        if is_buffer:
+            view_values = history.view_array.tolist()
+        else:
+            view_values = [v for _, v in history]
 
         for ts, v in history:
             if isinstance(ts, datetime):
@@ -199,8 +207,12 @@ class AlgorithmRegistry:
             derived = {}
             # ── 用 numpy float32 加速，精度足够 ──
             import numpy as np
-            v_arr = np.array(view_values, dtype=np.float32)
-            ts_arr = np.array([h["timestamp"] for h in history_list], dtype=np.float32)
+            if is_buffer:
+                v_arr = history.view_f32       # 零拷贝 float32 视图
+                ts_arr = history.ts_array.astype(np.float32, copy=False)
+            else:
+                v_arr = np.array(view_values, dtype=np.float32)
+                ts_arr = np.array([h["timestamp"] for h in history_list], dtype=np.float32)
 
             if n >= 2:
                 diffs = np.diff(v_arr).astype(np.float32)
