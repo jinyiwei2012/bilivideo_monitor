@@ -3,14 +3,15 @@ ONNX 模型导出与推理模块
 ======================
 
 将已训练的 PyTorch checkpoint 导出为 ONNX 格式，使用 ONNX Runtime
-进行 CPU 推理加速。作为 torch 不可用或 CUDA OOM 时的 fallback。
+进行 CPU / DirectML(NPU) 推理加速。作为 torch 不可用或 CUDA OOM 时的 fallback。
 
 导出流程:
     checkpoint (*.pt) → PyTorch 模型 → torch.onnx.export() → *.onnx
 推理流程:
     numpy 输入 → ONNX Runtime session.run() → numpy 输出
 
-依赖: pip install onnxruntime
+Execution Provider 优先级: DirectML(NPU) > CPU
+依赖: pip install onnxruntime onnxruntime-directml
 """
 
 import os
@@ -177,10 +178,13 @@ class ONNXInferenceSession:
             return None
 
         try:
-            sess = _ort.InferenceSession(
-                onnx_path,
-                providers=["CPUExecutionProvider"],
-            )
+            # EP 优先级: DirectML(NPU/GPU) > CPU
+            providers = ["CPUExecutionProvider"]
+            try:
+                sess = _ort.InferenceSession(onnx_path, providers=["DmlExecutionProvider", "CPUExecutionProvider"])
+                providers = ["DmlExecutionProvider", "CPUExecutionProvider"]
+            except Exception:
+                sess = _ort.InferenceSession(onnx_path, providers=["CPUExecutionProvider"])
             self._sessions[key] = sess
             return sess
         except Exception as e:

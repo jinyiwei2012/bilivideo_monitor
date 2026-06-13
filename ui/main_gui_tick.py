@@ -105,11 +105,11 @@ def do_periodic_sync(gui):
             except Exception as e:
                 logger.debug("忽略异常: %s", e)
 
-            # 每15天清理一次 predictions 历史重复行
             _maybe_cleanup_predictions(gui)
-
-            # 每24小时清理一次 OnlineLearner 过期追踪器
             _maybe_cleanup_online_learner(gui)
+
+            import gc
+            gc.collect()
         except Exception as e:
             logger.warning("每小时同步异常: %s", e)
 
@@ -153,17 +153,20 @@ def _maybe_cleanup_predictions(gui):
 
 
 def _maybe_cleanup_online_learner(gui):
-    """每24小时清理一次 OnlineLearner 中过期（超过48小时未更新）的追踪器。"""
+    """每 1 小时清理一次 OnlineLearner 中过期（超过 2 小时未更新）的追踪器。"""
     import time
 
     now = time.time()
     last = getattr(gui, "_last_learner_cleanup", 0)
-    if now - last < 86400:  # 24 hours
+    if now - last < 3600:  # 1 hour
         return
     gui._last_learner_cleanup = now
     try:
         from algorithms.online_learner import get_online_learner
-        get_online_learner().cleanup_stale(max_age_seconds=172800)  # 48h
+        get_online_learner().cleanup_stale(max_age_seconds=7200)  # 2h stale
+        # 强制 GC 回收 tracker 内存
+        import gc
+        gc.collect()
     except Exception as e:
         logger.debug("OnlineLearner 清理失败: %s", e)
 

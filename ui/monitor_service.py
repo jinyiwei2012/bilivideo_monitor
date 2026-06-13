@@ -405,7 +405,29 @@ def _predict_single(gui, bvid, video) -> dict:
 
     threading.Thread(target=_save_all, daemon=True).start()
 
+    # 每批次预测后释放模型缓存 + 强制 GC
+    _maybe_release_memory()
+
     return result
+
+
+# 批处理计数器：每 N 次预测后清理内存
+_predict_count = 0
+_PREDICT_CLEANUP_INTERVAL = 3
+
+
+def _maybe_release_memory():
+    """每 N 次预测后释放 PyTorch 模型缓存并强制 GC。"""
+    global _predict_count
+    _predict_count += 1
+    if _predict_count % _PREDICT_CLEANUP_INTERVAL == 0:
+        import gc
+        try:
+            from algorithms.models.deep_learning._torch_upgrade import release_cached_models
+            release_cached_models()
+        except Exception:
+            pass
+        gc.collect()
 
 
 def _online_learning_feedback(gui, bvid, results, actual_view, prev_result):
@@ -623,8 +645,8 @@ class VideoWorker:
             if bvid not in gui.history_data:
                 gui.history_data[bvid] = []
             gui.history_data[bvid].append((ts, video["view_count"]))
-            if len(gui.history_data[bvid]) > 3000:
-                gui.history_data[bvid] = gui.history_data[bvid][-2800:]
+            if len(gui.history_data[bvid]) > 1000:
+                gui.history_data[bvid] = gui.history_data[bvid][-800:]
 
         try:
             if bvid in gui.video_dbs:

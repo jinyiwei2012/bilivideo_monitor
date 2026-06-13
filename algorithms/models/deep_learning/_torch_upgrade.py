@@ -1880,6 +1880,39 @@ def clear_all_gpu_models():
         pass
 
 
+def release_cached_models(algorithms_dict: dict = None):
+    """释放所有算法实例中缓存的 PyTorch 模型，回收内存。
+    预测周期结束后调用，保留 ONNX session（体积小）。
+    
+    Args:
+        algorithms_dict: AlgorithmRegistry._algorithms 或类似 dict
+    """
+    if algorithms_dict is None:
+        try:
+            from algorithms.registry import AlgorithmRegistry
+            algorithms_dict = AlgorithmRegistry._algorithms
+        except Exception:
+            return
+    count = 0
+    for algo in algorithms_dict.values():
+        if hasattr(algo, "_cached_torch_model") and algo._cached_torch_model is not None:
+            try:
+                algo._cached_torch_model.cpu()
+            except Exception:
+                pass
+            algo._cached_torch_model = None
+            algo._cached_bvid = ""
+            count += 1
+    if count > 0:
+        import gc
+        gc.collect()
+        try:
+            torch.cuda.empty_cache()
+        except Exception:
+            pass
+        logger.debug("[Mem] 释放 %d 个 PyTorch 模型缓存", count)
+
+
 # ════════════════════════════════════════════════════════
 #  统一的"torch → numpy 降级"调度器
 # ════════════════════════════════════════════════════════
