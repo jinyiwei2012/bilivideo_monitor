@@ -67,8 +67,6 @@ def _build_account_tab(self, nb):
     self._refresh_cookie_display()
     self._refresh_account_list()
 
-    from utils.update_checker import _s
-
     ttk.Button(btn_row, text="清空Cookie", command=self._clear_cookies, state=_s()).pack(side=tk.LEFT)
 
     tk.Label(
