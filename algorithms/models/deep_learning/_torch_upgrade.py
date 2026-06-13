@@ -37,6 +37,10 @@ DEFAULT_FEATURES = ["view_count", "like_count", "coin_count", "favorite_count", 
 """默认输入特征列表"""
 DEFAULT_WINDOW = 10
 """默认输入窗口长度（时间步数）"""
+
+# 模型加载信号量：防止多线程同时加载大模型导致内存峰值
+import threading
+_model_load_semaphore = threading.Semaphore(2)
 DEFAULT_HORIZON = 3
 """默认预测步数（输出长度）"""
 
@@ -2037,14 +2041,16 @@ def try_torch_predict(
             for k, v in (("window", window), ("horizon", horizon)):
                 if k in sig_params and k not in mk:
                     mk[k] = v
-            model = model_cls(**mk)
-            if isinstance(state, (tuple, list)):
-                state = state[0]
-            if not isinstance(state, dict):
-                logger.warning("[%s] checkpoint 格式异常 (type=%s)，跳过 torch 推理", algo_id, type(state).__name__)
-                return fallback_fn(video_data, threshold)
-            state = {k[len("_orig_mod."):] if k.startswith("_orig_mod.") else k: v for k, v in state.items()}
-            model.load_state_dict(state)
+            # 信号量保护：防止多线程同时加载大模型导致内存峰值
+            with _model_load_semaphore:
+                model = model_cls(**mk)
+                if isinstance(state, (tuple, list)):
+                    state = state[0]
+                if not isinstance(state, dict):
+                    logger.warning("[%s] checkpoint 格式异常 (type=%s)，跳过 torch 推理", algo_id, type(state).__name__)
+                    return fallback_fn(video_data, threshold)
+                state = {k[len("_orig_mod."):] if k.startswith("_orig_mod.") else k: v for k, v in state.items()}
+                model.load_state_dict(state)
 
             # 尝试放入 GPU 显存，OOM 时淘汰 LRU 模型后重试
             if algorithm._device.type == "cuda":

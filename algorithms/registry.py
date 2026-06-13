@@ -367,7 +367,9 @@ class AlgorithmRegistry:
         with cls._pool_lock:
             if cls._pool is None:
                 import os
-                workers = os.cpu_count() or 8
+                # 限制并发数：模型加载是内存密集型，CPU 核数≠最优并发
+                # 4 个线程在 memory/compute tradeoff 上最优
+                workers = min(4, max(2, (os.cpu_count() or 4) // 4))
                 cls._pool = ThreadPoolExecutor(max_workers=workers)
             pool = cls._pool
         futures = [pool.submit(_run_single, item) for item in cls._algorithms.items()]
