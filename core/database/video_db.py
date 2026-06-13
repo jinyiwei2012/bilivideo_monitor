@@ -44,8 +44,8 @@ class VideoDatabase:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")  # 启用 WAL 模式提升并发读性能
         self._conn.execute("PRAGMA synchronous=NORMAL")  # 平衡写入安全与速度
-        self._conn.execute("PRAGMA cache_size = -8000")  # 8MB 页缓存（负值=KB），减少 fsync
-        self._conn.execute("PRAGMA mmap_size = 134217728")  # 128MB 内存映射 I/O
+        self._conn.execute("PRAGMA cache_size = -4000")  # 4MB 页缓存（负值=KB）
+        self._conn.execute("PRAGMA mmap_size = 33554432")  # 32MB 内存映射（多DB安全上限）
         self._conn.execute("PRAGMA temp_store = MEMORY")  # 临时表/排序放内存
 
         # 镜像连接：同步写入 data/ 目录（延迟初始化，首次写入时才创建以节省内存）
@@ -80,8 +80,8 @@ class VideoDatabase:
             self._mirror_conn = _sqlite3.connect(self._mirror_path, check_same_thread=False)
             self._mirror_conn.execute("PRAGMA journal_mode=WAL")
             self._mirror_conn.execute("PRAGMA synchronous=NORMAL")
-            self._mirror_conn.execute("PRAGMA cache_size = -8000")
-            self._mirror_conn.execute("PRAGMA mmap_size = 134217728")
+            self._mirror_conn.execute("PRAGMA cache_size = -4000")
+            self._mirror_conn.execute("PRAGMA mmap_size = 33554432")
             self._mirror_conn.execute("PRAGMA temp_store = MEMORY")
             self._init_mirror_tables()
         except Exception as e:
