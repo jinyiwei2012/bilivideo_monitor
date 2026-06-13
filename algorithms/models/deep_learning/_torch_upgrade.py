@@ -1944,9 +1944,10 @@ def try_torch_predict(
         return fallback_fn(video_data, threshold)
 
     gpu_key = f"{algo_id}@{bvid}" if bvid else algo_id
+    feats = features or DEFAULT_FEATURES
+    x_arr = v_mean = v_std = None  # 初始化，供 except 中使用
 
     try:
-        feats = features or DEFAULT_FEATURES
         x_arr, v_mean, v_std = _build_torch_input(video_data, feats, window)
         if x_arr is None:
             return fallback_fn(video_data, threshold)
@@ -2016,14 +2017,46 @@ def try_torch_predict(
             try:
                 _evict_lru_gpu_model()
                 torch.cuda.empty_cache()
-                # 清除当前算法缓存，强制重新加载
                 algorithm._cached_torch_model = None
                 return try_torch_predict(algorithm, video_data, threshold, model_cls,
                                          fallback_fn, model_kwargs, features, window, horizon)
             except Exception:
                 pass
-        logger.warning("[%s] torch 推理失败，降级 numpy: %s", getattr(algorithm, "algorithm_id", "?"), e)
+
+        # 降级到 ONNX Runtime（CPU 推理加速）
+        algo_id = getattr(algorithm, "algorithm_id", "unknown")
+        bvid = video_data.get("bvid", "")
+        window_val = window
+        in_features_val = len(feats) + 5 if feats else 15
+        onnx_result = _try_onnx_predict(
+            algo_id, bvid, x_arr if x_arr is not None else _build_torch_input(video_data, feats, window)[0],
+            window_val, in_features_val, v_mean, v_std,
+            algorithm, video_data, threshold, model_source
+        )
+        if onnx_result is not None:
+            return onnx_result
+
+        logger.warning("[%s] torch/ONNX 推理均失败，降级 numpy: %s", algo_id, e)
         return fallback_fn(video_data, threshold)
+
+
+def _try_onnx_predict(algo_id, bvid, x_arr, window, in_features, v_mean, v_std,
+                      algorithm, video_data, threshold, model_source):
+    """ONNX Runtime 推理尝试，成功返回 PredictionResult，失败返回 None。"""
+    try:
+        from algorithms.training.onnx_exporter import get_onnx_session, is_onnx_available
+        if not is_onnx_available():
+            return None
+
+        session = get_onnx_session()
+        y = session.predict(algo_id, x_arr, bvid, window, in_features)
+        if y is None:
+            return None
+        predicted_velocity = max(0.0, float(y[0]) * v_std + v_mean)
+        return _generic_result(algorithm, video_data, threshold, predicted_velocity, y,
+                               model_source=f"{model_source}+ONNX")
+    except Exception:
+        return None
 
 
 def _add_derived_features(arr: np.ndarray) -> np.ndarray:

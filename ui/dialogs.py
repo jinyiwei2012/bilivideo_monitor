@@ -258,9 +258,9 @@ class Dialogs:
     def open_algorithm_comparison(self):
         """打开算法比较窗口"""
         try:
-            from .algorithm_comparison import AlgorithmComparisonWindow
+            from .algorithm_compare import AlgorithmCompareWindow
 
-            AlgorithmComparisonWindow(self.gui.root)
+            AlgorithmCompareWindow(self.gui.root, gui=self.gui)
         except Exception as e:
             import traceback
 
