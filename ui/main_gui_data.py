@@ -7,8 +7,6 @@ import logging
 from datetime import datetime
 from dataclasses import asdict
 
-from utils.history_buffer import HistoryBuffer
-
 logger = logging.getLogger(__name__)
 
 
@@ -133,15 +131,10 @@ def register_video_to_monitor(gui, video):
         video_db.save_video_info(video)
         history = video_db.get_all_records()
         if history:
-            buf = HistoryBuffer()
-            for row in history:
-                buf.append((row["timestamp"], row["view_count"]))
-            gui.history_data[bvid] = buf
+            gui.history_data[bvid] = [(row["timestamp"], row["view_count"]) for row in history]
         else:
             now = datetime.now()
-            buf = HistoryBuffer()
-            buf.append((now, video["view_count"]))
-            gui.history_data[bvid] = buf
+            gui.history_data[bvid] = [(now, video["view_count"])]
             rec = MonitorRecord(
                 bvid=bvid,
                 timestamp=now.isoformat(),
