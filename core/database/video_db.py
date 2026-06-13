@@ -343,6 +343,10 @@ class VideoDatabase:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            mirror_cur.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_mirror_predict_unique "
+                "ON predictions(algorithm, target_threshold)"
+            )
             mirror_cur.execute("""
                 CREATE TABLE IF NOT EXISTS weekly_scores (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -813,7 +817,7 @@ class VideoDatabase:
         try:
             self._mirror_conn.execute(
                 """
-                INSERT INTO predictions
+                INSERT OR REPLACE INTO predictions
                 (algorithm, algorithm_id, target_threshold, predicted_seconds,
                  predicted_time, confidence, current_views,
                  metadata, predicted_hours, current_velocity)
