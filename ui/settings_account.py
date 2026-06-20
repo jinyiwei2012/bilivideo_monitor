@@ -1,14 +1,22 @@
 """
-账号 / Cookie 设置
+账号 / Cookie 设置 — PyQt6 版
 
 Mixin functions for SettingsWindow.
 """
 
 import json
-import tkinter as tk
 import logging
 import threading
-from tkinter import ttk, messagebox
+from typing import Optional, Dict
+
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QLineEdit, QComboBox, QPlainTextEdit, QMessageBox, QDialog,
+    QFrame, QDialogButtonBox,
+)
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer
+from PyQt6.QtGui import QFont, QPixmap
+
 from ui.theme import C
 from ui.helpers import FONT, FONT_SM
 from core.bilibili_api import get_bilibili_api
@@ -17,70 +25,652 @@ from utils.update_checker import _s
 logger = logging.getLogger(__name__)
 
 
+# ── 对话框：Cookie-Editor 导入 ──────────────────────────────
+class _CookieEditorDialog(QDialog):
+    """Cookie-Editor JSON 导入对话框"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("导入 Cookie-Editor JSON")
+        if parent:
+            screen = parent.screen()
+            geo = screen.geometry() if screen else None
+            sw, sh = (geo.width(), geo.height()) if geo else (1920, 1080)
+        else:
+            sw, sh = 1920, 1080
+        self.resize(int(sw * 0.36), int(sh * 0.42))
+        self.setStyleSheet(f"background-color: {C['bg_surface']};")
+        self.setModal(True)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 12, 20, 12)
+
+        title = QLabel("粘贴 Cookie-Editor 导出的 JSON 内容：")
+        title.setFont(FONT)
+        title.setStyleSheet(f"color: {C['text_1']};")
+        layout.addWidget(title)
+
+        hint = QLabel('格式: [{"domain": ".bilibili.com", "name": "SESSDATA", ...}]')
+        hint.setFont(FONT_SM)
+        hint.setStyleSheet(f"color: {C['text_3']};")
+        layout.addWidget(hint)
+
+        self._text = QPlainTextEdit()
+        self._text.setStyleSheet(f"""
+            QPlainTextEdit {{
+                background-color: {C['bg_base']}; color: {C['text_1']};
+                font-family: Consolas; font-size: 10pt;
+                border: 1px solid {C['border']};
+            }}
+        """)
+        layout.addWidget(self._text, 1)
+
+        btn_layout = QHBoxLayout()
+        cancel_btn = QPushButton("取消")
+        cancel_btn.clicked.connect(self.reject)
+        btn_layout.addWidget(cancel_btn)
+        btn_layout.addStretch()
+
+        self._import_btn = QPushButton("导入并应用")
+        self._import_btn.setProperty("primary", True)
+        s = self._import_btn.style()
+        if s is not None:
+            s.unpolish(self._import_btn)
+            s.polish(self._import_btn)
+        self._import_btn.clicked.connect(self._do_import)
+        btn_layout.addWidget(self._import_btn)
+
+        layout.addLayout(btn_layout)
+
+    def _do_import(self):
+        raw = self._text.toPlainText().strip()
+        if not raw:
+            QMessageBox.warning(self, "提示", "请粘贴 JSON 内容")
+            return
+        try:
+            entries = json.loads(raw)
+        except json.JSONDecodeError as e:
+            QMessageBox.critical(self, "解析失败", f"JSON 格式错误:\n{e}")
+            return
+        if not isinstance(entries, list):
+            QMessageBox.critical(self, "格式错误", "JSON 应为数组格式")
+            return
+        cookies = {}
+        for entry in entries:
+            name = entry.get("name", "")
+            value = entry.get("value", "")
+            domain = entry.get("domain", "")
+            if name and value and ("bilibili.com" in domain or not domain):
+                cookies[name] = value
+        if not cookies:
+            QMessageBox.warning(self, "未找到", "JSON 中未找到 B站 相关 Cookie")
+            return
+        self._result = cookies
+        self.accept()
+
+    def get_cookies(self) -> dict:
+        return getattr(self, "_result", {})
+
+
+# ── 对话框：扫码登录 ──────────────────────────────────────
+class _QRCodeLoginDialog(QDialog):
+    """扫码登录对话框"""
+
+    _login_done = pyqtSignal(dict)  # cookies
+    _login_failed = pyqtSignal(str)  # message
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("扫码登录 B站")
+        if parent:
+            screen = parent.screen()
+            geo = screen.geometry() if screen else None
+            sw, sh = (geo.width(), geo.height()) if geo else (1920, 1080)
+        else:
+            sw, sh = 1920, 1080
+        self.resize(int(sw * 0.28), int(sh * 0.45))
+        self.setStyleSheet(f"background-color: {C['bg_surface']};")
+        self.setModal(True)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 14, 20, 14)
+
+        title = QLabel("请使用 B站 手机客户端扫码")
+        title.setFont(QFont("Microsoft YaHei UI", 11, QFont.Weight.Bold))
+        title.setStyleSheet(f"color: {C['text_1']};")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title)
+
+        # 二维码/状态图标
+        self._qr_label = QLabel("正在生成二维码…")
+        self._qr_label.setFont(FONT)
+        self._qr_label.setStyleSheet(f"color: {C['text_1']};")
+        self._qr_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._qr_label.setFixedSize(220, 220)
+        layout.addWidget(self._qr_label, 0, Qt.AlignmentFlag.AlignCenter)
+
+        self._status_label = QLabel("等待扫码...")
+        self._status_label.setFont(FONT)
+        self._status_label.setStyleSheet(f"color: {C['text_2']};")
+        self._status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self._status_label)
+
+        layout.addStretch()
+
+        self._login_done.connect(self._on_login_done)
+        self._login_failed.connect(self._on_login_failed)
+
+        self._start_qrcode()
+
+    def _start_qrcode(self):
+        qr_data = get_bilibili_api().get_qrcode_login_url()
+        if not qr_data:
+            self._login_failed.emit("获取二维码失败")
+            return
+        self._qrcode_key = qr_data.get("qrcode_key", "")
+        qr_url = qr_data.get("url", "")
+
+        # 后台生成二维码图片
+        t = threading.Thread(target=self._gen_qr, args=(qr_url,), daemon=True)
+        t.start()
+
+        # 开始轮询
+        self._poll_timer = QTimer(self)
+        self._poll_timer.timeout.connect(self._poll)
+        self._poll_timer.start(1500)
+
+    def _gen_qr(self, qr_url: str):
+        try:
+            import qrcode
+            from PIL import Image
+            import io
+
+            img = qrcode.make(qr_url).resize((200, 200))
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            pixmap = QPixmap()
+            if pixmap.loadFromData(buf.getvalue()):
+                self._qr_label.setPixmap(pixmap)
+        except Exception:
+            self._qr_label.setText(f"扫码链接:\n{qr_url}")
+
+    def _poll(self):
+        def _worker():
+            try:
+                result = get_bilibili_api().poll_qrcode_login(self._qrcode_key)
+            except Exception as e:
+                result = {"status": 0, "message": f"轮询异常: {e}"}
+            self._status_label.setText(result.get("message", ""))
+            if result.get("status") == 2:
+                self._poll_timer.stop()
+                cookies = result.get("cookies", {})
+                if cookies:
+                    get_bilibili_api().set_cookies(cookies)
+                self._login_done.emit(cookies)
+            elif result.get("status") == -1:
+                self._poll_timer.stop()
+                self._status_label.setStyleSheet(f"color: {C['danger']};")
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _on_login_done(self, cookies: dict):
+        self._status_label.setStyleSheet(f"color: {C['success']};")
+        QTimer.singleShot(800, self.accept)
+
+    def _on_login_failed(self, msg: str):
+        self._status_label.setText(msg)
+        self._status_label.setStyleSheet(f"color: {C['danger']};")
+
+
+# ── 对话框：密码登录 ──────────────────────────────────────
+class _PasswordLoginDialog(QDialog):
+    """账号密码登录对话框，支持验证码 + 极验"""
+
+    _result_signal = pyqtSignal(object)  # result dict
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("密码登录 B站")
+        if parent:
+            screen = parent.screen()
+            geo = screen.geometry() if screen else None
+            sw, sh = (geo.width(), geo.height()) if geo else (1920, 1080)
+        else:
+            sw, sh = 1920, 1080
+        self.resize(int(sw * 0.28), int(sh * 0.36))
+        self.setStyleSheet(f"background-color: {C['bg_surface']};")
+        self.setModal(True)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 18, 24, 18)
+
+        title = QLabel("B站 账号密码登录")
+        title.setFont(QFont("Microsoft YaHei UI", 13, QFont.Weight.Bold))
+        title.setStyleSheet(f"color: {C['text_1']};")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title)
+
+        subtitle = QLabel("部分账号需要手机验证码，建议使用扫码登录")
+        subtitle.setFont(FONT_SM)
+        subtitle.setStyleSheet(f"color: {C['text_3']};")
+        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(subtitle)
+
+        form = QWidget()
+        form.setStyleSheet(f"background-color: {C['bg_surface']};")
+        form_layout = QVBoxLayout(form)
+        form_layout.setContentsMargins(0, 12, 0, 0)
+
+        # 用户名
+        uname_row = QHBoxLayout()
+        uname_lbl = QLabel("账号:")
+        uname_lbl.setFont(FONT)
+        uname_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
+        uname_lbl.setFixedWidth(50)
+        uname_row.addWidget(uname_lbl)
+        self._username_entry = QLineEdit()
+        self._username_entry.setFont(FONT)
+        self._username_entry.setStyleSheet(f"""
+            QLineEdit {{
+                background-color: {C['bg_base']}; color: {C['text_1']};
+                border: 1px solid {C['border']}; padding: 4px 8px;
+            }}
+        """)
+        uname_row.addWidget(self._username_entry)
+        form_layout.addLayout(uname_row)
+
+        # 密码
+        pwd_row = QHBoxLayout()
+        pwd_lbl = QLabel("密码:")
+        pwd_lbl.setFont(FONT)
+        pwd_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
+        pwd_lbl.setFixedWidth(50)
+        pwd_row.addWidget(pwd_lbl)
+        self._password_entry = QLineEdit()
+        self._password_entry.setEchoMode(QLineEdit.EchoMode.Password)
+        self._password_entry.setFont(FONT)
+        self._password_entry.setStyleSheet(f"""
+            QLineEdit {{
+                background-color: {C['bg_base']}; color: {C['text_1']};
+                border: 1px solid {C['border']}; padding: 4px 8px;
+            }}
+        """)
+        pwd_row.addWidget(self._password_entry)
+        form_layout.addLayout(pwd_row)
+
+        layout.addWidget(form)
+
+        # 验证码区域（初始隐藏）
+        self._captcha_widget = QWidget()
+        self._captcha_widget.setStyleSheet(f"background-color: {C['bg_surface']};")
+        self._captcha_widget.setVisible(False)
+        captcha_layout = QVBoxLayout(self._captcha_widget)
+        captcha_layout.setContentsMargins(0, 4, 0, 0)
+
+        captcha_row = QHBoxLayout()
+        captcha_lbl = QLabel("验证码:")
+        captcha_lbl.setFont(FONT)
+        captcha_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
+        captcha_row.addWidget(captcha_lbl)
+        self._captcha_entry = QLineEdit()
+        self._captcha_entry.setFont(FONT)
+        self._captcha_entry.setStyleSheet(f"""
+            QLineEdit {{
+                background-color: {C['bg_base']}; color: {C['text_1']};
+                border: 1px solid {C['border']}; padding: 4px 8px;
+            }}
+        """)
+        captcha_row.addWidget(self._captcha_entry)
+        captcha_layout.addLayout(captcha_row)
+
+        self._geetest_widget = QWidget()
+        self._geetest_widget.setStyleSheet(f"background-color: {C['bg_surface']};")
+        self._geetest_widget.setVisible(False)
+        geetest_layout = QVBoxLayout(self._geetest_widget)
+        geetest_layout.setContentsMargins(0, 4, 0, 0)
+        self._geetest_validate_entry = QLineEdit()
+        self._geetest_validate_entry.setPlaceholderText("validate")
+        self._geetest_seccode_entry = QLineEdit()
+        self._geetest_seccode_entry.setPlaceholderText("seccode")
+        for e in (self._geetest_validate_entry, self._geetest_seccode_entry):
+            e.setFont(FONT_SM)
+            e.setStyleSheet(f"""
+                QLineEdit {{
+                    background-color: {C['bg_base']}; color: {C['text_1']};
+                    border: 1px solid {C['border']}; padding: 4px 8px;
+                }}
+            """)
+        geetest_layout.addWidget(QLabel("validate:"))
+        geetest_layout.addWidget(self._geetest_validate_entry)
+        geetest_layout.addWidget(QLabel("seccode:"))
+        geetest_layout.addWidget(self._geetest_seccode_entry)
+
+        layout.addWidget(self._captcha_widget)
+        layout.addWidget(self._geetest_widget)
+
+        # 状态
+        self._status_label = QLabel("")
+        self._status_label.setFont(FONT_SM)
+        self._status_label.setStyleSheet(f"color: {C['text_2']};")
+        self._status_label.setWordWrap(True)
+        layout.addWidget(self._status_label)
+
+        layout.addStretch()
+
+        # 按钮
+        btn_row = QHBoxLayout()
+        self._cancel_btn = QPushButton("取消")
+        self._cancel_btn.clicked.connect(self.reject)
+        btn_row.addWidget(self._cancel_btn)
+        btn_row.addStretch()
+
+        self._login_btn = QPushButton("登录")
+        self._login_btn.setProperty("primary", True)
+        s = self._login_btn.style()
+        if s is not None:
+            s.unpolish(self._login_btn)
+            s.polish(self._login_btn)
+        self._login_btn.clicked.connect(self._do_login)
+        btn_row.addWidget(self._login_btn)
+
+        self._submit_captcha_btn = QPushButton("提交验证码")
+        self._submit_captcha_btn.setVisible(False)
+        btn_row.addWidget(self._submit_captcha_btn)
+
+        layout.addLayout(btn_row)
+
+        self._result_signal.connect(self._handle_result)
+        self._captcha_type = 0
+        self._login_result: dict = {}
+
+    def _do_login(self, captcha_code: str = ""):
+        uname = self._username_entry.text().strip()
+        pwd = self._password_entry.text()
+        if not uname or not pwd:
+            QMessageBox.warning(self, "提示", "请输入账号和密码")
+            return
+
+        self._login_btn.setEnabled(False)
+        self._status_label.setText("登录中..." if not captcha_code else "验证中...")
+        self._status_label.setStyleSheet(f"color: {C['text_2']};")
+
+        def _worker():
+            try:
+                result = get_bilibili_api().login_with_password(
+                    uname, pwd, captcha=captcha_code, captcha_type=self._captcha_type
+                )
+                self._result_signal.emit(result)
+            except Exception as e:
+                self._result_signal.emit({"code": -1, "message": str(e)})
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _handle_result(self, result: dict):
+        self._login_result = result
+        code = result.get("code", -1)
+        if code == 0:
+            self._status_label.setText("登录成功！")
+            self._status_label.setStyleSheet(f"color: {C['success']};")
+            QTimer.singleShot(500, self.accept)
+        elif result.get("need_captcha") or code in (-629, -352):
+            self._show_captcha(result)
+        else:
+            self._status_label.setText(result.get("message", "未知错误"))
+            self._status_label.setStyleSheet(f"color: {C['danger']};")
+            self._login_btn.setEnabled(True)
+
+    def _show_captcha(self, result: dict):
+        self._captcha_type = result.get("captcha_type", 0)
+        if self._captcha_type == 6:
+            phone = result.get("captcha_phone", "")
+            hint = f"验证码已发送至 {phone}" if phone else "请输入手机收到的验证码"
+            self._status_label.setText(hint)
+            self._status_label.setStyleSheet(f"color: {C['warning']};")
+            self._captcha_widget.setVisible(True)
+            self._captcha_entry.setFocus()
+            self._submit_captcha_btn.setVisible(True)
+            self._submit_captcha_btn.clicked.connect(self._submit_captcha)
+            self._login_btn.setVisible(False)
+        else:
+            import webbrowser
+            gt = result.get("gt", "")
+            challenge = result.get("challenge", "")
+            url = f"https://api.geetest.com/get.php?gt={gt}&challenge={challenge}&lang=zh-cn&product=embed"
+            self._status_label.setText("需要极验滑块验证，请在浏览器中完成")
+            self._status_label.setStyleSheet(f"color: {C['danger']};")
+            self._geetest_widget.setVisible(True)
+            self._submit_captcha_btn.setText("提交极验结果")
+            self._submit_captcha_btn.setVisible(True)
+            self._submit_captcha_btn.clicked.connect(self._submit_geetest)
+            webbrowser.open(url)
+
+    def _submit_captcha(self):
+        code = self._captcha_entry.text().strip()
+        if not code:
+            QMessageBox.warning(self, "提示", "请输入验证码")
+            return
+        self._captcha_type = 6
+        self._do_login(captcha_code=code)
+
+    def _submit_geetest(self):
+        validate = self._geetest_validate_entry.text().strip()
+        seccode = self._geetest_seccode_entry.text().strip()
+        if validate and seccode:
+            self._captcha_type = -1
+            self._do_login(captcha_code=f"{validate}:{seccode}")
+
+    def get_result(self) -> dict:
+        return self._login_result
+
+
+# ── 对话框：添加账号 ──────────────────────────────────────
+class _AddAccountDialog(QDialog):
+    """添加账号对话框"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("添加账号")
+        self.resize(400, 240)
+        self.setStyleSheet(f"background-color: {C['bg_surface']};")
+        self.setModal(True)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 12, 24, 12)
+
+        layout.addWidget(QLabel("账号名称:"))
+        self._name_entry = QLineEdit()
+        self._name_entry.setFont(FONT)
+        self._name_entry.setStyleSheet(f"""
+            QLineEdit {{
+                background-color: {C['bg_base']}; color: {C['text_1']};
+                border: 1px solid {C['border']}; padding: 4px 8px;
+            }}
+        """)
+        layout.addWidget(self._name_entry)
+
+        layout.addWidget(QLabel("Cookie (SESSDATA=xxx; bili_jct=xxx):"))
+        self._cookie_text = QPlainTextEdit()
+        self._cookie_text.setMaximumBlockCount(10)
+        self._cookie_text.setStyleSheet(f"""
+            QPlainTextEdit {{
+                background-color: {C['bg_base']}; color: {C['text_1']};
+                font-family: Consolas; font-size: 9pt;
+                border: 1px solid {C['border']};
+            }}
+        """)
+        layout.addWidget(self._cookie_text)
+
+        btn_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save |
+            QDialogButtonBox.StandardButton.Cancel
+        )
+        btn_box.accepted.connect(self._save)
+        btn_box.rejected.connect(self.reject)
+        layout.addWidget(btn_box)
+
+    def _save(self):
+        name = self._name_entry.text().strip()
+        raw = self._cookie_text.toPlainText().strip()
+        if not name or not raw:
+            QMessageBox.warning(self, "提示", "请填写账号名称和 Cookie")
+            return
+        # 调用 settings_window 的 parse method
+        if hasattr(self.parent(), "_parse_cookie_input"):
+            cookies = self.parent()._parse_cookie_input(raw)  # type: ignore
+        else:
+            cookies = {}
+        if not cookies:
+            QMessageBox.critical(self, "错误", "无法解析 Cookie，请检查格式")
+            return
+        get_bilibili_api().add_account(name, cookies)
+        get_bilibili_api().switch_account(name)
+        get_bilibili_api()._persist_cookies(cookies)
+        self.accept()
+
+
+# ═══════════════════════════════════════════════════
+#  SettingsWindow Mixin Functions
+# ═══════════════════════════════════════════════════
+
+
 def _build_account_tab(self, nb):
-    page = tk.Frame(nb, bg=C["bg_base"])
-    nb.add(page, text="  账号设置  ")
+    page = QWidget()
+    page.setStyleSheet(f"background-color: {C['bg_base']};")
 
-    sec = tk.Frame(page, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
-    sec.pack(fill=tk.BOTH, expand=True, padx=16, pady=(12, 6), ipadx=10, ipady=6)
+    layout = QVBoxLayout(page)
+    layout.setContentsMargins(16, 12, 16, 12)
 
-    import_row = tk.Frame(sec, bg=C["bg_elevated"])
-    import_row.pack(fill=tk.X, pady=(0, 6))
-    tk.Label(import_row, text="导入方式:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT).pack(side=tk.LEFT)
-    ttk.Button(import_row, text="📋 Cookie-Editor JSON", command=self._import_cookie_editor).pack(side=tk.LEFT, padx=4)
-    ttk.Button(import_row, text="📱 扫码登录", command=self._qrcode_login).pack(side=tk.LEFT, padx=4)
-    ttk.Button(import_row, text="🔑 密码登录", command=self._password_login, state=_s()).pack(side=tk.LEFT, padx=4)
-    ttk.Button(import_row, text="🌐 从浏览器提取", command=self._import_from_browser).pack(side=tk.LEFT, padx=4)
+    sec = QWidget()
+    sec.setStyleSheet(f"""
+        QWidget#acctSec {{
+            background-color: {C['bg_elevated']};
+            border: 1px solid {C['border_sub']};
+            border-radius: 6px;
+        }}
+    """)
+    sec.setObjectName("acctSec")
+    sec_layout = QVBoxLayout(sec)
+    sec_layout.setContentsMargins(10, 8, 10, 8)
 
-    acct_row = tk.Frame(sec, bg=C["bg_elevated"])
-    acct_row.pack(fill=tk.X, pady=(2, 4))
-    tk.Label(acct_row, text="当前账号:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT).pack(side=tk.LEFT)
-    self._acct_combo = ttk.Combobox(acct_row, font=FONT, state="readonly", width=20)
-    self._acct_combo.pack(side=tk.LEFT, padx=4)
-    self._acct_combo.bind("<<ComboboxSelected>>", lambda e: self._switch_account())
-    ttk.Button(acct_row, text="➕", width=3, command=self._add_account_dialog).pack(side=tk.LEFT, padx=1)
-    ttk.Button(acct_row, text="✕", width=3, command=self._remove_account).pack(side=tk.LEFT, padx=1)
+    # 导入按钮行
+    import_row = QWidget()
+    import_row.setStyleSheet(f"background-color: {C['bg_elevated']};")
+    import_layout = QHBoxLayout(import_row)
+    import_layout.setContentsMargins(0, 0, 0, 6)
 
-    self.cookie_text = tk.Text(
-        sec,
-        height=5,
-        bg=C["bg_base"],
-        fg=C["text_1"],
-        insertbackground=C["text_1"],
-        font=("Consolas", 10),
-        relief="flat",
-        highlightthickness=1,
-        highlightbackground=C["border"],
+    import_lbl = QLabel("导入方式:")
+    import_lbl.setFont(FONT)
+    import_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
+    import_layout.addWidget(import_lbl)
+
+    ce_btn = QPushButton("📋 Cookie-Editor JSON")
+    ce_btn.clicked.connect(self._import_cookie_editor)
+    import_layout.addWidget(ce_btn)
+
+    qr_btn = QPushButton("📱 扫码登录")
+    qr_btn.clicked.connect(self._qrcode_login)
+    import_layout.addWidget(qr_btn)
+
+    pwd_btn = QPushButton("🔑 密码登录")
+    pwd_btn.setEnabled(_s() == "normal")
+    pwd_btn.clicked.connect(self._password_login)
+    import_layout.addWidget(pwd_btn)
+
+    browser_btn = QPushButton("🌐 从浏览器提取")
+    browser_btn.clicked.connect(self._import_from_browser)
+    import_layout.addWidget(browser_btn)
+
+    import_layout.addStretch()
+    sec_layout.addWidget(import_row)
+
+    # 账号切换行
+    acct_row = QWidget()
+    acct_row.setStyleSheet(f"background-color: {C['bg_elevated']};")
+    acct_layout = QHBoxLayout(acct_row)
+    acct_layout.setContentsMargins(0, 2, 0, 4)
+
+    acct_lbl = QLabel("当前账号:")
+    acct_lbl.setFont(FONT)
+    acct_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
+    acct_layout.addWidget(acct_lbl)
+
+    self._acct_combo = QComboBox()
+    self._acct_combo.setStyleSheet(f"""
+        QComboBox {{
+            background-color: {C['bg_base']}; color: {C['text_1']};
+            border: 1px solid {C['border']}; padding: 2px 6px;
+        }}
+    """)
+    self._acct_combo.currentTextChanged.connect(self._switch_account)
+    acct_layout.addWidget(self._acct_combo)
+
+    add_acct_btn = QPushButton("➕")
+    add_acct_btn.setFixedWidth(30)
+    add_acct_btn.clicked.connect(self._add_account_dialog)
+    acct_layout.addWidget(add_acct_btn)
+
+    rm_acct_btn = QPushButton("✕")
+    rm_acct_btn.setFixedWidth(30)
+    rm_acct_btn.clicked.connect(self._remove_account)
+    acct_layout.addWidget(rm_acct_btn)
+
+    acct_layout.addStretch()
+    sec_layout.addWidget(acct_row)
+
+    # Cookie 文本编辑（只读显示，应用按钮写入）
+    self._cookie_text = QPlainTextEdit()
+    self._cookie_text.setReadOnly(True)
+    self._cookie_text.setStyleSheet(f"""
+        QPlainTextEdit {{
+            background-color: {C['bg_base']}; color: {C['text_1']};
+            font-family: Consolas; font-size: 10pt;
+            border: 1px solid {C['border']};
+        }}
+    """)
+    sec_layout.addWidget(self._cookie_text)
+
+    # 按钮行
+    btn_row = QWidget()
+    btn_row.setStyleSheet(f"background-color: {C['bg_elevated']};")
+    btn_layout = QHBoxLayout(btn_row)
+    btn_layout.setContentsMargins(0, 4, 0, 0)
+
+    apply_btn = QPushButton("应用Cookie")
+    apply_btn.clicked.connect(self._apply_cookies)
+    btn_layout.addWidget(apply_btn)
+
+    self._cookie_unlock_btn = QPushButton("🔒 解锁查看")
+    self._cookie_unlock_btn.clicked.connect(self._toggle_cookie_unlock)
+    btn_layout.addWidget(self._cookie_unlock_btn)
+
+    clear_btn = QPushButton("清空Cookie")
+    clear_btn.setEnabled(_s() == "normal")
+    clear_btn.clicked.connect(self._clear_cookies)
+    btn_layout.addWidget(clear_btn)
+
+    btn_layout.addStretch()
+    sec_layout.addWidget(btn_row)
+
+    # 提示
+    tip = QLabel(
+        "支持直接粘贴 Cookie 字符串 (key=value; key2=value2) 或 Cookie-Editor JSON 格式，自动识别解析。"
     )
-    self.cookie_text.pack(fill=tk.BOTH, expand=True, pady=4)
+    tip.setFont(FONT_SM)
+    tip.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
+    tip.setWordWrap(True)
+    sec_layout.addWidget(tip)
 
-    btn_row = tk.Frame(sec, bg=C["bg_elevated"])
-    btn_row.pack(fill=tk.X)
-    ttk.Button(btn_row, text="应用Cookie", command=self._apply_cookies).pack(side=tk.LEFT, padx=(0, 4))
-    self._cookie_unlock_btn = ttk.Button(
-        btn_row,
-        text="🔒 解锁查看",
-        command=self._toggle_cookie_unlock,
-        width=10,
-    )
-    self._cookie_unlock_btn.pack(side=tk.LEFT, padx=(4, 0))
+    layout.addWidget(sec)
+
     self._refresh_cookie_display()
     self._refresh_account_list()
 
-    ttk.Button(btn_row, text="清空Cookie", command=self._clear_cookies, state=_s()).pack(side=tk.LEFT)
-
-    tk.Label(
-        sec,
-        text="支持直接粘贴 Cookie 字符串 (key=value; key2=value2) 或 Cookie-Editor JSON 格式，自动识别解析。",
-        bg=C["bg_elevated"],
-        fg=C["text_3"],
-        font=FONT_SM,
-        anchor="w",
-    ).pack(fill=tk.X, pady=(4, 0))
+    tab_idx = nb.addTab(page, "  账号设置  ")
+    return tab_idx
 
 
 def _refresh_cookie_display(self):
-    self.cookie_text.delete("1.0", tk.END)
+    self._cookie_text.clear()
     cookies = {}
     for cookie in get_bilibili_api().session.cookies:
         if "bilibili.com" in (cookie.domain or ""):
@@ -89,7 +679,7 @@ def _refresh_cookie_display(self):
         cookies = self._net_cfg.get("cookies", {})
     if cookies:
         show_raw = getattr(self, "_cookie_unlocked", False)
-        self._cookie_unlock_btn.config(text="🔓 已解锁" if show_raw else "🔒 解锁查看")
+        self._cookie_unlock_btn.setText("🔓 已解锁" if show_raw else "🔒 解锁查看")
         parts = []
         for k, v in cookies.items():
             if show_raw:
@@ -97,7 +687,7 @@ def _refresh_cookie_display(self):
             else:
                 masked = v[:4] + "****" + v[-4:] if len(v) > 8 else "********"
                 parts.append(f"{k}={masked}")
-        self.cookie_text.insert("1.0", "; ".join(parts))
+        self._cookie_text.setPlainText("; ".join(parts))
 
 
 def _toggle_cookie_unlock(self):
@@ -106,13 +696,13 @@ def _toggle_cookie_unlock(self):
 
 
 def _apply_cookies(self):
-    text = self.cookie_text.get("1.0", "end").strip()
+    text = self._cookie_text.toPlainText().strip()
     if not text:
-        messagebox.showwarning("警告", "Cookie不能为空", parent=self.window)
+        QMessageBox.warning(self, "警告", "Cookie不能为空")
         return
     cookies = self._parse_cookie_input(text)
     if not cookies:
-        messagebox.showerror("错误", "无法解析输入内容，请检查格式", parent=self.window)
+        QMessageBox.critical(self, "错误", "无法解析输入内容，请检查格式")
         return
     api = get_bilibili_api()
     api.set_cookies(cookies)
@@ -122,11 +712,11 @@ def _apply_cookies(self):
     self._save_net_config()
     self._refresh_account_list()
     self._refresh_status()
-    self.window.after(500, self._verify_login)
-    messagebox.showinfo("成功", "已应用 Cookie，正在验证登录状态...", parent=self.window)
+    QTimer.singleShot(500, self._verify_login)
+    QMessageBox.information(self, "成功", "已应用 Cookie，正在验证登录状态...")
 
 
-def _parse_cookie_input(self, text: str) -> dict:
+def _parse_cookie_input(self, text: str) -> Dict[str, str]:
     import json as _json
 
     stripped = text.strip()
@@ -169,37 +759,34 @@ def _verify_login(self):
             is_login = status.get("is_login", False)
             login_name = status.get("login_name", "")
             if is_login and hasattr(self, "gui") and self.gui:
-                self.window.after(0, lambda: self.gui.log_panel.add_log("INFO", f"Cookie 登录验证成功: {login_name}"))
+                self.gui.log_panel.add_log("INFO", f"Cookie 登录验证成功: {login_name}")
         except Exception as e:
             logger.debug("检查Cookie登录状态失败: %s", e)
-        self.window.after(0, self._refresh_status)
-
-    import threading
+        self._refresh_status()
 
     threading.Thread(target=_worker, daemon=True).start()
 
 
 def _clear_cookies(self):
-    if messagebox.askyesno("确认", "确定要清空所有Cookie吗？", parent=self.window):
-        for name in (
-            "SESSDATA",
-            "bili_jct",
-            "DedeUserID",
-            "DedeUserID__ckMd5",
-            "sid",
-            "buvid3",
-            "buvid4",
-            "buvid_fp",
-        ):
-            get_bilibili_api().session.cookies.set(name, "", domain=".bilibili.com")
-        get_bilibili_api()._cookies = {}
-        get_bilibili_api()._refresh_token = ""
-        self._net_cfg["cookies"] = {}
-        self._net_cfg["refresh_token"] = ""
-        self._save_net_config()
-        self._refresh_cookie_display()
-        self._refresh_status()
-        messagebox.showinfo("成功", "Cookie 已清空", parent=self.window)
+    reply = QMessageBox.question(
+        self, "确认", "确定要清空所有Cookie吗？",
+        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+    )
+    if reply != QMessageBox.StandardButton.Yes:
+        return
+    for name in (
+        "SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5",
+        "sid", "buvid3", "buvid4", "buvid_fp",
+    ):
+        get_bilibili_api().session.cookies.set(name, "", domain=".bilibili.com")
+    get_bilibili_api()._cookies = {}
+    get_bilibili_api()._refresh_token = ""
+    self._net_cfg["cookies"] = {}
+    self._net_cfg["refresh_token"] = ""
+    self._save_net_config()
+    self._refresh_cookie_display()
+    self._refresh_status()
+    QMessageBox.information(self, "成功", "Cookie 已清空")
 
 
 def _import_from_browser(self):
@@ -213,19 +800,13 @@ def _import_from_browser(self):
                 api.set_cookies(cookies)
                 api.add_account(api.get_active_account(), cookies, api.get_refresh_token())
                 api._persist_cookies(cookies)
-                self.window.after(0, lambda: self._on_browser_cookies(cookies))
+                self._on_browser_cookies(cookies)
             else:
-                self.window.after(
-                    0,
-                    lambda: messagebox.showerror(
-                        "失败", "未从浏览器中找到 B 站 Cookie，请确认已登录 bilibili.com", parent=self.window
-                    ),
+                QMessageBox.critical(
+                    self, "失败", "未从浏览器中找到 B 站 Cookie，请确认已登录 bilibili.com"
                 )
         except Exception as e:
-            err_msg = str(e)
-            self.window.after(0, lambda m=err_msg: messagebox.showerror("错误", f"提取失败: {m}", parent=self.window))
-
-    import threading
+            QMessageBox.critical(self, "错误", f"提取失败: {e}")
 
     threading.Thread(target=_worker, daemon=True).start()
 
@@ -234,255 +815,83 @@ def _on_browser_cookies(self, cookies: dict):
     self._refresh_account_list()
     self._refresh_cookie_display()
     self._refresh_status()
-    self.window.after(500, self._verify_login)
-    messagebox.showinfo("成功", f"已从浏览器提取 Cookie:\n{', '.join(cookies.keys())}", parent=self.window)
+    QTimer.singleShot(500, self._verify_login)
+    QMessageBox.information(self, "成功", f"已从浏览器提取 Cookie:\n{', '.join(cookies.keys())}")
 
 
 def _import_cookie_editor(self):
-    top = tk.Toplevel(self.window)
-    top.title("导入 Cookie-Editor JSON")
-    sw = self.window.winfo_screenwidth()
-    sh = self.window.winfo_screenheight()
-    top.geometry(f"{int(sw * 0.36)}x{int(sh * 0.42)}")
-    top.configure(bg=C["bg_surface"])
-    top.transient(self.window)
-    top.grab_set()
-
-    tk.Label(top, text="粘贴 Cookie-Editor 导出的 JSON 内容：", bg=C["bg_surface"], fg=C["text_1"], font=FONT).pack(
-        pady=(12, 4)
-    )
-    tk.Label(
-        top,
-        text='格式: [{"domain": ".bilibili.com", "name": "SESSDATA", ...}]',
-        bg=C["bg_surface"],
-        fg=C["text_3"],
-        font=FONT_SM,
-    ).pack()
-
-    text_w = tk.Text(
-        top,
-        height=10,
-        bg=C["bg_base"],
-        fg=C["text_1"],
-        font=("Consolas", 10),
-        relief="flat",
-        highlightthickness=1,
-        highlightbackground=C["border"],
-        insertbackground=C["text_1"],
-    )
-    text_w.pack(fill=tk.BOTH, expand=True, padx=16, pady=8)
-
-    def _do_import():
-        raw = text_w.get("1.0", tk.END).strip()
-        if not raw:
-            messagebox.showwarning("提示", "请粘贴 JSON 内容", parent=top)
-            return
-        try:
-            entries = json.loads(raw)
-        except json.JSONDecodeError as e:
-            messagebox.showerror("解析失败", f"JSON 格式错误:\n{e}", parent=top)
-            return
-        if not isinstance(entries, list):
-            messagebox.showerror("格式错误", "JSON 应为数组格式", parent=top)
-            return
-        cookies = {}
-        for entry in entries:
-            name = entry.get("name", "")
-            value = entry.get("value", "")
-            domain = entry.get("domain", "")
-            if name and value and ("bilibili.com" in domain or not domain):
-                cookies[name] = value
-        if not cookies:
-            messagebox.showwarning("未找到", "JSON 中未找到 B站 相关 Cookie", parent=top)
-            return
-        get_bilibili_api().set_cookies(cookies)
-        self._net_cfg["cookies"] = cookies
-        self._net_cfg["refresh_token"] = get_bilibili_api().get_refresh_token()
-        self._save_net_config()
-        self._refresh_cookie_display()
-        self._refresh_status()
-        top.destroy()
-        self.window.after(500, self._verify_login)
-        messagebox.showinfo("成功", f"已导入 {len(cookies)} 个 Cookie，正在验证登录状态...", parent=self.window)
-
-    btn_f = tk.Frame(top, bg=C["bg_surface"])
-    btn_f.pack(pady=(0, 12))
-    ttk.Button(btn_f, text="导入并应用", command=_do_import, style="Primary.TButton").pack(side=tk.LEFT, padx=4)
-    ttk.Button(btn_f, text="取消", command=top.destroy).pack(side=tk.LEFT, padx=4)
-
-
-def _generate_qr(self, qr_url, qr_lbl):
-    """后台线程生成二维码图片，完成后更新 label。"""
-    try:
-        import qrcode
-        from PIL import ImageTk
-        img = qrcode.make(qr_url).resize((200, 200))
-        self._qr_img = ImageTk.PhotoImage(img)
-        img.close()  # 释放 PIL 缓冲区
-        if qr_lbl.winfo_exists():
-            qr_lbl.configure(image=self._qr_img)
-            qr_lbl.configure(text="")
-    except Exception:
-        pass
+    dlg = _CookieEditorDialog(self)
+    if dlg.exec() == QDialog.DialogCode.Accepted:
+        cookies = dlg.get_cookies()
+        if cookies:
+            get_bilibili_api().set_cookies(cookies)
+            self._net_cfg["cookies"] = cookies
+            self._net_cfg["refresh_token"] = get_bilibili_api().get_refresh_token()
+            self._save_net_config()
+            self._refresh_cookie_display()
+            self._refresh_status()
+            QTimer.singleShot(500, self._verify_login)
+            QMessageBox.information(self, "成功", f"已导入 {len(cookies)} 个 Cookie，正在验证登录状态...")
 
 
 def _qrcode_login(self):
-    qr_data = get_bilibili_api().get_qrcode_login_url()
-    if not qr_data:
-        messagebox.showerror("错误", "获取二维码失败", parent=self.window)
-        return
-    qrcode_key = qr_data.get("qrcode_key", "")
-    qr_url = qr_data.get("url", "")
-
-    self._qr_img = None
-
-    qr_top = tk.Toplevel(self.window)
-    qr_top.title("扫码登录 B站")
-    sw = self.window.winfo_screenwidth()
-    sh = self.window.winfo_screenheight()
-    qr_top.geometry(f"{int(sw * 0.28)}x{int(sh * 0.45)}")
-    qr_top.configure(bg=C["bg_surface"])
-    qr_top.transient(self.window)
-    qr_top.grab_set()
-    qr_top.resizable(True, True)
-
-    tk.Label(
-        qr_top,
-        text="请使用 B站 手机客户端扫码",
-        bg=C["bg_surface"],
-        fg=C["text_1"],
-        font=("Microsoft YaHei UI", 11, "bold"),
-    ).pack(pady=(14, 6))
-
-    qr_lbl = tk.Label(
-        qr_top,
-        text="正在生成二维码…" if qr_url else "扫码链接:\n" + qr_url,
-        bg=C["bg_surface"],
-        fg=C["text_1"],
-        font=("Consolas", 9),
-        wraplength=280,
-        justify="left",
-    )
-    qr_lbl.pack(pady=6, padx=10)
-
-    # 后台线程生成 QR，避免主线程阻塞
-    try:
-        import qrcode
-    except ImportError:
-        qrcode = None
-    if qrcode and qr_url:
-        threading.Thread(target=self._generate_qr, args=(qr_url, qr_lbl), daemon=True).start()
-
-    status_var = tk.StringVar(value="等待扫码...")
-    status_lbl = tk.Label(qr_top, textvariable=status_var, bg=C["bg_surface"], fg=C["text_2"], font=FONT)
-    status_lbl.pack(pady=(6, 4))
-
-    def _poll():
-        if not qr_top.winfo_exists():
-            return
-        import threading
-
-        def _worker():
-            try:
-                result = get_bilibili_api().poll_qrcode_login(qrcode_key)
-            except Exception as e:
-                result = {"status": 0, "message": f"轮询异常: {e}"}
-            qr_top.after(0, lambda r=result: _handle_poll(r))
-
-        threading.Thread(target=_worker, daemon=True).start()
-
-    def _handle_poll(result):
-        status_var.set(result.get("message", ""))
-        if result.get("status") == 2:
-            cookies = result.get("cookies", {})
-            if cookies:
-                get_bilibili_api().set_cookies(cookies)
-                get_bilibili_api().add_account(
-                    get_bilibili_api().get_active_account(), cookies, get_bilibili_api().get_refresh_token()
-                )
-                self._refresh_account_list()
-                self._refresh_cookie_display()
-                self._refresh_status()
-                status_lbl.config(fg=C["success"])
-                qr_top.after(800, qr_top.destroy)
-                self.window.after(1000, self._verify_login)
-                messagebox.showinfo("登录成功", f"已获取 Cookie: {', '.join(cookies.keys())}", parent=self.window)
-            else:
-                self._refresh_status()
-                status_lbl.config(fg=C["success"])
-                qr_top.after(800, qr_top.destroy)
-                self.window.after(1000, self._verify_login)
-                messagebox.showinfo("登录成功", "扫码成功！Cookie 已通过浏览器同步。", parent=self.window)
-            return
-        elif result.get("status") == -1:
-            status_lbl.config(fg=C["danger"])
-            ttk.Button(qr_top, text="重新生成二维码", command=lambda: [qr_top.destroy(), self._qrcode_login()]).pack(
-                pady=4
-            )
-            return
-        qr_top.after(1500, _poll)
-
-    qr_top.after(500, _poll)
+    dlg = _QRCodeLoginDialog(self)
+    if dlg.exec() == QDialog.DialogCode.Accepted:
+        cookies = get_bilibili_api()._cookies
+        get_bilibili_api().add_account(
+            get_bilibili_api().get_active_account(),
+            cookies,
+            get_bilibili_api().get_refresh_token(),
+        )
+        self._refresh_account_list()
+        self._refresh_cookie_display()
+        self._refresh_status()
+        QTimer.singleShot(1000, self._verify_login)
+        if cookies:
+            QMessageBox.information(self, "登录成功", f"已获取 Cookie: {', '.join(cookies.keys())}")
+        else:
+            QMessageBox.information(self, "登录成功", "扫码成功！Cookie 已通过浏览器同步。")
 
 
 def _refresh_account_list(self):
     api = get_bilibili_api()
     names = api.get_account_names()
-    self._acct_combo["values"] = names
+    self._acct_combo.blockSignals(True)
+    self._acct_combo.clear()
+    self._acct_combo.addItems(names)
     current = api.get_active_account()
-    self._acct_combo.set(current if current in names else (names[0] if names else ""))
+    if current in names:
+        self._acct_combo.setCurrentText(current)
+    elif names:
+        self._acct_combo.setCurrentIndex(0)
+    self._acct_combo.blockSignals(False)
 
 
 def _switch_account(self):
-    name = self._acct_combo.get()
+    name = self._acct_combo.currentText()
     if name:
         get_bilibili_api().switch_account(name)
         self._refresh_cookie_display()
         self._refresh_status()
 
 
-def _add_account_dialog(self):
-    dlg = tk.Toplevel(self.window)
-    dlg.title("添加账号")
-    dlg.geometry("400x200")
-    dlg.configure(bg=C["bg_surface"])
-    dlg.transient(self.window)
-    dlg.grab_set()
-    tk.Label(dlg, text="账号名称:", bg=C["bg_surface"], fg=C["text_1"], font=FONT).pack(pady=(12, 4))
-    name_entry = ttk.Entry(dlg, width=30, font=FONT)
-    name_entry.pack()
-    tk.Label(dlg, text="Cookie (SESSDATA=xxx; bili_jct=xxx):", bg=C["bg_surface"], fg=C["text_3"], font=FONT_SM).pack(
-        pady=(8, 4)
-    )
-    cookie_entry = tk.Text(dlg, height=3, font=("Consolas", 9), bg=C["bg_base"], fg=C["text_1"])
-    cookie_entry.pack(padx=16, fill=tk.X)
-
-    def _save():
-        name = name_entry.get().strip()
-        raw = cookie_entry.get("1.0", "end").strip()
-        if not name or not raw:
-            messagebox.showwarning("提示", "请填写账号名称和 Cookie", parent=dlg)
-            return
-        cookies = self._parse_cookie_input(raw)
-        if not cookies:
-            messagebox.showerror("错误", "无法解析 Cookie，请检查格式", parent=dlg)
-            return
-        get_bilibili_api().add_account(name, cookies)
-        get_bilibili_api().switch_account(name)
-        get_bilibili_api()._persist_cookies(cookies)
+def _add_account_dialog(self, _parent=None):
+    dlg = _AddAccountDialog(self)
+    if dlg.exec() == QDialog.DialogCode.Accepted:
         self._refresh_account_list()
         self._refresh_cookie_display()
         self._refresh_status()
-        dlg.destroy()
-
-    ttk.Button(dlg, text="保存", command=_save).pack(pady=10)
 
 
 def _remove_account(self):
-    name = self._acct_combo.get()
+    name = self._acct_combo.currentText()
     if not name:
         return
-    if not messagebox.askyesno("确认", f"确定要删除账号「{name}」吗？", parent=self.window):
+    reply = QMessageBox.question(
+        self, "确认", f"确定要删除账号「{name}」吗？",
+        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+    )
+    if reply != QMessageBox.StandardButton.Yes:
         return
     get_bilibili_api().remove_account(name)
     self._refresh_account_list()
@@ -491,232 +900,21 @@ def _remove_account(self):
 
 
 def _password_login(self):
-    pwd_top, ui = _draw_login_form(self)
-
-    def _do_login(captcha_code: str = "", ct: int = 0):
-        uname = ui["username_entry"].get().strip()
-        pwd = ui["password_entry"].get()
-        if not uname or not pwd:
-            messagebox.showwarning("提示", "请输入账号和密码", parent=pwd_top)
-            return
-        for w in (ui["username_entry"], ui["password_entry"], ui["captcha_entry"]):
-            w.config(state="disabled")
-        ui["login_btn"].config(state="disabled")
-        ui["status_var"].set("登录中..." if not captcha_code else "验证中...")
-        ui["status_lbl"].config(fg=C["text_2"])
-        pwd_top.update()
-
-        def _worker():
-            try:
-                result = get_bilibili_api().login_with_password(uname, pwd, captcha=captcha_code, captcha_type=ct)
-                pwd_top.after(0, lambda: _handle_result(result))
-            except Exception as e:
-                pwd_top.after(0, lambda e=e: ui["status_var"].set(f"异常: {e}"))
-
-        import threading
-
-        threading.Thread(target=_worker, daemon=True).start()
-
-    def _handle_result(result):
-        code = result.get("code", -1)
-        if code == 0:
-            _handle_login_response(self, pwd_top, ui, result)
-        elif result.get("need_captcha") and not ui["captcha_entry"].get().strip():
-            _handle_captcha_flow(self, pwd_top, ui, result, _do_login)
-        elif "验证码" in result.get("message", "") or result.get("code") in (-629, -352):
-            _handle_captcha_flow(self, pwd_top, ui, result, _do_login)
-        else:
-            _handle_login_response(self, pwd_top, ui, result)
-
-    def _submit_captcha():
-        code = ui["captcha_entry"].get().strip()
-        if not code:
-            messagebox.showwarning("提示", "请输入验证码", parent=pwd_top)
-            return
-        _do_login(captcha_code=code, ct=ui["captcha_type_var"].get())
-
-    ui["login_btn"].config(command=lambda: _do_login())
-    ui["submit_captcha_btn"].config(command=_submit_captcha)
-
-    for w in (ui["username_entry"], ui["password_entry"]):
-        w.bind("<Return>", lambda e: _do_login())
-    ui["captcha_entry"].bind("<Return>", lambda e: _submit_captcha())
-    ttk.Button(ui["btn_f"], text="取消", command=pwd_top.destroy).pack(side=tk.LEFT, padx=4)
-
-
-def _draw_login_form(self):
-    """构建密码登录对话框，返回 (pwd_top, ui_dict)"""
-    pwd_top = tk.Toplevel(self.window)
-    pwd_top.title("密码登录 B站")
-    sw = self.window.winfo_screenwidth()
-    sh = self.window.winfo_screenheight()
-    pwd_top.geometry(f"{int(sw * 0.28)}x{int(sh * 0.36)}")
-    pwd_top.configure(bg=C["bg_surface"])
-    pwd_top.transient(self.window)
-    pwd_top.grab_set()
-    pwd_top.resizable(False, False)
-
-    tk.Label(
-        pwd_top,
-        text="B站 账号密码登录",
-        bg=C["bg_surface"],
-        fg=C["text_1"],
-        font=("Microsoft YaHei UI", 13, "bold"),
-    ).pack(pady=(18, 4))
-    tk.Label(
-        pwd_top,
-        text="部分账号需要手机验证码，建议使用扫码登录",
-        bg=C["bg_surface"],
-        fg=C["text_3"],
-        font=FONT_SM,
-    ).pack()
-
-    form = tk.Frame(pwd_top, bg=C["bg_surface"])
-    form.pack(pady=(12, 0))
-
-    tk.Label(form, text="账号:", bg=C["bg_surface"], fg=C["text_2"], font=FONT).grid(row=0, column=0, sticky="w")
-    username_entry = ttk.Entry(form, width=28, font=FONT)
-    username_entry.grid(row=0, column=1, padx=(8, 0), pady=4)
-
-    tk.Label(form, text="密码:", bg=C["bg_surface"], fg=C["text_2"], font=FONT).grid(row=1, column=0, sticky="w")
-    password_entry = ttk.Entry(form, width=28, font=FONT, show="*")
-    password_entry.grid(row=1, column=1, padx=(8, 0), pady=4)
-
-    captcha_frame = tk.Frame(pwd_top, bg=C["bg_surface"])
-    captcha_row = tk.Frame(captcha_frame, bg=C["bg_surface"])
-    captcha_row.pack()
-    tk.Label(captcha_row, text="验证码:", bg=C["bg_surface"], fg=C["text_2"], font=FONT).pack(side=tk.LEFT)
-    captcha_entry = ttk.Entry(captcha_row, width=14, font=FONT)
-    captcha_entry.pack(side=tk.LEFT, padx=(8, 0))
-    captcha_type_var = tk.IntVar(value=0)
-
-    status_var = tk.StringVar(value="")
-    status_lbl = tk.Label(
-        pwd_top, textvariable=status_var, bg=C["bg_surface"], fg=C["text_2"], font=FONT_SM, wraplength=300
-    )
-    status_lbl.pack(pady=(8, 0))
-
-    btn_f = tk.Frame(pwd_top, bg=C["bg_surface"])
-    btn_f.pack(pady=(6, 0))
-    login_btn = ttk.Button(btn_f, text="登录", style="Primary.TButton")
-    login_btn.pack(side=tk.LEFT, padx=4)
-
-    captcha_btn_f = tk.Frame(pwd_top, bg=C["bg_surface"])
-    submit_captcha_btn = ttk.Button(captcha_btn_f, text="提交验证码", style="Primary.TButton")
-    captcha_btn_f.pack(pady=(4, 0))
-    captcha_btn_f.pack_forget()
-
-    cancel_btn = ttk.Button(btn_f, text="取消", command=pwd_top.destroy)
-    cancel_btn.pack(side=tk.LEFT, padx=4)
-
-    ui = {
-        "pwd_top": pwd_top,
-        "username_entry": username_entry,
-        "password_entry": password_entry,
-        "captcha_frame": captcha_frame,
-        "captcha_entry": captcha_entry,
-        "captcha_type_var": captcha_type_var,
-        "status_var": status_var,
-        "status_lbl": status_lbl,
-        "btn_f": btn_f,
-        "login_btn": login_btn,
-        "cancel_btn": cancel_btn,
-        "captcha_btn_f": captcha_btn_f,
-        "submit_captcha_btn": submit_captcha_btn,
-    }
-    return pwd_top, ui
-
-
-def _handle_login_response(self, pwd_top, ui, result):
-    """处理登录响应：成功或通用错误"""
-    code = result.get("code", -1)
-    if code == 0:
-        cookies = result.get("cookies", {})
-        get_bilibili_api().set_cookies(cookies)
-        get_bilibili_api().add_account(
-            get_bilibili_api().get_active_account(), cookies, get_bilibili_api().get_refresh_token()
-        )
-        self._net_cfg["cookies"] = cookies
-        self._net_cfg["refresh_token"] = result.get("refresh_token", "")
-        self._save_net_config()
-        self._refresh_cookie_display()
-        self._refresh_status()
-        ui["status_var"].set("登录成功！")
-        ui["status_lbl"].config(fg=C["success"])
-        pwd_top.after(800, pwd_top.destroy)
-        self.window.after(1000, self._verify_login)
-        messagebox.showinfo(
-            "登录成功",
-            f"已获取 Cookie: {', '.join(cookies.keys())}",
-            parent=self.window,
-        )
-    else:
-        msg = result.get("message", "未知错误")
-        if code == -1057:
-            msg += "，请检查账号密码"
-        ui["status_var"].set(msg)
-        ui["status_lbl"].config(fg=C["danger"])
-        for w in (ui["username_entry"], ui["password_entry"], ui["captcha_entry"]):
-            w.config(state="normal")
-        ui["login_btn"].config(state="normal")
-
-
-def _handle_captcha_flow(self, pwd_top, ui, result, do_login_cb):
-    """处理验证码流程：短信验证码 (type 6) 或极验滑块"""
-    captcha_frame = ui["captcha_frame"]
-    captcha_btn_f = ui["captcha_btn_f"]
-    ct = result.get("captcha_type", 0)
-    ui["captcha_type_var"].set(ct)
-    if ct == 6:
-        phone = result.get("captcha_phone", "")
-        hint = f"验证码已发送至 {phone}" if phone else "请输入手机收到的验证码"
-        ui["status_var"].set(hint)
-        ui["status_lbl"].config(fg=C["warning"])
-        captcha_frame.pack(pady=(6, 0))
-        ui["captcha_entry"].config(state="normal")
-        ui["captcha_entry"].focus_set()
-        captcha_btn_f.pack(pady=(2, 0))
-        ui["submit_captcha_btn"].pack(side=tk.LEFT, padx=4)
-        ui["login_btn"].pack_forget()
-        ui["cancel_btn"].pack_forget()
-        ttk.Button(captcha_btn_f, text="取消", command=pwd_top.destroy).pack(side=tk.LEFT, padx=4)
-    else:
-        gt = result.get("gt", "")
-        challenge = result.get("challenge", "")
-        geetest_url = f"https://api.geetest.com/get.php?gt={gt}&challenge={challenge}&lang=zh-cn&product=embed"
-        is_retry = bool(result.get("code") in (-629, -352))
-
-        if is_retry:
-            ui["status_var"].set("需要极验验证（自动求解未触发，请手动完成）")
-        else:
-            ui["status_var"].set("需要极验滑块验证（自动求解失败，请手动完成）")
-        ui["status_lbl"].config(fg=C["danger"])
-
-        def _open_geetest():
-            import webbrowser
-
-            webbrowser.open(geetest_url)
-            messagebox.showinfo(
-                "极验验证", "请在浏览器中完成滑块验证，然后将 validate 和 seccode 值输入下方", parent=pwd_top
+    dlg = _PasswordLoginDialog(self)
+    if dlg.exec() == QDialog.DialogCode.Accepted:
+        result = dlg.get_result()
+        if result.get("code") == 0:
+            cookies = result.get("cookies", {})
+            get_bilibili_api().set_cookies(cookies)
+            get_bilibili_api().add_account(
+                get_bilibili_api().get_active_account(),
+                cookies,
+                get_bilibili_api().get_refresh_token(),
             )
-
-        ttk.Button(captcha_btn_f, text="🌐 打开极验验证页", command=_open_geetest).pack(side=tk.LEFT, padx=4)
-        tk.Label(captcha_frame, text="validate:", bg=C["bg_surface"], fg=C["text_2"], font=FONT_SM).pack()
-        geetest_validate_entry = ttk.Entry(captcha_frame, width=40, font=("Consolas", 9))
-        geetest_validate_entry.pack(pady=2)
-        tk.Label(captcha_frame, text="seccode:", bg=C["bg_surface"], fg=C["text_2"], font=FONT_SM).pack()
-        geetest_seccode_entry = ttk.Entry(captcha_frame, width=40, font=("Consolas", 9))
-        geetest_seccode_entry.pack(pady=2)
-        captcha_frame.pack(pady=(6, 0))
-
-        def _submit_geetest():
-            validate = geetest_validate_entry.get().strip()
-            seccode = geetest_seccode_entry.get().strip()
-            if validate and seccode:
-                do_login_cb(captcha_code=f"{validate}:{seccode}", ct=-1)
-
-        ttk.Button(captcha_btn_f, text="提交极验结果", command=_submit_geetest).pack(side=tk.LEFT, padx=4)
-
-    for w in (ui["username_entry"], ui["password_entry"]):
-        w.config(state="normal")
-    ui["login_btn"].config(state="normal")
+            self._net_cfg["cookies"] = cookies
+            self._net_cfg["refresh_token"] = result.get("refresh_token", "")
+            self._save_net_config()
+            self._refresh_cookie_display()
+            self._refresh_status()
+            QTimer.singleShot(1000, self._verify_login)
+            QMessageBox.information(self, "登录成功", f"已获取 Cookie: {', '.join(cookies.keys())}")
