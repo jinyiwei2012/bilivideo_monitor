@@ -1,226 +1,320 @@
 """
-现代化视频搜索界面
+现代化视频搜索界面 — PyQt6 版
 支持B站关键词搜索、批量导入到监控列表
 """
 
 import logging
 import io
-import tkinter as tk
-from tkinter import ttk, messagebox
-from typing import List, Dict, Callable, Optional
 import threading
 import webbrowser
+from typing import List, Dict, Callable, Optional
+
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QLineEdit, QTreeWidget, QTreeWidgetItem, QHeaderView,
+    QDialog, QMessageBox, QApplication, QMenu,
+)
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QFont, QPixmap, QAction
 
 from core import get_bilibili_api
 from ui.theme import C
-from ui.helpers import FONT, FONT_SM
 from ui.dialog_base import DialogBase
 
 logger = logging.getLogger(__name__)
 
 
-class VideoSearchWindow:
+class VideoSearchWindow(DialogBase):
     """视频搜索窗口（现代化风格），支持搜索 B 站视频并批量导入到监控列表"""
 
-    def __init__(self, parent=None, on_import: Optional[Callable[[list], None]] = None):
-        """
-        初始化视频搜索窗口
+    _search_done = pyqtSignal(object, object)  # (results: list, error: str | None)
 
-        :param parent: 父窗口
-        :param on_import: 导入视频后的回调函数
-        """
-        self.dlg = DialogBase(parent, "搜索视频 - B站", DialogBase.calc_geometry(parent, 0.48, 0.68), modal=True)
-        self.window = self.dlg.window
-        self.on_import = on_import  # 导入回调
-        self.search_results: List[Dict] = []  # 搜索结果列表
-        self.searching = False  # 是否正在搜索
+    def __init__(self, parent=None, on_import: Optional[Callable[[list], None]] = None):
+        if parent:
+            screen = parent.screen()
+            if screen:
+                geo = screen.geometry()
+                sw, sh = geo.width(), geo.height()
+            else:
+                sw, sh = 1920, 1080
+        else:
+            sw, sh = 1920, 1080
+
+        super().__init__(parent, "搜索视频 - B站", (int(sw * 0.48), int(sh * 0.68)), modal=True)
+        self.on_import = on_import
+        self.search_results: List[Dict] = []
+        self.searching = False
+        self._threads: List[threading.Thread] = []
+        self._search_done.connect(self._on_search_done)
 
         self._setup_ui()
 
     def _setup_ui(self):
         """构建搜索界面布局"""
-        self.dlg.header("搜索视频", "在B站搜索视频并批量导入到监控列表")
+        self.header("搜索视频", "在B站搜索视频并批量导入到监控列表")
 
         # ── 搜索栏卡片 ──
-        sec = self.dlg.section(padding=10)
-        row = tk.Frame(sec, bg=C["bg_elevated"])
-        row.pack(fill=tk.X)
+        sec = self.section(padding=10)
+        sec_layout = sec.layout()
+
+        search_row = QWidget()
+        search_row.setStyleSheet(f"background-color: {C['bg_elevated']};")
+        search_layout = QHBoxLayout(search_row)
+        search_layout.setContentsMargins(4, 0, 4, 0)
 
         # 关键词输入框
-        tk.Label(row, text="关键词", bg=C["bg_elevated"], fg=C["text_2"], font=FONT).pack(side=tk.LEFT, padx=(4, 8))
-        self.kw_entry = ttk.Entry(row, width=40, font=FONT)
-        self.kw_entry.pack(side=tk.LEFT, padx=(0, 8))
-        self.kw_entry.bind("<Return>", lambda e: self._start_search())  # 回车触发搜索
+        kw_lbl = QLabel("关键词")
+        kw_lbl.setFont(QFont("Microsoft YaHei UI", 10))
+        kw_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
+        search_layout.addWidget(kw_lbl)
+        search_layout.addSpacing(8)
+
+        self.kw_entry = QLineEdit()
+        self.kw_entry.setFont(QFont("Microsoft YaHei UI", 10))
+        self.kw_entry.setMinimumWidth(300)
+        self.kw_entry.setStyleSheet(f"""
+            QLineEdit {{
+                background-color: {C['bg_base']}; color: {C['text_1']};
+                border: 1px solid {C['border']}; padding: 4px 8px;
+            }}
+        """)
+        self.kw_entry.returnPressed.connect(self._start_search)
+        search_layout.addWidget(self.kw_entry)
+        search_layout.addSpacing(8)
 
         # 搜索按钮
-        ttk.Button(row, text="搜索", command=self._start_search, style="Primary.TButton").pack(
-            side=tk.LEFT, padx=(0, 12)
-        )
+        search_btn = QPushButton("搜索")
+        search_btn.setProperty("primary", True)
+        style = search_btn.style()
+        if style is not None:
+            style.unpolish(search_btn)
+            style.polish(search_btn)
+        search_btn.clicked.connect(self._start_search)
+        search_layout.addWidget(search_btn)
+
+        search_layout.addStretch()
 
         # 状态标签
-        self.status_lbl = tk.Label(row, text="就绪", bg=C["bg_elevated"], fg=C["text_3"], font=FONT_SM)
-        self.status_lbl.pack(side=tk.RIGHT, padx=8)
+        self.status_lbl = QLabel("就绪")
+        self.status_lbl.setFont(QFont("Microsoft YaHei UI", 9))
+        self.status_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
+        search_layout.addWidget(self.status_lbl)
 
-        # ── 结果表格 + 底部按钮（注意 packing 顺序：按钮先占底部，表格填剩余空间） ──
-        bottom_bar = tk.Frame(self.dlg.container, bg=C["bg_surface"])
-        bottom_bar.pack(side=tk.BOTTOM, fill=tk.X, padx=24, pady=(16, 20))
-        ttk.Button(bottom_bar, text="全选", command=self._select_all).pack(side=tk.LEFT, padx=(0, 6))
-        ttk.Button(bottom_bar, text="取消全选", command=self._select_none).pack(side=tk.LEFT, padx=6)
-        ttk.Button(bottom_bar, text="导入所选到监控", command=self._do_import, style="Primary.TButton").pack(
-            side=tk.RIGHT, padx=(6, 0)
-        )
+        if sec_layout is not None:
+            sec_layout.addWidget(search_row)
 
-        # 搜索结果表格
-        content = tk.Frame(self.dlg.container, bg=C["bg_base"])
-        content.pack(fill=tk.BOTH, expand=True, padx=24, pady=(10, 0))
-        cols = ("bvid", "title", "author", "play", "like")
-        tree_frame = tk.Frame(content, bg=C["bg_base"])
-        tree_frame.pack(fill=tk.BOTH, expand=True)
+        # ── 结果表格 ──
+        cols = ["BV号", "标题", "UP主", "播放量", "点赞"]
+        self.tree = QTreeWidget()
+        self.tree.setHeaderLabels(cols)
+        self.tree.setRootIsDecorated(False)
+        self.tree.setSelectionMode(QTreeWidget.SelectionMode.ExtendedSelection)
+        self.tree.setAlternatingRowColors(False)
+        self.tree.setStyleSheet(f"""
+            QTreeWidget {{
+                background-color: {C['bg_elevated']}; color: {C['text_1']};
+                border: 1px solid {C['border_sub']};
+                font-size: 9pt;
+                outline: none;
+            }}
+            QTreeWidget::item:selected {{
+                background-color: {C['bilibili']};
+                color: white;
+            }}
+            QHeaderView::section {{
+                background-color: {C['bg_surface']};
+                color: {C['text_2']};
+                border: 1px solid {C['border_sub']};
+                padding: 4px 8px;
+                font-weight: bold;
+            }}
+        """)
+        header = self.tree.header()
+        if header is not None:
+            widths = {"BV号": 120, "标题": 320, "UP主": 120, "播放量": 90, "点赞": 80}
+            for i, c in enumerate(cols):
+                header.setSectionResizeMode(i, QHeaderView.ResizeMode.Fixed)
+                self.tree.setColumnWidth(i, widths[c])
 
-        self.tree = ttk.Treeview(tree_frame, columns=cols, show="headings", selectmode="extended", height=18)
-        # 设置表头文字
-        self.tree.heading("bvid", text="BV号")
-        self.tree.heading("title", text="标题")
-        self.tree.heading("author", text="UP主")
-        self.tree.heading("play", text="播放量")
-        self.tree.heading("like", text="点赞")
-        # 设置列宽和对齐
-        self.tree.column("bvid", width=120, anchor="center")
-        self.tree.column("title", width=320)
-        self.tree.column("author", width=120)
-        self.tree.column("play", width=90, anchor="e")
-        self.tree.column("like", width=80, anchor="e")
+        # 双击 / 右键菜单
+        self.tree.itemDoubleClicked.connect(self._on_tree_double_click)
+        self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self._on_tree_right_click)
 
-        # 垂直滚动条
-        vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree.yview)
-        self.tree.configure(yscrollcommand=vsb.set)
-        self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+        self._main_layout.addWidget(self.tree, 1)
 
-        # 绑定事件：双击导入 / 右键菜单
-        self.tree.bind("<Double-1>", self._on_tree_double_click)
-        self.tree.bind("<Button-3>", self._on_tree_right_click)
-        self._context_menu = tk.Menu(
-            self.tree,
-            tearoff=0,
-            bg=C["bg_elevated"],
-            fg=C["text_1"],
-            activebackground=C["bg_hover"],
-            activeforeground=C["text_1"],
-            font=("Microsoft YaHei UI", 9),
-            bd=0,
-        )
+        # ── 底部按钮栏 ──
+        bottom = QWidget()
+        bottom.setStyleSheet(f"background-color: {C['bg_surface']};")
+        bottom_layout = QHBoxLayout(bottom)
+        bottom_layout.setContentsMargins(0, 12, 0, 0)
+
+        select_all_btn = QPushButton("全选")
+        select_all_btn.clicked.connect(self._select_all)
+        bottom_layout.addWidget(select_all_btn)
+
+        select_none_btn = QPushButton("取消全选")
+        select_none_btn.clicked.connect(self._select_none)
+        bottom_layout.addWidget(select_none_btn)
+
+        bottom_layout.addStretch()
+
+        import_btn = QPushButton("导入所选到监控")
+        import_btn.setProperty("primary", True)
+        style2 = import_btn.style()
+        if style2 is not None:
+            style2.unpolish(import_btn)
+            style2.polish(import_btn)
+        import_btn.clicked.connect(self._do_import)
+        bottom_layout.addWidget(import_btn)
+
+        self._main_layout.addWidget(bottom)
 
     def _start_search(self):
         """开始搜索：校验输入、清空旧结果、启动后台搜索线程"""
-        kw = self.kw_entry.get().strip()
+        kw = self.kw_entry.text().strip()
         if not kw:
-            messagebox.showwarning("提示", "请输入搜索关键词", parent=self.window)
+            QMessageBox.warning(self, "提示", "请输入搜索关键词")
             return
         if self.searching:
             return
 
         # 清空旧数据
-        for item in self.tree.get_children():
-            self.tree.delete(item)
+        self.tree.clear()
         self.search_results.clear()
         self.searching = True
-        self.status_lbl.config(text="搜索中…", fg=C["warning"])
+        self.status_lbl.setText("搜索中…")
+        self.status_lbl.setStyleSheet(f"color: {C['warning']}; background: transparent;")
 
-        # 后台线程执行搜索，避免阻塞 UI
-        threading.Thread(target=self._worker, args=(kw,), daemon=True).start()
+        t = threading.Thread(target=self._worker, args=(kw,), daemon=True)
+        self._threads.append(t)
+        t.start()
 
     def _worker(self, kw: str):
-        """后台线程：调用 B 站 API 搜索，通过 after() 回写 UI"""
+        """后台线程：调用 B 站 API 搜索，通过信号回写 UI"""
         try:
             results = get_bilibili_api().search_videos(kw, page=1, page_size=20)
-            if not results:
-                self.window.after(0, lambda: self.status_lbl.config(text="未找到结果", fg=C["text_2"]))
-                return
-            for v in results:
-                bvid = v.get("bvid", "")
-                if not bvid:
-                    continue
-                self.search_results.append(v)
-                # 清除搜索高亮标签
-                title = v.get("title", "").replace('<em class="keyword">', "").replace("</em>", "")
-                # 回主线程插入表格行
-                self.window.after(
-                    0,
-                    lambda b=bvid, t=title, a=v.get("author", ""), p=v.get("play", 0), lk=v.get(
-                        "like", 0
-                    ): self.tree.insert(
-                        "", "end", iid=b, values=(b, t[:60], a, f"{p:,}" if p else "0", f"{lk:,}" if lk else "0")
-                    ),
-                )
-                # 更新状态
-                self.window.after(
-                    0,
-                    lambda n=len(self.search_results): self.status_lbl.config(text=f"找到 {n} 个结果", fg=C["success"]),
-                )
+            self._search_done.emit(results or [], None)
         except Exception as e:
-            self.window.after(0, lambda e=e: self.status_lbl.config(text=f"搜索失败: {e}", fg=C["danger"]))
-        finally:
-            self.searching = False
+            self._search_done.emit([], str(e))
+
+    def _on_search_done(self, results: List[Dict], error: Optional[str]):
+        """主线程回调：处理搜索结果"""
+        self.searching = False
+
+        if error:
+            self.status_lbl.setText(f"搜索失败: {error}")
+            self.status_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
+            return
+
+        if not results:
+            self.status_lbl.setText("未找到结果")
+            self.status_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
+            return
+
+        for v in results:
+            bvid = v.get("bvid", "")
+            if not bvid:
+                continue
+            self.search_results.append(v)
+            title = v.get("title", "").replace('<em class="keyword">', "").replace("</em>", "")
+            author = v.get("author", "未知")
+            play = f"{v.get('play', 0):,}" if v.get("play") else "0"
+            like = f"{v.get('like', 0):,}" if v.get("like") else "0"
+
+            item = QTreeWidgetItem()
+            item.setText(0, bvid)
+            item.setText(1, title[:60])
+            item.setText(2, author)
+            item.setText(3, play)
+            item.setText(4, like)
+            # 居中对齐数字列
+            item.setTextAlignment(0, Qt.AlignmentFlag.AlignCenter)
+            item.setTextAlignment(3, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            item.setTextAlignment(4, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            self.tree.addTopLevelItem(item)
+
+        self.status_lbl.setText(f"找到 {len(results)} 个结果")
+        self.status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
 
     def _select_all(self):
         """全选所有搜索结果的复选框"""
-        self.tree.selection_set(self.tree.get_children())
+        self.tree.selectAll()
 
     def _select_none(self):
         """取消全选"""
-        self.tree.selection_remove(self.tree.get_children())
+        self.tree.clearSelection()
 
     def _do_import(self):
         """将选中的视频导入到监控列表"""
-        sel = self.tree.selection()
+        sel = self.tree.selectedItems()
         if not sel:
-            messagebox.showwarning("提示", "请先选择要导入的视频", parent=self.window)
+            QMessageBox.warning(self, "提示", "请先选择要导入的视频")
             return
-        videos = [v for v in self.search_results if v.get("bvid") in sel]
+        bvids = {item.text(0) for item in sel}
+        videos = [v for v in self.search_results if v.get("bvid") in bvids]
         if not videos:
             return
-        self.window.destroy()
+        self.close()
         if self.on_import:
             self.on_import(videos)
 
-    def _on_tree_double_click(self, event):
+    def _on_tree_double_click(self, item: QTreeWidgetItem, column: int):
         """双击单条结果快速导入"""
-        sel = self.tree.selection()
-        if not sel:
-            return
-        bvid = sel[0]
+        bvid = item.text(0)
         video = next((v for v in self.search_results if v.get("bvid") == bvid), None)
         if not video:
             return
-        self.window.destroy()
+        self.close()
         if self.on_import:
             self.on_import([video])
 
-    def _on_tree_right_click(self, event):
+    def _on_tree_right_click(self, pos):
         """右键菜单：查看详情 / 复制BV号 / 浏览器打开 / 导入"""
-        item = self.tree.identify_row(event.y)
+        item = self.tree.itemAt(pos)
         if not item:
             return
-        self.tree.selection_set(item)
-        bvid = item
+        bvid = item.text(0)
         video = next((v for v in self.search_results if v.get("bvid") == bvid), None)
         if not video:
             return
 
-        # 动态构建右键菜单
-        self._context_menu.delete(0, "end")
-        self._context_menu.add_command(label="📋 查看详情", command=lambda: self._show_video_detail(video))
-        self._context_menu.add_command(label="📑 复制BV号", command=lambda: self._copy_bvid(bvid))
-        self._context_menu.add_command(
-            label="🌐 在浏览器中打开", command=lambda: webbrowser.open(f"https://www.bilibili.com/video/{bvid}")
-        )
-        self._context_menu.add_separator()
-        self._context_menu.add_command(label="➕ 导入该视频", command=lambda: self._import_single(video))
-        self._context_menu.tk_popup(event.x_root, event.y_root)
+        menu = QMenu(self)
+        menu.setStyleSheet(f"""
+            QMenu {{
+                background-color: {C['bg_elevated']}; color: {C['text_1']};
+                border: 1px solid {C['border']}; padding: 4px;
+            }}
+            QMenu::item {{
+                padding: 6px 28px; font-size: 9pt;
+            }}
+            QMenu::item:selected {{
+                background-color: {C['bg_hover']};
+            }}
+        """)
+
+        detail_action = QAction("📋 查看详情", self)
+        detail_action.triggered.connect(lambda: self._show_video_detail(video))
+        menu.addAction(detail_action)
+
+        copy_action = QAction("📑 复制BV号", self)
+        copy_action.triggered.connect(lambda: self._copy_bvid(bvid))
+        menu.addAction(copy_action)
+
+        open_action = QAction("🌐 在浏览器中打开", self)
+        open_action.triggered.connect(lambda: webbrowser.open(f"https://www.bilibili.com/video/{bvid}"))
+        menu.addAction(open_action)
+
+        menu.addSeparator()
+
+        import_action = QAction("➕ 导入该视频", self)
+        import_action.triggered.connect(lambda: self._import_single(video))
+        menu.addAction(import_action)
+
+        menu.exec(self.tree.viewport().mapToGlobal(pos))
 
     def _show_video_detail(self, video):
-        """弹出详情对话框显示搜索结果的视频信息（封面、标题、UP主、播放量等）"""
+        """弹出详情对话框显示搜索结果的视频信息"""
         bvid = video.get("bvid", "")
         title = video.get("title", "").replace('<em class="keyword">', "").replace("</em>", "")
         author = video.get("author", "未知")
@@ -228,37 +322,71 @@ class VideoSearchWindow:
         like = video.get("like", 0)
         pic = video.get("pic", "")
 
-        top = tk.Toplevel(self.window)
-        top.title(f"视频详情 - {bvid}")
-        sw = self.window.winfo_screenwidth()
-        sh = self.window.winfo_screenheight()
-        top.geometry(f"{int(sw * 0.32)}x{int(sh * 0.48)}")
-        top.configure(bg=C["bg_surface"])
-        top.transient(self.window)
-        top.grab_set()
+        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame
+        from PyQt6.QtGui import QPixmap, QFont
+        from PyQt6.QtCore import Qt
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"视频详情 - {bvid}")
+        screen = self.screen()
+        if screen:
+            geo = screen.geometry()
+            sw, sh = geo.width(), geo.height()
+        else:
+            sw, sh = 1920, 1080
+        dlg.resize(int(sw * 0.32), int(sh * 0.48))
+        dlg.setStyleSheet(f"background-color: {C['bg_surface']};")
+        dlg.setModal(True)
+
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(24, 20, 24, 20)
 
         # 标题
-        tk.Label(
-            top, text="视频详情", bg=C["bg_surface"], fg=C["text_1"], font=("Microsoft YaHei UI", 14, "bold")
-        ).pack(pady=(20, 4))
+        title_lbl = QLabel("视频详情")
+        title_lbl.setFont(QFont("Microsoft YaHei UI", 14, QFont.Weight.Bold))
+        title_lbl.setStyleSheet(f"color: {C['text_1']};")
+        title_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title_lbl)
+        layout.addSpacing(8)
 
-        # 尝试加载封面图
+        # 封面图
         if pic.startswith("http"):
             try:
                 import requests
-                from PIL import Image, ImageTk
+                from PIL import Image
 
                 resp = requests.get(pic, timeout=5)
-                img = Image.open(io.BytesIO(resp.content)).resize((320, 180))
-                self._detail_img = ImageTk.PhotoImage(img)
-                img.close()  # 释放 PIL 缓冲区
-                tk.Label(top, image=self._detail_img, bg=C["bg_surface"]).pack(pady=8)
+                img_data = io.BytesIO(resp.content)
+                pixmap = QPixmap()
+                if pixmap.loadFromData(img_data.getvalue()):
+                    pixmap = pixmap.scaled(320, 180, Qt.AspectRatioMode.KeepAspectRatio,
+                                           Qt.TransformationMode.SmoothTransformation)
+                    cover_lbl = QLabel()
+                    cover_lbl.setPixmap(pixmap)
+                    cover_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                    cover_lbl.setStyleSheet("background: transparent;")
+                    layout.addWidget(cover_lbl)
+                else:
+                    # 用 PIL 兜底转换
+                    img = Image.open(io.BytesIO(resp.content)).resize((320, 180))
+                    buf = io.BytesIO()
+                    img.save(buf, format="PNG")
+                    pixmap2 = QPixmap()
+                    pixmap2.loadFromData(buf.getvalue())
+                    cover_lbl2 = QLabel()
+                    cover_lbl2.setPixmap(pixmap2)
+                    cover_lbl2.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                    cover_lbl2.setStyleSheet("background: transparent;")
+                    layout.addWidget(cover_lbl2)
             except Exception as e:
-                logger.debug("忽略异常: %s", e)
+                logger.debug("封面加载失败: %s", e)
 
         # 信息展示区
-        info = tk.Frame(top, bg=C["bg_surface"])
-        info.pack(pady=8, padx=30, fill=tk.X)
+        info_widget = QWidget()
+        info_widget.setStyleSheet(f"background-color: {C['bg_surface']};")
+        info_layout = QVBoxLayout(info_widget)
+        info_layout.setContentsMargins(0, 8, 0, 8)
+
         rows = [
             ("BV号", bvid),
             ("标题", title),
@@ -267,34 +395,57 @@ class VideoSearchWindow:
             ("点赞", f"{like:,}" if like else "0"),
         ]
         for label, value in rows:
-            row = tk.Frame(info, bg=C["bg_surface"])
-            row.pack(fill=tk.X, pady=2)
-            tk.Label(
-                row, text=label, bg=C["bg_surface"], fg=C["text_3"], font=("Microsoft YaHei UI", 9), width=8, anchor="w"
-            ).pack(side=tk.LEFT)
-            tk.Label(
-                row, text=value, bg=C["bg_surface"], fg=C["text_1"], font=("Microsoft YaHei UI", 9), anchor="w"
-            ).pack(side=tk.LEFT, padx=(8, 0))
+            row = QWidget()
+            row.setStyleSheet(f"background-color: {C['bg_surface']};")
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 2, 0, 2)
 
-        # 操作按钮
-        btn_row = tk.Frame(top, bg=C["bg_surface"])
-        btn_row.pack(pady=(16, 20))
-        ttk.Button(
-            btn_row, text="🌐 浏览器打开", command=lambda: webbrowser.open(f"https://www.bilibili.com/video/{bvid}")
-        ).pack(side=tk.LEFT, padx=4)
-        ttk.Button(btn_row, text="➕ 导入监控", command=lambda: [top.destroy(), self._import_single(video)]).pack(
-            side=tk.LEFT, padx=4
-        )
-        ttk.Button(btn_row, text="关闭", command=top.destroy).pack(side=tk.LEFT, padx=4)
+            lbl = QLabel(label)
+            lbl.setFont(QFont("Microsoft YaHei UI", 9))
+            lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
+            lbl.setFixedWidth(60)
+            row_layout.addWidget(lbl)
+
+            val = QLabel(value)
+            val.setFont(QFont("Microsoft YaHei UI", 9))
+            val.setStyleSheet(f"color: {C['text_1']}; background: transparent;")
+            val.setWordWrap(True)
+            row_layout.addWidget(val, 1)
+
+            info_layout.addWidget(row)
+
+        layout.addWidget(info_widget)
+        layout.addStretch()
+
+        # 按钮行
+        btn_row = QWidget()
+        btn_row.setStyleSheet(f"background-color: {C['bg_surface']};")
+        btn_layout = QHBoxLayout(btn_row)
+        btn_layout.setContentsMargins(0, 8, 0, 0)
+
+        open_btn = QPushButton("🌐 浏览器打开")
+        open_btn.clicked.connect(lambda: webbrowser.open(f"https://www.bilibili.com/video/{bvid}"))
+        btn_layout.addWidget(open_btn)
+
+        import_btn = QPushButton("➕ 导入监控")
+        import_btn.clicked.connect(lambda: [dlg.accept(), self._import_single(video)])
+        btn_layout.addWidget(import_btn)
+
+        close_btn = QPushButton("关闭")
+        close_btn.clicked.connect(dlg.accept)
+        btn_layout.addWidget(close_btn)
+
+        layout.addWidget(btn_row)
+        dlg.exec()
 
     def _copy_bvid(self, bvid):
         """复制 BV 号到剪贴板"""
-        self.window.clipboard_clear()
-        self.window.clipboard_append(bvid)
-        self.status_lbl.config(text=f"已复制 {bvid}", fg=C["success"])
+        QApplication.clipboard().setText(bvid)
+        self.status_lbl.setText(f"已复制 {bvid}")
+        self.status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
 
     def _import_single(self, video):
         """导入单个视频到监控"""
-        self.window.destroy()
+        self.close()
         if self.on_import:
             self.on_import([video])
