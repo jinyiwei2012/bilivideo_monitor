@@ -1,14 +1,21 @@
 """
-系统设置主窗口
+系统设置主窗口 — PyQt6 版
 
 组合各子模块的 mixin 函数构建完整 SettingsWindow 类。
+所有 tab 统一使用 QTabWidget，mixins 接收 QWidget parent 构建内容。
 """
 
 import json
 import os
-import tkinter as tk
 import logging
-from tkinter import ttk, messagebox
+
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QTabWidget, QLineEdit, QSpinBox, QDoubleSpinBox, QCheckBox,
+    QMessageBox, QFrame, QSizePolicy,
+)
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QFont
 
 from ui.theme import C
 from ui.helpers import FONT, project_path, auto_threshold_name
@@ -80,9 +87,7 @@ from ui.settings_advanced import (
     _refresh_weights,
     _save_weights,
     _build_training_tab,
-    _discover_torch_algorithms,
     _refresh_device_info,
-    _on_force_cpu_changed,
     _on_infer_device_changed,
     _refresh_data_size,
     _refresh_algo_list,
@@ -98,22 +103,114 @@ from ui.settings_advanced import (
 )
 
 
+# ── 辅助函数：创建标签式字段行 ──
+
+def _field(parent, label, default, show=None):
+    """创建一行标签+输入框"""
+    row = QWidget(parent)
+    layout = QHBoxLayout(row)
+    layout.setContentsMargins(0, 2, 0, 2)
+
+    lbl = QLabel(label)
+    lbl.setStyleSheet(f"color: {C['text_2']};")
+    lbl.setFixedWidth(130)
+    layout.addWidget(lbl)
+
+    entry = QLineEdit(default)
+    entry.setStyleSheet(f"background-color: {C['bg_base']}; color: {C['text_1']};")
+    if show:
+        entry.setEchoMode(QLineEdit.EchoMode.Password)
+    layout.addWidget(entry, 1)
+    return entry
+
+
+def _spin_field(parent, label, default, fr, to):
+    """创建一行标签+整数微调框"""
+    row = QWidget(parent)
+    layout = QHBoxLayout(row)
+    layout.setContentsMargins(0, 2, 0, 2)
+
+    lbl = QLabel(label)
+    lbl.setStyleSheet(f"color: {C['text_2']};")
+    lbl.setFixedWidth(130)
+    layout.addWidget(lbl)
+
+    spin = QSpinBox()
+    spin.setRange(fr, to)
+    spin.setValue(int(default))
+    layout.addWidget(spin)
+    layout.addStretch()
+    return spin
+
+
+def _spin_field_float(parent, label, default, fr, to):
+    """创建一行标签+浮点数微调框"""
+    row = QWidget(parent)
+    layout = QHBoxLayout(row)
+    layout.setContentsMargins(0, 2, 0, 2)
+
+    lbl = QLabel(label)
+    lbl.setStyleSheet(f"color: {C['text_2']};")
+    lbl.setFixedWidth(130)
+    layout.addWidget(lbl)
+
+    spin = QDoubleSpinBox()
+    spin.setRange(fr, to)
+    spin.setValue(default)
+    spin.setSingleStep(0.1)
+    spin.setDecimals(2)
+    layout.addWidget(spin)
+    layout.addStretch()
+    return spin
+
+
+def _section_widget(parent, title):
+    """创建一个卡片分段的 QFrame"""
+    sec = QFrame(parent)
+    sec.setStyleSheet(f"""
+        QFrame {{
+            background-color: {C['bg_elevated']};
+            border: 1px solid {C['border_sub']};
+            border-radius: {C['radius_md']}px;
+        }}
+    """)
+    layout = QVBoxLayout(sec)
+    if title:
+        lbl = QLabel(title)
+        lbl.setStyleSheet(f"color: {C['text_2']}; font-weight: bold; font-size: 8pt;")
+        layout.addWidget(lbl)
+    return sec
+
+
 class SettingsWindow:
-    """统一设置窗口"""
+    """统一设置窗口 — PyQt6 版"""
 
     def __init__(self, parent=None, gui=None):
         self.dlg = DialogBase(
-            parent, "系统设置", DialogBase.calc_geometry(parent, 0.48, 0.68), resizable=(True, True), modal=False
+            parent, "系统设置", (0, 0), modal=False
         )
-        self.window = self.dlg.window
+        # Restore the geometry calcs from DialogBase
+        screen = None
+        if parent and hasattr(parent, 'screen'):
+            screen = parent.screen()
+        elif hasattr(self.dlg, 'screen'):
+            screen = self.dlg.screen()
+        if screen:
+            geo = screen.geometry()
+            w = int(geo.width() * 0.48)
+            h = int(geo.height() * 0.68)
+            self.dlg.resize(w, h)
+
         self.gui = gui
 
         from config import load_config
-
         self._cfg = load_config()
 
         self._net_cfg_file = project_path("data", "network_config.json")
         self._net_cfg = self._load_net_config()
+
+        self._profiles = []  # AI profiles, set by _build_ai_tab
+        self._thresh_rows = []  # threshold row widgets
 
         self.setup_ui()
 
@@ -124,7 +221,6 @@ class SettingsWindow:
                 with open(self._net_cfg_file, "r", encoding="utf-8") as f:
                     cfg = json.load(f)
                 from utils.crypto import decrypt_dict
-
                 cookies = cfg.get("cookies", {})
                 if cookies:
                     decrypt_dict(cookies, "SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid")
@@ -142,66 +238,37 @@ class SettingsWindow:
         cookies = self._net_cfg.get("cookies", {})
         if cookies:
             from utils.crypto import encrypt_dict
-
             encrypt_dict(cookies, "SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid")
         with open(self._net_cfg_file, "w", encoding="utf-8") as f:
             json.dump(self._net_cfg, f, ensure_ascii=False, indent=2)
         if cookies:
             from utils.crypto import decrypt_dict
-
             decrypt_dict(cookies, "SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid")
-
-    # ── UI helpers ──
-    @staticmethod
-    def _field(parent, label, default, show=None):
-        f = tk.Frame(parent, bg=C["bg_elevated"])
-        f.pack(fill=tk.X, pady=4)
-        tk.Label(f, text=label, bg=C["bg_elevated"], fg=C["text_2"], font=FONT, width=16, anchor="w").pack(side=tk.LEFT)
-        e = ttk.Entry(f, width=40, font=FONT, show=show or "")
-        e.insert(0, default)
-        e.pack(side=tk.LEFT, padx=(8, 0))
-        return e
-
-    @staticmethod
-    def _spin_field(parent, label, default, fr, to):
-        f = tk.Frame(parent, bg=C["bg_elevated"])
-        f.pack(fill=tk.X, pady=4)
-        tk.Label(f, text=label, bg=C["bg_elevated"], fg=C["text_2"], font=FONT, width=16, anchor="w").pack(side=tk.LEFT)
-        sv = tk.StringVar(value=str(default))
-        sp = ttk.Spinbox(f, from_=fr, to=to, textvariable=sv, width=10)
-        sp.pack(side=tk.LEFT, padx=(8, 0))
-        return sv
-
-    def _section(self, parent, title, padding=(16, 16, 8)):
-        f = tk.Frame(parent, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
-        f.pack(fill=tk.X, padx=padding[0], pady=padding[1:], ipadx=12, ipady=14)
-        if title:
-            tk.Label(f, text=title, bg=C["bg_elevated"], fg=C["text_2"], font=("Microsoft YaHei UI", 8, "bold")).pack(
-                anchor="w"
-            )
-        return f
-
-    @staticmethod
-    def _clear_entry(entry, value):
-        entry.delete(0, tk.END)
-        entry.insert(0, value)
 
     # ═══════════════ UI 构建 ═══════════════════════════════
     def setup_ui(self):
         self.dlg.header("系统设置", "配置通知、监控、AI、代理、Cookie 等全部参数")
 
-        nb = ttk.Notebook(self.dlg.container)
-        nb.pack(fill=tk.BOTH, expand=True, padx=24, pady=(12, 0))
+        # Tab widget
+        self._tabs = QTabWidget()
+        self._tabs.setStyleSheet(f"""
+            QTabWidget::pane {{
+                border: 1px solid {C['border']};
+                border-top: none;
+                background-color: {C['bg_base']};
+            }}
+        """)
+        self.dlg._main_layout.addWidget(self._tabs, 1)
 
-        self._build_notification_tab(nb)
-        self._build_monitor_tab(nb)
-        self._build_general_tab(nb)
-        self._build_ai_tab(nb)
-        self._build_weights_tab(nb)
-        self._build_training_tab(nb)
-        self._build_proxy_tab(nb)
-        self._build_account_tab(nb)
-        self._build_about_tab(nb)
+        self._build_notification_tab(self._tabs)
+        self._build_monitor_tab(self._tabs)
+        self._build_general_tab(self._tabs)
+        self._build_ai_tab(self._tabs)
+        self._build_weights_tab(self._tabs)
+        self._build_training_tab(self._tabs)
+        self._build_proxy_tab(self._tabs)
+        self._build_account_tab(self._tabs)
+        self._build_about_tab(self._tabs)
 
         self.dlg.button_row(
             [
@@ -209,14 +276,13 @@ class SettingsWindow:
                 ("保存设置", self._save_settings, "primary"),
             ]
         )
-        self.window.protocol("WM_DELETE_WINDOW", self._on_close)
 
     # ──── 关闭 ────
     def _on_close(self):
         self._sync_proxy_text_to_cfg()
         self._save_net_config()
         self._verify_proxy_persisted()
-        self.window.destroy()
+        self.dlg.close()
 
     # ──── 保存系统设置 ────
     def _save_settings(self):
@@ -227,55 +293,59 @@ class SettingsWindow:
 
     def _validate_settings(self):
         try:
-            max_m = int(self.max_monitors.get())
+            max_m = int(self.max_monitors.text() if hasattr(self.max_monitors, 'text') else self.max_monitors)
             if not (10 <= max_m <= 500):
-                messagebox.showerror("验证失败", "最大监控数必须在 10 ~ 500 之间", parent=self.window)
+                QMessageBox.critical(self.dlg, "验证失败", "最大监控数必须在 10 ~ 500 之间")
                 return False
         except ValueError:
-            messagebox.showerror("验证失败", "最大监控数必须为整数", parent=self.window)
+            QMessageBox.critical(self.dlg, "验证失败", "最大监控数必须为整数")
             return False
         try:
-            pred_hours = int(self.predict_hours.get())
+            val = self.predict_hours.text() if hasattr(self.predict_hours, 'text') else str(self.predict_hours.value())
+            pred_hours = int(val)
             if not (24 <= pred_hours <= 720):
-                messagebox.showerror("验证失败", "预测时长必须在 24 ~ 720 小时之间", parent=self.window)
+                QMessageBox.critical(self.dlg, "验证失败", "预测时长必须在 24 ~ 720 小时之间")
                 return False
         except ValueError:
-            messagebox.showerror("验证失败", "预测时长必须为整数", parent=self.window)
+            QMessageBox.critical(self.dlg, "验证失败", "预测时长必须为整数")
             return False
         try:
-            confidence = float(self.min_confidence.get())
+            val = self.min_confidence.text() if hasattr(self.min_confidence, 'text') else str(self.min_confidence.value())
+            confidence = float(val)
             if not (0.1 <= confidence <= 1.0):
-                messagebox.showerror("验证失败", "最小置信度必须在 0.1 ~ 1.0 之间", parent=self.window)
+                QMessageBox.critical(self.dlg, "验证失败", "最小置信度必须在 0.1 ~ 1.0 之间")
                 return False
         except ValueError:
-            messagebox.showerror("验证失败", "最小置信度必须为数字", parent=self.window)
+            QMessageBox.critical(self.dlg, "验证失败", "最小置信度必须为数字")
             return False
         return True
 
     def _persist_settings(self):
         from config import save_config
 
-        max_m = int(self.max_monitors.get())
-        pred_hours = int(self.predict_hours.get())
-        confidence = float(self.min_confidence.get())
+        max_m = int(self.max_monitors.text() if hasattr(self.max_monitors, 'text') else self.max_monitors)
+        pred_hours = int(self.predict_hours.text() if hasattr(self.predict_hours, 'text') else self.predict_hours.value())
+        confidence = float(self.min_confidence.text() if hasattr(self.min_confidence, 'text') else self.min_confidence.value())
 
         self._cfg["onebot"] = {
-            "enabled": self.onebot_enabled.get(),
-            "http_url": self.onebot_http.get().strip(),
-            "ws_url": self.onebot_ws.get().strip(),
-            "access_token": self.onebot_token.get().strip(),
-            "private_qq": self.qq_private.get().strip(),
-            "group_qq": self.qq_group.get().strip(),
+            "enabled": self.onebot_enabled.isChecked() if hasattr(self.onebot_enabled, 'isChecked') else False,
+            "http_url": self.onebot_http.text().strip() if hasattr(self.onebot_http, 'text') else "",
+            "ws_url": self.onebot_ws.text().strip() if hasattr(self.onebot_ws, 'text') else "",
+            "access_token": self.onebot_token.text().strip() if hasattr(self.onebot_token, 'text') else "",
+            "private_qq": self.qq_private.text().strip() if hasattr(self.qq_private, 'text') else "",
+            "group_qq": self.qq_group.text().strip() if hasattr(self.qq_group, 'text') else "",
         }
         self._cfg["monitor"]["max_monitor_count"] = max_m
         self._cfg["prediction"]["prediction_hours"] = pred_hours
         self._cfg["prediction"]["min_confidence"] = confidence
 
         th_data = []
-        for v_var, n_var, _ in getattr(self, "_thresh_rows", []):
+        for v_widget, n_widget, _ in getattr(self, "_thresh_rows", []):
             try:
-                v = int(v_var.get())
-                n = n_var.get().strip() or auto_threshold_name(v)
+                v = int(v_widget.text() if hasattr(v_widget, 'text') else v_widget.value())
+                n = n_widget.text().strip() if hasattr(n_widget, 'text') else str(n_widget)
+                if not n:
+                    n = auto_threshold_name(v)
                 if v > 0:
                     th_data.append([v, n])
             except (ValueError, TypeError):
@@ -286,7 +356,7 @@ class SettingsWindow:
         self._cfg["ai"] = {
             "enabled": any(p.get("api_key") for p in self._profiles),
             "profiles": self._profiles,
-            "selected_profile": self._ai_profile_var.get(),
+            "selected_profile": self._ai_profile_var,
         }
         save_config(self._cfg)
 
@@ -297,7 +367,6 @@ class SettingsWindow:
 
         try:
             from ui.helpers import reload_thresholds
-
             reload_thresholds()
         except Exception as e:
             logger.debug("忽略异常: %s", e)
@@ -306,8 +375,8 @@ class SettingsWindow:
         self._save_net_config()
         self._verify_proxy_persisted()
 
-        messagebox.showinfo("成功", "设置已保存", parent=self.window)
-        self.window.destroy()
+        QMessageBox.information(self.dlg, "成功", "设置已保存")
+        self.dlg.close()
 
 
 # ── 将 mixin 函数附加到 SettingsWindow ──
@@ -377,9 +446,7 @@ SettingsWindow._refresh_weights = _refresh_weights
 SettingsWindow._save_weights = _save_weights
 
 SettingsWindow._build_training_tab = _build_training_tab
-SettingsWindow._discover_torch_algorithms = _discover_torch_algorithms
 SettingsWindow._refresh_device_info = _refresh_device_info
-SettingsWindow._on_force_cpu_changed = _on_force_cpu_changed
 SettingsWindow._on_infer_device_changed = _on_infer_device_changed
 SettingsWindow._refresh_data_size = _refresh_data_size
 SettingsWindow._refresh_algo_list = _refresh_algo_list
