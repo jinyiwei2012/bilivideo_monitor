@@ -1,9 +1,15 @@
-"""算法可视化比较：准确率 / 权重 / 详细数据对比"""
+"""算法可视化比较：准确率 / 权重 / 详细数据对比 — PyQt6 版"""
 
-import tkinter as tk
-from tkinter import ttk
 import logging
 from typing import List, Dict
+
+from PyQt6.QtWidgets import (
+    QDialog, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+    QPushButton, QComboBox, QTabWidget, QTreeWidget, QTreeWidgetItem,
+    QHeaderView,
+)
+from PyQt6.QtCore import Qt, QRect
+from PyQt6.QtGui import QPainter, QColor, QFont
 
 from ui.theme import C
 from ui.helpers import FONT, FONT_SM
@@ -28,7 +34,6 @@ _CATEGORY_COLORS = {
     "基础": "#6e40c9",
     "其他": "#8b949e",
 }
-_CATEGORY_FALLBACK = list(_CATEGORY_COLORS.values())
 
 
 def _cat_color(cat: str) -> str:
@@ -41,21 +46,161 @@ def _fmt_pct(v: float) -> str:
     return f"{v * 100:.1f}%"
 
 
-class AlgorithmComparisonWindow:
+# ══════════════════════════════════════════════════════════════════════════════
+# ── 横向柱状图绘制组件（通用：准确率 / 权重） ──────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class HorizontalBarChart(QWidget):
+    """QPainter 绘制的横向柱状图，支持准确率与权重两种模式"""
+
+    MODE_ACCURACY = "accuracy"
+    MODE_WEIGHT = "weight"
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._filtered: List[Dict] = []
+        self._mode = self.MODE_ACCURACY
+        self.setMinimumSize(200, 120)
+
+    def set_data(self, data: List[Dict], mode: str = MODE_ACCURACY):
+        self._filtered = data
+        self._mode = mode
+        self.update()
+
+    def paintEvent(self, a0):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        W = self.width()
+        H = self.height()
+        if W < 100 or H < 100:
+            painter.end()
+            return
+
+        filtered = self._filtered
+        if not filtered:
+            painter.setPen(QColor(C["text_3"]))
+            painter.setFont(FONT)
+            painter.drawText(QRect(0, 0, W, H), Qt.AlignmentFlag.AlignCenter, "无数据")
+            painter.end()
+            return
+
+        cw = W - _ML - _MR
+        ch = max(50, H - _MT - _MB)
+        bar_unit = _BAR_H + _BAR_GAP
+        visible = filtered[: max(1, int(ch / bar_unit))]
+
+        title_font = QFont("Microsoft YaHei UI", 9)
+        title_font.setBold(True)
+        painter.setPen(QColor(C["text_1"]))
+        painter.setFont(title_font)
+        title = "算法准确率对比" if self._mode == self.MODE_ACCURACY else "算法权重对比"
+        painter.drawText(QRect(0, 0, W, _MT), Qt.AlignmentFlag.AlignCenter, title)
+
+        data_font = QFont("Microsoft YaHei UI", 8)
+        label_font = QFont("Consolas", 7)
+        max_w = 1.0
+        if self._mode == self.MODE_WEIGHT:
+            max_w = max(info.get("final_weight", 1) for info in visible) or 1
+
+        for i, info in enumerate(visible):
+            y0 = _MT + i * bar_unit
+            name = info.get("name", "?")[:28]
+            color = _cat_color(info.get("category", "其他"))
+
+            acc = 0.5
+            if self._mode == self.MODE_ACCURACY:
+                acc = max(0, min(1, info.get("accuracy", 0.5)))
+                bar_w = acc * cw
+            else:
+                w_val = max(0, info.get("final_weight", 1.0))
+                bar_w = w_val / max_w * cw
+
+            # 类别色条（左侧小色块）
+            painter.setBrush(QColor(color))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawRect(_ML - 10, y0, 6, _BAR_H)
+
+            # 柱体
+            if bar_w > 0:
+                painter.drawRect(_ML, y0, int(bar_w), _BAR_H)
+
+            # 名称（右对齐到柱体起始）
+            painter.setPen(QColor(C["text_2"]))
+            painter.setFont(data_font)
+            fm = painter.fontMetrics()
+            name_width = fm.horizontalAdvance(name)
+            painter.drawText(int(_ML - 14 - name_width), y0 + _BAR_H // 2 + fm.ascent() // 2 - 1, name)
+
+            # 数值标签
+            if self._mode == self.MODE_ACCURACY:
+                lbl = _fmt_pct(acc)
+            else:
+                is_custom = info.get("is_customized", False)
+                suffix = " ✎" if is_custom else ""
+                lbl = f"{info.get('final_weight', 1.0):.2f}{suffix}"
+
+            painter.setPen(QColor(C["text_1"]))
+            painter.drawText(int(_ML + bar_w + 6), y0 + _BAR_H // 2 + fm.ascent() // 2 - 1, lbl)
+
+            # 样本数（准确率模式）
+            if self._mode == self.MODE_ACCURACY:
+                samples = info.get("samples", 0)
+                if samples:
+                    painter.setPen(QColor(C["text_3"]))
+                    painter.setFont(label_font)
+                    lbl2 = f"n={samples}"
+                    fm2 = painter.fontMetrics()
+                    lbl2_width = fm2.horizontalAdvance(lbl2)
+                    painter.drawText(int(_ML + cw - lbl2_width), y0 + _BAR_H // 2 + fm2.ascent() // 2 - 1, lbl2)
+                    painter.setFont(data_font)
+
+        # 图例（准确率模式）
+        if self._mode == self.MODE_ACCURACY:
+            used_cats = {info.get("category", "其他") for info in visible}
+            lx = _ML
+            ly = _MT + len(visible) * bar_unit + 10
+            leg_font = QFont("Microsoft YaHei UI", 8)
+            painter.setFont(leg_font)
+            for cat in sorted(used_cats):
+                painter.setBrush(QColor(_cat_color(cat)))
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.drawRect(lx, ly, 12, 12)
+                painter.setPen(QColor(C["text_2"]))
+                painter.drawText(lx + 16, ly + 10, cat)
+                lx += 70
+
+        painter.end()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ── 主窗口 ────────────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class AlgorithmComparisonWindow(QDialog):
     """算法可视化比较窗口：准确率柱状图、权重柱状图、详细数据表格"""
 
     def __init__(self, parent=None):
-        self.window = tk.Toplevel(parent)
-        self.window.title("算法可视化比较")
-        sw = parent.winfo_screenwidth() if parent else 1920
-        sh = parent.winfo_screenheight() if parent else 1080
-        self.window.geometry(f"{int(sw * 0.52)}x{int(sh * 0.72)}")
-        self.window.minsize(700, 500)
-        self.window.configure(bg=C["bg_surface"])
+        super().__init__(parent)
+        if parent:
+            screen = parent.screen()
+            if screen:
+                geo = screen.geometry()
+                sw, sh = geo.width(), geo.height()
+            else:
+                sw, sh = 1920, 1080
+        else:
+            sw, sh = 1920, 1080
+        self.resize(int(sw * 0.52), int(sh * 0.72))
+        self.setMinimumSize(700, 500)
+
+        self.setWindowTitle("算法可视化比较")
+        self.setStyleSheet(f"background-color: {C['bg_surface']};")
 
         self._algo_info: List[Dict] = []  # 算法信息列表
         self._load_data()
-
         self._setup_ui()
 
     # ── 数据加载 ────────────────────────────────────────
@@ -86,67 +231,122 @@ class AlgorithmComparisonWindow:
     # ── UI ──────────────────────────────────────────────
 
     def _setup_ui(self):
-        """构建比较窗口 UI：标题、过滤控制栏、三标签页（准确率/权重/详细数据）"""
+        """构建比较窗口 UI：标题、过滤控制栏、三标签页"""
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+
         # 标题
-        tk.Label(
-            self.window,
-            text=f"算法可视化比较（共 {len(self._algo_info)} 个算法）",
-            bg=C["bg_surface"],
-            fg=C["text_1"],
-            font=("Microsoft YaHei UI", 13, "bold"),
-        ).pack(pady=(14, 4))
+        title = QLabel(f"算法可视化比较（共 {len(self._algo_info)} 个算法）")
+        title_font = QFont("Microsoft YaHei UI", 13)
+        title_font.setBold(True)
+        title.setFont(title_font)
+        title.setStyleSheet(f"color: {C['text_1']}; padding: 14px 14px 4px 14px;")
+        layout.addWidget(title)
 
         # 控制栏：类别过滤 + 排序
-        ctrl = tk.Frame(self.window, bg=C["bg_surface"])
-        ctrl.pack(fill=tk.X, padx=14, pady=(0, 6))
+        ctrl = QWidget()
+        ctrl.setStyleSheet(f"background-color: {C['bg_surface']};")
+        ctrl_layout = QHBoxLayout(ctrl)
+        ctrl_layout.setContentsMargins(14, 0, 14, 6)
 
-        # 类别过滤下拉框
-        tk.Label(ctrl, text="类别过滤:", bg=C["bg_surface"], fg=C["text_2"], font=FONT).pack(side=tk.LEFT, padx=(0, 4))
-        self._cat_var = tk.StringVar(value="全部")
+        # 类别过滤
+        cat_lbl = QLabel("类别过滤:")
+        cat_lbl.setStyleSheet(f"color: {C['text_2']};")
+        cat_lbl.setFont(FONT)
+        ctrl_layout.addWidget(cat_lbl)
+
+        self._cat_combo = QComboBox()
+        self._cat_combo.setStyleSheet("font-size: 9pt; padding: 2px 4px;")
         cats = self._collect_categories()
-        self._cat_combo = ttk.Combobox(
-            ctrl, textvariable=self._cat_var, values=cats, width=16, state="readonly", font=FONT
-        )
-        self._cat_combo.pack(side=tk.LEFT, padx=(0, 12))
-        self._cat_combo.bind("<<ComboboxSelected>>", lambda e: self._refresh())
+        self._cat_combo.addItems(cats)
+        self._cat_combo.currentIndexChanged.connect(lambda _: self._refresh())
+        ctrl_layout.addWidget(self._cat_combo)
 
-        # 排序方式下拉框
-        tk.Label(ctrl, text="排序:", bg=C["bg_surface"], fg=C["text_2"], font=FONT).pack(side=tk.LEFT, padx=(0, 4))
-        self._sort_var = tk.StringVar(value="准确率 ↓")
+        ctrl_layout.addSpacing(12)
+
+        # 排序方式
+        sort_lbl = QLabel("排序:")
+        sort_lbl.setStyleSheet(f"color: {C['text_2']};")
+        sort_lbl.setFont(FONT)
+        ctrl_layout.addWidget(sort_lbl)
+
+        self._sort_combo = QComboBox()
+        self._sort_combo.setStyleSheet("font-size: 9pt; padding: 2px 4px;")
         sorts = ["准确率 ↓", "准确率 ↑", "权重 ↓", "权重 ↑", "样本数 ↓", "名称"]
-        self._sort_combo = ttk.Combobox(
-            ctrl, textvariable=self._sort_var, values=sorts, width=12, state="readonly", font=FONT
-        )
-        self._sort_combo.pack(side=tk.LEFT, padx=(0, 12))
-        self._sort_combo.bind("<<ComboboxSelected>>", lambda e: self._refresh())
+        self._sort_combo.addItems(sorts)
+        self._sort_combo.currentIndexChanged.connect(lambda _: self._refresh())
+        ctrl_layout.addWidget(self._sort_combo)
 
-        # 统计摘要标签
-        self._summary_lbl = tk.Label(ctrl, text="", bg=C["bg_surface"], fg=C["text_3"], font=FONT_SM)
-        self._summary_lbl.pack(side=tk.LEFT, padx=6)
+        ctrl_layout.addSpacing(6)
+
+        # 统计摘要
+        self._summary_lbl = QLabel("")
+        self._summary_lbl.setStyleSheet(f"color: {C['text_3']};")
+        self._summary_lbl.setFont(FONT_SM)
+        ctrl_layout.addWidget(self._summary_lbl)
+
+        ctrl_layout.addStretch()
 
         # 刷新按钮
-        ttk.Button(ctrl, text="↻ 刷新", command=self._refresh).pack(side=tk.RIGHT)
+        refresh_btn = QPushButton("↻ 刷新")
+        refresh_btn.clicked.connect(self._refresh)
+        ctrl_layout.addWidget(refresh_btn)
 
-        # 三标签页 Notebook
-        nb = ttk.Notebook(self.window)
-        nb.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+        layout.addWidget(ctrl)
 
-        tab_acc = tk.Frame(nb, bg=C["bg_base"])
-        tab_weight = tk.Frame(nb, bg=C["bg_base"])
-        tab_detail = tk.Frame(nb, bg=C["bg_base"])
+        # 三标签页 QTabWidget
+        self._tabs = QTabWidget()
+        self._tabs.setStyleSheet(f"""
+            QTabWidget::pane {{
+                border: 1px solid {C['border']};
+                border-top: none;
+                background-color: {C['bg_base']};
+            }}
+            QTabBar::tab {{
+                background-color: {C['bg_surface']};
+                color: {C['text_2']};
+                border: 1px solid {C['border']};
+                border-bottom: none;
+                padding: 6px 16px;
+                margin-right: 2px;
+                border-top-left-radius: {C['radius_sm']}px;
+                border-top-right-radius: {C['radius_sm']}px;
+            }}
+            QTabBar::tab:selected {{
+                background-color: {C['bg_base']};
+                color: {C['text_1']};
+                border-bottom-color: {C['bg_base']};
+            }}
+            QTabBar::tab:hover:!selected {{
+                background-color: {C['bg_hover']};
+            }}
+        """)
+        layout.addWidget(self._tabs, 1)
 
-        nb.add(tab_acc, text="  准确率对比  ")
-        nb.add(tab_weight, text="  权重对比  ")
-        nb.add(tab_detail, text="  详细数据  ")
+        # Tab 1: 准确率对比
+        tab_acc = QWidget()
+        tab_acc.setStyleSheet(f"background-color: {C['bg_base']};")
+        self._tabs.addTab(tab_acc, "  准确率对比  ")
+        acc_layout = QVBoxLayout(tab_acc)
+        acc_layout.setContentsMargins(0, 0, 0, 0)
+        self._acc_chart = HorizontalBarChart()
+        self._acc_chart.setStyleSheet(f"background-color: {C['bg_base']};")
+        acc_layout.addWidget(self._acc_chart)
 
-        # 准确率画布
-        self._acc_canvas = tk.Canvas(tab_acc, bg=C["bg_base"], highlightthickness=0)
-        self._acc_canvas.pack(fill=tk.BOTH, expand=True)
+        # Tab 2: 权重对比
+        tab_weight = QWidget()
+        tab_weight.setStyleSheet(f"background-color: {C['bg_base']};")
+        self._tabs.addTab(tab_weight, "  权重对比  ")
+        weight_layout = QVBoxLayout(tab_weight)
+        weight_layout.setContentsMargins(0, 0, 0, 0)
+        self._weight_chart = HorizontalBarChart()
+        self._weight_chart.setStyleSheet(f"background-color: {C['bg_base']};")
+        weight_layout.addWidget(self._weight_chart)
 
-        # 权重画布
-        self._weight_canvas = tk.Canvas(tab_weight, bg=C["bg_base"], highlightthickness=0)
-        self._weight_canvas.pack(fill=tk.BOTH, expand=True)
-
+        # Tab 3: 详细数据
+        tab_detail = QWidget()
+        tab_detail.setStyleSheet(f"background-color: {C['bg_base']};")
+        self._tabs.addTab(tab_detail, "  详细数据  ")
         self._setup_detail_tab(tab_detail)
 
         self._refresh()
@@ -162,10 +362,10 @@ class AlgorithmComparisonWindow:
 
     def _get_filtered(self) -> list:
         """根据用户选择的类别和排序方式过滤并排序算法数据"""
-        cat = self._cat_var.get()
+        cat = self._cat_combo.currentText()
         filtered = [info for info in self._algo_info if cat == "全部" or info.get("category") == cat]
 
-        s = self._sort_var.get()
+        s = self._sort_combo.currentText()
         if s == "准确率 ↓":
             filtered.sort(key=lambda x: x.get("accuracy", 0), reverse=True)
         elif s == "准确率 ↑":
@@ -180,213 +380,89 @@ class AlgorithmComparisonWindow:
             filtered.sort(key=lambda x: x.get("name", ""))
         return filtered
 
-    # ── 准确率柱状图 ────────────────────────────────────
-
-    def _draw_accuracy_chart(self):
-        """绘制算法准确率横向柱状图"""
-        c = self._acc_canvas
-        c.delete("all")
-        W = c.winfo_width()
-        H = c.winfo_height()
-        if W < 100 or H < 100:
-            self.window.after(200, self._draw_accuracy_chart)
-            return
-
-        filtered = self._get_filtered()
-        if not filtered:
-            c.create_text(W // 2, H // 2, text="无数据", fill=C["text_3"], font=FONT)
-            return
-
-        cw = W - _ML - _MR
-        ch = max(50, H - _MT - _MB)
-        bar_unit = _BAR_H + _BAR_GAP
-        # 如果内容超长，只展示可见区域（后续可扩展滚动）
-        visible = filtered[: max(1, int(ch / bar_unit))]
-
-        # 标题
-        c.create_text(W // 2, 14, text="算法准确率对比", fill=C["text_1"], font=FONT)
-
-        for i, info in enumerate(visible):
-            y0 = _MT + i * bar_unit
-            name = info.get("name", "?")[:28]
-            acc = max(0, min(1, info.get("accuracy", 0.5)))
-            bar_w = acc * cw
-            color = _cat_color(info.get("category", "其他"))
-
-            # 类别色条（左侧小色块）
-            c.create_rectangle(_ML - 10, y0, _ML - 4, y0 + _BAR_H, fill=color, outline="")
-
-            # 柱体
-            if bar_w > 0:
-                c.create_rectangle(
-                    _ML, y0, _ML + bar_w, y0 + _BAR_H, fill=color, outline="", stipple="" if bar_w > 4 else "gray25"
-                )
-
-            # 名称（右对齐到柱体起始）
-            c.create_text(_ML - 14, y0 + _BAR_H // 2, text=name, anchor="e", fill=C["text_2"], font=FONT_SM)
-
-            # 数值标签
-            lbl = _fmt_pct(acc)
-            c.create_text(_ML + bar_w + 6, y0 + _BAR_H // 2, text=lbl, anchor="w", fill=C["text_1"], font=FONT_SM)
-
-            # 样本数
-            samples = info.get("samples", 0)
-            if samples:
-                c.create_text(
-                    _ML + cw, y0 + _BAR_H // 2, text=f"n={samples}", anchor="e", fill=C["text_3"], font=("Consolas", 7)
-                )
-
-        # 图例 —— 用到的类别
-        used_cats = {info.get("category", "其他") for info in visible}
-        lx = _ML
-        ly = _MT + len(visible) * bar_unit + 10
-        for cat in sorted(used_cats):
-            c.create_rectangle(lx, ly, lx + 12, ly + 12, fill=_cat_color(cat), outline="")
-            c.create_text(lx + 16, ly + 6, text=cat, anchor="w", fill=C["text_2"], font=FONT_SM)
-            lx += 70
-
-        self._update_summary(filtered)
-
-    # ── 权重柱状图 ────────────────────────────────────
-
-    def _draw_weight_chart(self):
-        """绘制算法权重横向柱状图（归一化到最大权重）"""
-        c = self._weight_canvas
-        c.delete("all")
-        W = c.winfo_width()
-        H = c.winfo_height()
-        if W < 100 or H < 100:
-            self.window.after(200, self._draw_weight_chart)
-            return
-
-        filtered = self._get_filtered()
-        if not filtered:
-            c.create_text(W // 2, H // 2, text="无数据", fill=C["text_3"], font=FONT)
-            return
-
-        cw = W - _ML - _MR
-        ch = max(50, H - _MT - _MB)
-        bar_unit = _BAR_H + _BAR_GAP
-        visible = filtered[: max(1, int(ch / bar_unit))]
-
-        max_w = max(info.get("final_weight", 1) for info in visible) or 1
-
-        c.create_text(W // 2, 14, text="算法权重对比", fill=C["text_1"], font=FONT)
-
-        for i, info in enumerate(visible):
-            y0 = _MT + i * bar_unit
-            name = info.get("name", "?")[:28]
-            w = max(0, info.get("final_weight", 1.0))
-            bar_w = w / max_w * cw
-            color = "#0969da"
-
-            c.create_rectangle(_ML, y0, _ML + bar_w, y0 + _BAR_H, fill=color, outline="")
-
-            c.create_text(_ML - 14, y0 + _BAR_H // 2, text=name, anchor="e", fill=C["text_2"], font=FONT_SM)
-
-            is_custom = info.get("is_customized", False)
-            suffix = " ✎" if is_custom else ""
-            lbl = f"{w:.2f}{suffix}"
-            c.create_text(_ML + bar_w + 6, y0 + _BAR_H // 2, text=lbl, anchor="w", fill=C["text_1"], font=FONT_SM)
-
     # ── 详细数据表格 ────────────────────────────────────
 
     def _setup_detail_tab(self, parent):
-        """构建详细数据表格页：包含算法名称、类别、准确率、权重、样本数、自定义标记"""
+        """构建详细数据表格页"""
         cols = ("name", "category", "accuracy", "final_weight", "samples", "is_customized")
-        headers = {
-            "name": "算法名称",
-            "category": "类别",
-            "accuracy": "准确率",
-            "final_weight": "权重",
-            "samples": "样本数",
-            "is_customized": "自定义",
-        }
 
-        container = tk.Frame(parent, bg=C["bg_base"])
-        container.pack(fill=tk.BOTH, expand=True)
+        layout = QVBoxLayout(parent)
+        layout.setContentsMargins(10, 10, 10, 10)
 
-        vsb = ttk.Scrollbar(container, orient="vertical")
-        hsb = ttk.Scrollbar(container, orient="horizontal")
-        self._tree = ttk.Treeview(
-            container,
-            columns=cols,
-            show="headings",
-            yscrollcommand=vsb.set,
-            xscrollcommand=hsb.set,
-            height=20,
-        )
-        vsb.config(command=self._tree.yview)
-        hsb.config(command=self._tree.xview)
+        self._tree = QTreeWidget()
+        self._tree.setHeaderLabels(cols)
+        self._tree.setRootIsDecorated(False)
+        self._tree.setAlternatingRowColors(True)
+        self._tree.setStyleSheet(f"""
+            QTreeWidget {{
+                background-color: {C['bg_elevated']};
+                alternate-background-color: {C['bg_surface']};
+                border: 1px solid {C['border_sub']};
+                font-size: 9pt;
+            }}
+            QHeaderView::section {{
+                background-color: {C['bg_surface']};
+                color: {C['text_2']};
+                border: 1px solid {C['border_sub']};
+                padding: 4px 8px;
+                font-weight: bold;
+            }}
+        """)
 
-        for cid, header in headers.items():
-            self._tree.heading(cid, text=header, command=lambda c=cid: self._sort_tree(c))
-            self._tree.column(cid, width=80, anchor="center")
+        col_widths = {"name": 220, "category": 80, "accuracy": 80,
+                      "final_weight": 80, "samples": 80, "is_customized": 80}
+        for cid in cols:
+            self._tree.setColumnWidth(len([x for x in cols[:cols.index(cid)]]), col_widths[cid])
 
-        self._tree.column("name", width=220, anchor="w")
-        self._tree.column("category", width=80, anchor="center")
+        header = self._tree.header()
+        if header is not None:
+            header.setStretchLastSection(False)
+            for i in range(len(cols)):
+                if cols[i] == "name":
+                    header.setSectionResizeMode(i, QHeaderView.ResizeMode.Stretch)
+                else:
+                    header.setSectionResizeMode(i, QHeaderView.ResizeMode.Fixed)
+            # 点击表头排序
+            header.setSortIndicatorShown(True)
+            self._tree.setSortingEnabled(True)
 
-        self._tree.grid(row=0, column=0, sticky="nsew")
-        vsb.grid(row=0, column=1, sticky="ns")
-        hsb.grid(row=1, column=0, sticky="ew")
-        container.grid_rowconfigure(0, weight=1)
-        container.grid_columnconfigure(0, weight=1)
+        layout.addWidget(self._tree)
 
     def _populate_tree(self):
         """用过滤后的数据填充详细数据表格"""
-        for item in self._tree.get_children():
-            self._tree.delete(item)
+        self._tree.setSortingEnabled(False)
+        self._tree.clear()
         filtered = self._get_filtered()
         for info in filtered:
-            self._tree.insert(
-                "",
-                "end",
-                values=(
-                    info.get("name", ""),
-                    info.get("category", ""),
-                    _fmt_pct(info.get("accuracy", 0.5)),
-                    f"{info.get('final_weight', 1.0):.2f}",
-                    info.get("samples", 0),
-                    "是" if info.get("is_customized") else "否",
-                ),
-            )
-
-    def _sort_tree(self, col):
-        """点击表头排序：数值列按数值排序，文本列按字典序排序"""
-        if hasattr(self, "_tree_sort_rev") and self._tree_sort_col == col:
-            self._tree_sort_rev = not self._tree_sort_rev
-        else:
-            self._tree_sort_col = col
-            self._tree_sort_rev = False
-
-        items = [(self._tree.set(k, col), k) for k in self._tree.get_children("")]
-        reverse = self._tree_sort_rev
-        # 数值列按数值排序
-        if col in ("accuracy", "final_weight", "samples"):
-            items.sort(
-                key=lambda x: float(x[0].replace("%", "")) if x[0].replace("%", "").replace(".", "").isdigit() else 0,
-                reverse=reverse,
-            )
-        else:
-            items.sort(key=lambda x: x[0], reverse=reverse)
-
-        for idx, (_, k) in enumerate(items):
-            self._tree.move(k, "", idx)
+            item = QTreeWidgetItem()
+            item.setText(0, info.get("name", ""))
+            item.setText(1, info.get("category", ""))
+            item.setText(2, _fmt_pct(info.get("accuracy", 0.5)))
+            item.setText(3, f"{info.get('final_weight', 1.0):.2f}")
+            item.setText(4, str(info.get("samples", 0)))
+            item.setText(5, "是" if info.get("is_customized") else "否")
+            for col in range(6):
+                item.setTextAlignment(col, Qt.AlignmentFlag.AlignCenter)
+            item.setTextAlignment(0, Qt.AlignmentFlag.AlignLeft)
+            self._tree.addTopLevelItem(item)
+        self._tree.setSortingEnabled(True)
 
     # ── 通用 ────────────────────────────────────────────
 
     def _update_summary(self, filtered):
-        """更新统计摘要：展示总数、平均准确率、平均权重"""
+        """更新统计摘要"""
         n_total = len(self._algo_info)
         n_filtered = len(filtered)
         avg_acc = sum(info.get("accuracy", 0) for info in filtered) / max(1, n_filtered)
         avg_weight = sum(info.get("final_weight", 1) for info in filtered) / max(1, n_filtered)
-        self._summary_lbl.config(
-            text=f"展示 {n_filtered}/{n_total} | 平均准确率 {_fmt_pct(avg_acc)} | 平均权重 {avg_weight:.2f}"
+        self._summary_lbl.setText(
+            f"展示 {n_filtered}/{n_total} | 平均准确率 {_fmt_pct(avg_acc)} | 平均权重 {avg_weight:.2f}"
         )
 
     def _refresh(self):
         """刷新所有标签页的数据和图表"""
-        self._draw_accuracy_chart()
-        self._draw_weight_chart()
+        filtered = self._get_filtered()
+        self._acc_chart.set_data(filtered, HorizontalBarChart.MODE_ACCURACY)
+        self._weight_chart.set_data(filtered, HorizontalBarChart.MODE_WEIGHT)
         self._populate_tree()
+        self._update_summary(filtered)
