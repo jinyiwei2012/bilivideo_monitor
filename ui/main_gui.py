@@ -84,7 +84,7 @@ class BilibiliMonitorGUI(QMainWindow):
         init_theme(QApplication.instance())
 
         self.auto_refresh_enabled = True
-        self._global_tick_job = None
+        self._global_tick_timer = None
         self._video_timers = {}
         self._data_lock = threading.Lock()
         self._viewers_lock = threading.Lock()
@@ -411,11 +411,11 @@ class BilibiliMonitorGUI(QMainWindow):
 
         # Center: detail + chart
         self.detail = DetailPanel(splitter, self)
-        splitter.addWidget(self.detail)
+        splitter.addWidget(self.detail.frame)
 
         # Right: prediction
         self.prediction = PredictionPanel(splitter, self)
-        splitter.addWidget(self.prediction)
+        splitter.addWidget(self.prediction.frame)
 
         # Proportions: 22 : 58 : 20
         splitter.setStretchFactor(0, 22)

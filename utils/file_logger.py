@@ -75,41 +75,41 @@ class FileLogger:
                     logger.debug("关闭日志文件失败: %s", e)
                 self._file = None
 
-    def start_midnight_checker(self, root, check_interval_ms=30000):
+    def start_midnight_checker(self, parent=None, check_interval_ms=30000):
         """
-        在 tkinter 主线程中启动跨天定时检查
+        在 PyQt6 主线程中启动跨天定时检查
 
         Parameters
         ----------
-        root              : tk.Tk          主窗口
+        parent            : QObject | None  QTimer 父对象（通常传主窗口）
         check_interval_ms : int            检查间隔（毫秒），默认 30 秒
         """
+        from PyQt6.QtCore import QTimer
 
-        def _check():
-            now = datetime.now()
-            with self._lock:
-                if self._current_date and now.date() != self._current_date:
-                    # 跨天了 —— 先把旧文件写好关闭
-                    if self._file:
-                        self._rename_to_finished()
-                        try:
-                            self._file.close()
-                        except Exception as e:
-                            logger.debug("跨天检查时关闭旧日志文件失败: %s", e)
-                        self._file = None
-                    # 新文件
-                    self._open_file(now)
-            # 继续下次检查
-            if root.winfo_exists():
-                self._midnight_timer = root.after(check_interval_ms, _check)
+        self._midnight_timer = QTimer(parent)
+        self._midnight_timer.setInterval(check_interval_ms)
+        self._midnight_timer.timeout.connect(self._check_midnight)
+        self._midnight_timer.start()
 
-        self._midnight_timer = root.after(check_interval_ms, _check)
+    def _check_midnight(self):
+        """检查是否跨天——由定时器回调调用。"""
+        now = datetime.now()
+        with self._lock:
+            if self._current_date and now.date() != self._current_date:
+                if self._file:
+                    self._rename_to_finished()
+                    try:
+                        self._file.close()
+                    except Exception as e:
+                        logger.debug("跨天检查时关闭旧日志文件失败: %s", e)
+                    self._file = None
+                self._open_file(now)
 
-    def cancel_midnight_checker(self, root):
+    def cancel_midnight_checker(self):
         """取消跨天定时器（退出时调用）。"""
         if self._midnight_timer:
             try:
-                root.after_cancel(self._midnight_timer)
+                self._midnight_timer.stop()
             except Exception as e:
                 logger.debug("取消跨天定时器失败: %s", e)
             self._midnight_timer = None
