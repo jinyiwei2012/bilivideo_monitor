@@ -3,18 +3,24 @@
 
 包含：
 - TrainingMonitor: 实时训练质量监控器（自动检测 NaN/过拟合/欠拟合/震荡/爆炸）
-- BaseTrainingPanel: 训练/微调面板的共享基类
+- BaseTrainingPanel: 训练/微调面板的共享基类（PyQt6 版）
 """
 
-import tkinter as tk
-from tkinter import ttk
 import threading
 import queue as _q
 import time
 import math
 import logging
 from typing import Any, Dict, List, Optional
-from ui.mpl_imports import mpl_available, Figure, FigureCanvasTkAgg
+
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QPlainTextEdit, QProgressBar, QFrame,
+)
+from PyQt6.QtCore import QTimer, Qt
+from PyQt6.QtGui import QFont
+
+from ui.mpl_imports import mpl_available, Figure, FigureCanvasQTAgg
 from ui.theme import C
 from ui.helpers import (
     FONT,
@@ -242,7 +248,7 @@ class TrainingMonitor:
 
         # 震荡：按变异系数降低 LR
         if issue_type == "oscillation":
-            recent = [p[1] for p in pts[-min(6, n) :]]
+            recent = [p[1] for p in pts[-min(6, n):]]
             mean = sum(recent) / len(recent)
             if mean > 1e-8:
                 max_dev = max(abs(v - mean) for v in recent)
@@ -302,7 +308,7 @@ class TrainingMonitor:
 
         # 震荡：按变异系数计算裁剪阈值
         if issue_type == "oscillation":
-            recent = [p[1] for p in pts[-min(6, n) :]]
+            recent = [p[1] for p in pts[-min(6, n):]]
             mean = sum(recent) / len(recent)
             if mean > 1e-8:
                 max_dev = max(abs(v - mean) for v in recent)
@@ -351,12 +357,12 @@ class TrainingMonitor:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 训练/微调面板共享基类
+# 训练/微调面板共享基类 — PyQt6 版
 # ══════════════════════════════════════════════════════════════════════════════
 
 
-class BaseTrainingPanel:
-    """训练/微调面板的共享基类。
+class BaseTrainingPanel(QWidget):
+    """训练/微调面板的共享基类 — PyQt6 版。
 
     提供：
     - 共享状态变量（_training / _cancel_flag / _skip_algo_flag / _train_thread / …）
@@ -368,11 +374,19 @@ class BaseTrainingPanel:
       → 轮询 (_poll_progress / _handle_stage) → 清理 (_cleanup_training)
     """
 
-    def __init__(self, parent: tk.Widget, main_gui):
-        """初始化共享面板基类"""
-        self.parent = parent
+    def __init__(self, parent: QWidget, main_gui, *, no_frame=False):
+        """初始化共享面板基类
+
+        :param parent: 父控件
+        :param main_gui: 主窗口引用
+        :param no_frame: 如果为 True，不创建 self.frame（由子类自行管理）
+        """
+        super().__init__(parent)
+        self._parent_widget = parent
         self.main = main_gui
-        self.frame = tk.Frame(parent, bg=C["bg_base"])
+
+        if not no_frame:
+            self.setStyleSheet(f"background-color: {C['bg_base']};")
 
         # 训练线程状态
         self._training = False
@@ -394,39 +408,44 @@ class BaseTrainingPanel:
 
         # 图表（由 _build_chart_widgets 设置）
         self._fig: Optional[Figure] = None
-        self._canvas: Optional[FigureCanvasTkAgg] = None
+        self._canvas: Optional[FigureCanvasQTAgg] = None
         self._ax = None
 
         # 日志（由 _build_log_widgets 设置）
-        self._log_text: Optional[tk.Text] = None
+        self._log_text: Optional[QPlainTextEdit] = None
 
         # UI 控件引用（由子类 _build_controls 设置）
-        self._train_btn: Optional[ttk.Button] = None
-        self._cancel_btn: Optional[ttk.Button] = None
-        self._skip_btn: Optional[ttk.Button] = None
-        self._progress: Optional[ttk.Progressbar] = None
-        self._status_lbl: Optional[tk.Label] = None
+        self._train_btn: Optional[QPushButton] = None
+        self._cancel_btn: Optional[QPushButton] = None
+        self._skip_btn: Optional[QPushButton] = None
+        self._progress: Optional[QProgressBar] = None
+        self._status_lbl: Optional[QLabel] = None
 
         # 训练质量监控控件（由 _build_monitor_bar 设置）
-        self._monitor_icon: Optional[tk.Label] = None
-        self._monitor_status: Optional[tk.Label] = None
-        self._monitor_tip: Optional[tk.Label] = None
+        self._monitor_icon: Optional[QLabel] = None
+        self._monitor_status: Optional[QLabel] = None
+        self._monitor_tip: Optional[QLabel] = None
 
     # ══════════════════════════════════════════════════════════════════════════
     # Chart
     # ══════════════════════════════════════════════════════════════════════════
 
-    def _build_chart_widgets(self, parent, title="") -> tk.Frame:
+    def _build_chart_widgets(self, parent, title="") -> QWidget:
         """创建 matplotlib 图表控件。返回 chart_frame。"""
-        chart_frame = tk.Frame(parent, bg=C["bg_elevated"])
+        chart_frame = QWidget(parent)
+        chart_frame.setStyleSheet(f"background-color: {C['bg_elevated']};")
+        layout = QVBoxLayout(chart_frame)
+        layout.setContentsMargins(0, 0, 0, 0)
+
         if title:
-            tk.Label(chart_frame, text=title, bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(
-                anchor="nw", padx=4, pady=(2, 0)
-            )
+            title_lbl = QLabel(title)
+            title_lbl.setStyleSheet(f"color: {C['text_2']}; font-size: 8pt; padding: 2px 4px;")
+            layout.addWidget(title_lbl)
         if not mpl_available:
-            tk.Label(
-                chart_frame, text="matplotlib 未安装，无法显示图表", bg=C["bg_elevated"], fg=C["text_3"], font=FONT
-            ).pack(expand=True)
+            no_mpl = QLabel("matplotlib 未安装，无法显示图表")
+            no_mpl.setStyleSheet(f"color: {C['text_3']}; background-color: {C['bg_elevated']};")
+            no_mpl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(no_mpl, 1)
             return chart_frame
 
         # 初始化 matplotlib 图表的样式和轴
@@ -441,14 +460,16 @@ class BaseTrainingPanel:
             spine.set_color(C["border"])
         self._fig.tight_layout(pad=1.5)
 
-        self._canvas = FigureCanvasTkAgg(self._fig, master=chart_frame)
-        self._canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=4, pady=(0, 4))
+        self._canvas = FigureCanvasQTAgg(self._fig)
+        self._canvas.setParent(chart_frame)
+        self._canvas.setStyleSheet("background-color: transparent;")
+        layout.addWidget(self._canvas, 1)
         self._canvas.draw()
         return chart_frame
 
     def _update_chart(self):
         """刷新 Loss 折线图。子类可重写 _get_chart_series 自定义分组。"""
-        if not mpl_available or self._ax is None:
+        if not mpl_available or self._ax is None or self._fig is None or self._canvas is None:
             return
         # 清空并重设样式
         self._ax.clear()
@@ -490,16 +511,17 @@ class BaseTrainingPanel:
 
     def _clear_chart(self):
         """清空图表并释放 matplotlib 资源。"""
-        clear_loss_chart(self._ax, self._fig, self._canvas)
+        if self._ax is not None and self._fig is not None and self._canvas is not None:
+            clear_loss_chart(self._fig, self._canvas)
         # 释放 matplotlib figure，避免内存泄漏
         try:
             import matplotlib.pyplot as plt
             plt.close(self._fig)
         except Exception:
             pass
-        if self._canvas and hasattr(self._canvas, "get_tk_widget"):
+        if self._canvas is not None:
             try:
-                self._canvas.get_tk_widget().destroy()
+                self._canvas.deleteLater()
             except Exception:
                 pass
 
@@ -507,34 +529,43 @@ class BaseTrainingPanel:
     # Log
     # ══════════════════════════════════════════════════════════════════════════
 
-    def _build_log_widgets(self, parent, title="日志") -> tk.Frame:
+    def _build_log_widgets(self, parent, title="日志") -> QWidget:
         """创建日志文本框区域。返回 log_frame。"""
-        log_frame = tk.Frame(parent, bg=C["bg_elevated"])
+        log_frame = QWidget(parent)
+        log_frame.setStyleSheet(f"background-color: {C['bg_elevated']};")
+        layout = QVBoxLayout(log_frame)
+        layout.setContentsMargins(0, 0, 0, 0)
 
-        log_hdr = tk.Frame(log_frame, bg=C["bg_elevated"])
-        log_hdr.pack(fill=tk.X)
-        tk.Label(log_hdr, text=title, bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(
-            side=tk.LEFT, padx=4, pady=(2, 0)
-        )
-        ttk.Button(log_hdr, text="清空", command=self._clear_log, width=4).pack(side=tk.RIGHT, padx=4)
+        log_hdr = QWidget()
+        log_hdr.setStyleSheet(f"background-color: {C['bg_elevated']};")
+        hdr_layout = QHBoxLayout(log_hdr)
+        hdr_layout.setContentsMargins(4, 2, 4, 2)
 
-        self._log_text = tk.Text(
-            log_frame,
-            bg=C["bg_base"],
-            fg=C["text_1"],
-            font=("Consolas", 9),
-            relief="flat",
-            bd=0,
-            wrap=tk.WORD,
-            state="disabled",
-            highlightthickness=1,
-            highlightbackground=C["border_sub"],
-        )
-        self._log_text.pack(fill=tk.BOTH, expand=True, padx=4, pady=(2, 4))
+        title_lbl = QLabel(title)
+        title_lbl.setStyleSheet(f"color: {C['text_2']}; font-size: 8pt;")
+        hdr_layout.addWidget(title_lbl)
+        hdr_layout.addStretch()
 
-        log_sb = ttk.Scrollbar(log_frame, orient="vertical", command=self._log_text.yview)
-        log_sb.pack(side=tk.RIGHT, fill=tk.Y, padx=(0, 4), pady=(2, 4))
-        self._log_text.configure(yscrollcommand=log_sb.set)
+        clear_btn = QPushButton("清空")
+        clear_btn.setFixedWidth(50)
+        clear_btn.clicked.connect(self._clear_log)
+        hdr_layout.addWidget(clear_btn)
+
+        layout.addWidget(log_hdr)
+
+        self._log_text = QPlainTextEdit()
+        self._log_text.setReadOnly(True)
+        self._log_text.setStyleSheet(f"""
+            QPlainTextEdit {{
+                background-color: {C['bg_base']};
+                color: {C['text_1']};
+                font-family: Consolas;
+                font-size: 9pt;
+                border: 1px solid {C['border_sub']};
+                padding: 2px;
+            }}
+        """)
+        layout.addWidget(self._log_text, 1)
 
         return log_frame
 
@@ -543,38 +574,41 @@ class BaseTrainingPanel:
         if self._log_text is None:
             return
         ts = time.strftime("%H:%M:%S")
-        line = f"[{ts}] {text}\n"
-        self._log_text.config(state="normal")
-        self._log_text.insert(tk.END, line)
-        self._log_text.see(tk.END)
-        self._log_text.config(state="disabled")
+        line = f"[{ts}] {text}"
+        self._log_text.appendPlainText(line)
+        # 滚动到底部
+        sb = self._log_text.verticalScrollBar()
+        if sb is not None:
+            sb.setValue(sb.maximum())
 
     def _clear_log(self):
         """清空日志文本框"""
-        if self._log_text is None:
-            return
-        self._log_text.config(state="normal")
-        self._log_text.delete("1.0", tk.END)
-        self._log_text.config(state="disabled")
+        if self._log_text is not None:
+            self._log_text.clear()
 
     # ══════════════════════════════════════════════════════════════════════════
     # Monitor
     # ══════════════════════════════════════════════════════════════════════════
 
-    def _build_monitor_bar(self, parent) -> tk.Frame:
+    def _build_monitor_bar(self, parent) -> QWidget:
         """创建训练质量监控状态栏。返回 monitor_bar。"""
-        monitor_bar = tk.Frame(parent, bg=C["bg_surface"], highlightthickness=1, highlightbackground=C["border_sub"])
+        monitor_bar = QWidget(parent)
+        monitor_bar.setStyleSheet(f"background-color: {C['bg_surface']}; border: 1px solid {C['border_sub']};")
+        layout = QHBoxLayout(monitor_bar)
+        layout.setContentsMargins(6, 2, 8, 2)
 
-        self._monitor_icon = tk.Label(monitor_bar, text="🔵", bg=C["bg_surface"], font=("Segoe UI", 14))
-        self._monitor_icon.pack(side=tk.LEFT, padx=(6, 2), pady=2)
-        self._monitor_status = tk.Label(
-            monitor_bar, text="等待训练开始…", bg=C["bg_surface"], fg=C["text_3"], font=FONT_SM, anchor="w"
-        )
-        self._monitor_status.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2, pady=2)
-        self._monitor_tip = tk.Label(
-            monitor_bar, text="", bg=C["bg_surface"], fg=C["text_3"], font=("Microsoft YaHei UI", 8), anchor="e"
-        )
-        self._monitor_tip.pack(side=tk.RIGHT, padx=(4, 8), pady=2)
+        self._monitor_icon = QLabel("🔵")
+        self._monitor_icon.setStyleSheet(f"background-color: {C['bg_surface']}; font-size: 14px;")
+        layout.addWidget(self._monitor_icon)
+
+        self._monitor_status = QLabel("等待训练开始…")
+        self._monitor_status.setStyleSheet(f"color: {C['text_3']}; background-color: {C['bg_surface']}; font-size: 8pt;")
+        layout.addWidget(self._monitor_status, 1)
+
+        self._monitor_tip = QLabel("")
+        self._monitor_tip.setStyleSheet(f"color: {C['text_3']}; background-color: {C['bg_surface']}; font-size: 8pt;")
+        self._monitor_tip.setAlignment(Qt.AlignmentFlag.AlignRight)
+        layout.addWidget(self._monitor_tip)
 
         return monitor_bar
 
@@ -582,13 +616,16 @@ class BaseTrainingPanel:
         """刷新训练质量监控 UI 显示"""
         text, color = self._monitor.get_status_display()
         if self._monitor_status:
-            self._monitor_status.config(text=text, fg=color)
+            self._monitor_status.setText(text)
+            self._monitor_status.setStyleSheet(
+                f"color: {color}; background-color: {C['bg_surface']}; font-size: 8pt;"
+            )
         tip = self._monitor.get_tip()
         if self._monitor_tip:
-            self._monitor_tip.config(text=tip)
+            self._monitor_tip.setText(tip)
         icon_map = {"good": "🟢", "warning": "🟡", "danger": "🔴", "info": "🔵"}
         if self._monitor_icon:
-            self._monitor_icon.config(text=icon_map.get(self._monitor.level, "🔵"))
+            self._monitor_icon.setText(icon_map.get(self._monitor.level, "🔵"))
 
         self._on_monitor_changed()
 
@@ -604,14 +641,14 @@ class BaseTrainingPanel:
         """请求取消当前训练"""
         self._cancel_flag[0] = True
         if self._cancel_btn:
-            self._cancel_btn.config(state="disabled")
+            self._cancel_btn.setEnabled(False)
         self._append_log("⏹ 用户请求取消训练")
 
     def _on_skip_algo(self):
         """请求跳过当前算法"""
         self._skip_algo_flag[0] = True
         if self._skip_btn:
-            self._skip_btn.config(state="disabled")
+            self._skip_btn.setEnabled(False)
         self._append_log("⏭ 用户请求跳过当前算法")
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -628,13 +665,13 @@ class BaseTrainingPanel:
         self._clear_chart()
         self._clear_log()
         if self._train_btn:
-            self._train_btn.config(state="disabled")
+            self._train_btn.setEnabled(False)
         if self._cancel_btn:
-            self._cancel_btn.config(state="normal")
+            self._cancel_btn.setEnabled(True)
         if self._skip_btn:
-            self._skip_btn.config(state="normal")
+            self._skip_btn.setEnabled(True)
         if self._progress:
-            self._progress["value"] = 0
+            self._progress.setValue(0)
 
     def _launch_worker(self, worker_func):
         """创建队列并启动工作线程 + 轮询循环。"""
@@ -643,7 +680,7 @@ class BaseTrainingPanel:
         self._train_thread = threading.Thread(target=worker_func, daemon=True)
         self._train_thread.start()
         self._last_msg_time = time.time()  # 跟踪最后一条消息的时间
-        self.frame.after(150, self._poll_progress)
+        QTimer.singleShot(150, self._poll_progress)
 
     def _poll_progress(self):
         """主轮询循环：不断从队列取消息 → _handle_stage → 完成时 _cleanup_training。
@@ -667,16 +704,19 @@ class BaseTrainingPanel:
         if self._progress and not done_all:
             idle_s = time.time() - self._last_msg_time
             if idle_s > 2:
-                if self._progress.cget("mode") != "indeterminate":
-                    self._progress.configure(mode="indeterminate")
-                    self._progress.start(80)
-            elif had_msg and self._progress.cget("mode") == "indeterminate":
-                self._progress.stop()
-                self._progress.configure(mode="determinate")
+                if self._progress.minimum() == 0 and self._progress.maximum() == 0:
+                    pass  # already indeterminate
+                else:
+                    # 切换为脉冲模式（QProgressBar indeterminate = minimum == maximum == 0）
+                    self._progress.setMinimum(0)
+                    self._progress.setMaximum(0)
+            elif had_msg and self._progress.minimum() == 0 and self._progress.maximum() == 0:
+                self._progress.setMinimum(0)
+                self._progress.setMaximum(100)
         if done_all:
             self._cleanup_training()
         else:
-            self.frame.after(200, self._poll_progress)
+            QTimer.singleShot(200, self._poll_progress)
 
     def _handle_stage(self, msg) -> bool:
         """处理单条进度消息。返回 True 表示训练全部结束。子类必须实现。"""
@@ -686,10 +726,10 @@ class BaseTrainingPanel:
         """训练结束后恢复 UI。子类可通过 super() 扩展。"""
         self._training = False
         if self._train_btn:
-            self._train_btn.config(state="normal")
+            self._train_btn.setEnabled(True)
         if self._cancel_btn:
-            self._cancel_btn.config(state="disabled")
+            self._cancel_btn.setEnabled(False)
         if self._skip_btn:
-            self._skip_btn.config(state="disabled")
+            self._skip_btn.setEnabled(False)
         self._train_queue = None
         self._train_thread = None
