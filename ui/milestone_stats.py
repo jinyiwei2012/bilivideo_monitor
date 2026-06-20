@@ -1,21 +1,33 @@
 """
-里程碑统计窗口（现代化版）
+里程碑统计窗口 — PyQt6 版
 投稿一周/月/年后数据录入与对比
 """
 
-import tkinter as tk
-from tkinter import ttk, messagebox
+import math
 from typing import List, Dict, Optional, Callable
+
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QLineEdit, QTextEdit, QCheckBox, QRadioButton, QTreeWidget,
+    QTreeWidgetItem, QHeaderView, QTabWidget, QMessageBox,
+    QButtonGroup, QFrame, QMenu,
+)
+from PyQt6.QtCore import Qt, QTimer, QRectF, QSize
+from PyQt6.QtGui import (
+    QFont, QPainter, QColor, QBrush, QPen, QAction,
+    QResizeEvent,
+)
 
 from core.database import get_db
 from ui.theme import C
 from ui.scrollable_frame import ScrollableFrame
-from ui.helpers import FONT, FONT_BOLD, FONT_SM, fmt_num
 from ui.dialog_base import DialogBase
 from utils.update_checker import _confirm_risky
+from ui.helpers import FONT, FONT_BOLD, FONT_SM, fmt_num, is_valid_bvid
 
 PERIODS = ["1周", "1月", "1年"]
 PERIOD_COLORS = {"1周": "#58a6ff", "1月": "#3fb950", "1年": "#f5a623"}
+PERIOD_COLOR_OBJ = {"1周": QColor("#58a6ff"), "1月": QColor("#3fb950"), "1年": QColor("#f5a623")}
 FIELDS = [
     ("view_count", "播放量", True, "必填"),
     ("like_count", "点赞数", False, ""),
@@ -26,81 +38,84 @@ FIELDS = [
     ("reply_count", "评论数", False, ""),
     ("note", "备注", False, ""),
 ]
+COL_KEYS = [f[0] for f in FIELDS]
+COL_LABELS = ["BV号", "周期"] + [f[1] + ("*" if f[2] else "") for f in FIELDS]
+COL_WIDTH = {"BV号": 80, "周期": 50, "播放量*": 100, "点赞数": 80, "投币数": 80,
+              "分享数": 80, "收藏数": 80, "弹幕数": 80, "评论数": 80, "备注": 200}
 
 
-def _valid_bvid(s: str) -> bool:
-    """验证字符串是否为合法的 BV 号"""
-    from ui.helpers import is_valid_bvid
-
-    return is_valid_bvid(s)
-
-
-class _EntryRow:
+class _EntryRow(QWidget):
     """单行输入控件——BV号 × 周期"""
 
-    def __init__(self, parent, bvid: str, period: str, existing: dict = None):
-        """初始化单行输入控件，创建 BV 号标签、周期标签和各字段输入框"""
+    def __init__(self, bvid: str, period: str, existing: Optional[dict] = None):
+        super().__init__()
         self.bvid = bvid
         self.period = period
-        self._vars: Dict[str, tk.StringVar] = {}
+        self._fields: List[QLineEdit] = []
 
-        frame = tk.Frame(parent, bg=C["bg_surface"], highlightthickness=1, highlightbackground=C["border_sub"])
-        frame.pack(fill=tk.X, pady=2, ipady=2)
+        self.setStyleSheet(f"""
+            QWidget#entryRow {{
+                background-color: {C['bg_surface']};
+                border: 1px solid {C['border_sub']};
+                border-radius: 2px;
+            }}
+        """)
+        self.setObjectName("entryRow")
 
-        tk.Label(frame, text=bvid, bg=C["bg_surface"], fg=C["accent"], font=FONT_BOLD, width=14, anchor="w").grid(
-            row=0, column=0, padx=(6, 4)
-        )
-        tk.Label(
-            frame, text=period, bg=C["bg_surface"], fg=PERIOD_COLORS[period], font=FONT_BOLD, width=4, anchor="w"
-        ).grid(row=0, column=1, padx=(0, 8))
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(6, 2, 6, 2)
+        layout.setSpacing(4)
 
-        col = 2
+        # BV号
+        bv_lbl = QLabel(bvid)
+        bv_lbl.setFont(FONT_BOLD)
+        bv_lbl.setStyleSheet(f"color: {C['accent']}; background: transparent;")
+        bv_lbl.setFixedWidth(80)
+        layout.addWidget(bv_lbl)
+
+        # 周期
+        p_lbl = QLabel(period)
+        p_lbl.setFont(FONT_BOLD)
+        p_lbl.setStyleSheet(f"color: {PERIOD_COLORS[period]}; background: transparent;")
+        p_lbl.setFixedWidth(50)
+        layout.addWidget(p_lbl)
+
+        # 字段输入框
         for key, label, required, hint in FIELDS:
-            tk.Label(
-                frame,
-                text=label + ("*" if required else ""),
-                bg=C["bg_surface"],
-                fg=C["danger"] if required else C["text_2"],
-                font=FONT_SM,
-                anchor="e",
-                width=6,
-            ).grid(row=0, column=col, padx=(4, 2))
-            var = tk.StringVar()
+            val = ""
             if existing and key in existing and existing[key] is not None:
-                var.set(str(existing[key]))
-            self._vars[key] = var
-            w = 20 if key == "note" else 9
-            entry = tk.Entry(
-                frame,
-                textvariable=var,
-                font=FONT_SM,
-                bg=C["bg_elevated"],
-                fg=C["text_1"],
-                insertbackground=C["text_1"],
-                relief="flat",
-                bd=1,
-                width=w,
-                highlightthickness=1,
-                highlightcolor=C["accent"],
-                highlightbackground=C["border"],
-            )
-            entry.grid(row=0, column=col + 1, padx=(0, 4))
-            col += 2
+                val = str(existing[key])
+
+            entry = QLineEdit()
+            entry.setText(val)
+            entry.setFont(FONT_SM)
+            entry.setFixedWidth(80 if key != "note" else 180)
+            entry.setStyleSheet(f"""
+                QLineEdit {{
+                    background-color: {C['bg_base']}; color: {C['text_1']};
+                    border: 1px solid {C['border']}; padding: 2px 4px;
+                }}
+            """)
+            self._fields.append(entry)
+            layout.addWidget(entry)
+
+        layout.addStretch()
 
     def collect(self) -> Optional[dict]:
         """收集当前行的输入数据，播放量为空时返回 None"""
-        raw = self._vars["view_count"].get().strip().replace(",", "")
+        raw = self._fields[0].text().strip().replace(",", "")
         if not raw:
             return None
         try:
             view = int(float(raw))
         except ValueError:
             return None
-        data = {"view_count": view}
-        for key, *_ in FIELDS[1:]:
-            val = self._vars[key].get().strip()
+        data: Dict[str, object] = {"view_count": view}
+        for i, (key, *_rest) in enumerate(FIELDS[1:]):
+            val = self._fields[i + 1].text().strip()
             if key == "note":
-                data[key] = val if val else None
+                if val:
+                    data["note"] = val
             elif val:
                 try:
                     data[key] = int(float(val.replace(",", "")))
@@ -109,8 +124,183 @@ class _EntryRow:
         return data
 
 
-class MilestoneStatsWindow:
-    """投稿里程碑统计与对比窗口（现代化风格）"""
+# ═══════════════════════════════════════════════════════
+#  自定义柱状图组件
+# ═══════════════════════════════════════════════════════
+
+class _CompareChart(QWidget):
+    """里程碑对比柱状图 — 使用 QPainter 绘制"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._data: Dict[str, Dict[str, dict]] = {}
+        self._metric = "view_count"
+        self._metric_label = "播放量"
+        self._bvids: List[str] = []
+        self._max_val = 1
+        self._status_callback: Optional[Callable[[str], None]] = None
+
+        self.setMinimumHeight(200)
+        self.setStyleSheet(f"background-color: {C['canvas_bg']};")
+
+    def set_data(self, data: dict, metric: str, metric_label: str, bvids: list,
+                 max_val: float, status_cb: Callable[[str], None]):
+        """设置数据并重绘"""
+        self._data = data
+        self._metric = metric
+        self._metric_label = metric_label
+        self._bvids = bvids
+        self._max_val = max(max_val, 1)
+        self._status_callback = status_cb
+        if status_cb:
+            status_cb(f"共 {len(bvids)} 个视频 · 展示指标：{metric_label}")
+        self.update()
+
+    def _status(self, text: str):
+        if self._status_callback:
+            self._status_callback(text)
+
+    def paintEvent(self, a0):
+        """QPainter 绘制入口"""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        w = self.width()
+        h = self.height()
+        if w < 10 or h < 10:
+            painter.end()
+            return
+
+        n_videos = len(self._bvids)
+        if not self._data or n_videos == 0:
+            self._draw_empty(painter, w, h)
+            painter.end()
+            return
+
+        ML, MR, MT, MB = 70, 20, 30, 80
+        ch = h - MT - MB
+        if n_videos > 0:
+            cw = max(w - ML - MR, n_videos * (len(PERIODS) + 1) * 18)
+        else:
+            cw = w - ML - MR
+        self._draw_grid(painter, cw, ch, ML, MT)
+        self._draw_bars(painter, cw, ch, ML, MT)
+        self._draw_legend(painter, ML, MT, ch)
+        self._draw_title(painter, ML, cw)
+
+        painter.end()
+
+    def _draw_empty(self, painter, w, h):
+        """无数据提示"""
+        painter.setPen(QColor(C["text_2"]))
+        font = QFont("Microsoft YaHei UI", 12)
+        painter.setFont(font)
+        painter.drawText(QRectF(0, 0, w, h), Qt.AlignmentFlag.AlignCenter,
+                         "暂无里程碑数据，请在「录入数据」标签页添加")
+
+    def _draw_grid(self, painter, cw, ch, ML, MT):
+        """网格线和 Y 轴标签"""
+        pen = QPen(QColor(C["border"]))
+        pen.setStyle(Qt.PenStyle.DashLine)
+        for i in range(6):
+            ratio = i / 5
+            y = MT + ch - int(ch * ratio * 0.92)
+            painter.setPen(pen)
+            painter.drawLine(ML, y, ML + cw, y)
+            val = self._max_val * ratio
+            painter.setPen(QColor(C["text_2"]))
+            font = QFont("Consolas", 8)
+            painter.setFont(font)
+            text = f"{val / 10000:.0f}w" if val >= 10000 else str(int(val))
+            painter.drawText(QRectF(0, y - 8, ML - 6, 16), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, text)
+
+    def _draw_bars(self, painter, cw, ch, ML, MT):
+        """柱状图绘制"""
+        n_videos = len(self._bvids)
+        n_periods = len(PERIODS)
+        group_w = cw / max(n_videos, 1)
+        bar_total_w = group_w * 0.75
+        bar_w = bar_total_w / n_periods
+        gap_w = group_w * 0.125
+        font_small = QFont("Consolas", 7)
+        font_bold = QFont("Consolas", 7)
+        font_bold.setBold(True)
+        font_title = QFont("Microsoft YaHei UI", 8)
+
+        for vi, bv in enumerate(self._bvids):
+            gx = ML + vi * group_w + gap_w
+            title = self._get_title(bv)
+            for pi, period in enumerate(PERIODS):
+                row = (self._data.get(bv) or {}).get(period) or {}
+                val = row.get(self._metric)
+                color = PERIOD_COLOR_OBJ[period]
+                bx = int(gx + pi * bar_w)
+                by = self._to_y(val, self._max_val, MT, ch) if val else MT + ch
+                bx2 = int(bx + bar_w - 2)
+                if val:
+                    painter.setBrush(QBrush(color))
+                    painter.setPen(Qt.PenStyle.NoPen)
+                    painter.drawRect(bx, by, bx2 - bx, MT + ch - by)
+                    if by > MT + 14:
+                        val_text = f"{val / 10000:.0f}w" if val >= 10000 else str(int(val))
+                        painter.setPen(QColor(color))
+                        painter.setFont(font_bold)
+                        painter.drawText(QRectF(bx, by - 14, bx2 - bx, 12),
+                                         Qt.AlignmentFlag.AlignCenter, val_text)
+                else:
+                    painter.setBrush(QBrush(QColor(C["border"])))
+                    painter.setPen(Qt.PenStyle.NoPen)
+                    painter.drawRect(bx, MT + ch - 4, bx2 - bx, 4)
+
+            lx = int(gx + bar_total_w / 2)
+            painter.setPen(QColor(C["text_1"]))
+            painter.setFont(font_title)
+            painter.drawText(QRectF(0, MT + ch + 2, self.width(), 16),
+                             Qt.AlignmentFlag.AlignHCenter, title)
+            painter.setPen(QColor(C["text_3"]))
+            painter.setFont(font_small)
+            painter.drawText(QRectF(0, MT + ch + 18, self.width(), 12),
+                             Qt.AlignmentFlag.AlignHCenter, bv)
+
+    def _draw_legend(self, painter, ML, MT, ch):
+        """颜色图例"""
+        lgx = ML + 6
+        for p in PERIODS:
+            painter.setBrush(QBrush(PERIOD_COLOR_OBJ[p]))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawRect(lgx, MT + ch + 52, 10, 10)
+            painter.setPen(QColor(PERIOD_COLOR_OBJ[p]))
+            font = QFont("Microsoft YaHei UI", 8)
+            painter.setFont(font)
+            painter.drawText(lgx + 14, MT + ch + 62, f"投稿{p}后")
+            lgx += 90
+
+    def _draw_title(self, painter, ML, cw):
+        """图表标题"""
+        painter.setPen(QColor(C["text_1"]))
+        font = QFont("Microsoft YaHei UI", 10)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.drawText(QRectF(ML, 6, cw, 20), Qt.AlignmentFlag.AlignCenter,
+                         f"投稿里程碑对比 — {self._metric_label}")
+
+    @staticmethod
+    def _get_title(bvid):
+        return bvid  # caller can override via data
+
+    @staticmethod
+    def _to_y(v, max_val, MT, ch):
+        if v and max_val:
+            return MT + ch - int((v / max_val) * ch * 0.92)
+        return MT + ch
+
+
+# ═══════════════════════════════════════════════════════
+#  主窗口
+# ═══════════════════════════════════════════════════════
+
+class MilestoneStatsWindow(DialogBase):
+    """投稿里程碑统计与对比窗口"""
 
     def __init__(
         self,
@@ -118,130 +308,178 @@ class MilestoneStatsWindow:
         monitored_videos: Optional[List[Dict]] = None,
         on_add_monitor: Optional[Callable[[str], None]] = None,
     ):
-        self.dlg = DialogBase(
-            parent, "投稿里程碑 — 一周 / 月 / 年后数据", "1200x760", resizable=(True, True), modal=True
-        )
-        self.window = self.dlg.window
+        if parent:
+            screen = parent.screen()
+            if screen:
+                geo = screen.geometry()
+                sw, sh = geo.width(), geo.height()
+            else:
+                sw, sh = 1920, 1080
+        else:
+            sw, sh = 1920, 1080
+
+        super().__init__(parent, "投稿里程碑 — 一周 / 月 / 年后数据",
+                         (int(sw * 0.62), int(sh * 0.78)), modal=True)
 
         self.monitored_videos = monitored_videos or []
         self.on_add_monitor = on_add_monitor
         self._monitored_set: set = {v.get("bvid", "") for v in self.monitored_videos}
         self._entry_rows: List[_EntryRow] = []
+        self._all_data: dict = {}
+        self._rebuild_needed = True
 
         self._setup_ui()
         self._reload_comparison()
 
     def _setup_ui(self):
-        """构建窗口 UI：包含「录入数据」和「对比视图」两个标签页"""
-        nb = ttk.Notebook(self.dlg.container)
-        nb.pack(fill=tk.BOTH, expand=True, padx=24, pady=(12, 0))
+        """构建窗口 UI"""
+        self.header("投稿里程碑", "一周 / 月 / 年后数据录入与对比")
 
-        self._tab_entry = tk.Frame(nb, bg=C["bg_base"])
-        nb.add(self._tab_entry, text="  📥 录入数据  ")
-        self._tab_compare = tk.Frame(nb, bg=C["bg_base"])
-        nb.add(self._tab_compare, text="  📊 对比视图  ")
-        nb.bind("<<NotebookTabChanged>>", lambda e: self._reload_comparison() if nb.index("current") == 1 else None)
+        self._tabs = QTabWidget()
+        self._main_layout.addWidget(self._tabs)
+
+        # 录入数据标签页
+        self._tab_entry = QWidget()
+        self._tab_entry.setStyleSheet(f"background-color: {C['bg_base']};")
+        self._tabs.addTab(self._tab_entry, "  📥 录入数据  ")
+
+        # 对比视图标签页
+        self._tab_compare = QWidget()
+        self._tab_compare.setStyleSheet(f"background-color: {C['bg_base']};")
+        self._tabs.addTab(self._tab_compare, "  📊 对比视图  ")
+
+        self._tabs.currentChanged.connect(self._on_tab_changed)
 
         self._build_entry_tab()
         self._build_compare_tab()
 
+    def _on_tab_changed(self, idx: int):
+        if idx == 1:
+            self._reload_comparison()
+
     # ── 录入标签页 ──────────────────────────────────────
     def _build_entry_tab(self):
-        """构建录入标签页 UI：BV 号输入、周期勾选、输入行表格"""
         tab = self._tab_entry
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(16, 12, 16, 8)
 
         # 顶部卡片
-        top = tk.Frame(tab, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
-        top.pack(fill=tk.X, padx=16, pady=(12, 6), ipadx=10, ipady=8)
-
-        # 三列布局
-        cols_frame = tk.Frame(top, bg=C["bg_elevated"])
-        cols_frame.pack(fill=tk.X)
+        top = QFrame()
+        top.setStyleSheet(f"""
+            QFrame#entryTop {{
+                background-color: {C['bg_elevated']};
+                border: 1px solid {C['border_sub']};
+                border-radius: 6px;
+            }}
+        """)
+        top.setObjectName("entryTop")
+        top_layout = QHBoxLayout(top)
+        top_layout.setContentsMargins(10, 8, 10, 8)
 
         # 左：BV号输入
-        bv_col = tk.Frame(cols_frame, bg=C["bg_elevated"])
-        bv_col.pack(side=tk.LEFT, padx=(0, 24))
-        tk.Label(bv_col, text="BV号（每行一个，可批量）", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(
-            anchor="w"
-        )
-        self._bvid_text = tk.Text(
-            bv_col,
-            width=22,
-            height=4,
-            bg=C["bg_base"],
-            fg=C["text_1"],
-            insertbackground=C["text_1"],
-            font=FONT_SM,
-            relief="flat",
-            bd=1,
-            highlightthickness=1,
-            highlightcolor=C["accent"],
-            highlightbackground=C["border"],
-        )
-        self._bvid_text.pack()
+        bv_col = QWidget()
+        bv_col.setStyleSheet(f"background-color: {C['bg_elevated']};")
+        bv_inner = QVBoxLayout(bv_col)
+        bv_inner.setContentsMargins(0, 0, 0, 0)
+
+        bv_label = QLabel("BV号（每行一个，可批量）")
+        bv_label.setFont(FONT_SM)
+        bv_label.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
+        bv_inner.addWidget(bv_label)
+
+        self._bvid_text = QTextEdit()
+        self._bvid_text.setFixedSize(220, 80)
+        self._bvid_text.setFont(FONT_SM)
+        self._bvid_text.setStyleSheet(f"""
+            QTextEdit {{
+                background-color: {C['bg_base']}; color: {C['text_1']};
+                border: 1px solid {C['border']}; padding: 4px;
+            }}
+        """)
+        bv_inner.addWidget(self._bvid_text)
+
+        top_layout.addWidget(bv_col)
 
         # 中：周期勾选
-        period_col = tk.Frame(cols_frame, bg=C["bg_elevated"])
-        period_col.pack(side=tk.LEFT, padx=(0, 24))
-        tk.Label(period_col, text="统计周期", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(anchor="w")
-        self._period_vars: Dict[str, tk.BooleanVar] = {}
+        period_col = QWidget()
+        period_col.setStyleSheet(f"background-color: {C['bg_elevated']};")
+        period_inner = QVBoxLayout(period_col)
+        period_inner.setContentsMargins(24, 0, 0, 0)
+
+        period_label = QLabel("统计周期")
+        period_label.setFont(FONT_SM)
+        period_label.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
+        period_inner.addWidget(period_label)
+
+        self._period_checks: Dict[str, QCheckBox] = {}
         for p in PERIODS:
-            var = tk.BooleanVar(value=True)
-            self._period_vars[p] = var
-            tk.Checkbutton(
-                period_col,
-                text=p,
-                variable=var,
-                bg=C["bg_elevated"],
-                fg=PERIOD_COLORS[p],
-                activebackground=C["bg_elevated"],
-                selectcolor=C["bg_base"],
-                font=FONT_BOLD,
-            ).pack(anchor="w")
+            cb = QCheckBox(p)
+            cb.setChecked(True)
+            cb.setFont(FONT_BOLD)
+            cb.setStyleSheet(f"""
+                QCheckBox {{
+                    color: {PERIOD_COLORS[p]}; background: transparent;
+                }}
+                QCheckBox::indicator {{
+                    background-color: {C['bg_base']}; border: 1px solid {C['border']};
+                }}
+            """)
+            self._period_checks[p] = cb
+            period_inner.addWidget(cb)
+
+        top_layout.addWidget(period_col)
 
         # 右：按钮
-        btn_col = tk.Frame(cols_frame, bg=C["bg_elevated"])
-        btn_col.pack(side=tk.LEFT)
-        ttk.Button(btn_col, text="生成输入表", command=self._generate_entry_rows).pack(fill=tk.X, pady=3)
-        ttk.Button(btn_col, text="💾 保存全部", style="Primary.TButton", command=self._save_all).pack(fill=tk.X, pady=3)
+        btn_col = QWidget()
+        btn_col.setStyleSheet(f"background-color: {C['bg_elevated']};")
+        btn_inner = QVBoxLayout(btn_col)
+        btn_inner.setContentsMargins(24, 0, 0, 0)
 
-        # 输入行区域
-        mid = tk.Frame(tab, bg=C["bg_base"])
-        mid.pack(fill=tk.BOTH, expand=True, pady=(6, 0))
+        gen_btn = QPushButton("生成输入表")
+        gen_btn.clicked.connect(self._generate_entry_rows)
+        btn_inner.addWidget(gen_btn)
+
+        save_btn = QPushButton("💾 保存全部")
+        save_btn.setProperty("primary", True)
+        style = save_btn.style()
+        if style is not None:
+            style.unpolish(save_btn)
+            style.polish(save_btn)
+        save_btn.clicked.connect(self._save_all)
+        btn_inner.addWidget(save_btn)
+
+        top_layout.addWidget(btn_col)
+        layout.addWidget(top)
 
         # 列头
-        header = tk.Frame(mid, bg=C["bg_surface"], height=24)
-        header.pack(fill=tk.X)
-        header.pack_propagate(False)
-        cols = ["BV号", "周期", "播放量*", "点赞数", "投币数", "分享数", "收藏数", "弹幕数", "评论数", "备注"]
-        widths = [14, 4, 9, 9, 9, 9, 9, 9, 9, 20]
-        x = 6
-        for ct, w in zip(cols, widths):
-            tk.Label(header, text=ct, bg=C["bg_surface"], fg=C["text_3"], font=FONT_SM, width=w, anchor="w").place(
-                x=x, y=3
-            )
-            x += w * 7
+        header = QWidget()
+        header.setStyleSheet(f"background-color: {C['bg_surface']};")
+        header.setFixedHeight(24)
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(6, 0, 6, 0)
+        for ct in COL_LABELS:
+            lbl = QLabel(ct)
+            lbl.setFont(FONT_SM)
+            lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
+            lbl.setFixedWidth(COL_WIDTH.get(ct, 80))
+            header_layout.addWidget(lbl)
+        header_layout.addStretch()
+        layout.addWidget(header)
 
-        # 可滚动容器
-        sf = ScrollableFrame(mid, bg=C["bg_base"])
-        sf.pack(fill=tk.BOTH, expand=True)
-        self._entry_container = sf.inner
+        # 可滚动输入行区
+        self._entry_sf = ScrollableFrame(bg=C["bg_base"])
+        layout.addWidget(self._entry_sf, 1)
 
-        self._entry_status = tk.Label(
-            tab,
-            text="请输入 BV 号并选择周期，然后点击「生成输入表」",
-            bg=C["bg_base"],
-            fg=C["text_2"],
-            font=FONT_SM,
-            anchor="w",
-        )
-        self._entry_status.pack(fill=tk.X, padx=16, pady=(4, 8))
+        # 状态
+        self._entry_status = QLabel("请输入 BV 号并选择周期，然后点击「生成输入表」")
+        self._entry_status.setFont(FONT_SM)
+        self._entry_status.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
+        layout.addWidget(self._entry_status)
 
     def _generate_entry_rows(self):
-        """主函数：生成里程碑数据输入行"""
-        raw = self._bvid_text.get("1.0", tk.END).strip()
+        raw = self._bvid_text.toPlainText().strip()
         if not raw:
-            messagebox.showwarning("提示", "请先输入 BV 号", parent=self.window)
+            QMessageBox.warning(self, "提示", "请先输入 BV 号")
             return
 
         bvids = self._parse_and_validate_bvids(raw)
@@ -250,68 +488,69 @@ class MilestoneStatsWindow:
 
         self._prompt_not_monitored_bvids(bvids)
 
-        periods = [p for p, v in self._period_vars.items() if v.get()]
+        periods = [p for p, cb in self._period_checks.items() if cb.isChecked()]
         if not periods:
-            messagebox.showwarning("提示", "请至少选择一个统计周期", parent=self.window)
+            QMessageBox.warning(self, "提示", "请至少选择一个统计周期")
             return
 
         self._populate_milestone_entry_rows(bvids, periods)
 
-    def _parse_and_validate_bvids(self, raw):
-        """解析并验证 BV 号。返回有效 BV 号列表，或 None（无有效 BV 号）。"""
+    def _parse_and_validate_bvids(self, raw: str) -> Optional[List[str]]:
         bvids, invalid = [], []
         for line in raw.splitlines():
             bv = line.strip()
             if not bv:
                 continue
-            if _valid_bvid(bv):
+            if is_valid_bvid(bv):
                 if bv not in bvids:
                     bvids.append(bv)
             else:
                 invalid.append(bv)
         if invalid:
-            messagebox.showwarning(
-                "格式错误", "以下 BV 号格式不合法，已跳过：\n" + "\n".join(invalid), parent=self.window
-            )
+            QMessageBox.warning(self, "格式错误",
+                                "以下 BV 号格式不合法，已跳过：\n" + "\n".join(invalid))
         if not bvids:
             return None
         return bvids
 
     def _prompt_not_monitored_bvids(self, bvids):
-        """提示将不在监控列表的 BV 号加入监控。"""
         not_monitored = [b for b in bvids if b not in self._monitored_set]
         if not_monitored:
             msg = "以下 BV 号不在监控列表中：\n" + "\n".join(not_monitored[:10])
             if len(not_monitored) > 10:
                 msg += f"\n...共 {len(not_monitored)} 个"
             msg += "\n\n是否加入监控列表？"
-            if messagebox.askyesno("加入监控", msg, parent=self.window):
+            reply = QMessageBox.question(self, "加入监控", msg,
+                                          QMessageBox.StandardButton.Yes |
+                                          QMessageBox.StandardButton.No)
+            if reply == QMessageBox.StandardButton.Yes:
                 for bv in not_monitored:
                     if self.on_add_monitor:
                         self.on_add_monitor(bv)
                     self._monitored_set.add(bv)
 
     def _populate_milestone_entry_rows(self, bvids, periods):
-        """生成里程碑输入行 UI，并从数据库加载已有数据进行预填"""
-        for w in self._entry_container.winfo_children():
-            w.destroy()
+        self._entry_sf.clear()
         self._entry_rows.clear()
+
         existing_map = {}
         for row in get_db().get_milestones():
             existing_map[(row["bvid"], row["period"])] = row
+
         for bv in bvids:
             for p in periods:
-                row = _EntryRow(self._entry_container, bv, p, existing_map.get((bv, p)))
-                self._entry_rows.append(row)
+                row_widget = _EntryRow(bv, p, existing_map.get((bv, p)))
+                self._entry_sf.addWidget(row_widget)
+                self._entry_rows.append(row_widget)
+
         total = len(self._entry_rows)
-        self._entry_status.config(
-            text=f"共生成 {total} 行（{len(bvids)} 视频 × {len(periods)} 周期），填写后点击「保存全部」"
+        self._entry_status.setText(
+            f"共生成 {total} 行（{len(bvids)} 视频 × {len(periods)} 周期），填写后点击「保存全部」"
         )
 
     def _save_all(self):
-        """保存所有输入行的数据到数据库"""
         if not self._entry_rows:
-            messagebox.showwarning("提示", "请先生成输入表", parent=self.window)
+            QMessageBox.warning(self, "提示", "请先生成输入表")
             return
         saved = skipped = errors = 0
         for row in self._entry_rows:
@@ -329,22 +568,28 @@ class MilestoneStatsWindow:
             msg += f"，跳过 {skipped} 条（播放量为空）"
         if errors:
             msg += f"，失败 {errors} 条"
-        self._entry_status.config(text=msg, fg=C["success"] if not errors else C["warning"])
+        color = C["success"] if not errors else C["warning"]
+        self._entry_status.setText(msg)
+        self._entry_status.setStyleSheet(f"color: {color}; background: transparent;")
         if saved:
             self._reload_comparison()
-            messagebox.showinfo("保存完成", msg, parent=self.window)
+            QMessageBox.information(self, "保存完成", msg)
 
     # ── 对比标签页 ──────────────────────────────────────
     def _build_compare_tab(self):
-        """构建对比视图标签页 UI：指标选择、筛选、柱状图 Canvas 和明细表格"""
         tab = self._tab_compare
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(12, 6, 12, 8)
 
-        ctrl = tk.Frame(tab, bg=C["bg_surface"])
-        ctrl.pack(fill=tk.X, padx=12, pady=6)
+        # 顶部控制栏
+        ctrl = QWidget()
+        ctrl.setStyleSheet(f"background-color: {C['bg_surface']};")
+        ctrl_layout = QHBoxLayout(ctrl)
+        ctrl_layout.setContentsMargins(0, 0, 0, 0)
 
-        tk.Label(ctrl, text="展示指标：", bg=C["bg_surface"], fg=C["text_2"], font=FONT).pack(side=tk.LEFT)
-        self._metric_var = tk.StringVar(value="view_count")
-        for label, val in [
+        ctrl_layout.addWidget(QLabel("展示指标："))
+        self._metric_group = QButtonGroup(self)
+        metrics = [
             ("播放量", "view_count"),
             ("点赞数", "like_count"),
             ("投币数", "coin_count"),
@@ -352,83 +597,152 @@ class MilestoneStatsWindow:
             ("分享数", "share_count"),
             ("弹幕数", "danmaku_count"),
             ("评论数", "reply_count"),
-        ]:
-            tk.Radiobutton(
-                ctrl,
-                text=label,
-                variable=self._metric_var,
-                value=val,
-                bg=C["bg_surface"],
-                fg=C["text_1"],
-                activebackground=C["bg_surface"],
-                selectcolor=C["bg_base"],
-                font=FONT_SM,
-                command=self._redraw_compare,
-            ).pack(side=tk.LEFT, padx=4)
-        ttk.Button(ctrl, text="🔄 刷新", command=self._reload_comparison).pack(side=tk.RIGHT, padx=6)
+        ]
+        for label, val in metrics:
+            rb = QRadioButton(label)
+            rb.setStyleSheet(f"""
+                QRadioButton {{
+                    color: {C['text_1']}; background: transparent;
+                }}
+                QRadioButton::indicator {{
+                    border: 1px solid {C['border']};
+                }}
+            """)
+            if val == "view_count":
+                rb.setChecked(True)
+            self._metric_group.addButton(rb)
+            self._metric_group.setId(rb, hash(val))
+            rb.toggled.connect(lambda checked, v=val: self._on_metric_changed() if checked else None)
+            ctrl_layout.addWidget(rb)
 
-        # 筛选
-        ff = tk.Frame(tab, bg=C["bg_base"])
-        ff.pack(fill=tk.X, padx=12, pady=(4, 0))
-        tk.Label(ff, text="筛选视频：", bg=C["bg_base"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT)
-        self._filter_entry = tk.Entry(
-            ff,
-            font=FONT_SM,
-            width=60,
-            bg=C["bg_elevated"],
-            fg=C["text_1"],
-            insertbackground=C["text_1"],
-            relief="flat",
-            bd=1,
-        )
-        self._filter_entry.pack(side=tk.LEFT, padx=4)
-        tk.Label(ff, text="（BV号关键词，逗号分隔）", bg=C["bg_base"], fg=C["text_3"], font=FONT_SM).pack(side=tk.LEFT)
-        ttk.Button(ff, text="应用筛选", command=self._redraw_compare).pack(side=tk.LEFT, padx=6)
+        ctrl_layout.addStretch()
+        refresh_btn = QPushButton("🔄 刷新")
+        refresh_btn.clicked.connect(self._reload_comparison)
+        ctrl_layout.addWidget(refresh_btn)
+
+        layout.addWidget(ctrl)
+
+        # 筛选行
+        ff = QWidget()
+        ff.setStyleSheet(f"background-color: {C['bg_base']};")
+        ff_layout = QHBoxLayout(ff)
+        ff_layout.setContentsMargins(0, 4, 0, 0)
+
+        ff_layout.addWidget(QLabel("筛选视频："))
+        self._filter_entry = QLineEdit()
+        self._filter_entry.setFont(FONT_SM)
+        self._filter_entry.setFixedWidth(400)
+        self._filter_entry.setStyleSheet(f"""
+            QLineEdit {{
+                background-color: {C['bg_elevated']}; color: {C['text_1']};
+                border: 1px solid {C['border']}; padding: 2px 6px;
+            }}
+        """)
+        ff_layout.addWidget(self._filter_entry)
+
+        hint = QLabel("（BV号关键词，逗号分隔）")
+        hint.setFont(FONT_SM)
+        hint.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
+        ff_layout.addWidget(hint)
+
+        filter_btn = QPushButton("应用筛选")
+        filter_btn.clicked.connect(self._redraw_compare)
+        ff_layout.addWidget(filter_btn)
+
+        ff_layout.addStretch()
+        layout.addWidget(ff)
 
         # 图表
-        co = tk.Frame(tab, bg=C["bg_base"])
-        co.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
-        self._cmp_canvas = tk.Canvas(co, bg=C["canvas_bg"], highlightthickness=0)
-        hsb = ttk.Scrollbar(co, orient="horizontal", command=self._cmp_canvas.xview)
-        self._cmp_canvas.configure(xscrollcommand=hsb.set)
-        hsb.pack(side=tk.BOTTOM, fill=tk.X)
-        self._cmp_canvas.pack(fill=tk.BOTH, expand=True)
-        self._cmp_canvas.bind("<Configure>", self._on_cmp_resize)
-        self._cmp_canvas.bind("<MouseWheel>", lambda e: self._cmp_canvas.xview_scroll(-1 * (e.delta // 120), "units"))
+        self._chart = _CompareChart()
+        layout.addWidget(self._chart, 1)
 
         # 明细表
-        tbl_frame = tk.Frame(tab, bg=C["bg_base"])
-        tbl_frame.pack(fill=tk.X, padx=8, pady=(0, 8))
-        tk.Label(tbl_frame, text="明细数据", bg=C["bg_base"], fg=C["text_3"], font=FONT_SM).pack(anchor="w")
+        tbl_frame = QWidget()
+        tbl_frame.setStyleSheet(f"background-color: {C['bg_base']};")
+        tbl_layout = QVBoxLayout(tbl_frame)
+        tbl_layout.setContentsMargins(0, 8, 0, 0)
+
+        tbl_title = QLabel("明细数据")
+        tbl_title.setFont(FONT_SM)
+        tbl_title.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
+        tbl_layout.addWidget(tbl_title)
+
         cols = ("bvid", "标题", "1周播放", "1月播放", "1年播放", "1周点赞", "1月点赞", "1年点赞", "记录时间")
-        self._tbl = ttk.Treeview(tbl_frame, columns=cols, show="headings", height=5)
-        wsb = ttk.Scrollbar(tbl_frame, orient="vertical", command=self._tbl.yview)
-        self._tbl.configure(yscrollcommand=wsb.set)
-        wsb.pack(side=tk.RIGHT, fill=tk.Y)
-        self._tbl.pack(fill=tk.X, expand=True, pady=(2, 0))
-        for col, w in zip(cols, [110, 220, 80, 80, 80, 70, 70, 70, 130]):
-            self._tbl.heading(col, text=col)
-            self._tbl.column(col, width=w, minwidth=50, anchor="center")
+        self._tbl = QTreeWidget()
+        self._tbl.setHeaderLabels(cols)
+        self._tbl.setRootIsDecorated(False)
+        self._tbl.setFixedHeight(120)
+        self._tbl.setStyleSheet(f"""
+            QTreeWidget {{
+                background-color: {C['bg_elevated']}; color: {C['text_1']};
+                border: 1px solid {C['border_sub']}; font-size: 9pt;
+            }}
+            QTreeWidget::item:selected {{
+                background-color: {C['bilibili']}; color: white;
+            }}
+            QHeaderView::section {{
+                background-color: {C['bg_surface']}; color: {C['text_2']};
+                border: 1px solid {C['border_sub']}; padding: 2px 6px;
+            }}
+        """)
+        header = self._tbl.header()
+        if header is not None:
+            col_widths = [110, 220, 80, 80, 80, 70, 70, 70, 130]
+            for i, w in enumerate(col_widths):
+                header.setSectionResizeMode(i, QHeaderView.ResizeMode.Fixed)
+                self._tbl.setColumnWidth(i, w)
 
-        self._tbl_menu = tk.Menu(self.window, tearoff=0)
-        self._tbl_menu.add_command(
-            label="删除选中行所有里程碑",
-            command=lambda: _confirm_risky("删除里程碑记录") and self._delete_selected(),
+        # 右键菜单 — 删除
+        self._tbl.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._tbl.customContextMenuRequested.connect(self._on_tbl_right_click)
+
+        tbl_layout.addWidget(self._tbl)
+        layout.addWidget(tbl_frame)
+
+        self._cmp_status = QLabel("")
+        self._cmp_status.setFont(FONT_SM)
+        self._cmp_status.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
+        layout.addWidget(self._cmp_status)
+
+        self._current_metric = "view_count"
+
+    def _on_metric_changed(self):
+        self._current_metric = next(
+            (v for label, v in [
+                ("播放量", "view_count"), ("点赞数", "like_count"),
+                ("投币数", "coin_count"), ("收藏数", "favorite_count"),
+                ("分享数", "share_count"), ("弹幕数", "danmaku_count"),
+                ("评论数", "reply_count"),
+            ] if self._metric_group.checkedButton() and
+               self._metric_group.id(self._metric_group.checkedButton()) == hash(v)
+            ),
+            "view_count"
         )
-        self._tbl.bind("<Button-3>", lambda e: self._tbl_menu.tk_popup(e.x_root, e.y_root))
 
-        self._cmp_status = tk.Label(tab, text="", bg=C["bg_base"], fg=C["text_2"], font=FONT_SM, anchor="w")
-        self._cmp_status.pack(fill=tk.X, padx=12, pady=2)
-        self._all_data: dict = {}
+    def _on_tbl_right_click(self, pos):
+        item = self._tbl.itemAt(pos)
+        if not item:
+            return
+        menu = QMenu(self)
+        menu.setStyleSheet(f"""
+            QMenu {{ background-color: {C['bg_elevated']}; color: {C['text_1']};
+                      border: 1px solid {C['border']}; padding: 4px; }}
+            QMenu::item {{ padding: 6px 28px; font-size: 9pt; }}
+            QMenu::item:selected {{ background-color: {C['bg_hover']}; }}
+        """)
+        action = QAction("删除选中行所有里程碑", self)
+        action.triggered.connect(self._delete_selected)
+        menu.addAction(action)
+        vp = self._tbl.viewport()
+        if vp is not None:
+            menu.exec(vp.mapToGlobal(pos))
 
     def _reload_comparison(self):
-        """重新加载里程碑数据并刷新对比视图"""
         self._all_data = get_db().get_all_milestones_grouped()
         self._fill_table()
         self._redraw_compare()
 
     def _get_video_title(self, bvid: str) -> str:
-        """根据 BV 号获取监控列表中的视频标题"""
         for v in self.monitored_videos:
             if v.get("bvid") == bvid:
                 t = v.get("title", "")
@@ -436,9 +750,7 @@ class MilestoneStatsWindow:
         return bvid
 
     def _fill_table(self):
-        """填充明细数据表格"""
-        for item in self._tbl.get_children():
-            self._tbl.delete(item)
+        self._tbl.clear()
         for bvid, periods in sorted(self._all_data.items()):
             title = self._get_video_title(bvid)
 
@@ -449,160 +761,47 @@ class MilestoneStatsWindow:
 
             times = [periods[p].get("recorded_at", "") for p in PERIODS if p in periods]
             latest = max(times)[:16] if times else "—"
-            self._tbl.insert(
-                "",
-                tk.END,
-                iid=bvid,
-                values=(
-                    bvid,
-                    title,
-                    _v("1周", "view_count"),
-                    _v("1月", "view_count"),
-                    _v("1年", "view_count"),
-                    _v("1周", "like_count"),
-                    _v("1月", "like_count"),
-                    _v("1年", "like_count"),
-                    latest,
-                ),
-            )
+
+            item = QTreeWidgetItem()
+            item.setText(0, bvid)
+            item.setText(1, title)
+            item.setText(2, _v("1周", "view_count"))
+            item.setText(3, _v("1月", "view_count"))
+            item.setText(4, _v("1年", "view_count"))
+            item.setText(5, _v("1周", "like_count"))
+            item.setText(6, _v("1月", "like_count"))
+            item.setText(7, _v("1年", "like_count"))
+            item.setText(8, latest)
+            for c in range(9):
+                item.setTextAlignment(c, Qt.AlignmentFlag.AlignCenter)
+            item.setTextAlignment(1, Qt.AlignmentFlag.AlignLeft)
+            self._tbl.addTopLevelItem(item)
 
     def _delete_selected(self):
-        """删除选中的视频的所有里程碑数据"""
-        sel = self._tbl.selection()
+        sel = self._tbl.selectedItems()
         if not sel:
             return
         msg = f"确认删除 {len(sel)} 个视频的所有里程碑记录？"
-        if not messagebox.askyesno("确认", msg, parent=self.window):
+        reply = QMessageBox.question(self, "确认", msg,
+                                      QMessageBox.StandardButton.Yes |
+                                      QMessageBox.StandardButton.No)
+        if reply != QMessageBox.StandardButton.Yes:
             return
-        for bv in sel:
+        for item in sel:
+            bv = item.text(0)
             for p in PERIODS:
                 get_db().delete_milestone(bv, p)
         self._reload_comparison()
 
-    def _apply_compare_filter(self):
-        """应用对比视图的 BV 号关键词筛选"""
-        ft = self._filter_entry.get().strip()
-        if not ft:
-            return self._all_data
-        ks = [k.strip() for k in ft.split(",") if k.strip()]
-        return {bv: pd for bv, pd in self._all_data.items() if any(k.upper() in bv.upper() for k in ks)}
-
-    def _draw_compare_empty(self, c):
-        """在画布上绘制「无数据」提示"""
-        c.create_text(
-            (c.winfo_width() or 600) // 2,
-            (c.winfo_height() or 300) // 2,
-            text="暂无里程碑数据，请在「录入数据」标签页添加",
-            fill=C["text_2"],
-            font=("Microsoft YaHei UI", 12),
-        )
-        self._cmp_status.config(text="无数据")
-
-    def _draw_compare_grid(self, c, max_val, cw, ch, ML, MT):
-        """绘制对比图的网格线和 Y 轴刻度标签"""
-        for i in range(6):
-            ratio = i / 5
-            y = MT + ch * (1 - ratio * 0.92)
-            val = max_val * ratio
-            c.create_line(ML, y, ML + cw, y, fill=C["border"], dash=(2, 4))
-            c.create_text(
-                ML - 6,
-                y,
-                text=f"{val / 10000:.0f}w" if val >= 10000 else str(int(val)),
-                anchor="e",
-                fill=C["text_2"],
-                font=("Consolas", 8),
-            )
-
-    def _draw_compare_bars(self, c, data, bvids, metric, max_val, group_w, bar_w, gap_w, bar_total_w, ML, MT, ch):
-        """绘制对比柱状图：每个视频为一组，每组内按周期排列"""
-        for vi, bv in enumerate(bvids):
-            gx = ML + vi * group_w + gap_w
-            title = self._get_video_title(bv)
-            for pi, period in enumerate(PERIODS):
-                row = data[bv].get(period) or {}
-                val = row.get(metric)
-                color = PERIOD_COLORS[period]
-                bx = gx + pi * bar_w
-                by = self._to_y(val, max_val, MT, ch)
-                bx2 = bx + bar_w - 2
-                if val:
-                    c.create_rectangle(bx, by, bx2, MT + ch, fill=color, outline="")
-                    if by < MT + ch - 14:
-                        c.create_text(
-                            (bx + bx2) / 2,
-                            by - 4,
-                            text=f"{val / 10000:.0f}w" if val >= 10000 else str(int(val)),
-                            anchor="s",
-                            fill=color,
-                            font=("Consolas", 7, "bold"),
-                        )
-                else:
-                    c.create_rectangle(bx, MT + ch - 4, bx2, MT + ch, fill=C["border"], outline="")
-            lx = gx + bar_total_w / 2
-            c.create_text(lx, MT + ch + 6, text=title, anchor="n", fill=C["text_1"], font=("Microsoft YaHei UI", 8))
-            c.create_text(lx, MT + ch + 22, text=bv, anchor="n", fill=C["text_3"], font=("Consolas", 7))
-
-    def _draw_compare_legend(self, c, ML, MT, ch):
-        """绘制对比图的颜色图例"""
-        lgx = ML + 6
-        for p in PERIODS:
-            c.create_rectangle(lgx, MT + ch + 52, lgx + 10, MT + ch + 62, fill=PERIOD_COLORS[p], outline="")
-            c.create_text(
-                lgx + 14,
-                MT + ch + 57,
-                text=f"投稿{p}后",
-                anchor="w",
-                fill=PERIOD_COLORS[p],
-                font=("Microsoft YaHei UI", 8),
-            )
-            lgx += 90
-
-    def _draw_compare_title(self, c, ML, cw, metric, n_videos):
-        """绘制对比图标题和状态栏信息"""
-        ml = next((lb for key, lb, *_ in FIELDS if key == metric), metric)
-        c.create_text(
-            ML + cw // 2,
-            14,
-            text=f"投稿里程碑对比 — {ml}",
-            fill=C["text_1"],
-            font=("Microsoft YaHei UI", 10, "bold"),
-            anchor="n",
-        )
-        self._cmp_status.config(text=f"共 {n_videos} 个视频 · 展示指标：{ml}")
-
-    @staticmethod
-    def _to_y(v, max_val, MT, ch):
-        """将数值转换为画布上的 Y 坐标（顶部留空 8%）"""
-        return MT + ch - (v / max_val) * ch * 0.92 if v else MT + ch
-
-    def _on_cmp_resize(self, event=None):
-        """防抖重绘：延迟 200ms 避免缩放时频繁渲染。"""
-        if hasattr(self, "_cmp_resize_job") and self._cmp_resize_job:
-            self.window.after_cancel(self._cmp_resize_job)
-        self._cmp_resize_job = self.window.after(200, self._redraw_compare)
-
     def _redraw_compare(self):
-        """主绘图函数：清空画布、筛选数据、绘制网格、柱状图和图例"""
-        c = self._cmp_canvas
-        c.delete("all")
-
         data = self._apply_compare_filter()
         if not data:
-            self._draw_compare_empty(c)
+            self._chart.set_data({}, "", "", [], 0, self._set_cmp_status)
+            self._cmp_status.setText("无数据")
             return
 
-        metric = self._metric_var.get()
         bvids = sorted(data.keys())
-        n_videos = len(bvids)
-        n_periods = len(PERIODS)
-
-        CW = c.winfo_width() or 800
-        CH = c.winfo_height() or 360
-        ML, MR, MT, MB = 70, 20, 30, 80
-        cw = max(CW - ML - MR, n_videos * (n_periods + 1) * 18)
-        ch = CH - MT - MB
-        c.configure(scrollregion=(0, 0, cw + ML + MR, CH))
+        metric = self._current_metric
 
         max_val = 1
         for bv in bvids:
@@ -611,13 +810,18 @@ class MilestoneStatsWindow:
                 if v:
                     max_val = max(max_val, v)
 
-        self._draw_compare_grid(c, max_val, cw, ch, ML, MT)
+        metric_label = next(
+            (lb for key, lb, *_ in FIELDS if key == metric), metric
+        )
+        self._chart.set_data(data, metric, metric_label, bvids, max_val, self._set_cmp_status)
 
-        group_w = cw / max(n_videos, 1)
-        bar_total_w = group_w * 0.75
-        bar_w = bar_total_w / n_periods
-        gap_w = group_w * 0.125
+    def _set_cmp_status(self, text: str):
+        self._cmp_status.setText(text)
 
-        self._draw_compare_bars(c, data, bvids, metric, max_val, group_w, bar_w, gap_w, bar_total_w, ML, MT, ch)
-        self._draw_compare_legend(c, ML, MT, ch)
-        self._draw_compare_title(c, ML, cw, metric, n_videos)
+    def _apply_compare_filter(self) -> dict:
+        ft = self._filter_entry.text().strip()
+        if not ft:
+            return self._all_data
+        ks = [k.strip() for k in ft.split(",") if k.strip()]
+        return {bv: pd for bv, pd in self._all_data.items()
+                if any(k.upper() in bv.upper() for k in ks)}
