@@ -1,5 +1,5 @@
 """
-代理设置
+代理设置 — PyQt6 版
 
 Mixin functions for SettingsWindow.
 """
@@ -7,9 +7,19 @@ Mixin functions for SettingsWindow.
 import json
 import os
 import re
-import tkinter as tk
 import logging
-from tkinter import ttk, messagebox
+import threading
+from typing import Optional
+
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QLineEdit, QComboBox, QPlainTextEdit, QTreeWidget,
+    QTreeWidgetItem, QHeaderView, QMessageBox, QDialog,
+    QTextEdit,
+)
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QFont
+
 from ui.theme import C
 from ui.helpers import FONT, FONT_SM, project_path
 from core.bilibili_api import get_bilibili_api
@@ -18,125 +28,358 @@ from core.proxy_manager import ProxyManager
 logger = logging.getLogger(__name__)
 
 
+class _BatchImportDialog(QDialog):
+    """批量导入代理对话框"""
+
+    _imported = pyqtSignal(list)  # imported_proxies
+
+    def __init__(self, default_proto: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("批量导入代理")
+        screen = parent.screen() if parent else None
+        if screen:
+            geo = screen.geometry()
+            sw, sh = geo.width(), geo.height()
+        else:
+            sw, sh = 1920, 1080
+        self.resize(int(sw * 0.35), int(sh * 0.45))
+        self.setStyleSheet(f"background-color: {C['bg_surface']};")
+        self.setModal(True)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 14, 20, 14)
+
+        title = QLabel("批量导入代理地址")
+        title.setFont(QFont("Microsoft YaHei UI", 11, QFont.Weight.Bold))
+        title.setStyleSheet(f"color: {C['text_1']};")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title)
+
+        proto_row = QWidget()
+        proto_row.setStyleSheet(f"background-color: {C['bg_surface']};")
+        proto_layout = QHBoxLayout(proto_row)
+        proto_layout.setContentsMargins(0, 4, 0, 2)
+        plbl = QLabel("协议:")
+        plbl.setFont(FONT)
+        plbl.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
+        proto_layout.addWidget(plbl)
+        self._proto_combo = QComboBox()
+        self._proto_combo.addItems(["http://", "https://", "socks4://", "socks5://"])
+        idx = self._proto_combo.findText(default_proto)
+        if idx >= 0:
+            self._proto_combo.setCurrentIndex(idx)
+        self._proto_combo.setStyleSheet(f"""
+            QComboBox {{
+                background-color: {C['bg_base']}; color: {C['text_1']};
+                border: 1px solid {C['border']}; padding: 2px 6px;
+            }}
+        """)
+        proto_layout.addWidget(self._proto_combo)
+        proto_layout.addStretch()
+        layout.addWidget(proto_row)
+
+        hint = QLabel("每行一个地址（host:port 或完整URL），导入时自动补全协议头")
+        hint.setFont(FONT_SM)
+        hint.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
+        layout.addWidget(hint)
+
+        self._text = QPlainTextEdit()
+        self._text.setStyleSheet(f"""
+            QPlainTextEdit {{
+                background-color: {C['bg_base']}; color: {C['text_1']};
+                font-family: Consolas; font-size: 10pt;
+                border: 1px solid {C['border']};
+            }}
+        """)
+        layout.addWidget(self._text, 1)
+
+        self._status = QLabel("")
+        self._status.setFont(FONT_SM)
+        self._status.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
+        layout.addWidget(self._status)
+
+        btn_row = QWidget()
+        btn_row.setStyleSheet(f"background-color: {C['bg_surface']};")
+        btn_layout = QHBoxLayout(btn_row)
+        btn_layout.setContentsMargins(0, 4, 0, 0)
+
+        cancel_btn = QPushButton("取消")
+        cancel_btn.clicked.connect(self.reject)
+        btn_layout.addWidget(cancel_btn)
+
+        btn_layout.addStretch()
+
+        import_btn = QPushButton("导入并追加")
+        import_btn.setProperty("primary", True)
+        style = import_btn.style()
+        if style is not None:
+            style.unpolish(import_btn)
+            style.polish(import_btn)
+        import_btn.clicked.connect(self._do_import)
+        btn_layout.addWidget(import_btn)
+
+        layout.addWidget(btn_row)
+
+    def _do_import(self):
+        raw = self._text.toPlainText().strip()
+        if not raw:
+            self._status.setText("请输入代理地址")
+            self._status.setStyleSheet(f"color: {C['danger']};")
+            return
+
+        lines = [ln.strip() for ln in raw.split("\n") if ln.strip()]
+        proto = self._proto_combo.currentText()
+        imported = []
+        for ln in lines:
+            if re.match(r"^(https?|socks[45])://", ln, re.IGNORECASE):
+                imported.append(ln)
+            else:
+                imported.append(f"{proto}{ln}")
+
+        self._imported.emit(imported)
+        self.accept()
+
+
 def _build_proxy_tab(self, nb):
-    page = tk.Frame(nb, bg=C["bg_base"])
-    nb.add(page, text="  代理设置  ")
+    page = QWidget()
+    page.setStyleSheet(f"background-color: {C['bg_base']};")
 
-    sec = tk.Frame(page, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border_sub"])
-    sec.pack(fill=tk.BOTH, expand=True, padx=16, pady=12, ipadx=10, ipady=8)
-    tk.Label(sec, text="代理列表（每行一个）", bg=C["bg_elevated"], fg=C["text_2"], font=FONT).pack(
-        anchor="w", pady=(0, 4)
-    )
+    layout = QVBoxLayout(page)
+    layout.setContentsMargins(16, 12, 16, 12)
 
-    add_row = tk.Frame(sec, bg=C["bg_elevated"])
-    add_row.pack(fill=tk.X, pady=(0, 4))
-    tk.Label(add_row, text="协议:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT)
-    self._proxy_proto_var = tk.StringVar(value="http://")
-    proto_cb = ttk.Combobox(
-        add_row,
-        textvariable=self._proxy_proto_var,
-        values=["http://", "https://", "socks4://", "socks5://"],
-        width=10,
-        state="readonly",
-        font=FONT_SM,
-    )
-    proto_cb.pack(side=tk.LEFT, padx=(4, 8))
-    tk.Label(add_row, text="地址:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT)
-    self._proxy_addr_entry = ttk.Entry(add_row, width=35, font=FONT_SM)
-    self._proxy_addr_entry.pack(side=tk.LEFT, padx=(4, 8))
-    self._proxy_addr_entry.bind("<Return>", lambda e: self._add_proxy_entry())
-    ttk.Button(add_row, text="添加", command=self._add_proxy_entry, style="Primary.TButton").pack(side=tk.LEFT)
+    sec = QWidget()
+    sec.setStyleSheet(f"""
+        QWidget#proxySec {{
+            background-color: {C['bg_elevated']};
+            border: 1px solid {C['border_sub']};
+            border-radius: 6px;
+        }}
+    """)
+    sec.setObjectName("proxySec")
+    sec_layout = QVBoxLayout(sec)
+    sec_layout.setContentsMargins(10, 8, 10, 8)
 
-    self.proxy_text = tk.Text(
-        sec,
-        height=8,
-        bg=C["bg_base"],
-        fg=C["text_1"],
-        insertbackground=C["text_1"],
-        font=("Consolas", 10),
-        relief="flat",
-        highlightthickness=1,
-        highlightbackground=C["border"],
-    )
-    self.proxy_text.pack(fill=tk.X, pady=6)
+    sec_title = QLabel("代理列表（每行一个）")
+    sec_title.setFont(FONT)
+    sec_title.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
+    sec_layout.addWidget(sec_title)
+
+    # 添加行
+    add_row = QWidget()
+    add_row.setStyleSheet(f"background-color: {C['bg_elevated']};")
+    add_layout = QHBoxLayout(add_row)
+    add_layout.setContentsMargins(0, 0, 0, 4)
+
+    proto_lbl = QLabel("协议:")
+    proto_lbl.setFont(FONT_SM)
+    proto_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
+    add_layout.addWidget(proto_lbl)
+
+    self._proxy_proto_combo = QComboBox()
+    self._proxy_proto_combo.addItems(["http://", "https://", "socks4://", "socks5://"])
+    self._proxy_proto_combo.setStyleSheet(f"""
+        QComboBox {{
+            background-color: {C['bg_base']}; color: {C['text_1']};
+            border: 1px solid {C['border']}; padding: 2px 6px;
+        }}
+    """)
+    add_layout.addWidget(self._proxy_proto_combo)
+    add_layout.addSpacing(8)
+
+    addr_lbl = QLabel("地址:")
+    addr_lbl.setFont(FONT_SM)
+    addr_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
+    add_layout.addWidget(addr_lbl)
+
+    self._proxy_addr_entry = QLineEdit()
+    self._proxy_addr_entry.setFont(FONT_SM)
+    self._proxy_addr_entry.setStyleSheet(f"""
+        QLineEdit {{
+            background-color: {C['bg_base']}; color: {C['text_1']};
+            border: 1px solid {C['border']}; padding: 2px 6px;
+        }}
+    """)
+    self._proxy_addr_entry.returnPressed.connect(self._add_proxy_entry)
+    add_layout.addWidget(self._proxy_addr_entry)
+
+    add_btn = QPushButton("添加")
+    add_btn.setProperty("primary", True)
+    style = add_btn.style()
+    if style is not None:
+        style.unpolish(add_btn)
+        style.polish(add_btn)
+    add_btn.clicked.connect(self._add_proxy_entry)
+    add_layout.addWidget(add_btn)
+
+    sec_layout.addWidget(add_row)
+
+    # 代理文本编辑
+    self._proxy_text = QPlainTextEdit()
+    self._proxy_text.setMaximumBlockCount(500)
+    self._proxy_text.setStyleSheet(f"""
+        QPlainTextEdit {{
+            background-color: {C['bg_base']}; color: {C['text_1']};
+            font-family: Consolas; font-size: 10pt;
+            border: 1px solid {C['border']};
+        }}
+    """)
+    sec_layout.addWidget(self._proxy_text)
+
     if self._net_cfg.get("proxies"):
-        self.proxy_text.insert("1.0", "\n".join(self._net_cfg["proxies"]))
+        self._proxy_text.setPlainText("\n".join(self._net_cfg["proxies"]))
 
-    btn_row = tk.Frame(sec, bg=C["bg_elevated"])
-    btn_row.pack(fill=tk.X)
-    ttk.Button(btn_row, text="应用代理", command=self._apply_proxies).pack(side=tk.LEFT, padx=(0, 4))
-    ttk.Button(btn_row, text="批量导入", command=self._batch_import_proxies).pack(side=tk.LEFT, padx=4)
-    ttk.Button(btn_row, text="检查可用性", command=self._check_proxies).pack(side=tk.LEFT, padx=4)
-    self._proxy_test_status = tk.Label(btn_row, text="", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM)
-    self._proxy_test_status.pack(side=tk.LEFT, padx=8)
+    # 按钮行
+    btn_row = QWidget()
+    btn_row.setStyleSheet(f"background-color: {C['bg_elevated']};")
+    btn_layout = QHBoxLayout(btn_row)
+    btn_layout.setContentsMargins(0, 4, 0, 0)
 
-    auto_row = tk.Frame(sec, bg=C["bg_elevated"])
-    auto_row.pack(fill=tk.X, pady=(4, 0))
-    ttk.Button(auto_row, text="🌐 自动获取代理", command=self._auto_fetch_proxies).pack(side=tk.LEFT, padx=(0, 4))
-    self._auto_fetch_status = tk.Label(auto_row, text="", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM)
-    self._auto_fetch_status.pack(side=tk.LEFT, padx=8)
+    apply_btn = QPushButton("应用代理")
+    apply_btn.clicked.connect(self._apply_proxies)
+    btn_layout.addWidget(apply_btn)
 
-    src_row = tk.Frame(sec, bg=C["bg_elevated"])
-    src_row.pack(fill=tk.X, pady=(2, 0))
-    tk.Label(src_row, text="自定义代理源:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT)
-    self._proxy_src_entry = ttk.Entry(src_row, width=50, font=FONT_SM)
-    self._proxy_src_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
-    self._proxy_src_entry.bind("<Return>", lambda e: self._add_proxy_source())
-    ttk.Button(src_row, text="添加源", command=self._add_proxy_source).pack(side=tk.LEFT)
+    batch_btn = QPushButton("批量导入")
+    batch_btn.clicked.connect(self._batch_import_proxies)
+    btn_layout.addWidget(batch_btn)
 
-    url_row = tk.Frame(sec, bg=C["bg_elevated"])
-    url_row.pack(fill=tk.X, pady=(2, 0))
-    tk.Label(url_row, text="测试地址:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM, width=8, anchor="w").pack(
-        side=tk.LEFT
-    )
-    self._test_url_var = tk.StringVar(value="https://api.bilibili.com/x/web-interface/view?bvid=BV1GJ411x7hQ")
-    url_entry = ttk.Entry(url_row, textvariable=self._test_url_var, font=FONT_SM)
-    url_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 0))
+    check_btn = QPushButton("检查可用性")
+    check_btn.clicked.connect(self._check_proxies)
+    btn_layout.addWidget(check_btn)
 
-    result_container = tk.Frame(sec, bg=C["bg_base"], highlightthickness=1, highlightbackground=C["border"])
-    result_container.pack(fill=tk.BOTH, expand=True, pady=(6, 4))
+    self._proxy_test_status = QLabel("")
+    self._proxy_test_status.setFont(FONT_SM)
+    self._proxy_test_status.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
+    btn_layout.addWidget(self._proxy_test_status)
 
-    columns = ("addr", "status", "latency", "country", "ip", "asn", "isp")
-    self._proxy_tree = ttk.Treeview(result_container, columns=columns, show="headings", height=6)
-    self._proxy_tree.heading("addr", text="代理地址")
-    self._proxy_tree.heading("status", text="状态")
-    self._proxy_tree.heading("latency", text="延迟/原因")
-    self._proxy_tree.heading("country", text="地区")
-    self._proxy_tree.heading("ip", text="IP")
-    self._proxy_tree.heading("asn", text="ASN")
-    self._proxy_tree.heading("isp", text="ISP")
-    self._proxy_tree.column("addr", anchor="w", width=200, minwidth=120, stretch=True)
-    self._proxy_tree.column("status", anchor="center", width=40, minwidth=40, stretch=False)
-    self._proxy_tree.column("latency", anchor="w", width=200, minwidth=120, stretch=True)
-    self._proxy_tree.column("country", anchor="w", width=80, minwidth=60, stretch=False)
-    self._proxy_tree.column("ip", anchor="w", width=140, minwidth=100, stretch=False)
-    self._proxy_tree.column("asn", anchor="w", width=150, minwidth=100, stretch=False)
-    self._proxy_tree.column("isp", anchor="w", width=150, minwidth=100, stretch=False)
+    btn_layout.addStretch()
+    sec_layout.addWidget(btn_row)
 
-    tree_sb = ttk.Scrollbar(result_container, orient="vertical", command=self._proxy_tree.yview)
-    self._proxy_tree.configure(yscrollcommand=tree_sb.set)
-    self._proxy_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-    tree_sb.pack(side=tk.RIGHT, fill=tk.Y)
-    style = ttk.Style()
-    style.configure("Treeview", rowheight=24, font=("Consolas", 9))
-    self._proxy_tree.tag_configure("ok", foreground=C["success"])
-    self._proxy_tree.tag_configure("fail", foreground=C["danger"])
+    # 自动获取
+    auto_row = QWidget()
+    auto_row.setStyleSheet(f"background-color: {C['bg_elevated']};")
+    auto_layout = QHBoxLayout(auto_row)
+    auto_layout.setContentsMargins(0, 4, 0, 0)
 
-    tk.Label(
-        sec,
-        text="使用代理可有效绕过IP级别的频率限制",
-        bg=C["bg_elevated"],
-        fg=C["warning"],
-        font=FONT_SM,
-        anchor="w",
-    ).pack(fill=tk.X, pady=(4, 0))
+    auto_btn = QPushButton("🌐 自动获取代理")
+    auto_btn.clicked.connect(self._auto_fetch_proxies)
+    auto_layout.addWidget(auto_btn)
+
+    self._auto_fetch_status = QLabel("")
+    self._auto_fetch_status.setFont(FONT_SM)
+    self._auto_fetch_status.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
+    auto_layout.addWidget(self._auto_fetch_status)
+
+    auto_layout.addStretch()
+    sec_layout.addWidget(auto_row)
+
+    # 自定义代理源
+    src_row = QWidget()
+    src_row.setStyleSheet(f"background-color: {C['bg_elevated']};")
+    src_layout = QHBoxLayout(src_row)
+    src_layout.setContentsMargins(0, 4, 0, 0)
+
+    src_lbl = QLabel("自定义代理源:")
+    src_lbl.setFont(FONT_SM)
+    src_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
+    src_layout.addWidget(src_lbl)
+
+    self._proxy_src_entry = QLineEdit()
+    self._proxy_src_entry.setFont(FONT_SM)
+    self._proxy_src_entry.setStyleSheet(f"""
+        QLineEdit {{
+            background-color: {C['bg_base']}; color: {C['text_1']};
+            border: 1px solid {C['border']}; padding: 2px 6px;
+        }}
+    """)
+    self._proxy_src_entry.returnPressed.connect(self._add_proxy_source)
+    src_layout.addWidget(self._proxy_src_entry, 1)
+
+    add_src_btn = QPushButton("添加源")
+    add_src_btn.clicked.connect(self._add_proxy_source)
+    src_layout.addWidget(add_src_btn)
+
+    sec_layout.addWidget(src_row)
+
+    # 测试地址
+    url_row = QWidget()
+    url_row.setStyleSheet(f"background-color: {C['bg_elevated']};")
+    url_layout = QHBoxLayout(url_row)
+    url_layout.setContentsMargins(0, 4, 0, 0)
+
+    test_lbl = QLabel("测试地址:")
+    test_lbl.setFont(FONT_SM)
+    test_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
+    test_lbl.setFixedWidth(60)
+    url_layout.addWidget(test_lbl)
+
+    self._test_url_entry = QLineEdit("https://api.bilibili.com/x/web-interface/view?bvid=BV1GJ411x7hQ")
+    self._test_url_entry.setFont(FONT_SM)
+    self._test_url_entry.setStyleSheet(f"""
+        QLineEdit {{
+            background-color: {C['bg_base']}; color: {C['text_1']};
+            border: 1px solid {C['border']}; padding: 2px 6px;
+        }}
+    """)
+    url_layout.addWidget(self._test_url_entry, 1)
+
+    sec_layout.addWidget(url_row)
+
+    # 结果表格
+    result_container = QWidget()
+    result_container.setStyleSheet(f"""
+        QWidget#proxyResult {{
+            background-color: {C['bg_base']};
+            border: 1px solid {C['border']};
+        }}
+    """)
+    result_container.setObjectName("proxyResult")
+    result_layout = QVBoxLayout(result_container)
+    result_layout.setContentsMargins(2, 2, 2, 2)
+
+    self._proxy_tree = QTreeWidget()
+    cols = ["代理地址", "状态", "延迟/原因", "地区", "IP", "ASN", "ISP"]
+    self._proxy_tree.setHeaderLabels(cols)
+    self._proxy_tree.setRootIsDecorated(False)
+    self._proxy_tree.setAlternatingRowColors(False)
+    self._proxy_tree.setStyleSheet(f"""
+        QTreeWidget {{
+            background-color: {C['bg_base']}; color: {C['text_1']};
+            border: none; font-family: Consolas; font-size: 9pt;
+        }}
+        QTreeWidget::item {{
+            padding: 2px 4px;
+        }}
+        QHeaderView::section {{
+            background-color: {C['bg_surface']}; color: {C['text_2']};
+            border: 1px solid {C['border_sub']}; padding: 2px 6px;
+        }}
+    """)
+    header = self._proxy_tree.header()
+    if header is not None:
+        widths = {"代理地址": 200, "状态": 50, "延迟/原因": 200, "地区": 80, "IP": 140, "ASN": 150, "ISP": 150}
+        for i, c in enumerate(cols):
+            header.setSectionResizeMode(i, QHeaderView.ResizeMode.Fixed)
+            self._proxy_tree.setColumnWidth(i, widths[c])
+
+    result_layout.addWidget(self._proxy_tree)
+    sec_layout.addWidget(result_container, 1)
+
+    # 提示
+    tip = QLabel("使用代理可有效绕过IP级别的频率限制")
+    tip.setFont(FONT_SM)
+    tip.setStyleSheet(f"color: {C['warning']}; background: transparent;")
+    sec_layout.addWidget(tip)
+
+    layout.addWidget(sec)
+
+    tab_idx = nb.addTab(page, "  代理设置  ")
+    return tab_idx
 
 
 def _auto_fetch_proxies(self):
-    import threading
-
-    self._auto_fetch_status.config(text="⏳ 获取中…", fg=C["warning"])
-    self._proxy_tree.delete(*self._proxy_tree.get_children())
+    self._auto_fetch_status.setText("⏳ 获取中…")
+    self._auto_fetch_status.setStyleSheet(f"color: {C['warning']}; background: transparent;")
+    self._proxy_tree.clear()
     threading.Thread(target=self._auto_fetch_worker, daemon=True).start()
 
 
@@ -151,201 +394,102 @@ def _auto_fetch_worker(self):
 
     for src_url in pm.PROXY_SOURCES:
         source_name = src_url.split("/")[2]
-        self.window.after(
-            0, lambda n=source_name: self._auto_fetch_status.config(text=f"⏳ 拉取 {n}…", fg=C["warning"])
-        )
+        self._auto_fetch_status.setText(f"⏳ 拉取 {source_name}…")
+        self._auto_fetch_status.setStyleSheet(f"color: {C['warning']}; background: transparent;")
         try:
             resp = _req.get(
                 src_url, timeout=10, headers={"User-Agent": "Mozilla/5.0"}, verify=False
-            )  # nosec B501 — proxy source testing; no sensitive data
+            )
             if resp.status_code != 200:
                 continue
             urls = pm._parse_proxy_list(resp.text, src_url)
             for url in urls:
                 total_tested += 1
-                item = self._proxy_tree.insert("", "end", values=(url, "⏳", "测试中…", "", "", "", ""))
-                self.window.after(0, lambda: self._proxy_tree.yview_moveto(1))
+                item = QTreeWidgetItem()
+                item.setText(0, url)
+                item.setText(1, "⏳")
+                item.setText(2, "测试中…")
+                self._proxy_tree.addTopLevelItem(item)
+                self._proxy_tree.scrollToItem(item)
                 result = ProxyManager.test_proxy(url, timeout=8)
                 ok = result.get("ok", False)
                 total_found += 1 if ok else 0
-                self.window.after(
-                    0,
-                    lambda i=item, r=result: (
-                        self._proxy_tree.set(i, "status", "✅" if r.get("ok") else "❌"),
-                        self._proxy_tree.set(
-                            i, "latency", f"{r['latency_ms']}ms" if r.get("ok") else r.get("error", "超时")[:40]
-                        ),
-                        self._proxy_tree.set(i, "country", r.get("country", "") or ""),
-                        self._proxy_tree.set(i, "ip", r.get("ip", "") or ""),
-                        self._proxy_tree.set(i, "asn", r.get("asn", "") or ""),
-                        self._proxy_tree.set(i, "isp", r.get("isp", "") or ""),
-                        self._proxy_tree.item(i, tags=("ok" if r.get("ok") else "fail",)),
-                    ),
-                )
+                item.setText(1, "✅" if ok else "❌")
+                item.setText(2, f"{result['latency_ms']}ms" if ok else (result.get("error", "超时")[:40]))
+                item.setText(3, result.get("country", "") or "")
+                item.setText(4, result.get("ip", "") or "")
+                item.setText(5, result.get("asn", "") or "")
+                item.setText(6, result.get("isp", "") or "")
+                color = C["success"] if ok else C["danger"]
+                for c in range(7):
+                    item.setForeground(c, Qt.GlobalColor.white if ok else Qt.GlobalColor.white)
                 if result.get("ok"):
                     pm.add_proxy({"http": url, "https": url})
         except Exception as e:
-            err_msg = str(e)
-            self.window.after(
-                0,
-                lambda n=source_name, m=err_msg: self._auto_fetch_status.config(
-                    text=f"⚠ {n} 失败: {m}", fg=C["danger"]
-                ),
-            )
+            self._auto_fetch_status.setText(f"⚠ {source_name} 失败: {e}")
+            self._auto_fetch_status.setStyleSheet(f"color: {C['danger']}; background: transparent;")
 
     urls = [p.get("http", "") for p in pm.proxies if p.get("http")]
-    self.window.after(0, lambda: self._update_proxy_text(urls))
-    self.window.after(
-        0,
-        lambda: self._auto_fetch_status.config(
-            text=f"✅ 测试 {total_tested} 个, 可用 {total_found} 个", fg=C["success"]
-        ),
-    )
+    self._update_proxy_text(urls)
+    self._auto_fetch_status.setText(f"✅ 测试 {total_tested} 个, 可用 {total_found} 个")
+    self._auto_fetch_status.setStyleSheet(f"color: {C['success']}; background: transparent;")
 
 
 def _update_proxy_text(self, urls):
-    self.proxy_text.delete("1.0", tk.END)
-    self.proxy_text.insert("1.0", "\n".join(urls))
+    self._proxy_text.setPlainText("\n".join(urls))
 
 
 def _add_proxy_source(self):
-    url = self._proxy_src_entry.get().strip()
+    url = self._proxy_src_entry.text().strip()
     if not url:
         return
     if not url.startswith("http"):
-        messagebox.showwarning("提示", "代理源地址必须以 http:// 或 https:// 开头", parent=self.window)
+        QMessageBox.warning(self, "提示", "代理源地址必须以 http:// 或 https:// 开头")
         return
     if url not in ProxyManager.PROXY_SOURCES:
         ProxyManager.PROXY_SOURCES.append(url)
-        self._proxy_src_entry.delete(0, tk.END)
-        messagebox.showinfo("成功", f"已添加代理源:\n{url}\n\n点击「自动获取代理」即可拉取", parent=self.window)
+        self._proxy_src_entry.clear()
+        QMessageBox.information(self, "成功", f"已添加代理源:\n{url}\n\n点击「自动获取代理」即可拉取")
 
 
 def _add_proxy_entry(self):
-    proto = self._proxy_proto_var.get()
-    addr = self._proxy_addr_entry.get().strip()
+    proto = self._proxy_proto_combo.currentText()
+    addr = self._proxy_addr_entry.text().strip()
     if not addr:
         return
     if re.match(r"^(https?|socks[45])://", addr, re.IGNORECASE):
         line = addr
     else:
         line = f"{proto}{addr}"
-    self._proxy_addr_entry.delete(0, tk.END)
-    text = self.proxy_text.get("1.0", "end").strip()
+    self._proxy_addr_entry.clear()
+    text = self._proxy_text.toPlainText().strip()
     lines = [ln for ln in text.split("\n") if ln.strip()] if text else []
     lines.append(line)
-    self.proxy_text.delete("1.0", "end")
-    self.proxy_text.insert("1.0", "\n".join(lines))
+    self._proxy_text.setPlainText("\n".join(lines))
 
 
 def _batch_import_proxies(self):
-    top = tk.Toplevel(self.window)
-    top.title("批量导入代理")
-    sw = self.window.winfo_screenwidth()
-    sh = self.window.winfo_screenheight()
-    top.geometry(f"{int(sw * 0.35)}x{int(sh * 0.45)}")
-    top.configure(bg=C["bg_surface"])
-    top.transient(self.window)
-    top.grab_set()
-    top.resizable(True, True)
+    dlg = _BatchImportDialog(self._proxy_proto_combo.currentText(), self)
 
-    tk.Label(
-        top,
-        text="批量导入代理地址",
-        bg=C["bg_surface"],
-        fg=C["text_1"],
-        font=("Microsoft YaHei UI", 11, "bold"),
-    ).pack(pady=(14, 2))
-
-    proto_row = tk.Frame(top, bg=C["bg_surface"])
-    proto_row.pack(fill=tk.X, padx=20, pady=(4, 2))
-    tk.Label(proto_row, text="协议:", bg=C["bg_surface"], fg=C["text_2"], font=FONT).pack(side=tk.LEFT)
-    batch_proto_var = tk.StringVar(value=self._proxy_proto_var.get())
-    ttk.Combobox(
-        proto_row,
-        textvariable=batch_proto_var,
-        values=["http://", "https://", "socks4://", "socks5://"],
-        width=12,
-        state="readonly",
-        font=FONT,
-    ).pack(side=tk.LEFT, padx=(6, 0))
-
-    tk.Label(
-        top,
-        text="每行一个地址（host:port 或完整URL），导入时自动补全协议头",
-        bg=C["bg_surface"],
-        fg=C["text_3"],
-        font=FONT_SM,
-    ).pack(pady=(4, 2))
-
-    text_w = tk.Text(
-        top,
-        height=10,
-        bg=C["bg_base"],
-        fg=C["text_1"],
-        font=("Consolas", 10),
-        relief="flat",
-        highlightthickness=1,
-        highlightbackground=C["border"],
-        insertbackground=C["text_1"],
-    )
-    text_w.pack(fill=tk.BOTH, expand=True, padx=20, pady=4)
-
-    btn_f = tk.Frame(top, bg=C["bg_surface"])
-    btn_f.pack(fill=tk.X, padx=20, pady=(4, 14))
-
-    status_var = tk.StringVar(value="")
-    status_lbl = tk.Label(btn_f, textvariable=status_var, bg=C["bg_surface"], fg=C["text_3"], font=FONT_SM, anchor="w")
-    status_lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
-
-    def _do_import():
-        raw = text_w.get("1.0", tk.END).strip()
-        if not raw:
-            status_var.set("请输入代理地址")
-            status_lbl.config(fg=C["danger"])
-            return
-
-        lines = [ln.strip() for ln in raw.split("\n") if ln.strip()]
-        proto = batch_proto_var.get()
-        imported = []
-        for ln in lines:
-            if re.match(r"^(https?|socks[45])://", ln, re.IGNORECASE):
-                imported.append(ln)
-            else:
-                imported.append(f"{proto}{ln}")
-
-        current = self.proxy_text.get("1.0", "end").strip()
+    def _on_import(imported):
+        current = self._proxy_text.toPlainText().strip()
         all_lines = [ln for ln in current.split("\n") if ln.strip()] if current else []
         all_lines.extend(imported)
-        self.proxy_text.delete("1.0", "end")
-        self.proxy_text.insert("1.0", "\n".join(all_lines))
+        self._proxy_text.setPlainText("\n".join(all_lines))
 
         unique = set(all_lines)
         dup_count = len(all_lines) - len(unique)
-
-        total_count = len(imported)
-        status_lbl.config(fg=C["success"])
-        msg = f"✅ 已导入 {total_count} 条代理"
+        msg = f"成功导入 {len(imported)} 条代理\n当前代理列表共 {len(all_lines)} 条"
         if dup_count:
-            msg += f"（含 {dup_count} 条重复）"
-        status_var.set(msg)
+            msg += f"\n（其中 {dup_count} 条重复已去重）"
+        QMessageBox.information(self, "导入完成", msg)
 
-        top.after(
-            200,
-            lambda: messagebox.showinfo(
-                "导入完成",
-                f"成功导入 {total_count} 条代理\n"
-                f"当前代理列表共 {len(all_lines)} 条" + (f"\n（其中 {dup_count} 条重复已去重）" if dup_count else ""),
-                parent=top,
-            ),
-        )
-
-    ttk.Button(btn_f, text="导入并追加", command=_do_import, style="Primary.TButton").pack(side=tk.RIGHT, padx=(4, 0))
-    ttk.Button(btn_f, text="取消", command=top.destroy).pack(side=tk.RIGHT, padx=4)
+    dlg._imported.connect(_on_import)
+    dlg.exec()
 
 
 def _apply_proxies(self):
-    text = self.proxy_text.get("1.0", "end").strip()
+    text = self._proxy_text.toPlainText().strip()
     proxy_list = [line.strip() for line in text.split("\n") if line.strip()]
     get_bilibili_api().clear_proxies()
     for ps in proxy_list:
@@ -369,38 +513,26 @@ def _verify_proxy_persisted(self):
 
 
 def _check_proxies(self):
-    text = self.proxy_text.get("1.0", "end").strip()
+    text = self._proxy_text.toPlainText().strip()
     proxy_list = [line.strip() for line in text.split("\n") if line.strip()]
     if not proxy_list:
-        messagebox.showwarning("提示", "请先输入要测试的代理", parent=self.window)
+        QMessageBox.warning(self, "提示", "请先输入要测试的代理")
         return
 
-    test_url = self._test_url_var.get().strip()
+    test_url = self._test_url_entry.text().strip()
 
-    for item in self._proxy_tree.get_children():
-        self._proxy_tree.delete(item)
-
-    row_items = []
-    for proxy in proxy_list:
-        item = self._proxy_tree.insert("", "end", values=(proxy, "⏳", "—", "", "", "", ""))
-        row_items.append(item)
-
-    import threading
+    self._proxy_tree.clear()
 
     total = len(proxy_list)
     ok_count = [0]
     fail_count = [0]
     cancel_flag = [False]
-    threads = []
     lock = threading.Lock()
-    self._proxy_test_status.configure(text=f"测试中 0/{total} …", fg=C["warning"])
+    threads = []
+    self._proxy_test_status.setText(f"测试中 0/{total} …")
+    self._proxy_test_status.setStyleSheet(f"color: {C['warning']};")
 
-    cancel_btn = ttk.Button(
-        self._proxy_test_status.master, text="✕ 取消", command=lambda: cancel_flag.__setitem__(0, True)
-    )
-    cancel_btn.pack(side=tk.LEFT, padx=2)
-
-    def test_one(proxy, item):
+    def test_one(proxy: str, item: QTreeWidgetItem):
         if cancel_flag[0]:
             return
         result = ProxyManager.test_proxy(proxy, test_url=test_url)
@@ -411,30 +543,29 @@ def _check_proxies(self):
         asn = result.get("asn") or "—"
         isp = result.get("isp") or "—"
         status = "✅" if ok else "❌"
-        tag = "ok" if ok else "fail"
-        self.window.after(
-            0,
-            lambda item=item, status=status, latency=latency, country=country, ip=ip, asn=asn, isp=isp, tag=tag: (
-                self._proxy_tree.set(item, "status", status),
-                self._proxy_tree.set(item, "latency", latency),
-                self._proxy_tree.set(item, "country", country),
-                self._proxy_tree.set(item, "ip", ip),
-                self._proxy_tree.set(item, "asn", asn),
-                self._proxy_tree.set(item, "isp", isp),
-                self._proxy_tree.item(item, tags=(tag,)),
-            ),
-        )
+
+        item.setText(0, proxy)
+        item.setText(1, status)
+        item.setText(2, latency)
+        item.setText(3, country)
+        item.setText(4, ip)
+        item.setText(5, asn)
+        item.setText(6, isp)
+
         with lock:
             if ok:
                 ok_count[0] += 1
             else:
                 fail_count[0] += 1
             done = ok_count[0] + fail_count[0]
-            self.window.after(
-                0, lambda d=done: self._proxy_test_status.configure(text=f"测试中 {d}/{total} …", fg=C["warning"])
-            )
+            self._proxy_test_status.setText(f"测试中 {done}/{total} …")
 
-    for proxy, item in zip(proxy_list, row_items):
+    for proxy in proxy_list:
+        item = QTreeWidgetItem()
+        item.setText(0, proxy)
+        item.setText(1, "⏳")
+        item.setText(2, "—")
+        self._proxy_tree.addTopLevelItem(item)
         t = threading.Thread(target=test_one, args=(proxy, item), daemon=True)
         t.start()
         threads.append(t)
@@ -442,31 +573,31 @@ def _check_proxies(self):
     def _wait_all():
         for t in threads:
             t.join()
-        self.window.after(0, cancel_btn.destroy)
         ok_n, fail_n = ok_count[0], fail_count[0]
-        status_text = f"完成: {ok_n} 可用" + (f", {fail_n} 失败" if fail_n else "")
-        self.window.after(
-            0, lambda: self._proxy_test_status.configure(text=status_text, fg=C["success"] if ok_n else C["danger"])
+        status_text = f"完成: {ok_n} 可用"
+        if fail_n:
+            status_text += f", {fail_n} 失败"
+        self._proxy_test_status.setText(status_text)
+        self._proxy_test_status.setStyleSheet(
+            f"color: {C['success']}; background: transparent;" if ok_n
+            else f"color: {C['danger']}; background: transparent;"
         )
 
         if fail_n:
-            failed = []
-            for proxy, item in zip(proxy_list, row_items):
-                tags = self._proxy_tree.item(item, "tags")
-                if "fail" in tags:
-                    failed.append(proxy)
+            failed = [proxy_list[i] for i in range(len(proxy_list))
+                      if i < self._proxy_tree.topLevelItemCount()
+                      and self._proxy_tree.topLevelItem(i).text(1) == "❌"]
             if failed:
-                self.window.after(0, lambda: self._auto_remove_failed_proxies(failed))
+                self._auto_remove_failed_proxies(failed)
 
     threading.Thread(target=_wait_all, daemon=True).start()
 
 
 def _auto_remove_failed_proxies(self, failed_urls):
-    text = self.proxy_text.get("1.0", "end").strip()
+    text = self._proxy_text.toPlainText().strip()
     lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
     remaining = [ln for ln in lines if ln not in failed_urls]
-    self.proxy_text.delete("1.0", "end")
-    self.proxy_text.insert("1.0", "\n".join(remaining))
+    self._proxy_text.setPlainText("\n".join(remaining))
 
     get_bilibili_api().clear_proxies()
     for ps in remaining:
@@ -478,9 +609,9 @@ def _auto_remove_failed_proxies(self, failed_urls):
     masked = ", ".join(ProxyManager.mask_url(u) for u in failed_urls)
     msg = f"已自动移除 {len(failed_urls)} 个失效代理:\n{masked}"
     logger.info(msg)
-    messagebox.showinfo("代理清理", msg, parent=self.window)
+    QMessageBox.information(self, "代理清理", msg)
 
 
 def _sync_proxy_text_to_cfg(self):
-    text = self.proxy_text.get("1.0", "end").strip()
+    text = self._proxy_text.toPlainText().strip()
     self._net_cfg["proxies"] = [line.strip() for line in text.split("\n") if line.strip()]
