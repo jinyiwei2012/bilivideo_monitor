@@ -3,8 +3,6 @@
 支持模型增量训练/重新训练，实时 loss 图表 + 文字日志。
 """
 
-import tkinter as tk
-from tkinter import ttk, messagebox
 import io
 import logging
 import os
@@ -12,6 +10,18 @@ import threading
 import time
 from typing import Dict, List, Optional
 from datetime import datetime
+
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QCheckBox, QComboBox, QSpinBox, QDoubleSpinBox, QProgressBar,
+    QFrame, QTabWidget, QGroupBox, QGridLayout, QScrollArea,
+    QPlainTextEdit, QMessageBox, QDialog, QSplitter, QSizePolicy,
+    QToolButton, QLineEdit, QTreeWidget, QTreeWidgetItem,
+    QRadioButton, QButtonGroup, QFileDialog,
+)
+from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QFont
+
 from ui.theme import C
 from ui.helpers import (
     FONT,
@@ -25,6 +35,7 @@ from ui.helpers import (
 )
 from ui.scrollable_frame import ScrollableFrame
 from ui.training_base import BaseTrainingPanel, TrainingMonitor
+from ui.invoker import invoke
 from utils.update_checker import _hard, _train, _confirm_risky
 
 logger = logging.getLogger(__name__)
@@ -39,17 +50,17 @@ except ImportError:
 class TrainingPanel(BaseTrainingPanel):
     """训练面板 - 主界面选项卡，支持模型增量训练/重新训练"""
 
-    def __init__(self, parent: tk.Widget, main_gui):
+    def __init__(self, parent: QWidget, main_gui):
         """初始化训练面板"""
         super().__init__(parent, main_gui)
 
         # 算法列表状态
-        self._check_vars: Dict[str, tk.BooleanVar] = {}
+        self._check_vars: Dict[str, QCheckBox] = {}
         self._algo_meta: Dict[str, Dict] = {}
-        self._algo_confidence: Dict[str, float] = {}  # 训练完成时记录的置信度
+        self._algo_confidence: Dict[str, float] = {}
 
         # 算法行标签引用（用于动态更新状态/置信度）
-        self._algo_row_refs: Dict[str, List[tk.Widget]] = {}
+        self._algo_row_refs: Dict[str, list] = {}
 
         # 日志存盘
         self._log_dir = project_path("data", "log", "training")
@@ -65,184 +76,272 @@ class TrainingPanel(BaseTrainingPanel):
 
     def _build_ui(self):
         """构建训练面板的完整 UI 布局"""
-        outer = self.frame
+        outer_layout = QVBoxLayout(self)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.setSpacing(0)
 
         # ── 顶部信息栏：设备信息、数据规模、强制 CPU 开关 ──
-        info_bar = tk.Frame(outer, bg=C["bg_elevated"])
-        info_bar.pack(fill=tk.X, padx=8, pady=(8, 4))
+        info_bar = QFrame(self)
+        info_bar.setStyleSheet(f"background-color: {C['bg_elevated']};")
+        info_layout = QHBoxLayout(info_bar)
+        info_layout.setContentsMargins(8, 8, 8, 4)
+        info_layout.setSpacing(8)
+        outer_layout.addWidget(info_bar)
 
-        tk.Label(info_bar, text="训练设备:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT).pack(
-            side=tk.LEFT, padx=(8, 2)
-        )
-        self._device_lbl = tk.Label(info_bar, text="检测中…", bg=C["bg_elevated"], fg=C["text_1"], font=FONT)
-        self._device_lbl.pack(side=tk.LEFT, padx=(0, 16))
-        tk.Label(info_bar, text="数据规模:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT).pack(
-            side=tk.LEFT, padx=(8, 2)
-        )
-        self._data_lbl = tk.Label(info_bar, text="估算中…", bg=C["bg_elevated"], fg=C["text_3"], font=FONT_SM)
-        self._data_lbl.pack(side=tk.LEFT, padx=(0, 16))
-        self._force_cpu_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(info_bar, text="强制 CPU", variable=self._force_cpu_var, command=self._on_force_cpu).pack(
-            side=tk.LEFT, padx=4
-        )
-        ttk.Button(info_bar, text="刷新", command=self._refresh_all).pack(side=tk.RIGHT, padx=8)
+        device_label = QLabel("训练设备:")
+        device_label.setStyleSheet(f"color: {C['text_2']}; background: transparent; font: {FONT};")
+        info_layout.addWidget(device_label)
+        self._device_lbl = QLabel("检测中…")
+        self._device_lbl.setStyleSheet(f"color: {C['text_1']}; background: transparent; font: {FONT};")
+        info_layout.addWidget(self._device_lbl)
+        info_layout.addSpacing(8)
+
+        data_label = QLabel("数据规模:")
+        data_label.setStyleSheet(f"color: {C['text_2']}; background: transparent; font: {FONT};")
+        info_layout.addWidget(data_label)
+        self._data_lbl = QLabel("估算中…")
+        self._data_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent; font: {FONT_SM};")
+        info_layout.addWidget(self._data_lbl)
+        info_layout.addStretch()
+
+        self._force_cpu_cb = QCheckBox("强制 CPU")
+        self._force_cpu_cb.setStyleSheet(f"color: {C['text_1']};")
+        self._force_cpu_cb.toggled.connect(self._on_force_cpu)
+        info_layout.addWidget(self._force_cpu_cb)
+
+        refresh_btn = QPushButton("刷新")
+        refresh_btn.clicked.connect(self._refresh_all)
+        info_layout.addWidget(refresh_btn)
 
         # ── 主体区域: 左(算法列表) | 右(图表+日志) ──
-        body = tk.Frame(outer, bg=C["bg_base"])
-        body.pack(fill=tk.BOTH, expand=True, padx=8, pady=4)
-        body.grid_columnconfigure(0, weight=35, minsize=280)
-        body.grid_columnconfigure(1, weight=65, minsize=400)
-        body.grid_rowconfigure(0, weight=1)
+        body = QFrame(self)
+        body.setStyleSheet(f"background-color: {C['bg_base']};")
+        outer_layout.addWidget(body, 1)
+        body_layout = QHBoxLayout(body)
+        body_layout.setContentsMargins(8, 4, 8, 4)
+        body_layout.setSpacing(0)
 
         self._build_algo_section(body)
         self._build_chart_section(body)
 
         # ── 底部控制栏 ──
-        self._build_controls(outer)
+        self._build_controls(self)
 
     # ── 算法列表 (左侧) ──
 
     def _build_algo_section(self, parent):
         """构建左侧算法列表区域"""
-        left = tk.Frame(parent, bg=C["bg_surface"])
-        left.grid(row=0, column=0, sticky="nsew")
-        left.grid_rowconfigure(1, weight=1)
+        left = QFrame(parent)
+        left.setStyleSheet(f"background-color: {C['bg_surface']};")
+        parent_layout = parent.layout()
+        parent_layout.addWidget(left, 35)
 
-        hdr = tk.Frame(left, bg=C["bg_surface"])
-        hdr.pack(fill=tk.X, padx=4, pady=(4, 0))
-        tk.Label(hdr, text="可训练算法（PyTorch）", bg=C["bg_surface"], fg=C["text_1"], font=FONT_BOLD).pack(
-            side=tk.LEFT
-        )
-        self._algo_count_lbl = tk.Label(hdr, text="", bg=C["bg_surface"], fg=C["text_3"], font=FONT_SM)
-        self._algo_count_lbl.pack(side=tk.RIGHT, padx=4)
+        left_layout = QVBoxLayout(left)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(0)
 
-        toolbar = tk.Frame(left, bg=C["bg_elevated"])
-        toolbar.pack(fill=tk.X, padx=4, pady=(2, 2))
-        ttk.Button(toolbar, text="全选", command=lambda: self._select_all(True), width=6).pack(side=tk.LEFT, padx=1)
-        ttk.Button(toolbar, text="全不选", command=lambda: self._select_all(False), width=6).pack(side=tk.LEFT, padx=1)
-        ttk.Button(toolbar, text="仅未训练", command=self._select_untrained, width=8).pack(side=tk.LEFT, padx=1)
-        ttk.Button(toolbar, text="🗑️ 版本管理", command=self._on_manage_versions, width=10).pack(side=tk.LEFT, padx=1)
+        hdr = QFrame(left)
+        hdr.setStyleSheet(f"background-color: {C['bg_surface']};")
+        hdr_layout = QHBoxLayout(hdr)
+        hdr_layout.setContentsMargins(4, 4, 4, 0)
+        title_lbl = QLabel("可训练算法（PyTorch）")
+        title_lbl.setStyleSheet(f"color: {C['text_1']}; background: transparent; font: bold;")
+        hdr_layout.addWidget(title_lbl)
+        hdr_layout.addStretch()
+        self._algo_count_lbl = QLabel("")
+        self._algo_count_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent; font: {FONT_SM};")
+        hdr_layout.addWidget(self._algo_count_lbl)
+        left_layout.addWidget(hdr)
+
+        toolbar = QFrame(left)
+        toolbar.setStyleSheet(f"background-color: {C['bg_elevated']};")
+        toolbar_layout = QHBoxLayout(toolbar)
+        toolbar_layout.setContentsMargins(4, 2, 4, 2)
+        toolbar_layout.setSpacing(1)
+
+        btn_sel_all = QPushButton("全选")
+        btn_sel_all.setFixedWidth(50)
+        btn_sel_all.clicked.connect(lambda: self._select_all(True))
+        toolbar_layout.addWidget(btn_sel_all)
+        btn_sel_none = QPushButton("全不选")
+        btn_sel_none.setFixedWidth(50)
+        btn_sel_none.clicked.connect(lambda: self._select_all(False))
+        toolbar_layout.addWidget(btn_sel_none)
+        btn_sel_untrained = QPushButton("仅未训练")
+        btn_sel_untrained.setFixedWidth(65)
+        btn_sel_untrained.clicked.connect(self._select_untrained)
+        toolbar_layout.addWidget(btn_sel_untrained)
+        btn_version = QPushButton("🗑️ 版本管理")
+        btn_version.setFixedWidth(85)
+        btn_version.clicked.connect(self._on_manage_versions)
+        toolbar_layout.addWidget(btn_version)
+        left_layout.addWidget(toolbar)
 
         # 滚动容器
-        sf = ScrollableFrame(left, bg=C["bg_elevated"], height=300)
-        sf.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        sf = ScrollableFrame(left)
+        sf.setStyleSheet(f"background-color: {C['bg_elevated']};")
+        left_layout.addWidget(sf, 1)
         self._algo_frame = sf.inner
 
         # 表头：复选框、算法名、ID、状态、置信度、版本
-        hdr_row = tk.Frame(self._algo_frame, bg=C["bg_surface"])
-        hdr_row.pack(fill=tk.X, pady=(0, 1))
-        for col, (txt, w) in enumerate([("", 4), ("算法", 16), ("ID", 14), ("状态", 12), ("置信度", 10), ("版本", 8)]):
-            tk.Label(
-                hdr_row,
-                text=txt,
-                bg=C["bg_surface"],
-                fg=C["text_3"],
-                font=("Microsoft YaHei UI", 8, "bold"),
-                width=w,
-                anchor="w",
-            ).grid(row=0, column=col, padx=2, pady=2, sticky="w")
+        hdr_row = QFrame(self._algo_frame)
+        hdr_row.setStyleSheet(f"background-color: {C['bg_surface']};")
+        hdr_row_layout = QHBoxLayout(hdr_row)
+        hdr_row_layout.setContentsMargins(0, 0, 0, 0)
+        hdr_row_layout.setSpacing(2)
+        for txt, w in [("", 30), ("算法", 110), ("ID", 90), ("状态", 80), ("置信度", 70), ("版本", 50)]:
+            lbl = QLabel(txt)
+            lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent; font: 8pt bold;")
+            lbl.setFixedWidth(w)
+            hdr_row_layout.addWidget(lbl)
+        hdr_row_layout.addStretch()
+        # hdr_row goes into algo_frame's layout
 
     # ── 图表+日志 (右侧) ──
 
     def _build_chart_section(self, parent):
         """构建右侧图表和日志区域"""
-        right = tk.Frame(parent, bg=C["bg_surface"])
-        right.grid(row=0, column=1, sticky="nsew", padx=(4, 0))
-        right.grid_rowconfigure(0, weight=1)
-        right.grid_rowconfigure(2, weight=1)
-        right.grid_columnconfigure(0, weight=1)
+        right = QFrame(parent)
+        right.setStyleSheet(f"background-color: {C['bg_surface']};")
+        parent_layout = parent.layout()
+        parent_layout.addWidget(right, 65)
+
+        right_layout = QVBoxLayout(right)
+        right_layout.setContentsMargins(4, 0, 0, 0)
+        right_layout.setSpacing(2)
 
         # 上半: Loss 图表
         chart_frame = self._build_chart_widgets(right, title="训练 Loss 曲线")
-        chart_frame.grid(row=0, column=0, sticky="nsew", padx=4, pady=(4, 2))
+        right_layout.addWidget(chart_frame, 1)
 
         # 中部: 训练质量监控状态栏
         monitor_bar = self._build_monitor_bar(right)
-        monitor_bar.grid(row=1, column=0, sticky="ew", padx=4, pady=(0, 2))
+        right_layout.addWidget(monitor_bar)
 
         # 下半: 文字日志
         log_frame = self._build_log_widgets(right, title="训练日志")
-        log_frame.grid(row=2, column=0, sticky="nsew", padx=4, pady=(2, 4))
+        right_layout.addWidget(log_frame, 1)
 
     # ── 底部控制栏 ──
 
     def _build_controls(self, parent):
         """构建底部训练控制栏"""
-        ctrl = tk.Frame(parent, bg=C["bg_elevated"])
-        ctrl.pack(fill=tk.X, padx=8, pady=(0, 6))
+        ctrl = QFrame(parent)
+        ctrl.setStyleSheet(f"background-color: {C['bg_elevated']};")
+        layout = self.layout() if isinstance(parent, TrainingPanel) else QHBoxLayout()
+        if not isinstance(parent, TrainingPanel):
+            ctrl.setLayout(layout)
+        ctrl_layout = QHBoxLayout(ctrl)
+        ctrl_layout.setContentsMargins(8, 4, 8, 6)
+        ctrl_layout.setSpacing(8)
 
         # 训练参数
-        tk.Label(ctrl, text="Epoch:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT, padx=(8, 2))
-        self._epoch_var = tk.IntVar(value=20)
-        ttk.Spinbox(ctrl, from_=1, to=500, textvariable=self._epoch_var, width=6).pack(side=tk.LEFT, padx=2)
+        epoch_label = QLabel("Epoch:")
+        epoch_label.setStyleSheet(f"color: {C['text_2']}; background: transparent; font: {FONT_SM};")
+        ctrl_layout.addWidget(epoch_label)
+        self._epoch_spin = QSpinBox()
+        self._epoch_spin.setRange(1, 500)
+        self._epoch_spin.setValue(20)
+        self._epoch_spin.setFixedWidth(60)
+        ctrl_layout.addWidget(self._epoch_spin)
 
-        tk.Label(ctrl, text="Batch:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT, padx=(8, 2))
-        self._batch_var = tk.IntVar(value=32)
-        ttk.Spinbox(ctrl, from_=1, to=512, textvariable=self._batch_var, width=6).pack(side=tk.LEFT, padx=2)
+        batch_label = QLabel("Batch:")
+        batch_label.setStyleSheet(f"color: {C['text_2']}; background: transparent; font: {FONT_SM};")
+        ctrl_layout.addWidget(batch_label)
+        self._batch_spin = QSpinBox()
+        self._batch_spin.setRange(1, 512)
+        self._batch_spin.setValue(32)
+        self._batch_spin.setFixedWidth(60)
+        ctrl_layout.addWidget(self._batch_spin)
 
         # 学习率
-        tk.Label(ctrl, text="LR:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT, padx=(8, 2))
-        self._lr_var = tk.StringVar(value="0.001")
-        self._lr_entry = ttk.Entry(ctrl, textvariable=self._lr_var, width=8, font=FONT_MONO)
-        self._lr_entry.pack(side=tk.LEFT, padx=2)
-        self._lr_auto_var = tk.BooleanVar(value=True)
-        self._lr_auto_cb = ttk.Checkbutton(
-            ctrl, text="自动", variable=self._lr_auto_var, command=self._on_lr_auto_toggle
-        )
-        self._lr_auto_cb.pack(side=tk.LEFT, padx=2)
+        lr_label = QLabel("LR:")
+        lr_label.setStyleSheet(f"color: {C['text_2']}; background: transparent; font: {FONT_SM};")
+        ctrl_layout.addWidget(lr_label)
+        self._lr_entry = QLineEdit("0.001")
+        self._lr_entry.setFixedWidth(80)
+        ctrl_layout.addWidget(self._lr_entry)
+        self._lr_auto_cb = QCheckBox("自动")
+        self._lr_auto_cb.setChecked(True)
+        self._lr_auto_cb.toggled.connect(self._on_lr_auto_toggle)
+        ctrl_layout.addWidget(self._lr_auto_cb)
 
         # 训练模式：增量训练 / 重新训练
-        tk.Label(ctrl, text="模式:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT, padx=(8, 2))
-        self._mode_var = tk.StringVar(value="incremental")
-        ttk.Radiobutton(ctrl, text="增量训练", variable=self._mode_var, value="incremental").pack(side=tk.LEFT, padx=1)
-        ttk.Radiobutton(ctrl, text="重新训练", variable=self._mode_var, value="retrain", state=_train()).pack(
-            side=tk.LEFT, padx=1
-        )
+        mode_label = QLabel("模式:")
+        mode_label.setStyleSheet(f"color: {C['text_2']}; background: transparent; font: {FONT_SM};")
+        ctrl_layout.addWidget(mode_label)
+        self._mode_incremental = QRadioButton("增量训练")
+        self._mode_retrain = QRadioButton("重新训练")
+        self._mode_retrain.setEnabled(_train() == "normal")
+        self._mode_group = QButtonGroup(self)
+        self._mode_group.addButton(self._mode_incremental)
+        self._mode_group.addButton(self._mode_retrain)
+        self._mode_incremental.setChecked(True)
+        ctrl_layout.addWidget(self._mode_incremental)
+        ctrl_layout.addWidget(self._mode_retrain)
 
         # 并行训练数
-        tk.Label(ctrl, text="并行:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT, padx=(8, 2))
-        self._parallel_var = tk.IntVar(value=2)
-        ttk.Spinbox(ctrl, from_=1, to=4, textvariable=self._parallel_var, width=3).pack(side=tk.LEFT, padx=2)
+        parallel_label = QLabel("并行:")
+        parallel_label.setStyleSheet(f"color: {C['text_2']}; background: transparent; font: {FONT_SM};")
+        ctrl_layout.addWidget(parallel_label)
+        self._parallel_spin = QSpinBox()
+        self._parallel_spin.setRange(1, 4)
+        self._parallel_spin.setValue(2)
+        self._parallel_spin.setFixedWidth(50)
+        ctrl_layout.addWidget(self._parallel_spin)
 
-        # 详细日志（batch 级进度 + 用户自定义间隔）
-        self._batch_log_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(ctrl, text="详细日志", variable=self._batch_log_var).pack(side=tk.LEFT, padx=(4, 2))
-        tk.Label(ctrl, text="每", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT)
-        self._batch_interval_val = tk.StringVar(value="10")
-        ttk.Entry(ctrl, textvariable=self._batch_interval_val, width=3, font=FONT_MONO).pack(side=tk.LEFT, padx=1)
-        self._batch_interval_unit = tk.StringVar(value="%")
-        ttk.Combobox(ctrl, textvariable=self._batch_interval_unit, values=["%", "个"], width=3, state="readonly").pack(side=tk.LEFT)
+        # 详细日志
+        self._batch_log_cb = QCheckBox("详细日志")
+        ctrl_layout.addWidget(self._batch_log_cb)
+        interval_label = QLabel("每")
+        interval_label.setStyleSheet(f"color: {C['text_2']}; background: transparent; font: {FONT_SM};")
+        ctrl_layout.addWidget(interval_label)
+        self._batch_interval_entry = QLineEdit("10")
+        self._batch_interval_entry.setFixedWidth(40)
+        ctrl_layout.addWidget(self._batch_interval_entry)
+        self._batch_interval_combo = QComboBox()
+        self._batch_interval_combo.addItems(["%", "个"])
+        self._batch_interval_combo.setFixedWidth(50)
+        ctrl_layout.addWidget(self._batch_interval_combo)
 
         # 按钮
-        self._train_btn = ttk.Button(
-            ctrl, text="▶ 开始训练", command=self._on_train_start, style="Primary.TButton", state=_train()
-        )
-        self._train_btn.pack(side=tk.LEFT, padx=(12, 4))
-        self._cancel_btn = ttk.Button(ctrl, text="✕ 取消", command=self._on_cancel, state="disabled")
-        self._cancel_btn.pack(side=tk.LEFT, padx=4)
-        self._skip_btn = ttk.Button(ctrl, text="⏭ 跳过当前", command=self._on_skip_algo, state="disabled")
-        self._skip_btn.pack(side=tk.LEFT, padx=4)
-        ttk.Button(ctrl, text="🎯 批量微调", command=self._on_batch_finetune, width=10, state=_train()).pack(
-            side=tk.LEFT, padx=4
-        )
+        self._train_btn = QPushButton("▶ 开始训练")
+        self._train_btn.clicked.connect(self._on_train_start)
+        self._train_btn.setEnabled(_train() == "normal")
+        ctrl_layout.addWidget(self._train_btn)
+        self._cancel_btn = QPushButton("✕ 取消")
+        self._cancel_btn.clicked.connect(self._on_cancel)
+        self._cancel_btn.setEnabled(False)
+        ctrl_layout.addWidget(self._cancel_btn)
+        self._skip_btn = QPushButton("⏭ 跳过当前")
+        self._skip_btn.clicked.connect(self._on_skip_algo)
+        self._skip_btn.setEnabled(False)
+        ctrl_layout.addWidget(self._skip_btn)
+        batch_finetune_btn = QPushButton("🎯 批量微调")
+        batch_finetune_btn.clicked.connect(self._on_batch_finetune)
+        batch_finetune_btn.setEnabled(_train() == "normal")
+        ctrl_layout.addWidget(batch_finetune_btn)
 
         if _train() != "normal":
-            tk.Label(
-                ctrl,
-                text="💡 创建 .enabletraining 文件开启训练 / 完整 devmode 见 README.md",
-                bg=C["bg_elevated"],
-                fg=C["warning"],
-                font=("", 8),
-            ).pack(side=tk.LEFT, padx=8)
+            train_hint = QLabel("💡 创建 .enabletraining 文件开启训练 / 完整 devmode 见 README.md")
+            train_hint.setStyleSheet(f"color: {C['warning']}; background: transparent; font: 8pt;")
+            ctrl_layout.addWidget(train_hint)
 
         # 进度条和状态标签
-        self._progress = ttk.Progressbar(ctrl, mode="determinate", maximum=100)
-        self._progress.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(12, 4))
+        self._progress = QProgressBar()
+        self._progress.setMaximum(100)
+        self._progress.setValue(0)
+        ctrl_layout.addWidget(self._progress, 1)
 
-        self._status_lbl = tk.Label(
-            ctrl, text="就绪", bg=C["bg_elevated"], fg=C["text_3"], font=FONT_SM, anchor="w", width=40
-        )
-        self._status_lbl.pack(side=tk.RIGHT, padx=(0, 8))
+        self._status_lbl = QLabel("就绪")
+        self._status_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent; font: {FONT_SM};")
+        self._status_lbl.setFixedWidth(250)
+        self._status_lbl.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        ctrl_layout.addWidget(self._status_lbl)
+
+        # Add ctrl to parent layout
+        parent_layout = self.layout()
+        parent_layout.addWidget(ctrl)
 
     # ══════════════════════════════════════════════
     # 数据刷新
@@ -265,17 +364,21 @@ class TrainingPanel(BaseTrainingPanel):
         try:
             from algorithms.training.device import get_device_info, is_torch_available, force_cpu
 
-            force_cpu(self._force_cpu_var.get())
+            force_cpu(self._force_cpu_cb.isChecked())
             info = get_device_info()
             if not is_torch_available():
-                self._device_lbl.config(text="❌ torch 未安装", fg=C["danger"])
+                self._device_lbl.setText("❌ torch 未安装")
+                self._device_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
             elif info.get("is_gpu"):
                 mem = info.get("total_memory_gb", 0)
-                self._device_lbl.config(text=f"✅ {info['name']} ({mem:.1f} GB)", fg=C["success"])
+                self._device_lbl.setText(f"✅ {info['name']} ({mem:.1f} GB)")
+                self._device_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
             else:
-                self._device_lbl.config(text=f"💻 {info['name']}", fg=C["warning"])
+                self._device_lbl.setText(f"💻 {info['name']}")
+                self._device_lbl.setStyleSheet(f"color: {C['warning']}; background: transparent;")
         except Exception as e:
-            self._device_lbl.config(text=f"⚠ {e}", fg=C["danger"])
+            self._device_lbl.setText(f"⚠ {e}")
+            self._device_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
 
     def _on_force_cpu(self):
         """强制 CPU 切换时重新检测设备"""
@@ -285,15 +388,15 @@ class TrainingPanel(BaseTrainingPanel):
 
     def _on_lr_auto_toggle(self):
         """自动/手动学习率切换：自动时锁定输入框，并填入推荐值。"""
-        if self._lr_auto_var.get():
-            self._lr_entry.config(state="readonly")
+        if self._lr_auto_cb.isChecked():
+            self._lr_entry.setReadOnly(True)
             auto_lr = self._auto_compute_lr()
-            self._lr_var.set(f"{auto_lr:.6f}")
+            self._lr_entry.setText(f"{auto_lr:.6f}")
         else:
-            if _confirm_risky("切换到手动学习率模式", self.frame):
-                self._lr_entry.config(state="normal")
+            if _confirm_risky("切换到手动学习率模式", self):
+                self._lr_entry.setReadOnly(False)
             else:
-                self._lr_auto_var.set(True)
+                self._lr_auto_cb.setChecked(True)
 
     def _auto_compute_lr(self) -> float:
         """根据数据规模和常用经验自动推荐学习率。"""
@@ -319,7 +422,8 @@ class TrainingPanel(BaseTrainingPanel):
 
     def _refresh_data_size(self):
         """刷新数据规模估算信息（异步线程）"""
-        self._data_lbl.config(text="估算中…", fg=C["text_3"])
+        self._data_lbl.setText("估算中…")
+        self._data_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
 
         def _worker():
             try:
@@ -331,9 +435,11 @@ class TrainingPanel(BaseTrainingPanel):
                 samples = info.get("total_samples", 0)
                 eta = info.get("estimated_time_s", 0)
                 txt = f"{total} 视频 · {valid} 有效 · {samples:,} 样本 · 约 {eta / 60:.1f} min/algo"
-                self.frame.after(0, lambda: self._data_lbl.config(text=txt, fg=C["text_1"]))
+                invoke(lambda: self._data_lbl.setText(txt))
+                invoke(lambda: self._data_lbl.setStyleSheet(f"color: {C['text_1']}; background: transparent;"))
             except Exception as e:
-                self.frame.after(0, lambda e=e: self._data_lbl.config(text=f"⚠ {e}", fg=C["danger"]))
+                invoke(lambda e=e: self._data_lbl.setText(f"⚠ {e}"))
+                invoke(lambda e=e: self._data_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;"))
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -345,42 +451,54 @@ class TrainingPanel(BaseTrainingPanel):
 
     def _refresh_algo_list(self):
         """刷新算法列表，显示每个算法的状态、置信度和版本"""
-        for w in self._algo_frame.winfo_children():
-            w.destroy()
+        # Clear existing rows
+        layout = self._algo_frame.layout()
+        if layout is not None:
+            while layout.count():
+                item = layout.takeAt(0)
+                w = item.widget()
+                if w is not None:
+                    w.deleteLater()
         self._check_vars.clear()
         self._algo_meta.clear()
+        self._algo_row_refs.clear()
 
         try:
             algos = self._discover_algorithms()
         except Exception as e:
-            tk.Label(self._algo_frame, text=f"⚠ 加载失败: {e}", bg=C["bg_elevated"], fg=C["danger"], font=FONT).pack(
-                padx=4, pady=8
-            )
+            err_lbl = QLabel(f"⚠ 加载失败: {e}")
+            err_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent; font: {FONT};")
+            self._algo_frame.layout().addWidget(err_lbl)
             return
 
         trained = sum(1 for a in algos if a["has_ckpt"])
-        self._algo_count_lbl.config(text=f"{len(algos)} 算法 · 已训练 {trained}")
+        self._algo_count_lbl.setText(f"{len(algos)} 算法 · 已训练 {trained}")
 
-        self._algo_row_refs.clear()
         for a in algos:
             aid = a["algorithm_id"]
             self._algo_meta[aid] = a
 
-            row = tk.Frame(
-                self._algo_frame, bg=C["bg_surface"], highlightthickness=1, highlightbackground=C["border_sub"]
-            )
-            row.pack(fill=tk.X, pady=1)
+            row = QFrame(self._algo_frame)
+            row.setStyleSheet(f"background-color: {C['bg_surface']}; border: 1px solid {C['border_sub']};")
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(4, 1, 4, 1)
+            row_layout.setSpacing(2)
+            self._algo_frame.layout().addWidget(row)
 
-            var = tk.BooleanVar(value=not a["has_ckpt"])
-            self._check_vars[aid] = var
-            ttk.Checkbutton(row, variable=var).grid(row=0, column=0, padx=4, pady=2)
+            cb = QCheckBox("")
+            cb.setChecked(not a["has_ckpt"])
+            self._check_vars[aid] = cb
+            row_layout.addWidget(cb)
 
-            tk.Label(row, text=a["name"], bg=C["bg_surface"], fg=C["text_1"], font=FONT, width=16, anchor="w").grid(
-                row=0, column=1, padx=2, sticky="w"
-            )
-            tk.Label(row, text=aid, bg=C["bg_surface"], fg=C["text_3"], font=FONT_MONO, width=14, anchor="w").grid(
-                row=0, column=2, padx=2, sticky="w"
-            )
+            name_lbl = QLabel(a["name"])
+            name_lbl.setStyleSheet(f"color: {C['text_1']}; background: transparent; font: {FONT};")
+            name_lbl.setFixedWidth(130)
+            row_layout.addWidget(name_lbl)
+
+            id_lbl = QLabel(aid)
+            id_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent; font: {FONT_MONO};")
+            id_lbl.setFixedWidth(100)
+            row_layout.addWidget(id_lbl)
 
             if a["has_ckpt"]:
                 st = f"✅ {a['active_version'][:10]}"
@@ -388,39 +506,36 @@ class TrainingPanel(BaseTrainingPanel):
             else:
                 st = "□ 未训练"
                 sf = C["text_3"]
-            status_lbl = tk.Label(row, text=st, bg=C["bg_surface"], fg=sf, font=FONT_SM, width=12, anchor="w")
-            status_lbl.grid(row=0, column=3, padx=2, sticky="w")
+            status_lbl = QLabel(st)
+            status_lbl.setStyleSheet(f"color: {sf}; background: transparent; font: {FONT_SM};")
+            status_lbl.setFixedWidth(90)
+            row_layout.addWidget(status_lbl)
 
             # 置信度列
             conf = load_algo_confidence(aid)
             conf_text, conf_color = format_confidence(conf)
-            conf_lbl = tk.Label(
-                row, text=conf_text, bg=C["bg_surface"], fg=conf_color, font=FONT_SM, width=10, anchor="w"
-            )
-            conf_lbl.grid(row=0, column=4, padx=2, sticky="w")
+            conf_lbl = QLabel(conf_text)
+            conf_lbl.setStyleSheet(f"color: {conf_color}; background: transparent; font: {FONT_SM};")
+            conf_lbl.setFixedWidth(80)
+            row_layout.addWidget(conf_lbl)
 
-            ver_lbl = tk.Label(
-                row,
-                text=f"v{a['version_count']}",
-                bg=C["bg_surface"],
-                fg=C["text_3"],
-                font=FONT_SM,
-                width=6,
-                anchor="w",
-            )
-            ver_lbl.grid(row=0, column=5, padx=2, sticky="w")
+            ver_lbl = QLabel(f"v{a['version_count']}")
+            ver_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent; font: {FONT_SM};")
+            ver_lbl.setFixedWidth(50)
+            row_layout.addWidget(ver_lbl)
 
+            row_layout.addStretch()
             self._algo_row_refs[aid] = [status_lbl, conf_lbl, ver_lbl]
 
     def _select_all(self, flag: bool):
         """全选或全不选所有算法"""
-        for v in self._check_vars.values():
-            v.set(flag)
+        for cb in self._check_vars.values():
+            cb.setChecked(flag)
 
     def _select_untrained(self):
         """仅选中尚未训练的算法"""
-        for aid, var in self._check_vars.items():
-            var.set(not self._algo_meta.get(aid, {}).get("has_ckpt", False))
+        for aid, cb in self._check_vars.items():
+            cb.setChecked(not self._algo_meta.get(aid, {}).get("has_ckpt", False))
 
     def _update_algo_row(
         self,
@@ -437,11 +552,15 @@ class TrainingPanel(BaseTrainingPanel):
             return
         status_lbl, conf_lbl, ver_lbl = refs
         if status is not None:
-            status_lbl.config(text=status, fg=status_color or C["text_3"])
+            status_lbl.setText(status)
+            if status_color:
+                status_lbl.setStyleSheet(f"color: {status_color}; background: transparent; font: {FONT_SM};")
         if conf is not None:
-            conf_lbl.config(text=conf, fg=conf_color or C["text_3"])
+            conf_lbl.setText(conf)
+            if conf_color:
+                conf_lbl.setStyleSheet(f"color: {conf_color}; background: transparent; font: {FONT_SM};")
         if ver is not None:
-            ver_lbl.config(text=ver)
+            ver_lbl.setText(ver)
 
     # ── 版本管理 ──────────────────────────────────
 
@@ -464,178 +583,209 @@ class TrainingPanel(BaseTrainingPanel):
                 )
 
         if not algos:
-            messagebox.showinfo("提示", "没有任何已训练的模型", parent=self.frame)
+            QMessageBox.information(self, "提示", "没有任何已训练的模型")
             return
 
-        dialog, info_lbl, detail_frame, algo_inner = self._draw_manage_dialog()
+        self._show_manage_versions(algos)
+        return
 
-        def _refresh_detail(aid, name):
-            self._draw_version_detail(detail_frame, info_lbl, aid, name, _refresh_detail)
+    def _show_manage_versions(self, algos):
+        """打开版本管理对话框"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Checkpoint 版本管理")
+        dialog.resize(700, 500)
+        dialog.setModal(True)
+        dlg_layout = QVBoxLayout(dialog)
+        dlg_layout.setContentsMargins(8, 8, 8, 8)
 
-        self._draw_version_list(algo_inner, algos, _refresh_detail)
+        main = QWidget()
+        main_layout = QHBoxLayout(main)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        dlg_layout.addWidget(main, 1)
 
-    def _draw_manage_dialog(self):
-        """构建版本管理对话框骨架，返回 (dialog, info_lbl, detail_frame, algo_inner)"""
-        dialog = tk.Toplevel(self.frame)
-        dialog.title("Checkpoint 版本管理")
-        dialog.geometry("700x500")
-        dialog.transient(self.frame)
-        dialog.grab_set()
-        dialog.configure(bg=C["bg_base"])
+        left_panel = QFrame(main)
+        left_panel.setStyleSheet(f"background-color: {C['bg_elevated']};")
+        left_panel.setFixedWidth(220)
+        left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.addWidget(left_panel)
 
-        main = tk.Frame(dialog, bg=C["bg_base"])
-        main.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
-
-        left_panel = tk.Frame(main, bg=C["bg_elevated"], width=220)
-        left_panel.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 6))
-        left_panel.pack_propagate(False)
-        tk.Label(left_panel, text="算法", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(
-            fill=tk.X, padx=4, pady=4
-        )
+        left_title = QLabel("算法")
+        left_title.setStyleSheet(f"color: {C['text_2']}; background: transparent; font: {FONT_SM}; padding: 4px;")
+        left_layout.addWidget(left_title)
 
         algo_sf = ScrollableFrame(left_panel, bg=C["bg_elevated"])
-        algo_sf.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        left_layout.addWidget(algo_sf, 1)
         algo_inner = algo_sf.inner
 
-        right_panel = tk.Frame(main, bg=C["bg_surface"])
-        right_panel.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+        right_panel = QFrame(main)
+        right_panel.setStyleSheet(f"background-color: {C['bg_surface']};")
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.addWidget(right_panel, 1)
 
-        info_lbl = tk.Label(right_panel, text="← 选择一个算法", bg=C["bg_surface"], fg=C["text_3"], font=FONT)
-        info_lbl.pack(pady=20)
+        info_lbl = QLabel("← 选择一个算法")
+        info_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent; font: {FONT};")
+        right_layout.addWidget(info_lbl)
+        info_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        detail_frame = tk.Frame(right_panel, bg=C["bg_surface"])
-        detail_frame.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+        detail_frame = QFrame(right_panel)
+        detail_frame.setStyleSheet(f"background-color: {C['bg_surface']};")
+        right_layout.addWidget(detail_frame, 1)
 
-        return dialog, info_lbl, detail_frame, algo_inner
+        def _refresh_detail(aid, name):
+            self._draw_version_detail_pyqt(detail_frame, info_lbl, aid, name, _refresh_detail)
 
-    def _draw_version_list(self, algo_inner, algos, refresh_cb):
+        self._draw_version_list_pyqt(algo_inner, algos, _refresh_detail)
+        dialog.exec()
+
+    def _draw_version_list_pyqt(self, algo_inner, algos, refresh_cb):
         """填充左侧算法列表按钮"""
+        layout = algo_inner.layout() if algo_inner.layout() else QVBoxLayout(algo_inner)
         for a in sorted(algos, key=lambda x: x["name"]):
-            btn = tk.Label(
-                algo_inner,
-                text=f"{a['name']}",
-                bg=C["bg_elevated"],
-                fg=C["text_1"],
-                font=FONT_SM,
-                anchor="w",
-                cursor="hand2",
-                padx=6,
-                pady=3,
+            btn = QPushButton(f"{a['name']}")
+            btn.setStyleSheet(
+                f"background-color: {C['bg_elevated']}; color: {C['text_1']}; font: {FONT_SM}; "
+                f"text-align: left; padding: 3px 6px; border: none;"
             )
-            btn.pack(fill=tk.X)
-            btn.bind("<Button-1>", lambda e, aid=a["algorithm_id"], n=a["name"]: refresh_cb(aid, n))
-            btn.bind("<Enter>", lambda e, b=btn: b.configure(bg=C["bg_surface"]))
-            btn.bind("<Leave>", lambda e, b=btn: b.configure(bg=C["bg_elevated"]))
+            aid_val = a["algorithm_id"]
+            name_val = a["name"]
+            btn.clicked.connect(lambda checked=False, aid=aid_val, n=name_val: refresh_cb(aid, n))
+            layout.addWidget(btn)
 
-    def _draw_version_detail(self, detail_frame, info_lbl, aid, name, refresh_cb):
+    def _draw_version_detail_pyqt(self, detail_frame, info_lbl, aid, name, refresh_cb):
         """刷新指定算法的版本详情面板"""
         from algorithms.training.checkpoint_manager import CheckpointManager, list_video_finetune_bvids
 
-        for w in detail_frame.winfo_children():
-            w.destroy()
+        # Clear existing
+        old_layout = detail_frame.layout()
+        if old_layout is not None:
+            while old_layout.count():
+                item = old_layout.takeAt(0)
+                w = item.widget()
+                if w is not None:
+                    w.deleteLater()
 
-        info_lbl.pack_forget()
+        info_lbl.hide()
 
-        tk.Label(detail_frame, text=f"{name}  ({aid})", bg=C["bg_surface"], fg=C["text_1"], font=FONT_BOLD).pack(
-            anchor="w", pady=(0, 6)
-        )
+        layout = QVBoxLayout(detail_frame)
+        layout.setContentsMargins(4, 4, 4, 4)
+
+        title_lbl = QLabel(f"{name}  ({aid})")
+        title_lbl.setStyleSheet(f"color: {C['text_1']}; background: transparent; font: bold;")
+        layout.addWidget(title_lbl)
 
         ckpt = CheckpointManager(aid)
 
-        tk.Label(detail_frame, text="全局版本", bg=C["bg_surface"], fg=C["text_2"], font=FONT_SM).pack(anchor="w")
+        section_lbl = QLabel("全局版本")
+        section_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent; font: {FONT_SM};")
+        layout.addWidget(section_lbl)
 
         versions = ckpt.list_versions()
         if not versions:
-            tk.Label(
-                detail_frame, text="  （无全局 checkpoint）", bg=C["bg_surface"], fg=C["text_3"], font=FONT_SM
-            ).pack(anchor="w", pady=2)
+            no_ver = QLabel("  （无全局 checkpoint）")
+            no_ver.setStyleSheet(f"color: {C['text_3']}; background: transparent; font: {FONT_SM};")
+            layout.addWidget(no_ver)
         else:
             for v in versions:
-                row = tk.Frame(detail_frame, bg=C["bg_elevated"])
-                row.pack(fill=tk.X, pady=1)
+                row = QFrame(detail_frame)
+                row.setStyleSheet(f"background-color: {C['bg_elevated']};")
+                row_layout = QHBoxLayout(row)
+                row_layout.setContentsMargins(4, 1, 4, 1)
+                layout.addWidget(row)
+
                 active_tag = "★ " if v.get("active") else "  "
-                tk.Label(
-                    row,
-                    text=f"{active_tag}{v['version']}",
-                    bg=C["bg_elevated"],
-                    fg=C["success"] if v.get("active") else C["text_1"],
-                    font=FONT_MONO,
-                    width=30,
-                    anchor="w",
-                ).pack(side=tk.LEFT, padx=4, pady=2)
+                ver_lbl = QLabel(f"{active_tag}{v['version']}")
+                ver_lbl.setStyleSheet(
+                    f"color: {C['success'] if v.get('active') else C['text_1']}; "
+                    f"background: transparent; font: {FONT_MONO};"
+                )
+                ver_lbl.setFixedWidth(200)
+                row_layout.addWidget(ver_lbl)
 
                 if not v.get("active") and len(versions) > 1:
-                    ttk.Button(
-                        row,
-                        text="激活",
-                        width=4,
-                        command=lambda ver=v["version"], c=ckpt, a=aid, n=name, cb=refresh_cb: (
+                    activate_btn = QPushButton("激活")
+                    activate_btn.setFixedWidth(50)
+                    ver_val = v["version"]
+                    activate_btn.clicked.connect(
+                        lambda checked=False, c=ckpt, ver=ver_val, a=aid, n=name, cb=refresh_cb: (
                             self._activate_version(c, ver, a, n, cb)
-                        ),
-                    ).pack(side=tk.RIGHT, padx=2)
+                        )
+                    )
+                    row_layout.addWidget(activate_btn)
 
                 if len(versions) > 1:
-                    ttk.Button(
-                        row,
-                        text="✕",
-                        width=3,
-                        command=lambda ver=v["version"], c=ckpt, a=aid, n=name, cb=refresh_cb: (
+                    del_btn = QPushButton("✕")
+                    del_btn.setFixedWidth(30)
+                    ver_val = v["version"]
+                    del_btn.clicked.connect(
+                        lambda checked=False, ver=ver_val, c=ckpt, a=aid, n=name, cb=refresh_cb: (
                             c.delete(ver),
                             cb(a, n),
-                        ),
-                    ).pack(side=tk.RIGHT, padx=2)
+                        )
+                    )
+                    row_layout.addWidget(del_btn)
 
                 vl = v.get("val_loss", -1)
-                vl_txt = f"  val_loss={vl:.4f}" if vl >= 0 else ""
-                tk.Label(row, text=vl_txt, bg=C["bg_elevated"], fg=C["text_3"], font=FONT_SM).pack(side=tk.LEFT)
+                if vl >= 0:
+                    vl_lbl = QLabel(f"  val_loss={vl:.4f}")
+                    vl_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent; font: {FONT_SM};")
+                    row_layout.addWidget(vl_lbl)
+
+                row_layout.addStretch()
 
         bvids = list_video_finetune_bvids(aid)
         if bvids:
-            tk.Label(detail_frame, text="\n视频微调版本", bg=C["bg_surface"], fg=C["text_2"], font=FONT_SM).pack(
-                anchor="w"
-            )
+            ft_lbl = QLabel("\n视频微调版本")
+            ft_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent; font: {FONT_SM};")
+            layout.addWidget(ft_lbl)
             for bvid in bvids:
                 v_ckpt = CheckpointManager(aid, bvid=bvid)
                 v_vers = v_ckpt.list_versions()
                 for v in v_vers:
-                    row = tk.Frame(detail_frame, bg=C["bg_elevated"])
-                    row.pack(fill=tk.X, pady=1)
-                    tk.Label(
-                        row,
-                        text=f"  📺 {bvid}  {v['version']}",
-                        bg=C["bg_elevated"],
-                        fg=C["text_1"],
-                        font=FONT_MONO,
-                        anchor="w",
-                    ).pack(side=tk.LEFT, padx=4, pady=2)
-                    ttk.Button(
-                        row,
-                        text="✕",
-                        width=3,
-                        command=lambda b=bvid, ver=v["version"], a=aid, n=name, cb=refresh_cb: (
+                    row = QFrame(detail_frame)
+                    row.setStyleSheet(f"background-color: {C['bg_elevated']};")
+                    row_layout = QHBoxLayout(row)
+                    row_layout.setContentsMargins(4, 1, 4, 1)
+                    layout.addWidget(row)
+
+                    bvid_lbl = QLabel(f"  📺 {bvid}  {v['version']}")
+                    bvid_lbl.setStyleSheet(f"color: {C['text_1']}; background: transparent; font: {FONT_MONO};")
+                    row_layout.addWidget(bvid_lbl)
+                    row_layout.addStretch()
+
+                    del_btn = QPushButton("✕")
+                    del_btn.setFixedWidth(30)
+                    bvid_val = bvid
+                    ver_val = v["version"]
+                    del_btn.clicked.connect(
+                        lambda checked=False, b=bvid_val, ver=ver_val, a=aid, n=name, cb=refresh_cb: (
                             CheckpointManager(a, bvid=b).delete(ver),
                             cb(a, n),
-                        ),
-                    ).pack(side=tk.RIGHT, padx=2)
+                        )
+                    )
+                    row_layout.addWidget(del_btn)
 
         if versions or bvids:
-            tk.Label(detail_frame, text="", bg=C["bg_surface"]).pack()
-            sep = tk.Frame(detail_frame, bg=C["border"], height=1)
-            sep.pack(fill=tk.X, pady=4)
-            btn_row = tk.Frame(detail_frame, bg=C["bg_surface"])
-            btn_row.pack(fill=tk.X)
+            layout.addSpacing(4)
+            sep = QFrame(detail_frame)
+            sep.setFrameShape(QFrame.Shape.HLine)
+            sep.setStyleSheet(f"color: {C['border']};")
+            layout.addWidget(sep)
+
+            btn_row = QWidget()
+            btn_row_layout = QHBoxLayout(btn_row)
+            btn_row_layout.setContentsMargins(0, 0, 0, 0)
+            layout.addWidget(btn_row)
+
             if _hard() == "normal":
-                ttk.Button(
-                    btn_row,
-                    text="删除所有全局版本",
-                    command=lambda a=aid, n=name: self._delete_all_global(a, n, refresh_cb),
-                ).pack(side=tk.LEFT, padx=2)
+                del_global_btn = QPushButton("删除所有全局版本")
+                del_global_btn.clicked.connect(lambda checked=False, a=aid, n=name: self._delete_all_global(a, n, refresh_cb))
+                btn_row_layout.addWidget(del_global_btn)
                 if bvids:
-                    ttk.Button(
-                        btn_row,
-                        text="删除所有微调版本",
-                        command=lambda a=aid, n=name: self._delete_all_video(a, n, refresh_cb),
-                    ).pack(side=tk.LEFT, padx=2)
+                    del_video_btn = QPushButton("删除所有微调版本")
+                    del_video_btn.clicked.connect(lambda checked=False, a=aid, n=name: self._delete_all_video(a, n, refresh_cb))
+                    btn_row_layout.addWidget(del_video_btn)
             else:
                 ckpt_dir = os.path.join(
                     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -643,13 +793,12 @@ class TrainingPanel(BaseTrainingPanel):
                     "checkpoints",
                     aid,
                 )
-                tk.Label(
-                    btn_row,
-                    text=f"📁 {os.path.relpath(ckpt_dir)}",
-                    bg=C["bg_surface"],
-                    fg=C["text_3"],
-                    font=FONT_SM,
-                ).pack(side=tk.LEFT, padx=4)
+                dir_lbl = QLabel(f"📁 {os.path.relpath(ckpt_dir)}")
+                dir_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent; font: {FONT_SM};")
+                btn_row_layout.addWidget(dir_lbl)
+            btn_row_layout.addStretch()
+
+        layout.addStretch()
 
     def _activate_version(self, ckpt, ver, aid, name, refresh_cb):
         """激活指定版本并刷新详情"""
@@ -658,9 +807,13 @@ class TrainingPanel(BaseTrainingPanel):
 
     def _delete_all_global(self, aid, name, refresh_cb):
         """删除算法的所有全局 checkpoint。"""
-        if not messagebox.askyesno(
-            "确认删除", f"确定要删除 {name} ({aid}) 的所有全局版本？\n此操作不可撤销。", parent=self.frame
-        ):
+        reply = QMessageBox.question(
+            self, "确认删除",
+            f"确定要删除 {name} ({aid}) 的所有全局版本？\n此操作不可撤销。",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
             return
         from algorithms.training.checkpoint_manager import CheckpointManager
 
@@ -672,9 +825,13 @@ class TrainingPanel(BaseTrainingPanel):
 
     def _delete_all_video(self, aid, name, refresh_cb):
         """删除算法的所有视频微调 checkpoint。"""
-        if not messagebox.askyesno(
-            "确认删除", f"确定要删除 {name} ({aid}) 的所有视频微调版本？\n此操作不可撤销。", parent=self.frame
-        ):
+        reply = QMessageBox.question(
+            self, "确认删除",
+            f"确定要删除 {name} ({aid}) 的所有视频微调版本？\n此操作不可撤销。",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
             return
         from algorithms.training.checkpoint_manager import CheckpointManager, list_video_finetune_bvids
 
@@ -698,7 +855,7 @@ class TrainingPanel(BaseTrainingPanel):
                 algo_list.append({"algorithm_id": aid, "name": getattr(algo, "name", aid)})
 
         if not algo_list:
-            messagebox.showwarning("提示", "没有已训练的深度学习算法可供微调", parent=self.frame)
+            QMessageBox.warning(self, "提示", "没有已训练的深度学习算法可供微调")
             return
 
         videos = []
@@ -712,32 +869,32 @@ class TrainingPanel(BaseTrainingPanel):
             logger.debug("忽略异常: %s", e)
 
         if not videos:
-            messagebox.showwarning("提示", "没有监控中的视频可微调", parent=self.frame)
+            QMessageBox.warning(self, "提示", "没有监控中的视频可微调")
             return
 
         dialog, ui = self._build_batch_dialog(algo_list, videos)
 
         def _ft_log(msg):
-            ui["log_text"].config(state="normal")
-            ui["log_text"].insert(tk.END, msg + "\n")
-            ui["log_text"].see(tk.END)
-            ui["log_text"].config(state="disabled")
+            ui["log_text"].setPlainText(ui["log_text"].toPlainText() + msg + "\n")
+            sb = ui["log_text"].verticalScrollBar()
+            if sb is not None:
+                sb.setValue(sb.maximum())
 
         def _start_ft():
-            selected_videos = [b for b, v in ui["video_vars"].items() if v.get()]
-            selected_algos = [a for a, v in ui["algo_vars"].items() if v.get()]
+            selected_videos = [b for b, v in ui["video_vars"].items() if v.isChecked()]
+            selected_algos = [a for a, v in ui["algo_vars"].items() if v.isChecked()]
             if not selected_videos:
-                messagebox.showwarning("提示", "请至少选择一个视频", parent=dialog)
+                QMessageBox.warning(dialog, "提示", "请至少选择一个视频")
                 return
             if not selected_algos:
-                messagebox.showwarning("提示", "请至少选择一个算法", parent=dialog)
+                QMessageBox.warning(dialog, "提示", "请至少选择一个算法")
                 return
 
-            epochs = max(1, ui["ft_epoch_var"].get())
-            batch = max(1, ui["ft_batch_var"].get())
+            epochs = max(1, ui["ft_epoch_spin"].value())
+            batch = max(1, ui["ft_batch_spin"].value())
             total = len(selected_videos) * len(selected_algos)
             _ft_log(f"开始批量微调: {len(selected_videos)} 视频 × {len(selected_algos)} 算法 = {total} 任务")
-            ui["start_btn"].config(state="disabled")
+            ui["start_btn"].setEnabled(False)
 
             threading.Thread(
                 target=lambda: self._start_batch_worker(
@@ -753,97 +910,124 @@ class TrainingPanel(BaseTrainingPanel):
                 daemon=True,
             ).start()
 
-        ui["start_btn"].config(command=_start_ft)
-        ui["cancel_btn"].config(command=dialog.destroy)
+        ui["start_btn"].clicked.connect(_start_ft)
+        ui["cancel_btn"].clicked.connect(dialog.close)
+        dialog.exec()
 
     def _build_batch_dialog(self, algo_list, videos):
         """构建批量微调对话框，返回 (dialog, ui_dict)"""
-        dialog = tk.Toplevel(self.frame)
-        dialog.title("批量微调")
-        dialog.geometry("650x500")
-        dialog.transient(self.frame)
-        dialog.grab_set()
-        dialog.configure(bg=C["bg_base"])
+        dialog = QDialog(self)
+        dialog.setWindowTitle("批量微调")
+        dialog.resize(650, 500)
+        dialog.setModal(True)
+        dlg_layout = QVBoxLayout(dialog)
+        dlg_layout.setContentsMargins(10, 10, 10, 10)
 
-        main = tk.Frame(dialog, bg=C["bg_base"])
-        main.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        main = QWidget()
+        main_layout = QVBoxLayout(main)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        dlg_layout.addWidget(main, 1)
 
-        tk.Label(main, text="选择视频", bg=C["bg_base"], fg=C["text_1"], font=FONT_BOLD).pack(anchor="w", pady=(0, 2))
-        video_frame = tk.Frame(main, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border"])
-        video_frame.pack(fill=tk.X, pady=(0, 8))
+        # 选择视频
+        video_title = QLabel("选择视频")
+        video_title.setStyleSheet(f"color: {C['text_1']}; background: transparent; font: bold;")
+        main_layout.addWidget(video_title)
+        video_frame = QFrame(main)
+        video_frame.setStyleSheet(f"background-color: {C['bg_elevated']}; border: 1px solid {C['border']};")
+        vf_layout = QHBoxLayout(video_frame)
+        vf_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.addWidget(video_frame)
         v_sf = ScrollableFrame(video_frame, bg=C["bg_elevated"], height=100)
-        v_sf.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        v_inner = v_sf.inner
+        vf_layout.addWidget(v_sf, 1)
 
         video_vars = {}
         for v in sorted(videos, key=lambda x: x["bvid"]):
-            var = tk.BooleanVar(value=True)
-            video_vars[v["bvid"]] = var
-            row = tk.Frame(v_inner, bg=C["bg_elevated"])
-            row.pack(fill=tk.X)
-            ttk.Checkbutton(row, variable=var).pack(side=tk.LEFT, padx=2)
-            tk.Label(
-                row, text=f"{v['title']}  ({v['bvid']})", bg=C["bg_elevated"], fg=C["text_1"], font=FONT_SM, anchor="w"
-            ).pack(side=tk.LEFT, padx=2, fill=tk.X)
+            cb = QCheckBox(f"{v['title']}  ({v['bvid']})")
+            cb.setChecked(True)
+            cb.setStyleSheet(f"color: {C['text_1']};")
+            video_vars[v["bvid"]] = cb
+            v_sf.addWidget(cb)
 
-        tk.Label(main, text="选择算法", bg=C["bg_base"], fg=C["text_1"], font=FONT_BOLD).pack(anchor="w", pady=(0, 2))
-        algo_frame = tk.Frame(main, bg=C["bg_elevated"], highlightthickness=1, highlightbackground=C["border"])
-        algo_frame.pack(fill=tk.X, pady=(0, 8))
+        # 选择算法
+        algo_title = QLabel("选择算法")
+        algo_title.setStyleSheet(f"color: {C['text_1']}; background: transparent; font: bold;")
+        main_layout.addWidget(algo_title)
+        algo_frame = QFrame(main)
+        algo_frame.setStyleSheet(f"background-color: {C['bg_elevated']}; border: 1px solid {C['border']};")
+        af_layout = QHBoxLayout(algo_frame)
+        af_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.addWidget(algo_frame)
         a_sf = ScrollableFrame(algo_frame, bg=C["bg_elevated"], height=100)
-        a_sf.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        a_inner = a_sf.inner
+        af_layout.addWidget(a_sf, 1)
 
         algo_vars = {}
         for a in sorted(algo_list, key=lambda x: x["name"]):
-            var = tk.BooleanVar(value=True)
-            algo_vars[a["algorithm_id"]] = var
-            row = tk.Frame(a_inner, bg=C["bg_elevated"])
-            row.pack(fill=tk.X)
-            ttk.Checkbutton(row, variable=var).pack(side=tk.LEFT, padx=2)
-            tk.Label(
-                row,
-                text=f"{a['name']}  ({a['algorithm_id']})",
-                bg=C["bg_elevated"],
-                fg=C["text_1"],
-                font=FONT_SM,
-                anchor="w",
-            ).pack(side=tk.LEFT, padx=2, fill=tk.X)
+            cb = QCheckBox(f"{a['name']}  ({a['algorithm_id']})")
+            cb.setChecked(True)
+            cb.setStyleSheet(f"color: {C['text_1']};")
+            algo_vars[a["algorithm_id"]] = cb
+            a_sf.addWidget(cb)
 
-        param_row = tk.Frame(main, bg=C["bg_base"])
-        param_row.pack(fill=tk.X, pady=(0, 8))
-        tk.Label(param_row, text="Epochs:", bg=C["bg_base"], fg=C["text_2"], font=FONT_SM).pack(
-            side=tk.LEFT, padx=(0, 4)
-        )
-        ft_epoch_var = tk.IntVar(value=5)
-        ttk.Spinbox(param_row, from_=1, to=100, textvariable=ft_epoch_var, width=6).pack(side=tk.LEFT, padx=(0, 16))
-        tk.Label(param_row, text="Batch:", bg=C["bg_base"], fg=C["text_2"], font=FONT_SM).pack(
-            side=tk.LEFT, padx=(0, 4)
-        )
-        ft_batch_var = tk.IntVar(value=16)
-        ttk.Spinbox(param_row, from_=1, to=512, textvariable=ft_batch_var, width=6).pack(side=tk.LEFT)
+        # 参数行
+        param_row = QWidget()
+        param_row_layout = QHBoxLayout(param_row)
+        param_row_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.addWidget(param_row)
 
-        ft_status = tk.Label(main, text="就绪", bg=C["bg_base"], fg=C["text_3"], font=FONT_SM, anchor="w")
-        ft_status.pack(fill=tk.X, pady=(0, 4))
-        ft_progress = ttk.Progressbar(main, mode="determinate", maximum=100)
-        ft_progress.pack(fill=tk.X, pady=(0, 8))
+        epoch_label = QLabel("Epochs:")
+        epoch_label.setStyleSheet(f"color: {C['text_2']}; background: transparent; font: {FONT_SM};")
+        param_row_layout.addWidget(epoch_label)
+        ft_epoch_spin = QSpinBox()
+        ft_epoch_spin.setRange(1, 100)
+        ft_epoch_spin.setValue(5)
+        param_row_layout.addWidget(ft_epoch_spin)
+        param_row_layout.addSpacing(12)
 
-        log_text = tk.Text(
-            main, bg=C["bg_base"], fg=C["text_1"], font=("Consolas", 9), relief="flat", height=6, state="disabled"
-        )
-        log_text.pack(fill=tk.BOTH, expand=True)
+        batch_label = QLabel("Batch:")
+        batch_label.setStyleSheet(f"color: {C['text_2']}; background: transparent; font: {FONT_SM};")
+        param_row_layout.addWidget(batch_label)
+        ft_batch_spin = QSpinBox()
+        ft_batch_spin.setRange(1, 512)
+        ft_batch_spin.setValue(16)
+        param_row_layout.addWidget(ft_batch_spin)
+        param_row_layout.addStretch()
 
-        btn_row = tk.Frame(main, bg=C["bg_base"])
-        btn_row.pack(fill=tk.X)
-        start_btn = ttk.Button(btn_row, text="▶ 开始微调")
-        start_btn.pack(side=tk.LEFT, padx=(0, 6))
-        cancel_btn = ttk.Button(btn_row, text="取消")
-        cancel_btn.pack(side=tk.LEFT)
+        ft_status = QLabel("就绪")
+        ft_status.setStyleSheet(f"color: {C['text_3']}; background: transparent; font: {FONT_SM};")
+        main_layout.addWidget(ft_status)
+        ft_progress = QProgressBar()
+        ft_progress.setMaximum(100)
+        ft_progress.setValue(0)
+        main_layout.addWidget(ft_progress)
+
+        log_text = QPlainTextEdit()
+        log_text.setReadOnly(True)
+        log_text.setStyleSheet(f"""
+            QPlainTextEdit {{
+                background-color: {C['bg_base']};
+                color: {C['text_1']};
+                font-family: Consolas;
+                font-size: 9pt;
+                border: 1px solid {C['border']};
+            }}
+        """)
+        main_layout.addWidget(log_text, 1)
+
+        btn_row = QWidget()
+        btn_row_layout = QHBoxLayout(btn_row)
+        btn_row_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.addWidget(btn_row)
+        start_btn = QPushButton("▶ 开始微调")
+        btn_row_layout.addWidget(start_btn)
+        cancel_btn = QPushButton("取消")
+        btn_row_layout.addWidget(cancel_btn)
+        btn_row_layout.addStretch()
 
         return dialog, {
             "video_vars": video_vars,
             "algo_vars": algo_vars,
-            "ft_epoch_var": ft_epoch_var,
-            "ft_batch_var": ft_batch_var,
+            "ft_epoch_spin": ft_epoch_spin,
+            "ft_batch_spin": ft_batch_spin,
             "ft_status": ft_status,
             "ft_progress": ft_progress,
             "log_text": log_text,
@@ -863,10 +1047,10 @@ class TrainingPanel(BaseTrainingPanel):
                 done += 1
                 pct = int(done / total * 100)
                 msg = f"[{done}/{total}] 微调 {aid} → {bvid}"
-                dialog.after(0, lambda m=msg: ui["ft_status"].configure(text=m))
-                dialog.after(0, lambda p=pct: ui["ft_progress"].config(value=p))
-                dialog.after(0, lambda m=msg: _ft_log(m))
-                dialog.after(0, lambda d=done, t=total: self.main.set_finetune_status(f"🎯 批量微调 {d}/{t}"))
+                invoke(lambda m=msg: ui["ft_status"].setText(m))
+                invoke(lambda p=pct: ui["ft_progress"].setValue(p))
+                invoke(lambda m=msg: _ft_log(m))
+                invoke(lambda d=done, t=total: self.main.set_finetune_status(f"🎯 批量微调 {d}/{t}"))
                 try:
                     ver = trainer.finetune_for_video(
                         algo_id=aid,
@@ -874,18 +1058,18 @@ class TrainingPanel(BaseTrainingPanel):
                         epochs=epochs,
                         batch_size=batch,
                     )
-                    dialog.after(0, lambda a=aid, b=bvid, v=ver: _ft_log(f"  ✓ {a}@{b} → {v[:12]}"))
+                    invoke(lambda a=aid, b=bvid, v=ver: _ft_log(f"  ✓ {a}@{b} → {v[:12]}"))
                 except Exception as e:
-                    dialog.after(0, lambda a=aid, b=bvid, e=e: _ft_log(f"  ✗ {a}@{b}: {e}"))
+                    invoke(lambda a=aid, b=bvid, e=e: _ft_log(f"  ✗ {a}@{b}: {e}"))
         self._batch_done_callback(dialog, ui, _ft_log, done)
 
     def _batch_done_callback(self, dialog, ui, _ft_log, done):
         """批量微调完成后的 UI 更新回调"""
-        dialog.after(0, lambda: ui["ft_status"].configure(text=f"✅ 微调完成 ({done} 任务)"))
-        dialog.after(0, lambda: ui["ft_progress"].config(value=100))
-        dialog.after(0, lambda: self.main.set_finetune_status(f"✅ 批量微调完成 ({done})"))
-        dialog.after(0, lambda: ui["start_btn"].config(state="normal"))
-        dialog.after(0, lambda: _ft_log("🏁 批量微调全部完成"))
+        invoke(lambda: ui["ft_status"].setText(f"✅ 微调完成 ({done} 任务)"))
+        invoke(lambda: ui["ft_progress"].setValue(100))
+        invoke(lambda: self.main.set_finetune_status(f"✅ 批量微调完成 ({done})"))
+        invoke(lambda: ui["start_btn"].setEnabled(True))
+        invoke(lambda: _ft_log("🏁 批量微调全部完成"))
 
     # ══════════════════════════════════════════════
     # 训练执行
@@ -906,21 +1090,21 @@ class TrainingPanel(BaseTrainingPanel):
         if self._training:
             return None
         if not _torch_available:
-            messagebox.showerror("torch 未安装", "请先 pip install torch", parent=self.frame)
+            QMessageBox.critical(self, "torch 未安装", "请先 pip install torch")
             return None
 
-        selected = [aid for aid, v in self._check_vars.items() if v.get()]
+        selected = [aid for aid, cb in self._check_vars.items() if cb.isChecked()]
         if not selected:
-            messagebox.showwarning("提示", "请至少勾选一个算法", parent=self.frame)
+            QMessageBox.warning(self, "提示", "请至少勾选一个算法")
             return None
 
-        epochs = max(1, int(self._epoch_var.get()))
-        batch = max(1, int(self._batch_var.get()))
-        is_incremental = self._mode_var.get() == "incremental"
+        epochs = max(1, self._epoch_spin.value())
+        batch = max(1, self._batch_spin.value())
+        is_incremental = self._mode_incremental.isChecked()
         mode_label = "增量训练" if is_incremental else "重新训练"
 
         # 并行数 + VRAM 安全检查
-        parallel = max(1, min(4, int(self._parallel_var.get())))
+        parallel = max(1, min(4, self._parallel_spin.value()))
         if parallel > len(selected):
             parallel = len(selected)
         parallel_warning = ""
@@ -941,31 +1125,33 @@ class TrainingPanel(BaseTrainingPanel):
         except Exception:
             pass
 
-        if self._lr_auto_var.get():
+        if self._lr_auto_cb.isChecked():
             lr = self._auto_compute_lr()
-            self._lr_var.set(f"{lr:.6f}")
+            self._lr_entry.setText(f"{lr:.6f}")
             lr_label = f"自动 ({lr:.6f})"
         else:
             try:
-                lr = float(self._lr_var.get())
+                lr = float(self._lr_entry.text())
             except (ValueError, TypeError):
-                messagebox.showerror("LR 无效", "请输入有效的学习率数值", parent=self.frame)
+                QMessageBox.critical(self, "LR 无效", "请输入有效的学习率数值")
                 return None
             lr = max(1e-8, min(1.0, lr))
             lr_label = f"手动 ({lr:.6f})"
 
-        if not messagebox.askyesno(
-            "确认训练",
+        reply = QMessageBox.question(
+            self, "确认训练",
             f"模式: {mode_label}  并行: {parallel}\n"
             f"算法: {len(selected)} 个\n"
             f"epoch={epochs}  batch={batch}  LR={lr_label}"
             f"{parallel_warning}\n"
             f"训练过程不可中途暂停（只能取消未开始的算法）。",
-            parent=self.frame,
-        ):
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
             return None
 
-        return (selected, epochs, batch, is_incremental, lr, mode_label, lr_label, parallel, self._batch_log_var.get(), self._batch_interval_val.get(), self._batch_interval_unit.get())
+        return (selected, epochs, batch, is_incremental, lr, mode_label, lr_label, parallel, self._batch_log_cb.isChecked(), self._batch_interval_entry.text(), self._batch_interval_combo.currentText())
 
     def _build_train_config(self, selected, epochs, batch, mode_label, lr):
         """重置训练状态、打开日志文件、更新状态标签"""
@@ -974,17 +1160,19 @@ class TrainingPanel(BaseTrainingPanel):
         self._append_log(
             f"🚀 开始训练: {mode_label}, {len(selected)} 个算法, epoch={epochs}, batch={batch}, lr={lr:.6f}"
         )
-        if self._batch_log_var.get():
-            val = self._batch_interval_val.get()
-            unit = self._batch_interval_unit.get()
+        if self._batch_log_cb.isChecked():
+            val = self._batch_interval_entry.text()
+            unit = self._batch_interval_combo.currentText()
             self._append_log(f"📋 详细日志：每 {val}{unit} batch 输出进度")
-        self._status_lbl.config(text=f"准备训练 {len(selected)} 个算法 …", fg=C["text_2"])
+        self._status_lbl.setText(f"准备训练 {len(selected)} 个算法 …")
+        self._status_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
 
         # ── 全局反馈：窗口标题 + 主界面状态栏 ──
         try:
-            top = self.frame.winfo_toplevel()
-            self._saved_title = top.title()
-            top.title(f"🔴 训练中 — {self._saved_title}")
+            top = self.window()
+            if top and top.window():
+                self._saved_title = top.windowTitle()
+                top.setWindowTitle(f"🔴 训练中 — {self._saved_title}")
         except Exception:
             self._saved_title = None
         try:
@@ -1052,7 +1240,9 @@ class TrainingPanel(BaseTrainingPanel):
                         self._train_queue.put({"stage": "log", "text": f"  🗑 已清除 {aid} 的 {_n} 个旧版本"})
 
                 self._skip_algo_flag[0] = False
-                self.frame.after(0, lambda: self._skip_btn.config(state="normal"))
+                if self._skip_btn:
+                    invoke(lambda: self._skip_btn.setEnabled(False))
+                    invoke(lambda: self._skip_btn.setEnabled(True))
 
                 aid_factor = algo_lr_factors.get(aid, 1.0)
                 effective_lr = lr * aid_factor
@@ -1116,8 +1306,10 @@ class TrainingPanel(BaseTrainingPanel):
         """取消训练按钮回调"""
         self._cancel_flag[0] = True
         if self._cancel_btn:
-            self._cancel_btn.config(state="disabled")
-        self._status_lbl.config(text="正在取消（等待当前算法完成）…", fg=C["warning"])
+            self._cancel_btn.setEnabled(False)
+        if self._status_lbl:
+            self._status_lbl.setText("正在取消（等待当前算法完成）…")
+            self._status_lbl.setStyleSheet(f"color: {C['warning']}; background: transparent;")
         self._append_log("⏹ 用户请求取消训练")
         self._close_log_file()
 
@@ -1125,8 +1317,10 @@ class TrainingPanel(BaseTrainingPanel):
         """跳过当前正在训练的算法，继续下一个。"""
         self._skip_algo_flag[0] = True
         if self._skip_btn:
-            self._skip_btn.config(state="disabled")
-        self._status_lbl.config(text="⏭ 跳过当前算法（等待本轮完成）…", fg=C["warning"])
+            self._skip_btn.setEnabled(False)
+        if self._status_lbl:
+            self._status_lbl.setText("⏭ 跳过当前算法（等待本轮完成）…")
+            self._status_lbl.setStyleSheet(f"color: {C['warning']}; background: transparent;")
         self._append_log("⏭ 用户请求跳过当前算法")
 
     STAGE_HANDLERS = {
@@ -1159,7 +1353,9 @@ class TrainingPanel(BaseTrainingPanel):
         self._algo_start_time = time.time()
         self._epoch_times: List[float] = []  # 当前算法各 epoch 耗时（秒）
         self._last_epoch_elapsed = 0.0
-        self._status_lbl.config(text=f"[{cur}/{tot}] 训练 {aid} …", fg=C["text_2"])
+        if self._status_lbl:
+            self._status_lbl.setText(f"[{cur}/{tot}] 训练 {aid} …")
+            self._status_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
         self._append_log(f"── [{cur}/{tot}] 开始训练 {aid} ──")
         self._update_algo_row(aid, status="▶ 训练中", status_color=C["accent"])
         self._monitor.reset()
@@ -1169,8 +1365,9 @@ class TrainingPanel(BaseTrainingPanel):
         except Exception:
             pass
         if self._progress:
-            self._progress["value"] = 0
-            self._progress.configure(mode="determinate")
+            self._progress.setValue(0)
+            self._progress.setMinimum(0)
+            self._progress.setMaximum(100)
 
     def _on_stage_batch(self, msg):
         """处理 batch 完成事件 — 更新状态栏并写入详细日志"""
@@ -1218,7 +1415,8 @@ class TrainingPanel(BaseTrainingPanel):
             self._update_algo_row(aid, conf=conf_str, conf_color=conf_color)
 
         pct = min(100, int((ep / max(1, eps)) * 100))
-        self._progress["value"] = pct
+        if self._progress:
+            self._progress.setValue(pct)
         vtxt = f"  val={vloss:.4f}" if vloss >= 0 else ""
 
         # ── EMA 加权 ETA：最近 epoch 权重更高 ──
@@ -1258,10 +1456,11 @@ class TrainingPanel(BaseTrainingPanel):
             total_remaining = algo_remaining + other_remaining
             total_eta_str = f"  ⏱本{algo_eta} 总{self._fmt_duration(total_remaining)}"
 
-        self._status_lbl.config(
-            text=f"{aid}  ep{ep}/{eps}  train={tloss:.4f}{vtxt}  {conf_str}  {elapsed:.0f}s{total_eta_str}",
-            fg=C["text_1"],
-        )
+        if self._status_lbl:
+            self._status_lbl.setText(
+                f"{aid}  ep{ep}/{eps}  train={tloss:.4f}{vtxt}  {conf_str}  {elapsed:.0f}s{total_eta_str}"
+            )
+            self._status_lbl.setStyleSheet(f"color: {C['text_1']}; background: transparent;")
 
         # 主窗口状态栏（含 ETA）
         try:
@@ -1315,8 +1514,11 @@ class TrainingPanel(BaseTrainingPanel):
             self._algo_durations = []
         self._algo_durations.append(algo_elapsed)
 
-        self._status_lbl.config(text=f"✓ {aid} → {ver} ({cur}/{total_sel})  {algo_elapsed:.0f}s", fg=C["success"])
-        self._progress["value"] = int(cur / max(1, total_sel) * 100)
+        if self._status_lbl:
+            self._status_lbl.setText(f"✓ {aid} → {ver} ({cur}/{total_sel})  {algo_elapsed:.0f}s")
+            self._status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
+        if self._progress:
+            self._progress.setValue(int(cur / max(1, total_sel) * 100))
 
         # 计算总体 ETA
         remaining = total_sel - cur
@@ -1362,7 +1564,9 @@ class TrainingPanel(BaseTrainingPanel):
         """处理训练错误事件"""
         aid = msg.get("algo_id", "?")
         err = msg.get("error", "")
-        self._status_lbl.config(text=f"✗ {aid} 失败: {err}", fg=C["danger"])
+        if self._status_lbl:
+            self._status_lbl.setText(f"✗ {aid} 失败: {err}")
+            self._status_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
         self._append_log(f"✗ {aid} 训练失败: {err}")
         self._update_algo_row(aid, status="✗ 失败", status_color=C["danger"])
         try:
@@ -1374,12 +1578,16 @@ class TrainingPanel(BaseTrainingPanel):
         """处理自动调整事件"""
         message = msg.get("message", "")
         self._append_log(f"  🔧 自动调整: {message}")
-        self._status_lbl.config(text=f"⚡ {message}", fg=C["warning"])
+        if self._status_lbl:
+            self._status_lbl.setText(f"⚡ {message}")
+            self._status_lbl.setStyleSheet(f"color: {C['warning']}; background: transparent;")
 
     def _on_stage_cancelled(self, msg):
         """处理取消训练事件"""
         rem = msg.get("remaining", [])
-        self._status_lbl.config(text=f"已取消，剩余 {len(rem)} 个", fg=C["warning"])
+        if self._status_lbl:
+            self._status_lbl.setText(f"已取消，剩余 {len(rem)} 个")
+            self._status_lbl.setStyleSheet(f"color: {C['warning']}; background: transparent;")
         self._append_log(f"⏹ 已取消, 剩余 {len(rem)} 个算法")
         try:
             self.main._sb("algo", f"⏹ 训练已取消 (剩余{len(rem)}个)", color=C["warning"])
@@ -1404,8 +1612,11 @@ class TrainingPanel(BaseTrainingPanel):
             conf_str, _ = format_confidence(conf)
             conf_summary += f"  {aid}: {conf_str}"
 
-        self._status_lbl.config(text=f"全部完成: ✓ {ok}  ✗ {bad}  · {elapsed:.0f}s", fg=C["success"])
-        self._progress["value"] = 100
+        if self._status_lbl:
+            self._status_lbl.setText(f"全部完成: ✓ {ok}  ✗ {bad}  · {elapsed:.0f}s")
+            self._status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
+        if self._progress:
+            self._progress.setValue(100)
         self._append_log(f"🏁 训练全部完成: {ok} 成功, {bad} 失败, 耗时 {elapsed:.0f}s")
         self._append_log(f"📊 各算法最终置信度:{conf_summary}")
         # 主窗口状态栏
@@ -1418,7 +1629,9 @@ class TrainingPanel(BaseTrainingPanel):
     def _on_stage_fatal(self, msg):
         """处理训练进程致命错误事件"""
         err = msg.get("error", "")
-        self._status_lbl.config(text=f"训练异常: {err}", fg=C["danger"])
+        if self._status_lbl:
+            self._status_lbl.setText(f"训练异常: {err}")
+            self._status_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
         self._append_log(f"💥 训练进程异常: {err}")
         return True
 
@@ -1435,7 +1648,7 @@ class TrainingPanel(BaseTrainingPanel):
         # 恢复窗口标题和状态栏
         try:
             if self._saved_title:
-                self.frame.winfo_toplevel().title(self._saved_title)
+                self.window().setWindowTitle(self._saved_title)
         except Exception:
             pass
         try:

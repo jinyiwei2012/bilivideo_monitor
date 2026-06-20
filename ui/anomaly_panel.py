@@ -4,14 +4,20 @@
 展示时间/增量/在线人数等详细上下文信息
 """
 
-import tkinter as tk
-from tkinter import ttk
 import threading
 import logging
 from datetime import datetime
+
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QTreeWidget, QTreeWidgetItem, QHeaderView, QTextEdit,
+)
+from PyQt6.QtCore import Qt, QTimer
+
 from ui.theme import C
 from ui.helpers import FONT_SM, fmt_num
 from ui.dialog_base import DialogBase
+from ui.invoker import invoke
 from core.smart_alert import AnomalyDetector
 
 logger = logging.getLogger(__name__)
@@ -35,51 +41,61 @@ class AnomalyPanel:
 
     def _build_ui(self):
         """构建界面：扫描按钮、状态标签、结果表格、底部详情区"""
-        top = tk.Frame(self.dlg.content_area(), bg=C["bg_base"])
-        top.pack(fill=tk.X, padx=10, pady=4)
+        top = QWidget()
+        top.setStyleSheet(f"background-color: {C['bg_base']};")
+        top_layout = QHBoxLayout(top)
+        top_layout.setContentsMargins(0, 0, 0, 0)
 
-        ttk.Button(top, text="🔄 重新扫描", command=self._scan).pack(side=tk.LEFT)
-        self._status_lbl = tk.Label(top, text="", bg=C["bg_base"], fg=C["text_3"], font=FONT_SM)
-        self._status_lbl.pack(side=tk.LEFT, padx=10)
+        scan_btn = QPushButton("🔄 重新扫描")
+        scan_btn.clicked.connect(self._scan)
+        top_layout.addWidget(scan_btn)
+
+        self._status_lbl = QLabel("")
+        self._status_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
+        self._status_lbl.setFont(FONT_SM)
+        top_layout.addWidget(self._status_lbl)
+        top_layout.addStretch()
+
+        # 将 top 放入 content_area
+        main_layout = QVBoxLayout(self.dlg.content_area())
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.addWidget(top)
 
         # 结果列表 — 增加 时间/增量/在线 列
-        columns = ("bvid", "title", "type", "time", "views", "delta", "velocity", "online")
-        self._tree = ttk.Treeview(self.dlg.content_area(), columns=columns, show="headings", height=20)
-        self._tree.heading("bvid", text="BV号")
-        self._tree.heading("title", text="标题")
-        self._tree.heading("type", text="异常类型")
-        self._tree.heading("time", text="发生时间")
-        self._tree.heading("views", text="播放量")
-        self._tree.heading("delta", text="近2h增量")
-        self._tree.heading("velocity", text="增速/h")
-        self._tree.heading("online", text="在线人数")
-        self._tree.column("bvid", width=90)
-        self._tree.column("title", width=160)
-        self._tree.column("type", width=90)
-        self._tree.column("time", width=110)
-        self._tree.column("views", width=80, anchor="e")
-        self._tree.column("delta", width=80, anchor="e")
-        self._tree.column("velocity", width=70, anchor="e")
-        self._tree.column("online", width=70, anchor="e")
-        self._tree.pack(fill=tk.BOTH, expand=True, padx=10, pady=4)
-
-        scroll = ttk.Scrollbar(self._tree, command=self._tree.yview)
-        scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        self._tree.configure(yscrollcommand=scroll.set)
+        headers = ["BV号", "标题", "异常类型", "发生时间", "播放量", "近2h增量", "增速/h", "在线人数"]
+        self._tree = QTreeWidget()
+        self._tree.setHeaderLabels(headers)
+        self._tree.setColumnCount(8)
+        self._tree.setMinimumHeight(20)
+        self._tree.setAlternatingRowColors(False)
+        self._tree.setRootIsDecorated(False)
+        self._tree.setSelectionMode(QTreeWidget.SelectionMode.SingleSelection)
+        self._tree.setColumnWidth(0, 90)
+        self._tree.setColumnWidth(1, 160)
+        self._tree.setColumnWidth(2, 90)
+        self._tree.setColumnWidth(3, 110)
+        self._tree.setColumnWidth(4, 80)
+        self._tree.setColumnWidth(5, 80)
+        self._tree.setColumnWidth(6, 70)
+        self._tree.setColumnWidth(7, 70)
+        # 右对齐数字列
+        h = self._tree.headerItem()
+        if h:
+            for col in (4, 5, 6, 7):
+                h.setTextAlignment(col, Qt.AlignmentFlag.AlignRight)
+        main_layout.addWidget(self._tree, stretch=1)
 
         # 底部详情区：选中异常时显示详细上下文
-        self._detail_text = tk.Text(
-            self.dlg.content_area(),
-            height=5,
-            bg=C["bg_elevated"],
-            fg=C["text_2"],
-            font=("Microsoft YaHei UI", 9),
-            relief=tk.FLAT,
-            wrap=tk.WORD,
-            state=tk.DISABLED,
+        self._detail_text = QTextEdit()
+        self._detail_text.setReadOnly(True)
+        self._detail_text.setMaximumHeight(120)
+        self._detail_text.setStyleSheet(
+            f"background-color: {C['bg_elevated']}; color: {C['text_2']}; "
+            f"font-family: 'Microsoft YaHei UI'; font-size: 9pt; border: none;"
         )
-        self._detail_text.pack(fill=tk.X, padx=10, pady=(0, 6))
-        self._tree.bind("<<TreeviewSelect>>", self._show_detail)
+        main_layout.addWidget(self._detail_text)
+
+        self._tree.itemSelectionChanged.connect(self._show_detail)
 
         self._alert_data = []  # 存储完整告警信息供详情查看
 
@@ -89,19 +105,17 @@ class AnomalyPanel:
             return ts
         try:
             return datetime.fromisoformat(str(ts)) if isinstance(ts, str) else datetime.fromtimestamp(float(ts))
-        except Exception:
+        except Exception as e:
+            import logging; logging.getLogger(__name__).debug("异常面板时间戳解析失败: %s", e)
             return datetime.now()
 
     def _scan(self):
         """开始扫描所有监控视频，后台线程执行异常检测"""
 
         # 清空旧数据
-        self._status_lbl.config(text="扫描中…")
-        self._detail_text.config(state=tk.NORMAL)
-        self._detail_text.delete("1.0", tk.END)
-        self._detail_text.config(state=tk.DISABLED)
-        for row in self._tree.get_children():
-            self._tree.delete(row)
+        self._status_lbl.setText("扫描中…")
+        self._detail_text.clear()
+        self._tree.clear()
         self._alert_data.clear()
 
         def worker():
@@ -219,20 +233,17 @@ class AnomalyPanel:
                     )
 
             # 回主线程更新 UI
-            self.dlg.window.after(0, lambda: self._show_results(results))
+            invoke(lambda: self._show_results(results))
 
         threading.Thread(target=worker, daemon=True).start()
 
     def _show_results(self, results):
-        """在表格中展示异常检测结果，高亮严重异常（bvid=iid 原地更新）"""
-        self._tree.tag_configure("danger", foreground=C["danger"])
-        new_bvids = {r["bvid"] for r in results}
-        existing = set(self._tree.get_children())
-        for iid in existing - new_bvids:
-            self._tree.delete(iid)
+        """在表格中展示异常检测结果，高亮严重异常"""
+        self._tree.clear()
+        danger_types = ("📈 增速飙升", "📉 在线暴跌")
 
         self._alert_data = results
-        for r in results:
+        for index, r in enumerate(results):
             values = (
                 r["bvid"], r["title"], r["type"], r["time"],
                 fmt_num(r["views"]),
@@ -240,25 +251,24 @@ class AnomalyPanel:
                 f"{r['velocity']:.0f}" if r["velocity"] > 0 else "\u2014",
                 fmt_num(r["online"]) if r["online"] > 0 else "\u2014",
             )
-            tags = ("danger",) if r["type"] in ("📈 增速飙升", "📉 在线暴跌") else ()
-            if r["bvid"] in existing:
-                self._tree.item(r["bvid"], values=values, tags=tags)
-            else:
-                self._tree.insert("", tk.END, iid=r["bvid"], values=values, tags=tags)
+            item = QTreeWidgetItem(values)
+            if r["type"] in danger_types:
+                item.setForeground(0, Qt.GlobalColor.red)
+            self._tree.addTopLevelItem(item)
 
         count = len(results)
-        self._status_lbl.config(
-            text=f"扫描完成，发现 {count} 条异常" if count else "扫描完成，无异常 ✓",
-            fg=C["danger"] if count else C["success"],
-        )
+        msg = f"扫描完成，发现 {count} 条异常" if count else "扫描完成，无异常 ✓"
+        color = C["danger"] if count else C["success"]
+        self._status_lbl.setText(msg)
+        self._status_lbl.setStyleSheet(f"color: {color}; background: transparent;")
 
-    def _show_detail(self, event):
+    def _show_detail(self):
         """点击表格行时显示异常详情"""
-        sel = self._tree.selection()
-        if not sel or not self._alert_data:
+        items = self._tree.selectedItems()
+        if not items or not self._alert_data:
             return
-        idx = self._tree.index(sel[0])
-        if idx >= len(self._alert_data):
+        idx = self._tree.indexOfTopLevelItem(items[0])
+        if idx < 0 or idx >= len(self._alert_data):
             return
         r = self._alert_data[idx]
         detail = (
@@ -266,7 +276,4 @@ class AnomalyPanel:
             f"💬  {r['alert_text']}\n"
             f"📊 当前播放: {fmt_num(r['views'])}  |  近2h增量: {fmt_num(r['delta'])}  |  增速: {r['velocity']:.1f}/h  |  在线: {fmt_num(r['online'])}"
         )
-        self._detail_text.config(state=tk.NORMAL)
-        self._detail_text.delete("1.0", tk.END)
-        self._detail_text.insert(tk.END, detail)
-        self._detail_text.config(state=tk.DISABLED)
+        self._detail_text.setPlainText(detail)

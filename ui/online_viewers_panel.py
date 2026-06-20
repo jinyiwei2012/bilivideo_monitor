@@ -19,6 +19,7 @@ from PyQt6.QtGui import QFont, QColor
 
 from ui.theme import C
 from ui.helpers import FONT, FONT_SM, fmt_num, _parse_viewer_count
+from ui.invoker import invoke
 
 logger = logging.getLogger(__name__)
 
@@ -272,7 +273,7 @@ class OnlineViewersPanel(QWidget):
         finally:
             self._refresh_lock.release()
         if self._active:
-            QTimer.singleShot(0, self._update_ui_after_fetch)
+            invoke(self._update_ui_after_fetch)
 
     def _fetch_all_viewers(self):
         """并发拉取高优先级视频的在线观看人数，写入独立缓存。"""

@@ -3,15 +3,21 @@
 评估各算法在历史数据上的离线预测表现（RMSE / MAE / MAPE）
 """
 
-import tkinter as tk
-from tkinter import ttk
 import threading
 import numpy as np
 from datetime import datetime
 
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QComboBox, QCheckBox, QTreeWidget, QTreeWidgetItem,
+    QHeaderView, QSpinBox, QFrame,
+)
+from PyQt6.QtCore import Qt, QTimer
+
 from ui.theme import C
 from ui.helpers import FONT, FONT_SM, fmt_num
 from ui.dialog_base import DialogBase
+from ui.invoker import invoke
 from algorithms.rollout_backtest import (
     RollingBacktester,
     make_linear_fn,
@@ -32,64 +38,119 @@ class BacktestPanel:
 
     def _build_ui(self):
         """构建界面"""
-        top = tk.Frame(self.dlg.content_area(), bg=C["bg_base"])
-        top.pack(fill=tk.X, padx=10, pady=4)
+        top = QWidget()
+        top.setStyleSheet(f"background-color: {C['bg_base']};")
+        top_layout = QHBoxLayout(top)
+        top_layout.setContentsMargins(10, 4, 10, 4)
 
-        tk.Label(top, text="选择视频:", bg=C["bg_base"], fg=C["text_1"], font=FONT).pack(side=tk.LEFT)
-        self._video_var = tk.StringVar()
-        self._video_combo = ttk.Combobox(top, textvariable=self._video_var, font=FONT, state="readonly", width=40)
-        self._video_combo.pack(side=tk.LEFT, padx=6)
+        lbl = QLabel("选择视频:")
+        lbl.setStyleSheet(f"color: {C['text_1']}; background: transparent;")
+        lbl.setFont(FONT)
+        top_layout.addWidget(lbl)
+
+        self._video_combo = QComboBox()
+        self._video_combo.setStyleSheet(f"""
+            QComboBox {{ background-color: {C['bg_elevated']}; color: {C['text_1']};
+                border: 1px solid {C['border']}; padding: 2px 6px; }}
+        """)
+        top_layout.addWidget(self._video_combo)
 
         # 参数
-        tk.Label(top, text="窗口:", bg=C["bg_base"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT, padx=(8, 2))
-        self._window_var = tk.IntVar(value=10)
-        ttk.Spinbox(top, from_=5, to=50, textvariable=self._window_var, width=4).pack(side=tk.LEFT, padx=2)
+        win_lbl = QLabel("窗口:")
+        win_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
+        win_lbl.setFont(FONT_SM)
+        top_layout.addWidget(win_lbl)
+        self._window_spin = QSpinBox()
+        self._window_spin.setRange(5, 50)
+        self._window_spin.setValue(10)
+        self._window_spin.setStyleSheet(f"""
+            QSpinBox {{ background-color: {C['bg_elevated']}; color: {C['text_1']};
+                border: 1px solid {C['border']}; padding: 2px; }}
+        """)
+        top_layout.addWidget(self._window_spin)
 
-        tk.Label(top, text="步长:", bg=C["bg_base"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT, padx=(6, 2))
-        self._step_var = tk.IntVar(value=3)
-        ttk.Spinbox(top, from_=1, to=10, textvariable=self._step_var, width=4).pack(side=tk.LEFT, padx=2)
+        step_lbl = QLabel("步长:")
+        step_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
+        step_lbl.setFont(FONT_SM)
+        top_layout.addWidget(step_lbl)
+        self._step_spin = QSpinBox()
+        self._step_spin.setRange(1, 10)
+        self._step_spin.setValue(3)
+        self._step_spin.setStyleSheet(f"""
+            QSpinBox {{ background-color: {C['bg_elevated']}; color: {C['text_1']};
+                border: 1px solid {C['border']}; padding: 2px; }}
+        """)
+        top_layout.addWidget(self._step_spin)
 
         # 算法来源
-        self._use_factories = tk.BooleanVar(value=True)
-        ttk.Checkbutton(top, text="基础模型", variable=self._use_factories).pack(side=tk.LEFT, padx=(8, 2))
-        self._use_algorithms = tk.BooleanVar(value=True)
-        ttk.Checkbutton(top, text="注册算法", variable=self._use_algorithms).pack(side=tk.LEFT, padx=2)
+        self._use_factories = QCheckBox("基础模型")
+        self._use_factories.setChecked(True)
+        self._use_factories.setStyleSheet(f"color: {C['text_1']}; background: transparent;")
+        top_layout.addWidget(self._use_factories)
+        self._use_algorithms = QCheckBox("注册算法")
+        self._use_algorithms.setChecked(True)
+        self._use_algorithms.setStyleSheet(f"color: {C['text_1']}; background: transparent;")
+        top_layout.addWidget(self._use_algorithms)
 
-        ttk.Button(top, text="📊 开始回测", command=self._analyze).pack(side=tk.LEFT, padx=(8, 4))
+        analyze_btn = QPushButton("📊 开始回测")
+        analyze_btn.clicked.connect(self._analyze)
+        top_layout.addWidget(analyze_btn)
 
         # 状态区
-        self._status_lbl = tk.Label(top, text="", bg=C["bg_base"], fg=C["text_3"], font=FONT_SM)
-        self._status_lbl.pack(side=tk.LEFT, padx=8)
+        self._status_lbl = QLabel("")
+        self._status_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
+        self._status_lbl.setFont(FONT_SM)
+        top_layout.addWidget(self._status_lbl)
 
-        # 摘要
-        self._summary_frame = tk.Frame(self.dlg.content_area(), bg=C["bg_base"])
-        self._summary_frame.pack(fill=tk.X, padx=10, pady=4)
+        # 摘要区（在 top 下方）
+        self._summary_frame = QWidget()
+        self._summary_frame.setStyleSheet(f"background-color: {C['bg_base']};")
+        self._summary_layout = QVBoxLayout(self._summary_frame)
+        self._summary_layout.setContentsMargins(10, 0, 10, 4)
 
         # 表格
-        columns = ("algo", "rmse", "mae", "mape", "n_tests", "rank")
-        self._tree = ttk.Treeview(self.dlg.content_area(), columns=columns, show="headings", height=18)
-        self._tree.heading("algo", text="算法")
-        self._tree.heading("rmse", text="RMSE")
-        self._tree.heading("mae", text="MAE")
-        self._tree.heading("mape", text="MAPE")
-        self._tree.heading("n_tests", text="测试次数")
-        self._tree.heading("rank", text="排名")
-        self._tree.column("algo", width=180)
-        self._tree.column("rmse", width=90, anchor="e")
-        self._tree.column("mae", width=90, anchor="e")
-        self._tree.column("mape", width=70, anchor="e")
-        self._tree.column("n_tests", width=70, anchor="center")
-        self._tree.column("rank", width=50, anchor="center")
-        self._tree.pack(fill=tk.BOTH, expand=True, padx=10, pady=4)
+        columns = ["算法", "RMSE", "MAE", "MAPE", "测试次数", "排名"]
+        self._tree = QTreeWidget()
+        self._tree.setColumnCount(len(columns))
+        self._tree.setHeaderLabels(columns)
+        self._tree.setAlternatingRowColors(True)
+        self._tree.setRootIsDecorated(False)
+        self._tree.setStyleSheet(f"""
+            QTreeWidget {{
+                background-color: {C['bg_elevated']}; color: {C['text_1']};
+                border: 1px solid {C['border']};
+                alternate-background-color: {C['bg_surface']};
+            }}
+            QHeaderView::section {{
+                background-color: {C['bg_surface']}; color: {C['text_2']};
+                font-weight: bold; padding: 4px;
+                border: 1px solid {C['border']};
+            }}
+        """)
+        hdr = self._tree.header()
+        hdr.setStretchLastSection(True) if hdr else None
+        self._tree.setColumnWidth(0, 180)
+        self._tree.setColumnWidth(1, 90)
+        self._tree.setColumnWidth(2, 90)
+        self._tree.setColumnWidth(3, 70)
+        self._tree.setColumnWidth(4, 70)
+        self._tree.setColumnWidth(5, 50)
+
+        area = self.dlg.content_area()
+        outer = QVBoxLayout(area)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(top)
+        outer.addWidget(self._summary_frame)
+        outer.addWidget(self._tree, 1)
 
         # 填充视频列表
         videos = self.gui.monitored_videos
         names = [f"{v.get('title', v.get('bvid', ''))[:35]} ({v.get('bvid', '')})" for v in videos]
-        self._video_combo["values"] = names
+        self._video_combo.addItems(names)
         if names:
-            self._video_combo.current(0)
-            self._video_combo.bind("<<ComboboxSelected>>", lambda e: self._analyze())
-            self.dlg.window.after(200, self._analyze)
+            self._video_combo.setCurrentIndex(0)
+            self._video_combo.currentIndexChanged.connect(lambda: self._analyze())
+            QTimer.singleShot(200, self._analyze)
 
     def _get_series(self, bvid: str):
         """从数据库提取播放量时间序列（一维 numpy 数组）"""
@@ -106,7 +167,8 @@ class BacktestPanel:
                 if isinstance(v, (int, float)) and v > 0:
                     views.append(float(v))
             return np.array(views, dtype=np.float64) if views else None
-        except Exception:
+        except Exception as e:
+            import logging; logging.getLogger(__name__).debug("回测数据解析失败: %s", e)
             return None
 
     def _make_algo_predict_fn(self, algo_name: str):
@@ -150,16 +212,18 @@ class BacktestPanel:
                     return current_views + velocity * (75.0 / 3600.0)
                 else:
                     return current_views * 1.005
-            except Exception:
+            except Exception as e:
+                import logging; logging.getLogger(__name__).debug("回测预测回退: %s", e)
                 return current_views * 1.01
 
         return predict_fn
 
     def _analyze(self):
         """在后台线程执行回测，避免阻塞 UI"""
-        self._status_lbl.config(text="⏳ 回测中…", fg=C["accent"])
+        self._status_lbl.setText("⏳ 回测中…")
+        self._status_lbl.setStyleSheet(f"color: {C['accent']}; background: transparent;")
 
-        idx = self._video_combo.current()
+        idx = self._video_combo.currentIndex()
         if idx < 0:
             return
         video = self.gui.monitored_videos[idx]
@@ -167,10 +231,10 @@ class BacktestPanel:
 
         params = {
             "bvid": bvid,
-            "min_train": self._window_var.get(),
-            "step": self._step_var.get(),
-            "use_factories": self._use_factories.get(),
-            "use_algorithms": self._use_algorithms.get(),
+            "min_train": self._window_spin.value(),
+            "step": self._step_spin.value(),
+            "use_factories": self._use_factories.isChecked(),
+            "use_algorithms": self._use_algorithms.isChecked(),
         }
         threading.Thread(target=self._run_backtest, args=(params,), daemon=True).start()
 
@@ -179,15 +243,17 @@ class BacktestPanel:
         bvid = params["bvid"]
         series = self._get_series(bvid)
         if series is None or len(series) < params["min_train"] + 5:
-            self.dlg.window.after(0, lambda: self._status_lbl.config(
-                text="数据不足" if series is None else f"数据点不足（{len(series)} < {params['min_train'] + 5}）",
-                fg=C["danger"]
-            ))
+            msg = "数据不足" if series is None else f"数据点不足（{len(series)} < {params['min_train'] + 5}）"
+            invoke(lambda m=msg: [
+                self._status_lbl.setText(m),
+                self._status_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
+            ])
             return
 
-        self.dlg.window.after(0, lambda: self._status_lbl.config(
-            text=f"⏳ 回测中… {len(series)} 个数据点", fg=C["accent"]
-        ))
+        invoke(lambda n=len(series): [
+            self._status_lbl.setText(f"⏳ 回测中… {n} 个数据点"),
+            self._status_lbl.setStyleSheet(f"color: {C['accent']}; background: transparent;")
+        ])
 
         # 构建预测器字典
         predictors = {}
@@ -216,15 +282,18 @@ class BacktestPanel:
                         short = name.replace("[Model] ", "")
                         predictors[short] = fn
             except Exception as e:
-                self.dlg.window.after(0, lambda: self._status_lbl.config(
-                    text=f"加载算法失败: {e}", fg=C["danger"]
-                ))
+                err_msg = f"加载算法失败: {e}"
+                invoke(lambda: [
+                    self._status_lbl.setText(err_msg),
+                    self._status_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
+                ])
                 return
 
         if not predictors:
-            self.dlg.window.after(0, lambda: self._status_lbl.config(
-                text="无可用预测器", fg=C["danger"]
-            ))
+            invoke(lambda: [
+                self._status_lbl.setText("无可用预测器"),
+                self._status_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
+            ])
             return
 
         # 执行回测
@@ -236,15 +305,19 @@ class BacktestPanel:
         results = backtester.backtest_multi_predictor(series, predictors)
 
         # 更新 UI（主线程）
-        self.dlg.window.after(0, lambda: self._show_results(results, params))
+        invoke(lambda: self._show_results(results, params))
 
     def _show_results(self, results, params):
         """在主线程更新 UI 显示回测结果"""
         # 清空旧数据
-        for row in self._tree.get_children():
-            self._tree.delete(row)
-        for w in self._summary_frame.winfo_children():
-            w.destroy()
+        self._tree.clear()
+        # 清空 summary_frame
+        while self._summary_layout.count():
+            item = self._summary_layout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.setParent(None)
+                w.deleteLater()
 
         # 过滤和排序
         valid = [
@@ -255,11 +328,12 @@ class BacktestPanel:
         valid.sort(key=lambda x: x[3])  # 按 MAPE 升序
 
         if not valid:
-            tk.Label(
-                self._summary_frame, text="无有效回测结果（测试次数不足）",
-                fg=C["text_3"], bg=C["bg_base"], font=FONT
-            ).pack()
-            self._status_lbl.config(text="完成（无有效结果）", fg=C["text_3"])
+            lbl = QLabel("无有效回测结果（测试次数不足）")
+            lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
+            lbl.setFont(FONT)
+            self._summary_layout.addWidget(lbl)
+            self._status_lbl.setText("完成（无有效结果）")
+            self._status_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
             return
 
         # 摘要
@@ -268,26 +342,35 @@ class BacktestPanel:
         summary = f"🎯 最佳: {best[0]} (MAPE={best[3]*100:.1f}%, RMSE={int(best[1])})"
         if worst and len(valid) > 1:
             summary += f"  |  ❌ 最差: {worst[0]} (MAPE={worst[3]*100:.1f}%)"
-        tk.Label(self._summary_frame, text=summary, bg=C["bg_base"], fg=C["text_1"], font=FONT).pack(anchor="w")
-        tk.Label(
-            self._summary_frame,
-            text=f"数据点: {params['min_train']} 窗口 / {params['step']} 步长 / 共 {len(valid)} 个预测器",
-            bg=C["bg_base"], fg=C["text_3"], font=FONT_SM,
-        ).pack(anchor="w")
+        sum_lbl = QLabel(summary)
+        sum_lbl.setStyleSheet(f"color: {C['text_1']}; background: transparent;")
+        sum_lbl.setFont(FONT)
+        self._summary_layout.addWidget(sum_lbl)
+
+        detail_lbl = QLabel(
+            f"数据点: {params['min_train']} 窗口 / {params['step']} 步长 / 共 {len(valid)} 个预测器"
+        )
+        detail_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
+        detail_lbl.setFont(FONT_SM)
+        self._summary_layout.addWidget(detail_lbl)
 
         # 表格
+        success_color = C["success"]
+        danger_color = C["danger"]
         for rank, (name, rmse, mae, mape, n_tests) in enumerate(valid, 1):
-            # 颜色：top 3 绿色，后 3 红色
-            tag = ""
+            vals = [name[:25], fmt_num(int(rmse)), fmt_num(int(mae)),
+                    f"{mape*100:.1f}%", str(n_tests), f"#{rank}"]
+            item = QTreeWidgetItem(vals)
+            item.setTextAlignment(1, Qt.AlignmentFlag.AlignRight)
+            item.setTextAlignment(2, Qt.AlignmentFlag.AlignRight)
+            item.setTextAlignment(3, Qt.AlignmentFlag.AlignRight)
+            item.setTextAlignment(4, Qt.AlignmentFlag.AlignCenter)
+            item.setTextAlignment(5, Qt.AlignmentFlag.AlignCenter)
             if rank <= 3:
-                tag = "best"
+                item.setForeground(0, Qt.GlobalColor.darkGreen)
             elif rank >= len(valid) - 2:
-                tag = "worst"
-            self._tree.insert("", tk.END, values=(
-                name[:25], fmt_num(int(rmse)), fmt_num(int(mae)),
-                f"{mape*100:.1f}%", n_tests, f"#{rank}",
-            ), tags=(tag,) if tag else ())
+                item.setForeground(0, Qt.GlobalColor.red)
+            self._tree.addTopLevelItem(item)
 
-        self._tree.tag_configure("best", foreground=C["success"])
-        self._tree.tag_configure("worst", foreground=C["danger"])
-        self._status_lbl.config(text=f"✅ 完成 — {len(valid)} 个预测器", fg=C["success"])
+        self._status_lbl.setText(f"✅ 完成 — {len(valid)} 个预测器")
+        self._status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")

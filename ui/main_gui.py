@@ -458,15 +458,15 @@ class BilibiliMonitorGUI(QMainWindow):
             if self.training_panel is None:
                 from ui.training_panel import TrainingPanel
                 self.training_panel = TrainingPanel(self, self)
-                self._stack.addWidget(self.training_panel.frame)
-            self._stack.setCurrentWidget(self.training_panel.frame)
+                self._stack.addWidget(self.training_panel)
+            self._stack.setCurrentWidget(self.training_panel)
             self.training_panel.on_show()
         elif name == "微调训练":
             if self.finetune_panel is None:
                 from ui.finetune_panel import FinetunePanel
                 self.finetune_panel = FinetunePanel(self, self)
-                self._stack.addWidget(self.finetune_panel.frame)
-            self._stack.setCurrentWidget(self.finetune_panel.frame)
+                self._stack.addWidget(self.finetune_panel)
+            self._stack.setCurrentWidget(self.finetune_panel)
             self.finetune_panel.on_show()
         else:
             self._stack.setCurrentWidget(self._main_page)
