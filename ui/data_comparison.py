@@ -1,15 +1,19 @@
 """
-数据对比界面（重构版）
+数据对比界面（PyQt6 版）
 - 标签1「趋势图」：折线图，多视频对比，支持 8 种指标切换
 - 标签2「快照对比」：柱状图，任意选视频 × 任意选时间点，7 种指标，里程碑数据也可叠加
 - 标签3「数据录入」：里程碑/快照数据录入
 """
 
-import tkinter as tk
-from tkinter import ttk, BOTH
 import logging
 from typing import List, Dict, Optional, Tuple
 from datetime import datetime
+
+from PyQt6.QtWidgets import (
+    QDialog, QTabWidget, QVBoxLayout,
+)
+
+from ui.theme import C
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +56,7 @@ METRICS = [
     ("like_view_ratio", "点赞率(%)"),
 ]
 
-# 图表边距
+# 图表边距（用于 matplotlib 图表）
 _ML, _MR, _MT, _MB = 76, 20, 36, 48
 _BAR_ML, _BAR_MR, _BAR_MT, _BAR_MB = 76, 20, 36, 60
 
@@ -73,7 +77,7 @@ def _fmt(n):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-class DataComparisonWindow:
+class DataComparisonWindow(QDialog):
     """数据对比窗口：趋势折线图（TrendTab）+ 快照柱状图（SnapshotTab）+ 数据录入（EntryTab）"""
 
     def __init__(
@@ -84,12 +88,20 @@ class DataComparisonWindow:
         video_dbs: Optional[Dict] = None,
         on_add_monitor=None,
     ):
-        self.window = tk.Toplevel(parent)
-        self.window.title("数据对比")
-        sw = parent.winfo_screenwidth() if parent else 1920
-        sh = parent.winfo_screenheight() if parent else 1080
-        self.window.geometry(f"{int(sw * 0.58)}x{int(sh * 0.78)}")
-        self.window.minsize(int(sw * 0.40), int(sh * 0.55))
+        super().__init__(parent)
+        self.setWindowTitle("数据对比")
+        # 必须传 parent 否则 PyQt6 无 screen 属性
+        if parent:
+            screen = parent.screen()
+            if screen:
+                geo = screen.geometry()
+                sw, sh = geo.width(), geo.height()
+            else:
+                sw, sh = 1920, 1080
+        else:
+            sw, sh = 1920, 1080
+        self.resize(int(sw * 0.58), int(sh * 0.78))
+        self.setMinimumSize(int(sw * 0.40), int(sh * 0.55))
 
         self.monitored_videos = monitored_videos or []
         self.history_data = history_data or {}
@@ -101,39 +113,64 @@ class DataComparisonWindow:
     # ══════════════════════════════════════════════════════════════════════════
     # ── 整体布局 ──────────────────────────────────────────────────────────────
     def _setup_ui(self):
-        """构建三标签页 Notebook：趋势图 / 快照对比 / 数据录入"""
-        nb = ttk.Notebook(self.window)
-        nb.pack(fill=BOTH, expand=True, padx=8, pady=8)
+        """构建三标签页 QTabWidget：趋势图 / 快照对比 / 数据录入"""
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
 
-        tab_trend = tk.Frame(nb)
-        tab_snap = tk.Frame(nb)
-        tab_entry = tk.Frame(nb)
-
-        nb.add(tab_trend, text="  📈  趋势图  ")
-        nb.add(tab_snap, text="  📊  快照对比  ")
-        nb.add(tab_entry, text="  📥  数据录入  ")
+        self._tabs = QTabWidget()
+        self._tabs.setStyleSheet(f"""
+            QTabWidget::pane {{
+                border: 1px solid {C['border']};
+                border-top: none;
+                background-color: {C['bg_base']};
+            }}
+            QTabBar::tab {{
+                background-color: {C['bg_surface']};
+                color: {C['text_2']};
+                border: 1px solid {C['border']};
+                border-bottom: none;
+                padding: 6px 16px;
+                margin-right: 2px;
+                border-top-left-radius: {C['radius_sm']}px;
+                border-top-right-radius: {C['radius_sm']}px;
+            }}
+            QTabBar::tab:selected {{
+                background-color: {C['bg_base']};
+                color: {C['text_1']};
+                border-bottom-color: {C['bg_base']};
+            }}
+            QTabBar::tab:hover:!selected {{
+                background-color: {C['bg_hover']};
+            }}
+        """)
+        layout.addWidget(self._tabs)
 
         # 延迟初始化各标签页（避免循环导入）
-        self.trend_tab = TrendTab(
-            tab_trend,
+        from .trend_tab import TrendTab  # type: ignore[import-type]
+        from .snapshot_tab import SnapshotTab  # type: ignore[import-type]
+        from .entry_tab import EntryTab  # type: ignore[import-type]
+
+        self.trend_tab: TrendTab = TrendTab(
+            self,
             self.monitored_videos,
             self.history_data,
             self.video_dbs,
-            self.window,
         )
-        self.snapshot_tab = SnapshotTab(
-            tab_snap,
+        self.snapshot_tab: SnapshotTab = SnapshotTab(
+            self,
             self.monitored_videos,
             self.video_dbs,
-            self.window,
         )
-        self.entry_tab = EntryTab(
-            tab_entry,
+        self.entry_tab: EntryTab = EntryTab(
+            self,
             self.monitored_videos,
             self.video_dbs,
             self.on_add_monitor,
-            self.window,
         )
+
+        self._tabs.addTab(self.trend_tab, "  📈  趋势图  ")
+        self._tabs.addTab(self.snapshot_tab, "  📊  快照对比  ")
+        self._tabs.addTab(self.entry_tab, "  📥  数据录入  ")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -174,58 +211,3 @@ def _darken(c1: str, factor: float) -> str:
     """颜色变暗：factor < 1 时变暗"""
     r, g, b = _hex_to_rgb(c1)
     return _rgb_to_hex(int(r * factor), int(g * factor), int(b * factor))
-
-
-def _draw_bar(canvas: tk.Canvas, x0, y0, x1, y1, color_top, color_body):
-    """绘制一根带顶部高亮渐变和圆角的矩形柱"""
-    if y0 >= y1:
-        return
-    # 圆角半径（不超过柱宽的1/4）
-    r = min(3, max(1, (x1 - x0) * 0.15))
-    # 柱体主体（圆角矩形用 polygon 模拟）
-    pts = [
-        x0 + r,
-        y0,
-        x1 - r,
-        y0,
-        x1,
-        y0 + r,
-        x1,
-        y1 - r,
-        x1 - r,
-        y1,
-        x0 + r,
-        y1,
-        x0,
-        y1 - r,
-        x0,
-        y0 + r,
-    ]
-    canvas.create_polygon(pts, fill=color_body, outline="", smooth=True, width=0)
-    # 顶部高亮条（更细腻的渐变效果）
-    top_h = max(2, (y1 - y0) * 0.08)
-    top_pts = [
-        x0 + r,
-        y0,
-        x1 - r,
-        y0,
-        x1,
-        y0 + min(r, top_h),
-        x1,
-        y0 + top_h + r,
-        x1 - r,
-        y0 + top_h + r * 2,
-        x0 + r,
-        y0 + top_h + r * 2,
-        x0,
-        y0 + top_h + r,
-        x0,
-        y0 + min(r, top_h),
-    ]
-    canvas.create_polygon(top_pts, fill=color_top, outline="", smooth=True, width=0)
-
-
-# ── 延迟导入标签页类（避免循环导入） ──────────────────────────────────────────
-from .trend_tab import TrendTab  # noqa: E402
-from .snapshot_tab import SnapshotTab  # noqa: E402
-from .entry_tab import EntryTab  # noqa: E402
