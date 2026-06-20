@@ -1,179 +1,245 @@
 """
-在线人数监控面板 — 实时查看所有监控视频的在线观看人数
-秒级刷新，独立于主监控线程直接调用 B站 API 获取在线人数。
+在线人数监控面板 — PyQt6 版
+实时查看所有监控视频的在线观看人数
+15s 刷新，数据写入独立 SQLite 数据库（与主视频 dict 分离，避免锁争用）。
 """
-
-import tkinter as tk
-from tkinter import ttk
 import logging
 import threading
+import os
+import sqlite3
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTreeWidget,
+    QTreeWidgetItem, QPushButton, QHeaderView,
+)
+from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QFont, QColor
 
 from ui.theme import C
 from ui.helpers import FONT, FONT_SM, fmt_num, _parse_viewer_count
 
 logger = logging.getLogger(__name__)
 
-REFRESH_INTERVAL = 5000  # 毫秒，秒级刷新（5 秒）
-MAX_VIEWER_FETCH_WORKERS = 4  # 并发上限（按需拉取模式下 4 线程足够）
-TOP_N_FETCH = 20  # 每次只拉取在线人数最高的前 N 个视频
+REFRESH_INTERVAL = 15000  # 毫秒，15 秒刷新
+MAX_VIEWER_FETCH_WORKERS = 4
+TOP_N_FETCH = 20
+
+# ── 模块级在线人数数据库（每个视频独立 data/<BV>/viewercount.db）──
+_db_cache: dict = {}
+_db_lock = threading.Lock()
 
 
-class OnlineViewersPanel:
-    def __init__(self, parent, main_gui):
-        self.parent = parent
+def _get_viewer_db(bvid: str) -> sqlite3.Connection:
+    """获取指定视频的在线人数数据库连接（惰性创建）"""
+    if bvid in _db_cache:
+        return _db_cache[bvid]
+    from config import DATA_DIR
+    db_path = os.path.join(DATA_DIR, bvid, "viewercount.db")
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    db = sqlite3.connect(db_path, check_same_thread=False)
+    db.execute("PRAGMA journal_mode=WAL")
+    db.execute("PRAGMA synchronous=NORMAL")
+    db.execute(
+        "CREATE TABLE IF NOT EXISTS viewers "
+        "(timestamp TEXT, total INTEGER, web INTEGER, app INTEGER)"
+    )
+    db.commit()
+    _db_cache[bvid] = db
+    return db
+
+
+def _write_viewer(bvid: str, total: int, web: int, app: int):
+    """写入一条在线人数记录"""
+    with _db_lock:
+        db = _get_viewer_db(bvid)
+        db.execute(
+            "INSERT INTO viewers (timestamp, total, web, app) VALUES (?, ?, ?, ?)",
+            (datetime.now().isoformat(), total, web, app),
+        )
+        db.commit()
+
+
+def _read_viewers() -> dict:
+    """读取每个视频最新的在线人数（bvid → {total, web, app}）"""
+    result = {}
+    with _db_lock:
+        for bvid, db in list(_db_cache.items()):
+            cur = db.execute(
+                "SELECT total, web, app FROM viewers ORDER BY timestamp DESC LIMIT 1"
+            )
+            row = cur.fetchone()
+            if row:
+                result[bvid] = {"total": row[0], "web": row[1], "app": row[2]}
+    return result
+
+
+def _close_viewers_db():
+    """关闭所有在线人数数据库连接"""
+    with _db_lock:
+        for db in _db_cache.values():
+            try:
+                db.close()
+            except Exception:
+                pass
+        _db_cache.clear()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ── 面板 ──────────────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class OnlineViewersPanel(QWidget):
+    """在线人数监控面板 — 内嵌在右侧区域的 QWidget"""
+
+    def __init__(self, parent=None, main_gui=None):
+        super().__init__(parent)
         self.gui = main_gui
-        self.frame = tk.Frame(parent, bg=C["bg_base"])
         self._sort_col = "viewers_total"
         self._sort_rev = True
-        self._timer_id = None
-        self._refresh_lock = threading.Lock()  # 防止并发刷新
-        self._fetch_pool = None  # 延迟初始化，仅面板可见时创建
-        self._active = False  # 面板是否可见
+        self._refresh_lock = threading.Lock()
+        self._fetch_pool = None
+        self._active = False
+        self._started = False
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._auto_refresh_tick)
+
+        self._item_map: dict = {}  # bvid → QTreeWidgetItem
         self._build_ui()
 
     def _build_ui(self):
         """构建在线人数监控面板的 UI：表头、树形表格、状态栏"""
-        header = tk.Frame(self.frame, bg=C["bg_surface"], height=48)
-        header.pack(fill=tk.X)
-        header.pack_propagate(False)
+        self.setStyleSheet(f"background-color: {C['bg_base']};")
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
-        tk.Label(
-            header,
-            text="👥 在线人数监控",
-            bg=C["bg_surface"],
-            fg=C["text_1"],
-            font=("Microsoft YaHei UI", 14, "bold"),
-        ).pack(side=tk.LEFT, padx=(16, 4), pady=10)
+        # ── 表头 ──
+        header = QWidget()
+        header.setStyleSheet(f"background-color: {C['bg_surface']};")
+        header.setFixedHeight(48)
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(16, 0, 16, 0)
 
-        self._count_lbl = tk.Label(
-            header,
-            text="",
-            bg=C["bg_surface"],
-            fg=C["text_3"],
-            font=FONT,
-        )
-        self._count_lbl.pack(side=tk.LEFT, padx=4, pady=10)
+        title_lbl = QLabel("在线人数监控")
+        title_font = QFont("Microsoft YaHei UI", 14)
+        title_font.setBold(True)
+        title_lbl.setFont(title_font)
+        title_lbl.setStyleSheet(f"color: {C['text_1']};")
+        header_layout.addWidget(title_lbl)
 
-        self._time_lbl = tk.Label(
-            header,
-            text="",
-            bg=C["bg_surface"],
-            fg=C["text_3"],
-            font=FONT_SM,
-        )
-        self._time_lbl.pack(side=tk.RIGHT, padx=16, pady=10)
+        self._count_lbl = QLabel("")
+        self._count_lbl.setFont(FONT)
+        self._count_lbl.setStyleSheet(f"color: {C['text_3']};")
+        header_layout.addWidget(self._count_lbl)
 
-        sep = tk.Frame(self.frame, bg=C["border"], height=1)
-        sep.pack(fill=tk.X)
+        header_layout.addStretch()
 
-        tree_frame = tk.Frame(self.frame, bg=C["bg_base"])
-        tree_frame.pack(fill=tk.BOTH, expand=True, padx=12, pady=8)
+        self._time_lbl = QLabel("")
+        self._time_lbl.setFont(FONT_SM)
+        self._time_lbl.setStyleSheet(f"color: {C['text_3']};")
+        header_layout.addWidget(self._time_lbl)
 
-        columns = (
-            "rank",
-            "title",
-            "bvid",
-            "viewers_total",
-            "viewers_web",
-            "viewers_app",
-            "view_count",
-            "online_rate",
-        )
-        self._tree = ttk.Treeview(
-            tree_frame,
-            columns=columns,
-            show="headings",
-            selectmode="browse",
-        )
+        root.addWidget(header)
 
+        # ── 分隔线 ──
+        sep = QWidget()
+        sep.setFixedHeight(1)
+        sep.setStyleSheet(f"background-color: {C['border']};")
+        root.addWidget(sep)
+
+        # ── 树形表格 ──
+        columns = ("rank", "title", "bvid", "viewers_total", "viewers_web", "viewers_app", "view_count", "online_rate")
         col_cfgs = [
-            ("rank", "#", 36, tk.CENTER),
-            ("title", "视频标题", 320, tk.LEFT),
-            ("bvid", "BV号", 130, tk.CENTER),
-            ("viewers_total", "在线人数", 110, tk.CENTER),
-            ("viewers_web", "Web端", 90, tk.CENTER),
-            ("viewers_app", "App端", 90, tk.CENTER),
-            ("view_count", "播放量", 110, tk.CENTER),
-            ("online_rate", "在线率", 90, tk.CENTER),
+            ("rank", "#", 36),
+            ("title", "视频标题", 320),
+            ("bvid", "BV号", 130),
+            ("viewers_total", "在线人数", 110),
+            ("viewers_web", "Web端", 90),
+            ("viewers_app", "App端", 90),
+            ("view_count", "播放量", 110),
+            ("online_rate", "在线率", 90),
         ]
-        for col_id, heading, width, anchor in col_cfgs:
-            self._tree.heading(
-                col_id,
-                text=heading,
-                anchor=anchor,
-                command=lambda c=col_id: self._sort_by(c),
-            )
-            self._tree.column(col_id, width=width, anchor=anchor, minwidth=36)
 
-        vsb = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self._tree.yview)
-        self._tree.configure(yscrollcommand=vsb.set)
-        self._tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+        self._tree = QTreeWidget()
+        self._tree.setHeaderLabels(columns)
+        self._tree.setRootIsDecorated(False)
+        self._tree.setAlternatingRowColors(True)
+        self._tree.setStyleSheet(f"""
+            QTreeWidget {{
+                background-color: {C['bg_elevated']};
+                alternate-background-color: {C['bg_surface']};
+                border: none;
+                font-size: 9pt;
+            }}
+            QTreeWidget::item {{
+                padding: 2px 4px;
+                min-height: 24px;
+            }}
+            QHeaderView::section {{
+                background-color: {C['bg_surface']};
+                color: {C['text_2']};
+                border: none;
+                border-bottom: 1px solid {C['border']};
+                padding: 4px 8px;
+                font-weight: bold;
+            }}
+        """)
 
-        self._tree.tag_configure("even", background=C["bg_surface"])
-        self._tree.tag_configure("odd", background=C["bg_base"])
-        self._tree.tag_configure("online_high", foreground=C["success"])
-        self._tree.tag_configure("online_mid", foreground=C["warning"])
-        self._tree.tag_configure("online_low", foreground=C["text_3"])
+        header_view = self._tree.header()
+        if header_view is not None:
+            for col_id, heading, width in col_cfgs:
+                idx = columns.index(col_id)
+                header_view.setSectionResizeMode(idx, QHeaderView.ResizeMode.Fixed)
+                self._tree.setColumnWidth(idx, width)
+            # 标题列可拉伸
+            header_view.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+            header_view.sectionClicked.connect(self._on_header_click)
 
-        self._tree.bind("<<TreeviewSelect>>", self._on_select)
+        self._tree.itemSelectionChanged.connect(self._on_selection_changed)
 
-        self._apply_tree_style()
+        root.addWidget(self._tree, 1)
 
-        status_bar = tk.Frame(self.frame, bg=C["bg_surface"], height=32)
-        status_bar.pack(fill=tk.X, side=tk.BOTTOM)
-        status_bar.pack_propagate(False)
+        # ── 底部状态栏 ──
+        status_bar = QWidget()
+        status_bar.setStyleSheet(f"background-color: {C['bg_surface']};")
+        status_bar.setFixedHeight(32)
+        status_layout = QHBoxLayout(status_bar)
+        status_layout.setContentsMargins(12, 0, 12, 0)
 
-        self._status_lbl = tk.Label(
-            status_bar,
-            text="就绪",
-            bg=C["bg_surface"],
-            fg=C["text_3"],
-            font=FONT_SM,
-        )
-        self._status_lbl.pack(side=tk.LEFT, padx=12, pady=6)
+        self._status_lbl = QLabel("就绪")
+        self._status_lbl.setFont(FONT_SM)
+        self._status_lbl.setStyleSheet(f"color: {C['text_3']};")
+        status_layout.addWidget(self._status_lbl)
 
-        ttk.Button(
-            status_bar,
-            text="🔄 刷新",
-            command=self.refresh,
-            style="Primary.TButton",
-        ).pack(side=tk.RIGHT, padx=(4, 12), pady=3)
+        status_layout.addStretch()
 
-        ttk.Button(
-            status_bar,
-            text="跳转到视频",
-            command=self._jump_to_video,
-        ).pack(side=tk.RIGHT, padx=4, pady=3)
+        refresh_btn = QPushButton("刷新")
+        refresh_btn.setProperty("primary", True)
+        style = refresh_btn.style()
+        if style is not None:
+            style.unpolish(refresh_btn)
+            style.polish(refresh_btn)
+        refresh_btn.clicked.connect(self.refresh)
+        status_layout.addWidget(refresh_btn)
 
-    def _apply_tree_style(self):
-        """为树形视图应用自定义颜色样式"""
-        style = ttk.Style()
-        style.configure(
-            "Treeview",
-            background=C["bg_elevated"],
-            fieldbackground=C["bg_elevated"],
-            foreground=C["text_1"],
-            rowheight=28,
-            font=FONT,
-        )
-        style.configure(
-            "Treeview.Heading",
-            background=C["bg_surface"],
-            foreground=C["text_2"],
-            font=FONT,
-            relief="flat",
-        )
-        style.map(
-            "Treeview",
-            background=[("selected", C["bilibili_dim"])],
-            foreground=[("selected", "#ffffff")],
-        )
+        jump_btn = QPushButton("跳转到视频")
+        jump_btn.clicked.connect(self._jump_to_video)
+        status_layout.addWidget(jump_btn)
 
-    def _sort_by(self, col):
-        """切换排序字段或反转排序方向，然后刷新列表"""
+        root.addWidget(status_bar)
+
+    # ── 事件 ──────────────────────────────────────────────
+
+    def _on_header_click(self, index):
+        """点击表头排序"""
+        col_map = {
+            0: "rank", 1: "title", 2: "bvid", 3: "viewers_total",
+            4: "viewers_web", 5: "viewers_app", 6: "view_count", 7: "online_rate",
+        }
+        col = col_map.get(index, "viewers_total")
         if self._sort_col == col:
             self._sort_rev = not self._sort_rev
         else:
@@ -181,96 +247,87 @@ class OnlineViewersPanel:
             self._sort_rev = col in ("viewers_total", "viewers_web", "viewers_app", "view_count", "online_rate", "rank")
         self._populate()
 
-    def _on_select(self, event):
+    def _on_selection_changed(self):
         pass
 
     def _jump_to_video(self):
-        """选中视频后跳转到主界面的监控列表并定位到该视频"""
-        sel = self._tree.selection()
+        sel = self._tree.selectedItems()
         if not sel:
             return
-        bvid = self._tree.item(sel[0], "values")[2]
-        self.gui._switch_nav("监控列表")
-        self.gui._select_video(bvid)
+        bvid = sel[0].data(0, Qt.ItemDataRole.UserRole + 1)
+        if bvid and self.gui:
+            self.gui._switch_nav("监控列表")
+            self.gui._select_video(bvid)
+
+    # ── 刷新 ──────────────────────────────────────────────
 
     def refresh(self):
-        """刷新在线人数数据：从 B站 API 拉取最新在线人数，然后更新列表"""
         if not self._refresh_lock.acquire(blocking=False):
-            return  # 上一次刷新尚未完成，跳过
+            return
         threading.Thread(target=self._async_refresh, daemon=True).start()
 
     def _async_refresh(self):
-        """后台线程：并发拉取所有视频的在线人数，完成后回主线程更新 UI"""
         try:
             self._fetch_all_viewers()
         finally:
             self._refresh_lock.release()
-        # 回主线程更新 UI
         if self._active:
-            self.frame.after(0, self._update_ui_after_fetch)
+            QTimer.singleShot(0, self._update_ui_after_fetch)
 
     def _fetch_all_viewers(self):
-        """并发拉取高优先级视频的在线观看人数（按需拉取，非全量）。
-
-        策略：只拉取在线人数最高的前 TOP_N_FETCH 个视频 + 当前选中的视频。
-        避免 100+ 视频全量拉取导致秒级刷新无法达标。
-        """
-        videos = self.gui.monitored_videos
+        """并发拉取高优先级视频的在线观看人数，写入独立缓存。"""
+        gui = self.gui
+        if gui is None:
+            return
+        videos = gui.monitored_videos
         if not videos:
             return
 
-        # ── 优先级筛选：在线人数 Top N + 当前选中 ──
+        # 选中的视频
         selected_bvid = None
-        sel = self._tree.selection()
+        sel = self._tree.selectedItems()
         if sel:
-            selected_bvid = self._tree.item(sel[0], "values")[2]
+            selected_bvid = sel[0].data(0, Qt.ItemDataRole.UserRole + 1)
 
-        # 按当前已知在线人数排序（近似，无需精确）
+        # 按缓存中的在线人数排序
+        cached = _read_viewers()
         ranked = sorted(
-            [(v, v.get("viewers_total", 0)) for v in videos],
+            [(v, v.get("viewers_total", cached.get(v.get("bvid", ""), {}).get("total", 0))) for v in videos],
             key=lambda x: x[1], reverse=True,
         )
         priority_videos = [v for v, _ in ranked[:TOP_N_FETCH]]
 
-        # 确保选中的视频也在拉取列表中
         if selected_bvid:
             for v in videos:
                 if v.get("bvid") == selected_bvid and v not in priority_videos:
                     priority_videos.append(v)
                     break
 
-        # ── 筛选有 cid 的视频 ──
         fetchable = []
         for v in priority_videos:
             cid = v.get("_cid", 0) or v.get("cid", 0)
             if cid:
-                fetchable.append((v, v.get("bvid", ""), cid))
+                fetchable.append((v.get("bvid", ""), cid))
 
         if not fetchable:
             return
 
-        # 延迟初始化线程池（仅在面板可见时）
         if self._fetch_pool is None:
             self._fetch_pool = ThreadPoolExecutor(max_workers=MAX_VIEWER_FETCH_WORKERS)
 
-        def _fetch_one(video, bvid, cid):
-            """拉取单个视频的在线人数（持有 gui._data_lock 写入，与 worker 线程互斥）"""
+        def _fetch_one(bvid, cid):
             try:
                 from core import bilibili_api
                 viewers = bilibili_api.get_video_viewers(bvid, cid)
                 if viewers:
-                    with self.gui._data_lock:
-                        video["viewers_total_raw"] = viewers.get("total", "0")
-                        video["viewers_web_raw"] = viewers.get("count", "0")
-                        video["viewers_total"] = _parse_viewer_count(viewers.get("total", "0"))
-                        video["viewers_web"] = _parse_viewer_count(viewers.get("count", "0"))
-                        video["viewers_app"] = max(0, video["viewers_total"] - video["viewers_web"])
-                        video["_viewers_updated_at"] = datetime.now().timestamp()  # 供 worker 判断是否跳过
+                    total = _parse_viewer_count(viewers.get("total", "0"))
+                    web = _parse_viewer_count(viewers.get("count", "0"))
+                    app = max(0, total - web)
+                    _write_viewer(bvid, total, web, app)
             except Exception:
-                pass  # 单个视频失败不阻塞其他
+                pass
 
-        futures = [self._fetch_pool.submit(_fetch_one, v, bvid, cid) for v, bvid, cid in fetchable]
-        # 等待全部完成（或超时 10 秒）
+        futures = [self._fetch_pool.submit(_fetch_one, bvid, cid) for bvid, cid in fetchable]
         for f in as_completed(futures, timeout=10):
             try:
                 f.result()
@@ -278,17 +335,24 @@ class OnlineViewersPanel:
                 pass
 
     def _populate(self):
-        """填充树形表格数据：原地更新已有行（避免 delete+insert 产生临时对象），
-        仅在视频增删时创建/销毁行。使用 bvid 作为 iid 便于跟踪。"""
-        # ── 构建排序后的行数据 ──
+        """填充树形表格：合并视频列表（标题/播放量）与在线人数缓存"""
+        cached = _read_viewers()
+        gui = self.gui
+        if gui is None:
+            return
+        videos = gui.monitored_videos
+        if not videos:
+            return
+
         rows = []
-        for video in self.gui.monitored_videos:
+        for video in videos:
             bvid = video.get("bvid", "")
             title = video.get("title", bvid)
             view_count = video.get("view_count", 0)
-            viewers_total = video.get("viewers_total", 0)
-            viewers_web = video.get("viewers_web", 0)
-            viewers_app = video.get("viewers_app", 0)
+            vdata = cached.get(bvid, {})
+            viewers_total = vdata.get("total", 0)
+            viewers_web = vdata.get("web", 0)
+            viewers_app = vdata.get("app", 0)
             online_rate = (viewers_total / view_count * 100) if view_count > 0 else 0
             rows.append((bvid, title, view_count, viewers_total, viewers_web, viewers_app, online_rate))
 
@@ -302,92 +366,94 @@ class OnlineViewersPanel:
                 "online_rate": 6, "rank": 3,
             }
             val = r[idx_map.get(col_key, 3)]
-            if isinstance(val, str):
-                return val.lower()
-            return val
+            return val.lower() if isinstance(val, str) else val
 
         rows.sort(key=_sort_key, reverse=reverse)
 
-        self._count_lbl.config(text=f"共 {len(rows)} 个视频")
-        self._status_lbl.config(text=f"共 {len(rows)} 个视频 · 按在线人数排序")
+        self._count_lbl.setText(f"共 {len(rows)} 个视频")
+        self._status_lbl.setText(f"共 {len(rows)} 个视频 · 按在线人数排序")
 
-        # ── 集合运算：增删 vs 更新 ──
+        # 删除不存在的项
         new_bvids = {r[0] for r in rows}
-        existing = set(self._tree.get_children())  # iid == bvid
+        for bvid in list(self._item_map.keys()):
+            if bvid not in new_bvids:
+                item = self._item_map.pop(bvid, None)
+                if item is not None:
+                    root = self._tree.invisibleRootItem()
+                    if root is not None:
+                        root.removeChild(item)
 
-        # 删除已移除的视频
-        for iid in existing - new_bvids:
-            self._tree.delete(iid)
-
-        # 更新已有行 / 插入新行
+        # 填充/更新数据
         for i, r in enumerate(rows):
             bvid = r[0]
-            tag = "even" if i % 2 == 0 else "odd"
             vt = r[3]
             if vt >= 10000:
-                rate_tag = "online_high"
+                rate_color = C["success"]
             elif vt >= 1000:
-                rate_tag = "online_mid"
+                rate_color = C["warning"]
             else:
-                rate_tag = "online_low"
+                rate_color = C["text_3"]
 
             title_display = r[1][:40] + "\u2026" if len(r[1]) > 40 else r[1]
             rate_display = f"{r[6]:.2f}%" if r[6] > 0 else "\u2014"
 
-            values = (
-                i + 1, title_display, bvid,
-                fmt_num(r[3]), fmt_num(r[4]), fmt_num(r[5]),
-                fmt_num(r[2]), rate_display,
-            )
+            values = [
+                str(i + 1),
+                title_display,
+                bvid,
+                fmt_num(r[3]),
+                fmt_num(r[4]),
+                fmt_num(r[5]),
+                fmt_num(r[2]),
+                rate_display,
+            ]
 
-            if bvid in existing:
-                self._tree.item(bvid, values=values, tags=(tag, rate_tag))
+            item = self._item_map.get(bvid)
+            if item is not None:
+                for col_idx, val in enumerate(values):
+                    item.setText(col_idx, val)
+                item.setForeground(3, QColor(rate_color))
             else:
-                self._tree.insert("", tk.END, iid=bvid, values=values, tags=(tag, rate_tag))
-
-        # ── 排序顺序修正：仅当顺序变化时移动行 ──
-        desired_iids = [r[0] for r in rows]
-        current_iids = list(self._tree.get_children())
-        if desired_iids != current_iids:
-            for target_idx, iid in enumerate(desired_iids):
-                cur_idx = current_iids.index(iid) if iid in current_iids else -1
-                if cur_idx != target_idx and cur_idx >= 0:
-                    self._tree.move(iid, "", target_idx)
-                    # 更新 current_iids 避免 O(n²) 漂移
-                    current_iids.remove(iid)
-                    current_iids.insert(target_idx, iid)
+                item = QTreeWidgetItem(values)
+                item.setData(0, Qt.ItemDataRole.UserRole + 1, bvid)
+                item.setForeground(3, QColor(rate_color))
+                self._tree.addTopLevelItem(item)
+                self._item_map[bvid] = item
 
     def _update_ui_after_fetch(self):
-        """在主线程中更新 UI（API 拉取完成后回调）"""
         self._populate()
-        self._time_lbl.config(text=f"上次刷新: {datetime.now().strftime('%H:%M:%S')}")
+        self._time_lbl.setText(f"上次刷新: {datetime.now().strftime('%H:%M:%S')}")
+
+    # ── 生命周期 ──────────────────────────────────────────
 
     def on_show(self):
-        """面板显示时立即刷新并启动秒级自动刷新"""
+        """面板显示：启动定时器 + 线程池（首次），然后立即刷新"""
         self._active = True
-        self._start_auto_refresh()
-        self.refresh()  # 在 _active=True 之后调用，确保 UI 更新回调执行
+        if not self._started:
+            self._started = True
+            self._start_auto_refresh()
+            if self._fetch_pool is None:
+                self._fetch_pool = ThreadPoolExecutor(max_workers=MAX_VIEWER_FETCH_WORKERS)
+        self.refresh()
 
     def on_hide(self):
-        """面板隐藏时停止自动刷新，释放线程池"""
+        """面板隐藏：仅标记不可见（定时器和线程池继续运行）"""
+        self._active = False
+
+    def cleanup(self):
+        """应用退出时释放资源"""
         self._active = False
         self._stop_auto_refresh()
         if self._fetch_pool:
             self._fetch_pool.shutdown(wait=False)
             self._fetch_pool = None
+        _close_viewers_db()
 
     def _start_auto_refresh(self):
-        """启动定时自动刷新（秒级间隔）"""
-        self._stop_auto_refresh()
-        self._timer_id = self.frame.after(REFRESH_INTERVAL, self._auto_refresh_tick)
+        self._timer.start(REFRESH_INTERVAL)
 
     def _stop_auto_refresh(self):
-        """停止自动刷新定时器"""
-        if self._timer_id:
-            self.frame.after_cancel(self._timer_id)
-            self._timer_id = None
+        self._timer.stop()
 
     def _auto_refresh_tick(self):
-        """自动刷新定时器触发：刷新数据并重新排程"""
         self.refresh()
-        self._timer_id = self.frame.after(REFRESH_INTERVAL, self._auto_refresh_tick)
