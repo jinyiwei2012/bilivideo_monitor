@@ -1,24 +1,14 @@
 """
 models 算法适配器
 
-将 models/ 目录下具有不同参数签名的算法统一适配到注册器系统。
-核心适配逻辑：
-    - 自动检测算法 predict() 方法的参数签名
-    - 将 registry 传入的 (history, current_value) 格式转换为
-      各算法所需的 video_data dict 格式
-    - 解析算法原始返回结果，统一为 registry 所需的 dict 格式
-
-支持的接口类型：
-    1. "video_data" : predict(video_data, threshold)  — 新接口
-    2. "full_params" : predict(current_views, target_views, history_data, video_info)  — 旧接口
-    3. "unknown" : 其他签名（触发异常，返回 fallback 结果）
-
-模型加载：
-    load_all_model_algorithms() 递归遍历 models/ 目录树，
-    自动发现所有继承 BaseAlgorithm 且以 Algorithm 结尾的类。
+将 models/ 目录下的算法统一适配到 AlgorithmRegistry。
+核心职责：
+    - 自动发现 models/ 目录下所有继承 BaseAlgorithm 的算法类
+    - 统一 predict() 调用接口为 predict(video_data, threshold)
+    - 标准化算法返回结果为 registry 所需的标准 dict 格式
 """
 
-from typing import Dict, List, Tuple, Any
+from typing import Dict, List, Tuple
 from datetime import datetime
 import importlib
 import os
@@ -45,14 +35,13 @@ class ModelAlgorithmAdapter:
 
     __slots__ = (
         "algo", "name", "algorithm_id", "description", "category",
-        "default_weight", "interface_type",
+        "default_weight",
     )
 
     def __init__(self, algo_instance):
         """包装一个算法实例。
 
-        自动提取算法的元信息（名称、ID、描述、分类、默认权重），
-        并通过反射检测 predict() 方法签名以确定接口类型。
+        自动提取算法的元信息（名称、ID、描述、分类、默认权重）。
 
         Args:
             algo_instance: models/ 下某个算法的实例对象
@@ -64,35 +53,8 @@ class ModelAlgorithmAdapter:
         self.category = getattr(algo_instance, "category", "其他")
         self.default_weight = getattr(algo_instance, "default_weight", 1.0)
 
-        # 检测算法 predict() 方法的参数接口类型
-        self._detect_interface()
-
-    def _detect_interface(self):
-        """检测算法 predict() 方法的参数签名，确定接口类型。
-
-        通过 inspect.signature 分析参数个数和名称：
-        类型 1 — "video_data":  predict(video_data, threshold)  → 新接口（2 参数法含 video_data）
-        类型 2 — "full_params": predict(current_views, target_views, history_data, video_info) → 旧接口（4 参数）
-        类型 3 — "unknown":     其他签名 → 将触发 fallback
-        """
-        import inspect
-
-        sig = inspect.signature(self.algo.predict)
-        params = list(sig.parameters.keys())
-
-        if len(params) == 2 and "video_data" in params:
-            self.interface_type = "video_data"
-        elif len(params) == 4:
-            self.interface_type = "full_params"
-        else:
-            self.interface_type = "unknown"
-
-    def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
-        """统一预测接口，与 BaseAlgorithm.predict() 签名一致。
-
-        根据检测到的接口类型，自动适配参数传递：
-        - "video_data": 直接透传
-        - "full_params": 从 video_data 中拆解出四个参数
+    def predict(self, video_data: Dict, threshold: int = 100000) -> PredictionResult:
+        """统一预测接口，直接透传到算法实例。
 
         Args:
             video_data: 包含视频所有数据的字典（含 view_count, history_data 等）
@@ -102,24 +64,8 @@ class ModelAlgorithmAdapter:
             PredictionResult: 预测结果对象（异常时返回零置信度结果）
         """
         try:
-            if self.interface_type == "video_data":
-                # 新接口：直接透传
-                return self.algo.predict(video_data, threshold)
-            else:
-                # 旧接口：拆解 video_data 为四个参数
-                current_value = video_data.get("view_count", 0)
-                history_data = video_data.get("history_data", [])
-                history_list = [
-                    {
-                        "view": d.get("view_count", 0),
-                        "view_count": d.get("view_count", 0),
-                        "timestamp": d.get("timestamp_str", ""),
-                    }
-                    for d in history_data
-                ]
-                return self.algo.predict(current_value, threshold, history_list, video_data)
+            return self.algo.predict(video_data, threshold)
         except Exception:
-            # 预测失败时返回一个"无置信度"的占位结果
             current_views = video_data.get("view_count", 0)
             return PredictionResult(
                 algorithm_name=self.name,

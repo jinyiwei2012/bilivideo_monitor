@@ -20,6 +20,11 @@ import requests
 
 from config import DATA_DIR, load_config, save_config
 
+try:
+    from PyQt6.QtWidgets import QMessageBox
+except ImportError:
+    QMessageBox = None
+
 logger = logging.getLogger(__name__)
 
 # GitHub Release API 地址（稳定版和预发布版）
@@ -135,15 +140,17 @@ def _enable_devmode():
 
 def _warn(parent=None):
     """弹出高风险操作确认对话框"""
+    if QMessageBox is None:
+        return False
     try:
-        from tkinter import messagebox
-
-        r = messagebox.askyesno(
+        reply = QMessageBox.question(
+            parent,
             "高风险操作",
             "当前操作可能导致不可逆的数据损坏或模型损坏。\n\n是否确认开启开发者模式？程序关闭后自动恢复。",
-            icon="warning",
-            parent=parent,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
+        r = reply == QMessageBox.StandardButton.Yes
         if r:
             _enable_devmode()
         return r
@@ -161,15 +168,17 @@ def _confirm_risky(operation_desc: str = "当前操作", parent=None):
     """
     if _x():
         return True
+    if QMessageBox is None:
+        return False
     try:
-        from tkinter import messagebox
-
-        r = messagebox.askyesno(
+        reply = QMessageBox.question(
+            parent,
             "高风险操作",
             f"{operation_desc}可能导致不可逆的数据损坏或模型损坏。\n\n是否确认开启开发者模式？程序关闭后自动恢复。",
-            icon="warning",
-            parent=parent,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
+        r = reply == QMessageBox.StandardButton.Yes
         if r:
             _enable_devmode()
         return r

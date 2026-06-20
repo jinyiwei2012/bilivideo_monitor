@@ -1,35 +1,35 @@
 """GPU / NPU 自动检测模块
 =======================
 
-自动检测可用的计算硬件加速器（GPU/NPU），为 PyTorch 训练提供统一的设备接口。
+自动检测可用的计算硬件加速器（GPU/NPU），为 PyTorch 训练与 ONNX 推理提供统一的设备接口。
 
 支持的加速后端：
 - **CUDA**:          NVIDIA GPU（需安装 CUDA 版 PyTorch）
 - **DirectML**:      Windows 平台 GPU/NPU（Intel/AMD），通过 torch-directml 包
 - **Intel XPU**:     Linux 平台 Intel GPU/NPU（需 intel-extension-for-pytorch）
+- **OpenVINO NPU**:  Intel AI Boost NPU（Windows/Linux），通过 openvino 包 + ONNX 模型
 - **Apple MPS**:     macOS Apple Silicon 的 Metal Performance Shaders 加速
 - **CPU**:          高性能 CPU 降级回退
 
 后端探测优先级：
     cuda > DirectML > XPU (IPEX) > MPS > CPU
+    OpenVINO NPU 为独立推理后端，通过 is_ov_npu_available() 查询
 
 支持的特性：
-- 懒加载 PyTorch（避免拖慢应用启动）
+- 懒加载 PyTorch / OpenVINO（避免拖慢应用启动）
 - 冒烟测试验证加速器可用性
 - 全局强制 CPU 开关（UI 可控制）
 - 设备详情查询（名称、显存、类型）
 
 公开 API：
 ---------
-    is_torch_available()   — PyTorch 是否已安装
-    get_device()           — 返回最优 torch.device；PyTorch 未装时返回 None
-    get_device_info()      — 返回设备详情字典 {device, name, total_memory_gb, is_gpu}
-    force_cpu(flag)        — 强制使用 CPU（设置后 get_device() 永远返回 cpu）
-
-NPU (Intel AI Boost) 支持：
---------------------------
-- **Windows**: pip install torch-directml --pre
-- **Linux**:   pip install intel-extension-for-pytorch
+    is_torch_available()    — PyTorch 是否已安装
+    get_device()            — 返回最优 torch.device；PyTorch 未装时返回 None
+    get_device_info()       — 返回设备详情字典 {device, name, total_memory_gb, is_gpu}
+    force_cpu(flag)         — 强制使用 CPU（设置后 get_device() 永远返回 cpu）
+    is_ov_npu_available()   — OpenVINO NPU（Intel AI Boost）是否可用
+    set_preferred_device()  — 设置推理设备偏好
+    get_preferred_device()  — 获取当前推理设备偏好
 """
 
 import os
@@ -44,6 +44,8 @@ _torch = None           # PyTorch 模块引用（懒加载后缓存）
 _torch_available = None # PyTorch 是否可用的缓存标志
 _xpu_available = None   # Intel XPU 是否可用的缓存标志
 _dml_available = None   # DirectML 是否可用的缓存标志
+_ov_available = None    # OpenVINO 是否可用的缓存标志
+_ov_npu_available = None  # OpenVINO NPU 设备是否可用的缓存标志
 _force_cpu = False      # 是否全局强制使用 CPU
 
 
@@ -89,6 +91,115 @@ def _ensure_torch():
     except ImportError:
         pass
     return _torch
+
+
+def _ensure_ov():
+    """懒加载 OpenVINO 并检测 NPU 设备可用性。
+
+    只在首次使用时才 import openvino，避免拖慢应用启动。
+    检测 Intel AI Boost NPU 是否可通过 OpenVINO 运行时访问。
+
+    Returns:
+        bool: OpenVINO 是否可正常导入。
+    """
+    global _ov_available, _ov_npu_available
+    if _ov_available is not None:
+        return _ov_available
+    try:
+        import openvino as _ov  # noqa: F811
+
+        _ov_available = True
+        core = _ov.Core()
+        _ov_npu_available = "NPU" in core.available_devices
+        if _ov_npu_available:
+            logger.info("OpenVINO NPU 已检测到: %s", core.get_property("NPU", "FULL_DEVICE_NAME"))
+        else:
+            logger.debug("OpenVINO 已安装，但未检测到 NPU 设备。可用设备: %s", core.available_devices)
+    except ImportError:
+        _ov_available = False
+        _ov_npu_available = False
+    except Exception as e:
+        logger.debug("OpenVINO 检测异常: %s", e)
+        _ov_available = False
+        _ov_npu_available = False
+    return _ov_available
+
+
+def _try_ov_npu():
+    """尝试验证 OpenVINO NPU 是否可正常执行推理。
+
+    通过创建一个极简 ONNX 模型并编译到 NPU 进行冒烟测试，
+    确保 NPU 驱动和编译器均可正常工作。
+
+    Returns:
+        bool: NPU 冒烟测试是否通过。
+    """
+    if not _ensure_ov() or not _ov_npu_available:
+        return False
+    try:
+        import tempfile
+        import os as _os
+        import numpy as np
+        import openvino as ov
+        from onnx import helper, TensorProto
+        import onnx
+
+        # 极简模型: (1, 2) @ (2, 1) → (1, 1)
+        nodes = [helper.make_node("MatMul", ["X", "W"], ["Y"], name="smoke")]
+        inputs = [helper.make_tensor_value_info("X", TensorProto.FLOAT16, [1, 2])]
+        outputs = [helper.make_tensor_value_info("Y", TensorProto.FLOAT16, [1, 1])]
+        W = np.array([[1.0], [0.5]], dtype=np.float16)
+        inits = [helper.make_tensor("W", TensorProto.FLOAT16, [2, 1], W.tobytes(), raw=True)]
+        graph = helper.make_graph(nodes, "smoke_test", inputs, outputs, inits)
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 18)])
+        onnx.checker.check_model(model)
+
+        tmp = _os.path.join(tempfile.gettempdir(), "_ov_npu_smoke.onnx")
+        onnx.save(model, tmp)
+
+        core = ov.Core()
+        compiled = core.compile_model(
+            tmp,
+            "NPU",
+            config={
+                "PERFORMANCE_HINT": "LATENCY",
+                "NPU_COMPILATION_MODE_PARAMS": "compute-layers-with-higher-precision=Sqrt,Power,ReduceMean,Add_RMSNorm",
+            },
+        )
+        ireq = compiled.create_infer_request()
+        X_test = np.array([[2.0, 4.0]], dtype=np.float16)
+        ireq.infer([X_test])
+        result = ireq.get_output_tensor(0).data
+
+        _os.unlink(tmp)
+        expected = 2.0 * 1.0 + 4.0 * 0.5  # = 4.0
+        if abs(float(result[0, 0]) - expected) < 0.01:
+            logger.info("OpenVINO NPU 冒烟测试通过，推理结果正确")
+            return True
+        else:
+            logger.warning("OpenVINO NPU 冒烟测试结果异常: expected=%.2f, got=%.2f", expected, float(result[0, 0]))
+            return False
+    except Exception as e:
+        logger.warning("OpenVINO NPU 冒烟测试失败: %s", e)
+        return False
+
+
+def is_ov_npu_available() -> bool:
+    """检查 OpenVINO NPU（Intel AI Boost）是否可用于推理。
+
+    OpenVINO NPU 是一个独立的推理后端，不需要 PyTorch。
+    使用此 API 判断是否可以将 ONNX 模型编译到 NPU 上执行。
+
+    Returns:
+        bool: True 表示 OpenVINO NPU 可用且冒烟测试通过。
+    """
+    _ensure_ov()
+    if not _ov_npu_available:
+        return False
+    # 冒烟测试仅首次执行，后续直接使用缓存结果
+    if _ov_npu_available is True:
+        return True
+    return _try_ov_npu()
 
 
 def is_torch_available() -> bool:
@@ -222,6 +333,22 @@ def get_device() -> Optional[Any]:
     return _try_cuda() or _try_dml() or _try_xpu() or _try_mps() or t.device("cpu")
 
 
+def _get_ov_npu_name() -> str:
+    """获取 OpenVINO NPU 设备友好名称。
+
+    Returns:
+        str: NPU 设备名称，不可用时返回空字符串。
+    """
+    if not _ov_npu_available:
+        return ""
+    try:
+        import openvino as ov
+        core = ov.Core()
+        return core.get_property("NPU", "FULL_DEVICE_NAME")
+    except Exception:
+        return "Intel AI Boost (NPU)"
+
+
 def get_device_info() -> Dict[str, Any]:
     """返回设备详细信息，用于 UI 显示。
 
@@ -284,27 +411,46 @@ def get_device_info() -> Dict[str, Any]:
         info["name"] = "Apple Silicon (MPS)"
         info["is_gpu"] = True
 
+    # ── OpenVINO NPU 附加信息 ─────────────────────────
+    # 仅在 NPU 已检测到时追加，不影响当前 torch 设备选择
+    _ensure_ov()
+    if _ov_npu_available:
+        info["npu_available"] = True
+        info["npu_name"] = _get_ov_npu_name()
+
     return info
 
 
 # ── 用户推理设备偏好 ────────────────────────────
 
-_preferred_device: str = "auto"  # "auto" | "onnx_dml" | "cuda" | "cpu"
+_preferred_device: str = "auto"  # "auto" | "onnx_dml" | "cuda" | "cpu" | "openvino_npu"
 
 
 def set_preferred_device(pref: str):
     """设置用户推理设备偏好。
 
     Args:
-        pref: "auto" | "onnx_dml" | "cuda" | "cpu"
+        pref: "auto" | "onnx_dml" | "cuda" | "cpu" | "openvino_npu"
+
+    Note:
+        - "auto":          自动选择最优设备（优先级: CUDA > DirectML > XPU > MPS > CPU）
+        - "cuda":          强制使用 NVIDIA CUDA GPU
+        - "onnx_dml":      使用 DirectML 后端（Intel/AMD GPU/NPU, Windows）
+        - "openvino_npu":  使用 OpenVINO NPU（Intel AI Boost），需 openvino 包 + ONNX 模型
+        - "cpu":           强制使用 CPU
     """
     global _preferred_device
-    valid = {"auto", "onnx_dml", "cuda", "cpu"}
+    valid = {"auto", "onnx_dml", "cuda", "cpu", "openvino_npu"}
     if pref in valid:
         _preferred_device = pref
         # 同步 force_cpu 状态
         if pref == "cpu":
             force_cpu(True)
+        elif pref == "openvino_npu":
+            # NPU 不是 torch 设备，不强制 CPU，但标记为特殊推理路径
+            force_cpu(False)
+            if not is_ov_npu_available():
+                logger.warning("OpenVINO NPU 不可用，推理将回退到 CPU")
         else:
             force_cpu(False)
         logger.info("推理设备偏好: %s", pref)
@@ -313,3 +459,34 @@ def set_preferred_device(pref: str):
 def get_preferred_device() -> str:
     """获取用户推理设备偏好。"""
     return _preferred_device
+
+
+# ── NPU 上下文管理器 ──────────────────────────────
+
+from contextlib import contextmanager
+
+
+@contextmanager
+def npu_context(enabled: bool = True):
+    """临时切换 NPU 推理模式的上下文管理器。
+
+    在 with 块内临时将推理设备偏好设为 openvino_npu（或恢复），
+    退出时自动恢复原偏好。用于批量预测场景。
+
+    用法：
+        with npu_context():
+            results = AlgorithmRegistry.predict_all(...)
+
+    Args:
+        enabled: True 表示启用 NPU，False 表示禁用（恢复到 auto）。
+    """
+    global _preferred_device
+    previous = _preferred_device
+    try:
+        if enabled:
+            set_preferred_device("openvino_npu")
+        else:
+            set_preferred_device("auto")
+        yield
+    finally:
+        set_preferred_device(previous)

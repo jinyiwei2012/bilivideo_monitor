@@ -39,10 +39,12 @@ statsmodels>=0.14.0      # 时间序列 (ARIMA等)
 matplotlib>=3.7.0        # 绘图
 
 # ==========
-# GUI
+# GUI - PyQt6
 # ==========
 
-customtkinter>=5.2.0     # CustomTkinter UI框架
+PyQt6>=6.7.0             # Qt6 UI框架
+PyQt6-charts>=6.7.0      # Qt6 图表库
+PyQt6.QtMultimedia>=6.7.0 # Qt6 多媒体
 plyer>=2.1.0             # 跨平台通知 (Windows 原生弹窗)
 
 # ==========

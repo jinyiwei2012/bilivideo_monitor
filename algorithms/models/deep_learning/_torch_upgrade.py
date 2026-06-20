@@ -2000,17 +2000,33 @@ def try_torch_predict(
     x_arr, v_mean, v_std = _build_torch_input(video_data, feats, window)
     if x_arr is not None:
         if prefer == "auto":
-            # 自动模式：基准测试选最快后端
-            backend = _get_fastest_backend(algo_id, x_arr, window, len(feats) + 5,
-                                            v_mean, v_std, algorithm, video_data, threshold, model_source)
-            if backend == "onnx":
-                onnx_result = _try_onnx_predict(
-                    algo_id, bvid, x_arr, window, len(feats) + 5,
-                    v_mean, v_std, algorithm, video_data, threshold, model_source
-                )
-                if onnx_result is not None:
-                    return onnx_result
-            # backend == "torch" → skip ONNX, go to torch below
+            # 自动模式：基准测试排序后端，按速度依次尝试
+            ranked = _rank_backends(
+                algo_id, x_arr, window, len(feats) + 5, v_mean, v_std,
+                algorithm, video_data, threshold, model_source,
+                model_cls=model_cls, model_kwargs=model_kwargs,
+                features=feats, horizon=horizon
+            )
+            for backend in ranked:
+                if backend == "onnx":
+                    onnx_result = _try_onnx_predict(
+                        algo_id, bvid, x_arr, window, len(feats) + 5,
+                        v_mean, v_std, algorithm, video_data, threshold, model_source
+                    )
+                    if onnx_result is not None:
+                        return onnx_result
+                elif backend == "npu":
+                    npu_result = _try_npu_predict(
+                        algo_id, bvid, x_arr, window, len(feats) + 5, v_mean, v_std,
+                        algorithm, video_data, threshold, model_source,
+                        model_cls=model_cls, model_kwargs=model_kwargs,
+                        feats=feats, horizon=horizon, state=state,
+                    )
+                    if npu_result is not None:
+                        return npu_result
+                elif backend == "torch":
+                    # torch 在 Phase 2 处理（复用缓存模型）
+                    break
         elif not skip_onnx:
             onnx_result = _try_onnx_predict(
                 algo_id, bvid, x_arr, window, len(feats) + 5,
@@ -2102,6 +2118,39 @@ def try_torch_predict(
             except Exception:
                 pass
 
+        # ── 降级到 NPU（CUDA 不可用或 OOM 时自动回退）────
+        if x_arr is not None:
+            try:
+                from algorithms.training.npu_inference import get_npu_engine
+                engine = get_npu_engine()
+                if engine.is_available:
+                    model = getattr(algorithm, "_cached_torch_model", None)
+                    if model is None or (bvid and not getattr(algorithm, "_cached_bvid", "") == bvid):
+                        mk = dict(model_kwargs or {})
+                        mk["in_features"] = len(feats) + 5
+                        import inspect
+                        sig_params = set(inspect.signature(model_cls).parameters.keys())
+                        for k, v in (("window", window), ("horizon", horizon)):
+                            if k in sig_params and k not in mk:
+                                mk[k] = v
+                        with _model_load_semaphore:
+                            model = model_cls(**mk)
+                            if isinstance(state, (tuple, list)):
+                                state_npu = state[0]
+                            else:
+                                state_npu = state
+                            if isinstance(state_npu, dict):
+                                state_clean = {k[len("_orig_mod."):] if k.startswith("_orig_mod.") else k: v
+                                               for k, v in state_npu.items()}
+                                model.load_state_dict(state_clean)
+                    y = algorithm._npu_infer(model, x_arr, algo_name=algo_id)
+                    y_np = y.cpu().numpy().reshape(-1)
+                    predicted_velocity = max(0.0, float(y_np[0]) * v_std + v_mean)
+                    return _generic_result(algorithm, video_data, threshold, predicted_velocity, y_np,
+                                           model_source=model_source)
+            except Exception:
+                pass
+
         # 降级到 ONNX Runtime（CPU 推理加速）
         algo_id = getattr(algorithm, "algorithm_id", "unknown")
         bvid = video_data.get("bvid", "")
@@ -2119,29 +2168,131 @@ def try_torch_predict(
         return fallback_fn(video_data, threshold)
 
 
-# 自动模式后端缓存：algo_id → "onnx" | "torch"
-_AUTO_BACKEND_CACHE: Dict[str, str] = {}
+# 自动模式后端缓存：algo_id → ["torch", "npu", "onnx"] 按基准速度排序
+_AUTO_BACKEND_RANK: Dict[str, List[str]] = {}
 _AUTO_BENCHMARKED: set = set()
+_BENCHMARK_LOCK = threading.Lock()
 
 
-def _get_fastest_backend(algo_id, x_arr, window, in_features, v_mean, v_std,
-                          algorithm, video_data, threshold, model_source) -> str:
-    """自动基准测试：对当前算法对比 ONNX 和 torch 推理速度，缓存最快后端。
+def _rank_backends(algo_id, x_arr, window, in_features, v_mean, v_std,
+                   algorithm, video_data, threshold, model_source,
+                   model_cls, model_kwargs, features, horizon) -> List[str]:
+    """基准测试各推理后端速度，返回按速度排序的后端列表（最快优先）。
 
-    首次调用时执行 3 次推理取均值，后续直接返回缓存结果。
+    首次调用时对 torch / NPU / ONNX 各执行 warmup + 10 次推理取均值，
+    排序后缓存结果。后续调用直接返回缓存。
     """
-    if algo_id in _AUTO_BACKEND_CACHE:
-        return _AUTO_BACKEND_CACHE[algo_id]
+    if algo_id in _AUTO_BACKEND_RANK:
+        return _AUTO_BACKEND_RANK[algo_id]
 
-    # 只对支持 ONNX 的算法做基准测试
-    from algorithms.training.onnx_exporter import is_onnx_available
-    if not is_onnx_available():
-        _AUTO_BACKEND_CACHE[algo_id] = "torch"
-        return "torch"
+    with _BENCHMARK_LOCK:
+        if algo_id in _AUTO_BACKEND_RANK:  # double-check
+            return _AUTO_BACKEND_RANK[algo_id]
 
-    # 默认选 ONNX（通常比 torch CPU 快 2-5x）
-    _AUTO_BACKEND_CACHE[algo_id] = "onnx"
-    return "onnx"
+        import time as _time
+        rankings = []  # [(backend_name, avg_latency_ms), ...]
+
+        # ── Benchmark torch ─────────────────────
+        try:
+            from algorithms.training.checkpoint_manager import load_best_checkpoint
+            bvid_ = video_data.get("bvid", "")
+            state_, _ = load_best_checkpoint(algo_id, bvid=bvid_)
+            if state_ is not None:
+                mk = dict(model_kwargs or {})
+                mk["in_features"] = in_features
+                import inspect
+                sig_params = set(inspect.signature(model_cls).parameters.keys())
+                for k, v in (("window", window), ("horizon", horizon)):
+                    if k in sig_params and k not in mk:
+                        mk[k] = v
+                model_t = model_cls(**mk)
+                if isinstance(state_, (tuple, list)):
+                    state_ = state_[0]
+                if isinstance(state_, dict):
+                    state_clean = {k[len("_orig_mod."):] if k.startswith("_orig_mod.") else k: v
+                                   for k, v in state_.items()}
+                    model_t.load_state_dict(state_clean)
+                    model_t.eval()
+
+                    x_t = torch.from_numpy(x_arr).unsqueeze(0)
+                    for _ in range(3):  # warmup
+                        with torch.no_grad():
+                            _ = model_t(x_t)
+
+                    t0 = _time.perf_counter()
+                    for _ in range(10):
+                        with torch.no_grad():
+                            _ = model_t(x_t)
+                    lat = (_time.perf_counter() - t0) / 10 * 1000
+                    rankings.append(("torch", lat))
+                    logger.debug("[%s] benchmark torch: %.3f ms", algo_id, lat)
+        except Exception as e:
+            logger.debug("[%s] benchmark torch failed: %s", algo_id, e)
+
+        # ── Benchmark NPU ───────────────────────
+        try:
+            from algorithms.training.npu_inference import get_npu_engine
+            engine = get_npu_engine()
+            if engine.is_available:
+                model_n = model_cls(**mk) if 'mk' in dir() else None
+                if model_n is None:
+                    mk = dict(model_kwargs or {})
+                    mk["in_features"] = in_features
+                    import inspect
+                    sig_params = set(inspect.signature(model_cls).parameters.keys())
+                    for k, v in (("window", window), ("horizon", horizon)):
+                        if k in sig_params and k not in mk:
+                            mk[k] = v
+                    model_n = model_cls(**mk)
+                    if isinstance(state_, (tuple, list)):
+                        state_ = state_[0]
+                    state_clean = {k[len("_orig_mod."):] if k.startswith("_orig_mod.") else k: v
+                                   for k, v in state_.items()}
+                    model_n.load_state_dict(state_clean)
+                # Prepare (compile once, cached on disk)
+                engine.prepare_model(algo_id, model_n, torch.from_numpy(x_arr).unsqueeze(0))
+                x_npu = np.asarray(x_arr, dtype=np.float16)
+                if x_npu.ndim == 2:
+                    x_npu = x_npu[np.newaxis, :, :]
+                for _ in range(3):  # warmup
+                    engine.infer(algo_id, x_npu)
+                t0 = _time.perf_counter()
+                for _ in range(10):
+                    engine.infer(algo_id, x_npu)
+                lat = (_time.perf_counter() - t0) / 10 * 1000
+                rankings.append(("npu", lat))
+                logger.debug("[%s] benchmark npu: %.3f ms", algo_id, lat)
+        except Exception as e:
+            logger.debug("[%s] benchmark npu failed: %s", algo_id, e)
+
+        # ── Benchmark ONNX ──────────────────────
+        try:
+            from algorithms.training.onnx_exporter import get_onnx_session, is_onnx_available
+            if is_onnx_available():
+                session = get_onnx_session()
+                for _ in range(3):  # warmup
+                    _ = session.predict(algo_id, x_arr, bvid_, window, in_features)
+                t0 = _time.perf_counter()
+                for _ in range(10):
+                    _ = session.predict(algo_id, x_arr, bvid_, window, in_features)
+                lat = (_time.perf_counter() - t0) / 10 * 1000
+                rankings.append(("onnx", lat))
+                logger.debug("[%s] benchmark onnx: %.3f ms", algo_id, lat)
+        except Exception as e:
+            logger.debug("[%s] benchmark onnx failed: %s", algo_id, e)
+
+        # 排序：torch 始终第一（CUDA 最快），NPU/ONNX 按基准排序
+        torch_rank = [r for r in rankings if r[0] == "torch"]
+        other_rank = sorted([r for r in rankings if r[0] != "torch"], key=lambda x: x[1])
+        sorted_rankings = torch_rank + other_rank
+        result = [name for name, _ in sorted_rankings]
+        if not result:
+            result = ["torch"]
+        _AUTO_BACKEND_RANK[algo_id] = result
+        logger.info("[%s] 后端排序: %s", algo_id, " > ".join(
+            f"{n}({l:.2f}ms)" for n, l in rankings
+        ))
+        return result
 
 
 def _try_onnx_predict(algo_id, bvid, x_arr, window, in_features, v_mean, v_std,
@@ -2159,6 +2310,47 @@ def _try_onnx_predict(algo_id, bvid, x_arr, window, in_features, v_mean, v_std,
         predicted_velocity = max(0.0, float(y[0]) * v_std + v_mean)
         return _generic_result(algorithm, video_data, threshold, predicted_velocity, y,
                                model_source=f"{model_source}+ONNX")
+    except Exception:
+        return None
+
+
+def _try_npu_predict(algo_id, bvid, x_arr, window, in_features, v_mean, v_std,
+                     algorithm, video_data, threshold, model_source,
+                     model_cls=None, model_kwargs=None, feats=None, horizon=None, state=None):
+    """NPU 推理尝试，成功返回 PredictionResult，失败返回 None。"""
+    try:
+        from algorithms.training.npu_inference import get_npu_engine
+        engine = get_npu_engine()
+        if not engine.is_available:
+            return None
+
+        model = getattr(algorithm, "_cached_torch_model", None)
+        if model is None or (bvid and not getattr(algorithm, "_cached_bvid", "") == bvid):
+            if model_cls is None or state is None:
+                return None
+            mk = dict(model_kwargs or {})
+            mk["in_features"] = in_features
+            import inspect
+            sig_params = set(inspect.signature(model_cls).parameters.keys())
+            for k, v in (("window", window), ("horizon", horizon or 3)):
+                if k in sig_params and k not in mk:
+                    mk[k] = v
+            model = model_cls(**mk)
+            if isinstance(state, (tuple, list)):
+                state = state[0]
+            if not isinstance(state, dict):
+                return None
+            state_clean = {k[len("_orig_mod."):] if k.startswith("_orig_mod.") else k: v
+                           for k, v in state.items()}
+            model.load_state_dict(state_clean)
+            algorithm._cached_torch_model = model
+            algorithm._cached_bvid = bvid or ""
+
+        y = algorithm._npu_infer(model, x_arr, algo_name=algo_id)
+        y_np = y.cpu().numpy().reshape(-1)
+        predicted_velocity = max(0.0, float(y_np[0]) * v_std + v_mean)
+        return _generic_result(algorithm, video_data, threshold, predicted_velocity, y_np,
+                               model_source=f"{model_source}+NPU")
     except Exception:
         return None
 

@@ -64,7 +64,8 @@ class AnomalyDetector:
         try:
             now_ts = datetime.fromisoformat(recent[-1]["timestamp"])
             old_ts = datetime.fromisoformat(recent[0]["timestamp"])
-        except Exception:
+        except Exception as e:
+            logger.debug("时间戳解析异常: %s", e)
             return None  # 时间戳格式异常
 
         hours_span = (now_ts - old_ts).total_seconds() / 3600
@@ -79,7 +80,8 @@ class AnomalyDetector:
             last_hours = (
                 datetime.fromisoformat(recent[-1]["timestamp"]) - datetime.fromisoformat(recent[-2]["timestamp"])
             ).total_seconds() / 3600
-        except Exception:
+        except Exception as e:
+            logger.debug("最近间隔时间解析失败: %s", e)
             last_hours = 0
         last_rate = last_growth / last_hours if last_hours > 0 else 0
 
@@ -152,7 +154,8 @@ class AnomalyDetector:
             span_h = (
                 datetime.fromisoformat(recent[-1]["timestamp"]) - datetime.fromisoformat(recent[0]["timestamp"])
             ).total_seconds() / 3600
-        except Exception:
+        except Exception as e:
+            logger.debug("停滞检测时间解析失败: %s", e)
             return None
 
         if span_h < 2:

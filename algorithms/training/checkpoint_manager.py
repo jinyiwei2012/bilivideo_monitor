@@ -346,7 +346,8 @@ class CheckpointManager:
         try:
             with open(self._active_file, "r", encoding="utf-8") as f:
                 return json.load(f).get("active_version", "")
-        except Exception:
+        except Exception as e:
+            import logging; logging.getLogger(__name__).debug("Checkpoint操作失败: %s", e)
             return None
 
     def _write_active(self, version: str):

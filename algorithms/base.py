@@ -161,8 +161,8 @@ class BaseAlgorithm(ABC):
                 mape = np.mean(np.abs((actual - predicted) / (actual + 1)))
                 fit_quality = max(0.0, 1.0 - mape)
                 base_conf = 0.5 * base_conf + 0.5 * fit_quality
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("置信度 MAPE 计算失败: %s", e)
         return min(0.95, base_conf)
 
     # ── 安全曲线拟合封装 ───────────────────────────
@@ -178,7 +178,8 @@ class BaseAlgorithm(ABC):
         try:
             popt, _ = curve_fit(model_func, times, views, p0=p0, bounds=bounds, maxfev=maxfev)
             return popt, True
-        except Exception:
+        except Exception as e:
+            logger.debug("curve_fit 失败，回退到初始参数: %s", e)
             return p0, False
 
     # ── 公共辅助方法 ───────────────────────────────
@@ -192,7 +193,8 @@ class BaseAlgorithm(ABC):
             return ts.timestamp()
         try:
             return datetime.fromisoformat(str(ts)).timestamp()
-        except Exception:
+        except Exception as e:
+            logger.debug("时间戳解析失败: %s", e)
             return 0
 
     def calculate_velocity(self, video_data: Dict[str, Any]) -> float:
@@ -248,7 +250,8 @@ class BaseAlgorithm(ABC):
                 if dt_hours <= 0:
                     return 0.0
                 return max(0.0, (v1 - v0) / dt_hours)
-        except Exception:
+        except Exception as e:
+            logger.debug("速率计算失败: %s", e)
             return 0.0
 
     def get_engagement_rate(self, video_data: Dict[str, Any]) -> float:
@@ -302,7 +305,8 @@ class BaseAlgorithm(ABC):
             if t is not None:
                 try:
                     ts_val = safe_timestamp(t)
-                except Exception:
+                except Exception as e:
+                    logger.debug("时间戳安全解析失败: %s", e)
                     ts_val = time.time()
                 return max(0.0, (time.time() - ts_val) / 3600.0)
         # 回退：用 video_data 自身的 timestamp
@@ -334,7 +338,8 @@ class BaseAlgorithm(ABC):
             elif isinstance(t, str):
                 try:
                     t = datetime.fromisoformat(t).timestamp()
-                except Exception:
+                except Exception as e:
+                    logger.debug("ISO 时间解析失败: %s", e)
                     continue
             if v > 0 and isinstance(t, (int, float)) and t > 0:
                 views.append(float(v))
@@ -360,7 +365,8 @@ class BaseAlgorithm(ABC):
                 return 0.0
             dv = views[end_idx - 1] - views[start_idx]
             return max(0.0, dv / dt)
-        except Exception:
+        except Exception as e:
+            logger.debug("周期速率计算失败: %s", e)
             return 0.0
 
     @staticmethod
@@ -644,3 +650,62 @@ class BaseAlgorithm(ABC):
         surge_weight = min(0.9, (mag - 1.0) / mag)
         factor = 1.0 - surge_weight * (1.0 - decay)
         return max(0.3, factor)
+
+    # ── NPU 推理辅助 ──────────────────────────────
+
+    def _npu_infer(self, model, input_array, algo_name: str = ""):
+        """NPU 加速推理 — CUDA 不可用时自动降级到 NPU，否则用 PyTorch。
+
+        用法：在 DL 算法的 predict() 中，将：
+            model.to(self._device).eval()
+            x = torch.from_numpy(x_arr).unsqueeze(0).to(self._device)
+            output = model(x)
+        替换为：
+            output = self._npu_infer(model, x_arr, algo_name="MyAlgo")
+
+        Args:
+            model:       PyTorch nn.Module 实例（含已加载的权重）。
+            input_array: numpy 数组，形状 (..., features)。
+            algo_name:   算法名称，用于 NPU 模型缓存键。
+
+        Returns:
+            torch.Tensor: 推理输出张量（CPU, float32）。
+        """
+        import torch
+        import numpy as np
+
+        # 判断 CUDA 是否可用：有 CUDA → 优先用 CUDA；无 CUDA → 尝试 NPU
+        cuda_available = torch.cuda.is_available()
+        try_npu = not cuda_available
+
+        if try_npu:
+            try:
+                from algorithms.training.npu_inference import get_npu_engine
+
+                name = algo_name or self.__class__.__name__
+                engine = get_npu_engine()
+                if not engine.is_available:
+                    raise RuntimeError("NPU 引擎不可用")
+
+                x_np = np.asarray(input_array, dtype=np.float16)
+                if x_np.ndim == 1:
+                    x_np = x_np.reshape(1, -1)
+                elif x_np.ndim == 2:
+                    x_np = x_np[np.newaxis, :, :]
+                elif x_np.ndim >= 3:
+                    x_np = x_np[:1]
+
+                x_sample = torch.from_numpy(x_np.astype(np.float32))
+                engine.prepare_model(name, model, x_sample)
+                result = engine.infer(name, x_np)
+                result = np.atleast_2d(result)
+                return torch.from_numpy(result.astype(np.float32))
+            except Exception as e:
+                logger.debug("NPU 推理回退 CPU: %s", e)
+
+        # ── PyTorch 推理（CUDA 或 CPU）───────────────
+        device = getattr(self, "_device", torch.device("cpu"))
+        model.to(device).eval()
+        x = torch.from_numpy(np.asarray(input_array, dtype=np.float32)).unsqueeze(0).to(device)
+        with torch.no_grad():
+            return model(x)

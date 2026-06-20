@@ -254,7 +254,8 @@ class CausalAnalyzer:
                 elif isinstance(ts, str):
                     try:
                         ts_float = datetime.fromisoformat(ts).timestamp()
-                    except Exception:
+                    except Exception as e:
+                        import logging; logging.getLogger(__name__).debug("因果推断数据点跳过: %s", e)
                         continue
                 else:
                     continue

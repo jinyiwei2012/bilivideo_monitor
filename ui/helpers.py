@@ -1,8 +1,11 @@
 """
-通用工具函数和常量
+通用工具函数和常量 - PyQt6 版
 
-提供字体定义、阈值管理、数字格式化、圆角矩形绘制、置信度计算等
+提供字体定义、阈值管理、数字格式化、置信度计算等
 全 UI 模块共享的工具函数。
+
+与 Tkinter 版差异：移除了 rounded_rect (Canvas 专用)，
+新增了 Qt 友好的颜色/字体工具。
 """
 
 import math
@@ -10,21 +13,27 @@ from ui.theme import C
 
 from utils import PROJECT_ROOT, project_path  # noqa: F401 — 重新导出以方便使用
 
+from PyQt6.QtGui import QFont, QColor
+from PyQt6.QtWidgets import QApplication
+
 # ── 字体定义 ─────────────────────────────────
-FONT = ("Microsoft YaHei UI", 9)  # 标准字体
-FONT_BOLD = ("Microsoft YaHei UI", 9, "bold")  # 粗体
-FONT_SM = ("Microsoft YaHei UI", 8)  # 小号字体
-FONT_LG = ("Microsoft YaHei UI", 11, "bold")  # 大号粗体
-FONT_MONO = ("Consolas", 9)  # 等宽字体
-FONT_MONO_LG = ("Consolas", 14, "bold")  # 大号等宽粗体
+def _font(name="Microsoft YaHei UI", size=9, bold=False):
+    f = QFont(name, size)
+    f.setBold(bold)
+    return f
+
+FONT = _font()                          # 标准字体
+FONT_BOLD = _font(bold=True)           # 粗体
+FONT_SM = _font(size=8)                 # 小号字体
+FONT_LG = _font(size=11, bold=True)    # 大号粗体
+FONT_MONO = _font("Consolas", 9)        # 等宽字体
+FONT_MONO_LG = _font("Consolas", 14, bold=True)  # 大号等宽粗体
 
 # ── 阈值与间隔 ───────────────────────────────
-# 默认值（首次导入时从 config 加载；通过 reload_thresholds() 动态刷新）
-THRESHOLDS: list = []  # 阈值数值列表
-THRESHOLD_NAMES: list = []  # 阈值名称列表
-THRESH_COLORS: list = []  # 阈值颜色列表
+THRESHOLDS: list = []
+THRESHOLD_NAMES: list = []
+THRESH_COLORS: list = []
 
-# 阈值颜色调色板（支持 N 个阈值循环使用）
 _THRESH_PALETTE = [
     "#1a7f37",  # 绿
     "#9a6700",  # 琥珀
@@ -40,18 +49,12 @@ _THRESH_PALETTE = [
 
 
 def _get_threshold_colors(n):
-    """为 N 个阈值生成颜色列表（使用调色板循环）"""
     return [_THRESH_PALETTE[i % len(_THRESH_PALETTE)] for i in range(n)]
 
 
 def reload_thresholds():
-    """从配置文件加载阈值列表，就地刷新 THRESHOLDS/THRESHOLD_NAMES/THRESH_COLORS。
-
-    兼容两种存储格式：
-    - 新格式: thresholds = [[100000, "10万"], [1000000, "100万"], ...]
-    - 旧格式: thresholds = [100000, 1000000, ...] + 自动生成名称
-    """
-    global THRESHOLDS, THRESHOLD_NAMES, THRESH_COLORS  # noqa: F824
+    """从配置文件加载阈值列表"""
+    global THRESHOLDS, THRESHOLD_NAMES, THRESH_COLORS
     try:
         from config import load_config
 
@@ -64,8 +67,6 @@ def reload_thresholds():
 
     values = []
     names = []
-
-    # 判断格式：新格式为 [[int, str], ...]，旧格式为 [int, ...]
     if raw and isinstance(raw[0], (list, tuple)):
         for item in raw:
             v = int(item[0])
@@ -76,7 +77,6 @@ def reload_thresholds():
         values = [int(v) for v in raw]
         names = [auto_threshold_name(v) for v in raw]
 
-    # 排序：按阈值升序
     pairs = sorted(zip(values, names), key=lambda x: x[0])
     values = [p[0] for p in pairs]
     names = [p[1] for p in pairs]
@@ -87,7 +87,6 @@ def reload_thresholds():
 
 
 def auto_threshold_name(v):
-    """自动生成阈值名称（如 100000 → "10万"）"""
     if v >= 100_000_000:
         return f"{v / 100_000_000:.0f}亿"
     if v >= 10_000:
@@ -98,12 +97,12 @@ def auto_threshold_name(v):
     return str(v)
 
 
-# 模块加载时自动初始化阈值
 reload_thresholds()
 
 DEFAULT_INTERVAL = 75
 FAST_INTERVAL = 10
 FAST_GAP = 500
+PREDICT_INTERVAL = 75
 
 
 def fmt_num(n):
@@ -172,42 +171,9 @@ def abbrev(n):
     return str(n)
 
 
-def rounded_rect(canvas, x1, y1, x2, y2, r, **kwargs):
-    """在 Canvas 上画圆角矩形"""
-    pts = [
-        x1 + r,
-        y1,
-        x2 - r,
-        y1,
-        x2,
-        y1,
-        x2,
-        y1 + r,
-        x2,
-        y2 - r,
-        x2,
-        y2,
-        x2 - r,
-        y2,
-        x1 + r,
-        y2,
-        x1,
-        y2,
-        x1,
-        y2 - r,
-        x1,
-        y1 + r,
-        x1,
-        y1,
-    ]
-    return canvas.create_polygon(pts, smooth=True, **kwargs)
-
-
 # ── 置信度辅助 ─────────────────────────────────
 
-
 def loss_to_confidence(val_loss: float) -> float:
-    """将 val_loss 映射到 [0, 1] 置信度。exp(-loss) 归一化。"""
     if val_loss is None or val_loss < 0:
         return 0.0
     return max(0.0, min(1.0, math.exp(-val_loss)))
@@ -226,11 +192,14 @@ def format_confidence(conf: float):
         return f"↓ {pct:.0f}%", C["danger"]
 
 
-def clear_loss_chart(ax, fig, canvas):
+def clear_loss_chart(fig, canvas):
     """清空并样式化损失曲线图表（training/finetune 面板共用）。"""
     from ui.mpl_imports import mpl_available
 
-    if not mpl_available or ax is None:
+    if not mpl_available:
+        return
+    ax = fig.axes[0] if fig.axes else None
+    if ax is None:
         return
     ax.clear()
     ax.set_facecolor(C["bg_elevated"])

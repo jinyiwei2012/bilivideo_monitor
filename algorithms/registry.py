@@ -215,7 +215,12 @@ class AlgorithmRegistry:
                     derived["velocity_polyfit"] = max(0.0, float(slope / 3600.0))
                 elif n >= 2:
                     dt = ts_arr[-1] - ts_arr[-2]
-                    derived["velocity_polyfit"] = max(0.0, float((v_arr[-1] - v_arr[-2]) / max(dt, 1e-8) * 3600.0)) if dt > 0 else 0.0
+                    if dt > 0:
+                        derived["velocity_polyfit"] = max(
+                            0.0, float((v_arr[-1] - v_arr[-2]) / max(dt, 1e-8) * 3600.0)
+                        )
+                    else:
+                        derived["velocity_polyfit"] = 0.0
                 else:
                     derived["velocity_polyfit"] = 0.0
                 # ── 加速度 / 急动度 ──
@@ -266,42 +271,29 @@ class AlgorithmRegistry:
 
         DB 历史可覆盖更早的区间，确保长期期模型获得完整数据。
         """
-        from datetime import datetime as dt
+        from utils.time_utils import safe_datetime, normalize_timestamp
 
-        def _norm(ts_val):
-            if isinstance(ts_val, dt):
-                return ts_val.strftime("%Y-%m-%d %H:%M:%S")
-            if isinstance(ts_val, str):
-                try:
-                    return dt.fromisoformat(ts_val).strftime("%Y-%m-%d %H:%M:%S")
-                except (ValueError, TypeError):
-                    return str(ts_val)
+        def _ts_str(ts_val):
             try:
-                return dt.fromtimestamp(float(ts_val)).strftime("%Y-%m-%d %H:%M:%S")
-            except (ValueError, TypeError, OSError):
+                return normalize_timestamp(ts_val)[2]
+            except Exception:
                 return str(ts_val)
 
-        existing = {_norm(h[0]) for h in memory_history}
+        existing = {_ts_str(h[0]) for h in memory_history}
         merged = list(memory_history)
         for h in db_history:
-            if _norm(h[0]) not in existing:
+            if _ts_str(h[0]) not in existing:
                 merged.append(h)
-                existing.add(_norm(h[0]))
+                existing.add(_ts_str(h[0]))
 
-        def _to_dt(t):
-            if isinstance(t, dt):
-                return t
-            if isinstance(t, str):
-                try:
-                    return dt.fromisoformat(t)
-                except (ValueError, TypeError):
-                    return dt.min
+        def _ts_dt(t):
             try:
-                return dt.fromtimestamp(float(t))
-            except (ValueError, TypeError, OSError):
+                return safe_datetime(t)
+            except Exception:
+                from datetime import datetime as dt
                 return dt.min
 
-        merged.sort(key=lambda x: _to_dt(x[0]))
+        merged.sort(key=lambda x: _ts_dt(x[0]))
         return merged
 
     @classmethod
@@ -341,11 +333,6 @@ class AlgorithmRegistry:
                 w = _weights.get(n, 1.0)
                 pred = res["prediction"]
                 meta = res.get("metadata", {})
-                model_source = meta.get("model_source", "底模")
-                logger.debug(
-                    "[%s] 视频(%s),使用'%s'预测成功 预测结果: %.0f",
-                    n, bvid, model_source, pred,
-                )
                 return (
                     n,
                     {
@@ -402,7 +389,10 @@ class AlgorithmRegistry:
                     hist = hist[-10:]
                 _window_weight_history[name] = hist
 
-                window_error = sum(h * (decay ** (len(hist) - i)) for i, h in enumerate(hist)) / max(sum(decay ** (len(hist) - i) for i in range(len(hist))), 1e-10)
+                window_error = (
+                    sum(h * (decay ** (len(hist) - i)) for i, h in enumerate(hist))
+                    / max(sum(decay ** (len(hist) - i) for i in range(len(hist))), 1e-10)
+                )
                 window_factor = max(0.2, 1.0 / (1.0 + window_error * 5))
                 results[name]["weight"] = w * (0.5 + 0.5 * window_factor)
 
@@ -470,8 +460,8 @@ class AlgorithmRegistry:
                     if cv > 0.3:
                         is_surging = True
                         surge_mag = min(5.0, 1.0 + cv * 3)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("推流检测计算失败: %s", e)
 
         for name, pred, w in valid_predictions:
             coherence = min(pred, median_val) / max(pred, median_val)
@@ -649,7 +639,14 @@ class AlgorithmRegistry:
             return get_weight_manager().get_algorithm_info(names)
         except Exception as e:
             logger.debug("获取算法权重信息失败: %s", e)
-            return [{"name": n, "accuracy": 0.5, "final_weight": 1.0, "ml_weight": 1.0, "user_weight": None, "is_customized": False, "samples": 0} for n in names]
+            return [
+                {
+                    "name": n, "accuracy": 0.5, "final_weight": 1.0,
+                    "ml_weight": 1.0, "user_weight": None,
+                    "is_customized": False, "samples": 0,
+                }
+                for n in names
+            ]
 
     @classmethod
     def shutdown(cls):

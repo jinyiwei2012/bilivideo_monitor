@@ -3,9 +3,14 @@
 按增速/互动率/播放量/在线人数等维度对所有监控视频排序
 """
 
-import tkinter as tk
-from tkinter import ttk
 from datetime import datetime
+
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QComboBox, QTreeWidget, QTreeWidgetItem, QHeaderView,
+)
+from PyQt6.QtCore import Qt
+
 from ui.theme import C
 from ui.helpers import FONT, FONT_SM, fmt_num
 from ui.dialog_base import DialogBase
@@ -30,48 +35,77 @@ class RankingPanel:
 
     def _build_ui(self):
         """构建排行榜面板 UI：排序维度选择、树形结果表格"""
-        top = tk.Frame(self.dlg.content_area(), bg=C["bg_base"])
-        top.pack(fill=tk.X, padx=10, pady=4)
+        top = QWidget()
+        top.setStyleSheet(f"background-color: {C['bg_base']};")
+        top_layout = QHBoxLayout(top)
+        top_layout.setContentsMargins(10, 4, 10, 4)
 
-        tk.Label(top, text="排序维度:", bg=C["bg_base"], fg=C["text_1"], font=FONT).pack(side=tk.LEFT)
-        self._sort_var = tk.StringVar(value=self.SORT_OPTIONS[0][1])
-        combo = ttk.Combobox(
-            top,
-            textvariable=self._sort_var,
-            values=[s[0] for s in self.SORT_OPTIONS],
-            state="readonly",
-            font=FONT,
-            width=20,
-        )
-        combo.pack(side=tk.LEFT, padx=6)
-        combo.bind("<<ComboboxSelected>>", lambda e: self._refresh())
+        lbl = QLabel("排序维度:")
+        lbl.setStyleSheet(f"color: {C['text_1']}; background: transparent;")
+        lbl.setFont(FONT)
+        top_layout.addWidget(lbl)
 
-        self._status_lbl = tk.Label(top, text="", bg=C["bg_base"], fg=C["text_3"], font=FONT_SM)
-        self._status_lbl.pack(side=tk.RIGHT)
+        self._sort_combo = QComboBox()
+        self._sort_combo.addItems([s[0] for s in self.SORT_OPTIONS])
+        self._sort_combo.setStyleSheet(f"""
+            QComboBox {{
+                background-color: {C['bg_elevated']}; color: {C['text_1']};
+                border: 1px solid {C['border']}; padding: 2px 6px;
+            }}
+        """)
+        self._sort_combo.currentIndexChanged.connect(lambda: self._refresh())
+        top_layout.addWidget(self._sort_combo)
 
-        columns = ("rank", "bvid", "title", "author", "views", "velocity", "engagement", "online")
-        self._tree = ttk.Treeview(self.dlg.content_area(), columns=columns, show="headings", height=20)
-        self._tree.heading("rank", text="#")
-        self._tree.heading("bvid", text="BV号")
-        self._tree.heading("title", text="标题")
-        self._tree.heading("author", text="UP主")
-        self._tree.heading("views", text="播放量")
-        self._tree.heading("velocity", text="增速/h")
-        self._tree.heading("engagement", text="互动率")
-        self._tree.heading("online", text="在线")
-        self._tree.column("rank", width=30, anchor="center")
-        self._tree.column("bvid", width=100)
-        self._tree.column("title", width=220)
-        self._tree.column("author", width=100)
-        self._tree.column("views", width=90, anchor="e")
-        self._tree.column("velocity", width=80, anchor="e")
-        self._tree.column("engagement", width=70, anchor="e")
-        self._tree.column("online", width=70, anchor="e")
-        self._tree.pack(fill=tk.BOTH, expand=True, padx=10, pady=4)
+        top_layout.addStretch()
 
-        scroll = ttk.Scrollbar(self._tree, command=self._tree.yview)
-        scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        self._tree.configure(yscrollcommand=scroll.set)
+        self._status_lbl = QLabel("")
+        self._status_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
+        self._status_lbl.setFont(FONT_SM)
+        top_layout.addWidget(self._status_lbl)
+
+        # 内容区: QTreeWidget
+        content = QWidget()
+        content.setStyleSheet(f"background-color: {C['bg_base']};")
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(10, 0, 10, 4)
+
+        columns = ["#", "BV号", "标题", "UP主", "播放量", "增速/h", "互动率", "在线"]
+        self._tree = QTreeWidget()
+        self._tree.setColumnCount(len(columns))
+        self._tree.setHeaderLabels(columns)
+        self._tree.setAlternatingRowColors(True)
+        self._tree.setRootIsDecorated(False)
+        self._tree.setStyleSheet(f"""
+            QTreeWidget {{
+                background-color: {C['bg_elevated']}; color: {C['text_1']};
+                border: 1px solid {C['border']};
+                alternate-background-color: {C['bg_surface']};
+            }}
+            QHeaderView::section {{
+                background-color: {C['bg_surface']}; color: {C['text_2']};
+                font-weight: bold; padding: 4px;
+                border: 1px solid {C['border']};
+            }}
+        """)
+        hdr = self._tree.header()
+        hdr.setStretchLastSection(True)
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        self._tree.setColumnWidth(0, 30)
+        self._tree.setColumnWidth(1, 100)
+        self._tree.setColumnWidth(2, 220)
+        self._tree.setColumnWidth(3, 100)
+        self._tree.setColumnWidth(4, 90)
+        self._tree.setColumnWidth(5, 80)
+        self._tree.setColumnWidth(6, 70)
+        self._tree.setColumnWidth(7, 70)
+        content_layout.addWidget(self._tree)
+
+        # 将 top 和 content 放入 dlg 的 content_area
+        area = self.dlg.content_area()
+        outer = QVBoxLayout(area)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(top)
+        outer.addWidget(content, 1)
 
         self._refresh()
 
@@ -98,8 +132,12 @@ class RankingPanel:
         return (v0 - v1) / dt
 
     def _refresh(self):
-        """根据当前排序维度重新计算并刷新排行榜（原地更新，不删行重建）"""
-        sort_key = self._sort_var.get()
+        """根据当前排序维度重新计算并刷新排行榜"""
+        sort_idx = self._sort_combo.currentIndex()
+        if sort_idx < 0:
+            return
+        sort_key = self.SORT_OPTIONS[sort_idx][1]
+
         items = []
         for v in self.gui.monitored_videos:
             bvid = v.get("bvid", "")
@@ -137,32 +175,18 @@ class RankingPanel:
 
         items.sort(key=lambda x: -abs(x[0]))
 
-        # ── 原地更新 (bvid=iid) ──
-        new_bvids = {it[1] for it in items}
-        existing = set(self._tree.get_children())
-        for iid in existing - new_bvids:
-            self._tree.delete(iid)
-
+        self._tree.clear()
         for i, (_, bvid, title, author, views, velocity, engagement, online) in enumerate(items, 1):
             vel_str = fmt_num(int(velocity)) if velocity > 0 else "—"
             eng_str = f"{engagement * 100:.1f}%" if engagement > 0 else "—"
             online_str = fmt_num(online) if online > 0 else "—"
-            values = (i, bvid, title, author, fmt_num(views), vel_str, eng_str, online_str)
+            vals = (str(i), bvid, title, author, fmt_num(views), vel_str, eng_str, online_str)
+            item = QTreeWidgetItem(vals)
+            item.setTextAlignment(0, Qt.AlignmentFlag.AlignCenter)
+            item.setTextAlignment(4, Qt.AlignmentFlag.AlignRight)
+            item.setTextAlignment(5, Qt.AlignmentFlag.AlignRight)
+            item.setTextAlignment(6, Qt.AlignmentFlag.AlignRight)
+            item.setTextAlignment(7, Qt.AlignmentFlag.AlignRight)
+            self._tree.addTopLevelItem(item)
 
-            if bvid in existing:
-                self._tree.item(bvid, values=values)
-            else:
-                self._tree.insert("", tk.END, iid=bvid, values=values)
-
-        # 修正排序
-        desired = [it[1] for it in items]
-        current = list(self._tree.get_children())
-        if desired != current:
-            for ti, iid in enumerate(desired):
-                ci = current.index(iid) if iid in current else -1
-                if ci != ti and ci >= 0:
-                    self._tree.move(iid, "", ti)
-                    current.remove(iid)
-                    current.insert(ti, iid)
-
-        self._status_lbl.config(text=f"{len(items)} 个视频")
+        self._status_lbl.setText(f"{len(items)} 个视频")

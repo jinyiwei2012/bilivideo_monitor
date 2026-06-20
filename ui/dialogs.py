@@ -1,18 +1,24 @@
 """
-对话框模块 - CustomTkinter 版
+对话框模块 - PyQt6 版
 
 集中管理所有弹窗窗口的统一入口。
 """
 
-import tkinter as tk
-from tkinter import ttk, messagebox
 import threading
 import time
-import customtkinter as ctk
+import logging
+
+from PyQt6.QtWidgets import (
+    QDialog, QVBoxLayout, QHBoxLayout, QWidget, QLabel,
+    QPushButton, QMessageBox, QSpinBox, QFrame,
+)
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QFont
 
 from ui.theme import C
-from ui.scrollable_frame import ScrollableFrame
-from ui.helpers import FONT, FONT_SM, FAST_GAP, FAST_INTERVAL
+from ui.helpers import FONT, FONT_SM, FONT_BOLD, FAST_GAP, FAST_INTERVAL
+
+logger = logging.getLogger(__name__)
 
 
 class Dialogs:
@@ -29,10 +35,9 @@ class Dialogs:
         """打开视频标签管理窗口"""
         try:
             from ui.tag_manager import TagManagerWindow
-
-            TagManagerWindow(self.gui.root, self.gui)
+            TagManagerWindow(self.gui, self.gui)
         except Exception as e:
-            messagebox.showerror("错误", f"打开标签管理失败:\n{e}")
+            QMessageBox.critical(self.gui, "错误", f"打开标签管理失败:\n{e}")
 
     # ──────────────────────────────────────────
     # 预测回测
@@ -42,10 +47,9 @@ class Dialogs:
         """打开预测回测面板"""
         try:
             from ui.backtest_panel import BacktestPanel
-
-            BacktestPanel(self.gui.root, self.gui)
+            BacktestPanel(self.gui, self.gui)
         except Exception as e:
-            messagebox.showerror("错误", f"打开预测回测失败:\n{e}")
+            QMessageBox.critical(self.gui, "错误", f"打开预测回测失败:\n{e}")
 
     # ──────────────────────────────────────────
     # 视频排行榜
@@ -55,10 +59,9 @@ class Dialogs:
         """打开视频排行榜"""
         try:
             from ui.ranking_panel import RankingPanel
-
-            RankingPanel(self.gui.root, self.gui)
+            RankingPanel(self.gui, self.gui)
         except Exception as e:
-            messagebox.showerror("错误", f"打开排行榜失败:\n{e}")
+            QMessageBox.critical(self.gui, "错误", f"打开排行榜失败:\n{e}")
 
     # ──────────────────────────────────────────
     # 异常增长检测
@@ -68,10 +71,9 @@ class Dialogs:
         """打开异常检测面板"""
         try:
             from ui.anomaly_panel import AnomalyPanel
-
-            AnomalyPanel(self.gui.root, self.gui)
+            AnomalyPanel(self.gui, self.gui)
         except Exception as e:
-            messagebox.showerror("错误", f"打开异常检测失败:\n{e}")
+            QMessageBox.critical(self.gui, "错误", f"打开异常检测失败:\n{e}")
 
     # ──────────────────────────────────────────
     # 刷新间隔设置
@@ -79,67 +81,56 @@ class Dialogs:
 
     def open_interval_settings(self):
         """打开刷新间隔设置对话框"""
-        dialog = ctk.CTkToplevel(self.gui.root)
-        dialog.title("刷新间隔设置")
-        sw = self.gui.root.winfo_screenwidth()
-        sh = self.gui.root.winfo_screenheight()
-        dialog.geometry(f"{int(sw * 0.22)}x{int(sh * 0.25)}")
-        dialog.transient(self.gui.root)
-        dialog.grab_set()
-        dialog.resizable(True, True)
-        # 使主内容区可扩展
-        content = ctk.CTkFrame(dialog, fg_color="transparent")
-        content.pack(fill=tk.BOTH, expand=True, padx=20, pady=(20, 0))
+        dialog = QDialog(self.gui)
+        dialog.setWindowTitle("刷新间隔设置")
+        screen = self.gui.screen()
+        sw = screen.size().width() if screen else 1920
+        sh = screen.size().height() if screen else 1080
+        dialog.resize(int(sw * 0.22), int(sh * 0.25))
+        dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
+        dialog.setMinimumSize(300, 200)
 
-        ctk.CTkLabel(
-            content, text="普通刷新间隔（秒）：", text_color=C["text_1"], font=FONT, fg_color="transparent"
-        ).pack(pady=(0, 6))
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(20, 20, 20, 0)
 
-        spin_f = ctk.CTkFrame(
-            content, fg_color=C["bg_elevated"], border_width=1, border_color=C["border"], corner_radius=6
-        )
-        spin_f.pack(fill=tk.X)
-        var = tk.IntVar(value=self.gui.DEFAULT_INTERVAL)
-        ttk.Spinbox(spin_f, from_=10, to=3600, textvariable=var, width=10).pack(padx=8, pady=6)
-        ctk.CTkLabel(
-            content,
-            text=f"距阈值 < {FAST_GAP} 时自动切换快速模式（{FAST_INTERVAL}s）",
-            text_color=C["text_3"],
-            font=FONT_SM,
-            fg_color="transparent",
-            wraplength=280,
-        ).pack(pady=6)
+        lbl = QLabel("普通刷新间隔（秒）：")
+        lbl.setStyleSheet(f"color: {C['text_1']};")
+        layout.addWidget(lbl)
+
+        spin = QSpinBox()
+        spin.setRange(10, 3600)
+        spin.setValue(self.gui.DEFAULT_INTERVAL)
+        layout.addWidget(spin)
+
+        hint = QLabel(f"距阈值 < {FAST_GAP} 时自动切换快速模式（{FAST_INTERVAL}s）")
+        hint.setStyleSheet(f"color: {C['text_3']}; font-size: 8pt;")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+
+        layout.addStretch()
 
         def _save():
-            self.gui.DEFAULT_INTERVAL = var.get()
-            # 更新所有非快速模式的视频定时器
+            self.gui.DEFAULT_INTERVAL = spin.value()
             for video in self.gui.monitored_videos:
                 bvid = video.get("bvid", "")
                 timer = self.gui._video_timers.get(bvid)
                 if timer and timer["interval"] != self.gui.FAST_INTERVAL:
                     self.gui._register_video_timer(bvid)
-            dialog.destroy()
+            dialog.accept()
 
-        btn_f = ctk.CTkFrame(dialog, fg_color="transparent")
-        btn_f.pack(side=tk.BOTTOM, pady=14)
-        ctk.CTkButton(
-            btn_f,
-            text="保存",
-            fg_color=C["bilibili"],
-            hover_color=C["bilibili_dim"],
-            text_color="#ffffff",
-            font=FONT,
-            command=_save,
-        ).pack(side=tk.LEFT, padx=6)
-        ctk.CTkButton(
-            btn_f,
-            text="取消",
-            fg_color=C["bg_elevated"],
-            hover_color=C["bg_hover"],
-            text_color=C["text_2"],
-            font=FONT,
-            command=dialog.destroy,
-        ).pack(side=tk.LEFT, padx=6)
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        save_btn = QPushButton("保存")
+        save_btn.setProperty("primary", True)
+        save_btn.clicked.connect(_save)
+        btn_layout.addWidget(save_btn)
+
+        cancel_btn = QPushButton("取消")
+        cancel_btn.clicked.connect(dialog.reject)
+        btn_layout.addWidget(cancel_btn)
+
+        layout.addLayout(btn_layout)
+        dialog.exec()
 
     # ──────────────────────────────────────────
     # 数据库查询
@@ -148,11 +139,10 @@ class Dialogs:
     def open_database_query(self):
         """打开数据库查询窗口"""
         try:
-            from .database_query import DatabaseQueryWindow
-
-            DatabaseQueryWindow(self.gui.root)
+            from ui.database_query import DatabaseQueryWindow
+            DatabaseQueryWindow(self.gui)
         except Exception as e:
-            messagebox.showerror("错误", f"打开数据库查询失败: {e}")
+            QMessageBox.critical(self.gui, "错误", f"打开数据库查询失败: {e}")
 
     # ──────────────────────────────────────────
     # 视频搜索
@@ -161,11 +151,10 @@ class Dialogs:
     def open_video_search(self):
         """打开视频搜索窗口"""
         try:
-            from .video_search import VideoSearchWindow
-
-            VideoSearchWindow(self.gui.root, on_import=self.gui._import_search_results)
+            from ui.video_search import VideoSearchWindow
+            VideoSearchWindow(self.gui, on_import=self.gui._import_search_results)
         except Exception as e:
-            messagebox.showerror("错误", f"打开视频搜索失败: {e}")
+            QMessageBox.critical(self.gui, "错误", f"打开视频搜索失败: {e}")
 
     # ──────────────────────────────────────────
     # 数据对比
@@ -174,17 +163,16 @@ class Dialogs:
     def open_data_comparison(self):
         """打开数据对比窗口"""
         try:
-            from .data_comparison import DataComparisonWindow
-
+            from ui.data_comparison import DataComparisonWindow
             DataComparisonWindow(
-                self.gui.root,
+                self.gui,
                 monitored_videos=self.gui.monitored_videos,
                 history_data=self.gui.history_data,
                 video_dbs=self.gui.video_dbs,
                 on_add_monitor=self.gui._add_bvid_to_monitor,
             )
         except Exception as e:
-            messagebox.showerror("错误", f"打开数据对比失败: {e}")
+            QMessageBox.critical(self.gui, "错误", f"打开数据对比失败: {e}")
 
     # ──────────────────────────────────────────
     # 交叉计算
@@ -193,16 +181,15 @@ class Dialogs:
     def open_crossover_analysis(self):
         """打开交叉计算窗口"""
         try:
-            from .crossover_analysis import CrossoverAnalysisWindow
-
+            from ui.crossover_analysis import CrossoverAnalysisWindow
             CrossoverAnalysisWindow(
-                self.gui.root,
+                self.gui,
                 monitored_videos=self.gui.monitored_videos,
                 history_data=self.gui.history_data,
                 video_dbs=self.gui.video_dbs,
             )
         except Exception as e:
-            messagebox.showerror("错误", f"打开交叉计算失败: {e}")
+            QMessageBox.critical(self.gui, "错误", f"打开交叉计算失败: {e}")
 
     # ──────────────────────────────────────────
     # 周刊分数
@@ -211,11 +198,10 @@ class Dialogs:
     def open_weekly_score(self):
         """打开周刊分数计算窗口"""
         try:
-            from .weekly_score import WeeklyScoreWindow
-
-            WeeklyScoreWindow(self.gui.root, monitored_videos=self.gui.monitored_videos, video_dbs=self.gui.video_dbs)
+            from ui.weekly_score import WeeklyScoreWindow
+            WeeklyScoreWindow(self.gui, monitored_videos=self.gui.monitored_videos, video_dbs=self.gui.video_dbs)
         except Exception as e:
-            messagebox.showerror("错误", f"打开周刊分数计算失败: {e}")
+            QMessageBox.critical(self.gui, "错误", f"打开周刊分数计算失败: {e}")
 
     # ──────────────────────────────────────────
     # 里程碑统计
@@ -224,17 +210,15 @@ class Dialogs:
     def open_milestone_stats(self):
         """打开里程碑统计窗口"""
         try:
-            from .milestone_stats import MilestoneStatsWindow
-
+            from ui.milestone_stats import MilestoneStatsWindow
             MilestoneStatsWindow(
-                self.gui.root,
+                self.gui,
                 monitored_videos=self.gui.monitored_videos,
                 on_add_monitor=self.gui._add_bvid_to_monitor,
             )
         except Exception as e:
             import traceback
-
-            messagebox.showerror("错误", f"打开里程碑统计失败: {e}\n{traceback.format_exc()}")
+            QMessageBox.critical(self.gui, "错误", f"打开里程碑统计失败: {e}\n{traceback.format_exc()}")
 
     # ──────────────────────────────────────────
     # 添加 BV 到监控（里程碑回调）
@@ -242,7 +226,6 @@ class Dialogs:
 
     def add_bvid_to_monitor(self, bvid: str):
         """添加 BV 号到监控列表（供里程碑等模块回调）"""
-        # 去重检查
         for v in self.gui.monitored_videos:
             if v.get("bvid") == bvid:
                 return
@@ -258,13 +241,11 @@ class Dialogs:
     def open_algorithm_comparison(self):
         """打开算法比较窗口"""
         try:
-            from .algorithm_compare import AlgorithmCompareWindow
-
-            AlgorithmCompareWindow(self.gui.root, gui=self.gui)
+            from ui.algorithm_compare import AlgorithmCompareWindow
+            AlgorithmCompareWindow(self.gui, gui=self.gui)
         except Exception as e:
             import traceback
-
-            messagebox.showerror("错误", f"打开算法比较失败: {e}\n{traceback.format_exc()}")
+            QMessageBox.critical(self.gui, "错误", f"打开算法比较失败: {e}\n{traceback.format_exc()}")
 
     # ──────────────────────────────────────────
     # 系统设置
@@ -273,11 +254,10 @@ class Dialogs:
     def open_settings(self):
         """打开系统设置窗口"""
         try:
-            from .settings_window import SettingsWindow
-
-            SettingsWindow(self.gui.root, gui=self.gui)
+            from ui.settings_window import SettingsWindow
+            SettingsWindow(self.gui, gui=self.gui)
         except Exception as e:
-            messagebox.showerror("错误", f"打开系统设置失败: {e}")
+            QMessageBox.critical(self.gui, "错误", f"打开系统设置失败: {e}")
 
     # ──────────────────────────────────────────
     # 导入搜索结果
@@ -296,7 +276,6 @@ class Dialogs:
                 bvid = v.get("bvid", "")
                 if not bvid:
                     continue
-                # 检查是否已存在
                 if any(mv.get("bvid") == bvid for mv in self.gui.monitored_videos):
                     skipped += 1
                     continue
@@ -306,19 +285,21 @@ class Dialogs:
                         skipped += 1
                         continue
                     video = self.gui._map_api_to_video_dict(bvid, info, fallback=v)
-                    self.gui.root.after(0, lambda v=video: self.gui._register_video_to_monitor(v))
+                    from PyQt6.QtCore import QTimer
+                    QTimer.singleShot(0, lambda v=video: self.gui._register_video_to_monitor(v))
                     added += 1
                 except Exception as e:
                     self.gui.log_panel.add_log("WARNING", f"导入 {bvid} 失败: {e}")
                     skipped += 1
                 time.sleep(0.3)
 
-            self.gui.root.after(0, self.gui._save_watch_list)
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(0, self.gui._save_watch_list)
             msg = f"成功导入 {added} 个视频"
             if skipped:
                 msg += f"（跳过 {skipped} 个：已存在或获取失败）"
             if added or skipped:
-                self.gui.root.after(0, lambda: messagebox.showinfo("导入完成", msg))
+                QTimer.singleShot(0, lambda: QMessageBox.information(self.gui, "导入完成", msg))
             self.gui.log_panel.add_log("INFO", f"导入完成：成功 {added}，跳过 {skipped}")
 
         threading.Thread(target=_worker, daemon=True).start()
@@ -329,131 +310,133 @@ class Dialogs:
 
     def open_algorithm_info(self):
         """打开算法信息对话框"""
-        dialog = tk.Toplevel(self.gui.root)
-        dialog.title("算法信息")
-        sw = self.gui.root.winfo_screenwidth()
-        sh = self.gui.root.winfo_screenheight()
-        dialog.geometry(f"{int(sw * 0.36)}x{int(sh * 0.48)}")
-        dialog.configure(bg=C["bg_surface"])
-        dialog.transient(self.gui.root)
-        dialog.grab_set()
-        dialog.resizable(True, True)
+        dialog = QDialog(self.gui)
+        dialog.setWindowTitle("算法信息")
+        screen = self.gui.screen()
+        sw = screen.size().width() if screen else 1920
+        sh = screen.size().height() if screen else 1080
+        dialog.resize(int(sw * 0.36), int(sh * 0.48))
+        dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
+        dialog.setMinimumSize(400, 300)
+
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(0, 0, 0, 0)
 
         # 标题
-        tk.Label(
-            dialog, text="预测算法信息", bg=C["bg_surface"], fg=C["text_1"], font=("Microsoft YaHei UI", 14, "bold")
-        ).pack(pady=(15, 10))
+        title_lbl = QLabel("预测算法信息")
+        title_lbl.setStyleSheet(f"""
+            font-size: 14pt; font-weight: bold; color: {C['text_1']};
+            background-color: {C['bg_surface']}; padding: 15px;
+        """)
+        layout.addWidget(title_lbl)
 
-        # 创建滚动框架
-        _algo_sf = ScrollableFrame(dialog, bg=C["bg_surface"])
-        scrollable_frame = _algo_sf.inner
+        # 滚动区域
+        from PyQt6.QtWidgets import QScrollArea
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
 
-        # 算法信息
+        scroll_content = QWidget()
+        scroll_content.setStyleSheet(f"background-color: {C['bg_surface']};")
+        scroll_layout = QVBoxLayout(scroll_content)
+        scroll_layout.setContentsMargins(20, 10, 20, 10)
+
         try:
             from algorithms.registry import AlgorithmRegistry
 
-            # 获取算法信息
             algo_names = AlgorithmRegistry.get_algorithm_names()
             algo_infos = AlgorithmRegistry.get_weights_info()
 
-            # 显示算法数量
-            info_frame = tk.Frame(scrollable_frame, bg=C["bg_elevated"], relief="solid", bd=1)
-            info_frame.pack(fill=tk.X, padx=20, pady=10)
+            # 算法数量
+            info_frame = QFrame()
+            info_frame.setStyleSheet(f"""
+                QFrame {{
+                    background-color: {C['bg_elevated']};
+                    border: 1px solid {C['border']};
+                    border-radius: 8px;
+                }}
+            """)
+            info_layout = QVBoxLayout(info_frame)
 
-            tk.Label(
-                info_frame,
-                text=f"已加载算法: {len(algo_names)} 个",
-                bg=C["bg_elevated"],
-                fg=C["text_1"],
-                font=("Microsoft YaHei UI", 11, "bold"),
-            ).pack(anchor="w", padx=10, pady=5)
+            count_lbl = QLabel(f"已加载算法: {len(algo_names)} 个")
+            count_lbl.setStyleSheet(f"font-size: 11pt; font-weight: bold; color: {C['text_1']}; padding: 10px;")
+            info_layout.addWidget(count_lbl)
+            scroll_layout.addWidget(info_frame)
 
-            # 显示算法列表（最多 20 个）
+            # 算法列表（最多 20 个）
             for info in algo_infos[:20]:
-                algo_frame = tk.Frame(scrollable_frame, bg=C["bg_surface"])
-                algo_frame.pack(fill=tk.X, padx=20, pady=2)
+                algo_row = QWidget()
+                algo_row.setStyleSheet(f"background-color: {C['bg_surface']};")
+                row_layout = QHBoxLayout(algo_row)
+                row_layout.setContentsMargins(0, 2, 0, 2)
 
                 name = info.get("name", "Unknown")
                 weight = info.get("weight", 1.0)
                 accuracy = info.get("accuracy", 0.5)
 
-                tk.Label(algo_frame, text=f"• {name}", bg=C["bg_surface"], fg=C["text_1"], font=FONT, anchor="w").pack(
-                    side=tk.LEFT, padx=(0, 10)
-                )
+                name_lbl = QLabel(f"• {name}")
+                name_lbl.setStyleSheet(f"color: {C['text_1']};")
+                row_layout.addWidget(name_lbl)
 
-                tk.Label(algo_frame, text=f"权重: {weight:.2f}", bg=C["bg_surface"], fg=C["text_2"], font=FONT_SM).pack(
-                    side=tk.LEFT, padx=10
-                )
+                row_layout.addStretch()
 
-                tk.Label(
-                    algo_frame, text=f"准确率: {accuracy:.2%}", bg=C["bg_surface"], fg=C["text_2"], font=FONT_SM
-                ).pack(side=tk.LEFT, padx=10)
+                w_lbl = QLabel(f"权重: {weight:.2f}")
+                w_lbl.setStyleSheet(f"color: {C['text_2']}; font-size: 8pt;")
+                row_layout.addWidget(w_lbl)
+
+                a_lbl = QLabel(f"准确率: {accuracy:.2%}")
+                a_lbl.setStyleSheet(f"color: {C['text_2']}; font-size: 8pt;")
+                row_layout.addWidget(a_lbl)
+
+                scroll_layout.addWidget(algo_row)
 
             if len(algo_names) > 20:
-                tk.Label(
-                    scrollable_frame,
-                    text=f"... 还有 {len(algo_names) - 20} 个算法",
-                    bg=C["bg_surface"],
-                    fg=C["text_3"],
-                    font=FONT_SM,
-                ).pack(anchor="w", padx=20, pady=5)
+                more_lbl = QLabel(f"... 还有 {len(algo_names) - 20} 个算法")
+                more_lbl.setStyleSheet(f"color: {C['text_3']}; font-size: 8pt;")
+                scroll_layout.addWidget(more_lbl)
 
             # 高级模块状态
-            tk.Label(
-                scrollable_frame,
-                text="高级模块状态:",
-                bg=C["bg_surface"],
-                fg=C["text_1"],
-                font=("Microsoft YaHei UI", 11, "bold"),
-            ).pack(anchor="w", padx=20, pady=(15, 5))
+            section_title = QLabel("高级模块状态:")
+            section_title.setStyleSheet(f"font-size: 11pt; font-weight: bold; color: {C['text_1']}; padding-top: 15px;")
+            scroll_layout.addWidget(section_title)
 
-            # 在线学习模块
-            try:
-                from algorithms.online_learner import get_online_learner
+            def _module_status(name, import_path):
+                try:
+                    __import__(import_path, fromlist=[""])
+                    return QLabel(f"✅ {name}已加载")
+                except ImportError:
+                    return QLabel(f"❌ {name}未找到")
 
-                get_online_learner()
-                tk.Label(
-                    scrollable_frame, text="✅ 在线学习模块已加载", bg=C["bg_surface"], fg=C["success"], font=FONT
-                ).pack(anchor="w", padx=20, pady=2)
-            except ImportError:
-                tk.Label(
-                    scrollable_frame, text="❌ 在线学习模块未找到", bg=C["bg_surface"], fg=C["danger"], font=FONT
-                ).pack(anchor="w", padx=20, pady=2)
-
-            # 因果推断模块
-            try:
-                from algorithms.causal_inference import get_causal_analyzer  # noqa: F401
-
-                tk.Label(
-                    scrollable_frame, text="✅ 因果推断模块已加载", bg=C["bg_surface"], fg=C["success"], font=FONT
-                ).pack(anchor="w", padx=20, pady=2)
-            except ImportError:
-                tk.Label(
-                    scrollable_frame, text="❌ 因果推断模块未找到", bg=C["bg_surface"], fg=C["danger"], font=FONT
-                ).pack(anchor="w", padx=20, pady=2)
-
-            # 图神经网络模块
-            try:
-                from algorithms.graph_neural import get_video_graph  # noqa: F401
-
-                tk.Label(
-                    scrollable_frame, text="✅ 图神经网络模块已加载", bg=C["bg_surface"], fg=C["success"], font=FONT
-                ).pack(anchor="w", padx=20, pady=2)
-            except ImportError:
-                tk.Label(
-                    scrollable_frame, text="❌ 图神经网络模块未找到", bg=C["bg_surface"], fg=C["danger"], font=FONT
-                ).pack(anchor="w", padx=20, pady=2)
+            for mod_name, mod_path in [
+                ("在线学习模块", "algorithms.online_learner"),
+                ("因果推断模块", "algorithms.causal_inference"),
+                ("图神经网络模块", "algorithms.graph_neural"),
+            ]:
+                slbl = _module_status(mod_name, mod_path)
+                slbl.setStyleSheet(f"color: {C['success']}; padding-left: 10px;"
+                                   if "✅" in slbl.text()
+                                   else f"color: {C['danger']}; padding-left: 10px;")
+                scroll_layout.addWidget(slbl)
 
         except Exception as e:
-            tk.Label(
-                scrollable_frame, text=f"加载算法信息失败: {e}", bg=C["bg_surface"], fg=C["danger"], font=FONT
-            ).pack(padx=20, pady=20)
+            err_lbl = QLabel(f"加载算法信息失败: {e}")
+            err_lbl.setStyleSheet(f"color: {C['danger']};")
+            scroll_layout.addWidget(err_lbl)
 
-        # 布局滚动区域
-        _algo_sf.pack(fill=tk.BOTH, expand=True, padx=(20, 20), pady=10)
+        scroll_layout.addStretch()
+        scroll.setWidget(scroll_content)
+        layout.addWidget(scroll, 1)
 
         # 关闭按钮
-        ttk.Button(dialog, text="关闭", command=dialog.destroy).pack(pady=(0, 15))
+        btn_layout = QHBoxLayout()
+        btn_layout.setContentsMargins(20, 10, 20, 15)
+        btn_layout.addStretch()
+        close_btn = QPushButton("关闭")
+        close_btn.clicked.connect(dialog.accept)
+        btn_layout.addWidget(close_btn)
+        layout.addLayout(btn_layout)
+
+        dialog.exec()
 
     # ──────────────────────────────────────────
     # UP主追踪
@@ -462,14 +445,12 @@ class Dialogs:
     def open_up_tracker(self):
         """打开 UP主 追踪窗口"""
         try:
-            from .up_tracker import UpTrackerWindow
+            from ui.up_tracker import UpTrackerWindow
             from core import get_bilibili_api
-
-            UpTrackerWindow(self.gui.root, api=get_bilibili_api())
+            UpTrackerWindow(self.gui, api=get_bilibili_api())
         except Exception as e:
             import traceback
-
-            messagebox.showerror("错误", f"打开UP主追踪失败: {e}\n{traceback.format_exc()}")
+            QMessageBox.critical(self.gui, "错误", f"打开UP主追踪失败: {e}\n{traceback.format_exc()}")
 
     # ──────────────────────────────────────────
     # 弹幕分析
@@ -478,14 +459,12 @@ class Dialogs:
     def open_danmaku_analysis(self):
         """打开弹幕分析窗口"""
         try:
-            from .danmaku_analysis import DanmakuAnalysisWindow
+            from ui.danmaku_analysis import DanmakuAnalysisWindow
             from core import get_bilibili_api
-
-            DanmakuAnalysisWindow(self.gui.root, api=get_bilibili_api(), gui=self.gui)
+            DanmakuAnalysisWindow(self.gui, api=get_bilibili_api(), gui=self.gui)
         except Exception as e:
             import traceback
-
-            messagebox.showerror("错误", f"打开弹幕分析失败: {e}\n{traceback.format_exc()}")
+            QMessageBox.critical(self.gui, "错误", f"打开弹幕分析失败: {e}\n{traceback.format_exc()}")
 
     # ──────────────────────────────────────────
     # 热门发现
@@ -494,14 +473,12 @@ class Dialogs:
     def open_trending_discovery(self):
         """打开热门发现窗口"""
         try:
-            from .trending_discovery import TrendingDiscoveryWindow
+            from ui.trending_discovery import TrendingDiscoveryWindow
             from core import get_bilibili_api
-
-            TrendingDiscoveryWindow(self.gui.root, api=get_bilibili_api(), on_add_monitor=self.gui._add_bvid_to_monitor)
+            TrendingDiscoveryWindow(self.gui, api=get_bilibili_api(), on_add_monitor=self.gui._add_bvid_to_monitor)
         except Exception as e:
             import traceback
-
-            messagebox.showerror("错误", f"打开热门发现失败: {e}\n{traceback.format_exc()}")
+            QMessageBox.critical(self.gui, "错误", f"打开热门发现失败: {e}\n{traceback.format_exc()}")
 
     # ──────────────────────────────────────────
     # AI智能问答
@@ -510,13 +487,11 @@ class Dialogs:
     def open_ai_qa(self):
         """打开 AI 智能问答窗口"""
         try:
-            from .ai_qa_window import AIQAWindow
-
-            AIQAWindow(self.gui.root, gui=self.gui)
+            from ui.ai_qa_window import AIQAWindow
+            AIQAWindow(self.gui, gui=self.gui)
         except Exception as e:
             import traceback
-
-            messagebox.showerror("错误", f"打开AI问答失败: {e}\n{traceback.format_exc()}")
+            QMessageBox.critical(self.gui, "错误", f"打开AI问答失败: {e}\n{traceback.format_exc()}")
 
     # ──────────────────────────────────────────
     # 数据大屏
@@ -525,13 +500,11 @@ class Dialogs:
     def open_dashboard(self):
         """打开数据大屏窗口"""
         try:
-            from .dashboard_mode import DashboardWindow
-
-            DashboardWindow(gui=self.gui, parent=self.gui.root)
+            from ui.dashboard_mode import DashboardWindow
+            DashboardWindow(gui=self.gui, parent=self.gui)
         except Exception as e:
             import traceback
-
-            messagebox.showerror("错误", f"打开数据大屏失败: {e}\n{traceback.format_exc()}")
+            QMessageBox.critical(self.gui, "错误", f"打开数据大屏失败: {e}\n{traceback.format_exc()}")
 
     # ──────────────────────────────────────────
     # 报告导出
@@ -540,10 +513,8 @@ class Dialogs:
     def open_report_scheduler(self):
         """打开报告导出窗口"""
         try:
-            from .report_scheduler import ReportSchedulerWindow
-
-            ReportSchedulerWindow(self.gui.root, gui=self.gui)
+            from ui.report_scheduler import ReportSchedulerWindow
+            ReportSchedulerWindow(self.gui, gui=self.gui)
         except Exception as e:
             import traceback
-
-            messagebox.showerror("错误", f"打开报告导出失败: {e}\n{traceback.format_exc()}")
+            QMessageBox.critical(self.gui, "错误", f"打开报告导出失败: {e}\n{traceback.format_exc()}")

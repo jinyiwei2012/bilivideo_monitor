@@ -1,511 +1,371 @@
 """
-左侧视频列表面板模块 - CustomTkinter 版
+左侧视频列表面板模块 - PyQt6 版
 
-负责监控视频卡片的展示、搜索、选择、封面异步加载等交互。
+使用 QListWidget + 自定义 delegate 替代 CTkScrollableFrame 内嵌卡片。
+支持视频卡片展示、搜索、选择、封面异步加载。
 """
 
-import tkinter as tk
-import customtkinter as ctk
-import threading
 import logging
-import requests as _req
 from io import BytesIO
+from collections import OrderedDict
+import threading
+
+import requests as _req
+
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QListWidget,
+    QListWidgetItem, QLabel, QPushButton, QLineEdit,
+    QFrame, QSizePolicy, QStyledItemDelegate, QStyle,
+)
+from PyQt6.QtCore import Qt, QSize, QThread, pyqtSignal, QObject
+from PyQt6.QtGui import QPixmap, QFont, QColor, QPainter, QBrush, QPen, QFontMetrics
 
 from ui.theme import C
 from ui.helpers import (
-    FONT,
-    FONT_SM,
-    THRESHOLDS,
-    THRESHOLD_NAMES,
-    THRESH_COLORS,
-    fmt_num,
-    nearest_threshold_gap,
-    card_status_tag,
+    FONT, FONT_SM, THRESHOLDS, THRESHOLD_NAMES,
+    THRESH_COLORS, fmt_num, nearest_threshold_gap, card_status_tag,
 )
 from utils.cover_manager import get_valid_cover, save_cover
 
-# 模块级共享 Session + 信号量（限制封面并发数）
 _cover_session = _req.Session()
-_cover_session.headers.update(
-    {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Referer": "https://www.bilibili.com/",
-    }
-)
-_cover_semaphore = threading.Semaphore(4)  # 最多 4 个并发下载
-
+_cover_session.headers.update({
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "Referer": "https://www.bilibili.com/",
+})
+_cover_semaphore = threading.Semaphore(4)
 logger = logging.getLogger(__name__)
 
 
-class VideoListPanel:
-    """左侧视频列表面板"""
+class CoverLoader(QObject):
+    """封面异步加载器 - 在后台线程加载封面图片"""
+    cover_loaded = pyqtSignal(str, object)  # bvid, QPixmap
 
-    def __init__(self, parent, gui):
-        self.gui = gui
-        self._parent = parent
-        self._video_card_widgets = {}  # bvid -> 卡片控件引用
-        from collections import OrderedDict
+    def __init__(self):
+        super().__init__()
+        self._running = True
 
-        self._cover_cache = OrderedDict()  # LRU 封面缓存
-        self._search_var = tk.StringVar()
-        # 自适应缩略图尺寸（初始化时计算一次，resize 时更新）
-        self._thumb_w = 80
-        self._thumb_h = 45
-        self._card_wraplength = 180
-        self._update_thumb_dims()
-        self._build_left_panel()
-        # 监听面板尺寸变化，动态调整卡片 wraplength
-        parent.bind("<Configure>", self._on_panel_resize)
-
-    def _update_thumb_dims(self):
-        """根据屏幕/面板宽度计算缩略图尺寸和文字折行宽度（缓存避免 per-card 重复计算）。"""
-        _sw = self.gui.root.winfo_screenwidth()
-        _left_w = int(_sw * 0.22)
-        self._thumb_w = max(60, min(100, _left_w // 4))
-        self._thumb_h = int(self._thumb_w * 0.56)
-        self._card_wraplength = max(100, _left_w - self._thumb_w - 60)
-
-    # ──────────────────────────────────────────
-    # UI 构建
-    # ──────────────────────────────────────────
-
-    def _build_left_panel(self):
-        """构建左侧面板：标题头 + 搜索框 + 卡片列表 + 底部操作按钮"""
-        p = self._parent
-        hdr = ctk.CTkFrame(p, fg_color=C["bg_surface"], corner_radius=0)
-        hdr.pack(fill=tk.X, padx=12, pady=(10, 4))
-        # 标题 + 视频计数
-        ctk.CTkLabel(
-            hdr, text="监控视频", text_color=C["text_2"], font=("Microsoft YaHei UI", 8, "bold"), fg_color="transparent"
-        ).pack(side=tk.LEFT)
-        self._video_count_lbl = ctk.CTkLabel(
-            hdr, text="0", fg_color=C["bg_elevated"], text_color=C["text_2"], font=FONT_SM, corner_radius=4
-        )
-        self._video_count_lbl.pack(side=tk.LEFT, padx=4)
-        # 全部推送按钮
-        ctk.CTkButton(
-            hdr,
-            text="📤 全部推送",
-            fg_color=C["bg_elevated"],
-            text_color=C["text_2"],
-            hover_color=C["bg_hover"],
-            font=("Microsoft YaHei UI", 8),
-            corner_radius=4,
-            height=22,
-            width=70,
-            command=self.gui._manual_push,
-        ).pack(side=tk.RIGHT, padx=4)
-
-        # 搜索框
-        self._search_entry = ctk.CTkEntry(
-            p,
-            placeholder_text="搜索标题或BV号…",
-            fg_color=C["bg_elevated"],
-            text_color=C["text_1"],
-            placeholder_text_color=C["text_3"],
-            border_width=1,
-            border_color=C["border"],
-            font=FONT,
-            corner_radius=6,
-        )
-        self._search_entry.pack(fill=tk.X, padx=10, pady=(0, 6))
-        self._search_entry.configure(textvariable=self._search_var)
-        self._search_var.trace_add("write", self._on_search)
-
-        # 可滚动卡片容器
-        self._card_frame = ctk.CTkScrollableFrame(
-            p,
-            fg_color=C["bg_surface"],
-            corner_radius=0,
-            scrollbar_button_color=C["bg_hover"],
-            scrollbar_button_hover_color=C["border"],
-        )
-        self._card_frame.pack(fill=tk.BOTH, expand=True)
-
-        # 底部操作按钮行
-        bottom_f = ctk.CTkFrame(p, fg_color=C["bg_surface"], corner_radius=0)
-        bottom_f.pack(fill=tk.X, padx=10, pady=8)
-
-        # 添加监控按钮
-        add_btn = ctk.CTkButton(
-            bottom_f,
-            text="＋ 添加监控",
-            fg_color=C["bg_surface"],
-            text_color=C["text_2"],
-            hover_color=C["bg_hover"],
-            font=FONT,
-            corner_radius=6,
-            border_width=1,
-            border_color=C["border"],
-            command=self.gui._add_monitor,
-        )
-        add_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 3))
-
-        # 搜索视频按钮
-        search_btn = ctk.CTkButton(
-            bottom_f,
-            text="🔍 搜索视频",
-            fg_color=C["bg_surface"],
-            text_color=C["text_2"],
-            hover_color=C["bg_hover"],
-            font=FONT,
-            corner_radius=6,
-            border_width=1,
-            border_color=C["border"],
-            command=self.gui._open_video_search,
-        )
-        search_btn.pack(side=tk.LEFT, padx=(3, 0))
-
-    # ──────────────────────────────────────────
-    # 视频卡片
-    # ──────────────────────────────────────────
-
-    def make_card(self, video):
-        """创建视频卡片（供外部调用）"""
-        bvid = video.get("bvid", "")
-        title = video.get("title", "未知标题")
-        author = video.get("author", "未知UP主")
-        views = video.get("view_count", 0)
-        gap, tidx = nearest_threshold_gap(views)
-
-        card = ctk.CTkFrame(
-            self._card_frame,
-            fg_color=C["bg_surface"],
-            border_width=1,
-            border_color=C["border_sub"],
-            corner_radius=6,
-            cursor="hand2",
-        )
-        card.pack(fill=tk.X, padx=6, pady=2)
-        inner = ctk.CTkFrame(card, fg_color=C["bg_surface"], corner_radius=0)
-        inner.pack(fill=tk.X, padx=10, pady=8)
-
-        top = ctk.CTkFrame(inner, fg_color=C["bg_surface"], corner_radius=0)
-        top.pack(fill=tk.X)
-        # 自适应缩略图尺寸（使用类级缓存，避免 per-card 重复计算）
-        _thumb_w = self._thumb_w
-        _thumb_h = self._thumb_h
-        _card_wl = self._card_wraplength
-
-        thumb_frame = ctk.CTkFrame(top, fg_color=C["bg_elevated"], width=_thumb_w, height=_thumb_h, corner_radius=4)
-        thumb_frame.pack(side=tk.LEFT)
-        thumb_frame.pack_propagate(False)
-        thumb = ctk.CTkLabel(thumb_frame, text="", fg_color=C["bg_elevated"])
-        thumb.pack(expand=True)
-        # 异步加载封面缩略图
-        self._load_cover_thumb(video.get("pic", ""), bvid, thumb, title, target_w=_thumb_w, target_h=_thumb_h)
-        info = ctk.CTkFrame(top, fg_color=C["bg_surface"], corner_radius=0)
-        info.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(8, 0))
-
-        # 标题
-        title_lbl = ctk.CTkLabel(
-            info,
-            text=title[:28] + ("…" if len(title) > 28 else ""),
-            text_color=C["text_1"],
-            font=FONT,
-            fg_color="transparent",
-            justify="left",
-            anchor="w",
-            wraplength=self._card_wraplength,
-        )
-        title_lbl.pack(fill=tk.X)
-        # UP主名
-        author_lbl = ctk.CTkLabel(
-            info, text=author[:16], text_color=C["text_2"], font=FONT_SM, fg_color="transparent", anchor="w"
-        )
-        author_lbl.pack(fill=tk.X)
-
-        mid = ctk.CTkFrame(inner, fg_color=C["bg_surface"], corner_radius=0)
-        mid.pack(fill=tk.X, pady=(6, 0))
-        # 播放量
-        views_lbl = ctk.CTkLabel(
-            mid, text=fmt_num(views), text_color=C["text_1"], font=("Consolas", 12, "bold"), fg_color="transparent"
-        )
-        views_lbl.pack(side=tk.LEFT)
-        # 在线人数
-        online_total = video.get("viewers_total", 0)
-        online_text = f"👁 {fmt_num(online_total)}" if online_total > 0 else ""
-        online_lbl = ctk.CTkLabel(
-            mid, text=online_text, text_color=C["accent"], font=("Consolas", 9), fg_color="transparent"
-        )
-        online_lbl.pack(side=tk.LEFT, padx=(10, 0))
-        # 状态标签
-        stag, stag_fg = card_status_tag(gap)
-        tag_lbl = ctk.CTkLabel(mid, text=stag, text_color=stag_fg, font=FONT_SM, fg_color="transparent")
-        tag_lbl.pack(side=tk.RIGHT)
-
-        # 进度条
-        prog_f = ctk.CTkFrame(inner, fg_color=C["bg_surface"], corner_radius=0)
-        prog_f.pack(fill=tk.X, pady=(5, 0))
-        prog_bg = tk.Frame(prog_f, bg=C["bg_hover"], height=3)
-        prog_bg.pack(fill=tk.X)
-        prog_bg.pack_propagate(False)
-        if tidx >= 0:
-            _thr, pct, fill_c = THRESHOLDS[tidx], min(views / THRESHOLDS[tidx], 1.0), THRESH_COLORS[tidx]  # noqa: F841
-        else:
-            pct, fill_c = 1.0, C["success"]
-        prog_fill = tk.Frame(prog_bg, bg=fill_c, height=3)
-        prog_fill.place(x=0, y=0, relwidth=pct, relheight=1)
-
-        # 阈值标签行
-        label_f = ctk.CTkFrame(inner, fg_color=C["bg_surface"], corner_radius=0)
-        label_f.pack(fill=tk.X)
-        if gap > 0:
-            gap_text = f"距{THRESHOLD_NAMES[tidx]}：{fmt_num(gap)}"
-            pct_text = f"{pct * 100:.1f}%"
-        else:
-            gap_text, pct_text = "已全部达标 ✓", ""
-        gap_lbl = ctk.CTkLabel(label_f, text=gap_text, text_color=C["text_3"], font=FONT_SM, fg_color="transparent")
-        gap_lbl.pack(side=tk.LEFT)
-        pct_lbl = ctk.CTkLabel(label_f, text=pct_text, text_color=C["text_3"], font=FONT_SM, fg_color="transparent")
-        pct_lbl.pack(side=tk.RIGHT)
-
-        # 推送按钮行
-        push_row = ctk.CTkFrame(inner, fg_color=C["bg_surface"], corner_radius=0)
-        push_row.pack(fill=tk.X, pady=(4, 0))
-        push_btn = ctk.CTkButton(
-            push_row,
-            text="📤 推送",
-            fg_color=C["bg_elevated"],
-            text_color=C["text_2"],
-            hover_color=C["bg_hover"],
-            font=("Microsoft YaHei UI", 8),
-            corner_radius=4,
-            height=20,
-            width=50,
-            command=lambda b=bvid: self.gui._push_single(b),
-        )
-        push_btn.pack(side=tk.RIGHT)
-
-        # 保存所有控件引用
-        self._video_card_widgets[bvid] = {
-            "card": card,
-            "inner": inner,
-            "thumb": thumb,
-            "title": title_lbl,
-            "author": author_lbl,
-            "views": views_lbl,
-            "tag": tag_lbl,
-            "online": online_lbl,
-            "prog_fill": prog_fill,
-            "gap_lbl": gap_lbl,
-            "pct_lbl": pct_lbl,
-        }
-
-        def _select(e, bv=bvid):
-            self.gui._select_video(bv)
-
-        # 点击卡片选中视频
-        for w in [card, inner, top, info, mid, prog_f, label_f, title_lbl, author_lbl, views_lbl, tag_lbl, thumb]:
-            w.bind("<Button-1>", _select)
-        return card
-
-    def update_card(self, video):
-        """更新卡片数据（播放量、阈值进度等），跳过未变更字段避免无效重绘。"""
-        bvid = video.get("bvid", "")
-        refs = self._video_card_widgets.get(bvid)
-        if not refs:
+    def load_cover(self, bvid, url):
+        """在线程中加载封面"""
+        if not self._running:
             return
-        views = video.get("view_count", 0)
-        gap, tidx = nearest_threshold_gap(views)
-
-        # 缓存上次显示的值，仅在变更时调用 .configure()
-        cache = refs.setdefault("_val_cache", {})
-        new = {}
-
-        new["title"] = video.get("title", "")[:28] + ("…" if len(video.get("title", "")) > 28 else "")
-        new["author"] = video.get("author", "")[:16]
-        new["views"] = fmt_num(views)
-        online_total = video.get("viewers_total", 0)
-        new["online"] = f"👁 {fmt_num(online_total)}" if online_total > 0 else ""
-        stag, stag_fg = card_status_tag(gap)
-        new["tag"] = stag
-        new["tag_fg"] = stag_fg
-
-        for field, key in [("title", "title"), ("author", "author"), ("views", "views"), ("online", "online")]:
-            if new[field] != cache.get(field):
-                refs[key].configure(text=new[field])
-                cache[field] = new[field]
-        if new["tag"] != cache.get("tag") or new.get("tag_fg", "") != cache.get("tag_fg", ""):
-            refs["tag"].configure(text=new["tag"], text_color=new["tag_fg"])
-            cache["tag"] = new["tag"]
-            cache["tag_fg"] = new["tag_fg"]
-
-        if tidx >= 0:
-            thr = THRESHOLDS[tidx]
-            pct = min(views / thr, 1.0)
-            fill_c = THRESH_COLORS[tidx]
-            new_gap = f"距{THRESHOLD_NAMES[tidx]}：{fmt_num(gap)}"
-            new_pct = f"{pct * 100:.1f}%"
-            if new_gap != cache.get("gap_lbl"):
-                refs["gap_lbl"].configure(text=new_gap)
-                cache["gap_lbl"] = new_gap
-            if new_pct != cache.get("pct_lbl"):
-                refs["pct_lbl"].configure(text=new_pct)
-                cache["pct_lbl"] = new_pct
-        else:
-            pct, fill_c = 1.0, C["success"]
-            if cache.get("gap_lbl") != "✓":
-                refs["gap_lbl"].configure(text="已全部达标 ✓")
-                refs["pct_lbl"].configure(text="")
-                cache["gap_lbl"] = "✓"
-
-        # 进度条：仅百分比变化 >0.5% 时更新（减少 place 调用）
-        if tidx >= 0 and abs(pct - cache.get("_last_pct", -1)) > 0.005:
-            refs["prog_fill"].config(bg=fill_c)
-            refs["prog_fill"].place(relwidth=pct)
-            cache["_last_pct"] = pct
-            cache["_last_fill"] = fill_c
-        elif cache.get("_last_fill") != fill_c:
-            refs["prog_fill"].config(bg=fill_c)
-            cache["_last_fill"] = fill_c
-
-        is_sel = bvid == self.gui.selected_bvid
-        hl_bg = C["bg_elevated"] if is_sel else C["border_sub"]
-        if cache.get("_sel_border") != hl_bg:
-            refs["card"].configure(border_color=hl_bg)
-            cache["_sel_border"] = hl_bg
-
-    def highlight_card(self, bvid):
-        """高亮指定卡片（选中态）"""
-        for bv, refs in self._video_card_widgets.items():
-            border = C["bilibili"] if bv == bvid else C["border_sub"]
-            refs["card"].configure(border_color=border)
-
-    # ──────────────────────────────────────────
-    # 搜索过滤
-    # ──────────────────────────────────────────
-
-    def _on_panel_resize(self, event=None):
-        """面板尺寸变化时更新所有卡片标题折行宽度（防抖 150ms）"""
-        if not hasattr(self, "_resize_job") or self._resize_job:
-            try:
-                self.gui.root.after_cancel(self._resize_job)
-            except Exception as e:
-                logger.debug("忽略异常: %s", e)
-        self._resize_job = self.gui.root.after(150, self._do_update_wraplengths)
-
-    def _do_update_wraplengths(self):
-        """批量更新所有卡片标题折行宽度"""
-        self._resize_job = None
         try:
-            self._update_thumb_dims()
-            new_wl = self._card_wraplength
-            for refs in self._video_card_widgets.values():
-                refs["title"].configure(wraplength=new_wl)
-        except Exception as e:
-            logger.debug("忽略异常: %s", e)
-
-    def _on_search(self, *args):
-        """根据搜索关键词过滤卡片显示（匹配标题、BV号、UP主名）。
-        预建 {bvid: video} dict，O(1) 查找替代 O(N×M)。"""
-        q = self._search_var.get().strip().lower()
-        bvid_map = {v.get("bvid"): v for v in self.gui.monitored_videos}
-        for bvid, refs in self._video_card_widgets.items():
-            video = bvid_map.get(bvid)
-            if not video:
-                refs["card"].pack_forget()
-                continue
-            visible = (
-                not q
-                or q in video.get("title", "").lower()
-                or q in bvid.lower()
-                or q in video.get("author", "").lower()
-            )
-            refs["card"].pack(fill=tk.X, padx=6, pady=2) if visible else refs["card"].pack_forget()
-
-    def copy_bvid(self, bvid):
-        """复制 BV 号到剪贴板"""
-        self.gui.root.clipboard_clear()
-        self.gui.root.clipboard_append(bvid)
-        self.gui._sb("status", f"已复制 {bvid}", C["success"])
-
-    # ──────────────────────────────────────────
-    # 封面异步加载
-    # ──────────────────────────────────────────
-
-    @staticmethod
-    def _make_thumb_photo(img, target_w=80, target_h=45):
-        """将 PIL Image 缩放到自适应尺寸包装为 CTkImage（用完释放 PIL 资源）"""
-        from PIL import Image
-
-        try:
-            w, h = img.size
-            ratio = min(target_w / w, target_h / h)
-            new_w, new_h = int(w * ratio), int(h * ratio)
-            resized = img.resize((new_w, new_h), Image.LANCZOS)
-            return ctk.CTkImage(light_image=resized, size=(new_w, new_h))
-        finally:
-            img.close()  # 释放 PIL 内部文件缓冲区，避免 Windows GDI 泄漏
-
-    def _cache_and_show(self, cache_key, ph, label_widget):
-        """缓存 CTkImage 并显示到控件（LRU 淘汰）"""
-        self._cover_cache[cache_key] = ph
-        self._cover_cache.move_to_end(cache_key)
-        if len(self._cover_cache) > 50:
-            self._cover_cache.popitem(last=False)
-        self.gui.root.after(0, lambda: self._safe_set_image(label_widget, ph))
-
-    def _load_cover_thumb(self, url, bvid, label_widget, title="", target_w=80, target_h=45):
-        """异步加载卡片封面缩略图，优先使用本地缓存"""
-        cache_key = (bvid, "thumb")
-        if cache_key in self._cover_cache:
-            self._cover_cache.move_to_end(cache_key)
-            label_widget.configure(image=self._cover_cache[cache_key], text="")
-            return
-        if not url:
-            return
-
-        def _fetch():
-            acquired = _cover_semaphore.acquire()
-            if not acquired:
-                return
-            try:
-                from PIL import Image
-
-                # 先尝试从本地加载
-                local = get_valid_cover(bvid, title)
-                if local is not None:
-                    ph = self._make_thumb_photo(Image.open(local), target_w, target_h)
-                    self._cache_and_show(cache_key, ph, label_widget)
-                    return
-
-                r = _cover_session.get(url, timeout=8)
-                if r.status_code != 200:
-                    return
-                save_cover(bvid, r.content, title)
-                ph = self._make_thumb_photo(Image.open(BytesIO(r.content)), target_w, target_h)
-                self._cache_and_show(cache_key, ph, label_widget)
-            except Exception as e:
-                logger.warning("缩略图加载失败 %s: %s", bvid, e)
-            finally:
-                _cover_semaphore.release()
-
-        threading.Thread(target=_fetch, daemon=True).start()
-
-    def _safe_set_image(self, widget, ph):
-        """安全地给 CTkLabel 设置图片"""
-        try:
-            if widget.winfo_exists():
-                widget.configure(image=ph, text="")
-        except tk.TclError:
+            with _cover_semaphore:
+                resp = _cover_session.get(url, timeout=10)
+                if resp.status_code == 200:
+                    pixmap = QPixmap()
+                    pixmap.loadFromData(resp.content)
+                    if not pixmap.isNull():
+                        self.cover_loaded.emit(bvid, pixmap)
+                        save_cover(bvid, resp.content)
+        except Exception:
             pass
 
+
+class VideoCardDelegate(QStyledItemDelegate):
+    """视频卡片自定义绘制代理"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._cover_cache = {}  # bvid -> QPixmap
+        self._thumb_size = QSize(80, 45)
+
+    def set_cover(self, bvid, pixmap):
+        if pixmap and not pixmap.isNull():
+            self._cover_cache[bvid] = pixmap.scaled(
+                self._thumb_size, Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation
+            )
+
+    def paint(self, painter, option, index):
+        data = index.data(Qt.ItemDataRole.UserRole)
+        if not data:
+            super().paint(painter, option, index)
+            return
+
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rect = option.rect
+        is_selected = option.state & QStyle.StateFlag.State_Selected
+
+        # 背景
+        bg = C["bg_surface"] if not is_selected else C["bg_hover"]
+        painter.fillRect(rect, QColor(bg))
+
+        margin = 8
+        x, y = rect.x() + margin, rect.y() + margin
+        w, h = rect.width() - 2 * margin, rect.height() - 2 * margin
+
+        # 封面缩略图
+        bvid = data.get("bvid", "")
+        thumb = self._cover_cache.get(bvid)
+        if thumb:
+            painter.drawPixmap(x, y, 80, 45, thumb)
+        else:
+            painter.setPen(QPen(QColor(C["border"])))
+            painter.setBrush(QBrush(QColor(C["bg_hover"])))
+            painter.drawRect(x, y, 80, 45)
+            painter.setPen(QPen(QColor(C["text_3"])))
+            painter.drawText(x + 10, y + 25, "No Cover")
+
+        # 标题
+        title = data.get("title", "")[:30]
+        tx = x + 90
+        ty = y + 14
+        painter.setPen(QColor(C["text_1"]))
+        font = QFont("Microsoft YaHei UI", 9)
+        fm = QFontMetrics(font)
+
+        max_w = w - 90
+        if fm.horizontalAdvance(title) > max_w:
+            title = fm.elidedText(title, Qt.TextElideMode.ElideRight, max_w)
+        painter.setFont(font)
+        painter.drawText(tx, ty - fm.height() + 14, title)
+
+        # 播放量
+        views = data.get("view", 0)
+        painter.setPen(QColor(C["text_2"]))
+        font_sm = QFont("Microsoft YaHei UI", 8)
+        painter.setFont(font_sm)
+        painter.drawText(tx, ty + 16, f"播放: {fmt_num(views)}")
+
+        # 状态标签
+        gap, _ = nearest_threshold_gap(views)
+        tag_text, tag_color = card_status_tag(gap)
+        painter.setPen(QColor(tag_color))
+        painter.drawText(tx, ty + 30, tag_text)
+
+        # 选中高亮边框
+        if is_selected:
+            painter.setPen(QPen(QColor(C["bilibili"]), 2))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 4, 4)
+
+    def sizeHint(self, option, index):
+        return QSize(0, 60)
+
+
+class VideoListPanel(QWidget):
+    """左侧视频列表面板"""
+
+    video_selected = pyqtSignal(str)  # bvid
+
+    def __init__(self, parent, gui):
+        super().__init__(parent)
+        self.gui = gui
+        self._parent = parent
+        self._cover_cache = OrderedDict()
+        self._card_widgets = {}  # bvid -> index
+        self._search_text = ""
+
+        # 封面加载器
+        self._cover_loader = CoverLoader()
+        self._cover_loader.cover_loaded.connect(self._on_cover_loaded)
+        self._cover_thread = QThread()
+        self._cover_loader.moveToThread(self._cover_thread)
+        self._cover_thread.start()
+
+        self._build()
+
+    def _build(self):
+        """构建左侧面板"""
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        # 标题头
+        hdr = QWidget()
+        hdr.setStyleSheet(f"background-color: {C['bg_surface']};")
+        h = QHBoxLayout(hdr)
+        h.setContentsMargins(12, 10, 12, 4)
+
+        lbl = QLabel("监控视频")
+        lbl.setStyleSheet(f"color: {C['text_2']}; font-weight: bold; font-size: 8pt;")
+        h.addWidget(lbl)
+
+        self._count_lbl = QLabel("0")
+        self._count_lbl.setStyleSheet(f"""
+            background-color: {C['bg_elevated']}; color: {C['text_2']};
+            padding: 0px 6px; border-radius: 4px; font-size: 8pt;
+        """)
+        h.addWidget(self._count_lbl)
+
+        h.addStretch()
+
+        push_all_btn = QPushButton("📤 全部推送")
+        push_all_btn.setFixedSize(70, 22)
+        push_all_btn.setProperty("accent", True)
+        push_all_btn.clicked.connect(self.gui._manual_push)
+        h.addWidget(push_all_btn)
+
+        layout.addWidget(hdr)
+
+        # 搜索框
+        self._search = QLineEdit()
+        self._search.setPlaceholderText("搜索BV号或标题...")
+        self._search.setClearButtonEnabled(True)
+        self._search.textChanged.connect(self._on_search)
+        self._search.setStyleSheet(f"""
+            QLineEdit {{
+                margin: 4px 12px;
+                padding: 4px 8px;
+                border: 1px solid {C['border']};
+                border-radius: {C['radius_sm']}px;
+                background-color: {C['bg_base']};
+                color: {C['text_1']};
+            }}
+        """)
+        layout.addWidget(self._search)
+
+        # 分隔线
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet(f"background-color: {C['border']}; max-height: 1px;")
+        layout.addWidget(sep)
+
+        # 视频列表
+        self._list = QListWidget()
+        self._list.setItemDelegate(VideoCardDelegate())
+        self._list.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
+        self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._list.setSpacing(2)
+        self._list.setStyleSheet(f"""
+            QListWidget {{
+                background-color: {C['bg_surface']};
+                border: none;
+                outline: none;
+            }}
+        """)
+        self._list.currentItemChanged.connect(self._on_item_changed)
+        layout.addWidget(self._list, 1)
+
+    def _on_cover_loaded(self, bvid, pixmap):
+        """封面加载完成回调"""
+        delegate = self._list.itemDelegate()
+        if isinstance(delegate, VideoCardDelegate):
+            delegate.set_cover(bvid, pixmap)
+        # 刷新可见项
+        for i in range(self._list.count()):
+            item = self._list.item(i)
+            data = item.data(Qt.ItemDataRole.UserRole)
+            if data and data.get("bvid") == bvid:
+                self._list.update(item)
+                break
+
+    def _on_search(self, text):
+        """搜索过滤"""
+        self._search_text = text.strip().lower()
+        for i in range(self._list.count()):
+            item = self._list.item(i)
+            data = item.data(Qt.ItemDataRole.UserRole)
+            if data:
+                bvid = data.get("bvid", "").lower()
+                title = data.get("title", "").lower()
+                visible = not self._search_text or self._search_text in bvid or self._search_text in title
+                item.setHidden(not visible)
+
+    def _on_item_changed(self, current, previous):
+        """选中项变更"""
+        if current:
+            data = current.data(Qt.ItemDataRole.UserRole)
+            if data:
+                bvid = data.get("bvid", "")
+                self.video_selected.emit(bvid)
+                if hasattr(self.gui, '_select_video'):
+                    self.gui._select_video(bvid)
+
+    def rebuild_list(self, videos):
+        """重建视频列表"""
+        self._list.clear()
+        delegate = self._list.itemDelegate()
+        for v in videos:
+            bvid = v.get("bvid", "")
+            item = QListWidgetItem()
+            item.setData(Qt.ItemDataRole.UserRole, v)
+            item.setSizeHint(QSize(0, 60))
+            self._list.addItem(item)
+
+            # 触发封面异步加载
+            cover_url = v.get("cover_url", "")
+            if cover_url:
+                local = get_valid_cover(bvid)
+                if local:
+                    pixmap = QPixmap(local)
+                    if not pixmap.isNull():
+                        if isinstance(delegate, VideoCardDelegate):
+                            delegate.set_cover(bvid, pixmap)
+                else:
+                    QTimer = __import__('PyQt6.QtCore', fromlist=['QTimer']).QTimer
+                    QTimer.singleShot(0, lambda b=bvid, u=cover_url: (
+                        self._cover_loader.load_cover(b, u)
+                    ))
+
+        self._update_count()
+
+    def make_card(self, video):
+        """添加单个视频卡片"""
+        bvid = video.get("bvid", "")
+        if not bvid:
+            return
+        # 检查是否已存在
+        for i in range(self._list.count()):
+            item = self._list.item(i)
+            data = item.data(Qt.ItemDataRole.UserRole)
+            if data and data.get("bvid") == bvid:
+                return
+        item = QListWidgetItem()
+        item.setData(Qt.ItemDataRole.UserRole, video)
+        item.setSizeHint(QSize(0, 60))
+        self._list.addItem(item)
+        self._update_count()
+
+    def update_card(self, video):
+        """更新已有视频卡片的数据（刷新封面、标题、播放量等）"""
+        bvid = video.get("bvid", "")
+        if not bvid:
+            return
+        delegate = self._list.itemDelegate()
+        for i in range(self._list.count()):
+            item = self._list.item(i)
+            data = item.data(Qt.ItemDataRole.UserRole)
+            if data and data.get("bvid") == bvid:
+                # 合并新数据到已有数据
+                data.update(video)
+                item.setData(Qt.ItemDataRole.UserRole, data)
+                # 刷新显示
+                self._list.update(item)
+                # 触发封面加载
+                cover_url = video.get("pic", video.get("cover_url", ""))
+                if cover_url:
+                    from utils.cover_manager import get_valid_cover
+                    local = get_valid_cover(bvid)
+                    if local:
+                        pixmap = QPixmap(local)
+                        if not pixmap.isNull() and isinstance(delegate, VideoCardDelegate):
+                            delegate.set_cover(bvid, pixmap)
+                    else:
+                        from PyQt6.QtCore import QTimer
+                        QTimer.singleShot(0, lambda b=bvid, u=cover_url: (
+                            self._cover_loader.load_cover(b, u)
+                        ))
+                break
+
     def update_video_count(self):
-        """更新视频计数标签"""
-        self._video_count_lbl.configure(text=str(len(self.gui.monitored_videos)))
+        """公开更新视频计数"""
+        self._update_count()
 
-    def get_card_widgets(self):
-        return self._video_card_widgets
+    def _update_count(self):
+        """更新视频计数"""
+        count = self._list.count()
+        self._count_lbl.setText(str(count))
 
-    def refresh_card(self, bvid):
-        """根据 bvid 刷新卡片（被 monitor_service 回调调用）"""
-        video = next((v for v in self.gui.monitored_videos if v.get("bvid") == bvid), None)
-        if video:
-            self.update_card(video)
+    def select_by_bvid(self, bvid):
+        """按 BV 号选中"""
+        for i in range(self._list.count()):
+            item = self._list.item(i)
+            data = item.data(Qt.ItemDataRole.UserRole)
+            if data and data.get("bvid") == bvid:
+                self._list.setCurrentItem(item)
+                break
 
-    def remove_card(self, bvid):
-        """删除指定卡片"""
-        refs = self._video_card_widgets.pop(bvid, None)
-        if refs:
-            refs["card"].destroy()
+    def highlight_card(self, bvid):
+        """高亮选中指定 BV 号的卡片"""
+        self.select_by_bvid(bvid)

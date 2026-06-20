@@ -3,8 +3,13 @@
 为监控视频添加/删除/筛选自定义标签
 """
 
-import tkinter as tk
-from tkinter import ttk, messagebox
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QLineEdit, QListWidget, QListWidgetItem, QComboBox, QMessageBox,
+    QScrollArea, QFrame,
+)
+from PyQt6.QtCore import Qt
+
 from ui.theme import C
 from ui.helpers import FONT
 from ui.dialog_base import DialogBase
@@ -24,71 +29,115 @@ class TagManagerWindow:
 
     def _build_ui(self):
         """构建界面布局：左侧视频列表 + 标签输入，右侧当前标签 + 筛选"""
-        main = tk.Frame(self.dlg.content_area(), bg=C["bg_base"])
-        main.pack(fill=tk.BOTH, expand=True, padx=10, pady=4)
+        main = QWidget()
+        main.setStyleSheet(f"background-color: {C['bg_base']};")
+        main_layout = QHBoxLayout(main)
+        main_layout.setContentsMargins(10, 4, 10, 4)
 
-        left = tk.Frame(main, bg=C["bg_base"])
-        left.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        # ── 左侧：视频列表 + 标签输入 ──
+        left = QWidget()
+        left.setStyleSheet(f"background-color: {C['bg_base']};")
+        left_layout = QVBoxLayout(left)
+        left_layout.setContentsMargins(0, 0, 0, 0)
 
-        # 视频列表
-        tk.Label(left, text="监控视频", bg=C["bg_base"], fg=C["text_1"], font=FONT).pack(anchor="w")
-        self._video_listbox = tk.Listbox(
-            left,
-            bg=C["bg_elevated"],
-            fg=C["text_1"],
-            selectbackground=C["bilibili"],
-            font=FONT,
-            relief=tk.FLAT,
-            borderwidth=0,
-            highlightthickness=0,
-        )
-        self._video_listbox.pack(fill=tk.BOTH, expand=True, pady=(4, 6))
-        self._video_listbox.bind("<<ListboxSelect>>", self._on_select)
+        left_title = QLabel("监控视频")
+        left_title.setStyleSheet(f"color: {C['text_1']}; background: transparent;")
+        left_title.setFont(FONT)
+        left_layout.addWidget(left_title)
 
-        # 标签输入框 + 添加按钮
-        tag_frame = tk.Frame(left, bg=C["bg_base"])
-        tag_frame.pack(fill=tk.X)
-        self._tag_entry = tk.Entry(
-            tag_frame,
-            bg=C["bg_elevated"],
-            fg=C["text_1"],
-            insertbackground=C["text_1"],
-            font=FONT,
-            relief=tk.FLAT,
-            bd=0,
-        )
-        self._tag_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4), ipady=4)
-        self._tag_entry.bind("<Return>", lambda e: self._add_tag())
-        ttk.Button(tag_frame, text="添加标签", command=self._add_tag).pack(side=tk.RIGHT)
+        self._video_list = QListWidget()
+        self._video_list.setStyleSheet(f"""
+            QListWidget {{
+                background-color: {C['bg_elevated']}; color: {C['text_1']};
+                border: none;
+            }}
+            QListWidget::item:selected {{
+                background-color: {C['bilibili']};
+            }}
+        """)
+        self._video_list.currentRowChanged.connect(self._on_select)
+        left_layout.addWidget(self._video_list, 1)
 
-        # 右侧：当前标签展示
-        right = tk.Frame(main, bg=C["bg_base"], width=200)
-        right.pack(side=tk.RIGHT, fill=tk.Y, padx=(10, 0))
-        right.pack_propagate(False)
+        tag_input_row = QWidget()
+        tag_input_row.setStyleSheet(f"background-color: {C['bg_base']};")
+        tag_input_layout = QHBoxLayout(tag_input_row)
+        tag_input_layout.setContentsMargins(0, 4, 0, 0)
 
-        tk.Label(right, text="当前标签", bg=C["bg_base"], fg=C["text_1"], font=FONT).pack(anchor="w")
-        self._tags_frame = tk.Frame(right, bg=C["bg_base"])
-        self._tags_frame.pack(fill=tk.BOTH, expand=True, pady=(4, 6))
+        self._tag_entry = QLineEdit()
+        self._tag_entry.setStyleSheet(f"""
+            QLineEdit {{
+                background-color: {C['bg_elevated']}; color: {C['text_1']};
+                border: none; padding: 4px;
+            }}
+        """)
+        self._tag_entry.returnPressed.connect(self._add_tag)
+        tag_input_layout.addWidget(self._tag_entry, 1)
 
-        # 按标签筛选下拉框
-        tk.Label(right, text="按标签筛选", bg=C["bg_base"], fg=C["text_1"], font=FONT).pack(anchor="w")
-        self._filter_var = tk.StringVar(value="")
-        self._filter_combo = ttk.Combobox(right, textvariable=self._filter_var, font=FONT, state="readonly")
-        self._filter_combo.pack(fill=tk.X, pady=(4, 0))
-        self._filter_combo.bind("<<ComboboxSelected>>", lambda e: self._refresh())
+        add_btn = QPushButton("添加标签")
+        add_btn.clicked.connect(self._add_tag)
+        tag_input_layout.addWidget(add_btn)
 
-        btn_frame = tk.Frame(right, bg=C["bg_base"])
-        btn_frame.pack(fill=tk.X, pady=6)
-        ttk.Button(btn_frame, text="清除筛选", command=lambda: [self._filter_var.set(""), self._refresh()]).pack(
-            fill=tk.X
-        )
+        left_layout.addWidget(tag_input_row)
+        main_layout.addWidget(left, 1)
+
+        # ── 右侧：当前标签 + 筛选 ──
+        right = QWidget()
+        right.setStyleSheet(f"background-color: {C['bg_base']};")
+        right.setFixedWidth(200)
+        right_layout = QVBoxLayout(right)
+        right_layout.setContentsMargins(10, 0, 0, 0)
+
+        right_title = QLabel("当前标签")
+        right_title.setStyleSheet(f"color: {C['text_1']}; background: transparent;")
+        right_title.setFont(FONT)
+        right_layout.addWidget(right_title)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet(f"background-color: {C['bg_base']}; border: none;")
+        self._tags_container = QWidget()
+        self._tags_container.setStyleSheet(f"background-color: {C['bg_base']};")
+        self._tags_layout = QVBoxLayout(self._tags_container)
+        self._tags_layout.setContentsMargins(0, 0, 0, 0)
+        self._tags_layout.setSpacing(1)
+        self._tags_layout.addStretch()
+        scroll.setWidget(self._tags_container)
+        right_layout.addWidget(scroll, 1)
+
+        filter_title = QLabel("按标签筛选")
+        filter_title.setStyleSheet(f"color: {C['text_1']}; background: transparent;")
+        filter_title.setFont(FONT)
+        right_layout.addWidget(filter_title)
+
+        self._filter_combo = QComboBox()
+        self._filter_combo.setStyleSheet(f"""
+            QComboBox {{
+                background-color: {C['bg_elevated']}; color: {C['text_1']};
+                border: 1px solid {C['border']}; padding: 2px 6px;
+            }}
+        """)
+        self._filter_combo.currentTextChanged.connect(lambda: self._refresh())
+        right_layout.addWidget(self._filter_combo)
+
+        clear_btn = QPushButton("清除筛选")
+        clear_btn.clicked.connect(lambda: [self._filter_combo.setCurrentIndex(0), self._refresh()])
+        right_layout.addWidget(clear_btn)
+
+        main_layout.addWidget(right)
+
+        # 放入 dlg
+        area = self.dlg.content_area()
+        outer = QVBoxLayout(area)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(main)
 
     def _refresh(self):
         """刷新视频列表和筛选下拉框"""
-        self._video_listbox.delete(0, tk.END)
+        self._video_list.blockSignals(True)
+        self._video_list.clear()
         self._bvid_map = []
-        filter_tag = self._filter_var.get()
-        # 遍历所有监控视频，按标签筛选后插入列表
+        filter_tag = self._filter_combo.currentText()
+
         for v in self.gui.monitored_videos:
             bvid = v.get("bvid", "")
             title = v.get("title", bvid)[:30]
@@ -96,41 +145,64 @@ class TagManagerWindow:
             if filter_tag and filter_tag not in tags:
                 continue
             display = f"[{' '.join(tags)}] {title}" if tags else title
-            self._video_listbox.insert(tk.END, display)
+            self._video_list.addItem(display)
             self._bvid_map.append(bvid)
 
-        # 刷新筛选下拉框的可选值
-        all_tags_sorted = sorted(all_tags())
-        self._filter_combo["values"] = all_tags_sorted
-        if self._filter_var.get() not in all_tags_sorted:
-            self._filter_var.set("")
+        # 刷新筛选下拉框
+        current_filter = self._filter_combo.currentText()
+        self._filter_combo.blockSignals(True)
+        self._filter_combo.clear()
+        self._filter_combo.addItem("")
+        for t in sorted(all_tags()):
+            self._filter_combo.addItem(t)
+        # 恢复选中
+        idx = self._filter_combo.findText(current_filter)
+        if idx >= 0:
+            self._filter_combo.setCurrentIndex(idx)
+        self._filter_combo.blockSignals(False)
 
+        self._video_list.blockSignals(False)
         self._selected_bvid = None
 
-    def _on_select(self, event):
+    def _on_select(self):
         """视频列表选中事件 — 更新选中视频并显示其标签"""
-        sel = self._video_listbox.curselection()
-        if not sel:
+        row = self._video_list.currentRow()
+        if row < 0 or row >= len(self._bvid_map):
             return
-        idx = sel[0]
-        if idx < len(self._bvid_map):
-            self._selected_bvid = self._bvid_map[idx]
-            self._refresh_tags()
+        self._selected_bvid = self._bvid_map[row]
+        self._refresh_tags()
 
     def _refresh_tags(self):
         """刷新当前选中视频的标签显示"""
-        for w in self._tags_frame.winfo_children():
-            w.destroy()
+        for i in reversed(range(self._tags_layout.count())):
+            w = self._tags_layout.itemAt(i).widget()
+            if w is not None:
+                w.setParent(None)
+                w.deleteLater()
+        # re-add stretch
+        self._tags_layout.addStretch()
+
         if not self._selected_bvid:
             return
-        # 遍历标签，为每个标签创建一行显示 + 删除按钮
+
         for tag in get_tags(self._selected_bvid):
-            row = tk.Frame(self._tags_frame, bg=C["bg_surface"])
-            row.pack(fill=tk.X, pady=1)
-            tk.Label(row, text=f"  #{tag}", bg=C["bg_surface"], fg=C["accent"], font=FONT).pack(side=tk.LEFT)
-            del_btn = tk.Label(row, text="✕", bg=C["bg_surface"], fg=C["danger"], font=FONT, cursor="hand2")
-            del_btn.pack(side=tk.RIGHT, padx=4)
-            del_btn.bind("<Button-1>", lambda e, t=tag: self._delete_tag(t))
+            row = QWidget()
+            row.setStyleSheet(f"background-color: {C['bg_surface']};")
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(4, 2, 4, 2)
+
+            lbl = QLabel(f"  #{tag}")
+            lbl.setStyleSheet(f"color: {C['accent']}; background: transparent;")
+            lbl.setFont(FONT)
+            row_layout.addWidget(lbl)
+
+            del_lbl = QLabel("✕")
+            del_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
+            del_lbl.setFont(FONT)
+            del_lbl.mousePressEvent = lambda e, t=tag: self._delete_tag(t)
+            row_layout.addWidget(del_lbl, 0, Qt.AlignmentFlag.AlignRight)
+
+            self._tags_layout.insertWidget(self._tags_layout.count() - 1, row)
 
     def _delete_tag(self, tag):
         """删除指定标签"""
@@ -144,17 +216,17 @@ class TagManagerWindow:
     def _add_tag(self):
         """为选中视频添加新标签"""
         if not self._selected_bvid:
-            messagebox.showwarning("提示", "请先在左侧选择一个视频", parent=self.dlg.window)
+            QMessageBox.warning(self.dlg.window, "提示", "请先在左侧选择一个视频")
             return
-        tag = self._tag_entry.get().strip()
+        tag = self._tag_entry.text().strip()
         if not tag:
             return
         if " " in tag:
-            messagebox.showwarning("提示", "标签不能包含空格", parent=self.dlg.window)
+            QMessageBox.warning(self.dlg.window, "提示", "标签不能包含空格")
             return
         existing = get_tags(self._selected_bvid)
         if tag not in existing:
             set_tags(self._selected_bvid, existing + [tag])
-        self._tag_entry.delete(0, tk.END)
+        self._tag_entry.clear()
         self._refresh_tags()
         self._refresh()

@@ -1,16 +1,16 @@
 """
-数据操作：监控列表持久化、视频注册、数据同步
+数据操作：监控列表持久化、视频注册、数据同步 — PyQt6 版
 """
 
-from tkinter import messagebox
 import logging
 from datetime import datetime
 from dataclasses import asdict
+from PyQt6.QtWidgets import QMessageBox
 
 logger = logging.getLogger(__name__)
 
 
-def map_api_to_video_dict(bvid: str, info: dict, fallback: dict = None) -> dict:
+def map_api_to_video_dict(bvid: str, info: dict, fallback: dict | None = None) -> dict:
     """将 B站 API 返回的数据映射为统一的视频字典格式"""
     fb = fallback or {}
     stat = info.get("stat", {})
@@ -40,14 +40,12 @@ def map_api_to_video_dict(bvid: str, info: dict, fallback: dict = None) -> dict:
 def _calc_ws(video):
     """延迟导入 weekly_score"""
     from utils.weekly_score import calculate_from_dict
-
     return calculate_from_dict(video)
 
 
 def _calc_ys(video):
     """延迟导入 yearly_score"""
     from utils.yearly_score import calculate_yearly_from_dict
-
     return calculate_yearly_from_dict(video)
 
 
@@ -58,15 +56,13 @@ def refresh_data(gui):
 
 def load_watch_list(gui):
     """加载监控列表"""
-    from ui.monitor_service import load_watch_list as _load
-
+    from ui.monitor import load_watch_list as _load
     _load(gui)
 
 
 def save_watch_list(gui):
     """保存监控列表到配置"""
     from config import load_config, save_config
-
     config = load_config()
     config["watch_list"] = [v.get("bvid", "") for v in gui.monitored_videos]
     save_config(config)
@@ -79,7 +75,6 @@ def save_weekly_score(gui, bvid, video, timestamp):
         if ws and bvid in gui.video_dbs:
             score_data = asdict(ws)
             gui.video_dbs[bvid].add_weekly_score(timestamp, score_data)
-            # 同步到中央库
             try:
                 from core import db
                 db.sync_weekly_score(bvid, timestamp, score_data)
@@ -96,7 +91,6 @@ def save_yearly_score(gui, bvid, video, timestamp):
         if ys and bvid in gui.video_dbs:
             score_data = asdict(ys)
             gui.video_dbs[bvid].add_yearly_score(timestamp, score_data)
-            # 同步到中央库
             try:
                 from core import db
                 db.sync_yearly_score(bvid, timestamp, score_data)
@@ -120,9 +114,8 @@ def restore_video(gui, video):
 
 
 def register_video_to_monitor(gui, video):
-    """注册视频到监控系统：初始化数据库 + 创建卡片 + 启动 Worker"""
+    """注册视频到监控系统：初始化数据库 + 创建卡片"""
     from core import db, MonitorRecord
-    from ui.monitor_service import _start_worker
 
     bvid = video["bvid"]
     try:
@@ -157,8 +150,9 @@ def register_video_to_monitor(gui, video):
     gui.video_list.update_video_count()
     gui._sb("videos", f"监控: {len(gui.monitored_videos)} 个")
     gui._register_video_timer(bvid)
-    interval = gui._get_video_interval(video)
-    _start_worker(gui, bvid, video, interval, gui.FAST_INTERVAL)
+    # 新视频立即触发一次拉取
+    from ui.monitor import fetch_single_video_data
+    fetch_single_video_data(gui, bvid)
 
 
 def prompt_backup_sync(gui, diffs, db):
@@ -171,13 +165,15 @@ def prompt_backup_sync(gui, diffs, db):
         msg.append(f"  ... 等 {len(diffs)} 个")
     msg.append("")
     msg.append("是否将 core/data/ 的数据同步到 data/？")
-    choice = messagebox.askyesno(
+
+    choice = QMessageBox.question(
+        gui,
         "数据库差异检测",
         "\n".join(msg),
-        icon="warning",
-        parent=gui.root,
+        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        QMessageBox.StandardButton.No,
     )
-    if choice:
+    if choice == QMessageBox.StandardButton.Yes:
         db.sync_per_video_dbs_to_backup()
         gui.log_panel.add_log("INFO", f"已同步 {len(diffs)} 个视频独立库到 data/")
     else:

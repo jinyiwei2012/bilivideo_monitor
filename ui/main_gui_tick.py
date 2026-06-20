@@ -1,10 +1,14 @@
 """
-全局 tick 循环与周期性维护任务
+全局 tick 循环与周期性维护任务 — PyQt6 版
+
+使用 QTimer 替代 Tkinter root.after() 实现每秒 tick。
 """
 
 import threading
 import time
 import logging
+
+from PyQt6.QtCore import QTimer
 
 from core.smart_alert import AnomalyDetector
 from ui.theme import C
@@ -13,21 +17,23 @@ logger = logging.getLogger(__name__)
 
 
 def start_global_tick(gui):
-    """启动全局 tick 循环"""
-    if gui._global_tick_job:
-        gui.root.after_cancel(gui._global_tick_job)
-    # 缓存上一次显示的倒计时文本，避免无变更时的无效 .config() 调用
+    """启动全局 tick 循环（QTimer 替代 after）"""
+    if gui._global_tick_timer:
+        gui._global_tick_timer.stop()
     gui._last_countdown_text = ""
     gui._last_mode_text = ""
     gui._last_interval_text = ""
-    gui._global_tick_job = gui.root.after(1000, lambda: global_tick(gui))
+    gui._global_tick_timer = QTimer(gui)
+    gui._global_tick_timer.setInterval(1000)
+    gui._global_tick_timer.timeout.connect(lambda: global_tick(gui))
+    gui._global_tick_timer.start()
 
 
 def stop_global_tick(gui):
     """停止全局 tick 循环"""
-    if gui._global_tick_job:
-        gui.root.after_cancel(gui._global_tick_job)
-        gui._global_tick_job = None
+    if gui._global_tick_timer:
+        gui._global_tick_timer.stop()
+        gui._global_tick_timer = None
 
 
 def do_memory_health_check(gui):
@@ -55,10 +61,12 @@ def do_memory_health_check(gui):
 
 def global_tick(gui):
     """每秒一次的全局 tick：更新倒计时、模式指示、周期性维护。
-    值未变时跳过 Tkinter .config() 调用，避免无效重绘。"""
+    值未变时跳过 setText() 调用，避免无效重绘。"""
     try:
-        if not gui.auto_refresh_enabled.get():
-            gui._global_tick_job = None
+        if not gui.auto_refresh_enabled:
+            if gui._global_tick_timer:
+                gui._global_tick_timer.stop()
+                gui._global_tick_timer = None
             return
 
         now = time.time()
@@ -72,23 +80,24 @@ def global_tick(gui):
             if remaining < min_remaining:
                 min_remaining = remaining
 
-        # 只在文本变更时才调用 .config()（Tkinter .config 会触发 widget 重绘）
+        # 只在文本变更时才调用 setText()
         if min_remaining == float("inf"):
             badge_text = "— s"
         else:
             badge_text = f"{int(max(0, min_remaining)):02d} s"
-        if badge_text != getattr(gui, "_last_countdown_text", ""):
-            gui._countdown_badge.config(text=badge_text)
+        if badge_text != gui._last_countdown_text:
+            gui._countdown_badge.setText(badge_text)
             gui._last_countdown_text = badge_text
 
         mode_text = f"⚡ {fast_count}个快速" if fast_count > 0 else "● 正常模式"
-        mode_fg = C["danger"] if fast_count > 0 else C["success"]
-        if mode_text != getattr(gui, "_last_mode_text", ""):
-            gui._mode_pill.config(text=mode_text, fg=mode_fg)
+        if mode_text != gui._last_mode_text:
+            gui._mode_pill.setText(mode_text)
+            mode_fg = C["danger"] if fast_count > 0 else C["success"]
+            gui._mode_pill.setStyleSheet(f"color: {mode_fg}; background-color: transparent;")
             gui._last_mode_text = mode_text
 
         interval_text = f"正常{gui.DEFAULT_INTERVAL}s / 快速{gui.FAST_INTERVAL}s"
-        if interval_text != getattr(gui, "_last_interval_text", ""):
+        if interval_text != gui._last_interval_text:
             gui._sb("interval", interval_text)
             gui._last_interval_text = interval_text
 
@@ -98,12 +107,11 @@ def global_tick(gui):
         elif gui._tick_counter % 300 == 0:
             threading.Thread(target=lambda: wal_checkpoint_worker(gui), daemon=True).start()
             threading.Thread(target=lambda: scan_alerts_background(gui), daemon=True).start()
-        # 每 30 分钟检查内存增长（tracemalloc 快照对比）
+        # 每 30 分钟检查内存增长
         elif gui._tick_counter % 1800 == 10:
             do_memory_health_check(gui)
     except Exception:
         logger.exception("_global_tick 异常，继续调度")
-    gui._global_tick_job = gui.root.after(1000, lambda: global_tick(gui))
 
 
 def do_periodic_sync(gui):
@@ -143,7 +151,7 @@ def do_periodic_sync(gui):
 
 
 def _maybe_cleanup_predictions(gui):
-    """每15天清理一次预测表中的历史重复行（保留综合预测数据，清理多算法详细预测的重复）"""
+    """每15天清理一次预测表中的历史重复行"""
     import time
 
     now = time.time()
@@ -156,9 +164,7 @@ def _maybe_cleanup_predictions(gui):
     try:
         from core import db
 
-        # 清理中央库
         central_result = db.cleanup_duplicate_predictions()
-        # 清理各视频独立库
         total_deleted = central_result.get("deleted", 0)
         total_mirror_deleted = central_result.get("mirror_deleted", 0) if "mirror_deleted" in central_result else 0
         for bvid, video_db in list(gui.video_dbs.items()):
@@ -179,18 +185,17 @@ def _maybe_cleanup_predictions(gui):
 
 
 def _maybe_cleanup_online_learner(gui):
-    """每 1 小时清理一次 OnlineLearner 中过期（超过 2 小时未更新）的追踪器。"""
+    """每 1 小时清理一次 OnlineLearner 中过期的追踪器。"""
     import time
 
     now = time.time()
     last = getattr(gui, "_last_learner_cleanup", 0)
-    if now - last < 3600:  # 1 hour
+    if now - last < 3600:
         return
     gui._last_learner_cleanup = now
     try:
         from algorithms.online_learner import get_online_learner
-        get_online_learner().cleanup_stale(max_age_seconds=7200)  # 2h stale
-        # 强制 GC 回收 tracker 内存
+        get_online_learner().cleanup_stale(max_age_seconds=7200)
         import gc
         gc.collect()
     except Exception as e:
@@ -231,7 +236,7 @@ def scan_alerts_background(gui):
 
     if alerts:
         n = len(alerts)
-        gui.root.after(0, lambda: gui._sb("alert", f"🚨 {n} 条异常", C["danger"]))
+        QTimer.singleShot(0, lambda: gui._sb("alert", f"🚨 {n} 条异常", C["danger"]))
         title = f"🚨 B站监控异常告警 ({n} 条)"
         msg_lines = [title, "─" * 20]
         for bvid, t, a in alerts[:5]:
@@ -248,7 +253,7 @@ def scan_alerts_background(gui):
         except Exception as e:
             logger.debug("推送异常告警失败: %s", e)
     else:
-        gui.root.after(0, lambda: gui._sb("alert", ""))
+        QTimer.singleShot(0, lambda: gui._sb("alert", ""))
 
 
 def wal_checkpoint_worker(gui):

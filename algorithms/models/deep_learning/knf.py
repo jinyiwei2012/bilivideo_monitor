@@ -207,15 +207,14 @@ class KnfAlgorithm(BaseAlgorithm):
             )
             state = {k[len("_orig_mod."):] if k.startswith("_orig_mod.") else k: v for k, v in state.items()}
             model.load_state_dict(state)
-            model.to(self._device).eval()
             self._cached_model = model
             self._cached_bvid = bvid or ""
-        x = torch.from_numpy(x_arr).unsqueeze(0).to(self._device)
-        with torch.no_grad():
-            y = self._cached_model(x).cpu().numpy().squeeze(0)  # [H]
+        # NPU 加速推理（自动回退到 PyTorch）
+        y = self._npu_infer(self._cached_model, x_arr, algo_name=self.algorithm_id)
+        y_np = y.cpu().numpy().squeeze(0)  # [H]
         # y 是归一化后的速度，反归一化用历史的均值/标准差
-        velocity = self._denormalize_prediction(video_data, y)
-        return velocity, 0.78, {"horizon_pred": y.tolist(), "method": "knf_torch"}
+        velocity = self._denormalize_prediction(video_data, y_np)
+        return velocity, 0.78, {"horizon_pred": y_np.tolist(), "method": "knf_torch"}
 
     def _build_input_array(self, video_data: Dict[str, Any]) -> np.ndarray:
         """构建归一化输入数组 [W, F+5]。

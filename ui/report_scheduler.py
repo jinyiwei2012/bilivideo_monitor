@@ -9,9 +9,9 @@ import logging
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QDialog, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QRadioButton, QComboBox, QCheckBox, QListWidget, QMessageBox,
-    QFrame,
+    QFrame, QApplication,
 )
 from PyQt6.QtCore import QTimer
 
@@ -23,11 +23,11 @@ logger = logging.getLogger(__name__)
 _SCHEDULE_CONFIG = Path(DATA_DIR) / ".export_schedule.json"
 
 
-class ReportSchedulerWindow(QWidget):
+class ReportSchedulerWindow(QDialog):
     """报告导出与定时器设置窗口 — PyQt6 版"""
 
     def __init__(self, parent=None, gui=None):
-        super().__init__(parent) if parent else super().__init__()
+        super().__init__(parent)
         self.gui = gui
         self._scheduled_job = None
 

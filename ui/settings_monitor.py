@@ -1,38 +1,50 @@
 """
-监控参数设置
+监控参数设置 — PyQt6 版
 
 Mixin functions for SettingsWindow.
 """
 
-import tkinter as tk
-from tkinter import ttk
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QSpinBox, QFrame,
+)
+from PyQt6.QtCore import Qt
 from ui.theme import C
 from ui.helpers import FONT_SM, auto_threshold_name
 
 
 def _build_monitor_tab(self, nb):
-    page = tk.Frame(nb, bg=C["bg_base"])
-    nb.add(page, text="  监控参数  ")
+    page = QWidget()
+    layout = QVBoxLayout(page)
+    layout.setContentsMargins(0, 0, 0, 0)
+    nb.addTab(page, "  监控参数  ")
 
     sec = self._section(page, "基础参数")
-    self.max_monitors = self._spin_field(
-        sec, "最大监控数", self._cfg.get("monitor", {}).get("max_monitor_count", 100), 10, 500
-    )
+    # Re-create spin_field as an inline QSpinBox
+    row = QWidget(sec)
+    rl = QHBoxLayout(row)
+    rl.setContentsMargins(0, 2, 0, 2)
+    lbl = QLabel("最大监控数")
+    lbl.setStyleSheet(f"color: {C['text_2']};")
+    lbl.setFixedWidth(130)
+    rl.addWidget(lbl)
+    self.max_monitors = QSpinBox()
+    self.max_monitors.setRange(10, 500)
+    self.max_monitors.setValue(self._cfg.get("monitor", {}).get("max_monitor_count", 100))
+    rl.addWidget(self.max_monitors)
+    rl.addStretch()
+    sec.layout().addWidget(row)
 
-    th_sec = self._section(page, "播放量阈值", padding=(16, 8, 12))
-    tk.Label(
-        th_sec,
-        text="每个阈值代表一个里程碑，达到时触发推送提醒",
-        bg=C["bg_elevated"],
-        fg=C["text_3"],
-        font=FONT_SM,
-        anchor="w",
-    ).pack(fill=tk.X, pady=(0, 6))
+    th_sec = self._section(page, "播放量阈值")
+    hint = QLabel("每个阈值代表一个里程碑，达到时触发推送提醒")
+    hint.setStyleSheet(f"color: {C['text_3']}; font-size: 8pt;")
+    th_sec.layout().addWidget(hint)
 
-    th_list_frame = tk.Frame(th_sec, bg=C["bg_elevated"])
-    th_list_frame.pack(fill=tk.X, pady=(0, 6))
+    th_list_frame = QWidget()
+    th_list_frame.setStyleSheet(f"background-color: {C['bg_elevated']};")
+    th_sec.layout().addWidget(th_list_frame)
 
-    self._thresh_rows: list = []
+    self._thresh_rows = []
 
     raw = self._cfg.get("prediction", {}).get("thresholds", [])
     if raw and isinstance(raw[0], (list, tuple)):
@@ -47,29 +59,33 @@ def _build_monitor_tab(self, nb):
     for v, n in sorted(th_data, key=lambda x: x[0]):
         self._add_threshold_row(th_list_frame, v, n)
 
-    add_btn = ttk.Button(th_sec, text="+ 添加阈值", command=lambda: self._add_threshold_row(th_list_frame))
-    add_btn.pack(anchor="w", padx=0)
+    add_btn = QPushButton("+ 添加阈值")
+    add_btn.clicked.connect(lambda: self._add_threshold_row(th_list_frame))
+    th_sec.layout().addWidget(add_btn)
 
 
 def _add_threshold_row(self, parent, value=100000, name=""):
-    row = tk.Frame(parent, bg=C["bg_elevated"])
-    row.pack(fill=tk.X, pady=2)
+    row = QWidget(parent)
+    row.setStyleSheet(f"background-color: {C['bg_elevated']};")
+    rl = QHBoxLayout(row)
+    rl.setContentsMargins(0, 2, 0, 2)
 
-    v_var = tk.StringVar(value=str(int(value)))
-    n_var = tk.StringVar(value=name or auto_threshold_name(value))
+    v_spin = QSpinBox()
+    v_spin.setRange(1000, 999999999)
+    v_spin.setValue(int(value))
+    rl.addWidget(QLabel("播放量:"))
+    rl.addWidget(v_spin)
 
-    tk.Label(row, text="播放量:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT)
-    v_spin = ttk.Spinbox(row, from_=1000, to=999_999_999, textvariable=v_var, width=14, font=FONT_SM)
-    v_spin.pack(side=tk.LEFT, padx=(2, 8))
+    n_entry = QLabel(name or auto_threshold_name(value))
+    n_entry.setStyleSheet(f"color: {C['text_2']};")
+    rl.addWidget(QLabel("名称:"))
+    rl.addWidget(n_entry)
+    rl.addStretch()
 
-    tk.Label(row, text="名称:", bg=C["bg_elevated"], fg=C["text_2"], font=FONT_SM).pack(side=tk.LEFT)
-    n_entry = ttk.Entry(row, textvariable=n_var, width=12, font=FONT_SM)
-    n_entry.pack(side=tk.LEFT, padx=(2, 8))
+    del_btn = QPushButton("✕")
+    del_btn.setStyleSheet(f"color: {C['danger']}; border: none;")
+    del_btn.clicked.connect(lambda: (row.deleteLater(), self._thresh_rows.remove((v_spin, n_entry, row))))
+    rl.addWidget(del_btn)
 
-    del_btn = tk.Label(
-        row, text="✕", bg=C["bg_elevated"], fg=C["danger"], font=("Segoe UI", 10, "bold"), cursor="hand2"
-    )
-    del_btn.pack(side=tk.LEFT, padx=2)
-    del_btn.bind("<Button-1>", lambda e: (row.destroy(), self._thresh_rows.remove((v_var, n_var, row))))
-
-    self._thresh_rows.append((v_var, n_var, row))
+    parent.layout().addWidget(row)
+    self._thresh_rows.append((v_spin, n_entry, row))

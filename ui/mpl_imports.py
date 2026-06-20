@@ -1,14 +1,16 @@
 """
-Matplotlib 统一导入与 TkAgg 后端配置
+Matplotlib 统一导入与 QtAgg 后端配置
+
+PyQt6 版本：使用 QtAgg 后端替代 TkAgg。
 """
 
 try:
     import matplotlib
 
-    # 设置 Matplotlib 后端为 TkAgg（必须在导入 pyplot 之前）
-    matplotlib.use("TkAgg", force=True)
+    # 设置 Matplotlib 后端为 QtAgg（必须在导入 pyplot 之前）
+    matplotlib.use("QtAgg", force=True)
 
-    # 配置中文字体，防止 DejaVu Sans 缺少 CJK 字形警告
+    # 配置中文字体
     import platform
 
     if platform.system() == "Windows":
@@ -23,11 +25,11 @@ try:
 
     warnings.filterwarnings("ignore", message="Glyph.*missing from font.*")
 
-    from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+    from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
     from matplotlib.figure import Figure
 
     mpl_available = True
 except Exception:
-    FigureCanvasTkAgg = None
+    FigureCanvasQTAgg = None
     Figure = None
     mpl_available = False

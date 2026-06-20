@@ -192,15 +192,13 @@ class MarBilstmAlgorithm(BaseAlgorithm):
             )
             state = {k[len("_orig_mod."):] if k.startswith("_orig_mod.") else k: v for k, v in state.items()}
             model.load_state_dict(state)
-            model.to(self._device).eval()     # 送入设备并设为评估模式
             self._cached_model = model
             self._cached_bvid = bvid or ""
-        x = torch.from_numpy(x_arr).unsqueeze(0).to(self._device)
-        with torch.no_grad():
-            y = self._cached_model(x).cpu().numpy().squeeze(0)
+        # NPU 加速推理（自动回退到 PyTorch）
+        y = self._npu_infer(self._cached_model, x_arr, algo_name=self.algorithm_id)
         # 反归一化：z-score空间 → 原始速度空间
-        predicted = max(0.0, float(y[0]) * vel_std + vel_mean)
-        return predicted, 0.74, {"horizon_pred": y.tolist(), "method": "mar_bilstm"}
+        predicted = max(0.0, float(y.cpu().numpy().squeeze(0)[0]) * vel_std + vel_mean)
+        return predicted, 0.74, {"horizon_pred": y.cpu().numpy().squeeze(0).tolist(), "method": "mar_bilstm"}
 
     def _build_input(self, video_data) -> Tuple[np.ndarray, float, float]:
         """构建模型输入：提取特征、添加衍生特征、z-score归一化
