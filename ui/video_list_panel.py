@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
     QListWidgetItem, QLabel, QPushButton, QLineEdit,
     QFrame, QSizePolicy, QStyledItemDelegate, QStyle,
 )
-from PyQt6.QtCore import Qt, QSize, QThread, pyqtSignal, QObject
+from PyQt6.QtCore import Qt, QSize, pyqtSignal, QObject
 from PyQt6.QtGui import QPixmap, QFont, QColor, QPainter, QBrush, QPen, QFontMetrics
 
 from ui.theme import C
