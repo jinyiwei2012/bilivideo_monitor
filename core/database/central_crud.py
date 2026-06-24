@@ -1,4 +1,4 @@
-"""中央数据�?CRUD 操作模块"""
+"""中央数据库 CRUD 操作模块"""
 
 import sqlite3
 import logging
@@ -33,7 +33,7 @@ class CentralCRUD:
             conn.close()
             return rows
         except Exception as e:
-            logger.debug("备份库查询失�? %s", e)
+            logger.debug("备份库查询失败: %s", e)
             return []
 
     def get_video(self, bvid: str) -> Optional[VideoInfo]:
@@ -101,7 +101,7 @@ class CentralCRUD:
             return False
 
     def delete_video(self, bvid: str) -> bool:
-        """删除视频及其所有关联记�?""
+        """删除视频及其所有关联记录"""
         try:
             with self.db._get_connection() as conn:
                 cursor = conn.cursor()
@@ -164,7 +164,7 @@ class CentralCRUD:
             return False
 
     def sync_video_info(self, bvid: str, video: dict) -> bool:
-        """从内存字典直接同步视频信息到总数据库，避免重复读�?""
+        """从内存字典直接同步视频信息到总数据库，避免重复读盘"""
         try:
             with self.db._get_connection() as conn:
                 cursor = conn.cursor()
@@ -205,7 +205,7 @@ class CentralCRUD:
             return False
 
     def sync_monitor_record(self, bvid: str, record: dict) -> bool:
-        """从内存同步单条监控记录到中央数据�?""
+        """从内存同步单条监控记录到中央数据库"""
         try:
             with self.db._get_connection() as conn:
                 cursor = conn.cursor()
@@ -289,7 +289,7 @@ class CentralCRUD:
             return False
 
     def get_monitor_history(self, bvid: str, limit: int = 0) -> List[Dict]:
-        """获取监控历史数据（主�?+ 备份库合并去重）"""
+        """获取监控历史数据（主库 + 备份库合并去重）"""
         rows = []
         try:
             with self.db._get_connection() as conn:
@@ -352,7 +352,7 @@ class CentralCRUD:
             return False
 
     def get_predictions(self, bvid: str = None, algorithm: str = None, limit: int = 100) -> List[Dict]:
-        """获取预测记录，可�?bvid �?algorithm 过滤"""
+        """获取预测记录，可按 bvid 和 algorithm 过滤"""
         try:
             with self.db._get_connection() as conn:
                 cursor = conn.cursor()
@@ -375,7 +375,7 @@ class CentralCRUD:
             return []
 
     def upsert_milestone(self, bvid: str, period: str, data: dict) -> bool:
-        """新增或更新一条里程碑记录（同一 bvid+period 唯一�?""
+        """新增或更新一条里程碑记录（同一 bvid+period 唯一）"""
         try:
             with self.db._get_connection() as conn:
                 cursor = conn.cursor()
@@ -412,11 +412,11 @@ class CentralCRUD:
                 conn.commit()
                 return True
         except Exception as e:
-            logger.warning("里程碑写入失�? %s", e, exc_info=True)
+            logger.warning("里程碑写入失败: %s", e, exc_info=True)
             return False
 
     def get_milestones(self, bvid: str = None) -> list:
-        """查询里程碑数�?""
+        """查询里程碑数据"""
         try:
             with self.db._get_connection() as conn:
                 cursor = conn.cursor()
@@ -426,11 +426,11 @@ class CentralCRUD:
                     cursor.execute("SELECT * FROM video_milestones ORDER BY bvid, period")
                 return [dict(row) for row in cursor.fetchall()]
         except Exception as e:
-            logger.warning("里程碑查询失�? %s", e, exc_info=True)
+            logger.warning("里程碑查询失败: %s", e, exc_info=True)
             return []
 
     def get_all_milestones_grouped(self) -> dict:
-        """返回�?bvid 为键的里程碑字典"""
+        """返回以 bvid 为键的里程碑字典"""
         rows = self.get_milestones()
         result = {}
         for row in rows:
@@ -441,7 +441,7 @@ class CentralCRUD:
         return result
 
     def delete_milestone(self, bvid: str, period: str) -> bool:
-        """删除指定里程碑记�?""
+        """删除指定里程碑记录"""
         try:
             with self.db._get_connection() as conn:
                 cursor = conn.cursor()
@@ -449,19 +449,19 @@ class CentralCRUD:
                 conn.commit()
                 return True
         except Exception as e:
-            logger.warning("里程碑删除失�? %s", e, exc_info=True)
+            logger.warning("里程碑删除失败: %s", e, exc_info=True)
             return False
 
-    # ── 预测/分数/共识�?同步 ─────────────────────
+    # ── 预测/分数/共识度 同步 ─────────────────────
 
     def sync_predictions(self, bvid: str, rows: list) -> bool:
-        """批量同步预测记录到中央库（INSERT OR REPLACE �?bvid+algorithm+threshold 去重�?
+        """批量同步预测记录到中央库（INSERT OR REPLACE 按 bvid+algorithm+threshold 去重）
 
-        不再 DELETE 全表，改为逐行 upsert，保留历史预测记录不被清空�?
+        不再 DELETE 全表，改为逐行 upsert，保留历史预测记录不被清空。
         """
         if not rows:
             return True
-        # SQLite INTEGER 最大�?(64位带符号)
+        # SQLite INTEGER 最大值 (64位带符号)
         _SQLITE_INT_MAX = 2**63 - 1
         _clamp_int = lambda v: min(max(int(v or 0), -_SQLITE_INT_MAX), _SQLITE_INT_MAX)
         try:
@@ -520,7 +520,7 @@ class CentralCRUD:
             return False
 
     def sync_algorithm_coherence(self, bvid: str, timestamp: str, rows: list) -> bool:
-        """批量同步算法共识度到中央�?""
+        """批量同步算法共识度到中央库"""
         if not rows:
             return True
         try:
@@ -534,7 +534,7 @@ class CentralCRUD:
                 conn.commit()
                 return True
         except Exception as e:
-            logger.warning("同步共识度失�?%s: %s", bvid, e, exc_info=True)
+            logger.warning("同步共识度失败 %s: %s", bvid, e, exc_info=True)
             return False
 
     def sync_weekly_score(self, bvid: str, timestamp: str, score_data: dict) -> bool:
@@ -585,10 +585,10 @@ class CentralCRUD:
             return False
 
     def cleanup_duplicate_predictions(self) -> dict:
-        """清理中央�?predictions 表中的重复行
+        """清理中央库 predictions 表中的重复行
 
-        �?(bvid, algorithm, target_threshold) 分组，每组仅保留最新一条�?
-        prediction_ensemble 表（综合预测数据）不受影响�?
+        按 (bvid, algorithm, target_threshold) 分组，每组仅保留最新一条。
+        prediction_ensemble 表（综合预测数据）不受影响。
 
         Returns:
             {"deleted": int, "kept": int}
@@ -612,9 +612,9 @@ class CentralCRUD:
                 result["deleted"] = before - result["kept"]
                 if result["deleted"] > 0:
                     logger.info(
-                        "中央库预测清理完�? 删除%d�? 保留%d�?,
+                        "中央库预测清理完成: 删除%d行, 保留%d行",
                         result["deleted"], result["kept"],
                     )
         except Exception as e:
-            logger.warning("中央库预测清理失�? %s", e, exc_info=True)
+            logger.warning("中央库预测清理失败: %s", e, exc_info=True)
         return result

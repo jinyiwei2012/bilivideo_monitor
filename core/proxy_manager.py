@@ -1,5 +1,5 @@
 """
-代理管理�?- 代理IP轮询、UA绑定、失败自动清�?
+代理管理器 - 代理IP轮询、UA绑定、失败自动清理
 """
 
 import json
@@ -32,28 +32,28 @@ class ProxyManager:
         """初始化代理管理器，设置代理列表、UA 映射、失败计数等"""
         self.proxies: List[Dict] = []
         self.current_proxy_index = 0
-        self._proxy_ua_map: Dict[int, str] = {}  # 代理索引 �?绑定 UA
-        self._proxy_failure_count: Dict[int, int] = {}  # 代理索引 �?失败次数
-        self._MAX_PROXY_FAILURES = 3  # 超过此失败次数自动移除代�?
+        self._proxy_ua_map: Dict[int, str] = {}  # 代理索引 → 绑定 UA
+        self._proxy_failure_count: Dict[int, int] = {}  # 代理索引 → 失败次数
+        self._MAX_PROXY_FAILURES = 3  # 超过此失败次数自动移除代理
         self._current_request_proxy_idx: Optional[int] = None
         self._socks_available = self._check_socks()
         self._lock = threading.Lock()
         # 代理自动发现
         self._auto_discovery_running = False
         self._last_discovery_time = 0
-        self._discovery_interval = 600  # �?0分钟自动发现一�?
+        self._discovery_interval = 600  # 每10分钟自动发现一次
 
-    # ── SOCKS 检�?────────────────────────────────────────
+    # ── SOCKS 检测 ────────────────────────────────────────
 
     @staticmethod
     def _check_socks() -> bool:
-        """检�?PySocks 是否可用"""
+        """检测 PySocks 是否可用"""
         try:
             import socks  # noqa: F401
 
             return True
         except ImportError:
-            logger.info("PySocks 未安装，SOCKS4/5 代理不可�?(pip install PySocks)")
+            logger.info("PySocks 未安装，SOCKS4/5 代理不可用 (pip install PySocks)")
             return False
 
     # ── URL 工具（静态） ───────────────────────────────────
@@ -70,7 +70,7 @@ class ProxyManager:
 
     @staticmethod
     def mask_url(url: str) -> str:
-        """脱敏代理URL：认证替换为***，IP地址保留�?�?""
+        """脱敏代理URL：认证替换为***，IP地址保留前3段"""
         if "@" in url:
             url = f"***@{url.split('@', 1)[-1]}"
 
@@ -115,7 +115,7 @@ class ProxyManager:
                     return idx, proxy, ua
                 self.current_proxy_index = (self.current_proxy_index + 1) % len(self.proxies)
 
-            # 所有代理都失败过多，重置后重试第一�?
+            # 所有代理都失败过多，重置后重试第一个
             self._proxy_failure_count = {i: 0 for i in range(len(self.proxies))}
             idx = 0
             self.current_proxy_index = 1 % max(1, len(self.proxies))
@@ -132,12 +132,12 @@ class ProxyManager:
             return proxy
 
     def peek_proxy(self) -> Optional[str]:
-        """预览下一个将被使用的代理URL（脱敏），不改变内部状�?""
+        """预览下一个将被使用的代理URL（脱敏），不改变内部状态"""
         with self._lock:
             if not self.proxies:
                 return None
             idx = self.current_proxy_index
-            # 跳过失败过多的代理，找到第一个可用代�?
+            # 跳过失败过多的代理，找到第一个可用代理
             if self._proxy_failure_count.get(idx, 0) >= self._MAX_PROXY_FAILURES:
                 for i in range(len(self.proxies)):
                     if self._proxy_failure_count.get(i, 0) < self._MAX_PROXY_FAILURES:
@@ -159,7 +159,7 @@ class ProxyManager:
             self._proxy_ua_map[idx] = random.choice(self.USER_AGENTS)
             self._proxy_failure_count[idx] = 0
         masked = self.mask_url(proxy.get("http", "unknown"))
-        logger.info(f"已添加代�? {masked}")
+        logger.info(f"已添加代理: {masked}")
 
     def clear_proxies(self):
         """清空代理列表"""
@@ -169,7 +169,7 @@ class ProxyManager:
             self._proxy_ua_map.clear()
             self._proxy_failure_count.clear()
             self._current_request_proxy_idx = None
-        logger.info("已清空代理列�?)
+        logger.info("已清空代理列表")
 
     # ── 失败处理 ──────────────────────────────────────────
 
@@ -186,7 +186,7 @@ class ProxyManager:
                 masked = self.mask_url(self.proxies[proxy_idx].get("http", ""))
                 total = current_failures + 1
                 if total >= self._MAX_PROXY_FAILURES:
-                    # 失败次数超过上限，自动移除代�?
+                    # 失败次数超过上限，自动移除代理
                     logger.error(f"代理 {masked} 请求失败已达 {total} 次，自动移除")
                     self.proxies.pop(proxy_idx)
                     self._proxy_ua_map.pop(proxy_idx, None)
@@ -206,17 +206,17 @@ class ProxyManager:
     # ── 可用性测试（静态） ───────────────────────────────
 
     HTTP_ERROR_REASONS = {
-        403: "HTTP 403 禁止访问（代理被目标拒绝�?,
+        403: "HTTP 403 禁止访问（代理被目标拒绝）",
         407: "HTTP 407 需要代理认证（需提供用户名密码）",
         429: "HTTP 429 请求过快",
-        502: "HTTP 502 代理服务器错误（Bad Gateway�?,
-        503: "HTTP 503 代理服务不可�?,
+        502: "HTTP 502 代理服务器错误（Bad Gateway）",
+        503: "HTTP 503 代理服务不可用",
         504: "HTTP 504 代理网关超时",
     }
 
     @staticmethod
     def _build_result() -> dict:
-        """构建代理测试结果的默认字�?""
+        """构建代理测试结果的默认字典"""
         return {
             "ok": False,
             "latency_ms": None,
@@ -230,7 +230,7 @@ class ProxyManager:
 
     @staticmethod
     def _classify_connection_error(e: requests.exceptions.ConnectionError) -> str:
-        """�?ConnectionError 归类为可读的中文错误信息"""
+        """将 ConnectionError 归类为可读的中文错误信息"""
         err_str = str(e)
         root_cause = ""
         try:
@@ -244,15 +244,15 @@ class ProxyManager:
         # NOTE: error message matching depends on OS locale; Chinese patterns may not
         # match on non-Chinese Windows where error messages are returned in English.
         patterns = [
-            (["Connection refused", "连接被拒�?, "积极拒绝"], "连接被拒绝（代理地址或端口无效）"),
+            (["Connection refused", "连接被拒绝", "积极拒绝"], "连接被拒绝（代理地址或端口无效）"),
             (
                 ["getaddrinfo failed", "Name or service not known", "Temporary failure in name resolution"],
                 "DNS解析失败（代理域名无法解析）",
             ),
             (["resolving host"], "DNS解析失败（代理域名无法解析）"),
             (["No route to host", "无法路由"], "无法路由到主机（网络不可达）"),
-            (["Network is unreachable", "网络不可�?], "网络不可达（本地网络异常�?),
-            (["Remote end closed connection", "远程主机关闭连接"], "代理连接被远端关�?),
+            (["Network is unreachable", "网络不可达"], "网络不可达（本地网络异常）"),
+            (["Remote end closed connection", "远程主机关闭连接"], "代理连接被远端关闭"),
             (["SSL", "ssl"], f"SSL/TLS握手失败: {root_cause[:120] or err_str[:120]}"),
         ]
         for keywords, message in patterns:
@@ -264,7 +264,7 @@ class ProxyManager:
 
     @staticmethod
     def _proxy_http_request(proxy_url: str, test_url: str, ua: str, timeout: int) -> dict:
-        """通过代理发起 HTTP 请求，成功返回响应结果，失败�?result 中记�?error 并返�?""
+        """通过代理发起 HTTP 请求，成功返回响应结果，失败在 result 中记录 error 并返回"""
         import requests
         from urllib3.exceptions import InsecureRequestWarning
 
@@ -274,7 +274,7 @@ class ProxyManager:
         result = ProxyManager._build_result()
         start = time.time()
 
-        logger.debug("�?[proxy-test] GET %s via %s", test_url.split("?")[0], ProxyManager.mask_url(proxy_url))
+        logger.debug("→ [proxy-test] GET %s via %s", test_url.split("?")[0], ProxyManager.mask_url(proxy_url))
         try:
             resp = requests.get(
                 test_url,
@@ -291,13 +291,13 @@ class ProxyManager:
             return {**result, "resp": resp}
         except requests.exceptions.ConnectTimeout:
             result["latency_ms"] = timeout * 1000
-            result["error"] = "连接超时（代理无响应�?0秒未建立连接�?
+            result["error"] = "连接超时（代理无响应，30秒未建立连接）"
         except requests.exceptions.ConnectionError as e:
             result["latency_ms"] = int((time.time() - start) * 1000)
             result["error"] = ProxyManager._classify_connection_error(e)
         except requests.exceptions.Timeout:
             result["latency_ms"] = timeout * 1000
-            result["error"] = "响应超时（代理已连接�?0秒未返回数据�?
+            result["error"] = "响应超时（代理已连接但30秒未返回数据）"
         except Exception as e:
             result["latency_ms"] = int((time.time() - start) * 1000)
             result["error"] = str(e)[:200]
@@ -305,7 +305,7 @@ class ProxyManager:
 
     @staticmethod
     def _parse_bilibili_json(resp, result: dict) -> dict:
-        """解析 B�?API JSON 响应，返回填充后�?result"""
+        """解析 B站 API JSON 响应，返回填充后的 result"""
         result["latency_ms"] = result.get("latency_ms") or 0
 
         if resp.status_code != 200:
@@ -320,17 +320,17 @@ class ProxyManager:
                 data = body.get("data", {})
                 result["data"] = {"title": data.get("title", "")[:30], "view": data.get("stat", {}).get("view", 0)}
             elif code == -412:
-                result["error"] = f"被B站频率限�?(HTTP {resp.status_code})"
+                result["error"] = f"被B站频率限制 (HTTP {resp.status_code})"
             else:
                 result["ok"] = True
-                logger.debug("代理测试收到非预�?API code=%d (%s)", code, body.get("message", ""))
+                logger.debug("代理测试收到非预期 API code=%d (%s)", code, body.get("message", ""))
         except Exception:
             result["error"] = f"响应格式错误 (HTTP {resp.status_code})"
         return result
 
     @staticmethod
     def _proxy_geo_lookup(proxy_url: str, ua: str, timeout: int) -> dict:
-        """通过 ip-api.com 查询代理出口 IP 的地�?ASN/ISP，出错返回空 dict"""
+        """通过 ip-api.com 查询代理出口 IP 的地区/ASN/ISP，出错返回空 dict"""
         import requests
         from urllib3.exceptions import InsecureRequestWarning
 
@@ -338,7 +338,7 @@ class ProxyManager:
 
         proxies = {"http": proxy_url, "https": proxy_url}
         try:
-            logger.debug("�?[geo] GET ip-api.com/json/ via %s", ProxyManager.mask_url(proxy_url))
+            logger.debug("→ [geo] GET ip-api.com/json/ via %s", ProxyManager.mask_url(proxy_url))
             geo_resp = requests.get(
                 "https://ip-api.com/json/",
                 proxies=proxies,
@@ -346,7 +346,7 @@ class ProxyManager:
                 verify=False,  # nosec - proxies use self-signed certs
                 headers={"User-Agent": ua},
             )
-            logger.debug("�?[geo] ip-api.com/json/ �?%s", geo_resp.status_code)
+            logger.debug("← [geo] ip-api.com/json/ → %s", geo_resp.status_code)
             if geo_resp.status_code == 200:
                 geo = geo_resp.json()
                 as_raw = (geo.get("as") or "").strip()
@@ -362,7 +362,7 @@ class ProxyManager:
 
     @staticmethod
     def _log_test_result(proxy_url: str, result: dict):
-        """记录代理测试结果到日�?""
+        """记录代理测试结果到日志"""
         masked = ProxyManager.mask_url(proxy_url)
         if result.get("ok"):
             logger.info(
@@ -370,7 +370,7 @@ class ProxyManager:
                 f"{result.get('country', '')} | {result.get('asn', '')} | {result.get('isp', '')}"
             )
         else:
-            logger.warning(f"代理测试 {masked}: 不可�?�?{result.get('error', '未知错误')}")
+            logger.warning(f"代理测试 {masked}: 不可用 — {result.get('error', '未知错误')}")
 
     # ── 代理自动发现 ──────────────────────────────────
 
@@ -380,7 +380,7 @@ class ProxyManager:
         if not self._auto_discovery_running:
             self._auto_discovery_running = True
             threading.Thread(target=self._auto_discovery_loop, daemon=True, name="proxy-discovery").start()
-            logger.info(f"代理自动发现已启动（间隔 {interval}s�?)
+            logger.info(f"代理自动发现已启动（间隔 {interval}s）")
 
     def _auto_discovery_loop(self):
         """后台自动发现循环"""
@@ -413,24 +413,24 @@ class ProxyManager:
                 for url in urls:
                     if self._proxy_exists(url):
                         continue
-                    # 快速连通性测�?
+                    # 快速连通性测试
                     fast_test = ProxyManager._proxy_http_request(url, "http://httpbin.org/ip", "Mozilla/5.0", 5)
                     if not fast_test.get("error"):
                         self.add_proxy({"http": url, "https": url})
                         added += 1
                     tested += 1
             except Exception as e:
-                logger.debug("代理�?%s 获取失败: %s", src_url.split("/")[2], e)
+                logger.debug("代理源 %s 获取失败: %s", src_url.split("/")[2], e)
         if added:
             self.init_ua_bindings()
-            logger.info(f"代理自动发现: 测试 {tested} �? 新增 {added} 个可用代�?(�?{len(self.proxies)} �?")
+            logger.info(f"代理自动发现: 测试 {tested} 个, 新增 {added} 个可用代理 (共 {len(self.proxies)} 个)")
 
     @staticmethod
     def _parse_proxy_list(text: str, src_url: str) -> List[str]:
-        """解析不同格式的代理列表，根据源自动识别协�?""
+        """解析不同格式的代理列表，根据源自动识别协议"""
         urls = []
 
-        # 根据�?URL 确定默认协议
+        # 根据源 URL 确定默认协议
         proto = "http"
         if "socks5" in src_url.lower():
             proto = "socks5"
@@ -464,7 +464,7 @@ class ProxyManager:
             except json.JSONDecodeError:
                 pass
         else:
-            # 纯文本格�?(ip:port 每行一�?
+            # 纯文本格式 (ip:port 每行一个)
             for line in text.strip().split("\n"):
                 line = line.strip()
                 if not line or line.startswith("#"):
@@ -476,7 +476,7 @@ class ProxyManager:
         return urls
 
     def _proxy_exists(self, url: str) -> bool:
-        """检查代理是否已在池�?""
+        """检查代理是否已在池中"""
         norm = ProxyManager.normalize_url(url)
         with self._lock:
             for p in self.proxies:
@@ -488,8 +488,8 @@ class ProxyManager:
     def test_proxy(proxy_url: str, timeout: int = 30, test_url: str = None) -> dict:
         """测试单个代理的可用性、延迟、地区、ASN、ISP
 
-        默认测试 B站视�?API，实际获取一次数据验证代理可用性�?
-        test_url 可自定义测试地址（含 bvid 参数时自动附加随�?UA）�?
+        默认测试 B站视频 API，实际获取一次数据验证代理可用性。
+        test_url 可自定义测试地址（含 bvid 参数时自动附加随机 UA）。
 
         Returns: {ok, latency_ms, country, asn, isp, error, data}
         """
@@ -510,7 +510,7 @@ class ProxyManager:
             ProxyManager._log_test_result(proxy_url, result)
             return result
 
-        # 阶段2：地理信息查询（尽力而为�?
+        # 阶段2：地理信息查询（尽力而为）
         geo = ProxyManager._proxy_geo_lookup(proxy_url, ua, timeout)
         result.update(geo)
 

@@ -1,4 +1,4 @@
-"""单个视频的独立数据库 —�?每个 BV 号对应一个独�?SQLite 数据库文�?""
+"""单个视频的独立数据库 —— 每个 BV 号对应一个独立 SQLite 数据库文件"""
 
 import sqlite3
 import os
@@ -17,27 +17,27 @@ logger = logging.getLogger(__name__)
 
 class VideoDatabase:
     """单个视频的独立数据库
-    每个视频拥有独立�?SQLite 文件（data/<BV>/<BV>.db），
-    同时维护一个镜像连接同步写�?data/ 目录�?
+    每个视频拥有独立的 SQLite 文件（data/<BV>/<BV>.db），
+    同时维护一个镜像连接同步写入 data/ 目录。
     """
 
     def __init__(self, bvid: str, base_dir: str = None):
         """初始化视频独立数据库
 
         Args:
-            bvid: BV �?
-            base_dir: 数据库存放目录，默认�?core/data/
+            bvid: BV 号
+            base_dir: 数据库存放目录，默认为 core/data/
         """
         _validate_bvid(bvid)
         self.bvid = bvid
         if base_dir is None:
             base_dir = project_path("core", "data")
 
-        # 创建以BV号命名的文件�?
+        # 创建以BV号命名的文件夹
         self.video_dir = os.path.join(base_dir, bvid)
         os.makedirs(self.video_dir, exist_ok=True)
 
-        # 数据库文件路径：/data/BV�?BV�?db
+        # 数据库文件路径：/data/BV号/BV号.db
         self.db_path = os.path.join(self.video_dir, f"{bvid}.db")
         self._lock = threading.Lock()
         self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
@@ -45,7 +45,7 @@ class VideoDatabase:
         self._conn.execute("PRAGMA journal_mode=WAL")  # 启用 WAL 模式提升并发读性能
         self._conn.execute("PRAGMA synchronous=NORMAL")  # 平衡写入安全与速度
 
-        # 镜像连接：同步写�?data/ 目录（延迟初始化，首次写入时才创建以节省内存�?
+        # 镜像连接：同步写入 data/ 目录（延迟初始化，首次写入时才创建以节省内存）
         self._mirror_conn = None
         self._mirror_path = None
         mirror_base = project_path("data")
@@ -54,22 +54,22 @@ class VideoDatabase:
             os.makedirs(mirror_dir, exist_ok=True)
             self._mirror_path = os.path.join(mirror_dir, f"{bvid}.db")
 
-        # 中央数据库引用（用于写入兜底，由调用方通过 set_central_db 注入�?
+        # 中央数据库引用（用于写入兜底，由调用方通过 set_central_db 注入）
         self._central_db = None
 
         try:
             self._init_db()
-            # 镜像表延迟初始化：首�?_execute_on_all() 写入时才创建连接
+            # 镜像表延迟初始化：首次 _execute_on_all() 写入时才创建连接
         except Exception:
             self._conn.close()
             raise
 
     def _get_connection(self):
-        """返回线程安全的连接上下文管理器（兼容 with 语法�?""
+        """返回线程安全的连接上下文管理器（兼容 with 语法）"""
         return _ConnectionCtx(self._conn, self._lock)
 
     def _ensure_mirror(self):
-        """延迟创建镜像数据库连接（首次写入时调用，节省内存）�?""
+        """延迟创建镜像数据库连接（首次写入时调用，节省内存）。"""
         if self._mirror_conn is not None or self._mirror_path is None:
             return
         try:
@@ -79,7 +79,7 @@ class VideoDatabase:
             self._mirror_conn.execute("PRAGMA synchronous=NORMAL")
             self._init_mirror_tables()
         except Exception as e:
-            logger.warning("创建镜像数据库连接失�?%s: %s", self.bvid, e, exc_info=True)
+            logger.warning("创建镜像数据库连接失败 %s: %s", self.bvid, e, exc_info=True)
             self._mirror_conn = None
 
     def _execute_on_all(self, sql: str, params: tuple = ()):
@@ -90,7 +90,7 @@ class VideoDatabase:
                 conn.execute(sql, params) if params else conn.execute(sql)
                 conn.commit()
             except Exception as e:
-                logger.error("数据库写入失�?[%s]: %s | SQL: %.200s", label, e, sql)
+                logger.error("数据库写入失败 [%s]: %s | SQL: %.200s", label, e, sql)
 
         with self._get_connection() as conn:
             _exec(conn, "main")
@@ -100,15 +100,15 @@ class VideoDatabase:
                 _exec(conn, "mirror")
 
     def _raw_connection(self):
-        """返回原始连接（用于需要直接操作的场景�?""
+        """返回原始连接（用于需要直接操作的场景）"""
         return self._conn
 
     def _init_db(self):
-        """初始化数据库：创建所需的表、索引，并执�?schema 迁移"""
+        """初始化数据库：创建所需的表、索引，并执行 schema 迁移"""
         with self._get_connection() as conn:
             cursor = conn.cursor()
 
-            # 视频信息表（id 固定�?1，每库一条）
+            # 视频信息表（id 固定为 1，每库一条）
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS video_info (
                     id INTEGER PRIMARY KEY,
@@ -153,7 +153,7 @@ class VideoDatabase:
                 )
             """)
 
-            # 预测记录表：UNIQUE 约束防止每次预测运行产生重复�?
+            # 预测记录表：UNIQUE 约束防止每次预测运行产生重复行
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS predictions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -179,10 +179,10 @@ class VideoDatabase:
                     "ON predictions(algorithm, target_threshold)"
                 )
             except Exception:
-                # 已有重复数据�?UNIQUE 索引创建会失败（罕见），由后续清理修�?
+                # 已有重复数据时 UNIQUE 索引创建会失败（罕见），由后续清理修复
                 pass
 
-            # 算法性能跟踪表（用于在线学习模块�?
+            # 算法性能跟踪表（用于在线学习模块）
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS algorithm_performance (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -200,10 +200,10 @@ class VideoDatabase:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_algo_perf_algorithm ON algorithm_performance(algorithm)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_algo_perf_bvid ON algorithm_performance(bvid)")
 
-            # 监控记录时间索引，加速时间范围查�?
+            # 监控记录时间索引，加速时间范围查询
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_monitor_timestamp ON monitor_records(timestamp)")
 
-            # 周刊分数记录�?
+            # 周刊分数记录表
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS weekly_scores (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -223,7 +223,7 @@ class VideoDatabase:
             """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_weekly_timestamp ON weekly_scores(timestamp)")
 
-            # 年刊分数记录�?
+            # 年刊分数记录表
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS yearly_scores (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -270,33 +270,33 @@ class VideoDatabase:
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_danmaku_dmid ON danmaku_records(dmid) WHERE dmid > 0")
             except sqlite3.OperationalError:
                 pass  # dmid 列可能尚未迁移（将在下方 v3 迁移中处理）
-            # 去重：优先用 dmid（Proto 唯一弹幕ID），回退用内容指�?
+            # 去重：优先用 dmid（Proto 唯一弹幕ID），回退用内容指纹
             try:
                 cursor.execute(
                     "CREATE UNIQUE INDEX IF NOT EXISTS idx_danmaku_unique "
                     "ON danmaku_records(bvid, oid, dmid)"
                 )
             except Exception:
-                pass  # 已有重复数据导致创建失败，由迁移流程清理后重�?
+                pass  # 已有重复数据导致创建失败，由迁移流程清理后重试
 
-            # 数据库迁移：逐库检�?schema 版本（通过 PRAGMA user_version�?
+            # 数据库迁移：逐库检查 schema 版本（通过 PRAGMA user_version）
             cursor.execute("PRAGMA user_version")
             row = cursor.fetchone()
             db_version = row[0] if row else 0
             if db_version < 1:
                 self._migrate_db(conn)
             if db_version < 2:
-                # v1→v2: 去重弹幕 + 添加 UNIQUE 约束（修�?INSERT OR IGNORE 失效 bug�?
+                # v1→v2: 去重弹幕 + 添加 UNIQUE 约束（修复 INSERT OR IGNORE 失效 bug）
                 self._migrate_danmaku_dedup(conn)
             if db_version < 3:
-                # v2→v3: 添加 Proto 弹幕新字�?(dmid/like_count/pool/dm_from) + 更新 UNIQUE 索引
+                # v2→v3: 添加 Proto 弹幕新字段 (dmid/like_count/pool/dm_from) + 更新 UNIQUE 索引
                 self._migrate_danmaku_v3(conn)
                 cursor.execute("PRAGMA user_version = 3")
 
             conn.commit()
 
     def set_central_db(self, central_db):
-        """注入中央数据库引用，用于写入时同步兜�?
+        """注入中央数据库引用，用于写入时同步兜底
 
         Args:
             central_db: core.database.Database 实例
@@ -309,7 +309,7 @@ class VideoDatabase:
             return
         try:
             mirror_cur = self._mirror_conn.cursor()
-            # �?_init_db 中相同的 CREATE TABLE IF NOT EXISTS 语句
+            # 与 _init_db 中相同的 CREATE TABLE IF NOT EXISTS 语句
             mirror_cur.execute("""
                 CREATE TABLE IF NOT EXISTS video_info (
                     id INTEGER PRIMARY KEY, title TEXT, view_count INTEGER DEFAULT 0,
@@ -413,31 +413,31 @@ class VideoDatabase:
                     "ON predictions(algorithm, target_threshold)"
                 )
             except Exception:
-                # 镜像库已有重复数据时 UNIQUE 索引创建会失败，由后续清理修�?
+                # 镜像库已有重复数据时 UNIQUE 索引创建会失败，由后续清理修复
                 pass
             self._mirror_conn.commit()
         except Exception as e:
-            logger.warning("初始化镜像数据库表失�?%s: %s", self.bvid, e, exc_info=True)
+            logger.warning("初始化镜像数据库表失败 %s: %s", self.bvid, e, exc_info=True)
 
     def _migrate_db(self, conn):
-        """检查并迁移数据库：添加缺少的列、自动计算默认�?
+        """检查并迁移数据库：添加缺少的列、自动计算默认值
 
         Args:
-            conn: 数据库连�?
+            conn: 数据库连接
         """
         cursor = conn.cursor()
         self._migrate_schema_upgrades(cursor)
         self._migrate_compute_values(cursor)
 
     def _migrate_danmaku_dedup(self, conn):
-        """v1→v2 迁移：去重弹幕记录并添加 UNIQUE 约束�?
+        """v1→v2 迁移：去重弹幕记录并添加 UNIQUE 约束。
 
-        修复旧版 INSERT OR IGNORE 形同虚设�?bug�?
+        修复旧版 INSERT OR IGNORE 形同虚设的 bug：
         1. 删除重复弹幕（保留每组首条）
-        2. 创建复合 UNIQUE 索引确保后续不重�?
+        2. 创建复合 UNIQUE 索引确保后续不重复
 
         Args:
-            conn: 数据库连�?
+            conn: 数据库连接
         """
         import sqlite3
         cursor = conn.cursor()
@@ -449,7 +449,7 @@ class VideoDatabase:
             if not cursor.fetchone():
                 return
 
-            # 1) 去重：保留每�?(bvid, oid, segment_index, content, video_ts, uid) �?MIN(id)
+            # 1) 去重：保留每组 (bvid, oid, segment_index, content, video_ts, uid) 的 MIN(id)
             cursor.execute("""
                 DELETE FROM danmaku_records
                 WHERE id NOT IN (
@@ -460,9 +460,9 @@ class VideoDatabase:
             """, (self.bvid, self.bvid))
             deleted = cursor.rowcount
             if deleted > 0:
-                logger.info("v1→v2 去重 %s: 清理 %d 条重复弹�?, self.bvid, deleted)
+                logger.info("v1→v2 去重 %s: 清理 %d 条重复弹幕", self.bvid, deleted)
 
-            # 2) 创建 UNIQUE 约束（如果之前因重复数据创建失败�?
+            # 2) 创建 UNIQUE 约束（如果之前因重复数据创建失败）
             try:
                 cursor.execute(
                     "CREATE UNIQUE INDEX IF NOT EXISTS idx_danmaku_unique "
@@ -477,13 +477,13 @@ class VideoDatabase:
             logger.debug("v1→v2 弹幕迁移失败 %s: %s", self.bvid, e)
 
     def _migrate_danmaku_v3(self, conn):
-        """v2→v3 迁移：添�?Proto 弹幕新字�?+ 更新 UNIQUE 索引�?dmid 方案�?
+        """v2→v3 迁移：添加 Proto 弹幕新字段 + 更新 UNIQUE 索引为 dmid 方案。
 
-        新字�? dmid, id_str, like_count, pool, dm_from
+        新字段: dmid, id_str, like_count, pool, dm_from
         UNIQUE: (bvid, oid, dmid) 替代旧的 (bvid, oid, segment_index, content, video_ts, uid)
 
         Args:
-            conn: 数据库连�?
+            conn: 数据库连接
         """
         import sqlite3
         cursor = conn.cursor()
@@ -494,7 +494,7 @@ class VideoDatabase:
             if not cursor.fetchone():
                 return
 
-            # 1) 添加新列（IF NOT EXISTS �?SQLite < 3.35 不可用，�?try/except�?
+            # 1) 添加新列（IF NOT EXISTS 在 SQLite < 3.35 不可用，用 try/except）
             new_columns = {
                 "dmid": "INTEGER DEFAULT 0",
                 "id_str": "TEXT DEFAULT ''",
@@ -517,7 +517,7 @@ class VideoDatabase:
                 "CREATE INDEX IF NOT EXISTS idx_danmaku_dmid ON danmaku_records(dmid) WHERE dmid > 0"
             )
 
-            # 3) 升级 UNIQUE 约束：删除旧的、创建新�?
+            # 3) 升级 UNIQUE 约束：删除旧的、创建新的
             try:
                 cursor.execute("DROP INDEX IF EXISTS idx_danmaku_unique")
             except sqlite3.OperationalError:
@@ -528,7 +528,7 @@ class VideoDatabase:
                     "ON danmaku_records(bvid, oid, dmid)"
                 )
             except sqlite3.OperationalError:
-                # dmid=0 �?XML 弹幕会冲突，降级为内容指�?
+                # dmid=0 的 XML 弹幕会冲突，降级为内容指纹
                 try:
                     cursor.execute(
                         "CREATE UNIQUE INDEX IF NOT EXISTS idx_danmaku_unique "
@@ -545,8 +545,8 @@ class VideoDatabase:
     def _migrate_schema_upgrades(self, cursor):
         """迁移数据库模式：添加缺少的列
 
-        根据预定义的 schema_upgrades 字典，逐表检查并添加缺失的列�?
-        对表名和列名做正则校验防�?SQL 注入
+        根据预定义的 schema_upgrades 字典，逐表检查并添加缺失的列，
+        对表名和列名做正则校验防止 SQL 注入
         """
         schema_upgrades = {
             "video_info": [
@@ -582,7 +582,7 @@ class VideoDatabase:
         }
 
         for table, columns in schema_upgrades.items():
-            # 正则校验表名，防�?SQL 注入
+            # 正则校验表名，防止 SQL 注入
             if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", table):
                 continue
             cursor.execute(f"PRAGMA table_info({table})")
@@ -590,11 +590,11 @@ class VideoDatabase:
             if not existing:
                 continue
             for col_name, col_def in columns:
-                # 正则校验列名，防�?SQL 注入
+                # 正则校验列名，防止 SQL 注入
                 if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", col_name):
                     continue
                 if col_name not in existing:
-                    # 校验列定义格式，防止包含不安�?SQL 片段
+                    # 校验列定义格式，防止包含不安全 SQL 片段
                     if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*(\s+DEFAULT\s+[^\s;]+)?$", col_def):
                         logger.warning(f"迁移跳过: {table}.{col_name} 含不安全的列定义 {col_def}")
                         continue
@@ -604,9 +604,9 @@ class VideoDatabase:
                         logger.warning(f"迁移失败 {table}.{col_name}: {e}")
 
     def _migrate_compute_values(self, cursor):
-        """自动计算缺失的数值字�?
+        """自动计算缺失的数值字段
 
-        补充 like_view_ratio（播赞比）和 predicted_hours 等派生字�?
+        补充 like_view_ratio（播赞比）和 predicted_hours 等派生字段
         """
         # 补全监控记录的播赞比
         try:
@@ -640,7 +640,7 @@ class VideoDatabase:
             logger.debug("更新 predictions predicted_hours 失败: %s", e)
 
     def save_video_info(self, video_info: Dict):
-        """保存（插入或替换）视频信息到 video_info �?
+        """保存（插入或替换）视频信息到 video_info 表
 
         Args:
             video_info: 视频信息字典
@@ -680,7 +680,7 @@ class VideoDatabase:
                     ),
                 )
                 conn.commit()
-            # 同步写入镜像数据�?
+            # 同步写入镜像数据库
             self._mirror_save_video_info(video_info)
         except Exception as e:
             logger.warning("保存视频信息失败 %s: %s", self.bvid, e, exc_info=True)
@@ -689,7 +689,7 @@ class VideoDatabase:
         """将视频信息同步写入镜像数据库
 
         注意：双写模式存在一致性风险——若视频独立库写入成功但镜像库写入失败，
-        两端数据将不一致。当前通过 try/except 仅记录日志，不触发回滚或重试�?
+        两端数据将不一致。当前通过 try/except 仅记录日志，不触发回滚或重试。
 
         Args:
             video_info: 视频信息字典
@@ -733,7 +733,7 @@ class VideoDatabase:
             logger.debug("镜像保存视频信息失败 %s: %s", self.bvid, e)
 
     def add_monitor_record(self, record: MonitorRecord) -> bool:
-        """添加一条监控记�?
+        """添加一条监控记录
 
         Args:
             record: 监控记录数据对象
@@ -778,7 +778,7 @@ class VideoDatabase:
         """将监控记录同步写入镜像数据库
 
         注意：双写模式存在一致性风险——若视频独立库写入成功但镜像库写入失败，
-        两端数据将不一致。当前通过 try/except 仅记录日志，不触发回滚或重试�?
+        两端数据将不一致。当前通过 try/except 仅记录日志，不触发回滚或重试。
 
         Args:
             record: 监控记录数据对象
@@ -910,7 +910,7 @@ class VideoDatabase:
         """获取监控记录列表
 
         Args:
-            limit: 限制返回条数�? 表示不限�?
+            limit: 限制返回条数，0 表示不限制
 
         Returns:
             记录字典列表，按时间升序排列
@@ -919,7 +919,7 @@ class VideoDatabase:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 if limit > 0:
-                    # 倒序取最�?N 条再反转，保证返回结果为升序
+                    # 倒序取最后 N 条再反转，保证返回结果为升序
                     cursor.execute("SELECT * FROM monitor_records ORDER BY timestamp DESC LIMIT ?", (limit,))
                     rows = list(reversed([dict(row) for row in cursor.fetchall()]))
                 else:
@@ -934,7 +934,7 @@ class VideoDatabase:
         """获取视频信息（id=1 的单行记录）
 
         Returns:
-            视频信息字典，未找到则返�?None
+            视频信息字典，未找到则返回 None
         """
         try:
             with self._get_connection() as conn:
@@ -947,7 +947,7 @@ class VideoDatabase:
             return None
 
     def add_prediction(self, prediction: PredictionRecord) -> bool:
-        """添加或替换一条预测记录（�?algorithm + target_threshold 去重�?
+        """添加或替换一条预测记录（按 algorithm + target_threshold 去重）
 
         Args:
             prediction: 预测记录数据对象
@@ -992,7 +992,7 @@ class VideoDatabase:
                 "predicted_hours": prediction.predicted_hours,
                 "current_velocity": prediction.current_velocity,
             })
-            # 中央库兜底同�?
+            # 中央库兜底同步
             if self._central_db:
                 try:
                     self._central_db.sync_predictions(self.bvid, [{
@@ -1030,9 +1030,9 @@ class VideoDatabase:
             return []
 
     def add_predictions_batch(self, rows: list) -> bool:
-        """批量添加或替换预测记录（�?algorithm + target_threshold 去重�?
+        """批量添加或替换预测记录（按 algorithm + target_threshold 去重）
 
-        每条记录使用 INSERT OR REPLACE，同时同步写入镜像和中央库�?
+        每条记录使用 INSERT OR REPLACE，同时同步写入镜像和中央库。
 
         Args:
             rows: 预测记录字典列表，每条需包含:
@@ -1045,7 +1045,7 @@ class VideoDatabase:
         """
         if not rows:
             return True
-        # SQLite INTEGER 最大�?(64位带符号)
+        # SQLite INTEGER 最大值 (64位带符号)
         _SQLITE_INT_MAX = 2**63 - 1
         _clamp_int = lambda v: min(max(int(v or 0), -_SQLITE_INT_MAX), _SQLITE_INT_MAX)
         try:
@@ -1080,7 +1080,7 @@ class VideoDatabase:
             if self._mirror_conn:
                 for r in rows:
                     self._mirror_add_prediction(r)
-            # 中央库兜底同�?
+            # 中央库兜底同步
             if self._central_db:
                 try:
                     self._central_db.sync_predictions(self.bvid, rows)
@@ -1096,7 +1096,7 @@ class VideoDatabase:
 
         Args:
             timestamp: 时间戳字符串
-            score_data: 包含分数数据的字典，键名�?weekly_scores 表字段对�?
+            score_data: 包含分数数据的字典，键名与 weekly_scores 表字段对应
 
         Returns:
             是否写入成功
@@ -1139,7 +1139,7 @@ class VideoDatabase:
         """获取周刊分数历史记录
 
         Args:
-            limit: 限制返回条数�? 表示不限�?
+            limit: 限制返回条数，0 表示不限制
 
         Returns:
             分数记录列表，按时间升序
@@ -1157,10 +1157,10 @@ class VideoDatabase:
             return []
 
     def get_latest_weekly_score(self) -> Optional[Dict]:
-        """获取最新一条周刊分数记�?
+        """获取最新一条周刊分数记录
 
         Returns:
-            分数记录字典，无记录则返�?None
+            分数记录字典，无记录则返回 None
         """
         try:
             with self._get_connection() as conn:
@@ -1176,7 +1176,7 @@ class VideoDatabase:
 
         Args:
             timestamp: 时间戳字符串
-            score_data: 包含分数数据的字�?
+            score_data: 包含分数数据的字典
 
         Returns:
             是否写入成功
@@ -1216,7 +1216,7 @@ class VideoDatabase:
         """获取年刊分数历史记录
 
         Args:
-            limit: 限制返回条数�? 表示不限�?
+            limit: 限制返回条数，0 表示不限制
 
         Returns:
             分数记录列表，按时间升序
@@ -1234,10 +1234,10 @@ class VideoDatabase:
             return []
 
     def get_latest_yearly_score(self) -> Optional[Dict]:
-        """获取最新一条年刊分数记�?
+        """获取最新一条年刊分数记录
 
         Returns:
-            分数记录字典，无记录则返�?None
+            分数记录字典，无记录则返回 None
         """
         try:
             with self._get_connection() as conn:
@@ -1246,14 +1246,14 @@ class VideoDatabase:
                 row = cursor.fetchone()
                 return dict(row) if row else None
         except Exception as e:
-            logger.debug("获取最新年刊分数失�? %s", e)
+            logger.debug("获取最新年刊分数失败: %s", e)
             return None
 
     def cleanup_duplicate_predictions(self) -> dict:
-        """清理预测表中的重复行，每�?(algorithm, target_threshold) 仅保留最新一�?
+        """清理预测表中的重复行，每个 (algorithm, target_threshold) 仅保留最新一条
 
-        已有�?UNIQUE 约束确保新写入不再产生重复，此方法用于清除历史遗留的重复数据�?
-        镜像库同步清理�?
+        已有的 UNIQUE 约束确保新写入不再产生重复，此方法用于清除历史遗留的重复数据。
+        镜像库同步清理。
 
         Returns:
             {"deleted": int, "kept": int, "mirror_deleted": int}
@@ -1265,7 +1265,7 @@ class VideoDatabase:
                 # 先统计总数
                 cursor.execute("SELECT COUNT(*) FROM predictions")
                 before = cursor.fetchone()[0]
-                # 删除每个 (algorithm, target_threshold) 分组中除最�?id 之外的行
+                # 删除每个 (algorithm, target_threshold) 分组中除最新 id 之外的行
                 cursor.execute("""
                     DELETE FROM predictions
                     WHERE id NOT IN (
@@ -1296,7 +1296,7 @@ class VideoDatabase:
                     logger.debug("镜像清理预测重复失败 %s: %s", self.bvid, e)
             if result["deleted"] > 0 or result["mirror_deleted"] > 0:
                 logger.info(
-                    "预测清理完成 %s: 主库删除%d�?保留%d), 镜像删除%d�?,
+                    "预测清理完成 %s: 主库删除%d行(保留%d), 镜像删除%d行",
                     self.bvid, result["deleted"], result["kept"], result["mirror_deleted"],
                 )
         except Exception as e:
@@ -1306,7 +1306,7 @@ class VideoDatabase:
     # ── 弹幕记录 ────────────────────────────────
 
     def add_danmaku_batch(self, rows: list) -> int:
-        """批量插入弹幕记录（跳过重复，基于 (bvid, oid, dmid) 唯一约束）�?
+        """批量插入弹幕记录（跳过重复，基于 (bvid, oid, dmid) 唯一约束）。
 
         Args:
             rows: [{"bvid", "oid", "dmid", "content", "video_ts", "like_count", ...}, ...]
@@ -1349,7 +1349,7 @@ class VideoDatabase:
         return inserted
 
     def get_danmaku_records(self, limit: int = 5000) -> List[Dict]:
-        """获取弹幕记录列表（按 video_ts 排序）�?
+        """获取弹幕记录列表（按 video_ts 排序）。
 
         Args:
             limit: 最多返回条数，0 表示全量
@@ -1376,7 +1376,7 @@ class VideoDatabase:
             return []
 
     def count_danmaku(self) -> int:
-        """统计弹幕总数�?""
+        """统计弹幕总数。"""
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -1387,7 +1387,7 @@ class VideoDatabase:
             return 0
 
     def get_danmaku_segment_count(self) -> int:
-        """获取已拉取的弹幕段数�?""
+        """获取已拉取的弹幕段数。"""
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -1401,10 +1401,10 @@ class VideoDatabase:
             return 0
 
     def get_max_danmaku_segment(self) -> int:
-        """获取已拉取的最大弹幕段号（用于恢复拉取进度）�?
+        """获取已拉取的最大弹幕段号（用于恢复拉取进度）。
 
         Returns:
-            int: 最�?segment_index，无记录时返�?0
+            int: 最大 segment_index，无记录时返回 0
         """
         try:
             with self._get_connection() as conn:
@@ -1419,10 +1419,10 @@ class VideoDatabase:
             return 0
 
     def dedup_danmaku(self) -> int:
-        """清理重复弹幕记录，保留每组首条�?
+        """清理重复弹幕记录，保留每组首条。
 
-        删除复合�?(bvid, oid, segment_index, content, video_ts, uid) 相同的重复行�?
-        仅保留每组中 id 最小的一条�?
+        删除复合键 (bvid, oid, segment_index, content, video_ts, uid) 相同的重复行，
+        仅保留每组中 id 最小的一条。
 
         Returns:
             int: 删除的重复记录数
@@ -1443,7 +1443,7 @@ class VideoDatabase:
                 deleted = cursor.rowcount
                 conn.commit()
                 if deleted > 0:
-                    logger.info("已清�?%s �?%d 条重复弹�?, self.bvid, deleted)
+                    logger.info("已清理 %s 的 %d 条重复弹幕", self.bvid, deleted)
         except sqlite3.Error as e:
             logger.debug("清理重复弹幕失败 %s: %s", self.bvid, e)
         return deleted
@@ -1451,22 +1451,22 @@ class VideoDatabase:
     def close(self):
         """关闭数据库连接，刷新 WAL
 
-        依次 checkpoint、关闭主连接、关闭镜像连�?
+        依次 checkpoint、关闭主连接、关闭镜像连接
         """
         self.wal_checkpoint()
         try:
             self._conn.close()
         except Exception as e:
-            logger.debug("关闭数据库连接失�? %s", e)
+            logger.debug("关闭数据库连接失败: %s", e)
         if self._mirror_conn:
             try:
                 self._mirror_conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
                 self._mirror_conn.close()
             except Exception as e:
-                logger.debug("关闭镜像数据库连接失�? %s", e)
+                logger.debug("关闭镜像数据库连接失败: %s", e)
 
     def wal_checkpoint(self):
-        """安全执行 WAL checkpoint，持有锁避免与写入冲�?""
+        """安全执行 WAL checkpoint，持有锁避免与写入冲突"""
         try:
             with self._lock:
                 self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
