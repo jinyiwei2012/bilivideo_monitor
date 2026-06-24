@@ -436,7 +436,7 @@ def _load_watch_list_from_db():
         db_path = os.path.join(_data_dir, "bilibili_monitor.db")
         if not os.path.exists(db_path):
             return []
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(db_path, check_same_thread=False)
         try:
             cur = conn.cursor()
             cur.execute("SELECT bvid FROM videos ORDER BY updated_at DESC")

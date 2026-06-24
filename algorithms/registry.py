@@ -69,7 +69,7 @@ class AlgorithmRegistry:
     _algorithms: Dict = {}
     _initialized = False
     _model_adapters = {}
-    _pool_lock = threading.Lock()
+    _pool_lock = threading.RLock()  # RLock to allow reentrant pool access
     _pool = None
     _init_lock = threading.Lock()
     _history_lock = threading.Lock()

@@ -8,6 +8,17 @@ logger = logging.getLogger(__name__)
 import json
 import numpy as np
 from algorithms.registry import AlgorithmRegistry
+from algorithms.base import BaseAlgorithm as BA
+
+
+class _SurgeDetector(BA):
+    """模块级单例推流检测器，避免重复创建类对象。"""
+
+    def predict(self, video_data=None, threshold=100000):
+        pass
+
+
+_SURGE_DETECTOR = _SurgeDetector()
 from core import bilibili_api, db, MonitorRecord, PredictionRecord
 from ui.helpers import THRESHOLDS, THRESHOLD_NAMES, _parse_viewer_count
 from utils.time_utils import safe_datetime, normalize_timestamp
@@ -225,12 +236,7 @@ def _calc_surge_aware_growth_rate(history: list) -> float:
 
         video_data = {"history_data": history_list, "view_count": history[-1][1]}
 
-        class _SurgeDetector(BA):
-            def predict(self, video_data=None, threshold=100000):
-                pass
-
-        detector = _SurgeDetector()
-        surge_info = detector.detect_surge(video_data)
+        surge_info = _SURGE_DETECTOR.detect_surge(video_data)
 
         if surge_info.get("is_surging"):
             surge_mag = surge_info["surge_magnitude"]
@@ -276,12 +282,7 @@ def _detect_surge_for_ui(history: list) -> dict:
 
         video_data = {"history_data": history_list, "view_count": history[-1][1]}
 
-        class _SurgeDetector(BA):
-            def predict(self, video_data=None, threshold=100000):
-                pass
-
-        detector = _SurgeDetector()
-        si = detector.detect_surge(video_data)
+        si = _SURGE_DETECTOR.detect_surge(video_data)
 
         # 构建 UI 友好的标签
         type_labels = {"strong": "🔥 强推流", "moderate": "📈 推流中", "mild": "📊 轻度推流", "none": ""}

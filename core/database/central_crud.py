@@ -25,7 +25,7 @@ class CentralCRUD:
         if backup_db == self.db.db_path or not os.path.exists(backup_db):
             return []
         try:
-            conn = sqlite3.connect(f"file:{backup_db}?mode=ro", uri=True)
+            conn = sqlite3.connect(f"file:{backup_db}?mode=ro", uri=True, check_same_thread=False)
             conn.row_factory = sqlite3.Row
             cur = conn.cursor()
             cur.execute(sql, params)
