@@ -28,6 +28,7 @@ from ui.helpers import (
 )
 from ui.chart import draw_chart_placeholder
 from utils.time_utils import safe_timestamp
+from utils.thread_utils import fire_and_forget
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +99,7 @@ def show_download_progress(gui, title, download_fn):
             gui._sb("status", f"下载失败: {msg}", C["danger"])
             gui.log_panel.add_log("ERROR", f"下载失败: {msg}")
 
-    threading.Thread(target=download_fn, args=(on_progress, on_done), daemon=True).start()
+    fire_and_forget(download_fn, on_progress, on_done, name="download")
 
 
 def check_update(gui):
@@ -374,7 +375,7 @@ def auto_activate_on_startup(gui):
             logger.debug("自动激活模型失败: %s", e)
             QTimer.singleShot(0, lambda: refresh_model_status(gui))
 
-    threading.Thread(target=_worker, daemon=True, name="auto-activate").start()
+    fire_and_forget(_worker, name="auto-activate")
 
 
 # ── 初始化 ─────────────────────────────────────
@@ -390,7 +391,7 @@ def preload_algorithms(gui):
         n = len(AlgorithmRegistry.get_algorithm_names())
         logger.info("后台算法预加载完成，共 %d 个算法", n)
 
-    threading.Thread(target=_worker, daemon=True, name="algo-preload").start()
+    fire_and_forget(_worker, name="algo-preload")
 
 
 # ── 视频间隔 / 定时器 ──────────────────────────
@@ -639,7 +640,7 @@ def fetch_video_info_and_add(gui, bvid, dialog, status_lbl):
         )
         dialog.accept()
 
-    threading.Thread(target=_fetch, daemon=True).start()
+    fire_and_forget(_fetch, name="fetch-video")
 
 
 # ── 获取视频 ──────────────────────────────────
@@ -686,7 +687,7 @@ def remove_monitor(gui):
     gui.video_list.update_video_count()
     gui._sb("videos", f"监控: {len(gui.monitored_videos)} 个")
     from ui.main_gui_data import save_watch_list
-    threading.Thread(target=save_watch_list, args=(gui,), daemon=True).start()
+    fire_and_forget(save_watch_list, gui, name="save-watchlist")
 
 
 # ── 推送 ──────────────────────────────────────
@@ -762,7 +763,7 @@ def on_training_completed(gui, mode="训练", count=0, detail="", trained_ids=No
             logger.debug("更新训练算法权重失败: %s", e)
 
     try:
-        threading.Thread(target=lambda: run_post_training_predict(gui), daemon=True).start()
+        fire_and_forget(lambda: run_post_training_predict(gui), name="post-train-predict")
     except Exception as e:
         logger.debug("启动训练后预测失败: %s", e)
 

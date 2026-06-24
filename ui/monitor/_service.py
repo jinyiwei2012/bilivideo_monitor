@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 from ui.invoker import invoke
 
 from core import bilibili_api, db, MonitorRecord
+from utils.thread_utils import fire_and_forget
 from ui.helpers import _parse_viewer_count
 
 DEFAULT_FETCH_INTERVAL = 75  # 集中拉取间隔（秒）
@@ -364,7 +365,7 @@ def _start_central_fetcher(gui):
                         break
                 time.sleep(1)
 
-    threading.Thread(target=_loop, daemon=True, name="CentralFetcher").start()
+    fire_and_forget(_loop, name="CentralFetcher")
 
 
 def _stop_central_fetcher():
@@ -405,7 +406,7 @@ def fetch_single_video_data(gui, bvid, callback=None):
 
 def fetch_all_video_data(gui, callback=None):
     """立即触发所有视频的数据拉取"""
-    threading.Thread(target=_batch_fetch_all, args=(gui,), daemon=True, name="fetch-all-now").start()
+    fire_and_forget(_batch_fetch_all, gui, name="fetch-all-now")
 
 
 def auto_predict_all(gui):
@@ -422,7 +423,7 @@ def auto_predict_all(gui):
         invoke(lambda: gui._sb("status", f"初始预测完成（{len(gui.monitored_videos)} 个视频）", color=C["success"]))
         gui.log_panel.add_log("INFO", f"初始预测完成（{len(gui.monitored_videos)} 个视频）")
 
-    threading.Thread(target=_worker, daemon=True).start()
+    fire_and_forget(_worker, name="auto-predict")
 
 
 def _load_watch_list_from_db():
@@ -525,4 +526,4 @@ def load_watch_list(gui):
         # 启动后立即运行一次初始预测（后续由每视频线程在拉取完成后接管）
         invoke(lambda: QTimer.singleShot(100, lambda: auto_predict_all(gui)))
 
-    threading.Thread(target=_worker, daemon=True).start()
+    fire_and_forget(_worker, name="auto-predict")

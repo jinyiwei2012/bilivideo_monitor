@@ -13,6 +13,7 @@ from PyQt6.QtCore import QTimer
 from core.smart_alert import AnomalyDetector
 from ui.invoker import invoke
 from ui.theme import C
+from utils.thread_utils import fire_and_forget
 
 logger = logging.getLogger(__name__)
 
@@ -106,8 +107,8 @@ def global_tick(gui):
         if gui._tick_counter == 0:
             do_periodic_sync(gui)
         elif gui._tick_counter % 300 == 0:
-            threading.Thread(target=lambda: wal_checkpoint_worker(gui), daemon=True).start()
-            threading.Thread(target=lambda: scan_alerts_background(gui), daemon=True).start()
+            fire_and_forget(lambda: wal_checkpoint_worker(gui), name="wal-checkpoint")
+            fire_and_forget(lambda: scan_alerts_background(gui), name="scan-alerts")
         # 每 30 分钟检查内存增长
         elif gui._tick_counter % 1800 == 10:
             do_memory_health_check(gui)
@@ -148,7 +149,7 @@ def do_periodic_sync(gui):
         except Exception as e:
             logger.warning("每小时同步异常: %s", e)
 
-    threading.Thread(target=_sync_worker, daemon=True).start()
+    fire_and_forget(_sync_worker, name="periodic-sync")
 
 
 def _maybe_cleanup_predictions(gui):
