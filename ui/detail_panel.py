@@ -25,6 +25,7 @@ from ui.helpers import (
     THRESHOLDS, THRESHOLD_NAMES, THRESH_COLORS, fmt_num,
 )
 from ui.chart import ChartWidget
+from ui.detail_tabs import _RatioDanmakuMixin
 from ui.invoker import invoke
 from utils.weekly_score import calculate_from_dict as _calc_ws
 from utils.yearly_score import calculate_yearly_from_dict as _calc_ys
@@ -198,7 +199,7 @@ class FinetuneDialog(QDialog):
         threading.Thread(target=_worker, daemon=True).start()
 
 
-class DetailPanel:
+class DetailPanel(_RatioDanmakuMixin):
     """中间详情面板 — PyQt6 版"""
 
     def __init__(self, parent, gui):
@@ -212,6 +213,7 @@ class DetailPanel:
         self._chart_fingerprint = None
         self._detail_text_fp = None
         self._video_index = {}
+        self._header_bvid = None  # 缓存当前 header 对应的 bvid，避免重复构建
 
         self._build()
 
@@ -422,25 +424,31 @@ class DetailPanel:
         self._clear_header()
         lbl = QLabel("← 从左侧选择一个视频", self._detail_header)
         lbl.setStyleSheet(f"color: {C['text_3']}; font-size: 11pt; padding: 18px 20px;")
-        layout = QHBoxLayout(self._detail_header)
+        layout = self._detail_header.layout()
+        if layout is None:
+            layout = QHBoxLayout(self._detail_header)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(lbl)
 
     def _clear_header(self):
-        old = self._detail_header.layout()
-        if old:
-            while old.count():
-                item = old.takeAt(0)
+        """清空 header 布局中的全部子 widget，保留布局对象以复用"""
+        self._header_bvid = None  # 重置 header 缓存
+        layout = self._detail_header.layout()
+        if layout:
+            while layout.count():
+                item = layout.takeAt(0)
                 if item is not None:
                     w = item.widget()
                     if w:
                         w.deleteLater()
-            old.deleteLater()
 
     def build_header(self, video):
         """构建视频详情头部"""
-        self._clear_header()
         bvid = video.get("bvid", "")
+        if bvid == self._header_bvid:
+            return  # 同一视频，跳过销毁+重建
+        self._header_bvid = bvid
+        self._clear_header()
         title = video.get("title", "未知标题")
         author = video.get("author", "未知UP主")
         dur_sec = video.get("duration", 0)
@@ -448,7 +456,9 @@ class DetailPanel:
         dur_str = f"{dur_sec // 60}:{dur_sec % 60:02d}" if dur_sec else "—"
         pub_str = datetime.fromtimestamp(pub_ts).strftime("%Y-%m-%d") if pub_ts else "—"
 
-        layout = QHBoxLayout(self._detail_header)
+        layout = self._detail_header.layout()
+        if layout is None:
+            layout = QHBoxLayout(self._detail_header)
         layout.setContentsMargins(14, 10, 14, 10)
 
         info = QWidget()
@@ -550,7 +560,10 @@ class DetailPanel:
 
     def _rebuild_stat_bar(self, video):
         """构建/重建统计栏"""
-        # Clear existing
+        # 已构建且无有效视频数据时跳过重建（由 update_stat_bar 负责后续更新）
+        if self._stat_labels and not video:
+            return
+        # Clear existing widgets, keep layout object for reuse
         old_layout = self._stat_bar.layout()
         if old_layout:
             while old_layout.count():
@@ -559,9 +572,10 @@ class DetailPanel:
                     w = item.widget()
                     if w:
                         w.deleteLater()
-            old_layout.deleteLater()
 
-        layout = QHBoxLayout(self._stat_bar)
+        layout = self._stat_bar.layout()
+        if layout is None:
+            layout = QHBoxLayout(self._stat_bar)
         layout.setContentsMargins(14, 8, 14, 8)
         layout.setSpacing(4)
 
@@ -921,113 +935,13 @@ class DetailPanel:
         try:
             return _calc_ys(video)
         except Exception:
-            logger.debug("年刊分数计算失败")
+            import logging
+            logging.getLogger(__name__).debug("年刊分数计算失败")
             return None
 
     def _calc_yearly_score_text(self, video):
         ys = self._calc_yearly_score(video)
         return f"{ys.total_score:,.0f}" if ys else "—"
-
-    # ── Ratio Frame ─────────────────────────────
-
-    def _fill_ratio_frame(self, video):
-        """填充互动率面板"""
-        # Clear existing
-        while self._ratio_layout.count():
-            item = self._ratio_layout.takeAt(0)
-            if item is not None:
-                w = item.widget()
-                if w:
-                    w.deleteLater()
-
-        views = video.get("view_count", 1) or 1
-        ratios = [
-            ("点赞率", video.get("like_count", 0) / views * 100, C["bilibili"]),
-            ("投币率", video.get("coin_count", 0) / views * 100, C["accent"]),
-            ("收藏率", video.get("favorite_count", 0) / views * 100, C["success"]),
-            ("弹幕率", video.get("danmaku_count", 0) / views * 100, C["warning"]),
-        ]
-
-        for label, pct, color in ratios:
-            row = QWidget()
-            row.setStyleSheet(f"background-color: {C['bg_base']};")
-            row_h = QHBoxLayout(row)
-            row_h.setContentsMargins(0, 6, 0, 6)
-            row_h.setSpacing(8)
-
-            lbl = QLabel(label)
-            lbl.setFixedWidth(48)
-            lbl.setStyleSheet(f"color: {C['text_2']}; font-size: 10pt;")
-            row_h.addWidget(lbl)
-
-            # Bar background
-            bar_bg = QFrame()
-            bar_bg.setFixedHeight(12)
-            bar_bg.setStyleSheet(f"background-color: {C['bg_elevated']}; border-radius: 2px;")
-            bar_bg_layout = QHBoxLayout(bar_bg)
-            bar_bg_layout.setContentsMargins(0, 0, 0, 0)
-
-            fill_pct = min(pct / 20, 1.0)
-            bar_fill = QFrame()
-            bar_fill.setFixedHeight(12)
-            bar_fill.setStyleSheet(f"background-color: {color}; border-radius: 2px;")
-            bar_fill.setFixedWidth(int(fill_pct * 200))
-            bar_bg_layout.addWidget(bar_fill)
-            bar_bg_layout.addStretch()
-
-            row_h.addWidget(bar_bg, 1)
-
-            pct_lbl = QLabel(f"{pct:.3f}%")
-            pct_lbl.setFixedWidth(72)
-            pct_lbl.setStyleSheet(f"color: {color}; font-family: Consolas; font-size: 10pt;")
-            row_h.addWidget(pct_lbl)
-
-            self._ratio_layout.addWidget(row)
-
-        self._ratio_layout.addStretch()
-
-    # ── Danmaku ─────────────────────────────────
-
-    def _refresh_danmaku_display(self):
-        """从数据库加载弹幕并刷新显示"""
-        bvid = self.gui.selected_bvid
-        if not bvid:
-            self._dm_text.setPlainText("请先选择一个视频")
-            self._dm_count_lbl.setText("")
-            return
-
-        video_db = self.gui.video_dbs.get(bvid)
-        if not video_db:
-            self._dm_count_lbl.setText("无数据库")
-            return
-
-        try:
-            records = video_db.get_danmaku_records(limit=200)
-        except Exception as e:
-            import logging
-            logging.getLogger(__name__).debug("弹幕记录获取失败: %s", e)
-            records = []
-        count = video_db.count_danmaku()
-        self._dm_count_lbl.setText(f"共 {count} 条")
-
-        self._dm_text.clear()
-        if not records:
-            self._dm_text.setPlainText("暂无弹幕数据\n\n弹幕将在视频监控过程中自动拉取并保存。")
-        else:
-            html = "<pre style='font-family: \"Microsoft YaHei UI\"; font-size: 10pt; margin: 0;'>"
-            for r in records[-200:]:
-                ts = r.get("video_ts", 0)
-                m, s = divmod(int(ts), 60)
-                html += f"<span style='color: {C['log_time']}; font-family: Consolas; font-size: 9pt;'>[{m:02d}:{s:02d}]</span> "
-                content = r.get("content", "")
-                content = content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                html += f"<span style='color: {C['text_1']};'>{content}</span><br>"
-            html += "</pre>"
-            self._dm_text.setHtml(html)
-            # Scroll to bottom
-            cursor = self._dm_text.textCursor()
-            cursor.movePosition(QTextCursor.MoveOperation.End)
-            self._dm_text.setTextCursor(cursor)
 
     @property
     def chart_canvas(self):
