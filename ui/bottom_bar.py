@@ -61,6 +61,14 @@ class BottomBar(QWidget):
         self._del_btn.clicked.connect(self.gui._remove_monitor)
         h.addWidget(self._del_btn)
 
+        # 「撤销删除」按钮
+        self._undo_btn = QPushButton("↩ 撤销")
+        self._undo_btn.setFixedHeight(32)
+        self._undo_btn.setToolTip("撤销最近一次删除 (Ctrl+Z)")
+        self._undo_btn.clicked.connect(self.gui._undo_delete)
+        self._undo_btn.setVisible(False)
+        h.addWidget(self._undo_btn)
+
         # 「手动推送」按钮
         self._push_btn = QPushButton("📤 手动推送")
         self._push_btn.setProperty("accent", True)
@@ -105,7 +113,7 @@ class BottomBar(QWidget):
 
         bar = QWidget()
         bar.setFixedHeight(22)
-        bar.setStyleSheet(f"background-color: {C['bg_surface']}; color: {C['text_3']}; font-size: 8pt;")
+        bar.setStyleSheet(f"background-color: {C['bg_surface']}; font-size: 8pt;")
         h = QHBoxLayout(bar)
         h.setContentsMargins(10, 0, 10, 0)
         h.setSpacing(10)
@@ -139,7 +147,19 @@ class BottomBar(QWidget):
         if lbl:
             color = color or C["text_3"]
             lbl.setText(text)
-            lbl.setStyleSheet(f"color: {color};")
+            # 仅在颜色变化时更新样式，避免触发不必要的 QSS 解析
+            current_color = getattr(lbl, "_sb_color", None)
+            if current_color != color:
+                lbl._sb_color = color
+                lbl.setStyleSheet(f"color: {color};")
+
+    def show_undo_button(self):
+        """显示撤销按钮"""
+        self._undo_btn.setVisible(True)
+
+    def hide_undo_button(self):
+        """隐藏撤销按钮"""
+        self._undo_btn.setVisible(False)
 
     @property
     def ar_toggle(self):

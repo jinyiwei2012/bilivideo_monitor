@@ -112,6 +112,7 @@ class BilibiliMonitorGUI(QMainWindow):
 
         self._dialogs = Dialogs(self)
         self._build_ui()
+        self._setup_shortcuts()
 
         # 启动后延迟初始化
         QTimer.singleShot(500, self._auto_activate_on_startup)
@@ -154,6 +155,17 @@ class BilibiliMonitorGUI(QMainWindow):
                 self.setWindowIcon(QIcon(icon_path))
         except Exception as e:
             logger.debug("设置窗口图标失败: %s", e)
+
+    def _setup_shortcuts(self):
+        """注册全局键盘快捷键"""
+        from PyQt6.QtGui import QKeySequence, QShortcut
+
+        QShortcut(QKeySequence("Ctrl+N"), self, self._add_monitor)
+        QShortcut(QKeySequence("Ctrl+R"), self, self._refresh_data)
+        QShortcut(QKeySequence("Ctrl+F"), self, lambda: self._dialogs.open_video_search())
+        QShortcut(QKeySequence("Ctrl+Z"), self, self._undo_delete)
+        QShortcut(QKeySequence(Qt.Key.Key_F11), self, lambda: self._dialogs.open_dashboard())
+        QShortcut(QKeySequence(Qt.Key.Key_Delete), self, self._remove_monitor)
 
     def _build_ui(self):
         """构建整体 UI"""
@@ -665,6 +677,11 @@ class BilibiliMonitorGUI(QMainWindow):
     def _sb(self, key, text, color=None):
         """更新状态栏"""
         self.bottom_bar.update_sb(key, text, color)
+
+    def _undo_delete(self):
+        """撤销最近一次删除"""
+        from ui.main_gui_events import undo_delete
+        undo_delete(self)
 
     def set_finetune_status(self, text: str, color=None):
         """更新主界面底部状态栏的微调状态"""

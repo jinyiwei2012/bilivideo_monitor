@@ -660,7 +660,7 @@ def get_video(gui, bvid):
 
 
 def remove_monitor(gui):
-    """删除当前选中视频的监控"""
+    """删除当前选中视频的监控（支持 30s 撤销）"""
     if not gui.selected_bvid:
         QMessageBox.warning(gui, "提示", "请先在左侧选择要删除的视频")
         return
@@ -668,21 +668,22 @@ def remove_monitor(gui):
     video = get_video(gui, bvid)
     title = video.get("title", bvid) if video else bvid
     if not QMessageBox.question(
-        gui, "确认删除", f"确定要删除监控：\n{title[:50]}？",
+        gui, "确认删除", f"确定要删除监控：\n{title[:50]}？\n\n（30 秒内可从状态栏撤销）",
         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
     ) == QMessageBox.StandardButton.Yes:
         return
+
+    # 软删除：移入待删除队列
+    removed = {
+        "bvid": bvid,
+        "video": video,
+        "history": gui.history_data.pop(bvid, []),
+        "vdb": gui.video_dbs.pop(bvid, None),
+        "predictions": gui.prediction_results.pop(bvid, None),
+        "timer": gui._video_timers.pop(bvid, None),
+    }
     gui.monitored_videos = [v for v in gui.monitored_videos if v.get("bvid") != bvid]
     gui._video_index.pop(bvid, None)
-    gui.history_data.pop(bvid, None)
-    vdb = gui.video_dbs.pop(bvid, None)
-    if vdb:
-        try:
-            vdb.close()
-        except Exception as e:
-            logger.debug("忽略异常: %s", e)
-    gui.prediction_results.pop(bvid, None)
-    gui._video_timers.pop(bvid, None)
     gui.video_list.remove_card(bvid)
     gui.selected_bvid = None
     gui.detail._build_header_empty()
@@ -693,6 +694,72 @@ def remove_monitor(gui):
     gui._sb("videos", f"监控: {len(gui.monitored_videos)} 个")
     from ui.main_gui_data import save_watch_list
     fire_and_forget(save_watch_list, gui, name="save-watchlist")
+
+    # 撤销提示（状态栏）
+    gui._sb("alert", f"已删除 {title[:20]}（30s 内可撤销）", C["warning"])
+
+    # 存储待删除数据
+    if not hasattr(gui, "_pending_deletes"):
+        gui._pending_deletes = {}
+    gui._pending_deletes[bvid] = removed
+
+    # 30 秒后真删除
+    from PyQt6.QtCore import QTimer
+    timer = QTimer(gui)
+    timer.setSingleShot(True)
+    timer.timeout.connect(lambda b=bvid: _finalize_delete(gui, b))
+    timer.start(30000)
+    if not hasattr(gui, "_delete_timers"):
+        gui._delete_timers = {}
+    gui._delete_timers[bvid] = timer
+    gui.bottom_bar.show_undo_button()
+
+
+def undo_delete(gui):
+    """撤销最近一次删除"""
+    if not hasattr(gui, "_pending_deletes") or not gui._pending_deletes:
+        QMessageBox.information(gui, "提示", "没有可撤销的删除操作")
+        return
+    # 撤销最近删除的
+    bvid = list(gui._pending_deletes.keys())[-1]
+    removed = gui._pending_deletes.pop(bvid)
+    timer = gui._delete_timers.pop(bvid, None)
+    if timer:
+        timer.stop()
+
+    # 恢复数据
+    gui.monitored_videos.append(removed["video"])
+    gui.history_data[bvid] = removed["history"]
+    if removed["vdb"]:
+        gui.video_dbs[bvid] = removed["vdb"]
+    if removed["predictions"]:
+        gui.prediction_results[bvid] = removed["predictions"]
+    if removed["timer"]:
+        gui._video_timers[bvid] = removed["timer"]
+
+    gui.video_list.make_card(removed["video"])
+    gui.video_list.update_video_count()
+    gui._sb("alert", f"已恢复 {removed['video'].get('title', bvid)[:20]}", C["success"])
+    gui._sb("videos", f"监控: {len(gui.monitored_videos)} 个")
+    gui.bottom_bar.hide_undo_button()
+    from ui.main_gui_data import save_watch_list
+    fire_and_forget(save_watch_list, gui, name="save-watchlist")
+
+
+def _finalize_delete(gui, bvid):
+    """执行真删除（撤销窗口已过）"""
+    removed = gui._pending_deletes.pop(bvid, None)
+    gui._delete_timers.pop(bvid, None)
+    if removed:
+        vdb = removed.get("vdb")
+        if vdb:
+            try:
+                vdb.close()
+            except Exception as e:
+                logger.debug("忽略异常: %s", e)
+        gui._sb("alert", "", C["text_3"])
+        if not gui._pending_deletes:
+            gui.bottom_bar.hide_undo_button()
 
 
 # ── 推送 ──────────────────────────────────────
