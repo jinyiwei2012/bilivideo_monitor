@@ -78,8 +78,8 @@ def save_weekly_score(gui, bvid, video, timestamp):
             try:
                 from core import db
                 db.sync_weekly_score(bvid, timestamp, score_data)
-            except Exception:
-                logger.warning("同步周刊分数到中央库失败 %s: %s", bvid)
+            except Exception as e:
+                logger.warning("同步周刊分数到中央库失败 %s: %s", bvid, e)
     except Exception as e:
         logger.warning("保存周刊分数失败 %s: %s", bvid, e)
 
@@ -94,8 +94,8 @@ def save_yearly_score(gui, bvid, video, timestamp):
             try:
                 from core import db
                 db.sync_yearly_score(bvid, timestamp, score_data)
-            except Exception:
-                logger.warning("同步年刊分数到中央库失败 %s: %s", bvid)
+            except Exception as e:
+                logger.warning("同步年刊分数到中央库失败 %s: %s", bvid, e)
     except Exception as e:
         logger.warning("保存年刊分数失败 %s: %s", bvid, e)
 

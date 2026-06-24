@@ -274,14 +274,7 @@ class ChartWidget(QWidget):
         step = max(1, n // 6)
         for i, (ts, _) in enumerate(history):
             if i % step == 0 or i == n - 1:
-                try:
-                    if isinstance(ts, str):
-                        ts_dt = datetime.fromisoformat(ts)
-                    else:
-                        ts_dt = ts
-                    t_str = ts_dt.strftime("%m-%d %H:%M") if isinstance(ts_dt, datetime) else str(ts)
-                except Exception:
-                    t_str = ""
+                t_str = self._fmt_ts(ts)
                 if i == 0:
                     t_str = ""
                 self._draw_text(px(i, n), H - MB + 6, t_str, QColor(C["text_3"]), 8,
@@ -302,6 +295,15 @@ class ChartWidget(QWidget):
             self._draw_text(lx0 + 10, 12, label, QColor(C["text_2"]), 8,
                             Qt.AlignmentFlag.AlignLeft)
             lx0 += len(label) * 7 + 22
+
+    @staticmethod
+    def _fmt_ts(ts) -> str:
+        """安全格式化时间戳为显示字符串。"""
+        try:
+            ts_dt = datetime.fromisoformat(ts) if isinstance(ts, str) else ts
+            return ts_dt.strftime("%m-%d %H:%M") if isinstance(ts_dt, datetime) else str(ts)
+        except (ValueError, TypeError):
+            return ""
 
     def _draw_delta_or_full_chart(self, history, W, H, ML, MR, MT, MB, cw, ch):
         """绘制增量/全量模式"""
@@ -429,14 +431,7 @@ class ChartWidget(QWidget):
         step = max(1, n // 6)
         for i, (ts, _) in enumerate(deltas):
             if i % step == 0 or i == n - 1:
-                try:
-                    if isinstance(ts, str):
-                        ts_dt = datetime.fromisoformat(ts)
-                    else:
-                        ts_dt = ts
-                    t_str = ts_dt.strftime("%m-%d %H:%M") if isinstance(ts_dt, datetime) else str(ts)
-                except Exception:
-                    t_str = ""
+                t_str = self._fmt_ts(ts)
                 self._draw_text(px(i), H - MB + 6, t_str, QColor(C["text_3"]), 8,
                                 Qt.AlignmentFlag.AlignCenter)
 
