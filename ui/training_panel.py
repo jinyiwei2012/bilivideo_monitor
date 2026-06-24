@@ -343,6 +343,13 @@ class TrainingPanel(BaseTrainingPanel):
         parent_layout = self.layout()
         parent_layout.addWidget(ctrl)
 
+    def _safe_sb(self, key, text, color=None):
+        """线程安全的状态栏更新 — 统一 try/except，消除 11 处重复模板"""
+        try:
+            self.main._sb(key, text, color=color)
+        except Exception:
+            pass
+
     # ══════════════════════════════════════════════
     # 数据刷新
     # ══════════════════════════════════════════════
@@ -1175,11 +1182,8 @@ class TrainingPanel(BaseTrainingPanel):
                 top.setWindowTitle(f"🔴 训练中 — {self._saved_title}")
         except Exception:
             self._saved_title = None
-        try:
-            self.main._sb("algo", f"🤖 训练: 0/{len(selected)} 算法", color=C["accent"])
-            self.main._sb("status", "训练中…", color=C["accent"])
-        except Exception:
-            pass
+        self._safe_sb("algo", f"🤖 训练: 0/{len(selected)} 算法", color=C["accent"])
+        self._safe_sb("status", "训练中…", color=C["accent"])
         self._algo_durations: List[float] = []  # 各算法耗时（用于跨算法 ETA）
 
     def _start_train_thread(self, selected, is_incremental, lr, epochs, batch, parallel, batch_log, interval_val, interval_unit):
@@ -1360,10 +1364,7 @@ class TrainingPanel(BaseTrainingPanel):
         self._update_algo_row(aid, status="▶ 训练中", status_color=C["accent"])
         self._monitor.reset()
         # 状态栏 + 进度条动画
-        try:
-            self.main._sb("algo", f"🤖 [{cur}/{tot}] {aid}", color=C["accent"])
-        except Exception:
-            pass
+        self._safe_sb("algo", f"🤖 [{cur}/{tot}] {aid}", color=C["accent"])
         if self._progress:
             self._progress.setValue(0)
             self._progress.setMinimum(0)
@@ -1463,19 +1464,16 @@ class TrainingPanel(BaseTrainingPanel):
             self._status_lbl.setStyleSheet(f"color: {C['text_1']}; background: transparent;")
 
         # 主窗口状态栏（含 ETA）
-        try:
-            cur = msg.get("current", 0)
-            tot = msg.get("total", 1)
-            status_text = f"🤖 [{cur}/{tot}] {aid} ep{ep}/{eps}  {elapsed:.0f}s"
-            if total_eta_str:
-                # 提取总 ETA 部分
-                parts = total_eta_str.split("总")
-                if len(parts) > 1:
-                    status_text += f"  ⇨{parts[1]}"
-            self.main._sb("algo", status_text, color=C["accent"])
-            self.main._sb("status", f"训练中  loss={tloss:.4f}", color=C["text_2"])
-        except Exception:
-            pass
+        cur = msg.get("current", 0)
+        tot = msg.get("total", 1)
+        status_text = f"🤖 [{cur}/{tot}] {aid} ep{ep}/{eps}  {elapsed:.0f}s"
+        if total_eta_str:
+            # 提取总 ETA 部分
+            parts = total_eta_str.split("总")
+            if len(parts) > 1:
+                status_text += f"  ⇨{parts[1]}"
+        self._safe_sb("algo", status_text, color=C["accent"])
+        self._safe_sb("status", f"训练中  loss={tloss:.4f}", color=C["text_2"])
 
         self._monitor.update(ep, tloss, vloss if vloss >= 0 else -1)
         self._refresh_monitor()
@@ -1528,10 +1526,7 @@ class TrainingPanel(BaseTrainingPanel):
             total_eta = f"  ⇨剩余≈{self._fmt_duration(avg_dur * remaining)}"
 
         # 主窗口状态栏
-        try:
-            self.main._sb("algo", f"🤖 ✓ [{cur}/{total_sel}] {aid}  {algo_elapsed:.0f}s{total_eta}", color=C["success"])
-        except Exception:
-            pass
+        self._safe_sb("algo", f"🤖 ✓ [{cur}/{total_sel}] {aid}  {algo_elapsed:.0f}s{total_eta}", color=C["success"])
 
         # 从 checkpoint 读取 val_loss 和置信度
         from algorithms.training.checkpoint_manager import CheckpointManager
@@ -1569,10 +1564,7 @@ class TrainingPanel(BaseTrainingPanel):
             self._status_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
         self._append_log(f"✗ {aid} 训练失败: {err}")
         self._update_algo_row(aid, status="✗ 失败", status_color=C["danger"])
-        try:
-            self.main._sb("algo", f"🤖 ✗ {aid} 失败", color=C["danger"])
-        except Exception:
-            pass
+        self._safe_sb("algo", f"🤖 ✗ {aid} 失败", color=C["danger"])
 
     def _on_stage_auto_adjust(self, msg):
         """处理自动调整事件"""
@@ -1589,10 +1581,7 @@ class TrainingPanel(BaseTrainingPanel):
             self._status_lbl.setText(f"已取消，剩余 {len(rem)} 个")
             self._status_lbl.setStyleSheet(f"color: {C['warning']}; background: transparent;")
         self._append_log(f"⏹ 已取消, 剩余 {len(rem)} 个算法")
-        try:
-            self.main._sb("algo", f"⏹ 训练已取消 (剩余{len(rem)}个)", color=C["warning"])
-        except Exception:
-            pass
+        self._safe_sb("algo", f"⏹ 训练已取消 (剩余{len(rem)}个)", color=C["warning"])
         return True
 
     def _on_stage_all_done(self, msg):
@@ -1620,10 +1609,7 @@ class TrainingPanel(BaseTrainingPanel):
         self._append_log(f"🏁 训练全部完成: {ok} 成功, {bad} 失败, 耗时 {elapsed:.0f}s")
         self._append_log(f"📊 各算法最终置信度:{conf_summary}")
         # 主窗口状态栏
-        try:
-            self.main._sb("algo", f"🤖 ✓ 训练完成 ({ok}成功 {bad}失败)  {elapsed:.0f}s", color=C["success"])
-        except Exception:
-            pass
+        self._safe_sb("algo", f"🤖 ✓ 训练完成 ({ok}成功 {bad}失败)  {elapsed:.0f}s", color=C["success"])
         return True
 
     def _on_stage_fatal(self, msg):
@@ -1651,10 +1637,7 @@ class TrainingPanel(BaseTrainingPanel):
                 self.window().setWindowTitle(self._saved_title)
         except Exception:
             pass
-        try:
-            self.main._sb("status", "就绪", color=C["text_3"])
-        except Exception:
-            pass
+        self._safe_sb("status", "就绪", color=C["text_3"])
 
         # 训练自动回调：通知 + 重新预测
         trained = getattr(self, "_last_training_results", {})
