@@ -304,22 +304,22 @@ def on_exit(gui):
     try:
         from core.notification import notification_manager
         notification_manager.shutdown()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("关闭 NotificationManager 失败: %s", e)
 
     try:
         from algorithms.online_learner import get_online_learner
         from ui.helpers import project_path
         learner = get_online_learner()
         learner.save(project_path("data", "online_learner_state.json"))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("保存在线学习状态失败: %s", e)
 
     try:
         from core.database.connection import close_http_session
         close_http_session()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("关闭 HTTP Session 失败: %s", e)
 
     QApplication.quit()
 
@@ -335,7 +335,8 @@ def refresh_model_status(gui):
         status = get_all_activation_status()
         pending = [aid for aid, s in status.items() if s["needs_activation"]]
         trained = len(status)
-    except Exception:
+    except Exception as e:
+        logger.debug("刷新模型状态失败: %s", e)
         gui._model_act_status.setText("")
         return
     if pending:
