@@ -200,6 +200,8 @@ def _encrypt_w(gt: str, challenge: str, userresponse: str, trace: List[Dict], pa
         raise ImportError("缺少 Cryptodome 库，请执行: pip install pycryptodomex")
 
     # 计算 rp 参数
+    # 注：此处 MD5 用于 Geetest 协议要求的 w 参数加密密钥派生，
+    # 非安全敏感用途，`usedforsecurity=False` 已标注
     rp = hashlib.md5(f"{gt}{challenge[:32]}{passtime}".encode(), usedforsecurity=False).hexdigest()
 
     payload = json.dumps(

@@ -28,6 +28,7 @@ try:
     _HAZMAT = True
 except ImportError:
     Fernet = None  # type: ignore
+    logger.warning("cryptography 未安装，将使用 XOR 回退加密（安全性降低，建议 pip install cryptography）")
 
 # ── 机器标识密钥 ──────────────────────────────────────
 

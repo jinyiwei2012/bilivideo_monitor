@@ -107,7 +107,7 @@ class NotificationManager:
         url = f"{self.onebot_http}/{action}"
         headers = {}
         if self.token:
-            if self.onebot_http.startswith("http://") and "127.0.0.1" not in self.onebot_http and "localhost" not in self.onebot_http:
+            if self.onebot_http.startswith("http://"):
                 logger.error("有 token 但 HTTP 是明文传输，拒绝发送")
                 return False
             headers["Authorization"] = f"Bearer {self.token}"
