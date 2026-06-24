@@ -90,7 +90,7 @@ class MstlDecompositionAlgorithm(BaseAlgorithm):
 
         # 数据不足或速度为零时回退
         if len(history) < 10 or velocity <= 0:
-            return self._fallback(velocity, current_views, threshold)
+            return self._fallback(velocity, current_views, threshold, method="mstl")
 
         try:
             views = np.array([h.get("view", 0) for h in history], dtype=np.float64)
@@ -163,41 +163,4 @@ class MstlDecompositionAlgorithm(BaseAlgorithm):
                 timestamp=datetime.now(),
             )
         except Exception:
-            return self._fallback(velocity, current_views, threshold)
-
-    def _fallback(self, velocity, current_views, threshold):
-        """回退预测：使用当前速度的保守估计
-
-        参数:
-            velocity: 当前增长速度
-            current_views: 当前播放量
-            threshold: 目标阈值
-
-        返回:
-            PredictionResult: 回退预测结果
-        """
-        if velocity <= 0:
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=float("inf"),
-                confidence=0.0,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={"method": "mstl", "reason": "fallback"},
-                timestamp=datetime.now(),
-            )
-        remaining = max(0, threshold - current_views)
-        predicted_hours = remaining / velocity if remaining > 0 else 0
-        return PredictionResult(
-            algorithm_name=self.name,
-            algorithm_id=self.algorithm_id,
-            target_threshold=threshold,
-            predicted_hours=predicted_hours,
-            confidence=0.3,
-            current_views=current_views,
-            current_velocity=velocity,
-            metadata={"method": "mstl", "reason": "fallback"},
-            timestamp=datetime.now(),
-        )
+            return self._fallback(velocity, current_views, threshold, method="mstl")

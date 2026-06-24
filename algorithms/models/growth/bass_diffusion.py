@@ -116,7 +116,7 @@ class BassDiffusionAlgorithm(BaseAlgorithm):
             mask = dN > 0  # 只考虑播放量增长的数据点
 
             if np.sum(mask) < 3:
-                return self._fallback(velocity, current_views, threshold)
+                return self._fallback(velocity, current_views, threshold, method="bass_fallback")
 
             # 最小二乘法估计参数p和q
             # 将 Bass 微分方程改写为线性形式：dN/(M-N) = p + q*(N/M)
@@ -150,26 +150,4 @@ class BassDiffusionAlgorithm(BaseAlgorithm):
             )
         except Exception as e:
             logger.debug("Bass diffusion failed: %s", e)
-            return self._fallback(velocity, current_views, threshold)
-
-    def _fallback(self, velocity, current_views, threshold):
-        """Bass模型拟合失败时的回退方案
-
-        当历史数据不足或模型拟合失败时，回退到简单的速度法进行线性预测。
-
-        Args:
-            velocity: 当前播放速度（播放量/小时）
-            current_views: 当前播放量
-            threshold: 目标阈值播放量
-
-        Returns:
-            PredictionResult: 使用速度法的降级预测结果，置信度固定为0.3
-        """
-        remaining = threshold - current_views
-        predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-        return PredictionResult(
-            algorithm_name=self.name, algorithm_id=self.algorithm_id,
-            target_threshold=threshold, predicted_hours=predicted_hours,
-            confidence=0.3, current_views=current_views, current_velocity=velocity,
-            metadata={"method": "bass_fallback"}, timestamp=datetime.now(),
-        )
+            return self._fallback(velocity, current_views, threshold, method="bass_fallback")

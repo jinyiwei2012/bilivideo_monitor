@@ -94,7 +94,7 @@ class GarchSimpleAlgorithm(BaseAlgorithm):
 
         # 数据不足或速度为零时直接回退
         if len(history) < 10 or velocity <= 0:
-            return self._fallback(velocity, current_views, threshold)
+            return self._fallback(velocity, current_views, threshold, method="garch_arch")
 
         # 优先使用 arch 库进行 GARCH(1,1) 波动率建模
         if _HAS_ARCH and len(history) >= 15:
@@ -202,7 +202,7 @@ class GarchSimpleAlgorithm(BaseAlgorithm):
         velocity = self.calculate_velocity(video_data)
 
         if len(history) < 10 or velocity <= 0:
-            return self._fallback(velocity, current_views, threshold)
+            return self._fallback(velocity, current_views, threshold, method="garch_arch")
 
         try:
             views = np.array([h.get("view", 0) for h in history], dtype=np.float64)
@@ -263,41 +263,4 @@ class GarchSimpleAlgorithm(BaseAlgorithm):
                 timestamp=datetime.now(),
             )
         except Exception:
-            return self._fallback(velocity, current_views, threshold)
-
-    def _fallback(self, velocity, current_views, threshold):
-        """回退预测：速度为零时返回无穷大，否则使用当前速度估算
-
-        参数:
-            velocity: 当前增长速度
-            current_views: 当前播放量
-            threshold: 目标阈值
-
-        返回:
-            PredictionResult: 回退预测结果
-        """
-        if velocity <= 0:
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=float("inf"),
-                confidence=0.0,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={"method": "garch", "reason": "fallback"},
-                timestamp=datetime.now(),
-            )
-        remaining = max(0, threshold - current_views)
-        predicted_hours = remaining / velocity if remaining > 0 else 0
-        return PredictionResult(
-            algorithm_name=self.name,
-            algorithm_id=self.algorithm_id,
-            target_threshold=threshold,
-            predicted_hours=predicted_hours,
-            confidence=0.3,
-            current_views=current_views,
-            current_velocity=velocity,
-            metadata={"method": "garch", "reason": "fallback"},
-            timestamp=datetime.now(),
-        )
+            return self._fallback(velocity, current_views, threshold, method="garch_arch")

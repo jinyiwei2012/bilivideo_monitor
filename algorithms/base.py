@@ -93,6 +93,42 @@ class BaseAlgorithm(ABC):
             PredictionResult 对象，包含算法名称、预测结果、置信度等
         """
 
+    def _fallback(self, velocity: float, current_views: int, threshold: int,
+                  method: str = "", metadata: dict = None) -> PredictionResult:
+        """通用降级预测：当算法不可用或数据不足时，使用匀速外推。
+
+        Args:
+            velocity: 当前每小时播放速度
+            current_views: 当前播放量
+            threshold: 目标阈值
+            method: 算法标识方法名
+            metadata: 额外元数据（会合并到 metadata 中）
+
+        Returns:
+            PredictionResult 基于匀速外推的保守预测
+        """
+        meta = {"reason": "fallback"}
+        if method:
+            meta["method"] = method
+        if metadata:
+            meta.update(metadata)
+
+        if velocity <= 0:
+            return PredictionResult(
+                algorithm_name=self.name, algorithm_id=self.algorithm_id,
+                target_threshold=threshold, predicted_hours=float("inf"),
+                confidence=0.0, current_views=current_views, current_velocity=velocity,
+                metadata=meta, timestamp=datetime.now(),
+            )
+        remaining = max(0, threshold - current_views)
+        predicted_hours = remaining / velocity if remaining > 0 else 0
+        return PredictionResult(
+            algorithm_name=self.name, algorithm_id=self.algorithm_id,
+            target_threshold=threshold, predicted_hours=predicted_hours,
+            confidence=0.3, current_views=current_views, current_velocity=velocity,
+            metadata=meta, timestamp=datetime.now(),
+        )
+
     # ── 质量评分权重常量 ───────────────────────────
     _W_ENGAGEMENT = 0.4   # 互动率权重
     _W_DANMAKU = 0.3      # 弹幕密度权重

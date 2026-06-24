@@ -84,7 +84,7 @@ class TabnetSimpleAlgorithm(BaseAlgorithm):
         velocity = self.calculate_velocity(video_data)
 
         if len(history) < 8 or velocity <= 0:
-            return self._fallback(velocity, current_views, threshold)
+            return self._fallback(velocity, current_views, threshold, method="tabnet_lib")
 
         # 优先使用 pytorch_tabnet 做注意力特征选择网络预测
         if _HAS_TABNET and len(history) >= 15:
@@ -223,7 +223,7 @@ class TabnetSimpleAlgorithm(BaseAlgorithm):
         velocity = self.calculate_velocity(video_data)
 
         if len(history) < 8 or velocity <= 0:
-            return self._fallback(velocity, current_views, threshold)
+            return self._fallback(velocity, current_views, threshold, method="tabnet_lib")
 
         try:
             views = np.array([h.get("view", 0) for h in history], dtype=np.float64)
@@ -295,44 +295,4 @@ class TabnetSimpleAlgorithm(BaseAlgorithm):
                 timestamp=datetime.now(),
             )
         except Exception:
-            return self._fallback(velocity, current_views, threshold)
-
-    def _fallback(self, velocity, current_views, threshold):
-        """
-        回退预测方案：匀速外推。
-
-        当数据不足或上述所有方法均失败时使用。
-
-        Args:
-            velocity (float): 当前播放速度
-            current_views (int): 当前播放量
-            threshold (int): 目标阈值
-
-        Returns:
-            PredictionResult: 基于匀速外推的预测结果
-        """
-        if velocity <= 0:
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=float("inf"),  # 无增长
-                confidence=0.0,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={"method": "tabnet", "reason": "fallback"},
-                timestamp=datetime.now(),
-            )
-        remaining = max(0, threshold - current_views)
-        predicted_hours = remaining / velocity if remaining > 0 else 0
-        return PredictionResult(
-            algorithm_name=self.name,
-            algorithm_id=self.algorithm_id,
-            target_threshold=threshold,
-            predicted_hours=predicted_hours,
-            confidence=0.3,
-            current_views=current_views,
-            current_velocity=velocity,
-            metadata={"method": "tabnet", "reason": "fallback"},
-            timestamp=datetime.now(),
-        )
+            return self._fallback(velocity, current_views, threshold, method="tabnet_lib")

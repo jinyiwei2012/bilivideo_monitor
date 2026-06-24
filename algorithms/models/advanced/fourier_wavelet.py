@@ -76,7 +76,7 @@ class FourierWaveletAlgorithm(BaseAlgorithm):
 
         # 数据不足或速度为零时使用回退策略
         if len(history) < 6 or velocity <= 0:
-            return self._fallback(velocity, current_views, threshold)
+            return self._fallback(velocity, current_views, threshold, method="fourier_wavelet")
 
         try:
             # 提取播放量序列
@@ -137,42 +137,4 @@ class FourierWaveletAlgorithm(BaseAlgorithm):
                 timestamp=datetime.now(),
             )
         except Exception:
-            return self._fallback(velocity, current_views, threshold)
-
-    def _fallback(self, velocity, current_views, threshold):
-        """
-        回退预测：当数据不足或计算异常时使用简单速度外推
-
-        Args:
-            velocity (float)    : 当前播放增长速度
-            current_views (int) : 当前总播放量
-            threshold (int)     : 目标播放量阈值
-
-        Returns:
-            PredictionResult: 使用简单速度外推的预测结果
-        """
-        if velocity <= 0:
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=float("inf"),
-                confidence=0.0,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={"method": "fourier_wavelet", "reason": "fallback"},
-                timestamp=datetime.now(),
-            )
-        remaining = max(0, threshold - current_views)
-        predicted_hours = remaining / velocity if remaining > 0 else 0
-        return PredictionResult(
-            algorithm_name=self.name,
-            algorithm_id=self.algorithm_id,
-            target_threshold=threshold,
-            predicted_hours=predicted_hours,
-            confidence=0.3,
-            current_views=current_views,
-            current_velocity=velocity,
-            metadata={"method": "fourier_wavelet", "reason": "fallback"},
-            timestamp=datetime.now(),
-        )
+            return self._fallback(velocity, current_views, threshold, method="fourier_wavelet")

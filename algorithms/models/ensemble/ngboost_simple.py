@@ -166,44 +166,4 @@ class NgboostAlgorithm(BaseAlgorithm):
             )
         except Exception:
             # 训练或预测异常 → 回退
-            return self._fallback(velocity, current_views, threshold)
-
-    def _fallback(self, velocity, current_views, threshold):
-        """
-        回退预测方案：匀速外推。
-
-        当 NGBoost 不可用或数据不足时使用。
-
-        Args:
-            velocity (float): 当前播放速度
-            current_views (int): 当前播放量
-            threshold (int): 目标阈值
-
-        Returns:
-            PredictionResult: 基于匀速外推的预测结果
-        """
-        if velocity <= 0:
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=float("inf"),  # 无增长
-                confidence=0.0,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={"method": "ngboost", "reason": "fallback"},
-                timestamp=datetime.now(),
-            )
-        remaining = max(0, threshold - current_views)
-        predicted_hours = remaining / velocity if remaining > 0 else 0
-        return PredictionResult(
-            algorithm_name=self.name,
-            algorithm_id=self.algorithm_id,
-            target_threshold=threshold,
-            predicted_hours=predicted_hours,
-            confidence=0.3,
-            current_views=current_views,
-            current_velocity=velocity,
-            metadata={"method": "ngboost", "reason": "fallback"},
-            timestamp=datetime.now(),
-        )
+            return self._fallback(velocity, current_views, threshold, method="ngboost")

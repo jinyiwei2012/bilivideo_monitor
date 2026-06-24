@@ -87,7 +87,7 @@ class CausalImpactAlgorithm(BaseAlgorithm):
 
         # ── 数据不足或速度为0时使用回退策略 ──
         if len(history) < 10 or velocity <= 0:
-            return self._fallback(velocity, current_views, threshold)
+            return self._fallback(velocity, current_views, threshold, method="causal_impact")
 
         try:
             # ── 提取各类互动指标的时间序列 ──
@@ -167,43 +167,4 @@ class CausalImpactAlgorithm(BaseAlgorithm):
             )
         except Exception:
             # ── 异常回退处理 ──
-            return self._fallback(velocity, current_views, threshold)
-
-    def _fallback(self, velocity, current_views, threshold):
-        """
-        回退预测：当数据不足或计算异常时使用简单速度外推
-
-        Args:
-            velocity (float)     : 当前播放增长速度（播放量/小时）
-            current_views (int)  : 当前总播放量
-            threshold (int)      : 目标播放量阈值
-
-        Returns:
-            PredictionResult: 使用简单速度外推的预测结果
-        """
-        if velocity <= 0:
-            # ── 速度非正值表示无法预测 ──
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=float("inf"),
-                confidence=0.0,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={"method": "causal_impact", "reason": "fallback"},
-                timestamp=datetime.now(),
-            )
-        remaining = max(0, threshold - current_views)
-        predicted_hours = remaining / velocity if remaining > 0 else 0
-        return PredictionResult(
-            algorithm_name=self.name,
-            algorithm_id=self.algorithm_id,
-            target_threshold=threshold,
-            predicted_hours=predicted_hours,
-            confidence=0.3,
-            current_views=current_views,
-            current_velocity=velocity,
-            metadata={"method": "causal_impact", "reason": "fallback"},
-            timestamp=datetime.now(),
-        )
+            return self._fallback(velocity, current_views, threshold, method="causal_impact")
