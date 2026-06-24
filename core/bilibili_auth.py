@@ -342,8 +342,9 @@ def _persist_cookies(self, cookies: dict):
     with _persist_lock:
         try:
             from utils.crypto import encrypt_dict
+            from utils import project_path
 
-            cfg_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "network_config.json")
+            cfg_path = project_path("data", "network_config.json")
             net_cfg = {}
             if os.path.exists(cfg_path):
                 with open(cfg_path, "r", encoding="utf-8") as f:

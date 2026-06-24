@@ -965,7 +965,7 @@ class ModelTrainer:
             if is_onnx_available():
                 export_to_onnx(model_to_save, algo_id, bvid or "", force=True)
         except Exception:
-            pass
+            logger.debug("[ONNX] 导出失败（非致命，跳过）%s", algo_id)
 
         return version
 
