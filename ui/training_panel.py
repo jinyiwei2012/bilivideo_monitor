@@ -882,7 +882,10 @@ class TrainingPanel(BaseTrainingPanel):
         dialog, ui = self._build_batch_dialog(algo_list, videos)
 
         def _ft_log(msg):
-            ui["log_text"].setPlainText(ui["log_text"].toPlainText() + msg + "\n")
+            # Use QTextCursor for O(1) append instead of O(n²) toPlainText concat
+            cursor = ui["log_text"].textCursor()
+            cursor.movePosition(cursor.MoveOperation.End)
+            cursor.insertText(msg + "\n")
             sb = ui["log_text"].verticalScrollBar()
             if sb is not None:
                 sb.setValue(sb.maximum())

@@ -1076,10 +1076,34 @@ class VideoDatabase:
                     ],
                 )
                 conn.commit()
-            # 镜像批量同步
+            # 镜像批量同步（单事务批量写入，避免逐行 commit）
             if self._mirror_conn:
-                for r in rows:
-                    self._mirror_add_prediction(r)
+                try:
+                    self._mirror_conn.executemany(
+                        """INSERT OR REPLACE INTO predictions
+                        (algorithm, algorithm_id, target_threshold, predicted_seconds,
+                         predicted_time, confidence, current_views,
+                         metadata, predicted_hours, current_velocity)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        [
+                            (
+                                r.get("algorithm", ""),
+                                r.get("algorithm_id", ""),
+                                r.get("target_threshold", 0),
+                                r.get("predicted_seconds", 0),
+                                r.get("predicted_time", ""),
+                                r.get("confidence", 0),
+                                r.get("current_views", 0),
+                                r.get("metadata", ""),
+                                r.get("predicted_hours", 0),
+                                r.get("current_velocity", 0),
+                            )
+                            for r in rows
+                        ],
+                    )
+                    self._mirror_conn.commit()
+                except Exception as e:
+                    logger.debug("镜像批量同步预测记录失败 %s: %s", self.bvid, e)
             # 中央库兜底同步
             if self._central_db:
                 try:

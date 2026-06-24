@@ -301,6 +301,11 @@ def on_exit(gui):
     from algorithms.registry import AlgorithmRegistry
 
     AlgorithmRegistry.shutdown()
+    try:
+        from core.notification import notification_manager
+        notification_manager.shutdown()
+    except Exception:
+        pass
 
     try:
         from algorithms.online_learner import get_online_learner
@@ -894,7 +899,8 @@ def build_daily_push_msg(gui):
         likes = v.get("like_count", 0)
         coins = v.get("coin_count", 0)
 
-        history = gui.history_data.get(bvid, [])
+        with gui._data_lock:
+            history = list(gui.history_data.get(bvid, []))
         history = sorted(history, key=lambda x: safe_timestamp(x[0]))
         daily_incr = 0
         first_today = None
@@ -957,7 +963,8 @@ def build_push_msg(gui, videos):
         except Exception:
             pass
 
-        history = gui.history_data.get(bvid, [])
+        with gui._data_lock:
+            history = list(gui.history_data.get(bvid, []))
         velocity = 0
         if len(history) >= 2:
             t1, c1 = history[-2]
