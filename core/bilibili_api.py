@@ -446,6 +446,8 @@ class BilibiliAPI(_RequestMixin, _AuthMixin, _VideoMixin, _UpMixin):
             self._public_session.close()
             if self._curl_session:
                 self._curl_session.close()
+            if hasattr(self, "_close_qr_session"):
+                self._close_qr_session()
         except Exception as e:
             logger.debug("关闭HTTP Session失败: %s", e)
 

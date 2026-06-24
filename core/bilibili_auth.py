@@ -8,10 +8,12 @@ import os
 import logging
 import random
 import hashlib
+import threading
 from typing import Dict, Optional
 from urllib.parse import urlparse, parse_qs
 
 logger = logging.getLogger(__name__)
+_persist_lock = threading.Lock()  # 防止并发写入 network_config.json
 
 
 def set_cookies(self, cookies: Dict):
@@ -337,48 +339,49 @@ def _auto_solve_geetest(self, gt: str, challenge: str):
 def _persist_cookies(self, cookies: dict):
     if not cookies:
         return
-    try:
-        from utils.crypto import encrypt_dict
+    with _persist_lock:
+        try:
+            from utils.crypto import encrypt_dict
 
-        cfg_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "network_config.json")
-        net_cfg = {}
-        if os.path.exists(cfg_path):
-            with open(cfg_path, "r", encoding="utf-8") as f:
-                net_cfg = json.load(f)
+            cfg_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "network_config.json")
+            net_cfg = {}
+            if os.path.exists(cfg_path):
+                with open(cfg_path, "r", encoding="utf-8") as f:
+                    net_cfg = json.load(f)
 
-        accounts = net_cfg.get("accounts", [])
-        if not accounts and net_cfg.get("cookies"):
-            accounts = [
-                {
-                    "name": net_cfg.get("account_name", "默认"),
-                    "cookies": net_cfg["cookies"],
-                    "refresh_token": net_cfg.get("refresh_token", ""),
-                    "active": False,
-                }
-            ]
+            accounts = net_cfg.get("accounts", [])
+            if not accounts and net_cfg.get("cookies"):
+                accounts = [
+                    {
+                        "name": net_cfg.get("account_name", "默认"),
+                        "cookies": net_cfg["cookies"],
+                        "refresh_token": net_cfg.get("refresh_token", ""),
+                        "active": False,
+                    }
+                ]
 
-        updated = False
-        for acc in accounts:
-            if acc["name"] == self._account_name:
+            updated = False
+            for acc in accounts:
+                if acc["name"] == self._account_name:
+                    enc = dict(cookies)
+                    encrypt_dict(enc, "SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid")
+                    acc["cookies"] = enc
+                    acc["refresh_token"] = self._refresh_token
+                    updated = True
+                    break
+            if not updated:
                 enc = dict(cookies)
                 encrypt_dict(enc, "SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid")
-                acc["cookies"] = enc
-                acc["refresh_token"] = self._refresh_token
-                updated = True
-                break
-        if not updated:
-            enc = dict(cookies)
-            encrypt_dict(enc, "SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid")
-            accounts.append(
-                {"name": self._account_name, "cookies": enc, "refresh_token": self._refresh_token, "active": False}
-            )
+                accounts.append(
+                    {"name": self._account_name, "cookies": enc, "refresh_token": self._refresh_token, "active": False}
+                )
 
-        net_cfg["accounts"] = accounts
-        net_cfg["active_account"] = self._account_name
-        with open(cfg_path, "w", encoding="utf-8") as f:
-            json.dump(net_cfg, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        logger.warning("持久化 Cookie 失败: %s", e)
+            net_cfg["accounts"] = accounts
+            net_cfg["active_account"] = self._account_name
+            with open(cfg_path, "w", encoding="utf-8") as f:
+                json.dump(net_cfg, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.warning("持久化 Cookie 失败: %s", e)
 
 
 def _extract_login_cookies(self, resp, data: dict) -> dict:
@@ -395,16 +398,9 @@ def _extract_login_cookies(self, resp, data: dict) -> dict:
                 if val:
                     cookies[key] = val
 
-    set_cookie = resp.headers.get("Set-Cookie", "")
-    for part in set_cookie.split(";"):
-        if "=" in part:
-            k, v = part.strip().split("=", 1)
-            k = k.strip()
-            if k in wanted and k not in cookies:
-                cookies[k] = v.split(";")[0].split(",")[0].strip()
-
+    # 优先使用 resp.cookies（正确处理多个 Set-Cookie 头部）
     for k in wanted:
-        if k not in cookies and k in resp.cookies:
+        if k in resp.cookies:
             cookies[k] = resp.cookies[k]
 
     return cookies
@@ -423,6 +419,16 @@ def _init_qr_session(self):
             }
         )
     return self._qr_session
+
+
+def _close_qr_session(self):
+    """关闭二维码登录独立 Session"""
+    if hasattr(self, "_qr_session") and self._qr_session is not None:
+        try:
+            self._qr_session.close()
+        except Exception:
+            pass
+        self._qr_session = None
 
 
 def get_qrcode_login_url(self) -> Optional[Dict]:
