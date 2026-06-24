@@ -151,6 +151,9 @@ class FinetuneDialog(QDialog):
         if not selected:
             QMessageBox.information(self, "提示", "请至少选择一个算法")
             return
+        if getattr(self, "_running", False):
+            QMessageBox.information(self, "提示", "微调已在进行中")
+            return
 
         try:
             epochs = max(1, int(self._epoch_input.text()))
@@ -163,6 +166,7 @@ class FinetuneDialog(QDialog):
 
         self._start_btn.setEnabled(False)
         self._start_btn.setText("微调中…")
+        self._running = True  # 防止重复启动
 
         def _worker():
             from algorithms.training.trainer import ModelTrainer
@@ -189,6 +193,7 @@ class FinetuneDialog(QDialog):
             invoke(lambda: self._start_btn.setText("完成"))
             invoke(lambda: self._start_btn.setEnabled(True))
             invoke(lambda: self.gui.set_finetune_status(f"✅ 微调 {self.bvid} 完成 ({total})"))
+            invoke(lambda: setattr(self, "_running", False))
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -916,6 +921,7 @@ class DetailPanel:
         try:
             return _calc_ys(video)
         except Exception:
+            logger.debug("年刊分数计算失败")
             return None
 
     def _calc_yearly_score_text(self, video):

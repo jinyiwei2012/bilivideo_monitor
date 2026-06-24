@@ -195,7 +195,7 @@ class TrainingPanel(BaseTrainingPanel):
             lbl.setFixedWidth(w)
             hdr_row_layout.addWidget(lbl)
         hdr_row_layout.addStretch()
-        # hdr_row goes into algo_frame's layout
+        self._algo_frame.layout().addWidget(hdr_row)  # 将表头添加到滚动容器的布局中
 
     # ── 图表+日志 (右侧) ──
 

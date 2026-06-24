@@ -79,7 +79,7 @@ def save_weekly_score(gui, bvid, video, timestamp):
                 from core import db
                 db.sync_weekly_score(bvid, timestamp, score_data)
             except Exception:
-                pass
+                logger.warning("同步周刊分数到中央库失败 %s: %s", bvid)
     except Exception as e:
         logger.warning("保存周刊分数失败 %s: %s", bvid, e)
 
@@ -95,7 +95,7 @@ def save_yearly_score(gui, bvid, video, timestamp):
                 from core import db
                 db.sync_yearly_score(bvid, timestamp, score_data)
             except Exception:
-                pass
+                logger.warning("同步年刊分数到中央库失败 %s: %s", bvid)
     except Exception as e:
         logger.warning("保存年刊分数失败 %s: %s", bvid, e)
 
@@ -144,6 +144,7 @@ def register_video_to_monitor(gui, video):
             save_yearly_score(gui, bvid, video, now.isoformat())
     except Exception as e:
         gui.log_panel.add_log("WARNING", f"数据库初始化失败: {bvid}: {e}")
+        return  # 不注册没有可用 DB 的视频
     gui.monitored_videos.append(video)
     gui._video_index[bvid] = video
     gui.video_list.make_card(video)

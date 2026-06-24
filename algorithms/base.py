@@ -561,7 +561,7 @@ class BaseAlgorithm(ABC):
             )
 
         except Exception as e:
-            logger.debug("detect_surge 失败: %s", e)
+            logger.warning("detect_surge 失败: %s", e)
 
         return result
 
