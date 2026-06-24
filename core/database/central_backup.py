@@ -127,6 +127,7 @@ class CentralBackup:
                 if sc != dc:
                     diffs.append({"bvid": item, "primary_records": sc, "backup_records": dc})
             except Exception:
+                logger.exception("备份差异检查失败: %s", item)
                 continue
         return diffs
 
@@ -278,6 +279,7 @@ class CentralBackup:
             if "algorithm" not in {r["name"] for r in vcur.fetchall()}:
                 return 0
         except Exception:
+            logger.exception("同步预测记录 PRAGMA 检查失败 %s", bvid)
             return 0
         try:
             vcur.execute("""
@@ -289,6 +291,7 @@ class CentralBackup:
                 GROUP BY algorithm, predicted_time
             """)
         except Exception:
+            logger.exception("同步预测记录查询失败 %s", bvid)
             return 0
         rows = [dict(r) for r in vcur.fetchall()]
         if not rows:
@@ -337,10 +340,12 @@ class CentralBackup:
         try:
             vcur.execute("SELECT timestamp FROM weekly_scores LIMIT 1")
         except Exception:
+            logger.exception("同步周评分 LIMIT 1 检查失败 %s", bvid)
             return 0
         try:
             vcur.execute("SELECT * FROM weekly_scores ORDER BY timestamp ASC")
         except Exception:
+            logger.exception("同步周评分查询失败 %s", bvid)
             return 0
         rows = [dict(r) for r in vcur.fetchall()]
         if not rows:
@@ -386,10 +391,12 @@ class CentralBackup:
         try:
             vcur.execute("SELECT timestamp FROM yearly_scores LIMIT 1")
         except Exception:
+            logger.exception("同步年评分 LIMIT 1 检查失败 %s", bvid)
             return 0
         try:
             vcur.execute("SELECT * FROM yearly_scores ORDER BY timestamp ASC")
         except Exception:
+            logger.exception("同步年评分查询失败 %s", bvid)
             return 0
         rows = [dict(r) for r in vcur.fetchall()]
         if not rows:
@@ -475,6 +482,7 @@ class CentralBackup:
                 "ON predictions(bvid, algorithm, target_threshold)"
             )
         except Exception:
+            logger.exception("中央库 UNIQUE INDEX 创建失败")
             pass
 
     @staticmethod

@@ -2,10 +2,13 @@
 UP主数据库管理模块 — 管理UP主信息与历史趋势数据
 """
 
+import logging
 import sqlite3
 import os
 from typing import List, Dict, Optional
 from utils import project_path
+
+logger = logging.getLogger(__name__)
 
 _DATA_DIR = project_path("data")
 
@@ -108,7 +111,8 @@ class UpDatabase:
             )
             conn.commit()
             return True
-        except Exception:
+        except Exception as e:
+            logger.exception("更新UP主信息失败 uid=%s", info.get("uid", "?"))
             return False
         finally:
             conn.close()
@@ -127,7 +131,8 @@ class UpDatabase:
             )
             conn.commit()
             return True
-        except Exception:
+        except Exception as e:
+            logger.exception("添加UP主历史记录失败 uid=%s", uid)
             return False
         finally:
             conn.close()
@@ -213,7 +218,8 @@ class UpDatabase:
             )
             conn.commit()
             return True
-        except Exception:
+        except Exception as e:
+            logger.exception("设置UP主追踪状态失败 uid=%s", uid)
             return False
         finally:
             conn.close()
@@ -227,7 +233,8 @@ class UpDatabase:
             c.execute("DELETE FROM up_history WHERE uid=?", (uid,))
             conn.commit()
             return True
-        except Exception:
+        except Exception as e:
+            logger.exception("删除UP主数据失败 uid=%s", uid)
             return False
         finally:
             conn.close()
