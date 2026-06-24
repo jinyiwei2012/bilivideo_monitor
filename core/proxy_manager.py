@@ -195,6 +195,9 @@ class ProxyManager:
                     for i in range(proxy_idx, len(self.proxies)):
                         self._proxy_ua_map[i] = self._proxy_ua_map.pop(i + 1)
                         self._proxy_failure_count[i] = self._proxy_failure_count.pop(i + 1)
+                    # 重置请求代理索引 + 钳制轮询指针防止越界
+                    self._current_request_proxy_idx = None
+                    self.current_proxy_index = min(self.current_proxy_index, max(0, len(self.proxies) - 1))
                 else:
                     logger.warning(f"代理 {masked} 请求失败 ({total}/{self._MAX_PROXY_FAILURES}), 继续使用当前IP")
                 return new_ua
