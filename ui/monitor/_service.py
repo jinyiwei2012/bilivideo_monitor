@@ -3,53 +3,19 @@
 架构：
     - 每 75s 集中拉取所有视频数据（单一定时器）
     - 每个视频一个独立预测线程，由拉取完成后分发触发、回调更新 UI
-
-注意：所有主线程 UI 回调使用 QTimer.singleShot 替代 root.after。
 """
 import threading
 import time
 import logging
 from datetime import datetime
 
-from PyQt6.QtCore import QObject, pyqtSignal, QTimer
+from PyQt6.QtCore import QTimer
 
 logger = logging.getLogger(__name__)
 
+# 线程安全的主线程调度 — 从共享模块导入，消除 _service.py 中的重复实现
+from ui.invoker import invoke
 
-# ── 线程安全的主线程调用桥（QTimer.singleShot 不能在工作线程使用）──
-
-class _MainInvoker(QObject):
-    """跨线程安全地将回调调度到主线程执行。
-
-    工作原理：信号+队列——不依赖 QVariant 序列化，兼容任意 Python 回调。
-    背景：QTimer.singleShot 在工作线程调用时会尝试在无事件循环的线程中
-    创建定时器，导致 "QObject::startTimer: Timers cannot be started from
-    another thread" 错误。
-    """
-    _wake = pyqtSignal()
-
-    def __init__(self):
-        super().__init__()
-        import queue
-        self._q = queue.Queue()
-        self._wake.connect(self._drain)
-
-    def invoke(self, fn):
-        """从**任意线程**调用：fn 将在主线程被执行。"""
-        self._q.put(fn)
-        self._wake.emit()
-
-    def _drain(self):
-        import queue
-        while True:
-            try:
-                fn = self._q.get_nowait()
-            except queue.Empty:
-                break
-            fn()
-
-
-_invoker = _MainInvoker()
 from core import bilibili_api, db, MonitorRecord
 from ui.helpers import _parse_viewer_count
 
@@ -114,7 +80,7 @@ class VideoPredictor:
                 from ui.monitor._prediction import _predict_single
                 result = _predict_single(self.gui, self.bvid, self.video)
                 if result is not None:
-                    _invoker.invoke(lambda r=result: self._on_done(r))
+                    invoke(lambda r=result: self._on_done(r))
             except Exception as e:
                 logger.debug("预测失败 %s: %s", self.bvid, e)
             finally:
@@ -296,7 +262,7 @@ def _fetch_one_video(gui, bvid, video):
         ).start()
 
     # 主线程 UI 更新（通过 _invoker 跨线程安全调用）
-    _invoker.invoke(lambda v=video.copy(), b=bvid: _on_fetch_done(gui, b, v))
+    invoke(lambda v=video.copy(), b=bvid: _on_fetch_done(gui, b, v))
 
     # ── 分发到预测线程 ──
     _ensure_predictor(gui, bvid, video)
@@ -453,7 +419,7 @@ def auto_predict_all(gui):
             _predict_single(gui, bvid, video)
 
         from ui.theme import C
-        _invoker.invoke(lambda: gui._sb("status", f"初始预测完成（{len(gui.monitored_videos)} 个视频）", color=C["success"]))
+        invoke(lambda: gui._sb("status", f"初始预测完成（{len(gui.monitored_videos)} 个视频）", color=C["success"]))
         gui.log_panel.add_log("INFO", f"初始预测完成（{len(gui.monitored_videos)} 个视频）")
 
     threading.Thread(target=_worker, daemon=True).start()
@@ -533,7 +499,7 @@ def load_watch_list(gui):
                 except Exception as e:
                     logger.debug("初始化视频数据库失败 %s: %s", bvid, e)
 
-                _invoker.invoke(lambda v=video: gui._restore_video(v))
+                invoke(lambda v=video: gui._restore_video(v))
                 loaded += 1
                 time.sleep(0.15)
             except Exception as e:
@@ -545,10 +511,10 @@ def load_watch_list(gui):
             if bvid:
                 _ensure_predictor(gui, bvid, video)
 
-        _invoker.invoke(lambda: _start_central_fetcher(gui))
+        invoke(lambda: _start_central_fetcher(gui))
 
         from ui.theme import C as C2
-        _invoker.invoke(lambda: gui._sb("status", f"已加载 {len(gui.monitored_videos)} 个监控视频", color=C2["success"]))
+        invoke(lambda: gui._sb("status", f"已加载 {len(gui.monitored_videos)} 个监控视频", color=C2["success"]))
 
         gui.log_panel.add_log(
             "INFO",
@@ -557,6 +523,6 @@ def load_watch_list(gui):
         )
 
         # 启动后立即运行一次初始预测（后续由每视频线程在拉取完成后接管）
-        _invoker.invoke(lambda: QTimer.singleShot(100, lambda: auto_predict_all(gui)))
+        invoke(lambda: QTimer.singleShot(100, lambda: auto_predict_all(gui)))
 
     threading.Thread(target=_worker, daemon=True).start()
