@@ -480,7 +480,7 @@ def post_fetch(gui):
 def show_video_detail(gui, video):
     """显示视频详情"""
     gui.detail.build_header(video)
-    gui.detail._rebuild_stat_bar(video)
+    gui.detail.update_stat_bar(video)  # 只更新数值，不重建整个布局
     # Re-trigger current tab rendering
     idx = gui.detail._tabs.currentIndex()
     gui.detail._on_tab_changed(idx)
