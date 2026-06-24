@@ -552,14 +552,14 @@ class DetailPanel:
         """构建/重建统计栏"""
         # Clear existing
         old_layout = self._stat_bar.layout()
-            if old_layout:
-                while old_layout.count():
-                    item = old_layout.takeAt(0)
-                    if item is not None:
-                        w = item.widget()
-                        if w:
-                            w.deleteLater()
-                old_layout.deleteLater()
+        if old_layout:
+            while old_layout.count():
+                item = old_layout.takeAt(0)
+                if item is not None:
+                    w = item.widget()
+                    if w:
+                        w.deleteLater()
+            old_layout.deleteLater()
 
         layout = QHBoxLayout(self._stat_bar)
         layout.setContentsMargins(14, 8, 14, 8)
