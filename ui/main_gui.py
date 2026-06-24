@@ -13,10 +13,10 @@ import threading
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QLabel, QPushButton, QFrame, QStackedWidget, QStatusBar,
-    QSizePolicy, QApplication, QMenu,
+    QSizePolicy, QApplication, QMenu, QSplashScreen,
 )
 from PyQt6.QtCore import Qt, QTimer, QSize
-from PyQt6.QtGui import QAction, QFont, QPixmap, QIcon
+from PyQt6.QtGui import QAction, QFont, QPixmap, QIcon, QColor
 
 from ui.theme import C, init_theme
 from ui.helpers import (
@@ -674,8 +674,20 @@ class BilibiliMonitorGUI(QMainWindow):
 def main():
     """主入口函数"""
     app = QApplication(sys.argv)
+
+    # 启动画面
+    splash = QSplashScreen()
+    splash.setWindowFlags(Qt.WindowType.SplashScreen | Qt.WindowType.WindowStaysOnTopHint)
+    splash_pm = QPixmap(480, 160)
+    splash_pm.fill(QColor("#161b22"))
+    splash.setPixmap(splash_pm)
+    splash.show()
+    splash.showMessage("  B站监控\n  加载中...", Qt.AlignmentFlag.AlignCenter, QColor("#fb7299"))
+    app.processEvents()
+
     window = BilibiliMonitorGUI()
     window.show()
+    splash.finish(window)
     sys.exit(app.exec())
 
 
