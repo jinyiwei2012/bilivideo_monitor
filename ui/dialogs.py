@@ -506,6 +506,15 @@ class Dialogs:
             import traceback
             QMessageBox.critical(self.gui, "错误", f"打开预测回看失败: {e}\n{traceback.format_exc()}")
 
+    def open_time_analysis(self):
+        """打开时段播放分析窗口"""
+        try:
+            from ui.time_analysis import TimeAnalysisPanel
+            TimeAnalysisPanel(parent=self.gui, gui=self.gui)
+        except Exception as e:
+            import traceback
+            QMessageBox.critical(self.gui, "错误", f"打开时段分析失败: {e}\n{traceback.format_exc()}")
+
     def open_dashboard(self):
         """打开数据大屏窗口"""
         try:
