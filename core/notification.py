@@ -35,7 +35,7 @@ class NotificationManager:
         self.enabled = True
         self.qq_private = ""
         self.qq_group = ""
-        self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)  # 防止单工作线程死锁（WS 调用可重入）
 
     def configure(self, config: Dict[str, Any]):
         """从 settings.json 的嵌套结构加载 OneBot 配置"""
@@ -90,8 +90,11 @@ class NotificationManager:
             except (asyncio.TimeoutError, websockets.WebSocketException) as e:
                 logger.info("WS %s 不可用 (%s)，准备回退 HTTP", action, e)
                 return None  # 触发回退
+            except json.JSONDecodeError as e:
+                logger.warning("WS %s 返回无效 JSON: %s", action, e)
+                return False  # 不触发回退——数据格式错误不会因 HTTP 改善
             except Exception as e:
-                logger.warning("WS %s 未知异常: %s", action, e)
+                logger.exception("WS %s 异常", action)
                 return None
 
         return self._run_async_safe(_call())
@@ -104,7 +107,7 @@ class NotificationManager:
         url = f"{self.onebot_http}/{action}"
         headers = {}
         if self.token:
-            if self.onebot_http.startswith("http://"):
+            if self.onebot_http.startswith("http://") and "127.0.0.1" not in self.onebot_http and "localhost" not in self.onebot_http:
                 logger.error("有 token 但 HTTP 是明文传输，拒绝发送")
                 return False
             headers["Authorization"] = f"Bearer {self.token}"
@@ -151,7 +154,7 @@ class NotificationManager:
 
     def send_qq_private(self, message: str) -> bool:
         """发送QQ私聊消息（异步，不阻塞主线程）"""
-        if not self.qq_private or not self.enabled:
+        if not self.qq_private or not self.enabled or self._executor is None:
             return False
 
         def _send():
@@ -162,7 +165,7 @@ class NotificationManager:
 
     def send_qq_group(self, message: str) -> bool:
         """发送QQ群消息（异步，不阻塞主线程）"""
-        if not self.qq_group or not self.enabled:
+        if not self.qq_group or not self.enabled or self._executor is None:
             return False
 
         def _send():
