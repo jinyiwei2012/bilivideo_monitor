@@ -36,6 +36,7 @@ class CentralBackup:
             "synced_weekly": 0,
             "synced_yearly": 0,
         }
+        backup_conn = None
         try:
             backup_conn = sqlite3.connect(central_db)
             backup_conn.row_factory = sqlite3.Row
@@ -48,7 +49,6 @@ class CentralBackup:
                 active_bvids, central_bvids = self._sync_monitor_records_to_central(active_cur, backup_cur, result)
                 self._sync_per_video_details(active_bvids, central_bvids, backup_cur, result)
             backup_conn.commit()
-            backup_conn.close()
             logger.info(
                 "中央库同步完成: %d视频 %d记录 %d瑕疵 | 预测%d 周刊%d 年刊%d",
                 result["synced_videos"],
@@ -60,6 +60,12 @@ class CentralBackup:
             )
         except Exception as e:
             logger.warning("中央库同步失败: %s", e)
+        finally:
+            if backup_conn:
+                try:
+                    backup_conn.close()
+                except Exception:
+                    pass
         return result
 
     def sync_per_video_dbs_to_backup(self):
