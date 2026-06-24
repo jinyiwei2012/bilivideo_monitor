@@ -1,6 +1,6 @@
 """
 B站API模块 - HTTP请求核心
-支持 curl_cffi TLS 指纹伪装、412 错误重试、代理绑定、指数退避
+支持 curl_cffi TLS 指纹伪装�?12 错误重试、代理绑定、指数退�?
 """
 
 import time
@@ -27,7 +27,7 @@ def _ensure_min_interval(self):
 
 def _rotate_user_agent(self):
     self.session.headers["User-Agent"] = random.choice(self.USER_AGENTS)
-    logger.debug(f"User-Agent已更换: {self.session.headers['User-Agent'][:50]}...")
+    logger.debug(f"User-Agent已更�? {self.session.headers['User-Agent'][:50]}...")
 
 
 def _get_request_cookies(self) -> Dict:
@@ -92,13 +92,13 @@ def _prepare_request_kwargs(self, **kwargs) -> Dict:
         proxy_url = proxy.get("http", "") or proxy.get("https", "")
         if proxy_url.lower().startswith(("socks4", "socks5")):
             request_kwargs.setdefault("verify", False)
-            logger.debug("→ SOCKS 代理，已禁用 SSL 证书验证")
+            logger.debug("�?SOCKS 代理，已禁用 SSL 证书验证")
         else:
-            logger.info("→ 使用 HTTP/HTTPS 代理，SSL 证书验证已启用（若代理使用自签证书请手动配置）")
+            logger.info("�?使用 HTTP/HTTPS 代理，SSL 证书验证已启用（若代理使用自签证书请手动配置�?)
         masked = self.proxy_manager.mask_url(proxy_url)
-        logger.debug(f"→ 请求代理: {masked}")
+        logger.debug(f"�?请求代理: {masked}")
     else:
-        logger.debug("→ 请求直连（无代理）")
+        logger.debug("�?请求直连（无代理�?)
     if self._has_curl_cffi and self._impersonate:
         pass
     elif ua:
@@ -145,7 +145,7 @@ def _do_http_request(self, method, url, request_kwargs, cookies):
 
 def _handle_http_412_response(self, attempt, max_retries, skip_retry) -> bool:
     self._consecutive_412_errors += 1
-    logger.error(f"HTTP 412错误 (第{attempt + 1}次尝试)")
+    logger.error(f"HTTP 412错误 (第{attempt + 1}次尝�?")
     if attempt < max_retries and not skip_retry:
         delay = _get_retry_delay(self, attempt)
         logger.info(f"等待 {delay:.1f} 秒后重试...")
@@ -165,7 +165,7 @@ def _handle_successful_response(self, data, attempt, max_retries, skip_retry):
     if _is_412_error(self, data):
         self._consecutive_412_errors += 1
         error_code, error_msg = _get_error_info(self, data)
-        logger.error(f"B站API 412错误: {error_msg} (第{attempt + 1}次尝试)")
+        logger.error(f"B站API 412错误: {error_msg} (第{attempt + 1}次尝�?")
         if attempt < max_retries and not skip_retry:
             delay = _get_retry_delay(self, attempt)
             logger.info(f"等待 {delay:.1f} 秒后重试...")
@@ -184,7 +184,7 @@ def _request(
     if max_retries is None:
         max_retries = self.max_retries
     last_error = None
-    logger.debug("→ %s %s", method.upper(), url.split("?")[0])
+    logger.debug("�?%s %s", method.upper(), url.split("?")[0])
     for attempt in range(max_retries + 1):
         try:
             _ensure_min_interval(self)
@@ -202,20 +202,20 @@ def _request(
                 raise requests.exceptions.HTTPError(f"HTTP {sc}")
             data = response.json()
             self._consecutive_412_errors = 0
-            logger.debug("← %s %s → %s", method.upper(), url.split("?")[0], sc)
+            logger.debug("�?%s %s �?%s", method.upper(), url.split("?")[0], sc)
             result, should_retry = _handle_successful_response(self, data, attempt, max_retries, skip_retry)
             if should_retry:
                 continue
             return result
         except requests.exceptions.Timeout:
             last_error = "请求超时"
-            logger.error(f"请求超时 (第{attempt + 1}次尝试)")
+            logger.error(f"请求超时 (第{attempt + 1}次尝�?")
         except requests.exceptions.ConnectionError as e:
             last_error = f"连接错误: {e}"
-            logger.error(f"连接错误 (第{attempt + 1}次尝试): {e}")
+            logger.error(f"连接错误 (第{attempt + 1}次尝�?: {e}")
         except requests.exceptions.HTTPError as e:
             last_error = f"HTTP错误: {e}"
-            logger.error(f"HTTP错误 (第{attempt + 1}次尝试): {e}")
+            logger.error(f"HTTP错误 (第{attempt + 1}次尝�?: {e}")
             if attempt < max_retries and not skip_retry:
                 delay = _get_retry_delay(self, attempt)
                 time.sleep(delay)
@@ -224,7 +224,7 @@ def _request(
             break
         except UnicodeEncodeError as e:
             last_error = f"编码错误: {e}"
-            logger.error(f"请求头编码异常 (第{attempt + 1}次尝试): {e}")
+            logger.error(f"请求头编码异�?(第{attempt + 1}次尝�?: {e}")
             break
         except Exception as e:
             last_error = str(e)
@@ -234,7 +234,7 @@ def _request(
             delay = _get_retry_delay(self, attempt)
             time.sleep(delay)
             self._on_request_failure()
-    logger.error(f"请求最终失败: {last_error}")
+    logger.error(f"请求最终失�? {last_error}")
     return None
 
 
@@ -251,14 +251,14 @@ def _request_public(self, method: str, url: str, **kwargs) -> Any:
                 proxy_url = proxy.get("http", "") or proxy.get("https", "")
                 if proxy_url.lower().startswith(("socks4", "socks5")):
                     kwargs.setdefault("verify", False)
-            logger.debug("→ [public] %s %s", method.upper(), url.split("?")[0])
+            logger.debug("�?[public] %s %s", method.upper(), url.split("?")[0])
             resp = self._public_session.request(method, url, timeout=15, **kwargs)
-            logger.debug("← [public] %s", resp.status_code)
+            logger.debug("�?[public] %s", resp.status_code)
             if resp.status_code != 200:
                 last_error = f"HTTP {resp.status_code}"
                 if attempt < max_attempts - 1:
                     delay = _get_retry_delay(self, attempt)
-                    logger.debug(f"公共API请求 {resp.status_code}，{delay:.1f}s 后重试...")
+                    logger.debug(f"公共API请求 {resp.status_code}，{delay:.1f}s 后重�?..")
                     time.sleep(delay)
                     continue
                 return None
@@ -268,13 +268,13 @@ def _request_public(self, method: str, url: str, **kwargs) -> Any:
             last_error = f"API code {data.get('code')}"
         except Exception as e:
             last_error = str(e)
-            logger.debug(f"公共API请求失败 (第{attempt + 1}次): {e}")
+            logger.debug(f"公共API请求失败 (第{attempt + 1}�?: {e}")
             if attempt < max_attempts - 1:
                 delay = _get_retry_delay(self, attempt)
                 time.sleep(delay)
                 continue
             return None
-    logger.debug(f"公共API请求最终失败: {last_error}")
+    logger.debug(f"公共API请求最终失�? {last_error}")
     return None
 
 
