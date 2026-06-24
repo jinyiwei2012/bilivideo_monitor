@@ -73,6 +73,7 @@ class AlgorithmRegistry:
     _pool = None
     _init_lock = threading.Lock()
     _history_lock = threading.Lock()
+    _cache_lock = threading.Lock()  # 保护 _derived_cache 并发读写
     _derived_cache: _LRUDict = _LRUDict(maxsize=_MAX_CACHE_SIZE)
 
     @classmethod
@@ -193,9 +194,9 @@ class AlgorithmRegistry:
         # ── 派生特征 ──────────────────────────
         n = len(view_values)
         cache_key = (bvid, n, current_value)
-        if cache_key in cls._derived_cache:
-            derived = cls._derived_cache[cache_key]
-        else:
+        with cls._cache_lock:
+            derived = cls._derived_cache.get(cache_key)
+        if derived is None:
             derived = {}
             # ── 用 numpy float32 加速，精度足够 ──
             import numpy as np
@@ -247,7 +248,8 @@ class AlgorithmRegistry:
                     derived[f"roll_mean_{win}"] = float(np.mean(win_vals))
                     derived[f"roll_std_{win}"] = float(np.std(win_vals))
                     derived[f"roll_cv_{win}"] = derived[f"roll_std_{win}"] / max(derived[f"roll_mean_{win}"], 1e-10)
-            cls._derived_cache[cache_key] = derived
+            with cls._cache_lock:
+                cls._derived_cache[cache_key] = derived
 
         return {
             "view_count": current_value,
