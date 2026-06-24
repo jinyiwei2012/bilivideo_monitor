@@ -13,6 +13,7 @@ from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QColor, QTextCharFormat, QTextCursor, QFont
 
 from ui.theme import C
+from ui.invoker import invoke
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,8 @@ class LogPanelHandler(logging.Handler):
         try:
             self._log_panel.add_log(level, msg)
         except Exception:
-            pass
+            import sys
+            sys.stderr.write(f"LogPanelHandler.emit 失败: {record.getMessage()}\n")
 
 
 _LOGGER_HANDLER_INSTALLED = False
@@ -76,6 +78,7 @@ class LogPanel(QWidget):
         self._log_level = "ALL"
         self._refresh_timer = None
         self._pending_logs = []  # 批量缓存
+        self._flush_scheduled = False  # 防止重复 invoke
         self._flush_timer = QTimer(self)
         self._flush_timer.setInterval(300)
         self._flush_timer.timeout.connect(self._flush_pending)
@@ -137,7 +140,7 @@ class LogPanel(QWidget):
         layout.addWidget(self._text, 1)
 
     def add_log(self, level, message):
-        """线程安全地添加日志"""
+        """线程安全地添加日志 — 不直接触碰 QTimer，通过 invoke 调度到主线程"""
         now = datetime.now().strftime("%H:%M:%S")
         self._log_entries.append((level, now, message))
         if len(self._log_entries) > self._MAX_ENTRIES:
@@ -145,7 +148,13 @@ class LogPanel(QWidget):
 
         # 追加到待刷新缓存
         self._pending_logs.append((level, now, message))
-        if not self._flush_timer.isActive():
+        if not self._flush_scheduled:
+            self._flush_scheduled = True
+            invoke(self._schedule_flush)
+
+    def _schedule_flush(self):
+        """在主线程启动 flush 定时器（线程安全）"""
+        if self._pending_logs:
             self._flush_timer.start()
 
     def _flush_pending(self):
@@ -166,6 +175,7 @@ class LogPanel(QWidget):
             self._log_entries = self._log_entries[-self._MAX_ENTRIES:]
 
         self._flush_timer.stop()
+        self._flush_scheduled = False
 
     def _append_text(self, level, timestamp, message):
         """在文本控件中追加一行带颜色的日志"""
@@ -219,8 +229,8 @@ class LogPanel(QWidget):
         self._log_entries.clear()
 
     def stop_auto_refresh(self):
-        """停止自动刷新（PyQt6 中不再需要定时轮询刷新日志）"""
-        pass
+        """停止自动刷新"""
+        self._flush_timer.stop()
 
     def start_auto_refresh(self, parent):
         """启动自动刷新（PyQt6 中由 flush_timer 处理）"""
