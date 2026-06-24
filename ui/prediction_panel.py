@@ -117,7 +117,7 @@ class PredictionPanel:
         layout = self._pred_hero.layout()
         if layout:
             self._clear_layout(layout)
-            self._pred_hero.setLayout(None)
+            layout.deleteLater()
         self._hero_widgets = {}
         self._hero_has_data = False
 
@@ -180,7 +180,7 @@ class PredictionPanel:
         layout = self._pred_hero.layout()
         if layout:
             self._clear_layout(layout)
-            self._pred_hero.setLayout(None)
+            layout.deleteLater()
         self._hero_widgets = {}
 
         outer = QWidget()
