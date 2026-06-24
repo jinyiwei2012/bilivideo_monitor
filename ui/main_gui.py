@@ -382,6 +382,7 @@ class BilibiliMonitorGUI(QMainWindow):
             ("🚨  异常检测", lambda: self._dialogs.open_anomaly_detection()),
             ("🏆  视频排行", lambda: self._dialogs.open_ranking()),
             ("📊  预测回测", lambda: self._dialogs.open_backtest()),
+            ("📈  预测回看", lambda: self._dialogs.open_prediction_accuracy()),
             None,
             ("🤖  AI智能问答", lambda: self._dialogs.open_ai_qa()),
             ("📊  数据大屏", lambda: self._dialogs.open_dashboard()),

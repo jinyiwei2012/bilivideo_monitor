@@ -497,6 +497,15 @@ class Dialogs:
     # 数据大屏
     # ──────────────────────────────────────────
 
+    def open_prediction_accuracy(self):
+        """打开预测准确率回看窗口"""
+        try:
+            from ui.prediction_accuracy import PredictionAccuracyPanel
+            PredictionAccuracyPanel(parent=self.gui, gui=self.gui)
+        except Exception as e:
+            import traceback
+            QMessageBox.critical(self.gui, "错误", f"打开预测回看失败: {e}\n{traceback.format_exc()}")
+
     def open_dashboard(self):
         """打开数据大屏窗口"""
         try:
