@@ -515,6 +515,15 @@ class Dialogs:
             import traceback
             QMessageBox.critical(self.gui, "错误", f"打开时段分析失败: {e}\n{traceback.format_exc()}")
 
+    def open_video_compare_enhanced(self):
+        """打开视频对比增强窗口"""
+        try:
+            from ui.video_compare_enhanced import VideoCompareEnhanced
+            VideoCompareEnhanced(parent=self.gui, gui=self.gui)
+        except Exception as e:
+            import traceback
+            QMessageBox.critical(self.gui, "错误", f"打开视频对比增强失败: {e}\n{traceback.format_exc()}")
+
     def open_dashboard(self):
         """打开数据大屏窗口"""
         try:

@@ -384,6 +384,7 @@ class BilibiliMonitorGUI(QMainWindow):
             ("📊  预测回测", lambda: self._dialogs.open_backtest()),
             ("📈  预测回看", lambda: self._dialogs.open_prediction_accuracy()),
             ("⏰  时段分析", lambda: self._dialogs.open_time_analysis()),
+            ("📊  视频对比增强", lambda: self._dialogs.open_video_compare_enhanced()),
             None,
             ("🤖  AI智能问答", lambda: self._dialogs.open_ai_qa()),
             ("📊  数据大屏", lambda: self._dialogs.open_dashboard()),
