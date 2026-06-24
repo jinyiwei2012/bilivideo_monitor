@@ -123,6 +123,11 @@ class BilibiliMonitorGUI(QMainWindow):
         self._file_logger.start_midnight_checker(self)
         QTimer.singleShot(3000, self._check_update)
 
+    def closeEvent(self, event):
+        """窗口关闭时触发完整清理流程 — 等价于 Tkinter 的 WM_DELETE_WINDOW"""
+        on_exit(self)
+        event.accept()
+
     def _set_window_config(self):
         """设置窗口配置"""
         from __init__ import __version__
