@@ -292,6 +292,11 @@ def on_exit(gui):
             logger.debug("关闭视频数据库失败 %s: %s", bvid, e)
     db.close()
     bilibili_api.close()
+    try:
+        from ui.video_list_panel import _cover_session
+        _cover_session.close()
+    except Exception as e:
+        logger.debug("关闭封面 Session 失败: %s", e)
     from algorithms.registry import AlgorithmRegistry
 
     AlgorithmRegistry.shutdown()

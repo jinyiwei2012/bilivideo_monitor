@@ -315,9 +315,10 @@ def _on_fetch_done(gui, bvid, video):
         if gui.detail.current_tab == "📈 播放量趋势":
             if hasattr(gui, "_chart_debounce") and gui._chart_debounce:
                 gui._chart_debounce.stop()
-            gui._chart_debounce = QTimer(gui)
-            gui._chart_debounce.setSingleShot(True)
-            gui._chart_debounce.timeout.connect(lambda: gui.detail._auto_render_chart())
+            else:
+                gui._chart_debounce = QTimer(gui)
+                gui._chart_debounce.setSingleShot(True)
+                gui._chart_debounce.timeout.connect(lambda: gui.detail._auto_render_chart())
             gui._chart_debounce.start(100)
         elif gui.detail.current_tab == "📋 详细数据":
             gui.detail._fill_detail_text(video)

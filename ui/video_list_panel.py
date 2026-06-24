@@ -57,8 +57,8 @@ class CoverLoader(QObject):
                     if not pixmap.isNull():
                         self.cover_loaded.emit(bvid, pixmap)
                         save_cover(bvid, resp.content)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("封面加载失败 %s: %s", bvid, e)
 
 
 class VideoCardDelegate(QStyledItemDelegate):
@@ -164,6 +164,13 @@ class VideoListPanel(QWidget):
         self._cover_thread.start()
 
         self._build()
+
+    def closeEvent(self, event):
+        """清理封面加载线程"""
+        self._cover_loader._running = False
+        self._cover_thread.quit()
+        self._cover_thread.wait(2000)
+        super().closeEvent(event)
 
     def _build(self):
         """构建左侧面板"""

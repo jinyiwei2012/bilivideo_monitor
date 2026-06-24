@@ -372,9 +372,12 @@ def _predict_single(gui, bvid, video) -> dict:
 
     # 后台：图更新 + 视频库保存 + 中央库同步
     def _save_all():
-        _update_video_graph(gui, bvid, video)
-        rows, ensemble, coherence = _save_predictions_to_db(gui, bvid, current_view, results)
-        _sync_predictions_to_central(bvid, rows, ensemble, coherence)
+        try:
+            _update_video_graph(gui, bvid, video)
+            rows, ensemble, coherence = _save_predictions_to_db(gui, bvid, current_view, results)
+            _sync_predictions_to_central(bvid, rows, ensemble, coherence)
+        except Exception:
+            logger.exception("后台保存预测数据失败 %s", bvid)
 
     threading.Thread(target=_save_all, daemon=True).start()
 
