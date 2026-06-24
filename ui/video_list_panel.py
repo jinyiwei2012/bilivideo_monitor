@@ -45,20 +45,24 @@ class CoverLoader(QObject):
         self._running = True
 
     def load_cover(self, bvid, url):
-        """在线程中加载封面"""
+        """在后台线程加载封面——不阻塞主线程"""
         if not self._running:
             return
-        try:
-            with _cover_semaphore:
-                resp = _cover_session.get(url, timeout=10)
-                if resp.status_code == 200:
-                    pixmap = QPixmap()
-                    pixmap.loadFromData(resp.content)
-                    if not pixmap.isNull():
-                        self.cover_loaded.emit(bvid, pixmap)
-                        save_cover(bvid, resp.content)
-        except Exception as e:
-            logger.debug("封面加载失败 %s: %s", bvid, e)
+
+        def _fetch():
+            try:
+                with _cover_semaphore:
+                    resp = _cover_session.get(url, timeout=10)
+                    if resp.status_code == 200:
+                        pixmap = QPixmap()
+                        pixmap.loadFromData(resp.content)
+                        if not pixmap.isNull():
+                            self.cover_loaded.emit(bvid, pixmap)
+                            save_cover(bvid, resp.content)
+            except Exception as e:
+                logger.debug("封面加载失败 %s: %s", bvid, e)
+
+        threading.Thread(target=_fetch, daemon=True, name=f"cover-{bvid}").start()
 
 
 class VideoCardDelegate(QStyledItemDelegate):
