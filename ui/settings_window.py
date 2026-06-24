@@ -75,17 +75,21 @@ from ui.settings_account import (
     _remove_account,
     _password_login,
 )
-from ui.settings_advanced import (
+from ui.settings_ai import (
     _build_ai_tab,
     _on_ai_profile_selected,
     _save_ai_profile,
     _delete_ai_profile,
     _new_ai_profile,
     _test_ai_connection,
+)
+from ui.settings_weights import (
     _build_weights_tab,
     _reset_all_weights,
     _refresh_weights,
     _save_weights,
+)
+from ui.settings_training import (
     _build_training_tab,
     _refresh_device_info,
     _on_infer_device_changed,
@@ -99,6 +103,8 @@ from ui.settings_advanced import (
     _on_import_checkpoints,
     _poll_training_progress,
     _open_version_manager,
+)
+from ui.settings_about import (
     _build_about_tab,
 )
 
