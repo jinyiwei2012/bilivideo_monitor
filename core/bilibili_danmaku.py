@@ -95,7 +95,7 @@ class DanmakuMonitor:
                     with self._lock:
                         self._progress[key] = db_last
             except Exception:
-                pass
+                logger.debug("[弹幕] 从 DB 恢复进度失败，将从段 1 重新获取")
 
         # ── 阶段 1: 获取总段数 ──
         total_segs = self._fetch_total_segments(cid, aid)
@@ -122,8 +122,7 @@ class DanmakuMonitor:
                 if error_streak >= _MAX_ERROR_STREAK:
                     logger.warning("[弹幕] %s 连续 %d 次 API 错误，段=%d 放弃本轮",
                                    bvid, error_streak, seg)
-                    seg += 1
-                    break
+                    break  # 不前进 seg——该段将在下一轮重试
                 time.sleep(1.0)
                 continue
 
