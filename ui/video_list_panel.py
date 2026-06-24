@@ -156,20 +156,15 @@ class VideoListPanel(QWidget):
         self._card_widgets = {}  # bvid -> index
         self._search_text = ""
 
-        # 封面加载器
+        # 封面加载器 — 在主线程通过 QTimer.singleShot 延迟加载，_cover_semaphore(4) 限制并发
         self._cover_loader = CoverLoader()
         self._cover_loader.cover_loaded.connect(self._on_cover_loaded)
-        self._cover_thread = QThread()
-        self._cover_loader.moveToThread(self._cover_thread)
-        self._cover_thread.start()
 
         self._build()
 
     def closeEvent(self, event):
-        """清理封面加载线程"""
+        """清理封面加载器"""
         self._cover_loader._running = False
-        self._cover_thread.quit()
-        self._cover_thread.wait(2000)
         super().closeEvent(event)
 
     def _build(self):
@@ -291,7 +286,7 @@ class VideoListPanel(QWidget):
             self._list.addItem(item)
 
             # 触发封面异步加载
-            cover_url = v.get("cover_url", "")
+            cover_url = v.get("pic", v.get("cover_url", ""))
             if cover_url:
                 local = get_valid_cover(bvid)
                 if local:
