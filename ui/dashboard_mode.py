@@ -217,7 +217,7 @@ class DashboardWindow(QWidget):
         self._show_page(self._page)
 
     def _show_page(self, page: int):
-        """渲染指定页码的内容到 QStackedWidget"""
+        """切换到指定页码——首次构建 widget，后续仅更新数值"""
         self._stack.setCurrentIndex(page)
 
         # 更新指示器
@@ -225,19 +225,29 @@ class DashboardWindow(QWidget):
             color = _DASH_COLORS["accent"] if i == page else _DASH_COLORS["text_2"]
             d.setStyleSheet(f"color: {color}; background: transparent;")
 
-        # 重建当前页
         current_page = self._stack.currentWidget()
-        # 清除旧内容
-        self._clear_widget(current_page)
+
+        # 判断是否已构建
+        if not hasattr(self, "_page_built"):
+            self._page_built = [False] * self._total_pages
 
         pages = [
-            self._build_overview,
-            self._build_ranking,
-            self._build_prediction,
-            self._build_health,
+            (self._build_overview, self._update_overview),
+            (self._build_ranking, self._update_ranking),
+            (self._build_prediction, self._update_prediction),
+            (self._build_health, self._update_health),
         ]
+
         if 0 <= page < len(pages):
-            pages[page](current_page)
+            if not self._page_built[page]:
+                # 首次构建
+                build_fn, _ = pages[page]
+                build_fn(current_page)
+                self._page_built[page] = True
+            else:
+                # 增量更新
+                _, update_fn = pages[page]
+                update_fn()
 
     def _clear_widget(self, widget):
         """清除 QWidget 的所有子控件"""
@@ -588,3 +598,60 @@ class DashboardWindow(QWidget):
                 layout.addWidget(probe_frame)
         except Exception as e:
             logger.debug("渲染健康探针区域失败: %s", e)
+
+    # ── 增量更新方法（避免销毁重建） ──────────
+
+    def _update_overview(self):
+        """增量更新总览页的数据"""
+        page = self._stack.widget(0)
+        layout = page.layout()
+        if not layout or layout.count() < 2:
+            return self._build_overview(page)
+        videos = self.gui.monitored_videos
+        total = len(videos)
+        total_views = sum(v.get("view_count", 0) for v in videos)
+        total_likes = sum(v.get("like_count", 0) for v in videos)
+        achieved = sum(1 for v in videos if v.get("view_count", 0) >= 10000)
+
+        stat_row = layout.itemAt(0).widget()
+        if stat_row:
+            stat_layout = stat_row.layout()
+            if stat_layout and stat_layout.count() >= 4:
+                # 更新 4 个指标卡的值标签
+                vals = [_fmt(total), _fmt(total_views), _fmt(total_likes), str(achieved)]
+                for i in range(min(4, stat_layout.count())):
+                    card = stat_layout.itemAt(i).widget()
+                    if isinstance(card, QFrame):
+                        card_layout = card.layout()
+                        if card_layout and card_layout.count() >= 2:
+                            val_lbl = card_layout.itemAt(1).widget()
+                            if isinstance(val_lbl, QLabel) and i < len(vals):
+                                val_lbl.setText(vals[i])
+
+    def _update_ranking(self):
+        """增量更新排行页"""
+        page = self._stack.widget(1)
+        layout = page.layout()
+        if not layout or layout.count() == 0:
+            return self._build_ranking(page)
+        # 非关键页：直接重建（频率低，数据变化大）
+        self._clear_widget(page)
+        self._build_ranking(page)
+
+    def _update_prediction(self):
+        """增量更新预测页"""
+        page = self._stack.widget(2)
+        layout = page.layout()
+        if not layout or layout.count() == 0:
+            return self._build_prediction(page)
+        self._clear_widget(page)
+        self._build_prediction(page)
+
+    def _update_health(self):
+        """增量更新健康页"""
+        page = self._stack.widget(3)
+        layout = page.layout()
+        if not layout or layout.count() == 0:
+            return self._build_health(page)
+        self._clear_widget(page)
+        self._build_health(page)
