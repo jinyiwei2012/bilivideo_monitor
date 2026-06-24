@@ -13,7 +13,7 @@ from PyQt6.QtCore import Qt
 from ui.theme import C
 from ui.helpers import FONT
 from ui.dialog_base import DialogBase
-from utils.tag_manager import get_tags, set_tags, all_tags
+from utils.tag_manager import get_tags, set_tags, all_tags, suggest_tags
 
 
 class TagManagerWindow:
@@ -76,6 +76,11 @@ class TagManagerWindow:
         add_btn = QPushButton("添加标签")
         add_btn.clicked.connect(self._add_tag)
         tag_input_layout.addWidget(add_btn)
+
+        suggest_btn = QPushButton("💡 建议")
+        suggest_btn.setToolTip("根据视频信息自动建议标签")
+        suggest_btn.clicked.connect(self._auto_suggest)
+        tag_input_layout.addWidget(suggest_btn)
 
         left_layout.addWidget(tag_input_row)
         main_layout.addWidget(left, 1)
@@ -230,3 +235,27 @@ class TagManagerWindow:
         self._tag_entry.clear()
         self._refresh_tags()
         self._refresh()
+
+    def _auto_suggest(self):
+        """根据视频信息自动建议并添加标签"""
+        if not self._selected_bvid:
+            return
+        video = next((v for v in self.gui.monitored_videos if v.get("bvid") == self._selected_bvid), None)
+        if not video:
+            return
+        suggestions = suggest_tags(video)
+        existing = set(get_tags(self._selected_bvid))
+        new_tags = [t for t in suggestions if t not in existing]
+        if not new_tags:
+            QMessageBox.information(self.dlg.window, "提示", "没有新的建议标签")
+            return
+        added = ", ".join(new_tags)
+        reply = QMessageBox.question(
+            self.dlg.window, "标签建议",
+            f"建议添加以下标签：\n{added}\n\n是否添加？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            set_tags(self._selected_bvid, list(existing) + new_tags)
+            self._refresh_tags()
+            self._refresh()
