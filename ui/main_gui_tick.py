@@ -11,6 +11,7 @@ import logging
 from PyQt6.QtCore import QTimer
 
 from core.smart_alert import AnomalyDetector
+from ui.invoker import invoke
 from ui.theme import C
 
 logger = logging.getLogger(__name__)
@@ -236,7 +237,7 @@ def scan_alerts_background(gui):
 
     if alerts:
         n = len(alerts)
-        QTimer.singleShot(0, lambda: gui._sb("alert", f"🚨 {n} 条异常", C["danger"]))
+        invoke(lambda: gui._sb("alert", f"🚨 {n} 条异常", C["danger"]))
         title = f"🚨 B站监控异常告警 ({n} 条)"
         msg_lines = [title, "─" * 20]
         for bvid, t, a in alerts[:5]:
@@ -253,7 +254,7 @@ def scan_alerts_background(gui):
         except Exception as e:
             logger.debug("推送异常告警失败: %s", e)
     else:
-        QTimer.singleShot(0, lambda: gui._sb("alert", ""))
+        invoke(lambda: gui._sb("alert", ""))
 
 
 def wal_checkpoint_worker(gui):

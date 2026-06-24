@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer, QSize
 
 from ui.theme import C
+from ui.invoker import invoke, invoke_later
 from ui.helpers import (
     FONT, FONT_SM, THRESHOLD_NAMES, fmt_num,
     nearest_threshold_gap, fmt_eta,
@@ -108,9 +109,9 @@ def check_update(gui):
         if has_update and latest:
             from __init__ import __version__
 
-            QTimer.singleShot(0, lambda: gui._sb("status", f"发现新版本 v{latest} (当前 v{__version__})", C["warning"]))
+            invoke(lambda: gui._sb("status", f"发现新版本 v{latest} (当前 v{__version__})", C["warning"]))
             logger.info("有新版本可用: v%s (当前 v%s), %s", latest, __version__, url)
-            QTimer.singleShot(0, lambda: show_update_dialog(gui, latest, __version__, url, changelog, channel))
+            invoke(lambda: show_update_dialog(gui, latest, __version__, url, changelog, channel))
 
     check_for_update_async(_on_result)
 
@@ -825,12 +826,11 @@ def run_post_training_predict(gui):
             )
     except Exception:
         pass
-    QTimer.singleShot(0, lambda: gui._sb("status", status_msg, C["success"]))
+    invoke(lambda: gui._sb("status", status_msg, C["success"]))
     if gui.selected_bvid:
         if gui.selected_bvid in gui.prediction_results:
             r = gui.prediction_results[gui.selected_bvid]
-            QTimer.singleShot(
-                0,
+            invoke(
                 lambda: prediction_done(
                     gui, r["prediction"], r["current_view"],
                     r["growth"], r["rate_per_sec"],
@@ -838,7 +838,7 @@ def run_post_training_predict(gui):
                     r["valid"], r["total"], r.get("surge_info"),
                 ),
             )
-        QTimer.singleShot(100, lambda: gui.detail._manual_render_chart())
+        invoke_later(100, lambda: gui.detail._manual_render_chart())
     logger.info("训练后预测完成 (%d 个视频)", len(bvids))
 
 
