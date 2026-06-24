@@ -349,9 +349,6 @@ def try_parse_danmaku(data: bytes) -> Tuple[Optional[List[Dict]], str]:
         try:
             try:
                 from defusedxml.ElementTree import fromstring as _xml_parse
-            except ImportError:
-                import xml.etree.ElementTree as _ET
-                _xml_parse = _ET.fromstring
 
             root = _xml_parse(data)
             danmaku = []

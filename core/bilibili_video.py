@@ -155,10 +155,6 @@ def get_video_danmaku(self, oid: int) -> List[Dict]:
             return []
         try:
             from defusedxml.ElementTree import fromstring as _xml_parse
-        except ImportError:
-            import xml.etree.ElementTree as _ET
-
-            _xml_parse = _ET.fromstring
 
         root = _xml_parse(resp.content)
         danmaku = []

@@ -304,9 +304,6 @@ class DanmakuMonitor:
         """XML 格式降级解析。"""
         try:
             from defusedxml.ElementTree import fromstring as _xml_parse
-        except ImportError:
-            import xml.etree.ElementTree as _ET
-            _xml_parse = _ET.fromstring
         try:
             root = _xml_parse(data)
             danmaku = []
