@@ -446,7 +446,7 @@ class OnlineViewersPanel(QWidget):
         self._active = False
         self._stop_auto_refresh()
         if self._fetch_pool:
-            self._fetch_pool.shutdown(wait=False)
+            self._fetch_pool.shutdown(wait=True, timeout=5)
             self._fetch_pool = None
         _close_viewers_db()
 
