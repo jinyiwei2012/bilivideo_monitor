@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
     QListWidgetItem, QLabel, QPushButton, QLineEdit,
     QFrame, QSizePolicy, QStyledItemDelegate, QStyle,
 )
-from PyQt6.QtCore import Qt, QSize, pyqtSignal, QObject
+from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal, QObject
 from PyQt6.QtGui import QPixmap, QFont, QColor, QPainter, QBrush, QPen, QFontMetrics
 
 from ui.theme import C
@@ -125,7 +125,7 @@ class VideoCardDelegate(QStyledItemDelegate):
         painter.drawText(tx, ty - fm.height() + 14, title)
 
         # 播放量
-        views = data.get("view", 0)
+        views = data.get("view_count", 0)
         painter.setPen(QColor(C["text_2"]))
         font_sm = QFont("Microsoft YaHei UI", 8)
         painter.setFont(font_sm)
@@ -253,7 +253,7 @@ class VideoListPanel(QWidget):
             item = self._list.item(i)
             data = item.data(Qt.ItemDataRole.UserRole)
             if data and data.get("bvid") == bvid:
-                self._list.update(item)
+                self._list.update(self._list.indexFromItem(item))
                 break
 
     def _on_search(self, text):
@@ -299,7 +299,6 @@ class VideoListPanel(QWidget):
                         if isinstance(delegate, VideoCardDelegate):
                             delegate.set_cover(bvid, pixmap)
                 else:
-                    QTimer = __import__('PyQt6.QtCore', fromlist=['QTimer']).QTimer
                     QTimer.singleShot(0, lambda b=bvid, u=cover_url: (
                         self._cover_loader.load_cover(b, u)
                     ))
@@ -337,18 +336,16 @@ class VideoListPanel(QWidget):
                 data.update(video)
                 item.setData(Qt.ItemDataRole.UserRole, data)
                 # 刷新显示
-                self._list.update(item)
+                self._list.update(self._list.indexFromItem(item))
                 # 触发封面加载
                 cover_url = video.get("pic", video.get("cover_url", ""))
                 if cover_url:
-                    from utils.cover_manager import get_valid_cover
                     local = get_valid_cover(bvid)
                     if local:
                         pixmap = QPixmap(local)
                         if not pixmap.isNull() and isinstance(delegate, VideoCardDelegate):
                             delegate.set_cover(bvid, pixmap)
                     else:
-                        from PyQt6.QtCore import QTimer
                         QTimer.singleShot(0, lambda b=bvid, u=cover_url: (
                             self._cover_loader.load_cover(b, u)
                         ))
