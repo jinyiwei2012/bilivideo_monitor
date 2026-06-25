@@ -467,6 +467,19 @@ class Dialogs:
             QMessageBox.critical(self.gui, "错误", f"打开弹幕分析失败: {e}\n{traceback.format_exc()}")
 
     # ──────────────────────────────────────────
+    # 历史弹幕拉取
+    # ──────────────────────────────────────────
+
+    def open_danmaku_history(self):
+        """打开历史弹幕拉取窗口"""
+        try:
+            from ui.danmaku_history import DanmakuHistoryWindow
+            DanmakuHistoryWindow(parent=self.gui, gui=self.gui)
+        except Exception as e:
+            import traceback
+            QMessageBox.critical(self.gui, "错误", f"打开历史弹幕失败: {e}\n{traceback.format_exc()}")
+
+    # ──────────────────────────────────────────
     # 热门发现
     # ──────────────────────────────────────────
 

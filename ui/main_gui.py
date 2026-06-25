@@ -377,6 +377,7 @@ class BilibiliMonitorGUI(QMainWindow):
             ("🏆  里程碑", lambda: self._dialogs.open_milestone_stats()),
             ("🆙  UP主追踪", lambda: self._dialogs.open_up_tracker()),
             ("💬  弹幕分析", lambda: self._dialogs.open_danmaku_analysis()),
+            ("📜  历史弹幕", lambda: self._dialogs.open_danmaku_history()),
             ("🔥  热门发现", lambda: self._dialogs.open_trending_discovery()),
             ("🎫  视频标签", lambda: self._dialogs.open_tag_manager()),
             ("🚨  异常检测", lambda: self._dialogs.open_anomaly_detection()),

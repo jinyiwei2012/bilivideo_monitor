@@ -30,6 +30,8 @@ logger = logging.getLogger(__name__)
 _DANMAKU_SEG_URL = "https://api.bilibili.com/x/v2/dm/web/seg.so"
 _DANMAKU_WBI_SEG_URL = "https://api.bilibili.com/x/v2/dm/wbi/web/seg.so"
 _DANMAKU_VIEW_URL = "https://api.bilibili.com/x/v2/dm/web/view"
+_DANMAKU_HISTORY_INDEX_URL = "https://api.bilibili.com/x/v2/dm/history/index"
+_DANMAKU_HISTORY_SEG_URL = "https://api.bilibili.com/x/v2/dm/web/history/seg.so"
 
 # ── 拉取参数 ──────────────────────────────────────
 _MAX_SEGMENTS = 300          # 兜底上限（6分钟/段，300段=30小时）
@@ -358,6 +360,133 @@ class DanmakuMonitor:
             return danmaku
         except Exception:
             return []
+
+    # ──────────────────────────────────────────────
+    #  历史弹幕
+    # ──────────────────────────────────────────────
+
+    def fetch_history_index(self, cid: int, month: str) -> List[str]:
+        """查询指定月份有哪些日期存在历史弹幕。
+
+        API: GET /x/v2/dm/history/index
+        需要登录 (Cookie: SESSDATA)
+
+        Args:
+            cid:   视频 cid
+            month: 月份，格式 "YYYY-MM"
+
+        Returns:
+            日期列表，如 ["2024-06-15", "2024-06-16"]。失败或无弹幕返回空列表。
+        """
+        try:
+            resp = self._api.session.get(
+                _DANMAKU_HISTORY_INDEX_URL,
+                params={"type": 1, "oid": cid, "month": month},
+                headers={
+                    "User-Agent": self._api.USER_AGENTS[0],
+                    "Referer": "https://www.bilibili.com/",
+                },
+                timeout=15,
+            )
+            if resp.status_code != 200:
+                logger.debug("历史弹幕索引 HTTP %d cid=%d month=%s", resp.status_code, cid, month)
+                return []
+            data = resp.json()
+            if data.get("code") != 0:
+                logger.debug("历史弹幕索引失败 cid=%d month=%s: code=%s msg=%s",
+                             cid, month, data.get("code"), data.get("message"))
+                return []
+            return data.get("data") or []
+        except Exception as e:
+            logger.debug("历史弹幕索引异常 cid=%d month=%s: %s", cid, month, e)
+            return []
+
+    def fetch_history_segment(self, cid: int, date: str) -> List[Dict]:
+        """拉取指定日期的一条历史弹幕段。
+
+        API: GET /x/v2/dm/web/history/seg.so
+        需要登录。返回 DmSegMobileReply（与实时弹幕相同 Proto 格式）。
+
+        Args:
+            cid:  视频 cid
+            date: 日期，格式 "YYYY-MM-DD"
+
+        Returns:
+            标准化弹幕列表。失败返回空列表。
+        """
+        try:
+            resp = self._api.session.get(
+                _DANMAKU_HISTORY_SEG_URL,
+                params={"type": 1, "oid": cid, "date": date},
+                headers={
+                    "User-Agent": self._api.USER_AGENTS[0],
+                    "Referer": "https://www.bilibili.com/",
+                },
+                timeout=15,
+            )
+            if resp.status_code != 200:
+                logger.debug("历史弹幕段 HTTP %d cid=%d date=%s", resp.status_code, cid, date)
+                return []
+
+            from core.bilibili_danmaku_proto import parse_danmaku_segment
+            elems = parse_danmaku_segment(resp.content)
+            if not elems:
+                return []
+            return self._normalize_elems(elems)
+        except Exception as e:
+            logger.debug("历史弹幕段异常 cid=%d date=%s: %s", cid, date, e)
+            return []
+
+    def fetch_history_danmaku(self, bvid: str, cid: int, video_db=None,
+                               month: str = None, on_progress=None) -> int:
+        """拉取指定月份的全部历史弹幕并存入 DB。
+
+        两步流程：
+        1. GET history/index 获取有弹幕的日期列表
+        2. 逐日拉取 history/seg.so（日弹幕只有一个段）
+
+        Args:
+            bvid:        视频 BV 号
+            cid:         视频 cid
+            video_db:    VideoDatabase 实例（存库用）
+            month:       月份 "YYYY-MM"，默认当前月
+            on_progress: 进度回调 (date: str, count: int, total_dates: int) -> None
+
+        Returns:
+            int: 新增弹幕总数
+        """
+        if month is None:
+            from datetime import datetime
+            month = datetime.now().strftime("%Y-%m")
+
+        # 1. 获取有弹幕的日期
+        dates = self.fetch_history_index(cid, month)
+        if not dates:
+            logger.info("[历史弹幕] %s %s 无弹幕数据", bvid, month)
+            return 0
+
+        logger.info("[历史弹幕] %s 开始拉取 %s (%d 天)", bvid, month, len(dates))
+
+        # 2. 逐日拉取
+        total_new = 0
+        for i, date in enumerate(dates):
+            elems = self.fetch_history_segment(cid, date)
+            count = len(elems)
+
+            if elems and video_db:
+                # 历史弹幕用 date 作为 segment_index 标识
+                self._save_to_db(video_db, bvid, cid, 0, elems)
+
+            total_new += count
+            if on_progress:
+                on_progress(date, count, len(dates))
+
+            if count > 0:
+                logger.debug("[历史弹幕] %s %s: %d 条", bvid, date, count)
+            time.sleep(_SEGMENT_DELAY)
+
+        logger.info("[历史弹幕] %s 完成: %d 条 (%d 天)", bvid, total_new, len(dates))
+        return total_new
 
     # ──────────────────────────────────────────────
     #  存库
