@@ -2281,10 +2281,8 @@ def _rank_backends(algo_id, x_arr, window, in_features, v_mean, v_std,
         except Exception as e:
             logger.debug("[%s] benchmark onnx failed: %s", algo_id, e)
 
-        # 排序：torch 始终第一（CUDA 最快），NPU/ONNX 按基准排序
-        torch_rank = [r for r in rankings if r[0] == "torch"]
-        other_rank = sorted([r for r in rankings if r[0] != "torch"], key=lambda x: x[1])
-        sorted_rankings = torch_rank + other_rank
+        # 排序：按实际基准速度排序，不再假设 torch/CUDA 一定最快
+        sorted_rankings = sorted(rankings, key=lambda x: x[1])
         result = [name for name, _ in sorted_rankings]
         if not result:
             result = ["torch"]
