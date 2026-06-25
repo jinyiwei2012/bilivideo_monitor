@@ -168,4 +168,3 @@ def suggest_tags(video: dict) -> List[str]:
 
 
 suggest_tags.by_author = {}  # type: ignore
-    return dict(_tags)
