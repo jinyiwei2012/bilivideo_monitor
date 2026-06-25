@@ -132,7 +132,7 @@ def _apply_retry_settings(self):
     get_bilibili_api().max_retries = int(self.retry_count_var.value())
     get_bilibili_api().base_retry_delay = self.base_delay_var.value()
     get_bilibili_api()._min_request_interval = self.min_interval_var.value()
-    QMessageBox.information(self.window, "成功", "重试设置已更新")
+    QMessageBox.information(self.dlg, "成功", "重试设置已更新")
 
 
 def _refresh_status(self):
@@ -172,7 +172,7 @@ def _apply_status(self, status: dict):
 
 def _reset_status(self):
     reply = QMessageBox.question(
-        self.window, "确认", "确定要重置所有状态吗？",
+        self.dlg, "确认", "确定要重置所有状态吗？",
         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
     )
     if reply == QMessageBox.StandardButton.Yes:

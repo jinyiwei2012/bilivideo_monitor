@@ -415,19 +415,19 @@ def _on_train_start(self):
     from algorithms.training.device import is_torch_available
 
     if not is_torch_available():
-        QMessageBox.critical(self.window, "torch 未安装", "请先安装 PyTorch:\npip install torch")
+        QMessageBox.critical(self.dlg, "torch 未安装", "请先安装 PyTorch:\npip install torch")
         return
 
     selected = [aid for aid, v in self._tr_check_vars.items() if v.isChecked()]
     if not selected:
-        QMessageBox.warning(self.window, "提示", "请至少勾选一个算法")
+        QMessageBox.warning(self.dlg, "提示", "请至少勾选一个算法")
         return
 
     epochs = max(1, self._tr_epoch_sb.value())
     batch = max(1, self._tr_batch_sb.value())
 
     if not QMessageBox.question(
-        self.window, "确认训练",
+        self.dlg, "确认训练",
         f"将训练 {len(selected)} 个算法，epoch={epochs}，batch={batch}。\n"
         "训练过程不可中途暂停（只能取消未开始的算法）。",
         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -489,20 +489,20 @@ def _on_export_checkpoints(self):
         self._tr_status_lbl.setText(f"导出完成: {os.path.basename(path)}")
         self._tr_status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
         if QMessageBox.question(
-            self.window, "导出完成",
+            self.dlg, "导出完成",
             f"模型已导出到:\n{path}\n\n是否打开所在文件夹？",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         ) == QMessageBox.StandardButton.Yes:
             os.startfile(os.path.dirname(path))
     except Exception as e:
-        QMessageBox.critical(self.window, "导出失败", str(e))
+        QMessageBox.critical(self.dlg, "导出失败", str(e))
         self._tr_status_lbl.setText(f"导出失败: {e}")
         self._tr_status_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
 
 
 def _on_import_checkpoints(self):
     path = QFileDialog.getOpenFileName(
-        self.window, "选择要导入的 checkpoint 文件", "",
+        self.dlg, "选择要导入的 checkpoint 文件", "",
         "Zip 文件 (*.zip);;所有文件 (*.*)",
     )[0]
     if not path:
@@ -510,10 +510,10 @@ def _on_import_checkpoints(self):
     try:
         from utils.checkpoint_io import import_checkpoints
         count = import_checkpoints(path)
-        QMessageBox.information(self.window, "导入完成", f"已导入 {count} 个算法的模型\n\n请刷新算法列表查看更新。")
+        QMessageBox.information(self.dlg, "导入完成", f"已导入 {count} 个算法的模型\n\n请刷新算法列表查看更新。")
         self._refresh_algo_list()
     except Exception as e:
-        QMessageBox.critical(self.window, "导入失败", str(e))
+        QMessageBox.critical(self.dlg, "导入失败", str(e))
 
 
 def _poll_training_progress(self):
@@ -605,7 +605,7 @@ def _open_version_manager(self, algo_id: str):
 
 def _draw_version_ui(self, algo_id: str, ckpt):
     """构建版本管理窗口和版本列表 Treewidget"""
-    top = QDialog(self.window)
+    top = QDialog(self.dlg)
     top.setWindowTitle(f"版本管理 — {algo_id}")
     top.setStyleSheet(f"background-color: {C['bg_surface']};")
     screen = top.screen()

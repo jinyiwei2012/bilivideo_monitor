@@ -43,7 +43,7 @@ def _test_connection(self):
     token = self.onebot_token.text().strip()
 
     if not http_url:
-        QMessageBox.warning(self.window, "提示", "请先填写 HTTP 地址")
+        QMessageBox.warning(self.dlg, "提示", "请先填写 HTTP 地址")
         return
 
     from core.notification import notification_manager
@@ -74,13 +74,13 @@ def _show_test_result(self, result: dict):
         ver = result.get("version", "") or "未知版本"
         channel = result.get("channel", "HTTP")
         QMessageBox.information(
-            self.window,
+            self.dlg,
             "连接成功",
             f"✅ OneBot 服务连接成功\n\n通道: {channel}\n版本: {ver}",
         )
     else:
         QMessageBox.critical(
-            self.window,
+            self.dlg,
             "连接失败",
             f"❌ OneBot 服务连接失败\n\n原因: {result.get('error', '未知错误')}",
         )

@@ -190,11 +190,11 @@ def _build_weights_tab(self, nb):
 
 
 def _reset_all_weights(self):
-    if QMessageBox.question(self.window, "确认", "确定要重置所有自定义权重吗？",
+    if QMessageBox.question(self.dlg, "确认", "确定要重置所有自定义权重吗？",
                             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes:
         get_weight_manager().reset_weights()
         self._refresh_weights()
-        QMessageBox.information(self.window, "成功", "已重置所有权重")
+        QMessageBox.information(self.dlg, "成功", "已重置所有权重")
 
 
 def _refresh_weights(self):
@@ -217,5 +217,5 @@ def _save_weights(self):
             get_weight_manager().set_user_weight(name, weight)
         else:
             get_weight_manager().clear_user_weight(name)
-    QMessageBox.information(self.window, "成功", "权重设置已保存")
+    QMessageBox.information(self.dlg, "成功", "权重设置已保存")
 

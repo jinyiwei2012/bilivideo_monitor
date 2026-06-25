@@ -370,7 +370,7 @@ class SettingsWindow:
         self._cfg["ai"] = {
             "enabled": any(p.get("api_key") for p in self._profiles),
             "profiles": self._profiles,
-            "selected_profile": self._ai_profile_var,
+            "selected_profile": self._ai_profile_cb.currentText() if hasattr(self, '_ai_profile_cb') else "",
         }
         save_config(self._cfg)
 

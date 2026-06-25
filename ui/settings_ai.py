@@ -201,7 +201,7 @@ def _on_ai_profile_selected(self):
 def _save_ai_profile(self):
     name = self._ai_name_entry.text().strip()
     if not name:
-        QMessageBox.warning(self.window, "提示", "配置名称不能为空")
+        QMessageBox.warning(self.dlg, "提示", "配置名称不能为空")
         return
     api_key = self._ai_key_entry.text().strip()
     endpoint = self._ai_endpoint_entry.text().strip() or "https://api.openai.com/v1/chat/completions"
@@ -228,9 +228,9 @@ def _delete_ai_profile(self):
         return
     name = self._profiles[idx]["name"]
     if len(self._profiles) <= 1:
-        QMessageBox.warning(self.window, "提示", "至少保留一个配置")
+        QMessageBox.warning(self.dlg, "提示", "至少保留一个配置")
         return
-    if not QMessageBox.question(self.window, "确认删除", f"确定删除配置「{name}」？",
+    if not QMessageBox.question(self.dlg, "确认删除", f"确定删除配置「{name}」？",
                                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes:
         return
     self._profiles = [p for p in self._profiles if p["name"] != name]
@@ -252,7 +252,7 @@ def _test_ai_connection(self):
     model = self._ai_model_entry.text().strip()
 
     if not api_key:
-        QMessageBox.warning(self.window, "提示", "请先填写 API 密钥")
+        QMessageBox.warning(self.dlg, "提示", "请先填写 API 密钥")
         return
     if not endpoint:
         endpoint = "https://api.openai.com/v1/chat/completions"
@@ -306,9 +306,9 @@ def _test_ai_connection(self):
         except Exception as e:
             result.append(f"❌ 请求失败: {e}")
 
-        QTimer.singleShot(0, lambda: QMessageBox.information(self.window, "API 连接测试", result[0] if result else "❌ 无响应"))
+        QTimer.singleShot(0, lambda: QMessageBox.information(self.dlg, "API 连接测试", result[0] if result else "❌ 无响应"))
 
     _th = threading.Thread(target=_worker, daemon=True)
     _th.start()
-    QMessageBox.information(self.window, "测试中", f"正在测试 {model} 连接...\n请稍候")
+    QMessageBox.information(self.dlg, "测试中", f"正在测试 {model} 连接...\n请稍候")
 
