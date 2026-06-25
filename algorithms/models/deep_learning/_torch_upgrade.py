@@ -2288,7 +2288,7 @@ def _rank_backends(algo_id, x_arr, window, in_features, v_mean, v_std,
             result = ["torch"]
         _AUTO_BACKEND_RANK[algo_id] = result
         logger.info("[%s] 后端排序: %s", algo_id, " > ".join(
-            f"{n}({l:.2f}ms)" for n, l in rankings
+            f"{n}({l:.2f}ms)" for n, l in sorted_rankings
         ))
         return result
 
