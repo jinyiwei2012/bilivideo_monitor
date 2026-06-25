@@ -484,10 +484,21 @@ def post_fetch(gui):
 
 
 def show_video_detail(gui, video):
-    """显示视频详情"""
+    """显示视频详情 — 先刷新预测面板（瞬时），再刷新详情（可能有渲染延迟）"""
+    bvid = video.get("bvid", "")
+    # 立即用缓存刷新预测面板
+    cached = gui.prediction_results.get(bvid)
+    if cached:
+        gui.prediction.build_pred_hero(
+            cached["prediction"], cached["current_view"], cached.get("rate_per_sec", 0)
+        )
+        gui.prediction._update_algo_list(cached.get("success_list", []), cached.get("fail_list", []))
+    else:
+        gui.prediction._build_pred_hero_empty()
+        gui.prediction._clear_info()
+    # 刷新详情面板
     gui.detail.build_header(video)
-    gui.detail.update_stat_bar(video)  # 只更新数值，不重建整个布局
-    # Re-trigger current tab rendering
+    gui.detail.update_stat_bar(video)
     idx = gui.detail._tabs.currentIndex()
     gui.detail._on_tab_changed(idx)
 
@@ -499,12 +510,6 @@ def select_video(gui, bvid):
     video = get_video(gui, bvid)
     if video:
         show_video_detail(gui, video)
-    cached = gui.prediction_results.get(bvid)
-    if cached:
-        gui.prediction.build_pred_hero(
-            cached["prediction"], cached["current_view"], cached.get("rate_per_sec", 0)
-        )
-        gui.prediction._update_algo_list(cached.get("success_list", []), cached.get("fail_list", []))
 
 
 # ── 添加监控 ────────────────────────────────────
