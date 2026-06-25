@@ -33,7 +33,8 @@ _DANMAKU_VIEW_URL = "https://api.bilibili.com/x/v2/dm/web/view"
 
 # ── 拉取参数 ──────────────────────────────────────
 _MAX_SEGMENTS = 300          # 兜底上限（6分钟/段，300段=30小时）
-_MAX_EMPTY_STREAK = 10       # 连续空段停止阈值（无 view metadata 时用）
+_MAX_SEGMENTS_KNOWN_BOGUS = 100  # DmSegConfig.total 固定返回值（最大容量，非实际段数）
+_MAX_EMPTY_STREAK = 10       # 连续空段停止阈值
 _MAX_ERROR_STREAK = 3        # 连续 API 错误放弃阈值
 _SEGMENT_DELAY = 0.3         # 段间请求间隔（秒）
 
@@ -97,9 +98,29 @@ class DanmakuMonitor:
             except Exception:
                 logger.debug("[弹幕] 从 DB 恢复进度失败，将从段 1 重新获取")
 
-        # ── 阶段 1: 获取总段数 ──
-        total_segs = self._fetch_total_segments(cid, aid)
-        max_seg = total_segs if total_segs > 0 else _MAX_SEGMENTS
+        # ── 阶段 1: 获取视频弹幕元数据 ──
+        view_info = self._fetch_danmaku_view(cid, aid)
+        total_segs = view_info.get("total_segments", 0)
+        danmaku_count = view_info.get("count", 0)
+        page_size_ms = view_info.get("page_size", 360000)
+
+        # 无弹幕的视频直接跳过（count 字段可靠，为 0 表示确实无弹幕）
+        if danmaku_count == 0 and view_info:
+            logger.debug("[弹幕] %s 弹幕数为 0，跳过拉取", bvid)
+            return 0
+
+        # total_segments 可靠性判断：
+        # - DmSegConfig.total (field 2) 在 API 中为"最大分页容量"（固定 100），非实际段数
+        # - 实际段数 = ceil(视频时长 / page_size_ms)
+        # - 若无法获取时长，用空段检测兜底
+        if total_segs == _MAX_SEGMENTS_KNOWN_BOGUS:
+            # API 返回的是固定值 100，不可信 → 用空段试探
+            max_seg = _MAX_SEGMENTS
+            total_segs = 0  # 标记为不可信
+        elif total_segs > 0:
+            max_seg = min(total_segs, _MAX_SEGMENTS)
+        else:
+            max_seg = _MAX_SEGMENTS
 
         start_seg = max(1, last_seg + 1)
         if start_seg > max_seg:
@@ -129,16 +150,17 @@ class DanmakuMonitor:
             error_streak = 0
 
             if not danmaku_list:
-                # 有 total_segs 时不停在空段上（已确认视频长度覆盖）
-                if total_segs > 0:
+                # 有可靠段数时不停在空段上（已确认视频长度覆盖）
+                if total_segs > 0 and total_segs != _MAX_SEGMENTS_KNOWN_BOGUS:
                     seg += 1
                     if seg % 10 == 0:
                         time.sleep(_SEGMENT_DELAY)
                     continue
 
-                # 无 total_segs 时用空段试探
+                # 无可靠段数时用空段试探停止
                 empty_streak += 1
                 if empty_streak >= _MAX_EMPTY_STREAK:
+                    logger.debug("[弹幕] %s 连续 %d 个空段，停止拉取", bvid, empty_streak)
                     break
                 seg += 1
                 if seg % 5 == 0:
@@ -170,10 +192,17 @@ class DanmakuMonitor:
     #  阶段 1: 获取元数据
     # ──────────────────────────────────────────────
 
-    def _fetch_total_segments(self, cid: int, aid: int = 0) -> int:
-        """通过 dm/web/view 获取视频弹幕总段数。
+    def _fetch_danmaku_view(self, cid: int, aid: int = 0) -> dict:
+        """通过 dm/web/view 获取视频弹幕元数据。
 
-        返回 0 表示获取失败，降级为空段试探模式。
+        Returns:
+            {
+                "total_segments": int,  # DmSegConfig.total（注意：固定 100，非实际段数）
+                "page_size": int,       # DmSegConfig.pageSize（每段时长 ms，360000=6min）
+                "count": int,           # 实际弹幕总数
+                "state": int,           # 弹幕开放状态（0=开放）
+            }
+            获取失败返回空字典。
         """
         try:
             params = {"type": 1, "oid": cid}
@@ -191,18 +220,18 @@ class DanmakuMonitor:
             )
             if resp.status_code != 200:
                 logger.debug("dm/web/view HTTP %d cid=%d", resp.status_code, cid)
-                return 0
+                return {}
 
             from core.bilibili_danmaku_proto import parse_danmaku_view
             view = parse_danmaku_view(resp.content)
-            total = view.get("total_segments", 0)
-            if total > 0:
-                logger.debug("[弹幕] cid=%d total_segments=%d page_size=%d",
-                             cid, total, view.get("page_size", 60))
-            return total
+            if view:
+                logger.debug("[弹幕] cid=%d count=%d page_size=%d total=%d",
+                             cid, view.get("count", 0), view.get("page_size", 0),
+                             view.get("total_segments", 0))
+            return view
         except Exception as e:
             logger.debug("dm/web/view 失败 cid=%d: %s", cid, e)
-            return 0
+            return {}
 
     # ──────────────────────────────────────────────
     #  阶段 2: 逐段拉取（Proto + XML 双解析）

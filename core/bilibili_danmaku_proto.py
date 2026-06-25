@@ -182,8 +182,16 @@ def _parse_danmaku_elem(reader: _WireReader) -> Dict[str, Any]:
 
 
 def _parse_dm_seg_config(reader: _WireReader) -> Dict[str, int]:
-    """解码 DmSegConfig (pageSize=1, total=2)。"""
-    cfg = {"page_size": 60, "total": 0}
+    """解码 DmSegConfig。
+    
+    字段：
+        field 1: pageSize (int64) — 每段时长（毫秒），默认 360000ms = 6分钟
+        field 2: total (int64)    — 最大分页容量（固定值 100），非实际段数！
+    
+    注意：total 字段是 API 的固定返回值 100，表示"最多支持 100 个段"，
+    不是视频的实际弹幕段数。实际段数 = ceil(视频时长 / page_size)。
+    """
+    cfg = {"page_size": 360000, "total": 0}
     while not reader.eof():
         field = reader.read_field()
         if field is None:
@@ -283,8 +291,11 @@ def parse_danmaku_view(data: bytes) -> Dict[str, Any]:
 
     Returns:
         {
-            "state": int, "total_segments": int, "page_size": int,
-            "special_dm_urls": [str], "count": int,
+            "state": int,
+            "total_segments": int,   # ⚠ DmSegConfig.total，固定 100，非实际段数
+            "page_size": int,        # 每段时长 ms（360000=6min）
+            "special_dm_urls": [str],
+            "count": int,            # 实际弹幕总数（可信）
         }
         解析失败返回空字典。
     """
@@ -294,7 +305,7 @@ def parse_danmaku_view(data: bytes) -> Dict[str, Any]:
     try:
         reader = _WireReader(data)
         result = {
-            "state": 0, "total_segments": 0, "page_size": 60,
+            "state": 0, "total_segments": 0, "page_size": 360000,
             "special_dm_urls": [], "count": 0,
         }
 
@@ -307,14 +318,17 @@ def parse_danmaku_view(data: bytes) -> Dict[str, Any]:
             if fn == 1 and wt == _WIRE_VARINT:
                 result["state"] = reader.read_varint()
             elif fn == 4 and wt == _WIRE_LENGTH:
-                # dmSge (DmSegConfig)
+                # dmSge (DmSegConfig) — 分段配置
                 sub_data = reader.read_length_delimited()
                 sub = _WireReader(sub_data)
                 cfg = _parse_dm_seg_config(sub)
                 result["total_segments"] = cfg["total"]
                 result["page_size"] = cfg["page_size"]
+            elif fn == 5 and wt == _WIRE_LENGTH:
+                # flag (DanmakuFlagConfig) — 云屏蔽配置 (B站 2024+ 新增)
+                reader.read_length_delimited()
             elif fn == 6 and wt == _WIRE_LENGTH:
-                # specialDms (repeated DmColorful)
+                # specialDms (repeated string) — BAS弹幕专包url
                 sub_data = reader.read_length_delimited()
                 sub = _WireReader(sub_data)
                 url = _parse_colorful(sub)
@@ -322,6 +336,13 @@ def parse_danmaku_view(data: bytes) -> Dict[str, Any]:
                     result["special_dm_urls"].append(url)
             elif fn == 8 and wt == _WIRE_VARINT:
                 result["count"] = reader.read_varint()
+            elif fn == 9 and wt == _WIRE_LENGTH:
+                # commandDms (repeated CommandDm) — 互动弹幕
+                reader.read_length_delimited()
+            elif fn in (10, 11, 12, 13, 14):
+                # player_config / report_filter / expressions / post_panel / activity_meta
+                # B站 2024+ 新增字段，暂不解析
+                _skip_field(reader, wt)
             else:
                 _skip_field(reader, wt)
 
