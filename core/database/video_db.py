@@ -1048,21 +1048,21 @@ class VideoDatabase(_DanmakuMixin):
             return False
 
     def get_weekly_scores(self, limit: int = 0) -> list:
-        """获取周刊分数历史记录
+        """获取周刊分数历史记录（最新的排在前面）。
 
         Args:
             limit: 限制返回条数，0 表示不限制
 
         Returns:
-            分数记录列表，按时间升序
+            分数记录列表，按时间降序（最新在前）
         """
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 if limit and limit > 0:
-                    cursor.execute("SELECT * FROM weekly_scores ORDER BY timestamp ASC LIMIT ?", (limit,))
+                    cursor.execute("SELECT * FROM weekly_scores ORDER BY timestamp DESC LIMIT ?", (limit,))
                 else:
-                    cursor.execute("SELECT * FROM weekly_scores ORDER BY timestamp ASC")
+                    cursor.execute("SELECT * FROM weekly_scores ORDER BY timestamp DESC")
                 return [dict(row) for row in cursor.fetchall()]
         except Exception as e:
             logger.warning("获取周刊分数记录失败 %s: %s", self.bvid, e, exc_info=True)
@@ -1125,21 +1125,21 @@ class VideoDatabase(_DanmakuMixin):
             return False
 
     def get_yearly_scores(self, limit: int = 0) -> list:
-        """获取年刊分数历史记录
+        """获取年刊分数历史记录（最新的排在前面）。
 
         Args:
             limit: 限制返回条数，0 表示不限制
 
         Returns:
-            分数记录列表，按时间升序
+            分数记录列表，按时间降序（最新在前）
         """
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 if limit and limit > 0:
-                    cursor.execute("SELECT * FROM yearly_scores ORDER BY timestamp ASC LIMIT ?", (limit,))
+                    cursor.execute("SELECT * FROM yearly_scores ORDER BY timestamp DESC LIMIT ?", (limit,))
                 else:
-                    cursor.execute("SELECT * FROM yearly_scores ORDER BY timestamp ASC")
+                    cursor.execute("SELECT * FROM yearly_scores ORDER BY timestamp DESC")
                 return [dict(row) for row in cursor.fetchall()]
         except Exception as e:
             logger.warning("获取年刊分数记录失败 %s: %s", self.bvid, e, exc_info=True)
