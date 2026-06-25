@@ -252,6 +252,14 @@ class SettingsWindow:
             decrypt_dict(cookies, "SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid")
 
     # ═══════════════ UI 构建 ═══════════════════════════════
+    def _section(self, parent, title, padding=None):
+        """创建一个卡片分段，添加到 parent 的布局中"""
+        sec = _section_widget(parent, title)
+        if padding:
+            sec.layout().setContentsMargins(*padding)
+        parent.layout().addWidget(sec)
+        return sec
+
     def setup_ui(self):
         self.dlg.header("系统设置", "配置通知、监控、AI、代理、Cookie 等全部参数")
 
