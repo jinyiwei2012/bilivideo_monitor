@@ -153,8 +153,7 @@ def get_video_danmaku(self, oid: int) -> List[Dict]:
         logger.debug("← GET %s → %s", self.DANMAKU_URL.split("?")[0], resp.status_code)
         if resp.status_code != 200:
             return []
-        try:
-            from defusedxml.ElementTree import fromstring as _xml_parse
+        from defusedxml.ElementTree import fromstring as _xml_parse
 
         root = _xml_parse(resp.content)
         danmaku = []

@@ -347,8 +347,7 @@ def try_parse_danmaku(data: bytes) -> Tuple[Optional[List[Dict]], str]:
     #    XML starts with '<?xml' or '<i>'
     if data and data[0:1] == b'<':
         try:
-            try:
-                from defusedxml.ElementTree import fromstring as _xml_parse
+            from defusedxml.ElementTree import fromstring as _xml_parse
 
             root = _xml_parse(data)
             danmaku = []
