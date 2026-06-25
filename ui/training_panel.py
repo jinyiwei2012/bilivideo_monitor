@@ -89,18 +89,22 @@ class TrainingPanel(BaseTrainingPanel):
         outer_layout.addWidget(info_bar)
 
         device_label = QLabel("训练设备:")
-        device_label.setStyleSheet(f"color: {C['text_2']}; background: transparent; font: {FONT};")
+        device_label.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
+        device_label.setFont(FONT)
         info_layout.addWidget(device_label)
         self._device_lbl = QLabel("检测中…")
-        self._device_lbl.setStyleSheet(f"color: {C['text_1']}; background: transparent; font: {FONT};")
+        self._device_lbl.setStyleSheet(f"color: {C['text_1']}; background: transparent;")
+        self._device_lbl.setFont(FONT)
         info_layout.addWidget(self._device_lbl)
         info_layout.addSpacing(8)
 
         data_label = QLabel("数据规模:")
-        data_label.setStyleSheet(f"color: {C['text_2']}; background: transparent; font: {FONT};")
+        data_label.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
+        data_label.setFont(FONT)
         info_layout.addWidget(data_label)
         self._data_lbl = QLabel("估算中…")
-        self._data_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent; font: {FONT_SM};")
+        self._data_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
+        self._data_lbl.setFont(FONT_SM)
         info_layout.addWidget(self._data_lbl)
         info_layout.addStretch()
 
@@ -149,7 +153,8 @@ class TrainingPanel(BaseTrainingPanel):
         hdr_layout.addWidget(title_lbl)
         hdr_layout.addStretch()
         self._algo_count_lbl = QLabel("")
-        self._algo_count_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent; font: {FONT_SM};")
+        self._algo_count_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
+        self._algo_count_lbl.setFont(FONT_SM)
         hdr_layout.addWidget(self._algo_count_lbl)
         left_layout.addWidget(hdr)
 
@@ -237,7 +242,8 @@ class TrainingPanel(BaseTrainingPanel):
 
         # 训练参数
         epoch_label = QLabel("Epoch:")
-        epoch_label.setStyleSheet(f"color: {C['text_2']}; background: transparent; font: {FONT_SM};")
+        epoch_label.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
+        epoch_label.setFont(FONT_SM)
         ctrl_layout.addWidget(epoch_label)
         self._epoch_spin = QSpinBox()
         self._epoch_spin.setRange(1, 500)
@@ -246,7 +252,8 @@ class TrainingPanel(BaseTrainingPanel):
         ctrl_layout.addWidget(self._epoch_spin)
 
         batch_label = QLabel("Batch:")
-        batch_label.setStyleSheet(f"color: {C['text_2']}; background: transparent; font: {FONT_SM};")
+        batch_label.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
+        batch_label.setFont(FONT_SM)
         ctrl_layout.addWidget(batch_label)
         self._batch_spin = QSpinBox()
         self._batch_spin.setRange(1, 512)
@@ -256,7 +263,8 @@ class TrainingPanel(BaseTrainingPanel):
 
         # 学习率
         lr_label = QLabel("LR:")
-        lr_label.setStyleSheet(f"color: {C['text_2']}; background: transparent; font: {FONT_SM};")
+        lr_label.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
+        lr_label.setFont(FONT_SM)
         ctrl_layout.addWidget(lr_label)
         self._lr_entry = QLineEdit("0.001")
         self._lr_entry.setFixedWidth(80)
@@ -268,7 +276,8 @@ class TrainingPanel(BaseTrainingPanel):
 
         # 训练模式：增量训练 / 重新训练
         mode_label = QLabel("模式:")
-        mode_label.setStyleSheet(f"color: {C['text_2']}; background: transparent; font: {FONT_SM};")
+        mode_label.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
+        mode_label.setFont(FONT_SM)
         ctrl_layout.addWidget(mode_label)
         self._mode_incremental = QRadioButton("增量训练")
         self._mode_retrain = QRadioButton("重新训练")
@@ -282,7 +291,8 @@ class TrainingPanel(BaseTrainingPanel):
 
         # 并行训练数
         parallel_label = QLabel("并行:")
-        parallel_label.setStyleSheet(f"color: {C['text_2']}; background: transparent; font: {FONT_SM};")
+        parallel_label.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
+        parallel_label.setFont(FONT_SM)
         ctrl_layout.addWidget(parallel_label)
         self._parallel_spin = QSpinBox()
         self._parallel_spin.setRange(1, 4)
@@ -294,7 +304,8 @@ class TrainingPanel(BaseTrainingPanel):
         self._batch_log_cb = QCheckBox("详细日志")
         ctrl_layout.addWidget(self._batch_log_cb)
         interval_label = QLabel("每")
-        interval_label.setStyleSheet(f"color: {C['text_2']}; background: transparent; font: {FONT_SM};")
+        interval_label.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
+        interval_label.setFont(FONT_SM)
         ctrl_layout.addWidget(interval_label)
         self._batch_interval_entry = QLineEdit("10")
         self._batch_interval_entry.setFixedWidth(40)
@@ -334,7 +345,8 @@ class TrainingPanel(BaseTrainingPanel):
         ctrl_layout.addWidget(self._progress, 1)
 
         self._status_lbl = QLabel("就绪")
-        self._status_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent; font: {FONT_SM};")
+        self._status_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
+        self._status_lbl.setFont(FONT_SM)
         self._status_lbl.setFixedWidth(250)
         self._status_lbl.setAlignment(Qt.AlignmentFlag.AlignLeft)
         ctrl_layout.addWidget(self._status_lbl)
@@ -474,7 +486,8 @@ class TrainingPanel(BaseTrainingPanel):
             algos = self._discover_algorithms()
         except Exception as e:
             err_lbl = QLabel(f"⚠ 加载失败: {e}")
-            err_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent; font: {FONT};")
+            err_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
+            err_lbl.setFont(FONT)
             self._algo_frame.layout().addWidget(err_lbl)
             return
 
@@ -498,12 +511,14 @@ class TrainingPanel(BaseTrainingPanel):
             row_layout.addWidget(cb)
 
             name_lbl = QLabel(a["name"])
-            name_lbl.setStyleSheet(f"color: {C['text_1']}; background: transparent; font: {FONT};")
+            name_lbl.setStyleSheet(f"color: {C['text_1']}; background: transparent;")
+            name_lbl.setFont(FONT)
             name_lbl.setFixedWidth(130)
             row_layout.addWidget(name_lbl)
 
             id_lbl = QLabel(aid)
-            id_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent; font: {FONT_MONO};")
+            id_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
+            id_lbl.setFont(FONT_MONO)
             id_lbl.setFixedWidth(100)
             row_layout.addWidget(id_lbl)
 
@@ -514,7 +529,8 @@ class TrainingPanel(BaseTrainingPanel):
                 st = "□ 未训练"
                 sf = C["text_3"]
             status_lbl = QLabel(st)
-            status_lbl.setStyleSheet(f"color: {sf}; background: transparent; font: {FONT_SM};")
+            status_lbl.setStyleSheet(f"color: {sf}; background: transparent;")
+            status_lbl.setFont(FONT_SM)
             status_lbl.setFixedWidth(90)
             row_layout.addWidget(status_lbl)
 
@@ -522,12 +538,14 @@ class TrainingPanel(BaseTrainingPanel):
             conf = load_algo_confidence(aid)
             conf_text, conf_color = format_confidence(conf)
             conf_lbl = QLabel(conf_text)
-            conf_lbl.setStyleSheet(f"color: {conf_color}; background: transparent; font: {FONT_SM};")
+            conf_lbl.setStyleSheet(f"color: {conf_color}; background: transparent;")
+            conf_lbl.setFont(FONT_SM)
             conf_lbl.setFixedWidth(80)
             row_layout.addWidget(conf_lbl)
 
             ver_lbl = QLabel(f"v{a['version_count']}")
-            ver_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent; font: {FONT_SM};")
+            ver_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
+            ver_lbl.setFont(FONT_SM)
             ver_lbl.setFixedWidth(50)
             row_layout.addWidget(ver_lbl)
 
@@ -561,11 +579,13 @@ class TrainingPanel(BaseTrainingPanel):
         if status is not None:
             status_lbl.setText(status)
             if status_color:
-                status_lbl.setStyleSheet(f"color: {status_color}; background: transparent; font: {FONT_SM};")
+                status_lbl.setStyleSheet(f"color: {status_color}; background: transparent;")
+                status_lbl.setFont(FONT_SM)
         if conf is not None:
             conf_lbl.setText(conf)
             if conf_color:
-                conf_lbl.setStyleSheet(f"color: {conf_color}; background: transparent; font: {FONT_SM};")
+                conf_lbl.setStyleSheet(f"color: {conf_color}; background: transparent;")
+                conf_lbl.setFont(FONT_SM)
         if ver is not None:
             ver_lbl.setText(ver)
 
@@ -618,7 +638,8 @@ class TrainingPanel(BaseTrainingPanel):
         main_layout.addWidget(left_panel)
 
         left_title = QLabel("算法")
-        left_title.setStyleSheet(f"color: {C['text_2']}; background: transparent; font: {FONT_SM}; padding: 4px;")
+        left_title.setStyleSheet(f"color: {C['text_2']}; background: transparent; padding: 4px;")
+        left_title.setFont(FONT_SM)
         left_layout.addWidget(left_title)
 
         algo_sf = ScrollableFrame(left_panel, bg=C["bg_elevated"])
@@ -632,7 +653,8 @@ class TrainingPanel(BaseTrainingPanel):
         main_layout.addWidget(right_panel, 1)
 
         info_lbl = QLabel("← 选择一个算法")
-        info_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent; font: {FONT};")
+        info_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
+        info_lbl.setFont(FONT)
         right_layout.addWidget(info_lbl)
         info_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
@@ -685,13 +707,15 @@ class TrainingPanel(BaseTrainingPanel):
         ckpt = CheckpointManager(aid)
 
         section_lbl = QLabel("全局版本")
-        section_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent; font: {FONT_SM};")
+        section_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
+        section_lbl.setFont(FONT_SM)
         layout.addWidget(section_lbl)
 
         versions = ckpt.list_versions()
         if not versions:
             no_ver = QLabel("  （无全局 checkpoint）")
-            no_ver.setStyleSheet(f"color: {C['text_3']}; background: transparent; font: {FONT_SM};")
+            no_ver.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
+            no_ver.setFont(FONT_SM)
             layout.addWidget(no_ver)
         else:
             for v in versions:
@@ -736,7 +760,8 @@ class TrainingPanel(BaseTrainingPanel):
                 vl = v.get("val_loss", -1)
                 if vl >= 0:
                     vl_lbl = QLabel(f"  val_loss={vl:.4f}")
-                    vl_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent; font: {FONT_SM};")
+                    vl_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
+                    vl_lbl.setFont(FONT_SM)
                     row_layout.addWidget(vl_lbl)
 
                 row_layout.addStretch()
@@ -744,7 +769,8 @@ class TrainingPanel(BaseTrainingPanel):
         bvids = list_video_finetune_bvids(aid)
         if bvids:
             ft_lbl = QLabel("\n视频微调版本")
-            ft_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent; font: {FONT_SM};")
+            ft_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
+            ft_lbl.setFont(FONT_SM)
             layout.addWidget(ft_lbl)
             for bvid in bvids:
                 v_ckpt = CheckpointManager(aid, bvid=bvid)
@@ -757,7 +783,8 @@ class TrainingPanel(BaseTrainingPanel):
                     layout.addWidget(row)
 
                     bvid_lbl = QLabel(f"  📺 {bvid}  {v['version']}")
-                    bvid_lbl.setStyleSheet(f"color: {C['text_1']}; background: transparent; font: {FONT_MONO};")
+                    bvid_lbl.setStyleSheet(f"color: {C['text_1']}; background: transparent;")
+                    bvid_lbl.setFont(FONT_MONO)
                     row_layout.addWidget(bvid_lbl)
                     row_layout.addStretch()
 
@@ -801,7 +828,8 @@ class TrainingPanel(BaseTrainingPanel):
                     aid,
                 )
                 dir_lbl = QLabel(f"📁 {os.path.relpath(ckpt_dir)}")
-                dir_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent; font: {FONT_SM};")
+                dir_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
+                dir_lbl.setFont(FONT_SM)
                 btn_row_layout.addWidget(dir_lbl)
             btn_row_layout.addStretch()
 
@@ -985,7 +1013,8 @@ class TrainingPanel(BaseTrainingPanel):
         main_layout.addWidget(param_row)
 
         epoch_label = QLabel("Epochs:")
-        epoch_label.setStyleSheet(f"color: {C['text_2']}; background: transparent; font: {FONT_SM};")
+        epoch_label.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
+        epoch_label.setFont(FONT_SM)
         param_row_layout.addWidget(epoch_label)
         ft_epoch_spin = QSpinBox()
         ft_epoch_spin.setRange(1, 100)
@@ -994,7 +1023,8 @@ class TrainingPanel(BaseTrainingPanel):
         param_row_layout.addSpacing(12)
 
         batch_label = QLabel("Batch:")
-        batch_label.setStyleSheet(f"color: {C['text_2']}; background: transparent; font: {FONT_SM};")
+        batch_label.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
+        batch_label.setFont(FONT_SM)
         param_row_layout.addWidget(batch_label)
         ft_batch_spin = QSpinBox()
         ft_batch_spin.setRange(1, 512)
@@ -1003,7 +1033,8 @@ class TrainingPanel(BaseTrainingPanel):
         param_row_layout.addStretch()
 
         ft_status = QLabel("就绪")
-        ft_status.setStyleSheet(f"color: {C['text_3']}; background: transparent; font: {FONT_SM};")
+        ft_status.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
+        ft_status.setFont(FONT_SM)
         main_layout.addWidget(ft_status)
         ft_progress = QProgressBar()
         ft_progress.setMaximum(100)

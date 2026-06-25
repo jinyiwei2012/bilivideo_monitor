@@ -137,7 +137,8 @@ class FinetunePanel(BaseTrainingPanel):
         vhdr_layout.addWidget(v_title)
         vhdr_layout.addStretch()
         self._video_count_lbl = QLabel("")
-        self._video_count_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent; font: {FONT_SM};")
+        self._video_count_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
+        self._video_count_lbl.setFont(FONT_SM)
         vhdr_layout.addWidget(self._video_count_lbl)
         vf_layout.addWidget(v_hdr)
 
@@ -160,7 +161,8 @@ class FinetunePanel(BaseTrainingPanel):
         ahdr_layout.addWidget(a_title)
         ahdr_layout.addStretch()
         self._algo_count_lbl = QLabel("")
-        self._algo_count_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent; font: {FONT_SM};")
+        self._algo_count_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
+        self._algo_count_lbl.setFont(FONT_SM)
         ahdr_layout.addWidget(self._algo_count_lbl)
         af_layout.addWidget(a_hdr)
 
@@ -221,11 +223,13 @@ class FinetunePanel(BaseTrainingPanel):
         task_layout = QHBoxLayout(task_bar)
         task_layout.setContentsMargins(8, 4, 8, 4)
         self._task_lbl = QLabel("就绪 — 选择视频和算法后开始微调")
-        self._task_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent; font: {FONT};")
+        self._task_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
+        self._task_lbl.setFont(FONT)
         task_layout.addWidget(self._task_lbl)
         task_layout.addStretch()
         self._task_detail = QLabel("")
-        self._task_detail.setStyleSheet(f"color: {C['text_3']}; background: transparent; font: {FONT_SM};")
+        self._task_detail.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
+        self._task_detail.setFont(FONT_SM)
         task_layout.addWidget(self._task_detail)
         right_layout.addWidget(task_bar)
 
@@ -255,7 +259,8 @@ class FinetunePanel(BaseTrainingPanel):
         ctrl_layout.setSpacing(8)
 
         epoch_label = QLabel("Epochs:")
-        epoch_label.setStyleSheet(f"color: {C['text_2']}; background: transparent; font: {FONT_SM};")
+        epoch_label.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
+        epoch_label.setFont(FONT_SM)
         ctrl_layout.addWidget(epoch_label)
         self._epoch_spin = QSpinBox()
         self._epoch_spin.setRange(1, 100)
@@ -264,7 +269,8 @@ class FinetunePanel(BaseTrainingPanel):
         ctrl_layout.addWidget(self._epoch_spin)
 
         batch_label = QLabel("Batch:")
-        batch_label.setStyleSheet(f"color: {C['text_2']}; background: transparent; font: {FONT_SM};")
+        batch_label.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
+        batch_label.setFont(FONT_SM)
         ctrl_layout.addWidget(batch_label)
         self._batch_spin = QSpinBox()
         self._batch_spin.setRange(1, 512)
@@ -273,7 +279,8 @@ class FinetunePanel(BaseTrainingPanel):
         ctrl_layout.addWidget(self._batch_spin)
 
         mode_label = QLabel("模式:")
-        mode_label.setStyleSheet(f"color: {C['text_2']}; background: transparent; font: {FONT_SM};")
+        mode_label.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
+        mode_label.setFont(FONT_SM)
         ctrl_layout.addWidget(mode_label)
         self._mode_incremental = QRadioButton("增量微调")
         self._mode_retrain = QRadioButton("重新训练")
@@ -309,7 +316,8 @@ class FinetunePanel(BaseTrainingPanel):
         ctrl_layout.addWidget(self._progress, 1)
 
         self._status_lbl = QLabel("就绪")
-        self._status_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent; font: {FONT_SM};")
+        self._status_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
+        self._status_lbl.setFont(FONT_SM)
         self._status_lbl.setFixedWidth(250)
         ctrl_layout.addWidget(self._status_lbl)
 
@@ -417,7 +425,8 @@ class FinetunePanel(BaseTrainingPanel):
             row_layout.addWidget(name_lbl)
 
             id_lbl = QLabel(aid)
-            id_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent; font: {FONT_MONO};")
+            id_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
+            id_lbl.setFont(FONT_MONO)
             id_lbl.setFixedWidth(90)
             row_layout.addWidget(id_lbl)
 
@@ -428,19 +437,22 @@ class FinetunePanel(BaseTrainingPanel):
                 st = "□ 未训练"
                 sf = C["text_3"]
             status_lbl = QLabel(st)
-            status_lbl.setStyleSheet(f"color: {sf}; background: transparent; font: {FONT_SM};")
+            status_lbl.setStyleSheet(f"color: {sf}; background: transparent;")
+            status_lbl.setFont(FONT_SM)
             status_lbl.setFixedWidth(80)
             row_layout.addWidget(status_lbl)
 
             conf = load_algo_confidence(aid)
             conf_text, conf_color = format_confidence(conf)
             conf_lbl = QLabel(conf_text)
-            conf_lbl.setStyleSheet(f"color: {conf_color}; background: transparent; font: {FONT_SM};")
+            conf_lbl.setStyleSheet(f"color: {conf_color}; background: transparent;")
+            conf_lbl.setFont(FONT_SM)
             conf_lbl.setFixedWidth(70)
             row_layout.addWidget(conf_lbl)
 
             ver_lbl = QLabel(f"v{a['version_count']}")
-            ver_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent; font: {FONT_SM};")
+            ver_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
+            ver_lbl.setFont(FONT_SM)
             ver_lbl.setFixedWidth(50)
             row_layout.addWidget(ver_lbl)
 
