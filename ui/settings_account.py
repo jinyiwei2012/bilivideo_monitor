@@ -820,7 +820,7 @@ def _on_browser_cookies(self, cookies: dict):
 
 
 def _import_cookie_editor(self):
-    dlg = _CookieEditorDialog(self)
+    dlg = _CookieEditorDialog(self.dlg)
     if dlg.exec() == QDialog.DialogCode.Accepted:
         cookies = dlg.get_cookies()
         if cookies:
@@ -835,7 +835,7 @@ def _import_cookie_editor(self):
 
 
 def _qrcode_login(self):
-    dlg = _QRCodeLoginDialog(self)
+    dlg = _QRCodeLoginDialog(self.dlg)
     if dlg.exec() == QDialog.DialogCode.Accepted:
         cookies = get_bilibili_api()._cookies
         get_bilibili_api().add_account(
@@ -876,7 +876,7 @@ def _switch_account(self):
 
 
 def _add_account_dialog(self, _parent=None):
-    dlg = _AddAccountDialog(self)
+    dlg = _AddAccountDialog(self.dlg)
     if dlg.exec() == QDialog.DialogCode.Accepted:
         self._refresh_account_list()
         self._refresh_cookie_display()
@@ -900,7 +900,7 @@ def _remove_account(self):
 
 
 def _password_login(self):
-    dlg = _PasswordLoginDialog(self)
+    dlg = _PasswordLoginDialog(self.dlg)
     if dlg.exec() == QDialog.DialogCode.Accepted:
         result = dlg.get_result()
         if result.get("code") == 0:

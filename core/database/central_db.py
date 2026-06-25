@@ -35,6 +35,8 @@ class Database:
     支持活跃库与备份库之间的双向同步。
     """
 
+    MILESTONE_PERIODS = ["1周", "1月", "1年"]
+
     _ACTIVE_DIR = project_path("core", "data")
     _BACKUP_DIR = None
 
