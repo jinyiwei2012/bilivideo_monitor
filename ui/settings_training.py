@@ -91,12 +91,21 @@ def _build_training_tab(self, nb):
     self._tr_infer_device_cb = QComboBox()
     self._tr_infer_device_cb.addItems([
         "auto - 自动选择",
+        "openvino_npu - OpenVINO NPU (Intel AI Boost)",
         "onnx_dml - ONNX DirectML (NPU)",
         "cuda - NVIDIA GPU",
         "cpu - CPU only",
     ])
     self._tr_infer_device_cb.currentIndexChanged.connect(lambda: self._on_infer_device_changed())
     dr_layout.addWidget(self._tr_infer_device_cb)
+
+    # 恢复持久化的设备偏好
+    from algorithms.training.device import get_preferred_device
+    saved_pref = get_preferred_device()
+    for i in range(self._tr_infer_device_cb.count()):
+        if self._tr_infer_device_cb.itemText(i).startswith(saved_pref):
+            self._tr_infer_device_cb.setCurrentIndex(i)
+            break
 
     refresh_dev_btn = QPushButton("刷新")
     refresh_dev_btn.clicked.connect(self._refresh_device_info)

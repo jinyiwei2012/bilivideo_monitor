@@ -710,9 +710,19 @@ class BaseAlgorithm(ABC):
         import torch
         import numpy as np
 
-        # 判断 CUDA 是否可用：有 CUDA → 优先用 CUDA；无 CUDA → 尝试 NPU
+        # 根据用户偏好和 CUDA 可用性决定是否尝试 NPU
+        from algorithms.training.device import get_preferred_device
+        prefer = get_preferred_device()
         cuda_available = torch.cuda.is_available()
-        try_npu = not cuda_available
+
+        if prefer == "openvino_npu":
+            try_npu = True   # 用户明确选择 NPU
+        elif prefer == "cuda" and cuda_available:
+            try_npu = False  # 用户选择 CUDA 且可用
+        elif prefer in ("onnx_dml", "cpu"):
+            try_npu = False  # 用户选择其他非 NPU 后端
+        else:
+            try_npu = not cuda_available  # auto 模式：有 CUDA 则用 CUDA，否则尝试 NPU
 
         if try_npu:
             try:

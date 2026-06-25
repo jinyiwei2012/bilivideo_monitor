@@ -423,7 +423,36 @@ def get_device_info() -> Dict[str, Any]:
 
 # ── 用户推理设备偏好 ────────────────────────────
 
-_preferred_device: str = "auto"  # "auto" | "onnx_dml" | "cuda" | "cpu" | "openvino_npu"
+import json as _json
+
+_PREF_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data", "device_preference.json")
+
+
+def _load_preference() -> str:
+    """从文件加载持久化的设备偏好。"""
+    try:
+        if os.path.exists(_PREF_FILE):
+            with open(_PREF_FILE, "r", encoding="utf-8") as f:
+                saved = _json.load(f)
+                pref = saved.get("preferred_device", "auto")
+                if pref in {"auto", "onnx_dml", "cuda", "cpu", "openvino_npu"}:
+                    return pref
+    except Exception:
+        pass
+    return "auto"
+
+
+def _save_preference(pref: str):
+    """持久化设备偏好到文件。"""
+    try:
+        os.makedirs(os.path.dirname(_PREF_FILE), exist_ok=True)
+        with open(_PREF_FILE, "w", encoding="utf-8") as f:
+            _json.dump({"preferred_device": pref}, f)
+    except Exception as e:
+        logger.debug("保存设备偏好失败: %s", e)
+
+
+_preferred_device: str = _load_preference()  # "auto" | "onnx_dml" | "cuda" | "cpu" | "openvino_npu"
 
 
 def set_preferred_device(pref: str):
@@ -443,6 +472,7 @@ def set_preferred_device(pref: str):
     valid = {"auto", "onnx_dml", "cuda", "cpu", "openvino_npu"}
     if pref in valid:
         _preferred_device = pref
+        _save_preference(pref)
         # 同步 force_cpu 状态
         if pref == "cpu":
             force_cpu(True)
