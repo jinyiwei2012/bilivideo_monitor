@@ -210,7 +210,7 @@ class DanmakuMonitor:
 
     def _fetch_segment(self, cid: int, seg: int, aid: int = 0,
                        prefer_fmt: Optional[str] = None) -> Tuple[List[Dict], bool]:
-        """拉取单个弹幕段。Proto/XML 自动检测。
+        """拉取单个弹幕段。使用 WBI 签名新版 API，Proto/XML 自动检测。
 
         Args:
             cid: 视频 cid
@@ -228,8 +228,11 @@ class DanmakuMonitor:
             if aid:
                 params["pid"] = aid
 
+            # 使用 WBI 签名新版 API
+            params = self._api._wbi_sign(params)
+
             resp = self._api.session.get(
-                _DANMAKU_SEG_URL,
+                _DANMAKU_WBI_SEG_URL,
                 params=params,
                 headers={
                     "User-Agent": self._api.USER_AGENTS[0],
