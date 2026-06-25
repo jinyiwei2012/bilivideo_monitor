@@ -99,17 +99,18 @@ class BilibiliAPI(_RequestMixin, _AuthMixin, _VideoMixin, _UpMixin):
         """初始化 BilibiliAPI 实例，创建连接池、加载 Cookie 和代理配置"""
         self.session = requests.Session()
 
-        # 连接池复用：每个 host 最多 10 个连接，减少 TCP 握手开销
+        # 连接池复用：增大池大小以支持多视频并发监控 + 弹幕拉取
         from requests.adapters import HTTPAdapter
 
-        adapter = HTTPAdapter(pool_connections=10, pool_maxsize=10, max_retries=0)
+        adapter = HTTPAdapter(pool_connections=50, pool_maxsize=50, max_retries=0)
         self.session.mount("https://", adapter)
         self.session.mount("http://", adapter)
 
         # 公共 API Session（免 Cookie，复用连接池）
         self._public_session = requests.Session()
-        self._public_session.mount("https://", adapter)
-        self._public_session.mount("http://", adapter)
+        pub_adapter = HTTPAdapter(pool_connections=20, pool_maxsize=20, max_retries=0)
+        self._public_session.mount("https://", pub_adapter)
+        self._public_session.mount("http://", pub_adapter)
 
         # curl_cffi Session（TLS 指纹伪装，主 API 路径优先使用）
         self._curl_session = None
