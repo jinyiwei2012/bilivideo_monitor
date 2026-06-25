@@ -108,7 +108,7 @@ class _RatioDanmakuMixin:
         if not records:
             self._dm_text.setPlainText("暂无弹幕数据\n\n弹幕将在视频监控过程中自动拉取并保存。")
         else:
-            html = "<pre style='font-family: \"Microsoft YaHei UI\"; font-size: 10pt; margin: 0;'>"
+            html = "<pre style='font-family: \"Microsoft YaHei UI\"; font-size: 10pt; margin: 0; white-space: pre-wrap;'>"
             for r in records[-200:]:
                 ts = r.get("video_ts", 0)
                 m, s = divmod(int(ts), 60)

@@ -847,7 +847,7 @@ class DetailPanel(_RatioDanmakuMixin):
                 add(f"{name}  已达成 ✓", "mono_ok")
 
         # Build HTML
-        html_parts = ["<pre style='font-family: Consolas; font-size: 10pt; line-height: 1.4; margin: 0;'>"]
+        html_parts = ["<pre style='font-family: Consolas; font-size: 10pt; line-height: 1.4; margin: 0; white-space: pre-wrap;'>"]
         style_map = {
             "head": f"color: {C['bilibili']}; font-weight: bold;",
             "mono": f"color: {C['text_1']};",
