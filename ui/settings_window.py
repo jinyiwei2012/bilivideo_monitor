@@ -474,3 +474,8 @@ SettingsWindow._poll_training_progress = _poll_training_progress
 SettingsWindow._open_version_manager = _open_version_manager
 
 SettingsWindow._build_about_tab = _build_about_tab
+
+# 基础 widget 工具函数（模块内定义，需绑定到类）
+SettingsWindow._field = _field
+SettingsWindow._spin_field = _spin_field
+SettingsWindow._spin_field_float = _spin_field_float
