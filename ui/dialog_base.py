@@ -29,11 +29,14 @@ class DialogBase(QDialog):
 
         :param parent: 父窗口
         :param title: 窗口标题
-        :param geometry: (width, height)
+        :param geometry: (width, height) 元组 或 "WxH" 字符串
         :param modal: 是否为模态对话框
         """
         super().__init__(parent)
         self.setWindowTitle(title)
+        if isinstance(geometry, str):
+            w, h = geometry.split("x")
+            geometry = (int(w), int(h))
         if geometry:
             self.resize(*geometry)
         self.setMinimumSize(300, 200)
