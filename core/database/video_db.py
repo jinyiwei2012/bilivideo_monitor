@@ -12,11 +12,12 @@ from typing import List, Dict, Optional
 from .connection import _ConnectionCtx
 from .models import _validate_bvid, MonitorRecord, PredictionRecord
 from .video_db_danmaku import _DanmakuMixin
+from .video_db_scores import _ScoreOpsMixin
 
 logger = logging.getLogger(__name__)
 
 
-class VideoDatabase(_DanmakuMixin):
+class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
     """单个视频的独立数据库
     每个视频拥有独立的 SQLite 文件（data/<BV>/<BV>.db），
     同时维护一个镜像连接同步写入 data/ 目录。
@@ -734,70 +735,7 @@ class VideoDatabase(_DanmakuMixin):
         except Exception as e:
             logger.debug("镜像添加预测记录失败 %s: %s", self.bvid, e)
 
-    def _mirror_add_weekly_score(self, timestamp: str, score_data: dict):
-        """将周刊分数同步写入镜像数据库"""
-        if not self._mirror_conn:
-            return
-        try:
-            with self._lock:
-                self._mirror_conn.execute(
-                    """
-                    INSERT INTO weekly_scores
-                    (timestamp, total_score, view_score, interaction_score,
-                     favorite_score, coin_score, like_score,
-                     correction_a, correction_b, correction_c, correction_d,
-                     base_view_score)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                    (
-                        timestamp,
-                        score_data.get("total_score", 0),
-                        score_data.get("view_score", 0),
-                        score_data.get("interaction_score", 0),
-                        score_data.get("favorite_score", 0),
-                        score_data.get("coin_score", 0),
-                        score_data.get("like_score", 0),
-                        score_data.get("correction_a", 0),
-                        score_data.get("correction_b", 0),
-                        score_data.get("correction_c", 0),
-                        score_data.get("correction_d", 0),
-                        score_data.get("base_view_score", 0),
-                    ),
-                )
-                self._mirror_conn.commit()
-        except Exception as e:
-            logger.debug("镜像添加周刊分数失败 %s: %s", self.bvid, e)
-
-    def _mirror_add_yearly_score(self, timestamp: str, score_data: dict):
-        """将年刊分数同步写入镜像数据库"""
-        if not self._mirror_conn:
-            return
-        try:
-            with self._lock:
-                self._mirror_conn.execute(
-                    """
-                    INSERT INTO yearly_scores
-                    (timestamp, total_score, view_score, interaction_score,
-                     favorite_score, coin_score, like_score,
-                     correction_a, correction_b, correction_c)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                    (
-                        timestamp,
-                        score_data.get("total_score", 0),
-                        score_data.get("view_score", 0),
-                        score_data.get("interaction_score", 0),
-                        score_data.get("favorite_score", 0),
-                        score_data.get("coin_score", 0),
-                        score_data.get("like_score", 0),
-                        score_data.get("correction_a", 0),
-                        score_data.get("correction_b", 0),
-                        score_data.get("correction_c", 0),
-                    ),
-                )
-                self._mirror_conn.commit()
-        except Exception as e:
-            logger.debug("镜像添加年刊分数失败 %s: %s", self.bvid, e)
+    # ═══ 分数操作已移入 _ScoreOpsMixin (video_db_scores.py) ═══
 
     def get_all_records(self, limit: int = 0) -> List[Dict]:
         """获取监控记录列表
@@ -1008,163 +946,7 @@ class VideoDatabase(_DanmakuMixin):
             logger.warning("批量添加预测记录失败 %s: %s", self.bvid, e, exc_info=True)
             return False
 
-    def add_weekly_score(self, timestamp: str, score_data: dict) -> bool:
-        """添加周刊分数记录
-
-        Args:
-            timestamp: 时间戳字符串
-            score_data: 包含分数数据的字典，键名与 weekly_scores 表字段对应
-
-        Returns:
-            是否写入成功
-        """
-        try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    """
-                    INSERT INTO weekly_scores
-                    (timestamp, total_score, view_score, interaction_score,
-                     favorite_score, coin_score, like_score,
-                     correction_a, correction_b, correction_c, correction_d,
-                     base_view_score)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                    (
-                        timestamp,
-                        score_data.get("total_score", 0),
-                        score_data.get("view_score", 0),
-                        score_data.get("interaction_score", 0),
-                        score_data.get("favorite_score", 0),
-                        score_data.get("coin_score", 0),
-                        score_data.get("like_score", 0),
-                        score_data.get("correction_a", 0),
-                        score_data.get("correction_b", 0),
-                        score_data.get("correction_c", 0),
-                        score_data.get("correction_d", 0),
-                        score_data.get("base_view_score", 0),
-                    ),
-                )
-                conn.commit()
-            self._mirror_add_weekly_score(timestamp, score_data)
-            return True
-        except Exception as e:
-            logger.warning("添加周刊分数记录失败 %s: %s", self.bvid, e, exc_info=True)
-            return False
-
-    def get_weekly_scores(self, limit: int = 0) -> list:
-        """获取周刊分数历史记录（最新的排在前面）。
-
-        Args:
-            limit: 限制返回条数，0 表示不限制
-
-        Returns:
-            分数记录列表，按时间降序（最新在前）
-        """
-        try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                if limit and limit > 0:
-                    cursor.execute("SELECT * FROM weekly_scores ORDER BY timestamp DESC LIMIT ?", (limit,))
-                else:
-                    cursor.execute("SELECT * FROM weekly_scores ORDER BY timestamp DESC")
-                return [dict(row) for row in cursor.fetchall()]
-        except Exception as e:
-            logger.warning("获取周刊分数记录失败 %s: %s", self.bvid, e, exc_info=True)
-            return []
-
-    def get_latest_weekly_score(self) -> Optional[Dict]:
-        """获取最新一条周刊分数记录
-
-        Returns:
-            分数记录字典，无记录则返回 None
-        """
-        try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT * FROM weekly_scores ORDER BY timestamp DESC LIMIT 1")
-                row = cursor.fetchone()
-                return dict(row) if row else None
-        except Exception:
-            return None
-
-    def add_yearly_score(self, timestamp: str, score_data: dict) -> bool:
-        """添加年刊分数记录
-
-        Args:
-            timestamp: 时间戳字符串
-            score_data: 包含分数数据的字典
-
-        Returns:
-            是否写入成功
-        """
-        try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    """
-                    INSERT INTO yearly_scores
-                    (timestamp, total_score, view_score, interaction_score,
-                     favorite_score, coin_score, like_score,
-                     correction_a, correction_b, correction_c)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                    (
-                        timestamp,
-                        score_data.get("total_score", 0),
-                        score_data.get("view_score", 0),
-                        score_data.get("interaction_score", 0),
-                        score_data.get("favorite_score", 0),
-                        score_data.get("coin_score", 0),
-                        score_data.get("like_score", 0),
-                        score_data.get("correction_a", 0),
-                        score_data.get("correction_b", 0),
-                        score_data.get("correction_c", 0),
-                    ),
-                )
-                conn.commit()
-            self._mirror_add_yearly_score(timestamp, score_data)
-            return True
-        except Exception as e:
-            logger.warning("添加年刊分数记录失败 %s: %s", self.bvid, e, exc_info=True)
-            return False
-
-    def get_yearly_scores(self, limit: int = 0) -> list:
-        """获取年刊分数历史记录（最新的排在前面）。
-
-        Args:
-            limit: 限制返回条数，0 表示不限制
-
-        Returns:
-            分数记录列表，按时间降序（最新在前）
-        """
-        try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                if limit and limit > 0:
-                    cursor.execute("SELECT * FROM yearly_scores ORDER BY timestamp DESC LIMIT ?", (limit,))
-                else:
-                    cursor.execute("SELECT * FROM yearly_scores ORDER BY timestamp DESC")
-                return [dict(row) for row in cursor.fetchall()]
-        except Exception as e:
-            logger.warning("获取年刊分数记录失败 %s: %s", self.bvid, e, exc_info=True)
-            return []
-
-    def get_latest_yearly_score(self) -> Optional[Dict]:
-        """获取最新一条年刊分数记录
-
-        Returns:
-            分数记录字典，无记录则返回 None
-        """
-        try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT * FROM yearly_scores ORDER BY timestamp DESC LIMIT 1")
-                row = cursor.fetchone()
-                return dict(row) if row else None
-        except Exception as e:
-            logger.debug("获取最新年刊分数失败: %s", e)
-            return None
+    # ═══ 周刊/年刊分数 → 已移入 _ScoreOpsMixin (video_db_scores.py) ═══
 
     def cleanup_duplicate_predictions(self) -> dict:
         """清理预测表中的重复行，每个 (algorithm, target_threshold) 仅保留最新一条
