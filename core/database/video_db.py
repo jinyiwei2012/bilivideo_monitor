@@ -40,7 +40,7 @@ class VideoDatabase(_DanmakuMixin):
 
         # 数据库文件路径：/data/BV号/BV号.db
         self.db_path = os.path.join(self.video_dir, f"{bvid}.db")
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")  # 启用 WAL 模式提升并发读性能
@@ -585,7 +585,8 @@ class VideoDatabase(_DanmakuMixin):
         if not self._mirror_conn:
             return
         try:
-            self._mirror_conn.execute(
+            with self._lock:
+                self._mirror_conn.execute(
                 """
                 INSERT OR REPLACE INTO video_info
                 (id, title, view_count, like_count, coin_count, share_count,
@@ -674,30 +675,31 @@ class VideoDatabase(_DanmakuMixin):
         if not self._mirror_conn:
             return
         try:
-            self._mirror_conn.execute(
-                """
-                INSERT INTO monitor_records
+            with self._lock:
+                self._mirror_conn.execute(
+                    """
+                    INSERT INTO monitor_records
                 (timestamp, view_count, like_count, coin_count, share_count,
                  favorite_count, danmaku_count, reply_count, viewers_app,
                  viewers_web, viewers_total, like_view_ratio)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-                (
-                    record.timestamp,
-                    record.view_count,
-                    record.like_count,
-                    record.coin_count,
-                    record.share_count,
-                    record.favorite_count,
-                    record.danmaku_count,
-                    record.reply_count,
-                    record.viewers_app,
-                    record.viewers_web,
-                    record.viewers_total,
-                    record.like_view_ratio,
-                ),
-            )
-            self._mirror_conn.commit()
+                    (
+                        record.timestamp,
+                        record.view_count,
+                        record.like_count,
+                        record.coin_count,
+                        record.share_count,
+                        record.favorite_count,
+                        record.danmaku_count,
+                        record.reply_count,
+                        record.viewers_app,
+                        record.viewers_web,
+                        record.viewers_total,
+                        record.like_view_ratio,
+                    ),
+                )
+                self._mirror_conn.commit()
         except Exception as e:
             logger.debug("镜像添加监控记录失败 %s: %s", record.bvid, e)
 
@@ -706,28 +708,29 @@ class VideoDatabase(_DanmakuMixin):
         if not self._mirror_conn:
             return
         try:
-            self._mirror_conn.execute(
-                """
-                INSERT OR REPLACE INTO predictions
-                (algorithm, algorithm_id, target_threshold, predicted_seconds,
-                 predicted_time, confidence, current_views,
-                 metadata, predicted_hours, current_velocity)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    row.get("algorithm", ""),
-                    row.get("algorithm_id", ""),
-                    row.get("target_threshold", 0),
-                    row.get("predicted_seconds", 0),
-                    row.get("predicted_time", ""),
-                    row.get("confidence", 0),
-                    row.get("current_views", 0),
-                    row.get("metadata", ""),
-                    row.get("predicted_hours", 0),
-                    row.get("current_velocity", 0),
-                ),
-            )
-            self._mirror_conn.commit()
+            with self._lock:
+                self._mirror_conn.execute(
+                    """
+                    INSERT OR REPLACE INTO predictions
+                    (algorithm, algorithm_id, target_threshold, predicted_seconds,
+                     predicted_time, confidence, current_views,
+                     metadata, predicted_hours, current_velocity)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                    (
+                        row.get("algorithm", ""),
+                        row.get("algorithm_id", ""),
+                        row.get("target_threshold", 0),
+                        row.get("predicted_seconds", 0),
+                        row.get("predicted_time", ""),
+                        row.get("confidence", 0),
+                        row.get("current_views", 0),
+                        row.get("metadata", ""),
+                        row.get("predicted_hours", 0),
+                        row.get("current_velocity", 0),
+                    ),
+                )
+                self._mirror_conn.commit()
         except Exception as e:
             logger.debug("镜像添加预测记录失败 %s: %s", self.bvid, e)
 
@@ -736,31 +739,32 @@ class VideoDatabase(_DanmakuMixin):
         if not self._mirror_conn:
             return
         try:
-            self._mirror_conn.execute(
-                """
-                INSERT INTO weekly_scores
-                (timestamp, total_score, view_score, interaction_score,
-                 favorite_score, coin_score, like_score,
-                 correction_a, correction_b, correction_c, correction_d,
-                 base_view_score)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    timestamp,
-                    score_data.get("total_score", 0),
-                    score_data.get("view_score", 0),
-                    score_data.get("interaction_score", 0),
-                    score_data.get("favorite_score", 0),
-                    score_data.get("coin_score", 0),
-                    score_data.get("like_score", 0),
-                    score_data.get("correction_a", 0),
-                    score_data.get("correction_b", 0),
-                    score_data.get("correction_c", 0),
-                    score_data.get("correction_d", 0),
-                    score_data.get("base_view_score", 0),
-                ),
-            )
-            self._mirror_conn.commit()
+            with self._lock:
+                self._mirror_conn.execute(
+                    """
+                    INSERT INTO weekly_scores
+                    (timestamp, total_score, view_score, interaction_score,
+                     favorite_score, coin_score, like_score,
+                     correction_a, correction_b, correction_c, correction_d,
+                     base_view_score)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                    (
+                        timestamp,
+                        score_data.get("total_score", 0),
+                        score_data.get("view_score", 0),
+                        score_data.get("interaction_score", 0),
+                        score_data.get("favorite_score", 0),
+                        score_data.get("coin_score", 0),
+                        score_data.get("like_score", 0),
+                        score_data.get("correction_a", 0),
+                        score_data.get("correction_b", 0),
+                        score_data.get("correction_c", 0),
+                        score_data.get("correction_d", 0),
+                        score_data.get("base_view_score", 0),
+                    ),
+                )
+                self._mirror_conn.commit()
         except Exception as e:
             logger.debug("镜像添加周刊分数失败 %s: %s", self.bvid, e)
 
@@ -769,28 +773,29 @@ class VideoDatabase(_DanmakuMixin):
         if not self._mirror_conn:
             return
         try:
-            self._mirror_conn.execute(
-                """
-                INSERT INTO yearly_scores
-                (timestamp, total_score, view_score, interaction_score,
-                 favorite_score, coin_score, like_score,
-                 correction_a, correction_b, correction_c)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    timestamp,
-                    score_data.get("total_score", 0),
-                    score_data.get("view_score", 0),
-                    score_data.get("interaction_score", 0),
-                    score_data.get("favorite_score", 0),
-                    score_data.get("coin_score", 0),
-                    score_data.get("like_score", 0),
-                    score_data.get("correction_a", 0),
-                    score_data.get("correction_b", 0),
-                    score_data.get("correction_c", 0),
-                ),
-            )
-            self._mirror_conn.commit()
+            with self._lock:
+                self._mirror_conn.execute(
+                    """
+                    INSERT INTO yearly_scores
+                    (timestamp, total_score, view_score, interaction_score,
+                     favorite_score, coin_score, like_score,
+                     correction_a, correction_b, correction_c)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                    (
+                        timestamp,
+                        score_data.get("total_score", 0),
+                        score_data.get("view_score", 0),
+                        score_data.get("interaction_score", 0),
+                        score_data.get("favorite_score", 0),
+                        score_data.get("coin_score", 0),
+                        score_data.get("like_score", 0),
+                        score_data.get("correction_a", 0),
+                        score_data.get("correction_b", 0),
+                        score_data.get("correction_c", 0),
+                    ),
+                )
+                self._mirror_conn.commit()
         except Exception as e:
             logger.debug("镜像添加年刊分数失败 %s: %s", self.bvid, e)
 
