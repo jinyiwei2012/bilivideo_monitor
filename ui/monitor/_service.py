@@ -300,7 +300,7 @@ def _update_status_bar(gui):
     last_sb = getattr(gui, "_last_sb_update", 0)
     if now - last_sb > 0.2:
         gui._last_sb_update = now
-        gui._sb("last_ref", f"上次刷新: {datetime.now().strftime('%H:%M:%S')}")
+    invoke(lambda: gui._sb("last_ref", f"上次刷新: {datetime.now().strftime('%H:%M:%S')}"))
         gui._sb("videos", f"监控: {len(gui.monitored_videos)} 个")
 
 
