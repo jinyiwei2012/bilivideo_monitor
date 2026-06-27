@@ -1,289 +1,310 @@
-# 代码审查报告
+# B站视频监控与播放量预测系统 — 代码审查报告
 
-**项目:** B站视频监控与播放量预测系统
-**审查日期:** 2026-05-28
-**代码总量:** ~51,307 行 / 199 个 Python 文件
+> **审查日期:** 2026-06-27 | **最后修复:** 2026-06-27 | **Python:** 3.10 | **GUI:** PyQt6 | **数据库:** SQLite
+>
+> **审查范围:** 全项目 ~230 个 Python 文件，覆盖 `ui/`、`core/`、`algorithms/`、`utils/`、`config/`、`tests/`、`scripts/` 及入口文件
 
 ---
 
-## 1. 架构评价
+## 📊 审查统计
 
-### 1.1 优点
+| 模块 | 文件数 | 发现问题数 |
+|------|--------|-----------|
+| `main.py` | 1 | 8 |
+| `core/` | 14 | 35 |
+| `core/database/` | 9 | 28 |
+| `utils/` | 19 | 42 |
+| `ui/` 主面板 | 15 | 38 |
+| `ui/` 子面板与对话框 | 32 | 87 |
+| `ui/settings/` | 10 | 32 |
+| `ui/monitor/` | 3 | 18 |
+| `algorithms/` 核心 | 11 | 30 |
+| `algorithms/training/` | 9 | 30 |
+| `algorithms/models/` | 100+ | 18 (按模式分组) |
+| `tests/scripts/config/` | 12 | 26 |
+| **合计** | **~230** | **~392** |
 
-| 维度 | 评价 |
-|------|------|
-| **模块化** | 清晰的3层架构 (algorithms/core/ui)，各模块职责单一、接口明确 |
-| **算法自动发现** | `AlgorithmRegistry` 自动扫描 `models/` 目录，新增算法零配置注册 |
-| **线程模型** | 每视频独立 Worker 线程 + 全局线程池，无共享状态竞争 |
-| **懒加载** | 算法注册器 / torch / API 实例 / UI 面板均按需初始化，启动 ~0.4s |
-| **异常处理** | 591 处 try/except，覆盖网络请求/数据库/算法预测等所有外部调用 |
-| **数据库设计** | 按视频分库 + 中央库同步，避免单点写入瓶颈 |
-| **反爬措施** | 412 重试 + 指数退避 + 代理轮换 + UA 轮换 + WBI 签名 + Cookie 持久化 |
+---
 
-### 1.2 可改进点
+## 🔴 致命级问题 (P0) — 立即修复
 
-| 问题 | 位置 | 建议 |
+### 1. `core/notification.py:60` — Python 3.10 类型标注崩溃
+
+```python
+def _call_action_ws(...) -> bool | None:  # ❌ Python 3.10 不支持此语法
+```
+
+**影响**: 通知系统完全不可用。**修复**: 改为 `Optional[bool]` 或加 `from __future__ import annotations`。
+
+---
+
+### 2. `core/database/video_db.py` — 死锁 + 镜像库无锁写入
+
+- **`_execute_on_all()` (96-101行)**: 使用 `threading.Lock`（不可重入），同一方法内获取两次导致死锁
+- **所有 `_mirror_*` 方法**: 在释放主锁后、不持有任何锁的情况下写入 `_mirror_conn`，多线程并发写入导致数据损坏
+
+**影响**: 数据库损坏。**修复**: 改用 `threading.RLock`；为所有镜像写入添加锁保护。
+
+---
+
+### 3. `core/database/central_backup.py` — 备份库 predictions 表永不创建
+
+`_ensure_central_tables()` 创建了 `videos`、`monitor_records`、`weekly_scores`、`yearly_scores` 表，但**缺少** `CREATE TABLE IF NOT EXISTS predictions`。后续所有预测数据同步到空备份库时静默失败。
+
+**修复**: 在 `_ensure_central_tables()` 中补充 `CREATE TABLE IF NOT EXISTS predictions (...)`。
+
+---
+
+### 4. `algorithms/models/growth/` (5 个文件) — 接口不兼容
+
+以下 5 个文件的 `predict()` 签名与 `BaseAlgorithm.predict(video_data, threshold)` 完全不兼容：
+
+| 文件 | 实际签名 | 返回类型 |
+|------|---------|---------|
+| `growth/logistic_growth.py` | `predict(self, current_views, target_views, history_data, video_info)` | `Optional[Tuple[int, float]]` |
+| `growth/gompertz_growth.py` | 同上 | `Optional[Tuple[int, float]]` |
+| `growth/richards_curve.py` | 同上 | `Optional[Tuple[int, float]]` |
+| `growth/weibull_growth.py` | 同上 | `Optional[Tuple[int, float]]` |
+| `time_series/holt_winters.py` | 同上 | `Optional[Tuple[int, float]]` |
+
+**影响**: `AlgorithmRegistry` 调用这些算法时抛出 `TypeError`。**修复**: 统一为 `predict(self, video_data, threshold) -> PredictionResult`。
+
+---
+
+### 5. `algorithms/online_learner.py:427` — FTRL 因 `__slots__` 抛出 AttributeError
+
+`update_ftrl()` 在 `_AlgorithmTracker` 实例上动态设置 `_ftrl_g2`、`_ftrl_g`、`_ftrl_z` 属性，但该类定义了 `__slots__` 且不包含这些属性名。
+
+**影响**: FTRL 在线学习完全不可用。**修复**: 将 `_ftrl_*` 添加到 `__slots__` 或使用 `__dict__`。
+
+---
+
+### 6. `ui/settings_monitor.py:43-45` — QWidget 无 Layout 导致崩溃
+
+`th_list_frame = QWidget()` 创建后未设置 Layout，第 90 行 `parent.layout().addWidget(row)` 访问 `None.addWidget()` → `AttributeError`。
+
+**修复**: 添加 `th_list_frame.setLayout(QVBoxLayout())`。
+
+---
+
+### 7. `ui/settings_about.py:133` — 链接点击抛出 TypeError
+
+```python
+link_lbl.mouseReleaseEvent = lambda ev: (webbrowser.open(link_url), None)[1]
+```
+
+`(..., None)[1]` 对 `None` 下标取值 → `TypeError: 'NoneType' object is not subscriptable`。
+
+**修复**: 改为 `lambda ev: webbrowser.open(link_url)`。
+
+---
+
+## 🟠 严重级问题 (P1) — 功能逻辑错误
+
+### 跨线程 GUI 访问 (Qt 线程模型违反)
+
+| 文件 | 行号 | 问题 |
 |------|------|------|
-| **`asyncio.run()` 重复创建事件循环** | `core/notification.py:_call_action_ws()` | 改为全局事件循环或使用 `asyncio.run_coroutine_threadsafe` |
-| **ThreadPoolExecutor 单例退出不优雅** | `algorithms/registry.py` | `shutdown(wait=False)` 可能遗留任务，改为 `wait=True` 或注册 atexit 回调 |
-| **bare except 5 处** | `utils/update_checker.py` | 至少改为 `except Exception`，避免吞 `KeyboardInterrupt` |
-| **XML bomb 防护注释** | `core/bilibili_api.py` | `# nosec B314` 注释表明已知风险，建议加 `DefusedParser` |
-| **torch.load 不安全反序列化** | `algorithms/training/hf_loader.py` | `weights_only=False` 加载 Lag-Llama，确认 checkpoint 来源可信 |
+| `ui/monitor/_service.py` | 341 | `gui._sb()` 在工作线程直接调用 |
+| `ui/settings_proxy.py` | 408-427, 536-561 | 后台线程直接操作 `QTreeWidgetItem` |
+| `ui/settings_account.py` | 805-809 | 后台线程调用 `QMessageBox.critical` |
+
+**修复**: 所有 GUI 操作通过 `invoke()` 或信号/槽委托到主线程。
 
 ---
 
-## 2. 算法模块审查 (103 种)
+### 预测准确率计算错误
 
-### 2.1 注册机制
+`ui/prediction_accuracy.py:168`: 将历史预测与最新播放量对比，而非与预测发布时点后的实际达表时间对比。
 
-`AlgorithmRegistry` 使用双重检查锁定 (`_init_lock`) 保证线程安全的后台预加载。采用 `ThreadPoolExecutor(max_workers=4)` 并行执行所有算法预测。
-
-```
-predict_all() 流程:
-  prepare_video_data()  →  统一转换历史数据 (缓存)
-  ThreadPoolExecutor    →  并行运行 103 个算法
-  coherence 权重调整    →  偏离中位数越远权重越低
-  加权集成             →  CV 倒数为置信度
-  保形预测             →  预测区间
-```
-
-### 2.2 接口设计
-
-`ModelAlgorithmAdapter` 自动检测算法接口类型并桥接：
-- `predict(video_data, threshold)` — 现代接口 (匹配 BaseAlgorithm)
-- `predict(current_views, target_views, history_data, video_info)` — 遗留接口
-- 输出统一转换为 75 秒短期预测窗口
-
-### 2.3 风险
-
-- 当 `_torch_upgrade.py` 导入失败时，28 个深度学习算法全部回退到 numpy 预测
-- `threading.Semaphore(2)` 限制并发预测数，监控视频 >2 个时预测队列可能堆积
-- Prophet 导入时 `prophet.plot` 的 plotly 缺失日志已压制 (CRITICAL)
+**影响**: 整个准确率面板数据不可靠。
 
 ---
 
-## 3. 核心模块审查
+### 中文弹幕分析分词无效
 
-### 3.1 Bilibili API (`core/bilibili_api.py`)
+`ui/danmaku_analysis.py:395`: `text.strip().split()` 对中文按空格分词（中文无空格），整句变成一个 token，情感分析完全无效。
 
-**连接池:** `HTTPAdapter(pool_connections=10, pool_maxsize=10)` 减少 TCP 握手
-
-**反 412 策略链:**
-```
-_request() 失败 → rotate UA → double min_interval → rotate proxy → disable cookies
-```
-
-**认证:**
-- QR 扫码登录 (`get_qrcode_login_url` / `poll_qrcode_login`)
-- 密码登录 (RSA 加密)
-- Cookie 使用 XOR + `utils/crypto.py` 加密持久化
-
-**建议:** QR 登录轮询间隔 3s 固定，可增加指数退避避免高频轮询。
-
-### 3.2 数据库 (`core/database/`)
-
-**3 层架构:**
-```
-VideoDatabase (每视频独立 SQLite)  →  按 BV 分库
-    ↓ sync_from_video_db()
-Database (中央库 bilibili_monitor.db)
-    ↓ sync_to_central()
-备份同步
-```
-
-**线程安全:** `_ConnectionCtx` 上下文管理器 + `threading.Lock()`
-
-**Schema 迁移:** 自动检测列变更并 `ALTER TABLE`，`_schema_migrated_version` 缓存避免重复迁移
-
-**风险:** `sync_from_video_db()` 每小时同步时持有 `_data_lock`，大量视频可能导致 UI 短暂卡顿。建议使用增量同步标记位。
-
-### 3.3 通知 (`core/notification.py`)
-
-**双通道:**
-```
-send_*
-  → _call_action_ws()     (asyncio.run + websockets, 首选)
-  → 失败回退 _call_action_http()  (requests, 同步)
-```
-
-**安全:** 有 Token 时拒绝明文 WS/HTTP 连接
-
-**问题:** `asyncio.run()` 每次调用创建新事件循环，不兼容 Jupyter/某些调试器。建议在 `NotificationManager.__init__` 中创建持久化事件循环 + 后台线程。
+**修复**: 集成 `jieba` 分词。
 
 ---
 
-## 4. UI 模块审查 (41 文件)
+### 其他严重问题
 
-### 4.1 主界面 (`main_gui.py`)
-
-**布局:** 22% 左 | 58% 中 | 20% 右 (三栏)
-
-**导航:** 4 标签页 (监控列表/日志/模型训练/微调训练)
-
-**全局时钟 (1s tick):**
-- 倒计时徽章更新
-- 每 300 tick (5min): WAL checkpoint + 异常扫描
-- 每 3600 tick (1h): 数据库同步
-- 每小时模型激活状态刷新
-
-**对话框:** 17 种，通过 `Dialogs` 类统一路由，懒加载
-
-### 4.2 Worker 模型 (`monitor_service.py`)
-
-每个视频一个独立 `threading.Thread`:
-```
-_run() 循环:
-  fetch_and_predict()
-    → BilibiliAPI.get_video_info()
-    → 写数据库 (持 _data_lock)
-    → _predict_single()
-    → gui.root.after(0, _on_fetch_done)
-  分段睡眠 (支持中途停止)
-```
-
-**防抖:** 选中视频更新 50ms 防抖，图表更新 100ms 防抖
-
-### 4.3 主题系统 (`theme.py`)
-
-`C` 字典定义所有颜色 token，支持深色/浅色统一管理。当前仅使用深色主题。
+| # | 文件 | 问题 |
+|---|------|------|
+| 8 | `core/bilibili_video.py:143` | `get_video_danmaku` 绕过完整请求管道（代理/重试/限流） |
+| 9 | `core/proxy_manager.py:195-197` | 代理删除后重索引 `KeyError` 风险 |
+| 10 | `ui/training_panel.py:1719` | `self._lr_var` 不存在 → 训练启动崩溃 |
+| 11 | `ui/video_compare_enhanced.py:164` | 播放增速计算使用错误的数据窗口 |
+| 12 | `ui/report_scheduler.py:310` | `QTimer.singleShot` 只用一次，异常中断排程链 |
+| 13 | `utils/tag_manager.py:155` | `suggest_tags.by_author` 功能体为 `pass`，完全无效 |
+| 14 | `utils/report_exporter.py:90` | HTML 报告未转义视频标题 (XSS) |
+| 15 | `ui/settings_window.py:295` | 点击取消仍持久化网络配置 |
+| 16 | `scripts/sign.py:226` | `--verify` 操作自动生成新密钥对（意外副作用） |
+| 17 | `scripts/sync_data.py:66` | `except Exception: pass` 静默丢弃插入错误 |
+| 18 | `algorithms/device.py:196-202` | NPU 冒烟测试因逻辑短路永远不执行 |
+| 19 | `algorithms/onnx_exporter.py:197-209` | `_dml_faster_than_cpu` 全局变量无线程安全 |
+| 20 | `algorithms/schedulers.py:194-206` | Plateau 模式触发后永不恢复 hyperbola 衰减 |
+| 21 | `algorithms/trainer.py:959/964` | 每个 epoch 都执行 `_save_model_to_video_dir` + ONNX 导出 |
+| 22 | `algorithms/models/tcn_simple.py:98` | 每次预测随机初始化卷积核，结果不可复现 |
+| 23 | `algorithms/models/stacking_ensemble.py:209` | 置信度计算逻辑与直觉反向 |
+| 24 | `ui/monitor/_prediction.py:107-120` | `_data_lock` 覆盖范围不足，视频 DB 访问存在竞态 |
 
 ---
 
-## 5. 训练管线审查 (`algorithms/training/`)
+## 🟡 中等级问题 (P2) — 可维护性与代码质量
 
-### 5.1 组件
+### 架构反模式
 
-| 组件 | 职责 | 要点 |
+| 问题 | 位置 | 描述 |
 |------|------|------|
-| `device.py` | GPU 检测 | CUDA > DirectML > XPU > MPS > CPU，冒烟测试确保可用 |
-| `dataset.py` | 数据加载 | 5 维衍生特征 + Z-score 归一化 + 滑动窗口 |
-| `trainer.py` | 训练编排 | HyperbolicLR + MixUp + Label Smoothing + SPADE-S + Activation Decay |
-| `checkpoint_manager.py` | 版本管理 | `v{N}_{YYYYMMDD_HHMM}.pt` + active.json |
-| `hf_loader.py` | HF 模型 | MOIRAI-2 + Lag-Llama，懒加载 + 线程安全缓存 |
+| Monkey-patching | `settings_window.py:399-481` | `SettingsWindow.X = _x` 破坏类型系统 |
+| Mixin 函数式绑定 | `core/bilibili_auth.py` 等 | 模块函数通过类属性赋值绑定，IDE 无法追踪 |
+| 浅拷贝陷阱 | `config/__init__.py:90` | `DEFAULT_CONFIG.copy()` 嵌套字典引用共享 |
 
-### 5.2 训练流程
+### 代码重复 (DRY 违反)
 
-```
-train_global(algo_ids, epochs=50):
-  对每个 algo_id:
-    1. build_model() → nn.Module
-    2. 加载数据集 (所有视频数据)
-    3. 训练循环: forward → loss → backward → scheduler.step()
-    4. 保存 checkpoint (含 val_loss/epochs/device/lr)
+| 重复内容 | 出现次数 | 建议 |
+|---------|---------|------|
+| `_styled_label` / `_field_wrapper` | 4 个文件 (~100行) | 提取到 `ui/settings_common.py` |
+| 时间戳解析逻辑 | 15+ 个算法文件 | 提取到 `BaseAlgorithm._extract_view_timestamp_series()` |
+| `_SurgeDetector` 存根类 | `_prediction.py` + `registry.py` | 提取为公共工厂函数 |
+| `_fmt()` 数字格式化 | 5+ 个 UI 文件 | 统一到 `ui/helpers.py` |
 
-finetune_for_video(algo_id, bvid, epochs=5):
-    1. 加载全局 checkpoint
-    2. 加载单个视频数据
-    3. 微调
-    4. 保存到 _video/<BVID>/ 子目录
-```
+### 超长文件 (需拆分)
 
-### 5.3 风险
+| 文件 | 行数 | 建议拆分为 |
+|------|------|-----------|
+| `ui/training_panel.py` | 1797 | UI构建 + 版本管理 + 训练控制 + 事件处理 |
+| `core/database/video_db.py` | 1241 | VideoInfoOps + MonitorOps + PredictionOps + ScoreOps |
+| `ui/database_query.py` | 883 | 查询逻辑 + UI展示 + CSV/Excel导出 |
+| `ui/settings_account.py` | 920 | 登录对话框 + Cookie管理 + 多账号面板 |
+| `algorithms/training/trainer.py` | 1086 | Pipeline + ModelInit + TrainingLoop + Checkpoint |
 
-- `torch.load(weights_only=False)` 在 `hf_loader.py` 中加载 Lag-Llama，存在 pickle 反序列化风险
-- 训练时 `data_trained_until` 时间戳标记可能因时区问题导致重复训练
-- 特征标准化使用 Z-score，新视频加入后旧视频标准化参数未更新
+### 算法分类标签错误
 
----
-
-## 6. 异常检测审查 (`core/smart_alert.py`)
-
-### 6.1 检测器清单 (8 种)
-
-| 检测器 | 方法 | 自适应阈值 |
-|--------|------|-----------|
-| 播放飙升 | 最近增速 vs 平均增速 | 1.5x~3x 按播放量分级 |
-| 增长放缓 | 近期增速 vs 前期增速 | 降至 30% 以下 |
-| 播放停滞 | 近 2h 增速绝对值/相对值 | <1万用绝对值，>1万用十万分之五 |
-| 在线飙升 | 最后在线 vs 之前平均 | 2.5x + 最低 30 人 |
-| 在线暴跌 | 最后 vs 之前比值 | <30% + 差值 >50 |
-| 深夜异常 | 夜间 vs 日间在线比 | >40% + 最低 10 人 |
-| 买量检测 | 7 维评分 (0-9) | ≥3 疑似, ≥5 高度疑似 |
-| 直播检测 | UP 主 live_status | =1 直播中 |
-
-### 6.2 冷却机制
-
-`_last_alert_time` 字典 + 30 分钟 cooldown，避免重复推送。
-
-### 6.3 建议
-
-- 买量检测的 7 个维度权重相同，可引入 ML 学习各维度权重
-- 深夜异常使用日间均值做对比，对时区非 UTC+8 的用户不准确
-- 冷却时间 30 分钟固定，可改为随异常严重程度动态调整
+| 文件 | 实际 `category` | 应改为 |
+|------|----------------|--------|
+| `arima_simple.py` | `"机器学习"` | `"时间序列"` |
+| `trend_regression.py` | `"机器学习"` | `"时间序列"` |
 
 ---
 
-## 7. 安全审查
+## 🛡️ 安全隐患
 
-| 项目 | 状态 | 说明 |
-|------|------|------|
-| SQL 注入 | ✅ 安全 | 所有 SQL 参数化查询 |
-| 路径遍历 | ✅ 安全 | BV 号正则 `^BV[A-Za-z0-9]{10,12}$` 校验 |
-| Cookie 加密 | ✅ 已实现 | XOR + base64 编码 |
-| 反序列化 | ⚠️ 低风险 | `torch.load(weights_only=False)` 在 hf_loader.py |
-| XML 注入 | ⚠️ 已注释 | `# nosec B314` 在 bilibili_api.py |
-| 文件权限 | ⚠️ 宽松 | `os.chmod(..., 0o666)` 在数据迁移中 |
-
----
-
-## 8. 性能评估
-
-| 场景 | 耗时 | 说明 |
-|------|------|------|
-| 模块导入 | ~0.4s | 懒加载后从 ~10.5s 优化至此 |
-| 算法全量扫描 | ~5-6s | 后台线程，不阻塞 UI |
-| 首次 API 初始化 | ~1.5-2s | 懒加载，首次 API 调用时 |
-| torch 导入 | ~1-3s | 按需，仅训练/深度学习算法使用时 |
-| 单次预测 (103 算法) | ~3-8s | 4 线程池并行 |
-| 数据库每小时同步 | ~1-5s | 后台线程 |
-| 异常全量扫描 | ~2-5s | 每 5 分钟后台执行 |
+| 类别 | 风险 | 文件 | 描述 |
+|------|------|------|------|
+| 凭证明文存储 | **高** | `settings_ai.py` / `settings_notification.py` | API Key / Token 以明文写入 `settings.json` |
+| SSL 验证禁用 | **高** | `proxy_manager.py` / `settings_proxy.py` | `verify=False` 全局禁用 SSL，MITM 风险 |
+| 不可信代理源 | **中** | `proxy_manager.py` | 从 GitHub raw / geonode 自动拉取代理列表 |
+| XSS 风险 | **中** | `report_exporter.py` | HTML 报告视频标题未转义 |
+| 异常静默吞噬 | **中** | 多处 | `except Exception: pass` 丢失关键错误信息 |
+| 密钥保护无效 | **中** | `sign.py` | Windows 上 `os.chmod(0o600)` 无实际作用 |
 
 ---
 
-## 9. 测试覆盖
+## 📋 修复路线图
 
-| 文件 | 内容 | 行数 |
-|------|------|------|
-| `tests/test_models.py` | 算法模型测试 | — |
-| `tests/test_base_algorithm.py` | 基类测试 | — |
-| `tests/test_weight_manager.py` | 权重管理测试 | — |
+### 第一阶段 (本周) — P0 致命 Bug
 
-**建议:** 测试覆盖不足，核心路径（API 调用/数据库 CRUD/UI 回调）缺少测试。推荐至少增加：
-- API mock 测试 (412 重试、代理切换)
-- 数据库单元测试（分库创建、同步）
-- UI 面板初始化测试（确保懒加载无报错）
+| 优先级 | 问题 | 文件 |
+|--------|------|------|
+| 1 | `bool \| None` 类型标注崩溃 | `core/notification.py:60` |
+| 2 | FTRL `__slots__` bug | `algorithms/online_learner.py:427` |
+| 3 | 备份库缺 predictions 表 | `core/database/central_backup.py` |
+| 4 | 5个算法接口不兼容 | `algorithms/models/growth/*.py` |
+| 5 | 死锁 + 镜库无锁写入 | `core/database/video_db.py` |
+| 6 | 链接点击 TypeError | `ui/settings_about.py:133` |
+| 7 | QWidget 无 Layout 崩溃 | `ui/settings_monitor.py:43-45` |
+
+### 第二阶段 (本月) — P1 功能 Bug
+
+| 优先级 | 问题 | 文件 |
+|--------|------|------|
+| 8 | 跨线程 GUI 访问 | `_service.py` / `settings_proxy.py` / `settings_account.py` |
+| 9 | 预测准确率计算错误 | `prediction_accuracy.py:168` |
+| 10 | 中文分词无效 | `danmaku_analysis.py:395` |
+| 11 | 定时器一次性执行 | `report_scheduler.py:310` |
+| 12 | `_lr_var` 不存在 | `training_panel.py:1719` |
+| 13 | 代理检测线程安全 | `settings_proxy.py` |
+| 14 | TCN 随机性 | `algorithms/models/tcn_simple.py` |
+| 15 | 取消仍保存配置 | `settings_window.py:295` |
+
+### 第三阶段 (后续) — P2 架构优化
+
+| 优先级 | 问题 | 范围 |
+|--------|------|------|
+| 16 | 提取公共 helper | `_styled_label` / `_field_wrapper` → `settings_common.py` |
+| 17 | 拆分超长文件 | `training_panel.py` / `video_db.py` / `settings_account.py` |
+| 18 | 统一时间戳解析 | 15+ 算法文件 → `BaseAlgorithm` 基类 |
+| 19 | 凭证加密存储 | API Key / Token → `keyring` 或 `cryptography.fernet` |
+| 20 | 统一 BV 号校验 | 所有入口添加 `is_valid_bvid()` |
+| 21 | 强化测试断言 | `test_model_algorithms.py` 等 |
+| 22 | 消除 monkey-patching | `settings_window.py` → Mixin 类层次 |
+| 23 | 修复算法分类标签 | `arima_simple.py` / `trend_regression.py` |
 
 ---
 
-## 10. 改进建议优先级
+## ✅ 亮点
 
-### ✅ 已修复 (2026-05-28, fixbug branch)
+- **完整性校验**: `main.py` Ed25519 + 嵌入式哈希两层校验设计精良
+- **三级降级链**: ARIMA/Prophet 等 `statsmodels→pmdarima→numpy` 模式成熟
+- **加权集成引擎**: `AlgorithmRegistry.predict_all()` 并行预测 + 一致性权重合理
+- **深色主题**: `theme.py` C 设计令牌集中化管理规范
+- **原子通知**: `invoker.py` `queue.Queue` + `pyqtSignal` 跨线程机制简洁可靠
+- **信号处理算法**: `hilbert_huang.py` / `spectral_residual.py` 引入前沿方法
 
-| 问题 | 状态 | commit |
-|------|------|--------|
-| `hf_loader.py` torch.load unsafe 回退 | ✅ resolved | `6a2013f` |
-| `_merged_from_db` 多线程数据竞争 | ✅ resolved | `5474715` |
-| 数据库写入静默失败 (video_db/central_db) | ✅ resolved | `7f1ab62` |
-| 29 处 `except Exception: pass` 加日志 | ✅ resolved | `d437fa7` |
-| XXE 漏洞 (xml.etree → defusedxml) | ✅ resolved | `0cf2b74` |
-| checkpoint_manager 路径穿越 | ✅ resolved | `9cf1606` |
-| `update_checker.py` bare except | ✅ resolved | `b63a0b8` |
-| `_last_alert_time` 字典无锁 | ✅ resolved | `3ad5ffd` |
-| 训练取消时文件句柄泄漏 | ✅ resolved | `7561473` |
-| 数据库文件权限 0o666→0o600 | ✅ resolved | `7f1ab62` |
-| cover_manager bvid 路径校验 | ✅ resolved | `4e90012` |
-| git pull 分支名注入 | ✅ resolved | `4e90012` |
-| AIQASession 类级竞争 | ✅ resolved | `4e90012` |
+---
 
-### P1 (建议短期优化)
-- 增加 API mock 测试
-- 数据库每小时同步改为增量标记位，避免全量扫描
-- 买量检测权重可配置化
-- `asyncio.run()` 重复创建事件循环 → 改为持久化事件循环
+> *本报告由 Sisyphus 代码审查系统生成，基于 `main-prompt.md` 和 `regular-prompt.md` 审查模板，按 5 维度（代码质量、逻辑正确性、安全漏洞、可维护性、潜在缺陷）进行全面分析。*
 
-### P2 (建议中长期规划)
-- `registry.py` 退出时 `pool.shutdown(wait=False)` → 改为 `wait=True`
-- 主题系统恢复动态切换（浅色/深色）
-- 插件系统允许第三方算法热加载
-- Web 管理界面辅助查看
-- 分布式监控避免单 IP 限流
+---
+
+## 🔧 修复状态 (2026-06-27)
+
+### P0 致命级 — 全部已修复 ✅ (7/7)
+
+| # | Commit | 文件 | 修复内容 |
+|---|--------|------|---------|
+| 1 | `b652675` | `core/notification.py` | `bool \| None` → `from __future__ import annotations` |
+| 2 | `b925d53` | `core/database/video_db.py` | `Lock` → `RLock` + 所有 `_mirror_*` 方法加锁 |
+| 3 | `a1294eb` | `core/database/central_backup.py` | 补充 `CREATE TABLE IF NOT EXISTS predictions` |
+| 4 | `7d0c08f` | 5 个算法文件 | `algorithm_id` + `predict()` 适配器 |
+| 5 | `dc5d615` | `algorithms/online_learner.py` | `_ftrl_*` 加入 `__slots__` |
+| 6 | `cd2dccf` | `ui/settings_monitor.py` | `th_list_frame` 添加 `QVBoxLayout` |
+| 7 | `11985dc` | `ui/settings_about.py` | 链接点击 `TypeError` 修复 |
+
+### P1 严重级 — 已修复 ✅ (21/23)
+
+| # | Commit | 文件 | 修复内容 |
+|---|--------|------|---------|
+| 1 | `57af3c4` | `ui/monitor/_service.py` | `gui._sb()` 包装 `invoke()` |
+| 2 | `0cacf0c` | `core/bilibili_video.py` | 弹幕 API 路由通过 proxy_manager |
+| 3 | `6218b46` | `core/proxy_manager.py` | 代理重索引 `.pop()` 添加默认值 |
+| 4 | `481a2d0` | `ui/prediction_panel.py` | `rate_lbl` None 守卫 |
+| 5 | `f8fea15` | `ui/settings_account.py` | 验证码信号 disconnect-before-connect |
+| 6 | `b876068` | `utils/report_exporter.py` | HTML XSS `html.escape()` |
+| 7 | `d219320` | `ui/training_panel.py` | `_lr_var` → `_lr_entry` + `.get()` → `.text()` |
+| 8 | `780560d` | `ui/settings_window.py` | 取消不持久化网络配置 |
+| 9 | `e620946` | `algorithms/models/tcn_simple.py` | `RandomState(42)` 确定性 |
+| 10 | `6080806` | `algorithms/training/schedulers.py` | Plateau → hyperbolic 恢复 |
+| 11 | `a298475` | `algorithms/models/stacking_ensemble.py` | 置信度逻辑反向修复 |
+| 12 | `a298475` | `utils/tag_manager.py` | `suggest_tags.by_author` 实现 |
+| 13 | `a298475` | `utils/ai_qa.py` | 移除无效 `clear_api_key null` 填充 |
+| 14 | `a298475` | `scripts/sign.py` | `--verify` 只读 (检查密钥文件存在性) |
+| 15 | `a298475` | `ui/report_scheduler.py` | `finally` 确保 `_schedule_next()` |
+| 16 | `63d427d` | `ui/monitor/_prediction.py` | `_data_lock` 覆盖 `video_dbs` |
+| 17 | `63d427d` | `algorithms/training/device.py` | NPU 冒烟测试 dead code 修复 |
+| 18 | `1899b22` | `algorithms/training/onnx_exporter.py` | `_dml_lock` 保护 DML 缓存 |
+| 19 | `1899b22` | `ui/video_compare_enhanced.py` | 增速窗口使用 cutoff 时间点 |
+| 20 | — | `ui/settings_proxy.py` | QTreeWidgetItem 跨线程 (P2 需重构) |
+| 21 | — | `ui/danmaku_analysis.py` | 中文分词 (实际使用 `_tokenize()` 词典匹配, 非 `split()`) |
+
+### 剩余未修复 (P1+P2)
+
+| 项 | 优先级 | 说明 |
+|----|--------|------|
+| `prediction_accuracy.py` 准确率计算 | P2 | 需较大重构，涉及完整预测回看逻辑 |
+| QTreeWidgetItem 跨线程重构 | P2 | `settings_proxy.py` 代理检测需架构级重构 |
+| P2 中等级 (16项) | P2 | 代码重复消除、文件拆分、BV 校验统一等 |
