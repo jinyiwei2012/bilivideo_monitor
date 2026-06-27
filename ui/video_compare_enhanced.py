@@ -161,14 +161,12 @@ class VideoCompareEnhanced:
                     t = datetime.fromtimestamp(t)
                 if t < cutoff:
                     base_views = vc
+                    base_t = t  # 记录 cutoff 边界处的时间点
                     if len(history) >= 2:
                         latest_t = safe_timestamp(history[-1][0])
                         if isinstance(latest_t, (int, float)):
                             latest_t = datetime.fromtimestamp(latest_t)
-                        first_t = safe_timestamp(history[-2][0]) if len(history) >= 2 else latest_t
-                        if isinstance(first_t, (int, float)):
-                            first_t = datetime.fromtimestamp(first_t)
-                        actual_hours = (latest_t - first_t).total_seconds() / 3600
+                        actual_hours = (latest_t - base_t).total_seconds() / 3600
                     break
             delta = max(0, views - base_views) if isinstance(base_views, (int, float)) else 0
             hourly = delta / max(actual_hours, 0.1)

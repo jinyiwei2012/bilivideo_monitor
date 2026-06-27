@@ -15,6 +15,7 @@ Execution Provider 优先级: DirectML(NPU) > CPU
 """
 
 import os
+import threading
 import logging
 from typing import Dict, Optional, Tuple, Any
 
@@ -36,6 +37,7 @@ _onnx_export_broken = False
 
 # DML 性能标记：首次推理后缓存
 _dml_faster_than_cpu: Optional[bool] = None  # None=未测试, True=DML更快, False=CPU更快
+_dml_lock = threading.Lock()  # 保护 _dml_faster_than_cpu 的线程安全
 
 # ONNX 模型缓存目录
 _ONNX_DIR = None
@@ -196,10 +198,12 @@ class ONNXInferenceSession:
         try:
             # EP 选择：DML 仅在确实加速时才使用
             global _dml_faster_than_cpu
-            if _dml_faster_than_cpu is None:
-                _dml_faster_than_cpu = _benchmark_dml_vs_cpu(onnx_path)
+            with _dml_lock:
+                if _dml_faster_than_cpu is None:
+                    _dml_faster_than_cpu = _benchmark_dml_vs_cpu(onnx_path)
+                use_dml = _dml_faster_than_cpu
 
-            if _dml_faster_than_cpu:
+            if use_dml:
                 try:
                     sess = _ort.InferenceSession(onnx_path,
                         providers=["DmlExecutionProvider", "CPUExecutionProvider"])
