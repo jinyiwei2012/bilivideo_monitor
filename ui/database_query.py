@@ -24,67 +24,10 @@ from ui.theme import C
 from ui.helpers import FONT, FONT_SM, project_path, is_valid_bvid
 from ui.invoker import invoke
 from ui.dialog_base import DialogBase
+from ui.database_query_export import _BASE_EXPORT_HEADERS, build_export_headers, build_export_row
 from utils.update_checker import _confirm_risky
 
 logger = logging.getLogger(__name__)
-
-_BASE_EXPORT_HEADERS = [
-    "序号", "BV号", "时间", "播放量", "点赞", "投币", "分享", "收藏",
-    "弹幕", "评论", "APP观看", "网页观看", "总观看", "播赞比",
-    "周刊总分", "周刊播放", "周刊互动", "周刊收藏", "周刊硬币", "周刊点赞",
-    "周刊修正A", "周刊修正B", "周刊修正C", "周刊修正D", "周刊基础播放",
-    "年刊总分", "年刊播放", "年刊互动", "年刊收藏", "年刊硬币", "年刊点赞",
-    "年刊修正A", "年刊修正B", "年刊修正C",
-]
-
-
-def _build_export_headers(algo_names: list) -> list:
-    headers = list(_BASE_EXPORT_HEADERS)
-    for name in algo_names:
-        headers.append(f"{name}_预测时间")
-        headers.append(f"{name}_预测秒数")
-        headers.append(f"{name}_置信度")
-    return headers
-
-
-def _build_export_row(index: int, row, extra: Optional[dict] = None, algo_names: Optional[list] = None) -> list:
-    e = extra or {}
-    algo_names = algo_names or []
-    if hasattr(row, "keys"):
-        row = dict(row)
-    algo_pred_map = {}
-    for pred in e.get("_predictions", []):
-        algo = pred.get("algorithm", "")
-        if algo not in algo_pred_map:
-            algo_pred_map[algo] = pred
-
-    base_row = [
-        index, row["bvid"], row["timestamp"],
-        row["view_count"], row["like_count"], row["coin_count"],
-        row["share_count"], row["favorite_count"],
-        row["danmaku_count"], row["reply_count"],
-        row.get("viewers_app", "") or "",
-        row.get("viewers_web", "") or "",
-        row.get("viewers_total", "") or "",
-        row.get("like_view_ratio", "") or "",
-        e.get("weekly_total", ""), e.get("weekly_view", ""),
-        e.get("weekly_interaction", ""), e.get("weekly_favorite", ""),
-        e.get("weekly_coin", ""), e.get("weekly_like", ""),
-        e.get("weekly_corr_a", ""), e.get("weekly_corr_b", ""),
-        e.get("weekly_corr_c", ""), e.get("weekly_corr_d", ""),
-        e.get("weekly_base_view", ""),
-        e.get("yearly_total", ""), e.get("yearly_view", ""),
-        e.get("yearly_interaction", ""), e.get("yearly_favorite", ""),
-        e.get("yearly_coin", ""), e.get("yearly_like", ""),
-        e.get("yearly_corr_a", ""), e.get("yearly_corr_b", ""),
-        e.get("yearly_corr_c", ""),
-    ]
-    for name in algo_names:
-        pred = algo_pred_map.get(name, {})
-        base_row.append(pred.get("predicted_time", ""))
-        base_row.append(pred.get("predicted_seconds", ""))
-        base_row.append(pred.get("confidence", ""))
-    return base_row
 
 
 class _ParamPage(QWidget):
@@ -766,14 +709,14 @@ class DatabaseQueryWindow(DialogBase):
         if not fp:
             return
         try:
-            hd = _build_export_headers(self._algo_names)
+            hd = build_export_headers(self._algo_names)
             with open(fp, "w", newline="", encoding="utf-8-sig") as f:
                 w = csv.writer(f)
                 w.writerow(hd)
                 el = getattr(self, "_extra_data", [])
                 for i, row in enumerate(self.query_results, 1):
                     extra = el[i - 1] if i - 1 < len(el) else None
-                    w.writerow(_build_export_row(i, row, extra, self._algo_names))
+                    w.writerow(build_export_row(i, row, extra, self._algo_names))
             QMessageBox.information(self, "成功", f"已导出到:\n{fp}")
         except Exception as e:
             QMessageBox.critical(self, "错误", f"导出失败: {e}")
@@ -797,11 +740,11 @@ class DatabaseQueryWindow(DialogBase):
             wb = openpyxl.Workbook()
             ws = wb.active
             ws.title = "查询结果"
-            ws.append(_build_export_headers(self._algo_names))
+            ws.append(build_export_headers(self._algo_names))
             el = getattr(self, "_extra_data", [])
             for i, row in enumerate(self.query_results, 1):
                 extra = el[i - 1] if i - 1 < len(el) else None
-                ws.append(_build_export_row(i, row, extra, self._algo_names))
+                ws.append(build_export_row(i, row, extra, self._algo_names))
             for col in ws.columns:
                 ml = max((len(str(c.value)) for c in col if c.value is not None), default=0)
                 ws.column_dimensions[col[0].column_letter].width = min(ml + 2, 50)
