@@ -41,6 +41,8 @@ def _build_monitor_tab(self, nb):
     th_sec.layout().addWidget(hint)
 
     th_list_frame = QWidget()
+    th_list_frame.setLayout(QVBoxLayout())
+    th_list_frame.layout().setContentsMargins(0, 0, 0, 0)
     th_list_frame.setStyleSheet(f"background-color: {C['bg_elevated']};")
     th_sec.layout().addWidget(th_list_frame)
 
