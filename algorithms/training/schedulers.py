@@ -182,9 +182,10 @@ class ComboScheduler:
             return
 
         if val_loss < self._best_val:
-            # 验证损失改善：更新最佳值，重置计数器
+            # 验证损失改善：更新最佳值，重置计数器，恢复双曲线模式
             self._best_val = val_loss
             self._plateau_counter = 0
+            self._mode = "hyperbolic"  # 恢复双曲线衰减
             return
 
         # 验证损失未改善：累加计数器
