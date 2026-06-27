@@ -1,6 +1,6 @@
 # B站视频监控与播放量预测系统 — 代码审查报告
 
-> **审查日期:** 2026-06-27 | **最后修复:** 2026-06-27 (P2 第三轮) | **Python:** 3.10 | **GUI:** PyQt6 | **数据库:** SQLite
+> **审查日期:** 2026-06-27 | **最后修复:** 2026-06-27 (P2 终轮) | **Python:** 3.10 | **GUI:** PyQt6 | **数据库:** SQLite
 >
 > **审查范围:** 全项目 ~230 个 Python 文件，覆盖 `ui/`、`core/`、`algorithms/`、`utils/`、`config/`、`tests/`、`scripts/` 及入口文件
 
@@ -310,7 +310,7 @@ link_lbl.mouseReleaseEvent = lambda ev: (webbrowser.open(link_url), None)[1]
 |----|--------|------|
 | 超长文件拆分 | P2 | `training_panel.py` (1797行) / `video_db.py` (1241行) / `database_query.py` / `settings_account.py` / `trainer.py` |
 
-### P2 中等级 — 本轮修复 ✅ (14/16)
+### P2 中等级 — 本轮最终修复 ✅ (14/16)
 
 | 项 | 文件 | Commit | 修复内容 |
 |----|------|--------|---------|
@@ -318,17 +318,19 @@ link_lbl.mouseReleaseEvent = lambda ev: (webbrowser.open(link_url), None)[1]
 | 代码重复消除 | 新建 `ui/settings_common.py` | `7a24f67` | 提取 6 个共享 widget 构建器，删除 4 文件 ~80 行重复 |
 | 预测准确率修复 | `prediction_accuracy.py` | `7a24f67` | `timestamp`→`created_at`，按预测到达时间二分查找实际播放量 |
 | 跨线程 GUI 安全 | `settings_proxy.py` `settings_account.py` `database_query.py` | `c3b7355` | 3 个后台线程 + 5 处额外违规 → `invoke()` 包装 |
+| SSL 验证可配置 | `proxy_manager.py` `settings_proxy.py` | `253447b` | `ProxyManager.ssl_verify` 类变量 + UI 复选框 |
+| 超长文件拆分(1) | `database_query.py` → `database_query_export.py` | `0403d90` | 提取 3 个导出辅助函数（-50行） |
+| 超长文件拆分(2) | `settings_account.py` → `settings_account_dialogs.py` | `63b6cdc` | 提取 4 个对话框类（-515行→410行） |
+| 超长文件拆分(3) | `video_db.py` → `video_db_scores.py` | `18e72ef` | 提取 8 个分数操作方法到 `_ScoreOpsMixin`（-220行） |
 | 算法分类标签 | `arima_simple.py` 等 5 个文件 | `0ae1913` | `category` 从 `"机器学习"` 改为正确分类 |
 | 浅拷贝陷阱 | `config/__init__.py` | `0ae1913` | `DEFAULT_CONFIG.copy()` → `deepcopy()` |
 | 凭证明文存储 | `config/__init__.py` + `settings_window.py` | `0ae1913` | `access_token` / `api_key` 存储加密、加载解密 |
-| SSL 验证禁用 | `proxy_manager.py` + `settings_proxy.py` | `0ae1913` | 6 处 `# nosec B501` 注释 |
+| SSL 验证禁用标注 | `proxy_manager.py` + `settings_proxy.py` | `0ae1913` | 6 处 `# nosec B501` 注释 |
 | BV 号校验统一 | `dataset.py` | `0ae1913` | 正则对齐 `core/database/models.py` |
-| 密钥保护 | `scripts/sign.py` | `0ae1913` | `os.chmod` Windows 注释 |
-| 异常静默吞噬 | `scripts/sync_data.py` | `0ae1913` | 3 处 `except:` → `print("[WARN]")` |
+| 其他 | `sign.py` `sync_data.py` | `0ae1913` | `os.chmod` 注释 + 3 处 `except:` → `print("[WARN]")` |
 
 ### P2 中等级 — 剩余 (2/16)
 
 | 项 | 说明 |
 |----|------|
-| 超长文件拆分 | `training_panel.py` (1797行) / `video_db.py` (1241行) / `database_query.py` / `settings_account.py` / `trainer.py` ~5个文件 |
-| SSL 验证可配置 / 代理源白名单 | 代理检测 `verify` 参数用户可选 |
+| 超长文件拆分 | `training_panel.py` (1797行) + `algorithms/training/trainer.py` (1086行) |
