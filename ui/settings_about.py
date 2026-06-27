@@ -130,7 +130,7 @@ def _build_about_tab(self, nb):
         link_lbl = _styled_label(url, "bilibili" if "bilibili" in C else "text_1", font_=FONT)
         link_lbl.setCursor(Qt.CursorShape.PointingHandCursor)
         link_url = url
-        link_lbl.mouseReleaseEvent = lambda ev: (webbrowser.open(link_url), None)[1]
+        link_lbl.mouseReleaseEvent = lambda ev: webbrowser.open(link_url)
         rl.addWidget(link_lbl)
         rl.addStretch()
         sec2_layout.addWidget(row_w)
