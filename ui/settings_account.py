@@ -429,6 +429,10 @@ class _PasswordLoginDialog(QDialog):
             self._captcha_widget.setVisible(True)
             self._captcha_entry.setFocus()
             self._submit_captcha_btn.setVisible(True)
+            try:
+                self._submit_captcha_btn.clicked.disconnect()
+            except TypeError:
+                pass
             self._submit_captcha_btn.clicked.connect(self._submit_captcha)
             self._login_btn.setVisible(False)
         else:
@@ -441,6 +445,10 @@ class _PasswordLoginDialog(QDialog):
             self._geetest_widget.setVisible(True)
             self._submit_captcha_btn.setText("提交极验结果")
             self._submit_captcha_btn.setVisible(True)
+            try:
+                self._submit_captcha_btn.clicked.disconnect()
+            except TypeError:
+                pass
             self._submit_captcha_btn.clicked.connect(self._submit_geetest)
             webbrowser.open(url)
 
