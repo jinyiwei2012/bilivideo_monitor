@@ -3,6 +3,7 @@
 """
 
 import os
+import html
 import logging
 from datetime import datetime
 from typing import List, Dict, Optional
@@ -56,7 +57,7 @@ def export_html(videos: List[Dict], output_path: Optional[str] = None, title: st
         <tr>
             <td>{i}</td>
             <td>{v.get('bvid', '')}</td>
-            <td title="{v.get('title', '')}">{v.get('title', '')[:30]}</td>
+            <td title="{html.escape(v.get('title', ''))}">{html.escape(v.get('title', '')[:30])}</td>
             <td>{v.get('author', '')}</td>
             <td class="num">{_fmt(v.get('view_count', 0))}</td>
             <td class="num">{_fmt(v.get('like_count', 0))}</td>
@@ -77,7 +78,7 @@ def export_html(videos: List[Dict], output_path: Optional[str] = None, title: st
             health_rows += f"""
             <tr>
                 <td>{v.get('bvid', '')[:14]}</td>
-                <td>{v.get('title', '')[:25]}</td>
+                <td>{html.escape(v.get('title', '')[:25])}</td>
                 <td class="num" style="color:{gc};font-weight:bold">{r.health_score:.0f} ({r.health_grade})</td>
                 <td class="num">{r.like_rate:.2f}%</td>
                 <td class="num">{r.coin_rate:.2f}%</td>
@@ -108,7 +109,7 @@ td {{ padding:8px 12px; border-top:1px solid #eee; font-size:13px; }}
 </style>
 </head>
 <body>
-<h1>{title}</h1>
+<h1>{html.escape(title)}</h1>
 <div class="report-date">生成时间: {summary['generated_at']}</div>
 
 <div class="cards">
