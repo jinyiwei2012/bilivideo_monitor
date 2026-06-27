@@ -107,6 +107,7 @@ def _merge_history(gui, bvid: str) -> list:
     with gui._data_lock:
         current_view = next((v.get("view_count", 0) for v in gui.monitored_videos if v.get("bvid") == bvid), 0)
         history = list(gui.history_data.get(bvid, []))
+        vdb = gui.video_dbs.get(bvid)  # 在锁内获取引用，防止主线程并发删除
 
     # 检查是否已从 DB 合并过
     from ui.monitor._service import _merged_from_db_lock, _merged_from_db
@@ -117,8 +118,8 @@ def _merge_history(gui, bvid: str) -> list:
             already_merged = False
     if not already_merged:
         try:
-            if bvid in gui.video_dbs:
-                db_hist = gui.video_dbs[bvid].get_all_records(limit=500)
+            if vdb is not None:
+                db_hist = vdb.get_all_records(limit=500)
                 if db_hist:
 
                     existing_ts = {normalize_timestamp(h[0])[2] for h in history}

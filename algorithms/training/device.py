@@ -46,6 +46,7 @@ _xpu_available = None   # Intel XPU 是否可用的缓存标志
 _dml_available = None   # DirectML 是否可用的缓存标志
 _ov_available = None    # OpenVINO 是否可用的缓存标志
 _ov_npu_available = None  # OpenVINO NPU 设备是否可用的缓存标志
+_ov_npu_smoke_cached = None  # NPU 冒烟测试结果缓存 (None=未测, True/False=已测)
 _force_cpu = False      # 是否全局强制使用 CPU
 
 
@@ -196,10 +197,10 @@ def is_ov_npu_available() -> bool:
     _ensure_ov()
     if not _ov_npu_available:
         return False
-    # 冒烟测试仅首次执行，后续直接使用缓存结果
-    if _ov_npu_available is True:
-        return True
-    return _try_ov_npu()
+    global _ov_npu_smoke_cached
+    if _ov_npu_smoke_cached is None:
+        _ov_npu_smoke_cached = _try_ov_npu()
+    return _ov_npu_smoke_cached
 
 
 def is_torch_available() -> bool:
