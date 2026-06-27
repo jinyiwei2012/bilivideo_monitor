@@ -143,15 +143,20 @@ def get_video_cid(self, bvid: str) -> Optional[int]:
 def get_video_danmaku(self, oid: int) -> List[Dict]:
     try:
         self._ensure_min_interval()
+        idx, proxy, ua = self.proxy_manager.get_proxy_binding()
+        if proxy:
+            self.session.proxies.update(proxy)
         logger.debug("→ GET %s?oid=%s", self.DANMAKU_URL, oid)
         resp = self.session.get(
             self.DANMAKU_URL,
             params={"oid": oid},
-            headers={"User-Agent": random.choice(self.USER_AGENTS), "Referer": "https://www.bilibili.com/"},
+            headers={"User-Agent": ua or random.choice(self.USER_AGENTS), "Referer": "https://www.bilibili.com/"},
             timeout=15,
         )
         logger.debug("← GET %s → %s", self.DANMAKU_URL.split("?")[0], resp.status_code)
         if resp.status_code != 200:
+            if proxy:
+                self.proxy_manager.on_request_failure(idx)
             return []
         from defusedxml.ElementTree import fromstring as _xml_parse
 
