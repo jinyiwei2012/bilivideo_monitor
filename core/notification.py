@@ -3,6 +3,8 @@
 OneBot 调用策略：主力 WebSocket → 回退 HTTP
 """
 
+from __future__ import annotations
+
 import asyncio
 import concurrent.futures
 import json
