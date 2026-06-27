@@ -1716,7 +1716,7 @@ class TrainingPanel(BaseTrainingPanel):
         if "增大学习率" in suggestions_text or "下降过慢" in self._monitor.status:
             scale = self._monitor.compute_lr_scale("underfitting")
             try:
-                cur_lr = float(self._lr_var.get())
+                cur_lr = float(self._lr_entry.text())
             except (ValueError, TypeError):
                 cur_lr = 0.001
             new_lr = cur_lr * scale
@@ -1724,7 +1724,7 @@ class TrainingPanel(BaseTrainingPanel):
         elif "大幅降低" in suggestions_text:
             scale = self._monitor.compute_lr_scale("explosion")
             try:
-                cur_lr = float(self._lr_var.get())
+                cur_lr = float(self._lr_entry.text())
             except (ValueError, TypeError):
                 cur_lr = 0.001
             new_lr = cur_lr * scale
@@ -1734,7 +1734,7 @@ class TrainingPanel(BaseTrainingPanel):
             issue = "oscillation" if "波动" in status else "overfitting"
             scale = self._monitor.compute_lr_scale(issue)
             try:
-                cur_lr = float(self._lr_var.get())
+                cur_lr = float(self._lr_entry.text())
             except (ValueError, TypeError):
                 cur_lr = 0.001
             new_lr = cur_lr * scale
