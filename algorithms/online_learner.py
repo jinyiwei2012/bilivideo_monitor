@@ -16,6 +16,8 @@
     save() / load() 将学习状态保存到 JSON 文件，重启后不丢失经验。
 """
 
+from __future__ import annotations
+
 import math
 import time
 import threading
@@ -43,7 +45,8 @@ class _AlgorithmTracker:
     """
 
     __slots__ = ("name", "weight", "cumulative_loss", "ewma_loss", "error_count",
-                 "last_error", "last_update", "recent_errors")
+                 "last_error", "last_update", "recent_errors",
+                 "_ftrl_g2", "_ftrl_g", "_ftrl_z")
 
     def __init__(self, name: str, initial_weight: float = 1.0):
         self.name = name  # 算法名称
