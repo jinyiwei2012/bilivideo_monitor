@@ -480,6 +480,24 @@ class CentralBackup:
             correction_a REAL, correction_b REAL, correction_c REAL)""")
         cur.execute("""CREATE INDEX IF NOT EXISTS idx_yearly_bvid
             ON yearly_scores(bvid, timestamp)""")
+        cur.execute("""CREATE TABLE IF NOT EXISTS predictions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            bvid TEXT NOT NULL,
+            algorithm TEXT,
+            algorithm_id TEXT,
+            target_threshold INTEGER,
+            predicted_seconds INTEGER,
+            predicted_time TIMESTAMP,
+            confidence REAL,
+            current_views INTEGER,
+            metadata TEXT DEFAULT '',
+            predicted_hours REAL DEFAULT 0,
+            current_velocity REAL DEFAULT 0,
+            is_reached BOOLEAN DEFAULT 0,
+            actual_time TIMESTAMP,
+            error_rate REAL DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )""")
         CentralBackup._migrate_central_predictions(cur)
         cur.execute("CREATE INDEX IF NOT EXISTS idx_predictions_bvid ON predictions(bvid)")
         try:
