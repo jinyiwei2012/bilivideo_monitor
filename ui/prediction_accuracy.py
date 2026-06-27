@@ -2,8 +2,10 @@
 预测准确率回看面板 — 对比历史预测值 vs 实际播放量
 
 展示每个预测时间点各算法的准确率，支持按算法筛选和时间范围选择。
+通过查询 monitor_records 找到预测到达时间点的实际播放量，与 target_threshold 对比计算偏差。
 """
 import logging
+from bisect import bisect_left
 from datetime import datetime, timedelta
 
 from PyQt6.QtWidgets import (
@@ -137,18 +139,20 @@ class PredictionAccuracyPanel:
                 if days < 9999:
                     cutoff = (datetime.now() - timedelta(days=days)).isoformat()
                     cursor.execute(
-                        """SELECT timestamp, algorithm, algorithm_id, current_views, predicted_time, predicted_seconds
+                        """SELECT created_at, algorithm, algorithm_id, current_views,
+                                  predicted_time, predicted_seconds, target_threshold
                            FROM predictions
-                           WHERE target_threshold = ? AND timestamp >= ?
-                           ORDER BY timestamp DESC""",
+                           WHERE target_threshold = ? AND created_at >= ?
+                           ORDER BY created_at DESC""",
                         (threshold, cutoff),
                     )
                 else:
                     cursor.execute(
-                        """SELECT timestamp, algorithm, algorithm_id, current_views, predicted_time, predicted_seconds
+                        """SELECT created_at, algorithm, algorithm_id, current_views,
+                                  predicted_time, predicted_seconds, target_threshold
                            FROM predictions
                            WHERE target_threshold = ?
-                           ORDER BY timestamp DESC""",
+                           ORDER BY created_at DESC""",
                         (threshold,),
                     )
                 rows = cursor.fetchall()
@@ -163,23 +167,97 @@ class PredictionAccuracyPanel:
             self._table.setRowCount(0)
             return
 
-        # 获取最新实际播放量
-        history = self.gui.history_data.get(bvid, [])
-        latest_views = history[-1][1] if history else 0
+        # 加载 monitor_records 用于查找预测到达时点的实际播放量
+        records = vdb.get_all_records()
+        if not records:
+            self._summary_lbl.setText("无监控记录，无法计算准确率")
+            self._table.setRowCount(0)
+            return
+
+        # 构建时间戳列表和对应的播放量（用于二分查找）
+        # monitor_records timestamps 可能是 ISO 字符串或 datetime 对象
+        _rec_timestamps = []
+        _rec_views = []
+        for r in records:
+            ts = r.get("timestamp", "")
+            vc = r.get("view_count", 0) or 0
+            if isinstance(ts, str):
+                try:
+                    ts = datetime.fromisoformat(ts)
+                except (ValueError, TypeError):
+                    continue
+            elif isinstance(ts, datetime):
+                pass
+            else:
+                continue
+            _rec_timestamps.append(ts)
+            _rec_views.append(vc)
+        if not _rec_timestamps:
+            self._summary_lbl.setText("监控记录时间戳解析失败")
+            self._table.setRowCount(0)
+            return
+
+        # 当前最新播放量（用于摘要显示）
+        latest_views = _rec_views[-1] if _rec_views else 0
 
         # 填充表格
         self._table.setRowCount(len(rows))
         total_dev = 0.0
         count = 0
+        skipped_future = 0
 
         for i, row in enumerate(rows):
-            ts_str, algo, algo_id, predicted_views, predicted_time, predicted_seconds = row
-            ts_display = ts_str[:16] if isinstance(ts_str, str) else str(ts_str)[:16]
-            pred_val = predicted_views or 0
+            ts_created, algo, algo_id, current_views, predicted_time, predicted_seconds, target_threshold = row
+            ts_display = ts_created[:16] if isinstance(ts_created, str) else str(ts_created)[:16]
 
-            # 计算偏差和准确率
-            if latest_views > 0 and pred_val > 0:
-                deviation = abs(pred_val - latest_views) / latest_views * 100
+            # 解析 prediction 创建时间
+            if isinstance(ts_created, str):
+                try:
+                    pred_ts = datetime.fromisoformat(ts_created)
+                except (ValueError, TypeError):
+                    pred_ts = None
+            elif isinstance(ts_created, datetime):
+                pred_ts = ts_created
+            else:
+                pred_ts = None
+
+            if pred_ts is None:
+                dev_text = "—"
+                acc_text = "时间错误"
+                actual_views_display = "—"
+                self._set_row(i, ts_display, algo or algo_id, fmt_num(current_views or 0),
+                              actual_views_display, dev_text, acc_text, 0)
+                continue
+
+            # 预测的到达时间
+            predicted_arrival = pred_ts + timedelta(seconds=(predicted_seconds or 0))
+
+            # 二分查找 monitor_records 中最接近 predicted_arrival 的记录
+            idx = bisect_left(_rec_timestamps, predicted_arrival)
+            if idx >= len(_rec_timestamps):
+                # 预测到达时间在所有监控记录之后 → 尚未到达
+                actual_views = _rec_views[-1]
+                actual_views_display = f"{fmt_num(actual_views)} (未到)"
+                skipped_future += 1
+            elif idx == 0:
+                actual_views = _rec_views[0]
+                actual_views_display = fmt_num(actual_views)
+            else:
+                # 选择更接近的那个记录
+                before_ts = _rec_timestamps[idx - 1]
+                after_ts = _rec_timestamps[idx]
+                if abs((after_ts - predicted_arrival).total_seconds()) < abs(
+                    (predicted_arrival - before_ts).total_seconds()
+                ):
+                    actual_views = _rec_views[idx]
+                else:
+                    actual_views = _rec_views[idx - 1]
+                actual_views_display = fmt_num(actual_views)
+
+            # 计算偏差和准确率：对比 target_threshold vs actual_views
+            target = target_threshold or threshold
+            if target > 0 and actual_views > 0:
+                deviation = abs(actual_views - target) / target * 100
                 accuracy = max(0, 100 - deviation)
                 total_dev += deviation
                 count += 1
@@ -189,24 +267,34 @@ class PredictionAccuracyPanel:
                 dev_text = "—"
                 acc_text = "—"
 
-            items = [
-                (ts_display, C["text_2"]),
-                (algo or algo_id, C["text_1"]),
-                (fmt_num(pred_val), C["bilibili"]),
-                (fmt_num(latest_views), C["text_1"]),
-                (dev_text, C["danger"] if deviation > 20 else C["success"]),
-                (acc_text, C["success"] if accuracy > 80 else C["warning"] if accuracy > 50 else C["danger"]),
-            ]
-            for j, (text, color) in enumerate(items):
-                item = QTableWidgetItem(text)
-                item.setForeground(Qt.GlobalColor.white)
-                self._table.setItem(i, j, item)
+            self._set_row(i, ts_display, algo or algo_id, fmt_num(current_views or 0),
+                          actual_views_display, dev_text, acc_text,
+                          deviation if target > 0 and actual_views > 0 else 0)
 
         if count > 0:
             avg_dev = total_dev / count
+            extra = f" | {skipped_future} 条预测尚未到达" if skipped_future > 0 else ""
             self._summary_lbl.setText(
                 f"共 {len(rows)} 条记录 | 平均偏差: {avg_dev:.1f}% | "
-                f"平均准确率: {100 - avg_dev:.1f}% | 当前播放量: {fmt_num(latest_views)}"
+                f"平均准确率: {100 - avg_dev:.1f}% | 当前播放量: {fmt_num(latest_views)}{extra}"
             )
         else:
-            self._summary_lbl.setText(f"共 {len(rows)} 条记录 | 当前播放量: {fmt_num(latest_views)}")
+            self._summary_lbl.setText(
+                f"共 {len(rows)} 条记录 | 当前播放量: {fmt_num(latest_views)}"
+                + (f" | {skipped_future} 条未到达" if skipped_future > 0 else "")
+            )
+
+    def _set_row(self, row_idx, ts_display, algo, pred_views, actual_views, dev_text, acc_text, deviation):
+        """填充表格的一行"""
+        items = [
+            (ts_display, C["text_2"]),
+            (algo, C["text_1"]),
+            (pred_views, C["bilibili"]),
+            (actual_views, C["text_1"]),
+            (dev_text, C["danger"] if deviation > 20 else C["success"]),
+            (acc_text, C["success"] if (100 - deviation) > 80 else C["warning"] if (100 - deviation) > 50 else C["danger"]),
+        ]
+        for j, (text, color) in enumerate(items):
+            item = QTableWidgetItem(text)
+            item.setForeground(Qt.GlobalColor.white)
+            self._table.setItem(row_idx, j, item)

@@ -1,7 +1,7 @@
 """
 系统设置主窗口 — PyQt6 版
 
-组合各子模块的 mixin 函数构建完整 SettingsWindow 类。
+组合各子模块的 Mixin 类构建完整 SettingsWindow 类。
 所有 tab 统一使用 QTabWidget，mixins 接收 QWidget parent 构建内容。
 """
 
@@ -20,175 +20,40 @@ from PyQt6.QtGui import QFont
 from ui.theme import C
 from ui.helpers import FONT, project_path, auto_threshold_name
 from ui.dialog_base import DialogBase
+from ui.settings_common import (
+    styled_label,
+    field_wrapper,
+    make_field,
+    make_spin_field,
+    make_spin_field_float,
+    make_section_widget as _section_widget,
+)
 
 logger = logging.getLogger(__name__)
 
-# ── 导入各子模块 mixin ──
-from ui.settings_notification import (
-    _build_notification_tab,
-    _test_connection,
-    _show_test_result,
-)
-from ui.settings_monitor import (
-    _build_monitor_tab,
-    _add_threshold_row,
-)
-from ui.settings_general import (
-    _build_general_tab,
-    _build_general_predict_section,
-    _build_general_retry_section,
-    _build_general_status_section,
-    _apply_retry_settings,
-    _refresh_status,
-    _apply_status,
-    _reset_status,
-)
-from ui.settings_proxy import (
-    _build_proxy_tab,
-    _auto_fetch_proxies,
-    _auto_fetch_worker,
-    _update_proxy_text,
-    _add_proxy_source,
-    _add_proxy_entry,
-    _batch_import_proxies,
-    _apply_proxies,
-    _verify_proxy_persisted,
-    _check_proxies,
-    _auto_remove_failed_proxies,
-    _sync_proxy_text_to_cfg,
-)
-from ui.settings_account import (
-    _build_account_tab,
-    _refresh_cookie_display,
-    _toggle_cookie_unlock,
-    _apply_cookies,
-    _parse_cookie_input,
-    _verify_login,
-    _clear_cookies,
-    _import_from_browser,
-    _on_browser_cookies,
-    _import_cookie_editor,
-    _qrcode_login,
-    _refresh_account_list,
-    _switch_account,
-    _add_account_dialog,
-    _remove_account,
-    _password_login,
-)
-from ui.settings_ai import (
-    _build_ai_tab,
-    _on_ai_profile_selected,
-    _save_ai_profile,
-    _delete_ai_profile,
-    _new_ai_profile,
-    _test_ai_connection,
-)
-from ui.settings_weights import (
-    _build_weights_tab,
-    _reset_all_weights,
-    _refresh_weights,
-    _save_weights,
-)
-from ui.settings_training import (
-    _build_training_tab,
-    _refresh_device_info,
-    _on_infer_device_changed,
-    _refresh_data_size,
-    _refresh_algo_list,
-    _tr_select_all,
-    _tr_select_untrained,
-    _on_train_start,
-    _on_train_cancel,
-    _on_export_checkpoints,
-    _on_import_checkpoints,
-    _poll_training_progress,
-    _open_version_manager,
-)
-from ui.settings_about import (
-    _build_about_tab,
-)
+# ── 导入各子模块 Mixin ──
+from ui.settings_notification import SettingsNotificationMixin
+from ui.settings_monitor import SettingsMonitorMixin
+from ui.settings_general import SettingsGeneralMixin
+from ui.settings_proxy import SettingsProxyMixin
+from ui.settings_account import SettingsAccountMixin
+from ui.settings_ai import SettingsAIMixin
+from ui.settings_weights import SettingsWeightsMixin
+from ui.settings_training import SettingsTrainingMixin
+from ui.settings_about import SettingsAboutMixin
 
 
-# ── 辅助函数：创建标签式字段行 ──
-
-def _field(parent, label, default, show=None):
-    """创建一行标签+输入框"""
-    row = QWidget(parent)
-    layout = QHBoxLayout(row)
-    layout.setContentsMargins(0, 2, 0, 2)
-
-    lbl = QLabel(label)
-    lbl.setStyleSheet(f"color: {C['text_2']};")
-    lbl.setFixedWidth(130)
-    layout.addWidget(lbl)
-
-    entry = QLineEdit(default)
-    entry.setStyleSheet(f"background-color: {C['bg_base']}; color: {C['text_1']};")
-    if show:
-        entry.setEchoMode(QLineEdit.EchoMode.Password)
-    layout.addWidget(entry, 1)
-    return entry
-
-
-def _spin_field(parent, label, default, fr, to):
-    """创建一行标签+整数微调框"""
-    row = QWidget(parent)
-    layout = QHBoxLayout(row)
-    layout.setContentsMargins(0, 2, 0, 2)
-
-    lbl = QLabel(label)
-    lbl.setStyleSheet(f"color: {C['text_2']};")
-    lbl.setFixedWidth(130)
-    layout.addWidget(lbl)
-
-    spin = QSpinBox()
-    spin.setRange(fr, to)
-    spin.setValue(int(default))
-    layout.addWidget(spin)
-    layout.addStretch()
-    return spin
-
-
-def _spin_field_float(parent, label, default, fr, to):
-    """创建一行标签+浮点数微调框"""
-    row = QWidget(parent)
-    layout = QHBoxLayout(row)
-    layout.setContentsMargins(0, 2, 0, 2)
-
-    lbl = QLabel(label)
-    lbl.setStyleSheet(f"color: {C['text_2']};")
-    lbl.setFixedWidth(130)
-    layout.addWidget(lbl)
-
-    spin = QDoubleSpinBox()
-    spin.setRange(fr, to)
-    spin.setValue(default)
-    spin.setSingleStep(0.1)
-    spin.setDecimals(2)
-    layout.addWidget(spin)
-    layout.addStretch()
-    return spin
-
-
-def _section_widget(parent, title):
-    """创建一个卡片分段的 QFrame"""
-    sec = QFrame(parent)
-    sec.setStyleSheet(f"""
-        QFrame {{
-            background-color: {C['bg_elevated']};
-            border: 1px solid {C['border_sub']};
-            border-radius: {C['radius_md']}px;
-        }}
-    """)
-    layout = QVBoxLayout(sec)
-    if title:
-        lbl = QLabel(title)
-        lbl.setStyleSheet(f"color: {C['text_2']}; font-weight: bold; font-size: 8pt;")
-        layout.addWidget(lbl)
-    return sec
-
-
-class SettingsWindow:
+class SettingsWindow(
+    SettingsNotificationMixin,
+    SettingsMonitorMixin,
+    SettingsGeneralMixin,  # MUST come before SettingsAccountMixin — provides _refresh_status
+    SettingsProxyMixin,
+    SettingsAccountMixin,  # depends on SettingsGeneralMixin._refresh_status
+    SettingsAIMixin,
+    SettingsWeightsMixin,
+    SettingsTrainingMixin,
+    SettingsAboutMixin,
+):
     """统一设置窗口 — PyQt6 版"""
 
     def __init__(self, parent=None, gui=None):
@@ -259,6 +124,20 @@ class SettingsWindow:
             sec.layout().setContentsMargins(*padding)
         parent.layout().addWidget(sec)
         return sec
+
+    def _field(self, parent, label, default, show=None, show_password=None):
+        """Create a label + QLineEdit row (delegates to settings_common.make_field)."""
+        if show_password is not None:
+            show = show_password
+        return make_field(parent, label, default, show)
+
+    def _spin_field(self, parent, label, default, fr, to):
+        """Create a label + QSpinBox row (delegates to settings_common.make_spin_field)."""
+        return make_spin_field(parent, label, default, fr, to)
+
+    def _spin_field_float(self, parent, label, default, fr, to):
+        """Create a label + QDoubleSpinBox row (delegates to settings_common.make_spin_field_float)."""
+        return make_spin_field_float(parent, label, default, fr, to)
 
     def setup_ui(self):
         self.dlg.header("系统设置", "配置通知、监控、AI、代理、Cookie 等全部参数")
@@ -413,91 +292,3 @@ class SettingsWindow:
 
         QMessageBox.information(self.dlg, "成功", "设置已保存")
         self.dlg.close()
-
-
-# ── 将 mixin 函数附加到 SettingsWindow ──
-
-# Notification
-SettingsWindow._build_notification_tab = _build_notification_tab
-SettingsWindow._test_connection = _test_connection
-SettingsWindow._show_test_result = _show_test_result
-
-# Monitor
-SettingsWindow._build_monitor_tab = _build_monitor_tab
-SettingsWindow._add_threshold_row = _add_threshold_row
-
-# General
-SettingsWindow._build_general_tab = _build_general_tab
-SettingsWindow._build_general_predict_section = _build_general_predict_section
-SettingsWindow._build_general_retry_section = _build_general_retry_section
-SettingsWindow._build_general_status_section = _build_general_status_section
-SettingsWindow._apply_retry_settings = _apply_retry_settings
-SettingsWindow._refresh_status = _refresh_status
-SettingsWindow._apply_status = _apply_status
-SettingsWindow._reset_status = _reset_status
-
-# Proxy
-SettingsWindow._build_proxy_tab = _build_proxy_tab
-SettingsWindow._auto_fetch_proxies = _auto_fetch_proxies
-SettingsWindow._auto_fetch_worker = _auto_fetch_worker
-SettingsWindow._update_proxy_text = _update_proxy_text
-SettingsWindow._add_proxy_source = _add_proxy_source
-SettingsWindow._add_proxy_entry = _add_proxy_entry
-SettingsWindow._batch_import_proxies = _batch_import_proxies
-SettingsWindow._apply_proxies = _apply_proxies
-SettingsWindow._verify_proxy_persisted = _verify_proxy_persisted
-SettingsWindow._check_proxies = _check_proxies
-SettingsWindow._auto_remove_failed_proxies = _auto_remove_failed_proxies
-SettingsWindow._sync_proxy_text_to_cfg = _sync_proxy_text_to_cfg
-
-# Account
-SettingsWindow._build_account_tab = _build_account_tab
-SettingsWindow._refresh_cookie_display = _refresh_cookie_display
-SettingsWindow._toggle_cookie_unlock = _toggle_cookie_unlock
-SettingsWindow._apply_cookies = _apply_cookies
-SettingsWindow._parse_cookie_input = _parse_cookie_input
-SettingsWindow._verify_login = _verify_login
-SettingsWindow._clear_cookies = _clear_cookies
-SettingsWindow._import_from_browser = _import_from_browser
-SettingsWindow._on_browser_cookies = _on_browser_cookies
-SettingsWindow._import_cookie_editor = _import_cookie_editor
-SettingsWindow._qrcode_login = _qrcode_login
-SettingsWindow._refresh_account_list = _refresh_account_list
-SettingsWindow._switch_account = _switch_account
-SettingsWindow._add_account_dialog = _add_account_dialog
-SettingsWindow._remove_account = _remove_account
-SettingsWindow._password_login = _password_login
-
-# Advanced
-SettingsWindow._build_ai_tab = _build_ai_tab
-SettingsWindow._on_ai_profile_selected = _on_ai_profile_selected
-SettingsWindow._save_ai_profile = _save_ai_profile
-SettingsWindow._delete_ai_profile = _delete_ai_profile
-SettingsWindow._new_ai_profile = _new_ai_profile
-SettingsWindow._test_ai_connection = _test_ai_connection
-
-SettingsWindow._build_weights_tab = _build_weights_tab
-SettingsWindow._reset_all_weights = _reset_all_weights
-SettingsWindow._refresh_weights = _refresh_weights
-SettingsWindow._save_weights = _save_weights
-
-SettingsWindow._build_training_tab = _build_training_tab
-SettingsWindow._refresh_device_info = _refresh_device_info
-SettingsWindow._on_infer_device_changed = _on_infer_device_changed
-SettingsWindow._refresh_data_size = _refresh_data_size
-SettingsWindow._refresh_algo_list = _refresh_algo_list
-SettingsWindow._tr_select_all = _tr_select_all
-SettingsWindow._tr_select_untrained = _tr_select_untrained
-SettingsWindow._on_train_start = _on_train_start
-SettingsWindow._on_train_cancel = _on_train_cancel
-SettingsWindow._on_export_checkpoints = _on_export_checkpoints
-SettingsWindow._on_import_checkpoints = _on_import_checkpoints
-SettingsWindow._poll_training_progress = _poll_training_progress
-SettingsWindow._open_version_manager = _open_version_manager
-
-SettingsWindow._build_about_tab = _build_about_tab
-
-# 基础 widget 工具函数（模块内定义，需绑定到类）
-SettingsWindow._field = _field
-SettingsWindow._spin_field = _spin_field
-SettingsWindow._spin_field_float = _spin_field_float
