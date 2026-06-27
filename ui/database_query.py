@@ -22,6 +22,7 @@ from PyQt6.QtGui import QFont, QAction, QIcon
 
 from ui.theme import C
 from ui.helpers import FONT, FONT_SM, project_path, is_valid_bvid
+from ui.invoker import invoke
 from ui.dialog_base import DialogBase
 from utils.update_checker import _confirm_risky
 
@@ -852,7 +853,7 @@ class DatabaseQueryWindow(DialogBase):
                 conn.close()
                 self._delete_finished.emit(del_data, len(sel))
             except Exception as e:
-                QMessageBox.critical(self, "错误", f"删除失败: {e}")
+                invoke(lambda err=str(e): QMessageBox.critical(self, "错误", f"删除失败: {err}"))
 
         self._finish_delete_signal = _DeleteFinishSignal()
         self._finish_delete_signal.finished.connect(self._finish_delete)

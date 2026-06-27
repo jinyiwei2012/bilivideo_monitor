@@ -20,6 +20,7 @@ from PyQt6.QtGui import QFont
 
 from ui.theme import C
 from ui.helpers import FONT, FONT_SM, project_path
+from ui.invoker import invoke
 from core.bilibili_api import get_bilibili_api
 from core.proxy_manager import ProxyManager
 
@@ -395,45 +396,69 @@ class SettingsProxyMixin:
 
         for src_url in pm.PROXY_SOURCES:
             source_name = src_url.split("/")[2]
-            self._auto_fetch_status.setText(f"⏳ 拉取 {source_name}…")
-            self._auto_fetch_status.setStyleSheet(f"color: {C['warning']}; background: transparent;")
+            invoke(lambda n=source_name: (
+                self._auto_fetch_status.setText(f"⏳ 拉取 {n}…"),
+                self._auto_fetch_status.setStyleSheet(f"color: {C['warning']}; background: transparent;"),
+            ))
             try:
                 resp = _req.get(
-                    src_url, timeout=10, headers={"User-Agent": "Mozilla/5.0"}, verify=False  # nosec B501 — 代理源URL扫描，非敏感数据传输
+                    src_url, timeout=10, headers={"User-Agent": "Mozilla/5.0"}, verify=False  # nosec B501
                 )
                 if resp.status_code != 200:
                     continue
                 urls = pm._parse_proxy_list(resp.text, src_url)
                 for url in urls:
                     total_tested += 1
-                    item = QTreeWidgetItem()
-                    item.setText(0, url)
-                    item.setText(1, "⏳")
-                    item.setText(2, "测试中…")
-                    self._proxy_tree.addTopLevelItem(item)
-                    self._proxy_tree.scrollToItem(item)
+                    # 在主线程创建 QTreeWidgetItem
+                    invoke(lambda u=url: (
+                        self._proxy_tree.addTopLevelItem(
+                            self._make_pending_item(u)
+                        ),
+                        self._proxy_tree.scrollToBottomItem(),
+                    ))
                     result = ProxyManager.test_proxy(url, timeout=8)
                     ok = result.get("ok", False)
                     total_found += 1 if ok else 0
-                    item.setText(1, "✅" if ok else "❌")
-                    item.setText(2, f"{result['latency_ms']}ms" if ok else (result.get("error", "超时")[:40]))
-                    item.setText(3, result.get("country", "") or "")
-                    item.setText(4, result.get("ip", "") or "")
-                    item.setText(5, result.get("asn", "") or "")
-                    item.setText(6, result.get("isp", "") or "")
-                    color = C["success"] if ok else C["danger"]
-                    for c in range(7):
-                        item.setForeground(c, Qt.GlobalColor.white if ok else Qt.GlobalColor.white)
-                    if result.get("ok"):
+                    # 批量更新 item 到主线程
+                    invoke(lambda u=url, r=result.copy(), is_ok=ok: self._update_proxy_item(u, r, is_ok))
+                    if ok:
                         pm.add_proxy({"http": url, "https": url})
             except Exception as e:
-                self._auto_fetch_status.setText(f"⚠ {source_name} 失败: {e}")
-                self._auto_fetch_status.setStyleSheet(f"color: {C['danger']}; background: transparent;")
+                invoke(lambda n=source_name, err=str(e): (
+                    self._auto_fetch_status.setText(f"⚠ {n} 失败: {err}"),
+                    self._auto_fetch_status.setStyleSheet(f"color: {C['danger']}; background: transparent;"),
+                ))
 
         urls = [p.get("http", "") for p in pm.proxies if p.get("http")]
-        self._update_proxy_text(urls)
-        self._auto_fetch_status.setText(f"✅ 测试 {total_tested} 个, 可用 {total_found} 个")
-        self._auto_fetch_status.setStyleSheet(f"color: {C['success']}; background: transparent;")
+        invoke(lambda u=urls, tf=total_found, tt=total_tested: (
+            self._update_proxy_text(u),
+            self._auto_fetch_status.setText(f"✅ 测试 {tt} 个, 可用 {tf} 个"),
+            self._auto_fetch_status.setStyleSheet(f"color: {C['success']}; background: transparent;"),
+        ))
+
+    def _make_pending_item(self, url: str):
+        """在主线程创建等待测试的 QTreeWidgetItem"""
+        item = QTreeWidgetItem()
+        item.setText(0, url)
+        item.setText(1, "⏳")
+        item.setText(2, "测试中…")
+        return item
+
+    def _update_proxy_item(self, url: str, result: dict, ok: bool):
+        """在主线程更新代理测试结果到 QTreeWidgetItem（通过 URL 匹配查找 item）"""
+        for i in range(self._proxy_tree.topLevelItemCount()):
+            item = self._proxy_tree.topLevelItem(i)
+            if item.text(0) == url:
+                item.setText(1, "✅" if ok else "❌")
+                item.setText(2, f"{result['latency_ms']}ms" if ok else (result.get("error", "超时")[:40]))
+                item.setText(3, result.get("country", "") or "")
+                item.setText(4, result.get("ip", "") or "")
+                item.setText(5, result.get("asn", "") or "")
+                item.setText(6, result.get("isp", "") or "")
+                color = Qt.GlobalColor.white
+                for c in range(7):
+                    item.setForeground(c, color)
+                break
 
 
     def _update_proxy_text(self, urls):
@@ -537,36 +562,27 @@ class SettingsProxyMixin:
             if cancel_flag[0]:
                 return
             result = ProxyManager.test_proxy(proxy, test_url=test_url)
-            ok = result.get("ok", False)
-            latency = f"{result.get('latency_ms', '—')}ms" if ok else (result.get("error") or "—")
-            country = result.get("country") or "—"
-            ip = result.get("ip") or "—"
-            asn = result.get("asn") or "—"
-            isp = result.get("isp") or "—"
-            status = "✅" if ok else "❌"
-
-            item.setText(0, proxy)
-            item.setText(1, status)
-            item.setText(2, latency)
-            item.setText(3, country)
-            item.setText(4, ip)
-            item.setText(5, asn)
-            item.setText(6, isp)
 
             with lock:
+                ok = result.get("ok", False)
                 if ok:
                     ok_count[0] += 1
                 else:
                     fail_count[0] += 1
                 done = ok_count[0] + fail_count[0]
-                self._proxy_test_status.setText(f"测试中 {done}/{total} …")
+                # 调度 UI 更新到主线程
+                invoke(lambda it=item, r=result.copy(), o=ok, d=done:
+                    self._on_proxy_tested(it, r, o, d, total))
 
+        # 在主线程创建 QTreeWidgetItem
+        items = {}
         for proxy in proxy_list:
             item = QTreeWidgetItem()
             item.setText(0, proxy)
             item.setText(1, "⏳")
             item.setText(2, "—")
             self._proxy_tree.addTopLevelItem(item)
+            items[proxy] = item
             t = threading.Thread(target=test_one, args=(proxy, item), daemon=True)
             t.start()
             threads.append(t)
@@ -575,23 +591,39 @@ class SettingsProxyMixin:
             for t in threads:
                 t.join()
             ok_n, fail_n = ok_count[0], fail_count[0]
-            status_text = f"完成: {ok_n} 可用"
-            if fail_n:
-                status_text += f", {fail_n} 失败"
-            self._proxy_test_status.setText(status_text)
-            self._proxy_test_status.setStyleSheet(
-                f"color: {C['success']}; background: transparent;" if ok_n
-                else f"color: {C['danger']}; background: transparent;"
-            )
-
-            if fail_n:
-                failed = [proxy_list[i] for i in range(len(proxy_list))
-                          if i < self._proxy_tree.topLevelItemCount()
-                          and self._proxy_tree.topLevelItem(i).text(1) == "❌"]
-                if failed:
-                    self._auto_remove_failed_proxies(failed)
+            invoke(lambda o=ok_n, f=fail_n: self._on_check_completed(o, f, proxy_list))
 
         threading.Thread(target=_wait_all, daemon=True).start()
+
+    def _on_proxy_tested(self, item: QTreeWidgetItem, result: dict, ok: bool, done: int, total: int):
+        """主线程回调：更新单个代理的测试结果"""
+        latency = f"{result.get('latency_ms', '—')}ms" if ok else (result.get("error") or "—")
+        item.setText(0, result.get("proxy", item.text(0)))
+        item.setText(1, "✅" if ok else "❌")
+        item.setText(2, latency)
+        item.setText(3, result.get("country") or "—")
+        item.setText(4, result.get("ip") or "—")
+        item.setText(5, result.get("asn") or "—")
+        item.setText(6, result.get("isp") or "—")
+        self._proxy_test_status.setText(f"测试中 {done}/{total} …")
+
+    def _on_check_completed(self, ok_n: int, fail_n: int, proxy_list: list):
+        """主线程回调：所有代理测试完成后更新 UI"""
+        status_text = f"完成: {ok_n} 可用"
+        if fail_n:
+            status_text += f", {fail_n} 失败"
+        self._proxy_test_status.setText(status_text)
+        self._proxy_test_status.setStyleSheet(
+            f"color: {C['success']}; background: transparent;" if ok_n
+            else f"color: {C['danger']}; background: transparent;"
+        )
+
+        if fail_n:
+            failed = [proxy_list[i] for i in range(len(proxy_list))
+                      if i < self._proxy_tree.topLevelItemCount()
+                      and self._proxy_tree.topLevelItem(i).text(1) == "❌"]
+            if failed:
+                self._auto_remove_failed_proxies(failed)
 
 
     def _auto_remove_failed_proxies(self, failed_urls):
@@ -610,7 +642,8 @@ class SettingsProxyMixin:
         masked = ", ".join(ProxyManager.mask_url(u) for u in failed_urls)
         msg = f"已自动移除 {len(failed_urls)} 个失效代理:\n{masked}"
         logger.info(msg)
-        QMessageBox.information(self, "代理清理", msg)
+        # 使用 invoke 确保从任意线程调用都安全
+        invoke(lambda: QMessageBox.information(self, "代理清理", msg))
 
 
     def _sync_proxy_text_to_cfg(self):

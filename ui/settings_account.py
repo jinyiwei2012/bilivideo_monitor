@@ -17,6 +17,7 @@ from PyQt6.QtGui import QFont, QPixmap
 
 from ui.theme import C
 from ui.helpers import FONT, FONT_SM
+from ui.invoker import invoke
 from core.bilibili_api import get_bilibili_api
 from utils.update_checker import _s
 
@@ -188,9 +189,9 @@ class _QRCodeLoginDialog(QDialog):
             img.save(buf, format="PNG")
             pixmap = QPixmap()
             if pixmap.loadFromData(buf.getvalue()):
-                self._qr_label.setPixmap(pixmap)
+                invoke(lambda p=pixmap: self._qr_label.setPixmap(p))
         except Exception:
-            self._qr_label.setText(f"扫码链接:\n{qr_url}")
+            invoke(lambda u=qr_url: self._qr_label.setText(f"扫码链接:\n{u}"))
 
     def _poll(self):
         def _worker():
@@ -198,16 +199,16 @@ class _QRCodeLoginDialog(QDialog):
                 result = get_bilibili_api().poll_qrcode_login(self._qrcode_key)
             except Exception as e:
                 result = {"status": 0, "message": f"轮询异常: {e}"}
-            self._status_label.setText(result.get("message", ""))
+            invoke(lambda r=result: self._status_label.setText(r.get("message", "")))
             if result.get("status") == 2:
-                self._poll_timer.stop()
+                invoke(self._poll_timer.stop)
                 cookies = result.get("cookies", {})
                 if cookies:
                     get_bilibili_api().set_cookies(cookies)
                 self._login_done.emit(cookies)
             elif result.get("status") == -1:
-                self._poll_timer.stop()
-                self._status_label.setStyleSheet(f"color: {C['danger']};")
+                invoke(self._poll_timer.stop)
+                invoke(lambda: self._status_label.setStyleSheet(f"color: {C['danger']};"))
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -763,10 +764,10 @@ class SettingsAccountMixin:
                 is_login = status.get("is_login", False)
                 login_name = status.get("login_name", "")
                 if is_login and hasattr(self, "gui") and self.gui:
-                    self.gui.log_panel.add_log("INFO", f"Cookie 登录验证成功: {login_name}")
+                    invoke(lambda name=login_name: self.gui.log_panel.add_log("INFO", f"Cookie 登录验证成功: {name}"))
             except Exception as e:
                 logger.debug("检查Cookie登录状态失败: %s", e)
-            self._refresh_status()
+            invoke(lambda: self._refresh_status())
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -804,13 +805,13 @@ class SettingsAccountMixin:
                     api.set_cookies(cookies)
                     api.add_account(api.get_active_account(), cookies, api.get_refresh_token())
                     api._persist_cookies(cookies)
-                    self._on_browser_cookies(cookies)
+                    invoke(lambda c=cookies: self._on_browser_cookies(c))
                 else:
-                    QMessageBox.critical(
+                    invoke(lambda: QMessageBox.critical(
                         self, "失败", "未从浏览器中找到 B 站 Cookie，请确认已登录 bilibili.com"
-                    )
+                    ))
             except Exception as e:
-                QMessageBox.critical(self, "错误", f"提取失败: {e}")
+                invoke(lambda err=str(e): QMessageBox.critical(self, "错误", f"提取失败: {err}"))
 
         threading.Thread(target=_worker, daemon=True).start()
 
