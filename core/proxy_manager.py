@@ -193,8 +193,8 @@ class ProxyManager:
                     self._proxy_failure_count.pop(proxy_idx, None)
                     # 重新索引后续条目（保持三个集合一致）
                     for i in range(proxy_idx, len(self.proxies)):
-                        self._proxy_ua_map[i] = self._proxy_ua_map.pop(i + 1)
-                        self._proxy_failure_count[i] = self._proxy_failure_count.pop(i + 1)
+                        self._proxy_ua_map[i] = self._proxy_ua_map.pop(i + 1, "")
+                        self._proxy_failure_count[i] = self._proxy_failure_count.pop(i + 1, 0)
                     # 重置请求代理索引 + 钳制轮询指针防止越界
                     self._current_request_proxy_idx = None
                     self.current_proxy_index = min(self.current_proxy_index, max(0, len(self.proxies) - 1))
