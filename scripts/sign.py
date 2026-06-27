@@ -109,6 +109,8 @@ def load_or_create_keypair():
         try:
             os.chmod(KEY_FILE, 0o600)
         except Exception:
+            # os.chmod 在 Windows 上仅影响只读属性，无实际权限控制作用
+            # 私钥文件已位于 scripts/ 目录，依靠目录访问控制保护即可
             pass
 
         ed25519, _ = _load_crypto()

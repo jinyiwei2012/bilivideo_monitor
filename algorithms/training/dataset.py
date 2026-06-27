@@ -53,8 +53,8 @@ except ImportError:
     # 无 torch 时用 object 占位，保证模块可导入
     Dataset = object  # type: ignore
 
-# BV 号格式正则：BV 后跟 10 位大小写字母数字
-_BVID_PATTERN = re.compile(r"^BV[0-9A-Za-z]{10}$")
+# BV 号格式正则：与 core/database/models.py 保持一致的校验规则
+_BVID_PATTERN = re.compile(r"^BV[A-Za-z0-9]{10,12}$")
 
 # 核心数据目录路径
 _DATA_ROOT = project_path("core", "data")

@@ -49,7 +49,7 @@ class RandomForestSimpleAlgorithm(BaseAlgorithm):
     name = "随机森林简化"
     algorithm_id = "random_forest_simple"
     description = "基于特征工程的随机森林预测（sklearn 优先，numpy 回退）"
-    category = "机器学习"
+    category = "统计模型"
     default_weight = 1.4
 
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:

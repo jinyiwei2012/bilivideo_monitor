@@ -7,6 +7,7 @@ import os
 import json
 import logging
 import sys
+from copy import deepcopy
 from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
@@ -86,8 +87,8 @@ def _deep_merge(base: dict, override: dict) -> dict:
 
 
 def load_config() -> Dict[str, Any]:
-    """加载配置文件并合并默认值"""
-    config = DEFAULT_CONFIG.copy()
+    """加载配置文件并合并默认值，自动解密敏感字段"""
+    config = deepcopy(DEFAULT_CONFIG)
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
@@ -95,7 +96,26 @@ def load_config() -> Dict[str, Any]:
                 config = _deep_merge(config, saved)
         except Exception as e:
             logger.warning("加载配置失败: %s", e)
+    # 解密敏感字段（加密存储的 API Key / Token，解密失败保留原值做向后兼容）
+    _decrypt_sensitive(config)
     return config
+
+
+def _decrypt_sensitive(config: dict) -> None:
+    """解密配置中的敏感字段（OneBot access_token、AI profiles api_key）"""
+    try:
+        from utils.crypto import decrypt_dict
+
+        ob = config.get("onebot", {})
+        if ob.get("access_token"):
+            decrypt_dict(ob, "access_token")
+        for p in config.get("ai", {}).get("profiles", []):
+            if p.get("api_key"):
+                decrypt_dict(p, "api_key")
+    except ImportError:
+        pass
+    except Exception as e:
+        logger.warning("解密敏感配置失败: %s", e)
 
 
 def get_active_ai_profile() -> dict:

@@ -72,7 +72,7 @@ class ArimaSimpleAlgorithm(BaseAlgorithm):
     name = "ARIMA简化"
     algorithm_id = "arima_simple"
     description = "自回归积分滑动平均预测（statsmodels 优先，numpy 回退）"
-    category = "机器学习"
+    category = "时间序列"
     default_weight = 1.3
 
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:

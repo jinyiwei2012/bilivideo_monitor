@@ -42,7 +42,7 @@ class SVRPredictorAlgorithm(BaseAlgorithm):
 
     name = "支持向量回归"
     description = "基于SVM的非线性回归预测"
-    category = "机器学习"
+    category = "统计模型"
     algorithm_id = "svr_predictor"
 
     def __init__(self):

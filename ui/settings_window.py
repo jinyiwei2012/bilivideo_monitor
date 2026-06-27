@@ -333,6 +333,7 @@ class SettingsWindow:
 
     def _persist_settings(self):
         from config import save_config
+        from utils.crypto import encrypt, decrypt
 
         max_m = int(self.max_monitors.text() if hasattr(self.max_monitors, 'text') else self.max_monitors)
         pred_hours = int(self.predict_hours.text() if hasattr(self.predict_hours, 'text') else self.predict_hours.value())
@@ -364,12 +365,36 @@ class SettingsWindow:
         if th_data:
             self._cfg["prediction"]["thresholds"] = th_data
 
+        # 加密 AI profiles 中的 api_key
+        for p in self._profiles:
+            key = p.get("api_key", "")
+            if key:
+                p["api_key"] = encrypt(key)
+        # 加密 OneBot access_token
+        token = self._cfg["onebot"].get("access_token", "")
+        if token:
+            self._cfg["onebot"]["access_token"] = encrypt(token)
+
         self._cfg["ai"] = {
             "enabled": any(p.get("api_key") for p in self._profiles),
             "profiles": self._profiles,
             "selected_profile": self._ai_profile_cb.currentText() if hasattr(self, '_ai_profile_cb') else "",
         }
         save_config(self._cfg)
+
+        # 恢复明文值，避免 UI 显示密文
+        for p in self._profiles:
+            key = p.get("api_key", "")
+            if key:
+                try:
+                    p["api_key"] = decrypt(key)
+                except Exception:
+                    pass
+        if token:
+            try:
+                self._cfg["onebot"]["access_token"] = decrypt(token)
+            except Exception:
+                pass
 
     def _apply_settings(self):
         from core.notification import notification_manager

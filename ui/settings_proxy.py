@@ -398,7 +398,7 @@ def _auto_fetch_worker(self):
         self._auto_fetch_status.setStyleSheet(f"color: {C['warning']}; background: transparent;")
         try:
             resp = _req.get(
-                src_url, timeout=10, headers={"User-Agent": "Mozilla/5.0"}, verify=False
+                src_url, timeout=10, headers={"User-Agent": "Mozilla/5.0"}, verify=False  # nosec B501 — 代理源URL扫描，非敏感数据传输
             )
             if resp.status_code != 200:
                 continue

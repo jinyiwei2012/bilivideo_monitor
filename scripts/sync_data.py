@@ -22,7 +22,8 @@ for item in sorted(os.listdir(old_base)):
     try:
         old_conn = sqlite3.connect(old_db)
         old_cnt = old_conn.execute("SELECT COUNT(*) FROM monitor_records").fetchone()[0]
-    except Exception:
+    except Exception as e:
+        print(f"  [WARN] 无法读取旧数据库 {old_db}: {e}")
         continue
 
     new_dir = os.path.join(new_base, item)
@@ -32,7 +33,8 @@ for item in sorted(os.listdir(old_base)):
         new_conn = sqlite3.connect(new_db)
         try:
             new_cnt = new_conn.execute("SELECT COUNT(*) FROM monitor_records").fetchone()[0]
-        except Exception:
+        except Exception as e:
+            print(f"  [WARN] 无法读取新数据库 {new_db}: {e}")
             new_cnt = 0
 
         # 如果旧库有更多记录，则增量合并
@@ -63,8 +65,8 @@ for item in sorted(os.listdir(old_base)):
                             d.get("like_view_ratio", 0),
                         ),
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"  [WARN] 插入记录失败 (timestamp={d.get('timestamp', '?')}): {e}")
             new_conn.commit()
             new_cnt2 = new_conn.execute("SELECT COUNT(*) FROM monitor_records").fetchone()[0]
             print(f"  {item}: {new_cnt} -> {new_cnt2} 条记录")

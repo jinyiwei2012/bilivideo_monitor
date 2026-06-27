@@ -58,7 +58,7 @@ class GradientBoostSimpleAlgorithm(BaseAlgorithm):
     name = "梯度提升简化"
     algorithm_id = "gradient_boost_simple"
     description = "基于梯度提升的播放量预测（sklearn 优先，numpy 回退）"
-    category = "机器学习"
+    category = "集成学习"
     default_weight = 1.4
 
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:

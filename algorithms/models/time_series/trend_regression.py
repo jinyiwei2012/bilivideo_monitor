@@ -46,7 +46,7 @@ class TrendRegressionAlgorithm(BaseAlgorithm):
     name = "趋势回归"
     algorithm_id = "trend_regression"
     description = "基于历史数据的多项式回归预测"
-    category = "机器学习"
+    category = "时间序列"
     default_weight = 1.2
 
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
