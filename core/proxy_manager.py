@@ -28,6 +28,9 @@ class ProxyManager:
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 Edg/146.0.0.0",
     ]
 
+    # 全局 SSL 验证开关（默认关闭以兼容自签名代理证书）
+    ssl_verify: bool = False
+
     def __init__(self):
         """初始化代理管理器，设置代理列表、UA 映射、失败计数等"""
         self.proxies: List[Dict] = []
@@ -280,7 +283,7 @@ class ProxyManager:
                 test_url,
                 proxies=proxies,
                 timeout=timeout,
-                verify=False,  # nosec B501 — 代理测试：代理服务器常使用自签名证书
+                verify=ProxyManager.ssl_verify,  # nosec B501 — 用户可在设置中启用 SSL 验证
                 headers={
                     "User-Agent": ua,
                     "Referer": "https://www.bilibili.com/",
@@ -343,7 +346,7 @@ class ProxyManager:
                 "https://ip-api.com/json/",
                 proxies=proxies,
                 timeout=timeout,
-                verify=False,  # nosec - proxies use self-signed certs
+                verify=ProxyManager.ssl_verify,  # nosec B501 — ip-api 地理查询，由用户配置控制
                 headers={"User-Agent": ua},
             )
             logger.debug("← [geo] ip-api.com/json/ → %s", geo_resp.status_code)
@@ -406,7 +409,7 @@ class ProxyManager:
         tested = 0
         for src_url in self.PROXY_SOURCES:
             try:
-                resp = requests.get(src_url, timeout=10, headers={"User-Agent": "Mozilla/5.0"}, verify=False)  # nosec B501 — 免费代理源URL（GitHub raw/geonode），公网可信但代理下载场景需关闭验证
+                resp = requests.get(src_url, timeout=10, headers={"User-Agent": "Mozilla/5.0"}, verify=ProxyManager.ssl_verify)  # nosec B501 — 代理源URL获取，由用户配置控制
                 if resp.status_code != 200:
                     continue
                 urls = self._parse_proxy_list(resp.text, src_url)

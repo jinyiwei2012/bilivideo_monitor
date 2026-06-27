@@ -102,7 +102,7 @@ class SettingsWindow(
                 return cfg
             except Exception as e:
                 logger.debug("加载网络配置失败: %s", e)
-        return {"proxies": [], "cookies": {}, "accounts": []}
+        return {"proxies": [], "cookies": {}, "accounts": [], "ssl_verify": False}
 
     def _save_net_config(self):
         os.makedirs(os.path.dirname(self._net_cfg_file), exist_ok=True)
@@ -277,8 +277,12 @@ class SettingsWindow(
 
     def _apply_settings(self):
         from core.notification import notification_manager
+        from core.proxy_manager import ProxyManager
 
         notification_manager.configure(self._cfg)
+
+        # 同步 SSL 验证设置
+        ProxyManager.ssl_verify = self._net_cfg.get("ssl_verify", False)
 
         try:
             from ui.helpers import reload_thresholds

@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QComboBox, QPlainTextEdit, QTreeWidget,
     QTreeWidgetItem, QHeaderView, QMessageBox, QDialog,
-    QTextEdit,
+    QTextEdit, QCheckBox,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
@@ -274,6 +274,20 @@ class SettingsProxyMixin:
         auto_layout.addStretch()
         sec_layout.addWidget(auto_row)
 
+        # SSL 验证开关
+        ssl_row = QWidget()
+        ssl_row.setStyleSheet(f"background-color: {C['bg_elevated']};")
+        ssl_layout = QHBoxLayout(ssl_row)
+        ssl_layout.setContentsMargins(0, 4, 0, 0)
+        self._ssl_verify_cb = QCheckBox("验证 SSL 证书（代理连通性检测时启用 HTTPS 证书验证）")
+        self._ssl_verify_cb.setFont(FONT_SM)
+        self._ssl_verify_cb.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
+        self._ssl_verify_cb.setChecked(self._net_cfg.get("ssl_verify", False))
+        self._ssl_verify_cb.toggled.connect(self._on_ssl_verify_changed)
+        ssl_layout.addWidget(self._ssl_verify_cb)
+        ssl_layout.addStretch()
+        sec_layout.addWidget(ssl_row)
+
         # 自定义代理源
         src_row = QWidget()
         src_row.setStyleSheet(f"background-color: {C['bg_elevated']};")
@@ -463,6 +477,12 @@ class SettingsProxyMixin:
 
     def _update_proxy_text(self, urls):
         self._proxy_text.setPlainText("\n".join(urls))
+
+    def _on_ssl_verify_changed(self, checked: bool):
+        """SSL 验证开关变更 — 同步到 ProxyManager 和网络配置"""
+        ProxyManager.ssl_verify = checked
+        self._net_cfg["ssl_verify"] = checked
+        self._save_net_config()
 
 
     def _add_proxy_source(self):
