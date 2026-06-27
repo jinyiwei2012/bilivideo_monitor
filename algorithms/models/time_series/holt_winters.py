@@ -33,9 +33,10 @@ Holt-Winters指数平滑预测算法 (Holt-Winters Exponential Smoothing)
 
 import numpy as np
 from typing import List, Dict, Any, Optional, Tuple
+from datetime import datetime
 import logging
 
-from algorithms.base import BaseAlgorithm
+from algorithms.base import BaseAlgorithm, PredictionResult
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +68,7 @@ class HoltWintersAlgorithm(BaseAlgorithm):
     name = "Holt-Winters指数平滑"
     description = "经典时间序列预测，考虑趋势和季节性"
     category = "时间序列"
+    algorithm_id = "holt_winters"
 
     def __init__(self):
         """初始化Holt-Winters算法，设置平滑参数"""
@@ -76,7 +78,7 @@ class HoltWintersAlgorithm(BaseAlgorithm):
         self.gamma = 0.1  # 季节性平滑参数：新季节性在季节分量中的权重
         self.season_length = 7  # 假设周季节性（B站视频常见的周周期波动）
 
-    def predict(
+    def _predict_legacy(
         self, current_views: int, target_views: int, history_data: List[Dict[str, Any]], video_info: Dict[str, Any]
     ) -> Optional[Tuple[int, float]]:
         """
@@ -228,3 +230,33 @@ class HoltWintersAlgorithm(BaseAlgorithm):
             base_conf = 0.7 * base_conf + 0.3 * trend_stability
 
         return min(0.95, base_conf)
+
+    def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
+        """标准接口：从 video_data 提取参数并委托给 _predict_legacy"""
+        current_views = video_data.get("view_count", 0)
+        history = video_data.get("history_data", [])
+        result = self._predict_legacy(current_views, threshold, history, video_data)
+        if result is None:
+            return PredictionResult(
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=float("inf"),
+                confidence=0.0,
+                current_views=current_views,
+                current_velocity=0,
+                metadata={"method": "holt_winters", "error": "prediction_failed"},
+                timestamp=datetime.now(),
+            )
+        seconds, confidence = result
+        return PredictionResult(
+            algorithm_name=self.name,
+            algorithm_id=self.algorithm_id,
+            target_threshold=threshold,
+            predicted_hours=seconds / 3600.0,
+            confidence=confidence,
+            current_views=current_views,
+            current_velocity=self.calculate_velocity(video_data),
+            metadata={"method": "holt_winters"},
+            timestamp=datetime.now(),
+        )

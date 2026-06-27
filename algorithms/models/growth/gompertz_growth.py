@@ -40,7 +40,8 @@ Gompertz增长曲线是典型的S型（Sigmoid）增长模型，描述增长过�
 import numpy as np
 import logging
 from typing import List, Dict, Any, Optional, Tuple
-from algorithms.base import BaseAlgorithm
+from datetime import datetime
+from algorithms.base import BaseAlgorithm, PredictionResult
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,7 @@ class GompertzGrowthAlgorithm(BaseAlgorithm):
     name = "Gompertz增长曲线"
     description = "S型增长模型，适用于长期增长预测"
     category = "扩散模型"
+    algorithm_id = "gompertz_growth"
 
     def __init__(self):
         """初始化Gompertz模型参数
@@ -86,7 +88,7 @@ class GompertzGrowthAlgorithm(BaseAlgorithm):
         self._maxfev = 300  # scipy.optimize.curve_fit 最大迭代次数
         self._min_curvefit_points = 10  # 数据点阈值，低于此值不执行曲线拟合
 
-    def predict(
+    def _predict_legacy(
         self, current_views: int, target_views: int, history_data: List[Dict[str, Any]], video_info: Dict[str, Any]
     ) -> Optional[Tuple[int, float]]:
         """
@@ -252,3 +254,33 @@ class GompertzGrowthAlgorithm(BaseAlgorithm):
         n_points = len(times)
         predicted = self._gompertz(times, self.a, self.b, self.c)
         return self._growth_confidence(n_points, predicted, views, 0.02)
+
+    def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
+        """标准接口：从 video_data 提取参数并委托给 _predict_legacy"""
+        current_views = video_data.get("view_count", 0)
+        history = video_data.get("history_data", [])
+        result = self._predict_legacy(current_views, threshold, history, video_data)
+        if result is None:
+            return PredictionResult(
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=float("inf"),
+                confidence=0.0,
+                current_views=current_views,
+                current_velocity=0,
+                metadata={"method": "gompertz_growth", "error": "prediction_failed"},
+                timestamp=datetime.now(),
+            )
+        seconds, confidence = result
+        return PredictionResult(
+            algorithm_name=self.name,
+            algorithm_id=self.algorithm_id,
+            target_threshold=threshold,
+            predicted_hours=seconds / 3600.0,
+            confidence=confidence,
+            current_views=current_views,
+            current_velocity=self.calculate_velocity(video_data),
+            metadata={"method": "gompertz_growth"},
+            timestamp=datetime.now(),
+        )

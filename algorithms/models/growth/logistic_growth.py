@@ -39,7 +39,8 @@ Logistic增长模型（也称Verhulst模型）是经典的S型增长曲线，描
 import numpy as np
 import logging
 from typing import List, Dict, Any, Optional, Tuple
-from algorithms.base import BaseAlgorithm
+from datetime import datetime
+from algorithms.base import BaseAlgorithm, PredictionResult
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,7 @@ class LogisticGrowthAlgorithm(BaseAlgorithm):
     name = "Logistic增长模型"
     description = "经典的S型增长曲线，考虑资源限制"
     category = "扩散模型"
+    algorithm_id = "logistic_growth"
 
     def __init__(self):
         """初始化Logistic模型参数
@@ -84,7 +86,7 @@ class LogisticGrowthAlgorithm(BaseAlgorithm):
         self._maxfev = 300  # 曲线拟合最大迭代次数
         self._min_curvefit_points = 10  # 数据点少于该值时不跑curve_fit
 
-    def predict(
+    def _predict_legacy(
         self, current_views: int, target_views: int, history_data: List[Dict[str, Any]], video_info: Dict[str, Any]
     ) -> Optional[Tuple[int, float]]:
         """
@@ -243,3 +245,41 @@ class LogisticGrowthAlgorithm(BaseAlgorithm):
         n_points = len(times)
         predicted = self._logistic(times, self.K, self.r, self.t0)
         return self._growth_confidence(n_points, predicted, views, 0.03)
+
+    def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
+        """标准接口：从 video_data 提取参数并委托给 _predict_legacy
+
+        Args:
+            video_data: 视频数据字典
+            threshold: 目标播放量阈值
+
+        Returns:
+            PredictionResult: 预测结果
+        """
+        current_views = video_data.get("view_count", 0)
+        history = video_data.get("history_data", [])
+        result = self._predict_legacy(current_views, threshold, history, video_data)
+        if result is None:
+            return PredictionResult(
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=float("inf"),
+                confidence=0.0,
+                current_views=current_views,
+                current_velocity=0,
+                metadata={"method": "logistic_growth", "error": "prediction_failed"},
+                timestamp=datetime.now(),
+            )
+        seconds, confidence = result
+        return PredictionResult(
+            algorithm_name=self.name,
+            algorithm_id=self.algorithm_id,
+            target_threshold=threshold,
+            predicted_hours=seconds / 3600.0,
+            confidence=confidence,
+            current_views=current_views,
+            current_velocity=self.calculate_velocity(video_data),
+            metadata={"method": "logistic_growth"},
+            timestamp=datetime.now(),
+        )
