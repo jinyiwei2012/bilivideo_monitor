@@ -326,8 +326,9 @@ class ReportSchedulerWindow(QDialog):
             logger.info("定时导出完成: %s", path)
         except Exception as e:
             logger.warning("定时导出失败: %s", e)
-        self._refresh_file_list()
-        self._schedule_next()
+        finally:
+            self._refresh_file_list()
+            self._schedule_next()
 
     # ── 文件列表 ──
 

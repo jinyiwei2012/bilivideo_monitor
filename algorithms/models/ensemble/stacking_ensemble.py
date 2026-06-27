@@ -205,8 +205,8 @@ class StackingEnsembleAlgorithm(BaseAlgorithm):
         meta_weights = meta.coef_
         remaining = threshold - current_views
         predicted_hours = remaining / predicted_velocity if remaining > 0 else float("inf")
-        # 置信度：两个基模型权重差异越大，说明模型间分歧越大，置信度适当降低
-        confidence = max(0.1, min(0.9, 0.5 + 0.2 * abs(meta_weights[0] - meta_weights[1])))
+        # 置信度：两个基模型权重差异越小（互补性好），置信度越高
+        confidence = max(0.1, min(0.9, 0.9 - 0.4 * abs(meta_weights[0] - meta_weights[1])))
 
         return PredictionResult(
             algorithm_name=self.name, algorithm_id=self.algorithm_id,

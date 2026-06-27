@@ -156,9 +156,12 @@ def suggest_tags(video: dict) -> List[str]:
         existing = suggest_tags.by_author.get(author)
         if existing is None:
             existing = set()
+            tag_counts: Dict[str, int] = {}
             for bvid, tags in get_all_tagged().items():
-                # 简单启发式：如果已有 3+ 个视频有同一标签，建议用于相同 UP 主
-                pass
+                for tag in tags:
+                    tag_counts[tag] = tag_counts.get(tag, 0) + 1
+            # 出现 3 次以上的标签建议复用
+            existing = {tag for tag, count in tag_counts.items() if count >= 3}
             suggest_tags.by_author[author] = existing
         for tag in existing:
             if tag not in suggestions:

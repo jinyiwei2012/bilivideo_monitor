@@ -222,7 +222,10 @@ def cmd_verify():
         print("[ERROR] 清单格式错误")
         sys.exit(1)
 
-    # 读取公钥
+    # 读取公钥（仅读，不创建）
+    if not os.path.exists(KEY_FILE):
+        print(f"[ERROR] 签名密钥文件不存在: {KEY_FILE}")
+        sys.exit(1)
     _, public_bytes, _ = load_or_create_keypair()
 
     # 1) 验证签名
