@@ -304,13 +304,7 @@ link_lbl.mouseReleaseEvent = lambda ev: (webbrowser.open(link_url), None)[1]
 | 20 | `c3b7355` | `ui/settings_proxy.py` | 3 个后台线程 GUI 操作包装 `invoke()` |
 | 21 | — | `ui/danmaku_analysis.py` | 中文分词 (实际使用 `_tokenize()` 词典匹配, 非 `split()`) |
 
-### 剩余未修复
-
-| 项 | 优先级 | 说明 |
-|----|--------|------|
-| 超长文件拆分 | P2 | `training_panel.py` (1797行) / `video_db.py` (1241行) / `database_query.py` / `settings_account.py` / `trainer.py` |
-
-### P2 中等级 — 本轮最终修复 ✅ (14/16)
+### P2 中等级 — 全部修复 ✅ (16/16)
 
 | 项 | 文件 | Commit | 修复内容 |
 |----|------|--------|---------|
@@ -319,18 +313,14 @@ link_lbl.mouseReleaseEvent = lambda ev: (webbrowser.open(link_url), None)[1]
 | 预测准确率修复 | `prediction_accuracy.py` | `7a24f67` | `timestamp`→`created_at`，按预测到达时间二分查找实际播放量 |
 | 跨线程 GUI 安全 | `settings_proxy.py` `settings_account.py` `database_query.py` | `c3b7355` | 3 个后台线程 + 5 处额外违规 → `invoke()` 包装 |
 | SSL 验证可配置 | `proxy_manager.py` `settings_proxy.py` | `253447b` | `ProxyManager.ssl_verify` 类变量 + UI 复选框 |
-| 超长文件拆分(1) | `database_query.py` → `database_query_export.py` | `0403d90` | 提取 3 个导出辅助函数（-50行） |
-| 超长文件拆分(2) | `settings_account.py` → `settings_account_dialogs.py` | `63b6cdc` | 提取 4 个对话框类（-515行→410行） |
-| 超长文件拆分(3) | `video_db.py` → `video_db_scores.py` | `18e72ef` | 提取 8 个分数操作方法到 `_ScoreOpsMixin`（-220行） |
+| 超长文件拆分(1) | `database_query.py` → `database_query_export.py` | `0403d90` | 提取导出辅助函数（883→830行） |
+| 超长文件拆分(2) | `settings_account.py` → `settings_account_dialogs.py` | `63b6cdc` | 提取 4 个对话框类（925→410行） |
+| 超长文件拆分(3) | `video_db.py` → `video_db_scores.py` | `18e72ef` | 提取 `_ScoreOpsMixin`（1247→1027行） |
+| 超长文件拆分(4) | `training_panel.py` → `training_version.py` | `ece70ce` | 提取 `VersionManagerMixin`（1798→1514行） |
+| 超长文件拆分(5) | `trainer.py` → `trainer_io.py` | `2c6279b` | 提取 checkpoint IO + evaluate（1087→960行） |
 | 算法分类标签 | `arima_simple.py` 等 5 个文件 | `0ae1913` | `category` 从 `"机器学习"` 改为正确分类 |
 | 浅拷贝陷阱 | `config/__init__.py` | `0ae1913` | `DEFAULT_CONFIG.copy()` → `deepcopy()` |
 | 凭证明文存储 | `config/__init__.py` + `settings_window.py` | `0ae1913` | `access_token` / `api_key` 存储加密、加载解密 |
 | SSL 验证禁用标注 | `proxy_manager.py` + `settings_proxy.py` | `0ae1913` | 6 处 `# nosec B501` 注释 |
 | BV 号校验统一 | `dataset.py` | `0ae1913` | 正则对齐 `core/database/models.py` |
-| 其他 | `sign.py` `sync_data.py` | `0ae1913` | `os.chmod` 注释 + 3 处 `except:` → `print("[WARN]")` |
-
-### P2 中等级 — 剩余 (2/16)
-
-| 项 | 说明 |
-|----|------|
-| 超长文件拆分 | `training_panel.py` (1797行) + `algorithms/training/trainer.py` (1086行) |
+| 其他杂项 | `sign.py` `sync_data.py` | `0ae1913` | `os.chmod` 注释 + 3 处 `except:` → `print("[WARN]")` |
