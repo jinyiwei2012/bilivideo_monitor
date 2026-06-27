@@ -93,14 +93,15 @@ class TCNSimpleAlgorithm(BaseAlgorithm):
         """
         n = len(seq)
 
-        # 两层空洞卷积（随机初始化卷积核模拟可训练参数）
+        # 两层空洞卷积（用确定性种子初始化卷积核以确保可复现）
         k = self.kernel_size
-        w1 = np.random.randn(k) * 0.1  # 第一层卷积核
-        w2 = np.random.randn(k) * 0.1  # 第二层卷积核
+        rng = np.random.RandomState(42)  # 固定种子，确保确定性
+        w1 = rng.randn(k) * 0.1  # 第一层卷积核
+        w2 = rng.randn(k) * 0.1  # 第二层卷积核
 
         conv1 = self._causal_conv(seq, w1, dilation)
         conv1 = np.maximum(conv1, 0)                   # ReLU激活：负值归零
-        conv1[np.random.rand(n) < self.dropout] = 0    # Dropout正则化
+        conv1[rng.rand(n) < self.dropout] = 0    # Dropout正则化（确定性 RNG）
 
         conv2 = self._causal_conv(conv1, w2, dilation)
         conv2 = np.maximum(conv2, 0)                   # ReLU激活
