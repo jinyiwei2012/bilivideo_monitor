@@ -117,11 +117,11 @@ class PredictionPanel:
         layout = self._pred_hero.layout()
         if layout:
             self._clear_layout(layout)
-            layout.deleteLater()
         self._hero_widgets = {}
         self._hero_has_data = False
 
-        layout = QVBoxLayout(self._pred_hero)
+        if layout is None:
+            layout = QVBoxLayout(self._pred_hero)
         layout.setContentsMargins(14, 14, 14, 14)
         lbl = QLabel("选择视频后显示预测")
         lbl.setStyleSheet(f"color: {C['text_3']}; font-size: 11pt;")
@@ -151,7 +151,7 @@ class PredictionPanel:
                 w["rate_lbl"].setText(rate_str)
                 w["rate_lbl"].setVisible(True)
             else:
-                if "rate_lbl" in w:
+                if w.get("rate_lbl") is not None:
                     w["rate_lbl"].setVisible(False)
 
             self._update_surge_badge(w, surge_info)
@@ -180,7 +180,6 @@ class PredictionPanel:
         layout = self._pred_hero.layout()
         if layout:
             self._clear_layout(layout)
-            layout.deleteLater()
         self._hero_widgets = {}
 
         outer = QWidget()
@@ -274,7 +273,8 @@ class PredictionPanel:
             ol.addWidget(row)
             thr_rows.append({"progress": progress, "eta_lbl": eta_lbl})
 
-        layout = QVBoxLayout(self._pred_hero)
+        if layout is None:
+            layout = QVBoxLayout(self._pred_hero)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(outer)
 
