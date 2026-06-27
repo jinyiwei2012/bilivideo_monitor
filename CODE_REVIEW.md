@@ -1,6 +1,6 @@
 # B站视频监控与播放量预测系统 — 代码审查报告
 
-> **审查日期:** 2026-06-27 | **最后修复:** 2026-06-27 (P2 第二轮) | **Python:** 3.10 | **GUI:** PyQt6 | **数据库:** SQLite
+> **审查日期:** 2026-06-27 | **最后修复:** 2026-06-27 (P2 第三轮) | **Python:** 3.10 | **GUI:** PyQt6 | **数据库:** SQLite
 >
 > **审查范围:** 全项目 ~230 个 Python 文件，覆盖 `ui/`、`core/`、`algorithms/`、`utils/`、`config/`、`tests/`、`scripts/` 及入口文件
 
@@ -301,31 +301,34 @@ link_lbl.mouseReleaseEvent = lambda ev: (webbrowser.open(link_url), None)[1]
 | 20 | — | `ui/settings_proxy.py` | QTreeWidgetItem 跨线程 (P2 需重构) |
 | 21 | — | `ui/danmaku_analysis.py` | 中文分词 (实际使用 `_tokenize()` 词典匹配, 非 `split()`) |
 
-### 剩余未修复 (P1+P2)
+| 20 | `c3b7355` | `ui/settings_proxy.py` | 3 个后台线程 GUI 操作包装 `invoke()` |
+| 21 | — | `ui/danmaku_analysis.py` | 中文分词 (实际使用 `_tokenize()` 词典匹配, 非 `split()`) |
+
+### 剩余未修复
 
 | 项 | 优先级 | 说明 |
 |----|--------|------|
-| `prediction_accuracy.py` 准确率计算 | P2 | 需较大重构，涉及完整预测回看逻辑 |
-| QTreeWidgetItem 跨线程重构 | P2 | `settings_proxy.py` 代理检测需架构级重构 |
+| 超长文件拆分 | P2 | `training_panel.py` (1797行) / `video_db.py` (1241行) / `database_query.py` / `settings_account.py` / `trainer.py` |
 
-### P2 中等级 — 本轮修复 ✅ (7/16)
+### P2 中等级 — 本轮修复 ✅ (14/16)
 
-| 项 | 文件 | 修复内容 |
-|----|------|---------|
-| 算法分类标签 | `arima_simple.py` / `trend_regression.py` / `gradient_boost_simple.py` / `svr_predictor.py` / `random_forest_simple.py` | 5 个算法 `category` 从 `"机器学习"` 改为正确的分类标签 |
-| 浅拷贝陷阱 | `config/__init__.py` | `DEFAULT_CONFIG.copy()` → `deepcopy(DEFAULT_CONFIG)` |
-| 密钥保护无效 | `scripts/sign.py` | `os.chmod` 添加 Windows 平台说明注释 |
-| 异常静默吞噬 | `scripts/sync_data.py` | 3 处 `except Exception: pass/continue` → `print("[WARN] ...")` |
-| 凭证明文存储 | `config/__init__.py` + `ui/settings_window.py` | `access_token` / `api_key` 存储时加密、加载时解密 |
-| SSL 验证禁用 | `core/proxy_manager.py` + `ui/settings_proxy.py` | 6 处 `verify=False` 添加 `# nosec B501` 安全理由注释 |
-| BV 号校验统一 | `algorithms/training/dataset.py` | 正则与 `core/database/models.py` 对齐 (`BV[A-Za-z0-9]{10,12}`) |
+| 项 | 文件 | Commit | 修复内容 |
+|----|------|--------|---------|
+| Monkey-patching 消除 | `settings_window.py` + 9 个 `settings_*.py` | `7a24f67` | 64 行 monkey-patching → 9 个正式 Mixin 类 + 多重继承 |
+| 代码重复消除 | 新建 `ui/settings_common.py` | `7a24f67` | 提取 6 个共享 widget 构建器，删除 4 文件 ~80 行重复 |
+| 预测准确率修复 | `prediction_accuracy.py` | `7a24f67` | `timestamp`→`created_at`，按预测到达时间二分查找实际播放量 |
+| 跨线程 GUI 安全 | `settings_proxy.py` `settings_account.py` `database_query.py` | `c3b7355` | 3 个后台线程 + 5 处额外违规 → `invoke()` 包装 |
+| 算法分类标签 | `arima_simple.py` 等 5 个文件 | `0ae1913` | `category` 从 `"机器学习"` 改为正确分类 |
+| 浅拷贝陷阱 | `config/__init__.py` | `0ae1913` | `DEFAULT_CONFIG.copy()` → `deepcopy()` |
+| 凭证明文存储 | `config/__init__.py` + `settings_window.py` | `0ae1913` | `access_token` / `api_key` 存储加密、加载解密 |
+| SSL 验证禁用 | `proxy_manager.py` + `settings_proxy.py` | `0ae1913` | 6 处 `# nosec B501` 注释 |
+| BV 号校验统一 | `dataset.py` | `0ae1913` | 正则对齐 `core/database/models.py` |
+| 密钥保护 | `scripts/sign.py` | `0ae1913` | `os.chmod` Windows 注释 |
+| 异常静默吞噬 | `scripts/sync_data.py` | `0ae1913` | 3 处 `except:` → `print("[WARN]")` |
 
-### P2 中等级 — 剩余 (9/16)
+### P2 中等级 — 剩余 (2/16)
 
 | 项 | 说明 |
 |----|------|
-| Monkey-patching 消除 | `settings_window.py` Mixin 函数绑定改类层次 |
-| 代码重复消除 | `_styled_label` / `_field_wrapper` → `settings_common.py`；时间戳解析 → `BaseAlgorithm`；`_SurgeDetector` / `_fmt()` 统一 |
-| 超长文件拆分 | `training_panel.py` (1797行) / `video_db.py` (1241行) / `database_query.py` / `settings_account.py` / `trainer.py` |
-| SSL 验证可配置 | 代理检测的 `verify` 参数改为用户可选 |
-| 不可信代理源 | 代理源 URL 白名单校验 |
+| 超长文件拆分 | `training_panel.py` (1797行) / `video_db.py` (1241行) / `database_query.py` / `settings_account.py` / `trainer.py` ~5个文件 |
+| SSL 验证可配置 / 代理源白名单 | 代理检测 `verify` 参数用户可选 |
