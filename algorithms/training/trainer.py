@@ -71,6 +71,7 @@ from algorithms.training.checkpoint_manager import CheckpointManager
 from algorithms.training.device import get_device
 from algorithms.training.dataset import VideoTimeSeriesDataset, estimate_dataset_size
 from algorithms.training.schedulers import HyperbolicLR, ComboScheduler
+from algorithms.training.trainer_io import save_checkpoint, _save_model_to_video_dir, evaluate_model
 
 # 模块级日志记录器
 logger = logging.getLogger(__name__)
@@ -438,7 +439,7 @@ class ModelTrainer:
 
             # ── 每 epoch 保存 checkpoint（断点续训保护） ──
             data_until = getattr(dataset, "max_timestamp", 0.0)
-            version = self._save_checkpoint(
+            version = save_checkpoint(
                 model, algo_id, bvid, dataset, best_val, last_val, val_loader,
                 1, optimizer, prev_epochs=prev_epochs,
                 data_trained_until=data_until,
@@ -892,7 +893,7 @@ class ModelTrainer:
         """
         last_val = -1.0
         if val_loader is not None:
-            last_val = ModelTrainer._evaluate(model, val_loader, loss_fn, preprocess)
+            last_val = evaluate_model(model, val_loader, loss_fn, preprocess)
         # 发送 epoch 完成进度
         ModelTrainer._emit(
             progress_cb,
@@ -912,117 +913,7 @@ class ModelTrainer:
         )
         return last_val
 
-    def _save_checkpoint(self, model, algo_id, bvid, dataset, best_val, last_val, val_loader,
-                          epochs, optimizer=None, prev_epochs=0, data_trained_until=0.0,
-                          scheduler=None, best_epoch=0):
-        """保存模型 checkpoint 并同步到视频目录。
-
-        Args:
-            model:              PyTorch 模型。
-            algo_id:            算法标识符。
-            bvid:               视频 BV 号。
-            dataset:            训练数据集。
-            best_val:           最佳验证损失。
-            last_val:           最近验证损失。
-            val_loader:         验证 DataLoader。
-            epochs:             本次训练轮数。
-            optimizer:          PyTorch 优化器（用于记录学习率）。
-            prev_epochs:        之前已完成的 epoch 数。
-            data_trained_until: 本次训练覆盖数据的最大时间戳。
-            scheduler:          ComboScheduler 实例（用于保存调度器状态）。
-            best_epoch:         最佳 epoch 编号。
-
-        Returns:
-            str: 新创建的 checkpoint 版本名。
-        """
-        ckpt = CheckpointManager(algo_id, bvid=bvid)
-        lr = optimizer.param_groups[0]["lr"] if optimizer is not None else 0.001
-        metadata = {
-            "data_count": len(dataset),
-            "val_loss": best_val if val_loader is not None else last_val,
-            "epochs": epochs,
-            "completed_epochs": prev_epochs + epochs,  # 累计总 epoch
-            "best_epoch": best_epoch if val_loader is not None else epochs,
-            "device": str(self.device),
-            "learning_rate": lr,
-            "data_trained_until": data_trained_until,
-        }
-        # 保存调度器状态（支持增量训练续训）
-        if scheduler is not None:
-            metadata["scheduler_state"] = scheduler.state_dict()
-        model_to_save = model._orig_mod if hasattr(model, '_orig_mod') else model
-        version = ckpt.save(
-            model_to_save.state_dict(),
-            metadata=metadata,
-        )
-        # 视频微调时也保存到 data/<bvid>/model/ 目录（供推理快速访问）
-        if bvid:
-            self._save_model_to_video_dir(model, bvid, algo_id)
-
-        # 训练完成后自动导出 ONNX 模型（供 ONNX Runtime / NPU 推理使用）
-        try:
-            from algorithms.training.onnx_exporter import export_to_onnx, is_onnx_available
-            if is_onnx_available():
-                export_to_onnx(model_to_save, algo_id, bvid or "", force=True)
-        except Exception:
-            logger.debug("[ONNX] 导出失败（非致命，跳过）%s", algo_id)
-
-        return version
-
-    def _save_model_to_video_dir(self, model: "torch.nn.Module", bvid: str, algo_id: str):
-        """将模型 state_dict 保存到 data/<bvid>/model/<algo_id>.pt。
-
-        此操作用于加速推理时按视频快速加载模型参数，
-        避免每次推理都从 checkpoint 目录解析版本信息。
-
-        Args:
-            model:   PyTorch 模型。
-            bvid:    视频 BV 号。
-            algo_id: 算法标识符。
-        """
-        import os
-
-        video_model_dir = project_path("data", bvid, "model")
-        os.makedirs(video_model_dir, exist_ok=True)
-        path = os.path.join(video_model_dir, f"{algo_id}.pt")
-        try:
-            model_to_save = model._orig_mod if hasattr(model, '_orig_mod') else model
-            torch.save(model_to_save.state_dict(), path)
-            logger.info("[trainer] 模型已保存到 %s", path)
-        except Exception as e:
-            logger.warning("[trainer] 保存模型到视频目录失败: %s", e)
-
-    @staticmethod
-    def _evaluate(model, loader, loss_fn, preprocess) -> float:
-        """在验证集上评估模型损失。
-
-        使用 torch.no_grad() 禁用梯度计算，提高验证效率。
-
-        Args:
-            model:      PyTorch 模型（将被设为 eval 模式）。
-            loader:     验证数据 DataLoader。
-            loss_fn:    损失函数。
-            preprocess: batch 预处理函数。
-
-        Returns:
-            float: 平均验证损失（所有 batch 的均值）。
-        """
-        model.eval()  # 设为评估模式
-        total = 0.0
-        n = 0
-        device = next(model.parameters()).device
-        with torch.no_grad():
-            for batch in loader:
-                x, y = preprocess(batch)
-                x = x.to(device, non_blocking=True)
-                y = y.to(device, non_blocking=True)
-                pred = model(x)
-                # 处理多余的维度（如 [B, H, 1] → [B, H]）
-                if pred.dim() == y.dim() + 1 and pred.shape[-1] == 1:
-                    pred = pred.squeeze(-1)
-                total += float(loss_fn(pred, y).item())
-                n += 1
-        return total / max(1, n)
+    # ═══ Checkpoint/评估方法已移入 trainer_io.py ═══
 
     @staticmethod
     def _emit(cb: ProgressCb, payload: Dict):
