@@ -293,9 +293,6 @@ class SettingsWindow:
 
     # ──── 关闭 ────
     def _on_close(self):
-        self._sync_proxy_text_to_cfg()
-        self._save_net_config()
-        self._verify_proxy_persisted()
         self.dlg.close()
 
     # ──── 保存系统设置 ────
