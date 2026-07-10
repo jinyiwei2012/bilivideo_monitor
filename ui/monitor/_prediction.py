@@ -395,16 +395,11 @@ _PREDICT_CLEANUP_INTERVAL = 3
 
 
 def _maybe_release_memory():
-    """每 N 次预测后释放 PyTorch 模型缓存并强制 GC。"""
+    """每 N 次预测后强制 GC 释放内存。"""
     global _predict_count
     _predict_count += 1
     if _predict_count % _PREDICT_CLEANUP_INTERVAL == 0:
         import gc
-        try:
-            from algorithms.models.deep_learning._torch_upgrade import release_cached_models
-            release_cached_models()
-        except Exception:
-            pass
         gc.collect()
 
 
