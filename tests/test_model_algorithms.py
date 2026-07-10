@@ -206,30 +206,7 @@ class TestEnsembleCategory:
             assert result.confidence >= 0
 
 
-class TestDeepLearningCategory:
-    """测试深度学习类算法"""
-
-    @pytest.mark.parametrize(
-        "module_path,cls_name",
-        [
-            ("algorithms.models.deep_learning.neural_network_simple", "NeuralNetworkSimpleAlgorithm"),
-            ("algorithms.models.deep_learning.mlp_predictor", "MLPPredictorAlgorithm"),
-            ("algorithms.models.deep_learning.gru_simple", "GRUSimpleAlgorithm"),
-        ],
-    )
-    def test_dl_algorithm(self, module_path, cls_name):
-        video_data = _make_video_data(_make_history(15), 15000)
-        if cls_name in _OLD_INTERFACE:
-            result = _via_adapter(module_path, cls_name, video_data)
-            assert result.get("prediction", 0) > 0
-        else:
-            import importlib
-
-            mod = importlib.import_module(module_path)
-            cls = getattr(mod, cls_name)
-            algo = cls()
-            result = algo.predict(video_data, 100000)
-            assert result.target_threshold == 100000
+# Deep Learning 算法已移除（algorithms/models/deep_learning/ 已删除）
 
 
 class TestAdvancedCategory:
