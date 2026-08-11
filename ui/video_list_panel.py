@@ -16,15 +16,17 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QListWidget,
     QListWidgetItem, QLabel, QPushButton, QLineEdit,
     QFrame, QSizePolicy, QStyledItemDelegate, QStyle,
+    QStackedLayout,
 )
-from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal, QObject
-from PyQt6.QtGui import QPixmap, QFont, QColor, QPainter, QBrush, QPen, QFontMetrics
+from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal, QObject, QRectF
+from PyQt6.QtGui import QPixmap, QColor, QPainter, QPen, QFontMetrics, QPainterPath
 
 from ui.theme import C
 from ui.helpers import (
-    FONT, FONT_SM, THRESHOLDS, THRESHOLD_NAMES,
-    THRESH_COLORS, fmt_num, nearest_threshold_gap, card_status_tag,
+    FONT, FONT_CAPTION, SPACE_SM, SPACE_MD, SPACE_LG,
+    fmt_num, nearest_threshold_gap, card_status_tag,
 )
+from ui.widgets import SectionHeader, EmptyState
 from utils.cover_manager import get_valid_cover, save_cover
 
 _cover_session = _req.Session()
@@ -89,33 +91,51 @@ class VideoCardDelegate(QStyledItemDelegate):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         rect = option.rect
         is_selected = option.state & QStyle.StateFlag.State_Selected
+        is_hovered = option.state & QStyle.StateFlag.State_MouseOver
 
-        # 背景
-        bg = C["bg_surface"] if not is_selected else C["bg_hover"]
-        painter.fillRect(rect, QColor(bg))
+        # 背景: 默认表面色, hover/选中以天依蓝浅色水波高光
+        if is_selected:
+            bg = QColor(C["lty_blue"])
+            bg.setAlpha(70)
+        elif is_hovered:
+            bg = QColor(C["lty_blue"])
+            bg.setAlpha(36)
+        else:
+            bg = QColor(C["bg_surface"])
+        painter.fillRect(rect, bg)
 
-        margin = 8
+        margin = SPACE_MD
         x, y = rect.x() + margin, rect.y() + margin
         w, h = rect.width() - 2 * margin, rect.height() - 2 * margin
 
-        # 封面缩略图
+        # 封面缩略图 (圆角裁剪 + 细描边)
         bvid = data.get("bvid", "")
         thumb = self._cover_cache.get(bvid)
+        thumb_rect = QRectF(x, y, 80, 45)
+        radius = C["radius_sm"]
+        path = QPainterPath()
+        path.addRoundedRect(thumb_rect, radius, radius)
+
+        painter.save()
+        painter.setClipPath(path)
         if thumb:
             painter.drawPixmap(x, y, 80, 45, thumb)
         else:
-            painter.setPen(QPen(QColor(C["border"])))
-            painter.setBrush(QBrush(QColor(C["bg_hover"])))
-            painter.drawRect(x, y, 80, 45)
+            painter.fillRect(thumb_rect, QColor(C["bg_hover"]))
             painter.setPen(QPen(QColor(C["text_3"])))
-            painter.drawText(x + 10, y + 25, "No Cover")
+            painter.drawText(x + SPACE_MD, y + 25, "No Cover")
+        painter.restore()
 
-        # 标题
+        painter.setPen(QPen(QColor(C["border"]), 1))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawPath(path)
+
+        # 标题 (FONT 主层级)
         title = data.get("title", "")[:30]
         tx = x + 90
         ty = y + 14
         painter.setPen(QColor(C["text_1"]))
-        font = QFont("Microsoft YaHei UI", 9)
+        font = FONT
         fm = QFontMetrics(font)
 
         max_w = w - 90
@@ -124,11 +144,10 @@ class VideoCardDelegate(QStyledItemDelegate):
         painter.setFont(font)
         painter.drawText(tx, ty - fm.height() + 14, title)
 
-        # 播放量
+        # 副信息 (FONT_CAPTION 次层级)
         views = data.get("view_count", 0)
         painter.setPen(QColor(C["text_2"]))
-        font_sm = QFont("Microsoft YaHei UI", 8)
-        painter.setFont(font_sm)
+        painter.setFont(FONT_CAPTION)
         painter.drawText(tx, ty + 16, f"播放: {fmt_num(views)}")
 
         # 状态标签
@@ -137,11 +156,11 @@ class VideoCardDelegate(QStyledItemDelegate):
         painter.setPen(QColor(tag_color))
         painter.drawText(tx, ty + 30, tag_text)
 
-        # 选中高亮边框
+        # 选中高亮边框 (天依蓝)
         if is_selected:
             painter.setPen(QPen(QColor(C["bilibili"]), 2))
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 4, 4)
+            painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), C["radius_md"], C["radius_md"])
 
     def sizeHint(self, option, index):
         return QSize(0, 60)
@@ -177,20 +196,19 @@ class VideoListPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # 标题头
+        # 标题头 (SectionHeader: 天依蓝竖条 + 标题)
         hdr = QWidget()
         hdr.setStyleSheet(f"background-color: {C['bg_surface']};")
         h = QHBoxLayout(hdr)
-        h.setContentsMargins(12, 10, 12, 4)
+        h.setContentsMargins(SPACE_LG, SPACE_MD, SPACE_LG, SPACE_SM)
 
-        lbl = QLabel("监控视频")
-        lbl.setStyleSheet(f"color: {C['text_2']}; font-weight: bold; font-size: 8pt;")
-        h.addWidget(lbl)
+        h.addWidget(SectionHeader("监控视频", parent=hdr))
 
         self._count_lbl = QLabel("0")
         self._count_lbl.setStyleSheet(f"""
-            background-color: {C['bg_elevated']}; color: {C['text_2']};
-            padding: 0px 6px; border-radius: 4px; font-size: 8pt;
+            background-color: {C['lty_blue_light']}; color: {C['lty_blue_deep']};
+            padding: 0px {SPACE_MD}px; border-radius: {C['radius_lg']}px;
+            font-weight: bold; font-size: 8pt;
         """)
         h.addWidget(self._count_lbl)
 
@@ -211,8 +229,8 @@ class VideoListPanel(QWidget):
         self._search.textChanged.connect(self._on_search)
         self._search.setStyleSheet(f"""
             QLineEdit {{
-                margin: 4px 12px;
-                padding: 4px 8px;
+                margin: {SPACE_SM}px {SPACE_LG}px;
+                padding: {SPACE_SM}px {SPACE_MD}px;
                 border: 1px solid {C['border']};
                 border-radius: {C['radius_sm']}px;
                 background-color: {C['bg_base']};
@@ -241,7 +259,14 @@ class VideoListPanel(QWidget):
             }}
         """)
         self._list.currentItemChanged.connect(self._on_item_changed)
-        layout.addWidget(self._list, 1)
+
+        # 列表 + 空状态: QStackedLayout 按有无视频切换 (EmptyState ♪)
+        self._list_stack = QStackedLayout()
+        self._list_stack.addWidget(self._list)
+        self._empty_state = EmptyState("暂无监控视频 ♪")
+        self._list_stack.addWidget(self._empty_state)
+        self._list_stack.setCurrentWidget(self._empty_state)
+        layout.addLayout(self._list_stack, 1)
 
     def _on_cover_loaded(self, bvid, pixmap):
         """封面加载完成回调"""
@@ -359,6 +384,9 @@ class VideoListPanel(QWidget):
         """更新视频计数"""
         count = self._list.count()
         self._count_lbl.setText(str(count))
+        stack = getattr(self, "_list_stack", None)
+        if stack is not None:
+            stack.setCurrentWidget(self._empty_state if count == 0 else self._list)
 
     def select_by_bvid(self, bvid):
         """按 BV 号选中"""

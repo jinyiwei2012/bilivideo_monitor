@@ -5,12 +5,13 @@
 
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QPushButton,
-    QLabel, QCheckBox, QFrame,
+    QLabel, QCheckBox,
 )
 from PyQt6.QtCore import Qt
 
 from ui.theme import C
-from ui.helpers import FONT
+from ui.helpers import FONT, FONT_CAPTION, SPACE_MD, SPACE_LG
+from ui.widgets import WaveDivider
 
 
 class BottomBar(QWidget):
@@ -25,26 +26,34 @@ class BottomBar(QWidget):
 
     def _build_bottom_bar(self):
         """构建底部操作栏"""
-        # 分隔线
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet(f"background-color: {C['border']}; max-height: 1px;")
+        # 水波分隔线 (洛天依意象)
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
         self.layout.setSpacing(0)
-        self.layout.addWidget(sep)
+        self.layout.addWidget(WaveDivider())
 
         bar = QWidget()
         bar.setFixedHeight(46)
         bar.setStyleSheet(f"background-color: {C['bg_surface']};")
         h = QHBoxLayout(bar)
-        h.setContentsMargins(12, 8, 14, 8)
-        h.setSpacing(4)
+        h.setContentsMargins(SPACE_LG, SPACE_MD, SPACE_LG, SPACE_MD)
+        h.setSpacing(SPACE_MD)
 
-        # 「添加监控」按钮
+        # 「添加监控」主按钮 — 天依蓝强调
         self._add_btn = QPushButton("＋ 添加监控")
         self._add_btn.setProperty("primary", True)
         self._add_btn.setFixedHeight(32)
+        self._add_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {C['lty_blue']};
+                color: #ffffff;
+                border: none;
+                border-radius: {C['radius_sm']}px;
+                padding: 4px 14px;
+            }}
+            QPushButton:hover {{ background-color: {C['lty_blue_deep']}; }}
+            QPushButton:pressed {{ background-color: {C['lty_blue_light']}; }}
+        """)
         self._add_btn.clicked.connect(self.gui._add_monitor)
         h.addWidget(self._add_btn)
 
@@ -96,7 +105,7 @@ class BottomBar(QWidget):
                 background-color: {C['bg_hover']};
             }}
             QCheckBox::indicator:checked {{
-                background-color: {C['success']};
+                background-color: {C['lty_blue']};
             }}
         """)
         ar_h.addWidget(self._ar_check)
@@ -106,17 +115,14 @@ class BottomBar(QWidget):
 
     def _build_status_bar(self):
         """构建底部状态栏"""
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet(f"background-color: {C['border']}; max-height: 1px;")
-        self.layout.addWidget(sep)
+        self.layout.addWidget(WaveDivider())
 
         bar = QWidget()
         bar.setFixedHeight(22)
-        bar.setStyleSheet(f"background-color: {C['bg_surface']}; font-size: 8pt;")
+        bar.setStyleSheet(f"background-color: {C['bg_surface']};")
         h = QHBoxLayout(bar)
-        h.setContentsMargins(10, 0, 10, 0)
-        h.setSpacing(10)
+        h.setContentsMargins(SPACE_LG, 0, SPACE_LG, 0)
+        h.setSpacing(SPACE_MD)
 
         items = [
             ("videos", "监控: 0 个"),
@@ -130,6 +136,7 @@ class BottomBar(QWidget):
 
         for key, text in items:
             lbl = QLabel(text)
+            lbl.setFont(FONT_CAPTION)
             lbl.setStyleSheet(f"color: {C['text_3']};")
             if key == "status":
                 h.addStretch()

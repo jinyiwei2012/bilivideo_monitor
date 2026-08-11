@@ -7,13 +7,15 @@ from datetime import datetime
 from collections import deque
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPlainTextEdit,
-    QPushButton, QLabel, QComboBox, QFrame,
+    QPushButton, QComboBox, QStackedWidget,
 )
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QColor, QTextCharFormat, QTextCursor, QFont
 
 from ui.theme import C
 from ui.invoker import invoke
+from ui.helpers import FONT_CAPTION, SPACE_MD, SPACE_LG
+from ui.widgets import SectionHeader, EmptyState, WaveDivider, FeatherBadge
 
 logger = logging.getLogger(__name__)
 
@@ -92,15 +94,15 @@ class LogPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # 顶部控制栏
+        # 顶部控制栏 (洛天依: 羽徽章 + SectionHeader)
         bar = QWidget()
         bar.setStyleSheet(f"background-color: {C['bg_surface']};")
         h = QHBoxLayout(bar)
-        h.setContentsMargins(12, 8, 12, 8)
+        h.setContentsMargins(SPACE_LG, SPACE_MD, SPACE_LG, SPACE_MD)
+        h.setSpacing(SPACE_MD)
 
-        lbl = QLabel("📋 日志")
-        lbl.setStyleSheet(f"color: {C['text_2']}; font-weight: bold;")
-        h.addWidget(lbl)
+        h.addWidget(FeatherBadge(18))
+        h.addWidget(SectionHeader("运行日志"))
 
         h.addStretch()
 
@@ -117,13 +119,11 @@ class LogPanel(QWidget):
 
         layout.addWidget(bar)
 
-        # 分隔线
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet(f"background-color: {C['border']}; max-height: 1px;")
-        layout.addWidget(sep)
+        # 水波分隔线 (洛天依意象)
+        layout.addWidget(WaveDivider())
 
-        # 日志文本区域
+        # 日志文本区域 (无日志时显示空状态占位)
+        self._stack = QStackedWidget()
         self._text = QPlainTextEdit()
         self._text.setReadOnly(True)
         self._text.setMaximumBlockCount(self._MAX_TEXT_LINES)
@@ -134,10 +134,14 @@ class LogPanel(QWidget):
                 border: none;
                 font-family: Consolas, "Microsoft YaHei UI";
                 font-size: 9pt;
-                padding: 8px;
+                padding: {SPACE_MD}px;
             }}
         """)
-        layout.addWidget(self._text, 1)
+        self._empty_state = EmptyState("暂无日志 ♪")
+        self._stack.addWidget(self._text)
+        self._stack.addWidget(self._empty_state)
+        self._stack.setCurrentWidget(self._text)
+        layout.addWidget(self._stack, 1)
 
     def add_log(self, level, message):
         """线程安全地添加日志 — 不直接触碰 QTimer，通过 invoke 调度到主线程"""
@@ -174,6 +178,7 @@ class LogPanel(QWidget):
         if len(self._log_entries) > self._MAX_ENTRIES:
             self._log_entries = self._log_entries[-self._MAX_ENTRIES:]
 
+        self._sync_empty_state()
         self._flush_timer.stop()
         self._flush_scheduled = False
 
@@ -190,9 +195,10 @@ class LogPanel(QWidget):
         cursor = self._text.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
 
-        # 时间戳 - 灰色
+        # 时间戳 - FONT_CAPTION 灰色
         fmt = QTextCharFormat()
         fmt.setForeground(QColor(C["log_time"]))
+        fmt.setFont(FONT_CAPTION)
         cursor.insertText(f"[{timestamp}] ", fmt)
 
         # 等级 - 带颜色
@@ -222,11 +228,18 @@ class LogPanel(QWidget):
         for level, ts, msg in self._log_entries:
             if self._log_level == "ALL" or level == self._log_level:
                 self._append_text(level, ts, msg)
+        self._sync_empty_state()
 
     def _clear_log(self):
         """清空日志"""
         self._text.clear()
         self._log_entries.clear()
+        self._sync_empty_state()
+
+    def _sync_empty_state(self):
+        """根据是否有日志内容切换空状态占位"""
+        has_logs = bool(self._text.toPlainText().strip())
+        self._stack.setCurrentWidget(self._text if has_logs else self._empty_state)
 
     def stop_auto_refresh(self):
         """停止自动刷新"""

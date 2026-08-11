@@ -18,7 +18,8 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 
 from ui.theme import C
-from ui.helpers import FONT, project_path, auto_threshold_name
+from ui.helpers import FONT, project_path, auto_threshold_name, SPACE_MD, SPACE_LG
+from ui.widgets import SectionHeader, WaveDivider
 from ui.dialog_base import DialogBase
 from ui.settings_common import (
     styled_label,
@@ -142,13 +143,34 @@ class SettingsWindow(
     def setup_ui(self):
         self.dlg.header("系统设置", "配置通知、监控、AI、代理、Cookie 等全部参数")
 
-        # Tab widget
+        # Tab widget (洛天依: 导航选中态天依蓝)
         self._tabs = QTabWidget()
         self._tabs.setStyleSheet(f"""
             QTabWidget::pane {{
                 border: 1px solid {C['border']};
                 border-top: none;
                 background-color: {C['bg_base']};
+            }}
+            QTabBar::tab {{
+                background-color: {C['bg_surface']};
+                color: {C['text_2']};
+                border: 1px solid {C['border']};
+                border-bottom: none;
+                padding: 6px 16px;
+                margin-right: 2px;
+                border-top-left-radius: {C['radius_sm']}px;
+                border-top-right-radius: {C['radius_sm']}px;
+            }}
+            QTabBar::tab:selected {{
+                background-color: {C['lty_blue']};
+                color: #ffffff;
+                border: 1px solid {C['lty_blue']};
+                border-bottom: 1px solid {C['lty_blue']};
+                font-weight: bold;
+            }}
+            QTabBar::tab:hover:!selected {{
+                background-color: {C['lty_blue_light']};
+                color: {C['lty_blue_deep']};
             }}
         """)
         self.dlg._main_layout.addWidget(self._tabs, 1)
@@ -162,6 +184,20 @@ class SettingsWindow(
         self._build_proxy_tab(self._tabs)
         self._build_account_tab(self._tabs)
         self._build_about_tab(self._tabs)
+
+        # 统一各标签页顶部标题 (洛天依排版: SectionHeader + 水波分隔线)
+        for i in range(self._tabs.count()):
+            page = self._tabs.widget(i)
+            layout = page.layout()
+            if layout is None or not isinstance(layout, QVBoxLayout):
+                continue
+            head_wrap = QWidget(page)
+            head_layout = QVBoxLayout(head_wrap)
+            head_layout.setContentsMargins(SPACE_LG, SPACE_LG, SPACE_LG, SPACE_MD)
+            head_layout.setSpacing(SPACE_MD)
+            head_layout.addWidget(SectionHeader(self._tabs.tabText(i).strip()))
+            head_layout.addWidget(WaveDivider())
+            layout.insertWidget(0, head_wrap)
 
         self.dlg.button_row(
             [

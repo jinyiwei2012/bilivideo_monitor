@@ -12,7 +12,7 @@ import threading
 
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
-    QLabel, QPushButton, QFrame, QStackedWidget, QStatusBar,
+    QLabel, QPushButton, QStackedWidget, QStatusBar,
     QSizePolicy, QApplication, QMenu, QSplashScreen,
 )
 from PyQt6.QtCore import Qt, QTimer, QSize
@@ -22,7 +22,9 @@ from ui.theme import C, init_theme
 from ui.helpers import (
     FONT, FONT_MONO, FONT_BOLD, DEFAULT_INTERVAL,
     FAST_INTERVAL, FAST_GAP, PREDICT_INTERVAL, project_path,
+    SPACE_SM, SPACE_MD, SPACE_LG,
 )
+from ui.widgets import WaveDivider
 from ui.log_panel import LogPanel, install_logging_bridge
 from ui.video_list_panel import VideoListPanel
 from ui.detail_panel import DetailPanel
@@ -177,6 +179,9 @@ class BilibiliMonitorGUI(QMainWindow):
 
         self._build_titlebar(main_layout)
 
+        # 洛天依 · 水波装饰条 (WaveDivider 组件, 天依蓝渐变, 呼应「洛水天依」意象)
+        main_layout.addWidget(WaveDivider(height=3))
+
         # Log panel (hidden by default, shown on nav)
         self.log_panel = LogPanel(central, self._file_logger)
         install_logging_bridge(self.log_panel)
@@ -213,13 +218,13 @@ class BilibiliMonitorGUI(QMainWindow):
         bar.setFixedHeight(46)
         bar.setStyleSheet(f"background-color: {C['bg_surface']};")
         h = QHBoxLayout(bar)
-        h.setContentsMargins(14, 0, 14, 0)
+        h.setContentsMargins(SPACE_LG, 0, SPACE_LG, 0)
 
-        # Logo
-        logo_lbl = QLabel("B")
+        # Logo — 洛天依「洛」字徽标 (天依蓝)
+        logo_lbl = QLabel("洛")
         logo_lbl.setStyleSheet(f"""
             color: white; background-color: {C['bilibili']};
-            font-size: 14px; font-weight: bold; border-radius: 14px;
+            font-size: 15px; font-weight: bold; border-radius: 14px;
             padding: 4px 10px; min-width: 28px; min-height: 28px;
         """)
         logo_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -228,14 +233,14 @@ class BilibiliMonitorGUI(QMainWindow):
         title_f = QWidget()
         title_f.setStyleSheet(f"background-color: {C['bg_surface']};")
         tf = QVBoxLayout(title_f)
-        tf.setContentsMargins(8, 0, 0, 0)
+        tf.setContentsMargins(SPACE_MD, 0, 0, 0)
         tf.setSpacing(0)
 
         t1 = QLabel("B站监控")
         t1.setStyleSheet(f"color: {C['bilibili']}; font-size: 13px; font-weight: bold;")
         tf.addWidget(t1)
-        t2 = QLabel("播放量预测系统")
-        t2.setStyleSheet(f"color: {C['text_3']}; font-size: 10px;")
+        t2 = QLabel("♪ 洛天依 · 播放量预测系统")
+        t2.setStyleSheet(f"color: {C['lty_blue_deep'] if 'lty_blue_deep' in C else C['text_3']}; font-size: 10px;")
         tf.addWidget(t2)
         h.addWidget(title_f)
 
@@ -243,8 +248,8 @@ class BilibiliMonitorGUI(QMainWindow):
         nav_f = QWidget()
         nav_f.setStyleSheet(f"background-color: {C['bg_surface']};")
         nh = QHBoxLayout(nav_f)
-        nh.setContentsMargins(16, 0, 0, 0)
-        nh.setSpacing(4)
+        nh.setContentsMargins(SPACE_LG, 0, 0, 0)
+        nh.setSpacing(SPACE_SM)
 
         self._nav_btns = {}
         self._current_nav = "监控列表"
@@ -261,21 +266,24 @@ class BilibiliMonitorGUI(QMainWindow):
             btn = QPushButton(f"{icon} {label}")
             btn.setCheckable(True)
             btn.setChecked(label == self._current_nav)
+            # 天依蓝圆角胶囊选中态 (洛天依主题)
             btn.setStyleSheet(f"""
                 QPushButton {{
-                    background-color: {C['bg_surface']};
+                    background-color: transparent;
                     color: {C['text_secondary']};
                     border: none;
-                    padding: 6px 12px;
-                    border-bottom: 2px solid transparent;
+                    border-radius: {C['radius_xl']}px;
+                    padding: {SPACE_SM}px {SPACE_LG}px;
+                    min-height: 24px;
+                    font-weight: bold;
                 }}
                 QPushButton:hover {{
-                    color: {C['text_1']};
+                    color: {C['lty_blue_deep']};
                     background-color: {C['bg_hover']};
                 }}
                 QPushButton:checked {{
-                    color: {C['bilibili']};
-                    border-bottom: 2px solid {C['bilibili']};
+                    color: #ffffff;
+                    background-color: {C['bilibili']};
                 }}
             """)
             btn.clicked.connect(lambda checked, n=label: self._switch_nav(n))
@@ -289,7 +297,8 @@ class BilibiliMonitorGUI(QMainWindow):
         right_f = QWidget()
         right_f.setStyleSheet(f"background-color: {C['bg_surface']};")
         rh = QHBoxLayout(right_f)
-        rh.setContentsMargins(0, 0, 0, 0)
+        rh.setContentsMargins(SPACE_MD, 0, 0, 0)
+        rh.setSpacing(SPACE_SM)
 
         # Countdown badge
         self._countdown_badge = QLabel("-- s")
@@ -306,7 +315,8 @@ class BilibiliMonitorGUI(QMainWindow):
         self._model_act_btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: {C['bg_elevated']}; color: {C['accent']};
-                border: none; padding: 4px 8px;
+                border: none; border-radius: {C['radius_md']}px;
+                padding: {SPACE_SM}px {SPACE_MD}px; min-height: 24px;
             }}
             QPushButton:hover {{ background-color: {C['bg_hover']}; }}
         """)
@@ -323,7 +333,8 @@ class BilibiliMonitorGUI(QMainWindow):
         self._gear_btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: {C['bg_elevated']}; color: {C['text_2']};
-                border: none; padding: 4px 8px;
+                border: none; border-radius: {C['radius_md']}px;
+                padding: {SPACE_SM}px {SPACE_MD}px; min-height: 24px;
             }}
             QPushButton:hover {{ background-color: {C['bg_hover']}; }}
         """)
@@ -336,7 +347,8 @@ class BilibiliMonitorGUI(QMainWindow):
         self._search_btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: {C['bg_elevated']}; color: {C['text_2']};
-                border: none; padding: 4px 8px;
+                border: none; border-radius: {C['radius_md']}px;
+                padding: {SPACE_SM}px {SPACE_MD}px; min-height: 24px;
             }}
             QPushButton:hover {{ background-color: {C['bg_hover']}; }}
         """)
@@ -404,12 +416,8 @@ class BilibiliMonitorGUI(QMainWindow):
                 action.triggered.connect(callback)
                 self._settings_menu.addAction(action)
 
-        # Separator after titlebar
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet(f"background-color: {C['border']}; max-height: 1px;")
+        # 标题栏下方由 _build_ui 中的 WaveDivider 水波条承接
         parent_layout.addWidget(bar)
-        parent_layout.addWidget(sep)
 
     def _build_main_layout(self, parent):
         """构建三栏主体布局"""
