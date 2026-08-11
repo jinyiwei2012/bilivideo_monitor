@@ -1,6 +1,6 @@
 {
  "[Model] ARIMA简化": {
-  "elapsed": 0.1641,
+  "elapsed": 0.1875,
   "name": "ARIMA简化",
   "result": {
    "confidence": 0.35,
@@ -18,7 +18,7 @@
   }
  },
  "[Model] Bagging集成": {
-  "elapsed": 36.1818,
+  "elapsed": 32.9141,
   "name": "Bagging集成",
   "result": {
    "confidence": 0.5569767128,
@@ -27,7 +27,7 @@
   }
  },
  "[Model] Bass扩散": {
-  "elapsed": 0.001,
+  "elapsed": 0.0006,
   "name": "Bass扩散",
   "result": {
    "confidence": 0.85,
@@ -36,7 +36,7 @@
   }
  },
  "[Model] Bass扩散模型": {
-  "elapsed": 0.0002,
+  "elapsed": 0.0003,
   "name": "Bass扩散模型",
   "result": {
    "confidence": 0.95,
@@ -45,7 +45,7 @@
   }
  },
  "[Model] BiLSTM双向预测": {
-  "elapsed": 0.001,
+  "elapsed": 0.0012,
   "name": "BiLSTM双向预测",
   "result": {
    "confidence": 0.35,
@@ -54,7 +54,7 @@
   }
  },
  "[Model] BiTCN双向卷积": {
-  "elapsed": 0.0005,
+  "elapsed": 0.0006,
   "name": "BiTCN双向卷积",
   "result": {
    "confidence": 0.85,
@@ -63,7 +63,7 @@
   }
  },
  "[Model] Blending集成": {
-  "elapsed": 0.0717,
+  "elapsed": 0.1165,
   "name": "Blending集成",
   "result": {
    "confidence": 0.9,
@@ -72,7 +72,7 @@
   }
  },
  "[Model] CNN-LSTM混合": {
-  "elapsed": 0.0012,
+  "elapsed": 0.0007,
   "name": "CNN-LSTM混合",
   "result": {
    "confidence": 0.5081343549,
@@ -81,7 +81,7 @@
   }
  },
  "[Model] CNN图像化预测": {
-  "elapsed": 0.0021,
+  "elapsed": 0.0025,
   "name": "CNN图像化预测",
   "result": {
    "confidence": 0.4,
@@ -90,7 +90,7 @@
   }
  },
  "[Model] Cascade级联集成": {
-  "elapsed": 0.002,
+  "elapsed": 0.0006,
   "name": "Cascade级联集成",
   "result": {
    "confidence": 0.35,
@@ -99,7 +99,7 @@
   }
  },
  "[Model] CatBoost": {
-  "elapsed": 0.0213,
+  "elapsed": 0.0195,
   "name": "CatBoost",
   "result": {
    "confidence": 0.3,
@@ -117,7 +117,7 @@
   }
  },
  "[Model] Chronos零样本": {
-  "elapsed": 0.0007,
+  "elapsed": 0.0009,
   "name": "Chronos零样本",
   "result": {
    "confidence": 0.5,
@@ -126,7 +126,7 @@
   }
  },
  "[Model] Crossformer跨维": {
-  "elapsed": 0.001,
+  "elapsed": 0.0007,
   "name": "Crossformer跨维",
   "result": {
    "confidence": 0.8,
@@ -135,7 +135,7 @@
   }
  },
  "[Model] DLinear简化版": {
-  "elapsed": 0.0009,
+  "elapsed": 0.0008,
   "name": "DLinear简化版",
   "result": {
    "confidence": 0.9,
@@ -144,7 +144,7 @@
   }
  },
  "[Model] DTW-kNN类比": {
-  "elapsed": 0.0038,
+  "elapsed": 0.0025,
   "name": "DTW-kNN类比",
   "result": {
    "confidence": 0.3,
@@ -153,7 +153,7 @@
   }
  },
  "[Model] DeepAR概率": {
-  "elapsed": 0.0009,
+  "elapsed": 0.0007,
   "name": "DeepAR概率",
   "result": {
    "confidence": 0.05,
@@ -162,7 +162,7 @@
   }
  },
  "[Model] Diffusion TS扩散预测": {
-  "elapsed": 0.0008,
+  "elapsed": 0.0006,
   "name": "Diffusion TS扩散预测",
   "result": {
    "confidence": 0.45,
@@ -171,7 +171,7 @@
   }
  },
  "[Model] DistDF分布对齐": {
-  "elapsed": 0.0002,
+  "elapsed": 0.0003,
   "name": "DistDF分布对齐",
   "result": {
    "confidence": 0.6679325768,
@@ -180,16 +180,16 @@
   }
  },
  "[Model] ElasticNet回归": {
-  "elapsed": 0.0076,
+  "elapsed": 0.0005,
   "name": "ElasticNet回归",
   "result": {
    "confidence": 0.425,
-   "predicted_hours": 966.9488888888889,
-   "tuple": true
+   "current_velocity": 1.3201903562384393e-05,
+   "predicted_hours": 1327.6780555555556
   }
  },
  "[Model] ExtraTrees极端树": {
-  "elapsed": 0.1856,
+  "elapsed": 0.2241,
   "name": "ExtraTrees极端树",
   "result": {
    "confidence": 0.5899852757,
@@ -198,7 +198,7 @@
   }
  },
  "[Model] FEDformer频域": {
-  "elapsed": 0.0008,
+  "elapsed": 0.0006,
   "name": "FEDformer频域",
   "result": {
    "confidence": 0.85,
@@ -207,7 +207,7 @@
   }
  },
  "[Model] FiLM频率记忆": {
-  "elapsed": 0.0006,
+  "elapsed": 0.0005,
   "name": "FiLM频率记忆",
   "result": {
    "confidence": 0.8,
@@ -216,7 +216,7 @@
   }
  },
  "[Model] FreTS频域": {
-  "elapsed": 0.0007,
+  "elapsed": 0.0006,
   "name": "FreTS频域",
   "result": {
    "confidence": 0.8199778445,
@@ -225,7 +225,7 @@
   }
  },
  "[Model] GARCH波动率": {
-  "elapsed": 0.0005,
+  "elapsed": 0.0003,
   "name": "GARCH波动率",
   "result": {
    "confidence": 0.5,
@@ -234,7 +234,7 @@
   }
  },
  "[Model] GRU简化": {
-  "elapsed": 0.0004,
+  "elapsed": 0.0003,
   "name": "GRU简化",
   "result": {
    "confidence": 1.0,
@@ -243,7 +243,7 @@
   }
  },
  "[Model] Gompertz": {
-  "elapsed": 0.0,
+  "elapsed": 0.0003,
   "name": "Gompertz",
   "result": {
    "confidence": 0.8,
@@ -252,7 +252,7 @@
   }
  },
  "[Model] Gompertz增长曲线": {
-  "elapsed": 0.0251,
+  "elapsed": 0.0188,
   "name": "Gompertz增长曲线",
   "result": {
    "confidence": 0.0,
@@ -279,17 +279,17 @@
   }
  },
  "[Model] Huber回归": {
-  "elapsed": 0.0005,
+  "elapsed": 0.0006,
   "name": "Huber回归",
   "result": {
    "confidence": 0.0,
-   "current_velocity": 0,
+   "current_velocity": 1.3201903562384393e-05,
    "null": true,
    "predicted_hours": -1
   }
  },
  "[Model] Informer简化版": {
-  "elapsed": 0.0008,
+  "elapsed": 0.0007,
   "name": "Informer简化版",
   "result": {
    "confidence": 0.5053353007,
@@ -298,7 +298,7 @@
   }
  },
  "[Model] KNF Koopman预测": {
-  "elapsed": 0.001,
+  "elapsed": 0.0009,
   "name": "KNF Koopman预测",
   "result": {
    "confidence": 0.45,
@@ -307,7 +307,7 @@
   }
  },
  "[Model] Koopa算子": {
-  "elapsed": 0.0006,
+  "elapsed": 0.0005,
   "name": "Koopa算子",
   "result": {
    "confidence": 0.85,
@@ -316,7 +316,7 @@
   }
  },
  "[Model] LSTM简化": {
-  "elapsed": 0.0003,
+  "elapsed": 0.0005,
   "name": "LSTM简化",
   "result": {
    "confidence": 1.0,
@@ -325,7 +325,7 @@
   }
  },
  "[Model] Lag-Llama基础模型": {
-  "elapsed": 1.8014,
+  "elapsed": 1.1471,
   "name": "Lag-Llama基础模型",
   "result": {
    "confidence": 0.45,
@@ -334,7 +334,7 @@
   }
  },
  "[Model] LightGBM": {
-  "elapsed": 9.2028,
+  "elapsed": 6.3824,
   "name": "LightGBM",
   "result": {
    "confidence": 0.4921964464,
@@ -343,7 +343,7 @@
   }
  },
  "[Model] LightTS轻量": {
-  "elapsed": 0.0005,
+  "elapsed": 0.0007,
   "name": "LightTS轻量",
   "result": {
    "confidence": 0.66,
@@ -352,7 +352,7 @@
   }
  },
  "[Model] Logistic增长模型": {
-  "elapsed": 0.0049,
+  "elapsed": 0.0071,
   "name": "Logistic增长模型",
   "result": {
    "confidence": 0.5769793467,
@@ -361,16 +361,16 @@
   }
  },
  "[Model] MOIRAI基础模型": {
-  "elapsed": 3.1365,
+  "elapsed": 3.5994,
   "name": "MOIRAI基础模型",
   "result": {
    "confidence": 0.8,
-   "current_velocity": 183.83706665039062,
-   "predicted_hours": 273.6336089155778
+   "current_velocity": 184.92335510253906,
+   "predicted_hours": 272.0262130876151
   }
  },
  "[Model] MSTL多重季节": {
-  "elapsed": 0.0045,
+  "elapsed": 0.0071,
   "name": "MSTL多重季节",
   "result": {
    "confidence": 0.5485428827,
@@ -379,7 +379,7 @@
   }
  },
  "[Model] Mamba S6": {
-  "elapsed": 0.0004,
+  "elapsed": 0.0005,
   "name": "Mamba S6",
   "result": {
    "confidence": 0.5,
@@ -397,7 +397,7 @@
   }
  },
  "[Model] N-BEATS简化版": {
-  "elapsed": 0.0007,
+  "elapsed": 0.0008,
   "name": "N-BEATS简化版",
   "result": {
    "confidence": 0.8718891754,
@@ -415,7 +415,7 @@
   }
  },
  "[Model] NARX外生自回归": {
-  "elapsed": 0.0053,
+  "elapsed": 0.0056,
   "name": "NARX外生自回归",
   "result": {
    "confidence": 0.4407335226,
@@ -424,7 +424,7 @@
   }
  },
  "[Model] NGBoost": {
-  "elapsed": 0.0546,
+  "elapsed": 0.0552,
   "name": "NGBoost",
   "result": {
    "confidence": 0.3,
@@ -451,7 +451,7 @@
   }
  },
  "[Model] Prophet": {
-  "elapsed": 0.2906,
+  "elapsed": 0.3061,
   "name": "Prophet",
   "result": {
    "confidence": 0.8961906826,
@@ -460,7 +460,7 @@
   }
  },
  "[Model] Richards曲线模型": {
-  "elapsed": 0.0117,
+  "elapsed": 0.0115,
   "name": "Richards曲线模型",
   "result": {
    "confidence": 0.7910464355,
@@ -469,7 +469,7 @@
   }
  },
  "[Model] SARIMA季节预测": {
-  "elapsed": 0.0621,
+  "elapsed": 0.058,
   "name": "SARIMA季节预测",
   "result": {
    "confidence": 0.35,
@@ -505,7 +505,7 @@
   }
  },
  "[Model] Stacking元学习": {
-  "elapsed": 0.0259,
+  "elapsed": 0.0236,
   "name": "Stacking元学习",
   "result": {
    "confidence": 0.6473072301,
@@ -514,7 +514,7 @@
   }
  },
  "[Model] TBATS季节分解": {
-  "elapsed": 0.0004,
+  "elapsed": 0.0007,
   "name": "TBATS季节分解",
   "result": {
    "confidence": 0.5909767661,
@@ -532,12 +532,12 @@
   }
  },
  "[Model] TFT简化版": {
-  "elapsed": 0.0005,
+  "elapsed": 0.0006,
   "name": "TFT简化版",
   "result": {
    "confidence": 0.3,
-   "current_velocity": 158.97222221148013,
-   "predicted_hours": 316.43264024504094
+   "current_velocity": 158.98394390073048,
+   "predicted_hours": 316.4093100584409
   }
  },
  "[Model] TIDE稠密编码器": {
@@ -550,7 +550,7 @@
   }
  },
  "[Model] TSFC特征分类": {
-  "elapsed": 0.0524,
+  "elapsed": 0.0459,
   "name": "TSFC特征分类",
   "result": {
    "confidence": 0.65,
@@ -559,7 +559,7 @@
   }
  },
  "[Model] TSMixer混合器": {
-  "elapsed": 0.001,
+  "elapsed": 0.0009,
   "name": "TSMixer混合器",
   "result": {
    "confidence": 0.5856786033,
@@ -568,7 +568,7 @@
   }
  },
  "[Model] TabNet注意力": {
-  "elapsed": 0.0066,
+  "elapsed": 0.0024,
   "name": "TabNet注意力",
   "result": {
    "confidence": 0.6,
@@ -577,7 +577,7 @@
   }
  },
  "[Model] Theil-Sen回归": {
-  "elapsed": 0.0037,
+  "elapsed": 0.0011,
   "name": "Theil-Sen回归",
   "result": {
    "confidence": 0.845016182,
@@ -586,7 +586,7 @@
   }
  },
  "[Model] Theta方法": {
-  "elapsed": 0.0002,
+  "elapsed": 0.0005,
   "name": "Theta方法",
   "result": {
    "confidence": 0.85,
@@ -595,7 +595,7 @@
   }
  },
  "[Model] Theta预测": {
-  "elapsed": 0.0011,
+  "elapsed": 0.0007,
   "name": "Theta预测",
   "result": {
    "confidence": 0.8916664398,
@@ -604,7 +604,7 @@
   }
  },
  "[Model] Time-MoE专家混合": {
-  "elapsed": 0.0006,
+  "elapsed": 0.0005,
   "name": "Time-MoE专家混合",
   "result": {
    "confidence": 0.5,
@@ -622,7 +622,7 @@
   }
  },
  "[Model] TimesFM谷歌": {
-  "elapsed": 0.0005,
+  "elapsed": 0.0006,
   "name": "TimesFM谷歌",
   "result": {
    "confidence": 0.5,
@@ -631,7 +631,7 @@
   }
  },
  "[Model] TimesNet简化版": {
-  "elapsed": 0.0008,
+  "elapsed": 0.0009,
   "name": "TimesNet简化版",
   "result": {
    "confidence": 0.5,
@@ -649,7 +649,7 @@
   }
  },
  "[Model] WPMixer多分辨率": {
-  "elapsed": 0.0006,
+  "elapsed": 0.0004,
   "name": "WPMixer多分辨率",
   "result": {
    "confidence": 0.85,
@@ -658,7 +658,7 @@
   }
  },
  "[Model] Weibull增长模型": {
-  "elapsed": 0.0094,
+  "elapsed": 0.009,
   "name": "Weibull增长模型",
   "result": {
    "confidence": 0.9022252099,
@@ -667,7 +667,7 @@
   }
  },
  "[Model] XGBoost": {
-  "elapsed": 0.1235,
+  "elapsed": 0.1228,
   "name": "XGBoost",
   "result": {
    "confidence": 0.5854309243,
@@ -676,7 +676,7 @@
   }
  },
  "[Model] iTransformer倒置": {
-  "elapsed": 0.0008,
+  "elapsed": 0.0007,
   "name": "iTransformer倒置",
   "result": {
    "confidence": 0.5,
@@ -721,7 +721,7 @@
   }
  },
  "[Model] 分位数回归": {
-  "elapsed": 0.0364,
+  "elapsed": 0.0411,
   "name": "分位数回归",
   "result": {
    "confidence": 0.35,
@@ -730,7 +730,7 @@
   }
  },
  "[Model] 分位数集成": {
-  "elapsed": 0.4302,
+  "elapsed": 0.425,
   "name": "分位数集成",
   "result": {
    "confidence": 0.4979353601,
@@ -739,7 +739,7 @@
   }
  },
  "[Model] 加权移动平均": {
-  "elapsed": 0.0,
+  "elapsed": 0.0005,
   "name": "加权移动平均",
   "result": {
    "confidence": 0.8,
@@ -748,7 +748,7 @@
   }
  },
  "[Model] 加权速度": {
-  "elapsed": 0.0005,
+  "elapsed": 0.0003,
   "name": "加权速度",
   "result": {
    "confidence": 1.0,
@@ -757,7 +757,7 @@
   }
  },
  "[Model] 加权集成": {
-  "elapsed": 0.0003,
+  "elapsed": 0.0,
   "name": "加权集成",
   "result": {
    "confidence": 0.7,
@@ -775,7 +775,7 @@
   }
  },
  "[Model] 动量突破": {
-  "elapsed": 0.0001,
+  "elapsed": 0.0004,
   "name": "动量突破",
   "result": {
    "confidence": 0.85,
@@ -802,7 +802,7 @@
   }
  },
  "[Model] 堆叠集成": {
-  "elapsed": 0.0003,
+  "elapsed": 0.0004,
   "name": "堆叠集成",
   "result": {
    "confidence": 0.75,
@@ -811,16 +811,16 @@
   }
  },
  "[Model] 多任务学习": {
-  "elapsed": 1.6972,
+  "elapsed": 1.8321,
   "name": "多任务学习",
   "result": {
    "confidence": 0.78,
    "current_velocity": 1.3201903562384393e-05,
-   "predicted_hours": 589.4448151386262
+   "predicted_hours": 3810359601.7266016
   }
  },
  "[Model] 多季节分解": {
-  "elapsed": 0.0007,
+  "elapsed": 0.0006,
   "name": "多季节分解",
   "result": {
    "confidence": 0.5160026893,
@@ -829,16 +829,16 @@
   }
  },
  "[Model] 多层感知机": {
-  "elapsed": 0.0255,
+  "elapsed": 0.0067,
   "name": "多层感知机",
   "result": {
-   "confidence": 0.5165792166,
-   "predicted_hours": 7316.932777777778,
-   "tuple": true
+   "confidence": 0.5176155785,
+   "current_velocity": 1.3201903562384393e-05,
+   "predicted_hours": 7234.566111111111
   }
  },
  "[Model] 多步融合": {
-  "elapsed": 0.0003,
+  "elapsed": 0.0004,
   "name": "多步融合",
   "result": {
    "confidence": 0.5738932743,
@@ -847,12 +847,12 @@
   }
  },
  "[Model] 季节性分解": {
-  "elapsed": 0.0005,
+  "elapsed": 0.0008,
   "name": "季节性分解",
   "result": {
    "confidence": 0.6176340779,
-   "predicted_hours": 1032.0,
-   "tuple": true
+   "current_velocity": 1.3201903562384393e-05,
+   "predicted_hours": 1032.0
   }
  },
  "[Model] 对数增长": {
@@ -861,11 +861,11 @@
   "result": {
    "confidence": 0.6,
    "current_velocity": 1.3201903562384393e-05,
-   "predicted_hours": 248773.1175946006
+   "predicted_hours": 249067.69528129822
   }
  },
  "[Model] 小波分解": {
-  "elapsed": 0.0057,
+  "elapsed": 0.0046,
   "name": "小波分解",
   "result": {
    "confidence": 0.3,
@@ -874,7 +874,7 @@
   }
  },
  "[Model] 层级贝叶斯": {
-  "elapsed": 0.0,
+  "elapsed": 0.0001,
   "name": "层级贝叶斯",
   "result": {
    "confidence": 0.7993801936,
@@ -892,7 +892,7 @@
   }
  },
  "[Model] 幂律衰减": {
-  "elapsed": 0.0001,
+  "elapsed": 0.0,
   "name": "幂律衰减",
   "result": {
    "confidence": 0.3,
@@ -901,7 +901,7 @@
   }
  },
  "[Model] 平均集成": {
-  "elapsed": 0.0,
+  "elapsed": 0.0001,
   "name": "平均集成",
   "result": {
    "confidence": 0.984,
@@ -919,7 +919,7 @@
   }
  },
  "[Model] 投票集成": {
-  "elapsed": 0.0002,
+  "elapsed": 0.0001,
   "name": "投票集成",
   "result": {
    "confidence": 0.6000000001,
@@ -928,7 +928,7 @@
   }
  },
  "[Model] 指数增长": {
-  "elapsed": 0.0004,
+  "elapsed": 0.003,
   "name": "指数增长",
   "result": {
    "confidence": 0.66,
@@ -937,7 +937,7 @@
   }
  },
  "[Model] 指数平滑": {
-  "elapsed": 0.0001,
+  "elapsed": 0.0044,
   "name": "指数平滑",
   "result": {
    "confidence": 0.85,
@@ -946,7 +946,7 @@
   }
  },
  "[Model] 指数衰减": {
-  "elapsed": 0.0001,
+  "elapsed": 0.0,
   "name": "指数衰减",
   "result": {
    "confidence": 0.3,
@@ -964,7 +964,7 @@
   }
  },
  "[Model] 梯度提升简化": {
-  "elapsed": 0.0445,
+  "elapsed": 0.0437,
   "name": "梯度提升简化",
   "result": {
    "confidence": 0.5973575905,
@@ -973,7 +973,7 @@
   }
  },
  "[Model] 概率校准": {
-  "elapsed": 0.0018,
+  "elapsed": 0.0015,
   "name": "概率校准",
   "result": {
    "confidence": 0.8748731766,
@@ -982,7 +982,7 @@
   }
  },
  "[Model] 残差修正": {
-  "elapsed": 0.0301,
+  "elapsed": 0.0367,
   "name": "残差修正",
   "result": {
    "confidence": 0.3933926738,
@@ -991,7 +991,7 @@
   }
  },
  "[Model] 泊松回归": {
-  "elapsed": 0.0016,
+  "elapsed": 0.0009,
   "name": "泊松回归",
   "result": {
    "confidence": 0.35,
@@ -1000,12 +1000,12 @@
   }
  },
  "[Model] 注意力机制模型": {
-  "elapsed": 0.0011,
+  "elapsed": 0.001,
   "name": "注意力机制模型",
   "result": {
    "confidence": 0.8141243038,
-   "predicted_hours": 1084.8144444444445,
-   "tuple": true
+   "current_velocity": 1.3201903562384393e-05,
+   "predicted_hours": 1084.8144444444445
   }
  },
  "[Model] 点赞动量": {
@@ -1063,7 +1063,7 @@
   }
  },
  "[Model] 神经网络简化": {
-  "elapsed": 0.0007,
+  "elapsed": 0.0005,
   "name": "神经网络简化",
   "result": {
    "confidence": 0.5,
@@ -1072,7 +1072,7 @@
   }
  },
  "[Model] 移动平均": {
-  "elapsed": 0.0005,
+  "elapsed": 0.0001,
   "name": "移动平均",
   "result": {
    "confidence": 0.75,
@@ -1081,7 +1081,7 @@
   }
  },
  "[Model] 线性增长": {
-  "elapsed": 0.0,
+  "elapsed": 0.0002,
   "name": "线性增长",
   "result": {
    "confidence": 0.9,
@@ -1099,7 +1099,7 @@
   }
  },
  "[Model] 脉冲检测": {
-  "elapsed": 0.0024,
+  "elapsed": 0.0021,
   "name": "脉冲检测",
   "result": {
    "confidence": 0.85,
@@ -1108,12 +1108,12 @@
   }
  },
  "[Model] 自适应提升": {
-  "elapsed": 0.0017,
+  "elapsed": 0.0015,
   "name": "自适应提升",
   "result": {
    "confidence": 0.85,
-   "predicted_hours": 1288.9280555555556,
-   "tuple": true
+   "current_velocity": 1.3201903562384393e-05,
+   "predicted_hours": 1288.9280555555556
   }
  },
  "[Model] 评论趋势": {
@@ -1126,7 +1126,7 @@
   }
  },
  "[Model] 贝叶斯回归": {
-  "elapsed": 0.0029,
+  "elapsed": 0.0015,
   "name": "贝叶斯回归",
   "result": {
    "confidence": 0.95,
@@ -1135,7 +1135,7 @@
   }
  },
  "[Model] 贝叶斯平均": {
-  "elapsed": 0.0157,
+  "elapsed": 0.043,
   "name": "贝叶斯平均",
   "result": {
    "confidence": 0.5848278983,
@@ -1162,7 +1162,7 @@
   }
  },
  "[Model] 趋势回归": {
-  "elapsed": 0.0005,
+  "elapsed": 0.0007,
   "name": "趋势回归",
   "result": {
    "confidence": 0.7,
@@ -1180,7 +1180,7 @@
   }
  },
  "[Model] 随机森林简化": {
-  "elapsed": 0.171,
+  "elapsed": 0.1694,
   "name": "随机森林简化",
   "result": {
    "confidence": 0.570584107,
@@ -1189,7 +1189,7 @@
   }
  },
  "[Model] 频域分解": {
-  "elapsed": 0.0002,
+  "elapsed": 0.0003,
   "name": "频域分解",
   "result": {
    "confidence": 0.5,
@@ -1198,7 +1198,7 @@
   }
  },
  "[Model] 频谱残差": {
-  "elapsed": 0.0063,
+  "elapsed": 0.0055,
   "name": "频谱残差",
   "result": {
    "confidence": 0.85,
@@ -1207,7 +1207,7 @@
   }
  },
  "[Model] 马尔可夫体制转换": {
-  "elapsed": 0.0097,
+  "elapsed": 0.0131,
   "name": "马尔可夫体制转换",
   "result": {
    "confidence": 0.730087386,
@@ -1216,7 +1216,7 @@
   }
  },
  "[Model] 高斯过程": {
-  "elapsed": 0.0571,
+  "elapsed": 0.0636,
   "name": "高斯过程",
   "result": {
    "confidence": 0.6766451519,
@@ -1224,7 +1224,7 @@
    "predicted_hours": 3810359601.7266016
   }
  },
- "__per_algo_total__": 59.886,
+ "__per_algo_total__": 55.276,
  "__predict_all__": {
   "[Model] ARIMA简化": {
    "confidence": 0.35,
@@ -1367,11 +1367,11 @@
    "prediction": 49699.447674
   },
   "[Model] ElasticNet回归": {
-   "confidence": 0.0,
+   "confidence": 0.425,
    "error": null,
    "na": false,
    "predicted_hours": 0,
-   "prediction": 50192.96
+   "prediction": 49696.0
   },
   "[Model] ExtraTrees极端树": {
    "confidence": 0.589985,
@@ -1448,7 +1448,7 @@
    "error": null,
    "na": false,
    "predicted_hours": 0,
-   "prediction": 50192.96
+   "prediction": 49696.0
   },
   "[Model] Informer简化版": {
    "confidence": 0.505335,
@@ -1511,7 +1511,7 @@
    "error": null,
    "na": false,
    "predicted_hours": 0,
-   "prediction": 49699.801705
+   "prediction": 49699.751909
   },
   "[Model] MSTL多重季节": {
    "confidence": 0.548543,
@@ -1644,7 +1644,7 @@
    "error": null,
    "na": false,
    "predicted_hours": 0,
-   "prediction": 49699.311933
+   "prediction": 49699.312175
   },
   "[Model] TIDE稠密编码器": {
    "confidence": 0.85,
@@ -1871,11 +1871,11 @@
    "prediction": 49696.0
   },
   "[Model] 多层感知机": {
-   "confidence": 0.0,
+   "confidence": 0.518307,
    "error": null,
    "na": false,
    "predicted_hours": 0,
-   "prediction": 50192.96
+   "prediction": 49696.0
   },
   "[Model] 多步融合": {
    "confidence": 0.573893,
@@ -1885,11 +1885,11 @@
    "prediction": 49696.0
   },
   "[Model] 季节性分解": {
-   "confidence": 0.0,
+   "confidence": 0.617634,
    "error": null,
    "na": false,
    "predicted_hours": 0,
-   "prediction": 50192.96
+   "prediction": 49696.0
   },
   "[Model] 对数增长": {
    "confidence": 0.6,
@@ -2004,11 +2004,11 @@
    "prediction": 49696.0
   },
   "[Model] 注意力机制模型": {
-   "confidence": 0.0,
+   "confidence": 0.814124,
    "error": null,
    "na": false,
    "predicted_hours": 0,
-   "prediction": 50192.96
+   "prediction": 49696.0
   },
   "[Model] 点赞动量": {
    "confidence": 0.0,
@@ -2088,11 +2088,11 @@
    "prediction": 49696.0
   },
   "[Model] 自适应提升": {
-   "confidence": 0.0,
+   "confidence": 0.85,
    "error": null,
    "na": false,
    "predicted_hours": 0,
-   "prediction": 50192.96
+   "prediction": 49696.0
   },
   "[Model] 评论趋势": {
    "confidence": 0.5,
@@ -2165,7 +2165,7 @@
    "prediction": 49696.0
   },
   "[Model] 马尔可夫体制转换": {
-   "confidence": 0.731966,
+   "confidence": 0.732719,
    "error": null,
    "na": false,
    "predicted_hours": 0,
@@ -2179,10 +2179,10 @@
    "prediction": 49696.0
   },
   "_weighted": {
-   "ensemble_confidence": 0.9956,
-   "prediction": 49722.747775,
+   "ensemble_confidence": 0.9983,
+   "prediction": 49700.924324,
    "surge_correction_applied": false
   }
  },
- "__predict_all_elapsed__": 2.756
+ "__predict_all_elapsed__": 2.347
 }

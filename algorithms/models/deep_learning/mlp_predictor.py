@@ -24,7 +24,7 @@ import numpy as np
 from typing import List, Dict, Any, Optional, Tuple
 import logging
 
-from algorithms.base import BaseAlgorithm
+from algorithms.base import BaseAlgorithm, PredictionResult
 from algorithms.models.deep_learning._torch_upgrade import MLPTorchModel, try_torch_predict
 
 logger = logging.getLogger(__name__)
@@ -78,7 +78,14 @@ class MLPPredictorAlgorithm(BaseAlgorithm):
         """返回训练时使用的多维特征列表"""
         return ["view_count", "like_count", "coin_count", "favorite_count", "share_count"]
 
-    def predict(
+    def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
+        """统一预测接口：从 video_data 提取参数, 委托 _predict_inner, 包装为 PredictionResult。"""
+        current_views = video_data.get("view_count", 0)
+        history_data = self._normalize_history(video_data.get("history_data", []))
+        result = self._predict_inner(current_views, threshold, history_data, video_data)
+        return self._to_prediction_result(result, current_views, video_data, threshold)
+
+    def _predict_inner(
         self, current_views: int, target_views: int, history_data: List[Dict[str, Any]], video_info: Dict[str, Any]
     ) -> Optional[Tuple[int, float]]:
         """预测到达目标播放量所需时间

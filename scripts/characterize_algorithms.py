@@ -103,6 +103,14 @@ def call_predict(algo, video_data, current_value, history):
     # 固定随机种子, 保证可复现
     random.seed(42)
     np.random.seed(42)
+    try:
+        import torch
+
+        torch.manual_seed(42)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(42)
+    except ImportError:
+        pass
     t0 = time.perf_counter()
     if len(positional) >= 4:  # 旧签名 predict(current_views, target_views, history_data, video_info)
         history_data = [
@@ -205,49 +213,66 @@ def run_cmd(out_path: str | None) -> int:
     return 0
 
 
-def diff_cmd(baseline_path: str, tol: float) -> int:
+def diff_cmd(baseline_path: str, tol: float, expect_changed: set | None = None,
+             flaky: set | None = None) -> int:
+    """对比基线。expect_changed: 允许变更并展示; flaky: 运行间不稳定, 完全跳过。"""
+    expect_changed = expect_changed or set()
+    flaky = flaky or set()
     with open(baseline_path, encoding="utf-8") as fh:
         baseline = json.load(fh)
     current = _clean(run_all())
 
     mismatches = []
+    changed_expected = []
+    skipped_flaky = []
     all_keys = set(baseline) | set(current)
     for key in sorted(all_keys):
         if key.startswith("__"):
             continue  # 元数据键 (计时/汇总) 单独处理
         b, c = baseline.get(key), current.get(key)
+        km = []
         if b is None or c is None:
-            mismatches.append((key, "缺失", b is None, c is None))
-            continue
-        if "error" in b or "error" in c:
+            km.append((key, "缺失", b is None, c is None))
+        elif "error" in b or "error" in c:
             if b.get("error") != c.get("error"):
-                mismatches.append((key, "错误", b.get("error"), c.get("error")))
-            continue
-        br, cr = b.get("result"), c.get("result")
-        if br is None or cr is None:
-            mismatches.append((key, "result缺失", br, cr))
-            continue
-        for field in ("predicted_hours", "confidence", "current_velocity"):
-            bv, cv = br.get(field), cr.get(field)
-            if bv is None or cv is None:
-                if bv != cv:
-                    mismatches.append((key, f"{field}空值", bv, cv))
-                continue
-            if isinstance(bv, (int, float)) and isinstance(cv, (int, float)):
-                if abs(bv - cv) > tol * max(1.0, abs(bv)):
-                    mismatches.append((key, field, bv, cv))
-            elif bv != cv:
-                mismatches.append((key, field, bv, cv))
-        if br.get("null") != cr.get("null"):
-            mismatches.append((key, "null标志", br, cr))
+                km.append((key, "错误", b.get("error"), c.get("error")))
+        else:
+            br, cr = b.get("result"), c.get("result")
+            if br is None or cr is None:
+                km.append((key, "result缺失", br, cr))
+            else:
+                for field in ("predicted_hours", "confidence", "current_velocity"):
+                    bv, cv = br.get(field), cr.get(field)
+                    if bv is None or cv is None:
+                        if bv != cv:
+                            km.append((key, f"{field}空值", bv, cv))
+                        continue
+                    if isinstance(bv, (int, float)) and isinstance(cv, (int, float)):
+                        if abs(bv - cv) > tol * max(1.0, abs(bv)):
+                            km.append((key, field, bv, cv))
+                    elif bv != cv:
+                        km.append((key, field, bv, cv))
+                if br.get("null") != cr.get("null"):
+                    km.append((key, "null标志", br, cr))
+        if key in flaky:
+            skipped_flaky.extend(km)
+        elif key in expect_changed:
+            changed_expected.extend(km)
+        else:
+            mismatches.extend(km)
 
     # predict_all 快照对比 (宽松: 仅 prediction 关键值)
     bp, cp = baseline.get("__predict_all__", {}), current.get("__predict_all__", {})
     if "error" not in bp and "error" not in cp:
         if bp.get("_weighted", {}).get("prediction") != cp.get("_weighted", {}).get("prediction"):
-            mismatches.append(("__predict_all__/_weighted.prediction",
-                               bp.get("_weighted", {}).get("prediction"),
-                               cp.get("_weighted", {}).get("prediction")))
+            wm = ("__predict_all__/_weighted", "prediction",
+                  bp.get("_weighted", {}).get("prediction"),
+                  cp.get("_weighted", {}).get("prediction"))
+            # 集成预测是各算法输出的聚合: 有算法被预期变更时, 集成变化是自然结果
+            if expect_changed:
+                changed_expected.append(wm)
+            else:
+                mismatches.append(wm)
         for k in set(bp) - set(cp) | set(cp) - set(bp):
             if k != "_weighted":
                 mismatches.append((f"__predict_all__/{k}", "存在性差异", k in bp, k in cp))
@@ -263,6 +288,14 @@ def diff_cmd(baseline_path: str, tol: float) -> int:
         mismatches.append(("__predict_all_elapsed__", "超过75s预算", be, ce))
     elif be > 0 and ce > be * 3 and ce > be + 1.0:
         mismatches.append(("__predict_all_elapsed__", "性能劣化>3x", be, ce))
+
+    if changed_expected:
+        print(f"ℹ️  预期变更 {len(changed_expected)} 处 (在 --expect-changed 名单内):")
+        for key, field, bv, cv in changed_expected[:20]:
+            print(f"  {key} [{field}]: 基线={bv!r} 当前={cv!r}")
+    if skipped_flaky:
+        print(f"⏭️  跳过 {len(skipped_flaky)} 处已知不稳定 (--flaky): "
+              f"{sorted({k for k, *_ in skipped_flaky})}")
 
     if mismatches:
         print(f"❌ 发现 {len(mismatches)} 处差异 (tol={tol}):")
@@ -288,12 +321,18 @@ def main() -> int:
         return run_cmd(out_path)
     if mode == "diff":
         if len(args) < 2:
-            print("用法: python scripts/characterize_algorithms.py diff <baseline.json> [--tol 1e-6]")
+            print("用法: python scripts/characterize_algorithms.py diff <baseline.json> [--tol 1e-6] [--expect-changed k1,k2] [--flaky k1,k2]")
             return 1
         tol = 1e-6
+        expect_changed = set()
+        flaky = set()
         if "--tol" in args:
             tol = float(args[args.index("--tol") + 1])
-        return diff_cmd(args[1], tol)
+        if "--expect-changed" in args:
+            expect_changed = set(args[args.index("--expect-changed") + 1].split(","))
+        if "--flaky" in args:
+            flaky = set(args[args.index("--flaky") + 1].split(","))
+        return diff_cmd(args[1], tol, expect_changed, flaky)
     print(f"未知模式: {mode}")
     return 1
 

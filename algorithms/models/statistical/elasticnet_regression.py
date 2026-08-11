@@ -20,7 +20,7 @@ from typing import List, Dict, Any, Tuple, Optional
 from datetime import datetime
 import logging
 
-from algorithms.base import BaseAlgorithm
+from algorithms.base import BaseAlgorithm, PredictionResult
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +55,14 @@ class ElasticNetRegressionAlgorithm(BaseAlgorithm):
         self.coef_ = None  # 特征系数
         self.intercept_ = 0.0  # 截距
 
-    def predict(
+    def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
+        """统一预测接口：从 video_data 提取参数, 委托 _predict_inner, 包装为 PredictionResult。"""
+        current_views = video_data.get("view_count", 0)
+        history_data = self._normalize_history(video_data.get("history_data", []))
+        result = self._predict_inner(current_views, threshold, history_data, video_data)
+        return self._to_prediction_result(result, current_views, video_data, threshold)
+
+    def _predict_inner(
         self, current_views: int, target_views: int, history_data: List[Dict[str, Any]], video_info: Dict[str, Any]
     ) -> Optional[Tuple[int, float]]:
         """
