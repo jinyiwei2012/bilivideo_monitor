@@ -12,7 +12,7 @@
     - 逐算法调用 predict(): 自动识别旧签名 (current_views, target_views, history_data, video_info)
       与新签名 (video_data, threshold), 统一规范化输出
     - 规范化: 元组 (seconds, confidence) → predicted_hours = seconds/3600
-      (与 model_adapter._parse_result 语义一致)
+      (与 registry._to_registry_result 语义一致)
     - predict_all 全管线快照 (含 _weighted 集成结果)
     - 非确定性算法 (随机种子) 由调用前固定 seed 保证可复现
 """

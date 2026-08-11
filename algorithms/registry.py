@@ -123,8 +123,7 @@ class AlgorithmRegistry:
                     for attr_name in dir(module):
                         attr = getattr(module, attr_name)
                         if isinstance(attr, type) and attr_name.endswith("Algorithm"):
-                            base_names = {c.__name__ for c in attr.__mro__}
-                            if "BaseAlgorithm" not in base_names and "BasePredictionAlgorithm" not in base_names:
+                            if "BaseAlgorithm" not in {c.__name__ for c in attr.__mro__}:
                                 continue
                             try:
                                 instance = attr()
@@ -318,11 +317,10 @@ class AlgorithmRegistry:
         return merged
 
     @classmethod
-    def _to_registry_result(cls, prediction_result, current_value, thresholds, threshold_names, name, weight) -> Dict:
+    def _to_registry_result(cls, prediction_result, current_value, thresholds, threshold_names, weight) -> Dict:
         """把算法返回的 PredictionResult 转换为 registry 标准结果 dict。
 
-        语义与原 ModelAlgorithmAdapter._parse_result 格式 1 一致:
-        prediction = 下一短期窗口(75s)的预测播放量; metadata 含阈值预测明细。
+        语义: prediction = 下一短期窗口(75s)的预测播放量; metadata 含阈值预测明细。
         """
         pred_hours = prediction_result.predicted_hours
         confidence = prediction_result.confidence
@@ -372,7 +370,7 @@ class AlgorithmRegistry:
         }
 
     @classmethod
-    def _make_na_result(cls, current_value, name, weight) -> Dict:
+    def _make_na_result(cls, current_value, weight) -> Dict:
         """返回 N/A 结果 (保守估计 ~1%/小时 增长)。"""
         short_hours = 75 / 3600.0
         return {
@@ -384,7 +382,7 @@ class AlgorithmRegistry:
         }
 
     @classmethod
-    def _run_parallel_predictions(cls, history, current_value, bvid, cached_video_data, thresholds, threshold_names):
+    def _run_parallel_predictions(cls, current_value, bvid, cached_video_data, thresholds, threshold_names):
         results = {}
         valid_count = 0
         na_count = 0
@@ -404,10 +402,10 @@ class AlgorithmRegistry:
                         prediction_result = algo.predict(cached_video_data, thresholds[0])
                 w = _weights.get(n, 1.0)
                 if prediction_result is None:
-                    res = cls._make_na_result(current_value, n, w)
+                    res = cls._make_na_result(current_value, w)
                 else:
                     res = cls._to_registry_result(
-                        prediction_result, current_value, thresholds, threshold_names, n, w
+                        prediction_result, current_value, thresholds, threshold_names, w
                     )
                 return (
                     n,
@@ -618,7 +616,7 @@ class AlgorithmRegistry:
         threshold_names = kwargs.get("threshold_names", ["10万", "100万", "1000万"])
 
         results, valid_count, na_count = cls._run_parallel_predictions(
-            history, current_value, bvid, cached_video_data, thresholds, threshold_names
+            current_value, bvid, cached_video_data, thresholds, threshold_names
         )
 
         valid_predictions = [
