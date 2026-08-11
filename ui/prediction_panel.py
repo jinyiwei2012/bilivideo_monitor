@@ -328,14 +328,14 @@ class PredictionPanel:
         confidence = surge_info.get("surge_confidence", 0.0)
 
         if surge_type == "strong":
-            badge_color = "#ff6b35"
-            bg_color = "#fff3e0"
+            badge_color = C['warning']
+            bg_color = C['bg_surface']
         elif surge_type == "moderate":
-            badge_color = "#e6a817"
-            bg_color = "#fffde7"
+            badge_color = C['warning']
+            bg_color = C['bg_surface']
         else:
-            badge_color = "#58a6ff"
-            bg_color = "#e8f4fd"
+            badge_color = C['lty_blue']
+            bg_color = C['lty_blue_light']
 
         fl = QVBoxLayout(frame)
         fl.setContentsMargins(0, 4, 0, 0)

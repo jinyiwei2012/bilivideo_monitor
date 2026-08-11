@@ -122,9 +122,9 @@ class FinetuneDialog(QDialog):
         btn_h = QHBoxLayout()
         self._start_btn = QPushButton("开始微调")
         self._start_btn.setStyleSheet(f"""
-            QPushButton {{ background-color: {C.get('accent', '#4A90D9')}; color: white;
+            QPushButton {{ background-color: {C['accent']}; color: white;
             border: none; padding: 6px 16px; font-size: 10pt; }}
-            QPushButton:hover {{ background-color: {C.get('accent_hover', '#357ABD')}; }}
+            QPushButton:hover {{ background-color: {C['accent_hover']}; }}
             QPushButton:disabled {{ background-color: {C['bg_elevated']}; color: {C['text_3']}; }}
         """)
         self._start_btn.clicked.connect(self._run)
@@ -531,10 +531,10 @@ class DetailPanel(_RatioDanmakuMixin):
         self._finetune_btn = QPushButton("🎯 微调此视频")
         self._finetune_btn.setStyleSheet(f"""
             QPushButton {{
-                background-color: {C.get('accent', '#4A90D9')}; color: white;
+                background-color: {C['accent']}; color: white;
                 border: none; padding: 4px 10px; font-size: 9pt;
             }}
-            QPushButton:hover {{ background-color: {C.get('accent_hover', '#357ABD')}; }}
+            QPushButton:hover {{ background-color: {C['accent_hover']}; }}
         """)
         self._finetune_btn.clicked.connect(
             lambda: _confirm_risky("微调视频模型") and self._open_finetune_dialog(bvid)

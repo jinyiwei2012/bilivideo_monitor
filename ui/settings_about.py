@@ -41,6 +41,40 @@ class SettingsAboutMixin:
 
         from __init__ import __version__, __author__
 
+        # 洛天依主题区 (品牌致敬)
+        hero = QWidget()
+        hero.setStyleSheet(
+            f"background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
+            f"stop:0 {C['lty_wave_a']}, stop:1 {C['lty_wave_b']}); "
+            "border: none; border-radius: 6px;"
+        )
+        hero_layout = QHBoxLayout(hero)
+        hero_layout.setContentsMargins(14, 12, 14, 12)
+        hero_layout.setSpacing(10)
+
+        feather = QLabel("羽")
+        feather.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        feather.setFixedSize(34, 34)
+        feather.setStyleSheet(
+            "color: white; background-color: rgba(255,255,255,60); "
+            "font-size: 16px; font-weight: bold; border-radius: 17px;"
+        )
+        hero_layout.addWidget(feather)
+
+        hero_text = QWidget()
+        hero_text.setStyleSheet("background: transparent;")
+        ht = QVBoxLayout(hero_text)
+        ht.setContentsMargins(0, 0, 0, 0)
+        ht.setSpacing(2)
+        t1 = _styled_label("♪ 天依陪你一起看播放量", "white" if False else "text_1", bold=True)
+        t1.setStyleSheet("color: white; font-size: 13px; background: transparent;")
+        ht.addWidget(t1)
+        t2 = _styled_label("「华风夏韵, 洛水天依」· 追着光, 一起向前吧 ♪", "text_3")
+        t2.setStyleSheet("color: rgba(255,255,255,200); font-size: 9px; background: transparent;")
+        ht.addWidget(t2)
+        hero_layout.addWidget(hero_text, 1)
+        page_layout.addWidget(hero)
+
         # 项目信息
         sec1 = QWidget()
         sec1.setStyleSheet(
