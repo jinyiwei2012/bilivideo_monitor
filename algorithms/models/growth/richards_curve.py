@@ -94,7 +94,7 @@ class RichardsCurveAlgorithm(BaseAlgorithm):
         self._maxfev = 300  # 曲线拟合最大函数求值次数
         self._min_curvefit_points = 10  # 执行curve_fit的最小数据点数
 
-    def _predict_legacy(
+    def _predict_inner(
         self, current_views: int, target_views: int, history_data: List[Dict[str, Any]], video_info: Dict[str, Any]
     ) -> Optional[Tuple[int, float]]:
         """
@@ -267,31 +267,11 @@ class RichardsCurveAlgorithm(BaseAlgorithm):
         return self._growth_confidence(n_points, predicted, views, 0.02)
 
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
-        """标准接口：从 video_data 提取参数并委托给 _predict_legacy"""
+        """统一预测接口：从 video_data 提取参数, 委托 _predict_inner, 包装为 PredictionResult。"""
         current_views = video_data.get("view_count", 0)
-        history = video_data.get("history_data", [])
-        result = self._predict_legacy(current_views, threshold, history, video_data)
-        if result is None:
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=float("inf"),
-                confidence=0.0,
-                current_views=current_views,
-                current_velocity=0,
-                metadata={"method": "richards_curve", "error": "prediction_failed"},
-                timestamp=datetime.now(),
-            )
-        seconds, confidence = result
-        return PredictionResult(
-            algorithm_name=self.name,
-            algorithm_id=self.algorithm_id,
-            target_threshold=threshold,
-            predicted_hours=seconds / 3600.0,
-            confidence=confidence,
-            current_views=current_views,
-            current_velocity=self.calculate_velocity(video_data),
-            metadata={"method": "richards_curve"},
-            timestamp=datetime.now(),
+        history_data = self._normalize_history(video_data.get("history_data", []))
+        return self._to_prediction_result(
+            self._predict_inner(current_views, threshold, history_data, video_data),
+            current_views, video_data, threshold,
+            method="richards_curve", invalid_hours=float("inf"), invalid_velocity=0,
         )

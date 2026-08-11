@@ -130,7 +130,8 @@ class BaseAlgorithm(ABC):
         )
 
     def _to_prediction_result(self, result, current_views: int, video_data: Dict[str, Any],
-                              threshold: int, method: str = "") -> PredictionResult:
+                              threshold: int, method: str = "",
+                              invalid_hours: float = -1.0, invalid_velocity=None) -> PredictionResult:
         """把旧签名 (seconds, confidence) 元组或 None 包装为 PredictionResult (旧接口迁移用)。
 
         Args:
@@ -139,22 +140,29 @@ class BaseAlgorithm(ABC):
             video_data: 标准 video_data 字典 (用于计算当前速度)
             threshold: 目标阈值
             method: 算法内部方法名 (写入 metadata)
+            invalid_hours: None 结果使用的 predicted_hours 标记 (默认 -1, 部分算法用 inf)
+            invalid_velocity: None 结果使用的速度 (默认 None = calculate_velocity(video_data);
+                              传 0 表示保持旧行为)
         """
         now = datetime.now()
         algo_name = getattr(self, "name", type(self).__name__)
         base = dict(
             algorithm_name=algo_name,
             algorithm_id=getattr(self, "algorithm_id", algo_name),
-            target_threshold=threshold, current_views=current_views,
-            current_velocity=self.calculate_velocity(video_data), timestamp=now,
+            target_threshold=threshold, current_views=current_views, timestamp=now,
         )
         if result is None:
-            return PredictionResult(predicted_hours=-1, confidence=0.0, metadata={}, **base)
+            vel = self.calculate_velocity(video_data) if invalid_velocity is None else invalid_velocity
+            return PredictionResult(predicted_hours=invalid_hours, confidence=0.0,
+                                    current_velocity=vel, metadata={}, **base)
         seconds, confidence = result
         if seconds is None or seconds == float("inf"):
-            return PredictionResult(predicted_hours=float("inf"), confidence=0.0, metadata={}, **base)
+            vel = self.calculate_velocity(video_data) if invalid_velocity is None else invalid_velocity
+            return PredictionResult(predicted_hours=float("inf"), confidence=0.0,
+                                    current_velocity=vel, metadata={}, **base)
         meta = {"method": method} if method else {}
         return PredictionResult(predicted_hours=seconds / 3600.0, confidence=confidence,
+                                current_velocity=self.calculate_velocity(video_data),
                                 metadata=meta, **base)
 
     @staticmethod

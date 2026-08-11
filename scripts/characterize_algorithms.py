@@ -261,13 +261,13 @@ def diff_cmd(baseline_path: str, tol: float, expect_changed: set | None = None,
         else:
             mismatches.extend(km)
 
-    # predict_all 快照对比 (宽松: 仅 prediction 关键值)
+    # predict_all 快照对比 (宽松: 仅 prediction 关键值, 并行求和有浮点噪声)
     bp, cp = baseline.get("__predict_all__", {}), current.get("__predict_all__", {})
     if "error" not in bp and "error" not in cp:
-        if bp.get("_weighted", {}).get("prediction") != cp.get("_weighted", {}).get("prediction"):
-            wm = ("__predict_all__/_weighted", "prediction",
-                  bp.get("_weighted", {}).get("prediction"),
-                  cp.get("_weighted", {}).get("prediction"))
+        bw = bp.get("_weighted", {}).get("prediction", 0) or 0
+        cw = cp.get("_weighted", {}).get("prediction", 0) or 0
+        if abs(bw - cw) > tol * max(1.0, abs(bw)):
+            wm = ("__predict_all__/_weighted", "prediction", bw, cw)
             # 集成预测是各算法输出的聚合: 有算法被预期变更时, 集成变化是自然结果
             if expect_changed:
                 changed_expected.append(wm)
