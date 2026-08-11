@@ -11,25 +11,25 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QComboBox, QTextEdit, QCheckBox, QSpinBox,
     QDoubleSpinBox, QGroupBox, QTabWidget, QFrame, QMessageBox,
-    QScrollArea, QSizePolicy, QHeaderView, QTreeWidget, QTreeWidgetItem,
-    QGridLayout, QProgressBar, QSplitter, QDialog, QFileDialog,
+    QScrollArea, QSizePolicy, QHeaderView,
+    QGridLayout, QProgressBar, QSplitter, QFileDialog,
 )
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QFont
 
 from ui.theme import C
 from ui.helpers import FONT, FONT_BOLD, FONT_SM, FONT_MONO, project_path
 from algorithms.registry import AlgorithmRegistry
 from algorithms.weight_manager import get_weight_manager
-from utils.update_checker import _s, _hard, _train, _confirm_risky
+from utils.update_checker import _s, _train, _confirm_risky
 from ui.scrollable_frame import ScrollableFrame
 from ui.settings_common import styled_label as _styled_label, field_wrapper as _field_wrapper
 from ui.async_queue_runner import AsyncQueueRunner
+from ui.training_version import VersionManagerMixin
 
 logger = logging.getLogger(__name__)
 
 
-class SettingsTrainingMixin(AsyncQueueRunner):
+class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
     """Model training settings tab."""
 
     def _build_training_tab(self, nb):
@@ -356,7 +356,7 @@ class SettingsTrainingMixin(AsyncQueueRunner):
             rl.addWidget(status_lbl)
 
             ver_btn = QPushButton("版本管理")
-            ver_btn.clicked.connect(lambda checked, aid=aid: self._open_version_manager(aid))
+            ver_btn.clicked.connect(lambda checked, aid=aid: self._on_manage_versions(aid))
             ver_btn.setFixedWidth(90)
             rl.addWidget(ver_btn)
 
@@ -541,145 +541,3 @@ class SettingsTrainingMixin(AsyncQueueRunner):
         self._train_queue = None
         self._train_thread = None
 
-
-    def _open_version_manager(self, algo_id: str):
-        from algorithms.training.checkpoint_manager import CheckpointManager
-        ckpt = CheckpointManager(algo_id)
-        top, tree = self._draw_version_ui(algo_id, ckpt)
-        self._bind_version_events(top, tree, ckpt, algo_id)
-
-
-    def _draw_version_ui(self, algo_id: str, ckpt):
-        """构建版本管理窗口和版本列表 Treewidget"""
-        top = QDialog(self.dlg)
-        top.setWindowTitle(f"版本管理 — {algo_id}")
-        top.setStyleSheet(f"background-color: {C['bg_surface']};")
-        screen = top.screen()
-        if screen:
-            sw = screen.size().width()
-            sh = screen.size().height()
-            top.resize(int(sw * 0.40), int(sh * 0.45))
-        else:
-            top.resize(600, 400)
-        top.setModal(True)
-
-        top_layout = QVBoxLayout(top)
-        top_layout.setContentsMargins(14, 14, 14, 14)
-
-        title_lbl = _styled_label(f"算法: {algo_id}", "text_1", bold=True)
-        title_font = QFont("Microsoft YaHei UI", 11)
-        title_font.setBold(True)
-        title_lbl.setFont(title_font)
-        top_layout.addWidget(title_lbl)
-
-        cols = ("active", "version", "created", "samples", "val_loss")
-        tree = QTreeWidget()
-        tree.setHeaderLabels(["●", "版本", "创建时间", "样本数", "val_loss"])
-        tree.setColumnCount(5)
-        tree.setColumnWidth(0, 36)
-        tree.setColumnWidth(1, 200)
-        tree.setColumnWidth(2, 150)
-        tree.setColumnWidth(3, 80)
-        tree.setColumnWidth(4, 90)
-        h = tree.headerItem()
-        if h:
-            h.setTextAlignment(0, Qt.AlignmentFlag.AlignCenter)
-            h.setTextAlignment(3, Qt.AlignmentFlag.AlignRight)
-            h.setTextAlignment(4, Qt.AlignmentFlag.AlignRight)
-        tree.setRootIsDecorated(False)
-        top_layout.addWidget(tree, stretch=1)
-
-        self._refresh_version_detail(tree, ckpt)
-        return top, tree
-
-
-    def _refresh_version_detail(self, tree: QTreeWidget, ckpt) -> None:
-        """清空并重新加载 TreeWidget 中的所有版本列表"""
-        tree.clear()
-        for v in ckpt.list_versions():
-            marker = "✅" if v["active"] else ""
-            val_loss = f"{v['val_loss']:.4f}" if v["val_loss"] >= 0 else "—"
-            item = QTreeWidgetItem([marker, v["version"], v["created_at"], str(v["data_count"]), val_loss])
-            if v["active"]:
-                for col in range(5):
-                    item.setForeground(col, Qt.GlobalColor.darkGreen)
-            tree.addTopLevelItem(item)
-
-
-    def _bind_version_events(self, top: QDialog, tree: QTreeWidget, ckpt, algo_id):
-        """绑定版本管理的按钮命令（激活/删除/导出/关闭）"""
-
-        def _reload():
-            self._refresh_version_detail(tree, ckpt)
-
-        def _selected_version() -> Optional[str]:
-            items = tree.selectedItems()
-            if not items:
-                QMessageBox.warning(top, "提示", "请先选择一个版本")
-                return None
-            return items[0].text(1)
-
-        def _do_activate():
-            v = _selected_version()
-            if v and ckpt.activate(v):
-                _reload()
-                self._refresh_algo_list()
-
-        def _do_delete():
-            v = _selected_version()
-            if not v:
-                return
-            if not QMessageBox.question(top, "确认删除", f"确定删除版本 {v} 吗？",
-                                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes:
-                return
-            if ckpt.delete(v):
-                _reload()
-                self._refresh_algo_list()
-
-        def _do_export():
-            v = _selected_version()
-            if not v:
-                return
-            path = QFileDialog.getSaveFileName(
-                top, "导出 checkpoint", f"{algo_id}_{v}.pt",
-                "PyTorch checkpoint (*.pt);;所有文件 (*.*)",
-            )[0]
-            if not path:
-                return
-            try:
-                import shutil
-                src = project_path("algorithms", "checkpoints", algo_id, f"{v}.pt")
-                shutil.copyfile(src, path)
-                QMessageBox.information(top, "成功", f"已导出到:\n{path}")
-            except Exception as e:
-                QMessageBox.critical(top, "失败", f"导出失败: {e}")
-
-        btn_f = QWidget()
-        btn_f.setStyleSheet(f"background-color: {C['bg_surface']};")
-        bf_layout = QHBoxLayout(btn_f)
-        bf_layout.setContentsMargins(0, 4, 0, 0)
-
-        activate_btn = QPushButton("激活")
-        activate_btn.clicked.connect(_do_activate)
-        bf_layout.addWidget(activate_btn)
-
-        if _hard() == "normal":
-            delete_btn = QPushButton("删除")
-            delete_btn.clicked.connect(_do_delete)
-            bf_layout.addWidget(delete_btn)
-        else:
-            ckpt_dir = project_path("algorithms", "checkpoints", algo_id)
-            hint = _styled_label(f"📁 删除请到: {os.path.relpath(ckpt_dir)}", "text_3", font_=FONT_SM)
-            bf_layout.addWidget(hint)
-
-        export_btn = QPushButton("导出 .pt")
-        export_btn.clicked.connect(_do_export)
-        bf_layout.addWidget(export_btn)
-
-        bf_layout.addStretch()
-
-        close_btn = QPushButton("关闭")
-        close_btn.clicked.connect(top.accept)
-        bf_layout.addWidget(close_btn)
-
-        (top.layout() or QVBoxLayout(top)).addWidget(btn_f)

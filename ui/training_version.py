@@ -23,14 +23,20 @@ logger = logging.getLogger(__name__)
 class VersionManagerMixin:
     """Checkpoint 版本管理：查看、激活、删除模型版本。"""
 
-    def _on_manage_versions(self):
-        """打开 checkpoint 版本管理对话框 — 查看/删除/激活版本。"""
+    def _on_manage_versions(self, algo_id: str = None):
+        """打开 checkpoint 版本管理对话框 — 查看/删除/激活版本。
+
+        Args:
+            algo_id: 指定算法时只显示该算法; None 显示全部可训练算法
+        """
         from algorithms.training.checkpoint_manager import CheckpointManager
         from algorithms.registry import AlgorithmRegistry
 
         AlgorithmRegistry.initialize()
         algos = []
         for aid, algo, _adapter in AlgorithmRegistry.get_trainable_algorithms():
+            if algo_id and aid != algo_id:
+                continue
             ckpt = CheckpointManager(aid)
             if ckpt.has_checkpoint() or os.path.exists(project_path("algorithms", "checkpoints", aid)):
                 algos.append(
@@ -45,10 +51,15 @@ class VersionManagerMixin:
             QMessageBox.information(self, "提示", "没有任何已训练的模型")
             return
 
-        self._show_manage_versions(algos)
+        self._show_manage_versions(algos, initial_aid=algo_id)
 
-    def _show_manage_versions(self, algos):
-        """打开版本管理对话框"""
+    def _show_manage_versions(self, algos, initial_aid: str = None):
+        """打开版本管理对话框
+
+        Args:
+            algos: 算法列表 [{algorithm_id, name, category}, ...]
+            initial_aid: 初始选中的算法 (None 时不自动选中)
+        """
         dialog = QDialog(self)
         dialog.setWindowTitle("Checkpoint 版本管理")
         dialog.resize(700, 500)
@@ -97,6 +108,12 @@ class VersionManagerMixin:
             self._draw_version_detail_pyqt(detail_frame, info_lbl, aid, name, _refresh_detail)
 
         self._draw_version_list_pyqt(algo_inner, algos, _refresh_detail)
+        if initial_aid:
+            # 自动选中指定算法, 跳过无 checkpoints 的过滤 (已保证 algos 含它)
+            for a in algos:
+                if a["algorithm_id"] == initial_aid:
+                    _refresh_detail(initial_aid, a["name"])
+                    break
         dialog.exec()
 
     def _draw_version_list_pyqt(self, algo_inner, algos, refresh_cb):
@@ -176,6 +193,16 @@ class VersionManagerMixin:
                     )
                     row_layout.addWidget(activate_btn)
 
+                export_btn = QPushButton("导出 .pt")
+                export_btn.setFixedWidth(70)
+                ver_val = v["version"]
+                export_btn.clicked.connect(
+                    lambda checked=False, c=ckpt, ver=ver_val, a=aid: (
+                        self._export_version(c, ver, a)
+                    )
+                )
+                row_layout.addWidget(export_btn)
+
                 if len(versions) > 1:
                     del_btn = QPushButton("✕")
                     del_btn.setFixedWidth(30)
@@ -189,11 +216,20 @@ class VersionManagerMixin:
                     row_layout.addWidget(del_btn)
 
                 vl = v.get("val_loss", -1)
+                meta_parts = []
                 if vl >= 0:
-                    vl_lbl = QLabel(f"  val_loss={vl:.4f}")
-                    vl_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
-                    vl_lbl.setFont(FONT_SM)
-                    row_layout.addWidget(vl_lbl)
+                    meta_parts.append(f"val_loss={vl:.4f}")
+                dc = v.get("data_count", 0)
+                if dc:
+                    meta_parts.append(f"{dc} 样本")
+                ca = v.get("created_at", "")
+                if ca:
+                    meta_parts.append(str(ca)[:16])
+                if meta_parts:
+                    meta_lbl = QLabel("  ·  ".join(meta_parts))
+                    meta_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
+                    meta_lbl.setFont(FONT_SM)
+                    row_layout.addWidget(meta_lbl)
 
                 row_layout.addStretch()
 
@@ -272,6 +308,24 @@ class VersionManagerMixin:
         """激活指定版本并刷新详情"""
         ckpt.activate(ver)
         refresh_cb(aid, name)
+
+    def _export_version(self, ckpt, ver, aid):
+        """导出指定版本的 checkpoint 到用户指定路径"""
+        from PyQt6.QtWidgets import QFileDialog
+
+        path = QFileDialog.getSaveFileName(
+            self, "导出 checkpoint", f"{aid}_{ver}.pt",
+            "PyTorch checkpoint (*.pt);;所有文件 (*.*)",
+        )[0]
+        if not path:
+            return
+        try:
+            import shutil
+            src = os.path.join(project_path("algorithms", "checkpoints", aid), f"{ver}.pt")
+            shutil.copyfile(src, path)
+            QMessageBox.information(self, "成功", f"已导出到:\n{path}")
+        except Exception as e:
+            QMessageBox.critical(self, "失败", f"导出失败: {e}")
 
     def _delete_all_global(self, aid, name, refresh_cb):
         """删除算法的所有全局 checkpoint。"""
