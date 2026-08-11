@@ -29,6 +29,17 @@ FONT_LG = _font(size=11, bold=True)    # 大号粗体
 FONT_MONO = _font("Consolas", 9)        # 等宽字体
 FONT_MONO_LG = _font("Consolas", 14, bold=True)  # 大号等宽粗体
 
+# ── 排版层级 (洛天依主题 v2) ────────────────
+FONT_TITLE = _font(size=13, bold=True)     # 窗口/区块标题
+FONT_SECTION = _font(size=11, bold=True)   # 小节标题
+FONT_CAPTION = _font(size=8)               # 辅助说明文字
+
+# 统一间距 (排版对齐)
+SPACE_SM = 4
+SPACE_MD = 8
+SPACE_LG = 14
+SPACE_XL = 20
+
 # ── 阈值与间隔 ───────────────────────────────
 THRESHOLDS: list = []
 THRESHOLD_NAMES: list = []

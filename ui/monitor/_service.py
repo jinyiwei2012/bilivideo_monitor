@@ -301,7 +301,6 @@ def _update_status_bar(gui):
     if now - last_sb > 0.2:
         gui._last_sb_update = now
     invoke(lambda: gui._sb("last_ref", f"上次刷新: {datetime.now().strftime('%H:%M:%S')}"))
-        gui._sb("videos", f"监控: {len(gui.monitored_videos)} 个")
 
 
 def _fetch_danmaku_bg(gui, bvid, cid):
