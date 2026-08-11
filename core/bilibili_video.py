@@ -144,15 +144,16 @@ def get_video_danmaku(self, oid: int) -> List[Dict]:
     try:
         self._ensure_min_interval()
         idx, proxy, ua = self.proxy_manager.get_proxy_binding()
+        request_kwargs = {
+            "params": {"oid": oid},
+            "headers": {"User-Agent": ua or random.choice(self.USER_AGENTS), "Referer": "https://www.bilibili.com/"},
+            "timeout": 15,
+        }
         if proxy:
-            self.session.proxies.update(proxy)
+            request_kwargs["proxies"] = proxy
         logger.debug("→ GET %s?oid=%s", self.DANMAKU_URL, oid)
-        resp = self.session.get(
-            self.DANMAKU_URL,
-            params={"oid": oid},
-            headers={"User-Agent": ua or random.choice(self.USER_AGENTS), "Referer": "https://www.bilibili.com/"},
-            timeout=15,
-        )
+        # 走共享 _do_http_request 管道 (curl_cffi TLS 伪装 + 代理处理)
+        resp = self._do_http_request("GET", self.DANMAKU_URL, request_kwargs, cookies=None)
         logger.debug("← GET %s → %s", self.DANMAKU_URL.split("?")[0], resp.status_code)
         if resp.status_code != 200:
             if proxy:
