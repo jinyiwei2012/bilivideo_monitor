@@ -22,6 +22,7 @@ from PyQt6.QtGui import QFont
 
 from ui.mpl_imports import mpl_available, Figure, FigureCanvasQTAgg
 from ui.theme import C
+from ui.async_queue_runner import AsyncQueueRunner
 from ui.helpers import (
     FONT,
     FONT_SM,
@@ -361,7 +362,7 @@ class TrainingMonitor:
 # ══════════════════════════════════════════════════════════════════════════════
 
 
-class BaseTrainingPanel(QWidget):
+class BaseTrainingPanel(AsyncQueueRunner, QWidget):
     """训练/微调面板的共享基类 — PyQt6 版。
 
     提供：
@@ -673,54 +674,7 @@ class BaseTrainingPanel(QWidget):
         if self._progress:
             self._progress.setValue(0)
 
-    def _launch_worker(self, worker_func):
-        """创建队列并启动工作线程 + 轮询循环。"""
-        self._train_t0 = time.time()
-        self._train_queue = _q.Queue()
-        self._train_thread = threading.Thread(target=worker_func, daemon=True)
-        self._train_thread.start()
-        self._last_msg_time = time.time()  # 跟踪最后一条消息的时间
-        QTimer.singleShot(150, self._poll_progress)
-
-    def _poll_progress(self):
-        """主轮询循环：不断从队列取消息 → _handle_stage → 完成时 _cleanup_training。
-
-        超过 2 秒无消息时，进度条切换为脉冲动画避免用户以为卡死。
-        """
-        if self._train_queue is None:
-            return
-        done_all = False
-        had_msg = False
-        try:
-            while True:
-                msg = self._train_queue.get_nowait()
-                if self._handle_stage(msg):
-                    done_all = True
-                had_msg = True
-                self._last_msg_time = time.time()
-        except _q.Empty:
-            pass
-        # 长时间无消息 → 脉冲动画提示仍在运行
-        if self._progress and not done_all:
-            idle_s = time.time() - self._last_msg_time
-            if idle_s > 2:
-                if self._progress.minimum() == 0 and self._progress.maximum() == 0:
-                    pass  # already indeterminate
-                else:
-                    # 切换为脉冲模式（QProgressBar indeterminate = minimum == maximum == 0）
-                    self._progress.setMinimum(0)
-                    self._progress.setMaximum(0)
-            elif had_msg and self._progress.minimum() == 0 and self._progress.maximum() == 0:
-                self._progress.setMinimum(0)
-                self._progress.setMaximum(100)
-        if done_all:
-            self._cleanup_training()
-        else:
-            QTimer.singleShot(200, self._poll_progress)
-
-    def _handle_stage(self, msg) -> bool:
-        """处理单条进度消息。返回 True 表示训练全部结束。子类必须实现。"""
-        raise NotImplementedError
+    # 线程 + 队列 + 轮询机制已抽至 AsyncQueueRunner mixin (_launch_worker/_poll_progress/_handle_stage)
 
     def _cleanup_training(self):
         """训练结束后恢复 UI。子类可通过 super() 扩展。"""
