@@ -35,11 +35,11 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
     def _build_training_tab(self, nb):
         page = QWidget()
         page.setStyleSheet(f"background-color: {C['bg_base']};")
-        nb.addTab(page, "  模型训练  ")
+        nb.addTab(page, "  模型训练 ♪  ")
         page_layout = QVBoxLayout(page)
         page_layout.setContentsMargins(0, 0, 0, 0)
 
-        dev_sec = self._section(page, "训练设备", padding=(16, 12, 6))
+        dev_sec = self._section(page, "训练设备 ♪", padding=(16, 12, 6))
         dev_layout = dev_sec.layout()
 
         dev_row = QWidget()
@@ -49,7 +49,7 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
         dr_layout.addWidget(_styled_label("当前设备:", "text_2"))
 
         self._tr_force_cpu_var = False
-        self._tr_device_lbl = _styled_label("检测中…", "text_1", bold=True)
+        self._tr_device_lbl = _styled_label("检测中哦…♪", "text_1", bold=True)
         dr_layout.addWidget(self._tr_device_lbl)
         dr_layout.addSpacing(12)
 
@@ -73,7 +73,7 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
                 self._tr_infer_device_cb.setCurrentIndex(i)
                 break
 
-        refresh_dev_btn = QPushButton("刷新")
+        refresh_dev_btn = QPushButton("刷新 ♪")
         refresh_dev_btn.clicked.connect(self._refresh_device_info)
         dr_layout.addWidget(refresh_dev_btn)
         dr_layout.addStretch()
@@ -88,16 +88,16 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
         dev_layout.addWidget(mem_row)
 
         # 数据规模
-        data_sec = self._section(page, "数据规模", padding=(16, 6, 6))
+        data_sec = self._section(page, "数据规模 ♪", padding=(16, 6, 6))
         data_layout = data_sec.layout()
-        self._tr_data_lbl = _styled_label("估算中…", "text_1")
+        self._tr_data_lbl = _styled_label("估算中哦…♪", "text_1")
         data_layout.addWidget(self._tr_data_lbl)
-        refresh_data_btn = QPushButton("重新估算")
+        refresh_data_btn = QPushButton("重新估算 ♪")
         refresh_data_btn.clicked.connect(self._refresh_data_size)
         data_layout.addWidget(refresh_data_btn)
 
         # 可训练算法列表
-        list_sec = self._section(page, "可训练算法（PyTorch）", padding=(16, 6, 6))
+        list_sec = self._section(page, "可训练算法（PyTorch）♪", padding=(16, 6, 6))
         list_layout = list_sec.layout()
 
         hdr = QWidget()
@@ -145,7 +145,7 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
         self._tr_check_vars = {}
         self._tr_algo_meta = {}
 
-        ctrl_sec = self._section(page, "训练控制", padding=(16, 6, 12))
+        ctrl_sec = self._section(page, "训练控制 ♪", padding=(16, 6, 12))
         ctrl_layout = ctrl_sec.layout()
 
         param_row = QWidget()
@@ -173,7 +173,7 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
         btnr_layout = QHBoxLayout(btn_row)
         btnr_layout.setContentsMargins(0, 4, 0, 4)
 
-        self._tr_train_btn = QPushButton("▶ 训练所有勾选")
+        self._tr_train_btn = QPushButton("▶ 训练所有勾选 ♪")
         self._tr_train_btn.clicked.connect(self._on_train_start)
         self._tr_train_btn.setEnabled(_train() == "normal")
         btnr_layout.addWidget(self._tr_train_btn)
@@ -185,11 +185,11 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
 
         btnr_layout.addStretch()
 
-        export_btn = QPushButton("📤 导出模型")
+        export_btn = QPushButton("📤 导出模型 ♪")
         export_btn.clicked.connect(self._on_export_checkpoints)
         btnr_layout.addWidget(export_btn)
 
-        import_btn = QPushButton("📥 导入模型")
+        import_btn = QPushButton("📥 导入模型 ♪")
         import_btn.clicked.connect(self._on_import_checkpoints)
         import_btn.setEnabled(_train() == "normal")
         btnr_layout.addWidget(import_btn)
@@ -208,7 +208,7 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
         self._tr_progress.setValue(0)
         ctrl_layout.addWidget(self._tr_progress)
 
-        self._tr_status_lbl = _styled_label("就绪", "text_3", font_=FONT_SM)
+        self._tr_status_lbl = _styled_label("准备好啦 ♪", "text_3", font_=FONT_SM)
         ctrl_layout.addWidget(self._tr_status_lbl)
 
         self._train_thread = None  # AsyncQueueRunner 属性预初始化
@@ -228,7 +228,7 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
             force_cpu(self._tr_force_cpu_var)
             info = get_device_info()
             if not is_torch_available():
-                self._tr_device_lbl.setText("❌ torch 未安装（请 pip install torch）")
+                self._tr_device_lbl.setText("呜…还没有安装 torch 呢（请 pip install torch 哦）♪")
                 self._tr_device_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent; font-weight: bold;")
             elif info.get("is_gpu"):
                 mem = info.get("total_memory_gb", 0)
@@ -246,7 +246,8 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
             except Exception:
                 pass
         except Exception as e:
-            self._tr_device_lbl.setText(f"⚠ 检测失败: {e}")
+            logger.warning("检测训练设备失败", exc_info=True)
+            self._tr_device_lbl.setText("呜…设备检测失败啦，请稍后再试哦 ♪")
             self._tr_device_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent; font-weight: bold;")
 
 
@@ -284,8 +285,9 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
                     self._tr_data_lbl.setStyleSheet(f"color: {C['text_1']}; background: transparent;")
                 ])
             except Exception as e:
+                logger.error("估算训练数据规模失败", exc_info=True)
                 QTimer.singleShot(0, lambda e=e: [
-                    self._tr_data_lbl.setText(f"⚠ 估算失败: {e}"),
+                    self._tr_data_lbl.setText("呜…数据估算失败啦，请稍后再试哦 ♪"),
                     self._tr_data_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
                 ])
 
@@ -310,7 +312,8 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
             from algorithms.registry import AlgorithmRegistry
             algos = AlgorithmRegistry.get_trainable_info()
         except Exception as e:
-            err_lbl = _styled_label(f"⚠ 加载算法列表失败: {e}", "danger")
+            logger.error("加载可训练算法列表失败", exc_info=True)
+            err_lbl = _styled_label("呜…算法列表加载失败啦，请稍后再试哦 ♪", "danger")
             (self._tr_algo_frame.layout() or QVBoxLayout(self._tr_algo_frame)).addWidget(err_lbl)
             return
 
@@ -349,7 +352,7 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
                 )
                 status_color = "success"
             else:
-                status_txt = "□ 未训练"
+                status_txt = "□ 还没训练呢…♪"
                 status_color = "text_3"
             status_lbl = _styled_label(status_txt, status_color, font_=FONT_SM)
             status_lbl.setFixedWidth(170)
@@ -378,21 +381,21 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
         from algorithms.training.device import is_torch_available
 
         if not is_torch_available():
-            QMessageBox.critical(self.dlg, "torch 未安装", "请先安装 PyTorch:\npip install torch")
+            QMessageBox.critical(self.dlg, "呜…torch 未安装", "呜…要先安装 PyTorch 哦:\npip install torch ♪")
             return
 
         selected = [aid for aid, v in self._tr_check_vars.items() if v.isChecked()]
         if not selected:
-            QMessageBox.warning(self.dlg, "提示", "请至少勾选一个算法")
+            QMessageBox.warning(self.dlg, "要注意哦…", "至少要勾选一个算法哦…♪")
             return
 
         epochs = max(1, self._tr_epoch_sb.value())
         batch = max(1, self._tr_batch_sb.value())
 
         if not QMessageBox.question(
-            self.dlg, "确认训练",
-            f"将训练 {len(selected)} 个算法，epoch={epochs}，batch={batch}。\n"
-            "训练过程不可中途暂停（只能取消未开始的算法）。",
+            self.dlg, "要开始训练吗 ♪",
+            f"要开始训练 {len(selected)} 个算法吗？epoch={epochs}，batch={batch}。\n"
+            "训练过程不能中途暂停哦（只能取消还没开始的算法）…♪",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         ) == QMessageBox.StandardButton.Yes:
             return
@@ -401,7 +404,7 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
         self._tr_cancel_btn.setEnabled(True)
         self._tr_cancel_flag[0] = False
         self._tr_progress.setValue(0)
-        self._tr_status_lbl.setText(f"准备训练 {len(selected)} 个算法 …")
+        self._tr_status_lbl.setText(f"准备训练 {len(selected)} 个算法哦…♪")
         self._tr_status_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
 
         def _cb(payload: Dict):
@@ -424,7 +427,8 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
                     results.update(sub)
                 self._train_queue.put({"stage": "all_done", "results": results})
             except Exception as e:
-                self._train_queue.put({"stage": "fatal", "error": str(e)})
+                logger.error("全局训练失败", exc_info=True)
+                self._train_queue.put({"stage": "fatal", "error": "训练时出了点小问题，请稍后再试哦 ♪"})
 
         # 线程 + 队列 + 轮询由 AsyncQueueRunner 提供
         self._launch_worker(_worker)
@@ -433,7 +437,7 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
     def _on_train_cancel(self):
         self._tr_cancel_flag[0] = True
         self._tr_cancel_btn.setEnabled(False)
-        self._tr_status_lbl.setText("正在取消（等待当前算法完成）…")
+        self._tr_status_lbl.setText("正在取消哦（等当前算法完成）…♪")
         self._tr_status_lbl.setStyleSheet(f"color: {C['warning']}; background: transparent;")
 
 
@@ -441,17 +445,18 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
         try:
             from utils.checkpoint_io import export_checkpoints
             path = export_checkpoints()
-            self._tr_status_lbl.setText(f"导出完成: {os.path.basename(path)}")
+            self._tr_status_lbl.setText(f"导出完成啦 ♪ {os.path.basename(path)}")
             self._tr_status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
             if QMessageBox.question(
-                self.dlg, "导出完成",
-                f"模型已导出到:\n{path}\n\n是否打开所在文件夹？",
+                self.dlg, "导出完成啦 ♪",
+                f"模型已导出到:\n{path}\n\n要打开所在文件夹看看吗？♪",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             ) == QMessageBox.StandardButton.Yes:
                 os.startfile(os.path.dirname(path))
         except Exception as e:
-            QMessageBox.critical(self.dlg, "导出失败", str(e))
-            self._tr_status_lbl.setText(f"导出失败: {e}")
+            logger.error("导出模型checkpoint失败", exc_info=True)
+            QMessageBox.critical(self.dlg, "呜…出错了", "呜…导出失败啦，请稍后再试哦 ♪")
+            self._tr_status_lbl.setText("呜…导出失败啦，请稍后再试哦 ♪")
             self._tr_status_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
 
 
@@ -465,10 +470,11 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
         try:
             from utils.checkpoint_io import import_checkpoints
             count = import_checkpoints(path)
-            QMessageBox.information(self.dlg, "导入完成", f"已导入 {count} 个算法的模型\n\n请刷新算法列表查看更新。")
+            QMessageBox.information(self.dlg, "完成啦 ♪", f"已导入 {count} 个算法的模型啦 ♪\n\n刷新算法列表就能看到更新哦 ♪")
             self._refresh_algo_list()
         except Exception as e:
-            QMessageBox.critical(self.dlg, "导入失败", str(e))
+            logger.error("导入模型checkpoint失败", exc_info=True)
+            QMessageBox.critical(self.dlg, "呜…出错了", "呜…导入失败啦，请检查文件是不是完整的哦 ♪")
 
 
     def _handle_stage(self, msg) -> bool:
@@ -480,7 +486,7 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
 
         if stage == "start":
             aid = msg.get("algo_id", "?")
-            txt = f"[{msg.get('current', 0)}/{msg.get('total', 1)}] 开始训练 {aid} …"
+            txt = f"[{msg.get('current', 0)}/{msg.get('total', 1)}] 开始训练 {aid} 哦…♪"
             self._tr_status_lbl.setText(txt)
             self._tr_status_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
         elif stage == "epoch":
@@ -504,17 +510,17 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
             aid = msg.get("algo_id", "?")
             cur = msg.get("current", 0)
             ver = msg.get("version", "")
-            self._tr_status_lbl.setText(f"✓ {aid} 完成 → {ver}  ({cur}/{total_sel})")
+            self._tr_status_lbl.setText(f"✓ {aid} 完成啦 ♪ → {ver}  ({cur}/{total_sel})")
             self._tr_status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
             self._tr_progress.setValue(int(cur / max(1, total_sel) * 100))
         elif stage == "error":
             aid = msg.get("algo_id", "?")
             err = msg.get("error", "")
-            self._tr_status_lbl.setText(f"✗ {aid} 失败: {err}")
+            self._tr_status_lbl.setText(f"✗ {aid} 失败啦：{err} ♪")
             self._tr_status_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
         elif stage == "cancelled":
             rem = msg.get("remaining", [])
-            self._tr_status_lbl.setText(f"已取消，剩余 {len(rem)} 个算法未训练")
+            self._tr_status_lbl.setText(f"已取消哦…还剩 {len(rem)} 个算法没训练呢 ♪")
             self._tr_status_lbl.setStyleSheet(f"color: {C['warning']}; background: transparent;")
             return True
         elif stage == "all_done":
@@ -522,13 +528,13 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
             ok = sum(1 for v in results.values() if v)
             bad = sum(1 for v in results.values() if not v)
             elapsed = (_t.time() - self._train_t0) if self._train_t0 else 0
-            self._tr_status_lbl.setText(f"全部完成: ✓ {ok}  ✗ {bad}  ·  耗时 {elapsed:.1f}s")
+            self._tr_status_lbl.setText(f"全部完成啦 ♪ ✓ {ok}  ✗ {bad}  ·  耗时 {elapsed:.1f}s")
             self._tr_status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
             self._tr_progress.setValue(100)
             return True
         elif stage == "fatal":
             err = msg.get("error", "")
-            self._tr_status_lbl.setText(f"训练进程异常: {err}")
+            self._tr_status_lbl.setText(f"呜…{err}")
             self._tr_status_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
             return True
         return False

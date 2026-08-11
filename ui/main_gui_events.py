@@ -42,7 +42,7 @@ def on_channel_switch(gui, new_channel, dlg):
 
     set_update_channel(new_channel)
     dlg.accept()
-    gui._sb("status", f"已切换到 {'稳定版' if new_channel == 'stable' else '测试版'} 更新通道，重新检查更新…", C["text_2"])
+    gui._sb("status", f"已切换到 {'稳定版' if new_channel == 'stable' else '测试版'} 更新通道哦，重新检查更新…♪", C["text_2"])
     QTimer.singleShot(500, lambda: check_update(gui))
 
 
@@ -72,7 +72,7 @@ def show_download_progress(gui, title, download_fn):
     """)
     layout.addWidget(progress, 0, Qt.AlignmentFlag.AlignCenter)
 
-    status_lbl = QLabel("准备中…")
+    status_lbl = QLabel("准备中哦…♪")
     status_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
     status_lbl.setStyleSheet(f"color: {C['text_3']}; font-size: 9pt;")
     layout.addWidget(status_lbl)
@@ -84,19 +84,20 @@ def show_download_progress(gui, title, download_fn):
         if total > 0:
             pct = min(100, int(downloaded / total * 100))
             progress.setValue(pct)
-            status_lbl.setText(f"已下载 {fmt_num(downloaded)} / {fmt_num(total)}")
+            status_lbl.setText(f"已下载 {fmt_num(downloaded)} / {fmt_num(total)} ♪")
         else:
-            status_lbl.setText("已下载…")
+            status_lbl.setText("正在下载哦…♪")
 
     def on_done(success, msg):
         dlg.close()
         if success:
-            gui._sb("status", "下载完成", C["success"])
+            gui._sb("status", "下载完成啦 ♪", C["success"])
             gui.log_panel.add_log("INFO", f"下载完成: {title}")
             if is_frozen() and "更新" in title:
-                QMessageBox.information(gui, "更新", "下载完成，程序将自动重启以完成更新")
+                QMessageBox.information(gui, "更新 ♪", "下载完成啦 ♪ 程序会自动重启来完成更新哦 ♪")
         else:
-            gui._sb("status", f"下载失败: {msg}", C["danger"])
+            logger.error("下载失败: %s", msg)
+            gui._sb("status", "呜…下载失败啦，请稍后再试哦 ♪", C["danger"])
             gui.log_panel.add_log("ERROR", f"下载失败: {msg}")
 
     fire_and_forget(download_fn, on_progress, on_done, name="download")
@@ -110,7 +111,7 @@ def check_update(gui):
         if has_update and latest:
             from __init__ import __version__
 
-            invoke(lambda: gui._sb("status", f"发现新版本 v{latest} (当前 v{__version__})", C["warning"]))
+            invoke(lambda: gui._sb("status", f"发现新版本 v{latest} 哦（当前 v{__version__}）♪", C["warning"]))
             logger.info("有新版本可用: v%s (当前 v%s), %s", latest, __version__, url)
             invoke(lambda: show_update_dialog(gui, latest, __version__, url, changelog, channel))
 
@@ -128,7 +129,7 @@ def show_update_dialog(gui, latest, current, url, changelog, channel="stable"):
     git_branch = "pre-release" if is_beta else "releases"
 
     dlg = QDialog(gui)
-    dlg.setWindowTitle("发现新版本")
+    dlg.setWindowTitle("发现新版本 ♪")
     dlg.setMinimumSize(640, 580)
     dlg.setStyleSheet(f"background-color: {C['bg_base']};")
 
@@ -138,12 +139,12 @@ def show_update_dialog(gui, latest, current, url, changelog, channel="stable"):
     mode_label = "打包版" if is_frozen() else "源码版"
     channel_label = "测试版" if is_beta else "稳定版"
 
-    header = QLabel(f"新版本 v{latest} 可用 ({mode_label} · {channel_label})")
+    header = QLabel(f"新版本 v{latest} 可用啦 ♪ ({mode_label} · {channel_label})")
     header.setStyleSheet(f"color: {C['text_1']}; font-size: 14pt; font-weight: bold; padding: 16px 0 4px 0;")
     header.setAlignment(Qt.AlignmentFlag.AlignCenter)
     layout.addWidget(header)
 
-    cur_ver = QLabel(f"当前版本: v{current}")
+    cur_ver = QLabel(f"当前版本: v{current} ♪")
     cur_ver.setStyleSheet(f"color: {C['text_3']}; font-size: 10pt;")
     cur_ver.setAlignment(Qt.AlignmentFlag.AlignCenter)
     layout.addWidget(cur_ver)
@@ -153,10 +154,10 @@ def show_update_dialog(gui, latest, current, url, changelog, channel="stable"):
         warn.setStyleSheet("background-color: #3b1f1f; border: 1px solid #ff4444; border-radius: 4px;")
         wl = QVBoxLayout(warn)
         wl.setContentsMargins(8, 4, 8, 4)
-        wt = QLabel("⚠ 测试版警告")
+        wt = QLabel("⚠ 测试版要注意哦…")
         wt.setStyleSheet("color: #ff6666; font-size: 10pt; font-weight: bold;")
         wl.addWidget(wt)
-        wd = QLabel("当前为测试版更新通道，可能存在不稳定或未完成的功能。\n建议在非生产环境中使用。")
+        wd = QLabel("当前是测试版更新通道，可能有不太稳定或没做完的功能哦…\n建议在非生产环境使用呢 ♪")
         wd.setStyleSheet("color: #ff9999; font-size: 9pt;")
         wd.setWordWrap(True)
         wl.addWidget(wd)
@@ -168,7 +169,7 @@ def show_update_dialog(gui, latest, current, url, changelog, channel="stable"):
     log_layout = QVBoxLayout(log_frame)
     log_layout.setContentsMargins(8, 8, 8, 8)
 
-    log_header = QLabel("更新内容")
+    log_header = QLabel("更新内容 ♪")
     log_header.setStyleSheet(f"color: {C['text_2']}; font-size: 10pt; font-weight: bold;")
     log_layout.addWidget(log_header)
 
@@ -191,7 +192,7 @@ def show_update_dialog(gui, latest, current, url, changelog, channel="stable"):
     ch_layout = QHBoxLayout(channel_widget)
     ch_layout.setContentsMargins(16, 0, 16, 8)
 
-    ch_label = QLabel("更新通道:")
+    ch_label = QLabel("更新通道: ♪")
     ch_label.setStyleSheet(f"color: {C['text_3']}; font-size: 9pt;")
     ch_layout.addWidget(ch_label)
 
@@ -229,7 +230,7 @@ def show_update_dialog(gui, latest, current, url, changelog, channel="stable"):
         btn.clicked.connect(click_handler)
         return btn
 
-    cancel_btn = QPushButton("稍后提醒")
+    cancel_btn = QPushButton("稍后提醒 ♪")
     cancel_btn.setStyleSheet(f"""
         QPushButton {{
             background-color: {C['bg_elevated']}; color: {C['text_1']};
@@ -242,16 +243,16 @@ def show_update_dialog(gui, latest, current, url, changelog, channel="stable"):
     btn_layout.addStretch()
 
     if is_frozen() and is_beta:
-        info_lbl = QLabel("测试版暂不提供 EXE 下载，请切换到稳定版通道。\n也可以使用源码版通过 Git/ZIP 更新。")
+        info_lbl = QLabel("呜…测试版暂时不提供 EXE 下载哦，请切换到稳定版通道吧 ♪\n也可以使用源码版通过 Git/ZIP 更新呢 ♪")
         info_lbl.setStyleSheet(f"color: {C['warning']}; font-size: 9pt;")
         info_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         btn_layout.addWidget(info_lbl)
     elif is_frozen():
-        dl_btn = _make_btn("⬇ aria2 下载更新", lambda: (dlg.accept(), show_download_progress(gui, "正在下载新版本…", perform_exe_self_update)))
+        dl_btn = _make_btn("⬇ aria2 下载更新 ♪", lambda: (dlg.accept(), show_download_progress(gui, "正在下载新版本哦…♪", perform_exe_self_update)))
         btn_layout.addWidget(dl_btn)
     else:
-        git_btn = _make_btn("📥 Git Pull 自动拉取", lambda: _on_git_pull())
-        zip_btn = _make_btn("⬇ aria2 下载 ZIP", lambda: (dlg.accept(), show_download_progress(gui, "正在下载最新源码…", perform_source_download_zip)))
+        git_btn = _make_btn("📥 Git Pull 自动拉取 ♪", lambda: _on_git_pull())
+        zip_btn = _make_btn("⬇ aria2 下载 ZIP ♪", lambda: (dlg.accept(), show_download_progress(gui, "正在下载最新源码哦…♪", perform_source_download_zip)))
         btn_layout.addWidget(git_btn)
         btn_layout.addWidget(zip_btn)
 
@@ -261,10 +262,10 @@ def show_update_dialog(gui, latest, current, url, changelog, channel="stable"):
         ok, msg = perform_source_git_pull(branch=git_branch)
         if ok:
             gui.log_panel.add_log("INFO", "git pull 更新成功")
-            gui._sb("status", "git pull 更新成功，建议重启应用", C["success"])
+            gui._sb("status", "git pull 更新成功啦 ♪ 建议重启应用哦", C["success"])
         else:
             gui.log_panel.add_log("ERROR", f"git pull 失败: {msg}")
-            gui._sb("status", "git pull 失败，请手动更新", C["danger"])
+            gui._sb("status", "呜…git pull 失败啦，请手动更新哦 ♪", C["danger"])
         dlg.accept()
 
     dlg.exec()
@@ -340,10 +341,10 @@ def refresh_model_status(gui):
         gui._model_act_status.setText("")
         return
     if pending:
-        gui._model_act_status.setText(f"⚡ {len(pending)}/{trained} 待激活")
+        gui._model_act_status.setText(f"⚡ {len(pending)}/{trained} 个待激活哦 ♪")
         gui._model_act_status.setStyleSheet(f"color: {C['danger']}; font-size: 9pt;")
     elif trained > 0:
-        gui._model_act_status.setText(f"✓ {trained} 个已最新")
+        gui._model_act_status.setText(f"✓ {trained} 个已是最新啦 ♪")
         gui._model_act_status.setStyleSheet(f"color: {C['success']}; font-size: 9pt;")
     else:
         gui._model_act_status.setText("")
@@ -355,11 +356,11 @@ def activate_models(gui):
 
     switched = activate_latest_for_all()
     if not switched:
-        gui._sb("status", "所有模型已是最新版本", C["success"])
+        gui._sb("status", "所有模型都已是最新版本啦 ♪", C["success"])
         refresh_model_status(gui)
         return
     names = ", ".join(switched.keys())
-    gui._sb("status", f"已激活 {len(switched)} 个模型: {names}", C["success"])
+    gui._sb("status", f"已激活 {len(switched)} 个模型啦 ♪: {names}", C["success"])
     refresh_model_status(gui)
     gui.log_panel.add_log("INFO", f"手动激活模型: {switched}")
 
@@ -375,7 +376,7 @@ def auto_activate_on_startup(gui):
             if switched:
                 names = ", ".join(switched.keys())
                 QTimer.singleShot(0, lambda: gui.log_panel.add_log("INFO", f"启动自动激活模型: {switched}"))
-                QTimer.singleShot(0, lambda: gui._sb("status", f"自动激活 {len(switched)} 个模型: {names}", C["success"]))
+                QTimer.singleShot(0, lambda: gui._sb("status", f"自动激活了 {len(switched)} 个模型哦 ♪: {names}", C["success"]))
             QTimer.singleShot(0, lambda: refresh_model_status(gui))
         except Exception as e:
             logger.debug("自动激活模型失败: %s", e)
@@ -441,15 +442,15 @@ def toggle_auto_refresh(gui):
         from ui.main_gui_tick import start_global_tick
 
         start_global_tick(gui)
-        gui._sb("status", "自动刷新已启用", C["success"])
+        gui._sb("status", "自动刷新已启用啦 ♪", C["success"])
     else:
         from ui.main_gui_tick import stop_global_tick
 
         stop_global_tick(gui)
-        gui._countdown_badge.setText("已暂停")
-        gui._mode_pill.setText("已暂停")
+        gui._countdown_badge.setText("已暂停 ♪")
+        gui._mode_pill.setText("已暂停 ♪")
         gui._mode_pill.setStyleSheet(f"color: {C['text_3']}; font-weight: bold; font-size: 9pt;")
-        gui._sb("status", "自动刷新已禁用", C["warning"])
+        gui._sb("status", "自动刷新已禁用哦…♪", C["warning"])
 
 
 def do_fetch(gui):
@@ -462,9 +463,9 @@ def do_fetch(gui):
 def post_fetch(gui):
     """拉取完成后的回调处理"""
     now_str = datetime.now().strftime("%H:%M:%S")
-    gui._sb("status", "刷新完成", C["success"])
-    gui._sb("last_ref", f"上次刷新: {now_str}")
-    gui._sb("videos", f"监控: {len(gui.monitored_videos)} 个")
+    gui._sb("status", "刷新完成啦 ♪", C["success"])
+    gui._sb("last_ref", f"上次刷新: {now_str} ♪")
+    gui._sb("videos", f"监控: {len(gui.monitored_videos)} 个视频 ♪")
     for video in gui.monitored_videos:
         bvid = video.get("bvid", "")
         gui.video_list.update_card(video)
@@ -518,7 +519,7 @@ def select_video(gui, bvid):
 def add_monitor(gui):
     """添加监控对话框"""
     dialog = QDialog(gui)
-    dialog.setWindowTitle("添加监控")
+    dialog.setWindowTitle("添加监控 ♪")
     screen = QApplication.primaryScreen()
     if screen:
         geo = screen.geometry()
@@ -529,13 +530,13 @@ def add_monitor(gui):
     layout = QVBoxLayout(dialog)
     layout.setSpacing(8)
 
-    prompt = QLabel("请输入BV号或视频链接：")
+    prompt = QLabel("输入BV号或视频链接哦：♪")
     prompt.setStyleSheet(f"color: {C['text_1']}; font-size: 10pt; padding: 18px 0 4px 0;")
     prompt.setAlignment(Qt.AlignmentFlag.AlignCenter)
     layout.addWidget(prompt)
 
     entry = QLineEdit()
-    entry.setPlaceholderText("格式：BV1xxx 或完整链接")
+    entry.setPlaceholderText("格式：BV1xxx 或完整链接 ♪")
     entry.setStyleSheet(f"""
         QLineEdit {{
             background-color: {C['bg_elevated']}; color: {C['text_1']};
@@ -558,7 +559,7 @@ def add_monitor(gui):
     btn_layout = QHBoxLayout(btn_widget)
     btn_layout.setContentsMargins(0, 0, 0, 10)
 
-    confirm_btn = QPushButton("确认添加")
+    confirm_btn = QPushButton("确认添加 ♪")
     confirm_btn.setStyleSheet(f"""
         QPushButton {{
             background-color: {C.get('accent', '#4A90D9')}; color: white;
@@ -591,7 +592,7 @@ def add_monitor(gui):
 def validate_and_add_video(gui, raw_input, dialog, status_lbl):
     """验证输入并添加视频"""
     if not raw_input:
-        QMessageBox.warning(dialog, "提示", "请输入BV号")
+        QMessageBox.warning(dialog, "要注意哦…", "要先输入BV号哦…♪")
         return
 
     bvid = extract_bvid_from_input(gui, raw_input)
@@ -612,7 +613,7 @@ def extract_bvid_from_input(gui, raw_input):
         if m:
             bvid = m.group()
         else:
-            QMessageBox.critical(gui, "错误", "无法从链接中提取BV号")
+            QMessageBox.critical(gui, "呜…出错了", "呜…从链接里找不到BV号呢…♪")
             return None
     return bvid
 
@@ -620,7 +621,7 @@ def extract_bvid_from_input(gui, raw_input):
 def check_video_in_monitor_list(gui, bvid, dialog):
     """检查视频是否已在监控列表"""
     if bvid in gui._video_index:
-        QMessageBox.information(dialog, "提示", f"{bvid} 已在监控列表中")
+        QMessageBox.information(dialog, "知道啦 ♪", f"{bvid} 已经在监控列表里啦 ♪")
         dialog.accept()
         return True
     return False
@@ -631,7 +632,7 @@ def fetch_video_info_and_add(gui, bvid, dialog, status_lbl):
     from core import bilibili_api
     from ui.main_gui_data import map_api_to_video_dict, register_video_to_monitor, save_watch_list
 
-    status_lbl.setText("正在获取视频信息…")
+    status_lbl.setText("正在获取视频信息哦…♪")
 
     def _fetch():
         info = bilibili_api.get_video_info(bvid)
@@ -639,15 +640,15 @@ def fetch_video_info_and_add(gui, bvid, dialog, status_lbl):
 
     def _done(info):
         if not info:
-            status_lbl.setText("获取失败，请检查BV号")
+            status_lbl.setText("呜…获取失败啦，检查一下BV号对不对哦 ♪")
             status_lbl.setStyleSheet(f"color: {C['danger']}; font-size: 9pt;")
             return
         video = map_api_to_video_dict(bvid, info)
         register_video_to_monitor(gui, video)
         save_watch_list(gui)
         QMessageBox.information(
-            dialog, "成功",
-            f"已添加监控\n标题：{video['title'][:40]}\nUP主：{video['author']}\n播放：{fmt_num(video['view_count'])}",
+            dialog, "完成啦 ♪",
+            f"已添加监控啦 ♪\n标题：{video['title'][:40]}\nUP主：{video['author']}\n播放：{fmt_num(video['view_count'])}",
         )
         dialog.accept()
 
@@ -668,13 +669,13 @@ def get_video(gui, bvid):
 def remove_monitor(gui):
     """删除当前选中视频的监控（支持 30s 撤销）"""
     if not gui.selected_bvid:
-        QMessageBox.warning(gui, "提示", "请先在左侧选择要删除的视频")
+        QMessageBox.warning(gui, "要注意哦…", "先在左侧选中要删除的视频哦…♪")
         return
     bvid = gui.selected_bvid
     video = get_video(gui, bvid)
     title = video.get("title", bvid) if video else bvid
     if not QMessageBox.question(
-        gui, "确认删除", f"确定要删除监控：\n{title[:50]}？\n\n（30 秒内可从状态栏撤销）",
+        gui, "要注意哦…", f"真的要删除监控吗：\n{title[:50]}？\n\n（30 秒内还能从状态栏撤销哦…）♪",
         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
     ) == QMessageBox.StandardButton.Yes:
         return
@@ -697,12 +698,12 @@ def remove_monitor(gui):
     gui.prediction._build_pred_hero_empty()
     gui.prediction._clear_info()
     gui.video_list.update_video_count()
-    gui._sb("videos", f"监控: {len(gui.monitored_videos)} 个")
+    gui._sb("videos", f"监控: {len(gui.monitored_videos)} 个视频 ♪")
     from ui.main_gui_data import save_watch_list
     fire_and_forget(save_watch_list, gui, name="save-watchlist")
 
     # 撤销提示（状态栏）
-    gui._sb("alert", f"已删除 {title[:20]}（30s 内可撤销）", C["warning"])
+    gui._sb("alert", f"已删除 {title[:20]} 啦（30 秒内可撤销哦）♪", C["warning"])
 
     # 存储待删除数据
     if not hasattr(gui, "_pending_deletes"):
@@ -724,7 +725,7 @@ def remove_monitor(gui):
 def undo_delete(gui):
     """撤销最近一次删除"""
     if not hasattr(gui, "_pending_deletes") or not gui._pending_deletes:
-        QMessageBox.information(gui, "提示", "没有可撤销的删除操作")
+        QMessageBox.information(gui, "知道啦 ♪", "没有可以撤销的删除操作呢…♪")
         return
     # 撤销最近删除的
     bvid = list(gui._pending_deletes.keys())[-1]
@@ -745,8 +746,8 @@ def undo_delete(gui):
 
     gui.video_list.make_card(removed["video"])
     gui.video_list.update_video_count()
-    gui._sb("alert", f"已恢复 {removed['video'].get('title', bvid)[:20]}", C["success"])
-    gui._sb("videos", f"监控: {len(gui.monitored_videos)} 个")
+    gui._sb("alert", f"已恢复 {removed['video'].get('title', bvid)[:20]} 啦 ♪", C["success"])
+    gui._sb("videos", f"监控: {len(gui.monitored_videos)} 个视频 ♪")
     gui.bottom_bar.hide_undo_button()
     from ui.main_gui_data import save_watch_list
     fire_and_forget(save_watch_list, gui, name="save-watchlist")
@@ -777,7 +778,7 @@ def push_single(gui, bvid):
 
     video = get_video(gui, bvid)
     if not video:
-        QMessageBox.warning(gui, "提示", f"未找到视频 {bvid}")
+        QMessageBox.warning(gui, "要注意哦…", f"呜…没有找到视频 {bvid} 呢…♪")
         return
 
     msg = build_push_msg(gui, [video])
@@ -786,7 +787,7 @@ def push_single(gui, bvid):
     notification_manager.send_qq_private(msg)
     notification_manager.send_qq_group(msg)
     notification_manager.send_windows_notification(f"📊 B站监控 — {title[:20]}", msg[:256])
-    gui._sb("status", f"已推送「{title[:20]}」", C["success"])
+    gui._sb("status", f"已推送「{title[:20]}」啦 ♪", C["success"])
 
 
 def manual_push(gui):
@@ -795,7 +796,7 @@ def manual_push(gui):
 
     videos = gui.monitored_videos
     if not videos:
-        QMessageBox.warning(gui, "提示", "没有监控中的视频可推送")
+        QMessageBox.warning(gui, "要注意哦…", "还没有监控中的视频可以推送呢…♪")
         return
 
     msg = build_push_msg(gui, videos)
@@ -806,11 +807,11 @@ def manual_push(gui):
     ok_win = notification_manager.send_windows_notification(f"📊 B站监控报告 ({now_str})", msg[:256])
 
     if ok_qq_private or ok_qq_group:
-        gui._sb("status", f"已推送 {len(videos)} 个视频状态", C["success"])
+        gui._sb("status", f"已推送 {len(videos)} 个视频状态啦 ♪", C["success"])
     elif ok_win:
-        gui._sb("status", "仅发送了 Windows 通知", C["warning"])
+        gui._sb("status", "只发送了 Windows 通知哦…♪", C["warning"])
     else:
-        gui._sb("status", "推送失败 (未配置 QQ / 通知服务不可用)", C["danger"])
+        gui._sb("status", "呜…推送失败啦（未配置 QQ 或通知服务不可用）♪", C["danger"])
 
 
 # ── 训练完成回调 ──────────────────────────────
@@ -1085,14 +1086,14 @@ def prediction_done(
     gui.prediction.build_pred_hero(w_pred, current_view, rate_per_sec, surge_info)
     gui.prediction._update_algo_list(success_list, fail_list)
     gui._sb("algo", f"算法: {valid}/{total}")
-    gui._sb("status", "预测完成", C["success"])
+    gui._sb("status", "预测完成啦 ♪", C["success"])
 
 
 def copy_bvid(gui, bvid):
     """复制 BV 号到剪贴板"""
     cb = QApplication.clipboard()
     cb.setText(bvid)
-    gui._sb("status", f"已复制 {bvid}", C["success"])
+    gui._sb("status", f"已复制 {bvid} 啦 ♪", C["success"])
 
 
 # ── 弹窗透传 ──────────────────────────────────

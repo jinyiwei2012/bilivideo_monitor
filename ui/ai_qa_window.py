@@ -3,6 +3,7 @@ AI智能问答窗口 — PyQt6 版
 聊天气泡风格对话界面，支持 LLM 智能问答
 """
 
+import logging
 import threading
 
 from PyQt6.QtWidgets import (
@@ -14,6 +15,8 @@ from PyQt6.QtGui import QFont, QTextCursor
 
 from ui.theme import C
 from ui.dialog_base import DialogBase
+
+logger = logging.getLogger(__name__)
 
 
 class AIQAWindow(DialogBase):
@@ -33,7 +36,7 @@ class AIQAWindow(DialogBase):
             sw, sh = 1920, 1080
 
         super().__init__(
-            parent, "AI智能问答助手",
+            parent, "AI智能问答助手 ♪",
             (int(sw * 0.48), int(sh * 0.68)),
             modal=False,
         )
@@ -53,7 +56,7 @@ class AIQAWindow(DialogBase):
 
     def _setup_ui(self):
         """构建对话窗口 UI：API 状态、快捷问题、对话区、输入框"""
-        self.header("AI智能问答助手", "基于监控数据的自然语言问答（可离线使用）")
+        self.header("AI智能问答助手 ♪", "基于监控数据的自然语言问答哦（可离线使用）♪")
 
         # API 状态提示
         self._api_status = QLabel("")
@@ -146,7 +149,7 @@ class AIQAWindow(DialogBase):
         self._input_entry.installEventFilter(self)
         input_layout.addWidget(self._input_entry, 1)
 
-        self._send_btn = QPushButton("发送")
+        self._send_btn = QPushButton("发送 ♪")
         self._send_btn.setProperty("primary", True)
         style = self._send_btn.style()
         if style is not None:
@@ -173,10 +176,10 @@ class AIQAWindow(DialogBase):
     def _check_api_status(self):
         """检查LLM API连接状态"""
         if self.session.api_key:
-            self._api_status.setText(f"✅ LLM已连接 ({self.session.model})")
+            self._api_status.setText(f"✅ LLM 已连接啦 ♪ ({self.session.model})")
             self._api_status.setStyleSheet(f"color: {C['success']}; background: transparent;")
         else:
-            self._api_status.setText("⚠️ 未配置API密钥，使用离线规则回答（设置 → AI配置）")
+            self._api_status.setText("⚠️ 还没配置 API 密钥呢，先用离线规则回答哦（设置 → AI配置）♪")
             self._api_status.setStyleSheet(f"color: {C['warning']}; background: transparent;")
 
     def _show_welcome(self):
@@ -193,21 +196,21 @@ class AIQAWindow(DialogBase):
         """返回欢迎文本"""
         if self.gui and not self.gui.monitored_videos:
             return (
-                "你好！当前还没有监控数据。\n\n"
-                "请先在主界面添加视频到监控列表：\n"
+                "你好呀！现在还没有监控数据呢…♪\n\n"
+                "先到主界面添加视频到监控列表哦：\n"
                 "1. 点击「📁 视频搜索」搜索视频\n"
-                "2. 在搜索列表中点击「+ 监控」添加\n"
-                "3. 或手动输入 BV 号添加\n\n"
-                "添加视频后，我可以帮你分析播放趋势、预测达标时间等。\n"
+                "2. 在搜索列表里点「+ 监控」添加\n"
+                "3. 或者手动输入 BV 号添加\n\n"
+                "添加视频之后，我就能帮你分析播放趋势、预测达标时间啦 ♪\n"
             )
         return (
-            "你好！我是监控助手。你可以问我：\n"
+            "你好呀！我是你的监控小助手哦 ♪ 你可以问我：\n"
             "• 当前监控情况\n"
             "• 哪个视频增长最快\n"
             "• 播放量排行\n"
-            "• 有无异常预警\n"
+            "• 有没有异常预警\n"
             "• 健康探针情况\n\n"
-            "或者直接输入任意问题。\n"
+            "或者直接输入任意问题哦。\n"
         )
 
     def _quick_ask(self, question: str):
@@ -235,7 +238,7 @@ class AIQAWindow(DialogBase):
         self._chat_text.setReadOnly(True)
 
         # 显示"思考中..."占位
-        self._append_chat("assistant", "助手\n思考中...")
+        self._append_chat("assistant", "助手\n思考中哦…♪")
         self._thinking_placeholder = True
 
         t = threading.Thread(target=self._do_ask, args=(question,), daemon=True)
@@ -247,14 +250,15 @@ class AIQAWindow(DialogBase):
             answer = self.session.ask(question)
             self._answer_ready.emit(answer, "")
         except Exception as e:
-            self._answer_ready.emit("", str(e))
+            logger.error("AI问答失败", exc_info=True)
+            self._answer_ready.emit("", "呜…回答失败啦，请稍后再试哦 ♪")
 
     def _on_answer_ready(self, answer: str, error: str):
         """主线程回调：更新回答"""
         self._send_btn.setEnabled(True)
 
         if error:
-            self._replace_last_assistant(f"助手\n抱歉，回答时出现错误：{error}")
+            self._replace_last_assistant(f"助手\n{error}")
             return
 
         self._replace_last_assistant(f"助手\n{answer}")

@@ -441,7 +441,7 @@ class DatabaseQueryWindow(DialogBase):
     def _do_query(self):
         """启动查询"""
         if not os.path.exists(self.db_path):
-            QMessageBox.critical(self, "错误", "数据库文件不存在")
+            QMessageBox.critical(self, "呜…出错了", "呜…数据库文件不存在呢…♪")
             return
         if self._query_running:
             return
@@ -456,24 +456,24 @@ class DatabaseQueryWindow(DialogBase):
                 if filter_bvid:
                     bvid_for_trend = filter_bvid
                 else:
-                    QMessageBox.warning(self, "提示", "请选择视频")
+                    QMessageBox.warning(self, "要注意哦…", "要先选择视频哦…♪")
                     return
             else:
                 bvid_for_trend = sel.split()[0] if " " in sel else sel
                 if filter_bvid:
                     bvid_for_trend = filter_bvid
             if not is_valid_bvid(bvid_for_trend):
-                QMessageBox.critical(self, "错误", "选中视频的BV号格式无效")
+                QMessageBox.critical(self, "呜…出错了", "呜…选中视频的BV号格式不对呢…♪")
                 return
 
         self._query_running = True
         self._query_btn.setEnabled(False)
-        self._query_btn.setText("查询中…")
+        self._query_btn.setText("查询中哦…♪")
         self._result_tree.clear()
         self.query_results = []
         self._extra_data = []
         self._algo_names = []
-        self._update_status("查询中…")
+        self._update_status("查询中哦…♪")
 
         t = threading.Thread(
             target=self._run_fallback_query,
@@ -528,12 +528,12 @@ class DatabaseQueryWindow(DialogBase):
         raw_rows = self._query_central_db(mode, filter_bvid, bvid_for_trend)
         if raw_rows is None:
             return
-        self._status_update.emit(f"中央库查到 {len(raw_rows)} 条，加载关联数据…")
+        self._status_update.emit(f"中央库查到 {len(raw_rows)} 条，正在加载关联数据哦…♪")
         try:
             extra_list, anames = self._load_query_extra_data(raw_rows)
         except Exception as e:
             logger.exception("加载关联数据失败")
-            self._status_update.emit(f"加载关联数据失败: {e}")
+            self._status_update.emit("呜…加载关联数据失败啦，请稍后再试哦 ♪")
             self._reset_query_state()
             return
         self._query_source_bvid = None
@@ -548,7 +548,8 @@ class DatabaseQueryWindow(DialogBase):
             conn.close()
             return raw_rows
         except Exception as e:
-            QMessageBox.critical(self, "错误", f"中央库查询失败: {e}")
+            logger.error("中央库查询失败", exc_info=True)
+            QMessageBox.critical(self, "呜…出错了", "呜…中央库查询失败啦，请稍后再试哦 ♪")
             self._reset_query_state()
             return None
 
@@ -617,7 +618,7 @@ class DatabaseQueryWindow(DialogBase):
             for pred in extra.get("_predictions", []):
                 all_an.add(pred.get("algorithm", ""))
             if total > 50 and (idx + 1) % batch == 0:
-                self._status_update.emit(f"加载关联数据 {idx + 1}/{total}…")
+                self._status_update.emit(f"加载关联数据 {idx + 1}/{total}…♪")
         known = ["线性增长", "移动平均", "加权移动平均", "指数平滑", "趋势外推", "Gompertz"]
         anames = sorted(all_an, key=lambda n: (known.index(n) if n in known else len(known), n))
         return extra_list, anames
@@ -626,7 +627,7 @@ class DatabaseQueryWindow(DialogBase):
         self._query_running = False
         self._query_source_bvid = None
         self._query_btn.setEnabled(True)
-        self._query_btn.setText("查询")
+        self._query_btn.setText("查询 ♪")
 
     def _update_status(self, text: str):
         self._status_display.setText(text)
@@ -662,10 +663,10 @@ class DatabaseQueryWindow(DialogBase):
                     item.setTextAlignment(ci, Qt.AlignmentFlag.AlignCenter)
                     item.setTextAlignment(1, Qt.AlignmentFlag.AlignLeft)
                 self._result_tree.addTopLevelItem(item)
-            self._update_status(f"查询到 {len(raw_rows)} 条记录")
+            self._update_status(f"查询到 {len(raw_rows)} 条记录啦 ♪")
         except Exception as e:
             logger.exception("显示查询结果失败")
-            self._update_status(f"显示结果失败: {e}")
+            self._update_status("呜…显示结果失败啦，请稍后再试哦 ♪")
         self._reset_query_state()
 
     @staticmethod
@@ -682,7 +683,7 @@ class DatabaseQueryWindow(DialogBase):
         self.query_results = []
         self._extra_data = []
         self._algo_names = []
-        self._update_status("就绪")
+        self._update_status("准备好啦 ♪")
 
     def _get_export_default_name(self, ext: str) -> str:
         mode = self._mode_combo.currentText()
@@ -700,7 +701,7 @@ class DatabaseQueryWindow(DialogBase):
 
     def _export_csv(self):
         if not self.query_results:
-            QMessageBox.warning(self, "提示", "没有可导出的数据")
+            QMessageBox.warning(self, "要注意哦…", "还没有可导出的数据呢…♪")
             return
         fp, _ = QFileDialog.getSaveFileName(
             self, "导出CSV", self._get_export_default_name("csv"),
@@ -717,18 +718,19 @@ class DatabaseQueryWindow(DialogBase):
                 for i, row in enumerate(self.query_results, 1):
                     extra = el[i - 1] if i - 1 < len(el) else None
                     w.writerow(build_export_row(i, row, extra, self._algo_names))
-            QMessageBox.information(self, "成功", f"已导出到:\n{fp}")
+            QMessageBox.information(self, "完成啦 ♪", f"已导出到:\n{fp}")
         except Exception as e:
-            QMessageBox.critical(self, "错误", f"导出失败: {e}")
+            logger.error("导出CSV失败", exc_info=True)
+            QMessageBox.critical(self, "呜…出错了", "呜…导出失败啦，请稍后再试哦 ♪")
 
     def _export_excel(self):
         if not self.query_results:
-            QMessageBox.warning(self, "提示", "没有可导出的数据")
+            QMessageBox.warning(self, "要注意哦…", "还没有可导出的数据呢…♪")
             return
         try:
             import openpyxl  # type: ignore[import-untyped]
         except ImportError:
-            QMessageBox.critical(self, "错误", "需要安装 openpyxl 库\n请运行: pip install openpyxl")
+            QMessageBox.critical(self, "呜…出错了", "呜…导出 Excel 需要先安装 openpyxl 库哦\n运行 pip install openpyxl 就好啦 ♪")
             return
         fp, _ = QFileDialog.getSaveFileName(
             self, "导出Excel", self._get_export_default_name("xlsx"),
@@ -749,18 +751,19 @@ class DatabaseQueryWindow(DialogBase):
                 ml = max((len(str(c.value)) for c in col if c.value is not None), default=0)
                 ws.column_dimensions[col[0].column_letter].width = min(ml + 2, 50)
             wb.save(fp)
-            QMessageBox.information(self, "成功", f"已导出到:\n{fp}")
+            QMessageBox.information(self, "完成啦 ♪", f"已导出到:\n{fp}")
         except Exception as e:
-            QMessageBox.critical(self, "错误", f"导出失败: {e}")
+            logger.error("导出Excel失败", exc_info=True)
+            QMessageBox.critical(self, "呜…出错了", "呜…导出失败啦，请稍后再试哦 ♪")
 
     def _delete_selected(self):
         sel = self._result_tree.selectedItems()
         if not sel:
-            QMessageBox.warning(self, "提示", "请先选择要删除的记录")
+            QMessageBox.warning(self, "要注意哦…", "要先选中要删除的记录哦…♪")
             return
 
         reply = QMessageBox.question(
-            self, "确认", f"确定删除选中的 {len(sel)} 条记录？",
+            self, "要注意哦…", f"真的要删除选中的 {len(sel)} 条记录吗？删掉就找不回来啦…♪",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:
@@ -770,7 +773,7 @@ class DatabaseQueryWindow(DialogBase):
         if source_bvid:
             db_path = self._get_video_db_path(source_bvid)
             if not db_path:
-                QMessageBox.critical(self, "错误", "视频独立库文件不存在")
+                QMessageBox.critical(self, "呜…出错了", "呜…视频独立库文件不见了…♪")
                 return
         else:
             db_path = self.db_path
@@ -796,11 +799,12 @@ class DatabaseQueryWindow(DialogBase):
                 conn.close()
                 self._delete_finished.emit(del_data, len(sel))
             except Exception as e:
-                invoke(lambda err=str(e): QMessageBox.critical(self, "错误", f"删除失败: {err}"))
+                logger.error("删除记录失败", exc_info=True)
+                invoke(lambda: QMessageBox.critical(self, "呜…出错了", "呜…删除失败啦，请稍后再试哦 ♪"))
 
         self._finish_delete_signal = _DeleteFinishSignal()
         self._finish_delete_signal.finished.connect(self._finish_delete)
-        self._update_status(f"正在删除 {len(sel)} 条记录…")
+        self._update_status(f"正在删除 {len(sel)} 条记录哦…♪")
         t = threading.Thread(target=_do_delete, daemon=True)
         self._threads.append(t)
         t.start()
@@ -812,14 +816,14 @@ class DatabaseQueryWindow(DialogBase):
                 if not (r["bvid"] == bvid and r["timestamp"] == ts)
             ]
         self._do_query()
-        self._update_status(f"已删除 {count} 条记录")
+        self._update_status(f"已删除 {count} 条记录啦 ♪")
 
     def _clear_results(self):
         self._result_tree.clear()
         self.query_results = []
         self._extra_data = []
         self._algo_names = []
-        self._update_status("已清空结果")
+        self._update_status("已清空结果啦 ♪")
 
 
 # 辅助信号类用于删除线程回调

@@ -40,7 +40,7 @@ class VideoSearchWindow(DialogBase):
         else:
             sw, sh = 1920, 1080
 
-        super().__init__(parent, "搜索视频 - B站", (int(sw * 0.48), int(sh * 0.68)), modal=True)
+        super().__init__(parent, "搜索视频 - B站 ♪", (int(sw * 0.48), int(sh * 0.68)), modal=True)
         self.on_import = on_import
         self.search_results: List[Dict] = []
         self.searching = False
@@ -51,7 +51,7 @@ class VideoSearchWindow(DialogBase):
 
     def _setup_ui(self):
         """构建搜索界面布局"""
-        self.header("搜索视频", "在B站搜索视频并批量导入到监控列表")
+        self.header("搜索视频 ♪", "在B站搜索视频并批量导入到监控列表哦 ♪")
 
         # ── 搜索栏卡片 ──
         sec = self.section(padding=10)
@@ -83,7 +83,7 @@ class VideoSearchWindow(DialogBase):
         search_layout.addSpacing(8)
 
         # 搜索按钮
-        search_btn = QPushButton("搜索")
+        search_btn = QPushButton("搜索 ♪")
         search_btn.setProperty("primary", True)
         style = search_btn.style()
         if style is not None:
@@ -95,7 +95,7 @@ class VideoSearchWindow(DialogBase):
         search_layout.addStretch()
 
         # 状态标签
-        self.status_lbl = QLabel("就绪")
+        self.status_lbl = QLabel("准备好啦 ♪")
         self.status_lbl.setFont(QFont("Microsoft YaHei UI", 9))
         self.status_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
         search_layout.addWidget(self.status_lbl)
@@ -159,7 +159,7 @@ class VideoSearchWindow(DialogBase):
 
         bottom_layout.addStretch()
 
-        import_btn = QPushButton("导入所选到监控")
+        import_btn = QPushButton("导入所选到监控 ♪")
         import_btn.setProperty("primary", True)
         style2 = import_btn.style()
         if style2 is not None:
@@ -174,7 +174,7 @@ class VideoSearchWindow(DialogBase):
         """开始搜索：校验输入、清空旧结果、启动后台搜索线程"""
         kw = self.kw_entry.text().strip()
         if not kw:
-            QMessageBox.warning(self, "提示", "请输入搜索关键词")
+            QMessageBox.warning(self, "要注意哦…", "要先输入搜索关键词哦…♪")
             return
         if self.searching:
             return
@@ -183,7 +183,7 @@ class VideoSearchWindow(DialogBase):
         self.tree.clear()
         self.search_results.clear()
         self.searching = True
-        self.status_lbl.setText("搜索中…")
+        self.status_lbl.setText("搜索中哦…♪")
         self.status_lbl.setStyleSheet(f"color: {C['warning']}; background: transparent;")
 
         t = threading.Thread(target=self._worker, args=(kw,), daemon=True)
@@ -196,19 +196,20 @@ class VideoSearchWindow(DialogBase):
             results = get_bilibili_api().search_videos(kw, page=1, page_size=20)
             self._search_done.emit(results or [], None)
         except Exception as e:
-            self._search_done.emit([], str(e))
+            logger.error("B站视频搜索失败", exc_info=True)
+            self._search_done.emit([], "搜索失败啦，请稍后再试哦 ♪")
 
     def _on_search_done(self, results: List[Dict], error: Optional[str]):
         """主线程回调：处理搜索结果"""
         self.searching = False
 
         if error:
-            self.status_lbl.setText(f"搜索失败: {error}")
+            self.status_lbl.setText(f"呜…{error}")
             self.status_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
             return
 
         if not results:
-            self.status_lbl.setText("未找到结果")
+            self.status_lbl.setText("呜…没有找到相关视频呢…♪")
             self.status_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
             return
 
@@ -234,7 +235,7 @@ class VideoSearchWindow(DialogBase):
             item.setTextAlignment(4, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             self.tree.addTopLevelItem(item)
 
-        self.status_lbl.setText(f"找到 {len(results)} 个结果")
+        self.status_lbl.setText(f"找到 {len(results)} 个结果啦 ♪")
         self.status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
 
     def _select_all(self):
@@ -249,7 +250,7 @@ class VideoSearchWindow(DialogBase):
         """将选中的视频导入到监控列表"""
         sel = self.tree.selectedItems()
         if not sel:
-            QMessageBox.warning(self, "提示", "请先选择要导入的视频")
+            QMessageBox.warning(self, "要注意哦…", "要先选中要导入的视频哦…♪")
             return
         bvids = {item.text(0) for item in sel}
         videos = [v for v in self.search_results if v.get("bvid") in bvids]
@@ -327,7 +328,7 @@ class VideoSearchWindow(DialogBase):
         from PyQt6.QtCore import Qt
 
         dlg = QDialog(self)
-        dlg.setWindowTitle(f"视频详情 - {bvid}")
+        dlg.setWindowTitle(f"视频详情 - {bvid} ♪")
         screen = self.screen()
         if screen:
             geo = screen.geometry()
@@ -342,7 +343,7 @@ class VideoSearchWindow(DialogBase):
         layout.setContentsMargins(24, 20, 24, 20)
 
         # 标题
-        title_lbl = QLabel("视频详情")
+        title_lbl = QLabel("视频详情 ♪")
         title_lbl.setFont(QFont("Microsoft YaHei UI", 14, QFont.Weight.Bold))
         title_lbl.setStyleSheet(f"color: {C['text_1']};")
         title_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -423,11 +424,11 @@ class VideoSearchWindow(DialogBase):
         btn_layout = QHBoxLayout(btn_row)
         btn_layout.setContentsMargins(0, 8, 0, 0)
 
-        open_btn = QPushButton("🌐 浏览器打开")
+        open_btn = QPushButton("🌐 浏览器打开 ♪")
         open_btn.clicked.connect(lambda: webbrowser.open(f"https://www.bilibili.com/video/{bvid}"))
         btn_layout.addWidget(open_btn)
 
-        import_btn = QPushButton("➕ 导入监控")
+        import_btn = QPushButton("➕ 导入监控 ♪")
         import_btn.clicked.connect(lambda: [dlg.accept(), self._import_single(video)])
         btn_layout.addWidget(import_btn)
 
@@ -441,7 +442,7 @@ class VideoSearchWindow(DialogBase):
     def _copy_bvid(self, bvid):
         """复制 BV 号到剪贴板"""
         QApplication.clipboard().setText(bvid)
-        self.status_lbl.setText(f"已复制 {bvid}")
+        self.status_lbl.setText(f"已复制 {bvid} 啦 ♪")
         self.status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
 
     def _import_single(self, video):

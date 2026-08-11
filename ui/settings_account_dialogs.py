@@ -8,6 +8,7 @@
   - _AddAccountDialog: 添加账号
 """
 import json
+import logging
 import threading
 
 from PyQt6.QtWidgets import (
@@ -22,6 +23,8 @@ from ui.helpers import FONT, FONT_SM
 from ui.invoker import invoke
 from core.bilibili_api import get_bilibili_api
 
+logger = logging.getLogger(__name__)
+
 
 # ── 对话框：Cookie-Editor 导入 ──────────────────────────────
 
@@ -30,7 +33,7 @@ class _CookieEditorDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("导入 Cookie-Editor JSON")
+        self.setWindowTitle("导入 Cookie-Editor JSON ♪")
         if parent:
             screen = parent.screen()
             geo = screen.geometry() if screen else None
@@ -70,7 +73,7 @@ class _CookieEditorDialog(QDialog):
         btn_layout.addWidget(cancel_btn)
         btn_layout.addStretch()
 
-        self._import_btn = QPushButton("导入并应用")
+        self._import_btn = QPushButton("导入并应用 ♪")
         self._import_btn.setProperty("primary", True)
         s = self._import_btn.style()
         if s is not None:
@@ -84,15 +87,16 @@ class _CookieEditorDialog(QDialog):
     def _do_import(self):
         raw = self._text.toPlainText().strip()
         if not raw:
-            QMessageBox.warning(self, "提示", "请粘贴 JSON 内容")
+            QMessageBox.warning(self, "要注意哦…", "要先粘贴 JSON 内容哦…♪")
             return
         try:
             entries = json.loads(raw)
         except json.JSONDecodeError as e:
-            QMessageBox.critical(self, "解析失败", f"JSON 格式错误:\n{e}")
+            logger.warning("解析 Cookie-Editor JSON 失败", exc_info=True)
+            QMessageBox.critical(self, "呜…出错了", "呜…JSON 格式好像不太对呢，检查一下再试试哦 ♪")
             return
         if not isinstance(entries, list):
-            QMessageBox.critical(self, "格式错误", "JSON 应为数组格式")
+            QMessageBox.critical(self, "呜…出错了", "呜…JSON 需要是数组格式哦 ♪")
             return
         cookies = {}
         for entry in entries:
@@ -102,7 +106,7 @@ class _CookieEditorDialog(QDialog):
             if name and value and ("bilibili.com" in domain or not domain):
                 cookies[name] = value
         if not cookies:
-            QMessageBox.warning(self, "未找到", "JSON 中未找到 B站 相关 Cookie")
+            QMessageBox.warning(self, "要注意哦…", "呜…JSON 里没有找到 B站 相关的 Cookie 呢…♪")
             return
         self._result = cookies
         self.accept()
@@ -121,7 +125,7 @@ class _QRCodeLoginDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("扫码登录 B站")
+        self.setWindowTitle("扫码登录 B站 ♪")
         if parent:
             screen = parent.screen()
             geo = screen.geometry() if screen else None
@@ -135,20 +139,20 @@ class _QRCodeLoginDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 14, 20, 14)
 
-        title = QLabel("请使用 B站 手机客户端扫码")
+        title = QLabel("请用 B站 手机客户端扫码哦 ♪")
         title.setFont(QFont("Microsoft YaHei UI", 11, QFont.Weight.Bold))
         title.setStyleSheet(f"color: {C['text_1']};")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
 
-        self._qr_label = QLabel("正在生成二维码…")
+        self._qr_label = QLabel("正在生成二维码哦…♪")
         self._qr_label.setFont(FONT)
         self._qr_label.setStyleSheet(f"color: {C['text_1']};")
         self._qr_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._qr_label.setFixedSize(220, 220)
         layout.addWidget(self._qr_label, 0, Qt.AlignmentFlag.AlignCenter)
 
-        self._status_label = QLabel("等待扫码...")
+        self._status_label = QLabel("等你扫码哦…♪")
         self._status_label.setFont(FONT)
         self._status_label.setStyleSheet(f"color: {C['text_2']};")
         self._status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -164,7 +168,7 @@ class _QRCodeLoginDialog(QDialog):
     def _start_qrcode(self):
         qr_data = get_bilibili_api().get_qrcode_login_url()
         if not qr_data:
-            self._login_failed.emit("获取二维码失败")
+            self._login_failed.emit("呜…获取二维码失败啦，请稍后再试哦 ♪")
             return
         self._qrcode_key = qr_data.get("qrcode_key", "")
         qr_url = qr_data.get("url", "")
@@ -189,14 +193,15 @@ class _QRCodeLoginDialog(QDialog):
             if pixmap.loadFromData(buf.getvalue()):
                 invoke(lambda p=pixmap: self._qr_label.setPixmap(p))
         except Exception:
-            invoke(lambda u=qr_url: self._qr_label.setText(f"扫码链接:\n{u}"))
+            invoke(lambda u=qr_url: self._qr_label.setText(f"呜…二维码生成失败啦，用这个链接扫码哦:\n{u}"))
 
     def _poll(self):
         def _worker():
             try:
                 result = get_bilibili_api().poll_qrcode_login(self._qrcode_key)
             except Exception as e:
-                result = {"status": 0, "message": f"轮询异常: {e}"}
+                logger.warning("轮询二维码登录状态异常", exc_info=True)
+                result = {"status": 0, "message": "呜…轮询登录状态出问题啦，请稍后再试哦 ♪"}
             invoke(lambda r=result: self._status_label.setText(r.get("message", "")))
             if result.get("status") == 2:
                 invoke(self._poll_timer.stop)
@@ -228,7 +233,7 @@ class _PasswordLoginDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("密码登录 B站")
+        self.setWindowTitle("密码登录 B站 ♪")
         if parent:
             screen = parent.screen()
             geo = screen.geometry() if screen else None
@@ -242,13 +247,13 @@ class _PasswordLoginDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 18, 24, 18)
 
-        title = QLabel("B站 账号密码登录")
+        title = QLabel("B站 账号密码登录 ♪")
         title.setFont(QFont("Microsoft YaHei UI", 13, QFont.Weight.Bold))
         title.setStyleSheet(f"color: {C['text_1']};")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
 
-        subtitle = QLabel("部分账号需要手机验证码，建议使用扫码登录")
+        subtitle = QLabel("部分账号需要手机验证码，建议使用扫码登录哦 ♪")
         subtitle.setFont(FONT_SM)
         subtitle.setStyleSheet(f"color: {C['text_3']};")
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -380,11 +385,11 @@ class _PasswordLoginDialog(QDialog):
         uname = self._username_entry.text().strip()
         pwd = self._password_entry.text()
         if not uname or not pwd:
-            QMessageBox.warning(self, "提示", "请输入账号和密码")
+            QMessageBox.warning(self, "要注意哦…", "要先输入账号和密码哦…♪")
             return
 
         self._login_btn.setEnabled(False)
-        self._status_label.setText("登录中..." if not captcha_code else "验证中...")
+        self._status_label.setText("登录中哦…♪" if not captcha_code else "验证中哦…♪")
         self._status_label.setStyleSheet(f"color: {C['text_2']};")
 
         def _worker():
@@ -394,7 +399,8 @@ class _PasswordLoginDialog(QDialog):
                 )
                 self._result_signal.emit(result)
             except Exception as e:
-                self._result_signal.emit({"code": -1, "message": str(e)})
+                logger.error("密码登录异常", exc_info=True)
+                self._result_signal.emit({"code": -1, "message": "呜…登录失败啦，请稍后再试哦 ♪"})
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -402,13 +408,13 @@ class _PasswordLoginDialog(QDialog):
         self._login_result = result
         code = result.get("code", -1)
         if code == 0:
-            self._status_label.setText("登录成功！")
+            self._status_label.setText("登录成功啦 ♪")
             self._status_label.setStyleSheet(f"color: {C['success']};")
             QTimer.singleShot(500, self.accept)
         elif result.get("need_captcha") or code in (-629, -352):
             self._show_captcha(result)
         else:
-            self._status_label.setText(result.get("message", "未知错误"))
+            self._status_label.setText(result.get("message", "呜…登录失败啦，请稍后再试哦 ♪"))
             self._status_label.setStyleSheet(f"color: {C['danger']};")
             self._login_btn.setEnabled(True)
 
@@ -416,7 +422,7 @@ class _PasswordLoginDialog(QDialog):
         self._captcha_type = result.get("captcha_type", 0)
         if self._captcha_type == 6:
             phone = result.get("captcha_phone", "")
-            hint = f"验证码已发送至 {phone}" if phone else "请输入手机收到的验证码"
+            hint = f"验证码已发送到 {phone} 哦 ♪" if phone else "输入手机收到的验证码哦 ♪"
             self._status_label.setText(hint)
             self._status_label.setStyleSheet(f"color: {C['warning']};")
             self._captcha_widget.setVisible(True)
@@ -433,10 +439,10 @@ class _PasswordLoginDialog(QDialog):
             gt = result.get("gt", "")
             challenge = result.get("challenge", "")
             url = f"https://api.geetest.com/get.php?gt={gt}&challenge={challenge}&lang=zh-cn&product=embed"
-            self._status_label.setText("需要极验滑块验证，请在浏览器中完成")
+            self._status_label.setText("需要极验滑块验证哦，请在浏览器中完成 ♪")
             self._status_label.setStyleSheet(f"color: {C['danger']};")
             self._geetest_widget.setVisible(True)
-            self._submit_captcha_btn.setText("提交极验结果")
+            self._submit_captcha_btn.setText("提交极验结果 ♪")
             self._submit_captcha_btn.setVisible(True)
             try:
                 self._submit_captcha_btn.clicked.disconnect()
@@ -448,7 +454,7 @@ class _PasswordLoginDialog(QDialog):
     def _submit_captcha(self):
         code = self._captcha_entry.text().strip()
         if not code:
-            QMessageBox.warning(self, "提示", "请输入验证码")
+            QMessageBox.warning(self, "要注意哦…", "要先输入验证码哦…♪")
             return
         self._captcha_type = 6
         self._do_login(captcha_code=code)
@@ -471,7 +477,7 @@ class _AddAccountDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("添加账号")
+        self.setWindowTitle("添加账号 ♪")
         self.resize(400, 240)
         self.setStyleSheet(f"background-color: {C['bg_surface']};")
         self.setModal(True)
@@ -514,14 +520,14 @@ class _AddAccountDialog(QDialog):
         name = self._name_entry.text().strip()
         raw = self._cookie_text.toPlainText().strip()
         if not name or not raw:
-            QMessageBox.warning(self, "提示", "请填写账号名称和 Cookie")
+            QMessageBox.warning(self, "要注意哦…", "要先填写账号名称和 Cookie 哦…♪")
             return
         if hasattr(self.parent(), "_parse_cookie_input"):
             cookies = self.parent()._parse_cookie_input(raw)  # type: ignore
         else:
             cookies = {}
         if not cookies:
-            QMessageBox.critical(self, "错误", "无法解析 Cookie，请检查格式")
+            QMessageBox.critical(self, "呜…出错了", "呜…解析不了 Cookie 呢，检查一下格式哦 ♪")
             return
         get_bilibili_api().add_account(name, cookies)
         get_bilibili_api().switch_account(name)

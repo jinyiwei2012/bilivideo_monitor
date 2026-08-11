@@ -48,7 +48,7 @@ class VersionManagerMixin:
                 )
 
         if not algos:
-            QMessageBox.information(self, "提示", "没有任何已训练的模型")
+            QMessageBox.information(self, "知道啦 ♪", "还没有训练好的模型呢…♪")
             return
 
         self._show_manage_versions(algos, initial_aid=algo_id)
@@ -61,7 +61,7 @@ class VersionManagerMixin:
             initial_aid: 初始选中的算法 (None 时不自动选中)
         """
         dialog = QDialog(self)
-        dialog.setWindowTitle("Checkpoint 版本管理")
+        dialog.setWindowTitle("Checkpoint 版本管理 ♪")
         dialog.resize(700, 500)
         dialog.setModal(True)
         dlg_layout = QVBoxLayout(dialog)
@@ -94,7 +94,7 @@ class VersionManagerMixin:
         right_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.addWidget(right_panel, 1)
 
-        info_lbl = QLabel("← 选择一个算法")
+        info_lbl = QLabel("← 先选一个算法哦 ♪")
         info_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
         info_lbl.setFont(FONT)
         right_layout.addWidget(info_lbl)
@@ -154,14 +154,14 @@ class VersionManagerMixin:
 
         ckpt = CheckpointManager(aid)
 
-        section_lbl = QLabel("全局版本")
+        section_lbl = QLabel("全局版本 ♪")
         section_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
         section_lbl.setFont(FONT_SM)
         layout.addWidget(section_lbl)
 
         versions = ckpt.list_versions()
         if not versions:
-            no_ver = QLabel("  （无全局 checkpoint）")
+            no_ver = QLabel("  （还没有全局 checkpoint 呢…）♪")
             no_ver.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
             no_ver.setFont(FONT_SM)
             layout.addWidget(no_ver)
@@ -183,7 +183,7 @@ class VersionManagerMixin:
                 row_layout.addWidget(ver_lbl)
 
                 if not v.get("active") and len(versions) > 1:
-                    activate_btn = QPushButton("激活")
+                    activate_btn = QPushButton("激活 ♪")
                     activate_btn.setFixedWidth(50)
                     ver_val = v["version"]
                     activate_btn.clicked.connect(
@@ -193,7 +193,7 @@ class VersionManagerMixin:
                     )
                     row_layout.addWidget(activate_btn)
 
-                export_btn = QPushButton("导出 .pt")
+                export_btn = QPushButton("导出 .pt ♪")
                 export_btn.setFixedWidth(70)
                 ver_val = v["version"]
                 export_btn.clicked.connect(
@@ -235,7 +235,7 @@ class VersionManagerMixin:
 
         bvids = list_video_finetune_bvids(aid)
         if bvids:
-            ft_lbl = QLabel("\n视频微调版本")
+            ft_lbl = QLabel("\n视频微调版本 ♪")
             ft_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
             ft_lbl.setFont(FONT_SM)
             layout.addWidget(ft_lbl)
@@ -280,13 +280,13 @@ class VersionManagerMixin:
             layout.addWidget(btn_row)
 
             if _hard() == "normal":
-                del_global_btn = QPushButton("删除所有全局版本")
+                del_global_btn = QPushButton("删除所有全局版本 ♪")
                 del_global_btn.clicked.connect(
                     lambda checked=False, a=aid, n=name: self._delete_all_global(a, n, refresh_cb)
                 )
                 btn_row_layout.addWidget(del_global_btn)
                 if bvids:
-                    del_video_btn = QPushButton("删除所有微调版本")
+                    del_video_btn = QPushButton("删除所有微调版本 ♪")
                     del_video_btn.clicked.connect(
                         lambda checked=False, a=aid, n=name: self._delete_all_video(a, n, refresh_cb)
                     )
@@ -323,15 +323,16 @@ class VersionManagerMixin:
             import shutil
             src = os.path.join(project_path("algorithms", "checkpoints", aid), f"{ver}.pt")
             shutil.copyfile(src, path)
-            QMessageBox.information(self, "成功", f"已导出到:\n{path}")
+            QMessageBox.information(self, "完成啦 ♪", f"已导出到:\n{path}")
         except Exception as e:
-            QMessageBox.critical(self, "失败", f"导出失败: {e}")
+            logger.error("导出checkpoint版本失败", exc_info=True)
+            QMessageBox.critical(self, "呜…出错了", "呜…导出失败啦，请稍后再试哦 ♪")
 
     def _delete_all_global(self, aid, name, refresh_cb):
         """删除算法的所有全局 checkpoint。"""
         reply = QMessageBox.question(
-            self, "确认删除",
-            f"确定要删除 {name} ({aid}) 的所有全局版本？\n此操作不可撤销。",
+            self, "要注意哦…",
+            f"真的要删除 {name} ({aid}) 的所有全局版本吗？\n删掉就找不回来啦…♪",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -348,8 +349,8 @@ class VersionManagerMixin:
     def _delete_all_video(self, aid, name, refresh_cb):
         """删除算法的所有视频微调 checkpoint。"""
         reply = QMessageBox.question(
-            self, "确认删除",
-            f"确定要删除 {name} ({aid}) 的所有视频微调版本？\n此操作不可撤销。",
+            self, "要注意哦…",
+            f"真的要删除 {name} ({aid}) 的所有视频微调版本吗？\n删掉就找不回来啦…♪",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )

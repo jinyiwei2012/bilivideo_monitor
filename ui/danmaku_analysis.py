@@ -4,6 +4,7 @@
 """
 
 import json
+import logging
 import math
 import os
 from typing import List, Optional
@@ -22,6 +23,8 @@ from PyQt6.QtGui import QFont, QPainter, QColor, QBrush, QPen, QFontMetrics
 from ui.theme import C
 from ui.dialog_base import DialogBase
 from ui.invoker import invoke
+
+logger = logging.getLogger(__name__)
 
 
 def _sty(text, color_key="text_2", bold=False, font_=None):
@@ -42,7 +45,7 @@ class DanmakuAnalysisWindow:
     """
 
     def __init__(self, parent=None, api=None, gui=None):
-        self.dlg = DialogBase(parent, "弹幕/评论分析", modal=False)
+        self.dlg = DialogBase(parent, "弹幕/评论分析 ♪", modal=False)
         self.dlg.resize(round(self.dlg.width() * 0.50), round(self.dlg.height() * 0.72))
         self.api = api  # B 站 API 实例
         self.gui = gui  # 主 GUI 实例
@@ -52,10 +55,10 @@ class DanmakuAnalysisWindow:
 
     def _setup_ui(self):
         """构建界面：数据源选择 / 输入卡片、情绪图表、关键词、高频列表、LLM 分析标签页"""
-        self.dlg.header("弹幕/评论分析", "抓取弹幕与评论，进行情绪分析与关键词提取")
+        self.dlg.header("弹幕/评论分析 ♪", "抓取弹幕与评论，进行情绪分析与关键词提取哦 ♪")
 
         # ── 输入卡片 ──
-        sec = self.dlg.section(title="数据源", padding=8)
+        sec = self.dlg.section(title="数据源 ♪", padding=8)
         sec_layout = sec.layout()
 
         # 第一行：从监控列表选择
@@ -75,7 +78,7 @@ class DanmakuAnalysisWindow:
             r0_layout.addWidget(self._monitor_cb)
             r0_layout.addSpacing(8)
 
-            fetch_btn = QPushButton("🚀 抓取此视频")
+            fetch_btn = QPushButton("🚀 抓取这个视频 ♪")
             fetch_btn.clicked.connect(self._from_monitor_and_fetch)
             r0_layout.addWidget(fetch_btn)
             r0_layout.addStretch()
@@ -115,7 +118,7 @@ class DanmakuAnalysisWindow:
         self._limit_cb.setFixedWidth(80)
         r1_layout.addWidget(self._limit_cb)
 
-        self._fetch_btn = QPushButton("抓取并分析")
+        self._fetch_btn = QPushButton("抓取并分析 ♪")
         self._fetch_btn.clicked.connect(self._analyze)
         r1_layout.addWidget(self._fetch_btn)
         r1_layout.addStretch()
@@ -127,12 +130,12 @@ class DanmakuAnalysisWindow:
         r2_layout = QHBoxLayout(row2)
         r2_layout.setContentsMargins(0, 4, 0, 0)
 
-        self._save_btn = QPushButton("💾 保存到本地")
+        self._save_btn = QPushButton("💾 保存到本地 ♪")
         self._save_btn.clicked.connect(lambda: self._save_to_file())
         self._save_btn.setEnabled(False)
         r2_layout.addWidget(self._save_btn)
 
-        self._llm_btn = QPushButton("🤖 LLM深度分析")
+        self._llm_btn = QPushButton("🤖 LLM深度分析 ♪")
         self._llm_btn.clicked.connect(self._llm_analysis)
         self._llm_btn.setEnabled(False)
         r2_layout.addWidget(self._llm_btn)
@@ -158,7 +161,7 @@ class DanmakuAnalysisWindow:
         left_layout = QVBoxLayout(self._left_frame)
         left_layout.setContentsMargins(6, 4, 6, 6)
 
-        pie_title = _sty("情绪分布", "text_2", bold=True, font_=QFont("Microsoft YaHei UI", 8))
+        pie_title = _sty("情绪分布 ♪", "text_2", bold=True, font_=QFont("Microsoft YaHei UI", 8))
         left_layout.addWidget(pie_title)
 
         self._pie_widget = _PieWidget()
@@ -175,7 +178,7 @@ class DanmakuAnalysisWindow:
         right_layout = QVBoxLayout(self._right_frame)
         right_layout.setContentsMargins(6, 4, 6, 6)
 
-        kw_title = _sty("高频关键词", "text_2", bold=True, font_=QFont("Microsoft YaHei UI", 8))
+        kw_title = _sty("高频关键词 ♪", "text_2", bold=True, font_=QFont("Microsoft YaHei UI", 8))
         right_layout.addWidget(kw_title)
 
         self._kw_display = QLabel("")
@@ -217,7 +220,7 @@ class DanmakuAnalysisWindow:
         list_header.setStyleSheet(f"background-color: {C['bg_base']};")
         lh_layout = QHBoxLayout(list_header)
         lh_layout.setContentsMargins(0, 0, 0, 0)
-        lh_layout.addWidget(_sty("高频弹幕/评论", "text_2", bold=True, font_=QFont("Microsoft YaHei UI", 8)))
+        lh_layout.addWidget(_sty("高频弹幕/评论 ♪", "text_2", bold=True, font_=QFont("Microsoft YaHei UI", 8)))
         self._count_lbl = _sty("", "text_3", font_=QFont("Microsoft YaHei UI", 9))
         lh_layout.addWidget(self._count_lbl)
         lh_layout.addStretch()
@@ -231,7 +234,7 @@ class DanmakuAnalysisWindow:
         self._list_tree.setRootIsDecorated(False)
         freq_layout.addWidget(self._list_tree, stretch=1)
 
-        self._bottom_tabs.addTab(freq_page, "  高频弹幕/评论  ")
+        self._bottom_tabs.addTab(freq_page, "  高频弹幕/评论 ♪  ")
 
         # ── 页2：时间分布柱状图 ──
         time_page = QWidget()
@@ -240,7 +243,7 @@ class DanmakuAnalysisWindow:
         self._time_widget = _TimeHistogramWidget()
         self._time_widget.setMinimumHeight(120)
         time_layout.addWidget(self._time_widget, stretch=1)
-        self._bottom_tabs.addTab(time_page, "  📊 时间分布  ")
+        self._bottom_tabs.addTab(time_page, "  📊 时间分布 ♪  ")
 
         # ── 页3：LLM分析结果 ──
         llm_page = QWidget()
@@ -254,7 +257,7 @@ class DanmakuAnalysisWindow:
         )
         self._llm_text.setFont(QFont("Microsoft YaHei UI", 10))
         llm_layout.addWidget(self._llm_text, stretch=1)
-        self._bottom_tabs.addTab(llm_page, "  🤖 LLM分析  ")
+        self._bottom_tabs.addTab(llm_page, "  🤖 LLM分析 ♪  ")
 
         if main_layout:
             main_layout.addWidget(self._bottom_tabs, stretch=2)
@@ -263,7 +266,7 @@ class DanmakuAnalysisWindow:
 
     def _update_hint(self):
         """更新操作提示信息"""
-        hint = "输入视频BV号，抓取弹幕分析情感倾向与高频内容"
+        hint = "输入视频BV号，抓取弹幕分析情感倾向与高频内容哦 ♪"
         self._status_lbl.setText(hint)
 
     def _get_mode(self) -> str:
@@ -285,20 +288,20 @@ class DanmakuAnalysisWindow:
                     texts = [r.get("content", "") for r in records if r.get("content")]
                     if limit > 0:
                         texts = texts[:limit]
-                    self._status_lbl.setText(f"从本地数据库加载 {len(texts)} 条弹幕")
+                    self._status_lbl.setText(f"从本地数据库加载了 {len(texts)} 条弹幕哦 ♪")
                     return texts, None
             except Exception:
                 pass
 
         info = self.api.get_video_info(bvid)
         if not info:
-            return None, "获取视频信息失败"
+            return None, "呜…获取视频信息失败啦"
         cid = info.get("cid", 0)
         if not cid:
-            return None, "无法获取cid"
+            return None, "呜…无法获取cid呢"
         danmaku = self.api.get_video_danmaku(cid)
         if not danmaku:
-            return None, "未获取到弹幕"
+            return None, "呜…没有获取到弹幕呢…♪"
         texts = [d["text"] for d in danmaku if d.get("text")]
         if limit > 0:
             texts = texts[:limit]
@@ -308,13 +311,13 @@ class DanmakuAnalysisWindow:
         """抓取评论数据，返回 (文本列表, 错误信息)"""
         info = self.api.get_video_info(bvid)
         if not info:
-            return None, "获取视频信息失败"
+            return None, "呜…获取视频信息失败啦"
         aid = info.get("aid", 0)
         if not aid:
-            return None, "无法获取aid"
+            return None, "呜…无法获取aid呢"
         comments = self.api.get_video_comments(aid, limit=limit if limit > 0 else 0)
         if not comments:
-            return None, "未获取到评论"
+            return None, "呜…没有获取到评论呢…♪"
         texts = [c["content"] for c in comments if c.get("content")]
         return texts, None
 
@@ -322,17 +325,17 @@ class DanmakuAnalysisWindow:
         """抓取并分析弹幕/评论"""
         bvid = self._bv_entry.text().strip()
         if not bvid:
-            QMessageBox.warning(self.dlg, "提示", "请输入BV号")
+            QMessageBox.warning(self.dlg, "要注意哦…", "要先输入BV号哦…♪")
             return
 
         if not self.api:
-            QMessageBox.critical(self.dlg, "错误", "API不可用")
+            QMessageBox.critical(self.dlg, "呜…出错了", "呜…API 不可用呢…♪")
             return
 
         limit = self._get_limit()
 
         self._fetch_btn.setEnabled(False)
-        self._status_lbl.setText("正在抓取数据...")
+        self._status_lbl.setText("正在抓取数据哦…♪")
         self._status_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
 
         try:
@@ -352,7 +355,7 @@ class DanmakuAnalysisWindow:
             self._texts = texts
             self._current_bvid = bvid
             limit_label = f"（限制 {limit} 条）" if limit > 0 else "（全量）"
-            self._status_lbl.setText(f"抓取成功：共 {len(texts)} 条{mode} {limit_label}")
+            self._status_lbl.setText(f"抓取成功啦 ♪ 共 {len(texts)} 条{mode} {limit_label}")
             self._status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
 
             self._display_results(texts)
@@ -361,10 +364,11 @@ class DanmakuAnalysisWindow:
             self._save_to_file(silent=True)
             self._load_local_llm_result()
         except Exception as e:
-            self._status_lbl.setText(f"分析失败: {e}")
+            logger.error("弹幕/评论分析失败", exc_info=True)
+            self._status_lbl.setText("呜…分析失败啦，请稍后再试哦 ♪")
             self._status_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
             if self.gui and hasattr(self.gui, "log_panel"):
-                self.gui.log_panel.add_log("ERROR", f"弹幕分析失败: {e}")
+                self.gui.log_panel.add_log("ERROR", "弹幕分析失败啦…♪")
         finally:
             self._fetch_btn.setEnabled(True)
 
@@ -413,7 +417,7 @@ class DanmakuAnalysisWindow:
             item = QTreeWidgetItem([str(i + 1), text[:60], mood])
             self._list_tree.addTopLevelItem(item)
 
-        self._count_lbl.setText(f"共 {len(texts)} 条，显示前 {min(50, len(texts))} 条")
+        self._count_lbl.setText(f"共 {len(texts)} 条，先显示前 {min(50, len(texts))} 条哦 ♪")
 
     def _from_monitor_and_fetch(self):
         """从监控列表选择后直接填入 BV 号并自动抓取分析"""
@@ -425,7 +429,7 @@ class DanmakuAnalysisWindow:
         """保存弹幕/评论到 BV 对应文件夹下的 danmaku 子目录"""
         if not self._texts or not self._current_bvid:
             if not silent:
-                QMessageBox.information(self.dlg, "提示", "暂无数据可保存")
+                QMessageBox.information(self.dlg, "知道啦 ♪", "还没有数据可以保存呢…♪")
             return
 
         from config import DATA_DIR
@@ -449,15 +453,15 @@ class DanmakuAnalysisWindow:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
         if not silent:
-            QMessageBox.information(self.dlg, "保存成功", f"已保存 {len(self._texts)} 条{mode}\n{filepath}")
+            QMessageBox.information(self.dlg, "保存成功啦 ♪", f"已保存 {len(self._texts)} 条{mode}\n{filepath}")
         else:
-            self._status_lbl.setText(f"自动保存 {len(self._texts)} 条 → {filepath}")
+            self._status_lbl.setText(f"自动保存了 {len(self._texts)} 条 → {filepath} ♪")
             self._status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
 
     def _llm_analysis(self):
         """使用 LLM 深度分析弹幕/评论"""
         if not self._texts:
-            QMessageBox.information(self.dlg, "提示", "请先抓取数据")
+            QMessageBox.information(self.dlg, "知道啦 ♪", "要先抓取数据哦…♪")
             return
 
         if self._check_llm_existing_result():
@@ -490,8 +494,8 @@ class DanmakuAnalysisWindow:
             ]
         if local_files:
             reply = QMessageBox.question(
-                self.dlg, "确认重新分析",
-                f"已存在 LLM {mode}分析结果，是否重新调用 API 分析？\n选择「否」则查看已有结果。",
+                self.dlg, "要注意哦…",
+                f"已经有 LLM {mode}分析结果啦，要重新调用 API 分析吗？\n选「否」就查看已有结果哦 ♪",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )
             if reply != QMessageBox.StandardButton.Yes:
@@ -511,17 +515,17 @@ class DanmakuAnalysisWindow:
             api_key = ""
 
         if not api_key:
-            QMessageBox.warning(self.dlg, "提示", "未配置LLM API密钥，请在「设置 → AI配置」中配置")
+            QMessageBox.warning(self.dlg, "要注意哦…", "呜…还没有配置 LLM API 密钥呢，去「设置 → AI配置」配置一下吧 ♪")
             return None
         return (api_key, endpoint, model)
 
     def _prepare_llm_ui(self):
         """准备 LLM 分析的 UI 状态"""
         self._llm_btn.setEnabled(False)
-        self._status_lbl.setText("LLM分析中...")
+        self._status_lbl.setText("LLM 分析中哦…♪")
         self._status_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
 
-        self._llm_text.setHtml("LLM分析请求已发送，请稍候...")
+        self._llm_text.setHtml("LLM 分析请求已发送，请稍等哦…♪")
 
     def _prepare_llm_prompt(self, mode):
         sample = self._texts[:100]
@@ -572,7 +576,8 @@ class DanmakuAnalysisWindow:
                     content_list = data.get("content", [])
                     return content_list[0].get("text", "") if content_list else ""
                 else:
-                    return f"API请求失败 (HTTP {resp.status_code})\n{resp.text[:500]}"
+                    logger.warning("Claude LLM API 请求失败: HTTP %s, %s", resp.status_code, resp.text[:500])
+                    return f"呜…API 请求失败啦 (HTTP {resp.status_code})，请稍后再试哦 ♪"
             else:
                 resp = req.post(
                     endpoint,
@@ -592,12 +597,15 @@ class DanmakuAnalysisWindow:
                     data = resp.json()
                     result = data.get("choices", [{}])[0].get("message", {}).get("content", "")
                     if not result:
-                        return str(data)[:500]
+                        logger.warning("LLM API 返回空结果: %s", str(data)[:500])
+                        return "呜…API 没有返回内容呢，请稍后再试哦 ♪"
                     return result
                 else:
-                    return f"API请求失败 (HTTP {resp.status_code})\n{resp.text[:500]}"
+                    logger.warning("LLM API 请求失败: HTTP %s, %s", resp.status_code, resp.text[:500])
+                    return f"呜…API 请求失败啦 (HTTP {resp.status_code})，请稍后再试哦 ♪"
         except Exception as e:
-            return f"LLM分析异常: {e}"
+            logger.error("LLM 深度分析异常", exc_info=True)
+            return "呜…LLM 分析出了点问题，请稍后再试哦 ♪"
 
     def _update_llm_ui(self, result_text, mode, model):
         """主线程：更新 UI 显示 LLM 分析结果"""
@@ -612,7 +620,7 @@ class DanmakuAnalysisWindow:
         self._llm_btn.setEnabled(True)
         self._show_llm_summary(result_text, mode, model)
         self._bottom_tabs.setCurrentIndex(2)
-        self._status_lbl.setText("LLM分析完成")
+        self._status_lbl.setText("LLM 分析完成啦 ♪")
         self._status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
         if self.gui and hasattr(self.gui, "log_panel"):
             self.gui.log_panel.add_log("INFO", f"LLM分析完成（{self._current_bvid}，{mode}）")
@@ -640,11 +648,12 @@ class DanmakuAnalysisWindow:
                     ensure_ascii=False,
                     indent=2,
                 )
-            self._status_lbl.setText(f"LLM分析完成，已保存 → {filepath}")
+            self._status_lbl.setText(f"LLM 分析完成啦 ♪ 已保存 → {filepath}")
             self._status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
         except Exception as e:
+            logger.warning("保存LLM分析结果失败", exc_info=True)
             if self.gui and hasattr(self.gui, "log_panel"):
-                self.gui.log_panel.add_log("WARNING", f"保存LLM分析结果失败: {e}")
+                self.gui.log_panel.add_log("WARNING", "保存LLM分析结果失败啦…♪")
 
     def _load_local_llm_result(self):
         """加载本地已有的 LLM 分析结果"""
@@ -677,13 +686,14 @@ class DanmakuAnalysisWindow:
                 <pre style="color: {C['text_1']}; font-family: 'Microsoft YaHei UI'; font-size: 10pt;">{result_text}</pre>
                 """
                 self._llm_text.setHtml(html)
-                self._status_lbl.setText(f"已加载本地 LLM 分析结果（{latest}）")
+                self._status_lbl.setText(f"已加载本地 LLM 分析结果哦（{latest}）♪")
                 self._status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
                 QTimer.singleShot(100, lambda: self._bottom_tabs.setCurrentIndex(2))
                 self._llm_btn.setEnabled(True)
         except Exception as e:
+            logger.warning("加载本地LLM分析结果失败", exc_info=True)
             if self.gui and hasattr(self.gui, "log_panel"):
-                self.gui.log_panel.add_log("WARNING", f"加载本地LLM结果失败: {e}")
+                self.gui.log_panel.add_log("WARNING", "加载本地LLM分析结果失败啦…♪")
 
     def _show_llm_summary(self, result_text: str, mode: str, model: str):
         """在上半区显示 LLM 分析结果"""
@@ -716,7 +726,7 @@ class DanmakuAnalysisWindow:
     def _display_keywords(self, keywords: list):
         """展示关键词标签云"""
         if not keywords:
-            self._kw_display.setText("暂无关键词")
+            self._kw_display.setText("还没有关键词呢…♪")
             return
         max_score = max(s for _, s in keywords)
         from utils.sentiment_analyzer import _POSITIVE_WORDS, _NEGATIVE_WORDS
@@ -766,7 +776,7 @@ class _PieWidget(QWidget):
 
         data = [(k, v) for k, v in self._data.items() if v > 0]
         if not data:
-            painter.drawText(cx - 20, cy, "无数据")
+            painter.drawText(cx - 20, cy, "还没有数据呢…♪")
             painter.end()
             return
 
@@ -826,7 +836,7 @@ class _TimeHistogramWidget(QWidget):
 
         if not texts:
             painter.setPen(QColor(C["text_3"]))
-            painter.drawText(w // 2 - 40, h // 2, "无弹幕数据")
+            painter.drawText(w // 2 - 40, h // 2, "还没有弹幕数据呢…♪")
             painter.end()
             return
 
@@ -854,5 +864,5 @@ class _TimeHistogramWidget(QWidget):
 
         painter.setPen(QColor(C["text_3"]))
         painter.setFont(QFont("Microsoft YaHei UI", 9))
-        painter.drawText(20, 10, 200, 16, Qt.AlignmentFlag.AlignLeft, "弹幕时间分布（→ 时间轴）")
+        painter.drawText(20, 10, 200, 16, Qt.AlignmentFlag.AlignLeft, "弹幕时间分布（→ 时间轴）♪")
         painter.end()

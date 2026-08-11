@@ -37,7 +37,8 @@ class Dialogs:
             from ui.tag_manager import TagManagerWindow
             TagManagerWindow(self.gui, self.gui)
         except Exception as e:
-            QMessageBox.critical(self.gui, "错误", f"打开标签管理失败:\n{e}")
+            logger.error("打开标签管理失败", exc_info=True)
+            QMessageBox.critical(self.gui, "呜…出错了", "呜…打开标签管理失败啦，请稍后再试哦 ♪")
 
     # ──────────────────────────────────────────
     # 预测回测
@@ -49,7 +50,8 @@ class Dialogs:
             from ui.backtest_panel import BacktestPanel
             BacktestPanel(self.gui, self.gui)
         except Exception as e:
-            QMessageBox.critical(self.gui, "错误", f"打开预测回测失败:\n{e}")
+            logger.error("打开预测回测失败", exc_info=True)
+            QMessageBox.critical(self.gui, "呜…出错了", "呜…打开预测回测失败啦，请稍后再试哦 ♪")
 
     # ──────────────────────────────────────────
     # 视频排行榜
@@ -61,7 +63,8 @@ class Dialogs:
             from ui.ranking_panel import RankingPanel
             RankingPanel(self.gui, self.gui)
         except Exception as e:
-            QMessageBox.critical(self.gui, "错误", f"打开排行榜失败:\n{e}")
+            logger.error("打开排行榜失败", exc_info=True)
+            QMessageBox.critical(self.gui, "呜…出错了", "呜…打开排行榜失败啦，请稍后再试哦 ♪")
 
     # ──────────────────────────────────────────
     # 异常增长检测
@@ -73,7 +76,8 @@ class Dialogs:
             from ui.anomaly_panel import AnomalyPanel
             AnomalyPanel(self.gui, self.gui)
         except Exception as e:
-            QMessageBox.critical(self.gui, "错误", f"打开异常检测失败:\n{e}")
+            logger.error("打开异常检测失败", exc_info=True)
+            QMessageBox.critical(self.gui, "呜…出错了", "呜…打开异常检测失败啦，请稍后再试哦 ♪")
 
     # ──────────────────────────────────────────
     # 刷新间隔设置
@@ -82,7 +86,7 @@ class Dialogs:
     def open_interval_settings(self):
         """打开刷新间隔设置对话框"""
         dialog = QDialog(self.gui)
-        dialog.setWindowTitle("刷新间隔设置")
+        dialog.setWindowTitle("刷新间隔设置 ♪")
         screen = self.gui.screen()
         sw = screen.size().width() if screen else 1920
         sh = screen.size().height() if screen else 1080
@@ -93,7 +97,7 @@ class Dialogs:
         layout = QVBoxLayout(dialog)
         layout.setContentsMargins(20, 20, 20, 0)
 
-        lbl = QLabel("普通刷新间隔（秒）：")
+        lbl = QLabel("普通刷新间隔（秒）：♪")
         lbl.setStyleSheet(f"color: {C['text_1']};")
         layout.addWidget(lbl)
 
@@ -120,7 +124,7 @@ class Dialogs:
 
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
-        save_btn = QPushButton("保存")
+        save_btn = QPushButton("保存 ♪")
         save_btn.setProperty("primary", True)
         save_btn.clicked.connect(_save)
         btn_layout.addWidget(save_btn)
@@ -142,7 +146,8 @@ class Dialogs:
             from ui.database_query import DatabaseQueryWindow
             DatabaseQueryWindow(self.gui)
         except Exception as e:
-            QMessageBox.critical(self.gui, "错误", f"打开数据库查询失败: {e}")
+            logger.error("打开数据库查询失败", exc_info=True)
+            QMessageBox.critical(self.gui, "呜…出错了", "呜…打开数据库查询失败啦，请稍后再试哦 ♪")
 
     # ──────────────────────────────────────────
     # 视频搜索
@@ -154,7 +159,8 @@ class Dialogs:
             from ui.video_search import VideoSearchWindow
             VideoSearchWindow(self.gui, on_import=self.gui._import_search_results)
         except Exception as e:
-            QMessageBox.critical(self.gui, "错误", f"打开视频搜索失败: {e}")
+            logger.error("打开视频搜索失败", exc_info=True)
+            QMessageBox.critical(self.gui, "呜…出错了", "呜…打开视频搜索失败啦，请稍后再试哦 ♪")
 
     # ──────────────────────────────────────────
     # 数据对比
@@ -172,7 +178,8 @@ class Dialogs:
                 on_add_monitor=self.gui._add_bvid_to_monitor,
             )
         except Exception as e:
-            QMessageBox.critical(self.gui, "错误", f"打开数据对比失败: {e}")
+            logger.error("打开数据对比失败", exc_info=True)
+            QMessageBox.critical(self.gui, "呜…出错了", "呜…打开数据对比失败啦，请稍后再试哦 ♪")
 
     # ──────────────────────────────────────────
     # 交叉计算
@@ -189,7 +196,8 @@ class Dialogs:
                 video_dbs=self.gui.video_dbs,
             )
         except Exception as e:
-            QMessageBox.critical(self.gui, "错误", f"打开交叉计算失败: {e}")
+            logger.error("打开交叉计算失败", exc_info=True)
+            QMessageBox.critical(self.gui, "呜…出错了", "呜…打开交叉计算失败啦，请稍后再试哦 ♪")
 
     # ──────────────────────────────────────────
     # 周刊分数
@@ -201,7 +209,8 @@ class Dialogs:
             from ui.weekly_score import WeeklyScoreWindow
             WeeklyScoreWindow(self.gui, monitored_videos=self.gui.monitored_videos, video_dbs=self.gui.video_dbs)
         except Exception as e:
-            QMessageBox.critical(self.gui, "错误", f"打开周刊分数计算失败: {e}")
+            logger.error("打开周刊分数计算失败", exc_info=True)
+            QMessageBox.critical(self.gui, "呜…出错了", "呜…打开周刊分数计算失败啦，请稍后再试哦 ♪")
 
     # ──────────────────────────────────────────
     # 里程碑统计
@@ -217,8 +226,8 @@ class Dialogs:
                 on_add_monitor=self.gui._add_bvid_to_monitor,
             )
         except Exception as e:
-            import traceback
-            QMessageBox.critical(self.gui, "错误", f"打开里程碑统计失败: {e}\n{traceback.format_exc()}")
+            logger.error("打开里程碑统计失败", exc_info=True)
+            QMessageBox.critical(self.gui, "呜…出错了", "呜…打开里程碑统计失败啦，请稍后再试哦 ♪")
 
     # ──────────────────────────────────────────
     # 添加 BV 到监控（里程碑回调）
@@ -244,8 +253,8 @@ class Dialogs:
             from ui.algorithm_compare import AlgorithmCompareWindow
             AlgorithmCompareWindow(self.gui, gui=self.gui)
         except Exception as e:
-            import traceback
-            QMessageBox.critical(self.gui, "错误", f"打开算法比较失败: {e}\n{traceback.format_exc()}")
+            logger.error("打开算法比较失败", exc_info=True)
+            QMessageBox.critical(self.gui, "呜…出错了", "呜…打开算法比较失败啦，请稍后再试哦 ♪")
 
     # ──────────────────────────────────────────
     # 系统设置
@@ -257,7 +266,8 @@ class Dialogs:
             from ui.settings_window import SettingsWindow
             SettingsWindow(self.gui, gui=self.gui)
         except Exception as e:
-            QMessageBox.critical(self.gui, "错误", f"打开系统设置失败: {e}")
+            logger.error("打开系统设置失败", exc_info=True)
+            QMessageBox.critical(self.gui, "呜…出错了", "呜…打开系统设置失败啦，请稍后再试哦 ♪")
 
     # ──────────────────────────────────────────
     # 导入搜索结果
@@ -289,17 +299,18 @@ class Dialogs:
                     QTimer.singleShot(0, lambda v=video: self.gui._register_video_to_monitor(v))
                     added += 1
                 except Exception as e:
-                    self.gui.log_panel.add_log("WARNING", f"导入 {bvid} 失败: {e}")
+                    logger.warning("导入 %s 失败", bvid, exc_info=True)
+                    self.gui.log_panel.add_log("WARNING", f"导入 {bvid} 失败啦…♪")
                     skipped += 1
                 time.sleep(0.3)
 
             from PyQt6.QtCore import QTimer
             QTimer.singleShot(0, self.gui._save_watch_list)
-            msg = f"成功导入 {added} 个视频"
+            msg = f"完成啦♪ 成功导入 {added} 个视频"
             if skipped:
-                msg += f"（跳过 {skipped} 个：已存在或获取失败）"
+                msg += f"（跳过 {skipped} 个：已存在或获取失败哦）"
             if added or skipped:
-                QTimer.singleShot(0, lambda: QMessageBox.information(self.gui, "导入完成", msg))
+                QTimer.singleShot(0, lambda: QMessageBox.information(self.gui, "导入完成 ♪", msg))
             self.gui.log_panel.add_log("INFO", f"导入完成：成功 {added}，跳过 {skipped}")
 
         threading.Thread(target=_worker, daemon=True).start()
@@ -311,7 +322,7 @@ class Dialogs:
     def open_algorithm_info(self):
         """打开算法信息对话框"""
         dialog = QDialog(self.gui)
-        dialog.setWindowTitle("算法信息")
+        dialog.setWindowTitle("算法信息 ♪")
         screen = self.gui.screen()
         sw = screen.size().width() if screen else 1920
         sh = screen.size().height() if screen else 1080
@@ -323,7 +334,7 @@ class Dialogs:
         layout.setContentsMargins(0, 0, 0, 0)
 
         # 标题
-        title_lbl = QLabel("预测算法信息")
+        title_lbl = QLabel("预测算法信息 ♪")
         title_lbl.setStyleSheet(f"""
             font-size: 14pt; font-weight: bold; color: {C['text_1']};
             background-color: {C['bg_surface']}; padding: 15px;
@@ -358,7 +369,7 @@ class Dialogs:
             """)
             info_layout = QVBoxLayout(info_frame)
 
-            count_lbl = QLabel(f"已加载算法: {len(algo_names)} 个")
+            count_lbl = QLabel(f"已加载算法: {len(algo_names)} 个 ♪")
             count_lbl.setStyleSheet(f"font-size: 11pt; font-weight: bold; color: {C['text_1']}; padding: 10px;")
             info_layout.addWidget(count_lbl)
             scroll_layout.addWidget(info_frame)
@@ -396,7 +407,7 @@ class Dialogs:
                 scroll_layout.addWidget(more_lbl)
 
             # 高级模块状态
-            section_title = QLabel("高级模块状态:")
+            section_title = QLabel("高级模块状态: ♪")
             section_title.setStyleSheet(f"font-size: 11pt; font-weight: bold; color: {C['text_1']}; padding-top: 15px;")
             scroll_layout.addWidget(section_title)
 
@@ -419,7 +430,8 @@ class Dialogs:
                 scroll_layout.addWidget(slbl)
 
         except Exception as e:
-            err_lbl = QLabel(f"加载算法信息失败: {e}")
+            logger.error("加载算法信息失败", exc_info=True)
+            err_lbl = QLabel("呜…加载算法信息失败啦，请稍后再试哦 ♪")
             err_lbl.setStyleSheet(f"color: {C['danger']};")
             scroll_layout.addWidget(err_lbl)
 
@@ -449,8 +461,8 @@ class Dialogs:
             from core import get_bilibili_api
             UpTrackerWindow(self.gui, api=get_bilibili_api())
         except Exception as e:
-            import traceback
-            QMessageBox.critical(self.gui, "错误", f"打开UP主追踪失败: {e}\n{traceback.format_exc()}")
+            logger.error("打开UP主追踪失败", exc_info=True)
+            QMessageBox.critical(self.gui, "呜…出错了", "呜…打开UP主追踪失败啦，请稍后再试哦 ♪")
 
     # ──────────────────────────────────────────
     # 弹幕分析
@@ -463,8 +475,8 @@ class Dialogs:
             from core import get_bilibili_api
             DanmakuAnalysisWindow(self.gui, api=get_bilibili_api(), gui=self.gui)
         except Exception as e:
-            import traceback
-            QMessageBox.critical(self.gui, "错误", f"打开弹幕分析失败: {e}\n{traceback.format_exc()}")
+            logger.error("打开弹幕分析失败", exc_info=True)
+            QMessageBox.critical(self.gui, "呜…出错了", "呜…打开弹幕分析失败啦，请稍后再试哦 ♪")
 
     # ──────────────────────────────────────────
     # 历史弹幕拉取
@@ -476,8 +488,8 @@ class Dialogs:
             from ui.danmaku_history import DanmakuHistoryWindow
             DanmakuHistoryWindow(parent=self.gui, gui=self.gui)
         except Exception as e:
-            import traceback
-            QMessageBox.critical(self.gui, "错误", f"打开历史弹幕失败: {e}\n{traceback.format_exc()}")
+            logger.error("打开历史弹幕失败", exc_info=True)
+            QMessageBox.critical(self.gui, "呜…出错了", "呜…打开历史弹幕失败啦，请稍后再试哦 ♪")
 
     # ──────────────────────────────────────────
     # 热门发现
@@ -490,8 +502,8 @@ class Dialogs:
             from core import get_bilibili_api
             TrendingDiscoveryWindow(self.gui, api=get_bilibili_api(), on_add_monitor=self.gui._add_bvid_to_monitor)
         except Exception as e:
-            import traceback
-            QMessageBox.critical(self.gui, "错误", f"打开热门发现失败: {e}\n{traceback.format_exc()}")
+            logger.error("打开热门发现失败", exc_info=True)
+            QMessageBox.critical(self.gui, "呜…出错了", "呜…打开热门发现失败啦，请稍后再试哦 ♪")
 
     # ──────────────────────────────────────────
     # AI智能问答
@@ -503,8 +515,8 @@ class Dialogs:
             from ui.ai_qa_window import AIQAWindow
             AIQAWindow(self.gui, gui=self.gui)
         except Exception as e:
-            import traceback
-            QMessageBox.critical(self.gui, "错误", f"打开AI问答失败: {e}\n{traceback.format_exc()}")
+            logger.error("打开AI问答失败", exc_info=True)
+            QMessageBox.critical(self.gui, "呜…出错了", "呜…打开AI问答失败啦，请稍后再试哦 ♪")
 
     # ──────────────────────────────────────────
     # 数据大屏
@@ -516,8 +528,8 @@ class Dialogs:
             from ui.prediction_accuracy import PredictionAccuracyPanel
             PredictionAccuracyPanel(parent=self.gui, gui=self.gui)
         except Exception as e:
-            import traceback
-            QMessageBox.critical(self.gui, "错误", f"打开预测回看失败: {e}\n{traceback.format_exc()}")
+            logger.error("打开预测回看失败", exc_info=True)
+            QMessageBox.critical(self.gui, "呜…出错了", "呜…打开预测回看失败啦，请稍后再试哦 ♪")
 
     def open_time_analysis(self):
         """打开时段播放分析窗口"""
@@ -525,8 +537,8 @@ class Dialogs:
             from ui.time_analysis import TimeAnalysisPanel
             TimeAnalysisPanel(parent=self.gui, gui=self.gui)
         except Exception as e:
-            import traceback
-            QMessageBox.critical(self.gui, "错误", f"打开时段分析失败: {e}\n{traceback.format_exc()}")
+            logger.error("打开时段分析失败", exc_info=True)
+            QMessageBox.critical(self.gui, "呜…出错了", "呜…打开时段分析失败啦，请稍后再试哦 ♪")
 
     def open_video_compare_enhanced(self):
         """打开视频对比增强窗口"""
@@ -534,8 +546,8 @@ class Dialogs:
             from ui.video_compare_enhanced import VideoCompareEnhanced
             VideoCompareEnhanced(parent=self.gui, gui=self.gui)
         except Exception as e:
-            import traceback
-            QMessageBox.critical(self.gui, "错误", f"打开视频对比增强失败: {e}\n{traceback.format_exc()}")
+            logger.error("打开视频对比增强失败", exc_info=True)
+            QMessageBox.critical(self.gui, "呜…出错了", "呜…打开视频对比增强失败啦，请稍后再试哦 ♪")
 
     def open_dashboard(self):
         """打开数据大屏窗口"""
@@ -543,8 +555,8 @@ class Dialogs:
             from ui.dashboard_mode import DashboardWindow
             DashboardWindow(gui=self.gui, parent=self.gui)
         except Exception as e:
-            import traceback
-            QMessageBox.critical(self.gui, "错误", f"打开数据大屏失败: {e}\n{traceback.format_exc()}")
+            logger.error("打开数据大屏失败", exc_info=True)
+            QMessageBox.critical(self.gui, "呜…出错了", "呜…打开数据大屏失败啦，请稍后再试哦 ♪")
 
     # ──────────────────────────────────────────
     # 报告导出
@@ -556,5 +568,5 @@ class Dialogs:
             from ui.report_scheduler import ReportSchedulerWindow
             ReportSchedulerWindow(self.gui, gui=self.gui)
         except Exception as e:
-            import traceback
-            QMessageBox.critical(self.gui, "错误", f"打开报告导出失败: {e}\n{traceback.format_exc()}")
+            logger.error("打开报告导出失败", exc_info=True)
+            QMessageBox.critical(self.gui, "呜…出错了", "呜…打开报告导出失败啦，请稍后再试哦 ♪")
