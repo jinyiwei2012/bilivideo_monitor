@@ -414,102 +414,65 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
         except Exception as e:
             logger.debug("更新 predictions predicted_hours 失败: %s", e)
 
-    def save_video_info(self, video_info: Dict):
-        """保存（插入或替换）视频信息到 video_info 表
+    def _exec_mirror(self, sql: str, params: tuple = ()):
+        """在镜像连接上执行 SQL（若镜像已创建）。
 
-        Args:
-            video_info: 视频信息字典
-        """
-        try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    """
-                    INSERT OR REPLACE INTO video_info
-                    (id, title, view_count, like_count, coin_count, share_count,
-                     favorite_count, danmaku_count, reply_count, viewers_app,
-                     viewers_web, viewers_total, cover_path, like_view_ratio,
-                     owner_name, owner_id, pubdate, duration, pic, updated_at)
-                    VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                    (
-                        video_info.get("title", ""),
-                        video_info.get("view_count", 0),
-                        video_info.get("like_count", 0),
-                        video_info.get("coin_count", 0),
-                        video_info.get("share_count", 0),
-                        video_info.get("favorite_count", 0),
-                        video_info.get("danmaku_count", 0),
-                        video_info.get("reply_count", 0),
-                        video_info.get("viewers_app", 0),
-                        video_info.get("viewers_web", 0),
-                        video_info.get("viewers_total", 0),
-                        video_info.get("cover_path", ""),
-                        video_info.get("like_view_ratio", 0),
-                        video_info.get("owner_name", ""),
-                        video_info.get("owner_id", 0),
-                        video_info.get("pubdate", ""),
-                        video_info.get("duration", 0),
-                        video_info.get("pic", ""),
-                        datetime.now(),
-                    ),
-                )
-                conn.commit()
-            # 同步写入镜像数据库
-            self._mirror_save_video_info(video_info)
-        except Exception as e:
-            logger.warning("保存视频信息失败 %s: %s", self.bvid, e, exc_info=True)
-
-    def _mirror_save_video_info(self, video_info: Dict):
-        """将视频信息同步写入镜像数据库
-
-        注意：双写模式存在一致性风险——若视频独立库写入成功但镜像库写入失败，
-        两端数据将不一致。当前通过 try/except 仅记录日志，不触发回滚或重试。
-
-        Args:
-            video_info: 视频信息字典
+        与主库写入共用同一 SQL/参数定义, 消除 _mirror_* 重复方法。
         """
         if not self._mirror_conn:
             return
         try:
             with self._lock:
-                self._mirror_conn.execute(
-                """
-                INSERT OR REPLACE INTO video_info
-                (id, title, view_count, like_count, coin_count, share_count,
-                 favorite_count, danmaku_count, reply_count, viewers_app,
-                 viewers_web, viewers_total, cover_path, like_view_ratio,
-                 owner_name, owner_id, pubdate, duration, pic, updated_at)
-                VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    video_info.get("title", ""),
-                    video_info.get("view_count", 0),
-                    video_info.get("like_count", 0),
-                    video_info.get("coin_count", 0),
-                    video_info.get("share_count", 0),
-                    video_info.get("favorite_count", 0),
-                    video_info.get("danmaku_count", 0),
-                    video_info.get("reply_count", 0),
-                    video_info.get("viewers_app", 0),
-                    video_info.get("viewers_web", 0),
-                    video_info.get("viewers_total", 0),
-                    video_info.get("cover_path", ""),
-                    video_info.get("like_view_ratio", 0),
-                    video_info.get("owner_name", ""),
-                    video_info.get("owner_id", 0),
-                    video_info.get("pubdate", ""),
-                    video_info.get("duration", 0),
-                    video_info.get("pic", ""),
-                    datetime.now(),
-                ),
-            )
-            self._mirror_conn.commit()
+                self._mirror_conn.execute(sql, params)
+                self._mirror_conn.commit()
         except Exception as e:
-            logger.debug("镜像保存视频信息失败 %s: %s", self.bvid, e)
+            logger.debug("镜像写入失败 %s: %s", self.bvid, e)
+
+    def save_video_info(self, video_info: Dict):
+        """保存（插入或替换）视频信息到 video_info 表, 并同步镜像库。
+
+        Args:
+            video_info: 视频信息字典
+        """
+        sql = """
+            INSERT OR REPLACE INTO video_info
+            (id, title, view_count, like_count, coin_count, share_count,
+             favorite_count, danmaku_count, reply_count, viewers_app,
+             viewers_web, viewers_total, cover_path, like_view_ratio,
+             owner_name, owner_id, pubdate, duration, pic, updated_at)
+            VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
+        params = (
+            video_info.get("title", ""),
+            video_info.get("view_count", 0),
+            video_info.get("like_count", 0),
+            video_info.get("coin_count", 0),
+            video_info.get("share_count", 0),
+            video_info.get("favorite_count", 0),
+            video_info.get("danmaku_count", 0),
+            video_info.get("reply_count", 0),
+            video_info.get("viewers_app", 0),
+            video_info.get("viewers_web", 0),
+            video_info.get("viewers_total", 0),
+            video_info.get("cover_path", ""),
+            video_info.get("like_view_ratio", 0),
+            video_info.get("owner_name", ""),
+            video_info.get("owner_id", 0),
+            video_info.get("pubdate", ""),
+            video_info.get("duration", 0),
+            video_info.get("pic", ""),
+            datetime.now(),
+        )
+        try:
+            with self._get_connection() as conn:
+                conn.cursor().execute(sql, params)
+                conn.commit()
+            self._exec_mirror(sql, params)
+        except Exception as e:
+            logger.warning("保存视频信息失败 %s: %s", self.bvid, e, exc_info=True)
 
     def add_monitor_record(self, record: MonitorRecord) -> bool:
-        """添加一条监控记录
+        """添加一条监控记录, 并同步镜像库
 
         Args:
             record: 监控记录数据对象
@@ -517,109 +480,59 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
         Returns:
             是否写入成功
         """
+        sql = """
+            INSERT INTO monitor_records
+            (timestamp, view_count, like_count, coin_count, share_count,
+             favorite_count, danmaku_count, reply_count, viewers_app,
+             viewers_web, viewers_total, like_view_ratio)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
+        params = (
+            record.timestamp,
+            record.view_count,
+            record.like_count,
+            record.coin_count,
+            record.share_count,
+            record.favorite_count,
+            record.danmaku_count,
+            record.reply_count,
+            record.viewers_app,
+            record.viewers_web,
+            record.viewers_total,
+            record.like_view_ratio,
+        )
         try:
             with self._get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    """
-                    INSERT INTO monitor_records
-                    (timestamp, view_count, like_count, coin_count, share_count,
-                     favorite_count, danmaku_count, reply_count, viewers_app,
-                     viewers_web, viewers_total, like_view_ratio)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                    (
-                        record.timestamp,
-                        record.view_count,
-                        record.like_count,
-                        record.coin_count,
-                        record.share_count,
-                        record.favorite_count,
-                        record.danmaku_count,
-                        record.reply_count,
-                        record.viewers_app,
-                        record.viewers_web,
-                        record.viewers_total,
-                        record.like_view_ratio,
-                    ),
-                )
+                conn.cursor().execute(sql, params)
                 conn.commit()
-            self._mirror_add_monitor_record(record)
+            self._exec_mirror(sql, params)
             return True
         except Exception as e:
             logger.warning("添加监控记录失败 %s: %s", record.bvid, e, exc_info=True)
             return False
 
-    def _mirror_add_monitor_record(self, record: MonitorRecord):
-        """将监控记录同步写入镜像数据库
-
-        注意：双写模式存在一致性风险——若视频独立库写入成功但镜像库写入失败，
-        两端数据将不一致。当前通过 try/except 仅记录日志，不触发回滚或重试。
-
-        Args:
-            record: 监控记录数据对象
+    def _prediction_sql(self, row: dict) -> tuple:
+        """构造 predictions 写入的 (SQL, params), 主库/镜像库共用。"""
+        sql = """
+            INSERT OR REPLACE INTO predictions
+            (algorithm, algorithm_id, target_threshold, predicted_seconds,
+             predicted_time, confidence, current_views,
+             metadata, predicted_hours, current_velocity)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
-        if not self._mirror_conn:
-            return
-        try:
-            with self._lock:
-                self._mirror_conn.execute(
-                    """
-                    INSERT INTO monitor_records
-                (timestamp, view_count, like_count, coin_count, share_count,
-                 favorite_count, danmaku_count, reply_count, viewers_app,
-                 viewers_web, viewers_total, like_view_ratio)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                    (
-                        record.timestamp,
-                        record.view_count,
-                        record.like_count,
-                        record.coin_count,
-                        record.share_count,
-                        record.favorite_count,
-                        record.danmaku_count,
-                        record.reply_count,
-                        record.viewers_app,
-                        record.viewers_web,
-                        record.viewers_total,
-                        record.like_view_ratio,
-                    ),
-                )
-                self._mirror_conn.commit()
-        except Exception as e:
-            logger.debug("镜像添加监控记录失败 %s: %s", record.bvid, e)
-
-    def _mirror_add_prediction(self, row: dict):
-        """将预测记录同步写入镜像数据库"""
-        if not self._mirror_conn:
-            return
-        try:
-            with self._lock:
-                self._mirror_conn.execute(
-                    """
-                    INSERT OR REPLACE INTO predictions
-                    (algorithm, algorithm_id, target_threshold, predicted_seconds,
-                     predicted_time, confidence, current_views,
-                     metadata, predicted_hours, current_velocity)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                    (
-                        row.get("algorithm", ""),
-                        row.get("algorithm_id", ""),
-                        row.get("target_threshold", 0),
-                        row.get("predicted_seconds", 0),
-                        row.get("predicted_time", ""),
-                        row.get("confidence", 0),
-                        row.get("current_views", 0),
-                        row.get("metadata", ""),
-                        row.get("predicted_hours", 0),
-                        row.get("current_velocity", 0),
-                    ),
-                )
-                self._mirror_conn.commit()
-        except Exception as e:
-            logger.debug("镜像添加预测记录失败 %s: %s", self.bvid, e)
+        params = (
+            row.get("algorithm", ""),
+            row.get("algorithm_id", ""),
+            row.get("target_threshold", 0),
+            row.get("predicted_seconds", 0),
+            row.get("predicted_time", ""),
+            row.get("confidence", 0),
+            row.get("current_views", 0),
+            row.get("metadata", ""),
+            row.get("predicted_hours", 0),
+            row.get("current_velocity", 0),
+        )
+        return sql, params
 
     # ═══ 分数操作已移入 _ScoreOpsMixin (video_db_scores.py) ═══
 
@@ -672,58 +585,28 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
         Returns:
             是否写入成功
         """
+        row = {
+            "algorithm": prediction.algorithm,
+            "algorithm_id": prediction.algorithm_id,
+            "target_threshold": prediction.target_threshold,
+            "predicted_seconds": prediction.predicted_seconds,
+            "predicted_time": prediction.predicted_time,
+            "confidence": prediction.confidence,
+            "current_views": prediction.current_views,
+            "metadata": prediction.metadata,
+            "predicted_hours": prediction.predicted_hours,
+            "current_velocity": prediction.current_velocity,
+        }
+        sql, params = self._prediction_sql(row)
         try:
             with self._get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    """
-                    INSERT OR REPLACE INTO predictions
-                    (algorithm, algorithm_id, target_threshold, predicted_seconds,
-                     predicted_time, confidence, current_views,
-                     metadata, predicted_hours, current_velocity)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                    (
-                        prediction.algorithm,
-                        prediction.algorithm_id,
-                        prediction.target_threshold,
-                        prediction.predicted_seconds,
-                        prediction.predicted_time,
-                        prediction.confidence,
-                        prediction.current_views,
-                        prediction.metadata,
-                        prediction.predicted_hours,
-                        prediction.current_velocity,
-                    ),
-                )
+                conn.cursor().execute(sql, params)
                 conn.commit()
-            self._mirror_add_prediction({
-                "algorithm": prediction.algorithm,
-                "algorithm_id": prediction.algorithm_id,
-                "target_threshold": prediction.target_threshold,
-                "predicted_seconds": prediction.predicted_seconds,
-                "predicted_time": prediction.predicted_time,
-                "confidence": prediction.confidence,
-                "current_views": prediction.current_views,
-                "metadata": prediction.metadata,
-                "predicted_hours": prediction.predicted_hours,
-                "current_velocity": prediction.current_velocity,
-            })
+            self._exec_mirror(sql, params)
             # 中央库兜底同步
             if self._central_db:
                 try:
-                    self._central_db.sync_predictions(self.bvid, [{
-                        "algorithm": prediction.algorithm,
-                        "algorithm_id": prediction.algorithm_id,
-                        "target_threshold": prediction.target_threshold,
-                        "predicted_seconds": prediction.predicted_seconds,
-                        "predicted_time": prediction.predicted_time,
-                        "confidence": prediction.confidence,
-                        "current_views": prediction.current_views,
-                        "metadata": prediction.metadata,
-                        "predicted_hours": prediction.predicted_hours,
-                        "current_velocity": prediction.current_velocity,
-                    }])
+                    self._central_db.sync_predictions(self.bvid, [row])
                 except Exception as e:
                     logger.debug("同步预测到中央库失败 %s: %s", self.bvid, e)
             return True
