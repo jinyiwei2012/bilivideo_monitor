@@ -24,11 +24,12 @@ from algorithms.weight_manager import get_weight_manager
 from utils.update_checker import _s, _hard, _train, _confirm_risky
 from ui.scrollable_frame import ScrollableFrame
 from ui.settings_common import styled_label as _styled_label, field_wrapper as _field_wrapper
+from ui.async_queue_runner import AsyncQueueRunner
 
 logger = logging.getLogger(__name__)
 
 
-class SettingsTrainingMixin:
+class SettingsTrainingMixin(AsyncQueueRunner):
     """Model training settings tab."""
 
     def _build_training_tab(self, nb):
@@ -210,10 +211,10 @@ class SettingsTrainingMixin:
         self._tr_status_lbl = _styled_label("就绪", "text_3", font_=FONT_SM)
         ctrl_layout.addWidget(self._tr_status_lbl)
 
-        self._tr_thread = None
-        self._tr_queue = None
+        self._train_thread = None  # AsyncQueueRunner 属性预初始化
+        self._train_queue = None
         self._tr_cancel_flag = [False]
-        self._tr_t0 = None
+        self._train_t0 = None
 
         self._refresh_device_info()
         self._refresh_data_size()
@@ -403,17 +404,10 @@ class SettingsTrainingMixin:
         self._tr_status_lbl.setText(f"准备训练 {len(selected)} 个算法 …")
         self._tr_status_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
 
-        import threading
-        import queue as _q
-        import time as _t
-
-        self._tr_t0 = _t.time()
-        self._tr_queue = _q.Queue()
-
         def _cb(payload: Dict):
             payload = dict(payload)
             payload["_total_selected"] = len(selected)
-            self._tr_queue.put(payload)
+            self._train_queue.put(payload)
 
         def _worker():
             try:
@@ -423,18 +417,17 @@ class SettingsTrainingMixin:
                 results = {}
                 while remaining:
                     if self._tr_cancel_flag[0]:
-                        self._tr_queue.put({"stage": "cancelled", "remaining": remaining})
+                        self._train_queue.put({"stage": "cancelled", "remaining": remaining})
                         break
                     aid = remaining.pop(0)
                     sub = trainer.train_global([aid], epochs=epochs, batch_size=batch, progress_cb=_cb)
                     results.update(sub)
-                self._tr_queue.put({"stage": "all_done", "results": results})
+                self._train_queue.put({"stage": "all_done", "results": results})
             except Exception as e:
-                self._tr_queue.put({"stage": "fatal", "error": str(e)})
+                self._train_queue.put({"stage": "fatal", "error": str(e)})
 
-        self._tr_thread = threading.Thread(target=_worker, daemon=True)
-        self._tr_thread.start()
-        QTimer.singleShot(150, self._poll_training_progress)
+        # 线程 + 队列 + 轮询由 AsyncQueueRunner 提供
+        self._launch_worker(_worker)
 
 
     def _on_train_cancel(self):
@@ -478,84 +471,75 @@ class SettingsTrainingMixin:
             QMessageBox.critical(self.dlg, "导入失败", str(e))
 
 
-    def _poll_training_progress(self):
-        import queue as _q
+    def _handle_stage(self, msg) -> bool:
+        """处理训练进度消息。返回 True 表示训练全部结束 (AsyncQueueRunner 契约)。"""
         import time as _t
 
-        if self._tr_queue is None:
-            return
+        stage = msg.get("stage")
+        total_sel = msg.get("_total_selected", 1)
 
-        done_all = False
-        while True:
-            try:
-                msg = self._tr_queue.get_nowait()
-            except _q.Empty:
-                break
-            stage = msg.get("stage")
-            total_sel = msg.get("_total_selected", 1)
+        if stage == "start":
+            aid = msg.get("algo_id", "?")
+            txt = f"[{msg.get('current', 0)}/{msg.get('total', 1)}] 开始训练 {aid} …"
+            self._tr_status_lbl.setText(txt)
+            self._tr_status_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
+        elif stage == "epoch":
+            aid = msg.get("algo_id", "?")
+            ep = msg.get("epoch", 0)
+            eps = msg.get("epochs", 1)
+            tloss = msg.get("train_loss", 0.0)
+            vloss = msg.get("val_loss", -1.0)
+            elapsed = msg.get("elapsed_s", 0.0)
+            pct = min(100, int((ep / max(1, eps)) * 100))
+            self._tr_progress.setValue(pct)
+            vtxt = f" val={vloss:.4f}" if vloss >= 0 else ""
+            eta_total = (_t.time() - self._train_t0) if self._train_t0 else 0
+            txt = (
+                f"{aid}  ·  epoch {ep}/{eps}  ·  "
+                f"train={tloss:.4f}{vtxt}  ·  本算法 {elapsed:.1f}s  ·  累计 {eta_total:.1f}s"
+            )
+            self._tr_status_lbl.setText(txt)
+            self._tr_status_lbl.setStyleSheet(f"color: {C['text_1']}; background: transparent;")
+        elif stage == "done":
+            aid = msg.get("algo_id", "?")
+            cur = msg.get("current", 0)
+            ver = msg.get("version", "")
+            self._tr_status_lbl.setText(f"✓ {aid} 完成 → {ver}  ({cur}/{total_sel})")
+            self._tr_status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
+            self._tr_progress.setValue(int(cur / max(1, total_sel) * 100))
+        elif stage == "error":
+            aid = msg.get("algo_id", "?")
+            err = msg.get("error", "")
+            self._tr_status_lbl.setText(f"✗ {aid} 失败: {err}")
+            self._tr_status_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
+        elif stage == "cancelled":
+            rem = msg.get("remaining", [])
+            self._tr_status_lbl.setText(f"已取消，剩余 {len(rem)} 个算法未训练")
+            self._tr_status_lbl.setStyleSheet(f"color: {C['warning']}; background: transparent;")
+            return True
+        elif stage == "all_done":
+            results = msg.get("results", {})
+            ok = sum(1 for v in results.values() if v)
+            bad = sum(1 for v in results.values() if not v)
+            elapsed = (_t.time() - self._train_t0) if self._train_t0 else 0
+            self._tr_status_lbl.setText(f"全部完成: ✓ {ok}  ✗ {bad}  ·  耗时 {elapsed:.1f}s")
+            self._tr_status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
+            self._tr_progress.setValue(100)
+            return True
+        elif stage == "fatal":
+            err = msg.get("error", "")
+            self._tr_status_lbl.setText(f"训练进程异常: {err}")
+            self._tr_status_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
+            return True
+        return False
 
-            if stage == "start":
-                aid = msg.get("algo_id", "?")
-                txt = f"[{msg.get('current', 0)}/{msg.get('total', 1)}] 开始训练 {aid} …"
-                self._tr_status_lbl.setText(txt)
-                self._tr_status_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
-            elif stage == "epoch":
-                aid = msg.get("algo_id", "?")
-                ep = msg.get("epoch", 0)
-                eps = msg.get("epochs", 1)
-                tloss = msg.get("train_loss", 0.0)
-                vloss = msg.get("val_loss", -1.0)
-                elapsed = msg.get("elapsed_s", 0.0)
-                pct = min(100, int((ep / max(1, eps)) * 100))
-                self._tr_progress.setValue(pct)
-                vtxt = f" val={vloss:.4f}" if vloss >= 0 else ""
-                eta_total = (_t.time() - self._tr_t0) if self._tr_t0 else 0
-                txt = (
-                    f"{aid}  ·  epoch {ep}/{eps}  ·  "
-                    f"train={tloss:.4f}{vtxt}  ·  本算法 {elapsed:.1f}s  ·  累计 {eta_total:.1f}s"
-                )
-                self._tr_status_lbl.setText(txt)
-                self._tr_status_lbl.setStyleSheet(f"color: {C['text_1']}; background: transparent;")
-            elif stage == "done":
-                aid = msg.get("algo_id", "?")
-                cur = msg.get("current", 0)
-                ver = msg.get("version", "")
-                self._tr_status_lbl.setText(f"✓ {aid} 完成 → {ver}  ({cur}/{total_sel})")
-                self._tr_status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
-                self._tr_progress.setValue(int(cur / max(1, total_sel) * 100))
-            elif stage == "error":
-                aid = msg.get("algo_id", "?")
-                err = msg.get("error", "")
-                self._tr_status_lbl.setText(f"✗ {aid} 失败: {err}")
-                self._tr_status_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
-            elif stage == "cancelled":
-                rem = msg.get("remaining", [])
-                self._tr_status_lbl.setText(f"已取消，剩余 {len(rem)} 个算法未训练")
-                self._tr_status_lbl.setStyleSheet(f"color: {C['warning']}; background: transparent;")
-                done_all = True
-            elif stage == "all_done":
-                results = msg.get("results", {})
-                ok = sum(1 for v in results.values() if v)
-                bad = sum(1 for v in results.values() if not v)
-                elapsed = (_t.time() - self._tr_t0) if self._tr_t0 else 0
-                self._tr_status_lbl.setText(f"全部完成: ✓ {ok}  ✗ {bad}  ·  耗时 {elapsed:.1f}s")
-                self._tr_status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
-                self._tr_progress.setValue(100)
-                done_all = True
-            elif stage == "fatal":
-                err = msg.get("error", "")
-                self._tr_status_lbl.setText(f"训练进程异常: {err}")
-                self._tr_status_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
-                done_all = True
-
-        if done_all:
-            self._tr_train_btn.setEnabled(True)
-            self._tr_cancel_btn.setEnabled(False)
-            self._refresh_algo_list()
-            self._tr_queue = None
-            self._tr_thread = None
-        else:
-            QTimer.singleShot(200, self._poll_training_progress)
+    def _cleanup_training(self):
+        """训练结束后恢复 UI (AsyncQueueRunner 契约)。"""
+        self._tr_train_btn.setEnabled(True)
+        self._tr_cancel_btn.setEnabled(False)
+        self._refresh_algo_list()
+        self._train_queue = None
+        self._train_thread = None
 
 
     def _open_version_manager(self, algo_id: str):
