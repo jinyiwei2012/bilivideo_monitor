@@ -22,7 +22,7 @@ class TagManagerWindow:
     def __init__(self, parent, gui):
         """初始化标签管理窗口"""
         self.gui = gui
-        self.dlg = DialogBase(parent, "🎫 视频标签管理", "600x500")
+        self.dlg = DialogBase(parent, "◫ 视频标签管理", "600x500")
         self.dlg.header("视频标签管理", "为监控视频添加自定义标签，方便分类筛选")
         self._build_ui()
         self._refresh()
@@ -77,7 +77,7 @@ class TagManagerWindow:
         add_btn.clicked.connect(self._add_tag)
         tag_input_layout.addWidget(add_btn)
 
-        suggest_btn = QPushButton("💡 建议")
+        suggest_btn = QPushButton("✦ 建议")
         suggest_btn.setToolTip("根据视频信息自动建议标签")
         suggest_btn.clicked.connect(self._auto_suggest)
         tag_input_layout.addWidget(suggest_btn)
@@ -201,7 +201,7 @@ class TagManagerWindow:
             lbl.setFont(FONT)
             row_layout.addWidget(lbl)
 
-            del_lbl = QLabel("✕")
+            del_lbl = QLabel("✗")
             del_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
             del_lbl.setFont(FONT)
             del_lbl.mousePressEvent = lambda e, t=tag: self._delete_tag(t)

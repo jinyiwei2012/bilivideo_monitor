@@ -103,7 +103,7 @@ class ReportSchedulerWindow(QDialog):
         self._export_status.setStyleSheet(f"color: {C['text_2']}; background-color: transparent;")
         cl.addWidget(self._export_status)
 
-        pred_btn = QPushButton("📊 导出预测vs实际对比表")
+        pred_btn = QPushButton("◧ 导出预测vs实际对比表")
         pred_btn.clicked.connect(self._export_pred_vs_actual)
         cl.addWidget(pred_btn)
 
@@ -221,13 +221,13 @@ class ReportSchedulerWindow(QDialog):
 
             path = export_prediction_vs_actual(self.gui.video_dbs)
             if path:
-                self._export_status.setText(f"✅ 已导出: {path}")
+                self._export_status.setText(f"✓ 已导出: {path}")
                 self._export_status.setStyleSheet(f"color: {C['success']}; background-color: transparent;")
             else:
-                self._export_status.setText("⚠️ 无有效的预测-实际对照数据")
+                self._export_status.setText("△ 无有效的预测-实际对照数据")
                 self._export_status.setStyleSheet(f"color: {C['warning']}; background-color: transparent;")
         except Exception as e:
-            self._export_status.setText(f"❌ 导出失败: {e}")
+            self._export_status.setText(f"✗ 导出失败: {e}")
             self._export_status.setStyleSheet(f"color: {C['danger']}; background-color: transparent;")
 
     def _export_now(self):

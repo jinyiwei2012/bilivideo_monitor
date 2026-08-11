@@ -132,7 +132,7 @@ class FinetunePanel(BaseTrainingPanel):
         v_hdr.setStyleSheet(f"background-color: {C['bg_elevated']};")
         vhdr_layout = QHBoxLayout(v_hdr)
         vhdr_layout.setContentsMargins(4, 4, 4, 0)
-        v_title = QLabel("🎬 选择视频")
+        v_title = QLabel("▶ 选择视频")
         v_title.setStyleSheet(f"color: {C['text_1']}; background: transparent; font: bold;")
         vhdr_layout.addWidget(v_title)
         vhdr_layout.addStretch()
@@ -156,7 +156,7 @@ class FinetunePanel(BaseTrainingPanel):
         a_hdr.setStyleSheet(f"background-color: {C['bg_elevated']};")
         ahdr_layout = QHBoxLayout(a_hdr)
         ahdr_layout.setContentsMargins(4, 4, 4, 0)
-        a_title = QLabel("🧠 选择算法（已训练）")
+        a_title = QLabel("◍ 选择算法（已训练）")
         a_title.setStyleSheet(f"color: {C['text_1']}; background: transparent; font: bold;")
         ahdr_layout.addWidget(a_title)
         ahdr_layout.addStretch()
@@ -179,7 +179,7 @@ class FinetunePanel(BaseTrainingPanel):
         btn_sel_inv.setFixedWidth(50)
         btn_sel_inv.clicked.connect(lambda: self._toggle_algos(False))
         at_layout.addWidget(btn_sel_inv)
-        btn_version = QPushButton("🗑️ 版本管理")
+        btn_version = QPushButton("✕ 版本管理")
         btn_version.setFixedWidth(85)
         btn_version.clicked.connect(self._on_manage_versions)
         at_layout.addWidget(btn_version)
@@ -296,7 +296,7 @@ class FinetunePanel(BaseTrainingPanel):
         self._train_btn.clicked.connect(self._on_start)
         self._train_btn.setEnabled(_train() == "normal")
         ctrl_layout.addWidget(self._train_btn)
-        self._cancel_btn = QPushButton("✕ 取消")
+        self._cancel_btn = QPushButton("✗ 取消")
         self._cancel_btn.clicked.connect(self._on_cancel)
         self._cancel_btn.setEnabled(False)
         ctrl_layout.addWidget(self._cancel_btn)
@@ -306,7 +306,7 @@ class FinetunePanel(BaseTrainingPanel):
         ctrl_layout.addWidget(self._skip_btn)
 
         if _train() != "normal":
-            hint_lbl = QLabel("💡 创建 .enabletraining 文件开启微调 / 完整 devmode 见 README.md")
+            hint_lbl = QLabel("✦ 创建 .enabletraining 文件开启微调 / 完整 devmode 见 README.md")
             hint_lbl.setStyleSheet(f"color: {C['warning']}; background: transparent; font: 8pt;")
             ctrl_layout.addWidget(hint_lbl)
 
@@ -431,7 +431,7 @@ class FinetunePanel(BaseTrainingPanel):
             row_layout.addWidget(id_lbl)
 
             if a["has_ckpt"]:
-                st = f"✅ {a['active_version'][:10]}"
+                st = f"✓ {a['active_version'][:10]}"
                 sf = C["success"]
             else:
                 st = "□ 未训练"
@@ -524,7 +524,7 @@ class FinetunePanel(BaseTrainingPanel):
         mode_label = "重新训练" if mode == "retrain" else "增量微调"
         data_label = "仅新数据" if self._use_new_data_only else "全部数据"
         self._append_log(
-            f"🚀 开始{mode_label}（{data_label}）: {len(selected_videos)} 视频 × {len(selected_algos)} 算法, "
+            f"♬ 开始{mode_label}（{data_label}）: {len(selected_videos)} 视频 × {len(selected_algos)} 算法, "
             f"epoch={epochs}, batch={batch}"
         )
         self._task_lbl.setText(f"{mode_label}进行中…")
@@ -636,7 +636,7 @@ class FinetunePanel(BaseTrainingPanel):
                 status = mon.status
                 if "nan" in status.lower():
                     self._auto_control["early_stop"] = True
-                    payload["_adjustment"] = "🔧 NaN 检测 — 提前停止"
+                    payload["_adjustment"] = "⚙ NaN 检测 — 提前停止"
                 elif "爆炸" in status:
                     scale = mon.compute_lr_scale("explosion")
                     gc = mon.compute_grad_clip("explosion")
@@ -648,13 +648,13 @@ class FinetunePanel(BaseTrainingPanel):
                     if gc > 0:
                         parts.append(f"梯度裁剪={gc:.2f}")
                     parts.append(f"累计×{self._algo_lr_factors[aid]:.2f}")
-                    payload["_adjustment"] = f"🔧 Loss 爆炸 — {', '.join(parts)}"
+                    payload["_adjustment"] = f"⚙ Loss 爆炸 — {', '.join(parts)}"
                 elif "严重过拟合" in status:
                     self._auto_control["early_stop"] = True
                     wd = mon.compute_weight_decay()
                     if wd > 0:
                         self._auto_control["weight_decay"] = wd
-                    payload["_adjustment"] = "🔧 严重过拟合 — 提前停止" + (f", weight_decay={wd:.4f}" if wd > 0 else "")
+                    payload["_adjustment"] = "⚙ 严重过拟合 — 提前停止" + (f", weight_decay={wd:.4f}" if wd > 0 else "")
                 elif "震荡" in status:
                     scale = mon.compute_lr_scale("oscillation")
                     gc = mon.compute_grad_clip("oscillation")
@@ -666,7 +666,7 @@ class FinetunePanel(BaseTrainingPanel):
                     if gc > 0:
                         parts.append(f"梯度裁剪={gc:.2f}")
                     parts.append(f"累计×{self._algo_lr_factors[aid]:.2f}")
-                    payload["_adjustment"] = f"🔧 Loss 震荡 — {', '.join(parts)}"
+                    payload["_adjustment"] = f"⚙ Loss 震荡 — {', '.join(parts)}"
                 elif "过拟合" in status:
                     scale = mon.compute_lr_scale("overfitting")
                     wd = mon.compute_weight_decay()
@@ -678,15 +678,15 @@ class FinetunePanel(BaseTrainingPanel):
                     if wd > 0:
                         parts.append(f"weight_decay={wd:.4f}")
                     parts.append(f"累计×{self._algo_lr_factors[aid]:.2f}")
-                    payload["_adjustment"] = f"🔧 过拟合 — {', '.join(parts)}"
+                    payload["_adjustment"] = f"⚙ 过拟合 — {', '.join(parts)}"
                 elif "欠拟合" in status or "下降过慢" in status:
                     scale = mon.compute_lr_scale("underfitting")
                     self._auto_control["lr_scale"] = scale
                     self._algo_lr_factors[aid] = max(0.01, min(10.0, self._algo_lr_factors.get(aid, 1.0) * scale))
-                    payload["_adjustment"] = f"🔧 欠拟合 — LR×{scale:.2f} (累计×{self._algo_lr_factors[aid]:.2f})"
+                    payload["_adjustment"] = f"⚙ 欠拟合 — LR×{scale:.2f} (累计×{self._algo_lr_factors[aid]:.2f})"
                 elif "不再收敛" in status:
                     self._auto_control["early_stop"] = True
-                    payload["_adjustment"] = "🔧 不再收敛 — 提前停止"
+                    payload["_adjustment"] = "⚙ 不再收敛 — 提前停止"
 
         self._train_queue.put(payload)
 
@@ -724,7 +724,7 @@ class FinetunePanel(BaseTrainingPanel):
                             self._train_queue.put(
                                 {
                                     "stage": "log",
-                                    "text": f"  🗑 已清除 {aid}@{bvid} 的 {deleted} 个旧版本",
+                                    "text": f"  ✕ 已清除 {aid}@{bvid} 的 {deleted} 个旧版本",
                                 }
                             )
 
@@ -849,10 +849,10 @@ class FinetunePanel(BaseTrainingPanel):
             self._loss_history.clear()
             self._clear_chart()
             self._monitor.reset()
-            self._task_lbl.setText(f"🎯 视频 {bvid}: 开始微调 {aid}")
+            self._task_lbl.setText(f"◎ 视频 {bvid}: 开始微调 {aid}")
             self._task_lbl.setStyleSheet(f"color: {C['accent']}; background: transparent;")
         else:
-            self._task_lbl.setText(f"🎯 视频 {bvid}: 微调 {aid}")
+            self._task_lbl.setText(f"◎ 视频 {bvid}: 微调 {aid}")
             self._task_lbl.setStyleSheet(f"color: {C['accent']}; background: transparent;")
         self._task_detail.setText(f"{done}/{total}")
         pct = min(100, int(done / max(1, total) * 100))
@@ -860,7 +860,7 @@ class FinetunePanel(BaseTrainingPanel):
         self._status_lbl.setText(f"[{done}/{total}] 微调 {aid} → {bvid}")
         self._status_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
         self._append_log(f"── [{done}/{total}] 开始微调 {aid}@{bvid} ──")
-        self.main.set_finetune_status(f"🎯 微调 {bvid}: [{done}/{total}] {aid}")
+        self.main.set_finetune_status(f"◎ 微调 {bvid}: [{done}/{total}] {aid}")
         self._refresh_algo_row(0, aid, "▶ 训练中", C["accent"], "", "", "")
 
     def _on_stage_epoch(self, msg):
@@ -968,7 +968,7 @@ class FinetunePanel(BaseTrainingPanel):
         """处理自动调整事件：记录调整操作到日志"""
         action = msg.get("action", "")
         message = msg.get("message", "")
-        self._append_log(f"  🔧 自动调整: {message}")
+        self._append_log(f"  ⚙ 自动调整: {message}")
         self._status_lbl.setText(f"⚡ {message}")
         self._status_lbl.setStyleSheet(f"color: {C['warning']}; background: transparent;")
         if action == "early_stop":
@@ -999,15 +999,15 @@ class FinetunePanel(BaseTrainingPanel):
                 cs, _ = format_confidence(r["confidence"])
                 conf_summary += f"\n  {bvid} → {r['aid']}: {cs}"
 
-        self._task_lbl.setText("✅ 微调全部完成")
+        self._task_lbl.setText("✓ 微调全部完成")
         self._task_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
         self._task_detail.setText(f"{done}/{done}")
         self._status_lbl.setText(f"全部完成: {done} 任务 · {elapsed:.0f}s")
         self._status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
         self._progress.setValue(100)
-        self._append_log(f"🏁 批量微调全部完成: {done} 任务, 耗时 {elapsed:.0f}s")
-        self._append_log(f"📊 各算法最终置信度:{conf_summary}")
-        self.main.set_finetune_status(f"✅ 批量微调完成 ({done})")
+        self._append_log(f"⚑ 批量微调全部完成: {done} 任务, 耗时 {elapsed:.0f}s")
+        self._append_log(f"◧ 各算法最终置信度:{conf_summary}")
+        self.main.set_finetune_status(f"✓ 批量微调完成 ({done})")
         self._last_finetune_count = done
         return True
 
@@ -1041,10 +1041,10 @@ class FinetunePanel(BaseTrainingPanel):
             if cur_status != last_status or cur_epoch - last_epoch >= 8:
                 self._last_monitor_status = cur_status
                 self._last_monitor_log_epoch = cur_epoch
-                prefix = "🤖 训练质量检测" if cur_status != last_status else "🔄 持续监测"
+                prefix = "◉ 训练质量检测" if cur_status != last_status else "⟳ 持续监测"
                 self._append_log(f"{prefix}: {cur_status}")
                 for s in self._monitor.suggestions:
-                    self._append_log(f"  💡 {s}")
+                    self._append_log(f"  ✦ {s}")
 
                 # 显示累积 LR 调整信息
                 factor = self._algo_lr_factors.get(self._current_aid, 1.0)
@@ -1052,7 +1052,7 @@ class FinetunePanel(BaseTrainingPanel):
                     base_lr = 0.001
                     cur_lr = base_lr * factor
                     self._append_log(
-                        f"  📐 当前有效学习率: {cur_lr:.6f} (基础 {base_lr} × {factor:.2f}) — 自动调整已应用于后续训练"
+                        f"  ◫ 当前有效学习率: {cur_lr:.6f} (基础 {base_lr} × {factor:.2f}) — 自动调整已应用于后续训练"
                     )
 
     # ══════════════════════════════════════════════

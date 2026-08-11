@@ -58,13 +58,13 @@ class BottomBar(QWidget):
         h.addWidget(self._add_btn)
 
         # 「立即刷新」按钮
-        self._refresh_btn = QPushButton("🔄 立即刷新")
+        self._refresh_btn = QPushButton("⟳ 立即刷新")
         self._refresh_btn.setFixedHeight(32)
         self._refresh_btn.clicked.connect(self.gui._refresh_data)
         h.addWidget(self._refresh_btn)
 
         # 「删除监控」按钮
-        self._del_btn = QPushButton("🗑 删除监控")
+        self._del_btn = QPushButton("✕ 删除监控")
         self._del_btn.setProperty("danger", True)
         self._del_btn.setFixedHeight(32)
         self._del_btn.clicked.connect(self.gui._remove_monitor)
@@ -79,7 +79,7 @@ class BottomBar(QWidget):
         h.addWidget(self._undo_btn)
 
         # 「手动推送」按钮
-        self._push_btn = QPushButton("📤 手动推送")
+        self._push_btn = QPushButton("⇪ 手动推送")
         self._push_btn.setProperty("accent", True)
         self._push_btn.setFixedHeight(32)
         self._push_btn.clicked.connect(self.gui._manual_push)

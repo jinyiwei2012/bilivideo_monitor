@@ -177,7 +177,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
         btn_sel_untrained.setFixedWidth(65)
         btn_sel_untrained.clicked.connect(self._select_untrained)
         toolbar_layout.addWidget(btn_sel_untrained)
-        btn_version = QPushButton("🗑️ 版本管理")
+        btn_version = QPushButton("✕ 版本管理")
         btn_version.setFixedWidth(85)
         btn_version.clicked.connect(self._on_manage_versions)
         toolbar_layout.addWidget(btn_version)
@@ -321,7 +321,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
         self._train_btn.clicked.connect(self._on_train_start)
         self._train_btn.setEnabled(_train() == "normal")
         ctrl_layout.addWidget(self._train_btn)
-        self._cancel_btn = QPushButton("✕ 取消")
+        self._cancel_btn = QPushButton("✗ 取消")
         self._cancel_btn.clicked.connect(self._on_cancel)
         self._cancel_btn.setEnabled(False)
         ctrl_layout.addWidget(self._cancel_btn)
@@ -329,13 +329,13 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
         self._skip_btn.clicked.connect(self._on_skip_algo)
         self._skip_btn.setEnabled(False)
         ctrl_layout.addWidget(self._skip_btn)
-        batch_finetune_btn = QPushButton("🎯 批量微调")
+        batch_finetune_btn = QPushButton("◎ 批量微调")
         batch_finetune_btn.clicked.connect(self._on_batch_finetune)
         batch_finetune_btn.setEnabled(_train() == "normal")
         ctrl_layout.addWidget(batch_finetune_btn)
 
         if _train() != "normal":
-            train_hint = QLabel("💡 创建 .enabletraining 文件开启训练 / 完整 devmode 见 README.md")
+            train_hint = QLabel("✦ 创建 .enabletraining 文件开启训练 / 完整 devmode 见 README.md")
             train_hint.setStyleSheet(f"color: {C['warning']}; background: transparent; font: 8pt;")
             ctrl_layout.addWidget(train_hint)
 
@@ -387,17 +387,17 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
             force_cpu(self._force_cpu_cb.isChecked())
             info = get_device_info()
             if not is_torch_available():
-                self._device_lbl.setText("❌ torch 未安装")
+                self._device_lbl.setText("✗ torch 未安装")
                 self._device_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
             elif info.get("is_gpu"):
                 mem = info.get("total_memory_gb", 0)
-                self._device_lbl.setText(f"✅ {info['name']} ({mem:.1f} GB)")
+                self._device_lbl.setText(f"✓ {info['name']} ({mem:.1f} GB)")
                 self._device_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
             else:
-                self._device_lbl.setText(f"💻 {info['name']}")
+                self._device_lbl.setText(f"▮ {info['name']}")
                 self._device_lbl.setStyleSheet(f"color: {C['warning']}; background: transparent;")
         except Exception as e:
-            self._device_lbl.setText(f"⚠ {e}")
+            self._device_lbl.setText(f"△ {e}")
             self._device_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
 
     def _on_force_cpu(self):
@@ -458,7 +458,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
                 invoke(lambda: self._data_lbl.setText(txt))
                 invoke(lambda: self._data_lbl.setStyleSheet(f"color: {C['text_1']}; background: transparent;"))
             except Exception as e:
-                invoke(lambda e=e: self._data_lbl.setText(f"⚠ {e}"))
+                invoke(lambda e=e: self._data_lbl.setText(f"△ {e}"))
                 invoke(lambda e=e: self._data_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;"))
 
         threading.Thread(target=_worker, daemon=True).start()
@@ -486,7 +486,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
         try:
             algos = self._discover_algorithms()
         except Exception as e:
-            err_lbl = QLabel(f"⚠ 加载失败: {e}")
+            err_lbl = QLabel(f"△ 加载失败: {e}")
             err_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
             err_lbl.setFont(FONT)
             self._algo_frame.layout().addWidget(err_lbl)
@@ -524,7 +524,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
             row_layout.addWidget(id_lbl)
 
             if a["has_ckpt"]:
-                st = f"✅ {a['active_version'][:10]}"
+                st = f"✓ {a['active_version'][:10]}"
                 sf = C["success"]
             else:
                 st = "□ 未训练"
@@ -798,7 +798,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
 
         trainer = ModelTrainer()
         done = 0
-        self.main.set_finetune_status(f"🎯 批量微调 0/{total}")
+        self.main.set_finetune_status(f"◎ 批量微调 0/{total}")
         for bvid in selected_videos:
             for aid in selected_algos:
                 done += 1
@@ -807,7 +807,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
                 invoke(lambda m=msg: ui["ft_status"].setText(m))
                 invoke(lambda p=pct: ui["ft_progress"].setValue(p))
                 invoke(lambda m=msg: _ft_log(m))
-                invoke(lambda d=done, t=total: self.main.set_finetune_status(f"🎯 批量微调 {d}/{t}"))
+                invoke(lambda d=done, t=total: self.main.set_finetune_status(f"◎ 批量微调 {d}/{t}"))
                 try:
                     ver = trainer.finetune_for_video(
                         algo_id=aid,
@@ -822,11 +822,11 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
 
     def _batch_done_callback(self, dialog, ui, _ft_log, done):
         """批量微调完成后的 UI 更新回调"""
-        invoke(lambda: ui["ft_status"].setText(f"✅ 微调完成 ({done} 任务)"))
+        invoke(lambda: ui["ft_status"].setText(f"✓ 微调完成 ({done} 任务)"))
         invoke(lambda: ui["ft_progress"].setValue(100))
-        invoke(lambda: self.main.set_finetune_status(f"✅ 批量微调完成 ({done})"))
+        invoke(lambda: self.main.set_finetune_status(f"✓ 批量微调完成 ({done})"))
         invoke(lambda: ui["start_btn"].setEnabled(True))
-        invoke(lambda: _ft_log("🏁 批量微调全部完成"))
+        invoke(lambda: _ft_log("⚑ 批量微调全部完成"))
 
     # ══════════════════════════════════════════════
     # 训练执行
@@ -876,7 +876,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
                 if parallel > max_safe:
                     parallel = max_safe
                     parallel_warning = (
-                        f"\n⚠️ 显存安全限制：{vram_gb:.1f}GB 显存，"
+                        f"\n△ 显存安全限制：{vram_gb:.1f}GB 显存，"
                         f"自动降为并行 {parallel}（避免炸显存）"
                     )
         except Exception:
@@ -915,12 +915,12 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
         self._prepare_training()
         self._open_log_file(len(selected), epochs, batch, mode_label, lr)
         self._append_log(
-            f"🚀 开始训练: {mode_label}, {len(selected)} 个算法, epoch={epochs}, batch={batch}, lr={lr:.6f}"
+            f"♬ 开始训练: {mode_label}, {len(selected)} 个算法, epoch={epochs}, batch={batch}, lr={lr:.6f}"
         )
         if self._batch_log_cb.isChecked():
             val = self._batch_interval_entry.text()
             unit = self._batch_interval_combo.currentText()
-            self._append_log(f"📋 详细日志：每 {val}{unit} batch 输出进度")
+            self._append_log(f"☰ 详细日志：每 {val}{unit} batch 输出进度")
         self._status_lbl.setText(f"准备训练 {len(selected)} 个算法 …")
         self._status_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
 
@@ -929,10 +929,10 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
             top = self.window()
             if top and top.window():
                 self._saved_title = top.windowTitle()
-                top.setWindowTitle(f"🔴 训练中 — {self._saved_title}")
+                top.setWindowTitle(f"● 训练中 — {self._saved_title}")
         except Exception:
             self._saved_title = None
-        self._safe_sb("algo", f"🤖 训练: 0/{len(selected)} 算法", color=C["accent"])
+        self._safe_sb("algo", f"◉ 训练: 0/{len(selected)} 算法", color=C["accent"])
         self._safe_sb("status", "训练中…", color=C["accent"])
         self._algo_durations: List[float] = []  # 各算法耗时（用于跨算法 ETA）
 
@@ -991,7 +991,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
                     _ckpt = CheckpointManager(aid)
                     _n = _ckpt.delete_all()
                     if _n:
-                        self._train_queue.put({"stage": "log", "text": f"  🗑 已清除 {aid} 的 {_n} 个旧版本"})
+                        self._train_queue.put({"stage": "log", "text": f"  ✕ 已清除 {aid} 的 {_n} 个旧版本"})
 
                 self._skip_algo_flag[0] = False
                 if self._skip_btn:
@@ -1114,7 +1114,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
         self._update_algo_row(aid, status="▶ 训练中", status_color=C["accent"])
         self._monitor.reset()
         # 状态栏 + 进度条动画
-        self._safe_sb("algo", f"🤖 [{cur}/{tot}] {aid}", color=C["accent"])
+        self._safe_sb("algo", f"◉ [{cur}/{tot}] {aid}", color=C["accent"])
         if self._progress:
             self._progress.setValue(0)
             self._progress.setMinimum(0)
@@ -1128,12 +1128,12 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
         avg_loss = msg.get("avg_loss", 0)
         batch_loss = msg.get("batch_loss", 0)
         try:
-            self.main._sb("status", f"🔄 {aid} batch {b}/{tot_b} loss={avg_loss:.4f}", color=C["text_2"])
+            self.main._sb("status", f"⟳ {aid} batch {b}/{tot_b} loss={avg_loss:.4f}", color=C["text_2"])
         except Exception:
             pass
         # 详细日志：batch 级损失写入日志面板和文件
         pct = b / max(tot_b, 1) * 100
-        self._append_log(f"  📊 {aid} batch {b}/{tot_b} ({pct:.0f}%) | batch_loss={batch_loss:.6f} | avg_loss={avg_loss:.6f}")
+        self._append_log(f"  ◧ {aid} batch {b}/{tot_b} ({pct:.0f}%) | batch_loss={batch_loss:.6f} | avg_loss={avg_loss:.6f}")
         return False
 
     @staticmethod
@@ -1216,7 +1216,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
         # 主窗口状态栏（含 ETA）
         cur = msg.get("current", 0)
         tot = msg.get("total", 1)
-        status_text = f"🤖 [{cur}/{tot}] {aid} ep{ep}/{eps}  {elapsed:.0f}s"
+        status_text = f"◉ [{cur}/{tot}] {aid} ep{ep}/{eps}  {elapsed:.0f}s"
         if total_eta_str:
             # 提取总 ETA 部分
             parts = total_eta_str.split("总")
@@ -1276,7 +1276,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
             total_eta = f"  ⇨剩余≈{self._fmt_duration(avg_dur * remaining)}"
 
         # 主窗口状态栏
-        self._safe_sb("algo", f"🤖 ✓ [{cur}/{total_sel}] {aid}  {algo_elapsed:.0f}s{total_eta}", color=C["success"])
+        self._safe_sb("algo", f"◉ ✓ [{cur}/{total_sel}] {aid}  {algo_elapsed:.0f}s{total_eta}", color=C["success"])
 
         # 从 checkpoint 读取 val_loss 和置信度
         from algorithms.training.checkpoint_manager import CheckpointManager
@@ -1314,12 +1314,12 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
             self._status_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
         self._append_log(f"✗ {aid} 训练失败: {err}")
         self._update_algo_row(aid, status="✗ 失败", status_color=C["danger"])
-        self._safe_sb("algo", f"🤖 ✗ {aid} 失败", color=C["danger"])
+        self._safe_sb("algo", f"◉ ✗ {aid} 失败", color=C["danger"])
 
     def _on_stage_auto_adjust(self, msg):
         """处理自动调整事件"""
         message = msg.get("message", "")
-        self._append_log(f"  🔧 自动调整: {message}")
+        self._append_log(f"  ⚙ 自动调整: {message}")
         if self._status_lbl:
             self._status_lbl.setText(f"⚡ {message}")
             self._status_lbl.setStyleSheet(f"color: {C['warning']}; background: transparent;")
@@ -1356,10 +1356,10 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
             self._status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
         if self._progress:
             self._progress.setValue(100)
-        self._append_log(f"🏁 训练全部完成: {ok} 成功, {bad} 失败, 耗时 {elapsed:.0f}s")
-        self._append_log(f"📊 各算法最终置信度:{conf_summary}")
+        self._append_log(f"⚑ 训练全部完成: {ok} 成功, {bad} 失败, 耗时 {elapsed:.0f}s")
+        self._append_log(f"◧ 各算法最终置信度:{conf_summary}")
         # 主窗口状态栏
-        self._safe_sb("algo", f"🤖 ✓ 训练完成 ({ok}成功 {bad}失败)  {elapsed:.0f}s", color=C["success"])
+        self._safe_sb("algo", f"◉ ✓ 训练完成 ({ok}成功 {bad}失败)  {elapsed:.0f}s", color=C["success"])
         return True
 
     def _on_stage_fatal(self, msg):
@@ -1368,7 +1368,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
         if self._status_lbl:
             self._status_lbl.setText(f"训练异常: {err}")
             self._status_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
-        self._append_log(f"💥 训练进程异常: {err}")
+        self._append_log(f"✹ 训练进程异常: {err}")
         return True
 
     def _cleanup_training(self):
@@ -1416,15 +1416,15 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
             if cur_status != last_status or cur_epoch - last_epoch >= 8:
                 self._last_monitor_status = cur_status
                 self._last_monitor_log_epoch = cur_epoch
-                prefix = "🤖 训练质量检测" if cur_status != last_status else "🔄 持续监测"
+                prefix = "◉ 训练质量检测" if cur_status != last_status else "⟳ 持续监测"
                 self._append_log(f"{prefix}: {cur_status}")
                 for s in self._monitor.suggestions:
-                    self._append_log(f"  💡 {s}")
+                    self._append_log(f"  ✦ {s}")
 
                 # 学习率建议：显示当前值和推荐值
                 lr_suggestion = self._compute_lr_suggestion()
                 if lr_suggestion:
-                    self._append_log(f"  📐 {lr_suggestion}")
+                    self._append_log(f"  ◫ {lr_suggestion}")
 
     def _compute_lr_suggestion(self) -> str:
         """根据 TrainingMonitor 的 loss 数据动态计算推荐学习率。"""

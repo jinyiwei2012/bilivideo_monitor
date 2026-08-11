@@ -178,25 +178,25 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
         self._tr_train_btn.setEnabled(_train() == "normal")
         btnr_layout.addWidget(self._tr_train_btn)
 
-        self._tr_cancel_btn = QPushButton("✕ 取消")
+        self._tr_cancel_btn = QPushButton("✗ 取消")
         self._tr_cancel_btn.clicked.connect(self._on_train_cancel)
         self._tr_cancel_btn.setEnabled(False)
         btnr_layout.addWidget(self._tr_cancel_btn)
 
         btnr_layout.addStretch()
 
-        export_btn = QPushButton("📤 导出模型 ♪")
+        export_btn = QPushButton("⇪ 导出模型 ♪")
         export_btn.clicked.connect(self._on_export_checkpoints)
         btnr_layout.addWidget(export_btn)
 
-        import_btn = QPushButton("📥 导入模型 ♪")
+        import_btn = QPushButton("↥ 导入模型 ♪")
         import_btn.clicked.connect(self._on_import_checkpoints)
         import_btn.setEnabled(_train() == "normal")
         btnr_layout.addWidget(import_btn)
 
         if _train() != "normal":
             hint_lbl = _styled_label(
-                "💡 创建 .enabletraining 文件开启训练 / 完整 devmode 见 README.md",
+                "✦ 创建 .enabletraining 文件开启训练 / 完整 devmode 见 README.md",
                 "warning", font_=FONT_SM,
             )
             btnr_layout.addWidget(hint_lbl)
@@ -232,10 +232,10 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
                 self._tr_device_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent; font-weight: bold;")
             elif info.get("is_gpu"):
                 mem = info.get("total_memory_gb", 0)
-                self._tr_device_lbl.setText(f"✅ {info['name']} ({mem:.1f} GB) [{info['device']}]")
+                self._tr_device_lbl.setText(f"✓ {info['name']} ({mem:.1f} GB) [{info['device']}]")
                 self._tr_device_lbl.setStyleSheet(f"color: {C['success']}; background: transparent; font-weight: bold;")
             else:
-                self._tr_device_lbl.setText(f"💻 {info['name']} ({info.get('device', 'cpu')})")
+                self._tr_device_lbl.setText(f"▮ {info['name']} ({info.get('device', 'cpu')})")
                 self._tr_device_lbl.setStyleSheet(f"color: {C['warning']}; background: transparent; font-weight: bold;")
 
             try:
@@ -347,7 +347,7 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
             rl.addWidget(id_lbl)
 
             if a["has_ckpt"]:
-                status_txt = f"✅ {a['active_version'][:18]}" + (
+                status_txt = f"✓ {a['active_version'][:18]}" + (
                     f" (+{a['version_count'] - 1})" if a["version_count"] > 1 else ""
                 )
                 status_color = "success"

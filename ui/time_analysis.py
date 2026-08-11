@@ -65,7 +65,7 @@ class TimeAnalysisPanel:
         self._mode_combo.addItems(["按小时 (24h)", "按星期 (7天)", "按小时+星期 (热力图)"])
         ch.addWidget(self._mode_combo)
 
-        self._analyze_btn = QPushButton("🔍 分析")
+        self._analyze_btn = QPushButton("⌕ 分析")
         self._analyze_btn.clicked.connect(self._refresh)
         ch.addWidget(self._analyze_btn)
 

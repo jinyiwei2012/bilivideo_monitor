@@ -34,7 +34,7 @@ class AnomalyPanel:
         :param gui: 主 GUI 实例，用于获取视频数据和数据库
         """
         self.gui = gui
-        self.dlg = DialogBase(parent, "🚨 异常增长检测", "960x580")
+        self.dlg = DialogBase(parent, "‼ 异常增长检测", "960x580")
         self.dlg.header("异常增长检测", "检测播放量突增/突降/停滞等异常行为，附时间/增量/在线上下文")
         self._build_ui()
         self._scan()
@@ -46,7 +46,7 @@ class AnomalyPanel:
         top_layout = QHBoxLayout(top)
         top_layout.setContentsMargins(0, 0, 0, 0)
 
-        scan_btn = QPushButton("🔄 重新扫描")
+        scan_btn = QPushButton("⟳ 重新扫描")
         scan_btn.clicked.connect(self._scan)
         top_layout.addWidget(scan_btn)
 
@@ -181,23 +181,23 @@ class AnomalyPanel:
                     for a in alerts:
                         # 根据告警文本匹配异常类型图标
                         if "买量" in a or "疑似买量" in a:
-                            type_icon = "📢 疑似买量"
+                            type_icon = "♪ 疑似买量"
                         elif "直播" in a:
-                            type_icon = "🔴 正在直播"
+                            type_icon = "● 正在直播"
                         elif "增速" in a:
-                            type_icon = "📈 增速飙升"
+                            type_icon = "↗ 增速飙升"
                         elif "趋势" in a or "放缓" in a:
-                            type_icon = "📉 趋势反转"
+                            type_icon = "↘ 趋势反转"
                         elif "停滞" in a:
                             type_icon = "⏸ 播放停滞"
                         elif "深夜" in a:
-                            type_icon = "🌙 深夜异常"
+                            type_icon = "♪ 深夜异常"
                         elif "在线人数飙升" in a:
-                            type_icon = "👁 在线飙升"
+                            type_icon = "◉ 在线飙升"
                         elif "暴跌" in a or "断崖" in a:
-                            type_icon = "📉 在线暴跌"
+                            type_icon = "↘ 在线暴跌"
                         else:
-                            type_icon = "⚠ 其他"
+                            type_icon = "△ 其他"
 
                         time_str = dt_last.strftime("%m-%d %H:%M") if len(recent) >= 2 else "--"
                         results.append(
@@ -220,7 +220,7 @@ class AnomalyPanel:
                         {
                             "bvid": bvid,
                             "title": video.get("title", bvid)[:22],
-                            "type": "⚠ 错误",
+                            "type": "△ 错误",
                             "time": "--",
                             "views": current_views,
                             "delta": 0,
@@ -240,7 +240,7 @@ class AnomalyPanel:
     def _show_results(self, results):
         """在表格中展示异常检测结果，高亮严重异常"""
         self._tree.clear()
-        danger_types = ("📈 增速飙升", "📉 在线暴跌")
+        danger_types = ("↗ 增速飙升", "↘ 在线暴跌")
 
         self._alert_data = results
         for index, r in enumerate(results):
@@ -272,8 +272,8 @@ class AnomalyPanel:
             return
         r = self._alert_data[idx]
         detail = (
-            f"📌 {r['type']}  |  BV: {r['bvid']}  |  UP: {r.get('author', '?')}\n"
-            f"💬  {r['alert_text']}\n"
-            f"📊 当前播放: {fmt_num(r['views'])}  |  近2h增量: {fmt_num(r['delta'])}  |  增速: {r['velocity']:.1f}/h  |  在线: {fmt_num(r['online'])}"
+            f"⚑ {r['type']}  |  BV: {r['bvid']}  |  UP: {r.get('author', '?')}\n"
+            f"♬  {r['alert_text']}\n"
+            f"◧ 当前播放: {fmt_num(r['views'])}  |  近2h增量: {fmt_num(r['delta'])}  |  增速: {r['velocity']:.1f}/h  |  在线: {fmt_num(r['online'])}"
         )
         self._detail_text.setPlainText(detail)

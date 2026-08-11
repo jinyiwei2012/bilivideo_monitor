@@ -118,7 +118,7 @@ class SettingsAboutMixin:
         sec2_layout.addWidget(sec2_title)
 
         links = [
-            ("GitHub", "https://github.com/jinyiwei2012/bilivideo_monitor", "项目源代码，欢迎 Star ⭐"),
+            ("GitHub", "https://github.com/jinyiwei2012/bilivideo_monitor", "项目源代码，欢迎 Star ★"),
             ("B站主页", "https://space.bilibili.com/1610751976", "作者的 Bilibili 个人空间"),
         ]
         for title, url, desc in links:

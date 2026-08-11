@@ -63,20 +63,20 @@ class SettingsAccountMixin:
         import_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
         import_layout.addWidget(import_lbl)
 
-        ce_btn = QPushButton("📋 Cookie-Editor JSON")
+        ce_btn = QPushButton("☰ Cookie-Editor JSON")
         ce_btn.clicked.connect(self._import_cookie_editor)
         import_layout.addWidget(ce_btn)
 
-        qr_btn = QPushButton("📱 扫码登录")
+        qr_btn = QPushButton("☎ 扫码登录")
         qr_btn.clicked.connect(self._qrcode_login)
         import_layout.addWidget(qr_btn)
 
-        pwd_btn = QPushButton("🔑 密码登录")
+        pwd_btn = QPushButton("⚷ 密码登录")
         pwd_btn.setEnabled(_s() == "normal")
         pwd_btn.clicked.connect(self._password_login)
         import_layout.addWidget(pwd_btn)
 
-        browser_btn = QPushButton("🌐 从浏览器提取")
+        browser_btn = QPushButton("✈ 从浏览器提取")
         browser_btn.clicked.connect(self._import_from_browser)
         import_layout.addWidget(browser_btn)
 
@@ -104,12 +104,12 @@ class SettingsAccountMixin:
         self._acct_combo.currentTextChanged.connect(self._switch_account)
         acct_layout.addWidget(self._acct_combo)
 
-        add_acct_btn = QPushButton("➕")
+        add_acct_btn = QPushButton("＋")
         add_acct_btn.setFixedWidth(30)
         add_acct_btn.clicked.connect(self._add_account_dialog)
         acct_layout.addWidget(add_acct_btn)
 
-        rm_acct_btn = QPushButton("✕")
+        rm_acct_btn = QPushButton("✗")
         rm_acct_btn.setFixedWidth(30)
         rm_acct_btn.clicked.connect(self._remove_account)
         acct_layout.addWidget(rm_acct_btn)
@@ -139,7 +139,7 @@ class SettingsAccountMixin:
         apply_btn.clicked.connect(self._apply_cookies)
         btn_layout.addWidget(apply_btn)
 
-        self._cookie_unlock_btn = QPushButton("🔒 解锁查看")
+        self._cookie_unlock_btn = QPushButton("⚿ 解锁查看")
         self._cookie_unlock_btn.clicked.connect(self._toggle_cookie_unlock)
         btn_layout.addWidget(self._cookie_unlock_btn)
 
@@ -179,7 +179,7 @@ class SettingsAccountMixin:
             cookies = self._net_cfg.get("cookies", {})
         if cookies:
             show_raw = getattr(self, "_cookie_unlocked", False)
-            self._cookie_unlock_btn.setText("🔓 已解锁" if show_raw else "🔒 解锁查看")
+            self._cookie_unlock_btn.setText("⚿ 已解锁" if show_raw else "⚿ 解锁查看")
             parts = []
             for k, v in cookies.items():
                 if show_raw:

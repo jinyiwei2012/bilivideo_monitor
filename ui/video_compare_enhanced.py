@@ -76,7 +76,7 @@ class VideoCompareEnhanced:
         self._peer_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         ol.addWidget(self._peer_table, 1)
 
-        self._tabs.addTab(tab, "📊 同期对比")
+        self._tabs.addTab(tab, "◧ 同期对比")
 
     def _refresh_peer(self):
         days_map = {"1天": 1, "3天": 3, "7天": 7, "14天": 14, "30天": 30}
@@ -140,7 +140,7 @@ class VideoCompareEnhanced:
         self._vel_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         ol.addWidget(self._vel_table, 1)
 
-        self._tabs.addTab(tab, "🚀 增速排名")
+        self._tabs.addTab(tab, "♬ 增速排名")
 
     def _refresh_velocity(self):
         hours_map = {"1小时": 1, "6小时": 6, "24小时": 24}
@@ -209,7 +209,7 @@ class VideoCompareEnhanced:
         self._con_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         ol.addWidget(self._con_table, 1)
 
-        self._tabs.addTab(tab, "🎯 预测一致性")
+        self._tabs.addTab(tab, "◎ 预测一致性")
 
     def _refresh_consistency(self):
         import numpy as np

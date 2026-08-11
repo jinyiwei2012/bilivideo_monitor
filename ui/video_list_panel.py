@@ -214,7 +214,7 @@ class VideoListPanel(QWidget):
 
         h.addStretch()
 
-        push_all_btn = QPushButton("📤 全部推送")
+        push_all_btn = QPushButton("⇪ 全部推送")
         push_all_btn.setFixedSize(70, 22)
         push_all_btn.setProperty("accent", True)
         push_all_btn.clicked.connect(self.gui._manual_push)

@@ -46,7 +46,7 @@ class _RatioDanmakuMixin:
             ("收藏率", C["success"]),
             ("弹幕率", C["warning"]),
         ]
-        self._ratio_layout.addWidget(SectionHeader("🔄 互动率"))
+        self._ratio_layout.addWidget(SectionHeader("⟳ 互动率"))
         for label, color in ratios_cfg:
             row = QWidget()
             row.setStyleSheet(f"background-color: {C['bg_base']};")

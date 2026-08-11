@@ -262,7 +262,7 @@ class SettingsProxyMixin:
         auto_layout = QHBoxLayout(auto_row)
         auto_layout.setContentsMargins(0, 4, 0, 0)
 
-        auto_btn = QPushButton("🌐 自动获取代理")
+        auto_btn = QPushButton("✈ 自动获取代理")
         auto_btn.clicked.connect(self._auto_fetch_proxies)
         auto_layout.addWidget(auto_btn)
 
@@ -439,14 +439,14 @@ class SettingsProxyMixin:
                         pm.add_proxy({"http": url, "https": url})
             except Exception as e:
                 invoke(lambda n=source_name, err=str(e): (
-                    self._auto_fetch_status.setText(f"⚠ {n} 失败: {err}"),
+                    self._auto_fetch_status.setText(f"△ {n} 失败: {err}"),
                     self._auto_fetch_status.setStyleSheet(f"color: {C['danger']}; background: transparent;"),
                 ))
 
         urls = [p.get("http", "") for p in pm.proxies if p.get("http")]
         invoke(lambda u=urls, tf=total_found, tt=total_tested: (
             self._update_proxy_text(u),
-            self._auto_fetch_status.setText(f"✅ 测试 {tt} 个, 可用 {tf} 个"),
+            self._auto_fetch_status.setText(f"✓ 测试 {tt} 个, 可用 {tf} 个"),
             self._auto_fetch_status.setStyleSheet(f"color: {C['success']}; background: transparent;"),
         ))
 
@@ -463,7 +463,7 @@ class SettingsProxyMixin:
         for i in range(self._proxy_tree.topLevelItemCount()):
             item = self._proxy_tree.topLevelItem(i)
             if item.text(0) == url:
-                item.setText(1, "✅" if ok else "❌")
+                item.setText(1, "✓" if ok else "✗")
                 item.setText(2, f"{result['latency_ms']}ms" if ok else (result.get("error", "超时")[:40]))
                 item.setText(3, result.get("country", "") or "")
                 item.setText(4, result.get("ip", "") or "")
@@ -619,7 +619,7 @@ class SettingsProxyMixin:
         """主线程回调：更新单个代理的测试结果"""
         latency = f"{result.get('latency_ms', '—')}ms" if ok else (result.get("error") or "—")
         item.setText(0, result.get("proxy", item.text(0)))
-        item.setText(1, "✅" if ok else "❌")
+        item.setText(1, "✓" if ok else "✗")
         item.setText(2, latency)
         item.setText(3, result.get("country") or "—")
         item.setText(4, result.get("ip") or "—")
@@ -641,7 +641,7 @@ class SettingsProxyMixin:
         if fail_n:
             failed = [proxy_list[i] for i in range(len(proxy_list))
                       if i < self._proxy_tree.topLevelItemCount()
-                      and self._proxy_tree.topLevelItem(i).text(1) == "❌"]
+                      and self._proxy_tree.topLevelItem(i).text(1) == "✗"]
             if failed:
                 self._auto_remove_failed_proxies(failed)
 

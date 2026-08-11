@@ -286,7 +286,7 @@ def _detect_surge_for_ui(history: list) -> dict:
         si = _SURGE_DETECTOR.detect_surge(video_data)
 
         # 构建 UI 友好的标签
-        type_labels = {"strong": "🔥 强推流", "moderate": "📈 推流中", "mild": "📊 轻度推流", "none": ""}
+        type_labels = {"strong": "♨ 强推流", "moderate": "↗ 推流中", "mild": "◧ 轻度推流", "none": ""}
         surge_label = type_labels.get(si.get("surge_type", "none"), "") if si.get("is_surging") else ""
 
         return {

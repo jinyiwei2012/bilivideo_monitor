@@ -256,10 +256,10 @@ class BilibiliMonitorGUI(QMainWindow):
         self._page_views = ["监控列表", "日志", "模型训练", "微调训练"]
 
         nav_items = [
-            ("📊", "监控列表"),
-            ("📋", "日志"),
-            ("🧠", "模型训练"),
-            ("🎯", "微调训练"),
+            ("◧", "监控列表"),
+            ("☰", "日志"),
+            ("◍", "模型训练"),
+            ("◎", "微调训练"),
         ]
 
         for icon, label in nav_items:
@@ -311,7 +311,7 @@ class BilibiliMonitorGUI(QMainWindow):
         rh.addWidget(self._mode_pill)
 
         # Model activation
-        self._model_act_btn = QPushButton("🧠 激活模型")
+        self._model_act_btn = QPushButton("◍ 激活模型")
         self._model_act_btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: {C['bg_elevated']}; color: {C['accent']};
@@ -328,7 +328,7 @@ class BilibiliMonitorGUI(QMainWindow):
         rh.addWidget(self._model_act_status)
 
         # Gear menu
-        self._gear_btn = QPushButton("⚙️")
+        self._gear_btn = QPushButton("⚙")
         self._gear_btn.setToolTip("设置")
         self._gear_btn.setStyleSheet(f"""
             QPushButton {{
@@ -342,7 +342,7 @@ class BilibiliMonitorGUI(QMainWindow):
         rh.addWidget(self._gear_btn)
 
         # Search
-        self._search_btn = QPushButton("🔍")
+        self._search_btn = QPushButton("⌕")
         self._search_btn.setToolTip("搜索")
         self._search_btn.setStyleSheet(f"""
             QPushButton {{
@@ -381,30 +381,30 @@ class BilibiliMonitorGUI(QMainWindow):
 
         menu_items = [
             ("⏱  刷新间隔", lambda: self._dialogs.open_interval_settings()),
-            ("🧠  算法信息", lambda: self._dialogs.open_algorithm_info()),
+            ("◍  算法信息", lambda: self._dialogs.open_algorithm_info()),
             None,  # separator
-            ("📊  数据对比", lambda: self._dialogs.open_data_comparison()),
-            ("🔄  交叉计算", lambda: self._dialogs.open_crossover_analysis()),
-            ("📅  周刊分数", lambda: self._dialogs.open_weekly_score()),
-            ("🏆  里程碑", lambda: self._dialogs.open_milestone_stats()),
+            ("◧  数据对比", lambda: self._dialogs.open_data_comparison()),
+            ("⟳  交叉计算", lambda: self._dialogs.open_crossover_analysis()),
+            ("▦  周刊分数", lambda: self._dialogs.open_weekly_score()),
+            ("♛  里程碑", lambda: self._dialogs.open_milestone_stats()),
             ("🆙  UP主追踪", lambda: self._dialogs.open_up_tracker()),
-            ("💬  弹幕分析", lambda: self._dialogs.open_danmaku_analysis()),
-            ("📜  历史弹幕", lambda: self._dialogs.open_danmaku_history()),
-            ("🔥  热门发现", lambda: self._dialogs.open_trending_discovery()),
-            ("🎫  视频标签", lambda: self._dialogs.open_tag_manager()),
-            ("🚨  异常检测", lambda: self._dialogs.open_anomaly_detection()),
-            ("🏆  视频排行", lambda: self._dialogs.open_ranking()),
-            ("📊  预测回测", lambda: self._dialogs.open_backtest()),
-            ("📈  预测回看", lambda: self._dialogs.open_prediction_accuracy()),
+            ("♬  弹幕分析", lambda: self._dialogs.open_danmaku_analysis()),
+            ("▭  历史弹幕", lambda: self._dialogs.open_danmaku_history()),
+            ("♨  热门发现", lambda: self._dialogs.open_trending_discovery()),
+            ("◫  视频标签", lambda: self._dialogs.open_tag_manager()),
+            ("‼  异常检测", lambda: self._dialogs.open_anomaly_detection()),
+            ("♛  视频排行", lambda: self._dialogs.open_ranking()),
+            ("◧  预测回测", lambda: self._dialogs.open_backtest()),
+            ("↗  预测回看", lambda: self._dialogs.open_prediction_accuracy()),
             ("⏰  时段分析", lambda: self._dialogs.open_time_analysis()),
-            ("📊  视频对比增强", lambda: self._dialogs.open_video_compare_enhanced()),
+            ("◧  视频对比增强", lambda: self._dialogs.open_video_compare_enhanced()),
             None,
-            ("🤖  AI智能问答", lambda: self._dialogs.open_ai_qa()),
-            ("📊  数据大屏", lambda: self._dialogs.open_dashboard()),
-            ("📋  导出报告", lambda: self._dialogs.open_report_scheduler()),
+            ("◉  AI智能问答", lambda: self._dialogs.open_ai_qa()),
+            ("◧  数据大屏", lambda: self._dialogs.open_dashboard()),
+            ("☰  导出报告", lambda: self._dialogs.open_report_scheduler()),
             None,
-            ("🗄  数据库查询", lambda: self._dialogs.open_database_query()),
-            ("⚙️  系统设置", lambda: self._dialogs.open_settings()),
+            ("▣  数据库查询", lambda: self._dialogs.open_database_query()),
+            ("⚙  系统设置", lambda: self._dialogs.open_settings()),
         ]
 
         for item in menu_items:

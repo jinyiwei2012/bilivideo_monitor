@@ -238,8 +238,8 @@ def scan_alerts_background(gui):
 
     if alerts:
         n = len(alerts)
-        invoke(lambda: gui._sb("alert", f"🚨 {n} 条异常", C["danger"]))
-        title = f"🚨 B站监控异常告警 ({n} 条)"
+        invoke(lambda: gui._sb("alert", f"‼ {n} 条异常", C["danger"]))
+        title = f"‼ B站监控异常告警 ({n} 条)"
         msg_lines = [title, "─" * 20]
         for bvid, t, a in alerts[:5]:
             msg_lines.append(f"  [{bvid}] {t}")

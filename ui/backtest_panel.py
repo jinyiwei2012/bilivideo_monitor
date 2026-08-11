@@ -32,7 +32,7 @@ class BacktestPanel:
 
     def __init__(self, parent, gui):
         self.gui = gui
-        self.dlg = DialogBase(parent, "📊 预测回测", "820x580")
+        self.dlg = DialogBase(parent, "◧ 预测回测", "820x580")
         self.dlg.header("预测回测 — 滚动窗口交叉验证", "在历史数据上评估各算法预测准确度")
         self._build_ui()
 
@@ -92,7 +92,7 @@ class BacktestPanel:
         self._use_algorithms.setStyleSheet(f"color: {C['text_1']}; background: transparent;")
         top_layout.addWidget(self._use_algorithms)
 
-        analyze_btn = QPushButton("📊 开始回测")
+        analyze_btn = QPushButton("◧ 开始回测")
         analyze_btn.clicked.connect(self._analyze)
         top_layout.addWidget(analyze_btn)
 
@@ -339,9 +339,9 @@ class BacktestPanel:
         # 摘要
         best = valid[0]
         worst = valid[-1] if len(valid) > 1 else None
-        summary = f"🎯 最佳: {best[0]} (MAPE={best[3]*100:.1f}%, RMSE={int(best[1])})"
+        summary = f"◎ 最佳: {best[0]} (MAPE={best[3]*100:.1f}%, RMSE={int(best[1])})"
         if worst and len(valid) > 1:
-            summary += f"  |  ❌ 最差: {worst[0]} (MAPE={worst[3]*100:.1f}%)"
+            summary += f"  |  ✗ 最差: {worst[0]} (MAPE={worst[3]*100:.1f}%)"
         sum_lbl = QLabel(summary)
         sum_lbl.setStyleSheet(f"color: {C['text_1']}; background: transparent;")
         sum_lbl.setFont(FONT)
@@ -372,5 +372,5 @@ class BacktestPanel:
                 item.setForeground(0, Qt.GlobalColor.red)
             self._tree.addTopLevelItem(item)
 
-        self._status_lbl.setText(f"✅ 完成 — {len(valid)} 个预测器")
+        self._status_lbl.setText(f"✓ 完成 — {len(valid)} 个预测器")
         self._status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")

@@ -102,16 +102,16 @@ class SettingsAIMixin:
         br_layout = QHBoxLayout(btn_row)
         br_layout.setContentsMargins(0, 6, 0, 0)
 
-        save_btn = QPushButton("💾 保存配置")
+        save_btn = QPushButton("⇓ 保存配置")
         save_btn.clicked.connect(lambda: self._save_ai_profile() if _confirm_risky("保存 AI 配置") else None)
         br_layout.addWidget(save_btn)
 
         if _hard() == "normal":
-            del_btn = QPushButton("🗑 删除配置")
+            del_btn = QPushButton("✕ 删除配置")
             del_btn.clicked.connect(self._delete_ai_profile)
             br_layout.addWidget(del_btn)
         else:
-            br_layout.addWidget(_styled_label("📁 删除请编辑: data/settings.json", "text_3", font_=FONT_SM))
+            br_layout.addWidget(_styled_label("▣ 删除请编辑: data/settings.json", "text_3", font_=FONT_SM))
 
         new_btn = QPushButton("+ 新增")
         new_btn.clicked.connect(self._new_ai_profile)
@@ -250,9 +250,9 @@ class SettingsAIMixin:
                         timeout=30,
                     )
                     if resp.status_code == 200:
-                        result.append(f"✅ 连接成功（Claude {model}）")
+                        result.append(f"✓ 连接成功（Claude {model}）")
                     else:
-                        result.append(f"❌ HTTP {resp.status_code}: {resp.text[:200]}")
+                        result.append(f"✗ HTTP {resp.status_code}: {resp.text[:200]}")
                 else:
                     resp = req.post(
                         endpoint,
@@ -265,14 +265,14 @@ class SettingsAIMixin:
                         timeout=30,
                     )
                     if resp.status_code == 200:
-                        result.append(f"✅ 连接成功（{model}）")
+                        result.append(f"✓ 连接成功（{model}）")
                     else:
                         err = resp.json().get("error", {})
-                        result.append(f"❌ HTTP {resp.status_code}: {err.get('message', resp.text[:200])}")
+                        result.append(f"✗ HTTP {resp.status_code}: {err.get('message', resp.text[:200])}")
             except Exception as e:
-                result.append(f"❌ 请求失败: {e}")
+                result.append(f"✗ 请求失败: {e}")
 
-            QTimer.singleShot(0, lambda: QMessageBox.information(self.dlg, "API 连接测试", result[0] if result else "❌ 无响应"))
+            QTimer.singleShot(0, lambda: QMessageBox.information(self.dlg, "API 连接测试", result[0] if result else "✗ 无响应"))
 
         _th = threading.Thread(target=_worker, daemon=True)
         _th.start()

@@ -341,12 +341,12 @@ class MilestoneStatsWindow(DialogBase):
         # 录入数据标签页
         self._tab_entry = QWidget()
         self._tab_entry.setStyleSheet(f"background-color: {C['bg_base']};")
-        self._tabs.addTab(self._tab_entry, "  📥 录入数据  ")
+        self._tabs.addTab(self._tab_entry, "  ↥ 录入数据  ")
 
         # 对比视图标签页
         self._tab_compare = QWidget()
         self._tab_compare.setStyleSheet(f"background-color: {C['bg_base']};")
-        self._tabs.addTab(self._tab_compare, "  📊 对比视图  ")
+        self._tabs.addTab(self._tab_compare, "  ◧ 对比视图  ")
 
         self._tabs.currentChanged.connect(self._on_tab_changed)
 
@@ -439,7 +439,7 @@ class MilestoneStatsWindow(DialogBase):
         gen_btn.clicked.connect(self._generate_entry_rows)
         btn_inner.addWidget(gen_btn)
 
-        save_btn = QPushButton("💾 保存全部")
+        save_btn = QPushButton("⇓ 保存全部")
         save_btn.setProperty("primary", True)
         style = save_btn.style()
         if style is not None:
@@ -563,7 +563,7 @@ class MilestoneStatsWindow(DialogBase):
                 saved += 1
             else:
                 errors += 1
-        msg = f"✅ 已保存 {saved} 条"
+        msg = f"✓ 已保存 {saved} 条"
         if skipped:
             msg += f"，跳过 {skipped} 条（播放量为空）"
         if errors:
@@ -616,7 +616,7 @@ class MilestoneStatsWindow(DialogBase):
             ctrl_layout.addWidget(rb)
 
         ctrl_layout.addStretch()
-        refresh_btn = QPushButton("🔄 刷新")
+        refresh_btn = QPushButton("⟳ 刷新")
         refresh_btn.clicked.connect(self._reload_comparison)
         ctrl_layout.addWidget(refresh_btn)
 

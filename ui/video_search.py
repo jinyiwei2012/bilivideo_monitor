@@ -294,21 +294,21 @@ class VideoSearchWindow(DialogBase):
             }}
         """)
 
-        detail_action = QAction("📋 查看详情", self)
+        detail_action = QAction("☰ 查看详情", self)
         detail_action.triggered.connect(lambda: self._show_video_detail(video))
         menu.addAction(detail_action)
 
-        copy_action = QAction("📑 复制BV号", self)
+        copy_action = QAction("▭ 复制BV号", self)
         copy_action.triggered.connect(lambda: self._copy_bvid(bvid))
         menu.addAction(copy_action)
 
-        open_action = QAction("🌐 在浏览器中打开", self)
+        open_action = QAction("✈ 在浏览器中打开", self)
         open_action.triggered.connect(lambda: webbrowser.open(f"https://www.bilibili.com/video/{bvid}"))
         menu.addAction(open_action)
 
         menu.addSeparator()
 
-        import_action = QAction("➕ 导入该视频", self)
+        import_action = QAction("＋ 导入该视频", self)
         import_action.triggered.connect(lambda: self._import_single(video))
         menu.addAction(import_action)
 
@@ -424,11 +424,11 @@ class VideoSearchWindow(DialogBase):
         btn_layout = QHBoxLayout(btn_row)
         btn_layout.setContentsMargins(0, 8, 0, 0)
 
-        open_btn = QPushButton("🌐 浏览器打开 ♪")
+        open_btn = QPushButton("✈ 浏览器打开 ♪")
         open_btn.clicked.connect(lambda: webbrowser.open(f"https://www.bilibili.com/video/{bvid}"))
         btn_layout.addWidget(open_btn)
 
-        import_btn = QPushButton("➕ 导入监控 ♪")
+        import_btn = QPushButton("＋ 导入监控 ♪")
         import_btn.clicked.connect(lambda: [dlg.accept(), self._import_single(video)])
         btn_layout.addWidget(import_btn)
 

@@ -414,9 +414,9 @@ class Dialogs:
             def _module_status(name, import_path):
                 try:
                     __import__(import_path, fromlist=[""])
-                    return QLabel(f"✅ {name}已加载")
+                    return QLabel(f"✓ {name}已加载")
                 except ImportError:
-                    return QLabel(f"❌ {name}未找到")
+                    return QLabel(f"✗ {name}未找到")
 
             for mod_name, mod_path in [
                 ("在线学习模块", "algorithms.online_learner"),
@@ -425,7 +425,7 @@ class Dialogs:
             ]:
                 slbl = _module_status(mod_name, mod_path)
                 slbl.setStyleSheet(f"color: {C['success']}; padding-left: 10px;"
-                                   if "✅" in slbl.text()
+                                   if "✓" in slbl.text()
                                    else f"color: {C['danger']}; padding-left: 10px;")
                 scroll_layout.addWidget(slbl)
 

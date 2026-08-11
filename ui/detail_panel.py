@@ -176,10 +176,10 @@ class FinetuneDialog(QDialog):
 
             trainer = ModelTrainer()
             total = len(selected)
-            self.gui.set_finetune_status(f"🎯 微调 {self.bvid} …")
+            self.gui.set_finetune_status(f"◎ 微调 {self.bvid} …")
             for i, aid in enumerate(selected):
                 msg = f"[{i + 1}/{total}] 微调 {aid}…"
-                gui_msg = f"🎯 微调 {self.bvid}: [{i + 1}/{total}] {aid}"
+                gui_msg = f"◎ 微调 {self.bvid}: [{i + 1}/{total}] {aid}"
                 invoke(lambda m=msg: self._status_lbl.setText(m))
                 invoke(lambda p=(i + 0.5) / total: self._progress.setValue(int(p * 100)))
                 invoke(lambda m=gui_msg: self.gui.set_finetune_status(m))
@@ -191,11 +191,11 @@ class FinetuneDialog(QDialog):
                 except Exception as e:
                     msg = f"✗ {aid}: {e}"
                 invoke(lambda m=msg: self._status_lbl.setText(m))
-            invoke(lambda: self._status_lbl.setText(f"✅ 微调完成 ({total} 个算法)"))
+            invoke(lambda: self._status_lbl.setText(f"✓ 微调完成 ({total} 个算法)"))
             invoke(lambda: self._progress.setValue(100))
             invoke(lambda: self._start_btn.setText("完成"))
             invoke(lambda: self._start_btn.setEnabled(True))
-            invoke(lambda: self.gui.set_finetune_status(f"✅ 微调 {self.bvid} 完成 ({total})"))
+            invoke(lambda: self.gui.set_finetune_status(f"✓ 微调 {self.bvid} 完成 ({total})"))
             invoke(lambda: setattr(self, "_running", False))
 
         threading.Thread(target=_worker, daemon=True).start()
@@ -208,7 +208,7 @@ class DetailPanel(_RatioDanmakuMixin):
         self.gui = gui
         self._parent = parent
         self._stat_labels = {}
-        self._current_tab_name = "📈 播放量趋势"
+        self._current_tab_name = "↗ 播放量趋势"
         self._chart_mode = "step"  # step | delta | full
         self._chart_max_points = 20
         self._rendered_modes = set()
@@ -341,7 +341,7 @@ class DetailPanel(_RatioDanmakuMixin):
         self._chart_empty.setVisible(False)
         ct_layout.addWidget(self._chart_empty, 1)
 
-        self._tabs.addTab(self._chart_tab, "📈 播放量趋势")
+        self._tabs.addTab(self._chart_tab, "↗ 播放量趋势")
 
         # Tab 1: Detail text
         self._detail_tab = QWidget()
@@ -357,14 +357,14 @@ class DetailPanel(_RatioDanmakuMixin):
             }}
         """)
         dt_layout.addWidget(self._detail_text)
-        self._tabs.addTab(self._detail_tab, "📋 详细数据")
+        self._tabs.addTab(self._detail_tab, "☰ 详细数据")
 
         # Tab 2: Ratio
         self._ratio_tab = QWidget()
         self._ratio_layout = QVBoxLayout(self._ratio_tab)
         self._ratio_layout.setContentsMargins(16, 12, 16, 12)
         self._ratio_layout.setSpacing(6)
-        self._tabs.addTab(self._ratio_tab, "🔄 互动率")
+        self._tabs.addTab(self._ratio_tab, "⟳ 互动率")
 
         # Tab 3: Danmaku
         self._danmaku_tab = QWidget()
@@ -414,7 +414,7 @@ class DetailPanel(_RatioDanmakuMixin):
         self._dm_empty.setVisible(False)
         dm_layout.addWidget(self._dm_empty, 1)
 
-        self._tabs.addTab(self._danmaku_tab, "💬 弹幕")
+        self._tabs.addTab(self._danmaku_tab, "♬ 弹幕")
 
         layout.addWidget(self._tabs, 1)
 
@@ -492,7 +492,7 @@ class DetailPanel(_RatioDanmakuMixin):
         meta_h.setContentsMargins(0, 0, 0, 0)
         meta_h.setSpacing(14)
 
-        for icon, val in [("👤", author), ("⏱️", dur_str), ("📅", pub_str)]:
+        for icon, val in [("☺", author), ("⏱", dur_str), ("▦", pub_str)]:
             tf = QWidget()
             tf.setStyleSheet(f"background-color: {C['bg_surface']};")
             tf_h = QHBoxLayout(tf)
@@ -528,7 +528,7 @@ class DetailPanel(_RatioDanmakuMixin):
         ft_h.setContentsMargins(0, 0, 0, 0)
         ft_h.setSpacing(6)
 
-        self._finetune_btn = QPushButton("🎯 微调此视频")
+        self._finetune_btn = QPushButton("◎ 微调此视频")
         self._finetune_btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: {C['accent']}; color: white;
@@ -688,20 +688,20 @@ class DetailPanel(_RatioDanmakuMixin):
         """标签页切换"""
         name = self._tabs.tabText(index)
         self._current_tab_name = name
-        if name == "📈 播放量趋势":
+        if name == "↗ 播放量趋势":
             if self._chart_mode == "step":
                 self._auto_render_chart()
             else:
                 self._rendered_modes.discard(self._chart_mode)
-        elif name == "📋 详细数据":
+        elif name == "☰ 详细数据":
             video = self._get_selected_video()
             if video:
                 self._fill_detail_text(video)
-        elif name == "🔄 互动率":
+        elif name == "⟳ 互动率":
             video = self._get_selected_video()
             if video:
                 self._fill_ratio_frame(video)
-        elif name == "💬 弹幕":
+        elif name == "♬ 弹幕":
             self._refresh_danmaku_display()
 
     def _get_selected_video(self):

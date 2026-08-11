@@ -72,14 +72,14 @@ class AIQAWindow(DialogBase):
         quick_layout.setSpacing(4)
 
         q_buttons = [
-            ("📊 监控概况", "当前监控多少视频？各视频播放量概况？"),
+            ("◧ 监控概况", "当前监控多少视频？各视频播放量概况？"),
             ("⚡ 增长最快", "哪个视频增长最快？增速是多少？"),
-            ("🏆 播放排行", "按播放量从高到低列出所有监控视频"),
-            ("🔥 互动排行", "按互动率从高到低排序所有视频有哪些？"),
-            ("📈 今日增量", "今天每个视频的播放增量是多少？"),
-            ("⚠️ 异常预警", "有无播放量异常或增速骤降的视频？"),
-            ("📅 周报总结", "总结本周各视频的表现趋势"),
-            ("🎯 预测分析", "哪个视频最有望在未来一周突破百万播放？"),
+            ("♛ 播放排行", "按播放量从高到低列出所有监控视频"),
+            ("♨ 互动排行", "按互动率从高到低排序所有视频有哪些？"),
+            ("↗ 今日增量", "今天每个视频的播放增量是多少？"),
+            ("△ 异常预警", "有无播放量异常或增速骤降的视频？"),
+            ("▦ 周报总结", "总结本周各视频的表现趋势"),
+            ("◎ 预测分析", "哪个视频最有望在未来一周突破百万播放？"),
         ]
         row1 = QWidget()
         row1.setStyleSheet(f"background-color: {C['bg_surface']};")
@@ -176,10 +176,10 @@ class AIQAWindow(DialogBase):
     def _check_api_status(self):
         """检查LLM API连接状态"""
         if self.session.api_key:
-            self._api_status.setText(f"✅ LLM 已连接啦 ♪ ({self.session.model})")
+            self._api_status.setText(f"✓ LLM 已连接啦 ♪ ({self.session.model})")
             self._api_status.setStyleSheet(f"color: {C['success']}; background: transparent;")
         else:
-            self._api_status.setText("⚠️ 还没配置 API 密钥呢，先用离线规则回答哦（设置 → AI配置）♪")
+            self._api_status.setText("△ 还没配置 API 密钥呢，先用离线规则回答哦（设置 → AI配置）♪")
             self._api_status.setStyleSheet(f"color: {C['warning']}; background: transparent;")
 
     def _show_welcome(self):
@@ -198,7 +198,7 @@ class AIQAWindow(DialogBase):
             return (
                 "你好呀！现在还没有监控数据呢…♪\n\n"
                 "先到主界面添加视频到监控列表哦：\n"
-                "1. 点击「📁 视频搜索」搜索视频\n"
+                "1. 点击「▣ 视频搜索」搜索视频\n"
                 "2. 在搜索列表里点「+ 监控」添加\n"
                 "3. 或者手动输入 BV 号添加\n\n"
                 "添加视频之后，我就能帮你分析播放趋势、预测达标时间啦 ♪\n"

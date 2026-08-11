@@ -154,7 +154,7 @@ def show_update_dialog(gui, latest, current, url, changelog, channel="stable"):
         warn.setStyleSheet("background-color: #3b1f1f; border: 1px solid #ff4444; border-radius: 4px;")
         wl = QVBoxLayout(warn)
         wl.setContentsMargins(8, 4, 8, 4)
-        wt = QLabel("⚠ 测试版要注意哦…")
+        wt = QLabel("△ 测试版要注意哦…")
         wt.setStyleSheet("color: #ff6666; font-size: 10pt; font-weight: bold;")
         wl.addWidget(wt)
         wd = QLabel("当前是测试版更新通道，可能有不太稳定或没做完的功能哦…\n建议在非生产环境使用呢 ♪")
@@ -251,7 +251,7 @@ def show_update_dialog(gui, latest, current, url, changelog, channel="stable"):
         dl_btn = _make_btn("⬇ aria2 下载更新 ♪", lambda: (dlg.accept(), show_download_progress(gui, "正在下载新版本哦…♪", perform_exe_self_update)))
         btn_layout.addWidget(dl_btn)
     else:
-        git_btn = _make_btn("📥 Git Pull 自动拉取 ♪", lambda: _on_git_pull())
+        git_btn = _make_btn("↥ Git Pull 自动拉取 ♪", lambda: _on_git_pull())
         zip_btn = _make_btn("⬇ aria2 下载 ZIP ♪", lambda: (dlg.accept(), show_download_progress(gui, "正在下载最新源码哦…♪", perform_source_download_zip)))
         btn_layout.addWidget(git_btn)
         btn_layout.addWidget(zip_btn)
@@ -474,7 +474,7 @@ def post_fetch(gui):
         video = get_video(gui, gui.selected_bvid)
         if video:
             gui.detail.update_stat_bar(video)
-            if gui.detail.current_tab == "📈 播放量趋势":
+            if gui.detail.current_tab == "↗ 播放量趋势":
                 gui.detail._auto_render_chart()
     from ui.monitor import auto_predict_all
 
@@ -786,7 +786,7 @@ def push_single(gui, bvid):
 
     notification_manager.send_qq_private(msg)
     notification_manager.send_qq_group(msg)
-    notification_manager.send_windows_notification(f"📊 B站监控 — {title[:20]}", msg[:256])
+    notification_manager.send_windows_notification(f"◧ B站监控 — {title[:20]}", msg[:256])
     gui._sb("status", f"已推送「{title[:20]}」啦 ♪", C["success"])
 
 
@@ -804,7 +804,7 @@ def manual_push(gui):
 
     ok_qq_private = notification_manager.send_qq_private(msg)
     ok_qq_group = notification_manager.send_qq_group(msg)
-    ok_win = notification_manager.send_windows_notification(f"📊 B站监控报告 ({now_str})", msg[:256])
+    ok_win = notification_manager.send_windows_notification(f"◧ B站监控报告 ({now_str})", msg[:256])
 
     if ok_qq_private or ok_qq_group:
         gui._sb("status", f"已推送 {len(videos)} 个视频状态啦 ♪", C["success"])
@@ -824,14 +824,14 @@ def on_training_completed(gui, mode="训练", count=0, detail="", trained_ids=No
 
         now_str = datetime.now().strftime("%H:%M")
         if count > 0 and detail:
-            msg = f"🤖 {mode}完成 ({now_str})\n{count} 个算法: {detail}"
+            msg = f"◉ {mode}完成 ({now_str})\n{count} 个算法: {detail}"
         elif count > 0:
-            msg = f"🤖 {mode}完成 ({now_str})\n共 {count} 个算法已更新"
+            msg = f"◉ {mode}完成 ({now_str})\n共 {count} 个算法已更新"
         else:
-            msg = f"🤖 {mode}完成 ({now_str})"
+            msg = f"◉ {mode}完成 ({now_str})"
         notification_manager.send_qq_private(msg)
         notification_manager.send_qq_group(msg)
-        notification_manager.send_windows_notification(f"🤖 {mode}完成", msg[:256])
+        notification_manager.send_windows_notification(f"◉ {mode}完成", msg[:256])
     except Exception as e:
         logger.debug("训练推送异常: %s", e)
 
@@ -949,7 +949,7 @@ def daily_push(gui):
         msg = build_daily_push_msg(gui)
         notification_manager.send_qq_private(msg)
         notification_manager.send_qq_group(msg)
-        notification_manager.send_windows_notification("📊 B站监控日报", msg[:256])
+        notification_manager.send_windows_notification("◧ B站监控日报", msg[:256])
         logger.info("每日推送完成")
     except Exception as e:
         logger.error("每日推送异常: %s", e)
@@ -964,7 +964,7 @@ def build_daily_push_msg(gui):
 
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
     today = date.today()
-    lines = [f"📊 B站监控日报 ({now_str})", f"监控 {len(gui.monitored_videos)} 个视频：", "─" * 30]
+    lines = [f"◧ B站监控日报 ({now_str})", f"监控 {len(gui.monitored_videos)} 个视频：", "─" * 30]
 
     for i, v in enumerate(gui.monitored_videos, 1):
         bvid = v.get("bvid", "")
@@ -1009,7 +1009,7 @@ def build_daily_push_msg(gui):
 
         lines.append(f"\n{i}. 《{title}》")
         lines.append(f"   播放: {fmt_num(views)}  (+{fmt_num(daily_incr)} 今天)")
-        lines.append(f"   👍 {fmt_num(likes)}  🪙 {fmt_num(coins)}")
+        lines.append(f"   ✓ {fmt_num(likes)}  ◎ {fmt_num(coins)}")
         lines.append(f"   年刊: {ys_text}{pred_info}")
 
     return "\n".join(lines)
@@ -1020,7 +1020,7 @@ def build_push_msg(gui, videos):
     from utils.yearly_score import calculate_yearly_from_dict as _calc_ys
 
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-    lines = [f"📊 B站监控报告 ({now_str})", f"监控 {len(videos)} 个视频：", "─" * 20]
+    lines = [f"◧ B站监控报告 ({now_str})", f"监控 {len(videos)} 个视频：", "─" * 20]
 
     for i, v in enumerate(videos, 1):
         bvid = v.get("bvid", "?")
@@ -1067,7 +1067,7 @@ def build_push_msg(gui, videos):
                     algo_lines.append(f"     {name}: {fmt_num(int(pv))} ({eta_str}, {conf_pct})")
 
         lines.append(f"{i}. 《{title}》")
-        lines.append(f"   播放: {fmt_num(views)}  |  👍 {fmt_num(likes)}  |  🪙 {fmt_num(coins)}")
+        lines.append(f"   播放: {fmt_num(views)}  |  ✓ {fmt_num(likes)}  |  ◎ {fmt_num(coins)}")
         lines.append(f"   增速: {math.ceil(velocity)}/h{eta}{ys_text}")
         if algo_lines:
             lines.extend(algo_lines)

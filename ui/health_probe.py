@@ -259,7 +259,7 @@ class HealthProbeWindow(DialogBase):
         bottom_layout.setContentsMargins(24, 12, 24, 0)
 
         if self._probe_result.anomalies:
-            sec = self.section(parent=bottom, title="⚠ 异常项", padding=8)
+            sec = self.section(parent=bottom, title="△ 异常项", padding=8)
             sec_layout = sec.layout()
             if sec_layout is not None:
                 for a in self._probe_result.anomalies:

@@ -145,11 +145,11 @@ class PredictionPanel:
                 per_hour = rate_per_sec * 3600
                 per_min = rate_per_sec * 60
                 if per_hour >= 1:
-                    rate_str = f"📈 +{fmt_num(per_hour)}/h"
+                    rate_str = f"↗ +{fmt_num(per_hour)}/h"
                 elif per_min >= 0.1:
-                    rate_str = f"📈 +{per_min:.1f}/min"
+                    rate_str = f"↗ +{per_min:.1f}/min"
                 else:
-                    rate_str = f"📈 +{rate_per_sec:.2f}/s"
+                    rate_str = f"↗ +{rate_per_sec:.2f}/s"
                 w["rate_lbl"].setText(rate_str)
                 w["rate_lbl"].setVisible(True)
             else:
@@ -207,7 +207,7 @@ class PredictionPanel:
         ol.addWidget(wave)
 
         # 标题
-        ol.addWidget(SectionHeader("🎯 综合加权预测 ♪"))
+        ol.addWidget(SectionHeader("◎ 综合加权预测 ♪"))
 
         # 加权预测值
         val_lbl = QLabel(fmt_num(weighted_pred))
@@ -231,11 +231,11 @@ class PredictionPanel:
             per_hour = rate_per_sec * 3600
             per_min = rate_per_sec * 60
             if per_hour >= 1:
-                rate_str = f"📈 +{fmt_num(per_hour)}/h"
+                rate_str = f"↗ +{fmt_num(per_hour)}/h"
             elif per_min >= 0.1:
-                rate_str = f"📈 +{per_min:.1f}/min"
+                rate_str = f"↗ +{per_min:.1f}/min"
             else:
-                rate_str = f"📈 +{rate_per_sec:.2f}/s"
+                rate_str = f"↗ +{rate_per_sec:.2f}/s"
             rate_lbl = QLabel(rate_str)
             rate_lbl.setStyleSheet(f"color: {C['accent']}; font-size: 9pt;")
             ol.addWidget(rate_lbl)
@@ -319,7 +319,7 @@ class PredictionPanel:
             return frame
 
         surge_type = surge_info.get("surge_type", "moderate")
-        surge_label = surge_info.get("surge_label", "📈 推流中")
+        surge_label = surge_info.get("surge_label", "↗ 推流中")
         surge_mag = surge_info.get("surge_magnitude", 1.0)
         baseline = surge_info.get("baseline_velocity", 0)
         surge_vel = surge_info.get("surge_velocity", 0)
@@ -424,7 +424,7 @@ class PredictionPanel:
             return
 
         # Only update numerical values
-        surge_label = surge_info.get("surge_label", "📈 推流中")
+        surge_label = surge_info.get("surge_label", "↗ 推流中")
         surge_mag = surge_info.get("surge_magnitude", 1.0)
         confidence = surge_info.get("surge_confidence", 0.0)
         decay_hl = surge_info.get("decay_half_life_hours", 6.0)
@@ -477,7 +477,7 @@ class PredictionPanel:
         views = max(video.get("view_count", 0), 1)
 
         # ── 互动率概览 ──
-        layout.addWidget(SectionHeader("📊 互动率概览"))
+        layout.addWidget(SectionHeader("◧ 互动率概览"))
         grid = QWidget()
         grid.setStyleSheet(f"background-color: {C['bg_surface']};")
         gl = QGridLayout(grid)
@@ -485,7 +485,7 @@ class PredictionPanel:
         gl.setSpacing(2)
 
         rate_keys = ["like", "coin", "favorite", "share", "danmaku"]
-        rate_labels = ["👍 点赞率", "🪙 投币率", "⭐ 收藏率", "🔗 分享率", "💬 弹幕率"]
+        rate_labels = ["✓ 点赞率", "◎ 投币率", "★ 收藏率", "⌁ 分享率", "♬ 弹幕率"]
         for i, (rlbl, rkey) in enumerate(zip(rate_labels, rate_keys)):
             row, col_idx = divmod(i, 2)
             cell = QFrame()
@@ -516,7 +516,7 @@ class PredictionPanel:
         online_row.setStyleSheet(f"background-color: {C['bg_elevated']}; border-radius: {C['radius_sm']}px;")
         or_h = QHBoxLayout(online_row)
         or_h.setContentsMargins(6, 0, 6, 0)
-        online_lbl = QLabel("👁 在线人数")
+        online_lbl = QLabel("◉ 在线人数")
         online_lbl.setStyleSheet(f"color: {C['text_3']}; font-size: 9pt;")
         or_h.addWidget(online_lbl)
         online_val = QLabel("")
@@ -528,7 +528,7 @@ class PredictionPanel:
         dyn["online"] = online_val
 
         # ── 最近记录 ──
-        layout.addWidget(SectionHeader("📋 最近记录"))
+        layout.addWidget(SectionHeader("☰ 最近记录"))
         hist_container = QWidget()
         hist_container.setStyleSheet(f"background-color: {C['bg_surface']};")
         self._hist_layout = QVBoxLayout(hist_container)
@@ -565,7 +565,7 @@ class PredictionPanel:
         self._hist_layout.addWidget(hist_header)
 
         # ── 算法统计 ──
-        layout.addWidget(SectionHeader("🧠 算法统计"))
+        layout.addWidget(SectionHeader("◍ 算法统计"))
         algo_frame = QWidget()
         algo_frame.setStyleSheet(f"background-color: {C['bg_surface']};")
         af_l = QVBoxLayout(algo_frame)
@@ -605,7 +605,7 @@ class PredictionPanel:
         dyn["ensemble"] = ensemble_lbl
 
         # ── 数据健康 ──
-        layout.addWidget(SectionHeader("📡 数据健康"))
+        layout.addWidget(SectionHeader("⌁ 数据健康"))
         health_frame = QWidget()
         health_frame.setStyleSheet(f"background-color: {C['bg_surface']};")
         hf_l = QHBoxLayout(health_frame)

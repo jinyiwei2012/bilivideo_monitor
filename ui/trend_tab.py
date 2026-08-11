@@ -234,7 +234,7 @@ class TrendTab(QWidget):
         left_inner = QVBoxLayout(left_frame)
         left_inner.setContentsMargins(8, 8, 8, 8)
 
-        left_label = QLabel("  📹 选择视频（可多选）  ")
+        left_label = QLabel("  ◉ 选择视频（可多选）  ")
         left_label.setStyleSheet(f"color: {C['accent']}; font-weight: bold; background: transparent;")
         left_inner.addWidget(left_label)
 

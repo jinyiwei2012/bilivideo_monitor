@@ -168,9 +168,9 @@ class DataComparisonWindow(QDialog):
             self.on_add_monitor,
         )
 
-        self._tabs.addTab(self.trend_tab, "  📈  趋势图  ")
-        self._tabs.addTab(self.snapshot_tab, "  📊  快照对比  ")
-        self._tabs.addTab(self.entry_tab, "  📥  数据录入  ")
+        self._tabs.addTab(self.trend_tab, "  ↗  趋势图  ")
+        self._tabs.addTab(self.snapshot_tab, "  ◧  快照对比  ")
+        self._tabs.addTab(self.entry_tab, "  ↥  数据录入  ")
 
 
 # ══════════════════════════════════════════════════════════════════════════════

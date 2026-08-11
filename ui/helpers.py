@@ -167,10 +167,10 @@ def nearest_threshold_gap(views):
 def card_status_tag(gap: int):
     """根据与阈值的距离返回 (标签文字, 颜色)"""
     if 0 < gap < 500:
-        return "🔥 接近", C["danger"]
+        return "♨ 接近", C["danger"]
     if 0 < gap < 10000:
-        return "📈 进行中", C["success"]
-    return "📊 正常", C["text_3"]
+        return "↗ 进行中", C["success"]
+    return "◧ 正常", C["text_3"]
 
 
 def abbrev(n):

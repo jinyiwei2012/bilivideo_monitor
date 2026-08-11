@@ -18,18 +18,18 @@ from ui.dialog_base import DialogBase
 
 class RankingPanel:
     SORT_OPTIONS = [
-        ("📈 增速 (每小时)", "velocity"),
-        ("👁 播放量", "views"),
-        ("👍 点赞率", "like_rate"),
-        ("🪙 投币率", "coin_rate"),
-        ("📊 互动率", "engagement"),
-        ("👥 在线人数", "online"),
-        ("📅 发布天数", "age"),
+        ("↗ 增速 (每小时)", "velocity"),
+        ("◉ 播放量", "views"),
+        ("✓ 点赞率", "like_rate"),
+        ("◎ 投币率", "coin_rate"),
+        ("◧ 互动率", "engagement"),
+        ("☻ 在线人数", "online"),
+        ("▦ 发布天数", "age"),
     ]
 
     def __init__(self, parent, gui):
         self.gui = gui
-        self.dlg = DialogBase(parent, "🏆 视频排行榜", "800x540")
+        self.dlg = DialogBase(parent, "♛ 视频排行榜", "800x540")
         self.dlg.header("视频排行榜", "按多种维度对所有监控视频排序")
         self._build_ui()
 

@@ -338,7 +338,7 @@ class SnapshotTab(QWidget):
         ctrl_layout.setContentsMargins(0, 0, 0, 4)
 
         # Video selection
-        vbox = QGroupBox("  📹 选择视频（可多选）  ")
+        vbox = QGroupBox("  ◉ 选择视频（可多选）  ")
         vbox.setStyleSheet(f"""
             QGroupBox {{
                 color: {C['accent']}; font-weight: bold;
@@ -381,7 +381,7 @@ class SnapshotTab(QWidget):
         ctrl_layout.addWidget(vbox, 2)
 
         # Time point selection
-        tbox = QGroupBox("  🕐 选择时间点（可多选）  ")
+        tbox = QGroupBox("  ◷ 选择时间点（可多选）  ")
         tbox.setStyleSheet(vbox.styleSheet())
         tb_layout = QVBoxLayout(tbox)
         tb_layout.setContentsMargins(8, 8, 8, 8)

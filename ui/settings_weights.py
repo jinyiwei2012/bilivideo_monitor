@@ -148,7 +148,7 @@ class SettingsWeightsMixin:
 
         btn_layout.addStretch()
 
-        save_weight_btn = QPushButton("💾 保存权重")
+        save_weight_btn = QPushButton("⇓ 保存权重")
         save_weight_btn.clicked.connect(lambda: _confirm_risky("保存算法权重") and self._save_weights())
         btn_layout.addWidget(save_weight_btn)
 

@@ -77,11 +77,11 @@ class SettingsNotificationMixin:
             QMessageBox.information(
                 self.dlg,
                 "连接成功",
-                f"✅ OneBot 服务连接成功\n\n通道: {channel}\n版本: {ver}",
+                f"✓ OneBot 服务连接成功\n\n通道: {channel}\n版本: {ver}",
             )
         else:
             QMessageBox.critical(
                 self.dlg,
                 "连接失败",
-                f"❌ OneBot 服务连接失败\n\n原因: {result.get('error', '未知错误')}",
+                f"✗ OneBot 服务连接失败\n\n原因: {result.get('error', '未知错误')}",
             )

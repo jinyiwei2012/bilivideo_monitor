@@ -88,7 +88,7 @@ class TrendingDiscoveryWindow(DialogBase):
         self._sf_popular = ScrollableFrame(bg=C["bg_elevated"], height=None)
         pop_layout.addWidget(self._sf_popular)
 
-        self._tabs.addTab(popular_tab, "🔥 热门榜")
+        self._tabs.addTab(popular_tab, "♨ 热门榜")
 
         # 每周必看标签页
         weekly_tab = QWidget()
@@ -99,7 +99,7 @@ class TrendingDiscoveryWindow(DialogBase):
         self._sf_weekly = ScrollableFrame(bg=C["bg_elevated"], height=None)
         wk_layout.addWidget(self._sf_weekly)
 
-        self._tabs.addTab(weekly_tab, "📅 每周必看")
+        self._tabs.addTab(weekly_tab, "▦ 每周必看")
 
         # 切换标签页时加载数据
         self._tabs.currentChanged.connect(self._on_tab_changed)
@@ -225,10 +225,10 @@ class TrendingDiscoveryWindow(DialogBase):
             meta_layout.setContentsMargins(0, 0, 0, 0)
 
             meta_info = [
-                (f"👤 {author}", C["text_2"]),
+                (f"☺ {author}", C["text_2"]),
                 (f"▶ {self._fmt(views)}", C["text_2"]),
-                (f"👍 {self._fmt(likes)}", C["text_2"]),
-                (f"💬 {self._fmt(danmaku)}", C["text_2"]),
+                (f"✓ {self._fmt(likes)}", C["text_2"]),
+                (f"♬ {self._fmt(danmaku)}", C["text_2"]),
             ]
             for text, color in meta_info:
                 lbl = QLabel(text)

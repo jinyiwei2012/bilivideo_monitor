@@ -154,7 +154,7 @@ class SettingsGeneralMixin:
         for key, label in self.status_labels.items():
             value = status.get(key, "N/A")
             if key == "is_login":
-                v = "✅ 已登录" if value else "❌ 未登录"
+                v = "✓ 已登录" if value else "✗ 未登录"
                 label.setStyleSheet(f"color: {C['success'] if value else C['danger']};")
             elif key == "login_name":
                 v = str(value) if value else "—"

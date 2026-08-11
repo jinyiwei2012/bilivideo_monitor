@@ -279,7 +279,7 @@ def _on_fetch_done(gui, bvid, video):
     _update_status_bar(gui)
     if bvid == gui.selected_bvid:
         gui.detail.update_stat_bar(video)
-        if gui.detail.current_tab == "📈 播放量趋势":
+        if gui.detail.current_tab == "↗ 播放量趋势":
             if hasattr(gui, "_chart_debounce") and gui._chart_debounce:
                 gui._chart_debounce.stop()
             else:
@@ -287,9 +287,9 @@ def _on_fetch_done(gui, bvid, video):
                 gui._chart_debounce.setSingleShot(True)
                 gui._chart_debounce.timeout.connect(lambda: gui.detail._auto_render_chart())
             gui._chart_debounce.start(100)
-        elif gui.detail.current_tab == "📋 详细数据":
+        elif gui.detail.current_tab == "☰ 详细数据":
             gui.detail._fill_detail_text(video)
-        elif gui.detail.current_tab == "💬 弹幕":
+        elif gui.detail.current_tab == "♬ 弹幕":
             gui.detail._refresh_danmaku_display()
     gui._register_video_timer(bvid)
 

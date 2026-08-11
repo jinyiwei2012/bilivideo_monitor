@@ -85,7 +85,7 @@ class SettingsMonitorMixin:
         rl.addWidget(n_entry)
         rl.addStretch()
 
-        del_btn = QPushButton("✕")
+        del_btn = QPushButton("✗")
         del_btn.setStyleSheet(f"color: {C['danger']}; border: none;")
         del_btn.clicked.connect(lambda: (row.deleteLater(), self._thresh_rows.remove((v_spin, n_entry, row))))
         rl.addWidget(del_btn)

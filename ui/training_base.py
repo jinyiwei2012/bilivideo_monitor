@@ -53,10 +53,10 @@ class TrainingMonitor:
         self._no_improve_streak = 0  # 不收敛连续计数
 
     STATUS_LABELS = {
-        "good": ("🟢 训练良好", C["success"]),
-        "warning": ("🟡 注意", C["warning"]),
-        "danger": ("🔴 异常", C["danger"]),
-        "info": ("🔵 收集中", C["text_3"]),
+        "good": ("● 训练良好", C["success"]),
+        "warning": ("● 注意", C["warning"]),
+        "danger": ("● 异常", C["danger"]),
+        "info": ("● 收集中", C["text_3"]),
     }
 
     def update(self, epoch: int, train_loss: float, val_loss: float):
@@ -175,14 +175,14 @@ class TrainingMonitor:
             self.status = self._finding_status
             self.suggestions = self._finding_suggestions
         elif self._no_improve_streak >= 2:
-            self.status = "✅ 训练正常 — 已收敛"
+            self.status = "✓ 训练正常 — 已收敛"
             self.level = "good"
         elif n >= 3:
             tl_trend = pts[-1][1] < pts[-3][1]
             if tl_trend:
-                self.status = "✅ 训练正常 — Loss 稳步下降"
+                self.status = "✓ 训练正常 — Loss 稳步下降"
             else:
-                self.status = "✅ 训练正常 — Loss 趋于平稳"
+                self.status = "✓ 训练正常 — Loss 趋于平稳"
             self.level = "good"
 
     def _evaluate(self):
@@ -218,7 +218,7 @@ class TrainingMonitor:
     def get_tip(self) -> str:
         """返回一条当前最关键的简短建议，没有则返回空字符串。"""
         if self.suggestions:
-            return "💡 " + self.suggestions[0]
+            return "✦ " + self.suggestions[0]
         return ""
 
     # ── 动态 LR 系数计算 ─────────────────────────
@@ -598,7 +598,7 @@ class BaseTrainingPanel(AsyncQueueRunner, QWidget):
         layout = QHBoxLayout(monitor_bar)
         layout.setContentsMargins(6, 2, 8, 2)
 
-        self._monitor_icon = QLabel("🔵")
+        self._monitor_icon = QLabel("●")
         self._monitor_icon.setStyleSheet(f"background-color: {C['bg_surface']}; font-size: 14px;")
         layout.addWidget(self._monitor_icon)
 
@@ -624,9 +624,9 @@ class BaseTrainingPanel(AsyncQueueRunner, QWidget):
         tip = self._monitor.get_tip()
         if self._monitor_tip:
             self._monitor_tip.setText(tip)
-        icon_map = {"good": "🟢", "warning": "🟡", "danger": "🔴", "info": "🔵"}
+        icon_map = {"good": "●", "warning": "●", "danger": "●", "info": "●"}
         if self._monitor_icon:
-            self._monitor_icon.setText(icon_map.get(self._monitor.level, "🔵"))
+            self._monitor_icon.setText(icon_map.get(self._monitor.level, "●"))
 
         self._on_monitor_changed()
 

@@ -229,7 +229,7 @@ class EntryTab(QWidget):
         gen_btn.clicked.connect(self._generate_rows)
         btn_layout.addWidget(gen_btn)
 
-        save_btn = QPushButton("💾 保存全部")
+        save_btn = QPushButton("⇓ 保存全部")
         save_btn.setProperty("accent", True)
         save_btn.clicked.connect(self._save_all)
         btn_layout.addWidget(save_btn)
@@ -581,7 +581,7 @@ class EntryTab(QWidget):
             skipped += sk
             errors += e
 
-        msg = f"✅ 已保存 {saved} 条"
+        msg = f"✓ 已保存 {saved} 条"
         if skipped:
             msg += f"，跳过 {skipped} 条（播放量为空）"
         if errors:

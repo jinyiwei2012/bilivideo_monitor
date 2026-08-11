@@ -204,7 +204,7 @@ class VersionManagerMixin:
                 row_layout.addWidget(export_btn)
 
                 if len(versions) > 1:
-                    del_btn = QPushButton("✕")
+                    del_btn = QPushButton("✗")
                     del_btn.setFixedWidth(30)
                     ver_val = v["version"]
                     del_btn.clicked.connect(
@@ -249,13 +249,13 @@ class VersionManagerMixin:
                     row_layout.setContentsMargins(4, 1, 4, 1)
                     layout.addWidget(row)
 
-                    bvid_lbl = QLabel(f"  📺 {bvid}  {v['version']}")
+                    bvid_lbl = QLabel(f"  ▣ {bvid}  {v['version']}")
                     bvid_lbl.setStyleSheet(f"color: {C['text_1']}; background: transparent;")
                     bvid_lbl.setFont(FONT_MONO)
                     row_layout.addWidget(bvid_lbl)
                     row_layout.addStretch()
 
-                    del_btn = QPushButton("✕")
+                    del_btn = QPushButton("✗")
                     del_btn.setFixedWidth(30)
                     bvid_val = bvid
                     ver_val = v["version"]
@@ -296,7 +296,7 @@ class VersionManagerMixin:
                     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                     "algorithms", "checkpoints", aid,
                 )
-                dir_lbl = QLabel(f"📁 {os.path.relpath(ckpt_dir)}")
+                dir_lbl = QLabel(f"▣ {os.path.relpath(ckpt_dir)}")
                 dir_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
                 dir_lbl.setFont(FONT_SM)
                 btn_row_layout.addWidget(dir_lbl)

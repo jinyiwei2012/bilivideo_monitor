@@ -78,7 +78,7 @@ class DanmakuAnalysisWindow:
             r0_layout.addWidget(self._monitor_cb)
             r0_layout.addSpacing(8)
 
-            fetch_btn = QPushButton("🚀 抓取这个视频 ♪")
+            fetch_btn = QPushButton("♬ 抓取这个视频 ♪")
             fetch_btn.clicked.connect(self._from_monitor_and_fetch)
             r0_layout.addWidget(fetch_btn)
             r0_layout.addStretch()
@@ -130,12 +130,12 @@ class DanmakuAnalysisWindow:
         r2_layout = QHBoxLayout(row2)
         r2_layout.setContentsMargins(0, 4, 0, 0)
 
-        self._save_btn = QPushButton("💾 保存到本地 ♪")
+        self._save_btn = QPushButton("⇓ 保存到本地 ♪")
         self._save_btn.clicked.connect(lambda: self._save_to_file())
         self._save_btn.setEnabled(False)
         r2_layout.addWidget(self._save_btn)
 
-        self._llm_btn = QPushButton("🤖 LLM深度分析 ♪")
+        self._llm_btn = QPushButton("◉ LLM深度分析 ♪")
         self._llm_btn.clicked.connect(self._llm_analysis)
         self._llm_btn.setEnabled(False)
         r2_layout.addWidget(self._llm_btn)
@@ -243,7 +243,7 @@ class DanmakuAnalysisWindow:
         self._time_widget = _TimeHistogramWidget()
         self._time_widget.setMinimumHeight(120)
         time_layout.addWidget(self._time_widget, stretch=1)
-        self._bottom_tabs.addTab(time_page, "  📊 时间分布 ♪  ")
+        self._bottom_tabs.addTab(time_page, "  ◧ 时间分布 ♪  ")
 
         # ── 页3：LLM分析结果 ──
         llm_page = QWidget()
@@ -257,7 +257,7 @@ class DanmakuAnalysisWindow:
         )
         self._llm_text.setFont(QFont("Microsoft YaHei UI", 10))
         llm_layout.addWidget(self._llm_text, stretch=1)
-        self._bottom_tabs.addTab(llm_page, "  🤖 LLM分析 ♪  ")
+        self._bottom_tabs.addTab(llm_page, "  ◉ LLM分析 ♪  ")
 
         if main_layout:
             main_layout.addWidget(self._bottom_tabs, stretch=2)
@@ -609,7 +609,7 @@ class DanmakuAnalysisWindow:
 
     def _update_llm_ui(self, result_text, mode, model):
         """主线程：更新 UI 显示 LLM 分析结果"""
-        title = f"🎯 LLM {mode}深度分析报告\n"
+        title = f"◎ LLM {mode}深度分析报告\n"
         meta = f"BV: {self._current_bvid}  |  数据: {len(self._texts)}条  |  模型: {model}\n\n"
         html = f"""
         <h2 style="color: {C['bilibili']};">{title}</h2>
@@ -678,7 +678,7 @@ class DanmakuAnalysisWindow:
             model = data.get("model", "unknown")
             if result_text:
                 self._show_llm_summary(result_text, mode, model)
-                title = f"🎯 LLM {mode}深度分析报告\n"
+                title = f"◎ LLM {mode}深度分析报告\n"
                 meta = f"BV: {self._current_bvid}  |  数据: {data.get('data_count', 0)}条  |  模型: {model}\n\n"
                 html = f"""
                 <h2 style="color: {C['bilibili']};">{title}</h2>
@@ -699,7 +699,7 @@ class DanmakuAnalysisWindow:
         """在上半区显示 LLM 分析结果"""
         self._left_frame.hide()
         self._right_frame.hide()
-        title = f"🎯 LLM {mode}深度分析报告\n"
+        title = f"◎ LLM {mode}深度分析报告\n"
         meta = f"BV: {self._current_bvid}  |  数据: {len(self._texts)}条  |  模型: {model}\n\n"
         html = f"""
         <h2 style="color: {C['bilibili']};">{title}</h2>
