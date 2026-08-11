@@ -21,9 +21,11 @@ from PyQt6.QtGui import (
 
 from ui.theme import C
 from ui.helpers import (
-    FONT, FONT_SM, FONT_BOLD, FONT_MONO,
+    FONT, FONT_SM, FONT_BOLD, FONT_MONO, FONT_MONO_LG,
+    FONT_TITLE, FONT_CAPTION, SPACE_MD,
     THRESHOLDS, THRESHOLD_NAMES, THRESH_COLORS, fmt_num,
 )
+from ui.widgets import SectionHeader, EmptyState, WaveDivider
 from ui.chart import ChartWidget
 from ui.detail_tabs import _RatioDanmakuMixin
 from ui.invoker import invoke
@@ -231,10 +233,8 @@ class DetailPanel(_RatioDanmakuMixin):
         self._detail_header.setFixedHeight(80)
         layout.addWidget(self._detail_header)
 
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet(f"background-color: {C['border']}; max-height: 1px;")
-        layout.addWidget(sep)
+        # 天依蓝水波分隔线 (header ↔ 统计栏)
+        layout.addWidget(WaveDivider())
 
         self._build_header_empty()
 
@@ -243,10 +243,8 @@ class DetailPanel(_RatioDanmakuMixin):
         self._stat_bar.setStyleSheet(f"background-color: {C['bg_surface']};")
         layout.addWidget(self._stat_bar)
 
-        sep2 = QFrame()
-        sep2.setFrameShape(QFrame.Shape.HLine)
-        sep2.setStyleSheet(f"background-color: {C['border']}; max-height: 1px;")
-        layout.addWidget(sep2)
+        # 天依蓝水波分隔线 (统计栏 ↔ 标签页)
+        layout.addWidget(WaveDivider())
 
         # Tab widget
         self._tabs = QTabWidget()
@@ -264,8 +262,8 @@ class DetailPanel(_RatioDanmakuMixin):
                 font-size: 10pt;
             }}
             QTabBar::tab:selected {{
-                color: {C['bilibili']};
-                border-bottom: 2px solid {C['bilibili']};
+                color: {C['lty_blue_deep']};
+                border-bottom: 2px solid {C['lty_blue']};
             }}
             QTabBar::tab:hover {{
                 color: {C['text_1']};
@@ -338,6 +336,11 @@ class DetailPanel(_RatioDanmakuMixin):
         self._chart_widget = ChartWidget()
         ct_layout.addWidget(self._chart_widget, 1)
 
+        # 图表空状态 (未选中/无数据时覆盖显示)
+        self._chart_empty = EmptyState("还没有数据呢…♪")
+        self._chart_empty.setVisible(False)
+        ct_layout.addWidget(self._chart_empty, 1)
+
         self._tabs.addTab(self._chart_tab, "📈 播放量趋势")
 
         # Tab 1: Detail text
@@ -374,8 +377,8 @@ class DetailPanel(_RatioDanmakuMixin):
         dm_top_h = QHBoxLayout(dm_top)
         dm_top_h.setContentsMargins(16, 10, 16, 4)
 
-        dm_title = QLabel("实时弹幕")
-        dm_title.setStyleSheet(f"color: {C['text_2']}; font-size: 10pt; font-weight: bold;")
+        dm_title = SectionHeader("实时弹幕 ♪")
+        dm_title.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
         dm_top_h.addWidget(dm_title)
 
         self._dm_count_lbl = QLabel("")
@@ -406,11 +409,20 @@ class DetailPanel(_RatioDanmakuMixin):
         """)
         dm_layout.addWidget(self._dm_text, 1)
 
+        # 弹幕空状态 (无记录时显示)
+        self._dm_empty = EmptyState("还没有弹幕数据呢…♪ 监控过程中会自动拉取并保存哦 ♪")
+        self._dm_empty.setVisible(False)
+        dm_layout.addWidget(self._dm_empty, 1)
+
         self._tabs.addTab(self._danmaku_tab, "💬 弹幕")
 
         layout.addWidget(self._tabs, 1)
 
         self._rebuild_stat_bar({})
+
+        # 初始无选中视频: 图表显示空状态
+        self._chart_empty.setVisible(True)
+        self._chart_widget.setVisible(False)
 
     def _mk_label(self, text):
         lbl = QLabel(text)
@@ -422,13 +434,12 @@ class DetailPanel(_RatioDanmakuMixin):
     def _build_header_empty(self):
         """空状态头部"""
         self._clear_header()
-        lbl = QLabel("← 从左侧选择一个视频", self._detail_header)
-        lbl.setStyleSheet(f"color: {C['text_3']}; font-size: 11pt; padding: 18px 20px;")
+        empty = EmptyState("还没有选择视频呢 ♪", self._detail_header)
         layout = self._detail_header.layout()
         if layout is None:
             layout = QHBoxLayout(self._detail_header)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(lbl)
+        layout.addWidget(empty)
 
     def _clear_header(self):
         """清空 header 布局中的全部子 widget，保留布局对象以复用"""
@@ -470,7 +481,8 @@ class DetailPanel(_RatioDanmakuMixin):
         # Title
         title_lbl = QLabel(title)
         title_lbl.setWordWrap(True)
-        title_lbl.setStyleSheet(f"color: {C['text_1']}; font-size: 12pt; font-weight: bold;")
+        title_lbl.setFont(FONT_TITLE)
+        title_lbl.setStyleSheet(f"color: {C['text_1']}; background-color: transparent;")
         info_layout.addWidget(title_lbl)
 
         # Meta row
@@ -577,11 +589,11 @@ class DetailPanel(_RatioDanmakuMixin):
         if layout is None:
             layout = QHBoxLayout(self._stat_bar)
         layout.setContentsMargins(14, 8, 14, 8)
-        layout.setSpacing(4)
+        layout.setSpacing(SPACE_MD)
 
         self._stat_labels = {}
         fields = [
-            ("播放量", "view_count", C["bilibili"]),
+            ("播放量", "view_count", C["lty_blue"]),
             ("点赞", "like_count", C["text_1"]),
             ("投币", "coin_count", C["text_1"]),
             ("收藏", "favorite_count", C["text_1"]),
@@ -599,15 +611,16 @@ class DetailPanel(_RatioDanmakuMixin):
                 QFrame {{
                     background-color: {C['bg_elevated']};
                     border: 1px solid {C['border_sub']};
-                    border-radius: 6px;
+                    border-radius: {C['radius_sm']}px;
                 }}
             """)
             card_layout = QVBoxLayout(card)
-            card_layout.setContentsMargins(8, 4, 8, 4)
+            card_layout.setContentsMargins(6, 4, 6, 4)
             card_layout.setSpacing(0)
 
             lbl = QLabel(label)
-            lbl.setStyleSheet(f"color: {C['text_3']}; font-size: 8pt;")
+            lbl.setFont(FONT_CAPTION)
+            lbl.setStyleSheet(f"color: {C['text_3']}; background-color: transparent;")
             card_layout.addWidget(lbl)
 
             # Value
@@ -625,11 +638,13 @@ class DetailPanel(_RatioDanmakuMixin):
                 val_text = fmt_num(video.get(key, 0)) if video else "—"
 
             val_lbl = QLabel(val_text)
-            val_lbl.setStyleSheet(f"color: {color}; font-family: Consolas; font-size: 13pt; font-weight: bold;")
+            val_lbl.setFont(FONT_MONO_LG)
+            val_lbl.setStyleSheet(f"color: {color}; background-color: transparent;")
             card_layout.addWidget(val_lbl)
 
             delta_lbl = QLabel("")
-            delta_lbl.setStyleSheet(f"color: {C['success']}; font-size: 8pt;")
+            delta_lbl.setFont(FONT_CAPTION)
+            delta_lbl.setStyleSheet(f"color: {C['success']}; background-color: transparent;")
             card_layout.addWidget(delta_lbl)
 
             layout.addWidget(card, 1)
@@ -748,9 +763,13 @@ class DetailPanel(_RatioDanmakuMixin):
     def _do_render_chart(self):
         """执行图表渲染"""
         if not self.gui.selected_bvid:
+            self._chart_empty.setVisible(True)
+            self._chart_widget.setVisible(False)
             return
         video = next((v for v in self.gui.monitored_videos if v.get("bvid") == self.gui.selected_bvid), None)
         if not video:
+            self._chart_empty.setVisible(True)
+            self._chart_widget.setVisible(False)
             return
         try:
             points = max(2, int(self._pts_input.text()))
@@ -771,6 +790,8 @@ class DetailPanel(_RatioDanmakuMixin):
             mode=self._chart_mode, max_points=points, prediction=pred,
         )
         self._rendered_modes.add(self._chart_mode)
+        self._chart_empty.setVisible(False)
+        self._chart_widget.setVisible(True)
 
     @property
     def chart_mode(self):

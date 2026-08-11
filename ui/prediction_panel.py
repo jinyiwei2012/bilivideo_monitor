@@ -16,11 +16,15 @@ from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QFont
 
 from ui.theme import C
-from ui.helpers import FONT, FONT_SM, FONT_MONO, THRESHOLDS, THRESHOLD_NAMES, THRESH_COLORS, fmt_num
+from ui.helpers import (
+    FONT_MONO_LG, FONT_CAPTION, SPACE_MD,
+    THRESHOLDS, THRESHOLD_NAMES, THRESH_COLORS, fmt_num,
+)
+from ui.widgets import SectionHeader, EmptyState
 
 
 class _SectionTitle(QWidget):
-    """分节标题组件"""
+    """分节标题组件 (兼容旧版, 新代码请使用 ui.widgets.SectionHeader)"""
 
     def __init__(self, text: str, parent=None):
         super().__init__(parent)
@@ -76,10 +80,10 @@ class PredictionPanel:
             QScrollArea {{ background-color: {C['bg_surface']}; border: none; }}
             QScrollBar:vertical {{
                 background-color: {C['bg_hover']}; width: 8px;
-                border-radius: 4px;
+                border-radius: {C['radius_sm']}px;
             }}
             QScrollBar::handle:vertical {{
-                background-color: {C['border']}; border-radius: 4px; min-height: 20px;
+                background-color: {C['border']}; border-radius: {C['radius_sm']}px; min-height: 20px;
             }}
         """)
         self._info_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -122,10 +126,8 @@ class PredictionPanel:
 
         if layout is None:
             layout = QVBoxLayout(self._pred_hero)
-        layout.setContentsMargins(14, 14, 14, 14)
-        lbl = QLabel("选择视频后显示预测")
-        lbl.setStyleSheet(f"color: {C['text_3']}; font-size: 11pt;")
-        layout.addWidget(lbl)
+        layout.setContentsMargins(SPACE_MD, SPACE_MD, SPACE_MD, SPACE_MD)
+        layout.addWidget(EmptyState("选择视频后显示预测 ♪"))
 
     def build_pred_hero(self, weighted_pred, current_views, rate_per_sec, surge_info=None):
         """构建或更新预测英雄卡片"""
@@ -183,19 +185,36 @@ class PredictionPanel:
         self._hero_widgets = {}
 
         outer = QWidget()
-        outer.setStyleSheet(f"background-color: {C['bg_surface']};")
+        outer.setStyleSheet(f"""
+            QWidget {{
+                background-color: {C['bg_elevated']};
+                border: 1px solid {C['lty_blue']};
+                border-radius: {C['radius_lg']}px;
+            }}
+        """)
         ol = QVBoxLayout(outer)
-        ol.setContentsMargins(14, 12, 14, 12)
+        ol.setContentsMargins(14, 10, 14, 12)
         ol.setSpacing(4)
 
+        # 水波渐变条 (天依蓝渐变, 呼应洛水天依)
+        wave = QFrame()
+        wave.setFixedHeight(3)
+        wave.setStyleSheet(
+            f"background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
+            f"stop:0 {C['lty_wave_a']}, stop:1 {C['lty_wave_b']}); "
+            "border: none; border-radius: 1px;"
+        )
+        ol.addWidget(wave)
+
         # 标题
-        title_lbl = QLabel("🎯 综合加权预测")
-        title_lbl.setStyleSheet(f"color: {C['text_3']}; font-size: 8pt;")
-        ol.addWidget(title_lbl)
+        ol.addWidget(SectionHeader("🎯 综合加权预测 ♪"))
 
         # 加权预测值
         val_lbl = QLabel(fmt_num(weighted_pred))
-        val_lbl.setStyleSheet(f"color: {C['text_1']}; font-family: Consolas; font-size: 18pt; font-weight: bold;")
+        val_font = QFont(FONT_MONO_LG)
+        val_font.setPointSize(18)
+        val_lbl.setFont(val_font)
+        val_lbl.setStyleSheet(f"color: {C['lty_blue_deep']}; background-color: transparent;")
         ol.addWidget(val_lbl)
 
         # 增长量
@@ -233,7 +252,7 @@ class PredictionPanel:
         thr_rows = []
         for t, name, col in zip(THRESHOLDS, THRESHOLD_NAMES, THRESH_COLORS):
             row = QWidget()
-            row.setStyleSheet(f"background-color: {C['bg_surface']};")
+            row.setStyleSheet("background-color: transparent;")
             rh = QHBoxLayout(row)
             rh.setContentsMargins(0, 2, 0, 2)
             rh.setSpacing(4)
@@ -293,7 +312,7 @@ class PredictionPanel:
     def _build_surge_badge(self, parent, surge_info):
         """构建推流状态指示器"""
         frame = QWidget(parent)
-        frame.setStyleSheet(f"background-color: {C['bg_surface']};")
+        frame.setStyleSheet("background-color: transparent;")
         frame.setVisible(False)
 
         if not surge_info or not surge_info.get("is_surging"):
@@ -324,7 +343,7 @@ class PredictionPanel:
 
         # Header
         header_row = QWidget()
-        header_row.setStyleSheet(f"background-color: {bg_color}; border-radius: 6px;")
+        header_row.setStyleSheet(f"background-color: {bg_color}; border-radius: {C['radius_sm']}px;")
         hh = QHBoxLayout(header_row)
         hh.setContentsMargins(6, 3, 6, 3)
 
@@ -341,7 +360,7 @@ class PredictionPanel:
 
         # Comparison row
         comp_row = QWidget()
-        comp_row.setStyleSheet(f"background-color: {C['bg_surface']};")
+        comp_row.setStyleSheet("background-color: transparent;")
         ch = QHBoxLayout(comp_row)
         ch.setContentsMargins(2, 2, 2, 2)
         ch.setSpacing(4)
@@ -458,7 +477,7 @@ class PredictionPanel:
         views = max(video.get("view_count", 0), 1)
 
         # ── 互动率概览 ──
-        layout.addWidget(_SectionTitle("📊 互动率概览"))
+        layout.addWidget(SectionHeader("📊 互动率概览"))
         grid = QWidget()
         grid.setStyleSheet(f"background-color: {C['bg_surface']};")
         gl = QGridLayout(grid)
@@ -471,7 +490,7 @@ class PredictionPanel:
             row, col_idx = divmod(i, 2)
             cell = QFrame()
             cell.setFixedHeight(28)
-            cell.setStyleSheet(f"background-color: {C['bg_elevated']}; border-radius: 4px;")
+            cell.setStyleSheet(f"background-color: {C['bg_elevated']}; border-radius: {C['radius_sm']}px;")
             cell_h = QHBoxLayout(cell)
             cell_h.setContentsMargins(6, 0, 6, 0)
             name = QLabel(rlbl)
@@ -494,7 +513,7 @@ class PredictionPanel:
         ow_l.setContentsMargins(10, 0, 10, 6)
         online_row = QFrame()
         online_row.setFixedHeight(28)
-        online_row.setStyleSheet(f"background-color: {C['bg_elevated']}; border-radius: 4px;")
+        online_row.setStyleSheet(f"background-color: {C['bg_elevated']}; border-radius: {C['radius_sm']}px;")
         or_h = QHBoxLayout(online_row)
         or_h.setContentsMargins(6, 0, 6, 0)
         online_lbl = QLabel("👁 在线人数")
@@ -509,7 +528,7 @@ class PredictionPanel:
         dyn["online"] = online_val
 
         # ── 最近记录 ──
-        layout.addWidget(_SectionTitle("📋 最近记录"))
+        layout.addWidget(SectionHeader("📋 最近记录"))
         hist_container = QWidget()
         hist_container.setStyleSheet(f"background-color: {C['bg_surface']};")
         self._hist_layout = QVBoxLayout(hist_container)
@@ -519,8 +538,34 @@ class PredictionPanel:
         dyn["hist_container"] = hist_container
         dyn["hist_rows"] = []
 
+        # 表头行 (时间 / 增量 / 播放量 对齐基准)
+        hist_header = QWidget()
+        hist_header.setStyleSheet(f"background-color: {C['bg_surface']};")
+        hh = QHBoxLayout(hist_header)
+        hh.setContentsMargins(0, 0, 0, 2)
+        hh.setSpacing(4)
+        ts_head = QLabel("时间")
+        ts_head.setFont(FONT_CAPTION)
+        ts_head.setFixedWidth(60)
+        ts_head.setStyleSheet(f"color: {C['text_3']}; background-color: transparent;")
+        hh.addWidget(ts_head)
+        hh.addStretch()
+        delta_head = QLabel("增量")
+        delta_head.setFont(FONT_CAPTION)
+        delta_head.setFixedWidth(50)
+        delta_head.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        delta_head.setStyleSheet(f"color: {C['text_3']}; background-color: transparent;")
+        hh.addWidget(delta_head)
+        view_head = QLabel("播放量")
+        view_head.setFont(FONT_CAPTION)
+        view_head.setFixedWidth(60)
+        view_head.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        view_head.setStyleSheet(f"color: {C['text_3']}; background-color: transparent;")
+        hh.addWidget(view_head)
+        self._hist_layout.addWidget(hist_header)
+
         # ── 算法统计 ──
-        layout.addWidget(_SectionTitle("🧠 算法统计"))
+        layout.addWidget(SectionHeader("🧠 算法统计"))
         algo_frame = QWidget()
         algo_frame.setStyleSheet(f"background-color: {C['bg_surface']};")
         af_l = QVBoxLayout(algo_frame)
@@ -529,7 +574,7 @@ class PredictionPanel:
 
         ar1 = QFrame()
         ar1.setFixedHeight(28)
-        ar1.setStyleSheet(f"background-color: {C['bg_elevated']}; border-radius: 4px;")
+        ar1.setStyleSheet(f"background-color: {C['bg_elevated']}; border-radius: {C['radius_sm']}px;")
         ar1_h = QHBoxLayout(ar1)
         ar1_h.setContentsMargins(6, 0, 6, 0)
         valid_lbl = QLabel("有效算法")
@@ -543,7 +588,7 @@ class PredictionPanel:
 
         ar2 = QFrame()
         ar2.setFixedHeight(28)
-        ar2.setStyleSheet(f"background-color: {C['bg_elevated']}; border-radius: 4px;")
+        ar2.setStyleSheet(f"background-color: {C['bg_elevated']}; border-radius: {C['radius_sm']}px;")
         ar2_h = QHBoxLayout(ar2)
         ar2_h.setContentsMargins(6, 0, 6, 0)
         ens_lbl = QLabel("集成置信度")
@@ -560,14 +605,14 @@ class PredictionPanel:
         dyn["ensemble"] = ensemble_lbl
 
         # ── 数据健康 ──
-        layout.addWidget(_SectionTitle("📡 数据健康"))
+        layout.addWidget(SectionHeader("📡 数据健康"))
         health_frame = QWidget()
         health_frame.setStyleSheet(f"background-color: {C['bg_surface']};")
         hf_l = QHBoxLayout(health_frame)
         hf_l.setContentsMargins(10, 0, 10, 6)
         hr = QFrame()
         hr.setFixedHeight(28)
-        hr.setStyleSheet(f"background-color: {C['bg_elevated']}; border-radius: 4px;")
+        hr.setStyleSheet(f"background-color: {C['bg_elevated']}; border-radius: {C['radius_sm']}px;")
         hr_h = QHBoxLayout(hr)
         hr_h.setContentsMargins(6, 0, 6, 0)
         rec_lbl = QLabel("数据点数")
@@ -654,8 +699,9 @@ class PredictionPanel:
                 row_fr.deleteLater()
             rows.clear()
             if hist_layout.count() == 0:
-                empty_lbl = QLabel("暂无历史数据")
-                empty_lbl.setStyleSheet(f"color: {C['text_3']}; font-size: 9pt;")
+                empty_lbl = QLabel("还没有历史数据呢…♪")
+                empty_lbl.setFont(FONT_CAPTION)
+                empty_lbl.setStyleSheet(f"color: {C['text_3']}; background-color: transparent;")
                 hist_layout.addWidget(empty_lbl)
             return
 
@@ -664,7 +710,7 @@ class PredictionPanel:
             item = hist_layout.itemAt(i)
             if item is not None:
                 w = item.widget()
-                if w and isinstance(w, QLabel) and w.text() == "暂无历史数据":
+                if w and isinstance(w, QLabel) and w.text() == "还没有历史数据呢…♪":
                     w.deleteLater()
 
         recent = history[-15:]

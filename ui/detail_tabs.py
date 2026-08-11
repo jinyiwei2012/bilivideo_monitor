@@ -11,6 +11,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QTextCursor
 
 from ui.theme import C
+from ui.widgets import SectionHeader
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,7 @@ class _RatioDanmakuMixin:
             ("收藏率", C["success"]),
             ("弹幕率", C["warning"]),
         ]
+        self._ratio_layout.addWidget(SectionHeader("🔄 互动率"))
         for label, color in ratios_cfg:
             row = QWidget()
             row.setStyleSheet(f"background-color: {C['bg_base']};")
@@ -87,7 +89,9 @@ class _RatioDanmakuMixin:
         """从数据库加载弹幕并刷新显示"""
         bvid = self.gui.selected_bvid
         if not bvid:
-            self._dm_text.setPlainText("请先选择一个视频")
+            self._dm_text.setVisible(True)
+            self._dm_empty.setVisible(False)
+            self._dm_text.setPlainText("请先选择一个视频呢 ♪")
             self._dm_count_lbl.setText("")
             return
 
@@ -106,8 +110,11 @@ class _RatioDanmakuMixin:
 
         self._dm_text.clear()
         if not records:
-            self._dm_text.setPlainText("暂无弹幕数据\n\n弹幕将在视频监控过程中自动拉取并保存。")
+            self._dm_text.setVisible(False)
+            self._dm_empty.setVisible(True)
         else:
+            self._dm_text.setVisible(True)
+            self._dm_empty.setVisible(False)
             html = "<pre style='font-family: \"Microsoft YaHei UI\"; font-size: 10pt; margin: 0; white-space: pre-wrap;'>"
             for r in records[-200:]:
                 ts = r.get("video_ts", 0)
