@@ -227,8 +227,9 @@ class AIQASession:
 
         if not videos:
             return (
-                "当前未监控任何视频。请先在主界面添加视频到监控列表，"
-                "或使用「视频搜索」功能查找并添加视频后，再来向我提问。"
+                "还没有监控任何视频呢…天依的歌声还需要听众。\n"
+                "请先在主界面添加视频到监控列表，"
+                "或使用「视频搜索」功能查找并添加视频后，再来向天依提问哦 ♪"
             )
 
         handlers = [
@@ -244,7 +245,7 @@ class AIQASession:
                 return handler()
 
         return (
-            f"我是监控助手，当前共监控 {len(videos)} 个视频。"
+            f"天依是监控助手哦，当前共监控 {len(videos)} 个视频 ♪\n"
             f"你可以问我：当前监控多少视频？哪个增长最快？播放量排行？"
             f"有无异常预警？健康探针情况？"
         )
@@ -267,14 +268,14 @@ class AIQASession:
                 except Exception as e:
                     logger.debug("生成AI预警报告失败: %s", e)
         if alert_count > 0:
-            return f"发现 {alert_count} 条异常预警：\n" + "\n".join(details[:5])
-        return "当前无异常预警。"
+            return f"天依注意到 {alert_count} 条异常预警啦!♪\n" + "\n".join(details[:5])
+        return "当前一切安好哦，没有异常预警 ♪"
 
     def _answer_fastest_growth(self) -> str:
         """回答增长最快的问题"""
         videos = self._monitored_videos
         if not videos:
-            return "暂无监控视频。"
+            return "还没有监控视频呢…像一首没点开的歌，天依等你来添加哦 ♪"
         best_v, best_rate = None, -1
         for v in videos:
             bvid = v.get("bvid", "")
@@ -305,18 +306,18 @@ class AIQASession:
                             best_v = v
         if best_v:
             return (
-                f"增长最快：{best_v.get('title', '')[:20]} "
+                f"增长最快的是《{best_v.get('title', '')[:20]}》♪ "
                 f"(时速 {best_rate:.0f}/h，"
                 f"当前 {best_v.get('view_count', 0):,})"
             )
-        return "暂无足够数据计算增速。"
+        return "数据还不够呢…再多攒一些，天依就能听出谁跑得最快啦 ♪"
 
     def _answer_top_views(self) -> str:
         """回答播放量排行的问题"""
         sorted_v = sorted(self._monitored_videos, key=lambda v: v.get("view_count", 0), reverse=True)
         if not sorted_v:
-            return "暂无监控视频。"
-        lines = ["播放量排行："]
+            return "还没有监控视频呢…天依的排行榜还空着，等一首新歌来开场吧 ♪"
+        lines = ["♪ 播放量排行："]
         for i, v in enumerate(sorted_v[:5], 1):
             lines.append(f"  {i}. {v.get('title', '')[:20]} — {v.get('view_count', 0):,}")
         return "\n".join(lines)
@@ -340,7 +341,7 @@ class AIQASession:
                 elif views >= t * 0.8:
                     nearing.append(f"{v.get('title', '')[:20]} 距{name}还差{t - views:,}")
 
-        result = f"已达标 {achieved} 个阈值。"
+        result = f"已达标 {achieved} 个阈值啦 ♪"
         if nearing:
             result += "\n即将达标：\n" + "\n".join(nearing[:5])
         return result
@@ -355,7 +356,7 @@ class AIQASession:
                 r = calculate_probe_from_dict(v)
                 results.append(f"{v.get('title', '')[:16]}: {r.health_score:.0f}分({r.health_grade})")
             if results:
-                return "健康探针：\n" + "\n".join(results)
-            return "暂无数据。"
+                return "♪ 健康探针：\n" + "\n".join(results)
+            return "还没有数据呢…天依想听听它们的健康歌声，等数据来哦 ♪"
         except Exception:
             return "健康探针暂时不可用。"
