@@ -935,16 +935,13 @@ class ModelTrainer:
 
     @staticmethod
     def _instantiate_algorithm(algo_id: str):
-        """从 AlgorithmRegistry 按 algorithm_id 查找底层算法实例。
-
-        会解包 ModelAlgorithmAdapter 包装层，获取底层算法的原始实例，
-        以访问 build_model() / get_loss_fn() 等训练方法。
+        """从 AlgorithmRegistry 按 algorithm_id 查找算法实例。
 
         Args:
             algo_id: 算法标识符。
 
         Returns:
-            算法对象（可能是适配器内的 algo 属性），未找到时返回 None。
+            算法对象，未找到时返回 None。
         """
         try:
             from algorithms.registry import AlgorithmRegistry
@@ -953,12 +950,6 @@ class ModelTrainer:
             return None
         AlgorithmRegistry.initialize()
         algo = AlgorithmRegistry.get_algorithm(algo_id)
-        if algo is None:
-            return None
-        # 解包 ModelAlgorithmAdapter → 底层算法实例
-        # 适配器包装的算法通过 .algo 属性访问原始对象
-        if hasattr(algo, "algo"):
-            return algo.algo
         return algo
 
 

@@ -40,43 +40,19 @@ def _make_video_data(history, current_views=15000):
     }
 
 
-# 仍使用旧版 4 参数接口的算法，需要通过 ModelAlgorithmAdapter 测试
-_OLD_INTERFACE = {
-    "LogisticGrowthAlgorithm",
-    "WeibullGrowthAlgorithm",
-    "HoltWintersAlgorithm",
-    "SVRPredictorAlgorithm",
-    "GaussianProcessAlgorithm",
-    "HuberRegressionAlgorithm",
-    "MLPPredictorAlgorithm",
-    "KalmanFilterAlgorithm",
-}
+# 所有算法均已统一为新接口 predict(video_data, threshold) -> PredictionResult
 
 
-def _via_adapter(module_path, cls_name, video_data, threshold=100000):
-    """通过 ModelAlgorithmAdapter 测试旧接口算法"""
-    import importlib
-    from algorithms.model_adapter import ModelAlgorithmAdapter
+def test_all_algorithms_new_interface():
+    """全量校验: 所有注册算法都是 BaseAlgorithm 直接实例, 无 adapter 包装层。"""
+    from algorithms.registry import AlgorithmRegistry
 
-    mod = importlib.import_module(module_path)
-    cls = getattr(mod, cls_name)
-    algo = ModelAlgorithmAdapter(cls())
-    history = []
-    for h in video_data.get("history_data", []):
-        dt = h.get("datetime", h.get("timestamp", 0))
-        v = h.get("view_count", 0)
-        if hasattr(dt, "timestamp"):
-            history.append((dt, v))
-        else:
-            history.append((float(dt), v))
-    result = algo.predict_dict(
-        history,
-        video_data.get("view_count", 0),
-        thresholds=[threshold],
-        threshold_names=["test"],
-        _cached_video_data=video_data,
-    )
-    return result
+    AlgorithmRegistry.initialize()
+    for key, algo in AlgorithmRegistry._algorithms.items():
+        from algorithms.base import BaseAlgorithm
+
+        assert isinstance(algo, BaseAlgorithm), f"{key} 不是 BaseAlgorithm 实例"
+        assert not hasattr(algo, "predict_dict"), f"{key} 仍存在 predict_dict (兼容层未删除)"
 
 
 class TestSimpleCategory:
@@ -107,18 +83,14 @@ class TestGrowthCategory:
     )
     def test_growth_algorithm(self, module_path, cls_name):
         video_data = _make_video_data(_make_history(15), 15000)
-        if cls_name in _OLD_INTERFACE:
-            result = _via_adapter(module_path, cls_name, video_data)
-            assert result.get("prediction", 0) > 0
-        else:
-            import importlib
+        import importlib
 
-            mod = importlib.import_module(module_path)
-            cls = getattr(mod, cls_name)
-            algo = cls()
-            result = algo.predict(video_data, 100000)
-            assert result.target_threshold == 100000
-            assert result.confidence >= 0
+        mod = importlib.import_module(module_path)
+        cls = getattr(mod, cls_name)
+        algo = cls()
+        result = algo.predict(video_data, 100000)
+        assert result.target_threshold == 100000
+        assert result.confidence >= 0
 
 
 class TestTimeSeriesCategory:
@@ -136,18 +108,14 @@ class TestTimeSeriesCategory:
     )
     def test_time_series_algorithm(self, module_path, cls_name):
         video_data = _make_video_data(_make_history(20), 20000)
-        if cls_name in _OLD_INTERFACE:
-            result = _via_adapter(module_path, cls_name, video_data)
-            assert result.get("prediction", 0) > 0
-        else:
-            import importlib
+        import importlib
 
-            mod = importlib.import_module(module_path)
-            cls = getattr(mod, cls_name)
-            algo = cls()
-            result = algo.predict(video_data, 100000)
-            assert result.target_threshold == 100000
-            assert result.confidence >= 0
+        mod = importlib.import_module(module_path)
+        cls = getattr(mod, cls_name)
+        algo = cls()
+        result = algo.predict(video_data, 100000)
+        assert result.target_threshold == 100000
+        assert result.confidence >= 0
 
 
 class TestStatisticalCategory:
@@ -164,18 +132,14 @@ class TestStatisticalCategory:
     )
     def test_statistical_algorithm(self, module_path, cls_name):
         video_data = _make_video_data(_make_history(20), 20000)
-        if cls_name in _OLD_INTERFACE:
-            result = _via_adapter(module_path, cls_name, video_data)
-            assert result.get("prediction", 0) > 0
-        else:
-            import importlib
+        import importlib
 
-            mod = importlib.import_module(module_path)
-            cls = getattr(mod, cls_name)
-            algo = cls()
-            result = algo.predict(video_data, 100000)
-            assert result.target_threshold == 100000
-            assert result.confidence >= 0
+        mod = importlib.import_module(module_path)
+        cls = getattr(mod, cls_name)
+        algo = cls()
+        result = algo.predict(video_data, 100000)
+        assert result.target_threshold == 100000
+        assert result.confidence >= 0
 
 
 class TestEnsembleCategory:
@@ -192,18 +156,14 @@ class TestEnsembleCategory:
     )
     def test_ensemble_algorithm(self, module_path, cls_name):
         video_data = _make_video_data(_make_history(10), 10000)
-        if cls_name in _OLD_INTERFACE:
-            result = _via_adapter(module_path, cls_name, video_data)
-            assert result.get("prediction", 0) > 0
-        else:
-            import importlib
+        import importlib
 
-            mod = importlib.import_module(module_path)
-            cls = getattr(mod, cls_name)
-            algo = cls()
-            result = algo.predict(video_data, 100000)
-            assert result.target_threshold == 100000
-            assert result.confidence >= 0
+        mod = importlib.import_module(module_path)
+        cls = getattr(mod, cls_name)
+        algo = cls()
+        result = algo.predict(video_data, 100000)
+        assert result.target_threshold == 100000
+        assert result.confidence >= 0
 
 
 class TestDeepLearningCategory:
@@ -219,17 +179,13 @@ class TestDeepLearningCategory:
     )
     def test_dl_algorithm(self, module_path, cls_name):
         video_data = _make_video_data(_make_history(15), 15000)
-        if cls_name in _OLD_INTERFACE:
-            result = _via_adapter(module_path, cls_name, video_data)
-            assert result.get("prediction", 0) > 0
-        else:
-            import importlib
+        import importlib
 
-            mod = importlib.import_module(module_path)
-            cls = getattr(mod, cls_name)
-            algo = cls()
-            result = algo.predict(video_data, 100000)
-            assert result.target_threshold == 100000
+        mod = importlib.import_module(module_path)
+        cls = getattr(mod, cls_name)
+        algo = cls()
+        result = algo.predict(video_data, 100000)
+        assert result.target_threshold == 100000
 
 
 class TestAdvancedCategory:
@@ -248,18 +204,14 @@ class TestAdvancedCategory:
     )
     def test_advanced_algorithm(self, module_path, cls_name):
         video_data = _make_video_data(_make_history(10), 10000)
-        if cls_name in _OLD_INTERFACE:
-            result = _via_adapter(module_path, cls_name, video_data)
-            assert result.get("prediction", 0) > 0
-        else:
-            import importlib
+        import importlib
 
-            mod = importlib.import_module(module_path)
-            cls = getattr(mod, cls_name)
-            algo = cls()
-            result = algo.predict(video_data, 100000)
-            assert result.target_threshold == 100000
-            assert result.confidence >= 0
+        mod = importlib.import_module(module_path)
+        cls = getattr(mod, cls_name)
+        algo = cls()
+        result = algo.predict(video_data, 100000)
+        assert result.target_threshold == 100000
+        assert result.confidence >= 0
 
 
 class TestEdgeCases:

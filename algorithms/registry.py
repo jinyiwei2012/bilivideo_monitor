@@ -2,8 +2,8 @@
 算法注册器
 
 集中管理所有预测算法。在首次使用时自动扫描 models/ 目录下的所有
-算法文件（通过 ModelAlgorithmAdapter 桥接），并为每个视频运行
-全量算法预测，产生带权重加权的集成预测结果（ensemble prediction）。
+算法文件（BaseAlgorithm 直接实例），并为每个视频运行全量算法预测，
+产生带权重加权的集成预测结果（ensemble prediction）。
 """
 
 from typing import Dict, List, Tuple
@@ -68,7 +68,6 @@ class AlgorithmRegistry:
 
     _algorithms: Dict = {}
     _initialized = False
-    _model_adapters = {}
     _pool_lock = threading.RLock()  # RLock to allow reentrant pool access
     _pool = None
     _init_lock = threading.Lock()
@@ -96,20 +95,44 @@ class AlgorithmRegistry:
 
     @classmethod
     def _load_model_algorithms(cls):
-        """加载 models/ 目录下的所有算法。
-
-        委托给 model_adapter.load_all_model_algorithms() 扫描文件系统，
-        将每个算法包装为 ModelAlgorithmAdapter 后存入内部字典。
-        """
+        """扫描 models/ 目录, 直接实例化并注册所有算法 (不再经 ModelAlgorithmAdapter 包装)。"""
         try:
-            from .model_adapter import load_all_model_algorithms
+            import importlib
+            import os
+            from .base import BaseAlgorithm
 
-            adapters = load_all_model_algorithms()
+            current_dir = os.path.dirname(__file__)
+            models_dir = os.path.join(current_dir, "models")
+            if not os.path.exists(models_dir):
+                logger.warning("models目录不存在: %s", models_dir)
+                return
 
-            for adapter in adapters:
-                algo_name = f"[Model] {adapter.name}"
-                cls._algorithms[algo_name] = adapter
-                cls._model_adapters[algo_name] = adapter
+            for root, dirs, files in os.walk(models_dir):
+                dirs[:] = [d for d in dirs if d != "__pycache__"]
+                for filename in sorted(files):
+                    if not filename.endswith(".py") or filename.startswith("_"):
+                        continue
+                    file_path = os.path.join(root, filename)
+                    rel_path = os.path.relpath(file_path, models_dir)
+                    module_path = rel_path[:-3].replace("\\", ".").replace("/", ".")
+                    try:
+                        module = importlib.import_module(f".models.{module_path}", package="algorithms")
+                    except Exception as e:
+                        logger.warning("加载算法 %s 失败: %s", module_path, e)
+                        continue
+                    for attr_name in dir(module):
+                        attr = getattr(module, attr_name)
+                        if isinstance(attr, type) and attr_name.endswith("Algorithm"):
+                            base_names = {c.__name__ for c in attr.__mro__}
+                            if "BaseAlgorithm" not in base_names and "BasePredictionAlgorithm" not in base_names:
+                                continue
+                            try:
+                                instance = attr()
+                            except Exception as e:
+                                logger.debug("忽略算法 %s.%s: %s", module_path, attr_name, e)
+                                continue
+                            algo_name = f"[Model] {instance.name}"
+                            cls._algorithms[algo_name] = instance
 
         except Exception as e:
             logger.error("加载models算法失败: %s", e)
@@ -132,12 +155,8 @@ class AlgorithmRegistry:
         """
         if not cls._initialized:
             cls.initialize()
-        for key, adapter in cls._algorithms.items():
-            raw_id = getattr(adapter, "algorithm_id", None)
-            if raw_id is None:
-                raw_id = getattr(adapter, "algo", None)
-            if hasattr(raw_id, "algorithm_id"):
-                raw_id = raw_id.algorithm_id
+        for key, algo in cls._algorithms.items():
+            raw_id = getattr(algo, "algorithm_id", None)
             if raw_id == algorithm_id:
                 return key
         return algorithm_id
@@ -299,6 +318,72 @@ class AlgorithmRegistry:
         return merged
 
     @classmethod
+    def _to_registry_result(cls, prediction_result, current_value, thresholds, threshold_names, name, weight) -> Dict:
+        """把算法返回的 PredictionResult 转换为 registry 标准结果 dict。
+
+        语义与原 ModelAlgorithmAdapter._parse_result 格式 1 一致:
+        prediction = 下一短期窗口(75s)的预测播放量; metadata 含阈值预测明细。
+        """
+        pred_hours = prediction_result.predicted_hours
+        confidence = prediction_result.confidence
+        velocity = getattr(prediction_result, "current_velocity", 0)
+
+        SHORT_TERM_SECONDS = 75  # 与 DEFAULT_INTERVAL 对齐
+        short_hours = SHORT_TERM_SECONDS / 3600.0
+        if velocity > 0:
+            prediction = current_value + velocity * short_hours
+        elif pred_hours == float("inf") or pred_hours < 0:
+            prediction = current_value + current_value * 0.01
+        else:
+            if pred_hours > 0:
+                avg_velocity = (
+                    (thresholds[0] - current_value) / max(pred_hours, 1) if thresholds[0] > current_value else 0
+                )
+                prediction = current_value + avg_velocity * short_hours
+            else:
+                prediction = current_value * 1.01
+
+        threshold_preds = []
+        MIN_VELOCITY = 1e-8  # ≈ 1 播放/11,000 年, 避免 predicted_seconds 溢出 SQLite INTEGER
+        for thresh, name_th in zip(thresholds, threshold_names):
+            if thresh > current_value:
+                hours_needed = (thresh - current_value) / velocity if velocity > MIN_VELOCITY else float("inf")
+                if hours_needed != float("inf"):
+                    threshold_preds.append(
+                        {
+                            "threshold": thresh,
+                            "name": name_th,
+                            "periods_needed": int(hours_needed),
+                            "minutes": hours_needed * 60,
+                        }
+                    )
+
+        return {
+            "prediction": max(prediction, current_value),
+            "confidence": min(max(confidence, 0), 1),
+            "weight": weight,
+            "predicted_hours": pred_hours,
+            "metadata": {
+                "predicted_hours": pred_hours,
+                "velocity": velocity,
+                "threshold_predictions": threshold_preds,
+                "data_points": 0,
+            },
+        }
+
+    @classmethod
+    def _make_na_result(cls, current_value, name, weight) -> Dict:
+        """返回 N/A 结果 (保守估计 ~1%/小时 增长)。"""
+        short_hours = 75 / 3600.0
+        return {
+            "prediction": current_value + current_value * 0.01 * short_hours,
+            "confidence": 0.3,
+            "weight": weight,
+            "predicted_hours": 0,
+            "metadata": {"na": True, "threshold_predictions": []},
+        }
+
+    @classmethod
     def _run_parallel_predictions(cls, history, current_value, bvid, cached_video_data, thresholds, threshold_names):
         results = {}
         valid_count = 0
@@ -316,33 +401,22 @@ class AlgorithmRegistry:
                 with warnings.catch_warnings():
                     warnings.filterwarnings("ignore", category=RuntimeWarning, module="numpy")
                     with np.errstate(invalid="ignore", divide="ignore"):
-                        if hasattr(algo, "predict_dict"):
-                            res = algo.predict_dict(
-                                history,
-                                current_value,
-                                thresholds=thresholds,
-                                threshold_names=threshold_names,
-                                _cached_video_data=cached_video_data,
-                            )
-                        else:
-                            res = algo.predict(
-                                history,
-                                current_value,
-                                thresholds=thresholds,
-                                threshold_names=threshold_names,
-                                _cached_video_data=cached_video_data,
-                            )
+                        prediction_result = algo.predict(cached_video_data, thresholds[0])
                 w = _weights.get(n, 1.0)
-                pred = res["prediction"]
-                meta = res.get("metadata", {})
+                if prediction_result is None:
+                    res = cls._make_na_result(current_value, n, w)
+                else:
+                    res = cls._to_registry_result(
+                        prediction_result, current_value, thresholds, threshold_names, n, w
+                    )
                 return (
                     n,
                     {
-                        "prediction": pred,
+                        "prediction": res["prediction"],
                         "confidence": res["confidence"],
-                        "weight": w,
+                        "weight": res["weight"],
                         "predicted_hours": res.get("predicted_hours", 0),
-                        "metadata": meta,
+                        "metadata": res.get("metadata", {}),
                     },
                     None,
                 )
@@ -664,7 +738,6 @@ class AlgorithmRegistry:
         """重置注册器：清空所有已注册算法并关闭线程池。"""
         cls.shutdown()
         cls._algorithms = {}
-        cls._model_adapters = {}
         cls._derived_cache = _LRUDict(maxsize=_MAX_CACHE_SIZE)
         cls._initialized = False
 
@@ -675,8 +748,8 @@ class AlgorithmRegistry:
         if not cls._initialized:
             cls.initialize()
         result = []
-        for aid, adapter in cls._algorithms.items():
-            build_model_fn = getattr(adapter, "build_model", None)
+        for aid, algo in cls._algorithms.items():
+            build_model_fn = getattr(algo, "build_model", None)
             if build_model_fn is None:
                 continue
             ckpt = CheckpointManager(aid)
@@ -684,8 +757,8 @@ class AlgorithmRegistry:
             active = ckpt.active_version()
             result.append({
                 "algorithm_id": aid,
-                "name": getattr(adapter, "name", aid),
-                "category": getattr(adapter, "category", ""),
+                "name": getattr(algo, "name", aid),
+                "category": getattr(algo, "category", ""),
                 "has_ckpt": ckpt.has_checkpoint(),
                 "active_version": active or "",
                 "version_count": len(versions),
@@ -698,11 +771,11 @@ class AlgorithmRegistry:
         if not cls._initialized:
             cls.initialize()
         result = []
-        for aid, adapter in cls._algorithms.items():
-            build_model_fn = getattr(adapter, "build_model", None)
+        for aid, algo in cls._algorithms.items():
+            build_model_fn = getattr(algo, "build_model", None)
             if build_model_fn is None:
                 continue
-            result.append((aid, adapter.algo if hasattr(adapter, "algo") else adapter, adapter))
+            result.append((aid, algo, algo))
         return result
 
 

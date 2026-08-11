@@ -162,7 +162,6 @@ def run_all() -> dict:
                 allres[k] = {
                     "prediction": round(r.get("prediction", 0), 6),
                     "confidence": round(r.get("confidence", 0), 6),
-                    "predicted_hours": r.get("predicted_hours"),
                     "na": r.get("metadata", {}).get("na", False),
                     "error": r.get("error"),
                 }
