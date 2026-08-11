@@ -25,7 +25,7 @@ def _sanitize(title: str) -> str:
 
 import re as _re
 
-_BVID_RE = _re.compile(r"^BV[A-Za-z0-9]{10,12}$")
+from core.constants import BV_PATTERN as _BVID_RE
 
 
 def _cover_path(bvid: str, title: str = "") -> str:

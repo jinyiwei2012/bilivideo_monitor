@@ -6,17 +6,12 @@
 import os
 import json
 import logging
-import sys
 from copy import deepcopy
 from typing import Dict, Any
 
-logger = logging.getLogger(__name__)
+from utils import PROJECT_ROOT  # 单点定义见 utils/__init__.py (兼容 PyInstaller frozen)
 
-# 项目根目录（兼容 PyInstaller 打包后的路径）
-if getattr(sys, "frozen", False):
-    PROJECT_ROOT = os.path.dirname(sys.executable)
-else:
-    PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+logger = logging.getLogger(__name__)
 
 # 数据目录
 DATA_DIR = os.path.join(PROJECT_ROOT, "data")

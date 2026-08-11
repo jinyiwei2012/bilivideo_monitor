@@ -56,14 +56,17 @@ def reload_thresholds():
     """从配置文件加载阈值列表"""
     global THRESHOLDS, THRESHOLD_NAMES, THRESH_COLORS
     try:
-        from config import load_config
+        from config import load_config, DEFAULT_CONFIG
 
         cfg = load_config()
         raw = cfg.get("prediction", {}).get("thresholds", [])
         if not raw:
-            raw = [100_000, 1_000_000, 10_000_000]
+            # 默认阈值单点定义见 config.DEFAULT_CONFIG
+            raw = DEFAULT_CONFIG["prediction"]["thresholds"]
     except Exception:
-        raw = [100_000, 1_000_000, 10_000_000]
+        from config import DEFAULT_CONFIG
+
+        raw = DEFAULT_CONFIG["prediction"]["thresholds"]
 
     values = []
     names = []
@@ -233,6 +236,6 @@ def load_algo_confidence(algo_id: str) -> float:
 
 def is_valid_bvid(s: str) -> bool:
     """校验 BV 号格式，防止路径穿越。"""
-    import re
+    from core.constants import BV_PATTERN
 
-    return bool(re.match(r"^BV[A-Za-z0-9]{10,12}$", s.strip()))
+    return bool(BV_PATTERN.match(s.strip()))

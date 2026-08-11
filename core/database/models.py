@@ -74,7 +74,7 @@ class PredictionRecord:
     error_rate: float = 0.0  # 预测误差率
 
 
-_BVID_PATTERN = re.compile(r"^BV[A-Za-z0-9]{10,12}$")
+from core.constants import BV_PATTERN as _BVID_PATTERN
 
 
 def _validate_bvid(bvid: str) -> str:
