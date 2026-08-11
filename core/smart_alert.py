@@ -139,7 +139,7 @@ class AnomalyDetector:
         # 之前增速需至少 1/h（排除静止视频），且降至 30% 以下
         if prev_g > 1 and recent_g < prev_g * 0.3:
             views = recent[-1].get("view_count", 0)
-            return f"🔻 增长放缓！增速从 {prev_g:.0f}/h 降至 {recent_g:.0f}/h (当前 {_fmt_count(views)})"
+            return f"△ 增长放缓呢…增速从 {prev_g:.0f}/h 降到 {recent_g:.0f}/h 了 (当前 {_fmt_count(views)}) ♪"
         return None
 
     @staticmethod
@@ -168,12 +168,12 @@ class AnomalyDetector:
         # 自适应：播放量 < 1万 用绝对阈值，>1万 用相对阈值
         if current_views < 1_0000:
             if rate < 5 and total_growth < 100:
-                return f"💤 播放停滞！近 {span_h:.1f}h 仅增长 {_fmt_count(total_growth)} (当前 {_fmt_count(current_views)})"
+                return f"♪ 播放停下来啦…近 {span_h:.1f}h 只涨了 {_fmt_count(total_growth)} (当前 {_fmt_count(current_views)})"
         else:
             min_expected = current_views * 0.00005  # 期望至少十万分之五/小时
             if rate < min_expected:
                 return (
-                    f"💤 播放近乎停滞！近 {span_h:.1f}h 增速 {rate:.1f}/h"
+                    f"♪ 播放几乎停住啦…近 {span_h:.1f}h 增速只有 {rate:.1f}/h"
                     f" (预期 >{min_expected:.1f}/h，当前 {_fmt_count(current_views)})"
                 )
         return None
@@ -196,7 +196,7 @@ class AnomalyDetector:
         # 当前在线人数超过历史均值 2.5 倍且绝对值 > 30
         if avg_viewers > 0 and last_viewers > avg_viewers * 2.5 and last_viewers > 30:
             return (
-                f"🔥 在线人数飙升！当前 {last_viewers} 人在线，" f"是之前的 {last_viewers / max(avg_viewers, 1):.1f}倍"
+                f"♨ 在线人数飙升啦!♪ 当前 {last_viewers} 人在线，" f"是之前的 {last_viewers / max(avg_viewers, 1):.1f}倍"
             )
         return None
 
@@ -234,9 +234,9 @@ class AnomalyDetector:
         # 夜间在线达到日间均值的 40% 以上，视为异常
         if avg_day > 10 and current_v > avg_day * 0.4:
             return (
-                f"🌙 深夜异常在线！当前 {current_v} 人在线"
+                f"♪ 深夜还有人在线呢…当前 {current_v} 人在线"
                 f"（时段:{hour}:00，日间均{avg_day:.0f}人），"
-                f"可能为机器人刷量"
+                f"可能是机器人刷量哦"
             )
         return None
 
@@ -258,8 +258,8 @@ class AnomalyDetector:
         # 当前人数降至初始的 30% 以下且绝对下降超过 50 人
         if prev_viewers > 0 and last_viewers < prev_viewers * 0.3 and (prev_viewers - last_viewers) > 50:
             return (
-                f"📉 在线人数骤降！从 {prev_viewers} 人降至 {last_viewers} 人，"
-                f"降幅 {(1 - last_viewers / prev_viewers) * 100:.0f}%"
+                f"↘ 在线人数骤降呢…从 {prev_viewers} 人降到 {last_viewers} 人，"
+                f"降幅 {(1 - last_viewers / prev_viewers) * 100:.0f}% ♪"
             )
         return None
 
@@ -271,7 +271,7 @@ class AnomalyDetector:
             if lr and lr.get("live_status", 0) == 1:  # live_status=1 表示正在直播
                 title = lr.get("live_title", "未命名直播")
                 roomid = lr.get("roomid", 0)
-                return f"🔴 UP主正在直播！「{title[:30]}」 (房间 {roomid})，视频数据可能受推流影响"
+                return f"🔴 UP主正在直播哦!♪「{title[:30]}」 (房间 {roomid})，视频数据可能受推流影响"
         return None
 
     @staticmethod
@@ -377,7 +377,7 @@ class AnomalyDetector:
         if score < 3:
             return None
 
-        level = "🚨 高度疑似买量" if score >= 5 else "📢 疑似买量"
+        level = "‼ 高度疑似买量" if score >= 5 else "♪ 疑似买量"
         detail = "、".join(reasons[:4])
         if len(reasons) > 4:
             detail += f"等{len(reasons)}项"

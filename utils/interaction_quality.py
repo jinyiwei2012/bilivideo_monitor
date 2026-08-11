@@ -166,10 +166,10 @@ def format_probe_result(result: ProbeResult) -> str:
         f"分享率:   {result.share_rate:.2f}%   (正常 0.5-3%)",
     ]
     if result.anomalies:
-        lines.extend(["", "⚠ 异常项:"])
+        lines.extend(["", "△ 异常项:"])
         lines.extend([f"  - {a}" for a in result.anomalies])
     if result.tips:
-        lines.extend(["", "💡 建议:"])
+        lines.extend(["", "✦ 建议:"])
         lines.extend([f"  - {t}" for t in result.tips])
     lines.append("=" * 40)
     return "\n".join(lines)

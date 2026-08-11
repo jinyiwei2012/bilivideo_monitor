@@ -178,13 +178,16 @@ class NotificationManager:
 
     def send_threshold_notification(self, bvid: str, title: str, threshold: int, current_views: int):
         """发送阈值突破通知（同时发送 Windows 通知和 QQ 通知）"""
-        message = f"视频《{title}》播放量突破{threshold / 10000:.0f}万！\n当前播放量: {current_views}\nBV号: {bvid}"
+        message = (
+            f"追上光啦!♪ 视频《{title}》播放量突破{threshold / 10000:.0f}万！\n"
+            f"当前播放量: {current_views}\nBV号: {bvid}"
+        )
 
         # Windows通知
-        self.send_windows_notification("播放量突破提醒", message)
+        self.send_windows_notification("♪ 播放量突破提醒", message)
 
         # QQ通知
-        qq_msg = f"🎉 播放量突破提醒\n{message}"
+        qq_msg = f"♪ 播放量突破提醒\n{message}"
         self.send_qq_private(qq_msg)
         self.send_qq_group(qq_msg)
 
