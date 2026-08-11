@@ -42,9 +42,8 @@ matplotlib>=3.7.0        # 绘图
 # GUI - PyQt6
 # ==========
 
-PyQt6>=6.7.0             # Qt6 UI框架
+PyQt6>=6.7.0             # Qt6 UI框架 (6.7+ 已内置 QtMultimedia 绑定, 无需单独安装)
 PyQt6-charts>=6.7.0      # Qt6 图表库
-PyQt6.QtMultimedia>=6.7.0 # Qt6 多媒体
 plyer>=2.1.0             # 跨平台通知 (Windows 原生弹窗)
 
 # ==========
@@ -59,17 +58,15 @@ asyncio-mqtt>=0.16.0     # MQTT (通知功能)
 # ==========
 # 深度学习 (2026 新算法 + 既有算法升级)
 # ==========
-# ⚠️ torch 不在本文件内安装！请先单独运行：
-#     python install_torch.py
+# ⚠️ 安装顺序 (重要):
+#   1. python install_torch.py     → GPU 版 PyTorch (镜像加速, nvidia-smi 自动检测 CUDA,
+#                                    按驱动选择 cu118/cu121/cu124/cu126/cu128, 失败回退 CPU)
+#   2. pip install -r requirements.txt   → 本文件全部依赖
+#   3. python install_uni2ts.py    → uni2ts 2.0.0 (MOIRAI 基础模型)
 #
-# 该脚本会：
-#   1. 调 nvidia-smi 检测驱动支持的 CUDA 版本
-#   2. 按驱动版本自动选择 PyTorch CUDA wheel（cu118 / cu121 / cu124 / cu126 / cu128）
-#   3. 若无 GPU 或 CUDA 太老 → 自动装 CPU 版
-#   4. 安装失败时按 GPU → CPU 顺序回退
-#
-# 然后再跑：
-#     pip install -r requirements.txt
+# uni2ts 的元数据写死 torch<2.5 / numpy~=1.26 / scipy~=1.11, 直接安装会被 pip
+# 强制降级 torch/numpy/scipy, 破坏 GPU 推理 → 所以不在此文件内安装,
+# 由 install_uni2ts.py 用 --no-deps 解锁安装 (见文件内说明)。
 
 transformers>=4.40.0        # HuggingFace 模型加载 (MOIRAI / Lag-Llama)
 huggingface-hub>=0.20.0     # 模型下载与缓存
@@ -92,7 +89,6 @@ lightgbm>=4.1.0          # LightGBM 直方图梯度提升（lightgbm_simple.py�
 catboost>=1.2.0          # CatBoost 有序提升（catboost_simple.py）
 prophet>=1.1.5           # Facebook Prophet 时间序列分解（prophet_simple.py）
 ngboost>=0.5.0          # NGBoost 概率预测（ngboost_simple.py）
-uni2ts>=0.1.0           # MOIRAI 基础模型加载（hf_loader.py / moirai.py）
 
 # --- 导出与工具 ---
 openpyxl>=3.1.0         # Excel 导出（database_query.py）
