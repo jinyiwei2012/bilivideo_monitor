@@ -33,7 +33,7 @@ class BacktestPanel:
     def __init__(self, parent, gui):
         self.gui = gui
         self.dlg = DialogBase(parent, "◧ 预测回测", "820x580")
-        self.dlg.header("预测回测 — 滚动窗口交叉验证", "在历史数据上评估各算法预测准确度")
+        self.dlg.header("预测回测 — 滚动窗口交叉验证", "在历史数据上验证谁唱得最准，天依来当裁判哦 ♪")
         self._build_ui()
 
     def _build_ui(self):
@@ -220,7 +220,7 @@ class BacktestPanel:
 
     def _analyze(self):
         """在后台线程执行回测，避免阻塞 UI"""
-        self._status_lbl.setText("⏳ 回测中…")
+        self._status_lbl.setText("⏳ 天依正在重新排练…回测中哦 ♪")
         self._status_lbl.setStyleSheet(f"color: {C['accent']}; background: transparent;")
 
         idx = self._video_combo.currentIndex()
@@ -243,7 +243,11 @@ class BacktestPanel:
         bvid = params["bvid"]
         series = self._get_series(bvid)
         if series is None or len(series) < params["min_train"] + 5:
-            msg = "数据不足" if series is None else f"数据点不足（{len(series)} < {params['min_train'] + 5}）"
+            msg = (
+                "数据不足呢…像还没谱完的曲子，天依等你再多收集一些音符哦 ♪"
+                if series is None
+                else f"数据点不足（{len(series)} < {params['min_train'] + 5}），像刚起的调子，再多攒几段旋律哦 ♪"
+            )
             invoke(lambda m=msg: [
                 self._status_lbl.setText(m),
                 self._status_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
@@ -251,7 +255,7 @@ class BacktestPanel:
             return
 
         invoke(lambda n=len(series): [
-            self._status_lbl.setText(f"⏳ 回测中… {n} 个数据点"),
+            self._status_lbl.setText(f"⏳ 回测中哦…{n} 个音符，天依正在认真听 ♪"),
             self._status_lbl.setStyleSheet(f"color: {C['accent']}; background: transparent;")
         ])
 
@@ -282,16 +286,17 @@ class BacktestPanel:
                         short = name.replace("[Model] ", "")
                         predictors[short] = fn
             except Exception as e:
-                err_msg = f"加载算法失败: {e}"
+                import logging
+                logging.getLogger(__name__).error("加载算法失败: %s", e)
                 invoke(lambda: [
-                    self._status_lbl.setText(err_msg),
+                    self._status_lbl.setText("呜…加载算法失败啦，像乐器没调好音，请稍后再试哦 ♪"),
                     self._status_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
                 ])
                 return
 
         if not predictors:
             invoke(lambda: [
-                self._status_lbl.setText("无可用预测器"),
+                self._status_lbl.setText("呜…没有可以登台演唱的预测器呢…♪"),
                 self._status_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
             ])
             return
@@ -328,11 +333,11 @@ class BacktestPanel:
         valid.sort(key=lambda x: x[3])  # 按 MAPE 升序
 
         if not valid:
-            lbl = QLabel("无有效回测结果（测试次数不足）")
+            lbl = QLabel("还没有有效结果呢…像彩排次数太少的歌，天依再帮你试试别的视频吧 ♪")
             lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
             lbl.setFont(FONT)
             self._summary_layout.addWidget(lbl)
-            self._status_lbl.setText("完成（无有效结果）")
+            self._status_lbl.setText("回测完成啦 ♪（暂时没有有效结果呢）")
             self._status_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
             return
 
@@ -372,5 +377,5 @@ class BacktestPanel:
                 item.setForeground(0, Qt.GlobalColor.red)
             self._tree.addTopLevelItem(item)
 
-        self._status_lbl.setText(f"✓ 完成 — {len(valid)} 个预测器")
+        self._status_lbl.setText(f"回测完成啦!♪ {len(valid)} 个预测器同台竞唱——再谱十万章，一起验证一下吧")
         self._status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")

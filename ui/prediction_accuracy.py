@@ -118,7 +118,7 @@ class PredictionAccuracyPanel:
     def _load_data(self):
         bvid = self._video_combo.currentData()
         if not bvid:
-            self._summary_lbl.setText("请选择视频")
+            self._summary_lbl.setText("选一个视频吧,天依好帮你回看预测的歌声 ♪")
             self._table.setRowCount(0)
             return
 
@@ -129,7 +129,7 @@ class PredictionAccuracyPanel:
 
         vdb = self.gui.video_dbs.get(bvid)
         if not vdb:
-            self._summary_lbl.setText("无数据库")
+            self._summary_lbl.setText("呜…还没有这个视频的数据库呢 ♪")
             self._table.setRowCount(0)
             return
 
@@ -158,19 +158,19 @@ class PredictionAccuracyPanel:
                 rows = cursor.fetchall()
         except Exception as e:
             logger.warning("查询预测记录失败: %s", e)
-            self._summary_lbl.setText(f"查询失败: {e}")
+            self._summary_lbl.setText("呜…查询失败了,天依会再试试的哦 ♪")
             self._table.setRowCount(0)
             return
 
         if not rows:
-            self._summary_lbl.setText("暂无预测记录")
+            self._summary_lbl.setText("还没有预测记录呢…等天依唱出预测就有了 ♪")
             self._table.setRowCount(0)
             return
 
         # 加载 monitor_records 用于查找预测到达时点的实际播放量
         records = vdb.get_all_records()
         if not records:
-            self._summary_lbl.setText("无监控记录，无法计算准确率")
+            self._summary_lbl.setText("还没有监控记录,天依没法算出准确率呢…等等数据哦 ♪")
             self._table.setRowCount(0)
             return
 
@@ -193,7 +193,7 @@ class PredictionAccuracyPanel:
             _rec_timestamps.append(ts)
             _rec_views.append(vc)
         if not _rec_timestamps:
-            self._summary_lbl.setText("监控记录时间戳解析失败")
+            self._summary_lbl.setText("呜…记录里的时间有点乱,天依整理一下再试哦 ♪")
             self._table.setRowCount(0)
             return
 
@@ -273,15 +273,15 @@ class PredictionAccuracyPanel:
 
         if count > 0:
             avg_dev = total_dev / count
-            extra = f" | {skipped_future} 条预测尚未到达" if skipped_future > 0 else ""
+            extra = f" | {skipped_future} 条预测还在路上呢" if skipped_future > 0 else ""
             self._summary_lbl.setText(
-                f"共 {len(rows)} 条记录 | 平均偏差: {avg_dev:.1f}% | "
+                f"♪ 共 {len(rows)} 条记录 | 平均偏差: {avg_dev:.1f}% | "
                 f"平均准确率: {100 - avg_dev:.1f}% | 当前播放量: {fmt_num(latest_views)}{extra}"
             )
         else:
             self._summary_lbl.setText(
-                f"共 {len(rows)} 条记录 | 当前播放量: {fmt_num(latest_views)}"
-                + (f" | {skipped_future} 条未到达" if skipped_future > 0 else "")
+                f"♪ 共 {len(rows)} 条记录 | 当前播放量: {fmt_num(latest_views)}"
+                + (f" | {skipped_future} 条还在路上呢" if skipped_future > 0 else "")
             )
 
     def _set_row(self, row_idx, ts_display, algo, pred_views, actual_views, dev_text, acc_text, deviation):

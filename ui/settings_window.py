@@ -141,7 +141,7 @@ class SettingsWindow(
         return make_spin_field_float(parent, label, default, fr, to)
 
     def setup_ui(self):
-        self.dlg.header("系统设置", "配置通知、监控、AI、代理、Cookie 等全部参数")
+        self.dlg.header("系统设置", "配置通知、监控、AI、代理、Cookie 等全部参数 ♪ 天依陪你一起把每个细节都调好~")
 
         # Tab widget (洛天依: 导航选中态天依蓝)
         self._tabs = QTabWidget()
@@ -221,28 +221,28 @@ class SettingsWindow(
         try:
             max_m = int(self.max_monitors.text() if hasattr(self.max_monitors, 'text') else self.max_monitors)
             if not (10 <= max_m <= 500):
-                QMessageBox.critical(self.dlg, "验证失败", "最大监控数必须在 10 ~ 500 之间")
+                QMessageBox.critical(self.dlg, "呜…没通过验证", "最大监控数要在 10 ~ 500 之间哦,像天依的歌也有音域范围呢 ♪")
                 return False
         except ValueError:
-            QMessageBox.critical(self.dlg, "验证失败", "最大监控数必须为整数")
+            QMessageBox.critical(self.dlg, "呜…没通过验证", "最大监控数要填整数哦,小数可唱不成歌呢 ♪")
             return False
         try:
             val = self.predict_hours.text() if hasattr(self.predict_hours, 'text') else str(self.predict_hours.value())
             pred_hours = int(val)
             if not (24 <= pred_hours <= 720):
-                QMessageBox.critical(self.dlg, "验证失败", "预测时长必须在 24 ~ 720 小时之间")
+                QMessageBox.critical(self.dlg, "呜…没通过验证", "预测时长要在 24 ~ 720 小时之间哦,太长了天依的歌声会够不到呢 ♪")
                 return False
         except ValueError:
-            QMessageBox.critical(self.dlg, "验证失败", "预测时长必须为整数")
+            QMessageBox.critical(self.dlg, "呜…没通过验证", "预测时长要填整数哦 ♪")
             return False
         try:
             val = self.min_confidence.text() if hasattr(self.min_confidence, 'text') else str(self.min_confidence.value())
             confidence = float(val)
             if not (0.1 <= confidence <= 1.0):
-                QMessageBox.critical(self.dlg, "验证失败", "最小置信度必须在 0.1 ~ 1.0 之间")
+                QMessageBox.critical(self.dlg, "呜…没通过验证", "最小置信度要在 0.1 ~ 1.0 之间哦,天依需要一点点信任才敢唱呢 ♪")
                 return False
         except ValueError:
-            QMessageBox.critical(self.dlg, "验证失败", "最小置信度必须为数字")
+            QMessageBox.critical(self.dlg, "呜…没通过验证", "最小置信度要填数字哦 ♪")
             return False
         return True
 
@@ -330,5 +330,5 @@ class SettingsWindow(
         self._save_net_config()
         self._verify_proxy_persisted()
 
-        QMessageBox.information(self.dlg, "成功", "设置已保存")
+        QMessageBox.information(self.dlg, "存好啦 ♪", "设置都存好啦 ♪ 天依记在心里了哦~")
         self.dlg.close()

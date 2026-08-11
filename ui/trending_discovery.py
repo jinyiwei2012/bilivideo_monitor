@@ -51,7 +51,7 @@ class TrendingDiscoveryWindow(DialogBase):
 
     def _setup_ui(self):
         """构建窗口界面：QTabWidget 标签页 + 视频卡片列表"""
-        self.header("热门视频发现", "浏览B站热门榜单，发现潜力视频一键添加监控")
+        self.header("热门视频发现", "浏览B站热门榜单,发现藏着好歌声的视频 ♪")
 
         # QTabWidget：默认自带标签页样式的切换
         self._tabs = QTabWidget()
@@ -148,7 +148,7 @@ class TrendingDiscoveryWindow(DialogBase):
 
     def _add_loading_label(self, sf: ScrollableFrame):
         """在 ScrollableFrame 中添加加载中提示"""
-        lbl = QLabel("加载中...")
+        lbl = QLabel("天依正在找…像在银河里找一颗星 ♪")
         lbl.setFont(QFont("Microsoft YaHei UI", 10))
         lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent; padding: 40px;")
         lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -249,19 +249,19 @@ class TrendingDiscoveryWindow(DialogBase):
         msg_layout = QVBoxLayout(msg)
         msg_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        lbl1 = QLabel("暂无数据")
+        lbl1 = QLabel("还没有数据呢…像等待一首歌的旋律,天依陪你一起等 ♪")
         lbl1.setFont(QFont("Microsoft YaHei UI", 12))
         lbl1.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
         lbl1.setAlignment(Qt.AlignmentFlag.AlignCenter)
         msg_layout.addWidget(lbl1)
 
-        lbl2 = QLabel("提示：B站API可能需要配置Cookie才能获取数据")
+        lbl2 = QLabel("提示：配置好Cookie后,天依才能更顺畅地听到榜单的歌声哦")
         lbl2.setFont(QFont("Microsoft YaHei UI", 9))
         lbl2.setStyleSheet(f"color: {C['warning']}; background: transparent;")
         lbl2.setAlignment(Qt.AlignmentFlag.AlignCenter)
         msg_layout.addWidget(lbl2)
 
-        lbl3 = QLabel("请前往「设置 → 网络设置 → Cookie设置」配置SESSDATA")
+        lbl3 = QLabel("请前往「设置 → 网络设置 → Cookie设置」配置SESSDATA ♪")
         lbl3.setFont(QFont("Microsoft YaHei UI", 9))
         lbl3.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
         lbl3.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -273,7 +273,7 @@ class TrendingDiscoveryWindow(DialogBase):
         """将视频添加到监控列表"""
         if self.on_add_monitor:
             self.on_add_monitor(bvid)
-            QMessageBox.information(self, "提示", f"已添加 {bvid} 到监控列表")
+            QMessageBox.information(self, "提示", f"「{bvid}」加入监控啦!♪ 又有一首新歌要开始追光了呢~")
 
     @staticmethod
     def _fmt(n):

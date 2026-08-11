@@ -137,7 +137,7 @@ class LogPanel(QWidget):
                 padding: {SPACE_MD}px;
             }}
         """)
-        self._empty_state = EmptyState("暂无日志 ♪")
+        self._empty_state = EmptyState("日志还空空的呢…\n像一首还没人点播的歌,天依等你来唱 ♪")
         self._stack.addWidget(self._text)
         self._stack.addWidget(self._empty_state)
         self._stack.setCurrentWidget(self._text)

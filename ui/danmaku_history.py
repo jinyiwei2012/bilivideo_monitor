@@ -43,7 +43,7 @@ class DanmakuHistoryWindow:
 
     def _setup_ui(self):
         dlg = self.dlg
-        dlg.header("历史弹幕拉取", "按月份拉取视频的历史弹幕并存入本地数据库")
+        dlg.header("历史弹幕拉取", "按月份把大家的弹幕收集回来,存进天依的收藏 ♪")
 
         # ── 视频选择 ──
         video_sec = dlg.section(title="选择视频")
@@ -132,7 +132,7 @@ class DanmakuHistoryWindow:
 
         idx = self._video_cb.currentIndex()
         if idx < 0 or idx >= len(self._bvid_map):
-            QMessageBox.warning(self.dlg, "提示", "请先选择视频")
+            QMessageBox.warning(self.dlg, "提示", "呜…先选一个视频哦,天依才好帮你去捞弹幕 ♪")
             return
 
         bvid = self._bvid_map[idx]
@@ -142,7 +142,7 @@ class DanmakuHistoryWindow:
         self._fetch_btn.setEnabled(False)
         self._progress_bar.setValue(0)
         self._log_text.clear()
-        self._log(f"开始拉取 {bvid} 的 {month} 历史弹幕...")
+        self._log(f"天依开始收集 {bvid} 在 {month} 的弹幕啦…像捞起银河里的星光 ♪")
 
         from core.bilibili_danmaku import get_danmaku_monitor
         monitor = get_danmaku_monitor()
@@ -164,7 +164,7 @@ class DanmakuHistoryWindow:
                 pass
 
         if not cid:
-            self._log("错误: 无法获取视频 cid")
+            self._log("呜…天依找不到这个视频的cid呢,换个视频试试哦 ♪")
             self._fetching = False
             self._fetch_btn.setEnabled(True)
             return
@@ -191,11 +191,12 @@ class DanmakuHistoryWindow:
                     month=month, on_progress=progress,
                 )
                 QTimer.singleShot(0, lambda: self._log(
-                    f"\n完成: 共拉取 {total} 条历史弹幕"
+                    f"\n完成啦!♪ 天依收集了 {total} 条弹幕,大家的歌声都被好好收下了"
                 ))
             except Exception as e:
+                logger.warning("历史弹幕拉取失败 %s: %s", bvid, e)
                 QTimer.singleShot(0, lambda: self._log(
-                    f"错误: {e}"
+                    "呜…拉取的时候出了点小状况,天依会再试试的哦 ♪"
                 ))
             finally:
                 QTimer.singleShot(0, lambda: self._fetch_btn.setEnabled(True))

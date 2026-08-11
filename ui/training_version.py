@@ -48,7 +48,7 @@ class VersionManagerMixin:
                 )
 
         if not algos:
-            QMessageBox.information(self, "知道啦 ♪", "还没有训练好的模型呢…♪")
+            QMessageBox.information(self, "知道啦 ♪", "还没有训练好的模型呢…先训练一下,天依才能唱得更准哦 ♪")
             return
 
         self._show_manage_versions(algos, initial_aid=algo_id)
@@ -161,7 +161,7 @@ class VersionManagerMixin:
 
         versions = ckpt.list_versions()
         if not versions:
-            no_ver = QLabel("  （还没有全局 checkpoint 呢…）♪")
+            no_ver = QLabel("  （还没有全局 checkpoint 呢…训练一下,天依就能唱啦 ♪）")
             no_ver.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
             no_ver.setFont(FONT_SM)
             layout.addWidget(no_ver)

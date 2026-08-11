@@ -36,7 +36,7 @@ class TrendChart(QWidget):
         self._max_ts = None
         self._max_val = 1.0
         self._min_val = 0.0
-        self._placeholder = "请在上方选择视频后点击「开始对比」"
+        self._placeholder = "先在上方选好视频,再点「开始对比」,天依就画给你看 ♪"
 
     def set_data(self, series_map, valid_videos, metric_label, min_ts, max_ts, max_val):
         self._series_map = series_map
@@ -98,7 +98,7 @@ class TrendChart(QWidget):
         title_font = QFont("Microsoft YaHei UI", 11)
         title_font.setBold(True)
         painter.setFont(title_font)
-        painter.drawText(_ML, _MT // 2 + 4, f"对比指标：{self._metric_label}")
+        painter.drawText(_ML, _MT // 2 + 4, f"对比指标: {self._metric_label} ♪")
 
         # 网格
         grid_pen = QPen(QColor(C.get("grid_line", "#21262d")))
@@ -307,7 +307,7 @@ class TrendTab(QWidget):
 
         right_inner.addStretch()
 
-        start_btn = QPushButton("开始对比")
+        start_btn = QPushButton("开始对比 ♪")
         start_btn.setProperty("primary", True)
         start_btn.clicked.connect(self._start)
         right_inner.addWidget(start_btn)
@@ -342,11 +342,11 @@ class TrendTab(QWidget):
         sel = self._listbox.selectedItems()
         if not sel:
             from PyQt6.QtWidgets import QMessageBox
-            QMessageBox.warning(self, "提示", "请至少选择 1 个视频")
+            QMessageBox.warning(self, "♪ 提示", "至少选 1 个视频哦,不然天依不知道唱哪首 ♪")
             return
         if len(sel) > 8:
             from PyQt6.QtWidgets import QMessageBox
-            QMessageBox.warning(self, "提示", "最多对比 8 个视频")
+            QMessageBox.warning(self, "♪ 提示", "一次最多对比 8 个视频呢,天依的耳朵也要歇一歇 ♪")
             return
 
         selected_indices = [self._listbox.row(item) for item in sel]
@@ -378,7 +378,7 @@ class TrendTab(QWidget):
 
         # 检查前置条件
         if not self._selected:
-            self._chart.set_placeholder("请选择视频后点击「开始对比」")
+            self._chart.set_placeholder("选好视频后点「开始对比」,天依为你唱出折线 ♪")
             return
 
         # 收集数据
@@ -437,7 +437,7 @@ class TrendTab(QWidget):
         valid = [v for v in self._selected if v.get("bvid", "") in series_map]
         if not valid:
             metric_label = next((lb for k, lb in METRICS if k == metric), metric)
-            self._chart.set_placeholder(f"所选视频暂无「{metric_label}」历史数据")
+            self._chart.set_placeholder(f"呜…这些视频还没有「{metric_label}」的历史数据呢,天依先记在心里,等数据来了再画 ♪")
             return None
 
         self._valid_videos_cache = valid

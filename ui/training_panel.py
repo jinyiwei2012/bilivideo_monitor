@@ -93,7 +93,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
         device_label.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
         device_label.setFont(FONT)
         info_layout.addWidget(device_label)
-        self._device_lbl = QLabel("检测中…")
+        self._device_lbl = QLabel("天依在检测设备呢…♪")
         self._device_lbl.setStyleSheet(f"color: {C['text_1']}; background: transparent;")
         self._device_lbl.setFont(FONT)
         info_layout.addWidget(self._device_lbl)
@@ -103,7 +103,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
         data_label.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
         data_label.setFont(FONT)
         info_layout.addWidget(data_label)
-        self._data_lbl = QLabel("估算中…")
+        self._data_lbl = QLabel("天依在估算数据规模呢…♪")
         self._data_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
         self._data_lbl.setFont(FONT_SM)
         info_layout.addWidget(self._data_lbl)
@@ -114,7 +114,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
         self._force_cpu_cb.toggled.connect(self._on_force_cpu)
         info_layout.addWidget(self._force_cpu_cb)
 
-        refresh_btn = QPushButton("刷新")
+        refresh_btn = QPushButton("刷新 ♪")
         refresh_btn.clicked.connect(self._refresh_all)
         info_layout.addWidget(refresh_btn)
 
@@ -149,7 +149,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
         hdr.setStyleSheet(f"background-color: {C['bg_surface']};")
         hdr_layout = QHBoxLayout(hdr)
         hdr_layout.setContentsMargins(4, 4, 4, 0)
-        title_lbl = QLabel("可训练算法（PyTorch）")
+        title_lbl = QLabel("可训练算法（PyTorch）♪")
         title_lbl.setStyleSheet(f"color: {C['text_1']}; background: transparent; font: bold;")
         hdr_layout.addWidget(title_lbl)
         hdr_layout.addStretch()
@@ -217,7 +217,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
         right_layout.setSpacing(2)
 
         # 上半: Loss 图表
-        chart_frame = self._build_chart_widgets(right, title="训练 Loss 曲线")
+        chart_frame = self._build_chart_widgets(right, title="训练 Loss 曲线 ♪")
         right_layout.addWidget(chart_frame, 1)
 
         # 中部: 训练质量监控状态栏
@@ -225,7 +225,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
         right_layout.addWidget(monitor_bar)
 
         # 下半: 文字日志
-        log_frame = self._build_log_widgets(right, title="训练日志")
+        log_frame = self._build_log_widgets(right, title="训练日志 ♪")
         right_layout.addWidget(log_frame, 1)
 
     # ── 底部控制栏 ──
@@ -317,7 +317,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
         ctrl_layout.addWidget(self._batch_interval_combo)
 
         # 按钮
-        self._train_btn = QPushButton("▶ 开始训练")
+        self._train_btn = QPushButton("▶ 开始训练 ♪")
         self._train_btn.clicked.connect(self._on_train_start)
         self._train_btn.setEnabled(_train() == "normal")
         ctrl_layout.addWidget(self._train_btn)
@@ -329,7 +329,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
         self._skip_btn.clicked.connect(self._on_skip_algo)
         self._skip_btn.setEnabled(False)
         ctrl_layout.addWidget(self._skip_btn)
-        batch_finetune_btn = QPushButton("◎ 批量微调")
+        batch_finetune_btn = QPushButton("◎ 批量微调 ♪")
         batch_finetune_btn.clicked.connect(self._on_batch_finetune)
         batch_finetune_btn.setEnabled(_train() == "normal")
         ctrl_layout.addWidget(batch_finetune_btn)
@@ -345,7 +345,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
         self._progress.setValue(0)
         ctrl_layout.addWidget(self._progress, 1)
 
-        self._status_lbl = QLabel("就绪")
+        self._status_lbl = QLabel("天依准备好啦 ♪")
         self._status_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
         self._status_lbl.setFont(FONT_SM)
         self._status_lbl.setFixedWidth(250)
@@ -387,7 +387,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
             force_cpu(self._force_cpu_cb.isChecked())
             info = get_device_info()
             if not is_torch_available():
-                self._device_lbl.setText("✗ torch 未安装")
+                self._device_lbl.setText("呜…还没安装 torch 呢,装好天依才能唱歌哦 ♪")
                 self._device_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
             elif info.get("is_gpu"):
                 mem = info.get("total_memory_gb", 0)
@@ -397,7 +397,8 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
                 self._device_lbl.setText(f"▮ {info['name']}")
                 self._device_lbl.setStyleSheet(f"color: {C['warning']}; background: transparent;")
         except Exception as e:
-            self._device_lbl.setText(f"△ {e}")
+            logger.debug("刷新设备信息失败: %s", e)
+            self._device_lbl.setText("呜…设备检测失败啦,请稍后再试哦 ♪")
             self._device_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
 
     def _on_force_cpu(self):
@@ -442,7 +443,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
 
     def _refresh_data_size(self):
         """刷新数据规模估算信息（异步线程）"""
-        self._data_lbl.setText("估算中…")
+        self._data_lbl.setText("天依在估算数据规模呢…♪")
         self._data_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
 
         def _worker():
@@ -454,12 +455,13 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
                 valid = info.get("valid_videos", 0)
                 samples = info.get("total_samples", 0)
                 eta = info.get("estimated_time_s", 0)
-                txt = f"{total} 视频 · {valid} 有效 · {samples:,} 样本 · 约 {eta / 60:.1f} min/algo"
+                txt = f"天依估算好啦 ♪ {total} 视频 · {valid} 有效 · {samples:,} 样本 · 约 {eta / 60:.1f} min/algo"
                 invoke(lambda: self._data_lbl.setText(txt))
                 invoke(lambda: self._data_lbl.setStyleSheet(f"color: {C['text_1']}; background: transparent;"))
             except Exception as e:
-                invoke(lambda e=e: self._data_lbl.setText(f"△ {e}"))
-                invoke(lambda e=e: self._data_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;"))
+                logger.debug("估算数据规模失败: %s", e)
+                invoke(lambda: self._data_lbl.setText("呜…数据估算失败啦,请稍后再试哦 ♪"))
+                invoke(lambda: self._data_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;"))
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -486,14 +488,15 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
         try:
             algos = self._discover_algorithms()
         except Exception as e:
-            err_lbl = QLabel(f"△ 加载失败: {e}")
+            logger.error("加载可训练算法列表失败: %s", e)
+            err_lbl = QLabel("呜…算法列表加载失败啦,请稍后再试哦 ♪")
             err_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
             err_lbl.setFont(FONT)
             self._algo_frame.layout().addWidget(err_lbl)
             return
 
         trained = sum(1 for a in algos if a["has_ckpt"])
-        self._algo_count_lbl.setText(f"{len(algos)} 算法 · 已训练 {trained}")
+        self._algo_count_lbl.setText(f"天依数了数 ♪ {len(algos)} 算法 · 已训练 {trained}")
 
         for a in algos:
             aid = a["algorithm_id"]
@@ -527,7 +530,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
                 st = f"✓ {a['active_version'][:10]}"
                 sf = C["success"]
             else:
-                st = "□ 未训练"
+                st = "□ 还没训练呢…♪"
                 sf = C["text_3"]
             status_lbl = QLabel(st)
             status_lbl.setStyleSheet(f"color: {sf}; background: transparent;")
@@ -606,7 +609,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
                 algo_list.append({"algorithm_id": aid, "name": getattr(algo, "name", aid)})
 
         if not algo_list:
-            QMessageBox.warning(self, "提示", "没有已训练的深度学习算法可供微调")
+            QMessageBox.warning(self, "要注意哦…", "还没有训练好的算法可以微调呢…先训练一下,天依才能唱得更准哦 ♪")
             return
 
         videos = []
@@ -620,7 +623,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
             logger.debug("忽略异常: %s", e)
 
         if not videos:
-            QMessageBox.warning(self, "提示", "没有监控中的视频可微调")
+            QMessageBox.warning(self, "要注意哦…", "还没有监控中的视频呢…像点一首新歌那样添加一个,天依就来帮它微调 ♪")
             return
 
         dialog, ui = self._build_batch_dialog(algo_list, videos)
@@ -638,10 +641,10 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
             selected_videos = [b for b, v in ui["video_vars"].items() if v.isChecked()]
             selected_algos = [a for a, v in ui["algo_vars"].items() if v.isChecked()]
             if not selected_videos:
-                QMessageBox.warning(dialog, "提示", "请至少选择一个视频")
+                QMessageBox.warning(dialog, "要注意哦…", "至少要选一个视频哦,天依才能开始唱 ♪")
                 return
             if not selected_algos:
-                QMessageBox.warning(dialog, "提示", "请至少选择一个算法")
+                QMessageBox.warning(dialog, "要注意哦…", "至少要选一个算法哦 ♪")
                 return
 
             epochs = max(1, ui["ft_epoch_spin"].value())
@@ -671,7 +674,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
     def _build_batch_dialog(self, algo_list, videos):
         """构建批量微调对话框，返回 (dialog, ui_dict)"""
         dialog = QDialog(self)
-        dialog.setWindowTitle("批量微调")
+        dialog.setWindowTitle("批量微调 ♪")
         dialog.resize(650, 500)
         dialog.setModal(True)
         dlg_layout = QVBoxLayout(dialog)
@@ -683,7 +686,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
         dlg_layout.addWidget(main, 1)
 
         # 选择视频
-        video_title = QLabel("选择视频")
+        video_title = QLabel("选择视频 ♪")
         video_title.setStyleSheet(f"color: {C['text_1']}; background: transparent; font: bold;")
         main_layout.addWidget(video_title)
         video_frame = QFrame(main)
@@ -703,7 +706,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
             v_sf.addWidget(cb)
 
         # 选择算法
-        algo_title = QLabel("选择算法")
+        algo_title = QLabel("选择算法 ♪")
         algo_title.setStyleSheet(f"color: {C['text_1']}; background: transparent; font: bold;")
         main_layout.addWidget(algo_title)
         algo_frame = QFrame(main)
@@ -748,7 +751,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
         param_row_layout.addWidget(ft_batch_spin)
         param_row_layout.addStretch()
 
-        ft_status = QLabel("就绪")
+        ft_status = QLabel("天依准备好啦 ♪")
         ft_status.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
         ft_status.setFont(FONT_SM)
         main_layout.addWidget(ft_status)
@@ -774,7 +777,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
         btn_row_layout = QHBoxLayout(btn_row)
         btn_row_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.addWidget(btn_row)
-        start_btn = QPushButton("▶ 开始微调")
+        start_btn = QPushButton("▶ 开始微调 ♪")
         btn_row_layout.addWidget(start_btn)
         cancel_btn = QPushButton("取消")
         btn_row_layout.addWidget(cancel_btn)
@@ -798,16 +801,16 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
 
         trainer = ModelTrainer()
         done = 0
-        self.main.set_finetune_status(f"◎ 批量微调 0/{total}")
+        self.main.set_finetune_status(f"◎ 天依开始批量微调啦 ♪ 0/{total}")
         for bvid in selected_videos:
             for aid in selected_algos:
                 done += 1
                 pct = int(done / total * 100)
                 msg = f"[{done}/{total}] 微调 {aid} → {bvid}"
-                invoke(lambda m=msg: ui["ft_status"].setText(m))
+                invoke(lambda m=msg: ui["ft_status"].setText(f"天依在练习第 {done} 首呢 ♪ {m}"))
                 invoke(lambda p=pct: ui["ft_progress"].setValue(p))
                 invoke(lambda m=msg: _ft_log(m))
-                invoke(lambda d=done, t=total: self.main.set_finetune_status(f"◎ 批量微调 {d}/{t}"))
+                invoke(lambda d=done, t=total: self.main.set_finetune_status(f"◎ 批量微调 {d}/{t} ♪"))
                 try:
                     ver = trainer.finetune_for_video(
                         algo_id=aid,
@@ -822,9 +825,9 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
 
     def _batch_done_callback(self, dialog, ui, _ft_log, done):
         """批量微调完成后的 UI 更新回调"""
-        invoke(lambda: ui["ft_status"].setText(f"✓ 微调完成 ({done} 任务)"))
+        invoke(lambda: ui["ft_status"].setText(f"✓ 微调完成 ({done} 任务) ♪ 像一首首新歌排好队等开唱"))
         invoke(lambda: ui["ft_progress"].setValue(100))
-        invoke(lambda: self.main.set_finetune_status(f"✓ 批量微调完成 ({done})"))
+        invoke(lambda: self.main.set_finetune_status(f"✓ 批量微调完成 ({done}) ♪ 像一首首新歌排好队等开唱"))
         invoke(lambda: ui["start_btn"].setEnabled(True))
         invoke(lambda: _ft_log("⚑ 批量微调全部完成"))
 
@@ -847,12 +850,12 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
         if self._training:
             return None
         if not _torch_available:
-            QMessageBox.critical(self, "torch 未安装", "请先 pip install torch")
+            QMessageBox.critical(self, "呜…torch 未安装", "呜…要先安装 PyTorch 哦:\npip install torch ♪")
             return None
 
         selected = [aid for aid, cb in self._check_vars.items() if cb.isChecked()]
         if not selected:
-            QMessageBox.warning(self, "提示", "请至少勾选一个算法")
+            QMessageBox.warning(self, "要注意哦…", "至少要勾选一个算法哦,天依才能开唱 ♪")
             return None
 
         epochs = max(1, self._epoch_spin.value())
@@ -890,18 +893,19 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
             try:
                 lr = float(self._lr_entry.text())
             except (ValueError, TypeError):
-                QMessageBox.critical(self, "LR 无效", "请输入有效的学习率数值")
+                QMessageBox.critical(self, "呜…学习率无效", "呜…天依看不懂这个学习率呢…请输入有效的数字哦 ♪")
                 return None
             lr = max(1e-8, min(1.0, lr))
             lr_label = f"手动 ({lr:.6f})"
 
         reply = QMessageBox.question(
-            self, "确认训练",
+            self, "要开始训练吗 ♪",
+            f"天依要开始训练啦 ♪\n"
             f"模式: {mode_label}  并行: {parallel}\n"
             f"算法: {len(selected)} 个\n"
             f"epoch={epochs}  batch={batch}  LR={lr_label}"
             f"{parallel_warning}\n"
-            f"训练过程不可中途暂停（只能取消未开始的算法）。",
+            f"训练过程不能中途暂停哦(只能取消还没开始的算法)…♪",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -921,7 +925,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
             val = self._batch_interval_entry.text()
             unit = self._batch_interval_combo.currentText()
             self._append_log(f"☰ 详细日志：每 {val}{unit} batch 输出进度")
-        self._status_lbl.setText(f"准备训练 {len(selected)} 个算法 …")
+        self._status_lbl.setText(f"天依在准备哦…要训练 {len(selected)} 个算法呢 ♪")
         self._status_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
 
         # ── 全局反馈：窗口标题 + 主界面状态栏 ──
@@ -932,8 +936,8 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
                 top.setWindowTitle(f"● 训练中 — {self._saved_title}")
         except Exception:
             self._saved_title = None
-        self._safe_sb("algo", f"◉ 训练: 0/{len(selected)} 算法", color=C["accent"])
-        self._safe_sb("status", "训练中…", color=C["accent"])
+        self._safe_sb("algo", f"◉ 训练: 0/{len(selected)} 算法 ♪", color=C["accent"])
+        self._safe_sb("status", "天依正在认真练习呢…像准备演唱会一样,再等等哦 ♪", color=C["accent"])
         self._algo_durations: List[float] = []  # 各算法耗时（用于跨算法 ETA）
 
     def _start_train_thread(self, selected, is_incremental, lr, epochs, batch, parallel, batch_log, interval_val, interval_unit):
@@ -1062,7 +1066,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
         if self._cancel_btn:
             self._cancel_btn.setEnabled(False)
         if self._status_lbl:
-            self._status_lbl.setText("正在取消（等待当前算法完成）…")
+            self._status_lbl.setText("好哦,天依正在收拾呢…等当前算法唱完这首歌就停 ♪")
             self._status_lbl.setStyleSheet(f"color: {C['warning']}; background: transparent;")
         self._append_log("⏹ 用户请求取消训练")
         self._close_log_file()
@@ -1073,7 +1077,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
         if self._skip_btn:
             self._skip_btn.setEnabled(False)
         if self._status_lbl:
-            self._status_lbl.setText("⏭ 跳过当前算法（等待本轮完成）…")
+            self._status_lbl.setText("好哦,这次先跳过,天依接着唱下一首 ♪")
             self._status_lbl.setStyleSheet(f"color: {C['warning']}; background: transparent;")
         self._append_log("⏭ 用户请求跳过当前算法")
 
@@ -1108,7 +1112,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
         self._epoch_times: List[float] = []  # 当前算法各 epoch 耗时（秒）
         self._last_epoch_elapsed = 0.0
         if self._status_lbl:
-            self._status_lbl.setText(f"[{cur}/{tot}] 训练 {aid} …")
+            self._status_lbl.setText(f"[{cur}/{tot}] 天依在训练 {aid} 呢…♪")
             self._status_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
         self._append_log(f"── [{cur}/{tot}] 开始训练 {aid} ──")
         self._update_algo_row(aid, status="▶ 训练中", status_color=C["accent"])
@@ -1128,7 +1132,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
         avg_loss = msg.get("avg_loss", 0)
         batch_loss = msg.get("batch_loss", 0)
         try:
-            self.main._sb("status", f"⟳ {aid} batch {b}/{tot_b} loss={avg_loss:.4f}", color=C["text_2"])
+            self.main._sb("status", f"⟳ {aid} batch {b}/{tot_b} loss={avg_loss:.4f} ♪", color=C["text_2"])
         except Exception:
             pass
         # 详细日志：batch 级损失写入日志面板和文件
@@ -1209,21 +1213,21 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
 
         if self._status_lbl:
             self._status_lbl.setText(
-                f"{aid}  ep{ep}/{eps}  train={tloss:.4f}{vtxt}  {conf_str}  {elapsed:.0f}s{total_eta_str}"
+                f"♪ {aid} 第 {ep}/{eps} 轮,天依越唱越准啦  train={tloss:.4f}{vtxt}  {conf_str}  {elapsed:.0f}s{total_eta_str}"
             )
             self._status_lbl.setStyleSheet(f"color: {C['text_1']}; background: transparent;")
 
         # 主窗口状态栏（含 ETA）
         cur = msg.get("current", 0)
         tot = msg.get("total", 1)
-        status_text = f"◉ [{cur}/{tot}] {aid} ep{ep}/{eps}  {elapsed:.0f}s"
+        status_text = f"◉ [{cur}/{tot}] {aid} 第{ep}/{eps}轮  {elapsed:.0f}s ♪"
         if total_eta_str:
             # 提取总 ETA 部分
             parts = total_eta_str.split("总")
             if len(parts) > 1:
                 status_text += f"  ⇨{parts[1]}"
         self._safe_sb("algo", status_text, color=C["accent"])
-        self._safe_sb("status", f"训练中  loss={tloss:.4f}", color=C["text_2"])
+        self._safe_sb("status", f"训练中…天依越唱越准啦 ♪ loss={tloss:.4f}", color=C["text_2"])
 
         self._monitor.update(ep, tloss, vloss if vloss >= 0 else -1)
         self._refresh_monitor()
@@ -1263,7 +1267,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
         self._algo_durations.append(algo_elapsed)
 
         if self._status_lbl:
-            self._status_lbl.setText(f"✓ {aid} → {ver} ({cur}/{total_sel})  {algo_elapsed:.0f}s")
+            self._status_lbl.setText(f"✓ {aid} 唱好啦 ♪ → {ver} ({cur}/{total_sel})  {algo_elapsed:.0f}s")
             self._status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
         if self._progress:
             self._progress.setValue(int(cur / max(1, total_sel) * 100))
@@ -1276,7 +1280,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
             total_eta = f"  ⇨剩余≈{self._fmt_duration(avg_dur * remaining)}"
 
         # 主窗口状态栏
-        self._safe_sb("algo", f"◉ ✓ [{cur}/{total_sel}] {aid}  {algo_elapsed:.0f}s{total_eta}", color=C["success"])
+        self._safe_sb("algo", f"◉ ✓ [{cur}/{total_sel}] {aid} 唱好啦 ♪  {algo_elapsed:.0f}s{total_eta}", color=C["success"])
 
         # 从 checkpoint 读取 val_loss 和置信度
         from algorithms.training.checkpoint_manager import CheckpointManager
@@ -1310,28 +1314,28 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
         aid = msg.get("algo_id", "?")
         err = msg.get("error", "")
         if self._status_lbl:
-            self._status_lbl.setText(f"✗ {aid} 失败: {err}")
+            self._status_lbl.setText(f"呜…{aid} 没学会呢,天依不会放弃的,看看日志再试一次哦 ♪")
             self._status_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
         self._append_log(f"✗ {aid} 训练失败: {err}")
         self._update_algo_row(aid, status="✗ 失败", status_color=C["danger"])
-        self._safe_sb("algo", f"◉ ✗ {aid} 失败", color=C["danger"])
+        self._safe_sb("algo", f"◉ ✗ {aid} 没学会呢…天依会再试试的 ♪", color=C["danger"])
 
     def _on_stage_auto_adjust(self, msg):
         """处理自动调整事件"""
         message = msg.get("message", "")
         self._append_log(f"  ⚙ 自动调整: {message}")
         if self._status_lbl:
-            self._status_lbl.setText(f"⚡ {message}")
+            self._status_lbl.setText(f"⚡ {message} ♪")
             self._status_lbl.setStyleSheet(f"color: {C['warning']}; background: transparent;")
 
     def _on_stage_cancelled(self, msg):
         """处理取消训练事件"""
         rem = msg.get("remaining", [])
         if self._status_lbl:
-            self._status_lbl.setText(f"已取消，剩余 {len(rem)} 个")
+            self._status_lbl.setText(f"好哦,先停在这里,还剩 {len(rem)} 个下次再唱 ♪")
             self._status_lbl.setStyleSheet(f"color: {C['warning']}; background: transparent;")
         self._append_log(f"⏹ 已取消, 剩余 {len(rem)} 个算法")
-        self._safe_sb("algo", f"⏹ 训练已取消 (剩余{len(rem)}个)", color=C["warning"])
+        self._safe_sb("algo", f"⏹ 训练已取消 (剩余{len(rem)}个) ♪", color=C["warning"])
         return True
 
     def _on_stage_all_done(self, msg):
@@ -1352,21 +1356,21 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
             conf_summary += f"  {aid}: {conf_str}"
 
         if self._status_lbl:
-            self._status_lbl.setText(f"全部完成: ✓ {ok}  ✗ {bad}  · {elapsed:.0f}s")
+            self._status_lbl.setText(f"训练完成啦!♪ 天依的歌声又准了一点呢~  ✓ {ok}  ✗ {bad}  · {elapsed:.0f}s")
             self._status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
         if self._progress:
             self._progress.setValue(100)
         self._append_log(f"⚑ 训练全部完成: {ok} 成功, {bad} 失败, 耗时 {elapsed:.0f}s")
         self._append_log(f"◧ 各算法最终置信度:{conf_summary}")
         # 主窗口状态栏
-        self._safe_sb("algo", f"◉ ✓ 训练完成 ({ok}成功 {bad}失败)  {elapsed:.0f}s", color=C["success"])
+        self._safe_sb("algo", f"◉ ✓ 训练完成啦 ({ok}成功 {bad}失败) ♪  {elapsed:.0f}s", color=C["success"])
         return True
 
     def _on_stage_fatal(self, msg):
         """处理训练进程致命错误事件"""
         err = msg.get("error", "")
         if self._status_lbl:
-            self._status_lbl.setText(f"训练异常: {err}")
+            self._status_lbl.setText("呜…训练出了点小状况,天依不会放弃的,看看日志再试一次哦 ♪")
             self._status_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
         self._append_log(f"✹ 训练进程异常: {err}")
         return True
@@ -1387,7 +1391,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
                 self.window().setWindowTitle(self._saved_title)
         except Exception:
             pass
-        self._safe_sb("status", "就绪", color=C["text_3"])
+        self._safe_sb("status", "天依准备好啦 ♪", color=C["text_3"])
 
         # 训练自动回调：通知 + 重新预测
         trained = getattr(self, "_last_training_results", {})

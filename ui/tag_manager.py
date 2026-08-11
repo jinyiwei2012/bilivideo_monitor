@@ -23,7 +23,7 @@ class TagManagerWindow:
         """初始化标签管理窗口"""
         self.gui = gui
         self.dlg = DialogBase(parent, "◫ 视频标签管理", "600x500")
-        self.dlg.header("视频标签管理", "为监控视频添加自定义标签，方便分类筛选")
+        self.dlg.header("视频标签管理", "给视频贴上标签,就像给每首歌记下旋律 ♪")
         self._build_ui()
         self._refresh()
 
@@ -78,7 +78,7 @@ class TagManagerWindow:
         tag_input_layout.addWidget(add_btn)
 
         suggest_btn = QPushButton("✦ 建议")
-        suggest_btn.setToolTip("根据视频信息自动建议标签")
+        suggest_btn.setToolTip("让天依根据视频信息帮你建议标签 ♪")
         suggest_btn.clicked.connect(self._auto_suggest)
         tag_input_layout.addWidget(suggest_btn)
 
@@ -221,13 +221,13 @@ class TagManagerWindow:
     def _add_tag(self):
         """为选中视频添加新标签"""
         if not self._selected_bvid:
-            QMessageBox.warning(self.dlg.window, "提示", "请先在左侧选择一个视频")
+            QMessageBox.warning(self.dlg.window, "提示", "先在左侧选一个视频吧,天依好帮你贴标签 ♪")
             return
         tag = self._tag_entry.text().strip()
         if not tag:
             return
         if " " in tag:
-            QMessageBox.warning(self.dlg.window, "提示", "标签不能包含空格")
+            QMessageBox.warning(self.dlg.window, "提示", "标签里不能有空格哦,像歌词不能断行一样 ♪")
             return
         existing = get_tags(self._selected_bvid)
         if tag not in existing:
@@ -247,12 +247,12 @@ class TagManagerWindow:
         existing = set(get_tags(self._selected_bvid))
         new_tags = [t for t in suggestions if t not in existing]
         if not new_tags:
-            QMessageBox.information(self.dlg.window, "提示", "没有新的建议标签")
+            QMessageBox.information(self.dlg.window, "提示", "没有新的建议标签呢,天依的灵感也需要酝酿一下 ♪")
             return
         added = ", ".join(new_tags)
         reply = QMessageBox.question(
             self.dlg.window, "标签建议",
-            f"建议添加以下标签：\n{added}\n\n是否添加？",
+            f"天依建议贴上这些标签：\n{added}\n\n要贴上吗?♪",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply == QMessageBox.StandardButton.Yes:

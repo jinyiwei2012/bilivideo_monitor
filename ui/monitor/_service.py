@@ -300,7 +300,7 @@ def _update_status_bar(gui):
     last_sb = getattr(gui, "_last_sb_update", 0)
     if now - last_sb > 0.2:
         gui._last_sb_update = now
-    invoke(lambda: gui._sb("last_ref", f"上次刷新: {datetime.now().strftime('%H:%M:%S')}"))
+    invoke(lambda: gui._sb("last_ref", f"上次刷新啦: {datetime.now().strftime('%H:%M:%S')} ♪"))
 
 
 def _fetch_danmaku_bg(gui, bvid, cid):
@@ -336,7 +336,7 @@ def _batch_fetch_all(gui):
         time.sleep(0.2)
     for t in threads:
         t.join(timeout=60)
-    gui._sb("last_ref", f"上次刷新: {datetime.now().strftime('%H:%M:%S')}")
+    gui._sb("last_ref", f"上次刷新啦: {datetime.now().strftime('%H:%M:%S')} ♪")
 
 
 def _start_central_fetcher(gui):
@@ -419,7 +419,7 @@ def auto_predict_all(gui):
             _predict_single(gui, bvid, video)
 
         from ui.theme import C
-        invoke(lambda: gui._sb("status", f"初始预测完成（{len(gui.monitored_videos)} 个视频）", color=C["success"]))
+        invoke(lambda: gui._sb("status", f"初始预测完成啦!♪ 天依聆听了 {len(gui.monitored_videos)} 个视频的歌声", color=C["success"]))
         gui.log_panel.add_log("INFO", f"初始预测完成（{len(gui.monitored_videos)} 个视频）")
 
     fire_and_forget(_worker, name="auto-predict")
@@ -464,7 +464,7 @@ def load_watch_list(gui):
     if not watch_list:
         return
 
-    gui._sb("status", f"正在加载 {len(watch_list)} 个监控视频…", color=C["accent"])
+    gui._sb("status", f"天依正在加载 {len(watch_list)} 个监控视频…像在银河里收集星星 ♪", color=C["accent"])
 
     def _worker():
         loaded = 0
@@ -514,7 +514,7 @@ def load_watch_list(gui):
         invoke(lambda: _start_central_fetcher(gui))
 
         from ui.theme import C as C2
-        invoke(lambda: gui._sb("status", f"已加载 {len(gui.monitored_videos)} 个监控视频", color=C2["success"]))
+        invoke(lambda: gui._sb("status", f"加载完成啦!♪ {len(gui.monitored_videos)} 个视频都在天依身边了", color=C2["success"]))
 
         gui.log_panel.add_log(
             "INFO",

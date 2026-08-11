@@ -30,7 +30,7 @@ class RankingPanel:
     def __init__(self, parent, gui):
         self.gui = gui
         self.dlg = DialogBase(parent, "♛ 视频排行榜", "800x540")
-        self.dlg.header("视频排行榜", "按多种维度对所有监控视频排序")
+        self.dlg.header("视频排行榜", "天依帮你给每首歌排排座次哦 ♪")
         self._build_ui()
 
     def _build_ui(self):
@@ -189,4 +189,4 @@ class RankingPanel:
             item.setTextAlignment(7, Qt.AlignmentFlag.AlignRight)
             self._tree.addTopLevelItem(item)
 
-        self._status_lbl.setText(f"{len(items)} 个视频")
+        self._status_lbl.setText(f"共 {len(items)} 个视频，排名唱完啦 ♪")

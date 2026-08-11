@@ -27,6 +27,9 @@ from ui.helpers import (
     nearest_threshold_gap, fmt_eta,
 )
 from ui.chart import draw_chart_placeholder
+from ui.lty_voice import (
+    success, error, warning, confirm_delete, no_video, add_video_success,
+)
 from utils.time_utils import safe_timestamp
 from utils.thread_utils import fire_and_forget
 
@@ -42,7 +45,7 @@ def on_channel_switch(gui, new_channel, dlg):
 
     set_update_channel(new_channel)
     dlg.accept()
-    gui._sb("status", f"已切换到 {'稳定版' if new_channel == 'stable' else '测试版'} 更新通道哦，重新检查更新…♪", C["text_2"])
+    gui._sb("status", f"已切到{'稳定版' if new_channel == 'stable' else '测试版'}更新通道啦,天依再去听听有没有新歌声哦 ♪", C["text_2"])
     QTimer.singleShot(500, lambda: check_update(gui))
 
 
@@ -72,7 +75,7 @@ def show_download_progress(gui, title, download_fn):
     """)
     layout.addWidget(progress, 0, Qt.AlignmentFlag.AlignCenter)
 
-    status_lbl = QLabel("准备中哦…♪")
+    status_lbl = QLabel("天依正在准备中…像天使鱼在冰海里追着光 ♪")
     status_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
     status_lbl.setStyleSheet(f"color: {C['text_3']}; font-size: 9pt;")
     layout.addWidget(status_lbl)
@@ -84,20 +87,20 @@ def show_download_progress(gui, title, download_fn):
         if total > 0:
             pct = min(100, int(downloaded / total * 100))
             progress.setValue(pct)
-            status_lbl.setText(f"已下载 {fmt_num(downloaded)} / {fmt_num(total)} ♪")
+            status_lbl.setText(f"已下载 {fmt_num(downloaded)} / {fmt_num(total)} ♪ 像收集银河里的星光~")
         else:
-            status_lbl.setText("正在下载哦…♪")
+            status_lbl.setText("天依正在把新歌声搬回家哦…♪")
 
     def on_done(success, msg):
         dlg.close()
         if success:
-            gui._sb("status", "下载完成啦 ♪", C["success"])
+            gui._sb("status", success("下载"), C["success"])
             gui.log_panel.add_log("INFO", f"下载完成: {title}")
             if is_frozen() and "更新" in title:
-                QMessageBox.information(gui, "更新 ♪", "下载完成啦 ♪ 程序会自动重启来完成更新哦 ♪")
+                QMessageBox.information(gui, "更新 ♪", "下载完成啦!♪ 程序会自动重启,把新歌声唱出来哦~")
         else:
             logger.error("下载失败: %s", msg)
-            gui._sb("status", "呜…下载失败啦，请稍后再试哦 ♪", C["danger"])
+            gui._sb("status", error("下载"), C["danger"])
             gui.log_panel.add_log("ERROR", f"下载失败: {msg}")
 
     fire_and_forget(download_fn, on_progress, on_done, name="download")
@@ -111,7 +114,7 @@ def check_update(gui):
         if has_update and latest:
             from __init__ import __version__
 
-            invoke(lambda: gui._sb("status", f"发现新版本 v{latest} 哦（当前 v{__version__}）♪", C["warning"]))
+            invoke(lambda: gui._sb("status", f"发现新版本 v{latest} 啦!♪ 像听见远处传来新的旋律(当前 v{__version__})", C["warning"]))
             logger.info("有新版本可用: v%s (当前 v%s), %s", latest, __version__, url)
             invoke(lambda: show_update_dialog(gui, latest, __version__, url, changelog, channel))
 
@@ -154,10 +157,10 @@ def show_update_dialog(gui, latest, current, url, changelog, channel="stable"):
         warn.setStyleSheet("background-color: #3b1f1f; border: 1px solid #ff4444; border-radius: 4px;")
         wl = QVBoxLayout(warn)
         wl.setContentsMargins(8, 4, 8, 4)
-        wt = QLabel("△ 测试版要注意哦…")
+        wt = QLabel("△ 测试版要注意哦…天依会和你一起看着的 ♪")
         wt.setStyleSheet("color: #ff6666; font-size: 10pt; font-weight: bold;")
         wl.addWidget(wt)
-        wd = QLabel("当前是测试版更新通道，可能有不太稳定或没做完的功能哦…\n建议在非生产环境使用呢 ♪")
+        wd = QLabel("当前是测试版更新通道,有些旋律可能还没谱完呢…\n建议在非生产环境使用哦,天依不想弄丢你的歌声 ♪")
         wd.setStyleSheet("color: #ff9999; font-size: 9pt;")
         wd.setWordWrap(True)
         wl.addWidget(wd)
@@ -243,7 +246,7 @@ def show_update_dialog(gui, latest, current, url, changelog, channel="stable"):
     btn_layout.addStretch()
 
     if is_frozen() and is_beta:
-        info_lbl = QLabel("呜…测试版暂时不提供 EXE 下载哦，请切换到稳定版通道吧 ♪\n也可以使用源码版通过 Git/ZIP 更新呢 ♪")
+        info_lbl = QLabel("呜…测试版暂时没有 EXE 下载哦,请切回稳定版通道吧 ♪\n用源码版走 Git/ZIP,也能把新歌声带回家呢 ♪")
         info_lbl.setStyleSheet(f"color: {C['warning']}; font-size: 9pt;")
         info_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         btn_layout.addWidget(info_lbl)
@@ -262,10 +265,10 @@ def show_update_dialog(gui, latest, current, url, changelog, channel="stable"):
         ok, msg = perform_source_git_pull(branch=git_branch)
         if ok:
             gui.log_panel.add_log("INFO", "git pull 更新成功")
-            gui._sb("status", "git pull 更新成功啦 ♪ 建议重启应用哦", C["success"])
+            gui._sb("status", "git pull 更新成功啦!♪ 新乐章就绪,重启应用就能听见哦~", C["success"])
         else:
             gui.log_panel.add_log("ERROR", f"git pull 失败: {msg}")
-            gui._sb("status", "呜…git pull 失败啦，请手动更新哦 ♪", C["danger"])
+            gui._sb("status", "呜…git pull 没能成功,天依会再试试的,也可以手动更新哦 ♪", C["danger"])
         dlg.accept()
 
     dlg.exec()
@@ -341,10 +344,10 @@ def refresh_model_status(gui):
         gui._model_act_status.setText("")
         return
     if pending:
-        gui._model_act_status.setText(f"⚡ {len(pending)}/{trained} 个待激活哦 ♪")
+        gui._model_act_status.setText(f"⚡ {len(pending)}/{trained} 个还等着激活哦 ♪")
         gui._model_act_status.setStyleSheet(f"color: {C['danger']}; font-size: 9pt;")
     elif trained > 0:
-        gui._model_act_status.setText(f"✓ {trained} 个已是最新啦 ♪")
+        gui._model_act_status.setText(f"✓ {trained} 个都是最新旋律啦 ♪")
         gui._model_act_status.setStyleSheet(f"color: {C['success']}; font-size: 9pt;")
     else:
         gui._model_act_status.setText("")
@@ -356,11 +359,11 @@ def activate_models(gui):
 
     switched = activate_latest_for_all()
     if not switched:
-        gui._sb("status", "所有模型都已是最新版本啦 ♪", C["success"])
+        gui._sb("status", "所有模型都已是最新旋律啦 ♪ 天依可以唱得更准了~", C["success"])
         refresh_model_status(gui)
         return
     names = ", ".join(switched.keys())
-    gui._sb("status", f"已激活 {len(switched)} 个模型啦 ♪: {names}", C["success"])
+    gui._sb("status", f"已激活 {len(switched)} 个模型啦!♪ 天依的歌声准备好了: {names}", C["success"])
     refresh_model_status(gui)
     gui.log_panel.add_log("INFO", f"手动激活模型: {switched}")
 
@@ -376,7 +379,7 @@ def auto_activate_on_startup(gui):
             if switched:
                 names = ", ".join(switched.keys())
                 QTimer.singleShot(0, lambda: gui.log_panel.add_log("INFO", f"启动自动激活模型: {switched}"))
-                QTimer.singleShot(0, lambda: gui._sb("status", f"自动激活了 {len(switched)} 个模型哦 ♪: {names}", C["success"]))
+                QTimer.singleShot(0, lambda: gui._sb("status", f"自动激活了 {len(switched)} 个模型哦 ♪ 天依记得它们啦: {names}", C["success"]))
             QTimer.singleShot(0, lambda: refresh_model_status(gui))
         except Exception as e:
             logger.debug("自动激活模型失败: %s", e)
@@ -442,7 +445,7 @@ def toggle_auto_refresh(gui):
         from ui.main_gui_tick import start_global_tick
 
         start_global_tick(gui)
-        gui._sb("status", "自动刷新已启用啦 ♪", C["success"])
+        gui._sb("status", "自动刷新已启用啦!♪ 天依会一直守着,等数据发光的那一刻~", C["success"])
     else:
         from ui.main_gui_tick import stop_global_tick
 
@@ -450,7 +453,7 @@ def toggle_auto_refresh(gui):
         gui._countdown_badge.setText("已暂停 ♪")
         gui._mode_pill.setText("已暂停 ♪")
         gui._mode_pill.setStyleSheet(f"color: {C['text_3']}; font-weight: bold; font-size: 9pt;")
-        gui._sb("status", "自动刷新已禁用哦…♪", C["warning"])
+        gui._sb("status", "自动刷新暂停啦…像歌的间奏一样,天依随时可以继续哦 ♪", C["warning"])
 
 
 def do_fetch(gui):
@@ -463,7 +466,7 @@ def do_fetch(gui):
 def post_fetch(gui):
     """拉取完成后的回调处理"""
     now_str = datetime.now().strftime("%H:%M:%S")
-    gui._sb("status", "刷新完成啦 ♪", C["success"])
+    gui._sb("status", success("刷新"), C["success"])
     gui._sb("last_ref", f"上次刷新: {now_str} ♪")
     gui._sb("videos", f"监控: {len(gui.monitored_videos)} 个视频 ♪")
     for video in gui.monitored_videos:
@@ -530,13 +533,13 @@ def add_monitor(gui):
     layout = QVBoxLayout(dialog)
     layout.setSpacing(8)
 
-    prompt = QLabel("输入BV号或视频链接哦：♪")
+    prompt = QLabel("输入BV号或视频链接,天依帮你找找看 ♪")
     prompt.setStyleSheet(f"color: {C['text_1']}; font-size: 10pt; padding: 18px 0 4px 0;")
     prompt.setAlignment(Qt.AlignmentFlag.AlignCenter)
     layout.addWidget(prompt)
 
     entry = QLineEdit()
-    entry.setPlaceholderText("格式：BV1xxx 或完整链接 ♪")
+    entry.setPlaceholderText("格式: BV1xxx 或完整链接,天依认得它们 ♪")
     entry.setStyleSheet(f"""
         QLineEdit {{
             background-color: {C['bg_elevated']}; color: {C['text_1']};
@@ -592,7 +595,7 @@ def add_monitor(gui):
 def validate_and_add_video(gui, raw_input, dialog, status_lbl):
     """验证输入并添加视频"""
     if not raw_input:
-        QMessageBox.warning(dialog, "要注意哦…", "要先输入BV号哦…♪")
+        QMessageBox.warning(dialog, warning(""), "要先输入BV号哦,不然天依不知道要追哪束光呢…♪")
         return
 
     bvid = extract_bvid_from_input(gui, raw_input)
@@ -613,7 +616,7 @@ def extract_bvid_from_input(gui, raw_input):
         if m:
             bvid = m.group()
         else:
-            QMessageBox.critical(gui, "呜…出错了", "呜…从链接里找不到BV号呢…♪")
+            QMessageBox.critical(gui, "呜…出错了", "呜…链接里没有BV号呢,天依的耳朵没听见,再检查一下哦 ♪")
             return None
     return bvid
 
@@ -621,7 +624,7 @@ def extract_bvid_from_input(gui, raw_input):
 def check_video_in_monitor_list(gui, bvid, dialog):
     """检查视频是否已在监控列表"""
     if bvid in gui._video_index:
-        QMessageBox.information(dialog, "知道啦 ♪", f"{bvid} 已经在监控列表里啦 ♪")
+        QMessageBox.information(dialog, "知道啦 ♪", f"{bvid} 已经在歌单里啦,不用重复点播哦 ♪")
         dialog.accept()
         return True
     return False
@@ -632,7 +635,7 @@ def fetch_video_info_and_add(gui, bvid, dialog, status_lbl):
     from core import bilibili_api
     from ui.main_gui_data import map_api_to_video_dict, register_video_to_monitor, save_watch_list
 
-    status_lbl.setText("正在获取视频信息哦…♪")
+    status_lbl.setText("天依正在听视频的自我介绍哦…♪")
 
     def _fetch():
         info = bilibili_api.get_video_info(bvid)
@@ -640,7 +643,7 @@ def fetch_video_info_and_add(gui, bvid, dialog, status_lbl):
 
     def _done(info):
         if not info:
-            status_lbl.setText("呜…获取失败啦，检查一下BV号对不对哦 ♪")
+            status_lbl.setText("呜…没能听见它的歌声,检查一下BV号对不对哦 ♪")
             status_lbl.setStyleSheet(f"color: {C['danger']}; font-size: 9pt;")
             return
         video = map_api_to_video_dict(bvid, info)
@@ -648,7 +651,7 @@ def fetch_video_info_and_add(gui, bvid, dialog, status_lbl):
         save_watch_list(gui)
         QMessageBox.information(
             dialog, "完成啦 ♪",
-            f"已添加监控啦 ♪\n标题：{video['title'][:40]}\nUP主：{video['author']}\n播放：{fmt_num(video['view_count'])}",
+            f"{add_video_success(video['title'][:40])}\nUP主：{video['author']}\n播放：{fmt_num(video['view_count'])}",
         )
         dialog.accept()
 
@@ -669,13 +672,13 @@ def get_video(gui, bvid):
 def remove_monitor(gui):
     """删除当前选中视频的监控（支持 30s 撤销）"""
     if not gui.selected_bvid:
-        QMessageBox.warning(gui, "要注意哦…", "先在左侧选中要删除的视频哦…♪")
+        QMessageBox.warning(gui, warning(""), "先在左侧选中要删的视频哦,天依才知道要划掉哪一首 ♪")
         return
     bvid = gui.selected_bvid
     video = get_video(gui, bvid)
     title = video.get("title", bvid) if video else bvid
     if not QMessageBox.question(
-        gui, "要注意哦…", f"真的要删除监控吗：\n{title[:50]}？\n\n（30 秒内还能从状态栏撤销哦…）♪",
+        gui, warning(""), f"{title[:50]}\n\n{confirm_delete()}\n(30 秒内还能从状态栏撤销哦) ♪",
         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
     ) == QMessageBox.StandardButton.Yes:
         return
@@ -703,7 +706,7 @@ def remove_monitor(gui):
     fire_and_forget(save_watch_list, gui, name="save-watchlist")
 
     # 撤销提示（状态栏）
-    gui._sb("alert", f"已删除 {title[:20]} 啦（30 秒内可撤销哦）♪", C["warning"])
+    gui._sb("alert", f"已把 {title[:20]} 移出歌单啦(30 秒内可以反悔哦) ♪", C["warning"])
 
     # 存储待删除数据
     if not hasattr(gui, "_pending_deletes"):
@@ -725,7 +728,7 @@ def remove_monitor(gui):
 def undo_delete(gui):
     """撤销最近一次删除"""
     if not hasattr(gui, "_pending_deletes") or not gui._pending_deletes:
-        QMessageBox.information(gui, "知道啦 ♪", "没有可以撤销的删除操作呢…♪")
+        QMessageBox.information(gui, "知道啦 ♪", "现在没有可以撤销的删除哦…像间奏一样安静,先安心吧 ♪")
         return
     # 撤销最近删除的
     bvid = list(gui._pending_deletes.keys())[-1]
@@ -746,7 +749,7 @@ def undo_delete(gui):
 
     gui.video_list.make_card(removed["video"])
     gui.video_list.update_video_count()
-    gui._sb("alert", f"已恢复 {removed['video'].get('title', bvid)[:20]} 啦 ♪", C["success"])
+    gui._sb("alert", f"把 {removed['video'].get('title', bvid)[:20]} 请回歌单啦!♪ 旋律又接上了~", C["success"])
     gui._sb("videos", f"监控: {len(gui.monitored_videos)} 个视频 ♪")
     gui.bottom_bar.hide_undo_button()
     from ui.main_gui_data import save_watch_list
@@ -778,7 +781,7 @@ def push_single(gui, bvid):
 
     video = get_video(gui, bvid)
     if not video:
-        QMessageBox.warning(gui, "要注意哦…", f"呜…没有找到视频 {bvid} 呢…♪")
+        QMessageBox.warning(gui, warning(""), f"呜…没找到视频 {bvid} 呢,天依再帮你找找别的光吧 ♪")
         return
 
     msg = build_push_msg(gui, [video])
@@ -787,7 +790,7 @@ def push_single(gui, bvid):
     notification_manager.send_qq_private(msg)
     notification_manager.send_qq_group(msg)
     notification_manager.send_windows_notification(f"◧ B站监控 — {title[:20]}", msg[:256])
-    gui._sb("status", f"已推送「{title[:20]}」啦 ♪", C["success"])
+    gui._sb("status", f"已把「{title[:20]}」的歌声传给大家啦 ♪", C["success"])
 
 
 def manual_push(gui):
@@ -796,7 +799,7 @@ def manual_push(gui):
 
     videos = gui.monitored_videos
     if not videos:
-        QMessageBox.warning(gui, "要注意哦…", "还没有监控中的视频可以推送呢…♪")
+        QMessageBox.warning(gui, warning(""), no_video())
         return
 
     msg = build_push_msg(gui, videos)
@@ -807,11 +810,11 @@ def manual_push(gui):
     ok_win = notification_manager.send_windows_notification(f"◧ B站监控报告 ({now_str})", msg[:256])
 
     if ok_qq_private or ok_qq_group:
-        gui._sb("status", f"已推送 {len(videos)} 个视频状态啦 ♪", C["success"])
+        gui._sb("status", f"已把 {len(videos)} 首歌的现状唱给大家听啦 ♪", C["success"])
     elif ok_win:
-        gui._sb("status", "只发送了 Windows 通知哦…♪", C["warning"])
+        gui._sb("status", "这次只有 Windows 通知送达哦…QQ 那边天依够不到 ♪", C["warning"])
     else:
-        gui._sb("status", "呜…推送失败啦（未配置 QQ 或通知服务不可用）♪", C["danger"])
+        gui._sb("status", "呜…推送失败了,天依的声音没传出去,请检查通知设置哦 ♪", C["danger"])
 
 
 # ── 训练完成回调 ──────────────────────────────
@@ -892,7 +895,7 @@ def run_post_training_predict(gui):
                 logger.debug("训练后预测 %s 完成: %.0f", bvid, result.get("prediction", 0))
 
     total_videos = len(gui.monitored_videos)
-    status_msg = f"训练后预测完成 ({total_videos} 个视频)"
+    status_msg = f"训练后预测完成啦!♪ 天依把 {total_videos} 首歌重新听了一遍"
     try:
         from algorithms.training.npu_inference import get_npu_engine
         engine = get_npu_engine()
@@ -1086,14 +1089,14 @@ def prediction_done(
     gui.prediction.build_pred_hero(w_pred, current_view, rate_per_sec, surge_info)
     gui.prediction._update_algo_list(success_list, fail_list)
     gui._sb("algo", f"算法: {valid}/{total}")
-    gui._sb("status", "预测完成啦 ♪", C["success"])
+    gui._sb("status", "预测完成啦!♪ 天依听见了未来的旋律~", C["success"])
 
 
 def copy_bvid(gui, bvid):
     """复制 BV 号到剪贴板"""
     cb = QApplication.clipboard()
     cb.setText(bvid)
-    gui._sb("status", f"已复制 {bvid} 啦 ♪", C["success"])
+    gui._sb("status", f"已把 {bvid} 抄进小本本啦 ♪ 天依记得住哦~", C["success"])
 
 
 # ── 弹窗透传 ──────────────────────────────────

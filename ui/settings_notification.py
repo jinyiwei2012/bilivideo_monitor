@@ -2,12 +2,16 @@
 OneBot / Notification 通知设置 — PyQt6 版
 """
 
+import logging
+
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QCheckBox, QMessageBox,
 )
 from PyQt6.QtCore import Qt
 from ui.theme import C
+
+logger = logging.getLogger(__name__)
 
 
 class SettingsNotificationMixin:
@@ -44,7 +48,7 @@ class SettingsNotificationMixin:
         token = self.onebot_token.text().strip()
 
         if not http_url:
-            QMessageBox.warning(self.dlg, "提示", "请先填写 HTTP 地址")
+            QMessageBox.warning(self.dlg, "要注意哦…", "呜…HTTP 地址还是空的呢,先填上才能听到 OneBot 的歌声哦 ♪")
             return
 
         from core.notification import notification_manager
@@ -76,12 +80,13 @@ class SettingsNotificationMixin:
             channel = result.get("channel", "HTTP")
             QMessageBox.information(
                 self.dlg,
-                "连接成功",
-                f"✓ OneBot 服务连接成功\n\n通道: {channel}\n版本: {ver}",
+                "连接成功啦 ♪",
+                f"连接成功啦!♪ 天依听到远方的歌声了\n\n通道: {channel}\n版本: {ver}",
             )
         else:
+            logger.warning("OneBot 服务连接失败: %s", result.get("error", "未知错误"))
             QMessageBox.critical(
                 self.dlg,
-                "连接失败",
-                f"✗ OneBot 服务连接失败\n\n原因: {result.get('error', '未知错误')}",
+                "呜…连接失败了",
+                "呜…连接不上呢,像天使鱼在冰海里迷了路,检查一下配置哦 ♪",
             )

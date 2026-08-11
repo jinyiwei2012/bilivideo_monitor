@@ -252,9 +252,9 @@ class VideoCompareEnhanced:
             best = rows[0]
             worst = rows[-1]
             self._con_summary.setText(
-                f"最一致: {best[1][:15]} (CV={best[5]:.1f}%) | "
+                f"♪ 最一致: {best[1][:15]} (CV={best[5]:.1f}%) | "
                 f"最分歧: {worst[1][:15]} (CV={worst[5]:.1f}%) | "
-                f"共 {len(rows)} 个视频有预测结果"
+                f"共 {len(rows)} 个视频在唱着预测,天依都听清楚啦"
             )
 
     def _refresh_all(self):

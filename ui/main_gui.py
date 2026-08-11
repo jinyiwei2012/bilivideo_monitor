@@ -312,6 +312,7 @@ class BilibiliMonitorGUI(QMainWindow):
 
         # Model activation
         self._model_act_btn = QPushButton("◍ 激活模型")
+        self._model_act_btn.setToolTip("让模型们都准备好,天依想唱得更准 ♪")
         self._model_act_btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: {C['bg_elevated']}; color: {C['accent']};
@@ -329,7 +330,7 @@ class BilibiliMonitorGUI(QMainWindow):
 
         # Gear menu
         self._gear_btn = QPushButton("⚙")
-        self._gear_btn.setToolTip("设置")
+        self._gear_btn.setToolTip("⚙ 设置,天依听你的 ♪")
         self._gear_btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: {C['bg_elevated']}; color: {C['text_2']};
@@ -343,7 +344,7 @@ class BilibiliMonitorGUI(QMainWindow):
 
         # Search
         self._search_btn = QPushButton("⌕")
-        self._search_btn.setToolTip("搜索")
+        self._search_btn.setToolTip("输入关键词,天依帮你找找看 ♪")
         self._search_btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: {C['bg_elevated']}; color: {C['text_2']};
@@ -711,7 +712,7 @@ def main():
     splash_pm.fill(QColor("#161b22"))
     splash.setPixmap(splash_pm)
     splash.show()
-    splash.showMessage("  B站监控\n  加载中...", Qt.AlignmentFlag.AlignCenter, QColor("#fb7299"))
+    splash.showMessage("  B站监控\n  天依正在准备中…♪", Qt.AlignmentFlag.AlignCenter, QColor("#fb7299"))
     app.processEvents()
 
     window = BilibiliMonitorGUI()

@@ -21,6 +21,7 @@ from ui.helpers import (
     THRESHOLDS, THRESHOLD_NAMES, THRESH_COLORS, fmt_num,
 )
 from ui.widgets import SectionHeader, EmptyState
+from ui import lty_voice
 
 
 class _SectionTitle(QWidget):
@@ -127,7 +128,7 @@ class PredictionPanel:
         if layout is None:
             layout = QVBoxLayout(self._pred_hero)
         layout.setContentsMargins(SPACE_MD, SPACE_MD, SPACE_MD, SPACE_MD)
-        layout.addWidget(EmptyState("选择视频后显示预测 ♪"))
+        layout.addWidget(EmptyState(lty_voice.empty("选择视频") + " 天依就能唱出预测啦"))
 
     def build_pred_hero(self, weighted_pred, current_views, rate_per_sec, surge_info=None):
         """构建或更新预测英雄卡片"""
@@ -165,7 +166,7 @@ class PredictionPanel:
                 pct = min(current_views / t, 1.0)
                 row_data["progress"].setValue(int(pct * 100))
                 if t <= current_views:
-                    eta_str, eta_c = "✓ 已达成", C["success"]
+                    eta_str, eta_c = "✓ 已达成 ♪", C["success"]
                 elif rate_per_sec > 0:
                     need = t - current_views
                     seconds_left = need / rate_per_sec
@@ -274,7 +275,7 @@ class PredictionPanel:
             rh.addWidget(progress, 1)
 
             if t <= current_views:
-                eta_str, eta_c = "✓ 已达成", C["success"]
+                eta_str, eta_c = "✓ 已达成 ♪", C["success"]
             elif rate_per_sec > 0:
                 need = t - current_views
                 seconds_left = need / rate_per_sec
@@ -477,7 +478,7 @@ class PredictionPanel:
         views = max(video.get("view_count", 0), 1)
 
         # ── 互动率概览 ──
-        layout.addWidget(SectionHeader("◧ 互动率概览"))
+        layout.addWidget(SectionHeader("◧ 互动率概览 ♪"))
         grid = QWidget()
         grid.setStyleSheet(f"background-color: {C['bg_surface']};")
         gl = QGridLayout(grid)
@@ -528,7 +529,7 @@ class PredictionPanel:
         dyn["online"] = online_val
 
         # ── 最近记录 ──
-        layout.addWidget(SectionHeader("☰ 最近记录"))
+        layout.addWidget(SectionHeader("☰ 最近记录 ♪"))
         hist_container = QWidget()
         hist_container.setStyleSheet(f"background-color: {C['bg_surface']};")
         self._hist_layout = QVBoxLayout(hist_container)
@@ -565,7 +566,7 @@ class PredictionPanel:
         self._hist_layout.addWidget(hist_header)
 
         # ── 算法统计 ──
-        layout.addWidget(SectionHeader("◍ 算法统计"))
+        layout.addWidget(SectionHeader("◍ 算法统计 ♪"))
         algo_frame = QWidget()
         algo_frame.setStyleSheet(f"background-color: {C['bg_surface']};")
         af_l = QVBoxLayout(algo_frame)
@@ -605,7 +606,7 @@ class PredictionPanel:
         dyn["ensemble"] = ensemble_lbl
 
         # ── 数据健康 ──
-        layout.addWidget(SectionHeader("⌁ 数据健康"))
+        layout.addWidget(SectionHeader("⌁ 数据健康 ♪"))
         health_frame = QWidget()
         health_frame.setStyleSheet(f"background-color: {C['bg_surface']};")
         hf_l = QHBoxLayout(health_frame)
@@ -699,7 +700,7 @@ class PredictionPanel:
                 row_fr.deleteLater()
             rows.clear()
             if hist_layout.count() == 0:
-                empty_lbl = QLabel("还没有历史数据呢…♪")
+                empty_lbl = QLabel(lty_voice.empty("历史数据"))
                 empty_lbl.setFont(FONT_CAPTION)
                 empty_lbl.setStyleSheet(f"color: {C['text_3']}; background-color: transparent;")
                 hist_layout.addWidget(empty_lbl)
@@ -710,7 +711,7 @@ class PredictionPanel:
             item = hist_layout.itemAt(i)
             if item is not None:
                 w = item.widget()
-                if w and isinstance(w, QLabel) and w.text() == "还没有历史数据呢…♪":
+                if w and isinstance(w, QLabel) and w.text() == lty_voice.empty("历史数据"):
                     w.deleteLater()
 
         recent = history[-15:]

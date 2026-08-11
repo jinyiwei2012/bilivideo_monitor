@@ -158,7 +158,7 @@ class DashboardWindow(QWidget):
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(0, 0, 0, 0)
 
-        title_lbl = QLabel("数据大屏")
+        title_lbl = QLabel("♪ 天依的数据大屏")
         title_font = QFont("Microsoft YaHei UI", 20)
         title_font.setBold(True)
         title_lbl.setFont(title_font)
@@ -171,6 +171,13 @@ class DashboardWindow(QWidget):
         self._time_lbl.setFont(QFont("Microsoft YaHei UI", 12))
         self._time_lbl.setStyleSheet(f"color: {_DASH_COLORS['text_2']};")
         header_layout.addWidget(self._time_lbl)
+
+        # 大屏脚注问候
+        hello_lbl = QLabel("天依为你放歌啦,数据都亮晶晶的 ♪")
+        hello_font = QFont("Microsoft YaHei UI", 10)
+        hello_lbl.setFont(hello_font)
+        hello_lbl.setStyleSheet(f"color: {_DASH_COLORS['text_2']};")
+        header_layout.addWidget(hello_lbl)
 
         root.addWidget(header)
 
@@ -380,7 +387,7 @@ class DashboardWindow(QWidget):
         videos = sorted(self.gui.monitored_videos, key=lambda v: v.get("view_count", 0), reverse=True)
 
         if not videos:
-            lbl = QLabel("暂无数据")
+            lbl = QLabel("还没有数据呢…像等待一首歌的旋律,天依陪你一起等 ♪")
             lbl.setFont(QFont("Microsoft YaHei UI", 16))
             lbl.setStyleSheet(f"color: {_DASH_COLORS['text_2']};")
             lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -388,7 +395,7 @@ class DashboardWindow(QWidget):
                 layout.addWidget(lbl)
             return
 
-        title_lbl = QLabel("播放量排行 Top10")
+        title_lbl = QLabel("播放量排行 Top10 ♪")
         title_font = QFont("Microsoft YaHei UI", 14)
         title_font.setBold(True)
         title_lbl.setFont(title_font)
@@ -407,7 +414,7 @@ class DashboardWindow(QWidget):
         """第 3 页：预测 — 各视频当前播放量及阈值完成进度"""
         layout = page.layout()
 
-        title_lbl = QLabel("预测总览")
+        title_lbl = QLabel("预测总览 ♪")
         title_font = QFont("Microsoft YaHei UI", 14)
         title_font.setBold(True)
         title_lbl.setFont(title_font)
@@ -468,7 +475,7 @@ class DashboardWindow(QWidget):
         """第 4 页：健康 — 实时预警列表 + 一键三连健康探针评分"""
         layout = page.layout()
 
-        title_lbl = QLabel("健康概览")
+        title_lbl = QLabel("健康概览 ♪")
         title_font = QFont("Microsoft YaHei UI", 14)
         title_font.setBold(True)
         title_lbl.setFont(title_font)
@@ -490,7 +497,7 @@ class DashboardWindow(QWidget):
         alert_layout = QVBoxLayout(alert_frame)
         alert_layout.setContentsMargins(12, 8, 12, 8)
 
-        alert_title = QLabel("实时预警")
+        alert_title = QLabel("实时预警 ♪")
         alert_title_font = QFont("Microsoft YaHei UI", 10)
         alert_title_font.setBold(True)
         alert_title.setFont(alert_title_font)
@@ -528,7 +535,7 @@ class DashboardWindow(QWidget):
                     logger.debug("渲染预警卡片失败: %s", e)
 
         if not found_alert:
-            no_alert = QLabel("\u2705 暂无预警")
+            no_alert = QLabel("\u2705 一切安安静静的,没有预警哦 ♪")
             no_alert.setFont(QFont("Microsoft YaHei UI", 12))
             no_alert.setStyleSheet(f"color: {_DASH_COLORS['success']};")
             no_alert.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -552,7 +559,7 @@ class DashboardWindow(QWidget):
             probe_layout = QVBoxLayout(probe_frame)
             probe_layout.setContentsMargins(12, 8, 12, 8)
 
-            probe_title = QLabel("一键三连健康探针")
+            probe_title = QLabel("一键三连健康探针 ♪")
             probe_title_font = QFont("Microsoft YaHei UI", 10)
             probe_title_font.setBold(True)
             probe_title.setFont(probe_title_font)

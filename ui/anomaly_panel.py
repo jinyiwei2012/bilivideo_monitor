@@ -35,7 +35,7 @@ class AnomalyPanel:
         """
         self.gui = gui
         self.dlg = DialogBase(parent, "‼ 异常增长检测", "960x580")
-        self.dlg.header("异常增长检测", "检测播放量突增/突降/停滞等异常行为，附时间/增量/在线上下文")
+        self.dlg.header("异常增长检测", "天依竖起耳朵，听听歌声里藏着的变化 ♪")
         self._build_ui()
         self._scan()
 
@@ -113,7 +113,7 @@ class AnomalyPanel:
         """开始扫描所有监控视频，后台线程执行异常检测"""
 
         # 清空旧数据
-        self._status_lbl.setText("扫描中…")
+        self._status_lbl.setText("天依正在聆听每个视频的歌声…♪")
         self._detail_text.clear()
         self._tree.clear()
         self._alert_data.clear()
@@ -216,6 +216,7 @@ class AnomalyPanel:
                             }
                         )
                 except Exception as e:
+                    logger.debug("异常检测失败 %s: %s", bvid, e)
                     results.append(
                         {
                             "bvid": bvid,
@@ -226,7 +227,7 @@ class AnomalyPanel:
                             "delta": 0,
                             "velocity": 0,
                             "online": online,
-                            "alert_text": str(e)[:60],
+                            "alert_text": "呜…这个视频的检测出了点小状况，天依已悄悄记下问题啦 ♪",
                             "author": "",
                             "pubdate": 0,
                         }
@@ -257,7 +258,11 @@ class AnomalyPanel:
             self._tree.addTopLevelItem(item)
 
         count = len(results)
-        msg = f"扫描完成，发现 {count} 条异常" if count else "扫描完成，无异常 ✓"
+        msg = (
+            f"天依注意到异常啦!♪ 歌声里有 {count} 处变化，逃不过天依的耳朵~"
+            if count
+            else "扫描完成啦 ♪ 一切安安静静的，像深夜书店翻书的声音~"
+        )
         color = C["danger"] if count else C["success"]
         self._status_lbl.setText(msg)
         self._status_lbl.setStyleSheet(f"color: {color}; background: transparent;")

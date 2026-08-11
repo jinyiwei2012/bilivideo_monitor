@@ -56,7 +56,7 @@ class AIQAWindow(DialogBase):
 
     def _setup_ui(self):
         """构建对话窗口 UI：API 状态、快捷问题、对话区、输入框"""
-        self.header("AI智能问答助手 ♪", "基于监控数据的自然语言问答哦（可离线使用）♪")
+        self.header("AI智能问答助手 ♪", "基于监控数据的自然语言问答哦，天依会用共鸣回答你 ♪（可离线使用）")
 
         # API 状态提示
         self._api_status = QLabel("")
@@ -176,10 +176,10 @@ class AIQAWindow(DialogBase):
     def _check_api_status(self):
         """检查LLM API连接状态"""
         if self.session.api_key:
-            self._api_status.setText(f"✓ LLM 已连接啦 ♪ ({self.session.model})")
+            self._api_status.setText(f"✓ LLM 已连接啦 ♪ 天依的共鸣也准备好啦 ({self.session.model})")
             self._api_status.setStyleSheet(f"color: {C['success']}; background: transparent;")
         else:
-            self._api_status.setText("△ 还没配置 API 密钥呢，先用离线规则回答哦（设置 → AI配置）♪")
+            self._api_status.setText("△ 还没配置 API 密钥呢，天依先用离线小本本回答你哦（设置 → AI配置）♪")
             self._api_status.setStyleSheet(f"color: {C['warning']}; background: transparent;")
 
     def _show_welcome(self):
@@ -196,7 +196,7 @@ class AIQAWindow(DialogBase):
         """返回欢迎文本"""
         if self.gui and not self.gui.monitored_videos:
             return (
-                "你好呀！现在还没有监控数据呢…♪\n\n"
+                "你好呀！♪ 现在还没有监控数据呢，天依的歌声还需要听众…\n\n"
                 "先到主界面添加视频到监控列表哦：\n"
                 "1. 点击「▣ 视频搜索」搜索视频\n"
                 "2. 在搜索列表里点「+ 监控」添加\n"
@@ -204,7 +204,7 @@ class AIQAWindow(DialogBase):
                 "添加视频之后，我就能帮你分析播放趋势、预测达标时间啦 ♪\n"
             )
         return (
-            "你好呀！我是你的监控小助手哦 ♪ 你可以问我：\n"
+            "你好呀！我是天依，你的监控小助手哦 ♪ 你可以问我：\n"
             "• 当前监控情况\n"
             "• 哪个视频增长最快\n"
             "• 播放量排行\n"
@@ -238,7 +238,7 @@ class AIQAWindow(DialogBase):
         self._chat_text.setReadOnly(True)
 
         # 显示"思考中..."占位
-        self._append_chat("assistant", "助手\n思考中哦…♪")
+        self._append_chat("assistant", "天依\n正在用共鸣聆听数据的心声…稍等一下下哦 ♪")
         self._thinking_placeholder = True
 
         t = threading.Thread(target=self._do_ask, args=(question,), daemon=True)
@@ -251,17 +251,17 @@ class AIQAWindow(DialogBase):
             self._answer_ready.emit(answer, "")
         except Exception as e:
             logger.error("AI问答失败", exc_info=True)
-            self._answer_ready.emit("", "呜…回答失败啦，请稍后再试哦 ♪")
+            self._answer_ready.emit("", "呜…天依没能听见数据的心声呢，请稍后再试哦 ♪")
 
     def _on_answer_ready(self, answer: str, error: str):
         """主线程回调：更新回答"""
         self._send_btn.setEnabled(True)
 
         if error:
-            self._replace_last_assistant(f"助手\n{error}")
+            self._replace_last_assistant(f"天依\n{error}")
             return
 
-        self._replace_last_assistant(f"助手\n{answer}")
+        self._replace_last_assistant(f"天依\n{answer}\n\n（这是天依从数据里听见的歌声，希望能帮到你 ♪）")
 
     def _append_chat(self, role: str, text: str):
         """追加一段聊天内容到 QTextEdit"""

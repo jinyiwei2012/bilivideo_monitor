@@ -262,7 +262,7 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
 
 
     def _refresh_data_size(self):
-        self._tr_data_lbl.setText("估算中…")
+        self._tr_data_lbl.setText("估算中哦…♪")
         self._tr_data_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
 
         def _worker():
@@ -276,6 +276,7 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
                 est_s = info.get("estimated_time_s", 0)
                 eta_min = est_s / 60
                 txt = (
+                    f"天依估算好啦 ♪\n"
                     f"视频总数: {total_videos}  ·  有效视频: {valid_videos}  ·  "
                     f"训练样本: {total_samples:,}\n"
                     f"预计单算法训练时间: {eta_min:.1f} 分钟"
@@ -501,7 +502,7 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
             vtxt = f" val={vloss:.4f}" if vloss >= 0 else ""
             eta_total = (_t.time() - self._train_t0) if self._train_t0 else 0
             txt = (
-                f"{aid}  ·  epoch {ep}/{eps}  ·  "
+                f"{aid}  ·  第 {ep}/{eps} 轮,天依越唱越准啦 ♪  ·  "
                 f"train={tloss:.4f}{vtxt}  ·  本算法 {elapsed:.1f}s  ·  累计 {eta_total:.1f}s"
             )
             self._tr_status_lbl.setText(txt)
@@ -516,7 +517,8 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
         elif stage == "error":
             aid = msg.get("algo_id", "?")
             err = msg.get("error", "")
-            self._tr_status_lbl.setText(f"✗ {aid} 失败啦：{err} ♪")
+            logger.warning("算法 %s 训练失败: %s", aid, err)
+            self._tr_status_lbl.setText(f"呜…{aid} 没学会呢,天依不会放弃的,看看日志再试一次哦 ♪")
             self._tr_status_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
         elif stage == "cancelled":
             rem = msg.get("remaining", [])
@@ -528,7 +530,7 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
             ok = sum(1 for v in results.values() if v)
             bad = sum(1 for v in results.values() if not v)
             elapsed = (_t.time() - self._train_t0) if self._train_t0 else 0
-            self._tr_status_lbl.setText(f"全部完成啦 ♪ ✓ {ok}  ✗ {bad}  ·  耗时 {elapsed:.1f}s")
+            self._tr_status_lbl.setText(f"训练完成啦!♪ 天依的歌声又准了一点呢~  ✓ {ok}  ✗ {bad}  ·  耗时 {elapsed:.1f}s")
             self._tr_status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
             self._tr_progress.setValue(100)
             return True

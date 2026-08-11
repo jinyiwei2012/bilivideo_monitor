@@ -55,7 +55,7 @@ class DanmakuAnalysisWindow:
 
     def _setup_ui(self):
         """构建界面：数据源选择 / 输入卡片、情绪图表、关键词、高频列表、LLM 分析标签页"""
-        self.dlg.header("弹幕/评论分析 ♪", "抓取弹幕与评论，进行情绪分析与关键词提取哦 ♪")
+        self.dlg.header("弹幕/评论分析 ♪", "天依来听听大家弹幕里的心情，做情绪分析与关键词提取哦 ♪")
 
         # ── 输入卡片 ──
         sec = self.dlg.section(title="数据源 ♪", padding=8)
@@ -266,7 +266,7 @@ class DanmakuAnalysisWindow:
 
     def _update_hint(self):
         """更新操作提示信息"""
-        hint = "输入视频BV号，抓取弹幕分析情感倾向与高频内容哦 ♪"
+        hint = "输入BV号，天依帮你听听大家的弹幕心声哦 ♪"
         self._status_lbl.setText(hint)
 
     def _get_mode(self) -> str:
@@ -288,20 +288,20 @@ class DanmakuAnalysisWindow:
                     texts = [r.get("content", "") for r in records if r.get("content")]
                     if limit > 0:
                         texts = texts[:limit]
-                    self._status_lbl.setText(f"从本地数据库加载了 {len(texts)} 条弹幕哦 ♪")
+                    self._status_lbl.setText(f"从本地歌谱里读到 {len(texts)} 条弹幕哦 ♪")
                     return texts, None
             except Exception:
                 pass
 
         info = self.api.get_video_info(bvid)
         if not info:
-            return None, "呜…获取视频信息失败啦"
+            return None, "呜…没找到这个视频的信息呢，像一首找不到名字的歌…♪"
         cid = info.get("cid", 0)
         if not cid:
-            return None, "呜…无法获取cid呢"
+            return None, "呜…拿不到弹幕的钥匙(cid)呢…♪"
         danmaku = self.api.get_video_danmaku(cid)
         if not danmaku:
-            return None, "呜…没有获取到弹幕呢…♪"
+            return None, "呜…没有收到弹幕呢，像安静的深夜书店，还没有人开口唱歌…♪"
         texts = [d["text"] for d in danmaku if d.get("text")]
         if limit > 0:
             texts = texts[:limit]
@@ -311,13 +311,13 @@ class DanmakuAnalysisWindow:
         """抓取评论数据，返回 (文本列表, 错误信息)"""
         info = self.api.get_video_info(bvid)
         if not info:
-            return None, "呜…获取视频信息失败啦"
+            return None, "呜…视频信息飘走啦，天依没接住呢…♪"
         aid = info.get("aid", 0)
         if not aid:
             return None, "呜…无法获取aid呢"
         comments = self.api.get_video_comments(aid, limit=limit if limit > 0 else 0)
         if not comments:
-            return None, "呜…没有获取到评论呢…♪"
+            return None, "呜…还没有评论呢，像空空的点歌本，天依等着大家来写 ♪"
         texts = [c["content"] for c in comments if c.get("content")]
         return texts, None
 
@@ -325,17 +325,17 @@ class DanmakuAnalysisWindow:
         """抓取并分析弹幕/评论"""
         bvid = self._bv_entry.text().strip()
         if not bvid:
-            QMessageBox.warning(self.dlg, "要注意哦…", "要先输入BV号哦…♪")
+            QMessageBox.warning(self.dlg, "要注意哦…", "要先输入BV号哦，天依才好为你找那一首歌呢…♪")
             return
 
         if not self.api:
-            QMessageBox.critical(self.dlg, "呜…出错了", "呜…API 不可用呢…♪")
+            QMessageBox.critical(self.dlg, "呜…出错了", "呜…API 暂时休息了呢，像麦克风没电，天依再等等哦 ♪")
             return
 
         limit = self._get_limit()
 
         self._fetch_btn.setEnabled(False)
-        self._status_lbl.setText("正在抓取数据哦…♪")
+        self._status_lbl.setText("天依正在收集大家的歌声…稍等一下下哦 ♪")
         self._status_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
 
         try:
@@ -355,7 +355,7 @@ class DanmakuAnalysisWindow:
             self._texts = texts
             self._current_bvid = bvid
             limit_label = f"（限制 {limit} 条）" if limit > 0 else "（全量）"
-            self._status_lbl.setText(f"抓取成功啦 ♪ 共 {len(texts)} 条{mode} {limit_label}")
+            self._status_lbl.setText(f"弹幕都收到啦!♪ 共 {len(texts)} 条{mode} {limit_label}，天依正用心听着大家心里的歌声呢~")
             self._status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
 
             self._display_results(texts)
@@ -365,7 +365,7 @@ class DanmakuAnalysisWindow:
             self._load_local_llm_result()
         except Exception as e:
             logger.error("弹幕/评论分析失败", exc_info=True)
-            self._status_lbl.setText("呜…分析失败啦，请稍后再试哦 ♪")
+            self._status_lbl.setText("呜…分析卡住啦，像音符突然停住，天依会再试试的哦 ♪")
             self._status_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
             if self.gui and hasattr(self.gui, "log_panel"):
                 self.gui.log_panel.add_log("ERROR", "弹幕分析失败啦…♪")
@@ -417,7 +417,7 @@ class DanmakuAnalysisWindow:
             item = QTreeWidgetItem([str(i + 1), text[:60], mood])
             self._list_tree.addTopLevelItem(item)
 
-        self._count_lbl.setText(f"共 {len(texts)} 条，先显示前 {min(50, len(texts))} 条哦 ♪")
+        self._count_lbl.setText(f"共 {len(texts)} 条，先列出前 {min(50, len(texts))} 条，天依慢慢听 ♪")
 
     def _from_monitor_and_fetch(self):
         """从监控列表选择后直接填入 BV 号并自动抓取分析"""
@@ -429,7 +429,7 @@ class DanmakuAnalysisWindow:
         """保存弹幕/评论到 BV 对应文件夹下的 danmaku 子目录"""
         if not self._texts or not self._current_bvid:
             if not silent:
-                QMessageBox.information(self.dlg, "知道啦 ♪", "还没有数据可以保存呢…♪")
+                QMessageBox.information(self.dlg, "知道啦 ♪", "还没有数据可以保存呢…像还没谱好的曲子，先抓一些弹幕吧 ♪")
             return
 
         from config import DATA_DIR
@@ -453,15 +453,15 @@ class DanmakuAnalysisWindow:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
         if not silent:
-            QMessageBox.information(self.dlg, "保存成功啦 ♪", f"已保存 {len(self._texts)} 条{mode}\n{filepath}")
+            QMessageBox.information(self.dlg, "保存成功啦 ♪", f"已把 {len(self._texts)} 条{mode}收进歌谱啦\n{filepath}")
         else:
-            self._status_lbl.setText(f"自动保存了 {len(self._texts)} 条 → {filepath} ♪")
+            self._status_lbl.setText(f"天依悄悄把 {len(self._texts)} 条收进歌谱啦 → {filepath} ♪")
             self._status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
 
     def _llm_analysis(self):
         """使用 LLM 深度分析弹幕/评论"""
         if not self._texts:
-            QMessageBox.information(self.dlg, "知道啦 ♪", "要先抓取数据哦…♪")
+            QMessageBox.information(self.dlg, "知道啦 ♪", "要先抓取数据哦，没有听众的歌声，天依也分析不了呢…♪")
             return
 
         if self._check_llm_existing_result():
@@ -495,7 +495,7 @@ class DanmakuAnalysisWindow:
         if local_files:
             reply = QMessageBox.question(
                 self.dlg, "要注意哦…",
-                f"已经有 LLM {mode}分析结果啦，要重新调用 API 分析吗？\n选「否」就查看已有结果哦 ♪",
+                f"已经有 LLM {mode}分析结果啦，像已经唱过的歌，要重新唱一遍吗？\n选「否」就听之前的录音哦 ♪",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )
             if reply != QMessageBox.StandardButton.Yes:
@@ -515,17 +515,17 @@ class DanmakuAnalysisWindow:
             api_key = ""
 
         if not api_key:
-            QMessageBox.warning(self.dlg, "要注意哦…", "呜…还没有配置 LLM API 密钥呢，去「设置 → AI配置」配置一下吧 ♪")
+            QMessageBox.warning(self.dlg, "要注意哦…", "呜…还没有配置 LLM API 密钥呢，像没有伴奏的舞台，去「设置 → AI配置」调好音再唱吧 ♪")
             return None
         return (api_key, endpoint, model)
 
     def _prepare_llm_ui(self):
         """准备 LLM 分析的 UI 状态"""
         self._llm_btn.setEnabled(False)
-        self._status_lbl.setText("LLM 分析中哦…♪")
+        self._status_lbl.setText("天依正请 AI 一起聆听大家的心声…稍等一下下哦 ♪")
         self._status_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
 
-        self._llm_text.setHtml("LLM 分析请求已发送，请稍等哦…♪")
+        self._llm_text.setHtml("分析请求已发出，像寄出一封信，天依陪你等回音哦…♪")
 
     def _prepare_llm_prompt(self, mode):
         sample = self._texts[:100]
@@ -577,7 +577,7 @@ class DanmakuAnalysisWindow:
                     return content_list[0].get("text", "") if content_list else ""
                 else:
                     logger.warning("Claude LLM API 请求失败: HTTP %s, %s", resp.status_code, resp.text[:500])
-                    return f"呜…API 请求失败啦 (HTTP {resp.status_code})，请稍后再试哦 ♪"
+                    return "呜…API 那边没有回应呢，像信号飘过云端，请稍后再试哦 ♪"
             else:
                 resp = req.post(
                     endpoint,
@@ -598,14 +598,14 @@ class DanmakuAnalysisWindow:
                     result = data.get("choices", [{}])[0].get("message", {}).get("content", "")
                     if not result:
                         logger.warning("LLM API 返回空结果: %s", str(data)[:500])
-                        return "呜…API 没有返回内容呢，请稍后再试哦 ♪"
+                        return "呜…AI 没有回话呢，像空空的麦克风，请稍后再试哦 ♪"
                     return result
                 else:
                     logger.warning("LLM API 请求失败: HTTP %s, %s", resp.status_code, resp.text[:500])
-                    return f"呜…API 请求失败啦 (HTTP {resp.status_code})，请稍后再试哦 ♪"
+                    return "呜…API 那边没有回应呢，天依会再敲敲门的，请稍后再试哦 ♪"
         except Exception as e:
             logger.error("LLM 深度分析异常", exc_info=True)
-            return "呜…LLM 分析出了点问题，请稍后再试哦 ♪"
+            return "呜…AI 走神了一下下，请稍后再试哦 ♪"
 
     def _update_llm_ui(self, result_text, mode, model):
         """主线程：更新 UI 显示 LLM 分析结果"""
@@ -620,7 +620,7 @@ class DanmakuAnalysisWindow:
         self._llm_btn.setEnabled(True)
         self._show_llm_summary(result_text, mode, model)
         self._bottom_tabs.setCurrentIndex(2)
-        self._status_lbl.setText("LLM 分析完成啦 ♪")
+        self._status_lbl.setText("LLM 分析完成啦!♪ 天依听见大家的心声啦 ♪")
         self._status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
         if self.gui and hasattr(self.gui, "log_panel"):
             self.gui.log_panel.add_log("INFO", f"LLM分析完成（{self._current_bvid}，{mode}）")
@@ -648,7 +648,7 @@ class DanmakuAnalysisWindow:
                     ensure_ascii=False,
                     indent=2,
                 )
-            self._status_lbl.setText(f"LLM 分析完成啦 ♪ 已保存 → {filepath}")
+            self._status_lbl.setText(f"LLM 分析完成啦!♪ 报告收进歌谱啦 → {filepath}")
             self._status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
         except Exception as e:
             logger.warning("保存LLM分析结果失败", exc_info=True)
@@ -686,7 +686,7 @@ class DanmakuAnalysisWindow:
                 <pre style="color: {C['text_1']}; font-family: 'Microsoft YaHei UI'; font-size: 10pt;">{result_text}</pre>
                 """
                 self._llm_text.setHtml(html)
-                self._status_lbl.setText(f"已加载本地 LLM 分析结果哦（{latest}）♪")
+                self._status_lbl.setText(f"已把本地存的分析结果拿出来啦（{latest}）♪")
                 self._status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
                 QTimer.singleShot(100, lambda: self._bottom_tabs.setCurrentIndex(2))
                 self._llm_btn.setEnabled(True)
@@ -726,7 +726,7 @@ class DanmakuAnalysisWindow:
     def _display_keywords(self, keywords: list):
         """展示关键词标签云"""
         if not keywords:
-            self._kw_display.setText("还没有关键词呢…♪")
+            self._kw_display.setText("还没有关键词呢…像还没人写下的歌词，等弹幕来填充哦 ♪")
             return
         max_score = max(s for _, s in keywords)
         from utils.sentiment_analyzer import _POSITIVE_WORDS, _NEGATIVE_WORDS
@@ -776,7 +776,7 @@ class _PieWidget(QWidget):
 
         data = [(k, v) for k, v in self._data.items() if v > 0]
         if not data:
-            painter.drawText(cx - 20, cy, "还没有数据呢…♪")
+            painter.drawText(cx - 20, cy, "还没有数据呢，像还没开场的演唱会…♪")
             painter.end()
             return
 
@@ -836,7 +836,7 @@ class _TimeHistogramWidget(QWidget):
 
         if not texts:
             painter.setPen(QColor(C["text_3"]))
-            painter.drawText(w // 2 - 40, h // 2, "还没有弹幕数据呢…♪")
+            painter.drawText(w // 2 - 40, h // 2, "还没有弹幕数据呢，像安静的观众席…♪")
             painter.end()
             return
 

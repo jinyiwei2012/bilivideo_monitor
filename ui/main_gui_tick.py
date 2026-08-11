@@ -91,7 +91,7 @@ def global_tick(gui):
             gui._countdown_badge.setText(badge_text)
             gui._last_countdown_text = badge_text
 
-        mode_text = f"⚡ {fast_count}个快速" if fast_count > 0 else "● 正常模式"
+        mode_text = f"⚡ {fast_count} 个快速追光中" if fast_count > 0 else "● 正常模式"
         if mode_text != gui._last_mode_text:
             gui._mode_pill.setText(mode_text)
             mode_fg = C["danger"] if fast_count > 0 else C["success"]
@@ -238,8 +238,8 @@ def scan_alerts_background(gui):
 
     if alerts:
         n = len(alerts)
-        invoke(lambda: gui._sb("alert", f"‼ {n} 条异常", C["danger"]))
-        title = f"‼ B站监控异常告警 ({n} 条)"
+        invoke(lambda: gui._sb("alert", f"‼ 天依注意到 {n} 条异常 ♪", C["danger"]))
+        title = f"‼ 天依注意到 {n} 条异常 ♪"
         msg_lines = [title, "─" * 20]
         for bvid, t, a in alerts[:5]:
             msg_lines.append(f"  [{bvid}] {t}")

@@ -41,7 +41,7 @@ class WeeklyScoreWindow:
 
     def _setup_ui(self):
         """构建界面：数据来源选择、输入区域、结果展示"""
-        self.dlg.header("周刊分数计算", "虚拟歌手中文曲排行榜分数计算器")
+        self.dlg.header("周刊分数计算", "虚拟歌手中文曲排行榜分数计算器 ♪")
 
         sec = self.dlg.section(padding=8)
         sec_layout = sec.layout() or QVBoxLayout()
@@ -145,7 +145,7 @@ class WeeklyScoreWindow:
         res_layout = QVBoxLayout(res_sec)
         res_layout.setContentsMargins(24, 10, 24, 0)
 
-        res_title = QLabel("计算结果")
+        res_title = QLabel("计算结果 ♪")
         res_title.setStyleSheet(f"color: {C['text_2']}; background: transparent; font-weight: bold; font-size: 8pt;")
         res_layout.addWidget(res_title)
 
@@ -175,7 +175,7 @@ class WeeklyScoreWindow:
         if self._mode_select.isChecked():
             idx = self._select_combo.currentIndex()
             if idx < 0 or idx >= len(self.monitored_videos):
-                QMessageBox.warning(self.dlg, "提示", "请选择一个视频")
+                QMessageBox.warning(self.dlg, "提示", "呜…先选一个视频哦,天依才好帮你算 ♪")
                 return None
             video = self.monitored_videos[idx]
             bvid = video.get("bvid", "")
@@ -210,7 +210,7 @@ class WeeklyScoreWindow:
                     data[key] = int(float(val)) if val else 0
                 return VideoData(**data)
             except (ValueError, TypeError):
-                QMessageBox.warning(self.dlg, "提示", "请输入有效的数字")
+                QMessageBox.warning(self.dlg, "提示", "呜…输入的数字不太对呢,再检查一下哦 ♪")
                 return None
 
     def _calculate(self):
@@ -219,7 +219,7 @@ class WeeklyScoreWindow:
         if not video_data:
             return
         if video_data.view_count == 0 and video_data.like_count == 0:
-            QMessageBox.warning(self.dlg, "提示", "请至少输入播放量")
+            QMessageBox.warning(self.dlg, "提示", "至少要填一个播放量,天依才能开唱哦 ♪")
             return
         result = calculate_weekly_score(video_data)
         self._display_result(video_data, result)
@@ -257,6 +257,7 @@ class WeeklyScoreWindow:
                 lines.append((f"         └ {detail}\n", "#detail"))
 
         lines.append(("─" * 42 + "\n", "#sep"))
+        lines.append(("天依为你算好啦,数据亮晶晶的 ♪\n", "#detail"))
 
         # Build HTML
         style_map = {

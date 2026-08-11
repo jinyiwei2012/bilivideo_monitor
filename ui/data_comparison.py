@@ -89,7 +89,7 @@ class DataComparisonWindow(QDialog):
         on_add_monitor=None,
     ):
         super().__init__(parent)
-        self.setWindowTitle("数据对比")
+        self.setWindowTitle("♪ 数据对比 — 天依陪你一起看")
         # 必须传 parent 否则 PyQt6 无 screen 属性
         if parent:
             screen = parent.screen()

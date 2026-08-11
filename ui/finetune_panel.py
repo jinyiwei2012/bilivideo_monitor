@@ -88,11 +88,11 @@ class FinetunePanel(BaseTrainingPanel):
         info_layout = QHBoxLayout(info_bar)
         info_layout.setContentsMargins(8, 8, 8, 4)
         outer_layout.addWidget(info_bar)
-        info_lbl = QLabel("批量微调 — 选择视频和算法，一键微调已有全局 checkpoint 的模型")
+        info_lbl = QLabel("批量微调 ♪ 选好视频和算法,天依就一首一首地微调它们哦")
         info_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
         info_layout.addWidget(info_lbl)
         info_layout.addStretch()
-        refresh_btn = QPushButton("刷新列表")
+        refresh_btn = QPushButton("刷新列表 ♪")
         refresh_btn.clicked.connect(self._refresh_all)
         info_layout.addWidget(refresh_btn)
 
@@ -132,7 +132,7 @@ class FinetunePanel(BaseTrainingPanel):
         v_hdr.setStyleSheet(f"background-color: {C['bg_elevated']};")
         vhdr_layout = QHBoxLayout(v_hdr)
         vhdr_layout.setContentsMargins(4, 4, 4, 0)
-        v_title = QLabel("▶ 选择视频")
+        v_title = QLabel("▶ 选择视频 ♪")
         v_title.setStyleSheet(f"color: {C['text_1']}; background: transparent; font: bold;")
         vhdr_layout.addWidget(v_title)
         vhdr_layout.addStretch()
@@ -156,7 +156,7 @@ class FinetunePanel(BaseTrainingPanel):
         a_hdr.setStyleSheet(f"background-color: {C['bg_elevated']};")
         ahdr_layout = QHBoxLayout(a_hdr)
         ahdr_layout.setContentsMargins(4, 4, 4, 0)
-        a_title = QLabel("◍ 选择算法（已训练）")
+        a_title = QLabel("◍ 选择算法（已训练）♪")
         a_title.setStyleSheet(f"color: {C['text_1']}; background: transparent; font: bold;")
         ahdr_layout.addWidget(a_title)
         ahdr_layout.addStretch()
@@ -222,7 +222,7 @@ class FinetunePanel(BaseTrainingPanel):
         task_bar.setStyleSheet(f"background-color: {C['bg_elevated']};")
         task_layout = QHBoxLayout(task_bar)
         task_layout.setContentsMargins(8, 4, 8, 4)
-        self._task_lbl = QLabel("就绪 — 选择视频和算法后开始微调")
+        self._task_lbl = QLabel("天依准备好啦 ♪ 选好视频和算法就可以开始微调哦")
         self._task_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
         self._task_lbl.setFont(FONT)
         task_layout.addWidget(self._task_lbl)
@@ -234,7 +234,7 @@ class FinetunePanel(BaseTrainingPanel):
         right_layout.addWidget(task_bar)
 
         # ── 上半: Loss 图表 ──
-        chart_frame = self._build_chart_widgets(right, title="微调 Loss 曲线")
+        chart_frame = self._build_chart_widgets(right, title="微调 Loss 曲线 ♪")
         right_layout.addWidget(chart_frame, 1)
 
         # ── 中部: 训练质量监控 ──
@@ -242,7 +242,7 @@ class FinetunePanel(BaseTrainingPanel):
         right_layout.addWidget(monitor_bar)
 
         # ── 下半: 文字日志 ──
-        log_frame = self._build_log_widgets(right, title="微调日志")
+        log_frame = self._build_log_widgets(right, title="微调日志 ♪")
         right_layout.addWidget(log_frame, 1)
 
     # ── 底部控制栏 ──
@@ -292,7 +292,7 @@ class FinetunePanel(BaseTrainingPanel):
         ctrl_layout.addWidget(self._mode_incremental)
         ctrl_layout.addWidget(self._mode_retrain)
 
-        self._train_btn = QPushButton("▶ 开始微调")
+        self._train_btn = QPushButton("▶ 开始微调 ♪")
         self._train_btn.clicked.connect(self._on_start)
         self._train_btn.setEnabled(_train() == "normal")
         ctrl_layout.addWidget(self._train_btn)
@@ -315,7 +315,7 @@ class FinetunePanel(BaseTrainingPanel):
         self._progress.setValue(0)
         ctrl_layout.addWidget(self._progress, 1)
 
-        self._status_lbl = QLabel("就绪")
+        self._status_lbl = QLabel("天依准备好啦 ♪")
         self._status_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
         self._status_lbl.setFont(FONT_SM)
         self._status_lbl.setFixedWidth(250)
@@ -358,7 +358,7 @@ class FinetunePanel(BaseTrainingPanel):
         except Exception as e:
             logger.debug("忽略异常: %s", e)
 
-        self._video_count_lbl.setText(f"{len(videos)} 个视频")
+        self._video_count_lbl.setText(f"天依找到了 {len(videos)} 个视频 ♪")
         for v in sorted(videos, key=lambda x: x["bvid"]):
             cb = QCheckBox(f"{v['title']}  ({v['bvid']})")
             cb.setChecked(True)
@@ -400,7 +400,7 @@ class FinetunePanel(BaseTrainingPanel):
             )
 
         trained = sum(1 for a in algos if a["has_ckpt"])
-        self._algo_count_lbl.setText(f"{len(algos)} 算法 · 已训练 {trained}")
+        self._algo_count_lbl.setText(f"天依数了数 ♪ {len(algos)} 算法 · 已训练 {trained}")
 
         # 按训练状态和名称排序（已训练的排前）
         for a in sorted(algos, key=lambda x: (not x["has_ckpt"], x["name"])):
@@ -434,7 +434,7 @@ class FinetunePanel(BaseTrainingPanel):
                 st = f"✓ {a['active_version'][:10]}"
                 sf = C["success"]
             else:
-                st = "□ 未训练"
+                st = "□ 还没训练呢…♪"
                 sf = C["text_3"]
             status_lbl = QLabel(st)
             status_lbl.setStyleSheet(f"color: {sf}; background: transparent;")
@@ -527,9 +527,9 @@ class FinetunePanel(BaseTrainingPanel):
             f"♬ 开始{mode_label}（{data_label}）: {len(selected_videos)} 视频 × {len(selected_algos)} 算法, "
             f"epoch={epochs}, batch={batch}"
         )
-        self._task_lbl.setText(f"{mode_label}进行中…")
+        self._task_lbl.setText(f"天依正在{mode_label}呢…♪")
         self._task_detail.setText(f"0/{total}")
-        self._status_lbl.setText("准备任务…")
+        self._status_lbl.setText("天依在准备任务呢…♪")
         self._status_lbl.setStyleSheet(f"color: {C['text_2']};")
 
         def _cb(payload: Dict):
@@ -542,10 +542,10 @@ class FinetunePanel(BaseTrainingPanel):
         selected_videos = [b for b, v in self._video_vars.items() if v.isChecked()]
         selected_algos = [a for a, v in self._algo_vars.items() if v.isChecked()]
         if not selected_videos:
-            QMessageBox.warning(self, "提示", "请至少选择一个视频")
+            QMessageBox.warning(self, "要注意哦…", "至少要选一个视频哦,天依才能开始唱 ♪")
             return None
         if not selected_algos:
-            QMessageBox.warning(self, "提示", "请至少选择一个算法")
+            QMessageBox.warning(self, "要注意哦…", "至少要选一个算法哦 ♪")
             return None
 
         epochs = max(1, self._epoch_spin.value())
@@ -556,9 +556,10 @@ class FinetunePanel(BaseTrainingPanel):
         if mode == "retrain":
             reply = QMessageBox.question(
                 self,
-                "重新训练",
-                "将删除所选算法在当前所有选定视频上的已有微调版本并重置版本号，\n"
-                "同时删除 data/<bvid>/model/ 中的对应文件。\n确定要继续？",
+                "要重新训练吗 ♪",
+                "会把所选算法在所有选定视频上的微调版本都删掉,版本号也会重置哦,\n"
+                "data/<bvid>/model/ 里的对应文件也会一起消失…\n"
+                "确定要继续吗?删掉就像从歌单里划掉一首歌,唱不回来了哦…",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
@@ -567,7 +568,8 @@ class FinetunePanel(BaseTrainingPanel):
 
         reply = QMessageBox.question(
             self,
-            "确认微调",
+            "要开始微调吗 ♪",
+            f"天依要开始微调啦 ♪\n"
             f"模式: {'重新训练' if mode == 'retrain' else '增量微调'}\n"
             f"视频: {len(selected_videos)} 个\n算法: {len(selected_algos)} 个\n"
             f"总任务: {total}\nepoch={epochs}  batch={batch}",
@@ -596,10 +598,10 @@ class FinetunePanel(BaseTrainingPanel):
             if has_prev:
                 reply = QMessageBox.question(
                     self,
-                    "增量数据范围",
-                    "已有微调 checkpoint，训练数据范围如何选择？\n\n"
-                    "「是」 = 仅使用上次训练截止后新增的数据（续训，速度快）\n"
-                    "「否」 = 使用该视频的全部历史数据（更充分）",
+                    "数据范围怎么选呀 ♪",
+                    "已经有微调好的 checkpoint 啦,训练数据范围要选哪种呢?\n\n"
+                    "「是」 = 只唱上次练习截止后的新歌(续训,速度快)\n"
+                    "「否」 = 把这首视频的全部历史数据都唱一遍(更充分)",
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                     QMessageBox.StandardButton.Yes,
                 )
@@ -808,7 +810,7 @@ class FinetunePanel(BaseTrainingPanel):
         if self._cancel_btn:
             self._cancel_btn.setEnabled(False)
         self._append_log("⏹ 用户请求取消")
-        self.main.set_finetune_status("⏹ 微调已取消", color=C["warning"])
+        self.main.set_finetune_status("⏹ 好哦,微调先停一停,天依随时可以继续 ♪", color=C["warning"])
 
     def _on_skip_algo(self):
         """跳过当前正在微调的（视频,算法）对，继续下一个。"""
@@ -849,18 +851,18 @@ class FinetunePanel(BaseTrainingPanel):
             self._loss_history.clear()
             self._clear_chart()
             self._monitor.reset()
-            self._task_lbl.setText(f"◎ 视频 {bvid}: 开始微调 {aid}")
+            self._task_lbl.setText(f"◎ 天依开始微调 {aid} → {bvid} 啦 ♪")
             self._task_lbl.setStyleSheet(f"color: {C['accent']}; background: transparent;")
         else:
-            self._task_lbl.setText(f"◎ 视频 {bvid}: 微调 {aid}")
+            self._task_lbl.setText(f"◎ 天依在微调 {aid} → {bvid} 呢 ♪")
             self._task_lbl.setStyleSheet(f"color: {C['accent']}; background: transparent;")
         self._task_detail.setText(f"{done}/{total}")
         pct = min(100, int(done / max(1, total) * 100))
         self._progress.setValue(pct)
-        self._status_lbl.setText(f"[{done}/{total}] 微调 {aid} → {bvid}")
+        self._status_lbl.setText(f"[{done}/{total}] 天依在练习 {aid} → {bvid} 呢 ♪")
         self._status_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
         self._append_log(f"── [{done}/{total}] 开始微调 {aid}@{bvid} ──")
-        self.main.set_finetune_status(f"◎ 微调 {bvid}: [{done}/{total}] {aid}")
+        self.main.set_finetune_status(f"◎ 天依在微调 {bvid}: [{done}/{total}] {aid} ♪")
         self._refresh_algo_row(0, aid, "▶ 训练中", C["accent"], "", "", "")
 
     def _on_stage_epoch(self, msg):
@@ -885,13 +887,13 @@ class FinetunePanel(BaseTrainingPanel):
         ctrl_data = msg.get("_control", {})
         ep_display = f"{total_ep}/{total_eps}" if total_eps != eps else f"{ep}/{eps}"
         if ctrl_data.get("early_stop"):
-            self._status_lbl.setText(f"{aid}@{bvid}  ep{ep_display}  ⏹ 即将停止")
+            self._status_lbl.setText(f"{aid}@{bvid}  第 {ep_display} 轮 ⏹ 天依要提前停下啦 ♪")
             self._status_lbl.setStyleSheet(f"color: {C['warning']}; background: transparent;")
         elif ctrl_data.get("lr_scale"):
-            self._status_lbl.setText(f"{aid}@{bvid}  ep{ep_display}  ⚡ 调整LR")
+            self._status_lbl.setText(f"{aid}@{bvid}  第 {ep_display} 轮 ⚡ 天依在调整音准呢 ♪")
             self._status_lbl.setStyleSheet(f"color: {C['warning']}; background: transparent;")
         else:
-            self._status_lbl.setText(f"{aid}@{bvid}  ep{ep_display}  train={tloss:.4f}{vtxt}  {conf_str}  {elapsed:.0f}s")
+            self._status_lbl.setText(f"{aid}@{bvid}  第 {ep_display} 轮,天依越唱越准啦 ♪  train={tloss:.4f}{vtxt}  {conf_str}  {elapsed:.0f}s")
             self._status_lbl.setStyleSheet(f"color: {C['text_1']}; background: transparent;")
 
         self._monitor.update(ep, tloss, vloss if vloss >= 0 else -1)
@@ -945,7 +947,7 @@ class FinetunePanel(BaseTrainingPanel):
 
         self._refresh_algo_row(0, aid, f"✓ {ver}", C["success"], conf_str, conf_color, f"v{msg.get('done', 0)}")
 
-        self._status_lbl.setText(f"✓ {aid}@{bvid}  → {ver}  conf={conf_str}  ({done}/{total})")
+        self._status_lbl.setText(f"✓ {aid}@{bvid} 唱好啦 ♪ → {ver}  conf={conf_str}  ({done}/{total})")
         self._status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
         self._append_log(f"  ✓ {aid}@{bvid} → {ver}  置信度={conf_str}  val_loss={val_loss:.4f}")
 
@@ -959,7 +961,7 @@ class FinetunePanel(BaseTrainingPanel):
         pct = min(100, int(done / max(1, total) * 100))
         self._progress.setValue(pct)
         self._task_detail.setText(f"{done}/{total}")
-        self._status_lbl.setText(f"✗ {aid}@{bvid}: {err}")
+        self._status_lbl.setText(f"呜…{aid}@{bvid} 没学会呢,天依不会放弃的,看看日志再试一次哦 ♪")
         self._status_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
         self._append_log(f"  ✗ {aid}@{bvid}: {err}")
         self._refresh_algo_row(0, aid, "✗ 失败", C["danger"], "", "", "")
@@ -969,10 +971,10 @@ class FinetunePanel(BaseTrainingPanel):
         action = msg.get("action", "")
         message = msg.get("message", "")
         self._append_log(f"  ⚙ 自动调整: {message}")
-        self._status_lbl.setText(f"⚡ {message}")
+        self._status_lbl.setText(f"⚡ {message} ♪")
         self._status_lbl.setStyleSheet(f"color: {C['warning']}; background: transparent;")
         if action == "early_stop":
-            self._monitor_status.setText("⏹ 自动提前停止")
+            self._monitor_status.setText("⏹ 天依提前停下啦 ♪")
             self._monitor_status.setStyleSheet(f"color: {C['warning']}; background: transparent;")
 
     def _on_stage_log(self, msg):
@@ -983,7 +985,7 @@ class FinetunePanel(BaseTrainingPanel):
         """处理取消事件：显示当前完成进度"""
         done = msg.get("done", 0)
         total = msg.get("total", 1)
-        self._status_lbl.setText(f"已取消 ({done}/{total})")
+        self._status_lbl.setText(f"好哦,先停在这里 ({done}/{total}) ♪")
         self._status_lbl.setStyleSheet(f"color: {C['warning']}; background: transparent;")
         self._append_log(f"⏹ 已取消, {done}/{total} 已完成")
         return True
@@ -999,15 +1001,15 @@ class FinetunePanel(BaseTrainingPanel):
                 cs, _ = format_confidence(r["confidence"])
                 conf_summary += f"\n  {bvid} → {r['aid']}: {cs}"
 
-        self._task_lbl.setText("✓ 微调全部完成")
+        self._task_lbl.setText("✓ 全部唱完啦 ♪")
         self._task_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
         self._task_detail.setText(f"{done}/{done}")
-        self._status_lbl.setText(f"全部完成: {done} 任务 · {elapsed:.0f}s")
+        self._status_lbl.setText(f"微调完成啦!♪ 像一首首新歌排好队等开唱 ({done} 任务 · {elapsed:.0f}s)")
         self._status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
         self._progress.setValue(100)
         self._append_log(f"⚑ 批量微调全部完成: {done} 任务, 耗时 {elapsed:.0f}s")
         self._append_log(f"◧ 各算法最终置信度:{conf_summary}")
-        self.main.set_finetune_status(f"✓ 批量微调完成 ({done})")
+        self.main.set_finetune_status(f"✓ 批量微调完成 ({done}) ♪ 像一首首新歌排好队等开唱")
         self._last_finetune_count = done
         return True
 

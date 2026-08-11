@@ -27,6 +27,7 @@ from ui.helpers import (
     fmt_num, nearest_threshold_gap, card_status_tag,
 )
 from ui.widgets import SectionHeader, EmptyState
+from ui.lty_voice import BUTTON_HINTS
 from utils.cover_manager import get_valid_cover, save_cover
 
 _cover_session = _req.Session()
@@ -123,7 +124,7 @@ class VideoCardDelegate(QStyledItemDelegate):
         else:
             painter.fillRect(thumb_rect, QColor(C["bg_hover"]))
             painter.setPen(QPen(QColor(C["text_3"])))
-            painter.drawText(x + SPACE_MD, y + 25, "No Cover")
+            painter.drawText(x + SPACE_MD, y + 25, "无封面")
         painter.restore()
 
         painter.setPen(QPen(QColor(C["border"]), 1))
@@ -215,6 +216,7 @@ class VideoListPanel(QWidget):
         h.addStretch()
 
         push_all_btn = QPushButton("⇪ 全部推送")
+        push_all_btn.setToolTip(BUTTON_HINTS["push"])
         push_all_btn.setFixedSize(70, 22)
         push_all_btn.setProperty("accent", True)
         push_all_btn.clicked.connect(self.gui._manual_push)
@@ -224,7 +226,7 @@ class VideoListPanel(QWidget):
 
         # 搜索框
         self._search = QLineEdit()
-        self._search.setPlaceholderText("搜索BV号或标题...")
+        self._search.setPlaceholderText("搜索BV号或标题,天依帮你找 ♪")
         self._search.setClearButtonEnabled(True)
         self._search.textChanged.connect(self._on_search)
         self._search.setStyleSheet(f"""
@@ -263,7 +265,7 @@ class VideoListPanel(QWidget):
         # 列表 + 空状态: QStackedLayout 按有无视频切换 (EmptyState ♪)
         self._list_stack = QStackedLayout()
         self._list_stack.addWidget(self._list)
-        self._empty_state = EmptyState("暂无监控视频 ♪")
+        self._empty_state = EmptyState("还没有监控的视频呢…\n像一首等开场的歌,天依陪你等 ♪")
         self._list_stack.addWidget(self._empty_state)
         self._list_stack.setCurrentWidget(self._empty_state)
         layout.addLayout(self._list_stack, 1)

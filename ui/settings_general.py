@@ -133,7 +133,7 @@ class SettingsGeneralMixin:
         get_bilibili_api().max_retries = int(self.retry_count_var.value())
         get_bilibili_api().base_retry_delay = self.base_delay_var.value()
         get_bilibili_api()._min_request_interval = self.min_interval_var.value()
-        QMessageBox.information(self.dlg, "成功", "重试设置已更新")
+        QMessageBox.information(self.dlg, "更新好啦 ♪", "重试设置更新好啦 ♪ 天依会按新的节奏去唱歌的哦~")
 
 
     def _refresh_status(self):
@@ -154,7 +154,7 @@ class SettingsGeneralMixin:
         for key, label in self.status_labels.items():
             value = status.get(key, "N/A")
             if key == "is_login":
-                v = "✓ 已登录" if value else "✗ 未登录"
+                v = "✓ 已登录 ♪" if value else "✗ 未登录呢…"
                 label.setStyleSheet(f"color: {C['success'] if value else C['danger']};")
             elif key == "login_name":
                 v = str(value) if value else "—"
@@ -173,7 +173,7 @@ class SettingsGeneralMixin:
 
     def _reset_status(self):
         reply = QMessageBox.question(
-            self.dlg, "确认", "确定要重置所有状态吗？",
+            self.dlg, "确认", "真的要重置所有状态吗?重置后原来的进度就像歌的间奏一样,唱不回来了哦…",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         if reply == QMessageBox.StandardButton.Yes:

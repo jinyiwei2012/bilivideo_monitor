@@ -56,7 +56,7 @@ class EntryTab(QWidget):
         self._container: QWidget = QWidget()
         self._tbl: QTreeWidget = QTreeWidget()
         self._status: QLabel = QLabel(
-            "选择录入模式，输入 BV 号后点击「生成输入表」"
+            "选好录入模式,输入BV号后,天依帮你整理输入表 ♪"
         )
         self._ms_frame: QWidget = QWidget()
         self._snap_frame: QWidget = QWidget()
@@ -385,7 +385,7 @@ class EntryTab(QWidget):
     def _generate_rows(self):
         raw = self._bvid_text.toPlainText().strip()
         if not raw:
-            QMessageBox.warning(self, "提示", "请先输入 BV 号")
+            QMessageBox.warning(self, "提示", "先输入BV号吧,天依等着呢 ♪")
             return
 
         bvids, invalid = self._validate_bvids(raw)
@@ -418,7 +418,7 @@ class EntryTab(QWidget):
             f"{len(periods)} 周期" if mode == "milestone" else "1 时间点"
         )
         self._status.setText(
-            f"已生成 {n} 行输入（{len(bvids)} 视频 × {detail}），填写后点击「保存全部」"
+            f"已生成 {n} 行输入啦!♪ ({len(bvids)} 视频 × {detail}),填好后记得点「保存全部」哦"
         )
 
     def _validate_bvids(self, raw):
@@ -433,13 +433,13 @@ class EntryTab(QWidget):
             else:
                 invalid.append(bv)
         if invalid:
-            QMessageBox.warning(self, "格式错误", "以下格式不合法已跳过：\n" + "\n".join(invalid[:10]))
+            QMessageBox.warning(self, "格式错误", "以下格式不太对,天依先跳过它们啦：\n" + "\n".join(invalid[:10]))
         return bvids, invalid
 
     def _prompt_add_monitor(self, bvids):
         not_monitored = [b for b in bvids if b not in self._monitored_set]
         if not_monitored:
-            msg = "以下 BV 号不在监控列表：\n" + "\n".join(not_monitored[:10]) + "\n\n是否加入监控？"
+            msg = "这些视频还没有开始被监控呢：\n" + "\n".join(not_monitored[:10]) + "\n\n要不要一起加入监控呀?♪"
             reply = QMessageBox.question(self, "加入监控", msg, QMessageBox.StandardButton.Yes, QMessageBox.StandardButton.No)
             if reply == QMessageBox.StandardButton.Yes:
                 for bv in not_monitored:
@@ -456,7 +456,7 @@ class EntryTab(QWidget):
         if mode == "milestone":
             periods = [p for p, checked in self._ms_checks.items() if checked]
             if not periods:
-                QMessageBox.warning(self, "提示", "请至少选择一个周期")
+                QMessageBox.warning(self, "提示", "至少选一个统计周期哦,天依才好计算 ♪")
                 return mode, None, None, None
             for bv in bvids:
                 for p in periods:
@@ -464,11 +464,11 @@ class EntryTab(QWidget):
         else:
             dt_str = self._dt_entry.text().strip()
             if not dt_str:
-                QMessageBox.warning(self, "提示", "请填写日期时间或从下拉选择")
+                QMessageBox.warning(self, "提示", "填一个日期时间吧,或者从下拉里选一个 ♪")
                 return mode, None, None, None
             dt = _parse_dt(dt_str)
             if dt is None:
-                QMessageBox.warning(self, "格式错误", "日期格式不正确，请使用 2026-04-22 12:00 格式")
+                QMessageBox.warning(self, "格式错误", "日期格式不太对哦,试试 2026-04-22 12:00 这样的 ♪")
                 return mode, None, None, None
             for bv in bvids:
                 row_labels.append((bv, dt_str[:16]))
@@ -571,7 +571,7 @@ class EntryTab(QWidget):
     # ── Save all ──
     def _save_all(self):
         if not self._rows:
-            QMessageBox.warning(self, "提示", "请先生成输入表")
+            QMessageBox.warning(self, "提示", "先生成输入表,天依才能帮你保存哦 ♪")
             return
 
         saved = skipped = errors = 0
@@ -581,11 +581,11 @@ class EntryTab(QWidget):
             skipped += sk
             errors += e
 
-        msg = f"✓ 已保存 {saved} 条"
+        msg = f"✓ 已保存 {saved} 条啦!♪"
         if skipped:
-            msg += f"，跳过 {skipped} 条（播放量为空）"
+            msg += f" 跳过了 {skipped} 条(播放量空空的)"
         if errors:
-            msg += f"，失败 {errors} 条"
+            msg += f" 呜…还有 {errors} 条没存好"
 
         color = C.get("success", "#3fb950") if not errors else C.get("warning", "#d29922")
         self._status.setText(msg)
@@ -693,7 +693,7 @@ class EntryTab(QWidget):
         if not selected:
             return
         reply = QMessageBox.question(
-            self, "确认", f"删除选中的 {len(selected)} 条记录？",
+            self, "确认", f"真的要删除选中的 {len(selected)} 条记录吗?删掉就像从歌单里划掉一首歌,就唱不回来了哦…",
             QMessageBox.StandardButton.Yes, QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:

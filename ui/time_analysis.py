@@ -38,7 +38,7 @@ class TimeAnalysisPanel:
 
     def __init__(self, parent, gui):
         self.gui = gui
-        self.dlg = DialogBase(parent, "时段播放分析", "1100x700")
+        self.dlg = DialogBase(parent, "♪ 时段播放分析", "1100x700")
         self._build_ui()
         self._refresh()
 
@@ -65,7 +65,7 @@ class TimeAnalysisPanel:
         self._mode_combo.addItems(["按小时 (24h)", "按星期 (7天)", "按小时+星期 (热力图)"])
         ch.addWidget(self._mode_combo)
 
-        self._analyze_btn = QPushButton("⌕ 分析")
+        self._analyze_btn = QPushButton("⌕ 分析 ♪")
         self._analyze_btn.clicked.connect(self._refresh)
         ch.addWidget(self._analyze_btn)
 
@@ -125,7 +125,7 @@ class TimeAnalysisPanel:
         """按小时聚合 24 列"""
         bvid, history = self._get_history()
         if not history or len(history) < 2:
-            self._summary_lbl.setText("数据不足")
+            self._summary_lbl.setText("数据还不够呢…再多攒一些,天依就能听出规律啦 ♪")
             self._table.setRowCount(0)
             return
 
@@ -159,14 +159,14 @@ class TimeAnalysisPanel:
         total_avg = sum(hourly_delta.values()) / max(sum(hourly_count.values()), 1)
         peak_hour = max(range(24), key=lambda h: hourly_delta[h] / max(hourly_count[h], 1))
         self._summary_lbl.setText(
-            f"总采样 {len(history)} 点 | 时均增量 {fmt_num(int(total_avg))} | 高峰时段: {peak_hour}:00"
+            f"♪ 总采样 {len(history)} 点 | 时均增量 {fmt_num(int(total_avg))} | 高峰时段: {peak_hour}:00"
         )
 
     def _analyze_weekly(self):
         """按星期聚合 7 列"""
         bvid, history = self._get_history()
         if not history or len(history) < 2:
-            self._summary_lbl.setText("数据不足")
+            self._summary_lbl.setText("数据还不够呢…再多攒一些,天依就能听出规律啦 ♪")
             self._table.setRowCount(0)
             return
 
@@ -199,13 +199,13 @@ class TimeAnalysisPanel:
             self._table.setItem(1, d, QTableWidgetItem(str(daily_count[d])))
 
         peak_day = max(range(7), key=lambda d: daily_delta[d] / max(daily_count[d], 1))
-        self._summary_lbl.setText(f"高峰日: {days[peak_day]}")
+        self._summary_lbl.setText(f"♪ 高峰日: {days[peak_day]}")
 
     def _analyze_heatmap(self):
         """按小时×星期热力图"""
         bvid, history = self._get_history()
         if not history or len(history) < 2:
-            self._summary_lbl.setText("数据不足")
+            self._summary_lbl.setText("数据还不够呢…再多攒一些,天依就能听出规律啦 ♪")
             self._table.setRowCount(0)
             return
 
@@ -252,4 +252,4 @@ class TimeAnalysisPanel:
                     item.setForeground(QColor("#ffffff"))
                 self._table.setItem(dow, h, item)
 
-        self._summary_lbl.setText(f"热力图 — 颜色越亮表示该时段平均播放增量越高")
+        self._summary_lbl.setText("♪ 热力图 — 颜色越亮,该时段的播放声浪越高哦")

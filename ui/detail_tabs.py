@@ -46,7 +46,7 @@ class _RatioDanmakuMixin:
             ("收藏率", C["success"]),
             ("弹幕率", C["warning"]),
         ]
-        self._ratio_layout.addWidget(SectionHeader("⟳ 互动率"))
+        self._ratio_layout.addWidget(SectionHeader("⟳ 互动率 ♪"))
         for label, color in ratios_cfg:
             row = QWidget()
             row.setStyleSheet(f"background-color: {C['bg_base']};")
@@ -91,13 +91,13 @@ class _RatioDanmakuMixin:
         if not bvid:
             self._dm_text.setVisible(True)
             self._dm_empty.setVisible(False)
-            self._dm_text.setPlainText("请先选择一个视频呢 ♪")
+            self._dm_text.setPlainText("还没有选视频呢…像一首没点开的歌,天依等你来点 ♪")
             self._dm_count_lbl.setText("")
             return
 
         video_db = self.gui.video_dbs.get(bvid)
         if not video_db:
-            self._dm_count_lbl.setText("无数据库")
+            self._dm_count_lbl.setText("呜…数据库还没找到呢")
             return
 
         try:
@@ -106,7 +106,7 @@ class _RatioDanmakuMixin:
             logger.debug("弹幕记录获取失败: %s", e)
             records = []
         count = video_db.count_danmaku()
-        self._dm_count_lbl.setText(f"共 {count} 条")
+        self._dm_count_lbl.setText(f"♪ 共 {count} 条")
 
         self._dm_text.clear()
         if not records:

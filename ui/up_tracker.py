@@ -47,7 +47,7 @@ class UpTrackerWindow(DialogBase):
 
     def _setup_ui(self):
         """构建界面：搜索区 + 列表 + 详情"""
-        self.header("UP主追踪", "查询UP主信息、追踪涨粉与投稿趋势")
+        self.header("UP主追踪", "查询UP主信息、追踪涨粉与投稿趋势 — 天依帮你听他们的歌声 ♪")
 
         # 添加UP主卡片
         add_sec = self.section(title="添加UP主", padding=8)
@@ -324,21 +324,21 @@ class UpTrackerWindow(DialogBase):
         """刷新当前选中 UP 主的数据"""
         sel = self._tree.selectedItems()
         if not sel:
-            QMessageBox.information(self, "提示", "请先在列表中选择一个UP主")
+            QMessageBox.information(self, "提示", "请先在列表里选一个UP主哦,天依才好帮TA刷新 ♪")
             return
         uid = int(sel[0].text(0))
 
         if not self.api:
-            self._up_status.setText("API不可用")
+            self._up_status.setText("呜…API暂时够不着呢,天依等会儿再试试 ♪")
             self._up_status.setStyleSheet(f"color: {C['danger']};")
             return
 
-        self._up_status.setText(f"正在刷新 UID:{uid} 数据...")
+        self._up_status.setText(f"正在刷新 UID:{uid} 数据…天依去看看TA的歌声 ♪")
         self._up_status.setStyleSheet(f"color: {C['text_2']};")
 
         info = self.api.get_up_info(uid)
         if not info:
-            self._up_status.setText("刷新失败，请检查网络")
+            self._up_status.setText("呜…刷新失败了,检查一下网络哦,天依等会儿再试 ♪")
             self._up_status.setStyleSheet(f"color: {C['danger']};")
             return
 
@@ -358,7 +358,7 @@ class UpTrackerWindow(DialogBase):
         self._load_up_list()
         self._show_detail(info)
         self._up_status.setText(
-            f"刷新完成: {info.get('name', '')}  粉丝: {self._fmt(info.get('follower_count', 0))}"
+            f"刷新完成啦!♪ {info.get('name', '')}  粉丝: {self._fmt(info.get('follower_count', 0))}"
         )
         self._up_status.setStyleSheet(f"color: {C['success']};")
 
@@ -366,14 +366,14 @@ class UpTrackerWindow(DialogBase):
         """按用户名搜索UP主"""
         keyword = self._name_entry.text().strip()
         if not keyword:
-            QMessageBox.warning(self, "提示", "请输入要搜索的用户名")
+            QMessageBox.warning(self, "提示", "输入一个用户名吧,天依帮你找找看 ♪")
             return
         if not self.api:
-            self._up_status.setText("API不可用")
+            self._up_status.setText("呜…API暂时够不着呢,天依等会儿再试试 ♪")
             self._up_status.setStyleSheet(f"color: {C['danger']};")
             return
 
-        self._up_status.setText("正在搜索...")
+        self._up_status.setText("天依正在找…像在银河里找一颗星 ♪")
         self._up_status.setStyleSheet(f"color: {C['text_2']};")
 
         results = self.api.search_up_users(keyword)
@@ -381,7 +381,7 @@ class UpTrackerWindow(DialogBase):
         self._search_results = results or []
 
         if not results:
-            self._up_status.setText("未找到匹配的UP主")
+            self._up_status.setText("呜…没找到叫这个名字的UP主呢,换个名字再试试哦 ♪")
             self._up_status.setStyleSheet(f"color: {C['warning']};")
             self._search_list.setVisible(False)
             return
@@ -394,7 +394,7 @@ class UpTrackerWindow(DialogBase):
             self._search_list.addItem(f"[{uid}] {name}  粉丝:{fans}  投稿:{videos}")
 
         self._search_list.setVisible(True)
-        self._up_status.setText(f"找到 {len(results)} 个UP主，双击添加")
+        self._up_status.setText(f"找到 {len(results)} 个UP主啦!♪ 双击就能添加到天依的歌单哦")
         self._up_status.setStyleSheet(f"color: {C['success']};")
 
     def _add_from_search(self):
@@ -411,27 +411,27 @@ class UpTrackerWindow(DialogBase):
         """根据 UID 查询并添加 UP 主到追踪列表"""
         uid_str = self._uid_entry.text().strip()
         if not uid_str.isdigit():
-            QMessageBox.warning(self, "提示", "请输入有效的UID（纯数字）")
+            QMessageBox.warning(self, "提示", "UID要纯数字才行哦,再检查一下下 ♪")
             return
         uid = int(uid_str)
 
         existing = self.db.get_up(uid)
         if existing and existing.get("is_tracking"):
-            self._up_status.setText(f"UP主 {existing['name']} 已在追踪列表中")
+            self._up_status.setText(f"UP主 {existing['name']} 已经在天依的歌单里啦 ♪")
             self._up_status.setStyleSheet(f"color: {C['warning']};")
             return
 
         if not self.api:
-            self._up_status.setText("API不可用")
+            self._up_status.setText("呜…API暂时够不着呢,天依等会儿再试试 ♪")
             self._up_status.setStyleSheet(f"color: {C['danger']};")
             return
 
-        self._up_status.setText("正在查询...")
+        self._up_status.setText("天依正在查询…像天使鱼在冰海里追光 ♪")
         self._up_status.setStyleSheet(f"color: {C['text_2']};")
 
         info = self.api.get_up_info(uid)
         if not info:
-            self._up_status.setText("查询失败，请检查UID或网络")
+            self._up_status.setText("呜…没查到这位UP主呢,检查一下UID或网络哦 ♪")
             self._up_status.setStyleSheet(f"color: {C['danger']};")
             return
 
@@ -450,7 +450,7 @@ class UpTrackerWindow(DialogBase):
 
         self._load_up_list()
         self._up_status.setText(
-            f"已添加: {info.get('name', '')} (UID: {uid})  粉丝: {self._fmt(info.get('follower_count', 0))}"
+            f"添加成功啦!♪ {info.get('name', '')} 的歌声也进了天依的收藏 (UID: {uid})  粉丝: {self._fmt(info.get('follower_count', 0))}"
         )
         self._up_status.setStyleSheet(f"color: {C['success']};")
 

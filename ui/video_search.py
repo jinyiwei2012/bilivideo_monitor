@@ -51,7 +51,7 @@ class VideoSearchWindow(DialogBase):
 
     def _setup_ui(self):
         """构建搜索界面布局"""
-        self.header("搜索视频 ♪", "在B站搜索视频并批量导入到监控列表哦 ♪")
+        self.header("搜索视频 ♪", "输入关键词，天依帮你找找好听的歌哦 ♪")
 
         # ── 搜索栏卡片 ──
         sec = self.section(padding=10)
@@ -95,7 +95,7 @@ class VideoSearchWindow(DialogBase):
         search_layout.addStretch()
 
         # 状态标签
-        self.status_lbl = QLabel("准备好啦 ♪")
+        self.status_lbl = QLabel("天依准备好啦 ♪")
         self.status_lbl.setFont(QFont("Microsoft YaHei UI", 9))
         self.status_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
         search_layout.addWidget(self.status_lbl)
@@ -174,7 +174,7 @@ class VideoSearchWindow(DialogBase):
         """开始搜索：校验输入、清空旧结果、启动后台搜索线程"""
         kw = self.kw_entry.text().strip()
         if not kw:
-            QMessageBox.warning(self, "要注意哦…", "要先输入搜索关键词哦…♪")
+            QMessageBox.warning(self, "要注意哦…", "要先输入关键词哦，天依才知道要为你找哪首歌呢…♪")
             return
         if self.searching:
             return
@@ -183,7 +183,7 @@ class VideoSearchWindow(DialogBase):
         self.tree.clear()
         self.search_results.clear()
         self.searching = True
-        self.status_lbl.setText("搜索中哦…♪")
+        self.status_lbl.setText("天依正在翻找B站的歌海…稍等一下下哦 ♪")
         self.status_lbl.setStyleSheet(f"color: {C['warning']}; background: transparent;")
 
         t = threading.Thread(target=self._worker, args=(kw,), daemon=True)
@@ -197,7 +197,7 @@ class VideoSearchWindow(DialogBase):
             self._search_done.emit(results or [], None)
         except Exception as e:
             logger.error("B站视频搜索失败", exc_info=True)
-            self._search_done.emit([], "搜索失败啦，请稍后再试哦 ♪")
+            self._search_done.emit([], "搜索没有回音呢，像对着山谷唱歌，请稍后再试哦 ♪")
 
     def _on_search_done(self, results: List[Dict], error: Optional[str]):
         """主线程回调：处理搜索结果"""
@@ -209,7 +209,7 @@ class VideoSearchWindow(DialogBase):
             return
 
         if not results:
-            self.status_lbl.setText("呜…没有找到相关视频呢…♪")
+            self.status_lbl.setText("没有找到呢…像一首还没人听过的新歌，换个关键词试试?♪")
             self.status_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
             return
 
@@ -235,7 +235,7 @@ class VideoSearchWindow(DialogBase):
             item.setTextAlignment(4, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             self.tree.addTopLevelItem(item)
 
-        self.status_lbl.setText(f"找到 {len(results)} 个结果啦 ♪")
+        self.status_lbl.setText(f"找到 {len(results)} 个结果啦，像发现了一串好听的旋律 ♪")
         self.status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
 
     def _select_all(self):
@@ -250,7 +250,7 @@ class VideoSearchWindow(DialogBase):
         """将选中的视频导入到监控列表"""
         sel = self.tree.selectedItems()
         if not sel:
-            QMessageBox.warning(self, "要注意哦…", "要先选中要导入的视频哦…♪")
+            QMessageBox.warning(self, "要注意哦…", "要先选中要导入的视频哦，天依才好把它们都放进歌单呢…♪")
             return
         bvids = {item.text(0) for item in sel}
         videos = [v for v in self.search_results if v.get("bvid") in bvids]
@@ -442,7 +442,7 @@ class VideoSearchWindow(DialogBase):
     def _copy_bvid(self, bvid):
         """复制 BV 号到剪贴板"""
         QApplication.clipboard().setText(bvid)
-        self.status_lbl.setText(f"已复制 {bvid} 啦 ♪")
+        self.status_lbl.setText(f"已把 {bvid} 记进歌词本啦 ♪")
         self.status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
 
     def _import_single(self, video):

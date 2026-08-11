@@ -294,7 +294,7 @@ class SnapshotBarChart(QWidget):
             painter.setPen(QColor(C.get("text_2", "#8b949e")))
             hint_font = QFont("Microsoft YaHei UI", 8)
             painter.setFont(hint_font)
-            painter.drawText(int(_BAR_ML), int(y_offset + 10), "■ 里程碑（深色柱）")
+            painter.drawText(int(_BAR_ML), int(y_offset + 10), "■ 里程碑（深色柱,像夜空里发光的星）♪")
 
         painter.end()
 
@@ -469,7 +469,7 @@ class SnapshotTab(QWidget):
         """)
         tb_layout.addWidget(self._ts_listbox)
 
-        tip = QLabel("↑ 选视频后自动加载（智能采样） | 快捷按钮可快速筛选 | 或自行输入范围筛选")
+        tip = QLabel("↑ 选好视频后自动加载（天依智能采样哦）| 快捷按钮可快速筛选 | 或自己输入范围 ♪")
         tip.setStyleSheet(f"color: {C['text_3']}; background: transparent; font-size: 8pt;")
         tb_layout.addWidget(tip)
 
@@ -513,7 +513,7 @@ class SnapshotTab(QWidget):
             """)
             rb_layout.addWidget(cb)
 
-        ms_cb = QCheckBox("叠加里程碑数据")
+        ms_cb = QCheckBox("叠加里程碑数据 ♪")
         ms_cb.setChecked(True)
         ms_cb.toggled.connect(lambda checked: self._on_milestone_toggle(checked))
         ms_cb.setStyleSheet(f"""
@@ -533,7 +533,7 @@ class SnapshotTab(QWidget):
 
         rb_layout.addStretch()
 
-        compare_btn = QPushButton("生成对比图")
+        compare_btn = QPushButton("生成对比图 ♪")
         compare_btn.setProperty("primary", True)
         compare_btn.clicked.connect(self._compare)
         rb_layout.addWidget(compare_btn)
@@ -632,13 +632,13 @@ class SnapshotTab(QWidget):
     def _apply_custom_range(self):
         all_ts = self._ts_avail
         if not all_ts:
-            QMessageBox.warning(self, "提示", "请先选择视频加载时间点")
+            QMessageBox.warning(self, "♪ 提示", "先选视频哦,时间点才会像音符一样冒出来 ♪")
             return
 
         start_str = self._start_entry.text().strip()
         end_str = self._end_entry.text().strip()
         if not start_str and not end_str:
-            QMessageBox.warning(self, "提示", "请输入至少一个时间范围")
+            QMessageBox.warning(self, "♪ 提示", "至少填一个时间范围呀,不然天依不知道截哪一段 ♪")
             return
 
         if not start_str or start_str == self._start_entry.placeholderText():
@@ -664,7 +664,7 @@ class SnapshotTab(QWidget):
                     end_dt = None
 
         if start_dt is None and end_dt is None:
-            QMessageBox.warning(self, "提示", "无法解析输入的时间格式")
+            QMessageBox.warning(self, "♪ 提示", "呜…这个时间格式天依看不懂呢,试试 YYYY-MM-DD HH:MM 哦")
             return
 
         first_ts = _parse_dt(all_ts[-1]) if all_ts else None
@@ -682,7 +682,7 @@ class SnapshotTab(QWidget):
             filtered.append(ts_str)
 
         if not filtered:
-            QMessageBox.warning(self, "提示", "没有符合条件的时间点")
+            QMessageBox.warning(self, "♪ 提示", "这段时间里没有数据点呢…像休止符一样安静,换个范围试试 ♪")
             return
 
         self._ts_listbox.clear()
@@ -737,10 +737,10 @@ class SnapshotTab(QWidget):
         sel_ts = self._ts_listbox.selectedItems()
 
         if not sel_v:
-            QMessageBox.warning(self, "提示", "请选择至少 1 个视频")
+            QMessageBox.warning(self, "♪ 提示", "至少选 1 个视频哦,天依想看看它们的对比呢 ♪")
             return
         if not sel_ts:
-            QMessageBox.warning(self, "提示", "请选择至少 1 个时间点")
+            QMessageBox.warning(self, "♪ 提示", "至少选 1 个时间点哦,像定下一个和弦 ♪")
             return
 
         selected_indices = [self._listbox.row(item) for item in sel_v]
@@ -752,7 +752,7 @@ class SnapshotTab(QWidget):
         self._chosen_ts = {v.get("bvid", ""): chosen_ts_list for v in chosen_videos}
         self._chosen_metrics_cache = [key for key, checked in self._metric_checks.items() if checked]
         if not self._chosen_metrics_cache:
-            QMessageBox.warning(self, "提示", "请至少选择一个对比指标")
+            QMessageBox.warning(self, "♪ 提示", "至少选一个对比指标哦,天依才知道画什么 ♪")
             return
 
         self._draw()
@@ -773,12 +773,12 @@ class SnapshotTab(QWidget):
 
         all_metric_bars = self._collect_data()
         if not all_metric_bars:
-            self._chart.set_placeholder("所选视频/时间点下无数据")
+            self._chart.set_placeholder("呜…这里还没有数据呢,像没有听众的空舞台,换个选择试试 ♪")
             return
 
         total_data = sum(len(v) for v in all_metric_bars.values())
         if total_data == 0:
-            self._chart.set_placeholder("所选视频/时间点下无数据")
+            self._chart.set_placeholder("呜…这里还没有数据呢,像没有听众的空舞台,换个选择试试 ♪")
             return
 
         # Update chart widget
@@ -794,7 +794,7 @@ class SnapshotTab(QWidget):
             next((lb for k, lb in METRICS if k == m), m)
             for m in (self._chosen_metrics_cache or [])
         )
-        self._status.setText(f"共 {len(self._selected)} 个视频，{total_data} 条数据，指标：{metric_labels}")
+        self._status.setText(f"♪ 共 {len(self._selected)} 个视频,{total_data} 条数据,指标: {metric_labels}")
 
     def _collect_data(self) -> Dict:
         """Collect all bar data grouped by metric"""

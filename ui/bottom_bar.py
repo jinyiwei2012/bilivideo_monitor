@@ -12,6 +12,7 @@ from PyQt6.QtCore import Qt
 from ui.theme import C
 from ui.helpers import FONT, FONT_CAPTION, SPACE_MD, SPACE_LG
 from ui.widgets import WaveDivider
+from ui.lty_voice import STATUS, BUTTON_HINTS
 
 
 class BottomBar(QWidget):
@@ -40,7 +41,8 @@ class BottomBar(QWidget):
         h.setSpacing(SPACE_MD)
 
         # 「添加监控」主按钮 — 天依蓝强调
-        self._add_btn = QPushButton("＋ 添加监控")
+        self._add_btn = QPushButton("＋ 添加监控 ♪")
+        self._add_btn.setToolTip(BUTTON_HINTS["add"])
         self._add_btn.setProperty("primary", True)
         self._add_btn.setFixedHeight(32)
         self._add_btn.setStyleSheet(f"""
@@ -58,13 +60,15 @@ class BottomBar(QWidget):
         h.addWidget(self._add_btn)
 
         # 「立即刷新」按钮
-        self._refresh_btn = QPushButton("⟳ 立即刷新")
+        self._refresh_btn = QPushButton("⟳ 立即刷新 ♪")
+        self._refresh_btn.setToolTip(BUTTON_HINTS["refresh"])
         self._refresh_btn.setFixedHeight(32)
         self._refresh_btn.clicked.connect(self.gui._refresh_data)
         h.addWidget(self._refresh_btn)
 
         # 「删除监控」按钮
         self._del_btn = QPushButton("✕ 删除监控")
+        self._del_btn.setToolTip("从歌单里划掉一首歌…要好好考虑哦 ♪")
         self._del_btn.setProperty("danger", True)
         self._del_btn.setFixedHeight(32)
         self._del_btn.clicked.connect(self.gui._remove_monitor)
@@ -73,13 +77,14 @@ class BottomBar(QWidget):
         # 「撤销删除」按钮
         self._undo_btn = QPushButton("↩ 撤销")
         self._undo_btn.setFixedHeight(32)
-        self._undo_btn.setToolTip("撤销最近一次删除 (Ctrl+Z)")
+        self._undo_btn.setToolTip("让刚划掉的歌回到歌单 ♪ (Ctrl+Z)")
         self._undo_btn.clicked.connect(self.gui._undo_delete)
         self._undo_btn.setVisible(False)
         h.addWidget(self._undo_btn)
 
         # 「手动推送」按钮
         self._push_btn = QPushButton("⇪ 手动推送")
+        self._push_btn.setToolTip(BUTTON_HINTS["push"])
         self._push_btn.setProperty("accent", True)
         self._push_btn.setFixedHeight(32)
         self._push_btn.clicked.connect(self.gui._manual_push)
@@ -94,7 +99,7 @@ class BottomBar(QWidget):
         ar_h.setContentsMargins(0, 0, 0, 0)
         ar_h.setSpacing(4)
 
-        self._ar_check = QCheckBox("自动刷新")
+        self._ar_check = QCheckBox("自动刷新 ♪")
         self._ar_check.setChecked(True)
         self._ar_check.toggled.connect(self.gui._toggle_auto_refresh)
         self._ar_check.setStyleSheet(f"""
@@ -125,13 +130,13 @@ class BottomBar(QWidget):
         h.setSpacing(SPACE_MD)
 
         items = [
-            ("videos", "监控: 0 个"),
-            ("interval", "刷新间隔: —"),
-            ("algo", "算法: —"),
+            ("videos", "监控: 0 个 ♪"),
+            ("interval", "刷新间隔: — ♪"),
+            ("algo", "算法: — ♪"),
             ("alert", ""),
             ("finetune", ""),
-            ("last_ref", "上次刷新: —"),
-            ("status", "就绪"),
+            ("last_ref", "上次刷新: — ♪"),
+            ("status", STATUS["ready"]),
         ]
 
         for key, text in items:

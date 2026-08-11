@@ -26,6 +26,7 @@ from ui.helpers import (
     THRESHOLDS, THRESHOLD_NAMES, THRESH_COLORS, fmt_num,
 )
 from ui.widgets import SectionHeader, EmptyState, WaveDivider
+from ui import lty_voice
 from ui.chart import ChartWidget
 from ui.detail_tabs import _RatioDanmakuMixin
 from ui.invoker import invoke
@@ -42,7 +43,7 @@ class FinetuneDialog(QDialog):
         self.gui = gui
         self.bvid = bvid
         self.algos: list = algos or []
-        self.setWindowTitle(f"微调 — {bvid}")
+        self.setWindowTitle(f"♪ 微调 — {bvid}")
         self.setMinimumSize(480, 400)
         self.setModal(True)
         self.setStyleSheet(f"background-color: {C['bg_base']};")
@@ -52,7 +53,7 @@ class FinetuneDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
 
-        title = QLabel(f"选择要在 {self.bvid} 上微调的算法")
+        title = QLabel(f"想在 {self.bvid} 上微调哪些算法呢?天依陪你选 ♪")
         title.setStyleSheet(f"color: {C['text_1']}; font-size: 12pt; font-weight: bold; padding-bottom: 6px;")
         layout.addWidget(title)
 
@@ -104,7 +105,7 @@ class FinetuneDialog(QDialog):
         layout.addLayout(param_h)
 
         # Status
-        self._status_lbl = QLabel("就绪")
+        self._status_lbl = QLabel("天依准备好了 ♪")
         self._status_lbl.setStyleSheet(f"color: {C['text_3']}; font-size: 10pt;")
         layout.addWidget(self._status_lbl)
 
@@ -120,7 +121,7 @@ class FinetuneDialog(QDialog):
 
         # Buttons
         btn_h = QHBoxLayout()
-        self._start_btn = QPushButton("开始微调")
+        self._start_btn = QPushButton("开始微调 ♪")
         self._start_btn.setStyleSheet(f"""
             QPushButton {{ background-color: {C['accent']}; color: white;
             border: none; padding: 6px 16px; font-size: 10pt; }}
@@ -152,10 +153,10 @@ class FinetuneDialog(QDialog):
 
         selected = [aid for aid, cb in self._algo_checks.items() if cb.isChecked()]
         if not selected:
-            QMessageBox.information(self, "提示", "请至少选择一个算法")
+            QMessageBox.information(self, "♪ 提示", "至少选一个算法哦,不然天依不知道练哪首 ♪")
             return
         if getattr(self, "_running", False):
-            QMessageBox.information(self, "提示", "微调已在进行中")
+            QMessageBox.information(self, "♪ 提示", "微调正在进行中呢…天依正唱着歌练习,稍等一下下哦 ♪")
             return
 
         try:
@@ -168,7 +169,7 @@ class FinetuneDialog(QDialog):
             batch = 16
 
         self._start_btn.setEnabled(False)
-        self._start_btn.setText("微调中…")
+        self._start_btn.setText("微调中…♪")
         self._running = True  # 防止重复启动
 
         def _worker():
@@ -176,10 +177,10 @@ class FinetuneDialog(QDialog):
 
             trainer = ModelTrainer()
             total = len(selected)
-            self.gui.set_finetune_status(f"◎ 微调 {self.bvid} …")
+            self.gui.set_finetune_status(f"◎ 天依正在微调 {self.bvid} …")
             for i, aid in enumerate(selected):
                 msg = f"[{i + 1}/{total}] 微调 {aid}…"
-                gui_msg = f"◎ 微调 {self.bvid}: [{i + 1}/{total}] {aid}"
+                gui_msg = f"◎ 天依在微调 {self.bvid}: [{i + 1}/{total}] {aid}"
                 invoke(lambda m=msg: self._status_lbl.setText(m))
                 invoke(lambda p=(i + 0.5) / total: self._progress.setValue(int(p * 100)))
                 invoke(lambda m=gui_msg: self.gui.set_finetune_status(m))
@@ -189,13 +190,15 @@ class FinetuneDialog(QDialog):
                     )
                     msg = f"✓ {aid} → {version[:12]}"
                 except Exception as e:
-                    msg = f"✗ {aid}: {e}"
+                    import logging
+                    logging.getLogger(__name__).debug("微调 %s 失败: %s", aid, e)
+                    msg = f"✗ {aid}: 呜…出错了,天依已悄悄记到日志里啦"
                 invoke(lambda m=msg: self._status_lbl.setText(m))
-            invoke(lambda: self._status_lbl.setText(f"✓ 微调完成 ({total} 个算法)"))
+            invoke(lambda: self._status_lbl.setText(f"✓ 微调完成啦!♪ ({total} 个算法)"))
             invoke(lambda: self._progress.setValue(100))
-            invoke(lambda: self._start_btn.setText("完成"))
+            invoke(lambda: self._start_btn.setText("完成 ♪"))
             invoke(lambda: self._start_btn.setEnabled(True))
-            invoke(lambda: self.gui.set_finetune_status(f"✓ 微调 {self.bvid} 完成 ({total})"))
+            invoke(lambda: self.gui.set_finetune_status(f"✓ 微调 {self.bvid} 完成啦 ({total})♪"))
             invoke(lambda: setattr(self, "_running", False))
 
         threading.Thread(target=_worker, daemon=True).start()
@@ -337,7 +340,7 @@ class DetailPanel(_RatioDanmakuMixin):
         ct_layout.addWidget(self._chart_widget, 1)
 
         # 图表空状态 (未选中/无数据时覆盖显示)
-        self._chart_empty = EmptyState("还没有数据呢…♪")
+        self._chart_empty = EmptyState(lty_voice.no_data())
         self._chart_empty.setVisible(False)
         ct_layout.addWidget(self._chart_empty, 1)
 
@@ -410,7 +413,7 @@ class DetailPanel(_RatioDanmakuMixin):
         dm_layout.addWidget(self._dm_text, 1)
 
         # 弹幕空状态 (无记录时显示)
-        self._dm_empty = EmptyState("还没有弹幕数据呢…♪ 监控过程中会自动拉取并保存哦 ♪")
+        self._dm_empty = EmptyState(lty_voice.danmaku_empty() + " 监控过程中天依会自动收好哦")
         self._dm_empty.setVisible(False)
         dm_layout.addWidget(self._dm_empty, 1)
 
@@ -434,7 +437,7 @@ class DetailPanel(_RatioDanmakuMixin):
     def _build_header_empty(self):
         """空状态头部"""
         self._clear_header()
-        empty = EmptyState("还没有选择视频呢 ♪", self._detail_header)
+        empty = EmptyState(lty_voice.empty("选择视频"), self._detail_header)
         layout = self._detail_header.layout()
         if layout is None:
             layout = QHBoxLayout(self._detail_header)
@@ -528,7 +531,7 @@ class DetailPanel(_RatioDanmakuMixin):
         ft_h.setContentsMargins(0, 0, 0, 0)
         ft_h.setSpacing(6)
 
-        self._finetune_btn = QPushButton("◎ 微调此视频")
+        self._finetune_btn = QPushButton("◎ 微调此视频 ♪")
         self._finetune_btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: {C['accent']}; color: white;
@@ -562,7 +565,7 @@ class DetailPanel(_RatioDanmakuMixin):
                 algos.append({"algorithm_id": aid, "name": getattr(algo, "name", aid)})
 
         if not algos:
-            QMessageBox.information(self.frame, "提示", "没有已训练的深度学习算法可供微调")
+            QMessageBox.information(self.frame, "♪ 提示", "呜…还没有已训练的深度学习算法呢,先训练一下,天依才能唱得更准哦 ♪")
             return
 
         dlg = FinetuneDialog(self.gui, bvid, algos)
@@ -734,7 +737,7 @@ class DetailPanel(_RatioDanmakuMixin):
                 border: none; padding: 2px 8px; font-size: 10pt; }}
                 QPushButton:hover {{ background-color: {C['bg_hover']}; }}
             """)
-            self._chart_stat_lbl.setText("自动刷新 ✓")
+            self._chart_stat_lbl.setText("自动刷新 ✓ ♪")
             self._chart_stat_lbl.setStyleSheet(f"color: {C['success']}; font-size: 10pt;")
             self._auto_render_chart()
         else:
@@ -745,7 +748,7 @@ class DetailPanel(_RatioDanmakuMixin):
                 border: none; padding: 2px 8px; font-size: 10pt; }}
                 QPushButton:hover {{ background-color: {C['bg_hover']}; }}
             """)
-            self._chart_stat_lbl.setText("手动渲染")
+            self._chart_stat_lbl.setText("手动渲染 ♪")
             self._chart_stat_lbl.setStyleSheet(f"color: {C['warning']}; font-size: 10pt;")
             self._rendered_modes.discard(mode)
 

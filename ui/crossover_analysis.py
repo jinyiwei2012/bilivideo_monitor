@@ -130,7 +130,7 @@ class TrendChartWidget(QWidget):
             painter.setPen(QColor(C["text_2"]))
             title_font = QFont("Microsoft YaHei UI", 12)
             painter.setFont(title_font)
-            painter.drawText(QRect(0, 0, W, H), Qt.AlignmentFlag.AlignCenter, "数据不足")
+            painter.drawText(QRect(0, 0, W, H), Qt.AlignmentFlag.AlignCenter, "数据还不太够呢…像还没写完的歌词 ♪")
             painter.end()
             return
 
@@ -435,10 +435,10 @@ class CrossoverAnalysisWindow(QDialog):
         """开始分析：校验选择、加载数据、拟合、计算交会、绘制趋势图"""
         sel_items = self._listbox.selectedItems()
         if len(sel_items) < 2:
-            QMessageBox.warning(self, "提示", "请至少选择 2 个视频")
+            QMessageBox.warning(self, "提示", "至少选2个视频,天依才能算出它们的交会哦 ♪")
             return
         if len(sel_items) > 5:
-            QMessageBox.warning(self, "提示", "最多选择 5 个视频")
+            QMessageBox.warning(self, "提示", "最多选5个视频啦,太多了天依会数不过来呢 ♪")
             return
 
         sel_idx = [self._listbox.row(item) for item in sel_items]
@@ -454,24 +454,24 @@ class CrossoverAnalysisWindow(QDialog):
         # 筛选出拟合成功的视频
         valid = [v for v in self._selected if fits.get(v.get("bvid", ""))]
         if len(valid) < 2:
-            self._status_lbl.setText("所选视频历史数据不足（每个至少需要 2 条记录）")
+            self._status_lbl.setText("呜…这些视频的历史数据还太少,每个至少要有2条记录才行哦 ♪")
             self._status_lbl.setStyleSheet(f"color: {C['danger']}; font-size: 9pt;")
             QMessageBox.warning(
                 self,
                 "数据不足",
-                "部分视频历史数据不足，无法进行交叉计算。\n每个视频至少需要 2 条历史记录。",
+                "呜…部分视频的历史数据还不够,天依没法算出它们的交会。\n每个视频至少需要2条历史记录哦 ♪",
             )
             return
 
         crossover_count = self._compute_crossovers(valid, fits)
 
-        self._status_lbl.setText(f"分析完成：{len(valid)} 个视频，找到 {crossover_count} 个交会点")
+        self._status_lbl.setText(f"分析完成啦!♪ {len(valid)} 个视频,找到了 {crossover_count} 个交会点")
         self._status_lbl.setStyleSheet(f"color: {C['success']}; font-size: 9pt;")
 
         self._chart.set_data(fits, self._selected)
 
         if crossover_count == 0 and len(valid) >= 2:
-            QMessageBox.information(self, "结果", "所选视频在当前趋势下没有交会点")
+            QMessageBox.information(self, "结果", "呜…按现在的趋势,这些视频的歌声还没有相遇的时刻呢 ♪")
 
     def _load_history(self):
         """从视频数据库补充历史播放数据到 history_data"""

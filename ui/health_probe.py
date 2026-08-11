@@ -154,7 +154,7 @@ class HealthProbeWindow(DialogBase):
     def _setup_ui(self):
         """构建健康探针窗口的完整 UI：雷达图、分数卡片、异常与建议"""
         title = self.video.get("title", "未知视频")[:30]
-        self.header(f"一键三连健康探针 — {title}", "基于点赞率·硬币率·收藏率·分享率的综合评估")
+        self.header(f"一键三连健康探针 — {title}", "天依用心听了TA的互动数据,帮你唱出健康评分 ♪")
 
         # 上部分：雷达图 + 分数卡片（水平布局）
         top = QWidget()
@@ -259,7 +259,7 @@ class HealthProbeWindow(DialogBase):
         bottom_layout.setContentsMargins(24, 12, 24, 0)
 
         if self._probe_result.anomalies:
-            sec = self.section(parent=bottom, title="△ 异常项", padding=8)
+            sec = self.section(parent=bottom, title="△ 天依注意到的异常", padding=8)
             sec_layout = sec.layout()
             if sec_layout is not None:
                 for a in self._probe_result.anomalies:
@@ -269,7 +269,7 @@ class HealthProbeWindow(DialogBase):
                     sec_layout.addWidget(lbl)
 
         if self._probe_result.tips:
-            sec2 = self.section(parent=bottom, title="\u2728 建议", padding=8)
+            sec2 = self.section(parent=bottom, title="\u2728 天依的建议", padding=8)
             sec2_layout = sec2.layout()
             if sec2_layout is not None:
                 for t in self._probe_result.tips:

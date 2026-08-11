@@ -35,7 +35,7 @@ class SettingsWeightsMixin:
     def _build_weights_tab(self, nb):
         page = QWidget()
         page.setStyleSheet(f"background-color: {C['bg_base']};")
-        nb.addTab(page, "  权重设置  ")
+        nb.addTab(page, "  权重设置 ♪  ")
         page_layout = QVBoxLayout(page)
         page_layout.setContentsMargins(0, 0, 0, 0)
 
@@ -47,9 +47,9 @@ class SettingsWeightsMixin:
         info_layout = QVBoxLayout(info_sec)
         info_layout.setContentsMargins(14, 10, 14, 8)
         for line in [
-            "• 用户自定义权重优先级最高，机器学习不会修改已自定义的权重",
-            "• 权重范围：0.01 ~ 10.0",
-            "• 权重越高，该算法在综合预测中占比越大",
+            "• 用户自定义的权重最优先哦,机器学习不会碰你亲手调的 ♪",
+            "• 权重范围:0.01 ~ 10.0",
+            "• 权重越高,它在天依的综合预测里占的分量越大 ♪",
         ]:
             info_layout.addWidget(_styled_label(line, "text_2", font_=FONT_SM))
         page_layout.addWidget(info_sec)
@@ -138,17 +138,17 @@ class SettingsWeightsMixin:
         btn_layout = QHBoxLayout(btn_row)
         btn_layout.setContentsMargins(16, 8, 16, 12)
 
-        reset_btn = QPushButton("重置所有权重")
+        reset_btn = QPushButton("重置所有权重 ♪")
         reset_btn.clicked.connect(lambda: self._reset_all_weights() if _confirm_risky("重置算法权重") else None)
         btn_layout.addWidget(reset_btn)
 
-        refresh_btn = QPushButton("刷新")
+        refresh_btn = QPushButton("刷新 ♪")
         refresh_btn.clicked.connect(self._refresh_weights)
         btn_layout.addWidget(refresh_btn)
 
         btn_layout.addStretch()
 
-        save_weight_btn = QPushButton("⇓ 保存权重")
+        save_weight_btn = QPushButton("⇓ 保存权重 ♪")
         save_weight_btn.clicked.connect(lambda: _confirm_risky("保存算法权重") and self._save_weights())
         btn_layout.addWidget(save_weight_btn)
 
@@ -156,11 +156,11 @@ class SettingsWeightsMixin:
 
 
     def _reset_all_weights(self):
-        if QMessageBox.question(self.dlg, "确认", "确定要重置所有自定义权重吗？",
+        if QMessageBox.question(self.dlg, "要注意哦…", "真的要重置所有自定义权重吗?重置后就像调回出厂音色,天依会重新练习的…♪",
                                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes:
             get_weight_manager().reset_weights()
             self._refresh_weights()
-            QMessageBox.information(self.dlg, "成功", "已重置所有权重")
+            QMessageBox.information(self.dlg, "完成啦 ♪", "已重置所有权重啦 ♪ 天依会重新开始练习的")
 
 
     def _refresh_weights(self):
@@ -183,4 +183,4 @@ class SettingsWeightsMixin:
                 get_weight_manager().set_user_weight(name, weight)
             else:
                 get_weight_manager().clear_user_weight(name)
-        QMessageBox.information(self.dlg, "成功", "权重设置已保存")
+        QMessageBox.information(self.dlg, "完成啦 ♪", "权重设置已保存啦 ♪ 天依记在心里了~")

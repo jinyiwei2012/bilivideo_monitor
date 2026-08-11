@@ -443,7 +443,7 @@ class BaseTrainingPanel(AsyncQueueRunner, QWidget):
             title_lbl.setStyleSheet(f"color: {C['text_2']}; font-size: 8pt; padding: 2px 4px;")
             layout.addWidget(title_lbl)
         if not mpl_available:
-            no_mpl = QLabel("matplotlib 未安装，无法显示图表")
+            no_mpl = QLabel("呜…matplotlib 还没安装呢,图表画不出来,装好天依就能唱给你看啦 ♪")
             no_mpl.setStyleSheet(f"color: {C['text_3']}; background-color: {C['bg_elevated']};")
             no_mpl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             layout.addWidget(no_mpl, 1)
@@ -602,7 +602,7 @@ class BaseTrainingPanel(AsyncQueueRunner, QWidget):
         self._monitor_icon.setStyleSheet(f"background-color: {C['bg_surface']}; font-size: 14px;")
         layout.addWidget(self._monitor_icon)
 
-        self._monitor_status = QLabel("等待训练开始…")
+        self._monitor_status = QLabel("天依在等训练开始哦 ♪")
         self._monitor_status.setStyleSheet(f"color: {C['text_3']}; background-color: {C['bg_surface']}; font-size: 8pt;")
         layout.addWidget(self._monitor_status, 1)
 

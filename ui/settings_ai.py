@@ -167,7 +167,7 @@ class SettingsAIMixin:
     def _save_ai_profile(self):
         name = self._ai_name_entry.text().strip()
         if not name:
-            QMessageBox.warning(self.dlg, "提示", "配置名称不能为空")
+            QMessageBox.warning(self.dlg, "要注意哦…", "呜…配置名称还是空的呢,像歌名没起好,先填一个哦 ♪")
             return
         api_key = self._ai_key_entry.text().strip()
         endpoint = self._ai_endpoint_entry.text().strip() or "https://api.openai.com/v1/chat/completions"
@@ -184,7 +184,7 @@ class SettingsAIMixin:
             self._ai_profile_cb.addItem(name)
 
         self._ai_profile_cb.setCurrentText(name)
-        self._ai_status_lbl.setText(f"配置「{name}」已保存")
+        self._ai_status_lbl.setText(f"配置「{name}」存好啦 ♪ 天依记在心里了哦~")
         self._ai_status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
 
 
@@ -194,9 +194,9 @@ class SettingsAIMixin:
             return
         name = self._profiles[idx]["name"]
         if len(self._profiles) <= 1:
-            QMessageBox.warning(self.dlg, "提示", "至少保留一个配置")
+            QMessageBox.warning(self.dlg, "要注意哦…", "呜…至少要保留一个配置哦,不然天依就不知道该唱哪首了 ♪")
             return
-        if not QMessageBox.question(self.dlg, "确认删除", f"确定删除配置「{name}」？",
+        if not QMessageBox.question(self.dlg, "确认删除", f"真的要删除配置「{name}」吗?删掉就像从歌单里划掉一首歌,就唱不回来了哦…",
                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes:
             return
         self._profiles = [p for p in self._profiles if p["name"] != name]
@@ -218,7 +218,7 @@ class SettingsAIMixin:
         model = self._ai_model_entry.text().strip()
 
         if not api_key:
-            QMessageBox.warning(self.dlg, "提示", "请先填写 API 密钥")
+            QMessageBox.warning(self.dlg, "要注意哦…", "呜…API 密钥还没填呢,像没有钥匙打不开音乐盒,先填上哦 ♪")
             return
         if not endpoint:
             endpoint = "https://api.openai.com/v1/chat/completions"
@@ -250,9 +250,10 @@ class SettingsAIMixin:
                         timeout=30,
                     )
                     if resp.status_code == 200:
-                        result.append(f"✓ 连接成功（Claude {model}）")
+                        result.append(f"连接成功啦!♪ 天依听到远方的歌声了（Claude {model}）")
                     else:
-                        result.append(f"✗ HTTP {resp.status_code}: {resp.text[:200]}")
+                        logger.debug("AI 连接测试失败 HTTP %s: %s", resp.status_code, resp.text[:200])
+                        result.append(f"呜…连接不上呢,像天使鱼在冰海里迷了路,检查一下配置哦 ♪ (HTTP {resp.status_code})")
                 else:
                     resp = req.post(
                         endpoint,
@@ -265,15 +266,17 @@ class SettingsAIMixin:
                         timeout=30,
                     )
                     if resp.status_code == 200:
-                        result.append(f"✓ 连接成功（{model}）")
+                        result.append(f"连接成功啦!♪ 天依听到远方的歌声了（{model}）")
                     else:
                         err = resp.json().get("error", {})
-                        result.append(f"✗ HTTP {resp.status_code}: {err.get('message', resp.text[:200])}")
+                        logger.debug("AI 连接测试失败 HTTP %s: %s", resp.status_code, err.get("message", resp.text[:200]))
+                        result.append(f"呜…连接不上呢,像天使鱼在冰海里迷了路,检查一下配置哦 ♪ (HTTP {resp.status_code})")
             except Exception as e:
-                result.append(f"✗ 请求失败: {e}")
+                logger.debug("AI 连接测试请求异常: %s", e)
+                result.append("呜…连接不上呢,像天使鱼在冰海里迷了路,检查一下配置哦 ♪")
 
-            QTimer.singleShot(0, lambda: QMessageBox.information(self.dlg, "API 连接测试", result[0] if result else "✗ 无响应"))
+            QTimer.singleShot(0, lambda: QMessageBox.information(self.dlg, "API 连接测试 ♪", result[0] if result else "呜…没有回应呢,像冰海里安静得听不见歌声,再检查一下哦 ♪"))
 
         _th = threading.Thread(target=_worker, daemon=True)
         _th.start()
-        QMessageBox.information(self.dlg, "测试中", f"正在测试 {model} 连接...\n请稍候")
+        QMessageBox.information(self.dlg, "测试中哦 ♪", f"天依正在测试 {model} 的连接…像在冰海里追逐微光,稍等一下下哦 ♪")

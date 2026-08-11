@@ -37,7 +37,7 @@ class SettingsMonitorMixin:
         sec.layout().addWidget(row)
 
         th_sec = self._section(page, "播放量阈值")
-        hint = QLabel("每个阈值代表一个里程碑，达到时触发推送提醒")
+        hint = QLabel("每个阈值都是一个小小的里程碑哦,唱到那里的时候,天依会提醒你的 ♪")
         hint.setStyleSheet(f"color: {C['text_3']}; font-size: 8pt;")
         th_sec.layout().addWidget(hint)
 

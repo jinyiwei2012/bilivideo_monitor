@@ -56,7 +56,7 @@ class ReportSchedulerWindow(QDialog):
         """)
         main_layout.addWidget(header)
 
-        sub = QLabel("手动导出 / 按计划自动导出 CSV / JSON / HTML / Excel")
+        sub = QLabel("手动导出 / 按计划自动导出 CSV / JSON / HTML / Excel ♪")
         sub.setStyleSheet(f"color: {C['text_3']}; font-size: 9pt; padding: 0 24px 12px 24px; background-color: {C['bg_surface']};")
         main_layout.addWidget(sub)
 
@@ -212,31 +212,32 @@ class ReportSchedulerWindow(QDialog):
     def _export_pred_vs_actual(self):
         """导出预测值 vs 实际播放量对比表"""
         if not self.gui or not self.gui.video_dbs:
-            QMessageBox.warning(self, "提示", "暂无预测数据")
+            QMessageBox.warning(self, "提示", "还没有预测数据呢,等天依唱出预测再导出吧 ♪")
             return
-        self._export_status.setText("正在导出预测对比表...")
+        self._export_status.setText("天依正在整理预测对比表…像在谱写乐谱 ♪")
         self._export_status.setStyleSheet(f"color: {C['text_2']}; background-color: transparent;")
         try:
             from utils.report_exporter import export_prediction_vs_actual
 
             path = export_prediction_vs_actual(self.gui.video_dbs)
             if path:
-                self._export_status.setText(f"✓ 已导出: {path}")
+                self._export_status.setText(f"✓ 导出完成啦!♪ 已保存到: {path}")
                 self._export_status.setStyleSheet(f"color: {C['success']}; background-color: transparent;")
             else:
-                self._export_status.setText("△ 无有效的预测-实际对照数据")
+                self._export_status.setText("△ 还没有可对比的预测与实际数据呢,天依先记下了 ♪")
                 self._export_status.setStyleSheet(f"color: {C['warning']}; background-color: transparent;")
         except Exception as e:
-            self._export_status.setText(f"✗ 导出失败: {e}")
+            logger.warning("导出预测对比表失败: %s", e)
+            self._export_status.setText("呜…导出失败了,天依会再试试的哦 ♪")
             self._export_status.setStyleSheet(f"color: {C['danger']}; background-color: transparent;")
 
     def _export_now(self):
         """立即按选定格式导出监控数据报告"""
         if not self.gui or not self.gui.monitored_videos:
-            QMessageBox.warning(self, "提示", "暂无监控视频数据")
+            QMessageBox.warning(self, "提示", "还没有监控视频呢,先添加一些,天依才能导出哦 ♪")
             return
         fmt = self._get_format()
-        self._export_status.setText("正在导出...")
+        self._export_status.setText("天依正在把数据唱成报告…稍等一下下哦 ♪")
         self._export_status.setStyleSheet(f"color: {C['text_2']}; background-color: transparent;")
 
         from utils.report_exporter import export_html, export_excel, export_csv, export_json
@@ -253,11 +254,12 @@ class ReportSchedulerWindow(QDialog):
             for exporter in fmts.get(fmt, [export_html]):
                 path = exporter(self.gui.monitored_videos)
                 results.append(f"{exporter.__name__.replace('export_', '').upper()}: {path}")
-            self._export_status.setText("导出完成！\n" + "\n".join(results))
+            self._export_status.setText("导出完成啦!♪ 数据都好好收藏起来了:\n" + "\n".join(results))
             self._export_status.setStyleSheet(f"color: {C['success']}; background-color: transparent;")
             self._refresh_file_list()
         except Exception as e:
-            self._export_status.setText(f"导出失败: {e}")
+            logger.warning("导出报告失败: %s", e)
+            self._export_status.setText("呜…导出失败了,天依不会放弃的,请再试一次哦 ♪")
             self._export_status.setStyleSheet(f"color: {C['danger']}; background-color: transparent;")
 
     # ── 定时导出 ──
@@ -276,7 +278,7 @@ class ReportSchedulerWindow(QDialog):
                 self._schedule_enabled.setChecked(data.get("enabled", False))
                 self._interval_combo.setCurrentText(data.get("interval", "daily"))
                 self._schedule_format_combo.setCurrentText(data.get("format", "csv"))
-                self._schedule_status.setText("已加载保存的定时设置")
+                self._schedule_status.setText("定时设置已经加载好啦 ♪")
                 self._schedule_status.setStyleSheet(f"color: {C['success']}; background-color: transparent;")
         except Exception as e:
             logger.debug("忽略异常: %s", e)
@@ -291,12 +293,13 @@ class ReportSchedulerWindow(QDialog):
         try:
             _SCHEDULE_CONFIG.parent.mkdir(parents=True, exist_ok=True)
             _SCHEDULE_CONFIG.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-            self._schedule_status.setText("设置已保存")
+            self._schedule_status.setText("设置保存好啦!♪ 天依会按计划按时唱出来哦")
             self._schedule_status.setStyleSheet(f"color: {C['success']}; background-color: transparent;")
             if self._schedule_enabled.isChecked() and self.gui:
                 QTimer.singleShot(100, self._schedule_next)
         except Exception as e:
-            self._schedule_status.setText(f"保存失败: {e}")
+            logger.warning("保存定时设置失败: %s", e)
+            self._schedule_status.setText("呜…设置没能保存,天依再试试 ♪")
             self._schedule_status.setStyleSheet(f"color: {C['danger']}; background-color: transparent;")
 
     def _schedule_next(self):

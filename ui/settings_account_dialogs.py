@@ -47,7 +47,7 @@ class _CookieEditorDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 12, 20, 12)
 
-        title = QLabel("粘贴 Cookie-Editor 导出的 JSON 内容：")
+        title = QLabel("粘贴 Cookie-Editor 导出的 JSON 内容哦 ♪")
         title.setFont(FONT)
         title.setStyleSheet(f"color: {C['text_1']};")
         layout.addWidget(title)

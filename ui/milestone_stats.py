@@ -22,6 +22,7 @@ from core.database import get_db
 from ui.theme import C
 from ui.scrollable_frame import ScrollableFrame
 from ui.dialog_base import DialogBase
+from ui import lty_voice
 from utils.update_checker import _confirm_risky
 from ui.helpers import FONT, FONT_BOLD, FONT_SM, fmt_num, is_valid_bvid
 
@@ -153,7 +154,7 @@ class _CompareChart(QWidget):
         self._max_val = max(max_val, 1)
         self._status_callback = status_cb
         if status_cb:
-            status_cb(f"共 {len(bvids)} 个视频 · 展示指标：{metric_label}")
+            status_cb(f"♪ 共 {len(bvids)} 个视频 · 展示指标: {metric_label}")
         self.update()
 
     def _status(self, text: str):
@@ -196,7 +197,7 @@ class _CompareChart(QWidget):
         font = QFont("Microsoft YaHei UI", 12)
         painter.setFont(font)
         painter.drawText(QRectF(0, 0, w, h), Qt.AlignmentFlag.AlignCenter,
-                         "暂无里程碑数据，请在「录入数据」标签页添加")
+                         "还没有里程碑数据呢…像空白乐谱,去「录入数据」标签页添上第一个音符吧 ♪")
 
     def _draw_grid(self, painter, cw, ch, ML, MT):
         """网格线和 Y 轴标签"""
@@ -282,7 +283,7 @@ class _CompareChart(QWidget):
         font.setBold(True)
         painter.setFont(font)
         painter.drawText(QRectF(ML, 6, cw, 20), Qt.AlignmentFlag.AlignCenter,
-                         f"投稿里程碑对比 — {self._metric_label}")
+                         f"♪ 投稿里程碑对比 — {self._metric_label}")
 
     @staticmethod
     def _get_title(bvid):
@@ -318,7 +319,7 @@ class MilestoneStatsWindow(DialogBase):
         else:
             sw, sh = 1920, 1080
 
-        super().__init__(parent, "投稿里程碑 — 一周 / 月 / 年后数据",
+        super().__init__(parent, "♪ 投稿里程碑 — 一周 / 月 / 年后数据",
                          (int(sw * 0.62), int(sh * 0.78)), modal=True)
 
         self.monitored_videos = monitored_videos or []
@@ -333,7 +334,7 @@ class MilestoneStatsWindow(DialogBase):
 
     def _setup_ui(self):
         """构建窗口 UI"""
-        self.header("投稿里程碑", "一周 / 月 / 年后数据录入与对比")
+        self.header("投稿里程碑", "天依陪你记录一周 / 月 / 年后的数据 ♪")
 
         self._tabs = QTabWidget()
         self._main_layout.addWidget(self._tabs)
@@ -382,7 +383,7 @@ class MilestoneStatsWindow(DialogBase):
         bv_inner = QVBoxLayout(bv_col)
         bv_inner.setContentsMargins(0, 0, 0, 0)
 
-        bv_label = QLabel("BV号（每行一个，可批量）")
+        bv_label = QLabel("BV号（每行一个,可批量哦 ♪）")
         bv_label.setFont(FONT_SM)
         bv_label.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
         bv_inner.addWidget(bv_label)
@@ -435,11 +436,11 @@ class MilestoneStatsWindow(DialogBase):
         btn_inner = QVBoxLayout(btn_col)
         btn_inner.setContentsMargins(24, 0, 0, 0)
 
-        gen_btn = QPushButton("生成输入表")
+        gen_btn = QPushButton("生成输入表 ♪")
         gen_btn.clicked.connect(self._generate_entry_rows)
         btn_inner.addWidget(gen_btn)
 
-        save_btn = QPushButton("⇓ 保存全部")
+        save_btn = QPushButton("⇓ 保存全部 ♪")
         save_btn.setProperty("primary", True)
         style = save_btn.style()
         if style is not None:
@@ -471,7 +472,7 @@ class MilestoneStatsWindow(DialogBase):
         layout.addWidget(self._entry_sf, 1)
 
         # 状态
-        self._entry_status = QLabel("请输入 BV 号并选择周期，然后点击「生成输入表」")
+        self._entry_status = QLabel("先输入 BV 号、选好周期,再点「生成输入表」,天依帮你记下来 ♪")
         self._entry_status.setFont(FONT_SM)
         self._entry_status.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
         layout.addWidget(self._entry_status)
@@ -479,7 +480,7 @@ class MilestoneStatsWindow(DialogBase):
     def _generate_entry_rows(self):
         raw = self._bvid_text.toPlainText().strip()
         if not raw:
-            QMessageBox.warning(self, "提示", "请先输入 BV 号")
+            QMessageBox.warning(self, "♪ 提示", "先输入 BV 号哦,没有主角怎么开唱嘛 ♪")
             return
 
         bvids = self._parse_and_validate_bvids(raw)
@@ -490,7 +491,7 @@ class MilestoneStatsWindow(DialogBase):
 
         periods = [p for p, cb in self._period_checks.items() if cb.isChecked()]
         if not periods:
-            QMessageBox.warning(self, "提示", "请至少选择一个统计周期")
+            QMessageBox.warning(self, "♪ 提示", "至少选一个统计周期哦,一周/一月/一年都行 ♪")
             return
 
         self._populate_milestone_entry_rows(bvids, periods)
@@ -507,8 +508,8 @@ class MilestoneStatsWindow(DialogBase):
             else:
                 invalid.append(bv)
         if invalid:
-            QMessageBox.warning(self, "格式错误",
-                                "以下 BV 号格式不合法，已跳过：\n" + "\n".join(invalid))
+            QMessageBox.warning(self, "♪ 格式错误",
+                                "呜…这几个 BV 号天依没看懂,先跳过啦:\n" + "\n".join(invalid))
         if not bvids:
             return None
         return bvids
@@ -516,11 +517,11 @@ class MilestoneStatsWindow(DialogBase):
     def _prompt_not_monitored_bvids(self, bvids):
         not_monitored = [b for b in bvids if b not in self._monitored_set]
         if not_monitored:
-            msg = "以下 BV 号不在监控列表中：\n" + "\n".join(not_monitored[:10])
+            msg = "这些 BV 号还没在监控列表里呢:\n" + "\n".join(not_monitored[:10])
             if len(not_monitored) > 10:
                 msg += f"\n...共 {len(not_monitored)} 个"
-            msg += "\n\n是否加入监控列表？"
-            reply = QMessageBox.question(self, "加入监控", msg,
+            msg += "\n\n要把它们加入监控列表,让天依一起看着吗?♪"
+            reply = QMessageBox.question(self, "加入监控 ♪", msg,
                                           QMessageBox.StandardButton.Yes |
                                           QMessageBox.StandardButton.No)
             if reply == QMessageBox.StandardButton.Yes:
@@ -545,12 +546,12 @@ class MilestoneStatsWindow(DialogBase):
 
         total = len(self._entry_rows)
         self._entry_status.setText(
-            f"共生成 {total} 行（{len(bvids)} 视频 × {len(periods)} 周期），填写后点击「保存全部」"
+            f"♪ 共生成 {total} 行（{len(bvids)} 视频 × {len(periods)} 周期),填好后点「保存全部」哦"
         )
 
     def _save_all(self):
         if not self._entry_rows:
-            QMessageBox.warning(self, "提示", "请先生成输入表")
+            QMessageBox.warning(self, "♪ 提示", "先点「生成输入表」哦,天依才能帮你记录 ♪")
             return
         saved = skipped = errors = 0
         for row in self._entry_rows:
@@ -563,17 +564,17 @@ class MilestoneStatsWindow(DialogBase):
                 saved += 1
             else:
                 errors += 1
-        msg = f"✓ 已保存 {saved} 条"
+        msg = f"✓ 已保存 {saved} 条!♪"
         if skipped:
-            msg += f"，跳过 {skipped} 条（播放量为空）"
+            msg += f"，跳过 {skipped} 条（播放量空空的哦）"
         if errors:
-            msg += f"，失败 {errors} 条"
+            msg += f"，呜…失败 {errors} 条"
         color = C["success"] if not errors else C["warning"]
         self._entry_status.setText(msg)
         self._entry_status.setStyleSheet(f"color: {color}; background: transparent;")
         if saved:
             self._reload_comparison()
-            QMessageBox.information(self, "保存完成", msg)
+            QMessageBox.information(self, "保存完成 ♪", msg)
 
     # ── 对比标签页 ──────────────────────────────────────
     def _build_compare_tab(self):
@@ -640,12 +641,12 @@ class MilestoneStatsWindow(DialogBase):
         """)
         ff_layout.addWidget(self._filter_entry)
 
-        hint = QLabel("（BV号关键词，逗号分隔）")
+        hint = QLabel("（BV号关键词,逗号分隔 ♪）")
         hint.setFont(FONT_SM)
         hint.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
         ff_layout.addWidget(hint)
 
-        filter_btn = QPushButton("应用筛选")
+        filter_btn = QPushButton("应用筛选 ♪")
         filter_btn.clicked.connect(self._redraw_compare)
         ff_layout.addWidget(filter_btn)
 
@@ -662,7 +663,7 @@ class MilestoneStatsWindow(DialogBase):
         tbl_layout = QVBoxLayout(tbl_frame)
         tbl_layout.setContentsMargins(0, 8, 0, 0)
 
-        tbl_title = QLabel("明细数据")
+        tbl_title = QLabel("明细数据 ♪")
         tbl_title.setFont(FONT_SM)
         tbl_title.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
         tbl_layout.addWidget(tbl_title)
@@ -730,7 +731,7 @@ class MilestoneStatsWindow(DialogBase):
             QMenu::item {{ padding: 6px 28px; font-size: 9pt; }}
             QMenu::item:selected {{ background-color: {C['bg_hover']}; }}
         """)
-        action = QAction("删除选中行所有里程碑", self)
+        action = QAction("删除选中行的所有里程碑 ♪", self)
         action.triggered.connect(self._delete_selected)
         menu.addAction(action)
         vp = self._tbl.viewport()
@@ -781,8 +782,8 @@ class MilestoneStatsWindow(DialogBase):
         sel = self._tbl.selectedItems()
         if not sel:
             return
-        msg = f"确认删除 {len(sel)} 个视频的所有里程碑记录？"
-        reply = QMessageBox.question(self, "确认", msg,
+        msg = lty_voice.confirm_delete(f"{len(sel)} 个视频的所有里程碑记录")
+        reply = QMessageBox.question(self, "确认 ♪", msg,
                                       QMessageBox.StandardButton.Yes |
                                       QMessageBox.StandardButton.No)
         if reply != QMessageBox.StandardButton.Yes:
@@ -797,7 +798,7 @@ class MilestoneStatsWindow(DialogBase):
         data = self._apply_compare_filter()
         if not data:
             self._chart.set_data({}, "", "", [], 0, self._set_cmp_status)
-            self._cmp_status.setText("无数据")
+            self._cmp_status.setText(lty_voice.no_data())
             return
 
         bvids = sorted(data.keys())

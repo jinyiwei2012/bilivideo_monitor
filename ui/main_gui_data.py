@@ -109,7 +109,7 @@ def restore_video(gui, video):
     gui._video_index[bvid] = video
     gui.video_list.make_card(video)
     gui.video_list.update_video_count()
-    gui._sb("videos", f"监控: {len(gui.monitored_videos)} 个")
+    gui._sb("videos", f"监控: {len(gui.monitored_videos)} 个视频 ♪")
     gui._register_video_timer(bvid)
 
 
@@ -149,7 +149,7 @@ def register_video_to_monitor(gui, video):
     gui._video_index[bvid] = video
     gui.video_list.make_card(video)
     gui.video_list.update_video_count()
-    gui._sb("videos", f"监控: {len(gui.monitored_videos)} 个")
+    gui._sb("videos", f"监控: {len(gui.monitored_videos)} 个视频 ♪")
     gui._register_video_timer(bvid)
     # 新视频立即触发一次拉取
     from ui.monitor import fetch_single_video_data
@@ -158,18 +158,18 @@ def register_video_to_monitor(gui, video):
 
 def prompt_backup_sync(gui, diffs, db):
     """数据目录差异弹窗，让用户选择保留哪边的数据（必须在主线程调用）"""
-    msg = [f"检测到 {len(diffs)} 个视频在 core/data/ 与 data/ 中存在数据差异：", ""]
+    msg = [f"天依发现 {len(diffs)} 个视频在 core/data/ 与 data/ 里的数据不太一样哦:", ""]
     for d in diffs[:10]:
         dir_label = "主库更多" if d["primary_records"] > d["backup_records"] else "备份更多"
         msg.append(f"  {d['bvid']}: core/data/={d['primary_records']}条  data/={d['backup_records']}条 ({dir_label})")
     if len(diffs) > 10:
         msg.append(f"  ... 等 {len(diffs)} 个")
     msg.append("")
-    msg.append("是否将 core/data/ 的数据同步到 data/？")
+    msg.append("要把 core/data/ 的数据同步到 data/ 吗?天依听你的 ♪")
 
     choice = QMessageBox.question(
         gui,
-        "数据库差异检测",
+        "数据库差异检测 ♪",
         "\n".join(msg),
         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         QMessageBox.StandardButton.No,
