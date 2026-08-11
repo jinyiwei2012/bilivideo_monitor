@@ -105,181 +105,169 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
         """返回原始连接（用于需要直接操作的场景）"""
         return self._conn
 
+    # ── 共享 schema 定义 (主库与镜像库单点维护) ──────────────────
+    # 每项: (sql, tolerant); tolerant=True 时执行失败仅跳过 (如 UNIQUE 索引遇重复数据)
+    SCHEMA_STATEMENTS = [
+        ("""
+            CREATE TABLE IF NOT EXISTS video_info (
+                id INTEGER PRIMARY KEY,
+                title TEXT,
+                view_count INTEGER DEFAULT 0,
+                like_count INTEGER DEFAULT 0,
+                coin_count INTEGER DEFAULT 0,
+                share_count INTEGER DEFAULT 0,
+                favorite_count INTEGER DEFAULT 0,
+                danmaku_count INTEGER DEFAULT 0,
+                reply_count INTEGER DEFAULT 0,
+                viewers_app INTEGER DEFAULT 0,
+                viewers_web INTEGER DEFAULT 0,
+                viewers_total INTEGER DEFAULT 0,
+                cover_path TEXT,
+                like_view_ratio REAL DEFAULT 0,
+                owner_name TEXT,
+                owner_id INTEGER,
+                pubdate TEXT,
+                duration INTEGER,
+                pic TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """, False),
+        ("""
+            CREATE TABLE IF NOT EXISTS monitor_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                view_count INTEGER,
+                like_count INTEGER,
+                coin_count INTEGER,
+                share_count INTEGER,
+                favorite_count INTEGER,
+                danmaku_count INTEGER,
+                reply_count INTEGER,
+                viewers_app INTEGER DEFAULT 0,
+                viewers_web INTEGER DEFAULT 0,
+                viewers_total INTEGER DEFAULT 0,
+                like_view_ratio REAL DEFAULT 0
+            )
+        """, False),
+        ("""
+            CREATE TABLE IF NOT EXISTS predictions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                algorithm TEXT,
+                algorithm_id TEXT,
+                target_threshold INTEGER,
+                predicted_seconds INTEGER,
+                predicted_time TIMESTAMP,
+                confidence REAL,
+                current_views INTEGER,
+                metadata TEXT DEFAULT '',
+                predicted_hours REAL DEFAULT 0,
+                current_velocity REAL DEFAULT 0,
+                is_reached BOOLEAN DEFAULT 0,
+                actual_time TIMESTAMP,
+                error_rate REAL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """, False),
+        # 已有重复数据时 UNIQUE 索引创建会失败（罕见），由后续清理修复
+        ("CREATE UNIQUE INDEX IF NOT EXISTS idx_predict_unique ON predictions(algorithm, target_threshold)", True),
+        ("""
+            CREATE TABLE IF NOT EXISTS algorithm_performance (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                algorithm TEXT NOT NULL,
+                bvid TEXT NOT NULL,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                predicted_value REAL,
+                actual_value REAL,
+                error_rate REAL,
+                weight REAL DEFAULT 1.0,
+                confidence REAL DEFAULT 0.5
+            )
+        """, False),
+        ("CREATE INDEX IF NOT EXISTS idx_algo_perf_algorithm ON algorithm_performance(algorithm)", False),
+        ("CREATE INDEX IF NOT EXISTS idx_algo_perf_bvid ON algorithm_performance(bvid)", False),
+        ("CREATE INDEX IF NOT EXISTS idx_monitor_timestamp ON monitor_records(timestamp)", False),
+        ("""
+            CREATE TABLE IF NOT EXISTS weekly_scores (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                total_score REAL,
+                view_score REAL,
+                interaction_score REAL,
+                favorite_score REAL,
+                coin_score REAL,
+                like_score REAL,
+                correction_a REAL,
+                correction_b REAL,
+                correction_c REAL,
+                correction_d REAL,
+                base_view_score REAL
+            )
+        """, False),
+        ("CREATE INDEX IF NOT EXISTS idx_weekly_timestamp ON weekly_scores(timestamp)", False),
+        ("""
+            CREATE TABLE IF NOT EXISTS yearly_scores (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                total_score REAL,
+                view_score REAL,
+                interaction_score REAL,
+                favorite_score REAL,
+                coin_score REAL,
+                like_score REAL,
+                correction_a REAL,
+                correction_b REAL,
+                correction_c REAL
+            )
+        """, False),
+        ("CREATE INDEX IF NOT EXISTS idx_yearly_timestamp ON yearly_scores(timestamp)", False),
+        ("""
+            CREATE TABLE IF NOT EXISTS danmaku_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bvid TEXT NOT NULL,
+                oid INTEGER NOT NULL,
+                segment_index INTEGER DEFAULT 0,
+                dmid INTEGER DEFAULT 0,
+                id_str TEXT DEFAULT '',
+                content TEXT NOT NULL,
+                video_ts REAL DEFAULT 0,
+                mode INTEGER DEFAULT 1,
+                font_size INTEGER DEFAULT 25,
+                color INTEGER DEFAULT 16777215,
+                send_time INTEGER DEFAULT 0,
+                weight INTEGER DEFAULT 1,
+                uid TEXT DEFAULT '',
+                like_count INTEGER DEFAULT 0,
+                pool INTEGER DEFAULT 0,
+                dm_from INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """, False),
+        ("CREATE INDEX IF NOT EXISTS idx_danmaku_bvid ON danmaku_records(bvid)", False),
+        ("CREATE INDEX IF NOT EXISTS idx_danmaku_segment ON danmaku_records(bvid, oid, segment_index)", False),
+        # dmid 列可能尚未迁移（将在下方 v3 迁移中处理）
+        ("CREATE INDEX IF NOT EXISTS idx_danmaku_dmid ON danmaku_records(dmid) WHERE dmid > 0", True),
+        # 去重：优先用 dmid（Proto 唯一弹幕ID），回退用内容指纹
+        ("CREATE UNIQUE INDEX IF NOT EXISTS idx_danmaku_unique ON danmaku_records(bvid, oid, dmid)", True),
+    ]
+
+    @staticmethod
+    def _apply_schema(cursor) -> None:
+        """在指定 cursor 上执行共享 schema 定义 (主库/镜像库共用)。"""
+        for sql, tolerant in VideoDatabase.SCHEMA_STATEMENTS:
+            try:
+                cursor.execute(sql)
+            except Exception as e:  # noqa: BLE001
+                if not tolerant:
+                    raise
+                logger.debug("schema 语句跳过(容忍): %.80s | %s", sql, e)
+
     def _init_db(self):
         """初始化数据库：创建所需的表、索引，并执行 schema 迁移"""
         with self._get_connection() as conn:
             cursor = conn.cursor()
 
-            # 视频信息表（id 固定为 1，每库一条）
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS video_info (
-                    id INTEGER PRIMARY KEY,
-                    title TEXT,
-                    view_count INTEGER DEFAULT 0,
-                    like_count INTEGER DEFAULT 0,
-                    coin_count INTEGER DEFAULT 0,
-                    share_count INTEGER DEFAULT 0,
-                    favorite_count INTEGER DEFAULT 0,
-                    danmaku_count INTEGER DEFAULT 0,
-                    reply_count INTEGER DEFAULT 0,
-                    viewers_app INTEGER DEFAULT 0,
-                    viewers_web INTEGER DEFAULT 0,
-                    viewers_total INTEGER DEFAULT 0,
-                    cover_path TEXT,
-                    like_view_ratio REAL DEFAULT 0,
-                    owner_name TEXT,
-                    owner_id INTEGER,
-                    pubdate TEXT,
-                    duration INTEGER,
-                    pic TEXT,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-
-            # 监控记录表（每次采集新增一条）
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS monitor_records (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    view_count INTEGER,
-                    like_count INTEGER,
-                    coin_count INTEGER,
-                    share_count INTEGER,
-                    favorite_count INTEGER,
-                    danmaku_count INTEGER,
-                    reply_count INTEGER,
-                    viewers_app INTEGER DEFAULT 0,
-                    viewers_web INTEGER DEFAULT 0,
-                    viewers_total INTEGER DEFAULT 0,
-                    like_view_ratio REAL DEFAULT 0
-                )
-            """)
-
-            # 预测记录表：UNIQUE 约束防止每次预测运行产生重复行
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS predictions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    algorithm TEXT,
-                    algorithm_id TEXT,
-                    target_threshold INTEGER,
-                    predicted_seconds INTEGER,
-                    predicted_time TIMESTAMP,
-                    confidence REAL,
-                    current_views INTEGER,
-                    metadata TEXT DEFAULT '',
-                    predicted_hours REAL DEFAULT 0,
-                    current_velocity REAL DEFAULT 0,
-                    is_reached BOOLEAN DEFAULT 0,
-                    actual_time TIMESTAMP,
-                    error_rate REAL DEFAULT 0,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            try:
-                cursor.execute(
-                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_predict_unique "
-                    "ON predictions(algorithm, target_threshold)"
-                )
-            except Exception:
-                # 已有重复数据时 UNIQUE 索引创建会失败（罕见），由后续清理修复
-                pass
-
-            # 算法性能跟踪表（用于在线学习模块）
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS algorithm_performance (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    algorithm TEXT NOT NULL,
-                    bvid TEXT NOT NULL,
-                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    predicted_value REAL,
-                    actual_value REAL,
-                    error_rate REAL,
-                    weight REAL DEFAULT 1.0,
-                    confidence REAL DEFAULT 0.5
-                )
-            """)
-
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_algo_perf_algorithm ON algorithm_performance(algorithm)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_algo_perf_bvid ON algorithm_performance(bvid)")
-
-            # 监控记录时间索引，加速时间范围查询
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_monitor_timestamp ON monitor_records(timestamp)")
-
-            # 周刊分数记录表
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS weekly_scores (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    total_score REAL,
-                    view_score REAL,
-                    interaction_score REAL,
-                    favorite_score REAL,
-                    coin_score REAL,
-                    like_score REAL,
-                    correction_a REAL,
-                    correction_b REAL,
-                    correction_c REAL,
-                    correction_d REAL,
-                    base_view_score REAL
-                )
-            """)
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_weekly_timestamp ON weekly_scores(timestamp)")
-
-            # 年刊分数记录表
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS yearly_scores (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    total_score REAL,
-                    view_score REAL,
-                    interaction_score REAL,
-                    favorite_score REAL,
-                    coin_score REAL,
-                    like_score REAL,
-                    correction_a REAL,
-                    correction_b REAL,
-                    correction_c REAL
-                )
-            """)
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_yearly_timestamp ON yearly_scores(timestamp)")
-
-            # 弹幕记录表（实时弹幕拉取 + 供分析模块查询）
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS danmaku_records (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    bvid TEXT NOT NULL,
-                    oid INTEGER NOT NULL,
-                    segment_index INTEGER DEFAULT 0,
-                    dmid INTEGER DEFAULT 0,
-                    id_str TEXT DEFAULT '',
-                    content TEXT NOT NULL,
-                    video_ts REAL DEFAULT 0,
-                    mode INTEGER DEFAULT 1,
-                    font_size INTEGER DEFAULT 25,
-                    color INTEGER DEFAULT 16777215,
-                    send_time INTEGER DEFAULT 0,
-                    weight INTEGER DEFAULT 1,
-                    uid TEXT DEFAULT '',
-                    like_count INTEGER DEFAULT 0,
-                    pool INTEGER DEFAULT 0,
-                    dm_from INTEGER DEFAULT 0,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_danmaku_bvid ON danmaku_records(bvid)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_danmaku_segment ON danmaku_records(bvid, oid, segment_index)")
-            try:
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_danmaku_dmid ON danmaku_records(dmid) WHERE dmid > 0")
-            except sqlite3.OperationalError:
-                pass  # dmid 列可能尚未迁移（将在下方 v3 迁移中处理）
-            # 去重：优先用 dmid（Proto 唯一弹幕ID），回退用内容指纹
-            try:
-                cursor.execute(
-                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_danmaku_unique "
-                    "ON danmaku_records(bvid, oid, dmid)"
-                )
-            except Exception:
-                pass  # 已有重复数据导致创建失败，由迁移流程清理后重试
+            # 建表 + 索引 (schema 单点定义见 SCHEMA_STATEMENTS)
+            self._apply_schema(cursor)
 
             # 数据库迁移：逐库检查 schema 版本（通过 PRAGMA user_version）
             cursor.execute("PRAGMA user_version")
@@ -306,117 +294,15 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
         self._central_db = central_db
 
     def _init_mirror_tables(self):
-        """在镜像连接上创建与主库相同的表结构（仅当镜像连接存在时）"""
+        """在镜像连接上创建与主库相同的表结构（仅当镜像连接存在时）。
+
+        schema 单点定义见 SCHEMA_STATEMENTS, 与主库共用。
+        """
         if not self._mirror_conn:
             return
         try:
             mirror_cur = self._mirror_conn.cursor()
-            # 与 _init_db 中相同的 CREATE TABLE IF NOT EXISTS 语句
-            mirror_cur.execute("""
-                CREATE TABLE IF NOT EXISTS video_info (
-                    id INTEGER PRIMARY KEY, title TEXT, view_count INTEGER DEFAULT 0,
-                    like_count INTEGER DEFAULT 0, coin_count INTEGER DEFAULT 0,
-                    share_count INTEGER DEFAULT 0, favorite_count INTEGER DEFAULT 0,
-                    danmaku_count INTEGER DEFAULT 0, reply_count INTEGER DEFAULT 0,
-                    viewers_app INTEGER DEFAULT 0, viewers_web INTEGER DEFAULT 0,
-                    viewers_total INTEGER DEFAULT 0, cover_path TEXT,
-                    like_view_ratio REAL DEFAULT 0, owner_name TEXT, owner_id INTEGER,
-                    pubdate TEXT, duration INTEGER, pic TEXT,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            mirror_cur.execute("""
-                CREATE TABLE IF NOT EXISTS monitor_records (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    view_count INTEGER, like_count INTEGER, coin_count INTEGER,
-                    share_count INTEGER, favorite_count INTEGER, danmaku_count INTEGER,
-                    reply_count INTEGER, viewers_app INTEGER DEFAULT 0,
-                    viewers_web INTEGER DEFAULT 0, viewers_total INTEGER DEFAULT 0,
-                    like_view_ratio REAL DEFAULT 0
-                )
-            """)
-            mirror_cur.execute("""
-                CREATE TABLE IF NOT EXISTS predictions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    algorithm TEXT, algorithm_id TEXT, target_threshold INTEGER,
-                    predicted_seconds INTEGER, predicted_time TIMESTAMP,
-                    confidence REAL, current_views INTEGER,
-                    metadata TEXT DEFAULT '', predicted_hours REAL DEFAULT 0,
-                    current_velocity REAL DEFAULT 0, is_reached BOOLEAN DEFAULT 0,
-                    actual_time TIMESTAMP, error_rate REAL DEFAULT 0,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            mirror_cur.execute(
-                "CREATE UNIQUE INDEX IF NOT EXISTS idx_mirror_predict_unique "
-                "ON predictions(algorithm, target_threshold)"
-            )
-            mirror_cur.execute("""
-                CREATE TABLE IF NOT EXISTS weekly_scores (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    total_score REAL, view_score REAL, interaction_score REAL,
-                    favorite_score REAL, coin_score REAL, like_score REAL,
-                    correction_a REAL, correction_b REAL, correction_c REAL,
-                    correction_d REAL, base_view_score REAL
-                )
-            """)
-            mirror_cur.execute("""
-                CREATE TABLE IF NOT EXISTS yearly_scores (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    total_score REAL, view_score REAL, interaction_score REAL,
-                    favorite_score REAL, coin_score REAL, like_score REAL,
-                    correction_a REAL, correction_b REAL, correction_c REAL
-                )
-            """)
-            mirror_cur.execute("""
-                CREATE TABLE IF NOT EXISTS algorithm_performance (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    algorithm TEXT NOT NULL, bvid TEXT NOT NULL,
-                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    predicted_value REAL, actual_value REAL,
-                    error_rate REAL, weight REAL DEFAULT 1.0,
-                    confidence REAL DEFAULT 0.5
-                )
-            """)
-            mirror_cur.execute("CREATE INDEX IF NOT EXISTS idx_monitor_timestamp ON monitor_records(timestamp)")
-            mirror_cur.execute("CREATE INDEX IF NOT EXISTS idx_weekly_timestamp ON weekly_scores(timestamp)")
-            mirror_cur.execute("CREATE INDEX IF NOT EXISTS idx_yearly_timestamp ON yearly_scores(timestamp)")
-            mirror_cur.execute("""
-                CREATE TABLE IF NOT EXISTS danmaku_records (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    bvid TEXT NOT NULL, oid INTEGER NOT NULL,
-                    segment_index INTEGER DEFAULT 0,
-                    dmid INTEGER DEFAULT 0, id_str TEXT DEFAULT '',
-                    content TEXT NOT NULL, video_ts REAL DEFAULT 0,
-                    mode INTEGER DEFAULT 1, font_size INTEGER DEFAULT 25,
-                    color INTEGER DEFAULT 16777215, send_time INTEGER DEFAULT 0,
-                    weight INTEGER DEFAULT 1, uid TEXT DEFAULT '',
-                    like_count INTEGER DEFAULT 0, pool INTEGER DEFAULT 0,
-                    dm_from INTEGER DEFAULT 0,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            mirror_cur.execute("CREATE INDEX IF NOT EXISTS idx_danmaku_bvid ON danmaku_records(bvid)")
-            mirror_cur.execute("CREATE INDEX IF NOT EXISTS idx_danmaku_segment ON danmaku_records(bvid, oid, segment_index)")
-            mirror_cur.execute("CREATE INDEX IF NOT EXISTS idx_danmaku_dmid ON danmaku_records(dmid) WHERE dmid > 0")
-            try:
-                mirror_cur.execute(
-                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_danmaku_unique "
-                    "ON danmaku_records(bvid, oid, dmid)"
-                )
-            except Exception:
-                pass
-            try:
-                mirror_cur.execute(
-                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_predict_unique "
-                    "ON predictions(algorithm, target_threshold)"
-                )
-            except Exception:
-                # 镜像库已有重复数据时 UNIQUE 索引创建会失败，由后续清理修复
-                pass
+            self._apply_schema(mirror_cur)
             self._mirror_conn.commit()
         except Exception as e:
             logger.warning("初始化镜像数据库表失败 %s: %s", self.bvid, e, exc_info=True)
