@@ -119,21 +119,18 @@ class WeightManager:
         except Exception as e:
             logger.warning("保存权重失败: %s", e)
 
-    @staticmethod
-    def _write_weights_file(data: dict, bvid: str = None):
-        """执行实际的文件写入（静态方法，可在后台线程中调用）。
+    def _write_weights_file(self, data: dict, bvid: str = None):
+        """执行实际的文件写入（可在后台线程中调用）。
 
         Args:
             data: 要写入的权重数据字典
             bvid: 视频 BV 号（可选，用于多视频隔离）
         """
         try:
-            from utils import project_path
-
             if bvid:
-                fpath = os.path.join(project_path("algorithms", "weights"), f"{bvid}_weights.json")
+                fpath = os.path.join(self.save_dir, f"{bvid}_weights.json")
             else:
-                fpath = os.path.join(project_path("algorithms", "weights"), "default_weights.json")
+                fpath = os.path.join(self.save_dir, "default_weights.json")
             os.makedirs(os.path.dirname(fpath), exist_ok=True)
             with open(fpath, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)

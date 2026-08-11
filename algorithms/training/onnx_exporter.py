@@ -101,6 +101,7 @@ def export_to_onnx(
     Returns:
         str or None: ONNX 文件路径，失败返回 None
     """
+    global _onnx_export_broken
     if not _onnx_available:
         logger.debug("[ONNX] onnxruntime 未安装，跳过导出")
         return None
@@ -138,7 +139,6 @@ def export_to_onnx(
         return onnx_path
     except (ImportError, AttributeError, ModuleNotFoundError) as e:
         # torch.onnx 内部 API 不兼容（如 torch >= 2.6 重构），永久跳过
-        global _onnx_export_broken
         _onnx_export_broken = True
         logger.warning("[ONNX] torch.onnx 不兼容，已禁用 ONNX 导出: %s", e)
         return None
