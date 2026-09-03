@@ -116,20 +116,20 @@ class LogisticGrowthAlgorithm(BaseAlgorithm):
             if len(times) < 3:
                 return None
 
-            # 拟合Logistic曲线
-            self._fit_curve(times, views, video_info)
+            # 拟合Logistic曲线（返回局部参数，避免共享实例状态在并发下互相污染）
+            K, r, t0 = self._fit_curve(times, views, video_info)
 
             # 如果已达到目标
             if current_views >= target_views:
                 return (0, 1.0)
 
             # 检查目标是否可达：如果目标超过承载能力的99%，需要调整K
-            if target_views >= self.K * 0.99:
-                self.K = target_views * 1.2  # 临时上调承载能力
+            if target_views >= K * 0.99:
+                K = target_views * 1.2  # 临时上调承载能力
 
             # 预测时间
             current_t = times[-1]  # 当前数据对应的最后时间点
-            target_t = self._find_time_for_views(target_views)
+            target_t = self._find_time_for_views(target_views, K, r, t0)
 
             if target_t is None:
                 return None  # 目标不可达
@@ -142,7 +142,7 @@ class LogisticGrowthAlgorithm(BaseAlgorithm):
                 return None
 
             seconds_needed = int(days_needed * 86400)  # 天转秒
-            confidence = self._calculate_confidence(times, views)
+            confidence = self._calculate_confidence(times, views, K, r, t0)
 
             return (seconds_needed, confidence)
 
@@ -175,44 +175,49 @@ class LogisticGrowthAlgorithm(BaseAlgorithm):
         """
         return K / (1 + np.exp(-r * (t - t0)))
 
-    def _fit_curve(self, times: np.ndarray, views: np.ndarray, video_info: Dict[str, Any]):
-        """拟合Logistic曲线
+    def _fit_curve(self, times: np.ndarray, views: np.ndarray, video_info: Dict[str, Any]) -> Tuple[float, float, float]:
+        """拟合Logistic曲线，返回 (K, r, t0)。
 
         使用 scipy.curve_fit 对历史数据进行非线性最小二乘拟合，
         估计模型参数 K、r、t0。数据点不足时使用启发式参数。
+        参数作为局部值返回，不写入实例状态（避免单例共享可变状态）。
 
         Args:
             times: 时间数组（天）
             views: 播放量数组
             video_info: 视频信息，用于启发式参数估计（如粉丝数）
+
+        Returns:
+            (K, r, t0): 拟合得到的模型参数
         """
         # 数据点太少时跳过 curve_fit，直接使用启发式参数
         if len(times) < self._min_curvefit_points:
-            self.K = max(views) * 3  # 承载能力 = 最大播放量的3倍
-            self.r = 0.15  # 默认增长率
-            self.t0 = np.median(times) if len(times) > 0 else 30  # 拐点取时间中值
+            K = max(views) * 3  # 承载能力 = 最大播放量的3倍
+            r = 0.15  # 默认增长率
+            t0 = float(np.median(times)) if len(times) > 0 else 30  # 拐点取时间中值
             if "follower" in video_info:
-                self.K = max(self.K, video_info["follower"] * 2.5)
-            return
+                K = max(K, video_info["follower"] * 2.5)
+            return K, r, t0
 
         K_est = max(views) * 2.5
         r_est = 0.2
-        t0_est = np.median(times)
+        t0_est = float(np.median(times))
 
         p0 = [K_est, r_est, t0_est]
         bounds = ([max(views), 0.01, 0], [K_est * 10, 2.0, times[-1] * 5])
 
         popt, success = self._safe_curve_fit(self._logistic, times, views, p0, bounds, maxfev=5000)
         if success:
-            self.K, self.r, self.t0 = popt
+            return float(popt[0]), float(popt[1]), float(popt[2])
         else:
-            self.K = max(views) * 3
-            self.r = 0.15
-            self.t0 = np.median(times) if len(times) > 0 else 30
+            K = max(views) * 3
+            r = 0.15
+            t0 = float(np.median(times)) if len(times) > 0 else 30
             if "follower" in video_info:
-                self.K = max(self.K, video_info["follower"] * 2.5)
+                K = max(K, video_info["follower"] * 2.5)
+            return K, r, t0
 
-    def _find_time_for_views(self, target_views: int) -> Optional[float]:
+    def _find_time_for_views(self, target_views: int, K: float, r: float, t0: float) -> Optional[float]:
         """找到达到目标播放量所需时间
 
         通过反解Logistic方程计算达到指定播放量所需的天数。
@@ -226,24 +231,27 @@ class LogisticGrowthAlgorithm(BaseAlgorithm):
 
         Args:
             target_views: 目标播放量
+            K: 承载能力
+            r: 增长率
+            t0: 拐点位置（天）
 
         Returns:
             Optional[float]: 到达目标所需天数，None表示目标不可达
         """
         try:
             # 计算 K/V - 1
-            ratio = self.K / target_views - 1
+            ratio = K / target_views - 1
             if ratio <= 0:
                 return None  # 目标超过承载能力，不可达
             # t = t0 - ln(ratio) / r
-            t = self.t0 - np.log(ratio) / self.r
+            t = t0 - np.log(ratio) / r
             return max(0, t)  # 确保非负
         except Exception:
             return None
 
-    def _calculate_confidence(self, times: np.ndarray, views: np.ndarray) -> float:
+    def _calculate_confidence(self, times: np.ndarray, views: np.ndarray, K: float, r: float, t0: float) -> float:
         n_points = len(times)
-        predicted = self._logistic(times, self.K, self.r, self.t0)
+        predicted = self._logistic(times, K, r, t0)
         return self._growth_confidence(n_points, predicted, views, 0.03)
 
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:

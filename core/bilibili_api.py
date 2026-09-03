@@ -136,6 +136,9 @@ class BilibiliAPI(_RequestMixin, _AuthMixin, _VideoMixin, _UpMixin):
         self._active_account_idx: int = -1
         self._account_name: str = "默认"
 
+        # 登录态标记：收到 api_code=-101（未登录）时置 True，供上层提示重新登录
+        self._logged_out = False
+
         # 随机 buvid（模拟不同设备指纹，降低 412 概率）
         self._buvid3 = self._gen_buvid()
         self._buvid4 = self._gen_buvid()
@@ -360,14 +363,18 @@ class BilibiliAPI(_RequestMixin, _AuthMixin, _VideoMixin, _UpMixin):
             self._refresh_wbi_key()
         if not self._wbi_key:
             return params
+        import hashlib
+
+        # 标准 WBI 算法（对照 bilibili-api-python _enc_wbi）：
+        # 先把 wts 加入参数，再排序拼接 + mixin_key，最后 md5。
+        # wts 不参与哈希会导致服务端验签失败（-403）。
+        params = dict(params)
+        params["wts"] = int(time.time())
         sorted_params = sorted(params.items())
         query = "&".join(f"{k}={v}" for k, v in sorted_params)
         query += self._wbi_key
-        import hashlib
 
-        wts = int(time.time())
         w_rid = hashlib.md5(query.encode(), usedforsecurity=False).hexdigest()
-        params["wts"] = wts
         params["w_rid"] = w_rid
         return params
 

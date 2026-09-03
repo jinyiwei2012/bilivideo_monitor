@@ -125,8 +125,8 @@ class GompertzGrowthAlgorithm(BaseAlgorithm):
             if len(times) < 3:
                 return None
 
-            # 拟合Gompertz曲线，估计参数a、b、c
-            self._fit_curve(times, views, video_info)
+            # 拟合Gompertz曲线，估计参数a、b、c（返回局部变量，避免单例竞态）
+            a, b, c = self._fit_curve(times, views, video_info)
 
             # 如果已达到目标，直接返回预测时间0
             if current_views >= target_views:
@@ -134,7 +134,7 @@ class GompertzGrowthAlgorithm(BaseAlgorithm):
 
             # 反解方程找到达到目标播放量所需的时间点
             current_t = times[-1]  # 当前时间（天）
-            target_t = self._find_time_for_views(target_views)
+            target_t = self._find_time_for_views(target_views, a, b, c)
 
             if target_t is None:
                 return None  # 目标不可达
@@ -147,7 +147,7 @@ class GompertzGrowthAlgorithm(BaseAlgorithm):
                 return None
 
             seconds_needed = int(days_needed * 86400)  # 天转秒
-            confidence = self._calculate_confidence(times, views)
+            confidence = self._calculate_confidence(times, views, a, b, c)
 
             return (seconds_needed, confidence)
 
@@ -180,26 +180,30 @@ class GompertzGrowthAlgorithm(BaseAlgorithm):
         """
         return a * np.exp(-b * np.exp(-c * t))
 
-    def _fit_curve(self, times: np.ndarray, views: np.ndarray, video_info: Dict[str, Any]):
-        """拟合Gompertz曲线
+    def _fit_curve(self, times: np.ndarray, views: np.ndarray, video_info: Dict[str, Any]) -> Tuple[float, float, float]:
+        """拟合Gompertz曲线，返回 (a, b, c)。
 
         使用 scipy.curve_fit 对历史数据进行非线性最小二乘拟合，
         估计模型参数 a、b、c。数据点不足时使用启发式参数。
+        参数作为局部值返回，不写入实例状态（避免单例共享可变状态）。
 
         Args:
             times: 时间数组（天）
             views: 播放量数组
             video_info: 视频信息，用于启发式参数估计（如粉丝数）
+
+        Returns:
+            (a, b, c): 拟合得到的模型参数
         """
         # 数据点不足：使用启发式参数估计
         if len(times) < self._min_curvefit_points:
-            self.a = max(views) * 2.5  # 渐近线 = 最大播放量的2.5倍
-            self.b = 4.0
-            self.c = 0.15
+            a = max(views) * 2.5  # 渐近线 = 最大播放量的2.5倍
+            b = 4.0
+            c = 0.15
             if "follower" in video_info:
                 # 如果知道粉丝数，用它作为容量的下界
-                self.a = max(self.a, video_info["follower"] * 2)
-            return
+                a = max(a, video_info["follower"] * 2)
+            return a, b, c
 
         max_views = max(views) * 3
         p0 = [max_views, 5.0, 0.1]
@@ -208,15 +212,16 @@ class GompertzGrowthAlgorithm(BaseAlgorithm):
 
         popt, success = self._safe_curve_fit(self._gompertz, times, views, p0, bounds, maxfev=5000)
         if success:
-            self.a, self.b, self.c = popt
+            return float(popt[0]), float(popt[1]), float(popt[2])
         else:
-            self.a = max(views) * 2.5
-            self.b = 4.0
-            self.c = 0.15
+            a = max(views) * 2.5
+            b = 4.0
+            c = 0.15
             if "follower" in video_info:
-                self.a = max(self.a, video_info["follower"] * 2)
+                a = max(a, video_info["follower"] * 2)
+            return a, b, c
 
-    def _find_time_for_views(self, target_views: int) -> Optional[float]:
+    def _find_time_for_views(self, target_views: int, a: float, b: float, c: float) -> Optional[float]:
         """找到达到目标播放量所需时间
 
         通过反解Gompertz方程计算达到指定播放量所需的天数。
@@ -230,29 +235,32 @@ class GompertzGrowthAlgorithm(BaseAlgorithm):
 
         Args:
             target_views: 目标播放量
+            a: 渐近线参数
+            b: 位移参数
+            c: 增长率参数
 
         Returns:
             Optional[float]: 到达目标所需天数，None表示目标不可达
             （例如目标超过了渐近线a的99%）
         """
         # 如果目标播放量达到渐近线的99%以上，认为不可达
-        if target_views >= self.a * 0.99:
+        if target_views >= a * 0.99:
             return None
 
         try:
             # 反解公式：inner = -ln(V/a) / b
-            inner = -np.log(target_views / self.a) / self.b
+            inner = -np.log(target_views / a) / b
             if inner <= 0:
                 return None  # ln值异常，目标不可达
             # t = -ln(inner) / c
-            t = -np.log(inner) / self.c
+            t = -np.log(inner) / c
             return max(0, t)
         except Exception:
             return None
 
-    def _calculate_confidence(self, times: np.ndarray, views: np.ndarray) -> float:
+    def _calculate_confidence(self, times: np.ndarray, views: np.ndarray, a: float, b: float, c: float) -> float:
         n_points = len(times)
-        predicted = self._gompertz(times, self.a, self.b, self.c)
+        predicted = self._gompertz(times, a, b, c)
         return self._growth_confidence(n_points, predicted, views, 0.02)
 
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:

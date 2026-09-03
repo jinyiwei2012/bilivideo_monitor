@@ -122,8 +122,8 @@ def _get_video_viewers_fallback(self, bvid: str, cid: int) -> Optional[Dict]:
         online = sync(v.get_online(cid=cid))
         if online:
             return {
-                "total": str(online.get("total", "0")),
-                "count": str(online.get("count", "0")),
+                "total": int(online.get("total") or 0),
+                "count": int(online.get("count") or 0),
                 "show_switch": {},
             }
     except ImportError:

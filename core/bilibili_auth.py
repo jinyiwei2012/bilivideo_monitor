@@ -484,8 +484,9 @@ def poll_qrcode_login(self, qrcode_key: str) -> Optional[Dict]:
             result["message"] = "等待扫码"
             return result
         else:
-            result["status"] = 2
-            result["message"] = "登录成功"
+            result["status"] = -1
+            result["message"] = "未知的扫码状态，请重试"
+            return result
 
         cookies = _extract_login_cookies(self, resp, d)
         if not cookies:

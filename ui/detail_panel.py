@@ -217,8 +217,8 @@ class DetailPanel(_RatioDanmakuMixin):
         self._rendered_modes = set()
         self._chart_fingerprint = None
         self._detail_text_fp = None
-        self._video_index = {}
         self._header_bvid = None  # 缓存当前 header 对应的 bvid，避免重复构建
+        self._header_video = None  # 缓存当前 header 对应的 video 对象（身份校验，防陈旧缓存）
 
         self._build()
 
@@ -447,6 +447,7 @@ class DetailPanel(_RatioDanmakuMixin):
     def _clear_header(self):
         """清空 header 布局中的全部子 widget，保留布局对象以复用"""
         self._header_bvid = None  # 重置 header 缓存
+        self._header_video = None
         layout = self._detail_header.layout()
         if layout:
             while layout.count():
@@ -459,10 +460,11 @@ class DetailPanel(_RatioDanmakuMixin):
     def build_header(self, video):
         """构建视频详情头部"""
         bvid = video.get("bvid", "")
-        if bvid == self._header_bvid:
-            return  # 同一视频，跳过销毁+重建
-        self._header_bvid = bvid
+        if video is self._header_video:
+            return  # 同一视频对象，跳过销毁+重建（身份校验防止缓存返回旧 dict）
         self._clear_header()
+        self._header_bvid = bvid
+        self._header_video = video
         title = video.get("title", "未知标题")
         author = video.get("author", "未知UP主")
         dur_sec = video.get("duration", 0)
@@ -708,15 +710,13 @@ class DetailPanel(_RatioDanmakuMixin):
             self._refresh_danmaku_display()
 
     def _get_selected_video(self):
-        """获取当前选中视频"""
+        """获取当前选中视频（每次现查，避免缓存指向已删除/重建的旧 dict）"""
         bvid = self.gui.selected_bvid
         if not bvid:
             return None
-        if bvid not in self._video_index:
-            self._video_index[bvid] = next(
-                (v for v in self.gui.monitored_videos if v.get("bvid") == bvid), None
-            )
-        return self._video_index[bvid]
+        return next(
+            (v for v in self.gui.monitored_videos if v.get("bvid") == bvid), None
+        )
 
     # ── Chart Rendering ─────────────────────────
 

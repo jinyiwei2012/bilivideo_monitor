@@ -25,6 +25,7 @@ from ui.monitor._prediction import (  # noqa: F401
 
 from ui.monitor._service import (  # noqa: F401
     _stop_all_workers,
+    _stop_predictor,
     fetch_single_video_data,
     fetch_all_video_data,
     auto_predict_all,

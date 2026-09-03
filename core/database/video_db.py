@@ -61,10 +61,14 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
 
         try:
             self._init_db()
-            # 镜像表延迟初始化：首次 _execute_on_all() 写入时才创建连接
         except Exception:
             self._conn.close()
             raise
+        # 镜像库初始化：确保镜像连接可用（失败仅记 debug 日志，不影响主库）
+        try:
+            self._ensure_mirror()
+        except Exception as e:
+            logger.debug("初始化镜像数据库失败 %s: %s", self.bvid, e)
 
     def _get_connection(self):
         """返回线程安全的连接上下文管理器（兼容 with 语法）"""
@@ -456,7 +460,7 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
             video_info.get("viewers_total", 0),
             video_info.get("cover_path", ""),
             video_info.get("like_view_ratio", 0),
-            video_info.get("owner_name", ""),
+            video_info.get("author", ""),
             video_info.get("owner_id", 0),
             video_info.get("pubdate", ""),
             video_info.get("duration", 0),
@@ -648,6 +652,26 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
         # SQLite INTEGER 最大值 (64位带符号)
         _SQLITE_INT_MAX = 2**63 - 1
         _clamp_int = lambda v: min(max(int(v or 0), -_SQLITE_INT_MAX), _SQLITE_INT_MAX)
+
+        def _prediction_params(r):
+            """构造 predictions 行参数，补全 is_reached / actual_time"""
+            views = _clamp_int(r.get("current_views", 0))
+            threshold = _clamp_int(r.get("target_threshold", 0))
+            reached = views >= threshold
+            return (
+                r.get("algorithm", ""),
+                r.get("algorithm_id", ""),
+                threshold,
+                _clamp_int(r.get("predicted_seconds", 0)),
+                r.get("predicted_time", ""),
+                r.get("confidence", 0),
+                views,
+                r.get("metadata", ""),
+                r.get("predicted_hours", 0),
+                r.get("current_velocity", 0),
+                1 if reached else 0,
+                datetime.now().isoformat() if reached else "",
+            )
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -656,24 +680,11 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
                     INSERT OR REPLACE INTO predictions
                     (algorithm, algorithm_id, target_threshold, predicted_seconds,
                      predicted_time, confidence, current_views,
-                     metadata, predicted_hours, current_velocity)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     metadata, predicted_hours, current_velocity,
+                     is_reached, actual_time)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                    [
-                        (
-                            r.get("algorithm", ""),
-                            r.get("algorithm_id", ""),
-                            _clamp_int(r.get("target_threshold", 0)),
-                            _clamp_int(r.get("predicted_seconds", 0)),
-                            r.get("predicted_time", ""),
-                            r.get("confidence", 0),
-                            _clamp_int(r.get("current_views", 0)),
-                            r.get("metadata", ""),
-                            r.get("predicted_hours", 0),
-                            r.get("current_velocity", 0),
-                        )
-                        for r in rows
-                    ],
+                    [_prediction_params(r) for r in rows],
                 )
                 conn.commit()
             # 镜像批量同步（单事务批量写入，避免逐行 commit）
@@ -683,23 +694,10 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
                         """INSERT OR REPLACE INTO predictions
                         (algorithm, algorithm_id, target_threshold, predicted_seconds,
                          predicted_time, confidence, current_views,
-                         metadata, predicted_hours, current_velocity)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                        [
-                            (
-                                r.get("algorithm", ""),
-                                r.get("algorithm_id", ""),
-                                r.get("target_threshold", 0),
-                                r.get("predicted_seconds", 0),
-                                r.get("predicted_time", ""),
-                                r.get("confidence", 0),
-                                r.get("current_views", 0),
-                                r.get("metadata", ""),
-                                r.get("predicted_hours", 0),
-                                r.get("current_velocity", 0),
-                            )
-                            for r in rows
-                        ],
+                         metadata, predicted_hours, current_velocity,
+                         is_reached, actual_time)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        [_prediction_params(r) for r in rows],
                     )
                     self._mirror_conn.commit()
                 except Exception as e:

@@ -378,12 +378,12 @@ def auto_activate_on_startup(gui):
             switched = activate_latest_for_all()
             if switched:
                 names = ", ".join(switched.keys())
-                QTimer.singleShot(0, lambda: gui.log_panel.add_log("INFO", f"启动自动激活模型: {switched}"))
-                QTimer.singleShot(0, lambda: gui._sb("status", f"自动激活了 {len(switched)} 个模型哦 ♪ 天依记得它们啦: {names}", C["success"]))
-            QTimer.singleShot(0, lambda: refresh_model_status(gui))
+                invoke(lambda: gui.log_panel.add_log("INFO", f"启动自动激活模型: {switched}"))
+                invoke(lambda: gui._sb("status", f"自动激活了 {len(switched)} 个模型哦 ♪ 天依记得它们啦: {names}", C["success"]))
+            invoke(lambda: refresh_model_status(gui))
         except Exception as e:
             logger.debug("自动激活模型失败: %s", e)
-            QTimer.singleShot(0, lambda: refresh_model_status(gui))
+            invoke(lambda: refresh_model_status(gui))
 
     fire_and_forget(_worker, name="auto-activate")
 
@@ -437,11 +437,9 @@ def start_auto_refresh(gui):
 
 
 def toggle_auto_refresh(gui):
-    """切换自动刷新开关"""
+    """切换自动刷新开关（QCheckBox.toggled 已携带新状态，勿再取反）"""
     cur = gui.auto_refresh_enabled
-    gui.auto_refresh_enabled = not cur
-    gui.bottom_bar._draw_toggle(not cur)
-    if not cur:
+    if cur:
         from ui.main_gui_tick import start_global_tick
 
         start_global_tick(gui)
@@ -639,7 +637,7 @@ def fetch_video_info_and_add(gui, bvid, dialog, status_lbl):
 
     def _fetch():
         info = bilibili_api.get_video_info(bvid)
-        QTimer.singleShot(0, lambda: _done(info))
+        invoke(lambda: _done(info))
 
     def _done(info):
         if not info:
@@ -695,6 +693,9 @@ def remove_monitor(gui):
     gui.monitored_videos = [v for v in gui.monitored_videos if v.get("bvid") != bvid]
     gui._video_index.pop(bvid, None)
     gui.video_list.remove_card(bvid)
+    # 停止该视频的预测线程，避免线程泄漏 / 重加同 bvid 时复用过期 dict
+    from ui.monitor import _stop_predictor
+    _stop_predictor(bvid)
     gui.selected_bvid = None
     gui.detail._build_header_empty()
     gui.detail._rebuild_stat_bar({})
@@ -749,6 +750,9 @@ def undo_delete(gui):
 
     gui.video_list.make_card(removed["video"])
     gui.video_list.update_video_count()
+    # 重建预测线程（删除时已停止，撤销后需重新绑定新的视频 dict）
+    from ui.monitor._service import _ensure_predictor
+    _ensure_predictor(gui, bvid, removed["video"])
     gui._sb("alert", f"把 {removed['video'].get('title', bvid)[:20]} 请回歌单啦!♪ 旋律又接上了~", C["success"])
     gui._sb("videos", f"监控: {len(gui.monitored_videos)} 个视频 ♪")
     gui.bottom_bar.hide_undo_button()

@@ -245,6 +245,14 @@ class LogPanel(QWidget):
         """停止自动刷新"""
         self._flush_timer.stop()
 
+    def cleanup(self):
+        """应用退出时清理日志面板资源（停定时器 + 冲刷剩余日志）"""
+        try:
+            self.stop_auto_refresh()
+            self._flush_pending()
+        except Exception:
+            pass
+
     def start_auto_refresh(self, parent):
         """启动自动刷新（PyQt6 中由 flush_timer 处理）"""
         pass

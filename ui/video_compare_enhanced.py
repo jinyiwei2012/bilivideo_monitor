@@ -92,7 +92,10 @@ class VideoCompareEnhanced:
             # 找最接近 cutoff 的历史记录
             base_views = views
             for ts, vc in reversed(history):
-                t = safe_timestamp(ts)
+                try:
+                    t = safe_timestamp(ts)
+                except Exception:
+                    continue  # 脏数据跳过
                 if isinstance(t, (int, float)):
                     t = datetime.fromtimestamp(t)
                 if t < cutoff:
@@ -154,20 +157,31 @@ class VideoCompareEnhanced:
             views = v.get("view_count", 0)
             history = self.gui.history_data.get(bvid, [])
             base_views = views
+            base_t = None
             actual_hours = 0
             for ts, vc in reversed(history):
-                t = safe_timestamp(ts)
+                try:
+                    t = safe_timestamp(ts)
+                except Exception:
+                    continue  # 脏数据跳过
                 if isinstance(t, (int, float)):
                     t = datetime.fromtimestamp(t)
                 if t < cutoff:
                     base_views = vc
                     base_t = t  # 记录 cutoff 边界处的时间点
                     if len(history) >= 2:
-                        latest_t = safe_timestamp(history[-1][0])
+                        try:
+                            latest_t = safe_timestamp(history[-1][0])
+                        except Exception:
+                            latest_t = None  # 脏数据跳过
                         if isinstance(latest_t, (int, float)):
                             latest_t = datetime.fromtimestamp(latest_t)
-                        actual_hours = (latest_t - base_t).total_seconds() / 3600
+                        if latest_t is not None:
+                            actual_hours = (latest_t - base_t).total_seconds() / 3600
                     break
+            if base_t is None:
+                # 窗口内没有可用历史记录，无法计算增速
+                continue
             delta = max(0, views - base_views) if isinstance(base_views, (int, float)) else 0
             hourly = delta / max(actual_hours, 0.1)
             rows.append((bvid, title, views, delta, hourly))

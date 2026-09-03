@@ -319,9 +319,13 @@ class ProxyManager:
                 data = body.get("data", {})
                 result["data"] = {"title": data.get("title", "")[:30], "view": data.get("stat", {}).get("view", 0)}
             elif code == -412:
-                result["error"] = f"被B站频率限制 (HTTP {resp.status_code})"
+                result["error"] = "被B站频率限制"
+            elif code == -403:
+                result["error"] = "被B站风控拦截"
+            elif code == -404:
+                result["error"] = "测试视频不存在"
             else:
-                result["ok"] = True
+                result["error"] = f"API返回错误 code={code}: {body.get('message', '')}"
                 logger.debug("代理测试收到非预期 API code=%d (%s)", code, body.get("message", ""))
         except Exception:
             result["error"] = f"响应格式错误 (HTTP {resp.status_code})"

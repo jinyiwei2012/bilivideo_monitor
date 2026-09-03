@@ -1054,7 +1054,8 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
                             aid, success = f.result()
                             results[aid] = aid if success else ""
 
-                self._train_queue.put({"stage": "all_done", "results": results})
+                if not self._cancel_flag[0]:
+                    self._train_queue.put({"stage": "all_done", "results": results})
             except Exception as e:
                 self._train_queue.put({"stage": "fatal", "error": str(e)})
 

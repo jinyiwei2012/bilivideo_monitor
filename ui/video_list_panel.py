@@ -378,6 +378,18 @@ class VideoListPanel(QWidget):
                         ))
                 break
 
+    def remove_card(self, bvid):
+        """移除指定 BV 号的视频卡片（数据层删除后调用，保持界面一致）"""
+        if not bvid:
+            return
+        for i in range(self._list.count()):
+            item = self._list.item(i)
+            data = item.data(Qt.ItemDataRole.UserRole)
+            if data and data.get("bvid") == bvid:
+                self._list.takeItem(i)
+                break
+        self._update_count()
+
     def update_video_count(self):
         """公开更新视频计数"""
         self._update_count()

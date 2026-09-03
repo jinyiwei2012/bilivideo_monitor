@@ -125,18 +125,18 @@ class WeibullGrowthAlgorithm(BaseAlgorithm):
             if len(times) < 3:
                 return None
 
-            # 拟合Weibull曲线
-            self._fit_curve(times, views, video_info)
+            # 拟合Weibull曲线（返回局部参数，避免单例竞态）
+            K, lam, k = self._fit_curve(times, views, video_info)
 
             if current_views >= target_views:
                 return (0, 1.0)  # 已达标
 
             # 检查目标是否可达
-            if target_views >= self.K * 0.99:
-                self.K = target_views * 1.2  # 临时上调承载能力
+            if target_views >= K * 0.99:
+                K = target_views * 1.2  # 临时上调承载能力
 
             current_t = times[-1]  # 当前时间点
-            target_t = self._find_time_for_views(target_views)
+            target_t = self._find_time_for_views(target_views, K, lam, k)
 
             if target_t is None:
                 return None  # 目标不可达
@@ -149,7 +149,7 @@ class WeibullGrowthAlgorithm(BaseAlgorithm):
                 return None
 
             seconds_needed = int(days_needed * 86400)  # 天转秒
-            confidence = self._calculate_confidence(times, views)
+            confidence = self._calculate_confidence(times, views, K, lam, k)
 
             return (seconds_needed, confidence)
 
@@ -182,28 +182,32 @@ class WeibullGrowthAlgorithm(BaseAlgorithm):
         """
         return K * (1 - np.exp(-np.power(t / lam, k)))
 
-    def _fit_curve(self, times: np.ndarray, views: np.ndarray, video_info: Dict[str, Any]):
-        """拟合Weibull曲线
+    def _fit_curve(self, times: np.ndarray, views: np.ndarray, video_info: Dict[str, Any]) -> Tuple[float, float, float]:
+        """拟合Weibull曲线，返回 (K, lam, k)。
 
         使用 scipy.curve_fit 对历史数据进行非线性最小二乘拟合，
         估计模型参数 K、λ、k。数据点不足时使用启发式参数。
+        参数作为局部值返回，不写入实例状态（避免单例共享可变状态）。
 
         Args:
             times: 时间数组（天）
             views: 播放量数组
             video_info: 视频信息，用于启发式参数估计（如粉丝数）
+
+        Returns:
+            (K, lam, k): 拟合得到的模型参数
         """
         # 数据点太少时跳过 curve_fit，直接使用启发式参数
         if len(times) < self._min_curvefit_points:
-            self.K = max(views) * 3  # 承载能力 = 最大播放量的3倍
-            self.lam = 30  # 默认尺度参数（30天）
-            self.k = 1.5  # 默认形状参数（S型增长）
+            K = max(views) * 3  # 承载能力 = 最大播放量的3倍
+            lam = 30  # 默认尺度参数（30天）
+            k = 1.5  # 默认形状参数（S型增长）
             if "follower" in video_info:
-                self.K = max(self.K, video_info["follower"] * 2.5)
-            return
+                K = max(K, video_info["follower"] * 2.5)
+            return K, lam, k
 
         K_est = max(views) * 2.5
-        lam_est = np.median(times) if len(times) > 0 else 30
+        lam_est = float(np.median(times)) if len(times) > 0 else 30
         k_est = 1.5
 
         p0 = [K_est, lam_est, k_est]
@@ -211,15 +215,16 @@ class WeibullGrowthAlgorithm(BaseAlgorithm):
 
         popt, success = self._safe_curve_fit(self._weibull, times, views, p0, bounds, maxfev=5000)
         if success:
-            self.K, self.lam, self.k = popt
+            return float(popt[0]), float(popt[1]), float(popt[2])
         else:
-            self.K = max(views) * 3
-            self.lam = 30
-            self.k = 1.5
+            K = max(views) * 3
+            lam = 30
+            k = 1.5
             if "follower" in video_info:
-                self.K = max(self.K, video_info["follower"] * 2.5)
+                K = max(K, video_info["follower"] * 2.5)
+            return K, lam, k
 
-    def _find_time_for_views(self, target_views: int) -> Optional[float]:
+    def _find_time_for_views(self, target_views: int, K: float, lam: float, k: float) -> Optional[float]:
         """找到达到目标播放量所需时间
 
         通过反解Weibull方程计算达到指定播放量所需的天数。
@@ -232,29 +237,32 @@ class WeibullGrowthAlgorithm(BaseAlgorithm):
 
         Args:
             target_views: 目标播放量
+            K: 承载能力（渐近线）
+            lam: 尺度参数 λ
+            k: 形状参数 k
 
         Returns:
             Optional[float]: 到达目标所需天数，None表示目标不可达
         """
         try:
             # 目标播放量不能超过承载能力K
-            if target_views >= self.K:
+            if target_views >= K:
                 return None
 
             # ratio = 1 - V/K（剩余比例，必须在0到1之间）
-            ratio = 1 - target_views / self.K
+            ratio = 1 - target_views / K
             if ratio <= 0 or ratio >= 1:
                 return None
 
             # t = λ * (-ln(ratio))^(1/k)
-            t = self.lam * np.power(-np.log(ratio), 1.0 / self.k)
+            t = lam * np.power(-np.log(ratio), 1.0 / k)
             return max(0, t)  # 确保非负
         except Exception:
             return None
 
-    def _calculate_confidence(self, times: np.ndarray, views: np.ndarray) -> float:
+    def _calculate_confidence(self, times: np.ndarray, views: np.ndarray, K: float, lam: float, k: float) -> float:
         n_points = len(times)
-        predicted = self._weibull(times, self.K, self.lam, self.k)
+        predicted = self._weibull(times, K, lam, k)
         return self._growth_confidence(n_points, predicted, views, 0.02)
 
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:

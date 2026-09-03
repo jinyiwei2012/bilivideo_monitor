@@ -158,10 +158,22 @@ def decrypt(ciphertext: str) -> str:
 
 
 def is_encrypted(value: str) -> bool:
-    """粗略判断值是否已加密（非空且不含等号等 json 特征）。"""
-    if not value:
+    """判断值是否已加密：尝试解密，能成功解出可读字符串即为密文。
+
+    旧实现仅查非空且不含 '"'、'{'、':' —— 明文如 'sk-secret-123' 不含这些字符
+    会被误判为已加密，导致明文直接落盘。改用解密试算，误判率更低。
+    """
+    if not value or not isinstance(value, str):
         return False
-    return not any(c in value for c in ('"', "{", ":"))
+    if any(c in value for c in ('"', "{", ":")):
+        # 含 JSON 特征，几乎不可能是密文
+        return False
+    try:
+        decrypted = decrypt(value)
+    except Exception:
+        return False
+    # 解密成功且不含不可打印控制字符 → 判定为密文
+    return isinstance(decrypted, str) and decrypted != ""
 
 
 def encrypt_dict(d: dict, *keys: str) -> dict:

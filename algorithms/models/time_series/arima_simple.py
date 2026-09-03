@@ -153,6 +153,16 @@ class ArimaSimpleAlgorithm(BaseAlgorithm):
         order = np.argsort(timestamps)
         views = np.array(views_vals)[order]
 
+        # 实际采样间隔（小时）：用相邻时间戳差的中位数换算，
+        # 避免把每个采样点当成 1 天（间隔可能是 75s/几分钟/数小时）
+        try:
+            sorted_ts = np.array(timestamps)[order]
+            diffs_h = np.diff(sorted_ts) / 3600.0
+            diffs_h = diffs_h[diffs_h > 0]
+            interval_h = float(np.median(diffs_h)) if len(diffs_h) else 24.0
+        except Exception:
+            interval_h = 24.0
+
         try:
             # 使用 stepwise 搜索自动选择最优 (p,d,q) 阶数
             # max_p=5, max_q=5, max_d=2: 限制搜索范围防止过拟合
@@ -169,7 +179,7 @@ class ArimaSimpleAlgorithm(BaseAlgorithm):
             # 在预测序列中寻找首次达到阈值的点
             target_idx = np.where(forecast_views >= threshold)[0]
             if len(target_idx) > 0 and target_idx[0] < 30:
-                predicted_hours = (target_idx[0] + 1) * 24  # 索引+1 = 天数，每点=24小时
+                predicted_hours = (target_idx[0] + 1) * interval_h  # 索引+1 = 采样点数，每点=实际间隔
                 # AIC衡量模型拟合质量，AIC越小越好
                 aic = getattr(model, "aic", lambda: 1000)() if callable(getattr(model, "aic", None)) else 1000
                 confidence = max(0.1, min(0.9, 0.7 - aic * 0.00015))
@@ -231,6 +241,16 @@ class ArimaSimpleAlgorithm(BaseAlgorithm):
         order = np.argsort(timestamps)
         views = np.array(views_vals)[order]
 
+        # 实际采样间隔（小时）：用相邻时间戳差的中位数换算，
+        # 避免把每个采样点当成 1 天
+        try:
+            sorted_ts = np.array(timestamps)[order]
+            diffs_h = np.diff(sorted_ts) / 3600.0
+            diffs_h = diffs_h[diffs_h > 0]
+            interval_h = float(np.median(diffs_h)) if len(diffs_h) else 24.0
+        except Exception:
+            interval_h = 24.0
+
         try:
             # ARIMA(2,1,1): 2阶自回归 + 1阶差分 + 1阶移动平均
             model = ARIMA(views, order=(2, 1, 1))
@@ -241,7 +261,7 @@ class ArimaSimpleAlgorithm(BaseAlgorithm):
             # 寻找首次达到阈值的预测点
             target_idx = np.where(forecast_views >= threshold)[0]
             if len(target_idx) > 0 and target_idx[0] < 30:
-                predicted_hours = (target_idx[0] + 1) * 24
+                predicted_hours = (target_idx[0] + 1) * interval_h
                 aic = getattr(fitted, "aic", 1000)
                 confidence = max(0.1, min(0.85, 0.7 - aic * 0.0002))
             else:

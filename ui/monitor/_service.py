@@ -115,11 +115,20 @@ def _ensure_predictor(gui, bvid, video):
 
 
 def _stop_all_predictors():
-    """停止所有预测线程"""
+    """停止所有预测线程（先收集再锁外 join，避免主线程持锁阻塞 3N 秒）"""
     with _predictors_lock:
-        for predictor in list(_predictors.values()):
-            predictor.stop()
+        predictors = list(_predictors.values())
         _predictors.clear()
+    for predictor in predictors:
+        predictor.stop()
+
+
+def _stop_predictor(bvid):
+    """停止单个视频的预测线程（删除视频时调用，避免线程泄漏）"""
+    with _predictors_lock:
+        predictor = _predictors.pop(bvid, None)
+    if predictor is not None:
+        predictor.stop()
 
 
 # ══════════════════════════════════════════════
@@ -210,7 +219,7 @@ def _fetch_one_video(gui, bvid, video):
         if bvid in gui.video_dbs:
             rec = MonitorRecord(
                 bvid=bvid,
-                timestamp=ts.isoformat(),
+                timestamp=ts.strftime("%Y-%m-%d %H:%M:%S"),
                 view_count=video["view_count"],
                 like_count=video["like_count"],
                 coin_count=video["coin_count"],
@@ -223,8 +232,8 @@ def _fetch_one_video(gui, bvid, video):
                 viewers_app=video.get("viewers_app", 0),
             )
             gui.video_dbs[bvid].add_monitor_record(rec)
-            gui._save_weekly_score(bvid, video, ts.isoformat())
-            gui._save_yearly_score(bvid, video, ts.isoformat())
+            gui._save_weekly_score(bvid, video, ts.strftime("%Y-%m-%d %H:%M:%S"))
+            gui._save_yearly_score(bvid, video, ts.strftime("%Y-%m-%d %H:%M:%S"))
     except Exception as e:
         gui.log_panel.add_log("WARNING", f"[{bvid}] 写数据库失败: {e}")
 
@@ -233,7 +242,7 @@ def _fetch_one_video(gui, bvid, video):
         db.sync_monitor_record(
             bvid,
             {
-                "timestamp": ts.isoformat(),
+                "timestamp": ts.strftime("%Y-%m-%d %H:%M:%S"),
                 "view_count": video["view_count"],
                 "like_count": video["like_count"],
                 "coin_count": video["coin_count"],

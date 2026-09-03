@@ -59,6 +59,28 @@ class DanmakuMonitor:
     def _make_key(self, bvid: str, cid: int) -> str:
         return f"{bvid}:{cid}"
 
+    def _proxy_kwargs(self) -> dict:
+        """构造直连请求的代理参数（与主管道共用同一代理池）。
+
+        peek_proxy() 返回的是脱敏地址（mask_url 后），不可直接用于请求，
+        仅用作可用性探测；真实代理地址经 get_proxy_binding() 获取。
+        无可用代理时返回空 dict，调用方用 ** 展开即直连。
+        """
+        try:
+            pm = getattr(self._api, "proxy_manager", None)
+            if pm is None or pm.peek_proxy() is None:
+                return {}
+            _, proxy, _ = pm.get_proxy_binding()
+            if not proxy:
+                return {}
+            http_url = proxy.get("http") or proxy.get("https")
+            if not http_url:
+                return {}
+            return {"proxies": {"http": http_url, "https": http_url}}
+        except Exception as e:
+            logger.debug("弹幕请求获取代理失败: %s", e)
+            return {}
+
     def get_last_segment(self, bvid: str, cid: int) -> int:
         """获取上次拉取的段号，-1 表示从未拉取。"""
         return self._progress.get(self._make_key(bvid, cid), -1)
@@ -219,6 +241,7 @@ class DanmakuMonitor:
                     "Referer": "https://www.bilibili.com/",
                 },
                 timeout=10,
+                **self._proxy_kwargs(),
             )
             if resp.status_code != 200:
                 logger.debug("dm/web/view HTTP %d cid=%d", resp.status_code, cid)
@@ -270,6 +293,7 @@ class DanmakuMonitor:
                     "Referer": "https://www.bilibili.com/",
                 },
                 timeout=10,
+                **self._proxy_kwargs(),
             )
             if resp.status_code == 404:
                 return [], False  # 超出视频时长
@@ -387,6 +411,7 @@ class DanmakuMonitor:
                     "Referer": "https://www.bilibili.com/",
                 },
                 timeout=15,
+                **self._proxy_kwargs(),
             )
             if resp.status_code != 200:
                 logger.debug("历史弹幕索引 HTTP %d cid=%d month=%s", resp.status_code, cid, month)
@@ -423,6 +448,7 @@ class DanmakuMonitor:
                     "Referer": "https://www.bilibili.com/",
                 },
                 timeout=15,
+                **self._proxy_kwargs(),
             )
             if resp.status_code != 200:
                 logger.debug("历史弹幕段 HTTP %d cid=%d date=%s", resp.status_code, cid, date)

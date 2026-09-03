@@ -11,6 +11,7 @@ UP主数据多源获取器
 每个源的 HTTP 栈、UA、认证方式均不同，单个源被限流不影响其他源。
 """
 
+import math
 import logging
 from typing import Dict, List, Optional, Callable
 
@@ -242,12 +243,25 @@ def _source_a_up_stat(uid: int) -> Optional[Dict]:
         except Exception as e:
             logger.debug("源A获取粉丝数失败 UID=%s: %s", uid, e)
 
-        # 视频列表（汇总播放/点赞）
+        # 视频列表（汇总播放/点赞）— 分页取全量，避免只统计第一页导致总播放量少算
         try:
             vdata = sync(u.get_videos(ps=50, pn=1))
             if vdata and "list" in vdata:
                 views = sum(int(v.get("play", 0)) for v in vdata["list"])
                 likes = sum(int(v.get("like", 0)) for v in vdata["list"])
+                # 视频总数：bilibili-api-python 在 vdata["page"]["count"]，个别版本在顶层 count/total
+                page_info = vdata.get("page") or {}
+                total = page_info.get("count") or vdata.get("count") or vdata.get("total") or 0
+                if total > 50:
+                    # 最多取 10 页（500 个视频）防失控
+                    for pn in range(2, min(math.ceil(total / 50), 10) + 1):
+                        page_data = sync(u.get_videos(ps=50, pn=pn))
+                        if not page_data or "list" not in page_data or not page_data["list"]:
+                            break
+                        views += sum(int(v.get("play", 0)) for v in page_data["list"])
+                        likes += sum(int(v.get("like", 0)) for v in page_data["list"])
+                        if len(page_data["list"]) < 50:
+                            break  # 不足一页说明已取完
                 stat["total_views"] = views
                 stat["total_likes"] = likes
         except Exception as e:

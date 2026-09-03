@@ -372,6 +372,15 @@ def _predict_single(gui, bvid, video) -> dict:
         gui.prediction_results[bvid] = result
     _online_learning_feedback(gui, bvid, results, current_view, prev_result)
 
+    # ── 保形预测校准 ──
+    try:
+        if prev_result is not None:
+            prev_pred = prev_result.get("prediction", 0)
+            if prev_pred > 0 and current_view > 0:
+                AlgorithmRegistry.update_ensemble_accuracy(prev_pred, current_view)
+    except Exception as e:
+        logger.debug("保形预测校准失败: %s", e)
+
     # 后台：图更新 + 视频库保存 + 中央库同步
     def _save_all():
         try:

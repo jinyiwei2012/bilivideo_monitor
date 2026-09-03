@@ -318,12 +318,13 @@ class BaseAlgorithm(ABC):
                 import numpy as np
                 n_pts = min(10, len(sorted_hist))
                 recent = sorted_hist[-n_pts:]
-                t_arr = np.array([float(h.get("timestamp", 0)) for h in recent], dtype=np.float32)
-                v_arr = np.array([float(h.get("view_count", 0)) for h in recent], dtype=np.float32)
+                t_arr = np.array([float(h.get("timestamp", 0)) for h in recent], dtype=np.float64)
+                v_arr = np.array([float(h.get("view_count", 0)) for h in recent], dtype=np.float64)
                 if np.max(t_arr) == np.min(t_arr):
                     return 0.0
                 slope, _ = np.polyfit(t_arr, v_arr, 1)
-                return max(0.0, slope / 3600.0)
+                # slope 单位 views/秒（时间戳为 unix 秒）→ views/小时 应 ×3600
+                return max(0.0, slope * 3600.0)
             else:
                 recent = sorted_hist[-2:]
                 v0 = float(recent[0].get("view_count", 0))

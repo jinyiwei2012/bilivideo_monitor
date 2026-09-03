@@ -719,6 +719,7 @@ class MilestoneStatsWindow(DialogBase):
             ),
             "view_count"
         )
+        self._redraw_compare()
 
     def _on_tbl_right_click(self, pos):
         item = self._tbl.itemAt(pos)

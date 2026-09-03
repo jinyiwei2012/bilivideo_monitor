@@ -151,8 +151,9 @@ class PredictionPanel:
                     rate_str = f"↗ +{per_min:.1f}/min"
                 else:
                     rate_str = f"↗ +{rate_per_sec:.2f}/s"
-                w["rate_lbl"].setText(rate_str)
-                w["rate_lbl"].setVisible(True)
+                if w.get("rate_lbl") is not None:
+                    w["rate_lbl"].setText(rate_str)
+                    w["rate_lbl"].setVisible(True)
             else:
                 if w.get("rate_lbl") is not None:
                     w["rate_lbl"].setVisible(False)

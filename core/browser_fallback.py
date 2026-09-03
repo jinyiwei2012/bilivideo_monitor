@@ -77,25 +77,27 @@ def fetch_video_info_playwright(bvid: str) -> Optional[Dict]:
                     "--no-sandbox",
                 ],
             )
-            context = browser.new_context(
-                user_agent=(
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/131.0.0.0 Safari/537.36"
-                ),
-                viewport={"width": 1920, "height": 1080},
-                locale="zh-CN",
-            )
-            page = context.new_page()
-            url = f"https://www.bilibili.com/video/{bvid}"
-            logger.info("Playwright 正在访问 %s", url)
+            try:
+                context = browser.new_context(
+                    user_agent=(
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/131.0.0.0 Safari/537.36"
+                    ),
+                    viewport={"width": 1920, "height": 1080},
+                    locale="zh-CN",
+                )
+                page = context.new_page()
+                url = f"https://www.bilibili.com/video/{bvid}"
+                logger.info("Playwright 正在访问 %s", url)
 
-            # 等待 DOM 加载完成后额外等待 3 秒，确保页面渲染完毕
-            page.goto(url, wait_until="domcontentloaded", timeout=30000)
-            page.wait_for_timeout(3000)
+                # 等待 DOM 加载完成后额外等待 3 秒，确保页面渲染完毕
+                page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                page.wait_for_timeout(3000)
 
-            html = page.content()
-            browser.close()
+                html = page.content()
+            finally:
+                browser.close()
 
         result = _parse_bilibili_page(html, bvid)
         if result and result["view_count"] > 0:

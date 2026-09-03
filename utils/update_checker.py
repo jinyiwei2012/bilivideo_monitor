@@ -226,6 +226,11 @@ def _fetch_release(api_url: str) -> Tuple[Optional[dict], str, str]:
         return None, "", ""
 
 
+def _parse_version(v: str) -> Tuple[int, ...]:
+    """把版本字符串解析为可比较的整数元组（忽略预发布后缀）"""
+    return tuple(int(x) for x in v.split("-")[0].split(".") if x.isdigit())
+
+
 def check_for_update() -> Tuple[bool, str, str, str, str]:
     """检查更新。返回 (has_update, latest_version, download_url, changelog, channel)"""
     if _x():
@@ -240,10 +245,6 @@ def check_for_update() -> Tuple[bool, str, str, str, str]:
         latest = cached.get("latest_version", "")
         local = _get_local_version()
         if latest:
-
-            def _parse_version(v):
-                return tuple(int(x) for x in v.split("-")[0].split(".") if x.isdigit())
-
             return (
                 _parse_version(latest) > _parse_version(local),
                 latest,
@@ -270,7 +271,7 @@ def check_for_update() -> Tuple[bool, str, str, str, str]:
     )
 
     local = _get_local_version()
-    return latest != local, latest, download_url, changelog, channel
+    return _parse_version(latest) > _parse_version(local), latest, download_url, changelog, channel
 
 
 def check_for_update_async(callback):

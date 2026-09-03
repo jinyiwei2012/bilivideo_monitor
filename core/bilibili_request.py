@@ -6,7 +6,7 @@ B站API模块 - HTTP请求核心
 import time
 import random
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 
 import requests
 
@@ -56,9 +56,9 @@ def _get_retry_delay(self, attempt: int) -> float:
     return delay
 
 
-def _apply_bypass_measures(self, attempt: int):
+def _apply_bypass_measures(self, attempt: int, proxy_idx: Optional[int] = None):
     measures = []
-    self._on_request_failure()
+    self._on_request_failure(proxy_idx)
     measures.append("已更换User-Agent")
     if attempt >= 1:
         old_interval = self._min_request_interval
@@ -83,7 +83,7 @@ def _get_error_info(self, data: Dict):
     return data.get("code", -1), data.get("message", "未知错误")
 
 
-def _prepare_request_kwargs(self, **kwargs) -> Dict:
+def _prepare_request_kwargs(self, **kwargs) -> Tuple[Dict, Optional[int]]:
     idx, proxy, ua = self.proxy_manager.get_proxy_binding()
     request_kwargs = {"timeout": 15, **kwargs}
     if proxy:
@@ -104,7 +104,7 @@ def _prepare_request_kwargs(self, **kwargs) -> Dict:
     elif ua:
         request_kwargs.setdefault("headers", {})
         request_kwargs["headers"]["User-Agent"] = ua
-    return request_kwargs
+    return request_kwargs, idx
 
 
 def _do_http_request(self, method, url, request_kwargs, cookies):
@@ -143,25 +143,29 @@ def _do_http_request(self, method, url, request_kwargs, cookies):
         raise
 
 
-def _handle_http_412_response(self, attempt, max_retries, skip_retry) -> bool:
+def _handle_http_412_response(self, attempt, max_retries, skip_retry, proxy_idx: Optional[int] = None) -> bool:
     self._consecutive_412_errors += 1
     logger.error(f"HTTP 412错误 (第{attempt + 1}次尝试)")
     if attempt < max_retries and not skip_retry:
         delay = _get_retry_delay(self, attempt)
         logger.info(f"等待 {delay:.1f} 秒后重试...")
         time.sleep(delay)
-        self._on_request_failure()
+        self._on_request_failure(proxy_idx)
         return True
     return False
 
 
-def _handle_successful_response(self, data, attempt, max_retries, skip_retry):
+def _handle_successful_response(self, data, attempt, max_retries, skip_retry, proxy_idx: Optional[int] = None):
     if not isinstance(data, dict):
         return data, False
     api_code = data.get("code", 0)
     if api_code == 0:
         self._consecutive_412_errors = 0
         return data.get("data"), False
+    if api_code == -101:
+        logger.warning("登录态可能已失效 (api_code=-101)，请重新登录")
+        self._logged_out = True
+        return None, False
     if _is_412_error(self, data):
         self._consecutive_412_errors += 1
         error_code, error_msg = _get_error_info(self, data)
@@ -170,7 +174,7 @@ def _handle_successful_response(self, data, attempt, max_retries, skip_retry):
             delay = _get_retry_delay(self, attempt)
             logger.info(f"等待 {delay:.1f} 秒后重试...")
             time.sleep(delay)
-            _apply_bypass_measures(self, attempt)
+            _apply_bypass_measures(self, attempt, proxy_idx)
             return None, True
         return None, False
     if api_code != 0:
@@ -184,18 +188,19 @@ def _request(
     if max_retries is None:
         max_retries = self.max_retries
     last_error = None
+    proxy_idx: Optional[int] = None
     logger.debug("→ %s %s", method.upper(), url.split("?")[0])
     for attempt in range(max_retries + 1):
         try:
             _ensure_min_interval(self)
-            request_kwargs = _prepare_request_kwargs(self, **kwargs)
+            request_kwargs, proxy_idx = _prepare_request_kwargs(self, **kwargs)
             cookies = _get_request_cookies(self)
             response = _do_http_request(self, method, url, request_kwargs, cookies)
             if response is None:
                 continue
             sc = response.status_code
             if sc == 412:
-                if _handle_http_412_response(self, attempt, max_retries, skip_retry):
+                if _handle_http_412_response(self, attempt, max_retries, skip_retry, proxy_idx):
                     continue
                 return None
             if sc >= 500 or sc == 429:
@@ -203,7 +208,7 @@ def _request(
             data = response.json()
             self._consecutive_412_errors = 0
             logger.debug("← %s %s → %s", method.upper(), url.split("?")[0], sc)
-            result, should_retry = _handle_successful_response(self, data, attempt, max_retries, skip_retry)
+            result, should_retry = _handle_successful_response(self, data, attempt, max_retries, skip_retry, proxy_idx)
             if should_retry:
                 continue
             return result
@@ -219,7 +224,7 @@ def _request(
             if attempt < max_retries and not skip_retry:
                 delay = _get_retry_delay(self, attempt)
                 time.sleep(delay)
-                self._on_request_failure()
+                self._on_request_failure(proxy_idx)
                 continue
             break
         except UnicodeEncodeError as e:
@@ -233,7 +238,7 @@ def _request(
         if attempt < max_retries and not skip_retry:
             delay = _get_retry_delay(self, attempt)
             time.sleep(delay)
-            self._on_request_failure()
+            self._on_request_failure(proxy_idx)
     logger.error(f"请求最终失败: {last_error}")
     return None
 

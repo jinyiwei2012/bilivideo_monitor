@@ -53,6 +53,10 @@ def _decrypt_chrome_cookie(encrypted_value: bytes, key: bytes) -> Optional[str]:
     try:
         from Cryptodome.Cipher import AES
 
+        # Chrome v10 格式带 "v10" 前缀，先剥掉再切 nonce/ciphertext/tag
+        if encrypted_value[:3] == b"v10":
+            encrypted_value = encrypted_value[3:]
+
         # Chrome 格式: nonce(12) + ciphertext + tag(16)
         nonce = encrypted_value[:12]
         ciphertext = encrypted_value[12:-16]

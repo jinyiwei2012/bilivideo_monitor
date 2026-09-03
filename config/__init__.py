@@ -132,11 +132,35 @@ def get_active_ai_profile() -> dict:
     }
 
 
-def save_config(config: Dict[str, Any]) -> bool:
-    """保存配置到 JSON 文件"""
+def _encrypt_sensitive(config: dict) -> None:
+    """加密配置中的敏感字段（与 _decrypt_sensitive 对称），已加密的值跳过避免二次加密"""
     try:
+        from utils.crypto import encrypt, is_encrypted
+
+        def _maybe_encrypt(value: str) -> str:
+            if value and not is_encrypted(value):
+                return encrypt(value)
+            return value
+
+        ob = config.get("onebot", {})
+        if ob.get("access_token"):
+            ob["access_token"] = _maybe_encrypt(ob["access_token"])
+        for p in config.get("ai", {}).get("profiles", []):
+            if p.get("api_key"):
+                p["api_key"] = _maybe_encrypt(p["api_key"])
+    except ImportError:
+        pass
+    except Exception as e:
+        logger.warning("加密敏感配置失败: %s", e)
+
+
+def save_config(config: Dict[str, Any]) -> bool:
+    """保存配置到 JSON 文件（敏感字段自动加密后落盘）"""
+    try:
+        to_save = deepcopy(config)
+        _encrypt_sensitive(to_save)
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(config, f, ensure_ascii=False, indent=2)
+            json.dump(to_save, f, ensure_ascii=False, indent=2)
         return True
     except Exception as e:
         logger.warning("保存配置失败: %s", e)

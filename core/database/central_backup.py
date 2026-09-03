@@ -294,7 +294,7 @@ class CentralBackup:
                        predicted_hours, current_velocity, is_reached,
                        actual_time, error_rate, MAX(created_at) as created_at
                 FROM predictions
-                GROUP BY algorithm, predicted_time
+                GROUP BY algorithm, target_threshold
             """)
         except Exception:
             logger.exception("同步预测记录查询失败 %s", bvid)
@@ -302,11 +302,11 @@ class CentralBackup:
         rows = [dict(r) for r in vcur.fetchall()]
         if not rows:
             return 0
-        central_cur.execute("SELECT algorithm, predicted_time FROM predictions WHERE bvid=?", (bvid,))
-        existing = {(r["algorithm"], r["predicted_time"]) for r in central_cur.fetchall()}
+        central_cur.execute("SELECT algorithm, target_threshold FROM predictions WHERE bvid=?", (bvid,))
+        existing = {(r["algorithm"], r["target_threshold"]) for r in central_cur.fetchall()}
         batch = []
         for rd in rows:
-            key = (rd.get("algorithm", ""), rd.get("predicted_time", ""))
+            key = (rd.get("algorithm", ""), rd.get("target_threshold", 0))
             if key in existing:
                 continue
             batch.append(
@@ -331,7 +331,7 @@ class CentralBackup:
             existing.add(key)
         if batch:
             central_cur.executemany(
-                """INSERT INTO predictions (bvid, algorithm, algorithm_id,
+                """INSERT OR REPLACE INTO predictions (bvid, algorithm, algorithm_id,
                 target_threshold, predicted_seconds, predicted_time, confidence,
                 current_views, metadata, predicted_hours, current_velocity,
                 is_reached, actual_time, error_rate, created_at)

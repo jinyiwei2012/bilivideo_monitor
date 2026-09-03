@@ -36,7 +36,13 @@ class _MainInvoker(QObject):
                 fn = self._q.get_nowait()
             except queue.Empty:
                 break
-            fn()
+            try:
+                fn()
+            except Exception:
+                # 单回调异常隔离：失败不阻断后续回调，避免队列无限积压
+                import traceback
+
+                traceback.print_exc()
 
 
 _invoker = _MainInvoker()
