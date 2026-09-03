@@ -205,17 +205,27 @@ def _maybe_cleanup_online_learner(gui):
 
 
 def scan_alerts_background(gui):
-    """后台扫描全量视频的异常，更新状态栏 + 推送通知"""
-    from core.notification import notification_manager
+    """后台扫描全量视频的异常，更新状态栏 + 推送通知。
 
-    alerts = []
+    升级(smart_alert v2):
+        - 拉取足够长的记录窗口（默认 75s 采样 × ~3h），使 stall/趋势类检测器可触发
+        - 使用 detect_all_scored 获取确定度，按等级分级：high 推送+桌面通知；
+          medium/low 仅状态栏与日志（避免告警疲劳）
+    """
+    from core.notification import notification_manager
+    from core.smart_alert import AnomalyDetector
+
+    # 5min 扫描节奏下需要覆盖 ~3h（75s/条 → 144 条）；给足余量
+    RECORD_WINDOW = 160
+
+    hits = []  # (bvid, title, AlertHit)
     for video in gui.monitored_videos:
         bvid = video.get("bvid", "")
         records = []
         try:
             video_db = gui.video_dbs.get(bvid)
             if video_db:
-                raw = video_db.get_all_records(limit=20)
+                raw = video_db.get_all_records(limit=RECORD_WINDOW)
                 for r in raw:
                     records.append(
                         {
@@ -228,34 +238,68 @@ def scan_alerts_background(gui):
                     )
         except Exception as e:
             logger.debug("从DB获取记录失败 %s: %s", bvid, e)
-        if len(records) < 3:
+        if len(records) < 5:
             continue
         try:
-            for msg in AnomalyDetector.detect_all(records, bvid=bvid, video=video):
-                alerts.append((bvid, video.get("title", bvid)[:20], msg))
+            for hit in AnomalyDetector.detect_all_scored(records, bvid=bvid, video=video):
+                hits.append((bvid, video.get("title", bvid)[:20], hit))
         except Exception as e:
             logger.debug("忽略异常: %s", e)
 
-    if alerts:
-        n = len(alerts)
-        invoke(lambda: gui._sb("alert", f"‼ 天依注意到 {n} 条异常 ♪", C["danger"]))
-        title = f"‼ 天依注意到 {n} 条异常 ♪"
-        msg_lines = [title, "─" * 20]
-        for bvid, t, a in alerts[:5]:
-            msg_lines.append(f"  [{bvid}] {t}")
-            msg_lines.append(f"    {a}")
-        if n > 5:
-            msg_lines.append(f"  … 还有 {n - 5} 条")
-        msg = "\n".join(msg_lines)
-        try:
-            notification_manager.send_qq_private(msg)
-            notification_manager.send_qq_group(msg)
-            notification_manager.send_windows_notification(title, msg[:256])
-            gui.log_panel.add_log("INFO", f"异常告警已推送 ({n} 条)")
-        except Exception as e:
-            logger.debug("推送异常告警失败: %s", e)
-    else:
+    if not hits:
         invoke(lambda: gui._sb("alert", ""))
+        return
+
+    # 分级：high → 全渠道推送；medium/low → 仅状态栏 + 日志
+    high_hits = [h for h in hits if h[2].level == "high"]
+    n = len(hits)
+    invoke(lambda: gui._sb("alert", f"‼ 天依注意到 {n} 条异常 ♪", C["danger"]))
+
+    # 日志记录全部命中（含确定度）
+    for bvid, t, hit in hits:
+        gui.log_panel.add_log(
+            "WARNING",
+            f"[{bvid}] {t} | {hit.message[:60]} | 确定度 {hit.confidence:.0%} [{hit.level}]",
+        )
+
+    if not high_hits:
+        return  # 仅中低确定度 → 不打扰推送
+
+    title = f"‼ 天依注意到 {len(high_hits)} 条高确定度异常 ♪"
+    msg_lines = [title, "─" * 20]
+    for bvid, t, hit in high_hits[:5]:
+        conf_tag = f"({hit.confidence:.0%})" if hit.confidence < 0.9 else ""
+        msg_lines.append(f"  [{bvid}] {t} {conf_tag}")
+        msg_lines.append(f"    {hit.message}")
+        # A3: 告警附带该视频弹幕情绪侧写
+        try:
+            from ui.danmaku_sentiment import format_summary
+
+            emo = format_summary(gui, bvid)
+            if emo:
+                msg_lines.append(f"    {emo}")
+        except Exception as e:
+            logger.debug("读取弹幕情绪失败: %s", e)
+    if len(high_hits) > 5:
+        msg_lines.append(f"  … 还有 {len(high_hits) - 5} 条高确定度异常")
+    msg = "\n".join(msg_lines)
+    try:
+        notification_manager.send_qq_private(msg)
+        notification_manager.send_qq_group(msg)
+        notification_manager.send_windows_notification(title, msg[:256])
+        gui.log_panel.add_log("INFO", f"高确定度异常告警已推送 ({len(high_hits)} 条)")
+
+        # A2: 生成异动复盘卡（含全部命中的确定度明细），通知附带路径
+        try:
+            from utils.alert_review import build_alert_review
+
+            review_path = build_alert_review(gui, hits)
+            if review_path:
+                gui.log_panel.add_log("INFO", f"异动复盘卡已生成: {review_path}")
+        except Exception as e:
+            logger.debug("生成异动复盘卡失败: %s", e)
+    except Exception as e:
+        logger.debug("推送异常告警失败: %s", e)
 
 
 def wal_checkpoint_worker(gui):
