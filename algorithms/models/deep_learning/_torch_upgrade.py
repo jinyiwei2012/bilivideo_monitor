@@ -2054,22 +2054,9 @@ def try_torch_predict(
                 _unregister_gpu_model(old_key)
 
             mk = dict(model_kwargs or {})
-            mk["in_features"] = len(feats) + 5
-            import inspect
-            sig_params = set(inspect.signature(model_cls).parameters.keys())
-            for k, v in (("window", window), ("horizon", horizon)):
-                if k in sig_params and k not in mk:
-                    mk[k] = v
             # 信号量保护：防止多线程同时加载大模型导致内存峰值
             with _model_load_semaphore:
-                model = model_cls(**mk)
-                if isinstance(state, (tuple, list)):
-                    state = state[0]
-                if not isinstance(state, dict):
-                    logger.warning("[%s] checkpoint 格式异常 (type=%s)，跳过 torch 推理", algo_id, type(state).__name__)
-                    return fallback_fn(video_data, threshold)
-                state = {k[len("_orig_mod."):] if k.startswith("_orig_mod.") else k: v for k, v in state.items()}
-                model.load_state_dict(state)
+                model = load_checkpoint_model(model_cls, mk, state, window, len(feats) + 5, horizon)
 
             # 尝试放入 GPU 显存，OOM 时淘汰 LRU 模型后重试
             if algorithm._device.type == "cuda":
@@ -2104,7 +2091,12 @@ def try_torch_predict(
             y = model(x).cpu().numpy().reshape(-1)
         predicted_velocity = max(0.0, float(y[0]) * v_std + v_mean)
 
-        return _generic_result(algorithm, video_data, threshold, predicted_velocity, y, model_source=model_source)
+        # A+B 双尺度：模型扩展为 H+1 时，y[horizon] = 长期平均速率（与短期共用缩放器）
+        long_velocity = None
+        if bool(getattr(model, "_dual_output", False)) and len(y) > horizon:
+            long_velocity = max(0.0, float(y[horizon]) * v_std + v_mean)
+        return _generic_result(algorithm, video_data, threshold, predicted_velocity, y,
+                               model_source=model_source, long_velocity=long_velocity)
 
     except Exception as e:
         # GPU OOM 时尝试淘汰后重试一次
@@ -2126,28 +2118,18 @@ def try_torch_predict(
                 if engine.is_available:
                     model = getattr(algorithm, "_cached_torch_model", None)
                     if model is None or (bvid and not getattr(algorithm, "_cached_bvid", "") == bvid):
-                        mk = dict(model_kwargs or {})
-                        mk["in_features"] = len(feats) + 5
-                        import inspect
-                        sig_params = set(inspect.signature(model_cls).parameters.keys())
-                        for k, v in (("window", window), ("horizon", horizon)):
-                            if k in sig_params and k not in mk:
-                                mk[k] = v
                         with _model_load_semaphore:
-                            model = model_cls(**mk)
-                            if isinstance(state, (tuple, list)):
-                                state_npu = state[0]
-                            else:
-                                state_npu = state
-                            if isinstance(state_npu, dict):
-                                state_clean = {k[len("_orig_mod."):] if k.startswith("_orig_mod.") else k: v
-                                               for k, v in state_npu.items()}
-                                model.load_state_dict(state_clean)
+                            model = load_checkpoint_model(
+                                model_cls, model_kwargs, state, window, len(feats) + 5, horizon
+                            )
                     y = algorithm._npu_infer(model, x_arr, algo_name=algo_id)
                     y_np = y.cpu().numpy().reshape(-1)
                     predicted_velocity = max(0.0, float(y_np[0]) * v_std + v_mean)
+                    long_velocity = None
+                    if bool(getattr(model, "_dual_output", False)) and len(y_np) > horizon:
+                        long_velocity = max(0.0, float(y_np[horizon]) * v_std + v_mean)
                     return _generic_result(algorithm, video_data, threshold, predicted_velocity, y_np,
-                                           model_source=model_source)
+                                           model_source=model_source, long_velocity=long_velocity)
             except Exception:
                 pass
 
@@ -2199,33 +2181,21 @@ def _rank_backends(algo_id, x_arr, window, in_features, v_mean, v_std,
             state_, _ = load_best_checkpoint(algo_id, bvid=bvid_)
             if state_ is not None:
                 mk = dict(model_kwargs or {})
-                mk["in_features"] = in_features
-                import inspect
-                sig_params = set(inspect.signature(model_cls).parameters.keys())
-                for k, v in (("window", window), ("horizon", horizon)):
-                    if k in sig_params and k not in mk:
-                        mk[k] = v
-                model_t = model_cls(**mk)
-                if isinstance(state_, (tuple, list)):
-                    state_ = state_[0]
-                if isinstance(state_, dict):
-                    state_clean = {k[len("_orig_mod."):] if k.startswith("_orig_mod.") else k: v
-                                   for k, v in state_.items()}
-                    model_t.load_state_dict(state_clean)
-                    model_t.eval()
+                model_t = load_checkpoint_model(model_cls, mk, state_, window, in_features, horizon)
+                model_t.eval()
 
-                    x_t = torch.from_numpy(x_arr).unsqueeze(0)
-                    for _ in range(3):  # warmup
-                        with torch.no_grad():
-                            _ = model_t(x_t)
+                x_t = torch.from_numpy(x_arr).unsqueeze(0)
+                for _ in range(3):  # warmup
+                    with torch.no_grad():
+                        _ = model_t(x_t)
 
-                    t0 = _time.perf_counter()
-                    for _ in range(10):
-                        with torch.no_grad():
-                            _ = model_t(x_t)
-                    lat = (_time.perf_counter() - t0) / 10 * 1000
-                    rankings.append(("torch", lat))
-                    logger.debug("[%s] benchmark torch: %.3f ms", algo_id, lat)
+                t0 = _time.perf_counter()
+                for _ in range(10):
+                    with torch.no_grad():
+                        _ = model_t(x_t)
+                lat = (_time.perf_counter() - t0) / 10 * 1000
+                rankings.append(("torch", lat))
+                logger.debug("[%s] benchmark torch: %.3f ms", algo_id, lat)
         except Exception as e:
             logger.debug("[%s] benchmark torch failed: %s", algo_id, e)
 
@@ -2233,22 +2203,8 @@ def _rank_backends(algo_id, x_arr, window, in_features, v_mean, v_std,
         try:
             from algorithms.training.npu_inference import get_npu_engine
             engine = get_npu_engine()
-            if engine.is_available:
-                model_n = model_cls(**mk) if 'mk' in dir() else None
-                if model_n is None:
-                    mk = dict(model_kwargs or {})
-                    mk["in_features"] = in_features
-                    import inspect
-                    sig_params = set(inspect.signature(model_cls).parameters.keys())
-                    for k, v in (("window", window), ("horizon", horizon)):
-                        if k in sig_params and k not in mk:
-                            mk[k] = v
-                    model_n = model_cls(**mk)
-                    if isinstance(state_, (tuple, list)):
-                        state_ = state_[0]
-                    state_clean = {k[len("_orig_mod."):] if k.startswith("_orig_mod.") else k: v
-                                   for k, v in state_.items()}
-                    model_n.load_state_dict(state_clean)
+            if engine.is_available and 'state_' in dir() and state_ is not None:
+                model_n = load_checkpoint_model(model_cls, model_kwargs, state_, window, in_features, horizon)
                 # Prepare (compile once, cached on disk)
                 engine.prepare_model(algo_id, model_n, torch.from_numpy(x_arr).unsqueeze(0))
                 x_npu = np.asarray(x_arr, dtype=np.float16)
@@ -2306,8 +2262,13 @@ def _try_onnx_predict(algo_id, bvid, x_arr, window, in_features, v_mean, v_std,
         if y is None:
             return None
         predicted_velocity = max(0.0, float(y[0]) * v_std + v_mean)
+        # ONNX 导出自双宽模型时输出为 H+1；无法直接读模型标志，用长度判断
+        horizon = int(getattr(algorithm, "training_horizon", 3))
+        long_velocity = None
+        if len(y) > horizon:
+            long_velocity = max(0.0, float(y[horizon]) * v_std + v_mean)
         return _generic_result(algorithm, video_data, threshold, predicted_velocity, y,
-                               model_source=f"{model_source}+ONNX")
+                               model_source=f"{model_source}+ONNX", long_velocity=long_velocity)
     except Exception:
         return None
 
@@ -2326,29 +2287,19 @@ def _try_npu_predict(algo_id, bvid, x_arr, window, in_features, v_mean, v_std,
         if model is None or (bvid and not getattr(algorithm, "_cached_bvid", "") == bvid):
             if model_cls is None or state is None:
                 return None
-            mk = dict(model_kwargs or {})
-            mk["in_features"] = in_features
-            import inspect
-            sig_params = set(inspect.signature(model_cls).parameters.keys())
-            for k, v in (("window", window), ("horizon", horizon or 3)):
-                if k in sig_params and k not in mk:
-                    mk[k] = v
-            model = model_cls(**mk)
-            if isinstance(state, (tuple, list)):
-                state = state[0]
-            if not isinstance(state, dict):
-                return None
-            state_clean = {k[len("_orig_mod."):] if k.startswith("_orig_mod.") else k: v
-                           for k, v in state.items()}
-            model.load_state_dict(state_clean)
+            model = load_checkpoint_model(model_cls, model_kwargs, state, window, in_features,
+                                          int(horizon or 3))
             algorithm._cached_torch_model = model
             algorithm._cached_bvid = bvid or ""
 
         y = algorithm._npu_infer(model, x_arr, algo_name=algo_id)
         y_np = y.cpu().numpy().reshape(-1)
         predicted_velocity = max(0.0, float(y_np[0]) * v_std + v_mean)
+        long_velocity = None
+        if bool(getattr(model, "_dual_output", False)) and len(y_np) > int(horizon or 3):
+            long_velocity = max(0.0, float(y_np[int(horizon or 3)]) * v_std + v_mean)
         return _generic_result(algorithm, video_data, threshold, predicted_velocity, y_np,
-                               model_source=f"{model_source}+NPU")
+                               model_source=f"{model_source}+NPU", long_velocity=long_velocity)
     except Exception:
         return None
 
@@ -2467,18 +2418,127 @@ def _velocity_series(history):
     return vs
 
 
-def _generic_result(algorithm, video_data, threshold, velocity, y, model_source=None):
+def _replace_module_by_path(model: "nn.Module", path: str, new_module: "nn.Module"):
+    """按点分路径替换子模块（支持 Sequential/ModuleList 的数字索引属性）。"""
+    parts = path.split(".")
+    parent = model
+    for p in parts[:-1]:
+        parent = getattr(parent, p)
+    setattr(parent, parts[-1], new_module)
+
+
+def expand_final_projection(model: "nn.Module", horizon: int) -> bool:
+    """将模型最终投影 Linear 的输出维从 H 扩到 H+1（A+B 双尺度，forward 零改动）。
+
+    背景：训练目标重构为 y = [短期 H 步稳健增量 ⊕ 长期 1 维平均速率]。模型 head
+    输出维由构造参数 horizon 决定 —— 在训练与推理两侧于构造后调用本函数，把唯一的
+    out_features == horizon 的 Linear 换成 out_features == horizon + 1 并拷贝原权重，
+    模型即可输出 [B, H+1]，无需改任何 forward。
+
+    仅当模型存在**唯一** out_features==horizon 的 Linear（最终预测头）时执行；
+    歧义/无该层（DeepAR 双头、NLinear 残差、N-BEATS 块累加等特殊结构）返回 False，
+    保持短期单输出（H），由 trainer/推理端对目标/结果按单输出兼容处理。
+
+    Args:
+        model: PyTorch 模型实例。
+        horizon: 短期预测步数 H（模型原输出宽）。
+
+    Returns:
+        bool: True=已扩为 H+1 双输出；False=保持 H 单输出。
+    """
+    if not _torch_available:
+        return False
+    import torch.nn as nn
+
+    cand = []
+    for path, mod in model.named_modules():
+        if isinstance(mod, nn.Linear) and mod.out_features == horizon:
+            cand.append((path, mod))
+    if len(cand) != 1:
+        return False
+    path, lin = cand[0]
+    new_lin = nn.Linear(lin.in_features, horizon + 1)
+    with torch.no_grad():
+        new_lin.weight[:horizon] = lin.weight
+        new_lin.bias[:horizon] = lin.bias
+        # 新增长期维初始化为 0（零初始化避免破坏已有短期预测头）
+        nn.init.zeros_(new_lin.weight[horizon:])
+        nn.init.zeros_(new_lin.bias[horizon:])
+    _replace_module_by_path(model, path, new_lin)
+    try:
+        setattr(model, "_dual_output", True)
+    except Exception:
+        pass
+    return True
+
+
+def load_checkpoint_model(model_cls, model_kwargs, state, window, in_features, horizon):
+    """按 checkpoint 实际 head 宽度构建模型：兼容 H 宽（旧）与 H+1 宽（A+B 双尺度）。
+
+    策略：
+    1. 先以训练 horizon=H 构造模型并直接 load_state_dict —— 命中旧 H 宽 checkpoint 或
+       不可扩展模型（H 宽）时成功；
+    2. 若因 head 形状不匹配失败，说明 checkpoint 是 H+1 双宽（由训练侧 expand 产生），
+       则调用 expand_final_projection 将 head 扩到 H+1 后重载；
+    3. 两次都失败则抛出原始异常，由上层按后端降级处理。
+
+    Args:
+        model_cls:      PyTorch 模型类。
+        model_kwargs:   构造参数（不含 in_features/window/horizon 覆盖）。
+        state:          checkpoint state_dict（含可能的 _orig_mod. 前缀）。
+        window:         输入窗口。
+        in_features:    输入特征数。
+        horizon:        短期预测步数 H。
+
+    Returns:
+        nn.Module: 加载好权重的模型（head 可能为 H 或 H+1，用 model._dual_output 判断）。
+    """
+    import inspect
+
+    mk = dict(model_kwargs or {})
+    mk["in_features"] = in_features
+    sig_params = set(inspect.signature(model_cls).parameters.keys())
+    for k, v in (("window", window), ("horizon", horizon)):
+        if k in sig_params and k not in mk:
+            mk[k] = v
+
+    if isinstance(state, (tuple, list)):
+        state = state[0]
+    if not isinstance(state, dict):
+        raise TypeError(f"checkpoint 格式异常 (type={type(state).__name__})")
+    state = {k[len("_orig_mod."):] if k.startswith("_orig_mod.") else k: v for k, v in state.items()}
+
+    model = model_cls(**mk)
+    try:
+        model.load_state_dict(state)  # 旧 H 宽 / 不可扩展模型
+    except Exception as first_err:
+        dual = expand_final_projection(model, horizon)  # 尝试扩为 H+1
+        if not dual:
+            raise first_err
+        try:
+            model.load_state_dict(state)
+        except Exception:
+            raise first_err
+    return model
+
+
+def _generic_result(algorithm, video_data, threshold, velocity, y, model_source=None, long_velocity=None):
     """构造通用的 PredictionResult。
 
     根据预测速度和剩余播放量计算预测时间及置信度。
+
+    A+B 双尺度：双输出模型的 y 为 [短期 H 步 ⊕ 长期 1 维]。ETA（predicted_hours）
+    优先用长期平均速率 long_velocity（更稳，不受短期补量/骤变干扰）；未提供时
+    回退短期 velocity。current_velocity 始终报短期 velocity（当前即时速度）。
 
     Args:
         algorithm: 算法实例
         video_data: 视频数据字典
         threshold: 目标播放量阈值
-        velocity: 预测速度（每小时播放量）
-        y: 模型原始输出 [H]（用于记录元数据）
+        velocity: 预测速度（每小时播放量，短期）
+        y: 模型原始输出 [H] 或 [H+1]（用于记录元数据）
         model_source: 模型来源标识（global / video_finetune 等）
+        long_velocity: 长期平均速率（每小时播放量），双输出模型提供
 
     Returns:
         PredictionResult 预测结果对象
@@ -2487,17 +2547,20 @@ def _generic_result(algorithm, video_data, threshold, velocity, y, model_source=
     from algorithms.base import PredictionResult
 
     current_views = int(video_data.get("view_count", 0))
-    if velocity <= 0:
+    eta_velocity = long_velocity if (long_velocity is not None and long_velocity > 0) else velocity
+    if eta_velocity <= 0:
         predicted_hours = float("inf")
         confidence = 0.0
     else:
         remaining = threshold - current_views
-        predicted_hours = 0 if remaining <= 0 else remaining / velocity
+        predicted_hours = 0 if remaining <= 0 else remaining / eta_velocity
         confidence = 0.75 if remaining > 0 else 1.0
+    horizon_pred = y.tolist() if hasattr(y, "tolist") else list(y)
     metadata = {
         "reason": "torch_inference",
-        "horizon_pred": y.tolist() if hasattr(y, "tolist") else list(y),
+        "horizon_pred": horizon_pred,
         "method": getattr(algorithm, "algorithm_id", "?") + "_torch",
+        "dual_output": long_velocity is not None and long_velocity > 0,
     }
     if model_source:
         metadata["model_source"] = model_source
@@ -2509,10 +2572,6 @@ def _generic_result(algorithm, video_data, threshold, velocity, y, model_source=
         confidence=confidence,
         current_views=current_views,
         current_velocity=float(velocity),
-        metadata={
-            "reason": "torch_inference",
-            "horizon_pred": y.tolist() if hasattr(y, "tolist") else list(y),
-            "method": getattr(algorithm, "algorithm_id", "?") + "_torch",
-        },
+        metadata=metadata,
         timestamp=datetime.now(),
     )

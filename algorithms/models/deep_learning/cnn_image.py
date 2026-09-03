@@ -167,19 +167,31 @@ class CnnImageAlgorithm(BaseAlgorithm):
         if state is None:
             raise RuntimeError("无可用的 checkpoint — 请先训练")
         if self._cached_model is None or (bvid and not getattr(self, "_cached_bvid", "") == bvid):
-            model = CnnImageTorchModel(
-                window=self.training_window,
-                in_features=getattr(self, '_training_n_features', len(self._features) + 5),
-                horizon=self.training_horizon,
+            from algorithms.models.deep_learning._torch_upgrade import load_checkpoint_model
+
+            model = load_checkpoint_model(
+                CnnImageTorchModel,
+                {"window": self.training_window},
+                state,
+                self.training_window,
+                getattr(self, '_training_n_features', len(self._features) + 5),
+                int(self.training_horizon),
             )
-            state = {k[len("_orig_mod."):] if k.startswith("_orig_mod.") else k: v for k, v in state.items()}
-            model.load_state_dict(state)
             self._cached_model = model
             self._cached_bvid = bvid or ""
         # NPU 加速推理（自动回退到 PyTorch）
         y = self._npu_infer(self._cached_model, x_arr, algo_name=self.algorithm_id)
-        predicted = max(0.0, float(y.cpu().numpy().squeeze(0)[0]) * v_std + v_mean)  # 反归一化
-        return predicted, 0.72, {"horizon_pred": y.cpu().numpy().squeeze(0).tolist(), "method": "cnn2d"}
+        y_np = y.cpu().numpy().squeeze(0)  # [H] 或 [H+1]
+        # A+B 双尺度：短期 y[0] 为当前速度；双输出时长期 y[horizon] 为平均速率（放元数据）
+        predicted = max(0.0, float(y_np[0]) * v_std + v_mean)  # 反归一化
+        long_velocity = None
+        if bool(getattr(self._cached_model, "_dual_output", False)) and len(y_np) > int(self.training_horizon):
+            long_velocity = max(0.0, float(y_np[int(self.training_horizon)]) * v_std + v_mean)
+        meta = {"horizon_pred": y_np.tolist(), "method": "cnn2d"}
+        if long_velocity is not None:
+            meta["long_velocity"] = long_velocity
+            meta["dual_output"] = True
+        return predicted, 0.72, meta
 
     def _build_input(self, video_data) -> Tuple[np.ndarray, float, float]:
         """构建归一化输入数组。

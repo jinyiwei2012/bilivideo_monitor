@@ -323,12 +323,12 @@ def _export_from_checkpoint(
 
         # 通用骨架：匹配大部分 _torch_upgrade 中的模型签名
         class OnnxExportModel(nn.Module):
-            def __init__(self):
+            def __init__(self, head_out=3):
                 super().__init__()
                 # 根据 state_dict 推断模型结构
-                self._build_from_state(state, window, in_features)
+                self._build_from_state(state, window, in_features, head_out)
 
-            def _build_from_state(self, state, window, in_features):
+            def _build_from_state(self, state, window, in_features, head_out=3):
                 """从 state_dict 的 key 模式推断结构。"""
                 keys = list(state.keys())
                 # 检测模型类型
@@ -350,19 +350,19 @@ def _export_from_checkpoint(
 
                 if has_lstm:
                     self.rnn = nn.LSTM(in_features, hidden, batch_first=True)
-                    self.fc = nn.Linear(hidden, 3)
+                    self.fc = nn.Linear(hidden, head_out)
                 elif has_gru:
                     self.rnn = nn.GRU(in_features, hidden, batch_first=True)
-                    self.fc = nn.Linear(hidden, 3)
+                    self.fc = nn.Linear(hidden, head_out)
                 elif has_conv:
                     self.conv = nn.Conv1d(in_features, hidden, 3, padding=1)
-                    self.fc = nn.Linear(hidden * window, 3)
+                    self.fc = nn.Linear(hidden * window, head_out)
                 elif has_transformer:
                     encoder_layer = nn.TransformerEncoderLayer(
                         d_model=in_features, nhead=max(1, in_features // 2), batch_first=True
                     )
                     self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=1)
-                    self.fc = nn.Linear(in_features, 3)
+                    self.fc = nn.Linear(in_features, head_out)
                 else:
                     # 默认 MLP
                     self.fc = nn.Sequential(
@@ -371,7 +371,7 @@ def _export_from_checkpoint(
                         nn.GELU(),
                         nn.Linear(hidden, hidden // 2),
                         nn.GELU(),
-                        nn.Linear(hidden // 2, 3),
+                        nn.Linear(hidden // 2, head_out),
                     )
 
             def forward(self, x):
@@ -394,7 +394,23 @@ def _export_from_checkpoint(
                 k = k[len("_orig_mod."):]
             clean_state[k] = v
 
-        model = OnnxExportModel()
+        # 推断 head 输出宽度：优先找 fc/head 系 2D 权重中"形状像最终投影"的那个。
+        # A+B 双尺度训练把 head 扩为 horizon+1（如 3→4），宽度硬编码 3 会丢 head 权重。
+        head_out = 3
+        head_cands = []
+        for k, v in clean_state.items():
+            if not (k.endswith(".weight") or k == "weight") or v.ndim != 2:
+                continue
+            if any(t in k.lower() for t in ("fc", "head", "linear", "proj", "predict")):
+                head_cands.append((k, int(v.shape[0])))
+        if head_cands:
+            # 最终投影通常是输出维最小（3 或 4）的候选
+            small = [o for _, o in head_cands if 1 < o <= 8]
+            if small:
+                head_out = max(small)  # 3(旧/单头) → 3；4(双头 H+1=4) → 4
+        logger.debug("[ONNX] 自动导出骨架 head_out=%d (state keys=%d)", head_out, len(clean_state))
+
+        model = OnnxExportModel(head_out=head_out)
         # 尝试加载，忽略不匹配的 key（自动推断的模型可能不完全匹配）
         model.load_state_dict(clean_state, strict=False)
         model.eval()

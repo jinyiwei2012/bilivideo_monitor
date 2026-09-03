@@ -586,6 +586,28 @@ class ModelTrainer:
         """
         # 调用算法的 build_model() 构建模型
         model = algo.build_model()
+        algo_h = int(getattr(algo, "training_horizon", 3))
+
+        def _load_state_dict_dual(state) -> bool:
+            """加载 checkpoint：先按 H 宽直载（旧格式/不可扩展模型）；
+            head 尺寸不匹配时把模型扩为 H+1（A+B 双尺度新格式）后重载。"""
+            if not isinstance(state, dict):
+                return False
+            state = {k[len("_orig_mod."):] if k.startswith("_orig_mod.") else k: v
+                     for k, v in state.items()}
+            try:
+                model.load_state_dict(state)
+                return True
+            except Exception:
+                try:
+                    from algorithms.models.deep_learning._torch_upgrade import expand_final_projection
+
+                    if not expand_final_projection(model, algo_h):
+                        return False
+                    model.load_state_dict(state)
+                    return True
+                except Exception:
+                    return False
 
         if init_from_global:
             loaded = False
@@ -596,12 +618,14 @@ class ModelTrainer:
                     state = video_ckpt.load()
                     if state is not None:
                         try:
-                            state = {k[len("_orig_mod."):] if k.startswith("_orig_mod.") else k: v for k, v in state.items()}
-                            model.load_state_dict(state)
+                            ok = _load_state_dict_dual(state)
+                        except Exception:
+                            ok = False
+                        if ok:
                             logger.info("[trainer] %s 从视频 %s checkpoint 续训", algo_id, bvid)
                             loaded = True
-                        except Exception as e:
-                            logger.warning("[trainer] %s 加载视频 state_dict 失败: %s", algo_id, e)
+                        else:
+                            logger.warning("[trainer] %s 加载视频 state_dict 失败(形状不匹配，尝试重训)", algo_id)
             # 降级到全局 checkpoint
             if not loaded:
                 global_ckpt = CheckpointManager(algo_id)
@@ -609,11 +633,27 @@ class ModelTrainer:
                     state = global_ckpt.load()
                     if state is not None:
                         try:
-                            state = {k[len("_orig_mod."):] if k.startswith("_orig_mod.") else k: v for k, v in state.items()}
-                            model.load_state_dict(state)
+                            ok = _load_state_dict_dual(state)
+                        except Exception:
+                            ok = False
+                        if ok:
                             logger.info("[trainer] %s 从全局 checkpoint 初始化", algo_id)
-                        except Exception as e:
-                            logger.warning("[trainer] %s 加载全局 state_dict 失败: %s", algo_id, e)
+                            loaded = True
+                        else:
+                            logger.warning("[trainer] %s 加载全局 state_dict 失败(形状不匹配，尝试重训)", algo_id)
+
+        # A+B 双尺度：无可续训 checkpoint（全新训练）时，把唯一最终投影 Linear 输出宽
+        # 从 H 扩到 H+1（第 H+1 维 = 长期平均速率）。已有 H 宽 checkpoint 续训时保持原架构。
+        if not bool(getattr(model, "_dual_output", False)):
+            try:
+                from algorithms.models.deep_learning._torch_upgrade import expand_final_projection
+
+                dual = expand_final_projection(model, algo_h)
+            except Exception as e:
+                logger.debug("[trainer] %s 双输出扩维失败(保持短期): %s", algo_id, e)
+                dual = False
+            setattr(model, "_dual_output", bool(dual))
+        setattr(algo, "_dual_output", bool(getattr(model, "_dual_output", False)))
 
         # 将模型移动到检测到的最优设备（GPU/NPU/CPU）
         model = model.to(self.device)
@@ -794,6 +834,12 @@ class ModelTrainer:
                 # 如果预测输出多了一个维度（如 [B, H, 1] → [B, H]）
                 if pred.dim() == y.dim() + 1 and pred.shape[-1] == 1:
                     pred = pred.squeeze(-1)
+
+                # A+B 双尺度兼容：数据目标恒为 H+1 宽（短期 H 步 ⊕ 长期 1 维），
+                # 而不可扩展的模型（无唯一投影层，如 N-BEATS/DeepAR 等）输出仍为 H 宽。
+                # 此时截取目标前 H 维（仅监督短期增量，长期维不参与损失）。
+                if y.shape[-1] > pred.shape[-1]:
+                    y = y[..., : pred.shape[-1]]
 
                 # ── SPADE-S 偏斜修正：按振幅加权 ────────────
                 # 避免高播放量视频的 loss 主导梯度，按目标振幅归一化

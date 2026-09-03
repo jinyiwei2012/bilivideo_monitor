@@ -99,6 +99,9 @@ def evaluate_model(model, loader, loss_fn, preprocess) -> float:
             pred = model(x)
             if pred.dim() == y.dim() + 1 and pred.shape[-1] == 1:
                 pred = pred.squeeze(-1)
+            # A+B 双尺度兼容：目标恒为 H+1 宽，不可扩展模型输出 H 宽 → 截取目标前 H 维
+            if y.shape[-1] > pred.shape[-1]:
+                y = y[..., : pred.shape[-1]]
             total += float(loss_fn(pred, y).item())
             n += 1
     return total / max(1, n)

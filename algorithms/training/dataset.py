@@ -63,6 +63,34 @@ _DATA_ROOT = project_path("core", "data")
 _DEFAULT_FEATURES = ("view_count", "like_count", "coin_count", "favorite_count", "share_count")
 
 
+def _robust_increments(target: np.ndarray) -> np.ndarray:
+    """将累计播放量序列转为稳健增量序列（剔除 API 冻结伪迹）。
+
+    与 registry 精度改造同口径（D1/A1）：B站计数 API 常见"冻结"（连续多点为 0 增量，
+    随后一次性补量）。原始 np.diff 把冻结 0 当真实停滞、把补量当爆发 → 训练标签被
+    噪声污染。处理：对增量做 MAD 剪除（单发补量离群），连续 0 保留（可能真停滞）。
+
+    返回与 target 等长的逐点增量序列（首位为 0，语义同 np.diff(prepend=target[0])）。
+    """
+    velocity = np.diff(target, prepend=target[0]).astype(np.float32)
+    # 只看有意义的非首段，MAD 剪除补量尖峰（补量 = 单段 >> 邻域中位）
+    seg = velocity[1:]
+    if len(seg) >= 3:
+        med = float(np.median(seg))
+        mad = float(np.median(np.abs(seg - med)))
+        if mad > 1e-9:
+            # 补量剪除阈值：> med + 6*MAD 视为一次性补量尖峰 → 替换为该点近端中位
+            upper = med + 6.0 * 1.4826 * mad
+            outlier = seg > upper
+            if np.any(outlier):
+                for i in np.where(outlier)[0]:
+                    lo = max(0, i - 3)
+                    hi = min(len(seg), i + 4)
+                    seg[i] = float(np.median(seg[lo:hi]))
+        velocity[1:] = seg
+    return velocity
+
+
 def _safe_bvid(bvid: str) -> bool:
     """校验 BV 号格式是否合法。
 
@@ -234,6 +262,7 @@ class VideoTimeSeriesDataset(Dataset):
         normalize: bool = True,
         min_timestamp: Optional[float] = None,
         device: Optional["torch.device"] = None,
+        long_window: int = 48,
     ):
         """初始化时序数据集。
 
@@ -243,6 +272,9 @@ class VideoTimeSeriesDataset(Dataset):
         Args:
             device: 不为 None 且为 CUDA 时，将全部时序数据预载入 GPU 显存，
                     消除训练时的逐 batch CPU→GPU 传输开销。
+            long_window: 长期监督窗（步数, 默认 48 ≈ 1h）。目标 y = [horizon 步稳健增量
+                          ⊕ 未来 long_window 步平均速率 log 值]，使模型同时学短期轨迹与
+                         长期速率（A+B 双尺度）。
 
         Raises:
             RuntimeError: PyTorch 未安装。
@@ -252,6 +284,9 @@ class VideoTimeSeriesDataset(Dataset):
             raise RuntimeError("torch 未安装，无法构造数据集")
         self.window = int(window)
         self.horizon = int(horizon)
+        # 长期监督窗（步数，75s/步）：目标 = 未来 horizon 步稳健增量 ⊕ 未来 long_window
+        # 步平均速率的 log 值（A+B 双尺度）。默认 48 步 ≈ 1 小时真实未来均值。
+        self.long_window = int(long_window)
         self.features = tuple(features) if features else _DEFAULT_FEATURES
         self.data_root = data_root or _DATA_ROOT
         # 最少需要 window + horizon + 1 条记录才能生成一个有效样本
@@ -276,6 +311,7 @@ class VideoTimeSeriesDataset(Dataset):
         # ── 数据结构 ─────────────────────────────────
         self._series: List[np.ndarray] = []      # 每个视频归一化后的特征矩阵 [N, F + n_derived]
         self._velocity: List[np.ndarray] = []    # 每个视频的目标速度序列 [N-1]
+        self._long_rate: List[np.ndarray] = []   # 每个视频的长期平均速率序列 [N]（A+B 长期段）
         self._index: List[Tuple[int, int]] = []  # 样本索引: (series_idx, start_offset)
         self._global_max_ts = 0.0                # 所有视频中的最大 timestamp
 
@@ -285,10 +321,23 @@ class VideoTimeSeriesDataset(Dataset):
             if arr is None or arr.shape[0] < self.min_records:
                 continue
 
-            # ── 一阶差分得到速度序列 ──────────────────
-            # 累计值的一阶差分 = 每个时间步的增长量，首位补 0
+            # ── 稳健增量目标序列（A+B 短期段）───────────
+            # 累计值差分后做 MAD 补量剪除（API 冻结伪迹），与 registry increment_75s 同口径
             target = arr[:, self.target_idx]
-            velocity = np.diff(target, prepend=target[0]).astype(np.float32)
+            velocity = _robust_increments(target)
+
+            # ── 长期平均速率序列（A+B 长期段）───────────
+            # long_rate[i] = target 在 [i+1, i+long_window] 的真实平均增量（每 75s/步）；
+            # 样本未来不足 long_window 时，用可用段均值（尾部样本仍可监督）
+            N_total = arr.shape[0]
+            long_rate = np.zeros(N_total, dtype=np.float32)
+            lw = max(1, self.long_window)
+            for i in range(N_total - 1):
+                hi = min(N_total, i + 1 + lw)
+                if hi > i + 1:
+                    long_rate[i] = float((target[hi - 1] - target[i]) / (hi - 1 - i))
+            # 尾部无未来：填充 0（对应样本会被 horizon 索引保护，实际取不到）
+            long_rate[N_total - 1] = 0.0
 
             # ── 衍生特征 ─────────────────────────────
             N = arr.shape[0]
@@ -325,12 +374,21 @@ class VideoTimeSeriesDataset(Dataset):
             arr_ext = np.column_stack([arr, extras])  # [N, F + 5]
 
             # ── z-score 归一化（按视频独立） ──────────
+            # 关键：长期平均速率与短期速度必须共用同一缩放器（mean/std 取自 velocity 序列），
+            # 否则推理端 _build_torch_input 只能拿到 velocity 的 v_mean/v_std，无法反归一化
+            # 模型输出的第 H+1 维（长期目标）。二者同量纲（播放量/步），共用缩放是自洽的。
             if self.normalize:
                 arr_n = _zscore(arr_ext)
-                vel_n = _zscore_1d(velocity)
+                _v_mean = float(np.mean(velocity))
+                _v_std = float(np.std(velocity))
+                if _v_std < 1e-8:
+                    _v_std = 1.0
+                vel_n = ((velocity - _v_mean) / _v_std).astype(np.float32)
+                long_n = ((long_rate - _v_mean) / _v_std).astype(np.float32)
             else:
                 arr_n = arr_ext
                 vel_n = velocity
+                long_n = long_rate
 
             # 更新全局最大时间戳
             if max_ts > self._global_max_ts:
@@ -339,8 +397,9 @@ class VideoTimeSeriesDataset(Dataset):
             sidx = len(self._series)
             self._series.append(arr_n)
             self._velocity.append(vel_n)
+            self._long_rate.append(long_n)
             # 生成所有有效滑动窗口的索引
-            # 每个起点 s 满足 s + window + horizon <= N
+            # 每个起点 s 满足 s + window + horizon <= N（长期段在 __getitem__ 内裁剪）
             max_start = arr.shape[0] - self.window - self.horizon
             for s in range(max_start + 1):
                 self._index.append((sidx, s))
@@ -350,6 +409,7 @@ class VideoTimeSeriesDataset(Dataset):
         # .copy() 断开与原始 numpy 数组的共享内存，确保 DataLoader 多进程安全
         self._series = [torch.from_numpy(s.copy()) for s in self._series]
         self._velocity = [torch.from_numpy(v.copy()) for v in self._velocity]
+        self._long_rate = [torch.from_numpy(l.copy()) for l in self._long_rate]
         # ── VRAM 预载：将全部时序数据提前移入 GPU 显存 ──
         # 消除训练时逐 batch 的 CPU→GPU 传输，但会占用显存
         # 仅 CUDA 设备启用（DirectML/NPU 不适合此模式）
@@ -357,6 +417,7 @@ class VideoTimeSeriesDataset(Dataset):
         if self._on_device:
             self._series = [s.to(device) for s in self._series]
             self._velocity = [v.to(device) for v in self._velocity]
+            self._long_rate = [l.to(device) for l in self._long_rate]
         n_feat = len(self.features) + self._n_derived
         logger.info(
             "[dataset] 加载完成: %d 视频, %d 样本 (window=%d, horizon=%d, features=%d, derived=%d, max_ts=%.0f)",
@@ -386,15 +447,26 @@ class VideoTimeSeriesDataset(Dataset):
         Returns:
             Tuple[Tensor, Tensor]:
                 x: shape [window, n_features + n_derived] 的输入特征矩阵
-                y: shape [horizon] 的目标速度向量
+                y: shape [horizon + 1] 的目标向量 —— 前 horizon 步 = 稳健增量（短期轨迹），
+                   最后 1 维 = 样本点后 long_window 步的真实平均速率（长期均值, A+B 双尺度）。
         """
         sidx, s = self._index[idx]
         series = self._series[sidx]
         velocity = self._velocity[sidx]
+        long_rate = self._long_rate[sidx]
         # 切片 → clone() 确保返回独立副本（DataLoader 多进程安全，连续内存）
         x = series[s : s + self.window].clone()  # [W, F]
-        y = velocity[s + self.window : s + self.window + self.horizon].clone()  # [H]
-        return x, y
+        y_short = velocity[s + self.window : s + self.window + self.horizon].clone()  # [H] 稳健增量
+        # 长期监督：样本起点后未来 long_window 步的平均速率（真实未来均值）
+        # 长期目标锚定在窗口末端位置；越界时用该视频已有序列保证索引有效（long_rate 已 pad）
+        _anchor = s + self.window  # 窗口末端 = 预测起点
+        _hi = min(len(long_rate), _anchor + self.long_window)
+        _lo = min(_anchor + 1, len(long_rate) - 1)
+        if _hi > _lo:
+            y_long = long_rate[_lo:_hi].mean().reshape(1)
+        else:
+            y_long = long_rate[_anchor].reshape(1)
+        return x, torch.cat([y_short, y_long])
 
     def n_features(self) -> int:
         """返回特征总数（原始特征 + 衍生特征）。
