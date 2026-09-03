@@ -2,9 +2,9 @@ name: Code Quality
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, 'refactor/**']
   pull_request:
-    branches: [main, develop]
+    branches: [main, develop, 'refactor/**']
 
 jobs:
   lint:
@@ -36,6 +36,11 @@ jobs:
 
       - name: Lint with Flake8
         run: flake8 .
+
+      - name: Run tests with Pytest
+        run: |
+          pip install pytest
+          python -m pytest tests/ -q
 
       - name: Type check with MyPy
         run: mypy core/ algorithms/base.py ui/ utils/ || true

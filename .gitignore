@@ -33,6 +33,9 @@ start.bat
 .claude/
 reports/
 
+# Agent 会话缓存
+.omo/
+
 _wheels/
 
 # 模型 checkpoint（训练产物，按需重新生成）

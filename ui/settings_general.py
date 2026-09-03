@@ -26,8 +26,24 @@ class SettingsGeneralMixin:
         nb.addTab(page, "  常规设置  ")
 
         self._build_general_predict_section(page)
+        self._build_general_window_section(page)
         self._build_general_retry_section(page)
         self._build_general_status_section(page)
+
+
+    def _build_general_window_section(self, page):
+        """窗口行为：托盘驻留开关 (B1)"""
+        from PyQt6.QtWidgets import QCheckBox
+
+        sec = self._section(page, "窗口行为")
+        self.close_to_tray = QCheckBox("关闭窗口时最小化到系统托盘（监控后台继续运行）")
+        self.close_to_tray.setChecked(bool(self._cfg.get("ui", {}).get("close_to_tray", True)))
+        self.close_to_tray.setStyleSheet(f"color: {C['text_2']};")
+        sec.layout().addWidget(self.close_to_tray)
+
+        hint = QLabel("托盘图标提供: 显示/隐藏窗口、立即刷新、暂停/继续监控、退出 ♪")
+        hint.setStyleSheet(f"color: {C['text_3']}; font-size: 8pt;")
+        sec.layout().addWidget(hint)
 
 
     def _build_general_predict_section(self, page):
@@ -38,6 +54,24 @@ class SettingsGeneralMixin:
         self.min_confidence = self._spin_field_float(
             sec, "最小置信度", self._cfg.get("prediction", {}).get("min_confidence", 0.5), 0.1, 1.0
         )
+
+        # ── 阈值阶梯自动扩档 (A1) ──
+        esc_sec = self._section(page, "阈值阶梯自动扩档")
+        from PyQt6.QtWidgets import QCheckBox
+        from PyQt6.QtCore import Qt as _Qt
+
+        self.auto_escalate = QCheckBox("达到最高档后自动追加更高目标")
+        self.auto_escalate.setChecked(bool(self._cfg.get("prediction", {}).get("auto_escalate", True)))
+        self.auto_escalate.setStyleSheet(f"color: {C['text_2']};")
+        esc_sec.layout().addWidget(self.auto_escalate)
+
+        self.escalate_factor = self._spin_field_float(
+            esc_sec, "阶梯倍数", self._cfg.get("prediction", {}).get("escalate_factor", 5.0), 1.5, 20.0
+        )
+
+        hint = QLabel("例: 播放量超过最高档 1000万 后，自动追加 5000万 为新目标 ♪")
+        hint.setStyleSheet(f"color: {C['text_3']}; font-size: 8pt;")
+        esc_sec.layout().addWidget(hint)
 
 
     def _build_general_retry_section(self, page):

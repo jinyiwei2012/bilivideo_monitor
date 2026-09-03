@@ -13,7 +13,7 @@ import threading
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QLabel, QPushButton, QStackedWidget, QStatusBar,
-    QSizePolicy, QApplication, QMenu, QSplashScreen,
+    QSizePolicy, QApplication, QMenu, QSplashScreen, QSystemTrayIcon,
 )
 from PyQt6.QtCore import Qt, QTimer, QSize
 from PyQt6.QtGui import QAction, QFont, QPixmap, QIcon, QColor
@@ -83,7 +83,9 @@ class BilibiliMonitorGUI(QMainWindow):
     def __init__(self):
         super().__init__()
         self._set_window_config()
-        init_theme(QApplication.instance())
+        cfg = load_config()
+        theme_name = (cfg.get("ui") or {}).get("theme", "darkly")
+        init_theme(QApplication.instance(), dark=theme_name != "light")
 
         self.auto_refresh_enabled = True
         self._global_tick_timer = None
@@ -122,12 +124,134 @@ class BilibiliMonitorGUI(QMainWindow):
         self._preload_algorithms()
         notification_manager.configure(load_config())
         self._schedule_daily_push()
+        self._resume_export_schedule()
         self._start_auto_refresh()
         self._file_logger.start_midnight_checker(self)
         QTimer.singleShot(3000, self._check_update)
+        # B1: 系统托盘（启动完成后初始化，不阻塞主流程）
+        self._tray_icon = None
+        self._force_quit = False
+        QTimer.singleShot(1500, self._init_tray)
+
+    def _init_tray(self):
+        """初始化系统托盘图标与菜单（B1）。"""
+        try:
+            if self._tray_icon is not None or not QSystemTrayIcon.isSystemTrayAvailable():
+                return
+            cfg = load_config().get("ui", {})
+            if not cfg.get("close_to_tray", True):
+                return
+
+            icon = self.windowIcon()
+            if icon.isNull():
+                try:
+                    icon_path = project_path("assets", "app_icon.png")
+                    if os.path.exists(icon_path):
+                        from PyQt6.QtGui import QIcon
+
+                        icon = QIcon(icon_path)
+                except Exception:
+                    icon = QIcon()
+
+            tray = QSystemTrayIcon(icon, self)
+            tray.setToolTip("B站视频监控与播放量预测系统 ♪")
+
+            menu = QMenu()
+            act_show = menu.addAction("◧ 显示主窗口")
+            act_show.triggered.connect(self._tray_show)
+            act_hide = menu.addAction("▁ 隐藏到托盘")
+            act_hide.triggered.connect(self.hide)
+            menu.addSeparator()
+            act_refresh = menu.addAction("↻ 立即刷新")
+            act_refresh.triggered.connect(self._refresh_data)
+            act_toggle = menu.addAction("⏸ 暂停监控" if self.auto_refresh_enabled else "▶ 继续监控")
+            act_toggle.triggered.connect(self._tray_toggle_monitor)
+            self._tray_toggle_action = act_toggle
+            menu.addSeparator()
+            act_quit = menu.addAction("✕ 退出")
+            act_quit.triggered.connect(self._quit_app)
+
+            tray.setContextMenu(menu)
+            tray.activated.connect(self._on_tray_activated)
+            tray.show()
+            self._tray_icon = tray
+
+            if cfg.get("tray_notify", True):
+                tray.showMessage(
+                    "B站监控 ♪",
+                    "天依还在后台守护着监控哦，右键托盘图标可操作 ♪",
+                    QSystemTrayIcon.MessageIcon.Information,
+                    3000,
+                )
+        except Exception as e:
+            logger.debug("初始化系统托盘失败: %s", e)
+            self._tray_icon = None
+
+    def _on_tray_activated(self, reason):
+        """托盘图标激活（单击/双击）→ 显示主窗口"""
+        try:
+            if reason in (
+                QSystemTrayIcon.ActivationReason.Trigger,
+                QSystemTrayIcon.ActivationReason.DoubleClick,
+            ):
+                self._tray_show()
+        except Exception:
+            pass
+
+    def _tray_show(self):
+        """从托盘恢复显示主窗口"""
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+
+    def _tray_toggle_monitor(self):
+        """托盘菜单：暂停/继续自动刷新"""
+        try:
+            from ui.main_gui_tick import start_global_tick, stop_global_tick
+
+            if self.auto_refresh_enabled:
+                stop_global_tick(self)
+                self.auto_refresh_enabled = False
+                if self._tray_toggle_action:
+                    self._tray_toggle_action.setText("▶ 继续监控")
+                self._sb("status", "天依先去休息了…监控已暂停 ♪", C["warning"])
+            else:
+                self.auto_refresh_enabled = True
+                start_global_tick(self)
+                if self._tray_toggle_action:
+                    self._tray_toggle_action.setText("⏸ 暂停监控")
+                self._sb("status", "天依回来啦!♪ 监控已继续~", C["success"])
+        except Exception as e:
+            logger.debug("托盘暂停/继续失败: %s", e)
+
+    def _quit_app(self):
+        """从托盘菜单触发真正退出"""
+        self._force_quit = True
+        try:
+            if self._tray_icon is not None:
+                self._tray_icon.hide()
+        except Exception:
+            pass
+        self.close()
 
     def closeEvent(self, event):
-        """窗口关闭时触发完整清理流程 — 等价于 Tkinter 的 WM_DELETE_WINDOW"""
+        """窗口关闭：若启用托盘驻留且未强制退出，则隐藏到托盘而非退出。
+
+        监控线程与集中拉取继续运行，避免误点关闭导致监控中断（B1）。
+        """
+        if (
+            not self._force_quit
+            and self._tray_icon is not None
+            and QSystemTrayIcon.isSystemTrayAvailable()
+        ):
+            try:
+                cfg = load_config().get("ui", {})
+                if cfg.get("close_to_tray", True):
+                    event.ignore()
+                    self.hide()
+                    return
+            except Exception:
+                pass
         on_exit(self)
         event.accept()
 
@@ -342,6 +466,20 @@ class BilibiliMonitorGUI(QMainWindow):
         self._gear_btn.clicked.connect(self._popup_settings_menu)
         rh.addWidget(self._gear_btn)
 
+        # 主题切换 (深色/亮色)
+        self._theme_btn = QPushButton("◐")
+        self._theme_btn.setToolTip("◐ 切换 深色 / 亮色 主题")
+        self._theme_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {C['bg_elevated']}; color: {C['text_2']};
+                border: none; border-radius: {C['radius_md']}px;
+                padding: {SPACE_SM}px {SPACE_MD}px; min-height: 24px;
+            }}
+            QPushButton:hover {{ background-color: {C['bg_hover']}; }}
+        """)
+        self._theme_btn.clicked.connect(self._toggle_theme_mode)
+        rh.addWidget(self._theme_btn)
+
         # Search
         self._search_btn = QPushButton("⌕")
         self._search_btn.setToolTip("输入关键词,天依帮你找找看 ♪")
@@ -507,6 +645,38 @@ class BilibiliMonitorGUI(QMainWindow):
             self._gear_btn.mapToGlobal(self._gear_btn.rect().bottomLeft())
         )
 
+    def _toggle_theme_mode(self):
+        """切换深色/亮色主题并持久化到 config。
+
+        各面板在构建时把 C 色值写死进 styleSheet，运行时只调 init_theme()
+        无法重刷已建 widget。因此本方法：1) 立即应用全局 QSS（对实时取 C
+        的对话框生效）; 2) 持久化偏好; 3) 提示重启主界面完全生效。
+        """
+        try:
+            from ui.theme import C, THEME_DARK, toggle_theme
+
+            is_dark = C.get("bg_base") == THEME_DARK.get("bg_base")
+            new_theme = "light" if is_dark else "darkly"
+
+            cfg = load_config()
+            cfg.setdefault("ui", {})["theme"] = new_theme
+            try:
+                from config import save_config
+
+                save_config(cfg)
+            except Exception as e:
+                logger.debug("主题偏好保存失败: %s", e)
+
+            # 立即应用全局 QSS / Palette（新开的对话框、动态取 C 的组件即时生效）
+            toggle_theme()
+            self._theme_btn.setToolTip(
+                "◐ 当前为亮色主题" if not is_dark else "◐ 当前为深色主题"
+            )
+            self._sb("status", "主题偏好已保存,重启后全部面板将使用新主题 ♪", C["warning"])
+            logger.info("主题已切换: %s", new_theme)
+        except Exception as e:
+            logger.warning("主题切换失败: %s", e)
+
     # ── 薄委托包装器 ──
 
     def _start_global_tick(self):
@@ -611,6 +781,24 @@ class BilibiliMonitorGUI(QMainWindow):
     def _schedule_daily_push(self):
         schedule_daily_push(self)
 
+    def _resume_export_schedule(self):
+        """启动主窗口级定时导出（若用户已启用）"""
+        try:
+            from ui.report_scheduler import resume_export_schedule
+
+            resume_export_schedule(self)
+        except Exception as e:
+            logger.debug("定时导出初始化失败: %s", e)
+
+    def _stop_export_schedule(self):
+        """停止定时导出（退出清理用）"""
+        try:
+            from ui.report_scheduler import stop_export_schedule
+
+            stop_export_schedule(self)
+        except Exception as e:
+            logger.debug("停止定时导出失败: %s", e)
+
     def _daily_push(self):
         daily_push(self)
 
@@ -622,11 +810,11 @@ class BilibiliMonitorGUI(QMainWindow):
 
     def _prediction_done(
         self, w_pred, current_view, growth, rate_per_sec,
-        success_list, fail_list, valid, total, surge_info=None,
+        success_list, fail_list, valid, total, surge_info=None, bias_info=None, eta_info=None,
     ):
         prediction_done(
             self, w_pred, current_view, growth, rate_per_sec,
-            success_list, fail_list, valid, total, surge_info,
+            success_list, fail_list, valid, total, surge_info, bias_info, eta_info,
         )
 
     def _copy_bvid(self, bvid):
@@ -704,6 +892,8 @@ class BilibiliMonitorGUI(QMainWindow):
 def main():
     """主入口函数"""
     app = QApplication(sys.argv)
+    # B1: 托盘驻留需要窗口全部隐藏时不退出应用（由托盘菜单显式退出）
+    app.setQuitOnLastWindowClosed(False)
 
     # 启动画面
     splash = QSplashScreen()

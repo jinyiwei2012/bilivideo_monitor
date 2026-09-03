@@ -46,8 +46,11 @@ def generate_summary(videos: List[Dict]) -> Dict:
     }
 
 
-def export_html(videos: List[Dict], output_path: Optional[str] = None, title: str = "B站监控数据报告") -> str:
-    """生成 HTML 格式报告"""
+def export_html(
+    videos: List[Dict], output_path: Optional[str] = None, title: str = "B站监控数据报告",
+    ai_insight: Optional[str] = None,
+) -> str:
+    """生成 HTML 格式报告。ai_insight 为可选的 AI 解读文本段。"""
     os.makedirs(_OUTPUT_DIR, exist_ok=True)
     summary = generate_summary(videos)
 
@@ -88,7 +91,7 @@ def export_html(videos: List[Dict], output_path: Optional[str] = None, title: st
     except Exception as e:
         logger.debug("生成报告HTML行失败: %s", e)
 
-    html = f"""<!DOCTYPE html>
+    html_doc = f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head><meta charset="utf-8">
 <title>{title}</title>
@@ -106,6 +109,7 @@ th {{ background:#f0f2f5; text-align:left; padding:10px 12px; font-size:12px; co
 td {{ padding:8px 12px; border-top:1px solid #eee; font-size:13px; }}
 .num {{ text-align:right; font-family:Consolas,monospace; }}
 .section-title {{ font-size:15px; font-weight:bold; margin:16px 0 8px; }}
+.ai-box {{ background:#f0f7ff; border:1px solid #bcd8f5; border-radius:8px; padding:12px 16px; font-size:13px; line-height:1.7; color:#2c3e50; white-space:pre-wrap; }}
 </style>
 </head>
 <body>
@@ -127,7 +131,7 @@ td {{ padding:8px 12px; border-top:1px solid #eee; font-size:13px; }}
 </table>
 """
     if health_rows:
-        html += f"""
+        html_doc += f"""
 <div class="section-title">一键三连健康探针</div>
 <table>
 <tr><th>BV号</th><th>标题</th><th>健康分</th><th>点赞率</th><th>硬币率</th><th>收藏率</th><th>分享率</th></tr>
@@ -135,11 +139,17 @@ td {{ padding:8px 12px; border-top:1px solid #eee; font-size:13px; }}
 </table>
 """
 
-    html += "\n</body></html>"
+    # C3: 可选 AI 解读段（插入 </body> 前）
+    if ai_insight and ai_insight.strip():
+        html_doc += f"""
+<div class="section-title">◈ AI 数据解读</div>
+<div class="ai-box">{html.escape(ai_insight.strip())}</div>
+"""
+    html_doc += "\n</body></html>"
 
     output_path = output_path or os.path.join(_OUTPUT_DIR, f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html")
     with open(output_path, "w", encoding="utf-8") as f:
-        f.write(html)
+        f.write(html_doc)
     return output_path
 
 
@@ -287,3 +297,69 @@ def export_prediction_vs_actual(video_dbs: Dict, output_dir: Optional[str] = Non
         w.writerows(rows)
     logger.info("预测对比表导出完成: %s (%d 条)", output_path, len(rows))
     return output_path
+
+
+def generate_ai_insight(videos: List[Dict]) -> str:
+    """C3: 用 LLM 生成报告 AI 解读段（需已配置 AI 密钥；无密钥/失败返回空串）。
+
+    输入为监控视频列表，输出一段自然语言"本周表现解读 + 下周期待"。
+    纯规则模块失败时也返回空串，调用方自动跳过 AI 段。
+    """
+    if not videos:
+        return ""
+    try:
+        from config import get_active_ai_profile
+
+        profile = get_active_ai_profile()
+        if not profile.get("api_key"):
+            return ""
+
+        from utils.ai_qa import AIQASession
+
+        session = AIQASession(
+            api_key=profile.get("api_key", ""),
+            endpoint=profile.get("endpoint", "") or "https://api.openai.com/v1/chat/completions",
+            model=profile.get("model", "gpt-4o-mini"),
+        )
+
+        summary = generate_summary(videos)
+        lines = [
+            "你是B站数据分析助手。请用中文为一份监控周报写一段 150 字以内的解读，包含：",
+            "1) 整体表现一句话（播放/互动规模、赞播比）；",
+            "2) 表现最突出或最值得关注的 1-2 个视频及原因；",
+            "3) 对下周趋势的一句简短展望。",
+            "不要输出标题，直接给正文。",
+            "",
+            "整体数据：",
+            f"监控 {summary['total']} 个视频，总播放 {summary['total_views']}，"
+            f"总赞 {summary['total_likes']}，总投币 {summary['total_coins']}，"
+            f"平均赞播比 {summary['avg_like_rate']}%，"
+            f"播放破万 {summary['achieved_10k']} 个。",
+            "",
+            "视频明细：",
+        ]
+        for v in videos[:12]:
+            lines.append(
+                f"- {v.get('bvid', '')}《{(v.get('title') or '')[:28]}》："
+                f"播放 {v.get('view_count', 0):,} 赞 {v.get('like_count', 0):,} "
+                f"币 {v.get('coin_count', 0):,} 藏 {v.get('favorite_count', 0):,} "
+                f"弹幕 {v.get('danmaku_count', 0):,}"
+            )
+        if len(videos) > 12:
+            lines.append(f"- … 等共 {len(videos)} 个")
+        prompt = "\n".join(lines)
+
+        # 直接调用底层 API（避免 ask() 的规则回退与历史污染）
+        answer = session.ask(prompt)
+        answer = (answer or "").strip()
+        # 若走规则回退会返回非解读内容 → 通过简单启发丢弃
+        if not answer or answer.startswith("天依") or "监控" not in answer and len(answer) < 20:
+            return ""
+        # 清理可能的 markdown 标题
+        for prefix in ("#", "##", "###", "**"):
+            if answer.startswith(prefix):
+                answer = answer.lstrip("#* \n")
+        return answer[:800]
+    except Exception as e:
+        logger.warning("生成 AI 解读失败: %s", e)
+        return ""

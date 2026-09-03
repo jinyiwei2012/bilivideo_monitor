@@ -265,6 +265,12 @@ class SettingsWindow(
         self._cfg["monitor"]["max_monitor_count"] = max_m
         self._cfg["prediction"]["prediction_hours"] = pred_hours
         self._cfg["prediction"]["min_confidence"] = confidence
+        if hasattr(self, "auto_escalate"):
+            self._cfg["prediction"]["auto_escalate"] = bool(self.auto_escalate.isChecked())
+        if hasattr(self, "escalate_factor"):
+            self._cfg["prediction"]["escalate_factor"] = float(self.escalate_factor.value())
+        if hasattr(self, "close_to_tray"):
+            self._cfg.setdefault("ui", {})["close_to_tray"] = bool(self.close_to_tray.isChecked())
 
         th_data = []
         for v_widget, n_widget, _ in getattr(self, "_thresh_rows", []):

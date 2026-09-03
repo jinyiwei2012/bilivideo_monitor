@@ -3,15 +3,14 @@
 BiliMonitor PyInstaller spec
 =============================
 Known issues & solutions:
-  1. 97 algorithm modules are dynamically discovered (os.walk + importlib)
-     → all listed in hiddenimports
-  2. torch is ~2.5GB → use onedir mode, exclude unused backends
-  3. curl_cffi bundles libcurl DLLs → binaries=[] auto-detects .pyd/.dll
-  4. Tcl/Tk must be bundled for customtkinter → Tree + collect_all
-  5. scipy/sklearn/statsmodels have C extensions → collect_all
-  6. matplotlib backend → 'matplotlib.backends.backend_tkagg'
-  7. Bilibili API async submodules → 'bilibili_api' collect_all
-  8. Runtime data/ directory created on first run → not bundled
+  1. 算法模块由 registry 运行时动态发现 (os.walk + importlib)
+     → 全部列入 hiddenimports 以确保冻结包内可导入
+  2. torch 约 2.5GB → onedir 模式 + 排除未用后端
+  3. curl_cffi 自带 libcurl DLL → binaries=[] 自动探测 .pyd/.dll
+  4. GUI 为 PyQt6 → collect_all("ui") + 显式 PyQt6 子模块
+  5. scipy/sklearn/statsmodels 含 C 扩展 → collect_all
+  6. bilibili_api 异步子模块 → collect_all("bilibili_api")
+  7. 运行时 data/ 目录首次启动创建 → 不打入
 """
 
 import os
@@ -92,18 +91,14 @@ hiddenimports = [
     "webbrowser",
 ]
 
-# ── GUI & notification (tkinter + plyer) ──
+# ── GUI (PyQt6) & notification (plyer) ──
 hiddenimports += [
-    "tkinter",
-    "tkinter.ttk",
-    "tkinter.messagebox",
-    "tkinter.filedialog",
-    "tkinter.scrolledtext",
-    "_tkinter",
+    "PyQt6",
+    "PyQt6.QtCore",
+    "PyQt6.QtGui",
+    "PyQt6.QtWidgets",
     "PIL",
-    "PIL._tkinter_finder",
     "PIL.Image",
-    "PIL.ImageTk",
     "PIL.ImageDraw",
     "PIL.ImageFont",
     "PIL.ImageFilter",
@@ -236,6 +231,7 @@ ALGORITHM_MODULES = [
     "algorithms.models.advanced.bass_diffusion",
     "algorithms.models.advanced.causal_impact",
     "algorithms.models.advanced.change_point_detection",
+    "algorithms.models.advanced.conformal_prediction",
     "algorithms.models.advanced.distdf_align",
     "algorithms.models.advanced.engagement_rate",
     "algorithms.models.advanced.fourier_wavelet",
@@ -244,25 +240,39 @@ ALGORITHM_MODULES = [
     "algorithms.models.advanced.kalman_filter",
     "algorithms.models.advanced.lifecycle_modeling",
     "algorithms.models.advanced.like_momentum",
+    "algorithms.models.advanced.multi_step_fusion",
     "algorithms.models.advanced.multi_task_simple",
+    "algorithms.models.advanced.prob_calibration",
     "algorithms.models.advanced.quality_score",
     "algorithms.models.advanced.share_velocity",
     "algorithms.models.advanced.sird_model",
     "algorithms.models.advanced.survival_analysis",
     "algorithms.models.advanced.viral_potential",
+    "algorithms.models.content.engagement_decay",
+    "algorithms.models.content.quality_decay",
+    "algorithms.models.content.virality_score",
+    "algorithms.models.deep_learning._torch_upgrade",
     "algorithms.models.deep_learning.attention_mechanism",
+    "algorithms.models.deep_learning.autoformer",
     "algorithms.models.deep_learning.bilstm_simple",
+    "algorithms.models.deep_learning.bitcn",
     "algorithms.models.deep_learning.chronos_base",
     "algorithms.models.deep_learning.cnn_image",
     "algorithms.models.deep_learning.cnn_lstm_hybrid",
+    "algorithms.models.deep_learning.crossformer",
     "algorithms.models.deep_learning.deepar_simple",
     "algorithms.models.deep_learning.diffusion_ts",
     "algorithms.models.deep_learning.dlinear_simple",
+    "algorithms.models.deep_learning.fedformer",
+    "algorithms.models.deep_learning.film",
+    "algorithms.models.deep_learning.frets",
     "algorithms.models.deep_learning.gru_simple",
     "algorithms.models.deep_learning.informer_simple",
     "algorithms.models.deep_learning.itransformer_simple",
     "algorithms.models.deep_learning.knf",
+    "algorithms.models.deep_learning.koopa",
     "algorithms.models.deep_learning.lag_llama",
+    "algorithms.models.deep_learning.lightts",
     "algorithms.models.deep_learning.lstm_simple",
     "algorithms.models.deep_learning.mamba_s6_simple",
     "algorithms.models.deep_learning.mar_bilstm",
@@ -270,21 +280,28 @@ ALGORITHM_MODULES = [
     "algorithms.models.deep_learning.moirai",
     "algorithms.models.deep_learning.n_beats_simple",
     "algorithms.models.deep_learning.neural_network_simple",
+    "algorithms.models.deep_learning.nhits",
+    "algorithms.models.deep_learning.nlinear",
     "algorithms.models.deep_learning.patch_tst_simple",
     "algorithms.models.deep_learning.scinet_simple",
+    "algorithms.models.deep_learning.segrnn",
     "algorithms.models.deep_learning.tcn_simple",
     "algorithms.models.deep_learning.tft_simple",
     "algorithms.models.deep_learning.tide_simple",
+    "algorithms.models.deep_learning.time_mixer",
     "algorithms.models.deep_learning.time_moe_simple",
     "algorithms.models.deep_learning.timesfm_simple",
     "algorithms.models.deep_learning.timess_net_simple",
     "algorithms.models.deep_learning.tsmixer_simple",
-    "algorithms.models.deep_learning._torch_upgrade",
+    "algorithms.models.deep_learning.wpmixer",
     "algorithms.models.ensemble.adaptive_boosting",
     "algorithms.models.ensemble.bagging_simple",
+    "algorithms.models.ensemble.bayesian_averaging",
+    "algorithms.models.ensemble.blending_ensemble",
     "algorithms.models.ensemble.cascade_ensemble",
     "algorithms.models.ensemble.catboost_simple",
     "algorithms.models.ensemble.coin_boost",
+    "algorithms.models.ensemble.dynamic_ensemble",
     "algorithms.models.ensemble.ensemble_average",
     "algorithms.models.ensemble.ensemble_stacking",
     "algorithms.models.ensemble.ensemble_voting",
@@ -293,9 +310,19 @@ ALGORITHM_MODULES = [
     "algorithms.models.ensemble.gradient_boost_simple",
     "algorithms.models.ensemble.lightgbm_simple",
     "algorithms.models.ensemble.ngboost_simple",
+    "algorithms.models.ensemble.quantile_ensemble",
+    "algorithms.models.ensemble.residual_correction",
+    "algorithms.models.ensemble.stacking_ensemble",
     "algorithms.models.ensemble.tabnet_simple",
     "algorithms.models.ensemble.weighted_velocity",
     "algorithms.models.ensemble.xgboost_simple",
+    "algorithms.models.event.anomaly_spike",
+    "algorithms.models.event.hot_trend",
+    "algorithms.models.event.momentum_breakout",
+    "algorithms.models.frequency.hilbert_huang",
+    "algorithms.models.frequency.spectral_residual",
+    "algorithms.models.frequency.wavelet_decomp",
+    "algorithms.models.growth.bass_diffusion",
     "algorithms.models.growth.exponential_growth",
     "algorithms.models.growth.gompertz",
     "algorithms.models.growth.gompertz_growth",
@@ -334,6 +361,7 @@ ALGORITHM_MODULES = [
     "algorithms.models.time_series.seasonal_decomposition",
     "algorithms.models.time_series.tbats_simple",
     "algorithms.models.time_series.theta_forecast",
+    "algorithms.models.time_series.theta_method",
     "algorithms.models.time_series.trend_extrapolation",
     "algorithms.models.time_series.trend_regression",
     "algorithms.models.time_series.weighted_moving_average",
@@ -341,7 +369,7 @@ ALGORITHM_MODULES = [
 hiddenimports += ALGORITHM_MODULES
 
 # ── Application packages (auto-collect) ──
-for pkg in ("customtkinter", "bilibili_api", "ui", "core", "algorithms", "utils"):
+for pkg in ("ui", "core", "algorithms", "utils"):
     tmp_ret = collect_all(pkg)
     datas += tmp_ret[0]
     binaries += tmp_ret[1]
@@ -353,19 +381,6 @@ datas += collect_data_files("bilibili_api")
 
 # ── Extra data: matplotlib mpl-data ──
 datas += collect_data_files("matplotlib", include_py_files=True)
-
-# ── Tcl/Tk runtime data (required for frozen customtkinter) ──
-import tkinter
-
-tk_root = os.path.dirname(tkinter.__file__)
-for d in ("tcl", "tk"):
-    src = os.path.join(tk_root, d)
-    if os.path.isdir(src):
-        for root, dirs, files in os.walk(src):
-            for f in files:
-                src_file = os.path.join(root, f)
-                rel_path = os.path.relpath(os.path.dirname(src_file), os.path.dirname(tk_root))
-                datas.append((src_file, rel_path))
 
 # ── config/ directory (mirror project layout) ──
 for dir_name in ("config",):

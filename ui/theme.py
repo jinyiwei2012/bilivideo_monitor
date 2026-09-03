@@ -510,5 +510,5 @@ def init_theme(app: QApplication, dark: bool = False):
 
 def toggle_theme():
     """切换深色/亮色主题"""
-    is_dark = C.get("bg_base", "#ffffff") == "#0d1117"
+    is_dark = C.get("bg_base") == THEME_DARK.get("bg_base")
     init_theme(qapp, dark=not is_dark)

@@ -63,7 +63,7 @@ def is_frozen() -> bool:
 
 _session_devmode = False
 # .devmode 文件内容的期望 SHA-256（去除首尾空白后）
-_DEVMODE_HASH = "40175C25B9517A906FCF778E50387017BB8FA6121D28EBD0720474E85EE7ECA8"
+_DEVMODE_HASH = "BF7DED6348CD9C54C7D96BA3FB6395586FA0B4320F8F148C4D5B9B11FC5E622F"
 
 
 def _verify_devmode_content(path: str) -> bool:
