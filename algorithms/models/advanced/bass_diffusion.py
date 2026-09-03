@@ -116,17 +116,7 @@ class BassDiffusionAlgorithm(BaseAlgorithm):
 
         # ── 数据不足时返回无效预测 ──
         if not history_data or len(history_data) < 2:
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=float("inf"),  # 无穷大表示无法预测
-                confidence=0.0,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={"error": "Insufficient data"},
-                timestamp=datetime.now(),
-            )
+            return self._std_result(float("inf"), 0.0, current_views, threshold, velocity=velocity, metadata={"error": "Insufficient data"})
 
         try:
             # ── 根据视频特征自适应调整模型参数 ──
@@ -146,66 +136,26 @@ class BassDiffusionAlgorithm(BaseAlgorithm):
 
             # ── 如果已达标，直接返回 ──
             if current_views >= threshold:
-                return PredictionResult(
-                    algorithm_name=self.name,
-                    algorithm_id=self.algorithm_id,
-                    target_threshold=threshold,
-                    predicted_hours=0,
-                    confidence=1.0,
-                    current_views=current_views,
-                    current_velocity=velocity,
-                    metadata={"method": "bass_diffusion", "status": "already_reached"},
-                    timestamp=datetime.now(),
-                )
+                return self._std_result(0, 1.0, current_views, threshold, velocity=velocity, metadata={"method": "bass_diffusion", "status": "already_reached"})
 
             # ── 使用Bass模型预测到达目标所需天数 ──
             days_needed = self._predict_days_to_target(current_views, threshold, t_days)
 
             # ── 预测时间过长（超过10年）视为无效 ──
             if days_needed is None or days_needed > 3650:
-                return PredictionResult(
-                    algorithm_name=self.name,
-                    algorithm_id=self.algorithm_id,
-                    target_threshold=threshold,
-                    predicted_hours=float("inf"),
-                    confidence=0.0,
-                    current_views=current_views,
-                    current_velocity=velocity,
-                    metadata={"error": "Prediction too far in future"},
-                    timestamp=datetime.now(),
-                )
+                return self._std_result(float("inf"), 0.0, current_views, threshold, velocity=velocity, metadata={"error": "Prediction too far in future"})
 
             predicted_hours = days_needed * 24  # 将天数转换为小时
 
             # ── 计算置信度：基于数据点数量和增长稳定性 ──
             confidence = self._calculate_confidence(history_data)
 
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=predicted_hours,
-                confidence=confidence,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={"method": "bass_diffusion", "p": self.p, "q": self.q, "m": self.m},
-                timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "bass_diffusion", "p": self.p, "q": self.q, "m": self.m})
 
         except Exception as e:
             # ── 异常回退：记录警告并返回无效预测 ──
             logger.warning(f"Bass扩散模型预测失败: {e}")
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=float("inf"),
-                confidence=0.0,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={"error": str(e)},
-                timestamp=datetime.now(),
-            )
+            return self._std_result(float("inf"), 0.0, current_views, threshold, velocity=velocity, metadata={"error": str(e)})
 
     def _adjust_parameters(self, video_info: Dict[str, Any]):
         """

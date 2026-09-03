@@ -43,7 +43,6 @@ CORE_FILES = [
     "algorithms/__init__.py",
     "algorithms/base.py",
     "algorithms/registry.py",
-    "algorithms/model_adapter.py",
     "algorithms/weight_manager.py",
     "algorithms/online_learner.py",
     "algorithms/causal_inference.py",

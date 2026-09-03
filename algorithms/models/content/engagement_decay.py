@@ -106,12 +106,7 @@ class EngagementDecayAlgorithm(BaseAlgorithm):
         if len(history) < 10 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views, current_velocity=velocity,
-                metadata={"method": "decay_fallback"}, timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "decay_fallback"})
 
         try:
             # 取最近 40 条历史记录，提取播放量和点赞数
@@ -164,24 +159,13 @@ class EngagementDecayAlgorithm(BaseAlgorithm):
             # 置信度：基础 0.3 + 阶段因子加成（0-0.3）+ 数据点加成（0-0.5），上限 0.85
             confidence = max(0.1, min(0.85, 0.3 + 0.1 * min(stage_factor, 3) + 0.02 * min(n, 25)))
 
-            return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=confidence, current_views=current_views, current_velocity=velocity,
-                metadata={
+            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
                     "method": "engagement_decay",
                     "decay_rate": round(float(decay_rate), 4),  # 记录衰减率到 4 位小数
                     "stage": stage,  # 记录生命周期阶段
-                },
-                timestamp=datetime.now(),
-            )
+                })
         except Exception:
             # 任何异常回退到匀速预测
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views, current_velocity=velocity,
-                metadata={"method": "decay_error"}, timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "decay_error"})

@@ -84,12 +84,7 @@ class StackingEnsembleAlgorithm(BaseAlgorithm):
         if len(history) < 20 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views, current_velocity=velocity,
-                metadata={"method": "stacking_fallback"}, timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "stacking_fallback"})
 
         if _HAS_SKLEARN:
             try:
@@ -208,17 +203,11 @@ class StackingEnsembleAlgorithm(BaseAlgorithm):
         # 置信度：两个基模型权重差异越小（互补性好），置信度越高
         confidence = max(0.1, min(0.9, 0.9 - 0.4 * abs(meta_weights[0] - meta_weights[1])))
 
-        return PredictionResult(
-            algorithm_name=self.name, algorithm_id=self.algorithm_id,
-            target_threshold=threshold, predicted_hours=predicted_hours,
-            confidence=confidence, current_views=current_views, current_velocity=velocity,
-            metadata={
+        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
                 "method": "stacking_sklearn",
                 "meta_weights": [round(float(w), 3) for w in meta_weights],
                 "base_preds": [round(r_pred, 2), round(g_pred, 2)],  # 两个基模型的原始预测
-            },
-            timestamp=datetime.now(),
-        )
+            })
 
     def _numpy_stack(self, video_data, threshold):
         """
@@ -279,13 +268,7 @@ class StackingEnsembleAlgorithm(BaseAlgorithm):
         # 置信度：最优模型权重越大 → 预测越可信
         confidence = max(0.1, min(0.85, 0.3 + 0.2 * (weights.max() / max(weights.sum(), 1e-10))))
 
-        return PredictionResult(
-            algorithm_name=self.name, algorithm_id=self.algorithm_id,
-            target_threshold=threshold, predicted_hours=predicted_hours,
-            confidence=confidence, current_views=current_views, current_velocity=velocity,
-            metadata={
+        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
                 "method": "stacking_numpy",
                 "weights": [round(float(w), 3) for w in weights],  # 各基模型的融合权重
-            },
-            timestamp=datetime.now(),
-        )
+            })

@@ -104,12 +104,7 @@ class HilbertHuangAlgorithm(BaseAlgorithm):
         if len(history) < 12 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views, current_velocity=velocity,
-                metadata={"method": "hht_fallback"}, timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "hht_fallback"})
 
         try:
             # 取最近 40 条历史记录的播放量
@@ -170,20 +165,9 @@ class HilbertHuangAlgorithm(BaseAlgorithm):
             # 置信度：基础 0.3 + IMF 数量加成（0-0.24）+ 数据点加成（0-0.5），上限 0.85
             confidence = min(0.85, 0.3 + 0.08 * min(n_imfs, 3) + 0.02 * min(n, 25))
 
-            return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=confidence, current_views=current_views, current_velocity=velocity,
-                metadata={"method": "hilbert_huang", "imfs": n_imfs, "data_points": n},
-                timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "hilbert_huang", "imfs": n_imfs, "data_points": n})
         except Exception:
             # 任何异常回退到匀速预测
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views, current_velocity=velocity,
-                metadata={"method": "hht_error"}, timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "hht_error"})

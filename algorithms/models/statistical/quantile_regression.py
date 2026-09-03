@@ -156,44 +156,23 @@ class QuantileRegressionAlgorithm(BaseAlgorithm):
         remaining = threshold - current_views
         # 已达阈值
         if remaining <= 0:
-            return self._make_result(0, 1.0, current_views, velocity, {"method": "quantile"}, threshold)
+            return self._std_result(0, 1.0, current_views, threshold, velocity=velocity, metadata={"method": "quantile"})
 
         # 数据不足
         if len(history) < 5 or velocity <= 0:
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._make_result(
-                predicted_hours,
-                0.3,
-                current_views,
-                velocity,
-                {"method": "quantile", "notes": "insufficient_data"},
-                threshold,
-            )
+            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "quantile", "notes": "insufficient_data"})
 
         # 提取并排序播放量序列
         views_sorted = self._extract_views(history)
         if views_sorted is None or len(views_sorted) < 5:
-            return self._make_result(
-                remaining / velocity,
-                0.3,
-                current_views,
-                velocity,
-                {"method": "quantile_fallback"},
-                threshold,
-            )
+            return self._std_result(remaining / velocity, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "quantile_fallback"})
 
         try:
             return self._predict_impl(views_sorted, current_views, velocity, remaining, threshold, video_data)
         except Exception as e:
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._make_result(
-                predicted_hours,
-                0.0,
-                current_views,
-                velocity,
-                {"error": str(e)},
-                threshold,
-            )
+            return self._std_result(predicted_hours, 0.0, current_views, threshold, velocity=velocity, metadata={"error": str(e)})
 
     def _extract_views(self, history):
         """
@@ -270,14 +249,7 @@ class QuantileRegressionAlgorithm(BaseAlgorithm):
         y = np.array(y_list)
 
         if len(X) < 3:
-            return self._make_result(
-                remaining / velocity,
-                0.3,
-                current_views,
-                velocity,
-                {"method": "quantile_insufficient"},
-                threshold,
-            )
+            return self._std_result(remaining / velocity, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "quantile_insufficient"})
 
         # ── 拟合多个分位数 ────────────────────────
         quantiles = {
@@ -345,48 +317,13 @@ class QuantileRegressionAlgorithm(BaseAlgorithm):
             predicted_hours = remaining / velocity
             conf = 0.35
 
-        return self._make_result(
-            predicted_hours,
-            conf,
-            current_views,
-            velocity,
-            {
+        return self._std_result(predicted_hours, conf, current_views, threshold, velocity=velocity, metadata={
                 "method": "quantile",
                 "daily_growth_median": round(float(median_pred), 2),
                 "daily_growth_optimistic": round(float(optimistic_pred), 2),
                 "daily_growth_pessimistic": round(float(pessimistic_pred), 2),
                 "prediction_spread": round(float(prediction_spread), 2),  # 乐观-悲观差距
                 "data_points": n,
-            },
-            threshold,
-        )
+            })
 
-    def _make_result(self, predicted_hours, confidence, current_views, velocity, metadata, threshold):
-        """
-        构造 PredictionResult
 
-        统一的结果构造方法。
-
-        参数:
-            predicted_hours (float): 预测小时数
-            confidence (float): 置信度
-            current_views (int): 当前播放量
-            velocity (float): 当前速度
-            metadata (Dict): 元数据
-            threshold (int): 目标阈值
-
-        返回:
-            PredictionResult
-        """
-        metadata.setdefault("method", "quantile")
-        return PredictionResult(
-            algorithm_name=self.name,
-            algorithm_id=self.algorithm_id,
-            target_threshold=threshold,
-            predicted_hours=predicted_hours,
-            confidence=confidence,
-            current_views=current_views,
-            current_velocity=velocity,
-            metadata=metadata,
-            timestamp=datetime.now(),
-        )

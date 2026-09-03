@@ -114,17 +114,7 @@ class KalmanFilterAlgorithm(BaseAlgorithm):
 
         # 数据不足（< 5 个点）：无法可靠运行卡尔曼滤波
         if not history_data or len(history_data) < 5:
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=-1,
-                confidence=0.0,
-                current_views=current_views,
-                current_velocity=self.calculate_velocity(video_data),
-                metadata={},
-                timestamp=datetime.now(),
-            )
+            return self._std_result(-1, 0.0, current_views, threshold, velocity=self.calculate_velocity(video_data), metadata={})
 
         try:
             # 提取播放量时间序列
@@ -135,17 +125,7 @@ class KalmanFilterAlgorithm(BaseAlgorithm):
 
             # 已达标则直接返回
             if current_views >= target_views:
-                return PredictionResult(
-                    algorithm_name=self.name,
-                    algorithm_id=self.algorithm_id,
-                    target_threshold=threshold,
-                    predicted_hours=0,
-                    confidence=1.0,
-                    current_views=current_views,
-                    current_velocity=self.calculate_velocity(video_data),
-                    metadata={},
-                    timestamp=datetime.now(),
-                )
+                return self._std_result(0, 1.0, current_views, threshold, velocity=self.calculate_velocity(video_data), metadata={})
 
             # 提取估计的增长率（第二状态分量）
             growth_rate = x[1, 0]
@@ -157,17 +137,7 @@ class KalmanFilterAlgorithm(BaseAlgorithm):
                     recent_growth = (views[-1] - views[-5]) / 4 if len(views) >= 5 else views[-1] - views[-2]
                     growth_rate = max(1, recent_growth)  # 至少设为 1
                 else:
-                    return PredictionResult(
-                        algorithm_name=self.name,
-                        algorithm_id=self.algorithm_id,
-                        target_threshold=threshold,
-                        predicted_hours=-1,
-                        confidence=0.0,
-                        current_views=current_views,
-                        current_velocity=self.calculate_velocity(video_data),
-                        metadata={},
-                        timestamp=datetime.now(),
-                    )
+                    return self._std_result(-1, 0.0, current_views, threshold, velocity=self.calculate_velocity(video_data), metadata={})
 
             remaining = target_views - current_views
 
@@ -176,46 +146,16 @@ class KalmanFilterAlgorithm(BaseAlgorithm):
 
             # 预测时间不合理（负数或超过 10 年）视为无效
             if days_needed < 0 or days_needed > 3650:
-                return PredictionResult(
-                    algorithm_name=self.name,
-                    algorithm_id=self.algorithm_id,
-                    target_threshold=threshold,
-                    predicted_hours=-1,
-                    confidence=0.0,
-                    current_views=current_views,
-                    current_velocity=self.calculate_velocity(video_data),
-                    metadata={},
-                    timestamp=datetime.now(),
-                )
+                return self._std_result(-1, 0.0, current_views, threshold, velocity=self.calculate_velocity(video_data), metadata={})
 
             predicted_hours = days_needed * 24  # 天数转小时
             confidence = self._calculate_confidence(P, growth_rate)
 
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=predicted_hours,
-                confidence=confidence,
-                current_views=current_views,
-                current_velocity=self.calculate_velocity(video_data),
-                metadata={},
-                timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=self.calculate_velocity(video_data), metadata={})
 
         except Exception as e:
             logger.warning(f"卡尔曼滤波预测失败: {e}")
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=-1,
-                confidence=0.0,
-                current_views=current_views,
-                current_velocity=self.calculate_velocity(video_data),
-                metadata={},
-                timestamp=datetime.now(),
-            )
+            return self._std_result(-1, 0.0, current_views, threshold, velocity=self.calculate_velocity(video_data), metadata={})
 
     def _kalman_filter(self, measurements: List[float]) -> Tuple[np.ndarray, np.ndarray]:
         """

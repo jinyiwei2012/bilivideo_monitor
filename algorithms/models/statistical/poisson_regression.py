@@ -144,44 +144,23 @@ class PoissonRegressionAlgorithm(BaseAlgorithm):
         remaining = threshold - current_views
         # 已达阈值
         if remaining <= 0:
-            return self._make_result(0, 1.0, current_views, velocity, {"method": "poisson"}, threshold)
+            return self._std_result(0, 1.0, current_views, threshold, velocity=velocity, metadata={"method": "poisson"})
 
         # 数据不足
         if len(history) < 6 or velocity <= 0:
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._make_result(
-                predicted_hours,
-                0.3,
-                current_views,
-                velocity,
-                {"method": "poisson", "notes": "insufficient_data"},
-                threshold,
-            )
+            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "poisson", "notes": "insufficient_data"})
 
         # 提取并排序播放量序列
         views_sorted = self._extract_views(history)
         if views_sorted is None or len(views_sorted) < 6:
-            return self._make_result(
-                remaining / velocity,
-                0.3,
-                current_views,
-                velocity,
-                {"method": "poisson_fallback"},
-                threshold,
-            )
+            return self._std_result(remaining / velocity, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "poisson_fallback"})
 
         try:
             return self._predict_impl(views_sorted, current_views, velocity, remaining, threshold, video_data)
         except Exception as e:
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._make_result(
-                predicted_hours,
-                0.0,
-                current_views,
-                velocity,
-                {"error": str(e)},
-                threshold,
-            )
+            return self._std_result(predicted_hours, 0.0, current_views, threshold, velocity=velocity, metadata={"error": str(e)})
 
     def _extract_views(self, history):
         """
@@ -267,14 +246,7 @@ class PoissonRegressionAlgorithm(BaseAlgorithm):
         y = np.array(y_list, dtype=float)
 
         if len(X) < 3:
-            return self._make_result(
-                remaining / velocity,
-                0.3,
-                current_views,
-                velocity,
-                {"method": "poisson_insufficient"},
-                threshold,
-            )
+            return self._std_result(remaining / velocity, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "poisson_insufficient"})
 
         # ── 拟合泊松回归 ────────────────────────
         self.coef, self.intercept = self._fit_poisson(X, y)
@@ -334,47 +306,12 @@ class PoissonRegressionAlgorithm(BaseAlgorithm):
             predicted_hours = remaining / velocity
             conf = 0.35
 
-        return self._make_result(
-            predicted_hours,
-            conf,
-            current_views,
-            velocity,
-            {
+        return self._std_result(predicted_hours, conf, current_views, threshold, velocity=velocity, metadata={
                 "method": "poisson",
                 "daily_increment": round(float(predicted_daily_increment), 2),
                 "pseudo_r2": round(float(pseudo_r2), 3),
                 "model_type": "poisson",
                 "data_points": n,
-            },
-            threshold,
-        )
+            })
 
-    def _make_result(self, predicted_hours, confidence, current_views, velocity, metadata, threshold):
-        """
-        构造 PredictionResult
 
-        统一的结果构造方法，确保 method 字段被正确设置。
-
-        参数:
-            predicted_hours (float): 预测到达阈值所需的小时数
-            confidence (float): 置信度 [0, 1]
-            current_views (int): 当前播放量
-            velocity (float): 当前速度
-            metadata (Dict): 元数据字典
-            threshold (int): 目标阈值
-
-        返回:
-            PredictionResult
-        """
-        metadata.setdefault("method", "poisson")
-        return PredictionResult(
-            algorithm_name=self.name,
-            algorithm_id=self.algorithm_id,
-            target_threshold=threshold,
-            predicted_hours=predicted_hours,
-            confidence=confidence,
-            current_views=current_views,
-            current_velocity=velocity,
-            metadata=metadata,
-            timestamp=datetime.now(),
-        )

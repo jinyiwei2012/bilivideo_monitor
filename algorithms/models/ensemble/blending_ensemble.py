@@ -88,12 +88,7 @@ class BlendingEnsembleAlgorithm(BaseAlgorithm):
         if len(history) < 25 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views, current_velocity=velocity,
-                metadata={"method": "blending_fallback"}, timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "blending_fallback"})
 
         # 优先使用 sklearn 完整版
         if _HAS_SKLEARN and len(history) >= 30:
@@ -209,17 +204,11 @@ class BlendingEnsembleAlgorithm(BaseAlgorithm):
         # 置信度：元学习器权重差异越大，说明不同模型观点分歧越大，置信度相对降低
         confidence = max(0.1, min(0.9, 0.5 + 0.1 * abs(meta.coef_[1] - meta.coef_[0])))
 
-        return PredictionResult(
-            algorithm_name=self.name, algorithm_id=self.algorithm_id,
-            target_threshold=threshold, predicted_hours=predicted_hours,
-            confidence=confidence, current_views=current_views, current_velocity=velocity,
-            metadata={
+        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
                 "method": "blending_sklearn",
                 "meta_coef": [round(float(c), 3) for c in meta.coef_],
                 "holdout_size": len(X_hold),
-            },
-            timestamp=datetime.now(),
-        )
+            })
 
     def _numpy_blend(self, video_data, threshold):
         """
@@ -273,9 +262,4 @@ class BlendingEnsembleAlgorithm(BaseAlgorithm):
         # 置信度随数据量增加
         confidence = min(0.85, 0.35 + 0.02 * min(n, 25))
 
-        return PredictionResult(
-            algorithm_name=self.name, algorithm_id=self.algorithm_id,
-            target_threshold=threshold, predicted_hours=predicted_hours,
-            confidence=confidence, current_views=current_views, current_velocity=velocity,
-            metadata={"method": "blending_numpy"}, timestamp=datetime.now(),
-        )
+        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "blending_numpy"})

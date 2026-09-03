@@ -130,14 +130,4 @@ class PowerLawAlgorithm(BaseAlgorithm):
                     # v₀/current_views 越小，说明速度已经衰减得很厉害，预测更不确定
                     confidence = min(0.9, max(0.3, 1.0 - abs(v0) / max(current_views, 1)))
 
-        return PredictionResult(
-            algorithm_name=self.name,
-            algorithm_id=self.algorithm_id,
-            target_threshold=threshold,
-            predicted_hours=predicted_hours,
-            confidence=confidence,
-            current_views=current_views,
-            current_velocity=velocity,
-            metadata={"method": "power_law", "alpha": 1.5},
-            timestamp=datetime.now(),
-        )
+        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "power_law", "alpha": 1.5})

@@ -79,12 +79,7 @@ class MultiStepFusionAlgorithm(BaseAlgorithm):
         if len(history) < 15 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views, current_velocity=velocity,
-                metadata={"method": "msf_fallback"}, timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "msf_fallback"})
 
         views = np.array([h.get("view_count", 0) for h in history], dtype=np.float64)
         n = len(views)
@@ -158,11 +153,7 @@ class MultiStepFusionAlgorithm(BaseAlgorithm):
         # 区间越宽 -> 置信度越低（反比映射到 [0.1, 0.95]）
         confidence = max(0.1, min(0.95, 0.7 / (1 + interval_width)))
 
-        return PredictionResult(
-            algorithm_name=self.name, algorithm_id=self.algorithm_id,
-            target_threshold=threshold, predicted_hours=predicted_hours,
-            confidence=confidence, current_views=current_views, current_velocity=velocity,
-            metadata={
+        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
                 "method": "multi_step_fusion",
                 "multi_steps": len(multi_preds),  # 多步预测的步数
                 "conformal_bound": round(float(conformal_bound), 4),  # 共形误差边界
@@ -171,9 +162,7 @@ class MultiStepFusionAlgorithm(BaseAlgorithm):
                     "mid": round(float(mf_growth), 1),
                     "low": round(float(lf_growth), 1),
                 },
-            },
-            timestamp=datetime.now(),
-        )
+            })
 
     def _multi_step_forecast(self, views: np.ndarray, steps: int) -> List[float]:
         """

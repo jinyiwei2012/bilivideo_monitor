@@ -96,18 +96,8 @@ class QualityScoreAlgorithm(BaseAlgorithm):
                 # 置信度基于质量分数：质量越高 -> 预测越可信
                 confidence = 0.4 + quality_score * 0.5  # 范围 [0.4, 0.9]
 
-        return PredictionResult(
-            algorithm_name=self.name,
-            algorithm_id=self.algorithm_id,
-            target_threshold=threshold,
-            predicted_hours=predicted_hours,
-            confidence=confidence,
-            current_views=current_views,
-            current_velocity=velocity,
-            metadata={
+        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
                 "method": "quality_score",
                 "quality_score": quality_score,  # 原始质量分数
                 "quality_factor": 0.5 + quality_score,  # 质量加速因子
-            },
-            timestamp=datetime.now(),
-        )
+            })

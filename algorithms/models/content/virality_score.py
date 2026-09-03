@@ -119,12 +119,7 @@ class ViralityScoreAlgorithm(BaseAlgorithm):
         if len(history) < 8 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views, current_velocity=velocity,
-                metadata={"method": "viral_fallback"}, timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "viral_fallback"})
 
         try:
             # 取最近 30 条历史记录，提取五个维度的数据
@@ -187,11 +182,7 @@ class ViralityScoreAlgorithm(BaseAlgorithm):
             # 置信度：基础 0.3 + 病毒评分加成（0-0.4）+ 数据点加成（0-0.5），上限 0.85
             confidence = max(0.1, min(0.85, 0.3 + 0.4 * virality + 0.02 * min(n, 25)))
 
-            return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=confidence, current_views=current_views, current_velocity=velocity,
-                metadata={
+            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
                     "method": "virality_score",
                     "virality": round(float(virality), 3),  # 综合病毒传播评分 [0, 1]
                     "boost": round(float(boost), 2),  # 加速因子 [0.5, 2.5]
@@ -201,16 +192,9 @@ class ViralityScoreAlgorithm(BaseAlgorithm):
                         "share": round(float(share_score), 2),  # 分享率子评分
                         "accel": round(float(accel_score), 2),  # 加速度子评分
                     },
-                },
-                timestamp=datetime.now(),
-            )
+                })
         except Exception:
             # 任何异常回退到匀速预测
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views, current_velocity=velocity,
-                metadata={"method": "viral_error"}, timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "viral_error"})

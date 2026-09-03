@@ -93,12 +93,7 @@ class WaveletDecompositionAlgorithm(BaseAlgorithm):
             # 数据不足或速度为零：使用基础匀速预测（回退模式）
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views, current_velocity=velocity,
-                metadata={"method": "wavelet_fallback"}, timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "wavelet_fallback"})
 
         try:
             # 取最近 32 个播放量数据点作为分析窗口（2 的幂次有利于小波分解）
@@ -152,20 +147,9 @@ class WaveletDecompositionAlgorithm(BaseAlgorithm):
             # 置信度：基础 0.35 + 每级分解加 0.08（最多 4 级）+ 数据点加成（0-0.5），上限 0.85
             confidence = min(0.85, 0.35 + 0.08 * min(n_levels, 4) + 0.02 * min(n, 25))
 
-            return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=confidence, current_views=current_views, current_velocity=velocity,
-                metadata={"method": "wavelet", "levels": n_levels, "data_points": n},
-                timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "wavelet", "levels": n_levels, "data_points": n})
         except Exception:
             # 任何异常都回退到匀速预测，确保鲁棒性
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views, current_velocity=velocity,
-                metadata={"method": "wavelet_error"}, timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "wavelet_error"})

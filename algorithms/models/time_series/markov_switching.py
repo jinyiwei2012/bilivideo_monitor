@@ -145,43 +145,22 @@ class MarkovSwitchingAlgorithm(BaseAlgorithm):
         remaining = threshold - current_views
         # 已达标
         if remaining <= 0:
-            return self._make_result(0, 1.0, current_views, velocity, {"method": "markov_switching"}, threshold)
+            return self._std_result(0, 1.0, current_views, threshold, velocity=velocity, metadata={"method": "markov_switching"})
 
         # 数据不足
         if len(history) < 6 or velocity <= 0:
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._make_result(
-                predicted_hours,
-                0.3,
-                current_views,
-                velocity,
-                {"method": "markov_switching", "notes": "insufficient_data"},
-                threshold,
-            )
+            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "markov_switching", "notes": "insufficient_data"})
 
         views_sorted = self._extract_views(history)
         if views_sorted is None or len(views_sorted) < 6:
-            return self._make_result(
-                remaining / velocity,
-                0.3,
-                current_views,
-                velocity,
-                {"method": "markov_switching_fallback"},
-                threshold,
-            )
+            return self._std_result(remaining / velocity, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "markov_switching_fallback"})
 
         try:
             return self._predict_impl(views_sorted, current_views, velocity, remaining, threshold, video_data)
         except Exception as e:
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._make_result(
-                predicted_hours,
-                0.0,
-                current_views,
-                velocity,
-                {"error": str(e)},
-                threshold,
-            )
+            return self._std_result(predicted_hours, 0.0, current_views, threshold, velocity=velocity, metadata={"error": str(e)})
 
     def _extract_views(self, history):
         """从历史记录中提取并排序播放量序列
@@ -240,14 +219,7 @@ class MarkovSwitchingAlgorithm(BaseAlgorithm):
         # 每期增长率 = (v_t - v_{t-1}) / v_{t-1}
         growth_rates = np.diff(views_arr) / np.maximum(views_arr[:-1], 1)
         if len(growth_rates) < 3:
-            return self._make_result(
-                remaining / velocity,
-                0.3,
-                current_views,
-                velocity,
-                {"method": "markov_switching_no_growth"},
-                threshold,
-            )
+            return self._std_result(remaining / velocity, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "markov_switching_no_growth"})
 
         # ── 前向算法估计体制概率 ──────────────────
         # regime_probs[t] = [P(体制0|观测), P(体制1|观测)]
@@ -339,12 +311,7 @@ class MarkovSwitchingAlgorithm(BaseAlgorithm):
             predicted_hours = remaining / velocity
             conf = 0.3
 
-        return self._make_result(
-            predicted_hours,
-            conf,
-            current_views,
-            velocity,
-            {
+        return self._std_result(predicted_hours, conf, current_views, threshold, velocity=velocity, metadata={
                 "method": "markov_switching",
                 "n_regimes": self.n_regimes,
                 "current_regime_probs": [round(float(p), 3) for p in current_regime_probs],
@@ -353,33 +320,6 @@ class MarkovSwitchingAlgorithm(BaseAlgorithm):
                 "mc_hit_ratio": round(len(all_hit_days) / max(mc_simulations, 1), 3),
                 "median_hit_day": round(float(np.median(all_hit_days)), 1) if all_hit_days else None,
                 "data_points": n,
-            },
-            threshold,
-        )
+            })
 
-    def _make_result(self, predicted_hours, confidence, current_views, velocity, metadata, threshold):
-        """构造 PredictionResult 预测结果对象
 
-        参数:
-            predicted_hours: 预计达到阈值的小时数
-            confidence: 预测置信度 (0.0 ~ 1.0)
-            current_views: 当前播放量
-            velocity: 当前增长速度
-            metadata: 元数据字典
-            threshold: 目标阈值
-
-        返回:
-            PredictionResult: 标准预测结果对象
-        """
-        metadata.setdefault("method", "markov_switching")
-        return PredictionResult(
-            algorithm_name=self.name,
-            algorithm_id=self.algorithm_id,
-            target_threshold=threshold,
-            predicted_hours=predicted_hours,
-            confidence=confidence,
-            current_views=current_views,
-            current_velocity=velocity,
-            metadata=metadata,
-            timestamp=datetime.now(),
-        )

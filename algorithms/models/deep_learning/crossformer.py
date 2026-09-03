@@ -101,12 +101,7 @@ class CrossformerAlgorithm(BaseAlgorithm):
         if len(history) < 8 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views, current_velocity=velocity,
-                metadata={"method": "crossformer_fallback"}, timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "crossformer_fallback"})
 
         import numpy as np
         views = np.array([h.get("view_count", 0) for h in history[-20:]], dtype=np.float64)
@@ -138,9 +133,4 @@ class CrossformerAlgorithm(BaseAlgorithm):
         predicted_hours = remaining / predicted_velocity if remaining > 0 and predicted_velocity > 0 else float("inf")
         confidence = min(0.85, 0.3 + 0.02 * min(n_segs, 5) + 0.02 * min(n, 20))
 
-        return PredictionResult(
-            algorithm_name=self.name, algorithm_id=self.algorithm_id,
-            target_threshold=threshold, predicted_hours=predicted_hours,
-            confidence=confidence, current_views=current_views, current_velocity=velocity,
-            metadata={"method": "crossformer_numpy", "segments": n_segs}, timestamp=datetime.now(),
-        )
+        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "crossformer_numpy", "segments": n_segs})

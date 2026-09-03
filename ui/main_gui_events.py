@@ -283,6 +283,7 @@ def on_exit(gui):
     from ui.main_gui_tick import stop_global_tick
 
     stop_global_tick(gui)
+    gui._stop_export_schedule()
     gui._file_logger.cancel_midnight_checker()
     gui._file_logger.close()
     from ui.monitor import _stop_all_workers
@@ -492,7 +493,8 @@ def show_video_detail(gui, video):
     cached = gui.prediction_results.get(bvid)
     if cached:
         gui.prediction.build_pred_hero(
-            cached["prediction"], cached["current_view"], cached.get("rate_per_sec", 0)
+            cached["prediction"], cached["current_view"], cached.get("rate_per_sec", 0),
+            bias_info=cached.get("bias_info"), eta_info=cached.get("eta_info"),
         )
         gui.prediction._update_algo_list(cached.get("success_list", []), cached.get("fail_list", []))
     else:
@@ -771,6 +773,13 @@ def _finalize_delete(gui, bvid):
                 vdb.close()
             except Exception as e:
                 logger.debug("忽略异常: %s", e)
+        # A3: 真删除时清理弹幕情绪缓存
+        try:
+            from ui.danmaku_sentiment import remove_bvid
+
+            remove_bvid(gui, bvid)
+        except Exception:
+            pass
         gui._sb("alert", "", C["text_3"])
         if not gui._pending_deletes:
             gui.bottom_bar.hide_undo_button()
@@ -862,7 +871,9 @@ def update_trained_weights(gui, algo_ids):
     for algo_id in algo_ids:
         conf = load_algo_confidence(algo_id)
         accuracy = max(0.5, conf)
-        AlgorithmRegistry.update_accuracy(algo_id, 1.0, accuracy)
+        # B1: 旧调用 update_accuracy(algo_id, 1.0, accuracy) 把 1.0 当 predicted 硬塞 → 语义错乱
+        # 现改为 accuracy 关键字显式传递（registry 已统一两种调用入口）
+        AlgorithmRegistry.update_accuracy(algo_id, accuracy=accuracy)
     logger.info("已更新 %d 个训练完成算法的权重", len(algo_ids))
 
 
@@ -1087,13 +1098,39 @@ def build_push_msg(gui, videos):
 
 def prediction_done(
     gui, w_pred, current_view, growth, rate_per_sec,
-    success_list, fail_list, valid, total, surge_info=None,
+    success_list, fail_list, valid, total, surge_info=None, bias_info=None, eta_info=None,
 ):
     """预测完成回调"""
-    gui.prediction.build_pred_hero(w_pred, current_view, rate_per_sec, surge_info)
+    gui.prediction.build_pred_hero(w_pred, current_view, rate_per_sec, surge_info, bias_info, eta_info)
     gui.prediction._update_algo_list(success_list, fail_list)
     gui._sb("algo", f"算法: {valid}/{total}")
-    gui._sb("status", "预测完成啦!♪ 天依听见了未来的旋律~", C["success"])
+    status = "预测完成啦!♪ 天依听见了未来的旋律~"
+    # C2: log-ETA 可用时状态栏补充到达时间估计
+    if eta_info and eta_info.get("eta_hours"):
+        _th = eta_info.get("eta_threshold_name") or ""
+        _h = eta_info["eta_hours"]
+        if _h < 24:
+            _eta_str = f"{_h:.1f}小时"
+        elif _h < 24 * 30:
+            _eta_str = f"{_h / 24:.1f}天"
+        else:
+            _eta_str = f"{_h / 24 / 30:.1f}月"
+        _n = eta_info.get("eta_n", 0)
+        status = f"预测完成啦!♪ 按 {_n} 个算法共识, 到达 {_th} 约需 {_eta_str}"
+    if bias_info and bias_info.get("applied"):
+        factor = bias_info.get("factor", 1.0)
+        samples = bias_info.get("samples", 0)
+        if factor < 1.0:
+            pct = (1.0 - factor) * 100
+            status = f"校准 {pct:.0f}%↓ (近 {samples} 次集成高估修正) ♪"
+        elif factor > 1.0:
+            pct = (factor - 1.0) * 100
+            status = f"校准 {pct:.0f}%↑ (近 {samples} 次集成低估修正) ♪"
+        else:
+            status = f"集成偏差已校准 (样本 {samples}) ♪"
+        gui._sb("status", status, C["warning"])
+    else:
+        gui._sb("status", status, C["success"])
 
 
 def copy_bvid(gui, bvid):

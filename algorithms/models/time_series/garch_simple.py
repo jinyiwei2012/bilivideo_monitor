@@ -164,17 +164,7 @@ class GarchSimpleAlgorithm(BaseAlgorithm):
                 volatility_ratio = pred_vol / max(abs(mean_return), 1e-10)
                 confidence = max(0.05, min(0.75, 0.5 / (1 + volatility_ratio)))
 
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=predicted_hours,
-                confidence=confidence,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={"method": "garch_arch", "volatility": float(pred_vol), "aic": float(getattr(fitted, "aic", 0))},
-                timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "garch_arch", "volatility": float(pred_vol), "aic": float(getattr(fitted, "aic", 0))})
         except Exception:
             return None
 
@@ -251,16 +241,6 @@ class GarchSimpleAlgorithm(BaseAlgorithm):
                 predicted_hours = remaining / predicted_velocity
                 confidence = max(0.05, min(0.75, 0.5 / (1 + volatility_ratio)))
 
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=predicted_hours,
-                confidence=confidence,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={"method": "garch", "volatility": float(vol), "lower_velocity": float(lower_bound)},
-                timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "garch", "volatility": float(vol), "lower_velocity": float(lower_bound)})
         except Exception:
             return self._fallback(velocity, current_views, threshold, method="garch_arch")

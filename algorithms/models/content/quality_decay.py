@@ -111,12 +111,7 @@ class QualityDecayAlgorithm(BaseAlgorithm):
         if len(history) < 8 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views, current_velocity=velocity,
-                metadata={"method": "quality_decay_fallback"}, timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "quality_decay_fallback"})
 
         try:
             # 取最近 40 条历史记录中的播放量
@@ -169,25 +164,14 @@ class QualityDecayAlgorithm(BaseAlgorithm):
             # 置信度：基础 0.3 + 质量加成（0-0.3）+ 数据点加成（0-0.5），上限 0.85
             confidence = max(0.1, min(0.85, 0.3 + 0.3 * quality + 0.02 * min(n, 25)))
 
-            return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=confidence, current_views=current_views, current_velocity=velocity,
-                metadata={
+            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
                     "method": "quality_decay",
                     "quality": round(float(quality), 3),  # 内容质量评分
                     "decay_rate": round(float(quality_decay_rate), 5),  # 质量调整衰减率
                     "age_hours": round(float(age_hours), 1),  # 视频发布至今的小时数
-                },
-                timestamp=datetime.now(),
-            )
+                })
         except Exception:
             # 任何异常回退到匀速预测
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views, current_velocity=velocity,
-                metadata={"method": "quality_decay_error"}, timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "quality_decay_error"})

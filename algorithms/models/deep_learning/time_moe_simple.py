@@ -153,20 +153,10 @@ class TimeMoeSimpleAlgorithm(BaseAlgorithm):
                 # 置信度：主导专家的概率越高，置信度越高
                 confidence = max(0.1, min(0.85, 0.4 + float(gate_probs[dominant_expert]) * 0.4))
 
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=predicted_hours,
-                confidence=confidence,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={
+            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
                     "method": "time_moe",
                     "dominant_expert": experts_interpret[dominant_expert],
                     "expert_weight": float(gate_probs[dominant_expert]),
-                },
-                timestamp=datetime.now(),
-            )
+                })
         except Exception:
             return self._fallback(velocity, current_views, threshold, method="time_moe")

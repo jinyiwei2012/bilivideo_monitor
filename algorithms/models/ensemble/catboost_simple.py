@@ -91,17 +91,7 @@ class CatBoostSimpleAlgorithm(BaseAlgorithm):
         remaining = threshold - current_views
         if remaining <= 0:
             # 已达标
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=0,
-                confidence=1.0,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={"method": "catboost", "note": "already_reached"},
-                timestamp=datetime.now(),
-            )
+            return self._std_result(0, 1.0, current_views, threshold, velocity=velocity, metadata={"method": "catboost", "note": "already_reached"})
 
         # 数据不足或无增长 → 使用 numpy 简化版
         if len(history) < 10 or velocity <= 0:
@@ -221,17 +211,7 @@ class CatBoostSimpleAlgorithm(BaseAlgorithm):
         cv = float(np.std(residuals) / max(np.mean(np.abs(y_target)), 1e-10))
         confidence = max(0.1, min(0.85, 0.6 - cv * 0.5))
 
-        return PredictionResult(
-            algorithm_name=self.name,
-            algorithm_id=self.algorithm_id,
-            target_threshold=threshold,
-            predicted_hours=pred_hours,
-            confidence=confidence,
-            current_views=current_views,
-            current_velocity=velocity,
-            metadata={"method": "catboost", "iterations": 80},
-            timestamp=datetime.now(),
-        )
+        return self._std_result(pred_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "catboost", "iterations": 80})
 
     def _numpy_predict(self, current_views, velocity, remaining, threshold) -> PredictionResult:
         """
@@ -250,28 +230,8 @@ class CatBoostSimpleAlgorithm(BaseAlgorithm):
             PredictionResult: 预测结果对象
         """
         if velocity <= 0:
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=float("inf"),  # 无增长
-                confidence=0.0,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={"method": "catboost_numpy_fallback"},
-                timestamp=datetime.now(),
-            )
+            return self._std_result(float("inf"), 0.0, current_views, threshold, velocity=velocity, metadata={"method": "catboost_numpy_fallback"})
         # 匀速外推
         predicted_hours = remaining / velocity
         confidence = 0.3
-        return PredictionResult(
-            algorithm_name=self.name,
-            algorithm_id=self.algorithm_id,
-            target_threshold=threshold,
-            predicted_hours=predicted_hours,
-            confidence=confidence,
-            current_views=current_views,
-            current_velocity=velocity,
-            metadata={"method": "catboost_numpy_fallback"},
-            timestamp=datetime.now(),
-        )
+        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "catboost_numpy_fallback"})

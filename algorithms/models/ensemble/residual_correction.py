@@ -85,12 +85,7 @@ class ResidualCorrectionAlgorithm(BaseAlgorithm):
         if len(history) < 15 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views, current_velocity=velocity,
-                metadata={"method": "residual_fallback"}, timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "residual_fallback"})
 
         if _HAS_SKLEARN:
             try:
@@ -201,17 +196,11 @@ class ResidualCorrectionAlgorithm(BaseAlgorithm):
         predicted_hours = remaining / predicted_velocity if remaining > 0 else float("inf")
         confidence = max(0.1, min(0.9, 0.5 / (1 + residuals_cv)))
 
-        return PredictionResult(
-            algorithm_name=self.name, algorithm_id=self.algorithm_id,
-            target_threshold=threshold, predicted_hours=predicted_hours,
-            confidence=confidence, current_views=current_views, current_velocity=velocity,
-            metadata={
+        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
                 "method": "residual_correction",
                 "correction": round(float(predicted_residual), 2),    # 修正量
                 "residual_cv": round(float(residuals_cv), 3),         # 残差变异系数
-            },
-            timestamp=datetime.now(),
-        )
+            })
 
     def _numpy_predict(self, video_data, threshold):
         """
@@ -261,9 +250,4 @@ class ResidualCorrectionAlgorithm(BaseAlgorithm):
         predicted_hours = remaining / predicted_velocity if remaining > 0 else float("inf")
         confidence = min(0.85, 0.35 + 0.02 * len(views))  # 数据点越多越可信
 
-        return PredictionResult(
-            algorithm_name=self.name, algorithm_id=self.algorithm_id,
-            target_threshold=threshold, predicted_hours=predicted_hours,
-            confidence=confidence, current_views=current_views, current_velocity=velocity,
-            metadata={"method": "residual_numpy"}, timestamp=datetime.now(),
-        )
+        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "residual_numpy"})

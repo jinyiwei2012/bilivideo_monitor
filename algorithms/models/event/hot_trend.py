@@ -115,12 +115,7 @@ class HotTrendAlgorithm(BaseAlgorithm):
         if len(history) < 12 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views, current_velocity=velocity,
-                metadata={"method": "hot_trend_fallback"}, timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "hot_trend_fallback"})
 
         try:
             # 取最近 40 条历史记录的播放量
@@ -176,24 +171,13 @@ class HotTrendAlgorithm(BaseAlgorithm):
             # 置信度：基础 0.3 + 加速度持续性加成（0-0.3）+ 数据点加成（0-0.5）
             confidence = max(0.1, min(0.85, 0.3 + 0.3 * accel_persistent + 0.02 * min(n, 25)))
 
-            return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=confidence, current_views=current_views, current_velocity=velocity,
-                metadata={
+            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
                     "method": "hot_trend",
                     "accel_persist": round(float(accel_persistent), 3),  # 加速度持续性 [0, 1]
                     "jerk": round(float(jerk), 3),  # 急动度（加速度的变化率）
-                },
-                timestamp=datetime.now(),
-            )
+                })
         except Exception:
             # 任何异常回退到匀速预测
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views, current_velocity=velocity,
-                metadata={"method": "hot_trend_error"}, timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "hot_trend_error"})

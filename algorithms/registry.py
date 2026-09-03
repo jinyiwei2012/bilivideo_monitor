@@ -82,6 +82,47 @@ class AlgorithmRegistry:
     _cache_lock = threading.Lock()  # 保护 _derived_cache 并发读写
     _derived_cache: _LRUDict = _LRUDict(maxsize=_MAX_CACHE_SIZE)
 
+    # B3: 集成偏差校准 —— 记录每个 bvid 上一次集成预测 (prediction, current_value)
+    # 下次预测时用新的 current_value 作"实际值"验证 growth 偏差
+    _prev_ensemble_pred: Dict = {}
+    _prev_ensemble_lock = threading.Lock()
+
+    @classmethod
+    def _record_ensemble_feedback(cls, bvid: str, current_value: float):
+        """用上一轮集成预测验证本轮实际增长，记录系统性偏差样本 (B3)。"""
+        if not bvid:
+            return
+        with cls._prev_ensemble_lock:
+            prev = cls._prev_ensemble_pred.get(bvid)
+            if prev is None:
+                cls._prev_ensemble_pred[bvid] = (current_value, current_value)
+                return
+            prev_pred, prev_current = prev
+            cls._prev_ensemble_pred[bvid] = (current_value, current_value)
+        if prev_pred is None or prev_current is None:
+            return
+        try:
+            pred_growth = float(prev_pred) - float(prev_current)
+            actual_growth = float(current_value) - float(prev_current)
+            if pred_growth > 0:
+                from .bias_correction import get_bias_corrector
+
+                get_bias_corrector().record(bvid, pred_growth, actual_growth)
+        except Exception as e:
+            logger.debug("记录集成偏差样本失败: %s", e)
+
+    @classmethod
+    def reset_ensemble_bias(cls, bvid: str):
+        """删除某视频的偏差样本（删除监控时调用）。"""
+        with cls._prev_ensemble_lock:
+            cls._prev_ensemble_pred.pop(bvid, None)
+        try:
+            from .bias_correction import get_bias_corrector
+
+            get_bias_corrector().reset_bvid(bvid)
+        except Exception:
+            pass
+
     @classmethod
     def initialize(cls):
         """初始化：自动加载并注册所有算法（双检锁线程安全）
@@ -281,6 +322,97 @@ class AlgorithmRegistry:
                     accels = np.diff(diffs)
                     jerks = np.diff(accels) if len(accels) >= 2 else np.array([0.0])
                     derived["jerk"] = float(np.mean(jerks)) if len(jerks) > 0 else 0.0
+                # ── 稳健增量速率（抗噪，用于 75s 增量预测）──
+                # 实证修订：简单"剔除 0 增量"会把真实停滞误当 API 伪迹 → 停滞视频速率被
+                # 补量点拉高（实测高估 300x）。正确做法：不预剔除，对全速率(含 0)取 median，
+                # 仅用 MAD 剪除单发大补量离群 —— median 天然对 0 稳健(停滞→0)，
+                # MAD 剪除只移除"假爆发"补量点，两类噪声同时防御。
+                if n >= 4:
+                    _k = min(12, n - 1)
+                    _seg_ts = ts_arr[-_k - 1:]
+                    _seg_v = v_arr[-_k - 1:]
+                    _dt = np.diff(_seg_ts)
+                    _dv = np.diff(_seg_v)
+                    _valid_dt = _dt > 0
+                    if np.any(_valid_dt):
+                        _rates = _dv[_valid_dt] / _dt[_valid_dt] * 3600.0
+                        # 剔除负速率(回跳)与超物理上限的脏段
+                        _ceil = max(float(_seg_v[-1]) * 60.0, 1e6)
+                        _rates = _rates[(_rates >= 0) & (_rates <= _ceil)]
+                        if len(_rates) >= 2:
+                            _med = float(np.median(_rates))
+                            # 冻结恢复分支: 大量 0(冻结) + 单发大补量 → 用"补量/冻结时长"恢复真实速率
+                            # 判定: median≈0 且存在 >6×median 的显著正点(补量)且 0 占多数
+                            _nz = _rates[_rates > 0]
+                            _zero_frac = 1.0 - len(_nz) / max(len(_rates), 1)
+                            if _med < 1e-9 and len(_nz) >= 1 and _zero_frac >= 0.5:
+                                # 冻结恢复速率 = 冻结窗口总增长 / 总时长（含冻结的 0 段）
+                                # 窗口起点：从末段反向扫描，找最后一个正增量段(补量)之前
+                                # 连续 0 串的起点；窗口 = [冻结起点, 末段]。
+                                _win_dv = _dv[_valid_dt]
+                                _win_dt = _dt[_valid_dt]
+                                # 反向找补量段：最后一个正增量段下标
+                                _pos_i = np.where(_win_dv > 0)[0]
+                                if len(_pos_i) > 0:
+                                    _last_pos = int(_pos_i[-1])
+                                    # 冻结起点 = 补量段前连续 0 段的起点
+                                    _fz_start = _last_pos
+                                    while _fz_start > 0 and _win_dv[_fz_start - 1] == 0:
+                                        _fz_start -= 1
+                                    # 窗口覆盖 [起点段, 末段] 的真实时间与增长
+                                    _t_start = _seg_ts[_fz_start]
+                                    _t_end = _seg_ts[-1]
+                                    _rec_dt = float(_t_end - _t_start)
+                                    _rec_dv = float(_seg_v[-1] - _seg_v[_fz_start])
+                                    if _rec_dt > 0:
+                                        _rec_vel = max(0.0, _rec_dv / _rec_dt * 3600.0)
+                                        _rec_vel = min(_rec_vel, _ceil)
+                                        derived["velocity_robust_hourly"] = float(max(0.0, _rec_vel))
+                                        derived["increment_75s"] = derived["velocity_robust_hourly"] * 75.0 / 3600.0
+                                        derived["velocity_freeze_recovered"] = True
+                            else:
+                                # MAD 剪除单发补量离群：|x - med| > 3 * 1.4826 * MAD
+                                _mad = float(np.median(np.abs(_rates - _med))) if len(_rates) >= 3 else 0.0
+                                if _mad > 1e-9:
+                                    _thr = 3.0 * 1.4826 * _mad
+                                    _clean = _rates[np.abs(_rates - _med) <= _thr]
+                                    if len(_clean) >= 2:
+                                        _rates = _clean
+                                        _med = float(np.median(_rates))
+                                # 近端加权均值（对剩余速率；若与 median 分歧大则信 median）
+                                _w = 0.8 ** np.arange(len(_rates))[::-1]
+                                _w = _w / max(np.sum(_w), 1e-9)
+                                _wlr = float(np.sum(_rates * _w))
+                                if abs(_med - _wlr) / max(_med, 1e-9) > 0.3:
+                                    _robust = _med
+                                else:
+                                    _robust = 0.5 * _med + 0.5 * _wlr
+                                derived["velocity_robust_hourly"] = float(max(0.0, _robust))
+                                derived["increment_75s"] = derived["velocity_robust_hourly"] * 75.0 / 3600.0
+                # ── 全历史生命周期特征（实证驱动，供长程 ETA / 算法消费）──
+                # 实证(lifecycle_test3)：早期爆发视频(<5天)全历史会把爆发初速当常态 → 误差 +443%，
+                # 平稳/衰退视频全历史衰减修正胜出 +53%~63%。故单独输出"生命周期阶段"信号，
+                # 不进 increment_75s(短窗动量保持纯净)，由 log-ETA / 校准逻辑按阶段自适应加权。
+                if n >= 288:  # ≥6 小时才有意义
+                    _age_hours = float(ts_arr[-1] - ts_arr[0]) / 3600.0 if ts_arr[-1] > ts_arr[0] else 0.0
+                    # 早期基准段(前1/4)与近期段(末1/4)的正速率中位 → 生命周期衰减比
+                    _q = max(4, n // 4)
+                    _early_diff = np.diff(v_arr[:_q + 2])
+                    _recent_diff = np.diff(v_arr[-_q - 1:])
+                    _early_pos = _early_diff[_early_diff > 0]
+                    _recent_pos = _recent_diff[_recent_diff > 0]
+                    _early_rate = float(np.median(_early_pos)) if len(_early_pos) >= 3 else 0.0
+                    _recent_rate = float(np.median(_recent_pos)) if len(_recent_pos) >= 3 else 0.0
+                    _decay = (_recent_rate / _early_rate) if _early_rate > 0 else 1.0
+                    derived["history_age_hours"] = round(_age_hours, 1)
+                    derived["lifecycle_decay"] = round(float(min(2.0, max(0.0, _decay))), 4)
+                    # 阶段: early(<5天 或 无明显衰减) / steady / declining
+                    if _age_hours < 120 or _decay >= 0.85:
+                        derived["lifecycle_stage"] = "early"
+                    elif _decay >= 0.5:
+                        derived["lifecycle_stage"] = "steady"
+                    else:
+                        derived["lifecycle_stage"] = "declining"
             if n >= 5:
                 derived["velocity_ratio"] = derived.get("velocity_mean", 0) / max(v_arr[-min(5, n)], 1)
             # ── 滞后特征 ──────────────────────────
@@ -365,8 +497,10 @@ class AlgorithmRegistry:
             prediction = current_value + current_value * 0.01
         else:
             if pred_hours > 0:
+                # anchor = 首个未达阈值（算法预测的真实对象），非固定 thresholds[0]
+                _anchor_t = next((t for t in thresholds if current_value < t), thresholds[0])
                 avg_velocity = (
-                    (thresholds[0] - current_value) / max(pred_hours, 1) if thresholds[0] > current_value else 0
+                    (_anchor_t - current_value) / max(pred_hours, 1) if _anchor_t > current_value else 0
                 )
                 prediction = current_value + avg_velocity * short_hours
             else:
@@ -413,13 +547,32 @@ class AlgorithmRegistry:
         }
 
     @classmethod
-    def _run_parallel_predictions(cls, current_value, bvid, cached_video_data, thresholds, threshold_names):
+    def _run_parallel_predictions(cls, current_value, bvid, cached_video_data, thresholds, threshold_names,
+                                  anchor_threshold=None):
         results = {}
         valid_count = 0
         na_count = 0
 
         # 预取全部权重（避免 100+ 线程争抢 WeightManager._lock）
         _weights = {name: get_weight_manager().get_weight(name) for name in cls._algorithms}
+
+        # B2: 在线学习全局分数 → 权重修正因子（跨视频聚合的算法级实时表现）
+        # 注意 tracker key 存的是裸算法名(带"[Model] "前缀)，registry key 同名；
+        # 分数 rel 落在 1.0 附近，clip [0.3, 3.0] 防单算法过冲
+        try:
+            from .online_learner import get_online_learner
+
+            _ol_scores = get_online_learner().get_global_algorithm_scores(min_samples=3)
+            if _ol_scores:
+                for _name in _weights:
+                    _base = _name
+                    _rel = _ol_scores.get(_base)
+                    if _rel is None:
+                        continue
+                    _factor = max(0.3, min(3.0, _rel))
+                    _weights[_name] = _weights.get(_name, 1.0) * _factor
+        except Exception as e:
+            logger.debug("在线学习权重修正跳过: %s", e)
 
         def _run_single(name_algo):
             n, algo = name_algo
@@ -430,7 +583,9 @@ class AlgorithmRegistry:
                 with warnings.catch_warnings():
                     warnings.filterwarnings("ignore", category=RuntimeWarning, module="numpy")
                     with np.errstate(invalid="ignore", divide="ignore"):
-                        prediction_result = algo.predict(cached_video_data, thresholds[0])
+                        # anchor 阈值：当前值之上的首个未达目标（原固定 thresholds[0]，
+                        # 视频超过 10万 后算法的 predicted_hours 全部退化）
+                        prediction_result = algo.predict(cached_video_data, anchor_threshold or thresholds[0])
                 w = _weights.get(n, 1.0)
                 if prediction_result is None:
                     res = cls._make_na_result(current_value, w)
@@ -619,6 +774,64 @@ class AlgorithmRegistry:
         return weighted_pred
 
     @classmethod
+    def _compute_log_eta(cls, results, current_value, thresholds, threshold_names, anchor_idx):
+        """log-ETA 集成：算法对 anchor 阈值的 predicted_hours → log 空间加权中位数。
+
+        背景：各算法的 current_velocity 高度共享 polyfit（D1），75s prediction 几乎同质，
+        但 predicted_hours（到达目标阈值的小时数）编码了曲线/模型差异（实测 p10~p90 近 3 倍）。
+        此前 hours 只进 metadata 不参与集成 —— 此处让模型多样性真正进入 ETA 决策。
+
+        权重使用权重计算后的 results[name]["weight"]（已含 window + coherence 修正），
+        加权中位数对离群 hours 稳健，log 空间避免长尾小时数主导。
+
+        Returns:
+            dict: {"eta_hours": ..., "eta_log_cv": ..., "eta_n": ...} 写入 _weighted.eta
+        """
+        hours_w = []  # (weight, log_hours)
+        for name, r in results.items():
+            if name == "_weighted" or "error" in r:
+                continue
+            w = r.get("weight", 0)
+            h = r.get("predicted_hours", 0)
+            if w <= 0:
+                continue
+            if h is None or h == float("inf") or h <= 0:
+                continue
+            # 截断离群：>100年 或 <1分钟 视为脏数据
+            if h > 876000 or h < 1 / 60.0:
+                continue
+            hours_w.append((w, math.log(h)))
+        if len(hours_w) < 3:
+            return None
+
+        # 加权中位数（log 空间）
+        total_w = sum(w for w, _ in hours_w)
+        hours_w.sort(key=lambda x: x[1])
+        acc = 0.0
+        median_log = None
+        for w, lh in hours_w:
+            acc += w
+            if acc >= total_w * 0.5:
+                median_log = lh
+                break
+        if median_log is None:
+            median_log = hours_w[-1][1]
+
+        # log 空间加权离散度 → 共识置信（算法对到达时间分歧越小越可信）
+        mean_log = sum(w * lh for w, lh in hours_w) / total_w
+        var_log = sum(w * (lh - mean_log) ** 2 for w, lh in hours_w) / total_w
+        log_cv = (var_log ** 0.5) / max(abs(mean_log), 1e-9)
+
+        eta_hours = math.exp(median_log)
+        return {
+            "eta_hours": round(eta_hours, 2),
+            "eta_log_cv": round(log_cv, 4),
+            "eta_n": len(hours_w),
+            "eta_threshold": thresholds[anchor_idx] if anchor_idx is not None else None,
+            "eta_threshold_name": threshold_names[anchor_idx] if anchor_idx is not None else None,
+        }
+
+    @classmethod
     def predict_all(cls, history: List, current_value: float, bvid: str = "",
                     db_history: List = None, **kwargs) -> Dict:
         """对所有注册算法发起并行预测，返回加权集成结果。
@@ -643,11 +856,37 @@ class AlgorithmRegistry:
 
         cached_video_data = cls._prepare_video_data(history, current_value, bvid=bvid)
 
+        # 实时信号注入（研究补进）：viewers 在线人数/hour 等经 extra_features 传入，
+        # 挂到 video_data["live_features"] 供算法读取 —— 此前已拉取但从不被任何算法消费
+        live_feats = kwargs.get("live_features") or {}
+        if live_feats:
+            cached_video_data["live_features"] = dict(live_feats)
+            # 兼容直接字段访问（部分算法可能直接读 video_data["viewers_total"]）
+            for _k, _v in live_feats.items():
+                if _k not in cached_video_data:
+                    cached_video_data[_k] = _v
+
         thresholds = kwargs.get("thresholds", [100000, 1000000, 10000000])
         threshold_names = kwargs.get("threshold_names", ["10万", "100万", "1000万"])
 
+        # anchor 阈值：当前值之上的首个未达目标（算法真实预测的对象）
+        # 若全部阈值都已达成 → 无 anchor，算法预测无意义（保持旧行为退化为最大阈值）
+        anchor_idx = None
+        for _i, _t in enumerate(thresholds):
+            if current_value < _t:
+                anchor_idx = _i
+                break
+        anchor_threshold = thresholds[anchor_idx] if anchor_idx is not None else thresholds[-1]
+
+        # B3: 用本轮实际值验证上一轮集成预测的 growth 偏差（延迟一帧）
+        try:
+            cls._record_ensemble_feedback(bvid, current_value)
+        except Exception as e:
+            logger.debug("集成偏差反馈记录失败: %s", e)
+
         results, valid_count, na_count = cls._run_parallel_predictions(
-            current_value, bvid, cached_video_data, thresholds, threshold_names
+            current_value, bvid, cached_video_data, thresholds, threshold_names,
+            anchor_threshold=anchor_threshold,
         )
 
         valid_predictions = [
@@ -675,6 +914,28 @@ class AlgorithmRegistry:
         ]
 
         weighted_pred = cls._compute_ensemble(results, valid_predictions, current_value, valid_count, na_count)
+
+        # ── log-ETA 集成 + C1 共识置信 ──
+        # 各算法 predicted_hours(到 anchor 阈值) log 空间加权中位 → _weighted.eta
+        # 置信改为 log 空间离散度：算法对"到达时间"分歧越小置信越高（替换 75s 同质 cv）
+        try:
+            eta_info = cls._compute_log_eta(results, current_value, thresholds, threshold_names, anchor_idx)
+            if eta_info:
+                results["_weighted"]["eta"] = eta_info
+                # C1: 用 log-ETA 共识度覆盖 ensemble_confidence（≥3 算法有效时）
+                if eta_info["eta_n"] >= 5 and eta_info["eta_log_cv"] > 0:
+                    eta_conf = max(0.0, min(1.0, math.exp(-eta_info["eta_log_cv"] * 1.5)))
+                    # 生命周期调制（实证驱动）：early 阶段曲线未定型 → 置信打折；
+                    # steady/declining → 全历史衰减信息可靠 → 置信加成
+                    _stage = cached_video_data.get("derived_features", {}).get("lifecycle_stage", "")
+                    if _stage == "early":
+                        eta_conf *= 0.75
+                    elif _stage in ("steady", "declining"):
+                        eta_conf = min(1.0, eta_conf * 1.1)
+                    results["_weighted"]["ensemble_confidence"] = round(eta_conf, 4)
+                    results["_weighted"]["confidence_basis"] = "log_eta"
+        except Exception as e:
+            logger.debug("log-ETA 集成失败: %s", e)
 
         # ── 推流校正：检测到大推流时对集成预测值进行衰减调整 ──
         surge_info = cls._detect_surge_from_cached(cached_video_data)
@@ -704,6 +965,25 @@ class AlgorithmRegistry:
                 results["_weighted"]["correction_ratio"] = round(correction_ratio, 3)
                 weighted_pred = results["_weighted"]["prediction"]
 
+        # ── 系统性偏差校准 (B3)：样本充足时对 growth 分量施加中位数修正 ──
+        try:
+            if bvid:
+                from .bias_correction import get_bias_corrector
+
+                bias_info = get_bias_corrector().get_correction(bvid)
+                if bias_info.get("enabled") and bias_info.get("factor") != 1.0:
+                    growth = weighted_pred - current_value
+                    if growth > 0:
+                        factor = bias_info["factor"]
+                        corrected_pred = current_value + growth * factor
+                        results["_weighted"]["prediction"] = max(current_value, corrected_pred)
+                        results["_weighted"]["bias_correction_applied"] = True
+                        results["_weighted"]["bias_factor"] = factor
+                        results["_weighted"]["bias_samples"] = bias_info["samples"]
+                        weighted_pred = results["_weighted"]["prediction"]
+        except Exception as e:
+            logger.debug("集成偏差校准失败: %s", e)
+
         interval_width = 0
         if results["_weighted"].get("prediction_interval"):
             try:
@@ -718,17 +998,38 @@ class AlgorithmRegistry:
         return results
 
     @classmethod
-    def update_accuracy(cls, algorithm_name: str, predicted: float, actual: float):
-        """更新单个算法的准确率记录并同步到权重管理器。"""
-        algo = cls.get_algorithm(algorithm_name)
-        if algo:
-            if hasattr(algo, "update_accuracy"):
-                algo.update_accuracy(predicted, actual)
-            try:
-                accuracy = algo.get_accuracy() if hasattr(algo, "get_accuracy") else 0.5
-                get_weight_manager().update_accuracy(algorithm_name, accuracy)
-            except Exception as e:
-                logger.debug("更新算法准确率失败 %s: %s", algorithm_name, e)
+    def update_accuracy(cls, algorithm_name: str, predicted: float = None, actual: float = None,
+                        accuracy: float = None):
+        """更新单个算法的准确率记录并同步到权重管理器（B1 修复）。
+
+        统一入口，两种调用方式：
+        1) update_accuracy(name, predicted, actual) —— 生产回路：预测值/实际值，自动换算准确率
+        2) update_accuracy(name, accuracy=acc) —— 训练完成/外部直接给 0~1 准确率
+
+        旧签名错配修复：main_gui_events 曾调 update_accuracy(algo_id, 1.0, accuracy)，
+        把 predicted=1.0/actual=accuracy 硬塞，导致误差恒为 |1-acc| —— 已改由 accuracy 关键字正确传入。
+        """
+        if algorithm_name not in cls._algorithms:
+            # 反向映射：可能传入了裸 algorithm_id
+            algorithm_name = cls.get_registry_key(algorithm_name)
+        algo = cls._algorithms.get(algorithm_name)
+        if accuracy is None:
+            if predicted is not None and actual is not None and actual > 0:
+                # 相对误差 → 准确率（对称度量，避免播放量量级影响）
+                _base = max(abs(predicted), actual, 1.0)
+                rel_err = abs(predicted - actual) / _base
+                accuracy = max(0.0, min(1.0, 1.0 - rel_err))
+            else:
+                accuracy = 0.5
+        try:
+            if algo is not None and hasattr(algo, "update_accuracy"):
+                algo.update_accuracy(accuracy)
+        except Exception as e:
+            logger.debug("算法内部准确率更新失败 %s: %s", algorithm_name, e)
+        try:
+            get_weight_manager().update_accuracy(algorithm_name, max(0.0, min(1.0, accuracy)))
+        except Exception as e:
+            logger.debug("更新算法准确率失败 %s: %s", algorithm_name, e)
 
     @classmethod
     def update_ensemble_accuracy(cls, predicted: float, actual: float):
@@ -762,6 +1063,102 @@ class AlgorithmRegistry:
             ]
 
     @classmethod
+    def warmup_weights_from_backtest(cls, bvid: str, history: List) -> int:
+        """B3: 冷启动加速 —— 用离线滚动回测的 1 步 MAPE 预热算法权重。
+
+        背景：WeightManager.accuracy_records 需真实预测反馈累积，冷启动期所有算法
+        weight 恒为 1.0（无差别）。而 RollingBacktester 可离线评估各算法在该视频
+        历史数据上的表现 —— 用回测 MAPE 写 1 条初始 accuracy，让 ML 权重立即区分好坏。
+
+        Args:
+            bvid: 视频 BV 号
+            history: [(timestamp, view_count), ...] 历史数据
+
+        Returns:
+            成功预热的算法数量
+        """
+        try:
+            if not bvid or not history or len(history) < 15:
+                return 0
+            # 每视频只预热一次（启动后历史相对稳定，重复回测浪费 CPU）
+            with cls._history_lock:
+                warmed = getattr(cls, "_backtest_warmed", set())
+                cls._backtest_warmed = warmed
+                if bvid in warmed:
+                    return 0
+                warmed.add(bvid)
+
+            import numpy as np
+            from algorithms.rollout_backtest import RollingBacktester
+
+            series = np.array([v for _, v in history], dtype=float)
+            if len(series) < 15:
+                return 0
+
+            backtester = RollingBacktester(min_train=8, step=4, horizon=1)
+            warmed_count = 0
+            # 限制算法数避免启动过慢（每个算法一次完整回测）
+            names = cls.get_algorithm_names()
+            sample = names[:40]
+
+            for name in sample:
+                algo = cls._algorithms.get(name)
+                if algo is None:
+                    continue
+                try:
+                    # 复刻回测面板的 predict_fn：滚动窗口喂 video_data，取 1 步预测
+                    def _make_fn(algo_inst=algo):
+                        def fn(train: np.ndarray) -> float:
+                            if len(train) < 3:
+                                return float(train[-1]) if len(train) > 0 else 0.0
+                            try:
+                                import numpy as _np
+                                hist_list = []
+                                # 回测用索引时间（等间隔假设），构造 video_data
+                                base_ts = 1_700_000_000.0
+                                for _i, _v in enumerate(train):
+                                    hist_list.append(
+                                        {"view_count": float(_v),
+                                         "timestamp": base_ts + _i * 75.0}
+                                    )
+                                vd = {
+                                    "view_count": float(train[-1]),
+                                    "history_data": hist_list,
+                                    "_sorted": True,
+                                    "timestamp": base_ts + len(train) * 75.0,
+                                }
+                                res = algo_inst.predict(vd, threshold=1_000_000)
+                                if res is None or getattr(res, "predicted_hours", None) in (None, float("inf")):
+                                    vel = getattr(res, "current_velocity", 0) if res is not None else 0
+                                    if vel > 0:
+                                        return float(train[-1]) + vel * (75.0 / 3600.0)
+                                    return float(train[-1]) * 1.005
+                                vel = getattr(res, "current_velocity", 0)
+                                if vel > 0:
+                                    return float(train[-1]) + vel * (75.0 / 3600.0)
+                                return float(train[-1]) * 1.01
+                            except Exception:
+                                return float(train[-1]) if len(train) > 0 else 0.0
+                        return fn
+
+                    result = backtester.backtest(series, _make_fn())
+                    if result.get("n_tests", 0) >= 3 and result["mape"] != float("inf"):
+                        mape = result["mape"]
+                        # MAPE → 初始准确率（0.9 封顶，回测非真实验证，保留学习空间）
+                        init_acc = max(0.3, min(0.9, 1.0 - mape))
+                        # 用轻量路径写 accuracy（不触发 algo.update_accuracy 内部状态）
+                        get_weight_manager().update_accuracy(name, init_acc)
+                        warmed_count += 1
+                except Exception as e:
+                    logger.debug("预热算法 %s 失败: %s", name, e)
+            if warmed_count:
+                logger.info("[%s] 回测预热 %d 个算法权重", bvid, warmed_count)
+            return warmed_count
+        except Exception as e:
+            logger.debug("权重预热失败 %s: %s", bvid, e)
+            return 0
+
+    @classmethod
     def shutdown(cls):
         """关闭线程池，释放资源（应用退出时调用）。"""
         with cls._pool_lock:
@@ -777,6 +1174,8 @@ class AlgorithmRegistry:
         cls._algorithms = {}
         cls._derived_cache = _LRUDict(maxsize=_MAX_CACHE_SIZE)
         cls._initialized = False
+        with cls._prev_ensemble_lock:
+            cls._prev_ensemble_pred.clear()
 
     @classmethod
     def get_trainable_info(cls) -> List[Dict]:

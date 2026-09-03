@@ -184,17 +184,7 @@ class TabnetSimpleAlgorithm(BaseAlgorithm):
                 cv = float(np.std(residuals) / max(np.mean(np.abs(y_target)), 1e-10))
                 confidence = max(0.1, min(0.85, 0.6 - cv * 0.5))
 
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=predicted_hours,
-                confidence=confidence,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={"method": "tabnet_lib", "n_d": 8, "n_a": 8},
-                timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "tabnet_lib", "n_d": 8, "n_a": 8})
         except Exception:
             return None
 
@@ -283,16 +273,6 @@ class TabnetSimpleAlgorithm(BaseAlgorithm):
                 attn_entropy = -np.sum(attn_weights * np.log(attn_weights + 1e-10)) / np.log(n_features)
                 confidence = max(0.1, min(0.8, 0.6 - attn_entropy * 0.3))
 
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=predicted_hours,
-                confidence=confidence,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={"method": "tabnet", "trend_signal": float(trend)},
-                timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "tabnet", "trend_signal": float(trend)})
         except Exception:
             return self._fallback(velocity, current_views, threshold, method="tabnet_lib")

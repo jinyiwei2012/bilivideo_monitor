@@ -129,21 +129,11 @@ class HierarchicalBayesAlgorithm(BaseAlgorithm):
                 # 置信度：CV 越小（估计越精确）+ 收缩越小（局部数据可信）-> 置信度越高
                 confidence = max(0.1, min(0.85, 0.5 - cv * 2 + 0.3 * (1 - shrinkage)))
 
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=predicted_hours,
-                confidence=confidence,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={
+            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
                     "method": "hierarchical_bayes",
                     "shrinkage": float(shrinkage),  # 收缩因子
                     "posterior_mean": float(posterior_mean),  # 后验均值
                     "up_avg_views": int(up_avg_views),  # UP 主平均播放量
-                },
-                timestamp=datetime.now(),
-            )
+                })
         except Exception:
             return self._fallback(velocity, current_views, threshold, method="hierarchical_bayes")

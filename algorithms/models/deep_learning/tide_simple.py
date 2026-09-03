@@ -88,17 +88,7 @@ class TideSimpleAlgorithm(BaseAlgorithm):
 
         # 数据不足时返回无预测
         if len(history) < 4 or velocity <= 0:
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=float("inf"),
-                confidence=0.0,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={"method": "tide_simple", "reason": "insufficient_data"},
-                timestamp=datetime.now(),
-            )
+            return self._std_result(float("inf"), 0.0, current_views, threshold, velocity=velocity, metadata={"method": "tide_simple", "reason": "insufficient_data"})
 
         views = np.array([h.get("view", 0) for h in history], dtype=np.float64)
         n = min(10, len(views) // 2)
@@ -123,14 +113,4 @@ class TideSimpleAlgorithm(BaseAlgorithm):
             )
             confidence = 0.3
 
-        return PredictionResult(
-            algorithm_name=self.name,
-            algorithm_id=self.algorithm_id,
-            target_threshold=threshold,
-            predicted_hours=predicted_hours,
-            confidence=confidence,
-            current_views=current_views,
-            current_velocity=velocity,
-            metadata={"method": "tide_simple", "history_len": len(history)},
-            timestamp=datetime.now(),
-        )
+        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "tide_simple", "history_len": len(history)})

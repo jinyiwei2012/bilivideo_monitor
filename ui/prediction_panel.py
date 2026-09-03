@@ -130,8 +130,46 @@ class PredictionPanel:
         layout.setContentsMargins(SPACE_MD, SPACE_MD, SPACE_MD, SPACE_MD)
         layout.addWidget(EmptyState(lty_voice.empty("选择视频") + " 天依就能唱出预测啦"))
 
-    def build_pred_hero(self, weighted_pred, current_views, rate_per_sec, surge_info=None):
-        """构建或更新预测英雄卡片"""
+    @staticmethod
+    def _calc_eta_text(t, current_views, rate_per_sec, eta_info):
+        """计算单个阈值行的 ETA 文案与颜色。
+
+        C2 优先级：
+            1. log-ETA 共识结果命中该阈值（eta_info.eta_threshold == t）→ 用算法集成小时数
+            2. 回退：rate_per_sec 线性外推（现状逻辑）
+            3. 均不可用 → "—"
+        """
+        if t <= current_views:
+            return "✓ 已达成 ♪", C["success"]
+        # C2: 算法共识 ETA 命中该行
+        if eta_info:
+            try:
+                et = eta_info.get("eta_threshold")
+                eh = eta_info.get("eta_hours")
+                if et is not None and eh and int(et) == int(t) and eh > 0:
+                    arrive_dt = datetime.now() + timedelta(hours=eh)
+                    eta_str = arrive_dt.strftime("%m-%d %H:%M")
+                    seconds_left = eh * 3600
+                    eta_c = C["danger"] if seconds_left < 3600 else C["warning"] if seconds_left < 86400 else C["text_2"]
+                    return eta_str, eta_c
+            except Exception:
+                pass
+        if rate_per_sec > 0:
+            need = t - current_views
+            seconds_left = need / rate_per_sec
+            arrive_dt = datetime.now() + timedelta(seconds=seconds_left)
+            eta_str = arrive_dt.strftime("%m-%d %H:%M")
+            eta_c = C["danger"] if seconds_left < 3600 else C["warning"] if seconds_left < 86400 else C["text_2"]
+            return eta_str, eta_c
+        return "—", C["text_3"]
+
+    def build_pred_hero(self, weighted_pred, current_views, rate_per_sec, surge_info=None, bias_info=None,
+                        eta_info=None):
+        """构建或更新预测英雄卡片
+
+        eta_info (C2): registry log-ETA 集成结果 {"eta_hours","eta_threshold",...}。
+        ETA 行优先用算法共识的 eta_hours（到达 anchor 阈值），回退到 rate_per_sec 外推。
+        """
         # ── 增量更新 ──
         if self._hero_has_data and "outer" in self._hero_widgets:
             w = self._hero_widgets
@@ -141,6 +179,9 @@ class PredictionPanel:
             delta_color = C["success"] if delta >= 0 else C["danger"]
             w["delta_lbl"].setText(delta_text)
             w["delta_lbl"].setStyleSheet(f"color: {delta_color}; font-size: 10pt;")
+
+            # B3: 集成偏差校准标注
+            self._update_bias_lbl(w, bias_info)
 
             if rate_per_sec > 0:
                 per_hour = rate_per_sec * 3600
@@ -166,16 +207,7 @@ class PredictionPanel:
                 row_data = w["thr_rows"][i]
                 pct = min(current_views / t, 1.0)
                 row_data["progress"].setValue(int(pct * 100))
-                if t <= current_views:
-                    eta_str, eta_c = "✓ 已达成 ♪", C["success"]
-                elif rate_per_sec > 0:
-                    need = t - current_views
-                    seconds_left = need / rate_per_sec
-                    arrive_dt = datetime.now() + timedelta(seconds=seconds_left)
-                    eta_str = arrive_dt.strftime("%m-%d %H:%M")
-                    eta_c = C["danger"] if seconds_left < 3600 else C["warning"] if seconds_left < 86400 else C["text_2"]
-                else:
-                    eta_str, eta_c = "—", C["text_3"]
+                eta_str, eta_c = self._calc_eta_text(t, current_views, rate_per_sec, eta_info)
                 row_data["eta_lbl"].setText(eta_str)
                 row_data["eta_lbl"].setStyleSheet(f"color: {eta_c}; font-family: Consolas; font-size: 9pt;")
             return
@@ -227,6 +259,12 @@ class PredictionPanel:
         delta_lbl.setStyleSheet(f"color: {delta_color}; font-size: 10pt;")
         ol.addWidget(delta_lbl)
 
+        # B3: 集成偏差校准标注（默认隐藏，应用时显示）
+        bias_lbl = QLabel("")
+        bias_lbl.setStyleSheet(f"color: {C['warning']}; font-size: 8pt;")
+        bias_lbl.setVisible(False)
+        ol.addWidget(bias_lbl)
+
         # 速率
         rate_lbl = None
         if rate_per_sec > 0:
@@ -275,16 +313,7 @@ class PredictionPanel:
             """)
             rh.addWidget(progress, 1)
 
-            if t <= current_views:
-                eta_str, eta_c = "✓ 已达成 ♪", C["success"]
-            elif rate_per_sec > 0:
-                need = t - current_views
-                seconds_left = need / rate_per_sec
-                arrive_dt = datetime.now() + timedelta(seconds=seconds_left)
-                eta_str = arrive_dt.strftime("%m-%d %H:%M")
-                eta_c = C["danger"] if seconds_left < 3600 else C["warning"] if seconds_left < 86400 else C["text_2"]
-            else:
-                eta_str, eta_c = "—", C["text_3"]
+            eta_str, eta_c = self._calc_eta_text(t, current_views, rate_per_sec, eta_info)
             eta_lbl = QLabel(eta_str)
             eta_lbl.setFixedWidth(88)
             eta_lbl.setStyleSheet(f"color: {eta_c}; font-family: Consolas; font-size: 9pt;")
@@ -303,6 +332,7 @@ class PredictionPanel:
             "outer": outer,
             "val_lbl": val_lbl,
             "delta_lbl": delta_lbl,
+            "bias_lbl": bias_lbl,
             "rate_lbl": rate_lbl,
             "thr_rows": thr_rows,
             "surge_frame": surge_frame,
@@ -404,6 +434,25 @@ class PredictionPanel:
         }
 
         return frame
+
+    def _update_bias_lbl(self, hero_widgets, bias_info):
+        """B3: 增量更新集成偏差校准标注"""
+        lbl = hero_widgets.get("bias_lbl")
+        if lbl is None:
+            return
+        if not bias_info or not bias_info.get("applied"):
+            lbl.setVisible(False)
+            return
+        factor = bias_info.get("factor", 1.0)
+        samples = bias_info.get("samples", 0)
+        if factor < 1.0:
+            text = f"⚖ 集成偏差修正: 高估 {((1.0 - factor) * 100):.0f}% → 已下调 (近 {samples} 次)"
+        elif factor > 1.0:
+            text = f"⚖ 集成偏差修正: 低估 {((factor - 1.0) * 100):.0f}% → 已上调 (近 {samples} 次)"
+        else:
+            text = f"⚖ 集成偏差校准中 (样本 {samples})"
+        lbl.setText(text)
+        lbl.setVisible(True)
 
     def _update_surge_badge(self, hero_widgets, surge_info):
         """增量更新推流指示器"""

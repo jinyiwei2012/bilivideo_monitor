@@ -129,6 +129,47 @@ class BaseAlgorithm(ABC):
             metadata=meta, timestamp=datetime.now(),
         )
 
+    def _std_result(self, predicted_hours: float, confidence: float,
+                    current_views: int, threshold: int, velocity: float = None,
+                    method: str = "", metadata: dict = None) -> PredictionResult:
+        """统一的 PredictionResult 构造器（返回值样板收敛点）。
+
+        从 self.name / self.algorithm_id / 当前时间自动填充 algorithm_name、
+        algorithm_id、target_threshold、timestamp 等重复字段，子类只需提供
+        预测数值与元数据，避免 120+ 算法各自手写相同的构造样板。
+
+        注意：命名用 _std_result 而非 _make_result —— 历史上有 29 个算法文件
+        各自定义了签名不同的 _make_result 子类方法（早期半统一尝试），基类若
+        同名会被子类遮蔽导致调用错配。
+
+        Args:
+            predicted_hours: 预测到达阈值所需小时数
+            confidence: 置信度 [0, 1]
+            current_views: 当前播放量
+            threshold: 目标阈值
+            velocity: 当前速度（默认 None → calculate_velocity 语义由调用方保证，
+                      此处仅透传；不传时保持字段为 0.0 需调用方留意）
+            method: 算法内部方法名（写入 metadata["method"]）
+            metadata: 额外元数据（method 存在时优先于 metadata 中的同名键）
+
+        Returns:
+            PredictionResult: 字段填充完整的预测结果
+        """
+        meta = dict(metadata or {})
+        if method:
+            meta["method"] = method
+        return PredictionResult(
+            algorithm_name=self.name,
+            algorithm_id=self.algorithm_id,
+            target_threshold=threshold,
+            predicted_hours=predicted_hours,
+            confidence=confidence,
+            current_views=current_views,
+            current_velocity=velocity if velocity is not None else 0.0,
+            metadata=meta,
+            timestamp=datetime.now(),
+        )
+
     def _to_prediction_result(self, result, current_views: int, video_data: Dict[str, Any],
                               threshold: int, method: str = "",
                               invalid_hours: float = -1.0, invalid_velocity=None) -> PredictionResult:
@@ -297,6 +338,9 @@ class BaseAlgorithm(ABC):
         """
         # 优先使用预计算值
         pre = video_data.get("derived_features", {})
+        # 稳健速率（抗 API 延迟/跳变，median+加权LR 融合）优先 —— 实测噪声下 RMSE 低 2~4 倍
+        if "velocity_robust_hourly" in pre and pre["velocity_robust_hourly"] > 0:
+            return pre["velocity_robust_hourly"]
         if "velocity_polyfit" in pre:
             return pre["velocity_polyfit"]
         # 兼容 video_data 直接注入的 velocity 字段

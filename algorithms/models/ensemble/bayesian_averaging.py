@@ -76,12 +76,7 @@ class BayesianModelAveragingAlgorithm(BaseAlgorithm):
         if len(history) < 12 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views, current_velocity=velocity,
-                metadata={"method": "bma_fallback"}, timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "bma_fallback"})
 
         views = np.array([h.get("view_count", 0) for h in history], dtype=np.float64)
         n = len(views)
@@ -179,15 +174,9 @@ class BayesianModelAveragingAlgorithm(BaseAlgorithm):
         top_weight = weights.max() if "weights" in dir() else 1.0
         confidence = max(0.1, min(0.9, 0.3 + 0.3 * top_weight + 0.02 * min(n_models, 5)))
 
-        return PredictionResult(
-            algorithm_name=self.name, algorithm_id=self.algorithm_id,
-            target_threshold=threshold, predicted_hours=predicted_hours,
-            confidence=confidence, current_views=current_views, current_velocity=velocity,
-            metadata={
+        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
                 "method": "bma",
                 "n_models": n_models,
                 "top_weight": round(float(top_weight), 3),
                 "delta_bic": round(float(delta_bic.max() - delta_bic.min()), 1) if "delta_bic" in dir() else 0,
-            },
-            timestamp=datetime.now(),
-        )
+            })

@@ -282,6 +282,52 @@ class OnlineLearner:
                 }
             return result
 
+    def get_global_algorithm_scores(self, min_samples: int = 3) -> Dict[str, float]:
+        """按算法名聚合跨视频的在线学习表现（B2）。
+
+        tracker key 形如 "BVxxx/算法名"（在线学习反馈按 bvid 隔离注册），
+        但 WeightManager 的权重是全局算法级的 —— 此方法把同一算法在多个视频上的
+        误差记录聚合成单一全局分数，供集成加权时叠加修正。
+
+        聚合规则：
+            - 解析 tracker key 的 "/" 前缀得到裸算法名
+            - 同算法多视频：取 EWMA 误差的样本数加权平均（视频越多越可信）
+            - 冷启动保护：总样本 < min_samples 的算法不参与（避免少量误差剧烈扰动）
+
+        Returns:
+            dict: {算法名: 全局分数}，分数越高代表历史预测越准（1.0=平均水平）
+        """
+        import math as _math
+
+        with self._lock:
+            # 算法名 → (加权误差和, 样本数)
+            agg: Dict[str, list] = {}
+            for key, t in self._trackers.items():
+                algo_name = key.split("/", 1)[-1]
+                if not algo_name:
+                    continue
+                samples = t.error_count
+                if samples <= 0:
+                    continue
+                entry = agg.setdefault(algo_name, [0.0, 0])
+                # EWMA 误差越小越好；样本数作为权重
+                entry[0] += t.ewma_loss * samples
+                entry[1] += samples
+
+        if not agg:
+            return {}
+        # 平均 EWMA 误差 → 归一化为相对分数（误差小 → 分高）
+        avg_loss = sum(l for l, s in agg.values()) / sum(s for _, s in agg.values()) if agg else 0.0
+        scores = {}
+        for algo_name, (loss_w, samples) in agg.items():
+            if samples < min_samples:
+                continue
+            mean_loss = loss_w / max(samples, 1)
+            # 相对平均水平的比值：1.0 表示与平均相当，>1 更准，<1 更差
+            rel = (avg_loss + 1e-9) / (mean_loss + 1e-9)
+            scores[algo_name] = round(rel, 4)
+        return scores
+
     def save(self, filepath: str):
         """将在线学习完整状态持久化到 JSON 文件。
 

@@ -327,14 +327,4 @@ class CnnImageAlgorithm(BaseAlgorithm):
                 confidence = 1.0
         metadata = {"reason": reason}
         metadata.update(extra or {})
-        return PredictionResult(
-            algorithm_name=self.name,
-            algorithm_id=self.algorithm_id,
-            target_threshold=threshold,
-            predicted_hours=predicted_hours,
-            confidence=confidence,
-            current_views=int(current_views),
-            current_velocity=float(velocity),
-            metadata=metadata,
-            timestamp=datetime.now(),
-        )
+        return self._std_result(predicted_hours, confidence, int(current_views), threshold, velocity=float(velocity), metadata=metadata)

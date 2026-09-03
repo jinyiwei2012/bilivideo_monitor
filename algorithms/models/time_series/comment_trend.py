@@ -103,14 +103,4 @@ class CommentTrendAlgorithm(BaseAlgorithm):
                 # 评论率越高，预测越有把握
                 confidence = min(1.0, 0.5 + comment_rate * 40)
 
-        return PredictionResult(
-            algorithm_name=self.name,
-            algorithm_id=self.algorithm_id,
-            target_threshold=threshold,
-            predicted_hours=predicted_hours,
-            confidence=confidence,
-            current_views=current_views,
-            current_velocity=velocity,
-            metadata={"method": "comment_trend", "comment_rate": replies / current_views if current_views > 0 else 0},
-            timestamp=datetime.now(),
-        )
+        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "comment_trend", "comment_rate": replies / current_views if current_views > 0 else 0})

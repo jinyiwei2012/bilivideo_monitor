@@ -164,17 +164,7 @@ class GradientBoostSimpleAlgorithm(BaseAlgorithm):
             cv = float(np.std(residuals) / max(np.mean(np.abs(y_target)), 1e-10))
             confidence = max(0.1, min(0.85, 0.6 - cv * 0.5))
 
-        return PredictionResult(
-            algorithm_name=self.name,
-            algorithm_id=self.algorithm_id,
-            target_threshold=threshold,
-            predicted_hours=predicted_hours,
-            confidence=confidence,
-            current_views=current_views,
-            current_velocity=velocity,
-            metadata={"method": "gradient_boost_sklearn", "n_estimators": 100},
-            timestamp=datetime.now(),
-        )
+        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "gradient_boost_sklearn", "n_estimators": 100})
 
     def _numpy_predict(self, video_data: Dict[str, Any], threshold: int) -> PredictionResult:
         """
@@ -215,14 +205,4 @@ class GradientBoostSimpleAlgorithm(BaseAlgorithm):
             confidence = min(1.0, 0.5 + engagement * 2 + quality * 0.3)
 
         residuals_count = 3 if confidence > 0 else 0  # 模拟 3 轮残差修正
-        return PredictionResult(
-            algorithm_name=self.name,
-            algorithm_id=self.algorithm_id,
-            target_threshold=threshold,
-            predicted_hours=predicted_hours,
-            confidence=confidence,
-            current_views=current_views,
-            current_velocity=velocity,
-            metadata={"method": "gradient_boost_numpy", "residuals": residuals_count},
-            timestamp=datetime.now(),
-        )
+        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "gradient_boost_numpy", "residuals": residuals_count})

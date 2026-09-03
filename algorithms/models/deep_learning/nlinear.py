@@ -123,14 +123,7 @@ class NLinearAlgorithm(BaseAlgorithm):
         if len(history) < 5 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3 if velocity > 0 else 0.0,
-                current_views=current_views, current_velocity=velocity,
-                metadata={"method": "nlinear_fallback"},
-                timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, 0.3 if velocity > 0 else 0.0, current_views, threshold, velocity=velocity, metadata={"method": "nlinear_fallback"})
 
         # 提取播放量历史序列
         views = []
@@ -143,13 +136,7 @@ class NLinearAlgorithm(BaseAlgorithm):
         if len(views) < 5:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity
-            return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.4, current_views=current_views, current_velocity=velocity,
-                metadata={"method": "nlinear_fallback"},
-                timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, 0.4, current_views, threshold, velocity=velocity, metadata={"method": "nlinear_fallback"})
 
         # === 核心步骤1: 实例归一化 (Instance Normalization) ===
         # 减均值、除标准差，消除分布偏移
@@ -182,11 +169,4 @@ class NLinearAlgorithm(BaseAlgorithm):
             predicted_hours = remaining / predicted_velocity
             confidence = min(0.85, 0.4 + len(views) * 0.02)  # 数据点越多置信度越高
 
-        return PredictionResult(
-            algorithm_name=self.name, algorithm_id=self.algorithm_id,
-            target_threshold=threshold, predicted_hours=predicted_hours,
-            confidence=confidence, current_views=current_views,
-            current_velocity=velocity,
-            metadata={"method": "nlinear_numpy", "data_points": len(views)},
-            timestamp=datetime.now(),
-        )
+        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "nlinear_numpy", "data_points": len(views)})

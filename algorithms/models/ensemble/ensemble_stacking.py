@@ -128,14 +128,4 @@ class EnsembleStackingAlgorithm(BaseAlgorithm):
 
             confidence = 0.75  # 固定置信度（多层结构通常较稳定）
 
-        return PredictionResult(
-            algorithm_name=self.name,
-            algorithm_id=self.algorithm_id,
-            target_threshold=threshold,
-            predicted_hours=predicted_hours,
-            confidence=confidence,
-            current_views=current_views,
-            current_velocity=velocity,
-            metadata={"method": "ensemble_stacking", "learners": 4},
-            timestamp=datetime.now(),
-        )
+        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "ensemble_stacking", "learners": 4})

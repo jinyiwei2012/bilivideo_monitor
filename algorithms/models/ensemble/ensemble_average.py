@@ -97,14 +97,4 @@ class EnsembleAverageAlgorithm(BaseAlgorithm):
             variance = sum((p - predicted_hours) ** 2 for p in predictions) / len(predictions)
             confidence = max(0.3, 1 - variance / (predicted_hours**2 + 1))
 
-        return PredictionResult(
-            algorithm_name=self.name,
-            algorithm_id=self.algorithm_id,
-            target_threshold=threshold,
-            predicted_hours=predicted_hours,
-            confidence=confidence,
-            current_views=current_views,
-            current_velocity=velocity,
-            metadata={"method": "ensemble_average", "ensemble_size": 5},
-            timestamp=datetime.now(),
-        )
+        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "ensemble_average", "ensemble_size": 5})

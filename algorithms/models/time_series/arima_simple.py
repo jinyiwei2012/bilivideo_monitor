@@ -190,18 +190,11 @@ class ArimaSimpleAlgorithm(BaseAlgorithm):
                 predicted_hours = remaining / velocity if velocity > 0 else float("inf")
                 confidence = 0.4
 
-            return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=confidence, current_views=current_views,
-                current_velocity=self.calculate_velocity(video_data),
-                metadata={
+            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=self.calculate_velocity(video_data), metadata={
                     "method": "auto_arima",
                     "order": str(getattr(model, "order", "?")),  # 自动选择的(p,d,q)阶数
                     "aic": round(float(model.aic()) if callable(getattr(model, "aic", None)) else 0, 1),
-                },
-                timestamp=datetime.now(),
-            )
+                })
         except Exception:
             return None
 
@@ -270,17 +263,7 @@ class ArimaSimpleAlgorithm(BaseAlgorithm):
                 predicted_hours = remaining / velocity if velocity > 0 else float("inf")
                 confidence = 0.35
 
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=predicted_hours,
-                confidence=confidence,
-                current_views=current_views,
-                current_velocity=self.calculate_velocity(video_data),
-                metadata={"method": "arima_statsmodels", "order": "(2,1,1)"},
-                timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=self.calculate_velocity(video_data), metadata={"method": "arima_statsmodels", "order": "(2,1,1)"})
         except Exception:
             return None
 
@@ -349,14 +332,4 @@ class ArimaSimpleAlgorithm(BaseAlgorithm):
             # 置信度随数据量增加而提高
             confidence = min(1.0, 0.5 + len(history) * 0.05)
 
-        return PredictionResult(
-            algorithm_name=self.name,
-            algorithm_id=self.algorithm_id,
-            target_threshold=threshold,
-            predicted_hours=predicted_hours,
-            confidence=confidence,
-            current_views=current_views,
-            current_velocity=velocity,
-            metadata={"method": "arima_simple", "history_points": len(history)},
-            timestamp=datetime.now(),
-        )
+        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "arima_simple", "history_points": len(history)})

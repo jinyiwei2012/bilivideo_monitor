@@ -61,8 +61,11 @@ class ConformalPredictor:
         self.max_scores = max_scores
         self._lock = threading.Lock()
 
-        # 非一致分（nonconformity scores）：|y_true - y_pred| / max(y_true, y_pred, 1)
-        # 相对误差作为非一致分，避免绝对值随播放量增长而膨胀
+        # 非一致分（nonconformity scores）—— 使用 log 域绝对误差（C3）
+        # score = |log(y_true) - log(y_pred)| = log(max/min)，对播放量跨数量级的长尾分布
+        # 天然尺度不变：1万 的 10% 误差与 1亿 的 10% 误差贡献相同 log 距离。
+        # 旧实现 |y_true-y_pred|/max(...) 在 y_pred 接近 y_true 时≈相对误差，但在
+        # 相对误差偏大(>30%)时逐渐饱和失真；log 域全程一致，区间反解也更准确。
         self._scores: List[float] = []
 
     # ── 公开接口 ──────────────────────────────────
@@ -78,8 +81,10 @@ class ConformalPredictor:
         """
         if y_true <= 0 or y_pred <= 0:
             return
-        # 非一致分 = 相对预测误差 |pred - true| / max(pred, true, 1)
-        score = abs(y_true - y_pred) / max(y_true, y_pred, 1.0)
+        # 非一致分 = log 域绝对误差（C3）：log(max/min)，天然尺度不变
+        import math as _math
+
+        score = abs(_math.log(y_true) - _math.log(y_pred))
         with self._lock:
             self._scores.append(score)
             # 超过上限时裁剪后半段，保留最近的样本（适应分布漂移）
@@ -90,8 +95,8 @@ class ConformalPredictor:
         """为给定预测值计算保形预测区间。
 
         冷启动模式：区间宽度 = y_pred * fallback_factor
-        校准模式：取分位数 q = quantile(scores, 1-alpha)
-                  区间 = [y_pred * (1-q), y_pred * (1+q)]
+        校准模式：取 log 域分位数 q = quantile(scores, 1-alpha)，区间 = y * exp(±q)
+                  （C3：scores 已改为 log 距离，须用指数回解，而非线性 (1±q)）
 
         Args:
             y_pred: 集成预测的播放量
@@ -102,23 +107,26 @@ class ConformalPredictor:
         if y_pred <= 0:
             return {"lower": 0, "upper": 0, "coverage": 1 - self.alpha, "calibrated": False, "interval_width_ratio": 0.0}
 
+        import math as _math
+
         with self._lock:
             n = len(self._scores)
 
         # 冷启动 vs 校准模式判断
         if n < self.min_calibration or not _np_available:
-            half = self.fallback_factor
+            # fallback_factor 原为线性 ±ratio 语义 → 转 log 域（如 0.2 → ln1.2）
+            half = _math.log(1.0 + self.fallback_factor)
             calibrated = False
         else:
             with self._lock:
-                # 取 (1-alpha) 分位数：例如 alpha=0.1 → 取 90% 分位
+                # 取 (1-alpha) 分位数：例如 alpha=0.1 → 取 90% 分位（log 距离）
                 q = float(np.quantile(self._scores, 1 - self.alpha))
             half = q
             calibrated = True
 
-        # 构建区间 [y_pred*(1-half), y_pred*(1+half)]
-        lower = max(0, y_pred * (1 - half))
-        upper = y_pred * (1 + half)
+        # 构建区间 [y_pred/exp(half), y_pred*exp(half)]（log 域对称 → 乘法对称）
+        upper = y_pred * _math.exp(half)
+        lower = max(0, y_pred / _math.exp(half))
         interval_width = (upper - lower) / max(y_pred, 1)
 
         return {

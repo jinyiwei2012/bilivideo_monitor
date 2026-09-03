@@ -312,13 +312,43 @@ def _predict_single(gui, bvid, video) -> dict:
     current_view = video.get("view_count", 0)
     history = _merge_history(gui, bvid)
 
+    # B3: 冷启动权重预热 —— 每个视频首次预测时后台跑离线回测，用 MAPE 初始化权重
+    try:
+        if len(history) >= 15:
+            from algorithms.registry import AlgorithmRegistry
+            with gui._data_lock:
+                warmed_key = f"_warmup_{bvid}"
+                already = getattr(gui, warmed_key, False)
+            if not already:
+                import threading as _th
+                _th.Thread(
+                    target=lambda: AlgorithmRegistry.warmup_weights_from_backtest(bvid, history),
+                    daemon=True, name=f"warmup-{bvid}",
+                ).start()
+                with gui._data_lock:
+                    setattr(gui, warmed_key, True)
+    except Exception as e:
+        logger.debug("权重预热调度失败 %s: %s", bvid, e)
+
     # 运行所有算法进行预测
+    # 研究补进: 把实时信号(viewers在线/时段)注入 video_data, 此前已拉取但从不被算法消费
+    live_features = {}
+    try:
+        _v_total = video.get("viewers_total", 0) or 0
+        _v_web = video.get("viewers_web", 0) or 0
+        if _v_total > 0:
+            live_features["viewers_total"] = _v_total
+            live_features["viewers_web"] = _v_web
+            live_features["viewers_app"] = max(0, _v_total - _v_web)
+    except Exception:
+        pass
     results = AlgorithmRegistry.predict_all(
         history,
         current_view,
         bvid=bvid,
         thresholds=THRESHOLDS,
         threshold_names=THRESHOLD_NAMES,
+        live_features=live_features,
     )
 
     weighted = results.get("_weighted", {})
@@ -361,6 +391,14 @@ def _predict_single(gui, bvid, video) -> dict:
             "surge_magnitude": weighted.get("surge_magnitude"),
             "surge_type": weighted.get("surge_type", ""),
         },
+        # B3: 集成偏差校准信息（供预测面板标注）
+        "bias_info": {
+            "applied": weighted.get("bias_correction_applied", False),
+            "factor": weighted.get("bias_factor", 1.0),
+            "samples": weighted.get("bias_samples", 0),
+        },
+        # C2: log-ETA 集成结果（到 anchor 阈值的加权中位小时数, 供 ETA 行消费）
+        "eta_info": weighted.get("eta"),
         "coherence_list": [
             (name, r.get("coherence", 0)) for name, r in results.items()
             if name != "_weighted" and "error" not in r and r.get("coherence")
@@ -421,11 +459,15 @@ def _online_learning_feedback(gui, bvid, results, actual_view, prev_result):
     """在线学习反馈：使用速度偏差替代绝对值比较
 
     比较「上次预测的增长量」与「实际增长量」，避免静止期 100% 准确率的虚假提升。
+
+    B1: 同时把每个算法的真实预测误差喂给 WeightManager.accuracy_records
+    （此前 accuracy_records 唯一写入点是训练完成后的手动 boost，生产回路从未闭环）。
     """
     if prev_result is None or actual_view <= 0:
         return
     try:
         from algorithms.online_learner import get_online_learner
+        from algorithms.registry import AlgorithmRegistry
 
         prev_prediction = prev_result.get("prediction", 0)
         if prev_prediction > 0:
@@ -434,11 +476,20 @@ def _online_learning_feedback(gui, bvid, results, actual_view, prev_result):
             learner.update(bvid + "/_weighted", predicted=prev_prediction, actual=actual_view)
 
         learner = get_online_learner()
-        for name, pred_val, _, _ in prev_result.get("success_list", []):
+        # B1: 每轮真实误差 → per-算法准确率（仅当上轮有有效预测且播放量真实变化）
+        _fed_algos = set()
+        for name, pred_val, _, _, _ in prev_result.get("success_list", []):
             if pred_val > 0:
                 algo_key = bvid + "/" + name
                 learner.register(algo_key)
                 learner.update(algo_key, predicted=pred_val, actual=actual_view)
+            # WeightManager 用全局算法名（不带 bvid 前缀）
+            if name not in _fed_algos and pred_val > 0:
+                _fed_algos.add(name)
+                try:
+                    AlgorithmRegistry.update_accuracy(name, predicted=pred_val, actual=actual_view)
+                except Exception:
+                    pass
     except Exception as e:
         logger.debug("在线学习反馈失败: %s", e)
 

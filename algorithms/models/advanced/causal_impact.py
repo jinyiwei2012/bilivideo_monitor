@@ -150,21 +150,11 @@ class CausalImpactAlgorithm(BaseAlgorithm):
                 r2 = 1 - np.sum((y_post - y_pred) ** 2) / max(np.sum((y_post - np.mean(y_post)) ** 2), 1)
                 confidence = max(0.1, min(0.85, 0.5 + 0.3 * max(0, r2)))  # R²越高，置信度越高
 
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=predicted_hours,
-                confidence=confidence,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={
+            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
                     "method": "causal_impact",
                     "cum_impact": float(cum_impact[-1]) if len(cum_impact) > 0 else 0,  # 累积因果贡献
                     "r2": float(r2),  # 回归拟合优度
-                },
-                timestamp=datetime.now(),
-            )
+                })
         except Exception:
             # ── 异常回退处理 ──
             return self._fallback(velocity, current_views, threshold, method="causal_impact")

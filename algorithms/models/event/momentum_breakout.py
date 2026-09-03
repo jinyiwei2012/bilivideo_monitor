@@ -108,12 +108,7 @@ class MomentumBreakoutAlgorithm(BaseAlgorithm):
         if len(history) < 12 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views, current_velocity=velocity,
-                metadata={"method": "momentum_fallback"}, timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "momentum_fallback"})
 
         try:
             # 取最近 40 条历史记录的播放量
@@ -164,24 +159,13 @@ class MomentumBreakoutAlgorithm(BaseAlgorithm):
             # 置信度：基础 0.35 + 数据点加成（0-0.5），上限 0.85
             confidence = max(0.1, min(0.85, 0.35 + 0.02 * min(n, 25)))
 
-            return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=confidence, current_views=current_views, current_velocity=velocity,
-                metadata={
+            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
                     "method": "momentum_breakout",
                     "macd": round(float(macd_line), 4) if "macd_line" in dir() else 0,  # MACD 线值
                     "pos_ratio": round(float(pos_ratio), 3),  # 正差分比例
-                },
-                timestamp=datetime.now(),
-            )
+                })
         except Exception:
             # 任何异常回退到匀速预测
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views, current_velocity=velocity,
-                metadata={"method": "momentum_error"}, timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "momentum_error"})

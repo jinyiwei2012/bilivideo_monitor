@@ -104,6 +104,8 @@ class VideoPredictor:
             result["valid"],
             result["total"],
             result.get("surge_info"),
+            result.get("bias_info"),
+            result.get("eta_info"),
         )
 
 
@@ -271,6 +273,14 @@ def _fetch_one_video(gui, bvid, video):
             target=_fetch_danmaku_bg, args=(gui, bvid, cid), daemon=True, name=f"dm-{bvid}"
         ).start()
 
+    # 阈值突破检测 + 自动扩档（仅在播放量有效时执行；A1）
+    try:
+        from core.threshold_escalation import check_thresholds
+
+        check_thresholds(gui, bvid, video, video["view_count"])
+    except Exception as e:
+        logger.debug("阈值检查失败 %s: %s", bvid, e)
+
     # 主线程 UI 更新（通过 _invoker 跨线程安全调用）
     invoke(lambda v=video.copy(), b=bvid: _on_fetch_done(gui, b, v))
 
@@ -321,6 +331,13 @@ def _fetch_danmaku_bg(gui, bvid, cid):
         new_count = monitor.fetch_new_danmaku(bvid, cid, video_db)
         if new_count > 0:
             gui.log_panel.add_log("INFO", f"[{bvid}] 新增弹幕 {new_count} 条")
+            # A3: 有新增弹幕时更新情绪侧写（同一后台线程, 不阻塞拉取）
+            try:
+                from ui.danmaku_sentiment import analyze_recent
+
+                analyze_recent(gui, bvid)
+            except Exception as e:
+                logger.debug("弹幕情绪侧写失败 %s: %s", bvid, e)
     except Exception as e:
         gui.log_panel.add_log("DEBUG", f"[{bvid}] 弹幕拉取跳过: {e}")
 

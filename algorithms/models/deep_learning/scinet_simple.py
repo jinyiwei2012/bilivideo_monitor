@@ -161,16 +161,6 @@ class ScinetSimpleAlgorithm(BaseAlgorithm):
                 predicted_hours = remaining / predicted_velocity
                 confidence = max(0.1, min(0.8, 0.5))
 
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=predicted_hours,
-                confidence=confidence,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={"method": "scinet", "scales": 2},
-                timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "scinet", "scales": 2})
         except Exception:
             return self._fallback(velocity, current_views, threshold, method="scinet")

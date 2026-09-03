@@ -191,17 +191,7 @@ class NarxSimpleAlgorithm(BaseAlgorithm):
             cv = float(rmse / max(np.mean(np.abs(y)), 1))  # 变异系数
             confidence = max(0.1, min(0.85, 0.6 - cv))  # 变异系数越小置信度越高
 
-        return PredictionResult(
-            algorithm_name=self.name,
-            algorithm_id=self.algorithm_id,
-            target_threshold=threshold,
-            predicted_hours=predicted_hours,
-            confidence=confidence,
-            current_views=current_views,
-            current_velocity=velocity,
-            metadata={"method": "narx_sklearn", "lag": p, "rmse": float(rmse)},
-            timestamp=datetime.now(),
-        )
+        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "narx_sklearn", "lag": p, "rmse": float(rmse)})
 
     def _numpy_predict(self, video_data: Dict[str, Any], threshold: int) -> PredictionResult:
         """NumPy 简化版 NARX 预测（线性最小二乘回退）
@@ -283,16 +273,6 @@ class NarxSimpleAlgorithm(BaseAlgorithm):
                 cv = rmse / max(np.mean(y), 1)
                 confidence = max(0.1, min(0.85, 0.6 - cv))
 
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=predicted_hours,
-                confidence=confidence,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={"method": "narx", "lag": p, "rmse": float(rmse) if "rmse" in dir() else 0},
-                timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "narx", "lag": p, "rmse": float(rmse) if "rmse" in dir() else 0})
         except Exception:
             return self._fallback(velocity, current_views, threshold, method="narx_sklearn")

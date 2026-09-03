@@ -172,32 +172,12 @@ class CascadeEnsembleAlgorithm(BaseAlgorithm):
         remaining = threshold - current_views
         if remaining <= 0:
             # 已达标
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=0,
-                confidence=1.0,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={"method": "cascade"},
-                timestamp=datetime.now(),
-            )
+            return self._std_result(0, 1.0, current_views, threshold, velocity=velocity, metadata={"method": "cascade"})
 
         # 数据不足 → 回退到匀速
         if len(history) < 5 or velocity <= 0:
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=predicted_hours,
-                confidence=0.3,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={"method": "cascade", "notes": "insufficient_data"},
-                timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "cascade", "notes": "insufficient_data"})
 
         # 提取并排序时间序列
         timestamps = []
@@ -216,17 +196,7 @@ class CascadeEnsembleAlgorithm(BaseAlgorithm):
 
         if len(views_vals) < 5:
             predicted_hours = remaining / velocity
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=predicted_hours,
-                confidence=0.3,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={"method": "cascade_fallback"},
-                timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "cascade_fallback"})
 
         try:
             order = np.argsort(timestamps)
@@ -280,34 +250,14 @@ class CascadeEnsembleAlgorithm(BaseAlgorithm):
                 predicted_hours = remaining / velocity
                 conf = 0.35
 
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=predicted_hours,
-                confidence=conf,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={
+            return self._std_result(predicted_hours, conf, current_views, threshold, velocity=velocity, metadata={
                     "method": "cascade",
                     "level1_l1": round(float(l1_daily), 2),
                     "level2_exp_smooth": round(float(l2_daily), 2),
                     "level3_cascade": round(float(l3_daily), 2),
                     "consistency": round(float(consistency), 3),
                     "data_points": n,
-                },
-                timestamp=datetime.now(),
-            )
+                })
         except Exception as e:
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=predicted_hours,
-                confidence=0.0,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={"error": str(e)},
-                timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, 0.0, current_views, threshold, velocity=velocity, metadata={"error": str(e)})

@@ -144,16 +144,6 @@ class ChronosBaseAlgorithm(BaseAlgorithm):
                 residual_std = np.std(residuals) / max(np.mean(views), 1)
                 confidence = max(0.1, min(0.85, 0.5 - residual_std * 5))
 
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=predicted_hours,
-                confidence=confidence,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={"method": "chronos", "trend_slope": float(coeffs[0])},
-                timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "chronos", "trend_slope": float(coeffs[0])})
         except Exception:
             return self._fallback(velocity, current_views, threshold, method="chronos")

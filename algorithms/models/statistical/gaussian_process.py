@@ -77,12 +77,7 @@ class GaussianProcessAlgorithm(BaseAlgorithm):
         if len(history) < 8:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views, current_velocity=velocity,
-                metadata={"method": "gp_fallback"}, timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "gp_fallback"})
 
         # sklearn 版本：数据充足时使用成熟的 GP 实现
         if _HAS_SKLEARN and len(history) >= 15:
@@ -147,13 +142,7 @@ class GaussianProcessAlgorithm(BaseAlgorithm):
             # 置信度随不确定性增大而降低
             confidence = max(0.1, min(0.9, 0.7 / (1 + uncertainty * 3)))
 
-        return PredictionResult(
-            algorithm_name=self.name, algorithm_id=self.algorithm_id,
-            target_threshold=threshold, predicted_hours=predicted_hours,
-            confidence=confidence, current_views=current_views, current_velocity=velocity,
-            metadata={"method": "gp_sklearn", "uncertainty": round(uncertainty, 4)},
-            timestamp=datetime.now(),
-        )
+        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "gp_sklearn", "uncertainty": round(uncertainty, 4)})
 
     def _numpy_predict(self, video_data, threshold):
         """
@@ -209,9 +198,4 @@ class GaussianProcessAlgorithm(BaseAlgorithm):
         # 置信度随数据量增长，上限 0.85
         confidence = min(0.85, 0.35 + 0.02 * min(n, 20))
 
-        return PredictionResult(
-            algorithm_name=self.name, algorithm_id=self.algorithm_id,
-            target_threshold=threshold, predicted_hours=predicted_hours,
-            confidence=confidence, current_views=current_views, current_velocity=velocity,
-            metadata={"method": "gp_numpy", "data_points": n}, timestamp=datetime.now(),
-        )
+        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "gp_numpy", "data_points": n})

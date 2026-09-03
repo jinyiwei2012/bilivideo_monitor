@@ -123,14 +123,4 @@ class LogarithmicGrowthAlgorithm(BaseAlgorithm):
 
         velocity = self.calculate_velocity(video_data)
 
-        return PredictionResult(
-            algorithm_name=self.name,
-            algorithm_id=self.algorithm_id,
-            target_threshold=threshold,
-            predicted_hours=predicted_hours,
-            confidence=confidence,
-            current_views=current_views,
-            current_velocity=velocity,
-            metadata={"method": "logarithmic_growth"},
-            timestamp=datetime.now(),
-        )
+        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "logarithmic_growth"})

@@ -256,7 +256,7 @@ class ExtraTreesSimpleAlgorithm(BaseAlgorithm):
 
         remaining = threshold - current_views
         if remaining <= 0:
-            return self._make_result(0, 1.0, current_views, velocity, {"method": "extra_trees"}, threshold)
+            return self._std_result(0, 1.0, current_views, threshold, velocity=velocity, metadata={"method": "extra_trees"})
 
         # 优先使用 sklearn ExtraTreesRegressor 做极限随机树预测
         if _HAS_SKLEARN and len(history) >= 10:
@@ -270,23 +270,17 @@ class ExtraTreesSimpleAlgorithm(BaseAlgorithm):
         # ── numpy 回退 ───────────────────────────
         if len(history) < 6 or velocity <= 0:
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._make_result(
-                predicted_hours, 0.3, current_views, velocity,
-                {"method": "extra_trees", "notes": "insufficient_data"}, threshold,
-            )
+            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "extra_trees", "notes": "insufficient_data"})
 
         views_sorted = self._extract_views(history)
         if views_sorted is None or len(views_sorted) < 6:
-            return self._make_result(
-                remaining / velocity, 0.3, current_views, velocity,
-                {"method": "extra_trees_fallback"}, threshold,
-            )
+            return self._std_result(remaining / velocity, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "extra_trees_fallback"})
 
         try:
             return self._predict_impl(views_sorted, current_views, velocity, remaining, threshold, video_data)
         except Exception as e:
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._make_result(predicted_hours, 0.0, current_views, velocity, {"error": str(e)}, threshold)
+            return self._std_result(predicted_hours, 0.0, current_views, threshold, velocity=velocity, metadata={"error": str(e)})
 
     def _sklearn_predict(self, video_data: Dict[str, Any], threshold: int) -> PredictionResult:
         """
@@ -424,14 +418,7 @@ class ExtraTreesSimpleAlgorithm(BaseAlgorithm):
         X_train, y_train = self._prepare_features(views_sorted, {"quality": quality, "engagement": engagement})
 
         if len(X_train) < 5:
-            return self._make_result(
-                remaining / velocity,
-                0.3,
-                current_views,
-                velocity,
-                {"method": "extra_trees_insufficient"},
-                threshold,
-            )
+            return self._std_result(remaining / velocity, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "extra_trees_insufficient"})
 
         # 训练 20 棵极端随机树
         self.trees = []
@@ -485,46 +472,13 @@ class ExtraTreesSimpleAlgorithm(BaseAlgorithm):
             predicted_hours = remaining / velocity
             conf = 0.35
 
-        return self._make_result(
-            predicted_hours,
-            conf,
-            current_views,
-            velocity,
-            {
+        return self._std_result(predicted_hours, conf, current_views, threshold, velocity=velocity, metadata={
                 "method": "extra_trees",
                 "n_trees": self.n_trees,
                 "predicted_daily_growth": round(float(predicted_daily_growth), 2),
                 "tree_std": round(float(pred_std), 2),
                 "tree_consistency": round(float(consistency), 3),
                 "data_points": n,
-            },
-            threshold,
-        )
+            })
 
-    def _make_result(self, predicted_hours, confidence, current_views, velocity, metadata, threshold):
-        """
-        构造统一的 PredictionResult 对象。
 
-        Args:
-            predicted_hours (float): 预测到达阈值所需小时数
-            confidence (float): 置信度 [0, 1]
-            current_views (int): 当前播放量
-            velocity (float): 当前速度
-            metadata (Dict): 预测元数据
-            threshold (int): 目标阈值
-
-        Returns:
-            PredictionResult: 标准预测结果对象
-        """
-        metadata.setdefault("method", "extra_trees")
-        return PredictionResult(
-            algorithm_name=self.name,
-            algorithm_id=self.algorithm_id,
-            target_threshold=threshold,
-            predicted_hours=predicted_hours,
-            confidence=confidence,
-            current_views=current_views,
-            current_velocity=velocity,
-            metadata=metadata,
-            timestamp=datetime.now(),
-        )

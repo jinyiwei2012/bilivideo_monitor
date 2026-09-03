@@ -94,12 +94,7 @@ class ProbabilityCalibrationAlgorithm(BaseAlgorithm):
         if len(history) < 15 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views, current_velocity=velocity,
-                metadata={"method": "calibration_fallback"}, timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "calibration_fallback"})
 
         views = np.array([h.get("view_count", 0) for h in history], dtype=np.float64)
         n = len(views)
@@ -150,14 +145,8 @@ class ProbabilityCalibrationAlgorithm(BaseAlgorithm):
         predicted_hours = remaining / predicted_velocity if remaining > 0 else float("inf")
         confidence = max(0.1, min(0.95, calibrated_conf))  # 钳制到 [0.1, 0.95]
 
-        return PredictionResult(
-            algorithm_name=self.name, algorithm_id=self.algorithm_id,
-            target_threshold=threshold, predicted_hours=predicted_hours,
-            confidence=confidence, current_views=current_views, current_velocity=velocity,
-            metadata={
+        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
                 "method": "prob_calibration",
                 "raw_conf": round(float(np.mean(cv_errors) if cv_errors else 0), 3),  # 原始平均误差
                 "calibrated": round(float(confidence), 3),  # 校准后的置信度
-            },
-            timestamp=datetime.now(),
-        )
+            })

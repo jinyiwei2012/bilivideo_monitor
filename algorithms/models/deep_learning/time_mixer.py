@@ -123,13 +123,7 @@ class TimeMixerAlgorithm(BaseAlgorithm):
         if len(history) < 8 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views, current_velocity=velocity,
-                metadata={"method": "time_mixer_fallback"},
-                timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "time_mixer_fallback"})
 
         import numpy as np
         views = np.array([h.get("view_count", 0) for h in history[-20:]], dtype=np.float64)
@@ -167,11 +161,4 @@ class TimeMixerAlgorithm(BaseAlgorithm):
             # 置信度：有效尺度越多、数据点越多，置信度越高
             confidence = min(0.85, 0.35 + 0.12 * n_scales + 0.02 * min(len(views), 25))
 
-        return PredictionResult(
-            algorithm_name=self.name, algorithm_id=self.algorithm_id,
-            target_threshold=threshold, predicted_hours=predicted_hours,
-            confidence=confidence, current_views=current_views,
-            current_velocity=velocity,
-            metadata={"method": "time_mixer_numpy", "scales": n_scales, "data_points": len(views)},
-            timestamp=datetime.now(),
-        )
+        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "time_mixer_numpy", "scales": n_scales, "data_points": len(views)})

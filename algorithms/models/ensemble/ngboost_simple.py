@@ -153,17 +153,7 @@ class NgboostAlgorithm(BaseAlgorithm):
                 cv = sigma / max(abs(mu), 1e-10)
                 confidence = max(0.05, min(0.8, 0.6 - cv * 3))
 
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=predicted_hours,
-                confidence=confidence,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={"method": "ngboost", "mu": float(mu), "sigma": float(sigma)},
-                timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "ngboost", "mu": float(mu), "sigma": float(sigma)})
         except Exception:
             # 训练或预测异常 → 回退
             return self._fallback(velocity, current_views, threshold, method="ngboost")

@@ -155,29 +155,23 @@ class HawkesProcessAlgorithm(BaseAlgorithm):
         remaining = threshold - current_views
         if remaining <= 0:
             # 已达标，直接返回
-            return self._make_result(0, 1.0, current_views, velocity, {"method": "hawkes"}, threshold)
+            return self._std_result(0, 1.0, current_views, threshold, velocity=velocity, metadata={"method": "hawkes"})
 
         if len(history) < 4 or velocity <= 0:
             # 数据不足或速度非正，使用简单速度外推
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._make_result(
-                predicted_hours, 0.3, current_views, velocity,
-                {"method": "hawkes", "notes": "insufficient_data"}, threshold,
-            )
+            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "hawkes", "notes": "insufficient_data"})
 
         views_data = self._extract_views(history)
         if views_data is None:
-            return self._make_result(
-                remaining / velocity, 0.3, current_views, velocity,
-                {"method": "hawkes_fallback"}, threshold,
-            )
+            return self._std_result(remaining / velocity, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "hawkes_fallback"})
 
         views_arr, times = views_data
         try:
             return self._predict_impl(views_arr, times, current_views, velocity, remaining, threshold, video_data)
         except Exception as e:
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._make_result(predicted_hours, 0.0, current_views, velocity, {"error": str(e)}, threshold)
+            return self._std_result(predicted_hours, 0.0, current_views, threshold, velocity=velocity, metadata={"error": str(e)})
 
     def _extract_views(self, history):
         """
@@ -326,9 +320,7 @@ class HawkesProcessAlgorithm(BaseAlgorithm):
             predicted_hours = remaining / velocity  # 超出预测范围，回退为速度外推
             conf = 0.3
 
-        return self._make_result(
-            predicted_hours, conf, current_views, adjusted_velocity,
-            {
+        return self._std_result(predicted_hours, conf, current_views, threshold, velocity=adjusted_velocity, metadata={
                 "method": "hawkes",
                 "branching_ratio": round(float(branching_ratio), 3),  # 分支比（关键指标）
                 "is_viral": is_viral,  # 是否处于病毒传播状态
@@ -336,34 +328,6 @@ class HawkesProcessAlgorithm(BaseAlgorithm):
                 "n_events": len(events),  # 事件数量
                 "hawkes_velocity": round(float(hawkes_velocity), 2),  # Hawkes 预测速度
                 "data_points": n,  # 数据点数量
-            },
-            threshold,
-        )
+            })
 
-    def _make_result(self, predicted_hours, confidence, current_views, velocity, metadata, threshold):
-        """
-        构造 PredictionResult 对象
 
-        Args:
-            predicted_hours (float): 预测到达目标所需小时数
-            confidence (float)     : 置信度
-            current_views (int)    : 当前播放量
-            velocity (float)       : 当前速度
-            metadata (dict)        : 元数据
-            threshold (int)        : 目标阈值
-
-        Returns:
-            PredictionResult: 预测结果对象
-        """
-        metadata.setdefault("method", "hawkes")
-        return PredictionResult(
-            algorithm_name=self.name,
-            algorithm_id=self.algorithm_id,
-            target_threshold=threshold,
-            predicted_hours=predicted_hours,
-            confidence=confidence,
-            current_views=current_views,
-            current_velocity=velocity,
-            metadata=metadata,
-            timestamp=datetime.now(),
-        )

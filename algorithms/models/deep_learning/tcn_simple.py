@@ -167,44 +167,23 @@ class TCNSimpleAlgorithm(BaseAlgorithm):
 
         remaining = threshold - current_views
         if remaining <= 0:
-            return self._make_result(0, 1.0, current_views, velocity, {"method": "tcn"}, threshold)
+            return self._std_result(0, 1.0, current_views, threshold, velocity=velocity, metadata={"method": "tcn"})
 
         # 数据不足时回退
         if len(history) < 4 or velocity <= 0:
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._make_result(
-                predicted_hours,
-                0.3,
-                current_views,
-                velocity,
-                {"method": "tcn", "notes": "insufficient_data"},
-                threshold,
-            )
+            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "tcn", "notes": "insufficient_data"})
 
         # 提取并排序播放量序列
         views_sorted = self._extract_views(history)
         if views_sorted is None or len(views_sorted) < 4:
-            return self._make_result(
-                remaining / velocity,
-                0.3,
-                current_views,
-                velocity,
-                {"method": "tcn_fallback"},
-                threshold,
-            )
+            return self._std_result(remaining / velocity, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "tcn_fallback"})
 
         try:
             return self._predict_impl(views_sorted, current_views, velocity, remaining, threshold)
         except Exception as e:
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._make_result(
-                predicted_hours,
-                0.0,
-                current_views,
-                velocity,
-                {"error": str(e)},
-                threshold,
-            )
+            return self._std_result(predicted_hours, 0.0, current_views, threshold, velocity=velocity, metadata={"error": str(e)})
 
     def _extract_views(self, history):
         """从历史记录中提取并排序播放量序列
@@ -261,14 +240,7 @@ class TCNSimpleAlgorithm(BaseAlgorithm):
         log_views = np.log(np.maximum(views_sorted, 1))       # log变换（避免log(0)）
         log_diff = np.diff(log_views)                          # 一阶差分（增长率）
         if len(log_diff) == 0:
-            return self._make_result(
-                remaining / velocity,
-                0.3,
-                current_views,
-                velocity,
-                {"method": "tcn_no_diff"},
-                threshold,
-            )
+            return self._std_result(remaining / velocity, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "tcn_no_diff"})
 
         # z-score标准化
         mean_val = np.mean(log_diff)
@@ -323,45 +295,13 @@ class TCNSimpleAlgorithm(BaseAlgorithm):
             predicted_hours = remaining / velocity
             conf = 0.35
 
-        return self._make_result(
-            predicted_hours,
-            conf,
-            current_views,
-            velocity,
-            {
+        return self._std_result(predicted_hours, conf, current_views, threshold, velocity=velocity, metadata={
                 "method": "tcn",
                 "dilations_used": len(effective_dilations),
                 "forecast_horizon": forecast_days,
                 "trend": round(float(trend), 4),
                 "volatility": round(float(recent_volatility), 4),
                 "data_points": n,
-            },
-            threshold,
-        )
+            })
 
-    def _make_result(self, predicted_hours, confidence, current_views, velocity, metadata, threshold):
-        """构造 PredictionResult
 
-        Args:
-            predicted_hours: 预测小时数
-            confidence: 置信度 [0, 1]
-            current_views: 当前播放量
-            velocity: 当前速度
-            metadata: 元数据字典
-            threshold: 目标阈值
-
-        Returns:
-            PredictionResult: 标准化预测结果
-        """
-        metadata.setdefault("method", "tcn")
-        return PredictionResult(
-            algorithm_name=self.name,
-            algorithm_id=self.algorithm_id,
-            target_threshold=threshold,
-            predicted_hours=predicted_hours,
-            confidence=confidence,
-            current_views=current_views,
-            current_velocity=velocity,
-            metadata=metadata,
-            timestamp=datetime.now(),
-        )

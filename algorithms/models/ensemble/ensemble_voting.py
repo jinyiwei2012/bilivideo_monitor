@@ -105,14 +105,4 @@ class EnsembleVotingAlgorithm(BaseAlgorithm):
             iqr = q3 - q1  # 四分位距
             confidence = max(0.3, 1 - iqr / (predicted_hours + 1))
 
-        return PredictionResult(
-            algorithm_name=self.name,
-            algorithm_id=self.algorithm_id,
-            target_threshold=threshold,
-            predicted_hours=predicted_hours,
-            confidence=confidence,
-            current_views=current_views,
-            current_velocity=velocity,
-            metadata={"method": "ensemble_voting", "predictions_count": 7},
-            timestamp=datetime.now(),
-        )
+        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "ensemble_voting", "predictions_count": 7})

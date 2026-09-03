@@ -131,17 +131,7 @@ class DtwKnnAlgorithm(BaseAlgorithm):
                 # 置信度随 k 增大而提高（更多邻居 = 更稳健）
                 confidence = min(0.9, 0.5 + 0.1 * k)
 
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=predicted_hours,
-                confidence=confidence,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={"method": "dtw_knn", "k": k, "min_dist": float(distances[0][0])},
-                timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "dtw_knn", "k": k, "min_dist": float(distances[0][0])})
         except Exception:
             return self._fallback(velocity, current_views, threshold, method="dtw_knn")
 

@@ -152,17 +152,7 @@ class TbatsSimpleAlgorithm(BaseAlgorithm):
                 predicted_hours = remaining / velocity if velocity > 0 else float("inf")
                 confidence = 0.35
 
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=predicted_hours,
-                confidence=confidence,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={"method": "tbats_lib", "periods": [7, 14]},
-                timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "tbats_lib", "periods": [7, 14]})
         except Exception:
             return None
 
@@ -270,16 +260,6 @@ class TbatsSimpleAlgorithm(BaseAlgorithm):
                 cv = np.sqrt(forecast_var) / max(np.mean(future_views), 1)
                 confidence = max(0.1, min(0.85, 0.6 - cv * 5))
 
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=predicted_hours,
-                confidence=confidence,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={"method": "tbats", "periods": list(periods)},
-                timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "tbats", "periods": list(periods)})
         except Exception:
             return self._fallback(velocity, current_views, threshold, method="tbats_lib")

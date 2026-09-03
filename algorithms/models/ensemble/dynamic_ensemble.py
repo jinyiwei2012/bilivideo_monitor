@@ -80,12 +80,7 @@ class DynamicEnsembleAlgorithm(BaseAlgorithm):
         if len(history) < 5 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views, current_velocity=velocity,
-                metadata={"method": "dynamic_fallback"}, timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "dynamic_fallback"})
 
         views = np.array([h.get("view_count", 0) for h in history], dtype=np.float64)
         n = len(views)
@@ -162,17 +157,11 @@ class DynamicEnsembleAlgorithm(BaseAlgorithm):
         # 互动率越高 → 置信度越高（上限 0.2）
         confidence = max(0.1, min(0.9, 0.3 + 0.1 * min(n / 20, 3) + 0.2 * quality + 0.2 * engagement))
 
-        return PredictionResult(
-            algorithm_name=self.name, algorithm_id=self.algorithm_id,
-            target_threshold=threshold, predicted_hours=predicted_hours,
-            confidence=confidence, current_views=current_views, current_velocity=velocity,
-            metadata={
+        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
                 "method": "dynamic_ensemble",
                 "stage": stage_desc,       # 当前阶段描述（早期冷启动/成长中/成熟期）
                 "weights": {               # 实际使用的子模型权重
                     "short": round(w_short, 2), "mid": round(w_mid, 2),
                     "long": round(w_long, 2), "quality": round(w_quality, 2),
                 },
-            },
-            timestamp=datetime.now(),
-        )
+            })

@@ -102,12 +102,7 @@ class SpectralResidualAlgorithm(BaseAlgorithm):
         if len(history) < 10 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views, current_velocity=velocity,
-                metadata={"method": "spectral_fallback"}, timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "spectral_fallback"})
 
         try:
             # 取最近 32 条历史记录（2 的幂次更有利于 FFT 计算效率）
@@ -172,20 +167,9 @@ class SpectralResidualAlgorithm(BaseAlgorithm):
             # 置信度：突发越少越可信，基础 0.5 × (1-突发比例) + 数据点加成
             confidence = max(0.1, min(0.85, 0.5 * (1 - burst_ratio) + 0.02 * min(n, 25)))
 
-            return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=confidence, current_views=current_views, current_velocity=velocity,
-                metadata={"method": "spectral_residual", "burst_ratio": round(burst_ratio, 3), "data_points": n},
-                timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "spectral_residual", "burst_ratio": round(burst_ratio, 3), "data_points": n})
         except Exception:
             # 任何异常回退到匀速预测
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views, current_velocity=velocity,
-                metadata={"method": "spectral_error"}, timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "spectral_error"})

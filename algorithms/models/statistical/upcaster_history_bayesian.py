@@ -117,17 +117,7 @@ class UpcasterHistoryBayesianAlgorithm(BaseAlgorithm):
             "method": "bayesian_update",
         }
 
-        return PredictionResult(
-            algorithm_name=self.name,
-            algorithm_id=self.algorithm_id,
-            target_threshold=threshold,
-            predicted_hours=predicted_hours,
-            confidence=confidence,
-            current_views=current_views,
-            current_velocity=posterior_velocity,  # 使用后验速度
-            metadata=metadata,
-            timestamp=datetime.now(),
-        )
+        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=posterior_velocity, metadata=metadata)
 
     def _bayesian_update(
         self,
@@ -318,14 +308,4 @@ class UpcasterHistoryBayesianAlgorithm(BaseAlgorithm):
 
         metadata = {"method": "fallback_no_history", "prior_velocity": None, "posterior_velocity": velocity}
 
-        return PredictionResult(
-            algorithm_name=self.name,
-            algorithm_id=self.algorithm_id,
-            target_threshold=threshold,
-            predicted_hours=predicted_hours,
-            confidence=confidence,
-            current_views=current_views,
-            current_velocity=velocity,
-            metadata=metadata,
-            timestamp=datetime.now(),
-        )
+        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata=metadata)

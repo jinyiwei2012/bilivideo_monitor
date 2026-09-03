@@ -201,16 +201,9 @@ class MultiTaskSimpleAlgorithm(BaseAlgorithm):
                 # 置信度基于训练样本量
                 confidence = min(0.85, 0.4 + 0.3 * min(1.0, float(len(X_list)) / 30) + 0.15)
 
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=predicted_hours,
-                confidence=confidence,
-                current_views=current_views,
-                current_velocity=velocity,
+            return self._std_result(
+                predicted_hours, confidence, current_views, threshold, velocity=velocity,
                 metadata={"method": "multi_task_torch", "n_tasks": n_tasks},
-                timestamp=datetime.now(),
             )
         except Exception:
             return None  # PyTorch 预测异常，回退到 numpy
@@ -589,16 +582,9 @@ class MultiTaskSimpleAlgorithm(BaseAlgorithm):
             "method": "multi_task_learning",  # 方法标识
         }
 
-        return PredictionResult(
-            algorithm_name=self.name,
-            algorithm_id=self.algorithm_id,
-            target_threshold=threshold,
-            predicted_hours=predicted_hours,
-            confidence=confidence,
-            current_views=current_views,
-            current_velocity=velocity,
-            metadata=metadata,
-            timestamp=datetime.now(),
+        return self._std_result(
+            predicted_hours, confidence, current_views, threshold,
+            velocity=velocity, metadata=metadata,
         )
 
 

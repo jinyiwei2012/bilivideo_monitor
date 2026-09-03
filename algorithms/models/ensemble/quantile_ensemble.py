@@ -112,13 +112,7 @@ class QuantileEnsembleAlgorithm(BaseAlgorithm):
         if len(history) < 10:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views, current_velocity=velocity,
-                metadata={"method": "quantile_fallback"},
-                timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "quantile_fallback"})
 
         if _HAS_SKLEARN:
             try:
@@ -206,19 +200,12 @@ class QuantileEnsembleAlgorithm(BaseAlgorithm):
             interval_width = max(upper_growth - lower_growth, 1e-10)
             confidence = max(0.1, min(0.9, 0.5 / (1 + interval_width * 5)))
 
-        return PredictionResult(
-            algorithm_name=self.name, algorithm_id=self.algorithm_id,
-            target_threshold=threshold, predicted_hours=predicted_hours,
-            confidence=confidence, current_views=current_views,
-            current_velocity=velocity,
-            metadata={
+        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
                 "method": "quantile_sklearn",
                 "q10": round(float(quantile_preds.get(0.1, 0)), 4),  # 10% 下界
                 "q50": round(float(median_growth), 4),                # 中位数
                 "q90": round(float(quantile_preds.get(0.9, 0)), 4),  # 90% 上界
-            },
-            timestamp=datetime.now(),
-        )
+            })
 
     def _numpy_predict(self, video_data, threshold):
         """
@@ -247,13 +234,7 @@ class QuantileEnsembleAlgorithm(BaseAlgorithm):
         if n < 5:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views, current_velocity=velocity,
-                metadata={"method": "quantile_fallback"},
-                timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "quantile_fallback"})
 
         # 用 bootstrap 模拟分位数预测
         diffs = np.diff(views)  # 增量序列
@@ -285,16 +266,9 @@ class QuantileEnsembleAlgorithm(BaseAlgorithm):
             interval_width = max(q75 - q25, 1e-10)
             confidence = max(0.1, min(0.85, 0.5 / (1 + interval_width * 3)))
 
-        return PredictionResult(
-            algorithm_name=self.name, algorithm_id=self.algorithm_id,
-            target_threshold=threshold, predicted_hours=predicted_hours,
-            confidence=confidence, current_views=current_views,
-            current_velocity=velocity,
-            metadata={
+        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
                 "method": "quantile_numpy",
                 "q10": round(float(q10), 2),
                 "q50": round(float(q50), 2),
                 "q90": round(float(q90), 2),
-            },
-            timestamp=datetime.now(),
-        )
+            })

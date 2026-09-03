@@ -166,19 +166,12 @@ class SARIMASimpleAlgorithm(BaseAlgorithm):
                 remaining = threshold - current_views
                 predicted_hours = remaining / velocity if velocity > 0 else float("inf")
                 confidence = 0.4
-            return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=confidence, current_views=current_views,
-                current_velocity=velocity,
-                metadata={
+            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
                     "method": "auto_sarima",
                     "order": str(getattr(model, "order", "?")),
                     "seasonal_order": str(getattr(model, "seasonal_order", "?")),
                     "aic": round(aic, 1) if "aic" in dir() else 0,
-                },
-                timestamp=datetime.now(),
-            )
+                })
         except Exception:
             return None
 
@@ -226,21 +219,11 @@ class SARIMASimpleAlgorithm(BaseAlgorithm):
                 predicted_hours = remaining / velocity if velocity > 0 else float("inf")
                 confidence = 0.35
 
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=predicted_hours,
-                confidence=confidence,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={
+            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
                     "method": "sarima_statsmodels",
                     "order": f"({self.p},{self.d},{self.q})x({self.P},{self.D},{self.Q},{self.m})",
                     "aic": round(float(aic), 1) if "aic" in dir() else 0,
-                },
-                timestamp=datetime.now(),
-            )
+                })
         except Exception:
             return None
 
@@ -330,15 +313,7 @@ class SARIMASimpleAlgorithm(BaseAlgorithm):
                 predicted_hours = remaining / velocity
                 conf = 0.35
 
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=predicted_hours,
-                confidence=conf,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={
+            return self._std_result(predicted_hours, conf, current_views, threshold, velocity=velocity, metadata={
                     "method": "sarima",
                     "ar_order": p,
                     "diff_order": self.d,
@@ -347,9 +322,7 @@ class SARIMASimpleAlgorithm(BaseAlgorithm):
                     "seasonal_strength": round(seasonal_strength, 3) if self.m > 0 else 0,
                     "forecast_horizon": forecast_days,
                     "data_points": n,
-                },
-                timestamp=datetime.now(),
-            )
+                })
         except Exception as e:
             hours = remaining / velocity if velocity > 0 else float("inf")
             return self._build_result(threshold, hours, 0.0, velocity, current_views, error=str(e))

@@ -176,17 +176,7 @@ class RandomForestSimpleAlgorithm(BaseAlgorithm):
             cv = float(np.std(residuals) / max(np.mean(np.abs(y_target)), 1e-10))  # CV = std/mean
             confidence = max(0.1, min(0.85, 0.6 - cv * 0.5))
 
-        return PredictionResult(
-            algorithm_name=self.name,
-            algorithm_id=self.algorithm_id,
-            target_threshold=threshold,
-            predicted_hours=predicted_hours,
-            confidence=confidence,
-            current_views=current_views,
-            current_velocity=velocity,
-            metadata={"method": "random_forest_sklearn", "n_estimators": 100},
-            timestamp=datetime.now(),
-        )
+        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "random_forest_sklearn", "n_estimators": 100})
 
     def _numpy_predict(self, video_data: Dict[str, Any], threshold: int) -> PredictionResult:
         """
@@ -236,14 +226,4 @@ class RandomForestSimpleAlgorithm(BaseAlgorithm):
             # 置信度随互动率和质量分提高
             confidence = min(1.0, 0.5 + features["engagement_rate"] * 3 + features["quality_score"] * 0.3)
 
-        return PredictionResult(
-            algorithm_name=self.name,
-            algorithm_id=self.algorithm_id,
-            target_threshold=threshold,
-            predicted_hours=predicted_hours,
-            confidence=confidence,
-            current_views=current_views,
-            current_velocity=velocity,
-            metadata={"method": "random_forest_numpy", "features": features},
-            timestamp=datetime.now(),
-        )
+        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "random_forest_numpy", "features": features})

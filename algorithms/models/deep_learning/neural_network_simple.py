@@ -123,17 +123,7 @@ class NeuralNetworkSimpleAlgorithm(BaseAlgorithm):
             # 置信度：隐藏层输出越高，置信度越高
             confidence = min(1.0, 0.5 + hidden_output)
 
-        return PredictionResult(
-            algorithm_name=self.name,
-            algorithm_id=self.algorithm_id,
-            target_threshold=threshold,
-            predicted_hours=predicted_hours,
-            confidence=confidence,
-            current_views=current_views,
-            current_velocity=velocity,
-            metadata={
+        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
                 "method": "neural_network_simple",
                 "hidden_activation": hidden_output if "hidden_output" in dir() else 0,
-            },
-            timestamp=datetime.now(),
-        )
+            })

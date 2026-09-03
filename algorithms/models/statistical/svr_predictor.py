@@ -77,17 +77,7 @@ class SVRPredictorAlgorithm(BaseAlgorithm):
 
         # 数据不足，返回无效预测
         if not history_data or len(history_data) < 10:
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=-1,
-                confidence=0.0,
-                current_views=current_views,
-                current_velocity=self.calculate_velocity(video_data),
-                metadata={},
-                timestamp=datetime.now(),
-            )
+            return self._std_result(-1, 0.0, current_views, threshold, velocity=self.calculate_velocity(video_data), metadata={})
 
         try:
             # 构建特征和标签
@@ -95,34 +85,14 @@ class SVRPredictorAlgorithm(BaseAlgorithm):
 
             # 有效样本数不足
             if len(X) < 5:
-                return PredictionResult(
-                    algorithm_name=self.name,
-                    algorithm_id=self.algorithm_id,
-                    target_threshold=threshold,
-                    predicted_hours=-1,
-                    confidence=0.0,
-                    current_views=current_views,
-                    current_velocity=self.calculate_velocity(video_data),
-                    metadata={},
-                    timestamp=datetime.now(),
-                )
+                return self._std_result(-1, 0.0, current_views, threshold, velocity=self.calculate_velocity(video_data), metadata={})
 
             # 训练 SVR 模型
             weights, bias = self._train_svr(X, y)
 
             # 已达目标
             if current_views >= target_views:
-                return PredictionResult(
-                    algorithm_name=self.name,
-                    algorithm_id=self.algorithm_id,
-                    target_threshold=threshold,
-                    predicted_hours=0,
-                    confidence=1.0,
-                    current_views=current_views,
-                    current_velocity=self.calculate_velocity(video_data),
-                    metadata={},
-                    timestamp=datetime.now(),
-                )
+                return self._std_result(0, 1.0, current_views, threshold, velocity=self.calculate_velocity(video_data), metadata={})
 
             # 用最新特征预测当前增量
             last_features = X[-1]
@@ -138,46 +108,16 @@ class SVRPredictorAlgorithm(BaseAlgorithm):
 
             # 预测不合理
             if days_needed < 0 or days_needed > 3650:
-                return PredictionResult(
-                    algorithm_name=self.name,
-                    algorithm_id=self.algorithm_id,
-                    target_threshold=threshold,
-                    predicted_hours=-1,
-                    confidence=0.0,
-                    current_views=current_views,
-                    current_velocity=self.calculate_velocity(video_data),
-                    metadata={},
-                    timestamp=datetime.now(),
-                )
+                return self._std_result(-1, 0.0, current_views, threshold, velocity=self.calculate_velocity(video_data), metadata={})
 
             predicted_hours = days_needed * 24  # 转换为小时
             confidence = self._calculate_confidence(X, y, weights, bias)
 
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=predicted_hours,
-                confidence=confidence,
-                current_views=current_views,
-                current_velocity=self.calculate_velocity(video_data),
-                metadata={},
-                timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=self.calculate_velocity(video_data), metadata={})
 
         except Exception as e:
             logger.warning(f"SVR预测失败: {e}")
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=-1,
-                confidence=0.0,
-                current_views=current_views,
-                current_velocity=self.calculate_velocity(video_data),
-                metadata={},
-                timestamp=datetime.now(),
-            )
+            return self._std_result(-1, 0.0, current_views, threshold, velocity=self.calculate_velocity(video_data), metadata={})
 
     def _prepare_features(self, history_data: List[Dict[str, Any]]) -> Tuple[np.ndarray, np.ndarray]:
         """

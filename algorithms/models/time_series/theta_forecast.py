@@ -89,42 +89,21 @@ class ThetaForecastAlgorithm(BaseAlgorithm):
         remaining = threshold - current_views
         # 已达标
         if remaining <= 0:
-            return self._make_result(0, 1.0, current_views, velocity, {"method": "theta"}, threshold)
+            return self._std_result(0, 1.0, current_views, threshold, velocity=velocity, metadata={"method": "theta"})
 
         # 数据不足
         if len(history) < 4 or velocity <= 0:
-            return self._make_result(
-                remaining / velocity if velocity > 0 else float("inf"),
-                0.3,
-                current_views,
-                velocity,
-                {"method": "theta", "notes": "insufficient_data"},
-                threshold,
-            )
+            return self._std_result(remaining / velocity if velocity > 0 else float("inf"), 0.3, current_views, threshold, velocity=velocity, metadata={"method": "theta", "notes": "insufficient_data"})
 
         views_sorted = self._extract_views(history)
         if views_sorted is None or len(views_sorted) < 4:
-            return self._make_result(
-                remaining / velocity,
-                0.3,
-                current_views,
-                velocity,
-                {"method": "theta_fallback"},
-                threshold,
-            )
+            return self._std_result(remaining / velocity, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "theta_fallback"})
 
         try:
             return self._compute_theta(views_sorted, current_views, velocity, remaining, threshold)
         except Exception as e:
             logger.warning(f"Theta预测失败: {e}")
-            return self._make_result(
-                remaining / velocity if velocity > 0 else float("inf"),
-                0.0,
-                current_views,
-                velocity,
-                {"error": str(e)},
-                threshold,
-            )
+            return self._std_result(remaining / velocity if velocity > 0 else float("inf"), 0.0, current_views, threshold, velocity=velocity, metadata={"error": str(e)})
 
     def _extract_views(self, history):
         """从历史记录中提取并排序播放量序列
@@ -217,44 +196,12 @@ class ThetaForecastAlgorithm(BaseAlgorithm):
             fit_quality = max(0.0, 1.0 - np.std(residuals) / max(scale, 1))
             confidence = min(0.9, 0.4 + 0.3 * fit_quality + 0.2 * min(1.0, n / 20))
 
-        return self._make_result(
-            predicted_hours,
-            confidence,
-            current_views,
-            velocity,
-            {
+        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
                 "method": "theta",
                 "trend_slope": coeffs[0],
                 "ses_last": float(ses_last),
                 "forecast_horizon": n_future,
                 "data_points": n,
-            },
-            threshold,
-        )
+            })
 
-    def _make_result(self, predicted_hours, confidence, current_views, velocity, metadata, threshold):
-        """构造 PredictionResult 预测结果对象
 
-        参数:
-            predicted_hours: 预计达到阈值的小时数
-            confidence: 预测置信度 (0.0 ~ 1.0)
-            current_views: 当前播放量
-            velocity: 当前增长速度
-            metadata: 元数据字典
-            threshold: 目标阈值
-
-        返回:
-            PredictionResult: 标准预测结果对象
-        """
-        metadata.setdefault("method", "theta")
-        return PredictionResult(
-            algorithm_name=self.name,
-            algorithm_id=self.algorithm_id,
-            target_threshold=threshold,
-            predicted_hours=predicted_hours,
-            confidence=confidence,
-            current_views=current_views,
-            current_velocity=velocity,
-            metadata=metadata,
-            timestamp=datetime.now(),
-        )

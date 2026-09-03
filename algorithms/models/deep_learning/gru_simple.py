@@ -103,31 +103,11 @@ class GRUSimpleAlgorithm(BaseAlgorithm):
 
         remaining = threshold - current_views
         if remaining <= 0:
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=0,
-                confidence=1.0,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={"method": "gru_simple"},
-                timestamp=datetime.now(),
-            )
+            return self._std_result(0, 1.0, current_views, threshold, velocity=velocity, metadata={"method": "gru_simple"})
 
         if velocity <= 0 or len(history) < 2:
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=predicted_hours,
-                confidence=0.3,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={"method": "gru_simple", "notes": "insufficient_data"},
-                timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "gru_simple", "notes": "insufficient_data"})
 
         # ── 构建输入特征 ──────────────────────────
         views_seq = [h.get("view_count", 0) for h in history[-8:]]  # 取最近 8 条
@@ -170,20 +150,10 @@ class GRUSimpleAlgorithm(BaseAlgorithm):
         n_points = len(history)
         conf = min(1.0, 0.4 + n_points * 0.04 + quality * 0.2)
 
-        return PredictionResult(
-            algorithm_name=self.name,
-            algorithm_id=self.algorithm_id,
-            target_threshold=threshold,
-            predicted_hours=predicted_hours,
-            confidence=conf,
-            current_views=current_views,
-            current_velocity=adjusted_velocity,
-            metadata={
+        return self._std_result(predicted_hours, conf, current_views, threshold, velocity=adjusted_velocity, metadata={
                 "method": "gru_simple",
                 "update_gate": round(z_update, 3),
                 "reset_gate": round(r_reset, 3),
                 "hidden_state": round(hidden_state, 3),
                 "sequence_length": len(views_seq),
-            },
-            timestamp=datetime.now(),
-        )
+            })

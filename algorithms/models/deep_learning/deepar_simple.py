@@ -118,17 +118,7 @@ class DeeparSimpleAlgorithm(BaseAlgorithm):
 
             remaining = threshold - current_views
             if remaining <= 0:
-                return PredictionResult(
-                    algorithm_name=self.name,
-                    algorithm_id=self.algorithm_id,
-                    target_threshold=threshold,
-                    predicted_hours=0,
-                    confidence=1.0,
-                    current_views=current_views,
-                    current_velocity=velocity,
-                    metadata={"method": "deepar", "mu_return": float(mu_ret), "sigma_return": float(sigma_ret)},
-                    timestamp=datetime.now(),
-                )
+                return self._std_result(0, 1.0, current_views, threshold, velocity=velocity, metadata={"method": "deepar", "mu_return": float(mu_ret), "sigma_return": float(sigma_ret)})
 
             # 各采样路径的速度（前 7 天的平均小时速度）
             velocity_samples = np.mean(np.diff(future_views_samples[:, :7]) / 3600, axis=1)
@@ -143,21 +133,11 @@ class DeeparSimpleAlgorithm(BaseAlgorithm):
             uncertainty = sigma_ret / max(abs(mu_ret), 1e-10)
             confidence = max(0.05, min(0.85, prob_reach * 0.8 + 0.1 / (1 + uncertainty)))
 
-            return PredictionResult(
-                algorithm_name=self.name,
-                algorithm_id=self.algorithm_id,
-                target_threshold=threshold,
-                predicted_hours=predicted_hours,
-                confidence=confidence,
-                current_views=current_views,
-                current_velocity=velocity,
-                metadata={
+            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
                     "method": "deepar",
                     "mu_return": float(mu_ret),
                     "sigma_return": float(sigma_ret),
                     "prob_reach": float(prob_reach),
-                },
-                timestamp=datetime.now(),
-            )
+                })
         except Exception:
             return self._fallback(velocity, current_views, threshold, method="deepar")

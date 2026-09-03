@@ -125,13 +125,7 @@ class NHitsAlgorithm(BaseAlgorithm):
         if len(history) < 6 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=predicted_hours,
-                confidence=0.3, current_views=current_views, current_velocity=velocity,
-                metadata={"method": "nhits_fallback"},
-                timestamp=datetime.now(),
-            )
+            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "nhits_fallback"})
 
         import numpy as np
         views = np.array([h.get("view_count", 0) for h in history[-15:]], dtype=np.float64)
@@ -171,11 +165,4 @@ class NHitsAlgorithm(BaseAlgorithm):
             # 置信度：尺度越多、数据点越多，置信度越高
             confidence = min(0.85, 0.4 + 0.1 * n_scales + 0.05 * min(len(views), 20) * 0.05)
 
-        return PredictionResult(
-            algorithm_name=self.name, algorithm_id=self.algorithm_id,
-            target_threshold=threshold, predicted_hours=predicted_hours,
-            confidence=confidence, current_views=current_views,
-            current_velocity=velocity,
-            metadata={"method": "nhits_numpy", "scales": len(scales), "data_points": len(views)},
-            timestamp=datetime.now(),
-        )
+        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "nhits_numpy", "scales": len(scales), "data_points": len(views)})
