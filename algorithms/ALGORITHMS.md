@@ -1,6 +1,6 @@
 # B站视频播放量预测算法说明
 
-本文档详细说明系统中所有141种预测算法的实现原理、数学公式和适用场景。
+本文档详细说明系统中所有137种预测算法的实现原理、数学公式和适用场景。
 
 ## 目录
 
@@ -1595,15 +1595,20 @@ seq2seq 多步预测 (线性+二次组合) + 高/中/低频融合 (原始/每3�
 ## PyTorch 训练管线
 
 系统内置统一 PyTorch 训练基础设施，支持深度学习算法的全局预训练与视频级微调。
+采用 **A+B 双尺度训练目标**：模型同时学习「短期稳健增量轨迹」与「长期真实平均速率」。
 
 ### 架构
 
 ```
 algorithms/training/
 ├── trainer.py            # 统一训练编排器
+├── trainer_io.py         # Checkpoint IO 与评估
 ├── dataset.py            # 时序数据集 (VideoTimeSeriesDataset)
 ├── checkpoint_manager.py # 多版本 Checkpoint 管理
 ├── hf_loader.py          # HuggingFace 模型加载器
+├── npu_inference.py      # NPU(DirectML) 编译推理
+├── onnx_exporter.py      # ONNX 导出 + Runtime 推理
+├── schedulers.py         # 学习率调度器
 └── device.py             # 设备管理 (CPU/CUDA)
 ```
 
@@ -1613,6 +1618,30 @@ algorithms/training/
 - **视频微调**: 基于全局 active checkpoint，对单个视频微调少量 epoch
 - **多版本管理**: 每个算法保存多个 checkpoint 版本，支持版本激活/回滚
 - **实时可视化**: 训练时通过 UI 面板展示 loss 曲线图 + 文本日志
+
+### A+B 双尺度训练目标（v3.2）
+
+`dataset.py` 为每个滑动窗口样本构造 **H+1 维目标向量**：
+
+```
+y = [ 短期段 (H 步)         | 长期段 (1 维) ]
+    [ 未来 H 步稳健增量 z     | 未来 long_window 步真实平均速率 z ]
+
+短期段:  未来 horizon(默认3) 步的稳健增量（MAD 剪除 API 冻结/补量伪迹，与
+         推理端 increment 同口径），z-score 归一化；
+长期段:  样本点后 long_window(默认48≈1h) 步的真实平均增量速率，与短期段共用
+         velocity 的 mean/std 做归一化，保证推理端可用同一 v_mean/v_std 反归一化。
+```
+
+- **head 扩维**: 训练/推理前调用 `_torch_upgrade.expand_final_projection()`，把「唯一
+  out_features == horizon」的最终投影 Linear 扩为 H+1（新维零初始化，forward 零改动）。
+  可扩展模型（LSTM/GRU/TCN/Transformer 系列等 25+ 个）输出 [B, H+1]。
+- **不可扩展模型**: 无唯一投影层/结构特殊（N-BEATS、DeepAR、NLinear、DLinear、KNF 等）
+  保持单输出 H，训练时由 trainer 将目标截取为前 H 维（仅监督短期段）。
+- **加载兼容**: `load_checkpoint_model()` 先按 H 宽直载（旧 checkpoint），head 尺寸不匹配
+  时自动扩维为 H+1 后重载，新旧 checkpoint 无缝兼容。
+- **推理消费**: 双输出模型的 `y[0:H]` 驱动短期增量/当前速度，`y[horizon]`（长期段）
+  反归一化后作为 ETA 平均速率 → `predicted_hours`（`_generic_result.long_velocity`）。
 
 ### 算法集成约定
 

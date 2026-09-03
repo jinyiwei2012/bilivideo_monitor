@@ -36,13 +36,16 @@ main.py / run.py           — Entry points
 ├── algorithms/             — Prediction engine (120+ algorithms)
 │   ├── base.py             — BaseAlgorithm: predict(video_data, threshold) → PredictionResult
 │   ├── registry.py         — AlgorithmRegistry: auto-scans models/, parallel predict_all()
-│   ├── model_adapter.py    — Bridges old/new predict() interfaces
 │   ├── weight_manager.py   — ML-driven per-algorithm weight adjustment
-│   ├── online_learner.py   — Hedge online learning
+│   ├── online_learner.py   — Hedge online learning + global accuracy aggregation
 │   ├── causal_inference.py — Granger causality between metrics
+│   ├── bias_correction.py  — Prediction bias correction
 │   ├── graph_neural.py     — GCN for video relationship modeling
-│   ├── training/           — PyTorch training pipeline (trainer, dataset, checkpoint, hf_loader)
-│   ├── conformal.py        — Conformal prediction for uncertainty intervals
+│   ├── rollout_backtest.py — Time-series cross-validation / rollout backtest
+│   ├── data_cleaner.py     — Data cleaning (drop-back, z-score outliers, interpolation)
+│   ├── conformal.py        — Conformal prediction for uncertainty intervals (log-domain)
+│   ├── training/           — PyTorch training pipeline (trainer, trainer_io, dataset, checkpoint,
+│   │                       hf_loader, npu_inference, onnx_exporter, schedulers, device)
 │   └── models/             — Algorithm implementations by category
 │       ├── simple/         — Linear velocity, weighted velocity
 │       ├── growth/         — Logistic, Gompertz, Richards, Weibull, Bass, power law
@@ -62,7 +65,8 @@ main.py / run.py           — Entry points
 │   ├── bilibili_up.py      — UP主 info fetching
 │   ├── notification.py     — Windows toast + QQ Bot (OneBot WS→HTTP fallback)
 │   ├── proxy_manager.py    — Proxy rotation, auto-discovery, health checking
-│   ├── smart_alert.py      — 8 anomaly detectors with cooldown
+│   ├── smart_alert.py      — 8 anomaly detectors, confidence-graded (high/medium/low)
+│   ├── threshold_escalation.py — Auto threshold escalation after milestone alerts
 │   ├── up_database.py      — UP主 data storage
 │   └── database/           — SQLite (per-video DB + central DB)
 │       ├── connection.py   — Thread-safe connection context manager
@@ -93,6 +97,8 @@ main.py / run.py           — Entry points
 │   ├── cover_manager.py    — Cover image cache (MD5 dedup, local fallback)
 │   ├── crypto.py           — Cookie encryption (Fernet + XOR fallback)
 │   ├── file_logger.py      — Time-split log rotation
+│   ├── report_exporter.py  — HTML/CSV export + optional AI insight paragraph
+│   ├── alert_review.py     — HTML alert review cards (details + mini trend)
 │   └── ...
 ├── config/                  — JSON config load/save with deep-merge defaults
 └── data/                    — Runtime data (settings, DBs, covers, logs)
@@ -100,9 +106,9 @@ main.py / run.py           — Entry points
 
 ### Key Design Decisions
 
-1. **Single algorithm base class**: All algorithms inherit `BaseAlgorithm` with `predict(video_data, threshold) → PredictionResult`. `ModelAlgorithmAdapter` bridges legacy interfaces.
+1. **Single algorithm base class**: All algorithms inherit `BaseAlgorithm` with `predict(video_data, threshold) → PredictionResult`.
 
-2. **Algorithm auto-discovery**: `AlgorithmRegistry` scans `models/` at import time. Any `.py` file with a class ending in `Algorithm` is auto-registered.
+2. **Algorithm auto-discovery**: `AlgorithmRegistry` scans `models/` at import time. Any `.py` file with a class ending in `Algorithm` is auto-registered. Legacy `ModelAlgorithmAdapter` indirection was removed — registry holds algorithm instances directly.
 
 3. **Per-video worker threads**: `ui/monitor/_service.py` spawns one thread per monitored video. Each thread manages its own fetch interval independently.
 
@@ -110,11 +116,13 @@ main.py / run.py           — Entry points
 
 5. **412 error mitigation**: `BilibiliAPI` implements exponential backoff, curl_cffi TLS impersonation (chrome131), UA rotation, proxy rotation, buvid3/buvid4 generation, bilibili-api-python fallback, and Playwright headless browser last-resort.
 
-6. **Weighted ensemble**: `predict_all()` runs all algorithms in parallel via `ThreadPoolExecutor`, applies coherence-based weight adjustment (deviation from median reduces weight), and produces a `_weighted` ensemble prediction.
+6. **Weighted ensemble**: `predict_all()` runs all algorithms in parallel via `ThreadPoolExecutor`, applies coherence-based weight adjustment (deviation from median reduces weight), and produces a `_weighted` ensemble prediction. Its `eta` field comes from a log-space median of per-algorithm ETA forecasts (anchor-threshold aware).
 
-7. **Layout reuse pattern**: `_clear_header()` and similar methods clear child widgets from layouts but preserve the `QLayout` object for reuse, avoiding `deleteLater()` + recreate cycles that cause `"QLayout already has a layout"` errors.
+7. **A+B dual-scale training target**: `dataset.py` builds targets `y = [H robust-increment steps ⊕ 1 long-term rate]` — short segment is the robust per-75s increments (MAD-clipped against API freeze/catch-up artifacts), final dim is the real mean rate over the next `long_window` (default 48 ≈ 1h). Both segments share one z-score scaler (velocity's) so inference can denormalize with `v_mean/v_std`. `_torch_upgrade.expand_final_projection()` widens the single final Linear head from H → H+1 (zero-init new dim) for models with a unique projection layer; non-expandable models (N-BEATS/DeepAR/NLinear…) stay single-output and the trainer truncates the target. Inference (`load_checkpoint_model`) auto-detects the checkpoint head width (H or H+1) and expands on demand; the ETA consumes the long-term head when dual, else falls back to the short head.
 
-8. **Incremental UI updates**: Prediction panels use cached widget references to call `setText()` on existing QLabel objects rather than rebuilding widget trees. Stat bar values update without destroying card frames.
+8. **Layout reuse pattern**: `_clear_header()` and similar methods clear child widgets from layouts but preserve the `QLayout` object for reuse, avoiding `deleteLater()` + recreate cycles that cause `"QLayout already has a layout"` errors.
+
+9. **Incremental UI updates**: Prediction panels use cached widget references to call `setText()` on existing QLabel objects rather than rebuilding widget trees. Stat bar values update without destroying card frames.
 
 ### Algorithm Category Labels
 

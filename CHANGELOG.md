@@ -1,5 +1,40 @@
 # 更新日志
 
+## Release 2026-09-03 (v3.2.0)
+
+### 🎯 预测精度提升体系
+- **稳健增量速率**: median+MAD 剪除 + API 冻结/补量恢复（抗整数量化/延迟/一次性补量），分场景断言通过
+- **log-ETA 集成**: 各算法 predicted_hours 在 log 空间加权取中位 → `_weighted.eta`，结合 anchor 阈值
+- **生命周期自适应**: early/steady/declining 阶段特征调制置信度，全历史数据自适应
+- **权重闭环修复**: `update_accuracy` 签名修复 + online_learner 全局聚合回流 + 回测预热冷启动
+- **保形预测 log 域校准**: 乘法区间回解，覆盖率显著提升
+- **短期热度感知算法**: viewers 在线人数/时段信号融合 + 自激励动量
+- **返回值统一重构**: 120+ 算法收敛到 `_std_result` 统一构造 PredictionResult
+
+### 🧠 A+B 双尺度模型训练
+- **双尺度训练目标**: `dataset.py` 目标重构为 `[H 步稳健增量 ⊕ 1 维长期平均速率]`
+  - 短期段 = 未来 horizon 步稳健增量（MAD 剪除），与推理端增量口径一致
+  - 长期段 = 未来 long_window(≈1h) 步真实平均速率，与 velocity 共用同一 z-score 缩放器
+- **head 自动扩维**: `expand_final_projection()` 将唯一投影 Linear 从 H 扩至 H+1（零初始化），forward 零改动；25+ 可扩展模型输出 [B, H+1]
+- **checkpoint 双向兼容**: `load_checkpoint_model()` 自动识别 H / H+1 宽 head，旧模型无缝续训与推理
+- **推理双消费**: 短期 `y[0:H]` 驱动当前速度/短期增量，长期 `y[horizon]` 作为 ETA 平均速率；不可扩展模型（N-BEATS/DeepAR 等）自动回退单头
+- **全链路适配**: trainer / trainer_io / onnx_exporter（head 宽推断）/ 独立推理端（cnn_image）同步更新
+
+### 🚨 智能告警 v2 + 阈值扩档
+- **确定度分级**: AlertHit confidence 体系（high/medium/low），high 全渠道推送、low 仅状态栏+日志，避免告警疲劳
+- **修复 P0 冷却反转 / P1 样本窗口不足 / P2 单点基线抖动**
+- **A1 阈值自动扩档**: 突破通知后自动追加下一阶梯阈值，进度持久化防重复
+- **A2 异动复盘卡**: `reports/alerts/alert_review_*.html`（明细 + 置信 + 近 12 点迷你趋势）
+- **A3 弹幕情绪侧写**: 弹幕即分析 + 告警附带情绪摘要
+
+### 🖥️ 界面与驻留
+- **B1 系统托盘**: 关闭窗口最小化至托盘继续监控（close_to_tray / tray_notify 配置）
+- **C3 AI 周报解读**: report_exporter 支持 AI 解读段落 + 定时导出异步生成
+
+### 🔧 前置重构（本分支基线）
+- 算法接口统一（去 ModelAlgorithmAdapter、`_predict_inner` 收敛）、镜像双写/常量/schema 单点化
+- 洛天依主题体系 + emoji 换装 + 口吻文案库
+
 ## Release 2026-06-01 (v2.8.0)
 
 ### 🔧 重构
