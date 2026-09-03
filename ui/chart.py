@@ -80,7 +80,7 @@ class ChartWidget(QWidget):
         """重新绘制图表"""
         history = self._history_data.get(self._bvid, [])
         if not history:
-            self._draw_placeholder("选择视频后显示播放量趋势图")
+            self._draw_placeholder("选个视频,天依把它的歌谱画给你看 ♪")
             return
 
         W = self._view.width() or 600
@@ -94,7 +94,7 @@ class ChartWidget(QWidget):
 
         if len(history) < 2:
             self._draw_grid(W, H, ML, MR, MT, MB, cw, ch, 0, 1)
-            self._draw_text(W // 2, H // 2, "数据点不足（需要至少2条记录）",
+            self._draw_text(W // 2, H // 2, "音符还太少啦…至少再攒 2 条,天依就能开唱了 ♪",
                             QColor(C["text_3"]), 11, Qt.AlignmentFlag.AlignCenter)
             return
 
@@ -344,7 +344,7 @@ class ChartWidget(QWidget):
         tail = history[-n_keep:]
         deltas = [(tail[i][0], tail[i][1] - tail[i - 1][1]) for i in range(1, len(tail))]
         if not deltas:
-            self._draw_text(W // 2, H // 2, "数据点不足", QColor(C["text_3"]), 11,
+            self._draw_text(W // 2, H // 2, "音符还太少啦…天依还没法开唱 ♪", QColor(C["text_3"]), 11,
                             Qt.AlignmentFlag.AlignCenter)
             return
 

@@ -150,9 +150,11 @@ class SettingsAboutMixin:
         sec3_layout.addWidget(sec3_title)
 
         desc_text = (
-            "本系统用于监控 Bilibili 视频播放量增长趋势，"
-            "支持 55 种预测算法、多阈值告警、QQ 机器人通知等功能。\n\n"
-            "如果您觉得本项目对您有帮助，欢迎在 GitHub 上给项目点一个 Star！"
+            "嗨~这里是天依的「追光小助手」♪\n"
+            "天依会帮你看着 Bilibili 视频的播放量一点一点长大，"
+            "用 137 种预测算法一起猜猜它什么时候能追到 10万 / 100万 / 1000万 的光。\n"
+            "播放量有异动、弹幕有情绪、阈值被突破……天依都会第一时间唱给你听哦。\n\n"
+            "如果你喜欢天依的歌声，欢迎到 GitHub 上给天依点一个 Star 当作掌声呀 ♪"
         )
         desc_lbl = _styled_label(desc_text, "text_2", font_=FONT)
         desc_lbl.setWordWrap(True)

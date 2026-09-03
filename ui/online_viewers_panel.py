@@ -372,7 +372,7 @@ class OnlineViewersPanel(QWidget):
         rows.sort(key=_sort_key, reverse=reverse)
 
         self._count_lbl.setText(f"共 {len(rows)} 个视频")
-        self._status_lbl.setText(f"共 {len(rows)} 个视频 · 按在线人数排序")
+        self._status_lbl.setText(f"共 {len(rows)} 个视频 · 按人气排排坐 ♪")
 
         # 删除不存在的项
         new_bvids = {r[0] for r in rows}

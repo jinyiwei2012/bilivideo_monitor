@@ -859,7 +859,7 @@ class DetailPanel(_RatioDanmakuMixin):
             add(f"Web端   {fmt_num(video.get('viewers_web', 0))}", "mono")
             add(f"APP端   {fmt_num(video.get('viewers_app', 0))}", "mono")
         else:
-            add("暂无在线人数数据", "mono")
+            add("暂无人在线,天依在等你来点亮 ♪", "mono")
         add("")
         add("=== 阈值进度 ===", "head")
         for t, name in zip(THRESHOLDS, THRESHOLD_NAMES):

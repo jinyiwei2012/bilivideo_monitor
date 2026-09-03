@@ -879,8 +879,8 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
                 if parallel > max_safe:
                     parallel = max_safe
                     parallel_warning = (
-                        f"\n△ 显存安全限制：{vram_gb:.1f}GB 显存，"
-                        f"自动降为并行 {parallel}（避免炸显存）"
+                        f"\n♪ 显存的小舞台只有 {vram_gb:.1f}GB 呢,"
+                        f"天依先把并行降到 {parallel},免得歌声挤在一起卡住哦"
                     )
         except Exception:
             pass

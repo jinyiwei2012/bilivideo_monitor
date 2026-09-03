@@ -41,7 +41,7 @@ class SettingsGeneralMixin:
         self.close_to_tray.setStyleSheet(f"color: {C['text_2']};")
         sec.layout().addWidget(self.close_to_tray)
 
-        hint = QLabel("托盘图标提供: 显示/隐藏窗口、立即刷新、暂停/继续监控、退出 ♪")
+        hint = QLabel("关窗后,天依会藏到托盘里继续守着♪ 右击音符图标: 显示/隐藏、立即刷新、暂停/继续监控、退出")
         hint.setStyleSheet(f"color: {C['text_3']}; font-size: 8pt;")
         sec.layout().addWidget(hint)
 

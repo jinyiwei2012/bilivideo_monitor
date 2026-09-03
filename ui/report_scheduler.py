@@ -117,7 +117,7 @@ class ReportSchedulerWindow(QDialog):
         # ── 定时导出 ──
         cl.addWidget(self._section_title("定时导出"))
 
-        desc = QLabel("按计划自动导出到 reports/ 目录")
+        desc = QLabel("到点啦,天依会把数据整理成歌谱,自动收进 reports/ 目录 ♪")
         desc.setStyleSheet(f"color: {C['text_3']}; background-color: transparent;")
         cl.addWidget(desc)
 
