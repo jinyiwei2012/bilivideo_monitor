@@ -122,7 +122,11 @@ class SettingsWindow(
         """创建一个卡片分段，添加到 parent 的布局中"""
         sec = _section_widget(parent, title)
         if padding:
-            sec.layout().setContentsMargins(*padding)
+            pad = list(padding)
+            # 兼容 3 元组 (left, top, bottom)：右侧沿用左侧边距（左右对称）
+            if len(pad) == 3:
+                pad = [pad[0], pad[1], pad[0], pad[2]]
+            sec.layout().setContentsMargins(*pad)
         parent.layout().addWidget(sec)
         return sec
 
@@ -271,6 +275,8 @@ class SettingsWindow(
             self._cfg["prediction"]["escalate_factor"] = float(self.escalate_factor.value())
         if hasattr(self, "close_to_tray"):
             self._cfg.setdefault("ui", {})["close_to_tray"] = bool(self.close_to_tray.isChecked())
+        if hasattr(self, "theme_combo"):
+            self._cfg.setdefault("ui", {})["theme"] = str(self.theme_combo.currentData() or "darkly")
 
         th_data = []
         for v_widget, n_widget, _ in getattr(self, "_thresh_rows", []):
@@ -335,6 +341,23 @@ class SettingsWindow(
         self._sync_proxy_text_to_cfg()
         self._save_net_config()
         self._verify_proxy_persisted()
+
+        # 即时应用主题偏好（新开窗口/动态取 C 的组件立即生效；主界面需重启全量换装）
+        if hasattr(self, "theme_combo") and self.gui is not None:
+            try:
+                from ui.theme import C, THEME_DARK, init_theme, qapp
+
+                chosen = str(self.theme_combo.currentData() or "darkly")
+                is_dark = C.get("bg_base") == THEME_DARK.get("bg_base")
+                if (chosen == "light" and is_dark) or (chosen != "light" and not is_dark):
+                    init_theme(qapp, dark=chosen != "light")
+                # 同步标题栏切换按钮提示
+                if hasattr(self.gui, "_theme_btn"):
+                    self.gui._theme_btn.setToolTip(
+                        "◐ 当前为亮色主题" if chosen == "light" else "◐ 当前为深色主题"
+                    )
+            except Exception as e:
+                logger.debug("应用主题偏好失败: %s", e)
 
         QMessageBox.information(self.dlg, "存好啦 ♪", "设置都存好啦 ♪ 天依记在心里了哦~")
         self.dlg.close()

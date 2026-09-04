@@ -26,10 +26,37 @@ class SettingsGeneralMixin:
         nb.addTab(page, "  常规设置  ")
 
         self._build_general_predict_section(page)
+        self._build_general_appearance_section(page)
         self._build_general_window_section(page)
         self._build_general_retry_section(page)
         self._build_general_status_section(page)
 
+
+    def _build_general_appearance_section(self, page):
+        """界面外观：主题选择 (深色/亮色) — B2 主题偏好设置入口"""
+        from PyQt6.QtWidgets import QComboBox
+
+        sec = self._section(page, "界面主题")
+        row = QWidget()
+        rl = QHBoxLayout(row)
+        rl.setContentsMargins(0, 0, 0, 0)
+        lbl = QLabel("主题模式:")
+        lbl.setStyleSheet(f"color: {C['text_2']};")
+        rl.addWidget(lbl)
+
+        self.theme_combo = QComboBox()
+        cur = self._cfg.get("ui", {}).get("theme", "darkly")
+        self.theme_combo.addItem("🌙 深色 (天依夜巡)", "darkly")
+        self.theme_combo.addItem("☀️ 亮色 (天依晨歌)", "light")
+        idx = self.theme_combo.findData(cur)
+        self.theme_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        rl.addWidget(self.theme_combo)
+        rl.addStretch()
+        sec.layout().addWidget(row)
+
+        hint = QLabel("切换后新开的窗口立即生效;主界面需重启应用后全部换装 ♪ 天依两种模样都好看哦~")
+        hint.setStyleSheet(f"color: {C['text_3']}; font-size: 8pt;")
+        sec.layout().addWidget(hint)
 
     def _build_general_window_section(self, page):
         """窗口行为：托盘驻留开关 (B1)"""
