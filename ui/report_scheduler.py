@@ -6,6 +6,7 @@
 import os
 import json
 import logging
+from datetime import datetime
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
@@ -106,6 +107,12 @@ class ReportSchedulerWindow(QDialog):
         self._ai_insight.setStyleSheet(f"color: {C['text_2']}; background-color: transparent;")
         cl.addWidget(self._ai_insight)
 
+        # D1: 手动导出完成后同步推送摘要
+        self._manual_notify = QCheckBox("◈ 导出完成后推送摘要（QQ/Webhook/Windows）")
+        self._manual_notify.setChecked(False)
+        self._manual_notify.setStyleSheet(f"color: {C['text_2']}; background-color: transparent;")
+        cl.addWidget(self._manual_notify)
+
         self._export_status = QLabel("")
         self._export_status.setStyleSheet(f"color: {C['text_2']}; background-color: transparent;")
         cl.addWidget(self._export_status)
@@ -152,6 +159,12 @@ class ReportSchedulerWindow(QDialog):
         self._schedule_ai.setStyleSheet(f"color: {C['text_2']}; background-color: transparent;")
         self._schedule_ai.setChecked(True)
         sr.addWidget(self._schedule_ai)
+
+        # D1: 导出完成后推送摘要到通知渠道（QQ/Webhook/Windows）
+        self._schedule_notify = QCheckBox("完成后推送")
+        self._schedule_notify.setStyleSheet(f"color: {C['text_2']}; background-color: transparent;")
+        self._schedule_notify.setChecked(False)
+        sr.addWidget(self._schedule_notify)
 
         sr.addStretch()
         cl.addWidget(sched_row)
@@ -311,6 +324,8 @@ class ReportSchedulerWindow(QDialog):
             self._export_status.setText("导出完成啦!♪ 数据都好好收藏起来了:\n" + "\n".join(results))
             self._export_status.setStyleSheet(f"color: {C['success']}; background-color: transparent;")
             self._refresh_file_list()
+            if self._manual_notify.isChecked():
+                notify_export_done(self.gui, results[0].split(": ", 1)[-1], fmt=fmt, manual=True)
         except Exception as e:
             logger.warning("导出报告失败: %s", e)
             self._export_status.setText("呜…导出失败了,天依不会放弃的,请再试一次哦 ♪")
@@ -326,6 +341,12 @@ class ReportSchedulerWindow(QDialog):
         self._export_status.setText("导出完成啦!♪ AI解读" + ("已附上" if insight else "未生成(检查AI密钥)") + ":\n" + "\n".join(results))
         self._export_status.setStyleSheet(f"color: {C['success']}; background-color: transparent;")
         self._refresh_file_list()
+        try:
+            if self._manual_notify.isChecked() and results:
+                path = results[0].split(": ", 1)[-1]
+                notify_export_done(self.gui, path, fmt="html", manual=True)
+        except Exception as e:
+            logger.debug("手动导出(AI)推送失败: %s", e)
 
     def _on_ai_export_error(self):
         """AI 解读导出失败回调（主线程）"""
@@ -353,6 +374,8 @@ class ReportSchedulerWindow(QDialog):
                 self._interval_combo.setCurrentText(data.get("interval", "daily"))
                 self._schedule_format_combo.setCurrentText(data.get("format", "csv"))
                 self._schedule_ai.setChecked(bool(data.get("ai_insight", True)))
+                if hasattr(self, "_schedule_notify"):
+                    self._schedule_notify.setChecked(bool(data.get("notify", False)))
                 self._schedule_status.setText("定时设置已经加载好啦 ♪")
                 self._schedule_status.setStyleSheet(f"color: {C['success']}; background-color: transparent;")
         except Exception as e:
@@ -365,6 +388,7 @@ class ReportSchedulerWindow(QDialog):
             "interval": self._interval_combo.currentText(),
             "format": self._schedule_format_combo.currentText(),
             "ai_insight": self._schedule_ai.isChecked(),
+            "notify": self._schedule_notify.isChecked() if hasattr(self, "_schedule_notify") else False,
         }
         try:
             _SCHEDULE_CONFIG.parent.mkdir(parents=True, exist_ok=True)
@@ -448,6 +472,36 @@ def stop_export_schedule(gui):
         gui._export_schedule_timer = None
 
 
+def notify_export_done(gui, path, fmt="csv", manual=False):
+    """导出完成后向通知渠道推送摘要（QQ/Webhook/Windows）。
+
+    摘要取 build_push_msg 的报告文本（监控视频数 + 各视频播放/增速/预测），
+    异步发送,不阻塞导出流程。
+    """
+    try:
+        from core.notification import notification_manager
+
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+        head = "手动导出" if manual else "定时导出"
+        if not gui or not gui.monitored_videos:
+            return
+        try:
+            from ui.main_gui_events import build_push_msg
+
+            digest = build_push_msg(gui, gui.monitored_videos)
+        except Exception:
+            digest = f"监控 {len(gui.monitored_videos)} 个视频"
+        msg = f"◧ {head}报告完成 ({now_str})\n格式: {fmt.upper()}\n路径: {path}\n\n{digest}"
+        title = f"◧ {head}报告 {now_str}"
+        notification_manager.send_qq_private(msg)
+        notification_manager.send_qq_group(msg)
+        notification_manager.send_webhook(msg)
+        notification_manager.send_windows_notification(title, msg[:256])
+        logger.info("导出完成推送已发送: %s", path)
+    except Exception as e:
+        logger.warning("导出完成推送失败: %s", e)
+
+
 def do_scheduled_export(gui, fmt="csv"):
     """执行一次定时导出（可在无对话框时被主窗口定时器触发）。"""
     if not gui or not gui.monitored_videos:
@@ -467,6 +521,8 @@ def do_scheduled_export(gui, fmt="csv"):
         exporter = exporters.get(fmt, export_csv)
         path = exporter(gui.monitored_videos)
         logger.info("定时导出完成: %s", path)
+        if data.get("notify"):
+            notify_export_done(gui, path, fmt=fmt, manual=False)
     except Exception as e:
         logger.warning("定时导出失败: %s", e)
 
@@ -486,6 +542,11 @@ def _export_with_ai_worker(gui, fmt="html"):
                 gui.log_panel.add_log("INFO", f"报告导出完成(未配置AI或生成失败): {path}")
         except Exception:
             pass
+        try:
+            if load_export_schedule().get("notify"):
+                notify_export_done(gui, path, fmt=fmt, manual=False)
+        except Exception as e:
+            logger.debug("定时导出(AI)推送失败: %s", e)
     except Exception as e:
         logger.warning("AI 解读导出失败: %s", e)
         try:
@@ -493,5 +554,7 @@ def _export_with_ai_worker(gui, fmt="html"):
 
             path = export_html(gui.monitored_videos)
             logger.info("已回退为普通 HTML 导出: %s", path)
+            if load_export_schedule().get("notify"):
+                notify_export_done(gui, path, fmt=fmt, manual=False)
         except Exception as e2:
             logger.warning("回退导出也失败: %s", e2)
