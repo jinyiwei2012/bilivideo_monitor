@@ -197,7 +197,7 @@ class DashboardWindow(QWidget):
 
         root.addWidget(dots)
 
-        # 内容区（QStackedWidget 预置 4 页，切换时重建）
+        # 内容区（QStackedWidget 预置 4 页，首次构建后增量更新，避免周期性销毁重建）
         self._stack = QStackedWidget()
         self._stack.setStyleSheet(f"background-color: {_DASH_COLORS['bg']};")
         # 预填充空页面占位
@@ -400,7 +400,7 @@ class DashboardWindow(QWidget):
         title_font.setBold(True)
         title_lbl.setFont(title_font)
         title_lbl.setStyleSheet(f"color: {_DASH_COLORS['text_1']};")
-        if layout is not None:
+        if layout is not None and layout.count() == 0:
             layout.addWidget(title_lbl)
 
         chart = RankingBarChart()
@@ -419,7 +419,7 @@ class DashboardWindow(QWidget):
         title_font.setBold(True)
         title_lbl.setFont(title_font)
         title_lbl.setStyleSheet(f"color: {_DASH_COLORS['text_1']};")
-        if layout is not None:
+        if layout is not None and layout.count() == 0:
             layout.addWidget(title_lbl)
 
         row = QWidget()
@@ -480,7 +480,7 @@ class DashboardWindow(QWidget):
         title_font.setBold(True)
         title_lbl.setFont(title_font)
         title_lbl.setStyleSheet(f"color: {_DASH_COLORS['text_1']};")
-        if layout is not None:
+        if layout is not None and layout.count() == 0:
             layout.addWidget(title_lbl)
 
         # ── 实时预警卡片 ──
@@ -635,30 +635,55 @@ class DashboardWindow(QWidget):
                             if isinstance(val_lbl, QLabel) and i < len(vals):
                                 val_lbl.setText(vals[i])
 
+    def _clear_content(self, page, keep_count=1):
+        """仅清除页面内容区（保留标题等前 keep_count 个静态条目）"""
+        layout = page.layout()
+        if layout is None:
+            return
+        while layout.count() > keep_count:
+            item = layout.takeAt(layout.count() - 1)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+            del item
+
     def _update_ranking(self):
-        """增量更新排行页"""
+        """增量更新排行页 — 复用已构建的 RankingBarChart,仅 set_data 触发重绘"""
         page = self._stack.widget(1)
         layout = page.layout()
         if not layout or layout.count() == 0:
             return self._build_ranking(page)
-        # 非关键页：直接重建（频率低，数据变化大）
-        self._clear_widget(page)
-        self._build_ranking(page)
+        videos = sorted(self.gui.monitored_videos, key=lambda v: v.get("view_count", 0), reverse=True)
+        if not videos:
+            # 无数据：若当前已是空态则无需更新,否则重建空态
+            has_label = layout.count() == 1 and not isinstance(layout.itemAt(0).widget(), RankingBarChart)
+            if not has_label:
+                self._clear_content(page, keep_count=0)
+                self._build_ranking(page)
+            return
+        # 第 0 项为标题,第 1 项为柱状图
+        chart = layout.itemAt(1).widget() if layout.count() > 1 else None
+        if isinstance(chart, RankingBarChart):
+            chart.set_data(videos)  # 仅重绘,不销毁重建
+        else:
+            # 空态 → 有数据的过渡,整页重建一次（含标题）
+            self._clear_content(page, keep_count=0)
+            self._build_ranking(page)
 
     def _update_prediction(self):
-        """增量更新预测页"""
+        """增量更新预测页 — 标题保留,仅重建卡片内容区"""
         page = self._stack.widget(2)
         layout = page.layout()
         if not layout or layout.count() == 0:
             return self._build_prediction(page)
-        self._clear_widget(page)
+        self._clear_content(page, keep_count=1)  # 保留「预测总览」标题
         self._build_prediction(page)
 
     def _update_health(self):
-        """增量更新健康页"""
+        """增量更新健康页 — 标题保留,仅重建内容区"""
         page = self._stack.widget(3)
         layout = page.layout()
         if not layout or layout.count() == 0:
             return self._build_health(page)
-        self._clear_widget(page)
+        self._clear_content(page, keep_count=1)
         self._build_health(page)
