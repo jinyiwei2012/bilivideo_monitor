@@ -31,6 +31,38 @@ _central_fetch_lock = threading.Lock()
 _predictors: dict = {}          # bvid → VideoPredictor
 _predictors_lock = threading.Lock()
 
+# 即弃型工作线程登记（弹幕拉取、手动拉取、集中拉取线程等），
+# 退出时统一 join，避免关闭数据库后仍有线程触碰连接/UI
+_adhoc_threads: set = set()
+_adhoc_lock = threading.Lock()
+
+
+def _track_thread(t: threading.Thread):
+    """登记一个即弃工作线程，退出清理时 join。返回 t 便于链式调用。"""
+    with _adhoc_lock:
+        _adhoc_threads.add(t)
+    return t
+
+
+def _untrack_thread(t: threading.Thread):
+    """线程自然结束后移除登记（由 wrapper 在 finally 中调用）"""
+    with _adhoc_lock:
+        _adhoc_threads.discard(t)
+
+
+def _start_tracked_thread(target, args=(), name=None):
+    """启动并登记一个守护线程；线程结束时自动注销登记。"""
+    def _wrapper():
+        try:
+            target(*args)
+        finally:
+            _untrack_thread(t)
+
+    t = threading.Thread(target=_wrapper, daemon=True, name=name)
+    _track_thread(t)
+    t.start()
+    return t
+
 
 # ══════════════════════════════════════════════
 #  每视频独立预测线程
@@ -61,10 +93,19 @@ class VideoPredictor:
         self._event.set()
 
     def stop(self):
-        """停止预测线程"""
+        """停止预测线程（最多等待 _PREDICT_STOP_TIMEOUT 秒）
+
+        预测本身不可强杀，超时后记录日志，交由守护线程随进程退出；
+        正常路径下 Event 唤醒后线程会在下一个循环入口立即退出。
+        """
         self._running = False
         self._event.set()
         self._thread.join(timeout=3)
+        if self._thread.is_alive():
+            logger.warning(
+                "预测线程 %s 在 %s 秒内未退出（可能卡在长预测/网络调用），转为守护退出",
+                self._thread.name, 3,
+            )
 
     def _loop(self):
         while self._running:
@@ -266,12 +307,12 @@ def _fetch_one_video(gui, bvid, video):
     except Exception as e:
         gui.log_panel.add_log("WARNING", f"[{bvid}] 同步中央视频信息失败: {e}")
 
-    # 后台拉取弹幕
+    # 后台拉取弹幕（登记线程,退出时统一 join）
     cid = video.get("_cid", 0)
     if cid:
-        threading.Thread(
-            target=_fetch_danmaku_bg, args=(gui, bvid, cid), daemon=True, name=f"dm-{bvid}"
-        ).start()
+        _start_tracked_thread(
+            _fetch_danmaku_bg, args=(gui, bvid, cid), name=f"dm-{bvid}"
+        )
 
     # 阈值突破检测 + 自动扩档（仅在播放量有效时执行；A1）
     try:
@@ -401,9 +442,26 @@ def _stop_central_fetcher():
 
 
 def _stop_all_workers():
-    """停止集中拉取 + 所有预测线程（应用退出时调用）"""
+    """停止集中拉取 + 所有预测线程 + 登记的即弃线程（应用退出时调用）
+
+    每类线程有界 join：预测线程 3s、即弃线程 2s；超时记录日志，
+    由守护线程属性保证进程可正常退出，避免数据库关闭后线程越界访问。
+    """
     _stop_central_fetcher()
     _stop_all_predictors()
+
+    # join 登记的即弃线程（弹幕拉取、fetch-now）
+    with _adhoc_lock:
+        threads = list(_adhoc_threads)
+    alive = []
+    for t in threads:
+        t.join(timeout=2)
+        if t.is_alive():
+            alive.append(t.name)
+    if alive:
+        logger.warning("以下工作线程未在 2s 内退出,转为守护退出: %s", ", ".join(alive))
+    with _adhoc_lock:
+        _adhoc_threads.clear()
 
 
 # ══════════════════════════════════════════════
@@ -421,10 +479,9 @@ def fetch_single_video_data(gui, bvid, callback=None):
                 video = v
                 break
     if video:
-        threading.Thread(
-            target=_fetch_one_video, args=(gui, bvid, video),
-            daemon=True, name=f"fetch-now-{bvid}"
-        ).start()
+        _start_tracked_thread(
+            _fetch_one_video, args=(gui, bvid, video), name=f"fetch-now-{bvid}"
+        )
     if callback:
         QTimer.singleShot(0, lambda: callback(bvid))
 
