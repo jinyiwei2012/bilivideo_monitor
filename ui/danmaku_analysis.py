@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QMessageBox, QSpinBox, QProgressBar, QCheckBox, QSizePolicy,
     QScrollArea, QListWidget, QListWidgetItem, QTreeWidget,
     QTreeWidgetItem, QHeaderView, QRadioButton, QButtonGroup,
+    QTableWidget, QTableWidgetItem,
 )
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QFont, QPainter, QColor, QBrush, QPen, QFontMetrics
@@ -245,7 +246,29 @@ class DanmakuAnalysisWindow:
         time_layout.addWidget(self._time_widget, stretch=1)
         self._bottom_tabs.addTab(time_page, "  ◧ 时间分布 ♪  ")
 
-        # ── 页3：LLM分析结果 ──
+        # ── 页3：时段情绪联动（弹幕 send_time × 情绪） ──
+        hour_page = QWidget()
+        hour_page.setStyleSheet(f"background-color: {C['bg_base']};")
+        hour_layout = QVBoxLayout(hour_page)
+        hour_layout.setContentsMargins(4, 4, 4, 4)
+        self._hour_table = QTableWidget()
+        self._hour_table.setColumnCount(6)
+        self._hour_table.setHorizontalHeaderLabels(["时段", "弹幕数", "正/负占比", "情绪", "高频热词", "趋势"])
+        self._hour_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self._hour_table.setStyleSheet(f"""
+            QTableWidget {{
+                background-color: {C['bg_base']}; color: {C['text_1']};
+                border: 1px solid {C['border_sub']}; gridline-color: {C['border_sub']};
+            }}
+            QHeaderView::section {{ background-color: {C['bg_surface']}; color: {C['text_2']};
+                border: none; padding: 4px; }}
+        """)
+        hour_layout.addWidget(self._hour_table, stretch=1)
+        self._hour_summary = _sty("", "text_3", font_=QFont("Microsoft YaHei UI", 9))
+        hour_layout.addWidget(self._hour_summary)
+        self._bottom_tabs.addTab(hour_page, "  ♨ 时段情绪联动 ♪  ")
+
+        # ── 页4：LLM分析结果 ──
         llm_page = QWidget()
         llm_page.setStyleSheet(f"background-color: {C['bg_base']};")
         llm_layout = QVBoxLayout(llm_page)
@@ -359,6 +382,9 @@ class DanmakuAnalysisWindow:
             self._status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
 
             self._display_results(texts)
+            # 时段情绪联动：仅弹幕且本地有记录时可用
+            if mode == "danmaku":
+                self._render_hour_sentiment(bvid)
             self._save_btn.setEnabled(True)
             self._llm_btn.setEnabled(True)
             self._save_to_file(silent=True)
@@ -418,6 +444,95 @@ class DanmakuAnalysisWindow:
             self._list_tree.addTopLevelItem(item)
 
         self._count_lbl.setText(f"共 {len(texts)} 条，先列出前 {min(50, len(texts))} 条，天依慢慢听 ♪")
+
+    def _render_hour_sentiment(self, bvid: str):
+        """「时段情绪联动」：按弹幕 send_time 的小时段聚合,分析各时段情绪与热词。
+
+        数据源: 本地 danmaku_records(含 send_time Unix 秒)。无本地记录时
+        清空表格并给出提示(网络抓取的纯文本不带时间戳)。
+        """
+        try:
+            from utils.sentiment_analyzer import analyze_sentiment, extract_keywords
+
+            rows_data = []
+            if self.gui and bvid and bvid in self.gui.video_dbs:
+                vdb = self.gui.video_dbs[bvid]
+                records = vdb.get_danmaku_records(limit=0)
+                rows_data = [
+                    r for r in records
+                    if r.get("content") and r.get("send_time")
+                ]
+            if not rows_data:
+                self._hour_table.setRowCount(0)
+                self._hour_summary.setText("没有带时间戳的本地弹幕记录哦…天依去多拉几次弹幕存进歌谱,就能看到各时段的心情变化啦 ♪")
+                return
+
+            # 按小时段聚合文本
+            buckets: dict = {}
+            for r in rows_data:
+                try:
+                    hour = datetime.fromtimestamp(int(r["send_time"])).hour
+                except (ValueError, OSError, TypeError):
+                    continue
+                buckets.setdefault(hour, []).append(r["content"])
+
+            # 计算每时段情绪 + 热词
+            hour_rows = []
+            total_n = 0
+            for hour in sorted(buckets):
+                texts_h = buckets[hour]
+                ratio = analyze_sentiment(texts_h)
+                pos, neg, neu = ratio["positive"], ratio["negative"], ratio["neutral"]
+                total_n += len(texts_h)
+                if pos >= 0.5:
+                    label, color = "正向", C["success"]
+                elif neg >= 0.5:
+                    label, color = "负向", C["danger"]
+                elif pos > neg + 0.1:
+                    label, color = "偏正向", C["success"]
+                elif neg > pos + 0.1:
+                    label, color = "偏负向", C["danger"]
+                else:
+                    label, color = "中性", C["text_2"]
+                kws = [w for w, _ in extract_keywords(texts_h, top_n=3)]
+                hour_rows.append((hour, len(texts_h), pos, neg, label, color, kws))
+
+            # 24h 完整骨架（无弹幕时段标记 —）
+            self._hour_table.setRowCount(24)
+            for hour in range(24):
+                self._hour_table.setRowHeight(hour, 22)
+                hit = next((h for h in hour_rows if h[0] == hour), None)
+                if hit is None:
+                    self._hour_table.setItem(hour, 0, QTableWidgetItem(f"{hour:02d}:00"))
+                    self._hour_table.setItem(hour, 1, QTableWidgetItem("—"))
+                    continue
+                _, n, pos, neg, label, color, kws = hit
+                # 正负对比迷你条文本
+                bar = "█" * max(1, int(pos * 20)) + "░" * max(1, int(neg * 20))
+                items = [
+                    (f"{hour:02d}:00", C["text_1"]),
+                    (str(n), C["text_2"]),
+                    (f"👍{pos * 100:.0f}% 👎{neg * 100:.0f}%", C["text_2"]),
+                    (label, color),
+                    ("/".join(kws) if kws else "—", C["accent"]),
+                    (bar, C["success"] if pos >= neg else C["danger"]),
+                ]
+                for j, (text, _c) in enumerate(items):
+                    item = QTableWidgetItem(text)
+                    item.setForeground(Qt.GlobalColor.white)
+                    self._hour_table.setItem(hour, j, item)
+
+            peak = max(hour_rows, key=lambda h: h[1], default=None)
+            most_pos = max(hour_rows, key=lambda h: h[2] - h[3], default=None)
+            if peak and most_pos:
+                self._hour_summary.setText(
+                    f"♪ 共 {total_n} 条带时间弹幕 | 弹幕高峰: {peak[0]:02d}:00({peak[1]}条) | "
+                    f"情绪最暖时段: {most_pos[0]:02d}:00 ({most_pos[4]})"
+                )
+        except Exception as e:
+            logger.debug("时段情绪联动渲染失败: %s", e)
+            self._hour_table.setRowCount(0)
+            self._hour_summary.setText("呜…时段情绪分析没跑起来,天依再试试哦 ♪")
 
     def _from_monitor_and_fetch(self):
         """从监控列表选择后直接填入 BV 号并自动抓取分析"""
