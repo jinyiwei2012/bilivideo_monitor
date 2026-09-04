@@ -65,6 +65,12 @@ class PredictionAccuracyPanel:
         self._days_combo.currentIndexChanged.connect(self._refresh)
         ch.addWidget(self._days_combo)
 
+        ch.addWidget(QLabel("视图:"))
+        self._view_combo = QComboBox()
+        self._view_combo.addItems(["预测明细", "算法准确率排名"])
+        self._view_combo.currentIndexChanged.connect(self._refresh)
+        ch.addWidget(self._view_combo)
+
         ch.addStretch()
 
         refresh_btn = QPushButton("⟳ 刷新")
@@ -200,15 +206,20 @@ class PredictionAccuracyPanel:
         # 当前最新播放量（用于摘要显示）
         latest_views = _rec_views[-1] if _rec_views else 0
 
-        # 填充表格
-        self._table.setRowCount(len(rows))
+        # 判断视图：明细 vs 算法排名
+        ranking_view = self._view_combo.currentIndex() == 1
+
+        # 明细行 + 算法聚合
+        detail_rows = []          # (row_idx, 列文本..., deviation)
+        algo_agg: dict = {}       # algo → {n, dev_sum, acc_sum, max_acc, min_acc, pred_sum}
         total_dev = 0.0
         count = 0
         skipped_future = 0
 
-        for i, row in enumerate(rows):
+        for row in rows:
             ts_created, algo, algo_id, current_views, predicted_time, predicted_seconds, target_threshold = row
             ts_display = ts_created[:16] if isinstance(ts_created, str) else str(ts_created)[:16]
+            algo_name = algo or algo_id or "未知算法"
 
             # 解析 prediction 创建时间
             if isinstance(ts_created, str):
@@ -222,11 +233,8 @@ class PredictionAccuracyPanel:
                 pred_ts = None
 
             if pred_ts is None:
-                dev_text = "—"
-                acc_text = "时间错误"
-                actual_views_display = "—"
-                self._set_row(i, ts_display, algo or algo_id, fmt_num(current_views or 0),
-                              actual_views_display, dev_text, acc_text, 0)
+                detail_rows.append((ts_display, algo_name, fmt_num(current_views or 0),
+                                    "—", "—", "时间错误", 0))
                 continue
 
             # 预测的到达时间
@@ -264,25 +272,92 @@ class PredictionAccuracyPanel:
                 dev_text = f"{deviation:.1f}%"
                 acc_text = f"{accuracy:.1f}%"
             else:
+                deviation = 0
+                accuracy = 0
                 dev_text = "—"
                 acc_text = "—"
 
-            self._set_row(i, ts_display, algo or algo_id, fmt_num(current_views or 0),
-                          actual_views_display, dev_text, acc_text,
-                          deviation if target > 0 and actual_views > 0 else 0)
+            if ranking_view and accuracy > 0:
+                agg = algo_agg.setdefault(
+                    algo_name, {"n": 0, "dev_sum": 0.0, "acc_sum": 0.0, "max_acc": 0.0, "min_acc": 101.0}
+                )
+                agg["n"] += 1
+                agg["dev_sum"] += deviation
+                agg["acc_sum"] += accuracy
+                agg["max_acc"] = max(agg["max_acc"], accuracy)
+                agg["min_acc"] = min(agg["min_acc"], accuracy)
+
+            detail_rows.append((ts_display, algo_name, fmt_num(current_views or 0),
+                                actual_views_display, dev_text, acc_text, deviation))
+
+        # ── 渲染 ──
+        if ranking_view:
+            self._render_ranking(algo_agg, len(rows), skipped_future, latest_views)
+        else:
+            self._render_detail(detail_rows)
 
         if count > 0:
             avg_dev = total_dev / count
             extra = f" | {skipped_future} 条预测还在路上呢" if skipped_future > 0 else ""
-            self._summary_lbl.setText(
-                f"♪ 共 {len(rows)} 条记录 | 平均偏差: {avg_dev:.1f}% | "
-                f"平均准确率: {100 - avg_dev:.1f}% | 当前播放量: {fmt_num(latest_views)}{extra}"
-            )
+            if ranking_view:
+                self._summary_lbl.setText(
+                    f"♪ 按算法聚合 {count} 条可回看预测 | 平均偏差: {avg_dev:.1f}% | "
+                    f"平均准确率: {100 - avg_dev:.1f}% | 当前播放量: {fmt_num(latest_views)}{extra}"
+                )
+            else:
+                self._summary_lbl.setText(
+                    f"♪ 共 {len(rows)} 条记录 | 平均偏差: {avg_dev:.1f}% | "
+                    f"平均准确率: {100 - avg_dev:.1f}% | 当前播放量: {fmt_num(latest_views)}{extra}"
+                )
         else:
             self._summary_lbl.setText(
                 f"♪ 共 {len(rows)} 条记录 | 当前播放量: {fmt_num(latest_views)}"
                 + (f" | {skipped_future} 条还在路上呢" if skipped_future > 0 else "")
             )
+
+    def _render_detail(self, detail_rows):
+        """渲染「预测明细」视图：时间 | 算法 | 预测值 | 实际值 | 偏差 | 准确率"""
+        self._table.setColumnCount(6)
+        self._table.setHorizontalHeaderLabels(["预测时间", "算法", "预测值", "实际值", "偏差", "准确率"])
+        self._table.setRowCount(len(detail_rows))
+        for i, (ts_display, algo_name, pred_views, actual_views_display, dev_text, acc_text, deviation) in enumerate(detail_rows):
+            self._set_row(i, ts_display, algo_name, pred_views, actual_views_display, dev_text, acc_text, deviation)
+
+    def _render_ranking(self, algo_agg: dict, total_rows: int, skipped_future: int, latest_views: int):
+        """渲染「算法准确率排名」视图：排名 | 算法 | 次数 | 平均偏差 | 平均准确率 | 最佳/最差"""
+        if not algo_agg:
+            self._table.setColumnCount(6)
+            self._table.setHorizontalHeaderLabels(["排名", "算法", "次数", "平均偏差", "平均准确率", "最佳/最差"])
+            self._table.setRowCount(0)
+            self._summary_lbl.setText(
+                f"♪ 共 {total_rows} 条记录,但还没有可回看的预测呢"
+                + (f" | {skipped_future} 条还在路上" if skipped_future > 0 else "")
+            )
+            return
+        ranked = sorted(
+            algo_agg.items(),
+            key=lambda kv: (kv[1]["acc_sum"] / kv[1]["n"]) if kv[1]["n"] else 0,
+            reverse=True,
+        )
+        self._table.setColumnCount(6)
+        self._table.setHorizontalHeaderLabels(["排名", "算法", "次数", "平均偏差", "平均准确率", "最佳/最差"])
+        self._table.setRowCount(len(ranked))
+        for i, (name, agg) in enumerate(ranked):
+            n = agg["n"]
+            avg_dev = agg["dev_sum"] / n
+            avg_acc = agg["acc_sum"] / n
+            items = [
+                (f"#{i + 1}", C["text_2"]),
+                (name, C["text_1"]),
+                (str(n), C["text_2"]),
+                (f"{avg_dev:.1f}%", C["danger"] if avg_dev > 20 else C["success"]),
+                (f"{avg_acc:.1f}%", C["success"] if avg_acc > 80 else C["warning"] if avg_acc > 50 else C["danger"]),
+                (f"{agg['max_acc']:.0f}% / {agg['min_acc']:.0f}%", C["text_2"]),
+            ]
+            for j, (text, color) in enumerate(items):
+                item = QTableWidgetItem(text)
+                item.setForeground(Qt.GlobalColor.white)
+                self._table.setItem(i, j, item)
 
     def _set_row(self, row_idx, ts_display, algo, pred_views, actual_views, dev_text, acc_text, deviation):
         """填充表格的一行"""
