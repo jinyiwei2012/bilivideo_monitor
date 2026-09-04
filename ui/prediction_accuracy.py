@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
     QMessageBox, QFrame,
 )
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QColor
 
 from ui.theme import C
 from ui.helpers import FONT, FONT_MONO, fmt_num
@@ -356,7 +356,7 @@ class PredictionAccuracyPanel:
             ]
             for j, (text, color) in enumerate(items):
                 item = QTableWidgetItem(text)
-                item.setForeground(Qt.GlobalColor.white)
+                item.setForeground(QColor(color))
                 self._table.setItem(i, j, item)
 
     def _set_row(self, row_idx, ts_display, algo, pred_views, actual_views, dev_text, acc_text, deviation):
@@ -371,5 +371,5 @@ class PredictionAccuracyPanel:
         ]
         for j, (text, color) in enumerate(items):
             item = QTableWidgetItem(text)
-            item.setForeground(Qt.GlobalColor.white)
+            item.setForeground(QColor(color))
             self._table.setItem(row_idx, j, item)

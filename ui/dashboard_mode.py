@@ -623,17 +623,20 @@ class DashboardWindow(QWidget):
         stat_row = layout.itemAt(0).widget()
         if stat_row:
             stat_layout = stat_row.layout()
-            if stat_layout and stat_layout.count() >= 4:
-                # 更新 4 个指标卡的值标签
+            if stat_layout:
+                # 布局中卡片间穿插 addSpacing,需按 QFrame 计数而非布局索引
                 vals = [_fmt(total), _fmt(total_views), _fmt(total_likes), str(achieved)]
-                for i in range(min(4, stat_layout.count())):
+                card_idx = 0
+                for i in range(stat_layout.count()):
                     card = stat_layout.itemAt(i).widget()
-                    if isinstance(card, QFrame):
-                        card_layout = card.layout()
-                        if card_layout and card_layout.count() >= 2:
-                            val_lbl = card_layout.itemAt(1).widget()
-                            if isinstance(val_lbl, QLabel) and i < len(vals):
-                                val_lbl.setText(vals[i])
+                    if not isinstance(card, QFrame) or card_idx >= len(vals):
+                        continue
+                    card_layout = card.layout()
+                    if card_layout and card_layout.count() >= 2:
+                        val_lbl = card_layout.itemAt(1).widget()
+                        if isinstance(val_lbl, QLabel):
+                            val_lbl.setText(vals[card_idx])
+                    card_idx += 1
 
     def _clear_content(self, page, keep_count=1):
         """仅清除页面内容区（保留标题等前 keep_count 个静态条目）"""

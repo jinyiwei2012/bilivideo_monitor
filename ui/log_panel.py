@@ -3,6 +3,7 @@
 """
 
 import logging
+import threading
 from datetime import datetime
 from collections import deque
 from PyQt6.QtWidgets import (
@@ -76,7 +77,8 @@ class LogPanel(QWidget):
     def __init__(self, parent, file_logger):
         super().__init__(parent)
         self._file_logger = file_logger
-        self._log_entries = []  # [(level, timestamp_str, message), ...]
+        self._log_entries = []  # [(level, timestamp_str, message), ...] — 多线程追加,加锁保护
+        self._entries_lock = threading.Lock()
         self._log_level = "ALL"
         self._refresh_timer = None
         self._pending_logs = []  # 批量缓存
@@ -146,9 +148,10 @@ class LogPanel(QWidget):
     def add_log(self, level, message):
         """线程安全地添加日志 — 不直接触碰 QTimer，通过 invoke 调度到主线程"""
         now = datetime.now().strftime("%H:%M:%S")
-        self._log_entries.append((level, now, message))
-        if len(self._log_entries) > self._MAX_ENTRIES:
-            self._log_entries.pop(0)
+        with self._entries_lock:
+            self._log_entries.append((level, now, message))
+            if len(self._log_entries) > self._MAX_ENTRIES:
+                self._log_entries.pop(0)
 
         # 追加到待刷新缓存
         self._pending_logs.append((level, now, message))
@@ -175,8 +178,9 @@ class LogPanel(QWidget):
                 continue
             self._append_text(level, now, msg)
 
-        if len(self._log_entries) > self._MAX_ENTRIES:
-            self._log_entries = self._log_entries[-self._MAX_ENTRIES:]
+        with self._entries_lock:
+            if len(self._log_entries) > self._MAX_ENTRIES:
+                self._log_entries = self._log_entries[-self._MAX_ENTRIES:]
 
         self._sync_empty_state()
         self._flush_timer.stop()
@@ -225,7 +229,9 @@ class LogPanel(QWidget):
     def _refresh_log_view(self):
         """重新加载日志视图（切换等级时）"""
         self._text.clear()
-        for level, ts, msg in self._log_entries:
+        with self._entries_lock:
+            snapshot = list(self._log_entries)
+        for level, ts, msg in snapshot:
             if self._log_level == "ALL" or level == self._log_level:
                 self._append_text(level, ts, msg)
         self._sync_empty_state()
@@ -233,7 +239,8 @@ class LogPanel(QWidget):
     def _clear_log(self):
         """清空日志"""
         self._text.clear()
-        self._log_entries.clear()
+        with self._entries_lock:
+            self._log_entries.clear()
         self._sync_empty_state()
 
     def _sync_empty_state(self):

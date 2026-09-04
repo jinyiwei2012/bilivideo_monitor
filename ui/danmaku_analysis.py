@@ -457,7 +457,8 @@ class DanmakuAnalysisWindow:
             rows_data = []
             if self.gui and bvid and bvid in self.gui.video_dbs:
                 vdb = self.gui.video_dbs[bvid]
-                records = vdb.get_danmaku_records(limit=0)
+                # 上限 5000 条,避免超热门视频全表读取卡死主线程(足够统计小时段分布)
+                records = vdb.get_danmaku_records(limit=5000)
                 rows_data = [
                     r for r in records
                     if r.get("content") and r.get("send_time")
@@ -498,6 +499,7 @@ class DanmakuAnalysisWindow:
                 hour_rows.append((hour, len(texts_h), pos, neg, label, color, kws))
 
             # 24h 完整骨架（无弹幕时段标记 —）
+            self._hour_table.clearContents()  # 清除上一轮残留单元格
             self._hour_table.setRowCount(24)
             for hour in range(24):
                 self._hour_table.setRowHeight(hour, 22)
@@ -505,6 +507,8 @@ class DanmakuAnalysisWindow:
                 if hit is None:
                     self._hour_table.setItem(hour, 0, QTableWidgetItem(f"{hour:02d}:00"))
                     self._hour_table.setItem(hour, 1, QTableWidgetItem("—"))
+                    for j in range(2, 6):
+                        self._hour_table.setItem(hour, j, QTableWidgetItem(""))
                     continue
                 _, n, pos, neg, label, color, kws = hit
                 # 正负对比迷你条文本
@@ -519,7 +523,7 @@ class DanmakuAnalysisWindow:
                 ]
                 for j, (text, _c) in enumerate(items):
                     item = QTableWidgetItem(text)
-                    item.setForeground(Qt.GlobalColor.white)
+                    item.setForeground(QColor(_c))
                     self._hour_table.setItem(hour, j, item)
 
             peak = max(hour_rows, key=lambda h: h[1], default=None)

@@ -72,7 +72,7 @@ class SettingsNotificationMixin:
         add_btn.clicked.connect(lambda: self._add_webhook_row())
         self._webhook_sec_layout.addWidget(add_btn)
 
-        hint = QLabel("支持 企业微信/钉钉/Slack/Discord/自定义。填入机器人 Webhook 地址后,阈值突破、告警、报告都会同步推送 ♪")
+        hint = QLabel("支持 企业微信/钉钉/Slack/Discord/自定义。填入机器人 Webhook 地址后,阈值突破、告警、报告都会同步推送 ♪ (仅限公网 http/https 地址,内网/回环地址会被安全策略拦截)")
         hint.setStyleSheet(f"color: {C['text_3']}; font-size: 8pt;")
         hint.setWordWrap(True)
         self._webhook_sec_layout.addWidget(hint)
@@ -165,6 +165,7 @@ class SettingsNotificationMixin:
 
     def _test_connection(self):
         http_url = self.onebot_http.text().strip()
+        ws_url = self.onebot_ws.text().strip()
         token = self.onebot_token.text().strip()
 
         if not http_url:
@@ -174,22 +175,18 @@ class SettingsNotificationMixin:
         from core.notification import notification_manager
         from threading import Thread
 
-        saved_http = notification_manager.onebot_http
-        saved_ws = notification_manager.onebot_ws
-        saved_token = notification_manager.token
-        notification_manager.onebot_http = http_url
-        notification_manager.onebot_ws = self.onebot_ws.text().strip() or saved_ws
-        notification_manager.token = token
-
+        # 测试参数直接传入 test_connection,不改写全局单例(避免与真实发送竞争)
         def _do_test():
             try:
-                result = notification_manager.test_connection()
+                result = notification_manager.test_connection(
+                    http_url=http_url, ws_url=ws_url, token=token
+                )
                 from PyQt6.QtCore import QTimer
                 QTimer.singleShot(0, lambda: self._show_test_result(result))
-            finally:
-                notification_manager.onebot_http = saved_http
-                notification_manager.onebot_ws = saved_ws
-                notification_manager.token = saved_token
+            except Exception as e:
+                logger.warning("OneBot 连接测试异常: %s", e)
+                from PyQt6.QtCore import QTimer
+                QTimer.singleShot(0, lambda: self._show_test_result({"ok": False, "error": str(e)}))
 
         Thread(target=_do_test, daemon=True).start()
 

@@ -51,7 +51,10 @@ def _untrack_thread(t: threading.Thread):
 
 
 def _start_tracked_thread(target, args=(), name=None):
-    """启动并登记一个守护线程；线程结束时自动注销登记。"""
+    """启动并登记一个守护线程；线程结束时自动注销登记。
+
+    注意: 线程在 t 赋值后才 start(),因此 wrapper 内引用 t 安全（非晚绑定问题）。
+    """
     def _wrapper():
         try:
             target(*args)
@@ -483,7 +486,8 @@ def fetch_single_video_data(gui, bvid, callback=None):
             _fetch_one_video, args=(gui, bvid, video), name=f"fetch-now-{bvid}"
         )
     if callback:
-        QTimer.singleShot(0, lambda: callback(bvid))
+        # 用跨线程桥调度回主线程(而非 QTimer.singleShot, 后者在无事件循环的后台线程不触发)
+        invoke(lambda: callback(bvid))
 
 
 def fetch_all_video_data(gui, callback=None):

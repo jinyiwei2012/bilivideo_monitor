@@ -101,7 +101,7 @@ def load_config() -> Dict[str, Any]:
 
 
 def _decrypt_sensitive(config: dict) -> None:
-    """解密配置中的敏感字段（OneBot access_token、AI profiles api_key）"""
+    """解密配置中的敏感字段（OneBot access_token、AI profiles api_key、Webhook URL）"""
     try:
         from utils.crypto import decrypt_dict
 
@@ -111,6 +111,9 @@ def _decrypt_sensitive(config: dict) -> None:
         for p in config.get("ai", {}).get("profiles", []):
             if p.get("api_key"):
                 decrypt_dict(p, "api_key")
+        for wh in config.get("notification", {}).get("webhooks", []):
+            if isinstance(wh, dict) and wh.get("url"):
+                decrypt_dict(wh, "url")
     except ImportError:
         pass
     except Exception as e:
@@ -152,6 +155,9 @@ def _encrypt_sensitive(config: dict) -> None:
         for p in config.get("ai", {}).get("profiles", []):
             if p.get("api_key"):
                 p["api_key"] = _maybe_encrypt(p["api_key"])
+        for wh in config.get("notification", {}).get("webhooks", []):
+            if isinstance(wh, dict) and wh.get("url"):
+                wh["url"] = _maybe_encrypt(wh["url"])
     except ImportError:
         pass
     except Exception as e:

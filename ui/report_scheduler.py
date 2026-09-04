@@ -476,7 +476,8 @@ def notify_export_done(gui, path, fmt="csv", manual=False):
     """导出完成后向通知渠道推送摘要（QQ/Webhook/Windows）。
 
     摘要取 build_push_msg 的报告文本（监控视频数 + 各视频播放/增速/预测），
-    异步发送,不阻塞导出流程。
+    异步发送,不阻塞导出流程。可在后台线程调用——读取前对监控列表做快照,
+    避免与主线程增删监控并发迭代。
     """
     try:
         from core.notification import notification_manager
@@ -486,11 +487,18 @@ def notify_export_done(gui, path, fmt="csv", manual=False):
         if not gui or not gui.monitored_videos:
             return
         try:
+            with gui._data_lock:
+                videos_snapshot = list(gui.monitored_videos)
+        except AttributeError:
+            videos_snapshot = list(gui.monitored_videos)
+        if not videos_snapshot:
+            return
+        try:
             from ui.main_gui_events import build_push_msg
 
-            digest = build_push_msg(gui, gui.monitored_videos)
+            digest = build_push_msg(gui, videos_snapshot)
         except Exception:
-            digest = f"监控 {len(gui.monitored_videos)} 个视频"
+            digest = f"监控 {len(videos_snapshot)} 个视频"
         msg = f"◧ {head}报告完成 ({now_str})\n格式: {fmt.upper()}\n路径: {path}\n\n{digest}"
         title = f"◧ {head}报告 {now_str}"
         notification_manager.send_qq_private(msg)

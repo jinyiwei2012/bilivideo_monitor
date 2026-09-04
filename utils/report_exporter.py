@@ -24,6 +24,14 @@ def _fmt(n):
     return str(n)
 
 
+def _csv_safe(value) -> str:
+    """CSV/Excel 公式注入防护: 以 = + - @ 制表符 开头的单元格前置单引号"""
+    s = str(value)
+    if s and s[0] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + s
+    return s
+
+
 def generate_summary(videos: List[Dict]) -> Dict:
     """生成摘要数据"""
     total = len(videos)
@@ -61,7 +69,7 @@ def export_html(
             <td>{i}</td>
             <td>{v.get('bvid', '')}</td>
             <td title="{html.escape(v.get('title', ''))}">{html.escape(v.get('title', '')[:30])}</td>
-            <td>{v.get('author', '')}</td>
+            <td>{html.escape(str(v.get('author', '')))}</td>
             <td class="num">{_fmt(v.get('view_count', 0))}</td>
             <td class="num">{_fmt(v.get('like_count', 0))}</td>
             <td class="num">{_fmt(v.get('coin_count', 0))}</td>
@@ -171,8 +179,8 @@ def export_excel(videos: List[Dict], output_path: Optional[str] = None) -> str:
                 w.writerow(
                     [
                         v.get("bvid", ""),
-                        v.get("title", ""),
-                        v.get("author", ""),
+                        _csv_safe(v.get("title", "")),
+                        _csv_safe(v.get("author", "")),
                         v.get("view_count", 0),
                         v.get("like_count", 0),
                         v.get("coin_count", 0),
@@ -188,8 +196,8 @@ def export_excel(videos: List[Dict], output_path: Optional[str] = None) -> str:
         [
             {
                 "BV号": v.get("bvid", ""),
-                "标题": v.get("title", ""),
-                "UP主": v.get("author", ""),
+                "标题": _csv_safe(v.get("title", "")),
+                "UP主": _csv_safe(v.get("author", "")),
                 "播放": v.get("view_count", 0),
                 "点赞": v.get("like_count", 0),
                 "硬币": v.get("coin_count", 0),
@@ -226,8 +234,8 @@ def export_csv(videos: List[Dict], output_path: Optional[str] = None) -> str:
             w.writerow(
                 [
                     v.get("bvid", ""),
-                    v.get("title", ""),
-                    v.get("author", ""),
+                    _csv_safe(v.get("title", "")),
+                    _csv_safe(v.get("author", "")),
                     v.get("view_count", 0),
                     v.get("like_count", 0),
                     v.get("coin_count", 0),

@@ -58,9 +58,22 @@ class NotificationManager:
         """安全运行协程，兼容已有事件循环的线程"""
         try:
             asyncio.get_running_loop()
+            if self._executor is None:
+                return asyncio.run(coro)
             return self._executor.submit(asyncio.run, coro).result()
         except RuntimeError:
             return asyncio.run(coro)
+
+    def _submit(self, fn, *args, **kwargs):
+        """向线程池投递任务；executor 已关闭(应用退出中)时静默丢弃。"""
+        executor = self._executor
+        if executor is None:
+            return None
+        try:
+            return executor.submit(fn, *args, **kwargs)
+        except RuntimeError:
+            logger.debug("通知线程池已关闭,丢弃投递: %s", getattr(fn, "__name__", "task"))
+            return None
 
     def _call_action_ws(self, action: str, params: dict, timeout: float = 5) -> bool | None:
         """通过 WebSocket 调用 OneBot 动作（主力通道）
@@ -141,6 +154,53 @@ class NotificationManager:
     # ── Webhook 通知 ──────────────────────────────
 
     @staticmethod
+    def _redact_url(url: str) -> str:
+        """日志脱敏: 仅保留 scheme://host[:port]，去除 query/fragment（可能含密钥）。"""
+        try:
+            from urllib.parse import urlsplit
+
+            p = urlsplit(url)
+            host = p.hostname or ""
+            port = f":{p.port}" if p.port else ""
+            return f"{p.scheme}://{host}{port}"
+        except Exception:
+            return "<webhook>"
+
+    @staticmethod
+    def _check_webhook_url(url: str) -> str | None:
+        """Webhook URL 安全校验。
+
+        返回 None=通过; 否则返回拒绝原因。阻止 SSRF:
+        - scheme 仅允许 http/https
+        - 禁止指向回环/私网/链路本地/云元数据地址(169.254.169.254)
+        """
+        from urllib.parse import urlsplit
+        import ipaddress
+        import socket
+
+        try:
+            p = urlsplit(url)
+            if p.scheme not in ("http", "https"):
+                return f"仅支持 http/https, 当前: {p.scheme or '(空)'}"
+            host = p.hostname
+            if not host:
+                return "URL 缺少主机名"
+            # 先尝试按 IP 字面量判断
+            try:
+                ip = ipaddress.ip_address(host)
+            except ValueError:
+                try:
+                    ip = ipaddress.ip_address(socket.gethostbyname(host))
+                except Exception:
+                    return None  # DNS 解析失败交由请求超时兜底, 不阻塞用户
+            if ip.is_loopback or ip.is_private or ip.is_link_local or ip.is_reserved:
+                return f"不允许指向内网/回环地址: {host}"
+            return None
+        except Exception as e:
+            logger.debug("Webhook URL 校验异常: %s", e)
+            return None
+
+    @staticmethod
     def _build_webhook_payload(wh_type: str, text: str) -> dict:
         """按渠道类型构造 POST JSON payload。text 为纯文本消息内容。"""
         t = (wh_type or "generic").lower()
@@ -159,15 +219,20 @@ class NotificationManager:
         url = wh.get("url", "")
         if not url:
             return False
+        label = wh.get("name") or self._redact_url(url)
+        reject = self._check_webhook_url(url)
+        if reject:
+            logger.warning("Webhook %s 已拦截: %s", label, reject)
+            return False
         payload = self._build_webhook_payload(wh.get("type", ""), text)
         try:
-            resp = requests.post(url, json=payload, timeout=8)
+            resp = requests.post(url, json=payload, timeout=8, allow_redirects=False)
             ok = resp.status_code in (200, 201, 204)
             if not ok:
-                logger.warning("Webhook %s 返回 %d: %s", wh.get("name", url), resp.status_code, resp.text[:160])
+                logger.warning("Webhook %s 返回 %d: %s", label, resp.status_code, resp.text[:160])
             return ok
         except requests.RequestException as e:
-            logger.error("Webhook %s 发送失败: %s", wh.get("name", url), e)
+            logger.error("Webhook %s 发送失败: %s", label, e)
             return False
 
     def send_webhook(self, message: str) -> bool:
@@ -179,9 +244,8 @@ class NotificationManager:
             return False
         sent_any = False
         for wh in self.webhooks:
-            if self._executor is None:
+            if self._submit(self._post_webhook, wh, message) is None:
                 return sent_any
-            self._executor.submit(self._post_webhook, wh, message)
             sent_any = True
         return sent_any
 
@@ -190,12 +254,16 @@ class NotificationManager:
         url = wh.get("url", "")
         if not url:
             return {"ok": False, "error": "URL 为空"}
+        label = wh.get("name") or self._redact_url(url)
+        reject = self._check_webhook_url(url)
+        if reject:
+            return {"ok": False, "error": reject}
         payload = self._build_webhook_payload(wh.get("type", ""), "♪ B站监控 Webhook 测试连通性 (天依的试音) ")
         try:
-            resp = requests.post(url, json=payload, timeout=8)
+            resp = requests.post(url, json=payload, timeout=8, allow_redirects=False)
             ok = resp.status_code in (200, 201, 204)
             if ok:
-                return {"ok": True, "channel": wh.get("name", "webhook"), "version": str(resp.status_code)}
+                return {"ok": True, "channel": label, "version": str(resp.status_code)}
             return {"ok": False, "error": f"HTTP {resp.status_code}: {resp.text[:160]}"}
         except requests.RequestException as e:
             return {"ok": False, "error": str(e)}
@@ -221,25 +289,23 @@ class NotificationManager:
 
     def send_qq_private(self, message: str) -> bool:
         """发送QQ私聊消息（异步，不阻塞主线程）"""
-        if not self.qq_private or not self.enabled or self._executor is None:
+        if not self.qq_private or not self.enabled:
             return False
 
         def _send():
             self._call_action("send_private_msg", {"user_id": self.qq_private, "message": message})
 
-        self._executor.submit(_send)
-        return True
+        return self._submit(_send) is not None
 
     def send_qq_group(self, message: str) -> bool:
         """发送QQ群消息（异步，不阻塞主线程）"""
-        if not self.qq_group or not self.enabled or self._executor is None:
+        if not self.qq_group or not self.enabled:
             return False
 
         def _send():
             self._call_action("send_group_msg", {"group_id": self.qq_group, "message": message})
 
-        self._executor.submit(_send)
-        return True
+        return self._submit(_send) is not None
 
     def send_threshold_notification(self, bvid: str, title: str, threshold: int, current_views: int):
         """发送阈值突破通知（Windows + QQ + Webhook 全渠道）"""
@@ -261,34 +327,39 @@ class NotificationManager:
 
     # ── 连通性检查 ──────────────────────────────
 
-    def test_connection(self) -> Dict[str, Any]:
+    def test_connection(self, http_url: str = "", ws_url: str = "", token: str = "") -> Dict[str, Any]:
         """测试 OneBot 服务连通性，返回 {'ok': bool, 'channel': str, 'version': str, 'error': str}
 
         先试 WS（主力），失败再试 HTTP（保底）。
+        支持传入测试参数覆盖（不修改实例状态，避免与真实发送竞争）。
         """
+        http_url = http_url or self.onebot_http
+        ws_url = ws_url or self.onebot_ws
+        token = token if token is not None else self.token
         result: Dict[str, Any] = {"ok": False, "channel": "", "version": "", "error": ""}
 
         # 1) 尝试 WS
-        if _HAS_WS and self.onebot_ws:
-            ws_ok = self._test_connection_ws(result)
+        if _HAS_WS and ws_url:
+            ws_ok = self._test_connection_ws(result, ws_url=ws_url, token=token)
             if ws_ok:
                 return result
 
         # 2) 尝试 HTTP
-        if self.onebot_http:
-            self._test_connection_http(result)
+        if http_url:
+            self._test_connection_http(result, http_url=http_url, token=token)
 
         return result
 
-    def _test_connection_ws(self, result: dict) -> bool:
-        """WS 连通性检测"""
-        uri = self.onebot_ws
+    def _test_connection_ws(self, result: dict, ws_url: str = "", token: str = "") -> bool:
+        """WS 连通性检测（使用传入参数,不读实例状态）"""
+        uri = ws_url or self.onebot_ws
+        token = token if token is not None else self.token
         extra_headers = {}
-        if self.token:
+        if token:
             if uri.startswith("ws://"):
                 result["error"] = "有 token 但 WS 是明文，跳过"
                 return False
-            extra_headers["Authorization"] = f"Bearer {self.token}"
+            extra_headers["Authorization"] = f"Bearer {token}"
 
         async def _check():
             async with websockets.connect(uri, additional_headers=extra_headers, open_timeout=5, close_timeout=3) as ws:
@@ -312,16 +383,18 @@ class NotificationManager:
             result["error"] = f"WS 连接失败: {e}"
             return False
 
-    def _test_connection_http(self, result: dict):
-        """HTTP 连通性检测"""
+    def _test_connection_http(self, result: dict, http_url: str = "", token: str = "") -> bool:
+        """HTTP 连通性检测（使用传入参数,不读实例状态）"""
+        http_url = http_url or self.onebot_http
+        token = token if token is not None else self.token
         try:
-            url = f"{self.onebot_http}/get_version_info"
+            url = f"{http_url}/get_version_info"
             headers = {}
-            if self.token:
-                if self.onebot_http.startswith("http://"):
+            if token:
+                if http_url.startswith("http://"):
                     result["error"] = "有 token 但 HTTP 是明文，拒绝请求"
-                    return
-                headers["Authorization"] = f"Bearer {self.token}"
+                    return False
+                headers["Authorization"] = f"Bearer {token}"
             resp = requests.get(url, headers=headers, timeout=5)
             if resp.status_code == 200:
                 data = resp.json()
@@ -329,19 +402,30 @@ class NotificationManager:
                 result["channel"] = "HTTP"
                 d = data.get("data", {})
                 result["version"] = d.get("app_version", d.get("version", str(d)))
+                return True
             elif resp.status_code == 401:
                 result["error"] = "鉴权失败（HTTP 401），请检查 access_token 是否匹配"
             else:
                 result["error"] = f"HTTP {resp.status_code}: {resp.text[:200]}"
         except requests.ConnectionError:
-            result["error"] = f"HTTP 无法连接 {self.onebot_http}"
+            result["error"] = f"HTTP 无法连接 {http_url}"
         except Exception as e:
             result["error"] = f"HTTP 异常: {e}"
+        return False
 
     def shutdown(self):
-        """关闭线程池，释放资源（应用退出时调用）"""
-        self._executor.shutdown(wait=True)
+        """关闭线程池，释放资源（应用退出时调用）。
+
+        wait=False: 不等待已排队 POST 的 8s 超时,避免退出卡顿;
+        守护线程随进程结束,残留请求自然终止。
+        """
+        executor = self._executor
         self._executor = None
+        if executor is not None:
+            try:
+                executor.shutdown(wait=False, cancel_futures=True)
+            except Exception as e:
+                logger.debug("通知线程池关闭异常: %s", e)
 
 
 # 全局通知管理器实例

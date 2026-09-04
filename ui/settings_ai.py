@@ -154,6 +154,10 @@ class SettingsAIMixin:
 
 
     def _on_ai_profile_selected(self):
+        # 下拉框在字段创建前就可能触发（setCurrentText/清空重填），此时直接跳过
+        if not all(hasattr(self, a) for a in
+                    ("_ai_name_entry", "_ai_key_entry", "_ai_endpoint_entry", "_ai_model_entry")):
+            return
         idx = self._ai_profile_cb.currentIndex()
         if idx < 0 or idx >= len(self._profiles):
             return
