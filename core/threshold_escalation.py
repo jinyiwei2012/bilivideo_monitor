@@ -109,7 +109,7 @@ def _log(gui, level: str, msg: str):
 
 
 def _send(title: str, body: str):
-    """发送通知（全部渠道）"""
+    """发送通知（全部渠道: Windows + QQ + Webhook）"""
     try:
         from core.notification import notification_manager
 
@@ -117,6 +117,7 @@ def _send(title: str, body: str):
         qq_msg = f"{title}\n{body}"
         notification_manager.send_qq_private(qq_msg)
         notification_manager.send_qq_group(qq_msg)
+        notification_manager.send_webhook(f"{title}\n{body}")
     except Exception as e:
         logger.debug("通知发送失败: %s", e)
 

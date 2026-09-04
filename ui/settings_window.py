@@ -266,6 +266,17 @@ class SettingsWindow(
             "private_qq": self.qq_private.text().strip() if hasattr(self.qq_private, 'text') else "",
             "group_qq": self.qq_group.text().strip() if hasattr(self.qq_group, 'text') else "",
         }
+        # Webhook 机器人列表持久化
+        webhooks = []
+        for name_entry, type_combo, url_entry, _ in getattr(self, "_webhook_rows", []):
+            url = url_entry.text().strip()
+            if url:
+                webhooks.append({
+                    "name": name_entry.text().strip() or "webhook",
+                    "type": str(type_combo.currentData() or "generic"),
+                    "url": url,
+                })
+        self._cfg.setdefault("notification", {})["webhooks"] = webhooks
         self._cfg["monitor"]["max_monitor_count"] = max_m
         self._cfg["prediction"]["prediction_hours"] = pred_hours
         self._cfg["prediction"]["min_confidence"] = confidence

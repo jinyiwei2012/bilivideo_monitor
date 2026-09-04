@@ -60,6 +60,7 @@ DEFAULT_CONFIG = {
         "notify_on_threshold": True,
         "notify_on_error": False,
         "notify_on_start": False,
+        "webhooks": [],  # [{name, url, type}] type: generic/wecom/dingtalk/slack/discord
     },
     "ui": {"theme": "darkly", "auto_refresh": True, "refresh_interval": 30, "show_cover": True, "show_chart": True,
            "close_to_tray": True, "tray_notify": True},

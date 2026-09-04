@@ -286,6 +286,7 @@ def scan_alerts_background(gui):
     try:
         notification_manager.send_qq_private(msg)
         notification_manager.send_qq_group(msg)
+        notification_manager.send_webhook(f"{title}\n{msg}")
         notification_manager.send_windows_notification(title, msg[:256])
         gui.log_panel.add_log("INFO", f"高确定度异常告警已推送 ({len(high_hits)} 条)")
 

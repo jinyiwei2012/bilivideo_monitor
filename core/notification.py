@@ -37,10 +37,11 @@ class NotificationManager:
         self.enabled = True
         self.qq_private = ""
         self.qq_group = ""
+        self.webhooks: list = []  # [{name, url, type}]
         self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)  # 防止单工作线程死锁（WS 调用可重入）
 
     def configure(self, config: Dict[str, Any]):
-        """从 settings.json 的嵌套结构加载 OneBot 配置"""
+        """从 settings.json 的嵌套结构加载 OneBot / Webhook 配置"""
         ob_cfg = config.get("onebot", {})
         self.onebot_http = ob_cfg.get("http_url", self.onebot_http)
         self.onebot_ws = ob_cfg.get("ws_url", self.onebot_ws)
@@ -48,6 +49,8 @@ class NotificationManager:
         self.enabled = ob_cfg.get("enabled", True)
         self.qq_private = str(ob_cfg.get("private_qq", ""))
         self.qq_group = str(ob_cfg.get("group_qq", ""))
+        notif_cfg = config.get("notification", {})
+        self.webhooks = [w for w in notif_cfg.get("webhooks", []) if isinstance(w, dict) and w.get("url")]
 
     # ── OneBot 底层调用（WS → HTTP） ──────────────────────
 
@@ -135,6 +138,68 @@ class NotificationManager:
             return self._call_action_http(action, params)
         return False
 
+    # ── Webhook 通知 ──────────────────────────────
+
+    @staticmethod
+    def _build_webhook_payload(wh_type: str, text: str) -> dict:
+        """按渠道类型构造 POST JSON payload。text 为纯文本消息内容。"""
+        t = (wh_type or "generic").lower()
+        if t == "wecom":  # 企业微信机器人
+            return {"msgtype": "text", "text": {"content": text}}
+        if t == "dingtalk":  # 钉钉机器人
+            return {"msgtype": "text", "text": {"content": text}}
+        if t == "slack":  # Slack Incoming Webhook
+            return {"text": text}
+        if t == "discord":  # Discord Webhook
+            return {"content": text[:1900]}
+        return {"text": text}  # generic: 简单 {"text": ...}
+
+    def _post_webhook(self, wh: dict, text: str) -> bool:
+        """发送单个 webhook（阻塞调用，供线程池执行）"""
+        url = wh.get("url", "")
+        if not url:
+            return False
+        payload = self._build_webhook_payload(wh.get("type", ""), text)
+        try:
+            resp = requests.post(url, json=payload, timeout=8)
+            ok = resp.status_code in (200, 201, 204)
+            if not ok:
+                logger.warning("Webhook %s 返回 %d: %s", wh.get("name", url), resp.status_code, resp.text[:160])
+            return ok
+        except requests.RequestException as e:
+            logger.error("Webhook %s 发送失败: %s", wh.get("name", url), e)
+            return False
+
+    def send_webhook(self, message: str) -> bool:
+        """向所有已配置的 Webhook 异步推送消息（不阻塞调用线程）。
+
+        返回是否至少有一个渠道被投递（异步排队成功即视为投递）。
+        """
+        if not self.webhooks or not message:
+            return False
+        sent_any = False
+        for wh in self.webhooks:
+            if self._executor is None:
+                return sent_any
+            self._executor.submit(self._post_webhook, wh, message)
+            sent_any = True
+        return sent_any
+
+    def test_webhook(self, wh: dict) -> Dict[str, Any]:
+        """同步测试单个 Webhook 配置（供设置界面「测试」按钮使用）"""
+        url = wh.get("url", "")
+        if not url:
+            return {"ok": False, "error": "URL 为空"}
+        payload = self._build_webhook_payload(wh.get("type", ""), "♪ B站监控 Webhook 测试连通性 (天依的试音) ")
+        try:
+            resp = requests.post(url, json=payload, timeout=8)
+            ok = resp.status_code in (200, 201, 204)
+            if ok:
+                return {"ok": True, "channel": wh.get("name", "webhook"), "version": str(resp.status_code)}
+            return {"ok": False, "error": f"HTTP {resp.status_code}: {resp.text[:160]}"}
+        except requests.RequestException as e:
+            return {"ok": False, "error": str(e)}
+
     # ── 通知发送 ────────────────────────────────
 
     def send_windows_notification(self, title: str, message: str) -> bool:
@@ -177,7 +242,7 @@ class NotificationManager:
         return True
 
     def send_threshold_notification(self, bvid: str, title: str, threshold: int, current_views: int):
-        """发送阈值突破通知（同时发送 Windows 通知和 QQ 通知）"""
+        """发送阈值突破通知（Windows + QQ + Webhook 全渠道）"""
         message = (
             f"追上光啦!♪ 视频《{title}》播放量突破{threshold / 10000:.0f}万！\n"
             f"当前播放量: {current_views}\nBV号: {bvid}"
@@ -190,6 +255,9 @@ class NotificationManager:
         qq_msg = f"♪ 播放量突破提醒\n{message}"
         self.send_qq_private(qq_msg)
         self.send_qq_group(qq_msg)
+
+        # Webhook 通知
+        self.send_webhook(f"♪ 播放量突破提醒\n{message}")
 
     # ── 连通性检查 ──────────────────────────────
 

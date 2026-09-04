@@ -802,6 +802,7 @@ def push_single(gui, bvid):
 
     notification_manager.send_qq_private(msg)
     notification_manager.send_qq_group(msg)
+    notification_manager.send_webhook(f"◧ B站监控 — {title[:20]}\n{msg}")
     notification_manager.send_windows_notification(f"◧ B站监控 — {title[:20]}", msg[:256])
     gui._sb("status", f"已把「{title[:20]}」的歌声传给大家啦 ♪", C["success"])
 
@@ -820,9 +821,10 @@ def manual_push(gui):
 
     ok_qq_private = notification_manager.send_qq_private(msg)
     ok_qq_group = notification_manager.send_qq_group(msg)
+    ok_webhook = notification_manager.send_webhook(f"◧ B站监控报告 ({now_str})\n{msg}")
     ok_win = notification_manager.send_windows_notification(f"◧ B站监控报告 ({now_str})", msg[:256])
 
-    if ok_qq_private or ok_qq_group:
+    if ok_qq_private or ok_qq_group or ok_webhook:
         gui._sb("status", f"已把 {len(videos)} 首歌的现状唱给大家听啦 ♪", C["success"])
     elif ok_win:
         gui._sb("status", "这次只有 Windows 通知送达哦…QQ 那边天依够不到 ♪", C["warning"])
@@ -847,6 +849,7 @@ def on_training_completed(gui, mode="训练", count=0, detail="", trained_ids=No
             msg = f"◉ {mode}完成 ({now_str})"
         notification_manager.send_qq_private(msg)
         notification_manager.send_qq_group(msg)
+        notification_manager.send_webhook(f"◉ {mode}完成 ({now_str})\n{msg}")
         notification_manager.send_windows_notification(f"◉ {mode}完成", msg[:256])
     except Exception as e:
         logger.debug("训练推送异常: %s", e)
@@ -967,6 +970,7 @@ def daily_push(gui):
         msg = build_daily_push_msg(gui)
         notification_manager.send_qq_private(msg)
         notification_manager.send_qq_group(msg)
+        notification_manager.send_webhook(f"◧ B站监控日报 ({datetime.now().strftime('%Y-%m-%d %H:%M')})\n{msg}")
         notification_manager.send_windows_notification("◧ B站监控日报", msg[:256])
         logger.info("每日推送完成")
     except Exception as e:
