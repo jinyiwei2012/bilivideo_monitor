@@ -2714,3 +2714,57 @@ class TestThemeTokenCoverage:
             assert qss.strip(), "QSS 为空"
             assert "{t[" not in qss, "存在未替换的令牌占位符"
             _build_palette(theme)
+
+
+class TestTypeGate:
+    """M3.8: mypy 类型门禁（棘轮）的基线与解析契约。"""
+
+    @staticmethod
+    def _load_gate_module():
+        import importlib.util
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        path = root / "scripts" / "type_gate.py"
+        spec = importlib.util.spec_from_file_location("_type_gate_under_test", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_baseline_file_is_valid_and_sorted(self):
+        import json
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        path = root / ".mypy-baseline.json"
+        assert path.is_file(), "缺少 .mypy-baseline.json（M3.8 类型基线）"
+        errors = json.loads(path.read_text(encoding="utf-8"))["errors"]
+        assert errors, "基线不应为空（历史错误需显式挂起）"
+        assert len(errors) == len(set(errors)), "基线存在重复键"
+        for key in errors:
+            parts = key.split("|", 2)
+            assert len(parts) == 3, f"基线键格式应为 文件|错误码|消息: {key!r}"
+            assert parts[0].endswith(".py"), f"首段应为文件路径: {key!r}"
+            assert parts[1] and " " not in parts[1], f"第二段应为错误码: {key!r}"
+        assert errors == sorted(errors), "基线应保持排序以便 diff"
+
+    def test_error_line_parser_matches_mypy_output(self):
+        mod = self._load_gate_module()
+        m = mod._ERROR_RE.match("ui/training_events.py:77: error: Bad thing happened  [attr-defined]")
+        assert m is not None
+        assert m.group("file") == "ui/training_events.py"
+        assert m.group("code") == "attr-defined"
+        # 非错误行必须被忽略
+        for line in (
+            "Found 3 errors in 2 files (checked 10 source files)",
+            "utils/x.py:5: note: See https://example.com",
+            "Success: no issues found in 3 source files",
+        ):
+            assert mod._ERROR_RE.match(line) is None, f"不应匹配: {line}"
+
+    def test_normalized_key_has_no_line_number(self):
+        mod = self._load_gate_module()
+        m = mod._ERROR_RE.match("core/a.py:123: error: msg here  [assignment]")
+        key = f"{mod._normalize(m.group('file'))}|{m.group('code')}|{m.group('msg')}"
+        assert key == "core/a.py|assignment|msg here"
+        assert "123" not in key, "行号不得进入基线键（避免重构导致基线失配）"

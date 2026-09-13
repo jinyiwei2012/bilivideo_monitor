@@ -28,7 +28,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install black flake8 bandit radon pytest
+          pip install black flake8 bandit radon pytest mypy
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
       # 格式门禁：全仓必须符合 black(line-length=120)，不允许 || true
@@ -50,4 +50,7 @@ jobs:
       - name: Run tests with Pytest
         run: python -m pytest tests/ -q
 
-      # 说明：mypy 暂未接入（代码库尚未做类型注解，M3.9 完成后再启用，届时禁止 || true）
+      # 类型门禁：mypy 棘轮。历史类型错误已挂起在 .mypy-baseline.json（738 条唯一键），
+      # 新增类型错误即失败；修复后可用 `python scripts/type_gate.py --update-baseline` 收紧基线。
+      - name: Type gate (mypy ratchet)
+        run: python scripts/type_gate.py

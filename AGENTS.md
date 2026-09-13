@@ -14,7 +14,7 @@ python run.py
 # Lint & format
 black --line-length=120 .
 flake8 .
-mypy core/ algorithms/base.py ui/ utils/ || true
+python scripts/type_gate.py       # mypy 类型门禁（棘轮；历史错误挂起在 .mypy-baseline.json）
 bandit -r . -c pyproject.toml -ll
 radon cc -a .
 
