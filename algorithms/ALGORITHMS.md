@@ -73,6 +73,39 @@ T = (Target - Current) / V
 
 ---
 
+### 2. 短期热度感知 (Short-Term Hotness)
+
+**文件**: `models/simple/short_term_hotness.py`
+
+#### 原理
+以稳健速率外推为基线，再用「在线人数热度」与「自激励动量」做保守调制。在线人数是**即时热度**的直接代理，但不具备长程可持续性，故本算法只做 ±20% 以内的幅度修正，不改变基线量级：
+
+1. **基线**：`calculate_velocity()`（已优先返回抗噪的 `velocity_robust_hourly`）。
+2. **在线人数调制**：以「在线人数 / 累计播放」的占比区分真实热度与伪热度（直播 / 买量）。占比落在正常区间时温和提速（封顶 +8%）并小幅提升置信；占比异常偏高（> 2%）判定为可疑伪热度，改为**下调置信**而不提速。
+3. **自激励动量**：若近 1h 检出推流（`detect_surge().is_surging`），用推流检测中已含衰减的 `adjusted_velocity` 对纯外推速率取中，修正「爆发后立即回归基线」的过度保守——这是 Hawkes 自激过程在 B 站视频浏览量上的经验落地。
+4. **置信度**：以视频年龄衰减为基础，叠加数据可得性修正，最终截断在 `[0.2, 0.95]`。
+
+#### 数学公式
+```
+r        = viewers_total / max(view_count, 1)             # 在线占比
+正常热度  : hot = clamp(r / 0.005, 0.02, 1) × 0.08         # 封顶 +8%
+可疑伪热度: r > 0.02  →  confidence -= 0.15（不调速）
+自激励    : v ← 0.5·v + 0.5·max(adj_velocity, 0.5·v)
+ETA      : hours = (threshold - view_count) / v
+置信      : conf = clamp(1 - age_hours/168, 0.3, 1.0) + conf_bonus   →   clamp(0.2, 0.95)
+```
+
+#### 适用场景
+- 监控拉取自带实时在线人数的视频（可取到 `live_features.viewers_total`）
+- 直播 / 买量导致「在线虚高」的识别与置信下修
+
+#### 参考
+- Dong, J., He, Y., Song, J.-Y., Ding, H., & Kong, Y.-X. (2022). *Universal scaling behavior and Hawkes process of videos' views on Bilibili.com*. Frontiers in Physics, 10, 1018704 — B 站视频浏览量的 Hawkes 自激过程建模
+- Rizoiu, M.-A., Xie, L., Sanner, S., Cebrian, M., Yu, H., & Van Henteryck, P. (2017). *Expecting to be HIP: Hawkes Intensity Processes for Social Media Popularity*. WWW 2017
+- Hawkes, A. G. (1971). *Spectra of some self-exciting and mutually exciting point processes*. Biometrika, 58(1), 83–90
+
+> 局限：在线人数不是可持续性指标，本算法不做激进外推。
+
 ## 增长/衰减模型
 
 ### 2. 指数增长 (Exponential Growth)
@@ -379,6 +412,49 @@ alpha = obs_prob * (alpha @ transition_matrix)
 - 需要量化互动对播放量的拉动效应
 
 ---
+
+### 26. 季节性分解 (Seasonal Decomposition)
+
+**文件**: `models/time_series/seasonal_decomposition.py`
+
+#### 原理
+对**增量序列**（累计播放量的一阶差分）做加法分解，把「趋势 + 周期 + 噪声」拆开后分别外推再合成预测。属于经典 STL 思想的轻量实现——用中心化移动平均替代 loess，且不做迭代鲁棒重加权：
+
+1. **趋势 T**：中心化移动平均提取（窗口取 `period` 或 `period+1` 以保证奇数）；窗口越界处退回原值。
+2. **季节 S**：去趋势后按同相位（`i mod period`）取均值，再减去季节均值中心化（使 ΣS = 0）。
+3. **残差 R**：`R = Y − T − S`。
+4. **预测**：未来第 d 期增长 ≈ `T_last + S[(n + d − 1) mod period]`（下限 0），逐期累加直到达到目标阈值；上限 3650 期。
+
+#### 数学公式
+```
+Y_t = T_t + S_t + R_t                          # 加法分解
+T_t = mean(y_{t−h} … y_{t+h}),  h = period // 2
+S_i = mean{ y_j − T_j | j ≡ i (mod period) } − mean(S)
+R_t = Y_t − T_t − S_{t mod period}
+forecast_d = max(0, T_last + S_{(n+d−1) mod period})
+期数所需 = 最小 d 使 Σ_{k≤d} forecast_k ≥ threshold − view_count
+seconds_needed = d × 86400
+```
+
+#### 置信度
+```
+base = min(0.85, 0.3 + 0.015·n)                # n = 增量序列长度
+snr  = σ(growth) / (σ(residual) + 1)
+conf = min(0.9, 0.6·base + 0.4·min(1, snr / 5))
+```
+
+#### 适用场景
+- 有明显周期波动且数据充足的监控序列（历史 ≥ 14 点、增量 ≥ 10 点）
+- 需要将「长期趋势」与「周期波动」分离观察的场景
+
+#### 降级链
+历史不足或分解异常 → 返回 None（不参与集成）
+
+> 注意：`period` 默认 7，单位是**监控采样步**（本项目约 75 s/步），并非自然日 / 周；实际调参应按采样间隔换算。
+
+#### 参考
+- Cleveland, R. B., Cleveland, W. S., McRae, J. E., & Terpenning, I. (1990). *STL: A Seasonal-Trend Decomposition Procedure Based on Loess*. Journal of Official Statistics, 6(1), 3–73.
+- Bandara, K., Hyndman, R. J., & Bergmeir, C. (2021). *MSTL: A Seasonal-Trend Decomposition Algorithm for Time Series with Multiple Seasonal Patterns*. arXiv:2107.13462
 
 ## 深度学习
 
@@ -1801,7 +1877,7 @@ Loss 急跌后横盘         Loss 震荡不降          Loss 先降后升
 12. Oreshkin, B. N., et al. (2020). N-BEATS. (ICLR 2020)
 13. Wu, H., et al. (2023). TimesNet. (ICLR 2023)
 14. Zhou, H., et al. (2021). Informer. (AAAI 2021)
-15. Dong, et al. (2022). Universal scaling behavior and Hawkes process of videos' views on Bilibili.com.
+15. Dong, J., He, Y., Song, J.-Y., Ding, H., & Kong, Y.-X. (2022). Universal scaling behavior and Hawkes process of videos' views on Bilibili.com. Frontiers in Physics, 10, 1018704. (B站 Hawkes 自激过程)
 16. Assimakopoulos, V., & Nikolopoulos, K. (2000). The theta model: a decomposition approach to forecasting.
 17. Koenker, R., & Hallock, K. F. (2001). Quantile regression.
 18. Theil, H. (1950). A rank-invariant method of linear and polynomial regression analysis.
@@ -1843,9 +1919,12 @@ Loss 急跌后横盘         Loss 震荡不降          Loss 先降后升
 54. Bass, F. M. (1969). A New Product Growth Model for Consumer Durables.
 55. Vovk, V., et al. (2005). Algorithmic Learning in a Random World. (Conformal Prediction)
 56. Hoeting, J. A., et al. (1999). Bayesian Model Averaging: A Tutorial.
+57. Cleveland, R. B., Cleveland, W. S., McRae, J. E., & Terpenning, I. (1990). STL: A Seasonal-Trend Decomposition Procedure Based on Loess. Journal of Official Statistics, 6(1), 3–73. (季节性分解)
+58. Hawkes, A. G. (1971). Spectra of some self-exciting and mutually exciting point processes. Biometrika, 58(1), 83–90. (自激励过程)
+59. Rizoiu, M.-A., et al. (2017). Expecting to be HIP: Hawkes Intensity Processes for Social Media Popularity. WWW 2017. (热度自激强度)
 
 ---
 
-*文档版本: 8.0*
-*最后更新: 2026-06-02*
+*文档版本: 8.1*
+*最后更新: 2026-09-14*
 *算法总数: 137*
