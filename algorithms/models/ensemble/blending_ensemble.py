@@ -174,8 +174,10 @@ class BlendingEnsembleAlgorithm(BaseAlgorithm):
             ("blending_ensemble:ridge2", lambda: Ridge(alpha=0.1)),  # 弱正则化 Ridge（不同角度）
         ]
         meta_X_hold = []  # 元特征矩阵：每个基学习器在 holdout 上的预测
+        models = []  # 已拟合的基学习器（当前时刻预测复用）
         for key, factory in factories:
             m = get_or_fit(key, factory, X_train, y_train)  # 仅用 80% 数据训练基学习器
+            models.append(m)
             meta_X_hold.append(m.predict(X_hold))  # 在 20% holdout 上预测作为元特征
         meta_X_hold = np.column_stack(meta_X_hold)  # 合并为 (n_hold, 3) 元特征矩阵
 
