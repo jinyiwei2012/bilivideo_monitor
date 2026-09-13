@@ -17,7 +17,6 @@
     "ModelTrainer._train_one",
     "OnlineViewersPanel._fetch_all_viewers",
     "PredictionAccuracyPanel._load_data",
-    "SettingsWindow._persist_settings",
     "SnapshotBarChart.paintEvent",
     "SnapshotTab._apply_custom_range",
     "TrainingPanel._start_train_thread",

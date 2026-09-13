@@ -257,19 +257,20 @@ class SettingsWindow(
             return False
         return True
 
-    def _persist_settings(self):
-        from config import save_config
-        from utils.crypto import encrypt, decrypt
+    @staticmethod
+    def _text_or_value(widget, cast):
+        """兼容 QLineEdit(.text) / QSpinBox(.value) / 裸值 的取值转换。"""
+        if hasattr(widget, "text"):
+            raw = widget.text()
+        elif hasattr(widget, "value"):
+            raw = widget.value()
+        else:
+            raw = widget
+        return cast(raw)
 
-        max_m = int(self.max_monitors.text() if hasattr(self.max_monitors, "text") else self.max_monitors)
-        pred_hours = int(
-            self.predict_hours.text() if hasattr(self.predict_hours, "text") else self.predict_hours.value()
-        )
-        confidence = float(
-            self.min_confidence.text() if hasattr(self.min_confidence, "text") else self.min_confidence.value()
-        )
-
-        self._cfg["onebot"] = {
+    def _collect_onebot_cfg(self):
+        """收集 OneBot / QQ 通知配置。"""
+        return {
             "enabled": self.onebot_enabled.isChecked() if hasattr(self.onebot_enabled, "isChecked") else False,
             "http_url": self.onebot_http.text().strip() if hasattr(self.onebot_http, "text") else "",
             "ws_url": self.onebot_ws.text().strip() if hasattr(self.onebot_ws, "text") else "",
@@ -277,7 +278,9 @@ class SettingsWindow(
             "private_qq": self.qq_private.text().strip() if hasattr(self.qq_private, "text") else "",
             "group_qq": self.qq_group.text().strip() if hasattr(self.qq_group, "text") else "",
         }
-        # Webhook 机器人列表持久化
+
+    def _collect_webhooks(self):
+        """收集 webhook 机器人列表（url 为空的行忽略）。"""
         webhooks = []
         for name_entry, type_combo, url_entry, _ in getattr(self, "_webhook_rows", []):
             url = url_entry.text().strip()
@@ -289,10 +292,68 @@ class SettingsWindow(
                         "url": url,
                     }
                 )
-        self._cfg.setdefault("notification", {})["webhooks"] = webhooks
+        return webhooks
+
+    def _collect_thresholds(self):
+        """收集阈值表（非法行跳过；名称为空时按数值自动命名）。"""
+        thresholds = []
+        for v_widget, n_widget, _ in getattr(self, "_thresh_rows", []):
+            try:
+                value = int(v_widget.text() if hasattr(v_widget, "text") else v_widget.value())
+                name = n_widget.text().strip() if hasattr(n_widget, "text") else str(n_widget)
+                if not name:
+                    name = auto_threshold_name(value)
+                if value > 0:
+                    thresholds.append([value, name])
+            except (ValueError, TypeError):
+                continue
+        return thresholds
+
+    def _encrypt_secrets(self, profiles, token, encrypt):
+        """写盘前加密 AI profiles 的 api_key 与 OneBot access_token。"""
+        for profile in profiles:
+            key = profile.get("api_key", "")
+            if key:
+                profile["api_key"] = encrypt(key)
+        if token:
+            self._cfg["onebot"]["access_token"] = encrypt(token)
+
+    def _restore_secrets(self, profiles, encrypted_token, decrypt):
+        """写盘后恢复明文，避免 UI / 通知模块拿到密文。
+
+        Args:
+            profiles: AI 配置列表（其 api_key 此时已是密文，原地还原）
+            encrypted_token: OneBot access_token 的**落盘密文**（非明文）
+            decrypt: 解密函数
+        """
+        for profile in profiles:
+            key = profile.get("api_key", "")
+            if key:
+                try:
+                    profile["api_key"] = decrypt(key)
+                except Exception:
+                    pass
+        if encrypted_token:
+            try:
+                self._cfg["onebot"]["access_token"] = decrypt(encrypted_token)
+            except Exception:
+                pass
+
+    def _persist_settings(self):
+        from config import save_config
+        from utils.crypto import decrypt, encrypt
+
+        max_m = self._text_or_value(self.max_monitors, int)
+        pred_hours = self._text_or_value(self.predict_hours, int)
+        confidence = self._text_or_value(self.min_confidence, float)
+
+        self._cfg["onebot"] = self._collect_onebot_cfg()
+        self._cfg.setdefault("notification", {})["webhooks"] = self._collect_webhooks()
         self._cfg["monitor"]["max_monitor_count"] = max_m
         self._cfg["prediction"]["prediction_hours"] = pred_hours
         self._cfg["prediction"]["min_confidence"] = confidence
+
+        # 可选开关（部分设置页可能未构建对应控件）
         if hasattr(self, "auto_escalate"):
             self._cfg["prediction"]["auto_escalate"] = bool(self.auto_escalate.isChecked())
         if hasattr(self, "escalate_factor"):
@@ -302,50 +363,24 @@ class SettingsWindow(
         if hasattr(self, "theme_combo"):
             self._cfg.setdefault("ui", {})["theme"] = str(self.theme_combo.currentData() or "darkly")
 
-        th_data = []
-        for v_widget, n_widget, _ in getattr(self, "_thresh_rows", []):
-            try:
-                v = int(v_widget.text() if hasattr(v_widget, "text") else v_widget.value())
-                n = n_widget.text().strip() if hasattr(n_widget, "text") else str(n_widget)
-                if not n:
-                    n = auto_threshold_name(v)
-                if v > 0:
-                    th_data.append([v, n])
-            except (ValueError, TypeError):
-                continue
-        if th_data:
-            self._cfg["prediction"]["thresholds"] = th_data
+        thresholds = self._collect_thresholds()
+        if thresholds:
+            self._cfg["prediction"]["thresholds"] = thresholds
 
-        # 加密 AI profiles 中的 api_key
-        for p in self._profiles:
-            key = p.get("api_key", "")
-            if key:
-                p["api_key"] = encrypt(key)
-        # 加密 OneBot access_token
+        profiles = self._profiles
         token = self._cfg["onebot"].get("access_token", "")
-        if token:
-            self._cfg["onebot"]["access_token"] = encrypt(token)
+        self._encrypt_secrets(profiles, token, encrypt)
+        # 记录**落盘密文**用于还原：此前实现误把明文 token 再解密一次（异常被吞），
+        # 导致保存后内存里仍是密文，_apply_settings 会把密文交给通知模块
+        encrypted_token = self._cfg["onebot"].get("access_token", "")
 
         self._cfg["ai"] = {
-            "enabled": any(p.get("api_key") for p in self._profiles),
-            "profiles": self._profiles,
+            "enabled": any(p.get("api_key") for p in profiles),
+            "profiles": profiles,
             "selected_profile": self._ai_profile_cb.currentText() if hasattr(self, "_ai_profile_cb") else "",
         }
         save_config(self._cfg)
-
-        # 恢复明文值，避免 UI 显示密文
-        for p in self._profiles:
-            key = p.get("api_key", "")
-            if key:
-                try:
-                    p["api_key"] = decrypt(key)
-                except Exception:
-                    pass
-        if token:
-            try:
-                self._cfg["onebot"]["access_token"] = decrypt(token)
-            except Exception:
-                pass
+        self._restore_secrets(profiles, encrypted_token, decrypt)
 
     def _apply_settings(self):
         from core.notification import notification_manager

@@ -2247,3 +2247,101 @@ class TestDanmakuElemParsing:
         elem = _parse_danmaku_elem(_WireReader(b""))
         assert elem["mode"] == 1 and elem["fontsize"] == 25 and elem["color"] == 16777215
         assert elem["weight"] == 1 and elem["dmid"] == 0 and elem["id_str"] == ""
+
+
+class TestPersistSettings:
+    """M3.4: _persist_settings 拆分助手后「加密 → 落盘 → 恢复明文」行为不变。"""
+
+    @staticmethod
+    def _make_fake():
+        import types
+
+        from ui.settings_window import SettingsWindow
+
+        class _W:
+            """最小控件替身：仅提供实际传入的能力（贴近真实 Qt：QSpinBox 无 text）。"""
+
+            def __init__(self, text=None, value=None, checked=None, data=None, current_text=None):
+                if text is not None:
+                    self.text = lambda: text
+                if value is not None:
+                    self.value = lambda: value
+                if checked is not None:
+                    self.isChecked = lambda: checked
+                if data is not None:
+                    self.currentData = lambda: data
+                if current_text is not None:
+                    self.currentText = lambda: current_text
+
+        fake = types.SimpleNamespace()
+        fake._cfg = {"monitor": {}, "prediction": {}, "onebot": {}, "notification": {}}
+        fake._profiles = [{"name": "p1", "api_key": "sk-plain"}]
+        fake.max_monitors = _W(text="5")
+        fake.predict_hours = _W(value=24)
+        fake.min_confidence = _W(text="0.6")
+        fake.onebot_enabled = _W(checked=True)
+        fake.onebot_http = _W(text=" http://x ")
+        fake.onebot_ws = _W(text="")
+        fake.onebot_token = _W(text=" tok ")
+        fake.qq_private = _W(text="1")
+        fake.qq_group = _W(text="2")
+        fake._webhook_rows = [
+            (_W(text="n1"), _W(data="generic"), _W(text="http://w"), None),
+            (_W(), _W(), _W(text=""), None),  # 空 url → 忽略
+        ]
+        fake._thresh_rows = [
+            (_W(text="100000"), _W(text=""), None),
+            (_W(text="abc"), _W(text="x"), None),  # 非法 → 跳过
+        ]
+        fake._ai_profile_cb = _W(current_text="p1")
+
+        # 静态方法直接挂；实例方法用 MethodType 绑定
+        static_names = ("_text_or_value",)
+        instance_names = (
+            "_collect_onebot_cfg",
+            "_collect_webhooks",
+            "_collect_thresholds",
+            "_encrypt_secrets",
+            "_restore_secrets",
+            "_persist_settings",
+        )
+        for name in static_names:
+            setattr(fake, name, getattr(SettingsWindow, name))
+        for name in instance_names:
+            setattr(fake, name, types.MethodType(getattr(SettingsWindow, name), fake))
+        return fake
+
+    def test_encrypt_save_restore_roundtrip(self, monkeypatch):
+        import copy
+
+        import config
+        import utils.crypto as crypto
+        from ui.settings_window import SettingsWindow
+
+        saved = {}
+
+        def _save(cfg):
+            saved.update(copy.deepcopy(cfg))  # 深拷贝以捕获真实落盘态
+
+        monkeypatch.setattr(config, "save_config", _save)
+        monkeypatch.setattr(crypto, "encrypt", lambda s: f"ENC({s})")
+        monkeypatch.setattr(crypto, "decrypt", lambda s: s[4:-1])
+
+        fake = self._make_fake()
+        SettingsWindow._persist_settings(fake)
+
+        # 落盘态：敏感字段为密文
+        assert saved["onebot"]["access_token"] == "ENC(tok)"
+        assert saved["ai"]["profiles"][0]["api_key"] == "ENC(sk-plain)"
+        assert saved["onebot"]["http_url"] == "http://x"  # strip
+        # 落盘后内存恢复明文（避免 UI 显示密文）
+        assert fake._profiles[0]["api_key"] == "sk-plain"
+        assert fake._cfg["onebot"]["access_token"] == "tok"
+        # 其余字段
+        assert saved["monitor"]["max_monitor_count"] == 5
+        assert saved["prediction"]["prediction_hours"] == 24
+        assert saved["prediction"]["min_confidence"] == 0.6
+        assert saved["notification"]["webhooks"] == [{"name": "n1", "type": "generic", "url": "http://w"}]
+        assert [t[0] for t in saved["prediction"]["thresholds"]] == [100000], "非法阈值行应跳过"
+        assert saved["prediction"]["thresholds"][0][1], "空名称应自动命名"
+        assert saved["ai"]["enabled"] is True
