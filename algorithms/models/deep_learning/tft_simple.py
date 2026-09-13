@@ -54,13 +54,13 @@ class TFTSimpleAlgorithm(BaseAlgorithm):
         设置回看窗口、预测步长和注意力头数等超参数。
         """
         super().__init__()
-        self.look_back_window = 12     # 回看窗口长度（输入序列长度）
-        self.forecast_horizon = 5      # 预测步长（输出序列长度）
-        self.num_heads = 2             # 注意力头数
-        self.min_data_points = 15      # 最少需要的数据点数
+        self.look_back_window = 12  # 回看窗口长度（输入序列长度）
+        self.forecast_horizon = 5  # 预测步长（输出序列长度）
+        self.num_heads = 2  # 注意力头数
+        self.min_data_points = 15  # 最少需要的数据点数
 
-    training_window = 10     # 训练时使用的历史窗口长度
-    training_horizon = 3     # 训练时预测的未来步数
+    training_window = 10  # 训练时使用的历史窗口长度
+    training_horizon = 3  # 训练时预测的未来步数
 
     def predict(self, video_data, threshold=100000):
         """执行预测
@@ -84,7 +84,7 @@ class TFTSimpleAlgorithm(BaseAlgorithm):
 
     def build_model(self):
         """构建TFT PyTorch模型实例"""
-        return TFTTorchModel(in_features=getattr(self, '_training_n_features', 5), horizon=self.training_horizon)
+        return TFTTorchModel(in_features=getattr(self, "_training_n_features", 5), horizon=self.training_horizon)
 
     def get_training_features(self):
         """返回训练时使用的多维特征列表"""
@@ -154,8 +154,8 @@ class TFTSimpleAlgorithm(BaseAlgorithm):
             )
 
         # TFT核心流程：特征选择 → 门控 → 注意力 → 预测
-        features = self._extract_features(video_data, velocities)              # 提取多维特征
-        feature_weights = self._variable_selection(features)                    # 变量选择网络
+        features = self._extract_features(video_data, velocities)  # 提取多维特征
+        feature_weights = self._variable_selection(features)  # 变量选择网络
         gated_output = self._gated_residual_network(features, feature_weights)  # 门控残差网络
         attention_output, attention_weights = self._temporal_self_attention(gated_output)  # 时态自注意力
 
@@ -194,10 +194,10 @@ class TFTSimpleAlgorithm(BaseAlgorithm):
         if len(velocities) > 0:
             features.extend(
                 [
-                    np.mean(velocities),                                   # 平均速度
-                    np.std(velocities) if len(velocities) > 1 else 0.0,    # 速度标准差
-                    velocities[-1],                                        # 最近速度（最重要）
-                    velocities[0] if len(velocities) > 0 else 0.0,         # 最早速度
+                    np.mean(velocities),  # 平均速度
+                    np.std(velocities) if len(velocities) > 1 else 0.0,  # 速度标准差
+                    velocities[-1],  # 最近速度（最重要）
+                    velocities[0] if len(velocities) > 0 else 0.0,  # 最早速度
                 ]
             )
         else:
@@ -205,23 +205,23 @@ class TFTSimpleAlgorithm(BaseAlgorithm):
 
         # 互动率特征（2维）
         engagement = self.get_engagement_rate(video_data)  # 互动率（点赞+投币+收藏/播放量）
-        quality = self.get_quality_score(video_data)       # 综合质量评分
+        quality = self.get_quality_score(video_data)  # 综合质量评分
         features.extend([engagement, quality])
 
         # 视频年龄特征（1维）
-        age_hours = self.get_video_age_hours(video_data)   # 视频发布至今的小时数
+        age_hours = self.get_video_age_hours(video_data)  # 视频发布至今的小时数
         features.append(age_hours)
 
         # 静态特征：根据标题关键词判断视频类型（1维）
         title = video_data.get("title", "")
         if "教程" in title or "教学" in title:
-            video_type = 0.0    # 教程类（增长较慢但持久）
+            video_type = 0.0  # 教程类（增长较慢但持久）
         elif "搞笑" in title or "搞怪" in title:
-            video_type = 1.0    # 搞笑类（短期爆发强）
+            video_type = 1.0  # 搞笑类（短期爆发强）
         elif "音乐" in title or "MV" in title:
-            video_type = 2.0    # 音乐类（中毒性传播）
+            video_type = 2.0  # 音乐类（中毒性传播）
         else:
-            video_type = 3.0    # 其他类型
+            video_type = 3.0  # 其他类型
         features.append(video_type)
 
         return np.array(features)
@@ -275,8 +275,8 @@ class TFTSimpleAlgorithm(BaseAlgorithm):
         # 门控线性单元（GLU）简化版
         # 实际TFT使用：GLU(x) = (W1*x + b1) ⊗ sigmoid(W2*x + b2)
         # 简化：使用sigmoid门控（值域[0,1]，模拟信息过滤）
-        gate = 1.0 / (1.0 + np.exp(-weighted_features))   # sigmoid
-        gated = weighted_features * gate                   # 门控输出
+        gate = 1.0 / (1.0 + np.exp(-weighted_features))  # sigmoid
+        gated = weighted_features * gate  # 门控输出
 
         # 残差连接：输出 = 门控输出 + 0.1×原始特征
         # 保证即使门控关闭，仍有小部分原始信息通过
@@ -312,7 +312,7 @@ class TFTSimpleAlgorithm(BaseAlgorithm):
         scores = np.dot(Q, K.T)
 
         # Softmax（沿K维度归一化）
-        exp_scores = np.exp(scores - np.max(scores))           # 数值稳定
+        exp_scores = np.exp(scores - np.max(scores))  # 数值稳定
         attention_weights = exp_scores / (np.sum(exp_scores, axis=-1, keepdims=True) + 1e-6)
 
         # 加权求和得到注意力输出
@@ -471,4 +471,6 @@ class TFTSimpleAlgorithm(BaseAlgorithm):
             "method": "tft_simplified",
         }
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata=metadata)
+        return self._std_result(
+            predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata=metadata
+        )

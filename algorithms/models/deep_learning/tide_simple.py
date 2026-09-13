@@ -36,8 +36,8 @@ class TideSimpleAlgorithm(BaseAlgorithm):
     category = "深度学习"
     default_weight = 1.1
 
-    training_window = 10     # 训练时使用的历史窗口长度
-    training_horizon = 3     # 训练时预测的未来步数
+    training_window = 10  # 训练时使用的历史窗口长度
+    training_horizon = 3  # 训练时预测的未来步数
 
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
         """执行预测
@@ -61,7 +61,9 @@ class TideSimpleAlgorithm(BaseAlgorithm):
 
     def build_model(self):
         """构建TIDE PyTorch模型实例"""
-        return TIDETorchModel(in_features=getattr(self, '_training_n_features', 5), window=10, horizon=self.training_horizon)
+        return TIDETorchModel(
+            in_features=getattr(self, "_training_n_features", 5), window=10, horizon=self.training_horizon
+        )
 
     def get_training_features(self) -> List[str]:
         """返回训练时使用的多维特征列表"""
@@ -87,7 +89,14 @@ class TideSimpleAlgorithm(BaseAlgorithm):
 
         # 数据不足时返回无预测
         if len(history) < 4 or velocity <= 0:
-            return self._std_result(float("inf"), 0.0, current_views, threshold, velocity=velocity, metadata={"method": "tide_simple", "reason": "insufficient_data"})
+            return self._std_result(
+                float("inf"),
+                0.0,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "tide_simple", "reason": "insufficient_data"},
+            )
 
         views = np.array([h.get("view", 0) for h in history], dtype=np.float64)
         n = min(10, len(views) // 2)
@@ -112,4 +121,11 @@ class TideSimpleAlgorithm(BaseAlgorithm):
             )
             confidence = 0.3
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "tide_simple", "history_len": len(history)})
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={"method": "tide_simple", "history_len": len(history)},
+        )

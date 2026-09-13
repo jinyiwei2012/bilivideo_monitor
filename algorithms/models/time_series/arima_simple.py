@@ -40,6 +40,7 @@ logger = logging.getLogger(__name__)
 _HAS_STATSMODELS = False
 try:
     from statsmodels.tsa.arima.model import ARIMA
+
     _HAS_STATSMODELS = True
 except ImportError:
     pass
@@ -168,8 +169,15 @@ class ArimaSimpleAlgorithm(BaseAlgorithm):
             # max_p=5, max_q=5, max_d=2: 限制搜索范围防止过拟合
             # stepwise=True: 使用逐步搜索（比全网格搜索快很多）
             model = pm.auto_arima(
-                views, seasonal=False, stepwise=True, suppress_warnings=True,
-                max_p=5, max_q=5, max_d=2, maxiter=10, trace=False,
+                views,
+                seasonal=False,
+                stepwise=True,
+                suppress_warnings=True,
+                max_p=5,
+                max_q=5,
+                max_d=2,
+                maxiter=10,
+                trace=False,
                 error_action="ignore",
             )
             # 预测未来 30 天（每天一个点）
@@ -190,11 +198,18 @@ class ArimaSimpleAlgorithm(BaseAlgorithm):
                 predicted_hours = remaining / velocity if velocity > 0 else float("inf")
                 confidence = 0.4
 
-            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=self.calculate_velocity(video_data), metadata={
+            return self._std_result(
+                predicted_hours,
+                confidence,
+                current_views,
+                threshold,
+                velocity=self.calculate_velocity(video_data),
+                metadata={
                     "method": "auto_arima",
                     "order": str(getattr(model, "order", "?")),  # 自动选择的(p,d,q)阶数
                     "aic": round(float(model.aic()) if callable(getattr(model, "aic", None)) else 0, 1),
-                })
+                },
+            )
         except Exception:
             return None
 
@@ -263,7 +278,14 @@ class ArimaSimpleAlgorithm(BaseAlgorithm):
                 predicted_hours = remaining / velocity if velocity > 0 else float("inf")
                 confidence = 0.35
 
-            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=self.calculate_velocity(video_data), metadata={"method": "arima_statsmodels", "order": "(2,1,1)"})
+            return self._std_result(
+                predicted_hours,
+                confidence,
+                current_views,
+                threshold,
+                velocity=self.calculate_velocity(video_data),
+                metadata={"method": "arima_statsmodels", "order": "(2,1,1)"},
+            )
         except Exception:
             return None
 
@@ -332,4 +354,11 @@ class ArimaSimpleAlgorithm(BaseAlgorithm):
             # 置信度随数据量增加而提高
             confidence = min(1.0, 0.5 + len(history) * 0.05)
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "arima_simple", "history_points": len(history)})
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={"method": "arima_simple", "history_points": len(history)},
+        )

@@ -96,12 +96,21 @@ class ExponentialGrowthAlgorithm(BaseAlgorithm):
         remaining = threshold - current_views
         if remaining <= 0:
             # 已达到目标阈值，预测时间0，完全置信
-            return self._std_result(0, 1.0, current_views, threshold, velocity=velocity, metadata={"method": "exponential"})
+            return self._std_result(
+                0, 1.0, current_views, threshold, velocity=velocity, metadata={"method": "exponential"}
+            )
 
         # 数据不足时的回退方案：使用速度法
         if len(history) < 3 or velocity <= 0 or current_views <= 0:
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "exponential", "notes": "insufficient_data"})
+            return self._std_result(
+                predicted_hours,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "exponential", "notes": "insufficient_data"},
+            )
 
         # 提取时序数据：时间戳和播放量
         timestamps = []
@@ -121,7 +130,14 @@ class ExponentialGrowthAlgorithm(BaseAlgorithm):
 
         if len(views_vals) < 3:
             predicted_hours = remaining / velocity
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "exponential_fallback"})
+            return self._std_result(
+                predicted_hours,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "exponential_fallback"},
+            )
 
         try:
             # 按时间戳排序，确保时序正确
@@ -201,14 +217,23 @@ class ExponentialGrowthAlgorithm(BaseAlgorithm):
                 predicted_hours = remaining / velocity
                 conf = 0.3
 
-            return self._std_result(predicted_hours, conf, current_views, threshold, velocity=velocity, metadata={
+            return self._std_result(
+                predicted_hours,
+                conf,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={
                     "method": "exponential",
                     "growth_rate_r": round(float(r), 6),
                     "half_life_hours": round(float(half_life_hours), 1),
                     "effective_r_at_24h": round(float(r * math.exp(-decay_rate * 24)), 6),
                     "data_points": n,
-                })
+                },
+            )
         except Exception as e:
             # 异常处理：回退到速度法
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.0, current_views, threshold, velocity=velocity, metadata={"error": str(e)})
+            return self._std_result(
+                predicted_hours, 0.0, current_views, threshold, velocity=velocity, metadata={"error": str(e)}
+            )

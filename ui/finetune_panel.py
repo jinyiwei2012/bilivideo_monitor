@@ -10,9 +10,18 @@ import logging
 from typing import Dict, List
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QCheckBox, QSpinBox, QProgressBar,
-    QFrame, QMessageBox, QRadioButton, QButtonGroup,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QCheckBox,
+    QSpinBox,
+    QProgressBar,
+    QFrame,
+    QMessageBox,
+    QRadioButton,
+    QButtonGroup,
 )
 from PyQt6.QtCore import QTimer
 
@@ -490,7 +499,9 @@ class FinetunePanel(BaseTrainingPanel):
                     return loss_to_confidence(v.get("val_loss", -1.0))
             return loss_to_confidence(versions[0].get("val_loss", -1.0))
         except Exception as e:
-            import logging; logging.getLogger(__name__).debug("微调置信度计算失败: %s", e)
+            import logging
+
+            logging.getLogger(__name__).debug("微调置信度计算失败: %s", e)
             return 0.0
 
     def _on_manage_versions(self):
@@ -888,7 +899,9 @@ class FinetunePanel(BaseTrainingPanel):
             self._status_lbl.setText(f"{aid}@{bvid}  第 {ep_display} 轮 ⚡ 天依在调整音准呢 ♪")
             self._status_lbl.setStyleSheet(f"color: {C['warning']}; background: transparent;")
         else:
-            self._status_lbl.setText(f"{aid}@{bvid}  第 {ep_display} 轮,天依越唱越准啦 ♪  train={tloss:.4f}{vtxt}  {conf_str}  {elapsed:.0f}s")
+            self._status_lbl.setText(
+                f"{aid}@{bvid}  第 {ep_display} 轮,天依越唱越准啦 ♪  train={tloss:.4f}{vtxt}  {conf_str}  {elapsed:.0f}s"
+            )
             self._status_lbl.setStyleSheet(f"color: {C['text_1']}; background: transparent;")
 
         self._monitor.update(ep, tloss, vloss if vloss >= 0 else -1)

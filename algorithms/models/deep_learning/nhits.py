@@ -62,8 +62,8 @@ class NHitsAlgorithm(BaseAlgorithm):
     category = "深度学习"
     default_weight = 1.5
 
-    training_window = 12     # 训练窗口长度
-    training_horizon = 3     # 预测步数
+    training_window = 12  # 训练窗口长度
+    training_horizon = 3  # 预测步数
 
     def predict(self, video_data, threshold=100000):
         """
@@ -77,8 +77,13 @@ class NHitsAlgorithm(BaseAlgorithm):
             PredictionResult: 预测结果对象
         """
         return try_torch_predict(
-            self, video_data, threshold, NHiTSTorchModel, self._numpy_predict,
-            window=self.training_window, horizon=self.training_horizon,
+            self,
+            video_data,
+            threshold,
+            NHiTSTorchModel,
+            self._numpy_predict,
+            window=self.training_window,
+            horizon=self.training_horizon,
         )
 
     def build_model(self):
@@ -92,9 +97,12 @@ class NHitsAlgorithm(BaseAlgorithm):
                 - hidden=64:      MLP 隐藏层维度
         """
         return NHiTSTorchModel(
-            in_features=getattr(self, '_training_n_features', 5),
-            window=self.training_window, horizon=self.training_horizon,
-            n_blocks=3, n_pool_kernel=2, hidden=64,
+            in_features=getattr(self, "_training_n_features", 5),
+            window=self.training_window,
+            horizon=self.training_horizon,
+            n_blocks=3,
+            n_pool_kernel=2,
+            hidden=64,
         )
 
     def get_training_features(self) -> List[str]:
@@ -124,27 +132,30 @@ class NHitsAlgorithm(BaseAlgorithm):
         if len(history) < 6 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "nhits_fallback"})
+            return self._std_result(
+                predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "nhits_fallback"}
+            )
 
         import numpy as np
+
         views = np.array([h.get("view_count", 0) for h in history[-15:]], dtype=np.float64)
 
         # === 多尺度下采样 (模拟 MaxPool 层次结构) ===
         # 对原始序列用不同步长 k 做均值下采样，捕捉不同时间尺度的趋势
         scales = []
         scale_views = views.copy()
-        for k in [1, 2, 4]:                       # 三层尺度: 原始/2x/4x 下采样
+        for k in [1, 2, 4]:  # 三层尺度: 原始/2x/4x 下采样
             if len(scale_views) >= k:
                 # 非重叠窗口均值池化（模拟MaxPool）
-                pooled = np.array([np.mean(scale_views[i:i+k]) for i in range(0, len(scale_views) - k + 1, k)])
+                pooled = np.array([np.mean(scale_views[i : i + k]) for i in range(0, len(scale_views) - k + 1, k)])
                 if len(pooled) >= 2:
                     growth = np.mean(np.diff(pooled))  # 该尺度下的平均增长
-                    scales.append(growth / k)           # 归一化到原始尺度（每步增长）
+                    scales.append(growth / k)  # 归一化到原始尺度（每步增长）
 
         if scales:
-            growth = np.mean(scales)    # 各尺度均值融合
+            growth = np.mean(scales)  # 各尺度均值融合
         else:
-            growth = velocity * 3600    # 无有效尺度时回退到当前速度
+            growth = velocity * 3600  # 无有效尺度时回退到当前速度
 
         # === 残差修正 (模拟 backcast 残差传递) ===
         # 最近观察值与多尺度估计的加权融合
@@ -164,4 +175,11 @@ class NHitsAlgorithm(BaseAlgorithm):
             # 置信度：尺度越多、数据点越多，置信度越高
             confidence = min(0.85, 0.4 + 0.1 * n_scales + 0.05 * min(len(views), 20) * 0.05)
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "nhits_numpy", "scales": len(scales), "data_points": len(views)})
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={"method": "nhits_numpy", "scales": len(scales), "data_points": len(views)},
+        )

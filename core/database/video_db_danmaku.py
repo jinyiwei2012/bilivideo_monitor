@@ -2,6 +2,7 @@
 
 作为 VideoDatabase 的 Mixin 类使用，不独立实例化。
 """
+
 import logging
 import sqlite3
 from typing import List, Dict
@@ -18,19 +19,20 @@ class _DanmakuMixin:
         """v1→v2 迁移：去重弹幕记录并添加 UNIQUE 约束。"""
         cursor = conn.cursor()
         try:
-            cursor.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='danmaku_records'"
-            )
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='danmaku_records'")
             if not cursor.fetchone():
                 return
-            cursor.execute("""
+            cursor.execute(
+                """
                 DELETE FROM danmaku_records
                 WHERE id NOT IN (
                     SELECT MIN(id) FROM danmaku_records
                     WHERE bvid = ?
                     GROUP BY bvid, oid, segment_index, content, video_ts, uid
                 ) AND bvid = ?
-            """, (self.bvid, self.bvid))
+            """,
+                (self.bvid, self.bvid),
+            )
             deleted = cursor.rowcount
             if deleted > 0:
                 logger.info("v1→v2 去重 %s: 清理 %d 条重复弹幕", self.bvid, deleted)
@@ -49,9 +51,7 @@ class _DanmakuMixin:
         """v2→v3 迁移：添加 Proto 弹幕新字段 + 更新 UNIQUE 索引为 dmid 方案。"""
         cursor = conn.cursor()
         try:
-            cursor.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='danmaku_records'"
-            )
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='danmaku_records'")
             if not cursor.fetchone():
                 return
             new_columns = {
@@ -65,22 +65,17 @@ class _DanmakuMixin:
             for col_name, col_def in new_columns.items():
                 if col_name not in existing:
                     try:
-                        cursor.execute(
-                            f"ALTER TABLE danmaku_records ADD COLUMN {col_name} {col_def}"
-                        )
+                        cursor.execute(f"ALTER TABLE danmaku_records ADD COLUMN {col_name} {col_def}")
                     except sqlite3.OperationalError:
                         pass
-            cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_danmaku_dmid ON danmaku_records(dmid) WHERE dmid > 0"
-            )
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_danmaku_dmid ON danmaku_records(dmid) WHERE dmid > 0")
             try:
                 cursor.execute("DROP INDEX IF EXISTS idx_danmaku_unique")
             except sqlite3.OperationalError:
                 pass
             try:
                 cursor.execute(
-                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_danmaku_unique "
-                    "ON danmaku_records(bvid, oid, dmid)"
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_danmaku_unique " "ON danmaku_records(bvid, oid, dmid)"
                 )
             except sqlite3.OperationalError:
                 try:
@@ -113,14 +108,21 @@ class _DanmakuMixin:
                                 like_count, pool, dm_from)
                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                             (
-                                r.get("bvid", self.bvid), r.get("oid", 0),
+                                r.get("bvid", self.bvid),
+                                r.get("oid", 0),
                                 r.get("segment_index", 0),
-                                r.get("dmid", 0), str(r.get("id_str", "")),
-                                r.get("content", ""), r.get("video_ts", 0),
-                                r.get("mode", 1), r.get("font_size", 25),
-                                r.get("color", 16777215), r.get("send_time", 0),
-                                r.get("weight", 1), str(r.get("uid", "")),
-                                r.get("like_count", 0), r.get("pool", 0),
+                                r.get("dmid", 0),
+                                str(r.get("id_str", "")),
+                                r.get("content", ""),
+                                r.get("video_ts", 0),
+                                r.get("mode", 1),
+                                r.get("font_size", 25),
+                                r.get("color", 16777215),
+                                r.get("send_time", 0),
+                                r.get("weight", 1),
+                                str(r.get("uid", "")),
+                                r.get("like_count", 0),
+                                r.get("pool", 0),
                                 r.get("dm_from", 0),
                             ),
                         )
@@ -198,14 +200,17 @@ class _DanmakuMixin:
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute("""
+                cursor.execute(
+                    """
                     DELETE FROM danmaku_records
                     WHERE id NOT IN (
                         SELECT MIN(id) FROM danmaku_records
                         WHERE bvid = ?
                         GROUP BY bvid, oid, segment_index, content, video_ts, uid
                     ) AND bvid = ?
-                """, (self.bvid, self.bvid))
+                """,
+                    (self.bvid, self.bvid),
+                )
                 deleted = cursor.rowcount
                 conn.commit()
                 if deleted > 0:

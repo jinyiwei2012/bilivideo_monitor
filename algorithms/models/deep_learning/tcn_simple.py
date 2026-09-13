@@ -49,10 +49,10 @@ class TCNSimpleAlgorithm(BaseAlgorithm):
         空洞因子 [1, 2, 4, 8, 16, 32] 使感受野指数增长。
         """
         super().__init__()
-        self.nb_filters = 32          # 卷积滤波器数量
-        self.kernel_size = 3          # 卷积核大小
+        self.nb_filters = 32  # 卷积滤波器数量
+        self.kernel_size = 3  # 卷积核大小
         self.dilations = [1, 2, 4, 8, 16, 32]  # 空洞因子列表（指数增长）
-        self.dropout = 0.1            # Dropout比率
+        self.dropout = 0.1  # Dropout比率
 
     def _causal_conv(self, seq: np.ndarray, kernel: np.ndarray, dilation: int) -> np.ndarray:
         """一维空洞因果卷积
@@ -69,12 +69,12 @@ class TCNSimpleAlgorithm(BaseAlgorithm):
             np.ndarray: 卷积输出（与输入同长度）
         """
         k = len(kernel)
-        padding = (k - 1) * dilation                            # 左侧零填充量
-        padded = np.concatenate([np.zeros(padding), seq])       # 在左侧补零
+        padding = (k - 1) * dilation  # 左侧零填充量
+        padded = np.concatenate([np.zeros(padding), seq])  # 在左侧补零
         out = np.zeros(len(seq))
         for i in range(len(seq)):
             for j in range(k):
-                idx = i + padding - j * dilation                # 空洞采样的索引
+                idx = i + padding - j * dilation  # 空洞采样的索引
                 if 0 <= idx < len(padded):
                     out[i] += padded[idx] * kernel[j]
         return out
@@ -100,11 +100,11 @@ class TCNSimpleAlgorithm(BaseAlgorithm):
         w2 = rng.randn(k) * 0.1  # 第二层卷积核
 
         conv1 = self._causal_conv(seq, w1, dilation)
-        conv1 = np.maximum(conv1, 0)                   # ReLU激活：负值归零
-        conv1[rng.rand(n) < self.dropout] = 0    # Dropout正则化（确定性 RNG）
+        conv1 = np.maximum(conv1, 0)  # ReLU激活：负值归零
+        conv1[rng.rand(n) < self.dropout] = 0  # Dropout正则化（确定性 RNG）
 
         conv2 = self._causal_conv(conv1, w2, dilation)
-        conv2 = np.maximum(conv2, 0)                   # ReLU激活
+        conv2 = np.maximum(conv2, 0)  # ReLU激活
 
         # 残差连接：F(x) + x
         if n > 0:
@@ -114,8 +114,8 @@ class TCNSimpleAlgorithm(BaseAlgorithm):
 
         return out
 
-    training_window = 10     # 训练时使用的历史窗口长度
-    training_horizon = 3     # 训练时预测的未来步数
+    training_window = 10  # 训练时使用的历史窗口长度
+    training_horizon = 3  # 训练时预测的未来步数
 
     def predict(self, video_data, threshold=100000):
         """执行预测
@@ -139,7 +139,7 @@ class TCNSimpleAlgorithm(BaseAlgorithm):
 
     def build_model(self):
         """构建TCN PyTorch模型实例"""
-        return TCNTorchModel(in_features=getattr(self, '_training_n_features', 5), horizon=self.training_horizon)
+        return TCNTorchModel(in_features=getattr(self, "_training_n_features", 5), horizon=self.training_horizon)
 
     def get_training_features(self):
         """返回训练时使用的多维特征列表"""
@@ -172,18 +172,34 @@ class TCNSimpleAlgorithm(BaseAlgorithm):
         # 数据不足时回退
         if len(history) < 4 or velocity <= 0:
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "tcn", "notes": "insufficient_data"})
+            return self._std_result(
+                predicted_hours,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "tcn", "notes": "insufficient_data"},
+            )
 
         # 提取并排序播放量序列
         views_sorted = self._extract_views(history)
         if views_sorted is None or len(views_sorted) < 4:
-            return self._std_result(remaining / velocity, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "tcn_fallback"})
+            return self._std_result(
+                remaining / velocity,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "tcn_fallback"},
+            )
 
         try:
             return self._predict_impl(views_sorted, current_views, velocity, remaining, threshold)
         except Exception as e:
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.0, current_views, threshold, velocity=velocity, metadata={"error": str(e)})
+            return self._std_result(
+                predicted_hours, 0.0, current_views, threshold, velocity=velocity, metadata={"error": str(e)}
+            )
 
     def _extract_views(self, history):
         """从历史记录中提取并排序播放量序列
@@ -237,14 +253,21 @@ class TCNSimpleAlgorithm(BaseAlgorithm):
         n = len(views_sorted)
 
         # ── 数据预处理: 对数差分（稳定方差） ──────
-        log_views = np.log(np.maximum(views_sorted, 1))       # log变换（避免log(0)）
-        log_diff = np.diff(log_views)                          # 一阶差分（增长率）
+        log_views = np.log(np.maximum(views_sorted, 1))  # log变换（避免log(0)）
+        log_diff = np.diff(log_views)  # 一阶差分（增长率）
         if len(log_diff) == 0:
-            return self._std_result(remaining / velocity, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "tcn_no_diff"})
+            return self._std_result(
+                remaining / velocity,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "tcn_no_diff"},
+            )
 
         # z-score标准化
         mean_val = np.mean(log_diff)
-        std_val = max(np.std(log_diff), 1e-6)                  # 防止除零
+        std_val = max(np.std(log_diff), 1e-6)  # 防止除零
         normalized = (log_diff - mean_val) / std_val
 
         # ── 通过TCN残差块 ────────────────────────
@@ -271,7 +294,7 @@ class TCNSimpleAlgorithm(BaseAlgorithm):
         target_day = None
         for day in range(1, forecast_days + 1):
             # TCN预测的增长因子（带指数衰减，模拟增长逐渐趋缓）
-            decay = math.exp(-day / 30.0)                        # 30天半衰期
+            decay = math.exp(-day / 30.0)  # 30天半衰期
             growth_factor = trend * std_val * decay + 0.01 * (1 - decay)  # 加权插值到零增长
 
             # 加入季节性微调（7天周期）
@@ -295,13 +318,18 @@ class TCNSimpleAlgorithm(BaseAlgorithm):
             predicted_hours = remaining / velocity
             conf = 0.35
 
-        return self._std_result(predicted_hours, conf, current_views, threshold, velocity=velocity, metadata={
+        return self._std_result(
+            predicted_hours,
+            conf,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={
                 "method": "tcn",
                 "dilations_used": len(effective_dilations),
                 "forecast_horizon": forecast_days,
                 "trend": round(float(trend), 4),
                 "volatility": round(float(recent_volatility), 4),
                 "data_points": n,
-            })
-
-
+            },
+        )

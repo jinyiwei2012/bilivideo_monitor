@@ -181,7 +181,9 @@ class RichardsCurveAlgorithm(BaseAlgorithm):
         """
         return K / np.power(1 + nu * np.exp(-r * (t - t0)), 1.0 / nu)
 
-    def _fit_curve(self, times: np.ndarray, views: np.ndarray, video_info: Dict[str, Any]) -> Tuple[float, float, float, float]:
+    def _fit_curve(
+        self, times: np.ndarray, views: np.ndarray, video_info: Dict[str, Any]
+    ) -> Tuple[float, float, float, float]:
         """拟合Richards曲线，返回 (K, r, t0, nu)。
 
         使用 scipy.curve_fit 对历史数据进行非线性最小二乘拟合，
@@ -269,7 +271,9 @@ class RichardsCurveAlgorithm(BaseAlgorithm):
         except Exception:
             return None
 
-    def _calculate_confidence(self, times: np.ndarray, views: np.ndarray, K: float, r: float, t0: float, nu: float) -> float:
+    def _calculate_confidence(
+        self, times: np.ndarray, views: np.ndarray, K: float, r: float, t0: float, nu: float
+    ) -> float:
         n_points = len(times)
         predicted = self._richards(times, K, r, t0, nu)
         return self._growth_confidence(n_points, predicted, views, 0.02)
@@ -280,6 +284,10 @@ class RichardsCurveAlgorithm(BaseAlgorithm):
         history_data = self._normalize_history(video_data.get("history_data", []))
         return self._to_prediction_result(
             self._predict_inner(current_views, threshold, history_data, video_data),
-            current_views, video_data, threshold,
-            method="richards_curve", invalid_hours=float("inf"), invalid_velocity=0,
+            current_views,
+            video_data,
+            threshold,
+            method="richards_curve",
+            invalid_hours=float("inf"),
+            invalid_velocity=0,
         )

@@ -116,4 +116,6 @@ class LinearGrowthAlgorithm(BaseAlgorithm):
             "data_points": len(history),
         }
 
-        return self._std_result(max(0, predicted_hours), confidence, current_views, threshold, velocity=velocity, metadata=metadata)
+        return self._std_result(
+            max(0, predicted_hours), confidence, current_views, threshold, velocity=velocity, metadata=metadata
+        )

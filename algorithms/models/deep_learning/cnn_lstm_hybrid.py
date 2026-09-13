@@ -137,7 +137,7 @@ class CNNLSTMHybridAlgorithm(BaseAlgorithm):
         Returns:
             CNNLSTMTorchModel 实例
         """
-        return CNNLSTMTorchModel(in_features=getattr(self, '_training_n_features', 5), horizon=self.training_horizon)
+        return CNNLSTMTorchModel(in_features=getattr(self, "_training_n_features", 5), horizon=self.training_horizon)
 
     def get_training_features(self):
         """获取训练使用的特征列表。
@@ -167,21 +167,39 @@ class CNNLSTMHybridAlgorithm(BaseAlgorithm):
 
         remaining = threshold - current_views
         if remaining <= 0:
-            return self._std_result(0, 1.0, current_views, threshold, velocity=velocity, metadata={"method": "cnn_lstm"})
+            return self._std_result(
+                0, 1.0, current_views, threshold, velocity=velocity, metadata={"method": "cnn_lstm"}
+            )
 
         if len(history) < 5 or velocity <= 0:
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "cnn_lstm", "notes": "insufficient_data"})
+            return self._std_result(
+                predicted_hours,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "cnn_lstm", "notes": "insufficient_data"},
+            )
 
         views_sorted = self._extract_views(history)
         if views_sorted is None or len(views_sorted) < 5:
-            return self._std_result(remaining / velocity, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "cnn_lstm_fallback"})
+            return self._std_result(
+                remaining / velocity,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "cnn_lstm_fallback"},
+            )
 
         try:
             return self._predict_impl(views_sorted, current_views, velocity, remaining, threshold, video_data)
         except Exception as e:
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.0, current_views, threshold, velocity=velocity, metadata={"error": str(e)})
+            return self._std_result(
+                predicted_hours, 0.0, current_views, threshold, velocity=velocity, metadata={"error": str(e)}
+            )
 
     def _extract_views(self, history):
         """从历史记录中提取并按时间戳排序播放量序列。
@@ -235,7 +253,14 @@ class CNNLSTMHybridAlgorithm(BaseAlgorithm):
         log_views = np.log(np.maximum(views_sorted, 1))
         log_diff = np.diff(log_views)  # 对数差分 ≈ 增长率
         if len(log_diff) == 0:
-            return self._std_result(remaining / velocity, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "cnn_lstm_no_diff"})
+            return self._std_result(
+                remaining / velocity,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "cnn_lstm_no_diff"},
+            )
 
         # ── CNN阶段: 多尺度特征提取 ──────────────
         cnn_features = self._multi_scale_conv(log_diff)
@@ -302,7 +327,13 @@ class CNNLSTMHybridAlgorithm(BaseAlgorithm):
             predicted_hours = remaining / velocity
             conf = 0.35
 
-        return self._std_result(predicted_hours, conf, current_views, threshold, velocity=velocity, metadata={
+        return self._std_result(
+            predicted_hours,
+            conf,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={
                 "method": "cnn_lstm",
                 "cnn_features": len(cnn_features),
                 "cnn_trend": round(float(cnn_trend), 4),
@@ -310,6 +341,5 @@ class CNNLSTMHybridAlgorithm(BaseAlgorithm):
                 "combined_factor": round(float(combined_factor), 4),
                 "forecast_horizon": forecast_days,
                 "data_points": n,
-            })
-
-
+            },
+        )

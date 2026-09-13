@@ -176,10 +176,12 @@ _verify_source_integrity()
 
 # ── GC 调参：长运行桌面应用，减少 GC 检查频率避免随机卡顿 ──
 import gc
+
 gc.set_threshold(50000, 20, 20)  # 默认 (700,10,10)，减少 ~70x 扫描频率
 
 # ── 内存追踪：长期运行中检测泄漏 ──
 import tracemalloc
+
 tracemalloc.start(1)  # 1 帧深度，开销 <5%，生产级可用
 _last_tracemalloc_snap = None  # 模块级，供定期对比使用
 

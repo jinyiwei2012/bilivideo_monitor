@@ -7,9 +7,18 @@ import logging
 from typing import List, Dict, Optional
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QLineEdit, QComboBox, QRadioButton, QTextEdit, QMessageBox,
-    QGridLayout, QButtonGroup,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QLineEdit,
+    QComboBox,
+    QRadioButton,
+    QTextEdit,
+    QMessageBox,
+    QGridLayout,
+    QButtonGroup,
 )
 from PyQt6.QtCore import Qt
 

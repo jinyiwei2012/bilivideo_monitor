@@ -55,8 +55,13 @@ class BiTCNAlgorithm(BaseAlgorithm):
             PredictionResult 预测结果对象
         """
         return try_torch_predict(
-            self, video_data, threshold, BiTCNTorchModel, self._numpy_predict,
-            window=self.training_window, horizon=self.training_horizon,
+            self,
+            video_data,
+            threshold,
+            BiTCNTorchModel,
+            self._numpy_predict,
+            window=self.training_window,
+            horizon=self.training_horizon,
         )
 
     def build_model(self):
@@ -66,9 +71,12 @@ class BiTCNAlgorithm(BaseAlgorithm):
             BiTCNTorchModel 实例
         """
         return BiTCNTorchModel(
-            in_features=getattr(self, '_training_n_features', 5),
-            window=self.training_window, horizon=self.training_horizon,
-            channels=32, kernel_size=3, layers=3,
+            in_features=getattr(self, "_training_n_features", 5),
+            window=self.training_window,
+            horizon=self.training_horizon,
+            channels=32,
+            kernel_size=3,
+            layers=3,
         )
 
     def get_training_features(self) -> List[str]:
@@ -98,9 +106,12 @@ class BiTCNAlgorithm(BaseAlgorithm):
         if len(history) < 6 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "bitcn_fallback"})
+            return self._std_result(
+                predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "bitcn_fallback"}
+            )
 
         import numpy as np
+
         views = np.array([h.get("view_count", 0) for h in history[-20:]], dtype=np.float64)
         n = len(views)
 
@@ -121,7 +132,7 @@ class BiTCNAlgorithm(BaseAlgorithm):
             kernel = np.array([0.1, 0.2, 0.4, 0.2, 0.1])  # 中间权重最高
             if n >= len(kernel):
                 diffs = np.diff(views)
-                conv_signal = np.convolve(diffs[-len(kernel):], kernel, mode='valid')
+                conv_signal = np.convolve(diffs[-len(kernel) :], kernel, mode="valid")
                 conv_growth = np.mean(conv_signal) if len(conv_signal) > 0 else 0
             else:
                 conv_growth = np.mean(np.diff(views))
@@ -144,4 +155,11 @@ class BiTCNAlgorithm(BaseAlgorithm):
             predicted_hours = remaining / predicted_velocity
             confidence = min(0.85, 0.35 + 0.02 * min(n, 25) + 0.1)
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "bitcn_numpy", "data_points": n})
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={"method": "bitcn_numpy", "data_points": n},
+        )

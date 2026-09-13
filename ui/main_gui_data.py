@@ -46,12 +46,14 @@ def refresh_data(gui):
 def load_watch_list(gui):
     """加载监控列表"""
     from ui.monitor import load_watch_list as _load
+
     _load(gui)
 
 
 def save_watch_list(gui):
     """保存监控列表到配置"""
     from config import load_config, save_config
+
     config = load_config()
     config["watch_list"] = [v.get("bvid", "") for v in gui.monitored_videos]
     save_config(config)
@@ -109,6 +111,7 @@ def register_video_to_monitor(gui, video):
     gui._register_video_timer(bvid)
     # 新视频立即触发一次拉取
     from ui.monitor import fetch_single_video_data
+
     fetch_single_video_data(gui, bvid)
 
 

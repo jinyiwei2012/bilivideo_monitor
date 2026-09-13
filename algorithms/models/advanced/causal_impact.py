@@ -100,9 +100,9 @@ class CausalImpactAlgorithm(BaseAlgorithm):
             # 同时包含：水平值（对数变换）+ 梯度值（捕捉加速度/减速度）
             covariates = np.column_stack(
                 [
-                    np.log1p(likes),   # 点赞数对数变换，处理零值和偏态分布
-                    np.log1p(coins),   # 投币数对数变换
-                    np.log1p(favs),    # 收藏数对数变换
+                    np.log1p(likes),  # 点赞数对数变换，处理零值和偏态分布
+                    np.log1p(coins),  # 投币数对数变换
+                    np.log1p(favs),  # 收藏数对数变换
                     np.log1p(shares),  # 分享数对数变换
                     np.gradient(likes),  # 点赞梯度 → 捕捉点赞增长/下降的加速度
                     np.gradient(coins),  # 投币梯度 → 捕捉投币变化趋势
@@ -112,7 +112,7 @@ class CausalImpactAlgorithm(BaseAlgorithm):
 
             # ── 将数据分为前后两段（按时间中点切分） ──
             split = max(len(views) // 2, 3)  # 至少保留3个点作为训练集
-            y_pre = views[:split]   # 前段：训练集播放量
+            y_pre = views[:split]  # 前段：训练集播放量
             X_pre = covariates[:split]  # 前段：训练集协变量
             y_post = views[split:]  # 后段：测试集播放量
             X_post = covariates[split:]  # 后段：测试集协变量
@@ -149,11 +149,18 @@ class CausalImpactAlgorithm(BaseAlgorithm):
                 r2 = 1 - np.sum((y_post - y_pred) ** 2) / max(np.sum((y_post - np.mean(y_post)) ** 2), 1)
                 confidence = max(0.1, min(0.85, 0.5 + 0.3 * max(0, r2)))  # R²越高，置信度越高
 
-            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
+            return self._std_result(
+                predicted_hours,
+                confidence,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={
                     "method": "causal_impact",
                     "cum_impact": float(cum_impact[-1]) if len(cum_impact) > 0 else 0,  # 累积因果贡献
                     "r2": float(r2),  # 回归拟合优度
-                })
+                },
+            )
         except Exception:
             # ── 异常回退处理 ──
             return self._fallback(velocity, current_views, threshold, method="causal_impact")

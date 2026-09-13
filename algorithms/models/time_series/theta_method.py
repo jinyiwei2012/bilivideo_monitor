@@ -82,7 +82,9 @@ class ThetaMethodAlgorithm(BaseAlgorithm):
         if len(history) < 5 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "theta_fallback"})
+            return self._std_result(
+                predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "theta_fallback"}
+            )
 
         try:
             # 使用最近30个数据点（避免太久远的数据干扰）
@@ -97,7 +99,7 @@ class ThetaMethodAlgorithm(BaseAlgorithm):
                 # 通过两次累积和重构Theta线
                 theta_line = np.cumsum(np.cumsum(np.insert(diff2, 0, [diff2[0], diff2[0]])))
                 if len(theta_line) < n:
-                    theta_line = np.pad(theta_line, (0, n - len(theta_line)), 'edge')
+                    theta_line = np.pad(theta_line, (0, n - len(theta_line)), "edge")
                 theta_line = theta_line[:n]
                 # 季节分量 = 原始序列 - Theta线
                 seasonal = views - theta_line
@@ -122,13 +124,24 @@ class ThetaMethodAlgorithm(BaseAlgorithm):
                 predicted_velocity = velocity  # 速度过小时保持原速度
 
             remaining = threshold - current_views
-            predicted_hours = remaining / predicted_velocity if remaining > 0 and predicted_velocity > 0 else float("inf")
+            predicted_hours = (
+                remaining / predicted_velocity if remaining > 0 and predicted_velocity > 0 else float("inf")
+            )
             # 置信度随数据量增加而提高
             confidence = min(0.85, 0.35 + 0.02 * min(n, 25))
 
-            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "theta_method", "theta": theta, "data_points": n})
+            return self._std_result(
+                predicted_hours,
+                confidence,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "theta_method", "theta": theta, "data_points": n},
+            )
         except Exception:
             # 计算异常时回退到速度估计
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "theta_error"})
+            return self._std_result(
+                predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "theta_error"}
+            )

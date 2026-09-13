@@ -6,9 +6,18 @@ UP主追踪面板 — PyQt6 版
 from typing import Dict
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QLineEdit, QListWidget, QTreeWidget, QTreeWidgetItem,
-    QTextEdit, QHeaderView, QMessageBox,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QLineEdit,
+    QListWidget,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QTextEdit,
+    QHeaderView,
+    QMessageBox,
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
@@ -32,13 +41,15 @@ class UpTrackerWindow(DialogBase):
             sw, sh = 1920, 1080
 
         super().__init__(
-            parent, "UP主追踪",
+            parent,
+            "UP主追踪",
             (int(sw * 0.50), int(sh * 0.68)),
             modal=False,
         )
         self.api = api
 
         from core.up_database import UpDatabase
+
         self.db = UpDatabase()
 
         self._search_results = []
@@ -284,14 +295,13 @@ class UpTrackerWindow(DialogBase):
 
         lines = []
         lines.append(f'<span style="color:{C["bilibili"]}; font-weight:bold;">=== {name} ===</span><br>')
-        lines.append(f'UID: {uid}<br>')
+        lines.append(f"UID: {uid}<br>")
         lines.append(f'等级: Lv.{up.get("level", 0)}<br>')
         lines.append(
-            f'<span style="color:{C["accent"]}; font-weight:bold;">'
-            f'粉丝: {self._fmt(fc):>8}    {fc:,}</span><br>'
+            f'<span style="color:{C["accent"]}; font-weight:bold;">' f"粉丝: {self._fmt(fc):>8}    {fc:,}</span><br>"
         )
-        lines.append(f'投稿: {vc:>8,}    总播放: {self._fmt(tv):>8}    {tv:,}<br>')
-        lines.append(f'总点赞: {self._fmt(tl):>8}    {tl:,}<br>')
+        lines.append(f"投稿: {vc:>8,}    总播放: {self._fmt(tv):>8}    {tv:,}<br>")
+        lines.append(f"总点赞: {self._fmt(tl):>8}    {tl:,}<br>")
         lines.append(f'<span style="color:{C["text_3"]};">签名: {up.get("sign", "—")[:60]}</span><br>')
         lines.append(f'<span style="color:{C["text_3"]};">更新: {up.get("updated_at", "—")}</span><br>')
         lines.append("<br>")
@@ -302,8 +312,7 @@ class UpTrackerWindow(DialogBase):
             lines.append(f'<span style="color:{C["bilibili"]}; font-weight:bold;">=== 已监控视频 ===</span><br>')
             for v in videos[:8]:
                 lines.append(
-                    f'  {v.get("bvid", "")}  {v.get("title", "")[:28]}  '
-                    f'{self._fmt(v.get("view_count", 0))}<br>'
+                    f'  {v.get("bvid", "")}  {v.get("title", "")[:28]}  ' f'{self._fmt(v.get("view_count", 0))}<br>'
                 )
 
         # 粉丝历史趋势

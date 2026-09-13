@@ -78,7 +78,9 @@ class MultiStepFusionAlgorithm(BaseAlgorithm):
         if len(history) < 15 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "msf_fallback"})
+            return self._std_result(
+                predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "msf_fallback"}
+            )
 
         views = np.array([h.get("view_count", 0) for h in history], dtype=np.float64)
         n = len(views)
@@ -90,7 +92,7 @@ class MultiStepFusionAlgorithm(BaseAlgorithm):
         # ── 多频率建模 ──
         # 高频信号：原始相邻差分（保留所有细节波动）
         high_freq = np.diff(views)
-        hf_growth = np.mean(high_freq[-min(5, len(high_freq)):]) if len(high_freq) >= 1 else 0
+        hf_growth = np.mean(high_freq[-min(5, len(high_freq)) :]) if len(high_freq) >= 1 else 0
 
         # 中频信号：每 3 个点采样一次（约 30 分钟间隔，平滑高频噪声）
         mid_idx = np.arange(0, n, 3)
@@ -152,7 +154,13 @@ class MultiStepFusionAlgorithm(BaseAlgorithm):
         # 区间越宽 -> 置信度越低（反比映射到 [0.1, 0.95]）
         confidence = max(0.1, min(0.95, 0.7 / (1 + interval_width)))
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={
                 "method": "multi_step_fusion",
                 "multi_steps": len(multi_preds),  # 多步预测的步数
                 "conformal_bound": round(float(conformal_bound), 4),  # 共形误差边界
@@ -161,7 +169,8 @@ class MultiStepFusionAlgorithm(BaseAlgorithm):
                     "mid": round(float(mf_growth), 1),
                     "low": round(float(lf_growth), 1),
                 },
-            })
+            },
+        )
 
     def _multi_step_forecast(self, views: np.ndarray, steps: int) -> List[float]:
         """

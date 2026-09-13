@@ -68,7 +68,13 @@ class ITransformerSimpleAlgorithm(BaseAlgorithm):
         Returns:
             ITransformerTorchModel 实例
         """
-        return ITransformerTorchModel(in_features=getattr(self, '_training_n_features', 5), window=10, d_model=32, n_heads=4, horizon=self.training_horizon)
+        return ITransformerTorchModel(
+            in_features=getattr(self, "_training_n_features", 5),
+            window=10,
+            d_model=32,
+            n_heads=4,
+            horizon=self.training_horizon,
+        )
 
     def get_training_features(self) -> List[str]:
         """获取训练使用的特征列表。
@@ -135,6 +141,13 @@ class ITransformerSimpleAlgorithm(BaseAlgorithm):
                 predicted_hours = remaining / predicted_velocity
                 confidence = max(0.1, min(0.8, 0.5))
 
-            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "itransformer", "n_vars": n_vars})
+            return self._std_result(
+                predicted_hours,
+                confidence,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "itransformer", "n_vars": n_vars},
+            )
         except Exception:
             return self._fallback(velocity, current_views, threshold, method="itransformer")

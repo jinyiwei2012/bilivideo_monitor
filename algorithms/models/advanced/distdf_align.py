@@ -267,4 +267,6 @@ class DistdfAlignAlgorithm(BaseAlgorithm):
                 confidence = 1.0  # 已达标，完全置信
         metadata = {"reason": reason}
         metadata.update(extra)  # 合并额外元数据
-        return self._std_result(predicted_hours, confidence, int(current_views), threshold, velocity=float(velocity), metadata=metadata)
+        return self._std_result(
+            predicted_hours, confidence, int(current_views), threshold, velocity=float(velocity), metadata=metadata
+        )

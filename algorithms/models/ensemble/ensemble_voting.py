@@ -86,11 +86,11 @@ class EnsembleVotingAlgorithm(BaseAlgorithm):
 
             # 生成 7 个不同视角的预测
             predictions = [
-                base * 0.7,   # 极度乐观
+                base * 0.7,  # 极度乐观
                 base * 0.85,  # 乐观
-                base,         # 中性
+                base,  # 中性
                 base * 1.15,  # 悲观
-                base * 1.3,   # 极度悲观
+                base * 1.3,  # 极度悲观
                 base * (1 - self.get_engagement_rate(video_data) * 0.5),  # 互动率调整
                 base / (0.8 + self.get_quality_score(video_data) * 0.4),  # 质量评分调整
             ]
@@ -99,9 +99,16 @@ class EnsembleVotingAlgorithm(BaseAlgorithm):
             predicted_hours = statistics.median(predictions)
 
             # 置信度基于四分位距 (IQR)：IQR 越小预测越集中
-            q1 = sorted(predictions)[len(predictions) // 4]   # 第 1 四分位数
+            q1 = sorted(predictions)[len(predictions) // 4]  # 第 1 四分位数
             q3 = sorted(predictions)[3 * len(predictions) // 4]  # 第 3 四分位数
             iqr = q3 - q1  # 四分位距
             confidence = max(0.3, 1 - iqr / (predicted_hours + 1))
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "ensemble_voting", "predictions_count": 7})
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={"method": "ensemble_voting", "predictions_count": 7},
+        )

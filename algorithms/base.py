@@ -127,8 +127,9 @@ class BaseAlgorithm(ABC):
             PredictionResult 对象，包含算法名称、预测结果、置信度等
         """
 
-    def _fallback(self, velocity: float, current_views: int, threshold: int,
-                  method: str = "", metadata: dict = None) -> PredictionResult:
+    def _fallback(
+        self, velocity: float, current_views: int, threshold: int, method: str = "", metadata: dict = None
+    ) -> PredictionResult:
         """通用降级预测：当算法不可用或数据不足时，使用匀速外推。
 
         Args:
@@ -149,23 +150,40 @@ class BaseAlgorithm(ABC):
 
         if velocity <= 0:
             return PredictionResult(
-                algorithm_name=self.name, algorithm_id=self.algorithm_id,
-                target_threshold=threshold, predicted_hours=float("inf"),
-                confidence=0.0, current_views=current_views, current_velocity=velocity,
-                metadata=meta, timestamp=datetime.now(),
+                algorithm_name=self.name,
+                algorithm_id=self.algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=float("inf"),
+                confidence=0.0,
+                current_views=current_views,
+                current_velocity=velocity,
+                metadata=meta,
+                timestamp=datetime.now(),
             )
         remaining = max(0, threshold - current_views)
         predicted_hours = remaining / velocity if remaining > 0 else 0
         return PredictionResult(
-            algorithm_name=self.name, algorithm_id=self.algorithm_id,
-            target_threshold=threshold, predicted_hours=predicted_hours,
-            confidence=0.3, current_views=current_views, current_velocity=velocity,
-            metadata=meta, timestamp=datetime.now(),
+            algorithm_name=self.name,
+            algorithm_id=self.algorithm_id,
+            target_threshold=threshold,
+            predicted_hours=predicted_hours,
+            confidence=0.3,
+            current_views=current_views,
+            current_velocity=velocity,
+            metadata=meta,
+            timestamp=datetime.now(),
         )
 
-    def _std_result(self, predicted_hours: float, confidence: float,
-                    current_views: int, threshold: int, velocity: float = None,
-                    method: str = "", metadata: dict = None) -> PredictionResult:
+    def _std_result(
+        self,
+        predicted_hours: float,
+        confidence: float,
+        current_views: int,
+        threshold: int,
+        velocity: float = None,
+        method: str = "",
+        metadata: dict = None,
+    ) -> PredictionResult:
         """统一的 PredictionResult 构造器（返回值样板收敛点）。
 
         从 self.name / self.algorithm_id / 当前时间自动填充 algorithm_name、
@@ -204,9 +222,16 @@ class BaseAlgorithm(ABC):
             timestamp=datetime.now(),
         )
 
-    def _to_prediction_result(self, result, current_views: int, video_data: Dict[str, Any],
-                              threshold: int, method: str = "",
-                              invalid_hours: float = -1.0, invalid_velocity=None) -> PredictionResult:
+    def _to_prediction_result(
+        self,
+        result,
+        current_views: int,
+        video_data: Dict[str, Any],
+        threshold: int,
+        method: str = "",
+        invalid_hours: float = -1.0,
+        invalid_velocity=None,
+    ) -> PredictionResult:
         """把旧签名 (seconds, confidence) 元组或 None 包装为 PredictionResult (旧接口迁移用)。
 
         Args:
@@ -224,21 +249,29 @@ class BaseAlgorithm(ABC):
         base = dict(
             algorithm_name=algo_name,
             algorithm_id=getattr(self, "algorithm_id", algo_name),
-            target_threshold=threshold, current_views=current_views, timestamp=now,
+            target_threshold=threshold,
+            current_views=current_views,
+            timestamp=now,
         )
         if result is None:
             vel = self.calculate_velocity(video_data) if invalid_velocity is None else invalid_velocity
-            return PredictionResult(predicted_hours=invalid_hours, confidence=0.0,
-                                    current_velocity=vel, metadata={}, **base)
+            return PredictionResult(
+                predicted_hours=invalid_hours, confidence=0.0, current_velocity=vel, metadata={}, **base
+            )
         seconds, confidence = result
         if seconds is None or seconds == float("inf"):
             vel = self.calculate_velocity(video_data) if invalid_velocity is None else invalid_velocity
-            return PredictionResult(predicted_hours=float("inf"), confidence=0.0,
-                                    current_velocity=vel, metadata={}, **base)
+            return PredictionResult(
+                predicted_hours=float("inf"), confidence=0.0, current_velocity=vel, metadata={}, **base
+            )
         meta = {"method": method} if method else {}
-        return PredictionResult(predicted_hours=seconds / 3600.0, confidence=confidence,
-                                current_velocity=self.calculate_velocity(video_data),
-                                metadata=meta, **base)
+        return PredictionResult(
+            predicted_hours=seconds / 3600.0,
+            confidence=confidence,
+            current_velocity=self.calculate_velocity(video_data),
+            metadata=meta,
+            **base,
+        )
 
     @staticmethod
     def _normalize_history(history_data: List) -> List:
@@ -261,9 +294,9 @@ class BaseAlgorithm(ABC):
         return out
 
     # ── 质量评分权重常量 ───────────────────────────
-    _W_ENGAGEMENT = 0.4   # 互动率权重
-    _W_DANMAKU = 0.3      # 弹幕密度权重
-    _W_COIN_LIKE = 0.3    # 投币/点赞比权重
+    _W_ENGAGEMENT = 0.4  # 互动率权重
+    _W_DANMAKU = 0.3  # 弹幕密度权重
+    _W_COIN_LIKE = 0.3  # 投币/点赞比权重
 
     # ── 时间戳格式 ─────────────────────────────────
     _TS_FMT = "%Y-%m-%d %H:%M:%S"
@@ -412,6 +445,7 @@ class BaseAlgorithm(ABC):
 
             if len(sorted_hist) >= 5:
                 import numpy as np
+
                 n_pts = min(10, len(sorted_hist))
                 recent = sorted_hist[-n_pts:]
                 t_arr = np.array([float(h.get("timestamp", 0)) for h in recent], dtype=np.float64)
@@ -474,7 +508,9 @@ class BaseAlgorithm(ABC):
         danmaku_density = min(1.0, danmaku / views * 10000)
         # 投币/点赞比：比值越高表示用户认可度越高
         coin_like_ratio = min(1.0, coins / max(likes, 1))
-        score = self._W_ENGAGEMENT * engagement + self._W_DANMAKU * danmaku_density + self._W_COIN_LIKE * coin_like_ratio
+        score = (
+            self._W_ENGAGEMENT * engagement + self._W_DANMAKU * danmaku_density + self._W_COIN_LIKE * coin_like_ratio
+        )
         return min(1.0, max(0.0, score))
 
     def _oldest_history_epoch(self, video_data: Dict[str, Any], history: List) -> Optional[float]:
@@ -557,9 +593,7 @@ class BaseAlgorithm(ABC):
         return views, timestamps
 
     @staticmethod
-    def _calc_velocity_window(
-        views: List[float], timestamps: List[float], start_idx: int, end_idx: int
-    ) -> float:
+    def _calc_velocity_window(views: List[float], timestamps: List[float], start_idx: int, end_idx: int) -> float:
         """计算指定索引窗口内的平均播放速度（播放量/小时）。
 
         窗口含头不含尾 [start_idx, end_idx)。
@@ -577,9 +611,7 @@ class BaseAlgorithm(ABC):
             return 0.0
 
     @staticmethod
-    def _find_period_window(
-        timestamps: List[float], target_ts: float, window_sec: float
-    ) -> Tuple[int, int]:
+    def _find_period_window(timestamps: List[float], target_ts: float, window_sec: float) -> Tuple[int, int]:
         """在历史时间戳中查找与 target_ts 相隔约 window_sec 之前的数据窗口。
 
         例如：window_sec=86400 (24h) 时，查找约 24 小时前、相同时间段的数据。
@@ -763,9 +795,7 @@ class BaseAlgorithm(ABC):
             result["decay_half_life_hours"] = max(1.0, min(24.0, result["decay_half_life_hours"]))
 
             # ── 计算调整后的预测速度 ──────────────────
-            result["adjusted_velocity"] = self._compute_surge_adjusted_velocity(
-                result, v_current, v_short, v_baseline
-            )
+            result["adjusted_velocity"] = self._compute_surge_adjusted_velocity(result, v_current, v_short, v_baseline)
 
         except Exception as e:
             logger.warning("detect_surge 失败: %s", e)
@@ -883,11 +913,12 @@ class BaseAlgorithm(ABC):
 
         # 根据用户偏好和 CUDA 可用性决定是否尝试 NPU
         from algorithms.training.device import get_preferred_device
+
         prefer = get_preferred_device()
         cuda_available = torch.cuda.is_available()
 
         if prefer == "openvino_npu":
-            try_npu = True   # 用户明确选择 NPU
+            try_npu = True  # 用户明确选择 NPU
         elif prefer == "cuda" and cuda_available:
             try_npu = False  # 用户选择 CUDA 且可用
         elif prefer in ("onnx_dml", "cpu"):

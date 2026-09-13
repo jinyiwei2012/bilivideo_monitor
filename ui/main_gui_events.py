@@ -12,20 +12,36 @@ import logging
 from datetime import datetime, timedelta
 
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextEdit,
-    QProgressBar, QWidget, QRadioButton, QMessageBox,
-    QLineEdit, QApplication,
+    QDialog,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QTextEdit,
+    QProgressBar,
+    QWidget,
+    QRadioButton,
+    QMessageBox,
+    QLineEdit,
+    QApplication,
 )
 from PyQt6.QtCore import Qt, QTimer
 
 from ui.theme import C
 from ui.invoker import invoke, invoke_later
 from ui.helpers import (
-    THRESHOLD_NAMES, fmt_num,
-    nearest_threshold_gap, fmt_eta,
+    THRESHOLD_NAMES,
+    fmt_num,
+    nearest_threshold_gap,
+    fmt_eta,
 )
 from ui.lty_voice import (
-    success, error, warning, confirm_delete, no_video, add_video_success,
+    success,
+    error,
+    warning,
+    confirm_delete,
+    no_video,
+    add_video_success,
 )
 from utils.time_utils import safe_timestamp
 from utils.thread_utils import fire_and_forget
@@ -42,7 +58,11 @@ def on_channel_switch(gui, new_channel, dlg):
 
     set_update_channel(new_channel)
     dlg.accept()
-    gui._sb("status", f"已切到{'稳定版' if new_channel == 'stable' else '测试版'}更新通道啦,天依再去听听有没有新歌声哦 ♪", C["text_2"])
+    gui._sb(
+        "status",
+        f"已切到{'稳定版' if new_channel == 'stable' else '测试版'}更新通道啦,天依再去听听有没有新歌声哦 ♪",
+        C["text_2"],
+    )
     QTimer.singleShot(500, lambda: check_update(gui))
 
 
@@ -111,7 +131,11 @@ def check_update(gui):
         if has_update and latest:
             from __init__ import __version__
 
-            invoke(lambda: gui._sb("status", f"发现新版本 v{latest} 啦!♪ 像听见远处传来新的旋律(当前 v{__version__})", C["warning"]))
+            invoke(
+                lambda: gui._sb(
+                    "status", f"发现新版本 v{latest} 啦!♪ 像听见远处传来新的旋律(当前 v{__version__})", C["warning"]
+                )
+            )
             logger.info("有新版本可用: v%s (当前 v%s), %s", latest, __version__, url)
             invoke(lambda: show_update_dialog(gui, latest, __version__, url, changelog, channel))
 
@@ -121,8 +145,12 @@ def check_update(gui):
 def show_update_dialog(gui, latest, current, url, changelog, channel="stable"):
     """显示更新弹窗"""
     from utils.update_checker import (
-        format_changelog_for_display, is_frozen, perform_source_git_pull,
-        perform_source_download_zip, perform_exe_self_update, get_update_channel,
+        format_changelog_for_display,
+        is_frozen,
+        perform_source_git_pull,
+        perform_source_download_zip,
+        perform_exe_self_update,
+        get_update_channel,
     )
 
     is_beta = channel == "beta"
@@ -165,7 +193,9 @@ def show_update_dialog(gui, latest, current, url, changelog, channel="stable"):
 
     # Changelog area
     log_frame = QWidget()
-    log_frame.setStyleSheet(f"background-color: {C['bg_elevated']}; border: 1px solid {C['border_sub']}; border-radius: 4px;")
+    log_frame.setStyleSheet(
+        f"background-color: {C['bg_elevated']}; border: 1px solid {C['border_sub']}; border-radius: 4px;"
+    )
     log_layout = QVBoxLayout(log_frame)
     log_layout.setContentsMargins(8, 8, 8, 8)
 
@@ -243,16 +273,24 @@ def show_update_dialog(gui, latest, current, url, changelog, channel="stable"):
     btn_layout.addStretch()
 
     if is_frozen() and is_beta:
-        info_lbl = QLabel("呜…测试版暂时没有 EXE 下载哦,请切回稳定版通道吧 ♪\n用源码版走 Git/ZIP,也能把新歌声带回家呢 ♪")
+        info_lbl = QLabel(
+            "呜…测试版暂时没有 EXE 下载哦,请切回稳定版通道吧 ♪\n用源码版走 Git/ZIP,也能把新歌声带回家呢 ♪"
+        )
         info_lbl.setStyleSheet(f"color: {C['warning']}; font-size: 9pt;")
         info_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         btn_layout.addWidget(info_lbl)
     elif is_frozen():
-        dl_btn = _make_btn("⬇ aria2 下载更新 ♪", lambda: (dlg.accept(), show_download_progress(gui, "正在下载新版本哦…♪", perform_exe_self_update)))
+        dl_btn = _make_btn(
+            "⬇ aria2 下载更新 ♪",
+            lambda: (dlg.accept(), show_download_progress(gui, "正在下载新版本哦…♪", perform_exe_self_update)),
+        )
         btn_layout.addWidget(dl_btn)
     else:
         git_btn = _make_btn("↥ Git Pull 自动拉取 ♪", lambda: _on_git_pull())
-        zip_btn = _make_btn("⬇ aria2 下载 ZIP ♪", lambda: (dlg.accept(), show_download_progress(gui, "正在下载最新源码哦…♪", perform_source_download_zip)))
+        zip_btn = _make_btn(
+            "⬇ aria2 下载 ZIP ♪",
+            lambda: (dlg.accept(), show_download_progress(gui, "正在下载最新源码哦…♪", perform_source_download_zip)),
+        )
         btn_layout.addWidget(git_btn)
         btn_layout.addWidget(zip_btn)
 
@@ -297,6 +335,7 @@ def on_exit(gui):
     bilibili_api.close()
     try:
         from ui.video_list_panel import _cover_session
+
         _cover_session.close()
     except Exception as e:
         logger.debug("关闭封面 Session 失败: %s", e)
@@ -305,6 +344,7 @@ def on_exit(gui):
     AlgorithmRegistry.shutdown()
     try:
         from core.notification import notification_manager
+
         notification_manager.shutdown()
     except Exception as e:
         logger.debug("关闭 NotificationManager 失败: %s", e)
@@ -312,6 +352,7 @@ def on_exit(gui):
     try:
         from algorithms.online_learner import get_online_learner
         from ui.helpers import project_path
+
         learner = get_online_learner()
         learner.save(project_path("data", "online_learner_state.json"))
     except Exception as e:
@@ -319,6 +360,7 @@ def on_exit(gui):
 
     try:
         from core.database.connection import close_http_session
+
         close_http_session()
     except Exception as e:
         logger.debug("关闭 HTTP Session 失败: %s", e)
@@ -377,7 +419,11 @@ def auto_activate_on_startup(gui):
             if switched:
                 names = ", ".join(switched.keys())
                 invoke(lambda: gui.log_panel.add_log("INFO", f"启动自动激活模型: {switched}"))
-                invoke(lambda: gui._sb("status", f"自动激活了 {len(switched)} 个模型哦 ♪ 天依记得它们啦: {names}", C["success"]))
+                invoke(
+                    lambda: gui._sb(
+                        "status", f"自动激活了 {len(switched)} 个模型哦 ♪ 天依记得它们啦: {names}", C["success"]
+                    )
+                )
             invoke(lambda: refresh_model_status(gui))
         except Exception as e:
             logger.debug("自动激活模型失败: %s", e)
@@ -490,8 +536,11 @@ def show_video_detail(gui, video):
     cached = gui.prediction_results.get(bvid)
     if cached:
         gui.prediction.build_pred_hero(
-            cached["prediction"], cached["current_view"], cached.get("rate_per_sec", 0),
-            bias_info=cached.get("bias_info"), eta_info=cached.get("eta_info"),
+            cached["prediction"],
+            cached["current_view"],
+            cached.get("rate_per_sec", 0),
+            bias_info=cached.get("bias_info"),
+            eta_info=cached.get("eta_info"),
         )
         gui.prediction._update_algo_list(cached.get("success_list", []), cached.get("fail_list", []))
     else:
@@ -647,7 +696,8 @@ def fetch_video_info_and_add(gui, bvid, dialog, status_lbl):
         register_video_to_monitor(gui, video)
         save_watch_list(gui)
         QMessageBox.information(
-            dialog, "完成啦 ♪",
+            dialog,
+            "完成啦 ♪",
             f"{add_video_success(video['title'][:40])}\nUP主：{video['author']}\n播放：{fmt_num(video['view_count'])}",
         )
         dialog.accept()
@@ -674,10 +724,15 @@ def remove_monitor(gui):
     bvid = gui.selected_bvid
     video = get_video(gui, bvid)
     title = video.get("title", bvid) if video else bvid
-    if not QMessageBox.question(
-        gui, warning(""), f"{title[:50]}\n\n{confirm_delete()}\n(30 秒内还能从状态栏撤销哦) ♪",
-        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-    ) == QMessageBox.StandardButton.Yes:
+    if (
+        not QMessageBox.question(
+            gui,
+            warning(""),
+            f"{title[:50]}\n\n{confirm_delete()}\n(30 秒内还能从状态栏撤销哦) ♪",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        == QMessageBox.StandardButton.Yes
+    ):
         return
 
     # 软删除：移入待删除队列
@@ -694,6 +749,7 @@ def remove_monitor(gui):
     gui.video_list.remove_card(bvid)
     # 停止该视频的预测线程，避免线程泄漏 / 重加同 bvid 时复用过期 dict
     from ui.monitor import _stop_predictor
+
     _stop_predictor(bvid)
     gui.selected_bvid = None
     gui.detail._build_header_empty()
@@ -703,6 +759,7 @@ def remove_monitor(gui):
     gui.video_list.update_video_count()
     gui._sb("videos", f"监控: {len(gui.monitored_videos)} 个视频 ♪")
     from ui.main_gui_data import save_watch_list
+
     fire_and_forget(save_watch_list, gui, name="save-watchlist")
 
     # 撤销提示（状态栏）
@@ -715,6 +772,7 @@ def remove_monitor(gui):
 
     # 30 秒后真删除
     from PyQt6.QtCore import QTimer
+
     timer = QTimer(gui)
     timer.setSingleShot(True)
     timer.timeout.connect(lambda b=bvid: _finalize_delete(gui, b))
@@ -751,11 +809,13 @@ def undo_delete(gui):
     gui.video_list.update_video_count()
     # 重建预测线程（删除时已停止，撤销后需重新绑定新的视频 dict）
     from ui.monitor._service import _ensure_predictor
+
     _ensure_predictor(gui, bvid, removed["video"])
     gui._sb("alert", f"把 {removed['video'].get('title', bvid)[:20]} 请回歌单啦!♪ 旋律又接上了~", C["success"])
     gui._sb("videos", f"监控: {len(gui.monitored_videos)} 个视频 ♪")
     gui.bottom_bar.hide_undo_button()
     from ui.main_gui_data import save_watch_list
+
     fire_and_forget(save_watch_list, gui, name="save-watchlist")
 
 
@@ -913,6 +973,7 @@ def run_post_training_predict(gui):
     status_msg = f"训练后预测完成啦!♪ 天依把 {total_videos} 首歌重新听了一遍"
     try:
         from algorithms.training.npu_inference import get_npu_engine
+
         engine = get_npu_engine()
         stats = engine.stats
         if stats.total_inferences > 0:
@@ -924,8 +985,11 @@ def run_post_training_predict(gui):
             )
             logger.info(
                 "NPU 推理统计: %d次 平均%.3fms 缓存命中%d 编译%d次(%.0fms)",
-                stats.total_inferences, stats.avg_latency_ms,
-                stats.cache_hits, stats.compile_count, stats.compile_total_ms,
+                stats.total_inferences,
+                stats.avg_latency_ms,
+                stats.cache_hits,
+                stats.compile_count,
+                stats.compile_total_ms,
             )
     except Exception:
         pass
@@ -935,10 +999,16 @@ def run_post_training_predict(gui):
             r = gui.prediction_results[gui.selected_bvid]
             invoke(
                 lambda: prediction_done(
-                    gui, r["prediction"], r["current_view"],
-                    r["growth"], r["rate_per_sec"],
-                    r.get("success_list", []), r.get("fail_list", []),
-                    r["valid"], r["total"], r.get("surge_info"),
+                    gui,
+                    r["prediction"],
+                    r["current_view"],
+                    r["growth"],
+                    r["rate_per_sec"],
+                    r.get("success_list", []),
+                    r.get("fail_list", []),
+                    r["valid"],
+                    r["total"],
+                    r.get("surge_info"),
                 ),
             )
         invoke_later(100, lambda: gui.detail._manual_render_chart())
@@ -1098,8 +1168,18 @@ def build_push_msg(gui, videos):
 
 
 def prediction_done(
-    gui, w_pred, current_view, growth, rate_per_sec,
-    success_list, fail_list, valid, total, surge_info=None, bias_info=None, eta_info=None,
+    gui,
+    w_pred,
+    current_view,
+    growth,
+    rate_per_sec,
+    success_list,
+    fail_list,
+    valid,
+    total,
+    surge_info=None,
+    bias_info=None,
+    eta_info=None,
 ):
     """预测完成回调"""
     gui.prediction.build_pred_hero(w_pred, current_view, rate_per_sec, surge_info, bias_info, eta_info)

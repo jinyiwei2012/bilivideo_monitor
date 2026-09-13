@@ -39,6 +39,7 @@ _DEFAULT_CACHE_DIR = os.path.join("data", "npu_cache")
 
 # ── 数据结构 ─────────────────────────────────────────
 
+
 @dataclass
 class NpuModelEntry:
     """单个 NPU 编译模型的缓存条目。"""
@@ -116,18 +117,21 @@ class NpuInferenceEngine:
             return True
         try:
             import openvino as ov
+
             self._ov = ov
         except ImportError:
             logger.warning("openvino 未安装，NPU 推理不可用")
             return False
         try:
             import torch
+
             self._torch = torch
         except ImportError:
             logger.warning("torch 未安装，无法导出模型")
             return False
         try:
             import onnx
+
             self._onnx = onnx
         except ImportError:
             logger.warning("onnx 未安装，无法导出模型")
@@ -242,14 +246,18 @@ class NpuInferenceEngine:
             try:
                 # 新 API (torch >= 2.5): 使用 dynamic_shapes
                 self._torch.onnx.export(
-                    model, sample_input, onnx_path,
+                    model,
+                    sample_input,
+                    onnx_path,
                     dynamo=False,
                     **export_kwargs,
                 )
             except TypeError:
                 # 旧 API: 使用 dynamic_axes
                 self._torch.onnx.export(
-                    model, sample_input, onnx_path,
+                    model,
+                    sample_input,
+                    onnx_path,
                     dynamic_axes=dynamic_axes,
                     **export_kwargs,
                 )
@@ -303,8 +311,7 @@ class NpuInferenceEngine:
                 config={
                     "PERFORMANCE_HINT": "LATENCY",
                     "NPU_COMPILATION_MODE_PARAMS": (
-                        "compute-layers-with-higher-precision="
-                        "Sqrt,Power,ReduceMean,Add_RMSNorm"
+                        "compute-layers-with-higher-precision=" "Sqrt,Power,ReduceMean,Add_RMSNorm"
                     ),
                 },
             )
@@ -367,9 +374,7 @@ class NpuInferenceEngine:
         self._stats.total_inferences += 1
         return result
 
-    def batch_infer(
-        self, algo_name: str, inputs: List[np.ndarray]
-    ) -> List[np.ndarray]:
+    def batch_infer(self, algo_name: str, inputs: List[np.ndarray]) -> List[np.ndarray]:
         """批量 NPU 推理（顺序执行，利用已编译模型避免重复编译开销）。
 
         Args:
@@ -424,8 +429,11 @@ class NpuInferenceEngine:
                 return self._models[algo_name]
 
         onnx_path = self.export_to_onnx(
-            model, algo_name, sample_input,
-            input_names=input_names, output_names=output_names,
+            model,
+            algo_name,
+            sample_input,
+            input_names=input_names,
+            output_names=output_names,
         )
         return self.compile_for_npu(algo_name, onnx_path)
 
@@ -564,6 +572,7 @@ def is_npu_available() -> bool:
     """检查 NPU 推理是否可用（不触发完整初始化）。"""
     try:
         import openvino as ov
+
         core = ov.Core()
         return "NPU" in core.available_devices
     except ImportError:

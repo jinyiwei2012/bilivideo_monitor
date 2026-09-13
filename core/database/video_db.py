@@ -81,6 +81,7 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
             return
         try:
             import sqlite3 as _sqlite3
+
             self._mirror_conn = _sqlite3.connect(self._mirror_path, check_same_thread=False)
             self._mirror_conn.execute("PRAGMA journal_mode=WAL")
             self._mirror_conn.execute("PRAGMA synchronous=NORMAL")
@@ -113,7 +114,8 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
     # ── 共享 schema 定义 (主库与镜像库单点维护) ──────────────────
     # 每项: (sql, tolerant); tolerant=True 时执行失败仅跳过 (如 UNIQUE 索引遇重复数据)
     SCHEMA_STATEMENTS = [
-        ("""
+        (
+            """
             CREATE TABLE IF NOT EXISTS video_info (
                 id INTEGER PRIMARY KEY,
                 title TEXT,
@@ -136,8 +138,11 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
                 pic TEXT,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
-        """, False),
-        ("""
+        """,
+            False,
+        ),
+        (
+            """
             CREATE TABLE IF NOT EXISTS monitor_records (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -153,8 +158,11 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
                 viewers_total INTEGER DEFAULT 0,
                 like_view_ratio REAL DEFAULT 0
             )
-        """, False),
-        ("""
+        """,
+            False,
+        ),
+        (
+            """
             CREATE TABLE IF NOT EXISTS predictions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 algorithm TEXT,
@@ -172,12 +180,15 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
                 error_rate REAL DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
-        """, False),
+        """,
+            False,
+        ),
         # 已有重复数据时 UNIQUE 索引创建会失败（罕见），由后续清理修复
         ("CREATE UNIQUE INDEX IF NOT EXISTS idx_predict_unique ON predictions(algorithm, target_threshold)", True),
         # 预测历史按 created_at 排序查询的覆盖索引
         ("CREATE INDEX IF NOT EXISTS idx_predict_created_at ON predictions(created_at)", False),
-        ("""
+        (
+            """
             CREATE TABLE IF NOT EXISTS algorithm_performance (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 algorithm TEXT NOT NULL,
@@ -189,11 +200,14 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
                 weight REAL DEFAULT 1.0,
                 confidence REAL DEFAULT 0.5
             )
-        """, False),
+        """,
+            False,
+        ),
         ("CREATE INDEX IF NOT EXISTS idx_algo_perf_algorithm ON algorithm_performance(algorithm)", False),
         ("CREATE INDEX IF NOT EXISTS idx_algo_perf_bvid ON algorithm_performance(bvid)", False),
         ("CREATE INDEX IF NOT EXISTS idx_monitor_timestamp ON monitor_records(timestamp)", False),
-        ("""
+        (
+            """
             CREATE TABLE IF NOT EXISTS weekly_scores (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -209,9 +223,12 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
                 correction_d REAL,
                 base_view_score REAL
             )
-        """, False),
+        """,
+            False,
+        ),
         ("CREATE UNIQUE INDEX IF NOT EXISTS idx_weekly_ts ON weekly_scores(timestamp)", True),
-        ("""
+        (
+            """
             CREATE TABLE IF NOT EXISTS yearly_scores (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -225,9 +242,12 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
                 correction_b REAL,
                 correction_c REAL
             )
-        """, False),
+        """,
+            False,
+        ),
         ("CREATE UNIQUE INDEX IF NOT EXISTS idx_yearly_ts ON yearly_scores(timestamp)", True),
-        ("""
+        (
+            """
             CREATE TABLE IF NOT EXISTS danmaku_records (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 bvid TEXT NOT NULL,
@@ -248,7 +268,9 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
                 dm_from INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
-        """, False),
+        """,
+            False,
+        ),
         ("CREATE INDEX IF NOT EXISTS idx_danmaku_bvid ON danmaku_records(bvid)", False),
         ("CREATE INDEX IF NOT EXISTS idx_danmaku_segment ON danmaku_records(bvid, oid, segment_index)", False),
         # dmid 列可能尚未迁移（将在下方 v3 迁移中处理）
@@ -310,15 +332,11 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
             ("yearly_scores", "idx_yearly_timestamp", "idx_yearly_ts"),
         )
         for table, old_idx, new_idx in targets:
-            cursor.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)
-            )
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,))
             if not cursor.fetchone():
                 continue
             try:
-                cursor.execute(
-                    f"DELETE FROM {table} WHERE id NOT IN (SELECT MAX(id) FROM {table} GROUP BY timestamp)"
-                )
+                cursor.execute(f"DELETE FROM {table} WHERE id NOT IN (SELECT MAX(id) FROM {table} GROUP BY timestamp)")
             except sqlite3.Error as e:
                 logger.debug("v3→v4 %s 去重失败: %s", table, e)
             cursor.execute(f"DROP INDEX IF EXISTS {old_idx}")
@@ -730,6 +748,7 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
                 1 if reached else 0,
                 now_ts() if reached else "",
             )
+
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -821,7 +840,10 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
             if result["deleted"] > 0 or result["mirror_deleted"] > 0:
                 logger.info(
                     "预测清理完成 %s: 主库删除%d行(保留%d), 镜像删除%d行",
-                    self.bvid, result["deleted"], result["kept"], result["mirror_deleted"],
+                    self.bvid,
+                    result["deleted"],
+                    result["kept"],
+                    result["mirror_deleted"],
                 )
         except Exception as e:
             logger.warning("清理预测重复失败 %s: %s", self.bvid, e, exc_info=True)

@@ -409,7 +409,9 @@ class ProxyManager:
         tested = 0
         for src_url in self.PROXY_SOURCES:
             try:
-                resp = requests.get(src_url, timeout=10, headers={"User-Agent": "Mozilla/5.0"}, verify=ProxyManager.ssl_verify)  # nosec B501 — 代理源URL获取，由用户配置控制
+                resp = requests.get(
+                    src_url, timeout=10, headers={"User-Agent": "Mozilla/5.0"}, verify=ProxyManager.ssl_verify
+                )  # nosec B501 — 代理源URL获取，由用户配置控制
                 if resp.status_code != 200:
                     continue
                 urls = self._parse_proxy_list(resp.text, src_url)

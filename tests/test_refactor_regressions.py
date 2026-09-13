@@ -239,7 +239,9 @@ class TestTorchPredictCacheFirst:
         monkeypatch.setattr(ckpt_mod, "load_best_checkpoint", _load)
 
         algo = self._fake_algo(("sig",))
-        result = u.try_torch_predict(algo, self._video_data(), 100000, model_cls=object, fallback_fn=lambda vd, th: "FB")
+        result = u.try_torch_predict(
+            algo, self._video_data(), 100000, model_cls=object, fallback_fn=lambda vd, th: "FB"
+        )
         assert calls == [], "缓存命中（签名未变）时不应调用 load_best_checkpoint"
         assert result == "FB"
 
@@ -262,7 +264,9 @@ class TestTorchPredictCacheFirst:
         monkeypatch.setattr(ckpt_mod, "load_best_checkpoint", _load)
 
         algo = self._fake_algo(("old",))  # 缓存签名与当前不一致
-        result = u.try_torch_predict(algo, self._video_data(), 100000, model_cls=object, fallback_fn=lambda vd, th: "FB")
+        result = u.try_torch_predict(
+            algo, self._video_data(), 100000, model_cls=object, fallback_fn=lambda vd, th: "FB"
+        )
         assert calls, "checkpoint 签名变化时应重新调用 load_best_checkpoint"
         assert result == "FB"
 
@@ -449,7 +453,7 @@ class TestOnlineLearnerEtaIncremental:
         n_naive = len(all_errors)
         mean_naive = sum(all_errors) / n_naive
         var_naive = sum((e - mean_naive) ** 2 for e in all_errors) / n_naive
-        cv_naive = (var_naive ** 0.5) / mean_naive
+        cv_naive = (var_naive**0.5) / mean_naive
 
         n, mean, cv = learner._recent_error_stats()
         assert n == n_naive
@@ -665,9 +669,7 @@ class TestNoGlobalRandomSeedPollution:
 
         root = pathlib.Path(__file__).resolve().parents[1] / "algorithms" / "models"
         offenders = [
-            str(p.relative_to(root))
-            for p in root.rglob("*.py")
-            if "np.random.seed(" in p.read_text(encoding="utf-8")
+            str(p.relative_to(root)) for p in root.rglob("*.py") if "np.random.seed(" in p.read_text(encoding="utf-8")
         ]
         assert not offenders, f"仍存在污染全局 RNG 的 np.random.seed: {offenders}"
 
@@ -2009,8 +2011,9 @@ class TestChartSeriesSingleItem:
         widget.resize(800, 360)
         base = datetime(2026, 1, 1)
         hist = [(base + timedelta(hours=i), 1000 + i * i * 10) for i in range(count)]
-        widget.update_chart({"BV1xx411c7mD": hist}, "BV1xx411c7mD", {"bvid": "BV1xx411c7mD"},
-                            mode="full", max_points=20)
+        widget.update_chart(
+            {"BV1xx411c7mD": hist}, "BV1xx411c7mD", {"bvid": "BV1xx411c7mD"}, mode="full", max_points=20
+        )
         app.processEvents()
         return len(widget._scene.items())
 

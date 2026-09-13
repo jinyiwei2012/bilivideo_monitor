@@ -33,6 +33,7 @@ _HAS_SKLEARN = False
 try:
     from sklearn.linear_model import Ridge
     from sklearn.ensemble import GradientBoostingRegressor
+
     _HAS_SKLEARN = True
 except ImportError:
     pass
@@ -88,7 +89,14 @@ class BlendingEnsembleAlgorithm(BaseAlgorithm):
         if len(history) < 25 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "blending_fallback"})
+            return self._std_result(
+                predicted_hours,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "blending_fallback"},
+            )
 
         # 优先使用 sklearn 完整版
         if _HAS_SKLEARN and len(history) >= 30:
@@ -137,12 +145,12 @@ class BlendingEnsembleAlgorithm(BaseAlgorithm):
         # 滑动窗口构造特征和目标
         for i in range(p, n - 1):
             feat = [
-                np.polyfit(np.arange(p), views[i - p: i], 1)[0],           # 特征1: 线性趋势
-                np.mean(np.diff(views[i - p: i])),                          # 特征2: 平均速度
-                np.mean(likes[i - p: i]) / max(np.mean(views[i - p: i]), 1),  # 特征3: 点赞率
-                np.mean(coins[i - p: i]) / max(np.mean(views[i - p: i]), 1),  # 特征4: 投币率
-                np.std(views[i - p: i]) / max(np.mean(views[i - p: i]), 1),   # 特征5: 变异系数
-                max(views[i - 1] / max(views[i - 2], 1) - 1, 0),           # 特征6: 最近增长率
+                np.polyfit(np.arange(p), views[i - p : i], 1)[0],  # 特征1: 线性趋势
+                np.mean(np.diff(views[i - p : i])),  # 特征2: 平均速度
+                np.mean(likes[i - p : i]) / max(np.mean(views[i - p : i]), 1),  # 特征3: 点赞率
+                np.mean(coins[i - p : i]) / max(np.mean(views[i - p : i]), 1),  # 特征4: 投币率
+                np.std(views[i - p : i]) / max(np.mean(views[i - p : i]), 1),  # 特征5: 变异系数
+                max(views[i - 1] / max(views[i - 2], 1) - 1, 0),  # 特征6: 最近增长率
             ]
             X_all.append(feat)
             y_all.append(views[i] - views[i - 1])  # 目标: 单步播放量增量
@@ -154,7 +162,7 @@ class BlendingEnsembleAlgorithm(BaseAlgorithm):
 
         # Blending 核心：固定 80/20 分割，holdout 完全不参与基学习器训练
         split = int(len(X_all) * 0.8)
-        X_train, X_hold = X_all[:split], X_all[split:]    # train = 80%, holdout = 20%
+        X_train, X_hold = X_all[:split], X_all[split:]  # train = 80%, holdout = 20%
         y_train, y_hold = y_all[:split], y_all[split:]
 
         # 如果 holdout 太小（<3），退化到全量训练（小样本场景）
@@ -186,14 +194,16 @@ class BlendingEnsembleAlgorithm(BaseAlgorithm):
 
         # ========== 当前时刻预测 ==========
         # 用最近 6 个数据点构造特征
-        last_feat = np.array([
-            np.polyfit(np.arange(p), views[-p:], 1)[0],        # 特征1
-            np.mean(np.diff(views[-p:])),                       # 特征2
-            np.mean(likes[-p:]) / max(np.mean(views[-p:]), 1),  # 特征3
-            np.mean(coins[-p:]) / max(np.mean(views[-p:]), 1),  # 特征4
-            np.std(views[-p:]) / max(np.mean(views[-p:]), 1),   # 特征5
-            max(views[-1] / max(views[-2], 1) - 1, 0),         # 特征6
-        ]).reshape(1, -1)
+        last_feat = np.array(
+            [
+                np.polyfit(np.arange(p), views[-p:], 1)[0],  # 特征1
+                np.mean(np.diff(views[-p:])),  # 特征2
+                np.mean(likes[-p:]) / max(np.mean(views[-p:]), 1),  # 特征3
+                np.mean(coins[-p:]) / max(np.mean(views[-p:]), 1),  # 特征4
+                np.std(views[-p:]) / max(np.mean(views[-p:]), 1),  # 特征5
+                max(views[-1] / max(views[-2], 1) - 1, 0),  # 特征6
+            ]
+        ).reshape(1, -1)
 
         # 基学习器预测 → 元学习器融合
         base_preds = [float(m.predict(last_feat)[0]) for m in models]
@@ -209,11 +219,18 @@ class BlendingEnsembleAlgorithm(BaseAlgorithm):
         # 置信度：元学习器权重差异越大，说明不同模型观点分歧越大，置信度相对降低
         confidence = max(0.1, min(0.9, 0.5 + 0.1 * abs(meta.coef_[1] - meta.coef_[0])))
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={
                 "method": "blending_sklearn",
                 "meta_coef": [round(float(c), 3) for c in meta.coef_],
                 "holdout_size": len(X_hold),
-            })
+            },
+        )
 
     def _numpy_blend(self, video_data, threshold):
         """
@@ -236,12 +253,12 @@ class BlendingEnsembleAlgorithm(BaseAlgorithm):
         views = np.array([h.get("view_count", 0) for h in history], dtype=np.float64)
         n = len(views)
         diffs = np.diff(views)  # 逐点增量序列
-        split = int(n * 0.8)    # 80/20 分割
+        split = int(n * 0.8)  # 80/20 分割
 
         if split >= 5 and n - split >= 3:
-            train_diffs = diffs[:split]    # 训练集增量（80%）
-            hold_diffs = diffs[split:]     # 验证集增量（20%）
-            train_mean = np.mean(train_diffs)    # 基模型1: 均值预测
+            train_diffs = diffs[:split]  # 训练集增量（80%）
+            hold_diffs = diffs[split:]  # 验证集增量（20%）
+            train_mean = np.mean(train_diffs)  # 基模型1: 均值预测
             train_median = np.median(train_diffs)  # 基模型2: 中位数预测
             hold_mean = np.mean(hold_diffs)  # 验证集真实均值
 
@@ -267,4 +284,11 @@ class BlendingEnsembleAlgorithm(BaseAlgorithm):
         # 置信度随数据量增加
         confidence = min(0.85, 0.35 + 0.02 * min(n, 25))
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "blending_numpy"})
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={"method": "blending_numpy"},
+        )

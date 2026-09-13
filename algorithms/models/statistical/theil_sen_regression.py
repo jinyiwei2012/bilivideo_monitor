@@ -135,23 +135,41 @@ class TheilSenRegressionAlgorithm(BaseAlgorithm):
         remaining = threshold - current_views
         # 已达阈值
         if remaining <= 0:
-            return self._std_result(0, 1.0, current_views, threshold, velocity=velocity, metadata={"method": "theil_sen"})
+            return self._std_result(
+                0, 1.0, current_views, threshold, velocity=velocity, metadata={"method": "theil_sen"}
+            )
 
         # 数据不足
         if len(history) < 4 or velocity <= 0:
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "theil_sen", "notes": "insufficient_data"})
+            return self._std_result(
+                predicted_hours,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "theil_sen", "notes": "insufficient_data"},
+            )
 
         # 提取并排序播放量序列
         views_sorted = self._extract_views(history)
         if views_sorted is None or len(views_sorted) < 4:
-            return self._std_result(remaining / velocity, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "theil_sen_fallback"})
+            return self._std_result(
+                remaining / velocity,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "theil_sen_fallback"},
+            )
 
         try:
             return self._predict_impl(views_sorted, current_views, velocity, remaining, threshold)
         except Exception as e:
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.0, current_views, threshold, velocity=velocity, metadata={"error": str(e)})
+            return self._std_result(
+                predicted_hours, 0.0, current_views, threshold, velocity=velocity, metadata={"error": str(e)}
+            )
 
     def _extract_views(self, history):
         """
@@ -269,13 +287,18 @@ class TheilSenRegressionAlgorithm(BaseAlgorithm):
             predicted_hours = remaining / velocity
             conf = 0.35
 
-        return self._std_result(predicted_hours, conf, current_views, threshold, velocity=velocity, metadata={
+        return self._std_result(
+            predicted_hours,
+            conf,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={
                 "method": "theil_sen",
                 "theil_slope": round(float(slope), 2),  # Theil-Sen 趋势斜率
                 "daily_growth": round(float(daily_growth), 2),  # 日增长量
                 "trend_consistency": round(float(trend_consistency), 3),  # 趋势一致性
                 "segment_slopes": len(segment_slopes),  # 分段数
                 "data_points": n,
-            })
-
-
+            },
+        )

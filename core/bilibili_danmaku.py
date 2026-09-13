@@ -33,11 +33,11 @@ _DANMAKU_HISTORY_INDEX_URL = "https://api.bilibili.com/x/v2/dm/history/index"
 _DANMAKU_HISTORY_SEG_URL = "https://api.bilibili.com/x/v2/dm/web/history/seg.so"
 
 # ── 拉取参数 ──────────────────────────────────────
-_MAX_SEGMENTS = 300          # 兜底上限（6分钟/段，300段=30小时）
+_MAX_SEGMENTS = 300  # 兜底上限（6分钟/段，300段=30小时）
 _MAX_SEGMENTS_KNOWN_BOGUS = 100  # DmSegConfig.total 固定返回值（最大容量，非实际段数）
-_MAX_EMPTY_STREAK = 10       # 连续空段停止阈值
-_MAX_ERROR_STREAK = 3        # 连续 API 错误放弃阈值
-_SEGMENT_DELAY = 0.3         # 段间请求间隔（秒）
+_MAX_EMPTY_STREAK = 10  # 连续空段停止阈值
+_MAX_ERROR_STREAK = 3  # 连续 API 错误放弃阈值
+_SEGMENT_DELAY = 0.3  # 段间请求间隔（秒）
 
 
 class DanmakuMonitor:
@@ -164,8 +164,7 @@ class DanmakuMonitor:
             if is_error:
                 error_streak += 1
                 if error_streak >= _MAX_ERROR_STREAK:
-                    logger.warning("[弹幕] %s 连续 %d 次 API 错误，段=%d 放弃本轮",
-                                   bvid, error_streak, seg)
+                    logger.warning("[弹幕] %s 连续 %d 次 API 错误，段=%d 放弃本轮", bvid, error_streak, seg)
                     break  # 不前进 seg——该段将在下一轮重试
                 time.sleep(1.0)
                 continue
@@ -207,8 +206,9 @@ class DanmakuMonitor:
             self._progress[key] = seg - 1
 
         if total_new > 0:
-            logger.info("[弹幕] %s 新增 %d 条 (段 %d-%d, fmt=%s)",
-                         bvid, total_new, start_seg, seg - 1, parsed_fmt or "unknown")
+            logger.info(
+                "[弹幕] %s 新增 %d 条 (段 %d-%d, fmt=%s)", bvid, total_new, start_seg, seg - 1, parsed_fmt or "unknown"
+            )
         return total_new
 
     # ──────────────────────────────────────────────
@@ -247,11 +247,16 @@ class DanmakuMonitor:
                 return {}
 
             from core.bilibili_danmaku_proto import parse_danmaku_view
+
             view = parse_danmaku_view(resp.content)
             if view:
-                logger.debug("[弹幕] cid=%d count=%d page_size=%d total=%d",
-                             cid, view.get("count", 0), view.get("page_size", 0),
-                             view.get("total_segments", 0))
+                logger.debug(
+                    "[弹幕] cid=%d count=%d page_size=%d total=%d",
+                    cid,
+                    view.get("count", 0),
+                    view.get("page_size", 0),
+                    view.get("total_segments", 0),
+                )
             return view
         except Exception as e:
             logger.debug("dm/web/view 失败 cid=%d: %s", cid, e)
@@ -261,8 +266,9 @@ class DanmakuMonitor:
     #  阶段 2: 逐段拉取（Proto + XML 双解析）
     # ──────────────────────────────────────────────
 
-    def _fetch_segment(self, cid: int, seg: int, aid: int = 0,
-                       prefer_fmt: Optional[str] = None) -> Tuple[List[Dict], bool]:
+    def _fetch_segment(
+        self, cid: int, seg: int, aid: int = 0, prefer_fmt: Optional[str] = None
+    ) -> Tuple[List[Dict], bool]:
         """拉取单个弹幕段。使用 WBI 签名新版 API，Proto/XML 自动检测。
 
         Args:
@@ -305,8 +311,10 @@ class DanmakuMonitor:
 
             # 解析
             from core.bilibili_danmaku_proto import try_parse_danmaku
+
             if prefer_fmt == "proto":
                 from core.bilibili_danmaku_proto import parse_danmaku_segment
+
                 elems = parse_danmaku_segment(resp.content)
                 return self._normalize_elems(elems), False
             if prefer_fmt == "xml":
@@ -340,46 +348,51 @@ class DanmakuMonitor:
         """
         normalized = []
         for e in proto_elems:
-            normalized.append({
-                "dmid": e.get("dmid", 0),
-                "id_str": e.get("id_str", ""),
-                "text": e.get("content", ""),
-                "timestamp": e.get("progress", 0) / 1000.0,   # ms → s
-                "mode": e.get("mode", 1),
-                "fontsize": e.get("fontsize", 25),
-                "color": e.get("color", 16777215),
-                "send_time": e.get("ctime", 0),
-                "weight": e.get("weight", 1),
-                "uid": e.get("mid_hash", ""),
-                "like_count": e.get("like_count", 0),
-                "pool": e.get("pool", 0),
-                "dm_from": e.get("dm_from", 0),
-            })
+            normalized.append(
+                {
+                    "dmid": e.get("dmid", 0),
+                    "id_str": e.get("id_str", ""),
+                    "text": e.get("content", ""),
+                    "timestamp": e.get("progress", 0) / 1000.0,  # ms → s
+                    "mode": e.get("mode", 1),
+                    "fontsize": e.get("fontsize", 25),
+                    "color": e.get("color", 16777215),
+                    "send_time": e.get("ctime", 0),
+                    "weight": e.get("weight", 1),
+                    "uid": e.get("mid_hash", ""),
+                    "like_count": e.get("like_count", 0),
+                    "pool": e.get("pool", 0),
+                    "dm_from": e.get("dm_from", 0),
+                }
+            )
         return normalized
 
     def _parse_xml(self, data: bytes) -> List[Dict]:
         """XML 格式降级解析。"""
         from defusedxml.ElementTree import fromstring as _xml_parse
+
         try:
             root = _xml_parse(data)
             danmaku = []
             for d in root.findall(".//d"):
                 p = d.get("p", "")
                 parts = p.split(",")
-                danmaku.append({
-                    "dmid": 0,
-                    "text": (d.text or "").strip(),
-                    "timestamp": float(parts[0]) if len(parts) > 0 else 0,
-                    "mode": int(parts[1]) if len(parts) > 1 else 1,
-                    "fontsize": int(parts[2]) if len(parts) > 2 else 25,
-                    "color": int(parts[3]) if len(parts) > 3 else 16777215,
-                    "send_time": int(parts[4]) if len(parts) > 4 else 0,
-                    "weight": int(parts[6]) if len(parts) > 6 else 1,
-                    "uid": parts[7] if len(parts) > 7 else "",
-                    "like_count": 0,
-                    "pool": 0,
-                    "dm_from": 0,
-                })
+                danmaku.append(
+                    {
+                        "dmid": 0,
+                        "text": (d.text or "").strip(),
+                        "timestamp": float(parts[0]) if len(parts) > 0 else 0,
+                        "mode": int(parts[1]) if len(parts) > 1 else 1,
+                        "fontsize": int(parts[2]) if len(parts) > 2 else 25,
+                        "color": int(parts[3]) if len(parts) > 3 else 16777215,
+                        "send_time": int(parts[4]) if len(parts) > 4 else 0,
+                        "weight": int(parts[6]) if len(parts) > 6 else 1,
+                        "uid": parts[7] if len(parts) > 7 else "",
+                        "like_count": 0,
+                        "pool": 0,
+                        "dm_from": 0,
+                    }
+                )
             return danmaku
         except Exception:
             return []
@@ -417,8 +430,13 @@ class DanmakuMonitor:
                 return []
             data = resp.json()
             if data.get("code") != 0:
-                logger.debug("历史弹幕索引失败 cid=%d month=%s: code=%s msg=%s",
-                             cid, month, data.get("code"), data.get("message"))
+                logger.debug(
+                    "历史弹幕索引失败 cid=%d month=%s: code=%s msg=%s",
+                    cid,
+                    month,
+                    data.get("code"),
+                    data.get("message"),
+                )
                 return []
             return data.get("data") or []
         except Exception as e:
@@ -454,6 +472,7 @@ class DanmakuMonitor:
                 return []
 
             from core.bilibili_danmaku_proto import parse_danmaku_segment
+
             elems = parse_danmaku_segment(resp.content)
             if not elems:
                 return []
@@ -462,8 +481,7 @@ class DanmakuMonitor:
             logger.debug("历史弹幕段异常 cid=%d date=%s: %s", cid, date, e)
             return []
 
-    def fetch_history_danmaku(self, bvid: str, cid: int, video_db=None,
-                               month: str = None, on_progress=None) -> int:
+    def fetch_history_danmaku(self, bvid: str, cid: int, video_db=None, month: str = None, on_progress=None) -> int:
         """拉取指定月份的全部历史弹幕并存入 DB。
 
         两步流程：
@@ -482,6 +500,7 @@ class DanmakuMonitor:
         """
         if month is None:
             from datetime import datetime
+
             month = datetime.now().strftime("%Y-%m")
 
         # 1. 获取有弹幕的日期
@@ -522,24 +541,26 @@ class DanmakuMonitor:
         try:
             rows = []
             for d in elems:
-                rows.append({
-                    "bvid": bvid,
-                    "oid": cid,
-                    "segment_index": seg,
-                    "dmid": d.get("dmid", 0),
-                    "id_str": d.get("id_str", ""),
-                    "content": d.get("text", ""),
-                    "video_ts": d.get("timestamp", 0),
-                    "mode": d.get("mode", 1),
-                    "font_size": d.get("fontsize", 25),
-                    "color": d.get("color", 16777215),
-                    "send_time": d.get("send_time", 0),
-                    "weight": d.get("weight", 1),
-                    "uid": d.get("uid", ""),
-                    "like_count": d.get("like_count", 0),
-                    "pool": d.get("pool", 0),
-                    "dm_from": d.get("dm_from", 0),
-                })
+                rows.append(
+                    {
+                        "bvid": bvid,
+                        "oid": cid,
+                        "segment_index": seg,
+                        "dmid": d.get("dmid", 0),
+                        "id_str": d.get("id_str", ""),
+                        "content": d.get("text", ""),
+                        "video_ts": d.get("timestamp", 0),
+                        "mode": d.get("mode", 1),
+                        "font_size": d.get("fontsize", 25),
+                        "color": d.get("color", 16777215),
+                        "send_time": d.get("send_time", 0),
+                        "weight": d.get("weight", 1),
+                        "uid": d.get("uid", ""),
+                        "like_count": d.get("like_count", 0),
+                        "pool": d.get("pool", 0),
+                        "dm_from": d.get("dm_from", 0),
+                    }
+                )
             video_db.add_danmaku_batch(rows)
         except Exception as e:
             logger.debug("弹幕存库失败 %s seg=%d: %s", bvid, seg, e)
@@ -583,6 +604,7 @@ def get_danmaku_monitor(api=None) -> DanmakuMonitor:
             if _danmaku_monitor is None:
                 if api is None:
                     from core import bilibili_api
+
                     api = bilibili_api
                 _danmaku_monitor = DanmakuMonitor(api)
     return _danmaku_monitor

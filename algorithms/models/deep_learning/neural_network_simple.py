@@ -31,8 +31,8 @@ class NeuralNetworkSimpleAlgorithm(BaseAlgorithm):
     category = "深度学习"
     default_weight = 1.2
 
-    training_window = 10     # 训练时使用的历史窗口长度
-    training_horizon = 3     # 训练时预测的未来步数
+    training_window = 10  # 训练时使用的历史窗口长度
+    training_horizon = 3  # 训练时预测的未来步数
 
     def predict(self, video_data, threshold=100000):
         """执行预测
@@ -58,7 +58,9 @@ class NeuralNetworkSimpleAlgorithm(BaseAlgorithm):
 
     def build_model(self):
         """构建MLP PyTorch模型实例"""
-        return MLPTorchModel(in_features=getattr(self, '_training_n_features', 5), window=10, horizon=self.training_horizon)
+        return MLPTorchModel(
+            in_features=getattr(self, "_training_n_features", 5), window=10, horizon=self.training_horizon
+        )
 
     def get_training_features(self):
         """返回训练时使用的多维特征列表"""
@@ -93,12 +95,12 @@ class NeuralNetworkSimpleAlgorithm(BaseAlgorithm):
         else:
             # ===== 输入层特征（7维） =====
             inputs = [
-                math.log(max(current_views, 1)) / 20,                  # 归一化播放量（对数压缩）
-                math.log(max(velocity, 0.001)) / 10,                  # 归一化速度
-                self.get_engagement_rate(video_data),                  # 互动率 [0, 1]
-                self.get_quality_score(video_data),                    # 质量评分 [0, 1]
-                min(1.0, self.get_video_age_hours(video_data) / 168), # 年龄归一化（一周=1）
-                video_data.get("like_count", 0) / max(current_views, 1) * 10,   # 点赞率 ×10
+                math.log(max(current_views, 1)) / 20,  # 归一化播放量（对数压缩）
+                math.log(max(velocity, 0.001)) / 10,  # 归一化速度
+                self.get_engagement_rate(video_data),  # 互动率 [0, 1]
+                self.get_quality_score(video_data),  # 质量评分 [0, 1]
+                min(1.0, self.get_video_age_hours(video_data) / 168),  # 年龄归一化（一周=1）
+                video_data.get("like_count", 0) / max(current_views, 1) * 10,  # 点赞率 ×10
                 video_data.get("coin_count", 0) / max(current_views, 1) * 100,  # 投币率 ×100
             ]
 
@@ -111,8 +113,8 @@ class NeuralNetworkSimpleAlgorithm(BaseAlgorithm):
             hidden_output = max(0, hidden_sum)
 
             # ===== 输出层：调整基准线性预测 =====
-            base_prediction = remaining / velocity                # 基准线性预测（小时数）
-            adjustment = 1 - hidden_output * 0.5                 # 网络学习到的调整因子
+            base_prediction = remaining / velocity  # 基准线性预测（小时数）
+            adjustment = 1 - hidden_output * 0.5  # 网络学习到的调整因子
             # 隐藏层输出越大（质量越好），调整因子越小，预测时间越短
 
             predicted_hours = base_prediction * adjustment
@@ -122,7 +124,14 @@ class NeuralNetworkSimpleAlgorithm(BaseAlgorithm):
             # 置信度：隐藏层输出越高，置信度越高
             confidence = min(1.0, 0.5 + hidden_output)
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={
                 "method": "neural_network_simple",
                 "hidden_activation": hidden_output if "hidden_output" in dir() else 0,
-            })
+            },
+        )

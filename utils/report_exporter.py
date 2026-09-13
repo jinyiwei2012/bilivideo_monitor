@@ -55,7 +55,9 @@ def generate_summary(videos: List[Dict]) -> Dict:
 
 
 def export_html(
-    videos: List[Dict], output_path: Optional[str] = None, title: str = "B站监控数据报告",
+    videos: List[Dict],
+    output_path: Optional[str] = None,
+    title: str = "B站监控数据报告",
     ai_insight: Optional[str] = None,
 ) -> str:
     """生成 HTML 格式报告。ai_insight 为可选的 AI 解读文本段。"""

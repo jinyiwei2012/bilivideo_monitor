@@ -79,29 +79,36 @@ class DynamicEnsembleAlgorithm(BaseAlgorithm):
         if len(history) < 5 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "dynamic_fallback"})
+            return self._std_result(
+                predicted_hours,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "dynamic_fallback"},
+            )
 
         views = np.array([h.get("view_count", 0) for h in history], dtype=np.float64)
         n = len(views)
         diffs = np.diff(views)  # 逐点增量序列
-        quality = self.get_quality_score(video_data)      # 视频质量分 (0-1)
+        quality = self.get_quality_score(video_data)  # 视频质量分 (0-1)
         engagement = self.get_engagement_rate(video_data)  # 互动率 (0-1)
 
         # ========== 阶段判定：根据数据点数量判断视频生命周期阶段 ==========
         if n < 20:
-            stage = "early"        # 早期：数据不足，噪声大，需保守
+            stage = "early"  # 早期：数据不足，噪声大，需保守
             stage_desc = "早期冷启动"
         elif n < 100:
-            stage = "growth"       # 成长期：数据充足，可捕捉趋势
+            stage = "growth"  # 成长期：数据充足，可捕捉趋势
             stage_desc = "成长中"
         else:
-            stage = "mature"       # 成熟期：数据丰富，可做更复杂分析
+            stage = "mature"  # 成熟期：数据丰富，可做更复杂分析
             stage_desc = "成熟期"
 
         # ========== 4 个子模型 ==========
 
         # 子模型1: 短期速度 — 最近 3 点平均增量（对最新变化最敏感）
-        short_vel = np.mean(diffs[-min(3, len(diffs)):]) if len(diffs) >= 1 else velocity * 3600
+        short_vel = np.mean(diffs[-min(3, len(diffs)) :]) if len(diffs) >= 1 else velocity * 3600
 
         # 子模型2: 中期趋势 — 最近 15 点线性拟合斜率（捕捉中期增长/衰减）
         mid_window = min(15, n)
@@ -109,7 +116,7 @@ class DynamicEnsembleAlgorithm(BaseAlgorithm):
 
         # 子模型3: 长期衰减 — 速度序列本身的线性趋势（判断减速还是加速）
         if n >= 8:
-            vel_series = diffs[-min(10, len(diffs)):]  # 最近 10 个速度值
+            vel_series = diffs[-min(10, len(diffs)) :]  # 最近 10 个速度值
             decay_rate = np.polyfit(np.arange(len(vel_series)), vel_series, 1)[0]  # 速度变化率
             long_adj = np.mean(vel_series) + decay_rate * 2  # 预测 2 步后的速度
         else:
@@ -132,10 +139,10 @@ class DynamicEnsembleAlgorithm(BaseAlgorithm):
 
         # ========== 阈值调整：高阈值偏长期，低阈值偏短期 ==========
         # 预测越远，长期信号越重要；预测越近，短期信号越可靠
-        if threshold >= 10000000:       # 千万级阈值：增加长期权重
+        if threshold >= 10000000:  # 千万级阈值：增加长期权重
             w_long += 0.1
             w_short *= 0.8
-        elif threshold <= 100000:       # 十万级阈值：增加短期权重
+        elif threshold <= 100000:  # 十万级阈值：增加短期权重
             w_short += 0.1
             w_long *= 0.9
 
@@ -156,11 +163,20 @@ class DynamicEnsembleAlgorithm(BaseAlgorithm):
         # 互动率越高 → 置信度越高（上限 0.2）
         confidence = max(0.1, min(0.9, 0.3 + 0.1 * min(n / 20, 3) + 0.2 * quality + 0.2 * engagement))
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={
                 "method": "dynamic_ensemble",
-                "stage": stage_desc,       # 当前阶段描述（早期冷启动/成长中/成熟期）
-                "weights": {               # 实际使用的子模型权重
-                    "short": round(w_short, 2), "mid": round(w_mid, 2),
-                    "long": round(w_long, 2), "quality": round(w_quality, 2),
+                "stage": stage_desc,  # 当前阶段描述（早期冷启动/成长中/成熟期）
+                "weights": {  # 实际使用的子模型权重
+                    "short": round(w_short, 2),
+                    "mid": round(w_mid, 2),
+                    "long": round(w_long, 2),
+                    "quality": round(w_quality, 2),
                 },
-            })
+            },
+        )

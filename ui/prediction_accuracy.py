@@ -4,6 +4,7 @@
 展示每个预测时间点各算法的准确率，支持按算法筛选和时间范围选择。
 通过查询 monitor_records 找到预测到达时间点的实际播放量，与 target_threshold 对比计算偏差。
 """
+
 import logging
 from bisect import bisect_left
 from datetime import datetime, timedelta
@@ -11,8 +12,15 @@ from datetime import datetime, timedelta
 from utils.time_utils import format_ts
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QTableWidget, QTableWidgetItem, QComboBox, QHeaderView,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QComboBox,
+    QHeaderView,
 )
 from PyQt6.QtGui import QColor
 
@@ -210,8 +218,8 @@ class PredictionAccuracyPanel:
         ranking_view = self._view_combo.currentIndex() == 1
 
         # 明细行 + 算法聚合
-        detail_rows = []          # (row_idx, 列文本..., deviation)
-        algo_agg: dict = {}       # algo → {n, dev_sum, acc_sum, max_acc, min_acc, pred_sum}
+        detail_rows = []  # (row_idx, 列文本..., deviation)
+        algo_agg: dict = {}  # algo → {n, dev_sum, acc_sum, max_acc, min_acc, pred_sum}
         total_dev = 0.0
         count = 0
         skipped_future = 0
@@ -233,8 +241,7 @@ class PredictionAccuracyPanel:
                 pred_ts = None
 
             if pred_ts is None:
-                detail_rows.append((ts_display, algo_name, fmt_num(current_views or 0),
-                                    "—", "—", "时间错误", 0))
+                detail_rows.append((ts_display, algo_name, fmt_num(current_views or 0), "—", "—", "时间错误", 0))
                 continue
 
             # 预测的到达时间
@@ -287,8 +294,17 @@ class PredictionAccuracyPanel:
                 agg["max_acc"] = max(agg["max_acc"], accuracy)
                 agg["min_acc"] = min(agg["min_acc"], accuracy)
 
-            detail_rows.append((ts_display, algo_name, fmt_num(current_views or 0),
-                                actual_views_display, dev_text, acc_text, deviation))
+            detail_rows.append(
+                (
+                    ts_display,
+                    algo_name,
+                    fmt_num(current_views or 0),
+                    actual_views_display,
+                    dev_text,
+                    acc_text,
+                    deviation,
+                )
+            )
 
         # ── 渲染 ──
         if ranking_view:
@@ -320,7 +336,9 @@ class PredictionAccuracyPanel:
         self._table.setColumnCount(6)
         self._table.setHorizontalHeaderLabels(["预测时间", "算法", "预测值", "实际值", "偏差", "准确率"])
         self._table.setRowCount(len(detail_rows))
-        for i, (ts_display, algo_name, pred_views, actual_views_display, dev_text, acc_text, deviation) in enumerate(detail_rows):
+        for i, (ts_display, algo_name, pred_views, actual_views_display, dev_text, acc_text, deviation) in enumerate(
+            detail_rows
+        ):
             self._set_row(i, ts_display, algo_name, pred_views, actual_views_display, dev_text, acc_text, deviation)
 
     def _render_ranking(self, algo_agg: dict, total_rows: int, skipped_future: int, latest_views: int):
@@ -367,7 +385,10 @@ class PredictionAccuracyPanel:
             (pred_views, C["bilibili"]),
             (actual_views, C["text_1"]),
             (dev_text, C["danger"] if deviation > 20 else C["success"]),
-            (acc_text, C["success"] if (100 - deviation) > 80 else C["warning"] if (100 - deviation) > 50 else C["danger"]),
+            (
+                acc_text,
+                C["success"] if (100 - deviation) > 80 else C["warning"] if (100 - deviation) > 50 else C["danger"],
+            ),
         ]
         for j, (text, color) in enumerate(items):
             item = QTableWidgetItem(text)

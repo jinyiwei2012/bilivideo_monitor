@@ -12,9 +12,22 @@ from typing import Dict, List, Optional
 from datetime import datetime
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QCheckBox, QComboBox, QSpinBox, QProgressBar,
-    QFrame, QPlainTextEdit, QMessageBox, QDialog, QLineEdit, QRadioButton, QButtonGroup,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QCheckBox,
+    QComboBox,
+    QSpinBox,
+    QProgressBar,
+    QFrame,
+    QPlainTextEdit,
+    QMessageBox,
+    QDialog,
+    QLineEdit,
+    QRadioButton,
+    QButtonGroup,
 )
 from PyQt6.QtCore import Qt
 
@@ -836,9 +849,23 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
         if config is None:
             return
 
-        selected, epochs, batch, is_incremental, lr, mode_label, lr_label, parallel, batch_log, interval_val, interval_unit = config
+        (
+            selected,
+            epochs,
+            batch,
+            is_incremental,
+            lr,
+            mode_label,
+            lr_label,
+            parallel,
+            batch_log,
+            interval_val,
+            interval_unit,
+        ) = config
         self._build_train_config(selected, epochs, batch, mode_label, lr)
-        self._start_train_thread(selected, is_incremental, lr, epochs, batch, parallel, batch_log, interval_val, interval_unit)
+        self._start_train_thread(
+            selected, is_incremental, lr, epochs, batch, parallel, batch_log, interval_val, interval_unit
+        )
 
     def _validate_train_params(self):
         """校验训练参数并弹出确认对话框，返回训练配置或 None"""
@@ -865,6 +892,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
         parallel_warning = ""
         try:
             from algorithms.training.device import get_device_info
+
             dev_info = get_device_info()
             if dev_info.get("is_gpu") and dev_info.get("total_memory_gb", 0) > 0:
                 vram_gb = dev_info["total_memory_gb"]
@@ -894,7 +922,8 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
             lr_label = f"手动 ({lr:.6f})"
 
         reply = QMessageBox.question(
-            self, "要开始训练吗 ♪",
+            self,
+            "要开始训练吗 ♪",
             f"天依要开始训练啦 ♪\n"
             f"模式: {mode_label}  并行: {parallel}\n"
             f"算法: {len(selected)} 个\n"
@@ -907,7 +936,19 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
         if reply != QMessageBox.StandardButton.Yes:
             return None
 
-        return (selected, epochs, batch, is_incremental, lr, mode_label, lr_label, parallel, self._batch_log_cb.isChecked(), self._batch_interval_entry.text(), self._batch_interval_combo.currentText())
+        return (
+            selected,
+            epochs,
+            batch,
+            is_incremental,
+            lr,
+            mode_label,
+            lr_label,
+            parallel,
+            self._batch_log_cb.isChecked(),
+            self._batch_interval_entry.text(),
+            self._batch_interval_combo.currentText(),
+        )
 
     def _build_train_config(self, selected, epochs, batch, mode_label, lr):
         """重置训练状态、打开日志文件、更新状态标签"""
@@ -935,7 +976,9 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
         self._safe_sb("status", "天依正在认真练习呢…像准备演唱会一样,再等等哦 ♪", color=C["accent"])
         self._algo_durations: List[float] = []  # 各算法耗时（用于跨算法 ETA）
 
-    def _start_train_thread(self, selected, is_incremental, lr, epochs, batch, parallel, batch_log, interval_val, interval_unit):
+    def _start_train_thread(
+        self, selected, is_incremental, lr, epochs, batch, parallel, batch_log, interval_val, interval_unit
+    ):
         """启动训练线程（支持并行模式 + 可配置 batch 级日志间隔）"""
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -987,6 +1030,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
                 # 非增量模式：清除旧 checkpoint
                 if not is_incremental:
                     from algorithms.training.checkpoint_manager import CheckpointManager
+
                     _ckpt = CheckpointManager(aid)
                     _n = _ckpt.delete_all()
                     if _n:
@@ -1017,7 +1061,9 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
                 completed_count[0] += 1
                 return aid, bool(sub.get(aid))
             except Exception as e:
-                self._train_queue.put({"stage": "error", "algo_id": aid, "current": completed_count[0], "total": total, "error": str(e)})
+                self._train_queue.put(
+                    {"stage": "error", "algo_id": aid, "current": completed_count[0], "total": total, "error": str(e)}
+                )
                 return aid, False
 
         def _worker():
@@ -1028,7 +1074,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
                     # 串行模式（保持原有行为）
                     for aid in selected:
                         if self._cancel_flag[0]:
-                            self._train_queue.put({"stage": "cancelled", "remaining": selected[completed_count[0]:]})
+                            self._train_queue.put({"stage": "cancelled", "remaining": selected[completed_count[0] :]})
                             break
                         ok, success = _train_one_algo(aid)
                         results[ok] = ok if success else ""
@@ -1133,7 +1179,9 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
             pass
         # 详细日志：batch 级损失写入日志面板和文件
         pct = b / max(tot_b, 1) * 100
-        self._append_log(f"  ◧ {aid} batch {b}/{tot_b} ({pct:.0f}%) | batch_loss={batch_loss:.6f} | avg_loss={avg_loss:.6f}")
+        self._append_log(
+            f"  ◧ {aid} batch {b}/{tot_b} ({pct:.0f}%) | batch_loss={batch_loss:.6f} | avg_loss={avg_loss:.6f}"
+        )
         return False
 
     @staticmethod
@@ -1276,7 +1324,9 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
             total_eta = f"  ⇨剩余≈{self._fmt_duration(avg_dur * remaining)}"
 
         # 主窗口状态栏
-        self._safe_sb("algo", f"◉ ✓ [{cur}/{total_sel}] {aid} 唱好啦 ♪  {algo_elapsed:.0f}s{total_eta}", color=C["success"])
+        self._safe_sb(
+            "algo", f"◉ ✓ [{cur}/{total_sel}] {aid} 唱好啦 ♪  {algo_elapsed:.0f}s{total_eta}", color=C["success"]
+        )
 
         # 从 checkpoint 读取 val_loss 和置信度
         from algorithms.training.checkpoint_manager import CheckpointManager

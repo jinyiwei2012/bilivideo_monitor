@@ -2,10 +2,14 @@
 
 作为 DetailPanel 的 Mixin 类使用。
 """
+
 import logging
 
 from PyQt6.QtWidgets import (
-    QWidget, QHBoxLayout, QLabel, QFrame,
+    QWidget,
+    QHBoxLayout,
+    QLabel,
+    QFrame,
 )
 from PyQt6.QtGui import QTextCursor
 
@@ -24,7 +28,7 @@ class _RatioDanmakuMixin:
 
     def _fill_ratio_frame(self, video):
         """更新互动率面板数值——不重建 widget，只更新文本和进度条宽度"""
-        if not hasattr(self, '_ratio_bars') or not self._ratio_bars:
+        if not hasattr(self, "_ratio_bars") or not self._ratio_bars:
             self._build_ratio_frame()
         views = video.get("view_count", 1) or 1
         ratios = [
@@ -155,8 +159,7 @@ class _RatioDanmakuMixin:
                 if prev is not None and prev["count"] == count:
                     return
                 self._dm_cache[bvid] = {"records": records, "count": count}
-                if (self.gui is not None and self.gui.selected_bvid == bvid
-                        and self._current_tab_name == "♬ 弹幕"):
+                if self.gui is not None and self.gui.selected_bvid == bvid and self._current_tab_name == "♬ 弹幕":
                     self._render_danmaku(records, count)
 
             invoke(_apply)

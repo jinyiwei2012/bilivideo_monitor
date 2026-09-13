@@ -35,6 +35,7 @@ _HAS_SKLEARN = False
 try:
     from sklearn.isotonic import IsotonicRegression  # 保序回归
     from sklearn.linear_model import LogisticRegression  # 备用（未使用）
+
     _HAS_SKLEARN = True
 except ImportError:
     pass
@@ -93,7 +94,14 @@ class ProbabilityCalibrationAlgorithm(BaseAlgorithm):
         if len(history) < 15 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "calibration_fallback"})
+            return self._std_result(
+                predicted_hours,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "calibration_fallback"},
+            )
 
         views = np.array([h.get("view_count", 0) for h in history], dtype=np.float64)
         n = len(views)
@@ -144,8 +152,15 @@ class ProbabilityCalibrationAlgorithm(BaseAlgorithm):
         predicted_hours = remaining / predicted_velocity if remaining > 0 else float("inf")
         confidence = max(0.1, min(0.95, calibrated_conf))  # 钳制到 [0.1, 0.95]
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={
                 "method": "prob_calibration",
                 "raw_conf": round(float(np.mean(cv_errors) if cv_errors else 0), 3),  # 原始平均误差
                 "calibrated": round(float(confidence), 3),  # 校准后的置信度
-            })
+            },
+        )

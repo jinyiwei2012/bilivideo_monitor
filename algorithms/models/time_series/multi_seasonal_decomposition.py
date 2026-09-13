@@ -169,16 +169,32 @@ class MultiSeasonalDecompositionAlgorithm(BaseAlgorithm):
         remaining = threshold - current_views
         # 已达标
         if remaining <= 0:
-            return self._std_result(0, 1.0, current_views, threshold, velocity=velocity, metadata={"method": "multi_seasonal"})
+            return self._std_result(
+                0, 1.0, current_views, threshold, velocity=velocity, metadata={"method": "multi_seasonal"}
+            )
 
         # 数据不足
         if len(history) < 10 or velocity <= 0:
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "multi_seasonal", "notes": "insufficient_data"})
+            return self._std_result(
+                predicted_hours,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "multi_seasonal", "notes": "insufficient_data"},
+            )
 
         views_data = self._extract_views(history)
         if views_data is None:
-            return self._std_result(remaining / velocity, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "multi_seasonal_fallback"})
+            return self._std_result(
+                remaining / velocity,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "multi_seasonal_fallback"},
+            )
 
         views_arr, hours_per_point = views_data
         try:
@@ -187,7 +203,9 @@ class MultiSeasonalDecompositionAlgorithm(BaseAlgorithm):
             )
         except Exception as e:
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.0, current_views, threshold, velocity=velocity, metadata={"error": str(e)})
+            return self._std_result(
+                predicted_hours, 0.0, current_views, threshold, velocity=velocity, metadata={"error": str(e)}
+            )
 
     def _extract_views(self, history):
         """从历史记录中提取并排序播放量序列，计算数据点间隔
@@ -314,13 +332,18 @@ class MultiSeasonalDecompositionAlgorithm(BaseAlgorithm):
             predicted_hours = remaining / velocity
             conf = 0.35
 
-        return self._std_result(predicted_hours, conf, current_views, threshold, velocity=velocity, metadata={
+        return self._std_result(
+            predicted_hours,
+            conf,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={
                 "method": "multi_seasonal",
                 "daily_strength": round(float(daily_strength), 3),
                 "weekly_strength": round(float(weekly_strength), 3),
                 "trend_daily_growth": round(float(trend_daily_growth), 2),
                 "residual_std": round(float(np.std(residual)), 2),
                 "data_points": n,
-            })
-
-
+            },
+        )

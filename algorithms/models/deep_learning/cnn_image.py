@@ -173,7 +173,7 @@ class CnnImageAlgorithm(BaseAlgorithm):
                 {"window": self.training_window},
                 state,
                 self.training_window,
-                getattr(self, '_training_n_features', len(self._features) + 5),
+                getattr(self, "_training_n_features", len(self._features) + 5),
                 int(self.training_horizon),
             )
             self._cached_model = model
@@ -302,7 +302,7 @@ class CnnImageAlgorithm(BaseAlgorithm):
         """
         return CnnImageTorchModel(
             window=self.training_window,
-            in_features=getattr(self, '_training_n_features', len(self._features) + 5),
+            in_features=getattr(self, "_training_n_features", len(self._features) + 5),
             horizon=self.training_horizon,
         )
 
@@ -338,4 +338,6 @@ class CnnImageAlgorithm(BaseAlgorithm):
                 confidence = 1.0
         metadata = {"reason": reason}
         metadata.update(extra or {})
-        return self._std_result(predicted_hours, confidence, int(current_views), threshold, velocity=float(velocity), metadata=metadata)
+        return self._std_result(
+            predicted_hours, confidence, int(current_views), threshold, velocity=float(velocity), metadata=metadata
+        )

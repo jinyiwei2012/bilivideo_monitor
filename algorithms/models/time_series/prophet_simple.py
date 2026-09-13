@@ -104,7 +104,14 @@ class ProphetSimpleAlgorithm(BaseAlgorithm):
         remaining = threshold - current_views
         # 已达标
         if remaining <= 0:
-            return self._std_result(0, 1.0, current_views, threshold, velocity=velocity, metadata={"method": "prophet", "note": "already_reached"})
+            return self._std_result(
+                0,
+                1.0,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "prophet", "note": "already_reached"},
+            )
 
         # 数据不足或速度为零 → NumPy 回退
         if len(history) < 7 or velocity <= 0:
@@ -116,7 +123,14 @@ class ProphetSimpleAlgorithm(BaseAlgorithm):
                 result = self._prophet_predict(history, current_views, threshold)
                 if result is not None:
                     predicted_hours, confidence = result
-                    return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "prophet", "data_points": len(history)})
+                    return self._std_result(
+                        predicted_hours,
+                        confidence,
+                        current_views,
+                        threshold,
+                        velocity=velocity,
+                        metadata={"method": "prophet", "data_points": len(history)},
+                    )
             except Exception as e:
                 logger.debug("Prophet 预测失败，回退 numpy: %s", e)
 
@@ -264,7 +278,14 @@ class ProphetSimpleAlgorithm(BaseAlgorithm):
                 return self._numpy_predict(current_views, velocity, remaining, threshold)
 
             predicted_hours, confidence = forecast_result
-            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "prophet_numpy", "data_points": len(history)})
+            return self._std_result(
+                predicted_hours,
+                confidence,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "prophet_numpy", "data_points": len(history)},
+            )
         except Exception:
             return self._numpy_predict(current_views, velocity, remaining, threshold)
 
@@ -281,9 +302,13 @@ class ProphetSimpleAlgorithm(BaseAlgorithm):
             PredictionResult: 预测结果对象
         """
         if velocity <= 0:
-            return self._std_result(float("inf"), 0.0, current_views, threshold, velocity=velocity, metadata={"method": "prophet_fallback"})
+            return self._std_result(
+                float("inf"), 0.0, current_views, threshold, velocity=velocity, metadata={"method": "prophet_fallback"}
+            )
         predicted_hours = remaining / velocity
-        return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "prophet_fallback"})
+        return self._std_result(
+            predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "prophet_fallback"}
+        )
 
     # ── NumPy 回退的辅助方法 ────────────────────────────
 

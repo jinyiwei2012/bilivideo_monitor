@@ -79,9 +79,9 @@ class BaggingSimpleAlgorithm(BaseAlgorithm):
         设置默认的超参数：25 个基学习器、80% 采样率、树深度 5。
         """
         super().__init__()
-        self.n_estimators = 25        # 基学习器数量
-        self.max_samples = 0.8        # 每个学习器的采样比例
-        self.max_depth = 5            # 树最大深度
+        self.n_estimators = 25  # 基学习器数量
+        self.max_samples = 0.8  # 每个学习器的采样比例
+        self.max_depth = 5  # 树最大深度
 
     class _RegTree:
         """
@@ -242,17 +242,33 @@ class BaggingSimpleAlgorithm(BaseAlgorithm):
         # ── numpy 回退 ───────────────────────────
         if len(history) < 6 or velocity <= 0:
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "bagging", "notes": "insufficient_data"})
+            return self._std_result(
+                predicted_hours,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "bagging", "notes": "insufficient_data"},
+            )
 
         views_sorted = self._extract_views(history)
         if views_sorted is None or len(views_sorted) < 6:
-            return self._std_result(remaining / velocity, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "bagging_fallback"})
+            return self._std_result(
+                remaining / velocity,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "bagging_fallback"},
+            )
 
         try:
             return self._predict_impl(views_sorted, current_views, velocity, remaining, threshold, video_data)
         except Exception as e:
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.0, current_views, threshold, velocity=velocity, metadata={"error": str(e)})
+            return self._std_result(
+                predicted_hours, 0.0, current_views, threshold, velocity=velocity, metadata={"error": str(e)}
+            )
 
     def _sklearn_predict(self, video_data: Dict[str, Any], threshold: int) -> PredictionResult:
         """
@@ -291,15 +307,18 @@ class BaggingSimpleAlgorithm(BaseAlgorithm):
         if len(X) < 8:
             return None
 
-        y_target = np.diff(views[-len(X) - 1:]) / np.maximum(views[-len(X) - 1 : -1], 1)
-        y_target = y_target[-len(X):]
+        y_target = np.diff(views[-len(X) - 1 :]) / np.maximum(views[-len(X) - 1 : -1], 1)
+        y_target = y_target[-len(X) :]
 
         # Bagging: 30 个基学习器，80% Bootstrap 采样，并行训练
         model = get_or_fit(
             "bagging_simple",
             lambda: BaggingRegressor(
                 estimator=DecisionTreeRegressor(max_depth=4, random_state=42),
-                n_estimators=30, max_samples=0.8, random_state=42, n_jobs=-1,
+                n_estimators=30,
+                max_samples=0.8,
+                random_state=42,
+                n_jobs=-1,
             ),
             X,
             y_target,
@@ -322,7 +341,14 @@ class BaggingSimpleAlgorithm(BaseAlgorithm):
             cv = float(np.std(residuals) / max(np.mean(np.abs(y_target)), 1e-10))
             confidence = max(0.1, min(0.85, 0.6 - cv * 0.5))
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "bagging_sklearn", "n_estimators": 30})
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={"method": "bagging_sklearn", "n_estimators": 30},
+        )
 
     def _extract_views(self, history):
         """
@@ -384,7 +410,14 @@ class BaggingSimpleAlgorithm(BaseAlgorithm):
         X, y = self._build_dataset(views_sorted, quality)
 
         if len(X) < 5:
-            return self._std_result(remaining / velocity, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "bagging_insufficient"})
+            return self._std_result(
+                remaining / velocity,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "bagging_insufficient"},
+            )
 
         # ── 训练 Bagging ───────────────────────────
         n_samples = X.shape[0]
@@ -437,14 +470,21 @@ class BaggingSimpleAlgorithm(BaseAlgorithm):
             conf = 0.35
             consistency = 0.0
 
-        return self._std_result(predicted_hours, conf, current_views, threshold, velocity=velocity, metadata={
+        return self._std_result(
+            predicted_hours,
+            conf,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={
                 "method": "bagging",
                 "n_estimators": self.n_estimators,
                 "daily_growth": round(float(predicted_daily_growth), 2),
                 "pred_std": round(float(pred_std), 2),
                 "consistency": round(float(consistency), 3),
                 "data_points": n,
-            })
+            },
+        )
 
     def _build_dataset(self, views: np.ndarray, quality: float) -> tuple:
         """
@@ -470,8 +510,8 @@ class BaggingSimpleAlgorithm(BaseAlgorithm):
         X, y = [], []
         for i in range(5, len(views)):
             features = [
-                views[i - 1] - views[i - 2],           # 绝对增量 t-1
-                views[i - 2] - views[i - 3],           # 绝对增量 t-2
+                views[i - 1] - views[i - 2],  # 绝对增量 t-1
+                views[i - 2] - views[i - 3],  # 绝对增量 t-2
                 (views[i - 1] / max(views[i - 2], 1) - 1) * 100,  # 增长率 t-1 (%)
                 np.mean(views[i - 5 : i]) if i >= 5 else views[i - 1],  # 5日平均
                 np.std(views[max(0, i - 5) : i]) / max(np.mean(views[max(0, i - 5) : i]), 1),  # CV
@@ -494,11 +534,11 @@ class BaggingSimpleAlgorithm(BaseAlgorithm):
         """
         return np.array(
             [
-                views[-1] - views[-2],                                   # 最新绝对增量
-                views[-2] - views[-3],                                   # 前一绝对增量
-                (views[-1] / max(views[-2], 1) - 1) * 100,              # 最新增长率 (%)
-                np.mean(views[-5:]),                                     # 最新 5 日平均
-                np.std(views[-5:]) / max(np.mean(views[-5:]), 1),       # 最新 CV
-                quality * 100,                                          # 质量分
+                views[-1] - views[-2],  # 最新绝对增量
+                views[-2] - views[-3],  # 前一绝对增量
+                (views[-1] / max(views[-2], 1) - 1) * 100,  # 最新增长率 (%)
+                np.mean(views[-5:]),  # 最新 5 日平均
+                np.std(views[-5:]) / max(np.mean(views[-5:]), 1),  # 最新 CV
+                quality * 100,  # 质量分
             ]
         ).reshape(1, -1)

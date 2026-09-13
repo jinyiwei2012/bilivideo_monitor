@@ -499,7 +499,9 @@ class ChangePointDetectionAlgorithm(BaseAlgorithm):
             "velocity_trend": self._get_velocity_trend(velocities) if velocities is not None else "unknown",
         }
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata=metadata)
+        return self._std_result(
+            predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata=metadata
+        )
 
     def _get_velocity_trend(self, velocities: np.ndarray) -> str:
         """

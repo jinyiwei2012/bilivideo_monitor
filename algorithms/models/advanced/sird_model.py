@@ -182,11 +182,18 @@ class SirdModelAlgorithm(BaseAlgorithm):
                     predicted_hours = remaining / velocity  # 已到峰值，回退为速度外推
                 confidence = 0.3
 
-            return self._std_result(predicted_hours, min(0.85, confidence), current_views, threshold, velocity=velocity, metadata={
+            return self._std_result(
+                predicted_hours,
+                min(0.85, confidence),
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={
                     "method": "sird",
                     "beta": float(beta),  # 传播率参数
                     "gamma": float(gamma),  # 恢复率参数
                     "peak_hours": float(peak_time * 24) if "peak_time" in dir() else 0,  # 峰值时间
-                })
+                },
+            )
         except Exception:
             return self._fallback(velocity, current_views, threshold, method="sird")

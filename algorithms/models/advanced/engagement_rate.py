@@ -92,8 +92,15 @@ class EngagementRateAlgorithm(BaseAlgorithm):
                 # 置信度基于互动率稳定性
                 confidence = min(1.0, 0.5 + engagement_rate * 5)
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={
                 "method": "engagement_rate",
                 "engagement_rate": engagement_rate,  # 原始互动率
                 "engagement_factor": 1 + engagement_rate * 2,  # 加速因子
-            })
+            },
+        )

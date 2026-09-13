@@ -7,10 +7,16 @@ import logging
 from typing import Dict
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-    QComboBox, QCheckBox, QSpinBox,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QPushButton,
+    QComboBox,
+    QCheckBox,
+    QSpinBox,
     QMessageBox,
-    QProgressBar, QFileDialog,
+    QProgressBar,
+    QFileDialog,
 )
 from PyQt6.QtCore import QTimer
 
@@ -51,18 +57,21 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
 
         dr_layout.addWidget(_styled_label("推理设备:", "text_2"))
         self._tr_infer_device_cb = QComboBox()
-        self._tr_infer_device_cb.addItems([
-            "auto - 自动选择",
-            "openvino_npu - OpenVINO NPU (Intel AI Boost)",
-            "onnx_dml - ONNX DirectML (NPU)",
-            "cuda - NVIDIA GPU",
-            "cpu - CPU only",
-        ])
+        self._tr_infer_device_cb.addItems(
+            [
+                "auto - 自动选择",
+                "openvino_npu - OpenVINO NPU (Intel AI Boost)",
+                "onnx_dml - ONNX DirectML (NPU)",
+                "cuda - NVIDIA GPU",
+                "cpu - CPU only",
+            ]
+        )
         self._tr_infer_device_cb.currentIndexChanged.connect(lambda: self._on_infer_device_changed())
         dr_layout.addWidget(self._tr_infer_device_cb)
 
         # 恢复持久化的设备偏好
         from algorithms.training.device import get_preferred_device
+
         saved_pref = get_preferred_device()
         for i in range(self._tr_infer_device_cb.count()):
             if self._tr_infer_device_cb.itemText(i).startswith(saved_pref):
@@ -97,10 +106,7 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
         list_layout = list_sec.layout()
 
         hdr = QWidget()
-        hdr.setStyleSheet(
-            f"background-color: {C['bg_surface']}; "
-            f"border: 1px solid {C['border_sub']};"
-        )
+        hdr.setStyleSheet(f"background-color: {C['bg_surface']}; " f"border: 1px solid {C['border_sub']};")
         hdr_layout = QHBoxLayout(hdr)
         hdr_layout.setContentsMargins(4, 3, 4, 3)
         col_w = [("选择", 50), ("算法", 180), ("ID", 160), ("状态", 170), ("操作", 90)]
@@ -193,7 +199,8 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
         if _train() != "normal":
             hint_lbl = _styled_label(
                 "✦ 创建 .enabletraining 文件开启训练 / 完整 devmode 见 README.md",
-                "warning", font_=FONT_SM,
+                "warning",
+                font_=FONT_SM,
             )
             btnr_layout.addWidget(hint_lbl)
 
@@ -216,7 +223,6 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
         self._refresh_data_size()
         self._refresh_algo_list()
 
-
     def _refresh_device_info(self):
         try:
             from algorithms.training.device import get_device_info, is_torch_available, force_cpu
@@ -236,6 +242,7 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
 
             try:
                 from utils.memory_guard import format_memory_info
+
                 mem_str = format_memory_info()
                 if hasattr(self, "_tr_mem_lbl"):
                     self._tr_mem_lbl.setText(mem_str)
@@ -246,16 +253,15 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
             self._tr_device_lbl.setText("呜…设备检测失败啦，请稍后再试哦 ♪")
             self._tr_device_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent; font-weight: bold;")
 
-
     def _on_infer_device_changed(self):
         val = self._tr_infer_device_cb.currentText().split(" - ")[0]
         try:
             from algorithms.training.device import set_preferred_device
+
             set_preferred_device(val)
             self._refresh_device_info()
         except Exception as e:
             logger.debug("设置推理设备失败: %s", e)
-
 
     def _refresh_data_size(self):
         self._tr_data_lbl.setText("估算中哦…♪")
@@ -264,6 +270,7 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
         def _worker():
             try:
                 from algorithms.training.trainer import ModelTrainer
+
                 tr = ModelTrainer()
                 info = tr.estimate_data_size()
                 total_videos = info.get("total_videos", 0)
@@ -277,20 +284,26 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
                     f"训练样本: {total_samples:,}\n"
                     f"预计单算法训练时间: {eta_min:.1f} 分钟"
                 )
-                QTimer.singleShot(0, lambda: [
-                    self._tr_data_lbl.setText(txt),
-                    self._tr_data_lbl.setStyleSheet(f"color: {C['text_1']}; background: transparent;")
-                ])
+                QTimer.singleShot(
+                    0,
+                    lambda: [
+                        self._tr_data_lbl.setText(txt),
+                        self._tr_data_lbl.setStyleSheet(f"color: {C['text_1']}; background: transparent;"),
+                    ],
+                )
             except Exception as e:
                 logger.error("估算训练数据规模失败", exc_info=True)
-                QTimer.singleShot(0, lambda e=e: [
-                    self._tr_data_lbl.setText("呜…数据估算失败啦，请稍后再试哦 ♪"),
-                    self._tr_data_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
-                ])
+                QTimer.singleShot(
+                    0,
+                    lambda e=e: [
+                        self._tr_data_lbl.setText("呜…数据估算失败啦，请稍后再试哦 ♪"),
+                        self._tr_data_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;"),
+                    ],
+                )
 
         import threading
-        threading.Thread(target=_worker, daemon=True).start()
 
+        threading.Thread(target=_worker, daemon=True).start()
 
     def _refresh_algo_list(self):
         # 清空
@@ -307,6 +320,7 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
 
         try:
             from algorithms.registry import AlgorithmRegistry
+
             algos = AlgorithmRegistry.get_trainable_info()
         except Exception as e:
             logger.error("加载可训练算法列表失败", exc_info=True)
@@ -322,10 +336,7 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
             self._tr_algo_meta[aid] = a
 
             row = QWidget()
-            row.setStyleSheet(
-                f"background-color: {C['bg_surface']}; "
-                f"border-bottom: 1px solid {C['border_sub']};"
-            )
+            row.setStyleSheet(f"background-color: {C['bg_surface']}; " f"border-bottom: 1px solid {C['border_sub']};")
             rl = QHBoxLayout(row)
             rl.setContentsMargins(4, 2, 4, 2)
 
@@ -363,16 +374,13 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
             rl.addStretch()
             (self._tr_algo_frame.layout() or QVBoxLayout(self._tr_algo_frame)).addWidget(row)
 
-
     def _tr_select_all(self, flag: bool):
         for var in self._tr_check_vars.values():
             var.setChecked(flag)
 
-
     def _tr_select_untrained(self):
         for aid, var in self._tr_check_vars.items():
             var.setChecked(not self._tr_algo_meta.get(aid, {}).get("has_ckpt", False))
-
 
     def _on_train_start(self):
         from algorithms.training.device import is_torch_available
@@ -389,12 +397,16 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
         epochs = max(1, self._tr_epoch_sb.value())
         batch = max(1, self._tr_batch_sb.value())
 
-        if not QMessageBox.question(
-            self.dlg, "要开始训练吗 ♪",
-            f"要开始训练 {len(selected)} 个算法吗？epoch={epochs}，batch={batch}。\n"
-            "训练过程不能中途暂停哦（只能取消还没开始的算法）…♪",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        ) == QMessageBox.StandardButton.Yes:
+        if (
+            not QMessageBox.question(
+                self.dlg,
+                "要开始训练吗 ♪",
+                f"要开始训练 {len(selected)} 个算法吗？epoch={epochs}，batch={batch}。\n"
+                "训练过程不能中途暂停哦（只能取消还没开始的算法）…♪",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            == QMessageBox.StandardButton.Yes
+        ):
             return
 
         self._tr_train_btn.setEnabled(False)
@@ -412,6 +424,7 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
         def _worker():
             try:
                 from algorithms.training.trainer import ModelTrainer
+
                 trainer = ModelTrainer()
                 remaining = list(selected)
                 results = {}
@@ -430,25 +443,28 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
         # 线程 + 队列 + 轮询由 AsyncQueueRunner 提供
         self._launch_worker(_worker)
 
-
     def _on_train_cancel(self):
         self._tr_cancel_flag[0] = True
         self._tr_cancel_btn.setEnabled(False)
         self._tr_status_lbl.setText("正在取消哦（等当前算法完成）…♪")
         self._tr_status_lbl.setStyleSheet(f"color: {C['warning']}; background: transparent;")
 
-
     def _on_export_checkpoints(self):
         try:
             from utils.checkpoint_io import export_checkpoints
+
             path = export_checkpoints()
             self._tr_status_lbl.setText(f"导出完成啦 ♪ {os.path.basename(path)}")
             self._tr_status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
-            if QMessageBox.question(
-                self.dlg, "导出完成啦 ♪",
-                f"模型已导出到:\n{path}\n\n要打开所在文件夹看看吗？♪",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            ) == QMessageBox.StandardButton.Yes:
+            if (
+                QMessageBox.question(
+                    self.dlg,
+                    "导出完成啦 ♪",
+                    f"模型已导出到:\n{path}\n\n要打开所在文件夹看看吗？♪",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                )
+                == QMessageBox.StandardButton.Yes
+            ):
                 os.startfile(os.path.dirname(path))
         except Exception as e:
             logger.error("导出模型checkpoint失败", exc_info=True)
@@ -456,23 +472,26 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
             self._tr_status_lbl.setText("呜…导出失败啦，请稍后再试哦 ♪")
             self._tr_status_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
 
-
     def _on_import_checkpoints(self):
         path = QFileDialog.getOpenFileName(
-            self.dlg, "选择要导入的 checkpoint 文件", "",
+            self.dlg,
+            "选择要导入的 checkpoint 文件",
+            "",
             "Zip 文件 (*.zip);;所有文件 (*.*)",
         )[0]
         if not path:
             return
         try:
             from utils.checkpoint_io import import_checkpoints
+
             count = import_checkpoints(path)
-            QMessageBox.information(self.dlg, "完成啦 ♪", f"已导入 {count} 个算法的模型啦 ♪\n\n刷新算法列表就能看到更新哦 ♪")
+            QMessageBox.information(
+                self.dlg, "完成啦 ♪", f"已导入 {count} 个算法的模型啦 ♪\n\n刷新算法列表就能看到更新哦 ♪"
+            )
             self._refresh_algo_list()
         except Exception as e:
             logger.error("导入模型checkpoint失败", exc_info=True)
             QMessageBox.critical(self.dlg, "呜…出错了", "呜…导入失败啦，请检查文件是不是完整的哦 ♪")
-
 
     def _handle_stage(self, msg) -> bool:
         """处理训练进度消息。返回 True 表示训练全部结束 (AsyncQueueRunner 契约)。"""
@@ -526,7 +545,9 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
             ok = sum(1 for v in results.values() if v)
             bad = sum(1 for v in results.values() if not v)
             elapsed = (_t.time() - self._train_t0) if self._train_t0 else 0
-            self._tr_status_lbl.setText(f"训练完成啦!♪ 天依的歌声又准了一点呢~  ✓ {ok}  ✗ {bad}  ·  耗时 {elapsed:.1f}s")
+            self._tr_status_lbl.setText(
+                f"训练完成啦!♪ 天依的歌声又准了一点呢~  ✓ {ok}  ✗ {bad}  ·  耗时 {elapsed:.1f}s"
+            )
             self._tr_status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
             self._tr_progress.setValue(100)
             return True
@@ -544,4 +565,3 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
         self._refresh_algo_list()
         self._train_queue = None
         self._train_thread = None
-

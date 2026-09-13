@@ -88,7 +88,9 @@ class DLinearSimpleAlgorithm(BaseAlgorithm):
         Returns:
             DLinearTorchModel 实例
         """
-        return DLinearTorchModel(in_features=getattr(self, '_training_n_features', 5), window=10, horizon=self.training_horizon)
+        return DLinearTorchModel(
+            in_features=getattr(self, "_training_n_features", 5), window=10, horizon=self.training_horizon
+        )
 
     def get_training_features(self):
         """获取训练使用的特征列表。
@@ -395,4 +397,6 @@ class DLinearSimpleAlgorithm(BaseAlgorithm):
             "method": "dlinear_simplified",
         }
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata=metadata)
+        return self._std_result(
+            predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata=metadata
+        )

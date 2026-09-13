@@ -4,6 +4,7 @@
     - 每 75s 集中拉取所有视频数据（单一定时器）
     - 每个视频一个独立预测线程，由拉取完成后分发触发、回调更新 UI
 """
+
 import threading
 import time
 import logging
@@ -31,7 +32,7 @@ _central_fetch_running = False
 _central_fetch_lock = threading.Lock()
 _central_stop_event = threading.Event()  # 可中断的间隔等待（替代逐秒 sleep）
 
-_predictors: dict = {}          # bvid → VideoPredictor
+_predictors: dict = {}  # bvid → VideoPredictor
 _predictors_lock = threading.Lock()
 
 # 即弃型工作线程登记（弹幕拉取、手动拉取、集中拉取线程等），
@@ -58,6 +59,7 @@ def _start_tracked_thread(target, args=(), name=None):
 
     注意: 线程在 t 赋值后才 start(),因此 wrapper 内引用 t 安全（非晚绑定问题）。
     """
+
     def _wrapper():
         try:
             target(*args)
@@ -74,6 +76,7 @@ def _start_tracked_thread(target, args=(), name=None):
 #  每视频独立预测线程
 # ══════════════════════════════════════════════
 
+
 class VideoPredictor:
     """每视频独立预测线程：由拉取完成后 notify() 唤醒，执行预测后回调 UI。
 
@@ -89,9 +92,7 @@ class VideoPredictor:
         self._running = True
         self._busy = False
         self._pending = False  # 预测进行中又有新数据到达时置 True
-        self._thread = threading.Thread(
-            target=self._loop, daemon=True, name=f"Predictor-{bvid}"
-        )
+        self._thread = threading.Thread(target=self._loop, daemon=True, name=f"Predictor-{bvid}")
         self._thread.start()
 
     def notify(self):
@@ -110,7 +111,8 @@ class VideoPredictor:
         if self._thread.is_alive():
             logger.warning(
                 "预测线程 %s 在 %s 秒内未退出（可能卡在长预测/网络调用），转为守护退出",
-                self._thread.name, 3,
+                self._thread.name,
+                3,
             )
 
     def _loop(self):
@@ -126,6 +128,7 @@ class VideoPredictor:
             self._pending = False
             try:
                 from ui.monitor._prediction import _predict_single
+
                 result = _predict_single(self.gui, self.bvid, self.video)
                 if result is not None:
                     invoke(lambda r=result: self._on_done(r))
@@ -184,6 +187,7 @@ def _stop_predictor(bvid):
 #  集中拉取核心
 # ══════════════════════════════════════════════
 
+
 def _fetch_one_video(gui, bvid, video):
     """拉取单个视频数据：API → 更新字段 → 在线人数 → 历史记录 → 写DB → UI 回调 → 分发预测"""
     try:
@@ -215,6 +219,7 @@ def _fetch_one_video(gui, bvid, video):
         owner_id = owner.get("mid", 0)
         if owner_id:
             from ui.monitor._prediction import _save_up_data
+
             _save_up_data(owner_id)
         video["view_count"] = stat.get("view", video.get("view_count", 0))
         video["like_count"] = stat.get("like", video.get("like_count", 0))
@@ -315,9 +320,7 @@ def _fetch_one_video(gui, bvid, video):
     # 后台拉取弹幕（登记线程,退出时统一 join）
     cid = video.get("_cid", 0)
     if cid:
-        _start_tracked_thread(
-            _fetch_danmaku_bg, args=(gui, bvid, cid), name=f"dm-{bvid}"
-        )
+        _start_tracked_thread(_fetch_danmaku_bg, args=(gui, bvid, cid), name=f"dm-{bvid}")
 
     # 阈值突破检测 + 自动扩档（仅在播放量有效时执行；A1）
     try:
@@ -372,6 +375,7 @@ def _fetch_danmaku_bg(gui, bvid, cid):
     """后台拉取新弹幕段并存库。"""
     try:
         from core.bilibili_danmaku import get_danmaku_monitor
+
         monitor = get_danmaku_monitor()
         video_db = gui.video_dbs.get(bvid)
         new_count = monitor.fetch_new_danmaku(bvid, cid, video_db)
@@ -472,6 +476,7 @@ def _stop_all_workers():
 #  公开 API
 # ══════════════════════════════════════════════
 
+
 def fetch_single_video_data(gui, bvid, callback=None):
     """立即触发单个视频的数据拉取"""
     video = None
@@ -483,9 +488,7 @@ def fetch_single_video_data(gui, bvid, callback=None):
                 video = v
                 break
     if video:
-        _start_tracked_thread(
-            _fetch_one_video, args=(gui, bvid, video), name=f"fetch-now-{bvid}"
-        )
+        _start_tracked_thread(_fetch_one_video, args=(gui, bvid, video), name=f"fetch-now-{bvid}")
     if callback:
         # 用跨线程桥调度回主线程(而非 QTimer.singleShot, 后者在无事件循环的后台线程不触发)
         invoke(lambda: callback(bvid))
@@ -498,8 +501,10 @@ def fetch_all_video_data(gui, callback=None):
 
 def auto_predict_all(gui):
     """对所有已加载视频运行预测（启动后调用一次，后续由每视频预测线程接管）"""
+
     def _worker():
         from ui.monitor._prediction import _predict_single
+
         for video in gui.monitored_videos:
             bvid = video.get("bvid", "")
             if not bvid:
@@ -507,7 +512,12 @@ def auto_predict_all(gui):
             _predict_single(gui, bvid, video)
 
         from ui.theme import C
-        invoke(lambda: gui._sb("status", f"初始预测完成啦!♪ 天依聆听了 {len(gui.monitored_videos)} 个视频的歌声", color=C["success"]))
+
+        invoke(
+            lambda: gui._sb(
+                "status", f"初始预测完成啦!♪ 天依聆听了 {len(gui.monitored_videos)} 个视频的歌声", color=C["success"]
+            )
+        )
         gui.log_panel.add_log("INFO", f"初始预测完成（{len(gui.monitored_videos)} 个视频）")
 
     fire_and_forget(_worker, name="auto-predict")
@@ -602,7 +612,12 @@ def load_watch_list(gui):
         invoke(lambda: _start_central_fetcher(gui))
 
         from ui.theme import C as C2
-        invoke(lambda: gui._sb("status", f"加载完成啦!♪ {len(gui.monitored_videos)} 个视频都在天依身边了", color=C2["success"]))
+
+        invoke(
+            lambda: gui._sb(
+                "status", f"加载完成啦!♪ {len(gui.monitored_videos)} 个视频都在天依身边了", color=C2["success"]
+            )
+        )
 
         gui.log_panel.add_log(
             "INFO",

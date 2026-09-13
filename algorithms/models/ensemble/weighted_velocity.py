@@ -118,4 +118,11 @@ class WeightedVelocityAlgorithm(BaseAlgorithm):
                 # 有历史数据时置信度更高，每增加一个数据点 +0.1
                 confidence = min(1.0, 0.5 + len(history) * 0.1)
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=final_velocity, metadata={"method": "weighted_velocity", "history_points": len(history)})
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=final_velocity,
+            metadata={"method": "weighted_velocity", "history_points": len(history)},
+        )

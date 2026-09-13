@@ -230,9 +230,7 @@ def _apply_escalation(gui, bvid: str, title: str, old_max: int, new_t: int):
         if new_t not in values:
             values.append(new_t)
             names.append(_fmt_threshold(new_t))
-            cfg["prediction"]["thresholds"] = [
-                [v, n] for v, n in sorted(zip(values, names), key=lambda x: x[0])
-            ]
+            cfg["prediction"]["thresholds"] = [[v, n] for v, n in sorted(zip(values, names), key=lambda x: x[0])]
             save_config(cfg)
             reload_thresholds()
             esc_msg = (
@@ -241,7 +239,8 @@ def _apply_escalation(gui, bvid: str, title: str, old_max: int, new_t: int):
             )
             _send("♪ 监控目标已自动升级", esc_msg)
             _log(
-                gui, "INFO",
+                gui,
+                "INFO",
                 f"[{bvid}] 已自动追加监控目标 {_fmt_threshold(new_t)}（原最高 {_fmt_threshold(old_max)}）",
             )
     except Exception as e:

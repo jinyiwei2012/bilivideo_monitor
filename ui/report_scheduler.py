@@ -10,8 +10,17 @@ from datetime import datetime
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
-    QDialog, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QRadioButton, QComboBox, QCheckBox, QListWidget, QMessageBox,
+    QDialog,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QRadioButton,
+    QComboBox,
+    QCheckBox,
+    QListWidget,
+    QMessageBox,
     QFrame,
 )
 from PyQt6.QtCore import QTimer
@@ -59,7 +68,9 @@ class ReportSchedulerWindow(QDialog):
         main_layout.addWidget(header)
 
         sub = QLabel("手动导出 / 按计划自动导出 CSV / JSON / HTML / Excel ♪")
-        sub.setStyleSheet(f"color: {C['text_3']}; font-size: 9pt; padding: 0 24px 12px 24px; background-color: {C['bg_surface']};")
+        sub.setStyleSheet(
+            f"color: {C['text_3']}; font-size: 9pt; padding: 0 24px 12px 24px; background-color: {C['bg_surface']};"
+        )
         main_layout.addWidget(sub)
 
         sep = QFrame()
@@ -274,7 +285,13 @@ class ReportSchedulerWindow(QDialog):
 
             def _worker():
                 try:
-                    from utils.report_exporter import generate_ai_insight, export_html, export_excel, export_csv, export_json
+                    from utils.report_exporter import (
+                        generate_ai_insight,
+                        export_html,
+                        export_excel,
+                        export_csv,
+                        export_json,
+                    )
 
                     insight = generate_ai_insight(self.gui.monitored_videos)
                     results = []
@@ -338,7 +355,9 @@ class ReportSchedulerWindow(QDialog):
                 return
         except RuntimeError:
             return  # 对话框已销毁，静默跳过
-        self._export_status.setText("导出完成啦!♪ AI解读" + ("已附上" if insight else "未生成(检查AI密钥)") + ":\n" + "\n".join(results))
+        self._export_status.setText(
+            "导出完成啦!♪ AI解读" + ("已附上" if insight else "未生成(检查AI密钥)") + ":\n" + "\n".join(results)
+        )
         self._export_status.setStyleSheet(f"color: {C['success']}; background-color: transparent;")
         self._refresh_file_list()
         try:

@@ -11,9 +11,19 @@ import logging
 import threading
 
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
-    QLabel, QPushButton, QStackedWidget, QStatusBar,
-    QApplication, QMenu, QSplashScreen, QSystemTrayIcon,
+    QMainWindow,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QSplitter,
+    QLabel,
+    QPushButton,
+    QStackedWidget,
+    QStatusBar,
+    QApplication,
+    QMenu,
+    QSplashScreen,
+    QSystemTrayIcon,
 )
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QAction, QPixmap, QIcon, QColor
@@ -21,8 +31,13 @@ from PyQt6.QtGui import QAction, QPixmap, QIcon, QColor
 from ui.theme import C, init_theme
 from ui.helpers import (
     DEFAULT_INTERVAL,
-    FAST_INTERVAL, FAST_GAP, PREDICT_INTERVAL, project_path,
-    SPACE_SM, SPACE_MD, SPACE_LG,
+    FAST_INTERVAL,
+    FAST_GAP,
+    PREDICT_INTERVAL,
+    project_path,
+    SPACE_SM,
+    SPACE_MD,
+    SPACE_LG,
 )
 from ui.widgets import WaveDivider
 from ui.log_panel import LogPanel, install_logging_bridge
@@ -35,18 +50,44 @@ from core import notification_manager
 from config import load_config
 from utils.file_logger import FileLogger
 from ui.main_gui_events import (
-    on_channel_switch, show_download_progress, check_update,
-    show_update_dialog, on_exit, refresh_model_status,
-    activate_models, auto_activate_on_startup, preload_algorithms,
-    get_video_interval, register_video_timer, start_auto_refresh,
-    toggle_auto_refresh, do_fetch, post_fetch, show_video_detail,
-    select_video, add_monitor, remove_monitor, push_single,
-    manual_push, on_training_completed, update_trained_weights,
-    run_post_training_predict, schedule_daily_push, daily_push,
-    build_daily_push_msg, build_push_msg, prediction_done,
-    copy_bvid, open_interval_settings, open_database_query,
-    open_video_search, open_data_comparison, open_crossover_analysis,
-    open_weekly_score, open_milestone_stats, add_bvid_to_monitor,
+    on_channel_switch,
+    show_download_progress,
+    check_update,
+    show_update_dialog,
+    on_exit,
+    refresh_model_status,
+    activate_models,
+    auto_activate_on_startup,
+    preload_algorithms,
+    get_video_interval,
+    register_video_timer,
+    start_auto_refresh,
+    toggle_auto_refresh,
+    do_fetch,
+    post_fetch,
+    show_video_detail,
+    select_video,
+    add_monitor,
+    remove_monitor,
+    push_single,
+    manual_push,
+    on_training_completed,
+    update_trained_weights,
+    run_post_training_predict,
+    schedule_daily_push,
+    daily_push,
+    build_daily_push_msg,
+    build_push_msg,
+    prediction_done,
+    copy_bvid,
+    open_interval_settings,
+    open_database_query,
+    open_video_search,
+    open_data_comparison,
+    open_crossover_analysis,
+    open_weekly_score,
+    open_milestone_stats,
+    add_bvid_to_monitor,
     import_search_results,
 )
 from ui.main_gui_tick import (
@@ -237,11 +278,7 @@ class BilibiliMonitorGUI(QMainWindow):
 
         监控线程与集中拉取继续运行，避免误点关闭导致监控中断（B1）。
         """
-        if (
-            not self._force_quit
-            and self._tray_icon is not None
-            and QSystemTrayIcon.isSystemTrayAvailable()
-        ):
+        if not self._force_quit and self._tray_icon is not None and QSystemTrayIcon.isSystemTrayAvailable():
             try:
                 cfg = load_config().get("ui", {})
                 if cfg.get("close_to_tray", True):
@@ -624,6 +661,7 @@ class BilibiliMonitorGUI(QMainWindow):
         elif name == "模型训练":
             if self.training_panel is None:
                 from ui.training_panel import TrainingPanel
+
                 self.training_panel = TrainingPanel(self, self)
                 self._stack.addWidget(self.training_panel)
             self._stack.setCurrentWidget(self.training_panel)
@@ -631,6 +669,7 @@ class BilibiliMonitorGUI(QMainWindow):
         elif name == "微调训练":
             if self.finetune_panel is None:
                 from ui.finetune_panel import FinetunePanel
+
                 self.finetune_panel = FinetunePanel(self, self)
                 self._stack.addWidget(self.finetune_panel)
             self._stack.setCurrentWidget(self.finetune_panel)
@@ -640,9 +679,7 @@ class BilibiliMonitorGUI(QMainWindow):
 
     def _popup_settings_menu(self):
         """弹出设置菜单"""
-        self._settings_menu.exec(
-            self._gear_btn.mapToGlobal(self._gear_btn.rect().bottomLeft())
-        )
+        self._settings_menu.exec(self._gear_btn.mapToGlobal(self._gear_btn.rect().bottomLeft()))
 
     def _toggle_theme_mode(self):
         """切换深色/亮色主题并持久化到 config。
@@ -668,9 +705,7 @@ class BilibiliMonitorGUI(QMainWindow):
 
             # 立即应用全局 QSS / Palette（新开的对话框、动态取 C 的组件即时生效）
             toggle_theme()
-            self._theme_btn.setToolTip(
-                "◐ 当前为亮色主题" if not is_dark else "◐ 当前为深色主题"
-            )
+            self._theme_btn.setToolTip("◐ 当前为亮色主题" if not is_dark else "◐ 当前为深色主题")
             self._sb("status", "主题偏好已保存,重启后全部面板将使用新主题 ♪", C["warning"])
             logger.info("主题已切换: %s", new_theme)
         except Exception as e:
@@ -757,6 +792,7 @@ class BilibiliMonitorGUI(QMainWindow):
 
     def _get_video(self, bvid):
         from ui.main_gui_events import get_video
+
         return get_video(self, bvid)
 
     def _remove_monitor(self):
@@ -808,12 +844,32 @@ class BilibiliMonitorGUI(QMainWindow):
         return build_push_msg(self, videos)
 
     def _prediction_done(
-        self, w_pred, current_view, growth, rate_per_sec,
-        success_list, fail_list, valid, total, surge_info=None, bias_info=None, eta_info=None,
+        self,
+        w_pred,
+        current_view,
+        growth,
+        rate_per_sec,
+        success_list,
+        fail_list,
+        valid,
+        total,
+        surge_info=None,
+        bias_info=None,
+        eta_info=None,
     ):
         prediction_done(
-            self, w_pred, current_view, growth, rate_per_sec,
-            success_list, fail_list, valid, total, surge_info, bias_info, eta_info,
+            self,
+            w_pred,
+            current_view,
+            growth,
+            rate_per_sec,
+            success_list,
+            fail_list,
+            valid,
+            total,
+            surge_info,
+            bias_info,
+            eta_info,
         )
 
     def _copy_bvid(self, bvid):
@@ -875,6 +931,7 @@ class BilibiliMonitorGUI(QMainWindow):
     def _undo_delete(self):
         """撤销最近一次删除"""
         from ui.main_gui_events import undo_delete
+
         undo_delete(self)
 
     def set_finetune_status(self, text: str, color=None):

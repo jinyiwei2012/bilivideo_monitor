@@ -7,13 +7,22 @@
   - _PasswordLoginDialog: 账号密码登录（含验证码+极验）
   - _AddAccountDialog: 添加账号
 """
+
 import json
 import logging
 import threading
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QLineEdit, QPlainTextEdit, QMessageBox, QDialog, QDialogButtonBox,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QLineEdit,
+    QPlainTextEdit,
+    QMessageBox,
+    QDialog,
+    QDialogButtonBox,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from PyQt6.QtGui import QFont, QPixmap
@@ -27,6 +36,7 @@ logger = logging.getLogger(__name__)
 
 
 # ── 对话框：Cookie-Editor 导入 ──────────────────────────────
+
 
 class _CookieEditorDialog(QDialog):
     """Cookie-Editor JSON 导入对话框"""
@@ -116,6 +126,7 @@ class _CookieEditorDialog(QDialog):
 
 
 # ── 对话框：扫码登录 ──────────────────────────────────────
+
 
 class _QRCodeLoginDialog(QDialog):
     """扫码登录对话框"""
@@ -224,6 +235,7 @@ class _QRCodeLoginDialog(QDialog):
 
 
 # ── 对话框：密码登录 ──────────────────────────────────────
+
 
 class _PasswordLoginDialog(QDialog):
     """账号密码登录对话框，支持验证码 + 极验"""
@@ -435,6 +447,7 @@ class _PasswordLoginDialog(QDialog):
             self._login_btn.setVisible(False)
         else:
             import webbrowser
+
             gt = result.get("gt", "")
             challenge = result.get("challenge", "")
             url = f"https://api.geetest.com/get.php?gt={gt}&challenge={challenge}&lang=zh-cn&product=embed"
@@ -470,6 +483,7 @@ class _PasswordLoginDialog(QDialog):
 
 
 # ── 对话框：添加账号 ──────────────────────────────────────
+
 
 class _AddAccountDialog(QDialog):
     """添加账号对话框"""
@@ -507,10 +521,7 @@ class _AddAccountDialog(QDialog):
         """)
         layout.addWidget(self._cookie_text)
 
-        btn_box = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Save |
-            QDialogButtonBox.StandardButton.Cancel
-        )
+        btn_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
         btn_box.accepted.connect(self._save)
         btn_box.rejected.connect(self.reject)
         layout.addWidget(btn_box)

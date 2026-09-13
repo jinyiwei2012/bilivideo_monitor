@@ -70,7 +70,9 @@ class DeeparSimpleAlgorithm(BaseAlgorithm):
         Returns:
             DeepARTorchModel 实例
         """
-        return DeepARTorchModel(in_features=getattr(self, '_training_n_features', 5), hidden=32, horizon=self.training_horizon)
+        return DeepARTorchModel(
+            in_features=getattr(self, "_training_n_features", 5), hidden=32, horizon=self.training_horizon
+        )
 
     def get_training_features(self) -> List[str]:
         """获取训练使用的特征列表。
@@ -118,7 +120,14 @@ class DeeparSimpleAlgorithm(BaseAlgorithm):
 
             remaining = threshold - current_views
             if remaining <= 0:
-                return self._std_result(0, 1.0, current_views, threshold, velocity=velocity, metadata={"method": "deepar", "mu_return": float(mu_ret), "sigma_return": float(sigma_ret)})
+                return self._std_result(
+                    0,
+                    1.0,
+                    current_views,
+                    threshold,
+                    velocity=velocity,
+                    metadata={"method": "deepar", "mu_return": float(mu_ret), "sigma_return": float(sigma_ret)},
+                )
 
             # 各采样路径的速度（前 7 天的平均小时速度）
             velocity_samples = np.mean(np.diff(future_views_samples[:, :7]) / 3600, axis=1)
@@ -133,11 +142,18 @@ class DeeparSimpleAlgorithm(BaseAlgorithm):
             uncertainty = sigma_ret / max(abs(mu_ret), 1e-10)
             confidence = max(0.05, min(0.85, prob_reach * 0.8 + 0.1 / (1 + uncertainty)))
 
-            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
+            return self._std_result(
+                predicted_hours,
+                confidence,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={
                     "method": "deepar",
                     "mu_return": float(mu_ret),
                     "sigma_return": float(sigma_ret),
                     "prob_reach": float(prob_reach),
-                })
+                },
+            )
         except Exception:
             return self._fallback(velocity, current_views, threshold, method="deepar")

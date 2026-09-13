@@ -230,7 +230,7 @@ class CausalAnalyzer:
         self._max_lag = max_lag
         self._lock = threading.Lock()  # 线程安全锁
         self._series: Dict[str, List[float]] = {}  # 各指标时间序列
-        self._timestamps: List[float] = []          # 时间戳列表
+        self._timestamps: List[float] = []  # 时间戳列表
 
     def feed(self, records: List[Dict]):
         """喂入监控记录，追加到内部时间序列。
@@ -255,7 +255,9 @@ class CausalAnalyzer:
                     try:
                         ts_float = datetime.fromisoformat(ts).timestamp()
                     except Exception as e:
-                        import logging; logging.getLogger(__name__).debug("因果推断数据点跳过: %s", e)
+                        import logging
+
+                        logging.getLogger(__name__).debug("因果推断数据点跳过: %s", e)
                         continue
                 else:
                     continue
@@ -376,10 +378,10 @@ class CausalAnalyzer:
             best_corr = 0.0
             for shift in range(-5, 6):
                 if shift >= 0:
-                    y = target[shift:]      # 播放量前移
+                    y = target[shift:]  # 播放量前移
                     x = cause[: n - shift] if shift > 0 else cause
                 else:
-                    x = cause[-shift:]      # 因变量前移
+                    x = cause[-shift:]  # 因变量前移
                     y = target[: n + shift]
                 if len(x) < 5:
                     continue

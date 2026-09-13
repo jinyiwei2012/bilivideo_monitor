@@ -62,8 +62,15 @@ DEFAULT_CONFIG = {
         "notify_on_start": False,
         "webhooks": [],  # [{name, url, type}] type: generic/wecom/dingtalk/slack/discord
     },
-    "ui": {"theme": "darkly", "auto_refresh": True, "refresh_interval": 30, "show_cover": True, "show_chart": True,
-           "close_to_tray": True, "tray_notify": True},
+    "ui": {
+        "theme": "darkly",
+        "auto_refresh": True,
+        "refresh_interval": 30,
+        "show_cover": True,
+        "show_chart": True,
+        "close_to_tray": True,
+        "tray_notify": True,
+    },
     "export": {"default_path": "", "auto_export": False, "export_format": "csv"},
     "ai": {"enabled": False, "api_key": "", "endpoint": "", "model": "gpt-4o-mini"},
 }

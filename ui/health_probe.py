@@ -7,7 +7,11 @@ import math
 from typing import Optional
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QFrame,
 )
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QPainter, QColor, QFont, QBrush, QPen, QPolygonF
@@ -18,7 +22,6 @@ from ui.dialog_base import DialogBase
 from utils.interaction_quality import (
     calculate_probe,
 )
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 # ── 雷达图绘制组件 ─────────────────────────────────────────────────────────────
@@ -136,7 +139,8 @@ class HealthProbeWindow(DialogBase):
             sw, sh = 1920, 1080
 
         super().__init__(
-            parent, "一键三连健康探针",
+            parent,
+            "一键三连健康探针",
             (int(sw * 0.38), int(sh * 0.65)),
             modal=False,
         )

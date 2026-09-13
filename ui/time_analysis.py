@@ -4,13 +4,20 @@
 分析视频的周期性播放模式：按小时/星期聚合展示平均播放增量热力图。
 支持多视频对比，发现各视频的最佳发布时间段。
 """
+
 import logging
 from datetime import datetime
 from collections import defaultdict
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QComboBox, QTableWidget, QTableWidgetItem,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QComboBox,
+    QTableWidget,
+    QTableWidgetItem,
 )
 from PyQt6.QtGui import QColor
 

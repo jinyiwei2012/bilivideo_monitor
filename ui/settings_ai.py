@@ -5,8 +5,13 @@ AI 配置标签页
 import logging
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-    QLineEdit, QComboBox, QMessageBox,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QPushButton,
+    QLineEdit,
+    QComboBox,
+    QMessageBox,
 )
 from PyQt6.QtCore import QTimer
 
@@ -54,12 +59,14 @@ class SettingsAIMixin:
             if old_key:
                 profiles.append({"name": "默认配置", "api_key": old_key, "endpoint": old_ep, "model": old_mdl})
         if not profiles:
-            profiles.append({
-                "name": "默认配置",
-                "api_key": "",
-                "endpoint": "https://api.openai.com/v1/chat/completions",
-                "model": "gpt-4o-mini",
-            })
+            profiles.append(
+                {
+                    "name": "默认配置",
+                    "api_key": "",
+                    "endpoint": "https://api.openai.com/v1/chat/completions",
+                    "model": "gpt-4o-mini",
+                }
+            )
         self._profiles = profiles
         selected_name = ai_cfg.get("selected_profile", profiles[0]["name"])
         self._profile_names = [p["name"] for p in profiles]
@@ -69,8 +76,7 @@ class SettingsAIMixin:
 
         detail = QWidget()
         detail.setStyleSheet(
-            f"background-color: {C['bg_elevated']}; "
-            f"border: 1px solid {C['border_sub']}; border-radius: 2px;"
+            f"background-color: {C['bg_elevated']}; " f"border: 1px solid {C['border_sub']}; border-radius: 2px;"
         )
         detail_layout = QVBoxLayout(detail)
         detail_layout.setContentsMargins(10, 10, 10, 10)
@@ -124,10 +130,12 @@ class SettingsAIMixin:
         }
         for name, (ep, mdl) in presets.items():
             btn = QPushButton(name)
-            btn.clicked.connect(lambda checked, ep=ep, mdl=mdl: (
-                self._ai_endpoint_entry.setText(ep),
-                self._ai_model_entry.setText(mdl),
-            ))
+            btn.clicked.connect(
+                lambda checked, ep=ep, mdl=mdl: (
+                    self._ai_endpoint_entry.setText(ep),
+                    self._ai_model_entry.setText(mdl),
+                )
+            )
             pr_layout.addWidget(btn)
 
         test_btn = QPushButton("测试连接")
@@ -142,11 +150,11 @@ class SettingsAIMixin:
 
         self._on_ai_profile_selected()
 
-
     def _on_ai_profile_selected(self):
         # 下拉框在字段创建前就可能触发（setCurrentText/清空重填），此时直接跳过
-        if not all(hasattr(self, a) for a in
-                    ("_ai_name_entry", "_ai_key_entry", "_ai_endpoint_entry", "_ai_model_entry")):
+        if not all(
+            hasattr(self, a) for a in ("_ai_name_entry", "_ai_key_entry", "_ai_endpoint_entry", "_ai_model_entry")
+        ):
             return
         idx = self._ai_profile_cb.currentIndex()
         if idx < 0 or idx >= len(self._profiles):
@@ -156,7 +164,6 @@ class SettingsAIMixin:
         self._ai_key_entry.setText(p.get("api_key", ""))
         self._ai_endpoint_entry.setText(p.get("endpoint", ""))
         self._ai_model_entry.setText(p.get("model", ""))
-
 
     def _save_ai_profile(self):
         name = self._ai_name_entry.text().strip()
@@ -181,7 +188,6 @@ class SettingsAIMixin:
         self._ai_status_lbl.setText(f"配置「{name}」存好啦 ♪ 天依记在心里了哦~")
         self._ai_status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
 
-
     def _delete_ai_profile(self):
         idx = self._ai_profile_cb.currentIndex()
         if idx < 0 or not self._profiles:
@@ -190,21 +196,26 @@ class SettingsAIMixin:
         if len(self._profiles) <= 1:
             QMessageBox.warning(self.dlg, "要注意哦…", "呜…至少要保留一个配置哦,不然天依就不知道该唱哪首了 ♪")
             return
-        if not QMessageBox.question(self.dlg, "确认删除", f"真的要删除配置「{name}」吗?删掉就像从歌单里划掉一首歌,就唱不回来了哦…",
-                                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes:
+        if (
+            not QMessageBox.question(
+                self.dlg,
+                "确认删除",
+                f"真的要删除配置「{name}」吗?删掉就像从歌单里划掉一首歌,就唱不回来了哦…",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            == QMessageBox.StandardButton.Yes
+        ):
             return
         self._profiles = [p for p in self._profiles if p["name"] != name]
         self._ai_profile_cb.clear()
         self._ai_profile_cb.addItems([p["name"] for p in self._profiles])
         self._on_ai_profile_selected()
 
-
     def _new_ai_profile(self):
         self._ai_name_entry.setText("")
         self._ai_key_entry.setText("")
         self._ai_endpoint_entry.setText("https://api.openai.com/v1/chat/completions")
         self._ai_model_entry.setText("gpt-4o-mini")
-
 
     def _test_ai_connection(self):
         api_key = self._ai_key_entry.text().strip()
@@ -247,7 +258,9 @@ class SettingsAIMixin:
                         result.append(f"连接成功啦!♪ 天依听到远方的歌声了（Claude {model}）")
                     else:
                         logger.debug("AI 连接测试失败 HTTP %s: %s", resp.status_code, resp.text[:200])
-                        result.append(f"呜…连接不上呢,像天使鱼在冰海里迷了路,检查一下配置哦 ♪ (HTTP {resp.status_code})")
+                        result.append(
+                            f"呜…连接不上呢,像天使鱼在冰海里迷了路,检查一下配置哦 ♪ (HTTP {resp.status_code})"
+                        )
                 else:
                     resp = req.post(
                         endpoint,
@@ -263,14 +276,27 @@ class SettingsAIMixin:
                         result.append(f"连接成功啦!♪ 天依听到远方的歌声了（{model}）")
                     else:
                         err = resp.json().get("error", {})
-                        logger.debug("AI 连接测试失败 HTTP %s: %s", resp.status_code, err.get("message", resp.text[:200]))
-                        result.append(f"呜…连接不上呢,像天使鱼在冰海里迷了路,检查一下配置哦 ♪ (HTTP {resp.status_code})")
+                        logger.debug(
+                            "AI 连接测试失败 HTTP %s: %s", resp.status_code, err.get("message", resp.text[:200])
+                        )
+                        result.append(
+                            f"呜…连接不上呢,像天使鱼在冰海里迷了路,检查一下配置哦 ♪ (HTTP {resp.status_code})"
+                        )
             except Exception as e:
                 logger.debug("AI 连接测试请求异常: %s", e)
                 result.append("呜…连接不上呢,像天使鱼在冰海里迷了路,检查一下配置哦 ♪")
 
-            QTimer.singleShot(0, lambda: QMessageBox.information(self.dlg, "API 连接测试 ♪", result[0] if result else "呜…没有回应呢,像冰海里安静得听不见歌声,再检查一下哦 ♪"))
+            QTimer.singleShot(
+                0,
+                lambda: QMessageBox.information(
+                    self.dlg,
+                    "API 连接测试 ♪",
+                    result[0] if result else "呜…没有回应呢,像冰海里安静得听不见歌声,再检查一下哦 ♪",
+                ),
+            )
 
         _th = threading.Thread(target=_worker, daemon=True)
         _th.start()
-        QMessageBox.information(self.dlg, "测试中哦 ♪", f"天依正在测试 {model} 的连接…像在冰海里追逐微光,稍等一下下哦 ♪")
+        QMessageBox.information(
+            self.dlg, "测试中哦 ♪", f"天依正在测试 {model} 的连接…像在冰海里追逐微光,稍等一下下哦 ♪"
+        )

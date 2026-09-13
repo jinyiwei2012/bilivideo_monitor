@@ -3,6 +3,7 @@
 
 从 trainer.py 提取的 checkpoint 保存和模型评估方法。
 """
+
 import logging
 import os
 
@@ -19,9 +20,22 @@ except ImportError:
     _torch_available = False
 
 
-def save_checkpoint(model, algo_id, bvid, dataset, best_val, last_val, val_loader,
-                    epochs, device, optimizer=None, prev_epochs=0, data_trained_until=0.0,
-                    scheduler=None, best_epoch=0):
+def save_checkpoint(
+    model,
+    algo_id,
+    bvid,
+    dataset,
+    best_val,
+    last_val,
+    val_loader,
+    epochs,
+    device,
+    optimizer=None,
+    prev_epochs=0,
+    data_trained_until=0.0,
+    scheduler=None,
+    best_epoch=0,
+):
     """保存模型 checkpoint 并同步到视频目录。
 
     Args:
@@ -57,7 +71,7 @@ def save_checkpoint(model, algo_id, bvid, dataset, best_val, last_val, val_loade
     }
     if scheduler is not None:
         metadata["scheduler_state"] = scheduler.state_dict()
-    model_to_save = model._orig_mod if hasattr(model, '_orig_mod') else model
+    model_to_save = model._orig_mod if hasattr(model, "_orig_mod") else model
     version = ckpt.save(model_to_save.state_dict(), metadata=metadata)
     # 视频微调时也保存到 data/<bvid>/model/ 目录
     if bvid:
@@ -65,6 +79,7 @@ def save_checkpoint(model, algo_id, bvid, dataset, best_val, last_val, val_loade
     # 训练完成后自动导出 ONNX 模型
     try:
         from algorithms.training.onnx_exporter import export_to_onnx, is_onnx_available
+
         if is_onnx_available():
             export_to_onnx(model_to_save, algo_id, bvid or "", force=True)
     except Exception:
@@ -78,7 +93,7 @@ def _save_model_to_video_dir(model, bvid, algo_id):
     os.makedirs(video_model_dir, exist_ok=True)
     path = os.path.join(video_model_dir, f"{algo_id}.pt")
     try:
-        model_to_save = model._orig_mod if hasattr(model, '_orig_mod') else model
+        model_to_save = model._orig_mod if hasattr(model, "_orig_mod") else model
         torch.save(model_to_save.state_dict(), path)
         logger.info("[trainer] 模型已保存到 %s", path)
     except Exception as e:

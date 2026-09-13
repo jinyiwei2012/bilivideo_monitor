@@ -16,8 +16,16 @@ from datetime import datetime, timedelta
 from PyQt6.QtCore import QPointF, Qt
 from PyQt6.QtGui import QColor, QPainter, QPen, QPolygonF
 from PyQt6.QtWidgets import (
-    QComboBox, QHBoxLayout, QHeaderView, QLabel, QPushButton, QTableWidget,
-    QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
+    QComboBox,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
 )
 
 from ui.dialog_base import DialogBase
@@ -33,12 +41,30 @@ logger = logging.getLogger(__name__)
 RANGE_OPTIONS = (("全部", None), ("最近7天", 7), ("最近30天", 30), ("最近90天", 90))
 
 WEEKLY_COLUMNS = (
-    "时间戳", "总分", "播放", "互动", "收藏", "硬币", "点赞",
-    "修正A", "修正B", "修正C", "修正D", "基础播放",
+    "时间戳",
+    "总分",
+    "播放",
+    "互动",
+    "收藏",
+    "硬币",
+    "点赞",
+    "修正A",
+    "修正B",
+    "修正C",
+    "修正D",
+    "基础播放",
 )
 YEARLY_COLUMNS = (
-    "时间戳", "总分", "播放", "互动", "收藏", "硬币", "点赞",
-    "修正A", "修正B", "修正C",
+    "时间戳",
+    "总分",
+    "播放",
+    "互动",
+    "收藏",
+    "硬币",
+    "点赞",
+    "修正A",
+    "修正B",
+    "修正C",
 )
 
 #: 两表共用的得分列顺序
@@ -136,10 +162,12 @@ class _ScoreTrend(QWidget):
         span = (hi - lo) or 1.0
         width, height, pad = self.width(), self.height(), 10
         step = (width - 2 * pad) / (len(self._points) - 1)
-        poly = QPolygonF([
-            QPointF(pad + i * step, height - pad - (value - lo) / span * (height - 2 * pad))
-            for i, value in enumerate(self._points)
-        ])
+        poly = QPolygonF(
+            [
+                QPointF(pad + i * step, height - pad - (value - lo) / span * (height - 2 * pad))
+                for i, value in enumerate(self._points)
+            ]
+        )
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setPen(QPen(QColor(C["accent"]), 2))
         painter.drawPolyline(poly)
@@ -156,8 +184,8 @@ class ScoreCenterWindow:
         self.dlg = DialogBase(parent, "周/年分数中心", "920x640", modal=False)
         self._busy = False
         self._cancel = threading.Event()
-        self._cache: dict = {}       # (bvid|"", kind) -> {"rows": [...], "latest": str}
-        self._pending: set = set()   # 正在后台读取的 (bvid, kind)
+        self._cache: dict = {}  # (bvid|"", kind) -> {"rows": [...], "latest": str}
+        self._pending: set = set()  # 正在后台读取的 (bvid, kind)
         self._setup_ui()
 
     # ── 界面 ────────────────────────────────────────────

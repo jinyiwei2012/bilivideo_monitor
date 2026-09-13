@@ -140,7 +140,7 @@ class NgboostAlgorithm(BaseAlgorithm):
 
             # 预测分布的均值和方差
             pred_dist = model.pred_dist(last_X)
-            mu = float(pred_dist.mean())      # 预测的增长率均值
+            mu = float(pred_dist.mean())  # 预测的增长率均值
             sigma = float(np.sqrt(pred_dist.var))  # 预测的增长率标准差
 
             # 将增长率转换为绝对速度（每小时播放量）
@@ -157,7 +157,14 @@ class NgboostAlgorithm(BaseAlgorithm):
                 cv = sigma / max(abs(mu), 1e-10)
                 confidence = max(0.05, min(0.8, 0.6 - cv * 3))
 
-            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "ngboost", "mu": float(mu), "sigma": float(sigma)})
+            return self._std_result(
+                predicted_hours,
+                confidence,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "ngboost", "mu": float(mu), "sigma": float(sigma)},
+            )
         except Exception:
             # 训练或预测异常 → 回退
             return self._fallback(velocity, current_views, threshold, method="ngboost")

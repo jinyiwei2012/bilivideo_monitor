@@ -11,14 +11,15 @@ from datetime import datetime, timedelta
 import numpy as np
 import pytest
 
-
 # ══════════════════════════════════════════════
 # D2: _LRUDict 淘汰不抛 KeyError
 # ══════════════════════════════════════════════
 
+
 class TestLRUCache:
     def test_eviction_no_keyerror(self):
         from algorithms.registry import _LRUDict
+
         d = _LRUDict(maxsize=5)
         for i in range(50):
             d[i] = i * 10
@@ -26,6 +27,7 @@ class TestLRUCache:
 
     def test_derived_cache_wraparound(self):
         from algorithms.registry import AlgorithmRegistry
+
         AlgorithmRegistry.reset()
         base = datetime.now()
         for i in range(250):
@@ -38,32 +40,36 @@ class TestLRUCache:
 # D1: 速度单位  slope*3600 + float64 时间戳精度
 # ══════════════════════════════════════════════
 
+
 class TestVelocityUnits:
     def test_registry_polyfit_velocity(self):
         from algorithms.registry import AlgorithmRegistry
-        base = datetime.now() - timedelta(seconds=75*9)
-        hist = [(base + timedelta(seconds=75*i), 100 + i*5) for i in range(9)]
+
+        base = datetime.now() - timedelta(seconds=75 * 9)
+        hist = [(base + timedelta(seconds=75 * i), 100 + i * 5) for i in range(9)]
         vd = AlgorithmRegistry._prepare_video_data(hist, 140, bvid="BVv1")
         vel = vd["derived_features"]["velocity_polyfit"]
         assert 200 < vel < 280, f"速度异常: {vel}"
 
     def test_base_calculate_velocity_two_points(self):
         from algorithms.models.simple.linear_velocity import LinearVelocityAlgorithm
+
         algo = LinearVelocityAlgorithm()
         t0 = time.time() - 7200
-        data = {"history_data": [
-            {"view_count": 100, "timestamp": t0},
-            {"view_count": 200, "timestamp": time.time()},
-        ]}
+        data = {
+            "history_data": [
+                {"view_count": 100, "timestamp": t0},
+                {"view_count": 200, "timestamp": time.time()},
+            ]
+        }
         assert algo.calculate_velocity(data) == pytest.approx(50.0, rel=0.1)
 
     def test_base_calculate_velocity_polyfit(self):
         from algorithms.models.simple.linear_velocity import LinearVelocityAlgorithm
+
         algo = LinearVelocityAlgorithm()
         base = time.time() - 75 * 9
-        data = {"history_data": [
-            {"view_count": 100 + i * 5, "timestamp": base + 75 * i} for i in range(9)
-        ]}
+        data = {"history_data": [{"view_count": 100 + i * 5, "timestamp": base + 75 * i} for i in range(9)]}
         vel = algo.calculate_velocity(data)
         assert 200 < vel < 280, f"polyfit 速度异常: {vel}"
 
@@ -76,9 +82,11 @@ class TestVelocityUnits:
 # D7: WBI 签名含 wts
 # ══════════════════════════════════════════════
 
+
 class TestWbiSign:
     def test_wts_included_in_hash(self):
         from core.bilibili_api import BilibiliAPI
+
         api = BilibiliAPI.__new__(BilibiliAPI)
         api._wbi_key = "test_mixin_key"
         signed = api._wbi_sign({"bvid": "BV1xx", "pn": 1})
@@ -90,6 +98,7 @@ class TestWbiSign:
 
     def test_wbi_sign_no_key(self):
         from core.bilibili_api import BilibiliAPI
+
         api = BilibiliAPI.__new__(BilibiliAPI)
         api._wbi_key = None
         assert api._wbi_sign({"a": 1}) == {"a": 1}
@@ -99,15 +108,19 @@ class TestWbiSign:
 # D8: 增长模型单例共享可变状态 → 局部参数
 # ══════════════════════════════════════════════
 
+
 class TestGrowthModelIsolation:
-    @pytest.fixture(params=[
-        ("algorithms.models.growth.logistic_growth", "LogisticGrowthAlgorithm"),
-        ("algorithms.models.growth.gompertz_growth", "GompertzGrowthAlgorithm"),
-        ("algorithms.models.growth.richards_curve", "RichardsCurveAlgorithm"),
-        ("algorithms.models.growth.weibull_growth", "WeibullGrowthAlgorithm"),
-    ])
+    @pytest.fixture(
+        params=[
+            ("algorithms.models.growth.logistic_growth", "LogisticGrowthAlgorithm"),
+            ("algorithms.models.growth.gompertz_growth", "GompertzGrowthAlgorithm"),
+            ("algorithms.models.growth.richards_curve", "RichardsCurveAlgorithm"),
+            ("algorithms.models.growth.weibull_growth", "WeibullGrowthAlgorithm"),
+        ]
+    )
     def algo(self, request):
         import importlib
+
         mod = importlib.import_module(request.param[0])
         return getattr(mod, request.param[1])()
 
@@ -117,8 +130,10 @@ class TestGrowthModelIsolation:
         t = np.arange(days, dtype=float)
         v = K / (1 + np.exp(-r * (t - t0)))
         return [
-            {"view_count": max(1, int(v[i])),
-             "timestamp": (now - timedelta(days=days - 1 - i)).strftime("%Y-%m-%d %H:%M:%S")}
+            {
+                "view_count": max(1, int(v[i])),
+                "timestamp": (now - timedelta(days=days - 1 - i)).strftime("%Y-%m-%d %H:%M:%S"),
+            }
             for i in range(days)
         ]
 
@@ -148,9 +163,11 @@ class TestGrowthModelIsolation:
 # D13: 保形预测校准
 # ══════════════════════════════════════════════
 
+
 class TestConformalCalibration:
     def test_update_grows_calibration_set(self):
         from algorithms.conformal import get_conformal_predictor
+
         cp = get_conformal_predictor()
         n0 = len(cp._scores)
         cp.update(100000, 120000)
@@ -158,6 +175,7 @@ class TestConformalCalibration:
 
     def test_cold_start_has_fallback_interval(self):
         from algorithms.conformal import get_conformal_predictor
+
         cp = get_conformal_predictor()
         interval = cp.predict_interval(100000)
         assert interval["lower"] < 100000 < interval["upper"]
@@ -168,14 +186,17 @@ class TestConformalCalibration:
 # D22: 配置加密（is_encrypted 误判修复 + save_config 幂等加密）
 # ══════════════════════════════════════════════
 
+
 class TestConfigEncryption:
     def test_is_encrypted_no_false_positive(self):
         from utils.crypto import is_encrypted
+
         assert is_encrypted("sk-secret-123") is False
         assert is_encrypted("") is False
 
     def test_encrypt_roundtrip(self):
         from utils.crypto import encrypt, decrypt, is_encrypted
+
         enc = encrypt("sk-secret-123")
         assert enc != "sk-secret-123"
         assert is_encrypted(enc) is True
@@ -183,6 +204,7 @@ class TestConfigEncryption:
 
     def test_save_config_persists_encrypted(self, tmp_path, monkeypatch):
         import config as config_mod
+
         monkeypatch.setattr(config_mod, "CONFIG_FILE", str(tmp_path / "settings.json"))
         cfg = config_mod.load_config()
         cfg.setdefault("onebot", {})["access_token"] = "sk-secret-123"
@@ -191,11 +213,13 @@ class TestConfigEncryption:
         tok = saved.get("onebot", {}).get("access_token", "")
         assert tok != "sk-secret-123", "明文被写回磁盘！"
         from utils.crypto import decrypt
+
         assert decrypt(tok) == "sk-secret-123"
 
     def test_save_config_idempotent(self, tmp_path, monkeypatch):
         import config as config_mod
         from utils.crypto import encrypt, decrypt
+
         monkeypatch.setattr(config_mod, "CONFIG_FILE", str(tmp_path / "settings.json"))
         cfg = config_mod.load_config()
         cfg.setdefault("onebot", {})["access_token"] = encrypt("sk-abc")
@@ -208,13 +232,15 @@ class TestConfigEncryption:
 # D28: 派生特征缓存键含内容摘要
 # ══════════════════════════════════════════════
 
+
 class TestDerivedCacheKey:
     def test_different_content_same_shape_no_collision(self):
         from algorithms.registry import AlgorithmRegistry
+
         AlgorithmRegistry.reset()
         base = datetime.now()
-        hist_a = [(base - timedelta(seconds=75*(9-i)), 100+i*5) for i in range(9)]
-        hist_b = [(base - timedelta(seconds=75*(9-i)), 100+i*50) for i in range(9)]
+        hist_a = [(base - timedelta(seconds=75 * (9 - i)), 100 + i * 5) for i in range(9)]
+        hist_b = [(base - timedelta(seconds=75 * (9 - i)), 100 + i * 50) for i in range(9)]
         vd_a = AlgorithmRegistry._prepare_video_data(hist_a, 140, bvid="")
         vd_b = AlgorithmRegistry._prepare_video_data(hist_b, 500, bvid="")
         va = vd_a["derived_features"]["velocity_polyfit"]
@@ -226,9 +252,11 @@ class TestDerivedCacheKey:
 # D9/D10/D14: 数据库层
 # ══════════════════════════════════════════════
 
+
 class TestVideoDb:
     def _make_vdb(self, tmp_path, bvid="BV1fK4y1U7abcd"):
         from core.database.video_db import VideoDatabase
+
         return VideoDatabase(bvid, base_dir=str(tmp_path))
 
     def test_save_video_info_owner_name(self, tmp_path):
@@ -240,17 +268,27 @@ class TestVideoDb:
 
     def test_add_predictions_is_reached(self, tmp_path):
         vdb = self._make_vdb(tmp_path)
-        rows = [{
-            "algorithm": "test_algo", "algorithm_id": "test_algo_id",
-            "target_threshold": 5000, "predicted_seconds": 3600,
-            "predicted_time": datetime.now().isoformat(), "confidence": 0.8,
-            "current_views": 6000, "metadata": "{}",
-            "predicted_hours": 1.0, "current_velocity": 100.0,
-        }]
+        rows = [
+            {
+                "algorithm": "test_algo",
+                "algorithm_id": "test_algo_id",
+                "target_threshold": 5000,
+                "predicted_seconds": 3600,
+                "predicted_time": datetime.now().isoformat(),
+                "confidence": 0.8,
+                "current_views": 6000,
+                "metadata": "{}",
+                "predicted_hours": 1.0,
+                "current_velocity": 100.0,
+            }
+        ]
         assert vdb.add_predictions_batch(rows)
         import sqlite3
+
         conn = sqlite3.connect(vdb.db_path)
-        row = conn.execute("SELECT is_reached, actual_time, error_rate FROM predictions WHERE algorithm='test_algo'").fetchone()
+        row = conn.execute(
+            "SELECT is_reached, actual_time, error_rate FROM predictions WHERE algorithm='test_algo'"
+        ).fetchone()
         conn.close()
         assert row[0] == 1, f"is_reached 应为 1, 实际 {row[0]}"
         assert row[1] != "", "actual_time 不应为空"
@@ -258,6 +296,7 @@ class TestVideoDb:
 
     def test_mirror_initialized(self, tmp_path, monkeypatch):
         import core.database.video_db as vdb_mod
+
         # 让 mirror_base 指向 tmp/mirror 而非真实 data/ 目录
         monkeypatch.setattr(vdb_mod, "project_path", lambda *a, **kw: str(tmp_path / "mirror"))
         bvid = "BV1fK4y1U7abcd"
@@ -281,19 +320,32 @@ class TestBackupSyncPredictions:
 
         # 写入两行预测（同 algorithm 两个阈值，不同 predicted_time）
         ts1 = datetime.now().isoformat()
-        rows1 = [{
-            "algorithm": "algo_x", "algorithm_id": "algo_x_id",
-            "target_threshold": 10000, "predicted_seconds": 3600,
-            "predicted_time": ts1, "confidence": 0.7,
-            "current_views": 6000, "metadata": "{}",
-            "predicted_hours": 2.0, "current_velocity": 100.0,
-        }, {
-            "algorithm": "algo_x", "algorithm_id": "algo_x_id",
-            "target_threshold": 50000, "predicted_seconds": 7200,
-            "predicted_time": ts1, "confidence": 0.6,
-            "current_views": 6000, "metadata": "{}",
-            "predicted_hours": 5.0, "current_velocity": 100.0,
-        }]
+        rows1 = [
+            {
+                "algorithm": "algo_x",
+                "algorithm_id": "algo_x_id",
+                "target_threshold": 10000,
+                "predicted_seconds": 3600,
+                "predicted_time": ts1,
+                "confidence": 0.7,
+                "current_views": 6000,
+                "metadata": "{}",
+                "predicted_hours": 2.0,
+                "current_velocity": 100.0,
+            },
+            {
+                "algorithm": "algo_x",
+                "algorithm_id": "algo_x_id",
+                "target_threshold": 50000,
+                "predicted_seconds": 7200,
+                "predicted_time": ts1,
+                "confidence": 0.6,
+                "current_views": 6000,
+                "metadata": "{}",
+                "predicted_hours": 5.0,
+                "current_velocity": 100.0,
+            },
+        ]
         vdb.add_predictions_batch(rows1)
         vdb.save_video_info({"bvid": "BV1fK4y1U7abcd", "title": "t", "author": "a"})
 
@@ -329,6 +381,7 @@ class TestBackupSyncPredictions:
 # D20: QR 登录未知状态不误报成功
 # ══════════════════════════════════════════════
 
+
 class TestQrLogin:
     def test_unknown_status_not_success(self, monkeypatch):
         import core.bilibili_auth as auth_mod
@@ -339,12 +392,14 @@ class TestQrLogin:
         class FakeResp:
             status_code = 200
             cookies = {}
+
             def json(self):
                 return {"code": 0, "data": {"status": 999}}
 
         class FakeSess:
             def get(self, *a, **kw):
                 return FakeResp()
+
             def post(self, *a, **kw):
                 return FakeResp()
 
@@ -358,17 +413,19 @@ class TestQrLogin:
 # D31: ARIMA 时间单位
 # ══════════════════════════════════════════════
 
+
 class TestArimaTimeUnit:
     def test_predicted_hours_not_day_scale(self):
         from algorithms.models.time_series.arima_simple import ArimaSimpleAlgorithm
+
         algo = ArimaSimpleAlgorithm()
-        base = datetime.now() - timedelta(seconds=75*40)
+        base = datetime.now() - timedelta(seconds=75 * 40)
         # 每点 +50，75s 间隔，current ≈ 2950，threshold=5000 未达 → 走 fallback 路径
         history = [
-            {"view_count": 1000 + i*50, "timestamp": (base + timedelta(seconds=75*i)).strftime("%Y-%m-%d %H:%M:%S")}
+            {"view_count": 1000 + i * 50, "timestamp": (base + timedelta(seconds=75 * i)).strftime("%Y-%m-%d %H:%M:%S")}
             for i in range(40)
         ]
-        video_data = {"view_count": 1000 + 39*50, "history_data": history, "timestamp": datetime.now()}
+        video_data = {"view_count": 1000 + 39 * 50, "history_data": history, "timestamp": datetime.now()}
         result = algo.predict(video_data, threshold=5000)
         h = result.predicted_hours
         if h != float("inf"):
@@ -379,16 +436,20 @@ class TestArimaTimeUnit:
 # D24: 代理健康检查
 # ══════════════════════════════════════════════
 
+
 class TestProxyHealthCheck:
     def _resp(self, body, status=200):
         class R:
             status_code = status
+
             def json(self):
                 return body
+
         return R()
 
     def test_code_403_fails(self):
         from core.proxy_manager import ProxyManager
+
         result = {"ok": False, "error": "", "latency_ms": 0, "data": {}}
         out = ProxyManager._parse_bilibili_json(self._resp({"code": -403, "message": "风控"}), result)
         assert out["ok"] is False
@@ -396,9 +457,11 @@ class TestProxyHealthCheck:
 
     def test_code_0_passes(self):
         from core.proxy_manager import ProxyManager
+
         result = {"ok": False, "error": "", "latency_ms": 0, "data": {}}
         out = ProxyManager._parse_bilibili_json(
-            self._resp({"code": 0, "data": {"title": "t", "stat": {"view": 1}}}), result)
+            self._resp({"code": 0, "data": {"title": "t", "stat": {"view": 1}}}), result
+        )
         assert out["ok"] is True
 
 
@@ -406,9 +469,11 @@ class TestProxyHealthCheck:
 # D34: 版本比较一致
 # ══════════════════════════════════════════════
 
+
 class TestVersionCompare:
     def test_parse_version_ordering(self):
         from utils.update_checker import _parse_version
+
         assert _parse_version("1.2.3") < _parse_version("1.2.4")
         assert _parse_version("1.2.3") < _parse_version("1.3.0")
         # 预发布后缀被忽略 → 相等
@@ -419,10 +484,12 @@ class TestVersionCompare:
 # D36: 在线人数 fallback 类型 int
 # ══════════════════════════════════════════════
 
+
 class TestViewersFallbackType:
     def test_fallback_returns_int(self):
         import inspect
         from core.bilibili_video import _get_video_viewers_fallback
+
         src = inspect.getsource(_get_video_viewers_fallback)
         # 确认 fallback 返回 int 而非 str
         assert "int(online.get" in src or "int(" in src.replace("str(", ""), "fallback 未转 int"
@@ -432,14 +499,17 @@ class TestViewersFallbackType:
 # D19: invoke 队列异常隔离
 # ══════════════════════════════════════════════
 
+
 class TestInvokerIsolation:
     def test_failed_callback_does_not_block_queue(self):
         from ui.invoker import _invoker
+
         executed = []
         _invoker.invoke(lambda: (_ for _ in ()).throw(RuntimeError("boom")))
         _invoker.invoke(lambda: executed.append(1))
         try:
             from PyQt6.QtCore import QCoreApplication
+
             app = QCoreApplication.instance() or QCoreApplication([])
             _invoker._wake.emit()
             app.processEvents()

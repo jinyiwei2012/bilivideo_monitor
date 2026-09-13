@@ -127,4 +127,6 @@ class GompertzAlgorithm(BaseAlgorithm):
             confidence = min(0.8, 0.2 + len(history) * 0.1)
             metadata = {"method": "gompertz", "max_capacity": self.K, "average_growth_rate": avg_rate}
 
-        return self._std_result(max(0, predicted_hours), confidence, current_views, threshold, velocity=velocity, metadata=metadata)
+        return self._std_result(
+            max(0, predicted_hours), confidence, current_views, threshold, velocity=velocity, metadata=metadata
+        )

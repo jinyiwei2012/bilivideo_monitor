@@ -6,14 +6,32 @@
 from typing import List, Dict, Optional, Callable
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QLineEdit, QTextEdit, QCheckBox, QRadioButton, QTreeWidget,
-    QTreeWidgetItem, QHeaderView, QTabWidget, QMessageBox,
-    QButtonGroup, QFrame, QMenu,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QLineEdit,
+    QTextEdit,
+    QCheckBox,
+    QRadioButton,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QHeaderView,
+    QTabWidget,
+    QMessageBox,
+    QButtonGroup,
+    QFrame,
+    QMenu,
 )
 from PyQt6.QtCore import Qt, QRectF
 from PyQt6.QtGui import (
-    QFont, QPainter, QColor, QBrush, QPen, QAction,
+    QFont,
+    QPainter,
+    QColor,
+    QBrush,
+    QPen,
+    QAction,
 )
 
 from core.database import get_db
@@ -38,8 +56,18 @@ FIELDS = [
 ]
 COL_KEYS = [f[0] for f in FIELDS]
 COL_LABELS = ["BV号", "周期"] + [f[1] + ("*" if f[2] else "") for f in FIELDS]
-COL_WIDTH = {"BV号": 80, "周期": 50, "播放量*": 100, "点赞数": 80, "投币数": 80,
-              "分享数": 80, "收藏数": 80, "弹幕数": 80, "评论数": 80, "备注": 200}
+COL_WIDTH = {
+    "BV号": 80,
+    "周期": 50,
+    "播放量*": 100,
+    "点赞数": 80,
+    "投币数": 80,
+    "分享数": 80,
+    "收藏数": 80,
+    "弹幕数": 80,
+    "评论数": 80,
+    "备注": 200,
+}
 
 
 class _EntryRow(QWidget):
@@ -126,6 +154,7 @@ class _EntryRow(QWidget):
 #  自定义柱状图组件
 # ═══════════════════════════════════════════════════════
 
+
 class _CompareChart(QWidget):
     """里程碑对比柱状图 — 使用 QPainter 绘制"""
 
@@ -141,8 +170,9 @@ class _CompareChart(QWidget):
         self.setMinimumHeight(200)
         self.setStyleSheet(f"background-color: {C['canvas_bg']};")
 
-    def set_data(self, data: dict, metric: str, metric_label: str, bvids: list,
-                 max_val: float, status_cb: Callable[[str], None]):
+    def set_data(
+        self, data: dict, metric: str, metric_label: str, bvids: list, max_val: float, status_cb: Callable[[str], None]
+    ):
         """设置数据并重绘"""
         self._data = data
         self._metric = metric
@@ -193,8 +223,11 @@ class _CompareChart(QWidget):
         painter.setPen(QColor(C["text_2"]))
         font = QFont("Microsoft YaHei UI", 12)
         painter.setFont(font)
-        painter.drawText(QRectF(0, 0, w, h), Qt.AlignmentFlag.AlignCenter,
-                         "还没有里程碑数据呢…像空白乐谱,去「录入数据」标签页添上第一个音符吧 ♪")
+        painter.drawText(
+            QRectF(0, 0, w, h),
+            Qt.AlignmentFlag.AlignCenter,
+            "还没有里程碑数据呢…像空白乐谱,去「录入数据」标签页添上第一个音符吧 ♪",
+        )
 
     def _draw_grid(self, painter, cw, ch, ML, MT):
         """网格线和 Y 轴标签"""
@@ -210,7 +243,9 @@ class _CompareChart(QWidget):
             font = QFont("Consolas", 8)
             painter.setFont(font)
             text = f"{val / 10000:.0f}w" if val >= 10000 else str(int(val))
-            painter.drawText(QRectF(0, y - 8, ML - 6, 16), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, text)
+            painter.drawText(
+                QRectF(0, y - 8, ML - 6, 16), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, text
+            )
 
     def _draw_bars(self, painter, cw, ch, ML, MT):
         """柱状图绘制"""
@@ -243,8 +278,7 @@ class _CompareChart(QWidget):
                         val_text = f"{val / 10000:.0f}w" if val >= 10000 else str(int(val))
                         painter.setPen(QColor(color))
                         painter.setFont(font_bold)
-                        painter.drawText(QRectF(bx, by - 14, bx2 - bx, 12),
-                                         Qt.AlignmentFlag.AlignCenter, val_text)
+                        painter.drawText(QRectF(bx, by - 14, bx2 - bx, 12), Qt.AlignmentFlag.AlignCenter, val_text)
                 else:
                     painter.setBrush(QBrush(QColor(C["border"])))
                     painter.setPen(Qt.PenStyle.NoPen)
@@ -253,12 +287,10 @@ class _CompareChart(QWidget):
             lx = int(gx + bar_total_w / 2)
             painter.setPen(QColor(C["text_1"]))
             painter.setFont(font_title)
-            painter.drawText(QRectF(0, MT + ch + 2, self.width(), 16),
-                             Qt.AlignmentFlag.AlignHCenter, title)
+            painter.drawText(QRectF(0, MT + ch + 2, self.width(), 16), Qt.AlignmentFlag.AlignHCenter, title)
             painter.setPen(QColor(C["text_3"]))
             painter.setFont(font_small)
-            painter.drawText(QRectF(0, MT + ch + 18, self.width(), 12),
-                             Qt.AlignmentFlag.AlignHCenter, bv)
+            painter.drawText(QRectF(0, MT + ch + 18, self.width(), 12), Qt.AlignmentFlag.AlignHCenter, bv)
 
     def _draw_legend(self, painter, ML, MT, ch):
         """颜色图例"""
@@ -279,8 +311,9 @@ class _CompareChart(QWidget):
         font = QFont("Microsoft YaHei UI", 10)
         font.setBold(True)
         painter.setFont(font)
-        painter.drawText(QRectF(ML, 6, cw, 20), Qt.AlignmentFlag.AlignCenter,
-                         f"♪ 投稿里程碑对比 — {self._metric_label}")
+        painter.drawText(
+            QRectF(ML, 6, cw, 20), Qt.AlignmentFlag.AlignCenter, f"♪ 投稿里程碑对比 — {self._metric_label}"
+        )
 
     @staticmethod
     def _get_title(bvid):
@@ -296,6 +329,7 @@ class _CompareChart(QWidget):
 # ═══════════════════════════════════════════════════════
 #  主窗口
 # ═══════════════════════════════════════════════════════
+
 
 class MilestoneStatsWindow(DialogBase):
     """投稿里程碑统计与对比窗口"""
@@ -316,8 +350,7 @@ class MilestoneStatsWindow(DialogBase):
         else:
             sw, sh = 1920, 1080
 
-        super().__init__(parent, "♪ 投稿里程碑 — 一周 / 月 / 年后数据",
-                         (int(sw * 0.62), int(sh * 0.78)), modal=True)
+        super().__init__(parent, "♪ 投稿里程碑 — 一周 / 月 / 年后数据", (int(sw * 0.62), int(sh * 0.78)), modal=True)
 
         self.monitored_videos = monitored_videos or []
         self.on_add_monitor = on_add_monitor
@@ -505,8 +538,7 @@ class MilestoneStatsWindow(DialogBase):
             else:
                 invalid.append(bv)
         if invalid:
-            QMessageBox.warning(self, "♪ 格式错误",
-                                "呜…这几个 BV 号天依没看懂,先跳过啦:\n" + "\n".join(invalid))
+            QMessageBox.warning(self, "♪ 格式错误", "呜…这几个 BV 号天依没看懂,先跳过啦:\n" + "\n".join(invalid))
         if not bvids:
             return None
         return bvids
@@ -518,9 +550,9 @@ class MilestoneStatsWindow(DialogBase):
             if len(not_monitored) > 10:
                 msg += f"\n...共 {len(not_monitored)} 个"
             msg += "\n\n要把它们加入监控列表,让天依一起看着吗?♪"
-            reply = QMessageBox.question(self, "加入监控 ♪", msg,
-                                          QMessageBox.StandardButton.Yes |
-                                          QMessageBox.StandardButton.No)
+            reply = QMessageBox.question(
+                self, "加入监控 ♪", msg, QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
             if reply == QMessageBox.StandardButton.Yes:
                 for bv in not_monitored:
                     if self.on_add_monitor:
@@ -706,15 +738,21 @@ class MilestoneStatsWindow(DialogBase):
 
     def _on_metric_changed(self):
         self._current_metric = next(
-            (v for label, v in [
-                ("播放量", "view_count"), ("点赞数", "like_count"),
-                ("投币数", "coin_count"), ("收藏数", "favorite_count"),
-                ("分享数", "share_count"), ("弹幕数", "danmaku_count"),
-                ("评论数", "reply_count"),
-            ] if self._metric_group.checkedButton() and
-               self._metric_group.id(self._metric_group.checkedButton()) == hash(v)
+            (
+                v
+                for label, v in [
+                    ("播放量", "view_count"),
+                    ("点赞数", "like_count"),
+                    ("投币数", "coin_count"),
+                    ("收藏数", "favorite_count"),
+                    ("分享数", "share_count"),
+                    ("弹幕数", "danmaku_count"),
+                    ("评论数", "reply_count"),
+                ]
+                if self._metric_group.checkedButton()
+                and self._metric_group.id(self._metric_group.checkedButton()) == hash(v)
             ),
-            "view_count"
+            "view_count",
         )
         self._redraw_compare()
 
@@ -781,9 +819,9 @@ class MilestoneStatsWindow(DialogBase):
         if not sel:
             return
         msg = lty_voice.confirm_delete(f"{len(sel)} 个视频的所有里程碑记录")
-        reply = QMessageBox.question(self, "确认 ♪", msg,
-                                      QMessageBox.StandardButton.Yes |
-                                      QMessageBox.StandardButton.No)
+        reply = QMessageBox.question(
+            self, "确认 ♪", msg, QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
         if reply != QMessageBox.StandardButton.Yes:
             return
         for item in sel:
@@ -809,9 +847,7 @@ class MilestoneStatsWindow(DialogBase):
                 if v:
                     max_val = max(max_val, v)
 
-        metric_label = next(
-            (lb for key, lb, *_ in FIELDS if key == metric), metric
-        )
+        metric_label = next((lb for key, lb, *_ in FIELDS if key == metric), metric)
         self._chart.set_data(data, metric, metric_label, bvids, max_val, self._set_cmp_status)
 
     def _set_cmp_status(self, text: str):
@@ -822,5 +858,4 @@ class MilestoneStatsWindow(DialogBase):
         if not ft:
             return self._all_data
         ks = [k.strip() for k in ft.split(",") if k.strip()]
-        return {bv: pd for bv, pd in self._all_data.items()
-                if any(k.upper() in bv.upper() for k in ks)}
+        return {bv: pd for bv, pd in self._all_data.items() if any(k.upper() in bv.upper() for k in ks)}

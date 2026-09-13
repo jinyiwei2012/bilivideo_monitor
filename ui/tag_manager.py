@@ -4,8 +4,15 @@
 """
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QLineEdit, QListWidget, QComboBox, QMessageBox,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QLineEdit,
+    QListWidget,
+    QComboBox,
+    QMessageBox,
     QScrollArea,
 )
 from PyQt6.QtCore import Qt
@@ -251,7 +258,8 @@ class TagManagerWindow:
             return
         added = ", ".join(new_tags)
         reply = QMessageBox.question(
-            self.dlg.window, "标签建议",
+            self.dlg.window,
+            "标签建议",
             f"天依建议贴上这些标签：\n{added}\n\n要贴上吗?♪",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )

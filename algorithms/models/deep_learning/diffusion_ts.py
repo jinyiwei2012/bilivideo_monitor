@@ -322,7 +322,7 @@ class DiffusionTSAlgorithm(BaseAlgorithm):
         # 视频微调不缓存（每次加载最新权重），全局 checkpoint 可缓存
         if self._cached_model is None or (bvid and not getattr(self, "_cached_bvid", "") == bvid):
             model = DiffusionTSTorchModel(in_channels=1, base=32, t_dim=64, n_steps=100)
-            state = {k[len("_orig_mod."):] if k.startswith("_orig_mod.") else k: v for k, v in state.items()}
+            state = {k[len("_orig_mod.") :] if k.startswith("_orig_mod.") else k: v for k, v in state.items()}
             model.load_state_dict(state)
             model.to(self._device).eval()
             self._cached_model = model
@@ -333,9 +333,7 @@ class DiffusionTSAlgorithm(BaseAlgorithm):
         if std < 1e-8:
             std = 1.0
         # 直接采样预测段（简化：不做 conditional inpainting，纯生成）
-        sample = self._cached_model.sample(
-            (1, 1, self.training_horizon), self._device, steps=self.SAMPLE_STEPS
-        )
+        sample = self._cached_model.sample((1, 1, self.training_horizon), self._device, steps=self.SAMPLE_STEPS)
         y_norm = sample.cpu().numpy().reshape(-1)  # [H]
         predicted = max(0.0, float(y_norm[0]) * std + mean)  # 反归一化
         return predicted, 0.7, {"horizon_pred": y_norm.tolist(), "method": "diffusion_ddpm"}
@@ -498,4 +496,6 @@ class DiffusionTSAlgorithm(BaseAlgorithm):
                 confidence = 1.0
         metadata = {"reason": reason}
         metadata.update(extra or {})
-        return self._std_result(predicted_hours, confidence, int(current_views), threshold, velocity=float(velocity), metadata=metadata)
+        return self._std_result(
+            predicted_hours, confidence, int(current_views), threshold, velocity=float(velocity), metadata=metadata
+        )

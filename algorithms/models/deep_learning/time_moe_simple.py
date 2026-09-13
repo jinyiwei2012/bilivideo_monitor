@@ -40,8 +40,8 @@ class TimeMoeSimpleAlgorithm(BaseAlgorithm):
     category = "深度学习"
     default_weight = 1.3
 
-    training_window = 10     # 训练时使用的历史窗口长度
-    training_horizon = 3     # 训练时预测的未来步数
+    training_window = 10  # 训练时使用的历史窗口长度
+    training_horizon = 3  # 训练时预测的未来步数
 
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
         """执行预测
@@ -69,7 +69,13 @@ class TimeMoeSimpleAlgorithm(BaseAlgorithm):
         Returns:
             TimeMoETorchModel: 4专家混合模型（16维嵌入，窗口10）
         """
-        return TimeMoETorchModel(in_features=getattr(self, '_training_n_features', 5), window=10, n_experts=4, d_model=16, horizon=self.training_horizon)
+        return TimeMoETorchModel(
+            in_features=getattr(self, "_training_n_features", 5),
+            window=10,
+            n_experts=4,
+            d_model=16,
+            horizon=self.training_horizon,
+        )
 
     def get_training_features(self) -> List[str]:
         """返回训练时使用的多维特征列表"""
@@ -127,8 +133,8 @@ class TimeMoeSimpleAlgorithm(BaseAlgorithm):
             # 路由计算：2维输入 → 4维logits → softmax概率
             routing_input = np.array([recent_growth, current_eng])
             gate_logits = routing_input @ W_gate
-            gate_probs = np.exp(gate_logits - np.max(gate_logits))          # 数值稳定
-            gate_probs = gate_probs / (np.sum(gate_probs) + 1e-10)          # softmax
+            gate_probs = np.exp(gate_logits - np.max(gate_logits))  # 数值稳定
+            gate_probs = gate_probs / (np.sum(gate_probs) + 1e-10)  # softmax
 
             # 各专家独立预测
             predictions = [float(routing_input @ W_exp[i]) for i in range(n_experts)]
@@ -153,10 +159,17 @@ class TimeMoeSimpleAlgorithm(BaseAlgorithm):
                 # 置信度：主导专家的概率越高，置信度越高
                 confidence = max(0.1, min(0.85, 0.4 + float(gate_probs[dominant_expert]) * 0.4))
 
-            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
+            return self._std_result(
+                predicted_hours,
+                confidence,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={
                     "method": "time_moe",
                     "dominant_expert": experts_interpret[dominant_expert],
                     "expert_weight": float(gate_probs[dominant_expert]),
-                })
+                },
+            )
         except Exception:
             return self._fallback(velocity, current_views, threshold, method="time_moe")

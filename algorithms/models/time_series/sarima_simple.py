@@ -40,6 +40,7 @@ logger = logging.getLogger(__name__)
 _HAS_STATSMODELS = False
 try:
     from statsmodels.tsa.statespace.sarimax import SARIMAX
+
     _HAS_STATSMODELS = True
 except ImportError:
     pass
@@ -151,9 +152,18 @@ class SARIMASimpleAlgorithm(BaseAlgorithm):
         try:
             # 使用 stepwise 搜索自动选择最优 (p,d,q)(P,D,Q,m) 阶数
             model = pm.auto_arima(
-                views_sorted, seasonal=True, m=min(7, n // 4), stepwise=True,
-                suppress_warnings=True, max_p=5, max_q=5, max_P=2, max_Q=2,
-                maxiter=10, trace=False, error_action="ignore",
+                views_sorted,
+                seasonal=True,
+                m=min(7, n // 4),
+                stepwise=True,
+                suppress_warnings=True,
+                max_p=5,
+                max_q=5,
+                max_P=2,
+                max_Q=2,
+                maxiter=10,
+                trace=False,
+                error_action="ignore",
             )
             forecast = model.predict(n_periods=30)  # 预测30天
             forecast_views = np.array(forecast)
@@ -166,12 +176,19 @@ class SARIMASimpleAlgorithm(BaseAlgorithm):
                 remaining = threshold - current_views
                 predicted_hours = remaining / velocity if velocity > 0 else float("inf")
                 confidence = 0.4
-            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
+            return self._std_result(
+                predicted_hours,
+                confidence,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={
                     "method": "auto_sarima",
                     "order": str(getattr(model, "order", "?")),
                     "seasonal_order": str(getattr(model, "seasonal_order", "?")),
                     "aic": round(aic, 1) if "aic" in dir() else 0,
-                })
+                },
+            )
         except Exception:
             return None
 
@@ -219,11 +236,18 @@ class SARIMASimpleAlgorithm(BaseAlgorithm):
                 predicted_hours = remaining / velocity if velocity > 0 else float("inf")
                 confidence = 0.35
 
-            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
+            return self._std_result(
+                predicted_hours,
+                confidence,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={
                     "method": "sarima_statsmodels",
                     "order": f"({self.p},{self.d},{self.q})x({self.P},{self.D},{self.Q},{self.m})",
                     "aic": round(float(aic), 1) if "aic" in dir() else 0,
-                })
+                },
+            )
         except Exception:
             return None
 
@@ -313,7 +337,13 @@ class SARIMASimpleAlgorithm(BaseAlgorithm):
                 predicted_hours = remaining / velocity
                 conf = 0.35
 
-            return self._std_result(predicted_hours, conf, current_views, threshold, velocity=velocity, metadata={
+            return self._std_result(
+                predicted_hours,
+                conf,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={
                     "method": "sarima",
                     "ar_order": p,
                     "diff_order": self.d,
@@ -322,7 +352,8 @@ class SARIMASimpleAlgorithm(BaseAlgorithm):
                     "seasonal_strength": round(seasonal_strength, 3) if self.m > 0 else 0,
                     "forecast_horizon": forecast_days,
                     "data_points": n,
-                })
+                },
+            )
         except Exception as e:
             hours = remaining / velocity if velocity > 0 else float("inf")
             return self._build_result(threshold, hours, 0.0, velocity, current_views, error=str(e))

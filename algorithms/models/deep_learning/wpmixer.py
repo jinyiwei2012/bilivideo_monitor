@@ -46,8 +46,8 @@ class WPMixerAlgorithm(BaseAlgorithm):
     category = "深度学习"
     default_weight = 1.4
 
-    training_window = 12     # 训练时使用的历史窗口长度
-    training_horizon = 3     # 训练时预测的未来步数
+    training_window = 12  # 训练时使用的历史窗口长度
+    training_horizon = 3  # 训练时预测的未来步数
 
     def predict(self, video_data, threshold=100000):
         """执行预测
@@ -60,8 +60,13 @@ class WPMixerAlgorithm(BaseAlgorithm):
             PredictionResult: 预测结果
         """
         return try_torch_predict(
-            self, video_data, threshold, WPMixerTorchModel, self._numpy_predict,
-            window=self.training_window, horizon=self.training_horizon,
+            self,
+            video_data,
+            threshold,
+            WPMixerTorchModel,
+            self._numpy_predict,
+            window=self.training_window,
+            horizon=self.training_horizon,
         )
 
     def build_model(self):
@@ -71,8 +76,10 @@ class WPMixerAlgorithm(BaseAlgorithm):
             WPMixerTorchModel: d_model=32的多分辨率混合模型
         """
         return WPMixerTorchModel(
-            in_features=getattr(self, '_training_n_features', 5),
-            window=self.training_window, horizon=self.training_horizon, d_model=32,
+            in_features=getattr(self, "_training_n_features", 5),
+            window=self.training_window,
+            horizon=self.training_horizon,
+            d_model=32,
         )
 
     def get_training_features(self) -> List[str]:
@@ -103,9 +110,17 @@ class WPMixerAlgorithm(BaseAlgorithm):
         if len(history) < 8 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "wpmixer_fallback"})
+            return self._std_result(
+                predicted_hours,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "wpmixer_fallback"},
+            )
 
         import numpy as np
+
         views = np.array([h.get("view_count", 0) for h in history[-24:]], dtype=np.float64)
         n = len(views)
 
@@ -116,8 +131,8 @@ class WPMixerAlgorithm(BaseAlgorithm):
         resolutions = []
         for r in [1, 2, 4]:
             if n >= r * 2:
-                sampled = views[::r]           # 隔r点取一次（下采样）
-                diffs = np.diff(sampled)       # 一阶差分
+                sampled = views[::r]  # 隔r点取一次（下采样）
+                diffs = np.diff(sampled)  # 一阶差分
                 if len(diffs) > 0:
                     resolutions.append(np.mean(diffs) / r)  # 归一化到每步增长
 
@@ -125,7 +140,7 @@ class WPMixerAlgorithm(BaseAlgorithm):
             growth = velocity * 3600  # 无有效分辨率时回退
         else:
             # 加权融合：低分辨率权重低（只给大趋势方向），高分辨率权重高（精确短期预测）
-            weights = [0.5, 0.3, 0.2][:len(resolutions)]
+            weights = [0.5, 0.3, 0.2][: len(resolutions)]
             growth = sum(w * r for w, r in zip(weights, resolutions)) / sum(weights)
 
         predicted_velocity = max(0, growth / 3600)
@@ -141,4 +156,11 @@ class WPMixerAlgorithm(BaseAlgorithm):
             # 置信度：有效分辨率越多、数据点越多，置信度越高
             confidence = min(0.85, 0.35 + 0.1 * n_res + 0.02 * min(n, 25))
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "wpmixer_numpy", "resolutions": n_res, "data_points": n})
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={"method": "wpmixer_numpy", "resolutions": n_res, "data_points": n},
+        )

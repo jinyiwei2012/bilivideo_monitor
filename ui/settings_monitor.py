@@ -3,7 +3,11 @@
 """
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
     QSpinBox,
 )
 from ui.theme import C
@@ -64,7 +68,6 @@ class SettingsMonitorMixin:
         add_btn = QPushButton("+ 添加阈值")
         add_btn.clicked.connect(lambda: self._add_threshold_row(th_list_frame))
         th_sec.layout().addWidget(add_btn)
-
 
     def _add_threshold_row(self, parent, value=100000, name=""):
         row = QWidget(parent)

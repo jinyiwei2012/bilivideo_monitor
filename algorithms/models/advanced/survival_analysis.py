@@ -103,9 +103,13 @@ class SurvivalAnalysisAlgorithm(BaseAlgorithm):
         if len(history) < self.min_data_points:
             velocity = self.calculate_velocity(video_data)
             return self._make_result(
-                current_views, threshold, velocity,
-                confidence=0.3, survival_prob=0.5,
-                predicted_growth_stop_hours=float("inf"), reason="insufficient_data",
+                current_views,
+                threshold,
+                velocity,
+                confidence=0.3,
+                survival_prob=0.5,
+                predicted_growth_stop_hours=float("inf"),
+                reason="insufficient_data",
             )
 
         # 提取播放量和时间序列
@@ -114,9 +118,13 @@ class SurvivalAnalysisAlgorithm(BaseAlgorithm):
         if len(views) < self.min_data_points:
             velocity = self.calculate_velocity(video_data)
             return self._make_result(
-                current_views, threshold, velocity,
-                confidence=0.3, survival_prob=0.5,
-                predicted_growth_stop_hours=float("inf"), reason="short_series",
+                current_views,
+                threshold,
+                velocity,
+                confidence=0.3,
+                survival_prob=0.5,
+                predicted_growth_stop_hours=float("inf"),
+                reason="short_series",
             )
 
         # 计算速度序列
@@ -125,9 +133,13 @@ class SurvivalAnalysisAlgorithm(BaseAlgorithm):
         if len(velocities) < 3:
             velocity = velocities[-1] if len(velocities) > 0 else 0.0
             return self._make_result(
-                current_views, threshold, velocity,
-                confidence=0.4, survival_prob=0.5,
-                predicted_growth_stop_hours=float("inf"), reason="short_velocity_series",
+                current_views,
+                threshold,
+                velocity,
+                confidence=0.4,
+                survival_prob=0.5,
+                predicted_growth_stop_hours=float("inf"),
+                reason="short_velocity_series",
             )
 
         # 使用简化的 Kaplan-Meier 方法估计生存函数
@@ -137,9 +149,13 @@ class SurvivalAnalysisAlgorithm(BaseAlgorithm):
         adjusted_velocity, confidence = self._adjust_prediction(velocities, survival_prob, growth_stop_hours)
 
         return self._make_result(
-            current_views, threshold, adjusted_velocity,
-            confidence=confidence, survival_prob=survival_prob,
-            predicted_growth_stop_hours=growth_stop_hours, reason="kaplan_meier",
+            current_views,
+            threshold,
+            adjusted_velocity,
+            confidence=confidence,
+            survival_prob=survival_prob,
+            predicted_growth_stop_hours=growth_stop_hours,
+            reason="kaplan_meier",
         )
 
     def _kaplan_meier_simplified(
@@ -376,9 +392,14 @@ class SurvivalAnalysisAlgorithm(BaseAlgorithm):
         return np.array(velocities), np.array(vel_times)
 
     def _make_result(
-        self, current_views: int, threshold: int, velocity: float,
-        confidence: float, survival_prob: float,
-        predicted_growth_stop_hours: float, reason: str,
+        self,
+        current_views: int,
+        threshold: int,
+        velocity: float,
+        confidence: float,
+        survival_prob: float,
+        predicted_growth_stop_hours: float,
+        reason: str,
     ) -> PredictionResult:
         """
         构造预测结果对象
@@ -416,4 +437,6 @@ class SurvivalAnalysisAlgorithm(BaseAlgorithm):
             "method": "survival_analysis",  # 方法标识
         }
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata=metadata)
+        return self._std_result(
+            predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata=metadata
+        )

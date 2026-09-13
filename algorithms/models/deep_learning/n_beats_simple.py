@@ -55,15 +55,15 @@ class NBeatsSimpleAlgorithm(BaseAlgorithm):
         设置神经网络架构参数：回看窗口、预测步长、Block数量和每层数。
         """
         super().__init__()
-        self.lookback_window = 10      # 回看窗口长度（输入序列长度）
-        self.forecast_horizon = 5      # 预测步长（输出序列长度）
-        self.hidden_size = 16          # 隐藏层大小（简化版用较小值）
-        self.num_blocks = 2            # Block数量（趋势+季节）
-        self.num_layers = 2            # 每个Block的层数
-        self.min_data_points = 12      # 最少需要的序列长度
+        self.lookback_window = 10  # 回看窗口长度（输入序列长度）
+        self.forecast_horizon = 5  # 预测步长（输出序列长度）
+        self.hidden_size = 16  # 隐藏层大小（简化版用较小值）
+        self.num_blocks = 2  # Block数量（趋势+季节）
+        self.num_layers = 2  # 每个Block的层数
+        self.min_data_points = 12  # 最少需要的序列长度
 
-    training_window = 10     # 训练时使用的历史窗口长度
-    training_horizon = 3     # 训练时预测的未来步数
+    training_window = 10  # 训练时使用的历史窗口长度
+    training_horizon = 3  # 训练时预测的未来步数
 
     def predict(self, video_data, threshold=100000):
         """执行预测
@@ -89,7 +89,9 @@ class NBeatsSimpleAlgorithm(BaseAlgorithm):
 
     def build_model(self):
         """构建N-BEATS PyTorch模型实例"""
-        return NBeatsTorchModel(in_features=getattr(self, '_training_n_features', 5), window=10, horizon=self.training_horizon)
+        return NBeatsTorchModel(
+            in_features=getattr(self, "_training_n_features", 5), window=10, horizon=self.training_horizon
+        )
 
     def get_training_features(self):
         """返回训练时使用的多维特征列表"""
@@ -207,8 +209,8 @@ class NBeatsSimpleAlgorithm(BaseAlgorithm):
         # Block 1: 趋势分量（使用线性趋势拟合 + 外推）
         trend_coeffs = np.polyfit(range(len(input_series)), input_series, 1)
         trend_line = np.polyval(trend_coeffs, np.arange(len(input_series) + self.forecast_horizon))
-        trend_lookback = trend_line[: len(input_series)]    # 回看部分的趋势拟合
-        trend_forecast = trend_line[len(input_series) :]    # 预测部分的趋势外推
+        trend_lookback = trend_line[: len(input_series)]  # 回看部分的趋势拟合
+        trend_forecast = trend_line[len(input_series) :]  # 预测部分的趋势外推
 
         # 去除趋势得到残差
         detrended = input_series - trend_lookback
@@ -392,8 +394,8 @@ class NBeatsSimpleAlgorithm(BaseAlgorithm):
             dt = (timestamps[i] - timestamps[i - 1]) / 3600.0  # 转换为小时
             if dt <= 0:
                 continue
-            dv = views[i] - views[i - 1]                       # 播放量变化
-            velocity = dv / dt                                  # 每小时速度
+            dv = views[i] - views[i - 1]  # 播放量变化
+            velocity = dv / dt  # 每小时速度
             velocities.append(velocity)
             vel_times.append(timestamps[i])
 
@@ -447,4 +449,6 @@ class NBeatsSimpleAlgorithm(BaseAlgorithm):
             "method": "n_beats_simplified",
         }
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata=metadata)
+        return self._std_result(
+            predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata=metadata
+        )

@@ -4,8 +4,12 @@
 """
 
 from PyQt6.QtWidgets import (
-    QWidget, QHBoxLayout, QVBoxLayout, QPushButton,
-    QLabel, QCheckBox,
+    QWidget,
+    QHBoxLayout,
+    QVBoxLayout,
+    QPushButton,
+    QLabel,
+    QCheckBox,
 )
 from PyQt6.QtCore import Qt
 

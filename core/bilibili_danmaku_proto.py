@@ -19,15 +19,14 @@ B站新版弹幕 API（/x/v2/dm/web/seg.so）返回 Protobuf 二进制（DmSegMo
 import struct
 from typing import List, Dict, Optional, Tuple, Any
 
-
 # ═══════════════════════════════════════════════════════════
 #  Protobuf Wire Format 基础解码
 # ═══════════════════════════════════════════════════════════
 
-_WIRE_VARINT = 0          # int32, int64, uint32, bool, enum
-_WIRE_64BIT = 1           # fixed64, sfixed64, double
-_WIRE_LENGTH = 2          # string, bytes, sub-message, packed
-_WIRE_32BIT = 5           # fixed32, sfixed32, float
+_WIRE_VARINT = 0  # int32, int64, uint32, bool, enum
+_WIRE_64BIT = 1  # fixed64, sfixed64, double
+_WIRE_LENGTH = 2  # string, bytes, sub-message, packed
+_WIRE_32BIT = 5  # fixed32, sfixed32, float
 
 
 class _WireReader:
@@ -83,7 +82,7 @@ class _WireReader:
     def read_length_delimited(self) -> bytes:
         """读取 length-delimited 数据（string / bytes / sub-message）。"""
         length = self._read_varint()
-        data = self._buf[self._pos:self._pos + length]
+        data = self._buf[self._pos : self._pos + length]
         self._pos += length
         return data
 
@@ -98,7 +97,7 @@ class _WireReader:
 
     def sub_reader(self, length: int) -> "_WireReader":
         """创建子读取器（用于解析嵌套 message）。"""
-        data = self._buf[self._pos:self._pos + length]
+        data = self._buf[self._pos : self._pos + length]
         self._pos += length
         return _WireReader(data)
 
@@ -106,6 +105,7 @@ class _WireReader:
 # ═══════════════════════════════════════════════════════════
 #  弹幕消息解码
 # ═══════════════════════════════════════════════════════════
+
 
 def _parse_danmaku_elem(reader: _WireReader) -> Dict[str, Any]:
     """解码一个 DanmakuElem 消息。
@@ -129,10 +129,21 @@ def _parse_danmaku_elem(reader: _WireReader) -> Dict[str, Any]:
         16: likeCount (int32)
     """
     elem = {
-        "dmid": 0, "progress": 0, "mode": 1, "fontsize": 25,
-        "color": 16777215, "mid_hash": "", "content": "",
-        "ctime": 0, "weight": 1, "action": "", "pool": 0,
-        "id_str": "", "attr": 0, "animation": "", "dm_from": 0,
+        "dmid": 0,
+        "progress": 0,
+        "mode": 1,
+        "fontsize": 25,
+        "color": 16777215,
+        "mid_hash": "",
+        "content": "",
+        "ctime": 0,
+        "weight": 1,
+        "action": "",
+        "pool": 0,
+        "id_str": "",
+        "attr": 0,
+        "animation": "",
+        "dm_from": 0,
         "like_count": 0,
     }
 
@@ -183,11 +194,11 @@ def _parse_danmaku_elem(reader: _WireReader) -> Dict[str, Any]:
 
 def _parse_dm_seg_config(reader: _WireReader) -> Dict[str, int]:
     """解码 DmSegConfig。
-    
+
     字段：
         field 1: pageSize (int64) — 每段时长（毫秒），默认 360000ms = 6分钟
         field 2: total (int64)    — 最大分页容量（固定值 100），非实际段数！
-    
+
     注意：total 字段是 API 的固定返回值 100，表示"最多支持 100 个段"，
     不是视频的实际弹幕段数。实际段数 = ceil(视频时长 / page_size)。
     """
@@ -237,6 +248,7 @@ def _skip_field(reader: _WireReader, wire_type: int):
 # ═══════════════════════════════════════════════════════════
 #  公开 API
 # ═══════════════════════════════════════════════════════════
+
 
 def parse_danmaku_segment(data: bytes) -> List[Dict[str, Any]]:
     """解析 seg.so 返回的 Protobuf 二进制 (DmSegMobileReply)。
@@ -305,8 +317,11 @@ def parse_danmaku_view(data: bytes) -> Dict[str, Any]:
     try:
         reader = _WireReader(data)
         result = {
-            "state": 0, "total_segments": 0, "page_size": 360000,
-            "special_dm_urls": [], "count": 0,
+            "state": 0,
+            "total_segments": 0,
+            "page_size": 360000,
+            "special_dm_urls": [],
+            "count": 0,
         }
 
         while not reader.eof():
@@ -366,7 +381,7 @@ def try_parse_danmaku(data: bytes) -> Tuple[Optional[List[Dict]], str]:
 
     # 2) Try XML (fallback for old API / old videos)
     #    XML starts with '<?xml' or '<i>'
-    if data and data[0:1] == b'<':
+    if data and data[0:1] == b"<":
         try:
             from defusedxml.ElementTree import fromstring as _xml_parse
 
@@ -375,18 +390,20 @@ def try_parse_danmaku(data: bytes) -> Tuple[Optional[List[Dict]], str]:
             for d in root.findall(".//d"):
                 p = d.get("p", "")
                 parts = p.split(",")
-                danmaku.append({
-                    "dmid": 0,
-                    "progress": int(float(parts[0]) * 1000) if len(parts) > 0 else 0,
-                    "mode": int(parts[1]) if len(parts) > 1 else 1,
-                    "fontsize": int(parts[2]) if len(parts) > 2 else 25,
-                    "color": int(parts[3]) if len(parts) > 3 else 16777215,
-                    "mid_hash": parts[7] if len(parts) > 7 else "",
-                    "content": (d.text or "").strip(),
-                    "ctime": int(parts[4]) if len(parts) > 4 else 0,
-                    "weight": int(parts[6]) if len(parts) > 6 else 1,
-                    "pool": 0,
-                })
+                danmaku.append(
+                    {
+                        "dmid": 0,
+                        "progress": int(float(parts[0]) * 1000) if len(parts) > 0 else 0,
+                        "mode": int(parts[1]) if len(parts) > 1 else 1,
+                        "fontsize": int(parts[2]) if len(parts) > 2 else 25,
+                        "color": int(parts[3]) if len(parts) > 3 else 16777215,
+                        "mid_hash": parts[7] if len(parts) > 7 else "",
+                        "content": (d.text or "").strip(),
+                        "ctime": int(parts[4]) if len(parts) > 4 else 0,
+                        "weight": int(parts[6]) if len(parts) > 6 else 1,
+                        "pool": 0,
+                    }
+                )
             return danmaku, "xml"
         except Exception:
             pass

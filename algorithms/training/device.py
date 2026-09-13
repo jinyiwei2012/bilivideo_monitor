@@ -40,14 +40,14 @@ from typing import Optional, Dict, Any
 logger = logging.getLogger(__name__)
 
 # ── 全局状态变量 ─────────────────────────────────────
-_torch = None           # PyTorch 模块引用（懒加载后缓存）
-_torch_available = None # PyTorch 是否可用的缓存标志
-_xpu_available = None   # Intel XPU 是否可用的缓存标志
-_dml_available = None   # DirectML 是否可用的缓存标志
-_ov_available = None    # OpenVINO 是否可用的缓存标志
+_torch = None  # PyTorch 模块引用（懒加载后缓存）
+_torch_available = None  # PyTorch 是否可用的缓存标志
+_xpu_available = None  # Intel XPU 是否可用的缓存标志
+_dml_available = None  # DirectML 是否可用的缓存标志
+_ov_available = None  # OpenVINO 是否可用的缓存标志
 _ov_npu_available = None  # OpenVINO NPU 设备是否可用的缓存标志
 _ov_npu_smoke_cached = None  # NPU 冒烟测试结果缓存 (None=未测, True/False=已测)
-_force_cpu = False      # 是否全局强制使用 CPU
+_force_cpu = False  # 是否全局强制使用 CPU
 
 
 def _ensure_torch():
@@ -262,6 +262,7 @@ def _try_dml():
         return None
     try:
         import torch_directml
+
         return torch_directml.device()
     except Exception as e:
         logger.warning("DirectML 冒烟测试失败: %s", e)
@@ -344,6 +345,7 @@ def _get_ov_npu_name() -> str:
         return ""
     try:
         import openvino as ov
+
         core = ov.Core()
         return core.get_property("NPU", "FULL_DEVICE_NAME")
     except Exception:

@@ -181,7 +181,9 @@ class WeibullGrowthAlgorithm(BaseAlgorithm):
         """
         return K * (1 - np.exp(-np.power(t / lam, k)))
 
-    def _fit_curve(self, times: np.ndarray, views: np.ndarray, video_info: Dict[str, Any]) -> Tuple[float, float, float]:
+    def _fit_curve(
+        self, times: np.ndarray, views: np.ndarray, video_info: Dict[str, Any]
+    ) -> Tuple[float, float, float]:
         """拟合Weibull曲线，返回 (K, lam, k)。
 
         使用 scipy.curve_fit 对历史数据进行非线性最小二乘拟合，
@@ -270,6 +272,10 @@ class WeibullGrowthAlgorithm(BaseAlgorithm):
         history_data = self._normalize_history(video_data.get("history_data", []))
         return self._to_prediction_result(
             self._predict_inner(current_views, threshold, history_data, video_data),
-            current_views, video_data, threshold,
-            method="weibull_growth", invalid_hours=float("inf"), invalid_velocity=0,
+            current_views,
+            video_data,
+            threshold,
+            method="weibull_growth",
+            invalid_hours=float("inf"),
+            invalid_velocity=0,
         )

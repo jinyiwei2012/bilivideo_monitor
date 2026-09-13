@@ -9,15 +9,27 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QFrame, QScrollArea, QProgressBar,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QGridLayout,
+    QLabel,
+    QFrame,
+    QScrollArea,
+    QProgressBar,
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 
 from ui.theme import C
 from ui.helpers import (
-    FONT_MONO_LG, FONT_CAPTION, SPACE_MD,
-    THRESHOLDS, THRESHOLD_NAMES, THRESH_COLORS, fmt_num,
+    FONT_MONO_LG,
+    FONT_CAPTION,
+    SPACE_MD,
+    THRESHOLDS,
+    THRESHOLD_NAMES,
+    THRESH_COLORS,
+    fmt_num,
 )
 from ui.widgets import SectionHeader, EmptyState
 from ui import lty_voice
@@ -149,7 +161,9 @@ class PredictionPanel:
                     arrive_dt = datetime.now() + timedelta(hours=eh)
                     eta_str = arrive_dt.strftime("%m-%d %H:%M")
                     seconds_left = eh * 3600
-                    eta_c = C["danger"] if seconds_left < 3600 else C["warning"] if seconds_left < 86400 else C["text_2"]
+                    eta_c = (
+                        C["danger"] if seconds_left < 3600 else C["warning"] if seconds_left < 86400 else C["text_2"]
+                    )
                     return eta_str, eta_c
             except Exception:
                 pass
@@ -162,8 +176,9 @@ class PredictionPanel:
             return eta_str, eta_c
         return "—", C["text_3"]
 
-    def build_pred_hero(self, weighted_pred, current_views, rate_per_sec, surge_info=None, bias_info=None,
-                        eta_info=None):
+    def build_pred_hero(
+        self, weighted_pred, current_views, rate_per_sec, surge_info=None, bias_info=None, eta_info=None
+    ):
         """构建或更新预测英雄卡片
 
         eta_info (C2): registry log-ETA 集成结果 {"eta_hours","eta_threshold",...}。
@@ -359,14 +374,14 @@ class PredictionPanel:
         confidence = surge_info.get("surge_confidence", 0.0)
 
         if surge_type == "strong":
-            badge_color = C['warning']
-            bg_color = C['bg_surface']
+            badge_color = C["warning"]
+            bg_color = C["bg_surface"]
         elif surge_type == "moderate":
-            badge_color = C['warning']
-            bg_color = C['bg_surface']
+            badge_color = C["warning"]
+            bg_color = C["bg_surface"]
         else:
-            badge_color = C['lty_blue']
-            bg_color = C['lty_blue_light']
+            badge_color = C["lty_blue"]
+            bg_color = C["lty_blue_light"]
 
         fl = QVBoxLayout(frame)
         fl.setContentsMargins(0, 4, 0, 0)
@@ -724,7 +739,9 @@ class PredictionPanel:
             if dyn.get("algo_valid"):
                 fg = C["success"] if valid > 0 else C["danger"]
                 dyn["algo_valid"].setText(f"{valid}/{total}")
-                dyn["algo_valid"].setStyleSheet(f"color: {fg}; font-family: Consolas; font-size: 9pt; font-weight: bold;")
+                dyn["algo_valid"].setStyleSheet(
+                    f"color: {fg}; font-family: Consolas; font-size: 9pt; font-weight: bold;"
+                )
             if dyn.get("ensemble"):
                 dyn["ensemble"].setText(f"{ensemble_conf * 100:.1f}%" if ensemble_conf > 0 else "—")
 
@@ -812,7 +829,9 @@ class PredictionPanel:
 
                 view_lbl = QLabel(fmt_num(v))
                 view_lbl.setFixedWidth(60)
-                view_lbl.setStyleSheet(f"color: {C['text_1']}; font-family: Consolas; font-size: 9pt; font-weight: bold;")
+                view_lbl.setStyleSheet(
+                    f"color: {C['text_1']}; font-family: Consolas; font-size: 9pt; font-weight: bold;"
+                )
                 view_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 rh.addWidget(view_lbl)
 

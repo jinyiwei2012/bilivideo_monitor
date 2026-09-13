@@ -8,13 +8,28 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QListWidget, QListWidgetItem, QCheckBox, QLineEdit,
-    QFrame, QSizePolicy, QMessageBox, QGroupBox,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QListWidget,
+    QListWidgetItem,
+    QCheckBox,
+    QLineEdit,
+    QFrame,
+    QSizePolicy,
+    QMessageBox,
+    QGroupBox,
 )
 from PyQt6.QtCore import Qt, QRect, QTimer
 from PyQt6.QtGui import (
-    QPainter, QColor, QPen, QFont, QBrush, QFontMetrics,
+    QPainter,
+    QColor,
+    QPen,
+    QFont,
+    QBrush,
+    QFontMetrics,
 )
 
 from core.database import get_db
@@ -49,9 +64,7 @@ class SnapshotBarChart(QWidget):
         self._placeholder = ""
         self._scroll_offset = 0
 
-    def set_chart_data(
-        self, all_metric_bars, chosen_metrics, selected_videos, use_milestone
-    ):
+    def set_chart_data(self, all_metric_bars, chosen_metrics, selected_videos, use_milestone):
         self._data = all_metric_bars
         self._chosen_metrics = chosen_metrics
         self._selected_videos = selected_videos
@@ -206,7 +219,9 @@ class SnapshotBarChart(QWidget):
 
             # X axis line
             painter.setPen(QPen(QColor(C.get("text_2", "#8b949e"))))
-            painter.drawLine(_BAR_ML, int(sec_y0 + _BAR_MT + chart_H), int(_BAR_ML + max_section_W), int(sec_y0 + _BAR_MT + chart_H))
+            painter.drawLine(
+                _BAR_ML, int(sec_y0 + _BAR_MT + chart_H), int(_BAR_ML + max_section_W), int(sec_y0 + _BAR_MT + chart_H)
+            )
 
             # draw bars
             x_cursor = _BAR_ML + GROUP_GAP // 2
@@ -221,7 +236,14 @@ class SnapshotBarChart(QWidget):
                 name_font = QFont("Microsoft YaHei UI", 8)
                 name_font.setBold(True)
                 painter.setFont(name_font)
-                painter.drawText(int(g_center - 50), int(sec_y0 + section_H - _BAR_MB + 8), 100, 16, Qt.AlignmentFlag.AlignCenter.value, f"{title}")
+                painter.drawText(
+                    int(g_center - 50),
+                    int(sec_y0 + section_H - _BAR_MB + 8),
+                    100,
+                    16,
+                    Qt.AlignmentFlag.AlignCenter.value,
+                    f"{title}",
+                )
 
                 for b_idx, bar in enumerate(bars):
                     val = bar["value"] or 0
@@ -259,8 +281,10 @@ class SnapshotBarChart(QWidget):
                         val_font.setBold(True)
                         painter.setFont(val_font)
                         painter.drawText(
-                            int(x0), int(max(y0 - 14, sec_y0 + _BAR_MT)),
-                            int(BAR_W), 14,
+                            int(x0),
+                            int(max(y0 - 14, sec_y0 + _BAR_MT)),
+                            int(BAR_W),
+                            14,
                             Qt.AlignmentFlag.AlignCenter.value,
                             _fmt(val),
                         )
@@ -272,8 +296,10 @@ class SnapshotBarChart(QWidget):
                     ts_font = QFont("Consolas", 7)
                     painter.setFont(ts_font)
                     painter.drawText(
-                        int(x0), int(sec_y0 + _BAR_MT + chart_H + 4),
-                        int(BAR_W), 14,
+                        int(x0),
+                        int(sec_y0 + _BAR_MT + chart_H + 4),
+                        int(BAR_W),
+                        14,
                         Qt.AlignmentFlag.AlignCenter.value,
                         short_ts,
                     )
@@ -722,9 +748,7 @@ class SnapshotTab(QWidget):
             try:
                 records = self._video_dbs[bvid].get_all_records()
                 if records:
-                    self._points[bvid] = sorted(
-                        [dict(r) for r in records], key=lambda r: r.get("timestamp", "")
-                    )
+                    self._points[bvid] = sorted([dict(r) for r in records], key=lambda r: r.get("timestamp", ""))
                     return
             except Exception as e:
                 _bar_snap_logger.warning("加载 %s 历史记录失败: %s", bvid, e)
@@ -790,8 +814,7 @@ class SnapshotTab(QWidget):
 
         # Update status
         metric_labels = ", ".join(
-            next((lb for k, lb in METRICS if k == m), m)
-            for m in (self._chosen_metrics_cache or [])
+            next((lb for k, lb in METRICS if k == m), m) for m in (self._chosen_metrics_cache or [])
         )
         self._status.setText(f"♪ 共 {len(self._selected)} 个视频,{total_data} 条数据,指标: {metric_labels}")
 
@@ -834,7 +857,13 @@ class SnapshotTab(QWidget):
                             val = 0
                         if val and val > 0:
                             all_metric_bars.setdefault(metric, []).append(
-                                {"bvid": bvid, "title": title, "ts": f"里程碑·{period}", "value": val, "source": "milestone"}
+                                {
+                                    "bvid": bvid,
+                                    "title": title,
+                                    "ts": f"里程碑·{period}",
+                                    "value": val,
+                                    "source": "milestone",
+                                }
                             )
 
         return all_metric_bars

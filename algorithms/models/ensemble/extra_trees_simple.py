@@ -75,10 +75,10 @@ class ExtraTreesSimpleAlgorithm(BaseAlgorithm):
         设置默认超参数：20 棵树、深度 6、最少分裂样本 3。
         """
         super().__init__()
-        self.n_trees = 20             # 树的数量
-        self.max_depth = 6            # 最大深度
-        self.min_samples_split = 3    # 分裂最少样本数
-        self.trees: List[dict] = []   # 训练好的树列表
+        self.n_trees = 20  # 树的数量
+        self.max_depth = 6  # 最大深度
+        self.min_samples_split = 3  # 分裂最少样本数
+        self.trees: List[dict] = []  # 训练好的树列表
 
     class _Node:
         """
@@ -92,6 +92,7 @@ class ExtraTreesSimpleAlgorithm(BaseAlgorithm):
             value (float): 叶节点预测值
             is_leaf (bool): 是否为叶节点
         """
+
         def __init__(self):
             self.feature_idx: Optional[int] = None
             self.threshold: float = 0.0
@@ -226,8 +227,8 @@ class ExtraTreesSimpleAlgorithm(BaseAlgorithm):
             features = [
                 views_seq[i - 1] / max(views_seq[i - 2], 1) - 1,  # 近期增长率
                 views_seq[i - 2] / max(views_seq[i - 3], 1) - 1,  # 中期增长率
-                views_seq[i - 1] - views_seq[i - 2],               # 绝对增量
-                np.mean(views_seq[max(0, i - 7) : i]),             # 7日平均
+                views_seq[i - 1] - views_seq[i - 2],  # 绝对增量
+                np.mean(views_seq[max(0, i - 7) : i]),  # 7日平均
                 np.std(views_seq[max(0, i - 7) : i]) / max(np.mean(views_seq[max(0, i - 7) : i]), 1),  # 变异系数
             ]
             X.append(features)
@@ -257,7 +258,9 @@ class ExtraTreesSimpleAlgorithm(BaseAlgorithm):
 
         remaining = threshold - current_views
         if remaining <= 0:
-            return self._std_result(0, 1.0, current_views, threshold, velocity=velocity, metadata={"method": "extra_trees"})
+            return self._std_result(
+                0, 1.0, current_views, threshold, velocity=velocity, metadata={"method": "extra_trees"}
+            )
 
         # 优先使用 sklearn ExtraTreesRegressor 做极限随机树预测
         if _HAS_SKLEARN and len(history) >= 10:
@@ -271,17 +274,33 @@ class ExtraTreesSimpleAlgorithm(BaseAlgorithm):
         # ── numpy 回退 ───────────────────────────
         if len(history) < 6 or velocity <= 0:
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "extra_trees", "notes": "insufficient_data"})
+            return self._std_result(
+                predicted_hours,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "extra_trees", "notes": "insufficient_data"},
+            )
 
         views_sorted = self._extract_views(history)
         if views_sorted is None or len(views_sorted) < 6:
-            return self._std_result(remaining / velocity, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "extra_trees_fallback"})
+            return self._std_result(
+                remaining / velocity,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "extra_trees_fallback"},
+            )
 
         try:
             return self._predict_impl(views_sorted, current_views, velocity, remaining, threshold, video_data)
         except Exception as e:
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.0, current_views, threshold, velocity=velocity, metadata={"error": str(e)})
+            return self._std_result(
+                predicted_hours, 0.0, current_views, threshold, velocity=velocity, metadata={"error": str(e)}
+            )
 
     def _sklearn_predict(self, video_data: Dict[str, Any], threshold: int) -> PredictionResult:
         """
@@ -323,8 +342,8 @@ class ExtraTreesSimpleAlgorithm(BaseAlgorithm):
         if len(X) < 8:
             return None
 
-        y_target = np.diff(views[-len(X) - 1:]) / np.maximum(views[-len(X) - 1 : -1], 1)
-        y_target = y_target[-len(X):]
+        y_target = np.diff(views[-len(X) - 1 :]) / np.maximum(views[-len(X) - 1 : -1], 1)
+        y_target = y_target[-len(X) :]
 
         # ExtraTrees: 100 棵树，随机分割点，全数据训练（不 Bootstrap）
         model = get_or_fit(
@@ -423,7 +442,14 @@ class ExtraTreesSimpleAlgorithm(BaseAlgorithm):
         X_train, y_train = self._prepare_features(views_sorted, {"quality": quality, "engagement": engagement})
 
         if len(X_train) < 5:
-            return self._std_result(remaining / velocity, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "extra_trees_insufficient"})
+            return self._std_result(
+                remaining / velocity,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "extra_trees_insufficient"},
+            )
 
         # 训练 20 棵极端随机树
         self.trees = []
@@ -437,7 +463,7 @@ class ExtraTreesSimpleAlgorithm(BaseAlgorithm):
             [
                 views_sorted[-1] / max(views_sorted[-2], 1) - 1,  # 近期增长率
                 views_sorted[-2] / max(views_sorted[-3], 1) - 1,  # 中期增长率
-                views_sorted[-1] - views_sorted[-2],               # 绝对增量
+                views_sorted[-1] - views_sorted[-2],  # 绝对增量
                 np.mean(views_sorted[-7:]) if len(views_sorted) >= 7 else np.mean(views_sorted),  # 7日平均
                 np.std(views_sorted[-7:]) / max(np.mean(views_sorted[-7:]), 1) if len(views_sorted) >= 7 else 0.1,  # CV
             ]
@@ -477,13 +503,18 @@ class ExtraTreesSimpleAlgorithm(BaseAlgorithm):
             predicted_hours = remaining / velocity
             conf = 0.35
 
-        return self._std_result(predicted_hours, conf, current_views, threshold, velocity=velocity, metadata={
+        return self._std_result(
+            predicted_hours,
+            conf,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={
                 "method": "extra_trees",
                 "n_trees": self.n_trees,
                 "predicted_daily_growth": round(float(predicted_daily_growth), 2),
                 "tree_std": round(float(pred_std), 2),
                 "tree_consistency": round(float(consistency), 3),
                 "data_points": n,
-            })
-
-
+            },
+        )

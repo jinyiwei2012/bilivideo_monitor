@@ -44,8 +44,8 @@ class SegRNNAlgorithm(BaseAlgorithm):
     category = "深度学习"
     default_weight = 1.3
 
-    training_window = 12     # 训练时使用的历史窗口长度
-    training_horizon = 3     # 训练时预测的未来步数
+    training_window = 12  # 训练时使用的历史窗口长度
+    training_horizon = 3  # 训练时预测的未来步数
 
     def predict(self, video_data, threshold=100000):
         """执行预测
@@ -58,8 +58,13 @@ class SegRNNAlgorithm(BaseAlgorithm):
             PredictionResult: 预测结果
         """
         return try_torch_predict(
-            self, video_data, threshold, SegRNNTorchModel, self._numpy_predict,
-            window=self.training_window, horizon=self.training_horizon,
+            self,
+            video_data,
+            threshold,
+            SegRNNTorchModel,
+            self._numpy_predict,
+            window=self.training_window,
+            horizon=self.training_horizon,
         )
 
     def build_model(self):
@@ -69,9 +74,11 @@ class SegRNNAlgorithm(BaseAlgorithm):
             SegRNNTorchModel: 分段编码+GRU串联模型
         """
         return SegRNNTorchModel(
-            in_features=getattr(self, '_training_n_features', 5),
-            window=self.training_window, horizon=self.training_horizon,
-            seg_len=3, d_model=32,
+            in_features=getattr(self, "_training_n_features", 5),
+            window=self.training_window,
+            horizon=self.training_horizon,
+            seg_len=3,
+            d_model=32,
         )
 
     def get_training_features(self) -> List[str]:
@@ -102,9 +109,17 @@ class SegRNNAlgorithm(BaseAlgorithm):
         if len(history) < 8 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "segrnn_fallback"})
+            return self._std_result(
+                predicted_hours,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "segrnn_fallback"},
+            )
 
         import numpy as np
+
         views = np.array([h.get("view_count", 0) for h in history[-18:]], dtype=np.float64)
         n = len(views)
 
@@ -112,7 +127,7 @@ class SegRNNAlgorithm(BaseAlgorithm):
         seg_len = 3  # 每段包含3个数据点
         segments = []
         for i in range(0, n - seg_len + 1, seg_len):
-            seg = views[i:i + seg_len]
+            seg = views[i : i + seg_len]
             if len(seg) >= 2:
                 # 每段计算平均增长（均值差分）
                 segments.append(np.mean(np.diff(seg)))
@@ -122,8 +137,8 @@ class SegRNNAlgorithm(BaseAlgorithm):
         else:
             # 模拟 GRU 门控：指数加权平均，近期权重高（越近的段越重要）
             weights = np.exp(np.linspace(0, 1, len(segments)))  # 指数增长的权重
-            weights = weights / weights.sum()                     # 归一化
-            growth = np.sum(np.array(segments) * weights)         # 加权融合
+            weights = weights / weights.sum()  # 归一化
+            growth = np.sum(np.array(segments) * weights)  # 加权融合
 
         predicted_velocity = max(0, growth / 3600)
         if predicted_velocity < 1:
@@ -137,4 +152,11 @@ class SegRNNAlgorithm(BaseAlgorithm):
             # 置信度：段数越多、数据点越多，置信度越高
             confidence = min(0.85, 0.3 + 0.03 * min(len(segments), 6) + 0.02 * min(n, 20))
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "segrnn_numpy", "segments": len(segments), "data_points": n})
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={"method": "segrnn_numpy", "segments": len(segments), "data_points": n},
+        )

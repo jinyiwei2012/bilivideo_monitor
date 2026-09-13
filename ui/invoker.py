@@ -25,12 +25,13 @@ _MAX_QUEUE = 4096  # 背压上限：积压回调数达到此值时丢弃新回�
 
 class _MainInvoker(QObject):
     """跨线程安全地将回调调度到主线程执行。"""
+
     _wake = pyqtSignal()
 
     def __init__(self):
         super().__init__()
         self._q = queue.Queue()
-        self._keyed = {}           # key -> 最新待执行回调（按 key 合并）
+        self._keyed = {}  # key -> 最新待执行回调（按 key 合并）
         self._queued_keys = set()  # 已入队占位的 key
         self._lock = threading.Lock()
         self._wake.connect(self._drain)

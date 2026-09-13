@@ -132,4 +132,6 @@ class TrendExtrapolationAlgorithm(BaseAlgorithm):
             "future_predictions": future_predictions if len(history) >= 3 else [],
         }
 
-        return self._std_result(max(0, predicted_hours), confidence, current_views, threshold, velocity=velocity, metadata=metadata)
+        return self._std_result(
+            max(0, predicted_hours), confidence, current_views, threshold, velocity=velocity, metadata=metadata
+        )

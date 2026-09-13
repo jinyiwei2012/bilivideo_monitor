@@ -344,7 +344,7 @@ class ModelTrainer:
             raise RuntimeError(f"算法 {algo_id} 未实现 build_model()")
 
         # 2. 读取已有 checkpoint 的数据范围（用于增量训练和新数据模式）
-        prev_epochs = 0           # 之前已完成的训练轮数
+        prev_epochs = 0  # 之前已完成的训练轮数
         data_trained_until = 0.0  # 之前已训练到的数据时间戳
         try:
             _pc_ckpt = CheckpointManager(algo_id, bvid=bvid)
@@ -364,7 +364,9 @@ class ModelTrainer:
             algo, algo_id, bvid, batch_size, val_ratio, min_timestamp=min_timestamp
         )
         # 4. 初始化模型/优化器/损失函数
-        model, optimizer, loss_fn, preprocess = self._init_model_optimizer(algo, algo_id, init_from_global, lr, bvid=bvid)
+        model, optimizer, loss_fn, preprocess = self._init_model_optimizer(
+            algo, algo_id, init_from_global, lr, bvid=bvid
+        )
 
         # 5. 创建调度器：双曲线衰减 + Plateau 检测
         scheduler = ComboScheduler(optimizer, k=0.1, plateau_patience=5, plateau_factor=0.5, min_lr=1e-6)
@@ -385,21 +387,25 @@ class ModelTrainer:
             logger.debug("忽略异常: %s", e)
 
         # 6. 训练循环
-        best_val = float("inf")      # 最佳验证损失
+        best_val = float("inf")  # 最佳验证损失
         best_tracked = float("inf")  # 用于 checkpoint 筛选的最佳 loss（含 train_loss）
-        last_val = -1.0              # 最近一次验证损失
-        start_time = time.time()     # 记录训练开始时间
-        best_epoch = 0               # 最佳 epoch 编号
-        train_losses = []            # 训练损失历史（用于早停判断）
-        epoch_versions = []          # 每轮保存的 checkpoint (version, loss, epoch)
+        last_val = -1.0  # 最近一次验证损失
+        start_time = time.time()  # 记录训练开始时间
+        best_epoch = 0  # 最佳 epoch 编号
+        train_losses = []  # 训练损失历史（用于早停判断）
+        epoch_versions = []  # 每轮保存的 checkpoint (version, loss, epoch)
 
         for epoch in range(epochs):
             # 检查控制指令（early_stop / lr_scale 等）
-            if self._check_control(control_dict, epoch, algo_id, bvid, optimizer, progress_cb, epochs, scheduler=scheduler):
+            if self._check_control(
+                control_dict, epoch, algo_id, bvid, optimizer, progress_cb, epochs, scheduler=scheduler
+            ):
                 break
 
             # 训练一个 epoch
-            train_loss = self._train_epoch(model, train_loader, optimizer, loss_fn, preprocess, control_dict, algo_id, progress_cb=progress_cb)
+            train_loss = self._train_epoch(
+                model, train_loader, optimizer, loss_fn, preprocess, control_dict, algo_id, progress_cb=progress_cb
+            )
             train_losses.append(train_loss)
 
             # 调度器步进（双曲线模式）
@@ -422,9 +428,18 @@ class ModelTrainer:
 
             # 验证并发送 epoch 进度
             last_val = self._validate_and_emit(
-                model, val_loader, loss_fn, preprocess,
-                best_val, progress_cb, algo_id, bvid,
-                epoch, epochs, train_loss, start_time,
+                model,
+                val_loader,
+                loss_fn,
+                preprocess,
+                best_val,
+                progress_cb,
+                algo_id,
+                bvid,
+                epoch,
+                epochs,
+                train_loss,
+                start_time,
                 prev_epochs=prev_epochs,
             )
             # 更新最佳 epoch 追踪
@@ -439,10 +454,19 @@ class ModelTrainer:
             # ── 每 epoch 保存 checkpoint（断点续训保护） ──
             data_until = getattr(dataset, "max_timestamp", 0.0)
             version = save_checkpoint(
-                model, algo_id, bvid, dataset, best_val, last_val, val_loader,
-                1, optimizer, prev_epochs=prev_epochs,
+                model,
+                algo_id,
+                bvid,
+                dataset,
+                best_val,
+                last_val,
+                val_loader,
+                1,
+                optimizer,
+                prev_epochs=prev_epochs,
                 data_trained_until=data_until,
-                scheduler=scheduler, best_epoch=best_epoch,
+                scheduler=scheduler,
+                best_epoch=best_epoch,
             )
             epoch_versions.append((version, tracked_loss, epoch + 1))
 
@@ -460,7 +484,10 @@ class ModelTrainer:
                     deleted += 1
             logger.info(
                 "[trainer] %s 保留最优 epoch %d (loss=%.4f)，清理 %d 个中间版本",
-                algo_id, best_ep, best_loss, deleted,
+                algo_id,
+                best_ep,
+                best_loss,
+                deleted,
             )
             return best_version
         elif epoch_versions:
@@ -507,7 +534,8 @@ class ModelTrainer:
         # GPU 预载模式：将全部时序数据直接加载到显存，消除逐 batch 传输
         gpu_preload = self.device.type == "cuda"
         dataset = VideoTimeSeriesDataset(
-            window=window, horizon=horizon,
+            window=window,
+            horizon=horizon,
             bvids=[bvid] if bvid else None,  # 指定视频 vs 全部视频
             features=features,
             min_timestamp=min_timestamp,
@@ -549,21 +577,26 @@ class ModelTrainer:
         # CPU 模式：num_workers=2, pin_memory=True, persistent_workers
         if gpu_preload:
             train_loader = DataLoader(
-                train_set, batch_size=batch_size, shuffle=True, drop_last=False,
+                train_set,
+                batch_size=batch_size,
+                shuffle=True,
+                drop_last=False,
             )
-            val_loader = (
-                DataLoader(val_set, batch_size=batch_size, shuffle=False)
-                if val_set else None
-            )
+            val_loader = DataLoader(val_set, batch_size=batch_size, shuffle=False) if val_set else None
         else:
             train_loader = DataLoader(
-                train_set, batch_size=batch_size, shuffle=True, drop_last=False,
-                num_workers=2, pin_memory=True, persistent_workers=True,
+                train_set,
+                batch_size=batch_size,
+                shuffle=True,
+                drop_last=False,
+                num_workers=2,
+                pin_memory=True,
+                persistent_workers=True,
             )
             val_loader = (
-                DataLoader(val_set, batch_size=batch_size, shuffle=False,
-                           num_workers=1, pin_memory=True)
-                if val_set else None
+                DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=1, pin_memory=True)
+                if val_set
+                else None
             )
         return dataset, train_loader, val_loader
 
@@ -592,8 +625,7 @@ class ModelTrainer:
             head 尺寸不匹配时把模型扩为 H+1（A+B 双尺度新格式）后重载。"""
             if not isinstance(state, dict):
                 return False
-            state = {k[len("_orig_mod."):] if k.startswith("_orig_mod.") else k: v
-                     for k, v in state.items()}
+            state = {k[len("_orig_mod.") :] if k.startswith("_orig_mod.") else k: v for k, v in state.items()}
             try:
                 model.load_state_dict(state)
                 return True
@@ -733,7 +765,9 @@ class ModelTrainer:
             )
         return False
 
-    def _train_epoch(self, model, train_loader, optimizer, loss_fn, preprocess, control_dict, algo_id, progress_cb=None):
+    def _train_epoch(
+        self, model, train_loader, optimizer, loss_fn, preprocess, control_dict, algo_id, progress_cb=None
+    ):
         """执行一个完整 epoch 的训练。
 
         包含以下数据增强和正则化技术：
@@ -816,14 +850,14 @@ class ModelTrainer:
                 if feat_dim > 1:
                     if x.dim() == 3:
                         # 3D: 对每个特征维度生成 Bernoulli mask
-                        mask = torch.bernoulli(
-                            torch.full((feat_dim,), 1.0 - feat_dropout, device=self.device)
-                        ).view(1, 1, feat_dim)
+                        mask = torch.bernoulli(torch.full((feat_dim,), 1.0 - feat_dropout, device=self.device)).view(
+                            1, 1, feat_dim
+                        )
                     else:
                         # 2D: 对每个特征维度生成 Bernoulli mask
-                        mask = torch.bernoulli(
-                            torch.full((feat_dim,), 1.0 - feat_dropout, device=self.device)
-                        ).view(1, feat_dim)
+                        mask = torch.bernoulli(torch.full((feat_dim,), 1.0 - feat_dropout, device=self.device)).view(
+                            1, feat_dim
+                        )
                     x = x * mask
 
             # ── 前向传播（AMP 混合精度） ─────────────────
@@ -844,7 +878,7 @@ class ModelTrainer:
                 # 避免高播放量视频的 loss 主导梯度，按目标振幅归一化
                 if amp_weight:
                     diff = pred - y
-                    sq_err = diff ** 2
+                    sq_err = diff**2
                     # 分母 = |y| 的均值（按最后一个维度），clamp(min=1.0) 防止除零
                     denom = y.abs().mean(dim=-1, keepdim=True).clamp(min=1.0).detach()
                     loss = (sq_err / denom).mean()
@@ -854,7 +888,7 @@ class ModelTrainer:
                 # ── Activation Decay: 对预测输出加 L2 正则 ──
                 # 平滑损失曲面，提高泛化能力
                 if act_decay > 0:
-                    loss = loss + act_decay * (pred ** 2).mean()
+                    loss = loss + act_decay * (pred**2).mean()
 
             # ── NaN/Inf 检测（使用未缩放的原始 loss） ──────
             loss_val = float(loss.item())
@@ -887,14 +921,17 @@ class ModelTrainer:
 
             # 每 10% batch 发出一次进度（避免过于频繁）
             if progress_cb and n_batches % report_interval == 0:
-                self._emit(progress_cb, {
-                    "stage": "batch",
-                    "algo_id": algo_id,
-                    "batch": n_batches,
-                    "total_batches": total_batches,
-                    "batch_loss": round(loss_val, 6),
-                    "avg_loss": round(train_loss / n_batches, 6),
-                })
+                self._emit(
+                    progress_cb,
+                    {
+                        "stage": "batch",
+                        "algo_id": algo_id,
+                        "batch": n_batches,
+                        "total_batches": total_batches,
+                        "batch_loss": round(loss_val, 6),
+                        "avg_loss": round(train_loss / n_batches, 6),
+                    },
+                )
 
         return train_loss / max(1, n_batches)
 
@@ -946,14 +983,14 @@ class ModelTrainer:
                 "stage": "epoch",
                 "algo_id": algo_id,
                 "bvid": bvid,
-                "epoch": epoch + 1,                       # 当前 epoch（1-based 显示）
+                "epoch": epoch + 1,  # 当前 epoch（1-based 显示）
                 "epochs": epochs,
-                "total_epoch": prev_epochs + epoch + 1,   # 累计总 epoch
+                "total_epoch": prev_epochs + epoch + 1,  # 累计总 epoch
                 "total_epochs": prev_epochs + epochs,
                 "_prev_epochs": prev_epochs,
                 "train_loss": train_loss,
                 "val_loss": last_val,
-                "elapsed_s": time.time() - start_time,    # 已用时间（秒）
+                "elapsed_s": time.time() - start_time,  # 已用时间（秒）
             },
         )
         return last_val

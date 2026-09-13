@@ -9,9 +9,21 @@ import threading
 from datetime import datetime
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QFrame, QTabWidget, QTextEdit, QRadioButton, QLineEdit,
-    QScrollArea, QCheckBox, QDialog, QProgressBar, QSizePolicy,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QFrame,
+    QTabWidget,
+    QTextEdit,
+    QRadioButton,
+    QLineEdit,
+    QScrollArea,
+    QCheckBox,
+    QDialog,
+    QProgressBar,
+    QSizePolicy,
     QMessageBox,
 )
 from PyQt6.QtCore import Qt
@@ -19,8 +31,12 @@ from PyQt6.QtCore import Qt
 from ui.theme import C
 from ui.helpers import (
     FONT_MONO_LG,
-    FONT_TITLE, FONT_CAPTION, SPACE_MD,
-    THRESHOLDS, THRESHOLD_NAMES, fmt_num,
+    FONT_TITLE,
+    FONT_CAPTION,
+    SPACE_MD,
+    THRESHOLDS,
+    THRESHOLD_NAMES,
+    fmt_num,
 )
 from ui.widgets import SectionHeader, EmptyState, WaveDivider
 from ui import lty_voice
@@ -185,11 +201,15 @@ class FinetuneDialog(QDialog):
                 invoke(lambda m=gui_msg: self.gui.set_finetune_status(m))
                 try:
                     version = trainer.finetune_for_video(
-                        algo_id=aid, bvid=self.bvid, epochs=epochs, batch_size=batch,
+                        algo_id=aid,
+                        bvid=self.bvid,
+                        epochs=epochs,
+                        batch_size=batch,
                     )
                     msg = f"✓ {aid} → {version[:12]}"
                 except Exception as e:
                     import logging
+
                     logging.getLogger(__name__).debug("微调 %s 失败: %s", aid, e)
                     msg = f"✗ {aid}: 呜…出错了,天依已悄悄记到日志里啦"
                 invoke(lambda m=msg: self._status_lbl.setText(m))
@@ -216,10 +236,10 @@ class DetailPanel(_RatioDanmakuMixin):
         self._rendered_modes = set()
         self._chart_fingerprint = None
         self._detail_text_fp = None
-        self._score_history_cache = {}       # bvid -> (weekly_rows, yearly_rows)
+        self._score_history_cache = {}  # bvid -> (weekly_rows, yearly_rows)
         self._score_history_pending = set()  # 正在后台读取的 bvid
-        self._dm_cache = {}                  # bvid -> {"records": [...], "count": int}
-        self._dm_pending = set()              # 正在后台读取弹幕的 bvid
+        self._dm_cache = {}  # bvid -> {"records": [...], "count": int}
+        self._dm_pending = set()  # 正在后台读取弹幕的 bvid
         self._header_bvid = None  # 缓存当前 header 对应的 bvid，避免重复构建
         self._header_video = None  # 缓存当前 header 对应的 video 对象（身份校验，防陈旧缓存）
 
@@ -544,9 +564,7 @@ class DetailPanel(_RatioDanmakuMixin):
             }}
             QPushButton:hover {{ background-color: {C['accent_hover']}; }}
         """)
-        self._finetune_btn.clicked.connect(
-            lambda: _confirm_risky("微调视频模型") and self._open_finetune_dialog(bvid)
-        )
+        self._finetune_btn.clicked.connect(lambda: _confirm_risky("微调视频模型") and self._open_finetune_dialog(bvid))
         ft_h.addWidget(self._finetune_btn)
 
         self._finetune_status = QLabel("")
@@ -570,7 +588,9 @@ class DetailPanel(_RatioDanmakuMixin):
                 algos.append({"algorithm_id": aid, "name": getattr(algo, "name", aid)})
 
         if not algos:
-            QMessageBox.information(self.frame, "♪ 提示", "呜…还没有已训练的深度学习算法呢,先训练一下,天依才能唱得更准哦 ♪")
+            QMessageBox.information(
+                self.frame, "♪ 提示", "呜…还没有已训练的深度学习算法呢,先训练一下,天依才能唱得更准哦 ♪"
+            )
             return
 
         dlg = FinetuneDialog(self.gui, bvid, algos)
@@ -717,9 +737,7 @@ class DetailPanel(_RatioDanmakuMixin):
         bvid = self.gui.selected_bvid
         if not bvid:
             return None
-        return next(
-            (v for v in self.gui.monitored_videos if v.get("bvid") == bvid), None
-        )
+        return next((v for v in self.gui.monitored_videos if v.get("bvid") == bvid), None)
 
     # ── Chart Rendering ─────────────────────────
 
@@ -792,8 +810,12 @@ class DetailPanel(_RatioDanmakuMixin):
         self._chart_fingerprint = fp
 
         self._chart_widget.update_chart(
-            self.gui.history_data, self.gui.selected_bvid, video,
-            mode=self._chart_mode, max_points=points, prediction=pred,
+            self.gui.history_data,
+            self.gui.selected_bvid,
+            video,
+            mode=self._chart_mode,
+            max_points=points,
+            prediction=pred,
         )
         self._rendered_modes.add(self._chart_mode)
         self._chart_empty.setVisible(False)
@@ -841,8 +863,7 @@ class DetailPanel(_RatioDanmakuMixin):
                 if fresh == prev:
                     return
                 self._score_history_cache[bvid] = fresh
-                if (self.gui is not None and self.gui.selected_bvid == bvid
-                        and self._current_tab_name == "☰ 详细数据"):
+                if self.gui is not None and self.gui.selected_bvid == bvid and self._current_tab_name == "☰ 详细数据":
                     self._detail_text_fp = None
                     video = self._get_selected_video()
                     if video:
@@ -856,11 +877,16 @@ class DetailPanel(_RatioDanmakuMixin):
         """填充详细数据"""
         # Fingerprint check
         fp_fields = (
-            video.get("view_count", 0), video.get("like_count", 0),
-            video.get("coin_count", 0), video.get("favorite_count", 0),
-            video.get("share_count", 0), video.get("danmaku_count", 0),
-            video.get("reply_count", 0), video.get("viewers_total", 0),
-            video.get("title", ""), video.get("author", ""),
+            video.get("view_count", 0),
+            video.get("like_count", 0),
+            video.get("coin_count", 0),
+            video.get("favorite_count", 0),
+            video.get("share_count", 0),
+            video.get("danmaku_count", 0),
+            video.get("reply_count", 0),
+            video.get("viewers_total", 0),
+            video.get("title", ""),
+            video.get("author", ""),
         )
         new_fp = hash(fp_fields)
         if new_fp == self._detail_text_fp:
@@ -877,6 +903,7 @@ class DetailPanel(_RatioDanmakuMixin):
         dur_str = f"{dur // 60}:{dur % 60:02d}" if dur else "—"
 
         lines = []
+
         def add(text, style=""):
             lines.append((text, style))
 
@@ -921,7 +948,9 @@ class DetailPanel(_RatioDanmakuMixin):
                 add(f"{name}  已达成 ✓", "mono_ok")
 
         # Build HTML
-        html_parts = ["<pre style='font-family: Consolas; font-size: 10pt; line-height: 1.4; margin: 0; white-space: pre-wrap;'>"]
+        html_parts = [
+            "<pre style='font-family: Consolas; font-size: 10pt; line-height: 1.4; margin: 0; white-space: pre-wrap;'>"
+        ]
         style_map = {
             "head": f"color: {C['bilibili']}; font-weight: bold;",
             "mono": f"color: {C['text_1']};",
@@ -943,10 +972,19 @@ class DetailPanel(_RatioDanmakuMixin):
                 ("=== 周刊分数 ===", "head"),
                 (f"最终得点  {ws.total_score:>10,.2f}", "mono_accent"),
                 ("", ""),
-                (f"播放得点  {ws.view_score:>10,.2f}  (基础 {ws.base_view_score:,.0f} × 修正D {ws.correction_d:.4f})", "mono"),
+                (
+                    f"播放得点  {ws.view_score:>10,.2f}  (基础 {ws.base_view_score:,.0f} × 修正D {ws.correction_d:.4f})",
+                    "mono",
+                ),
                 (f"互动得点  {ws.interaction_score:>10,.2f}  (修正A {ws.correction_a:.4f})", "mono"),
-                (f"收藏得点  {ws.favorite_score:>10,.2f}  ({video.get('favorite_count', 0):,} × 修正B {ws.correction_b:.4f})", "mono"),
-                (f"硬币得点  {ws.coin_score:>10,.2f}  ({video.get('coin_count', 0):,} × 修正C {ws.correction_c:.4f})", "mono"),
+                (
+                    f"收藏得点  {ws.favorite_score:>10,.2f}  ({video.get('favorite_count', 0):,} × 修正B {ws.correction_b:.4f})",
+                    "mono",
+                ),
+                (
+                    f"硬币得点  {ws.coin_score:>10,.2f}  ({video.get('coin_count', 0):,} × 修正C {ws.correction_c:.4f})",
+                    "mono",
+                ),
                 (f"点赞得点  {ws.like_score:>10,.2f}", "mono"),
             ]
             for text, style in extra:
@@ -964,8 +1002,14 @@ class DetailPanel(_RatioDanmakuMixin):
                 ("", ""),
                 (f"播放得点  {ys.view_score:>10,.2f}", "mono"),
                 (f"互动得点  {ys.interaction_score:>10,.2f}  (修正A {ys.correction_a:.4f})", "mono"),
-                (f"收藏得点  {ys.favorite_score:>10,.2f}  ({video.get('favorite_count', 0):,} × 修正B {ys.correction_b:.4f})", "mono"),
-                (f"硬币得点  {ys.coin_score:>10,.2f}  ({video.get('coin_count', 0):,} × 修正C {ys.correction_c:.4f})", "mono"),
+                (
+                    f"收藏得点  {ys.favorite_score:>10,.2f}  ({video.get('favorite_count', 0):,} × 修正B {ys.correction_b:.4f})",
+                    "mono",
+                ),
+                (
+                    f"硬币得点  {ys.coin_score:>10,.2f}  ({video.get('coin_count', 0):,} × 修正C {ys.correction_c:.4f})",
+                    "mono",
+                ),
                 (f"点赞得点  {ys.like_score:>10,.2f}", "mono"),
             ]
             for text, style in extra:
@@ -997,6 +1041,7 @@ class DetailPanel(_RatioDanmakuMixin):
             return _calc_ws(video)
         except Exception as e:
             import logging
+
             logging.getLogger(__name__).debug("周刊分数计算失败: %s", e)
             return None
 
@@ -1009,6 +1054,7 @@ class DetailPanel(_RatioDanmakuMixin):
             return _calc_ys(video)
         except Exception:
             import logging
+
             logging.getLogger(__name__).debug("年刊分数计算失败")
             return None
 

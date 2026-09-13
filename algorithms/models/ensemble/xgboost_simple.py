@@ -91,7 +91,14 @@ class XGBoostSimpleAlgorithm(BaseAlgorithm):
         remaining = threshold - current_views
         if remaining <= 0:
             # 已达标
-            return self._std_result(0, 1.0, current_views, threshold, velocity=velocity, metadata={"method": "xgboost", "note": "already_reached"})
+            return self._std_result(
+                0,
+                1.0,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "xgboost", "note": "already_reached"},
+            )
 
         # 数据不足或速度为零 → numpy 回退
         if len(history) < 10 or velocity <= 0:
@@ -170,12 +177,12 @@ class XGBoostSimpleAlgorithm(BaseAlgorithm):
         model = get_or_fit(
             "xgboost_simple",
             lambda: xgb.XGBRegressor(
-                n_estimators=80,          # 树的数量
-                max_depth=4,              # 最大深度
-                learning_rate=0.1,        # 学习率
-                subsample=0.8,            # 行采样率（每棵树用 80% 数据）
-                colsample_bytree=0.8,     # 列采样率（每棵树用 80% 特征）
-                verbosity=0,              # 静默训练
+                n_estimators=80,  # 树的数量
+                max_depth=4,  # 最大深度
+                learning_rate=0.1,  # 学习率
+                subsample=0.8,  # 行采样率（每棵树用 80% 数据）
+                colsample_bytree=0.8,  # 列采样率（每棵树用 80% 特征）
+                verbosity=0,  # 静默训练
             ),
             X,
             y_target,
@@ -207,7 +214,14 @@ class XGBoostSimpleAlgorithm(BaseAlgorithm):
         cv = float(np.std(residuals) / max(np.mean(np.abs(y_target)), 1e-10))
         confidence = max(0.1, min(0.85, 0.6 - cv * 0.5))
 
-        return self._std_result(pred_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "xgboost", "n_estimators": 80})
+        return self._std_result(
+            pred_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={"method": "xgboost", "n_estimators": 80},
+        )
 
     def _numpy_predict(self, current_views, velocity, remaining, threshold) -> PredictionResult:
         """
@@ -226,8 +240,22 @@ class XGBoostSimpleAlgorithm(BaseAlgorithm):
             PredictionResult: 预测结果对象
         """
         if velocity <= 0:
-            return self._std_result(float("inf"), 0.0, current_views, threshold, velocity=velocity, metadata={"method": "xgboost_numpy_fallback"})
+            return self._std_result(
+                float("inf"),
+                0.0,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "xgboost_numpy_fallback"},
+            )
         # 匀速外推
         predicted_hours = remaining / velocity
         confidence = 0.3
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "xgboost_numpy_fallback"})
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={"method": "xgboost_numpy_fallback"},
+        )

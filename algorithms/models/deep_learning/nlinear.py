@@ -59,8 +59,8 @@ class NLinearAlgorithm(BaseAlgorithm):
     category = "深度学习"
     default_weight = 1.5
 
-    training_window = 10     # 训练时使用的历史窗口长度
-    training_horizon = 3     # 训练时预测的未来步数
+    training_window = 10  # 训练时使用的历史窗口长度
+    training_horizon = 3  # 训练时预测的未来步数
 
     def predict(self, video_data, threshold=100000):
         """执行预测，优先使用 PyTorch 模型，回退到 NumPy 实现
@@ -73,8 +73,13 @@ class NLinearAlgorithm(BaseAlgorithm):
             PredictionResult: 包含 predicted_hours、confidence 等字段
         """
         return try_torch_predict(
-            self, video_data, threshold, NLinearTorchModel, self._numpy_predict,
-            window=self.training_window, horizon=self.training_horizon,
+            self,
+            video_data,
+            threshold,
+            NLinearTorchModel,
+            self._numpy_predict,
+            window=self.training_window,
+            horizon=self.training_horizon,
         )
 
     def build_model(self):
@@ -84,8 +89,9 @@ class NLinearAlgorithm(BaseAlgorithm):
             NLinearTorchModel: 单层 Linear(window * in_features -> horizon) 的极简模型
         """
         return NLinearTorchModel(
-            in_features=getattr(self, '_training_n_features', 5),
-            window=self.training_window, horizon=self.training_horizon,
+            in_features=getattr(self, "_training_n_features", 5),
+            window=self.training_window,
+            horizon=self.training_horizon,
         )
 
     def get_training_features(self) -> List[str]:
@@ -122,7 +128,14 @@ class NLinearAlgorithm(BaseAlgorithm):
         if len(history) < 5 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3 if velocity > 0 else 0.0, current_views, threshold, velocity=velocity, metadata={"method": "nlinear_fallback"})
+            return self._std_result(
+                predicted_hours,
+                0.3 if velocity > 0 else 0.0,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "nlinear_fallback"},
+            )
 
         # 提取播放量历史序列
         views = []
@@ -135,37 +148,52 @@ class NLinearAlgorithm(BaseAlgorithm):
         if len(views) < 5:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity
-            return self._std_result(predicted_hours, 0.4, current_views, threshold, velocity=velocity, metadata={"method": "nlinear_fallback"})
+            return self._std_result(
+                predicted_hours,
+                0.4,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "nlinear_fallback"},
+            )
 
         # === 核心步骤1: 实例归一化 (Instance Normalization) ===
         # 减均值、除标准差，消除分布偏移
         import numpy as np
-        arr = np.array(views[-15:])        # 取最近 15 个数据点
+
+        arr = np.array(views[-15:])  # 取最近 15 个数据点
         mean = np.mean(arr)
-        std = np.std(arr) + 1e-5           # 加 epsilon 防止除零
-        normalized = (arr - mean) / std    # Z-score 归一化
+        std = np.std(arr) + 1e-5  # 加 epsilon 防止除零
+        normalized = (arr - mean) / std  # Z-score 归一化
 
         # === 核心步骤2: 线性拟合 + 外推 ===
         # 用一阶多项式拟合归一化后的序列，模拟论文中的单层 Linear
         if len(normalized) >= 5:
             x = np.arange(len(normalized))
-            coef = np.polyfit(x, normalized, 1)                      # 一阶线性拟合
+            coef = np.polyfit(x, normalized, 1)  # 一阶线性拟合
             future = np.polyval(coef, np.arange(len(normalized), len(normalized) + 5))  # 外推 5 步
-            future_views = future * std + mean                       # 反归一化恢复量纲
-            growth = max(0, np.mean(np.diff(future_views)))          # 平均每步增长
+            future_views = future * std + mean  # 反归一化恢复量纲
+            growth = max(0, np.mean(np.diff(future_views)))  # 平均每步增长
         else:
             growth = velocity * 3600  # 回退到小时级速度
 
         # === 核心步骤3: 转换为小时速度并计算到达时间 ===
         predicted_velocity = max(0, growth / 3600)  # 转换为每秒增速
         if predicted_velocity < 1:
-            predicted_velocity = velocity            # 增速过低时用当前速度
+            predicted_velocity = velocity  # 增速过低时用当前速度
 
         remaining = threshold - current_views
         if remaining <= 0:
-            predicted_hours, confidence = 0, 1.0    # 已达阈值
+            predicted_hours, confidence = 0, 1.0  # 已达阈值
         else:
             predicted_hours = remaining / predicted_velocity
             confidence = min(0.85, 0.4 + len(views) * 0.02)  # 数据点越多置信度越高
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "nlinear_numpy", "data_points": len(views)})
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={"method": "nlinear_numpy", "data_points": len(views)},
+        )

@@ -7,8 +7,15 @@ import threading
 from typing import Dict
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QComboBox, QPlainTextEdit, QMessageBox, QDialog,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QComboBox,
+    QPlainTextEdit,
+    QMessageBox,
+    QDialog,
 )
 from PyQt6.QtCore import QTimer
 
@@ -165,7 +172,6 @@ class SettingsAccountMixin:
         tab_idx = nb.addTab(page, "  账号设置  ")
         return tab_idx
 
-
     def _refresh_cookie_display(self):
         self._cookie_text.clear()
         cookies = {}
@@ -186,11 +192,9 @@ class SettingsAccountMixin:
                     parts.append(f"{k}={masked}")
             self._cookie_text.setPlainText("; ".join(parts))
 
-
     def _toggle_cookie_unlock(self):
         self._cookie_unlocked = not getattr(self, "_cookie_unlocked", False)
         self._refresh_cookie_display()
-
 
     def _apply_cookies(self):
         text = self._cookie_text.toPlainText().strip()
@@ -211,7 +215,6 @@ class SettingsAccountMixin:
         self._refresh_status()
         QTimer.singleShot(500, self._verify_login)
         QMessageBox.information(self, "应用好啦 ♪", "Cookie 应用好啦 ♪ 天依正在确认登录状态,像等待第一个音符落下…")
-
 
     def _parse_cookie_input(self, text: str) -> Dict[str, str]:
         import json as _json
@@ -248,7 +251,6 @@ class SettingsAccountMixin:
                 cookies[key.strip()] = value.strip()
         return cookies
 
-
     def _verify_login(self):
         def _worker():
             try:
@@ -263,17 +265,24 @@ class SettingsAccountMixin:
 
         threading.Thread(target=_worker, daemon=True).start()
 
-
     def _clear_cookies(self):
         reply = QMessageBox.question(
-            self, "确认", "确定要清空所有Cookie吗?清空后就像换一首新歌,原来的旋律就唱不回来了哦…",
+            self,
+            "确认",
+            "确定要清空所有Cookie吗?清空后就像换一首新歌,原来的旋律就唱不回来了哦…",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
         for name in (
-            "SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5",
-            "sid", "buvid3", "buvid4", "buvid_fp",
+            "SESSDATA",
+            "bili_jct",
+            "DedeUserID",
+            "DedeUserID__ckMd5",
+            "sid",
+            "buvid3",
+            "buvid4",
+            "buvid_fp",
         ):
             get_bilibili_api().session.cookies.set(name, "", domain=".bilibili.com")
         get_bilibili_api()._cookies = {}
@@ -284,7 +293,6 @@ class SettingsAccountMixin:
         self._refresh_cookie_display()
         self._refresh_status()
         QMessageBox.information(self, "清空啦 ♪", "Cookie 清空啦,像换了一首新歌,重新开始 ♪")
-
 
     def _import_from_browser(self):
         def _worker():
@@ -299,23 +307,33 @@ class SettingsAccountMixin:
                     api._persist_cookies(cookies)
                     invoke(lambda c=cookies: self._on_browser_cookies(c))
                 else:
-                    invoke(lambda: QMessageBox.critical(
-                        self, "呜…没找到呢", "呜…没有在浏览器里找到 B 站的 Cookie 呢,先去 bilibili.com 登录一下,再回来找找哦 ♪"
-                    ))
+                    invoke(
+                        lambda: QMessageBox.critical(
+                            self,
+                            "呜…没找到呢",
+                            "呜…没有在浏览器里找到 B 站的 Cookie 呢,先去 bilibili.com 登录一下,再回来找找哦 ♪",
+                        )
+                    )
             except Exception as e:
                 logger.debug("从浏览器提取 Cookie 失败: %s", e)
-                invoke(lambda: QMessageBox.critical(self, "呜…出错了", "呜…从浏览器提取 Cookie 失败了呢,天依悄悄记下问题啦,请再试一次哦 ♪"))
+                invoke(
+                    lambda: QMessageBox.critical(
+                        self, "呜…出错了", "呜…从浏览器提取 Cookie 失败了呢,天依悄悄记下问题啦,请再试一次哦 ♪"
+                    )
+                )
 
         threading.Thread(target=_worker, daemon=True).start()
-
 
     def _on_browser_cookies(self, cookies: dict):
         self._refresh_account_list()
         self._refresh_cookie_display()
         self._refresh_status()
         QTimer.singleShot(500, self._verify_login)
-        QMessageBox.information(self, "提取成功 ♪", f"已从浏览器带回 Cookie 的歌谱啦 ♪\n{', '.join(cookies.keys())}\n天依正在确认登录状态哦~")
-
+        QMessageBox.information(
+            self,
+            "提取成功 ♪",
+            f"已从浏览器带回 Cookie 的歌谱啦 ♪\n{', '.join(cookies.keys())}\n天依正在确认登录状态哦~",
+        )
 
     def _import_cookie_editor(self):
         dlg = _CookieEditorDialog(self.dlg)
@@ -329,8 +347,9 @@ class SettingsAccountMixin:
                 self._refresh_cookie_display()
                 self._refresh_status()
                 QTimer.singleShot(500, self._verify_login)
-                QMessageBox.information(self, "导入成功 ♪", f"歌谱带回来啦 ♪ 共 {len(cookies)} 个 Cookie,天依正在确认登录状态哦~")
-
+                QMessageBox.information(
+                    self, "导入成功 ♪", f"歌谱带回来啦 ♪ 共 {len(cookies)} 个 Cookie,天依正在确认登录状态哦~"
+                )
 
     def _qrcode_login(self):
         dlg = _QRCodeLoginDialog(self.dlg)
@@ -346,10 +365,13 @@ class SettingsAccountMixin:
             self._refresh_status()
             QTimer.singleShot(1000, self._verify_login)
             if cookies:
-                QMessageBox.information(self, "登录成功啦 ♪", f"登录成功啦!♪ 已获取 Cookie: {', '.join(cookies.keys())}\n天依听见你的歌声啦~")
+                QMessageBox.information(
+                    self,
+                    "登录成功啦 ♪",
+                    f"登录成功啦!♪ 已获取 Cookie: {', '.join(cookies.keys())}\n天依听见你的歌声啦~",
+                )
             else:
                 QMessageBox.information(self, "登录成功啦 ♪", "扫码成功啦!♪ Cookie 已经通过浏览器同步好了,天依欢迎你~")
-
 
     def _refresh_account_list(self):
         api = get_bilibili_api()
@@ -364,14 +386,12 @@ class SettingsAccountMixin:
             self._acct_combo.setCurrentIndex(0)
         self._acct_combo.blockSignals(False)
 
-
     def _switch_account(self):
         name = self._acct_combo.currentText()
         if name:
             get_bilibili_api().switch_account(name)
             self._refresh_cookie_display()
             self._refresh_status()
-
 
     def _add_account_dialog(self, _parent=None):
         dlg = _AddAccountDialog(self.dlg)
@@ -380,13 +400,14 @@ class SettingsAccountMixin:
             self._refresh_cookie_display()
             self._refresh_status()
 
-
     def _remove_account(self):
         name = self._acct_combo.currentText()
         if not name:
             return
         reply = QMessageBox.question(
-            self, "确认", f"真的要删除账号「{name}」吗?删掉就像从歌单里划掉一首歌,就唱不回来了哦…",
+            self,
+            "确认",
+            f"真的要删除账号「{name}」吗?删掉就像从歌单里划掉一首歌,就唱不回来了哦…",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:
@@ -395,7 +416,6 @@ class SettingsAccountMixin:
         self._refresh_account_list()
         self._refresh_cookie_display()
         self._refresh_status()
-
 
     def _password_login(self):
         dlg = _PasswordLoginDialog(self.dlg)
@@ -415,4 +435,8 @@ class SettingsAccountMixin:
                 self._refresh_cookie_display()
                 self._refresh_status()
                 QTimer.singleShot(1000, self._verify_login)
-                QMessageBox.information(self, "登录成功啦 ♪", f"登录成功啦!♪ 已获取 Cookie: {', '.join(cookies.keys())}\n天依听见你的歌声啦~")
+                QMessageBox.information(
+                    self,
+                    "登录成功啦 ♪",
+                    f"登录成功啦!♪ 已获取 Cookie: {', '.join(cookies.keys())}\n天依听见你的歌声啦~",
+                )

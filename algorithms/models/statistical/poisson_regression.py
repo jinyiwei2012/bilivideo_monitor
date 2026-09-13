@@ -149,18 +149,34 @@ class PoissonRegressionAlgorithm(BaseAlgorithm):
         # 数据不足
         if len(history) < 6 or velocity <= 0:
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "poisson", "notes": "insufficient_data"})
+            return self._std_result(
+                predicted_hours,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "poisson", "notes": "insufficient_data"},
+            )
 
         # 提取并排序播放量序列
         views_sorted = self._extract_views(history)
         if views_sorted is None or len(views_sorted) < 6:
-            return self._std_result(remaining / velocity, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "poisson_fallback"})
+            return self._std_result(
+                remaining / velocity,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "poisson_fallback"},
+            )
 
         try:
             return self._predict_impl(views_sorted, current_views, velocity, remaining, threshold, video_data)
         except Exception as e:
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.0, current_views, threshold, velocity=velocity, metadata={"error": str(e)})
+            return self._std_result(
+                predicted_hours, 0.0, current_views, threshold, velocity=velocity, metadata={"error": str(e)}
+            )
 
     def _extract_views(self, history):
         """
@@ -246,7 +262,14 @@ class PoissonRegressionAlgorithm(BaseAlgorithm):
         y = np.array(y_list, dtype=float)
 
         if len(X) < 3:
-            return self._std_result(remaining / velocity, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "poisson_insufficient"})
+            return self._std_result(
+                remaining / velocity,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "poisson_insufficient"},
+            )
 
         # ── 拟合泊松回归 ────────────────────────
         self.coef, self.intercept = self._fit_poisson(X, y)
@@ -306,12 +329,17 @@ class PoissonRegressionAlgorithm(BaseAlgorithm):
             predicted_hours = remaining / velocity
             conf = 0.35
 
-        return self._std_result(predicted_hours, conf, current_views, threshold, velocity=velocity, metadata={
+        return self._std_result(
+            predicted_hours,
+            conf,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={
                 "method": "poisson",
                 "daily_increment": round(float(predicted_daily_increment), 2),
                 "pseudo_r2": round(float(pseudo_r2), 3),
                 "model_type": "poisson",
                 "data_points": n,
-            })
-
-
+            },
+        )

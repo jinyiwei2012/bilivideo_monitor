@@ -11,10 +11,23 @@ from typing import List
 from datetime import datetime
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QLineEdit, QComboBox, QTextEdit, QTabWidget, QMessageBox, QTreeWidget,
-    QTreeWidgetItem, QHeaderView, QRadioButton, QButtonGroup,
-    QTableWidget, QTableWidgetItem,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QLineEdit,
+    QComboBox,
+    QTextEdit,
+    QTabWidget,
+    QMessageBox,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QHeaderView,
+    QRadioButton,
+    QButtonGroup,
+    QTableWidget,
+    QTableWidgetItem,
 )
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QFont, QPainter, QColor, QBrush, QPen
@@ -154,8 +167,7 @@ class DanmakuAnalysisWindow:
         # 左：情绪饼图
         self._left_frame = QWidget()
         self._left_frame.setStyleSheet(
-            f"background-color: {C['bg_elevated']}; "
-            f"border: 1px solid {C['border_sub']}; border-radius: 2px;"
+            f"background-color: {C['bg_elevated']}; " f"border: 1px solid {C['border_sub']}; border-radius: 2px;"
         )
         left_layout = QVBoxLayout(self._left_frame)
         left_layout.setContentsMargins(6, 4, 6, 6)
@@ -171,8 +183,7 @@ class DanmakuAnalysisWindow:
         # 右：高频关键词
         self._right_frame = QWidget()
         self._right_frame.setStyleSheet(
-            f"background-color: {C['bg_elevated']}; "
-            f"border: 1px solid {C['border_sub']}; border-radius: 2px;"
+            f"background-color: {C['bg_elevated']}; " f"border: 1px solid {C['border_sub']}; border-radius: 2px;"
         )
         right_layout = QVBoxLayout(self._right_frame)
         right_layout.setContentsMargins(6, 4, 6, 6)
@@ -183,8 +194,7 @@ class DanmakuAnalysisWindow:
         self._kw_display = QLabel("")
         self._kw_display.setWordWrap(True)
         self._kw_display.setStyleSheet(
-            f"background-color: {C['bg_base']}; color: {C['text_1']}; "
-            f"padding: 8px; border: none;"
+            f"background-color: {C['bg_base']}; color: {C['text_1']}; " f"padding: 8px; border: none;"
         )
         self._kw_display.setFont(QFont("Microsoft YaHei UI", 10))
         right_layout.addWidget(self._kw_display, stretch=1)
@@ -273,8 +283,7 @@ class DanmakuAnalysisWindow:
         self._llm_text = QTextEdit()
         self._llm_text.setReadOnly(True)
         self._llm_text.setStyleSheet(
-            f"background-color: {C['bg_base']}; color: {C['text_1']}; "
-            f"padding: 10px; border: none;"
+            f"background-color: {C['bg_base']}; color: {C['text_1']}; " f"padding: 10px; border: none;"
         )
         self._llm_text.setFont(QFont("Microsoft YaHei UI", 10))
         llm_layout.addWidget(self._llm_text, stretch=1)
@@ -376,7 +385,9 @@ class DanmakuAnalysisWindow:
             self._texts = texts
             self._current_bvid = bvid
             limit_label = f"（限制 {limit} 条）" if limit > 0 else "（全量）"
-            self._status_lbl.setText(f"弹幕都收到啦!♪ 共 {len(texts)} 条{mode} {limit_label}，天依正用心听着大家心里的歌声呢~")
+            self._status_lbl.setText(
+                f"弹幕都收到啦!♪ 共 {len(texts)} 条{mode} {limit_label}，天依正用心听着大家心里的歌声呢~"
+            )
             self._status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
 
             self._display_results(texts)
@@ -457,13 +468,12 @@ class DanmakuAnalysisWindow:
                 vdb = self.gui.video_dbs[bvid]
                 # 上限 5000 条,避免超热门视频全表读取卡死主线程(足够统计小时段分布)
                 records = vdb.get_danmaku_records(limit=5000)
-                rows_data = [
-                    r for r in records
-                    if r.get("content") and r.get("send_time")
-                ]
+                rows_data = [r for r in records if r.get("content") and r.get("send_time")]
             if not rows_data:
                 self._hour_table.setRowCount(0)
-                self._hour_summary.setText("没有带时间戳的本地弹幕记录哦…天依去多拉几次弹幕存进歌谱,就能看到各时段的心情变化啦 ♪")
+                self._hour_summary.setText(
+                    "没有带时间戳的本地弹幕记录哦…天依去多拉几次弹幕存进歌谱,就能看到各时段的心情变化啦 ♪"
+                )
                 return
 
             # 按小时段聚合文本
@@ -611,7 +621,8 @@ class DanmakuAnalysisWindow:
             ]
         if local_files:
             reply = QMessageBox.question(
-                self.dlg, "要注意哦…",
+                self.dlg,
+                "要注意哦…",
                 f"已经有 LLM {mode}分析结果啦，像已经唱过的歌，要重新唱一遍吗？\n选「否」就听之前的录音哦 ♪",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )
@@ -624,6 +635,7 @@ class DanmakuAnalysisWindow:
         """加载 LLM API 配置"""
         try:
             from config import get_active_ai_profile
+
             profile = get_active_ai_profile()
             api_key = profile.get("api_key", "")
             endpoint = profile.get("endpoint", "") or "https://api.openai.com/v1/chat/completions"
@@ -632,7 +644,11 @@ class DanmakuAnalysisWindow:
             api_key = ""
 
         if not api_key:
-            QMessageBox.warning(self.dlg, "要注意哦…", "呜…还没有配置 LLM API 密钥呢，像没有伴奏的舞台，去「设置 → AI配置」调好音再唱吧 ♪")
+            QMessageBox.warning(
+                self.dlg,
+                "要注意哦…",
+                "呜…还没有配置 LLM API 密钥呢，像没有伴奏的舞台，去「设置 → AI配置」调好音再唱吧 ♪",
+            )
             return None
         return (api_key, endpoint, model)
 
@@ -672,6 +688,7 @@ class DanmakuAnalysisWindow:
         """调用 LLM API"""
         try:
             import requests as req
+
             is_claude = "anthropic.com" in endpoint
             if is_claude:
                 resp = req.post(
@@ -747,6 +764,7 @@ class DanmakuAnalysisWindow:
         """保存 LLM 分析结果到文件"""
         try:
             from config import DATA_DIR
+
             bv_dir = os.path.join(DATA_DIR, self._current_bvid, "danmaku")
             os.makedirs(bv_dir, exist_ok=True)
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -777,6 +795,7 @@ class DanmakuAnalysisWindow:
         if not self._current_bvid:
             return
         from config import DATA_DIR
+
         bv_dir = os.path.join(DATA_DIR, self._current_bvid, "danmaku")
         if not os.path.isdir(bv_dir):
             return
@@ -925,8 +944,7 @@ class _PieWidget(QWidget):
             painter.setPen(Qt.PenStyle.NoPen)
             painter.drawRect(10, ly - 4, 10, 8)
             painter.setPen(QColor(C["text_2"]))
-            painter.drawText(26, ly - 7, 200, 14, Qt.AlignmentFlag.AlignLeft,
-                             f"{self._labels[key]} {val:.0%}")
+            painter.drawText(26, ly - 7, 200, 14, Qt.AlignmentFlag.AlignLeft, f"{self._labels[key]} {val:.0%}")
             ly += 18
 
         painter.end()
@@ -962,7 +980,7 @@ class _TimeHistogramWidget(QWidget):
         chunk_size = max(1, n // bins)
         counts = []
         for i in range(0, n, chunk_size):
-            counts.append(min(1.0, len(texts[i: i + chunk_size]) / chunk_size))
+            counts.append(min(1.0, len(texts[i : i + chunk_size]) / chunk_size))
 
         bar_w = (w - 40) / max(len(counts), 1)
         max_c = max(counts) if counts else 1

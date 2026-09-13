@@ -74,7 +74,9 @@ class BayesianRegressionAlgorithm(BaseAlgorithm):
 
         # 数据不足时返回无效预测
         if not history_data or len(history_data) < 6:
-            return self._std_result(float("inf"), 0.0, current_views, threshold, velocity=velocity, metadata={"error": "Insufficient data"})
+            return self._std_result(
+                float("inf"), 0.0, current_views, threshold, velocity=velocity, metadata={"error": "Insufficient data"}
+            )
 
         try:
             # 准备数据：提取特征和标签
@@ -82,14 +84,28 @@ class BayesianRegressionAlgorithm(BaseAlgorithm):
 
             # 特征数太少，无法有效拟合
             if len(X) < 5:
-                return self._std_result(float("inf"), 0.0, current_views, threshold, velocity=velocity, metadata={"error": "Insufficient processed data"})
+                return self._std_result(
+                    float("inf"),
+                    0.0,
+                    current_views,
+                    threshold,
+                    velocity=velocity,
+                    metadata={"error": "Insufficient processed data"},
+                )
 
             # 执行贝叶斯推断
             self._bayesian_inference(X, y)
 
             # 已达阈值，无需预测
             if current_views >= threshold:
-                return self._std_result(0, 1.0, current_views, threshold, velocity=velocity, metadata={"method": "bayesian_regression", "status": "already_reached"})
+                return self._std_result(
+                    0,
+                    1.0,
+                    current_views,
+                    threshold,
+                    velocity=velocity,
+                    metadata={"method": "bayesian_regression", "status": "already_reached"},
+                )
 
             # 使用后验均值预测当前增量
             last_features = X[-1]  # 最新数据点的特征
@@ -108,22 +124,38 @@ class BayesianRegressionAlgorithm(BaseAlgorithm):
 
             # 预测时间过长或异常，判定无效
             if days_needed < 0 or days_needed > 3650:
-                return self._std_result(float("inf"), 0.0, current_views, threshold, velocity=velocity, metadata={"error": "Prediction too far"})
+                return self._std_result(
+                    float("inf"),
+                    0.0,
+                    current_views,
+                    threshold,
+                    velocity=velocity,
+                    metadata={"error": "Prediction too far"},
+                )
 
             predicted_hours = days_needed * 24
 
             # 置信度基于不确定性的相对大小
             confidence = self._calculate_confidence(uncertainty, predicted_growth)
 
-            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
+            return self._std_result(
+                predicted_hours,
+                confidence,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={
                     "method": "bayesian_regression",
                     "uncertainty": float(uncertainty),
                     "predicted_growth": float(predicted_growth),
-                })
+                },
+            )
 
         except Exception as e:
             logger.warning(f"贝叶斯回归预测失败: {e}")
-            return self._std_result(float("inf"), 0.0, current_views, threshold, velocity=velocity, metadata={"error": str(e)})
+            return self._std_result(
+                float("inf"), 0.0, current_views, threshold, velocity=velocity, metadata={"error": str(e)}
+            )
 
     def _prepare_data(self, history_data: List[Dict[str, Any]]) -> Tuple[np.ndarray, np.ndarray]:
         """

@@ -227,4 +227,6 @@ class LagLlamaAlgorithm(BaseAlgorithm):
                 confidence = 1.0
         metadata = {"reason": reason}
         metadata.update(extra or {})
-        return self._std_result(predicted_hours, confidence, int(current_views), threshold, velocity=float(velocity), metadata=metadata)
+        return self._std_result(
+            predicted_hours, confidence, int(current_views), threshold, velocity=float(velocity), metadata=metadata
+        )

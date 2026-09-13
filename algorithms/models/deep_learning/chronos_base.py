@@ -72,7 +72,13 @@ class ChronosBaseAlgorithm(BaseAlgorithm):
         Returns:
             ChronosTorchModel 实例
         """
-        return ChronosTorchModel(in_features=getattr(self, '_training_n_features', 5), window=10, d_model=32, n_heads=2, horizon=self.training_horizon)
+        return ChronosTorchModel(
+            in_features=getattr(self, "_training_n_features", 5),
+            window=10,
+            d_model=32,
+            n_heads=2,
+            horizon=self.training_horizon,
+        )
 
     def get_training_features(self) -> List[str]:
         """获取训练使用的特征列表。
@@ -143,6 +149,13 @@ class ChronosBaseAlgorithm(BaseAlgorithm):
                 residual_std = np.std(residuals) / max(np.mean(views), 1)
                 confidence = max(0.1, min(0.85, 0.5 - residual_std * 5))
 
-            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "chronos", "trend_slope": float(coeffs[0])})
+            return self._std_result(
+                predicted_hours,
+                confidence,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "chronos", "trend_slope": float(coeffs[0])},
+            )
         except Exception:
             return self._fallback(velocity, current_views, threshold, method="chronos")

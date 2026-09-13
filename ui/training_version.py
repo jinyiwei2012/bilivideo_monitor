@@ -3,12 +3,19 @@
 
 从 training_panel.py 提取的版本管理相关方法（查看/激活/删除 checkpoint 版本）。
 """
+
 import os
 import logging
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QDialog, QFrame, QMessageBox,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QDialog,
+    QFrame,
+    QMessageBox,
 )
 from PyQt6.QtCore import Qt
 
@@ -197,9 +204,7 @@ class VersionManagerMixin:
                 export_btn.setFixedWidth(70)
                 ver_val = v["version"]
                 export_btn.clicked.connect(
-                    lambda checked=False, c=ckpt, ver=ver_val, a=aid: (
-                        self._export_version(c, ver, a)
-                    )
+                    lambda checked=False, c=ckpt, ver=ver_val, a=aid: (self._export_version(c, ver, a))
                 )
                 row_layout.addWidget(export_btn)
 
@@ -294,7 +299,9 @@ class VersionManagerMixin:
             else:
                 ckpt_dir = os.path.join(
                     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                    "algorithms", "checkpoints", aid,
+                    "algorithms",
+                    "checkpoints",
+                    aid,
                 )
                 dir_lbl = QLabel(f"▣ {os.path.relpath(ckpt_dir)}")
                 dir_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
@@ -314,13 +321,16 @@ class VersionManagerMixin:
         from PyQt6.QtWidgets import QFileDialog
 
         path = QFileDialog.getSaveFileName(
-            self, "导出 checkpoint", f"{aid}_{ver}.pt",
+            self,
+            "导出 checkpoint",
+            f"{aid}_{ver}.pt",
             "PyTorch checkpoint (*.pt);;所有文件 (*.*)",
         )[0]
         if not path:
             return
         try:
             import shutil
+
             src = os.path.join(project_path("algorithms", "checkpoints", aid), f"{ver}.pt")
             shutil.copyfile(src, path)
             QMessageBox.information(self, "完成啦 ♪", f"已导出到:\n{path}")
@@ -331,7 +341,8 @@ class VersionManagerMixin:
     def _delete_all_global(self, aid, name, refresh_cb):
         """删除算法的所有全局 checkpoint。"""
         reply = QMessageBox.question(
-            self, "要注意哦…",
+            self,
+            "要注意哦…",
             f"真的要删除 {name} ({aid}) 的所有全局版本吗？\n删掉就找不回来啦…♪",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
@@ -349,7 +360,8 @@ class VersionManagerMixin:
     def _delete_all_video(self, aid, name, refresh_cb):
         """删除算法的所有视频微调 checkpoint。"""
         reply = QMessageBox.question(
-            self, "要注意哦…",
+            self,
+            "要注意哦…",
             f"真的要删除 {name} ({aid}) 的所有视频微调版本吗？\n删掉就找不回来啦…♪",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,

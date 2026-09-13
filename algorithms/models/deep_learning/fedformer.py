@@ -56,8 +56,13 @@ class FEDformerAlgorithm(BaseAlgorithm):
             PredictionResult 预测结果对象
         """
         return try_torch_predict(
-            self, video_data, threshold, FEDformerTorchModel, self._numpy_predict,
-            window=self.training_window, horizon=self.training_horizon,
+            self,
+            video_data,
+            threshold,
+            FEDformerTorchModel,
+            self._numpy_predict,
+            window=self.training_window,
+            horizon=self.training_horizon,
         )
 
     def build_model(self):
@@ -67,8 +72,11 @@ class FEDformerAlgorithm(BaseAlgorithm):
             FEDformerTorchModel 实例
         """
         return FEDformerTorchModel(
-            in_features=getattr(self, '_training_n_features', 5),
-            window=self.training_window, horizon=self.training_horizon, d_model=32, n_modes=6,
+            in_features=getattr(self, "_training_n_features", 5),
+            window=self.training_window,
+            horizon=self.training_horizon,
+            d_model=32,
+            n_modes=6,
         )
 
     def get_training_features(self) -> List[str]:
@@ -98,9 +106,17 @@ class FEDformerAlgorithm(BaseAlgorithm):
         if len(history) < 8 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "fedformer_fallback"})
+            return self._std_result(
+                predicted_hours,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "fedformer_fallback"},
+            )
 
         import numpy as np
+
         views = np.array([h.get("view_count", 0) for h in history[-24:]], dtype=np.float64)
         n = len(views)
 
@@ -136,4 +152,11 @@ class FEDformerAlgorithm(BaseAlgorithm):
         predicted_hours = remaining / predicted_velocity if remaining > 0 and predicted_velocity > 0 else float("inf")
         confidence = min(0.85, 0.3 + 0.1 * min(n_modes, 6) + 0.02 * min(n, 20))
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "fedformer_numpy", "n_modes": n_modes})
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={"method": "fedformer_numpy", "n_modes": n_modes},
+        )

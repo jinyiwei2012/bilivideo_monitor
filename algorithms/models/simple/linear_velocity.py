@@ -82,4 +82,11 @@ class LinearVelocityAlgorithm(BaseAlgorithm):
                 age_hours = self.get_video_age_hours(video_data)
                 confidence = min(1.0, max(0.3, 1 - age_hours / 168))
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "linear_velocity"})
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={"method": "linear_velocity"},
+        )

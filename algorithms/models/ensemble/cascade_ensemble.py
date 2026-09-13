@@ -177,7 +177,14 @@ class CascadeEnsembleAlgorithm(BaseAlgorithm):
         # 数据不足 → 回退到匀速
         if len(history) < 5 or velocity <= 0:
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "cascade", "notes": "insufficient_data"})
+            return self._std_result(
+                predicted_hours,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "cascade", "notes": "insufficient_data"},
+            )
 
         # 提取并排序时间序列
         timestamps = []
@@ -196,7 +203,14 @@ class CascadeEnsembleAlgorithm(BaseAlgorithm):
 
         if len(views_vals) < 5:
             predicted_hours = remaining / velocity
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "cascade_fallback"})
+            return self._std_result(
+                predicted_hours,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "cascade_fallback"},
+            )
 
         try:
             order = np.argsort(timestamps)
@@ -250,14 +264,23 @@ class CascadeEnsembleAlgorithm(BaseAlgorithm):
                 predicted_hours = remaining / velocity
                 conf = 0.35
 
-            return self._std_result(predicted_hours, conf, current_views, threshold, velocity=velocity, metadata={
+            return self._std_result(
+                predicted_hours,
+                conf,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={
                     "method": "cascade",
                     "level1_l1": round(float(l1_daily), 2),
                     "level2_exp_smooth": round(float(l2_daily), 2),
                     "level3_cascade": round(float(l3_daily), 2),
                     "consistency": round(float(consistency), 3),
                     "data_points": n,
-                })
+                },
+            )
         except Exception as e:
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.0, current_views, threshold, velocity=velocity, metadata={"error": str(e)})
+            return self._std_result(
+                predicted_hours, 0.0, current_views, threshold, velocity=velocity, metadata={"error": str(e)}
+            )

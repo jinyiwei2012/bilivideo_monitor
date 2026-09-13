@@ -1,4 +1,5 @@
 """预测工具函数"""
+
 import threading
 import logging
 from datetime import datetime
@@ -28,6 +29,7 @@ def _sync_predictions_to_central(bvid, rows, ensemble_data, coherence_rows):
     """将预测数据同步到中央库（预测 + 集成 + 共识度）"""
     try:
         from core import db
+
         db.sync_predictions(bvid, rows)
         if ensemble_data:
             db.sync_prediction_ensemble(bvid, now_ts(), ensemble_data)
@@ -40,6 +42,7 @@ def _sync_predictions_to_central(bvid, rows, ensemble_data, coherence_rows):
 def _json_default(obj):
     """JSON 序列化辅助：将 numpy 类型转为 Python 原生类型"""
     import numpy as np
+
     if isinstance(obj, (np.integer,)):
         return int(obj)
     if isinstance(obj, (np.floating,)):
@@ -58,6 +61,7 @@ def _save_predictions_to_db(gui, bvid, current_view, results):
 
     if video_db:
         import json
+
         for name, r in results.items():
             if name == "_weighted" or "error" in r:
                 continue
@@ -107,6 +111,7 @@ def _merge_history(gui, bvid: str) -> list:
 
     # 检查是否已从 DB 合并过
     from ui.monitor._service import _merged_from_db_lock, _merged_from_db
+
     with _merged_from_db_lock:
         if bvid in _merged_from_db:
             already_merged = True
@@ -310,14 +315,17 @@ def _predict_single(gui, bvid, video) -> dict:
     try:
         if len(history) >= 15:
             from algorithms.registry import AlgorithmRegistry
+
             with gui._data_lock:
                 warmed_key = f"_warmup_{bvid}"
                 already = getattr(gui, warmed_key, False)
             if not already:
                 import threading as _th
+
                 _th.Thread(
                     target=lambda: AlgorithmRegistry.warmup_weights_from_backtest(bvid, history),
-                    daemon=True, name=f"warmup-{bvid}",
+                    daemon=True,
+                    name=f"warmup-{bvid}",
                 ).start()
                 with gui._data_lock:
                     setattr(gui, warmed_key, True)
@@ -394,7 +402,8 @@ def _predict_single(gui, bvid, video) -> dict:
         # C2: log-ETA 集成结果（到 anchor 阈值的加权中位小时数, 供 ETA 行消费）
         "eta_info": weighted.get("eta"),
         "coherence_list": [
-            (name, r.get("coherence", 0)) for name, r in results.items()
+            (name, r.get("coherence", 0))
+            for name, r in results.items()
             if name != "_weighted" and "error" not in r and r.get("coherence")
         ],
     }
@@ -516,5 +525,3 @@ def _update_video_graph(gui, bvid, video):
 # ──────────────────────────────────────────────
 #  核心：每个视频一个独立 Worker 线程
 # ──────────────────────────────────────────────
-
-

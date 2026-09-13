@@ -28,6 +28,7 @@ _onnx_available = False
 _ort = None
 try:
     import onnxruntime as _ort
+
     _onnx_available = True
 except ImportError:
     pass
@@ -47,6 +48,7 @@ def _get_onnx_dir():
     global _ONNX_DIR
     if _ONNX_DIR is None:
         from utils import project_path
+
         _ONNX_DIR = project_path("algorithms", "checkpoints", "_onnx")
         os.makedirs(_ONNX_DIR, exist_ok=True)
     return _ONNX_DIR
@@ -123,17 +125,25 @@ def export_to_onnx(
         # torch >= 2.6 重构了 onnx 内部 API，用 dynamo 导出兜底
         try:
             torch.onnx.export(
-                model, dummy, onnx_path,
-                input_names=["input"], output_names=["output"],
+                model,
+                dummy,
+                onnx_path,
+                input_names=["input"],
+                output_names=["output"],
                 dynamic_axes={"input": {1: "window"}, "output": {1: "horizon"}},
-                opset_version=14, do_constant_folding=True,
+                opset_version=14,
+                do_constant_folding=True,
             )
         except (ImportError, AttributeError, ModuleNotFoundError):
             # torch.onnx 内部 API 不兼容（如 _compat 缺失），降级为静态导出
             torch.onnx.export(
-                model, dummy, onnx_path,
-                input_names=["input"], output_names=["output"],
-                opset_version=14, do_constant_folding=True,
+                model,
+                dummy,
+                onnx_path,
+                input_names=["input"],
+                output_names=["output"],
+                opset_version=14,
+                do_constant_folding=True,
             )
         logger.info("[ONNX] 导出成功 %s → %s", algo_id, os.path.basename(onnx_path))
         return onnx_path
@@ -162,9 +172,7 @@ class ONNXInferenceSession:
     def __init__(self):
         self._sessions: Dict[str, Any] = {}  # key → ort.InferenceSession
 
-    def get_or_load(
-        self, algo_id: str, bvid: str = "", window: int = 10, in_features: int = 10
-    ) -> Optional[Any]:
+    def get_or_load(self, algo_id: str, bvid: str = "", window: int = 10, in_features: int = 10) -> Optional[Any]:
         """获取或创建 ONNX 推理会话。
 
         优先加载已有 onnx 文件；若无则尝试从 checkpoint 导出。
@@ -180,6 +188,7 @@ class ONNXInferenceSession:
         if not os.path.exists(onnx_path):
             # 尝试从 checkpoint 导出
             from algorithms.training.checkpoint_manager import load_best_checkpoint
+
             state, _ = load_best_checkpoint(algo_id, bvid=bvid)
             if state is None:
                 return None
@@ -205,8 +214,7 @@ class ONNXInferenceSession:
 
             if use_dml:
                 try:
-                    sess = _ort.InferenceSession(onnx_path,
-                        providers=["DmlExecutionProvider", "CPUExecutionProvider"])
+                    sess = _ort.InferenceSession(onnx_path, providers=["DmlExecutionProvider", "CPUExecutionProvider"])
                 except Exception:
                     sess = _ort.InferenceSession(onnx_path, providers=["CPUExecutionProvider"])
             else:
@@ -301,18 +309,23 @@ def _benchmark_dml_vs_cpu(onnx_path: str) -> bool:
         faster = dml_t < cpu_t
         speedup = cpu_t / max(dml_t, 0.0001)
         if faster:
-            logger.info("[ONNX] NPU 加速 %.1fx (DML %.2fms vs CPU %.2fms) — 已启用 DML", speedup, dml_t*10, cpu_t*10)
+            logger.info(
+                "[ONNX] NPU 加速 %.1fx (DML %.2fms vs CPU %.2fms) — 已启用 DML", speedup, dml_t * 10, cpu_t * 10
+            )
         else:
-            logger.warning("[ONNX] NPU 不可用 (DML %.2fms vs CPU %.2fms, %.1fx) — 已降级 CPU EP (需 Win11 24H2+ + NPU驱动)", dml_t*10, cpu_t*10, speedup)
+            logger.warning(
+                "[ONNX] NPU 不可用 (DML %.2fms vs CPU %.2fms, %.1fx) — 已降级 CPU EP (需 Win11 24H2+ + NPU驱动)",
+                dml_t * 10,
+                cpu_t * 10,
+                speedup,
+            )
         return faster
     except Exception as e:
         logger.debug("[ONNX] DML benchmark failed: %s", e)
         return False
 
 
-def _export_from_checkpoint(
-    state: dict, algo_id: str, bvid: str, window: int, in_features: int
-) -> Optional[str]:
+def _export_from_checkpoint(state: dict, algo_id: str, bvid: str, window: int, in_features: int) -> Optional[str]:
     """从 checkpoint state_dict 自动导出 ONNX。
 
     构建一个通用骨架模型加载权重后导出。
@@ -390,7 +403,7 @@ def _export_from_checkpoint(
         clean_state = {}
         for k, v in state.items():
             if k.startswith("_orig_mod."):
-                k = k[len("_orig_mod."):]
+                k = k[len("_orig_mod.") :]
             clean_state[k] = v
 
         # 推断 head 输出宽度：优先找 fc/head 系 2D 权重中"形状像最终投影"的那个。

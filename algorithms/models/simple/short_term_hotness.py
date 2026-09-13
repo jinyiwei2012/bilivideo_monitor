@@ -39,8 +39,9 @@ class ShortTermHotnessAlgorithm(BaseAlgorithm):
         # 基线稳健速率（registry 已优先返回抗噪的 velocity_robust_hourly）
         velocity = self.calculate_velocity(video_data)
         if velocity <= 0:
-            return self._std_result(float("inf"), 0.0, current_views, threshold,
-                                    velocity=0.0, method="short_term_hotness")
+            return self._std_result(
+                float("inf"), 0.0, current_views, threshold, velocity=0.0, method="short_term_hotness"
+            )
 
         live = video_data.get("live_features", {}) or {}
         viewers_total = live.get("viewers_total", 0) or 0
@@ -80,8 +81,7 @@ class ShortTermHotnessAlgorithm(BaseAlgorithm):
 
         remaining = threshold - current_views
         if remaining <= 0:
-            return self._std_result(0.0, 1.0, current_views, threshold,
-                                    velocity=velocity, method="short_term_hotness")
+            return self._std_result(0.0, 1.0, current_views, threshold, velocity=velocity, method="short_term_hotness")
 
         predicted_hours = remaining / velocity
         # 置信：年龄衰减基准 + 数据可得性调制
@@ -89,5 +89,4 @@ class ShortTermHotnessAlgorithm(BaseAlgorithm):
         confidence = min(1.0, max(0.3, 1 - age_hours / 168))
         confidence = max(0.2, min(0.95, confidence + conf_bonus))
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold,
-                                velocity=velocity, metadata=meta)
+        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata=meta)

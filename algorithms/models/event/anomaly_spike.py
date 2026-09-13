@@ -101,7 +101,9 @@ class AnomalySpikeAlgorithm(BaseAlgorithm):
         if len(history) < 10 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "spike_fallback"})
+            return self._std_result(
+                predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "spike_fallback"}
+            )
 
         try:
             # 取最近 40 条历史记录的播放量
@@ -115,7 +117,7 @@ class AnomalySpikeAlgorithm(BaseAlgorithm):
             spikes = np.zeros(len(diffs), dtype=bool)  # 脉冲标记数组
             for i in range(window, len(diffs)):
                 # 取当前点之前的 window 个差分值作为局部参考窗口
-                local = diffs[max(0, i - window): i]
+                local = diffs[max(0, i - window) : i]
                 # 局部窗口至少 3 个点且标准差 > 0 才计算 Z-score
                 if len(local) >= 3 and np.std(local) > 0:
                     z = (diffs[i] - np.mean(local)) / np.std(local)  # 标准化Z-score
@@ -152,9 +154,18 @@ class AnomalySpikeAlgorithm(BaseAlgorithm):
             # 置信度：脉冲越少越可信，基础 0.5 × (1-脉冲比例) + 数据点加成
             confidence = max(0.1, min(0.85, 0.5 * (1 - spike_ratio) + 0.02 * min(n, 25)))
 
-            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "anomaly_spike", "spikes": int(n_spikes), "spike_ratio": round(spike_ratio, 3)})
+            return self._std_result(
+                predicted_hours,
+                confidence,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "anomaly_spike", "spikes": int(n_spikes), "spike_ratio": round(spike_ratio, 3)},
+            )
         except Exception:
             # 任何异常回退到匀速预测
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "spike_error"})
+            return self._std_result(
+                predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "spike_error"}
+            )

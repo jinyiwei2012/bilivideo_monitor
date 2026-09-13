@@ -34,6 +34,7 @@ _HAS_SKLEARN = False
 try:
     from sklearn.linear_model import Ridge, Lasso
     from sklearn.ensemble import GradientBoostingRegressor
+
     _HAS_SKLEARN = True
 except ImportError:
     pass
@@ -84,7 +85,14 @@ class StackingEnsembleAlgorithm(BaseAlgorithm):
         if len(history) < 20 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "stacking_fallback"})
+            return self._std_result(
+                predicted_hours,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "stacking_fallback"},
+            )
 
         if _HAS_SKLEARN:
             try:
@@ -133,22 +141,22 @@ class StackingEnsembleAlgorithm(BaseAlgorithm):
         for i in range(p, n - 1):
             feat = []
             # 基模型1: 简单线性趋势
-            feat.append(np.polyfit(np.arange(p), views[i - p: i], 1)[0])
+            feat.append(np.polyfit(np.arange(p), views[i - p : i], 1)[0])
             # 基模型2: 对数线性趋势（指数增长检测）
-            log_views = np.log(np.maximum(views[i - p: i], 1))
+            log_views = np.log(np.maximum(views[i - p : i], 1))
             feat.append(np.polyfit(np.arange(p), log_views, 1)[0])
             # 基模型3: 加权移动平均速度
-            feat.append(np.mean(np.diff(views[i - p: i])))
+            feat.append(np.mean(np.diff(views[i - p : i])))
             # 基模型4: 互动率趋势
-            feat.append(np.mean(likes[i - p: i]) / max(np.mean(views[i - p: i]), 1))
+            feat.append(np.mean(likes[i - p : i]) / max(np.mean(views[i - p : i]), 1))
             # 基模型5: 投币趋势
-            feat.append(np.mean(coins[i - p: i]) / max(np.mean(views[i - p: i]), 1))
+            feat.append(np.mean(coins[i - p : i]) / max(np.mean(views[i - p : i]), 1))
             # 基模型6: 加速度（二阶差分均值）
-            diffs = np.diff(views[i - p: i + 1])
+            diffs = np.diff(views[i - p : i + 1])
             feat.append(np.mean(np.diff(diffs)) if len(diffs) >= 2 else 0)
             # 基模型7: 变异系数（波动程度）
-            sm = np.mean(views[i - p: i + 1])
-            feat.append(np.std(views[i - p: i + 1]) / max(sm, 1))
+            sm = np.mean(views[i - p : i + 1])
+            feat.append(np.std(views[i - p : i + 1]) / max(sm, 1))
 
             X.append(feat)
             y.append(views[i] - views[i - 1])
@@ -183,19 +191,21 @@ class StackingEnsembleAlgorithm(BaseAlgorithm):
         meta = get_or_fit("stacking_ensemble:meta", lambda: Ridge(alpha=0.1), meta_X, y_val)  # 元学习器
 
         # ========== 预测当前时刻 ==========
-        last_feat = np.array([
-            np.polyfit(np.arange(p), views[-p:], 1)[0],                          # 基模型1
-            np.polyfit(np.arange(p), np.log(np.maximum(views[-p:], 1)), 1)[0],   # 基模型2
-            np.mean(np.diff(views[-p:])),                                        # 基模型3
-            np.mean(likes[-p:]) / max(np.mean(views[-p:]), 1),                   # 基模型4
-            np.mean(coins[-p:]) / max(np.mean(views[-p:]), 1),                   # 基模型5
-            np.mean(np.diff(np.diff(views[-(p + 1):]))) if n >= p + 2 else 0,   # 基模型6
-            np.std(views[-p:]) / max(np.mean(views[-p:]), 1),                    # 基模型7
-        ]).reshape(1, -1)
+        last_feat = np.array(
+            [
+                np.polyfit(np.arange(p), views[-p:], 1)[0],  # 基模型1
+                np.polyfit(np.arange(p), np.log(np.maximum(views[-p:], 1)), 1)[0],  # 基模型2
+                np.mean(np.diff(views[-p:])),  # 基模型3
+                np.mean(likes[-p:]) / max(np.mean(views[-p:]), 1),  # 基模型4
+                np.mean(coins[-p:]) / max(np.mean(views[-p:]), 1),  # 基模型5
+                np.mean(np.diff(np.diff(views[-(p + 1) :]))) if n >= p + 2 else 0,  # 基模型6
+                np.std(views[-p:]) / max(np.mean(views[-p:]), 1),  # 基模型7
+            ]
+        ).reshape(1, -1)
 
         # 基模型预测 → 元学习器融合
         r_pred = float(ridge.predict(last_feat)[0])  # Ridge 预测
-        g_pred = float(gbm.predict(last_feat)[0])    # GBM 预测
+        g_pred = float(gbm.predict(last_feat)[0])  # GBM 预测
         final_growth = float(meta.predict(np.array([[r_pred, g_pred]]))[0])  # 元学习器融合
 
         predicted_velocity = max(0, final_growth / 3600)
@@ -208,11 +218,18 @@ class StackingEnsembleAlgorithm(BaseAlgorithm):
         # 置信度：两个基模型权重差异越小（互补性好），置信度越高
         confidence = max(0.1, min(0.9, 0.9 - 0.4 * abs(meta_weights[0] - meta_weights[1])))
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={
                 "method": "stacking_sklearn",
                 "meta_weights": [round(float(w), 3) for w in meta_weights],
                 "base_preds": [round(r_pred, 2), round(g_pred, 2)],  # 两个基模型的原始预测
-            })
+            },
+        )
 
     def _numpy_stack(self, video_data, threshold):
         """
@@ -242,9 +259,11 @@ class StackingEnsembleAlgorithm(BaseAlgorithm):
         # 三个简单基模型
         methods = []
         methods.append(np.mean(np.diff(views[-5:])) if n >= 5 else velocity * 3600)  # 模型1: 近期均值
-        methods.append(np.polyfit(np.arange(min(10, n)), views[-min(10, n):], 1)[0] if n >= 3 else velocity * 3600)  # 模型2: 线性
+        methods.append(
+            np.polyfit(np.arange(min(10, n)), views[-min(10, n) :], 1)[0] if n >= 3 else velocity * 3600
+        )  # 模型2: 线性
         if n >= 4:
-            log_v = np.log(np.maximum(views[-min(8, n):], 1))
+            log_v = np.log(np.maximum(views[-min(8, n) :], 1))
             methods.append(np.polyfit(np.arange(len(log_v)), log_v, 1)[0] * views[-1])  # 模型3: 指数增长
         else:
             methods.append(methods[0])  # 数据不足时复制模型1
@@ -273,7 +292,14 @@ class StackingEnsembleAlgorithm(BaseAlgorithm):
         # 置信度：最优模型权重越大 → 预测越可信
         confidence = max(0.1, min(0.85, 0.3 + 0.2 * (weights.max() / max(weights.sum(), 1e-10))))
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={
                 "method": "stacking_numpy",
                 "weights": [round(float(w), 3) for w in weights],  # 各基模型的融合权重
-            })
+            },
+        )

@@ -105,7 +105,7 @@ class BiLSTMSimpleAlgorithm(BaseAlgorithm):
         Returns:
             BiLSTMTorchModel 实例
         """
-        return BiLSTMTorchModel(in_features=getattr(self, '_training_n_features', 5), horizon=self.training_horizon)
+        return BiLSTMTorchModel(in_features=getattr(self, "_training_n_features", 5), horizon=self.training_horizon)
 
     def get_training_features(self):
         """获取训练使用的特征列表。
@@ -139,17 +139,33 @@ class BiLSTMSimpleAlgorithm(BaseAlgorithm):
 
         if len(history) < 4 or velocity <= 0:
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "bilstm", "notes": "insufficient_data"})
+            return self._std_result(
+                predicted_hours,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "bilstm", "notes": "insufficient_data"},
+            )
 
         views_sorted = self._extract_views(history)
         if views_sorted is None or len(views_sorted) < 4:
-            return self._std_result(remaining / velocity, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "bilstm_fallback"})
+            return self._std_result(
+                remaining / velocity,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "bilstm_fallback"},
+            )
 
         try:
             return self._predict_impl(views_sorted, current_views, velocity, remaining, threshold, video_data)
         except Exception as e:
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.0, current_views, threshold, velocity=velocity, metadata={"error": str(e)})
+            return self._std_result(
+                predicted_hours, 0.0, current_views, threshold, velocity=velocity, metadata={"error": str(e)}
+            )
 
     def _extract_views(self, history):
         """从历史记录中提取并按时间戳排序播放量序列。
@@ -303,13 +319,18 @@ class BiLSTMSimpleAlgorithm(BaseAlgorithm):
             predicted_hours = remaining / adjusted_velocity
             conf = 0.35
 
-        return self._std_result(predicted_hours, conf, current_views, threshold, velocity=adjusted_velocity, metadata={
+        return self._std_result(
+            predicted_hours,
+            conf,
+            current_views,
+            threshold,
+            velocity=adjusted_velocity,
+            metadata={
                 "method": "bilstm",
                 "fwd_hidden": round(float(h_fwd), 4),
                 "rev_hidden": round(float(h_rev), 4),
                 "combined_hidden": round(float(final_hidden), 4),
                 "forecast_horizon": forecast_days,
                 "data_points": n,
-            })
-
-
+            },
+        )

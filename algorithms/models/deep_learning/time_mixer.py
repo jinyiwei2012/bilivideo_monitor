@@ -62,8 +62,8 @@ class TimeMixerAlgorithm(BaseAlgorithm):
     category = "深度学习"
     default_weight = 1.5
 
-    training_window = 12     # 训练窗口长度
-    training_horizon = 3     # 预测步数
+    training_window = 12  # 训练窗口长度
+    training_horizon = 3  # 预测步数
 
     def predict(self, video_data, threshold=100000):
         """执行 TimeMixer 预测
@@ -76,8 +76,13 @@ class TimeMixerAlgorithm(BaseAlgorithm):
             PredictionResult: 预测结果
         """
         return try_torch_predict(
-            self, video_data, threshold, TimeMixerTorchModel, self._numpy_predict,
-            window=self.training_window, horizon=self.training_horizon,
+            self,
+            video_data,
+            threshold,
+            TimeMixerTorchModel,
+            self._numpy_predict,
+            window=self.training_window,
+            horizon=self.training_horizon,
         )
 
     def build_model(self):
@@ -89,9 +94,11 @@ class TimeMixerAlgorithm(BaseAlgorithm):
                 - scales=3:   3 个时间尺度 (原始/3x/7x 下采样)
         """
         return TimeMixerTorchModel(
-            in_features=getattr(self, '_training_n_features', 5),
-            window=self.training_window, horizon=self.training_horizon,
-            d_model=32, scales=3,
+            in_features=getattr(self, "_training_n_features", 5),
+            window=self.training_window,
+            horizon=self.training_horizon,
+            d_model=32,
+            scales=3,
         )
 
     def get_training_features(self) -> List[str]:
@@ -122,9 +129,17 @@ class TimeMixerAlgorithm(BaseAlgorithm):
         if len(history) < 8 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "time_mixer_fallback"})
+            return self._std_result(
+                predicted_hours,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "time_mixer_fallback"},
+            )
 
         import numpy as np
+
         views = np.array([h.get("view_count", 0) for h in history[-20:]], dtype=np.float64)
 
         # ===== 多尺度增长分析 =====
@@ -144,8 +159,8 @@ class TimeMixerAlgorithm(BaseAlgorithm):
         else:
             # 加权融合：短期权重最高（0.5），长期最低（0.2）
             weights = [0.5, 0.3, 0.2]
-            growth = sum(w * g for w, g in zip(weights[:len(scale_growths)], scale_growths))
-            growth /= sum(weights[:len(scale_growths)])  # 归一化权重
+            growth = sum(w * g for w, g in zip(weights[: len(scale_growths)], scale_growths))
+            growth /= sum(weights[: len(scale_growths)])  # 归一化权重
 
         predicted_velocity = max(0, growth / 3600)
         if predicted_velocity < 1:
@@ -160,4 +175,11 @@ class TimeMixerAlgorithm(BaseAlgorithm):
             # 置信度：有效尺度越多、数据点越多，置信度越高
             confidence = min(0.85, 0.35 + 0.12 * n_scales + 0.02 * min(len(views), 25))
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "time_mixer_numpy", "scales": n_scales, "data_points": len(views)})
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={"method": "time_mixer_numpy", "scales": n_scales, "data_points": len(views)},
+        )

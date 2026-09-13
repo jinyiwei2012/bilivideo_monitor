@@ -6,7 +6,10 @@ import logging
 import webbrowser
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
 )
 from PyQt6.QtCore import Qt
 
@@ -67,8 +70,7 @@ class SettingsAboutMixin:
         # 项目信息
         sec1 = QWidget()
         sec1.setStyleSheet(
-            f"background-color: {C['bg_elevated']}; "
-            f"border: 1px solid {C['border_sub']}; border-radius: 2px;"
+            f"background-color: {C['bg_elevated']}; " f"border: 1px solid {C['border_sub']}; border-radius: 2px;"
         )
         sec1_layout = QVBoxLayout(sec1)
         sec1_layout.setContentsMargins(14, 10, 14, 10)
@@ -96,8 +98,7 @@ class SettingsAboutMixin:
         # 相关链接
         sec2 = QWidget()
         sec2.setStyleSheet(
-            f"background-color: {C['bg_elevated']}; "
-            f"border: 1px solid {C['border_sub']}; border-radius: 2px;"
+            f"background-color: {C['bg_elevated']}; " f"border: 1px solid {C['border_sub']}; border-radius: 2px;"
         )
         sec2_layout = QVBoxLayout(sec2)
         sec2_layout.setContentsMargins(14, 10, 14, 10)
@@ -128,8 +129,7 @@ class SettingsAboutMixin:
         # 说明
         sec3 = QWidget()
         sec3.setStyleSheet(
-            f"background-color: {C['bg_elevated']}; "
-            f"border: 1px solid {C['border_sub']}; border-radius: 2px;"
+            f"background-color: {C['bg_elevated']}; " f"border: 1px solid {C['border_sub']}; border-radius: 2px;"
         )
         sec3_layout = QVBoxLayout(sec3)
         sec3_layout.setContentsMargins(14, 10, 14, 10)

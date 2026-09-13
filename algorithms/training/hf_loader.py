@@ -65,11 +65,11 @@ except ImportError:
     _hf_available = False
 
 # ── HuggingFace 模型仓库 ID 常量 ─────────────────────
-MOIRAI_REPO = "Salesforce/moirai-1.1-R-small"                       # MOIRAI-2 小型版本
-LAG_LLAMA_REPO = "time-series-foundation-models/Lag-Llama"          # Lag-Llama 时序基础模型
+MOIRAI_REPO = "Salesforce/moirai-1.1-R-small"  # MOIRAI-2 小型版本
+LAG_LLAMA_REPO = "time-series-foundation-models/Lag-Llama"  # Lag-Llama 时序基础模型
 
 # ── 进程内单例缓存 ──────────────────────────────────
-_models: dict = {}      # {"moirai": model, "lag_llama": model} 或 None（失败标记）
+_models: dict = {}  # {"moirai": model, "lag_llama": model} 或 None（失败标记）
 _lock = threading.Lock()  # 线程安全锁
 
 
@@ -130,6 +130,7 @@ def get_moirai_model() -> Tuple[Optional[Any], bool, str]:
     try:
         # ── 检查 uni2ts 库 ────────────────────────────
         from uni2ts.model.moirai import MoiraiModule
+
         logger.debug("[hf_loader] uni2ts 已安装，MOIRAI 将使用 torch 推理")
     except ImportError as e:
         # uni2ts 未安装 → 缓存失败结果，避免下次再尝试 import

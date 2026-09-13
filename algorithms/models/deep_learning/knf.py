@@ -202,9 +202,11 @@ class KnfAlgorithm(BaseAlgorithm):
             raise RuntimeError("无可用的 checkpoint — 请先训练")
         if self._cached_model is None or (bvid and not getattr(self, "_cached_bvid", "") == bvid):
             model = KnfTorchModel(
-                in_features=getattr(self, '_training_n_features', len(self._features) + 5), window=self.training_window, horizon=self.training_horizon
+                in_features=getattr(self, "_training_n_features", len(self._features) + 5),
+                window=self.training_window,
+                horizon=self.training_horizon,
             )
-            state = {k[len("_orig_mod."):] if k.startswith("_orig_mod.") else k: v for k, v in state.items()}
+            state = {k[len("_orig_mod.") :] if k.startswith("_orig_mod.") else k: v for k, v in state.items()}
             model.load_state_dict(state)
             self._cached_model = model
             self._cached_bvid = bvid or ""
@@ -360,7 +362,9 @@ class KnfAlgorithm(BaseAlgorithm):
             KnfTorchModel 实例
         """
         return KnfTorchModel(
-            in_features=getattr(self, '_training_n_features', len(self._features)), window=self.training_window, horizon=self.training_horizon
+            in_features=getattr(self, "_training_n_features", len(self._features)),
+            window=self.training_window,
+            horizon=self.training_horizon,
         )
 
     def get_training_features(self):
@@ -395,4 +399,6 @@ class KnfAlgorithm(BaseAlgorithm):
                 confidence = 1.0
         metadata = {"reason": reason}
         metadata.update(extra or {})
-        return self._std_result(predicted_hours, confidence, int(current_views), threshold, velocity=float(velocity), metadata=metadata)
+        return self._std_result(
+            predicted_hours, confidence, int(current_views), threshold, velocity=float(velocity), metadata=metadata
+        )

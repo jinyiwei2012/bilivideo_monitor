@@ -10,7 +10,10 @@ import os
 import logging
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QTabWidget, QMessageBox,
+    QWidget,
+    QVBoxLayout,
+    QTabWidget,
+    QMessageBox,
 )
 
 from ui.theme import C
@@ -52,14 +55,12 @@ class SettingsWindow(
     """统一设置窗口 — PyQt6 版"""
 
     def __init__(self, parent=None, gui=None):
-        self.dlg = DialogBase(
-            parent, "系统设置", (0, 0), modal=False
-        )
+        self.dlg = DialogBase(parent, "系统设置", (0, 0), modal=False)
         # Restore the geometry calcs from DialogBase
         screen = None
-        if parent and hasattr(parent, 'screen'):
+        if parent and hasattr(parent, "screen"):
             screen = parent.screen()
-        elif hasattr(self.dlg, 'screen'):
+        elif hasattr(self.dlg, "screen"):
             screen = self.dlg.screen()
         if screen:
             geo = screen.geometry()
@@ -70,6 +71,7 @@ class SettingsWindow(
         self.gui = gui
 
         from config import load_config
+
         self._cfg = load_config()
 
         self._net_cfg_file = project_path("data", "network_config.json")
@@ -87,6 +89,7 @@ class SettingsWindow(
                 with open(self._net_cfg_file, "r", encoding="utf-8") as f:
                     cfg = json.load(f)
                 from utils.crypto import decrypt_dict
+
                 cookies = cfg.get("cookies", {})
                 if cookies:
                     decrypt_dict(cookies, "SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid")
@@ -104,11 +107,13 @@ class SettingsWindow(
         cookies = self._net_cfg.get("cookies", {})
         if cookies:
             from utils.crypto import encrypt_dict
+
             encrypt_dict(cookies, "SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid")
         with open(self._net_cfg_file, "w", encoding="utf-8") as f:
             json.dump(self._net_cfg, f, ensure_ascii=False, indent=2)
         if cookies:
             from utils.crypto import decrypt_dict
+
             decrypt_dict(cookies, "SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid")
 
     # ═══════════════ UI 构建 ═══════════════════════════════
@@ -217,27 +222,35 @@ class SettingsWindow(
 
     def _validate_settings(self):
         try:
-            max_m = int(self.max_monitors.text() if hasattr(self.max_monitors, 'text') else self.max_monitors)
+            max_m = int(self.max_monitors.text() if hasattr(self.max_monitors, "text") else self.max_monitors)
             if not (10 <= max_m <= 500):
-                QMessageBox.critical(self.dlg, "呜…没通过验证", "最大监控数要在 10 ~ 500 之间哦,像天依的歌也有音域范围呢 ♪")
+                QMessageBox.critical(
+                    self.dlg, "呜…没通过验证", "最大监控数要在 10 ~ 500 之间哦,像天依的歌也有音域范围呢 ♪"
+                )
                 return False
         except ValueError:
             QMessageBox.critical(self.dlg, "呜…没通过验证", "最大监控数要填整数哦,小数可唱不成歌呢 ♪")
             return False
         try:
-            val = self.predict_hours.text() if hasattr(self.predict_hours, 'text') else str(self.predict_hours.value())
+            val = self.predict_hours.text() if hasattr(self.predict_hours, "text") else str(self.predict_hours.value())
             pred_hours = int(val)
             if not (24 <= pred_hours <= 720):
-                QMessageBox.critical(self.dlg, "呜…没通过验证", "预测时长要在 24 ~ 720 小时之间哦,太长了天依的歌声会够不到呢 ♪")
+                QMessageBox.critical(
+                    self.dlg, "呜…没通过验证", "预测时长要在 24 ~ 720 小时之间哦,太长了天依的歌声会够不到呢 ♪"
+                )
                 return False
         except ValueError:
             QMessageBox.critical(self.dlg, "呜…没通过验证", "预测时长要填整数哦 ♪")
             return False
         try:
-            val = self.min_confidence.text() if hasattr(self.min_confidence, 'text') else str(self.min_confidence.value())
+            val = (
+                self.min_confidence.text() if hasattr(self.min_confidence, "text") else str(self.min_confidence.value())
+            )
             confidence = float(val)
             if not (0.1 <= confidence <= 1.0):
-                QMessageBox.critical(self.dlg, "呜…没通过验证", "最小置信度要在 0.1 ~ 1.0 之间哦,天依需要一点点信任才敢唱呢 ♪")
+                QMessageBox.critical(
+                    self.dlg, "呜…没通过验证", "最小置信度要在 0.1 ~ 1.0 之间哦,天依需要一点点信任才敢唱呢 ♪"
+                )
                 return False
         except ValueError:
             QMessageBox.critical(self.dlg, "呜…没通过验证", "最小置信度要填数字哦 ♪")
@@ -248,28 +261,34 @@ class SettingsWindow(
         from config import save_config
         from utils.crypto import encrypt, decrypt
 
-        max_m = int(self.max_monitors.text() if hasattr(self.max_monitors, 'text') else self.max_monitors)
-        pred_hours = int(self.predict_hours.text() if hasattr(self.predict_hours, 'text') else self.predict_hours.value())
-        confidence = float(self.min_confidence.text() if hasattr(self.min_confidence, 'text') else self.min_confidence.value())
+        max_m = int(self.max_monitors.text() if hasattr(self.max_monitors, "text") else self.max_monitors)
+        pred_hours = int(
+            self.predict_hours.text() if hasattr(self.predict_hours, "text") else self.predict_hours.value()
+        )
+        confidence = float(
+            self.min_confidence.text() if hasattr(self.min_confidence, "text") else self.min_confidence.value()
+        )
 
         self._cfg["onebot"] = {
-            "enabled": self.onebot_enabled.isChecked() if hasattr(self.onebot_enabled, 'isChecked') else False,
-            "http_url": self.onebot_http.text().strip() if hasattr(self.onebot_http, 'text') else "",
-            "ws_url": self.onebot_ws.text().strip() if hasattr(self.onebot_ws, 'text') else "",
-            "access_token": self.onebot_token.text().strip() if hasattr(self.onebot_token, 'text') else "",
-            "private_qq": self.qq_private.text().strip() if hasattr(self.qq_private, 'text') else "",
-            "group_qq": self.qq_group.text().strip() if hasattr(self.qq_group, 'text') else "",
+            "enabled": self.onebot_enabled.isChecked() if hasattr(self.onebot_enabled, "isChecked") else False,
+            "http_url": self.onebot_http.text().strip() if hasattr(self.onebot_http, "text") else "",
+            "ws_url": self.onebot_ws.text().strip() if hasattr(self.onebot_ws, "text") else "",
+            "access_token": self.onebot_token.text().strip() if hasattr(self.onebot_token, "text") else "",
+            "private_qq": self.qq_private.text().strip() if hasattr(self.qq_private, "text") else "",
+            "group_qq": self.qq_group.text().strip() if hasattr(self.qq_group, "text") else "",
         }
         # Webhook 机器人列表持久化
         webhooks = []
         for name_entry, type_combo, url_entry, _ in getattr(self, "_webhook_rows", []):
             url = url_entry.text().strip()
             if url:
-                webhooks.append({
-                    "name": name_entry.text().strip() or "webhook",
-                    "type": str(type_combo.currentData() or "generic"),
-                    "url": url,
-                })
+                webhooks.append(
+                    {
+                        "name": name_entry.text().strip() or "webhook",
+                        "type": str(type_combo.currentData() or "generic"),
+                        "url": url,
+                    }
+                )
         self._cfg.setdefault("notification", {})["webhooks"] = webhooks
         self._cfg["monitor"]["max_monitor_count"] = max_m
         self._cfg["prediction"]["prediction_hours"] = pred_hours
@@ -286,8 +305,8 @@ class SettingsWindow(
         th_data = []
         for v_widget, n_widget, _ in getattr(self, "_thresh_rows", []):
             try:
-                v = int(v_widget.text() if hasattr(v_widget, 'text') else v_widget.value())
-                n = n_widget.text().strip() if hasattr(n_widget, 'text') else str(n_widget)
+                v = int(v_widget.text() if hasattr(v_widget, "text") else v_widget.value())
+                n = n_widget.text().strip() if hasattr(n_widget, "text") else str(n_widget)
                 if not n:
                     n = auto_threshold_name(v)
                 if v > 0:
@@ -310,7 +329,7 @@ class SettingsWindow(
         self._cfg["ai"] = {
             "enabled": any(p.get("api_key") for p in self._profiles),
             "profiles": self._profiles,
-            "selected_profile": self._ai_profile_cb.currentText() if hasattr(self, '_ai_profile_cb') else "",
+            "selected_profile": self._ai_profile_cb.currentText() if hasattr(self, "_ai_profile_cb") else "",
         }
         save_config(self._cfg)
 
@@ -339,6 +358,7 @@ class SettingsWindow(
 
         try:
             from ui.helpers import reload_thresholds
+
             reload_thresholds()
         except Exception as e:
             logger.debug("忽略异常: %s", e)
@@ -358,9 +378,7 @@ class SettingsWindow(
                     init_theme(qapp, dark=chosen != "light")
                 # 同步标题栏切换按钮提示
                 if hasattr(self.gui, "_theme_btn"):
-                    self.gui._theme_btn.setToolTip(
-                        "◐ 当前为亮色主题" if chosen == "light" else "◐ 当前为深色主题"
-                    )
+                    self.gui._theme_btn.setToolTip("◐ 当前为亮色主题" if chosen == "light" else "◐ 当前为深色主题")
             except Exception as e:
                 logger.debug("应用主题偏好失败: %s", e)
 

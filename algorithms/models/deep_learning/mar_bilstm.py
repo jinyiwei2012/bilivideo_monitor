@@ -123,8 +123,8 @@ class MarBilstmAlgorithm(BaseAlgorithm):
     category = "深度学习"
     default_weight = 1.3
 
-    training_window = 10     # 训练时使用的历史窗口长度
-    training_horizon = 3     # 训练时预测的未来步数
+    training_window = 10  # 训练时使用的历史窗口长度
+    training_horizon = 3  # 训练时预测的未来步数
 
     def __init__(self):
         """初始化Mar-BiLSTM算法
@@ -132,9 +132,9 @@ class MarBilstmAlgorithm(BaseAlgorithm):
         设置计算设备、checkpoint管理器、模型缓存和特征列表。
         """
         super().__init__()
-        self._device = get_device()                                            # 获取计算设备（CPU/CUDA）
-        self._ckpt = CheckpointManager(self.algorithm_id)                      # checkpoint管理器
-        self._cached_model = None                                              # 模型缓存（避免重复加载）
+        self._device = get_device()  # 获取计算设备（CPU/CUDA）
+        self._ckpt = CheckpointManager(self.algorithm_id)  # checkpoint管理器
+        self._cached_model = None  # 模型缓存（避免重复加载）
         self._features = ["view_count", "like_count", "coin_count", "favorite_count", "share_count"]  # 基础特征
 
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
@@ -186,10 +186,10 @@ class MarBilstmAlgorithm(BaseAlgorithm):
         # 模型缓存：避免每次预测都重新加载
         if self._cached_model is None or (bvid and not getattr(self, "_cached_bvid", "") == bvid):
             model = MarBilstmTorchModel(
-                in_features=getattr(self, '_training_n_features', len(self._features) + 5),
+                in_features=getattr(self, "_training_n_features", len(self._features) + 5),
                 horizon=self.training_horizon,
             )
-            state = {k[len("_orig_mod."):] if k.startswith("_orig_mod.") else k: v for k, v in state.items()}
+            state = {k[len("_orig_mod.") :] if k.startswith("_orig_mod.") else k: v for k, v in state.items()}
             model.load_state_dict(state)
             self._cached_model = model
             self._cached_bvid = bvid or ""
@@ -280,19 +280,19 @@ class MarBilstmAlgorithm(BaseAlgorithm):
         # 硬分配到5种增长状态
         if ratio < 0.5:
             multiplier = 0.6
-            state = "decay"    # 衰减
+            state = "decay"  # 衰减
         elif ratio < 0.85:
             multiplier = 0.85
-            state = "slow"     # 慢速
+            state = "slow"  # 慢速
         elif ratio < 1.15:
             multiplier = 1.0
-            state = "steady"   # 稳定
+            state = "steady"  # 稳定
         elif ratio < 1.75:
             multiplier = 1.25
             state = "growing"  # 增长
         else:
             multiplier = 1.6
-            state = "viral"    # 爆发
+            state = "viral"  # 爆发
         predicted = max(0.0, bi * multiplier)
         return self._make_result(
             current_views,
@@ -337,7 +337,9 @@ class MarBilstmAlgorithm(BaseAlgorithm):
         Returns:
             MarBilstmTorchModel: 用于训练的新模型实例
         """
-        return MarBilstmTorchModel(in_features=getattr(self, '_training_n_features', len(self._features)), horizon=self.training_horizon)
+        return MarBilstmTorchModel(
+            in_features=getattr(self, "_training_n_features", len(self._features)), horizon=self.training_horizon
+        )
 
     def get_training_features(self):
         """返回训练时使用的特征列表"""
@@ -367,4 +369,6 @@ class MarBilstmAlgorithm(BaseAlgorithm):
                 confidence = 1.0
         metadata = {"reason": reason}
         metadata.update(extra or {})
-        return self._std_result(predicted_hours, confidence, int(current_views), threshold, velocity=float(velocity), metadata=metadata)
+        return self._std_result(
+            predicted_hours, confidence, int(current_views), threshold, velocity=float(velocity), metadata=metadata
+        )

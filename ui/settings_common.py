@@ -6,15 +6,21 @@
 """
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QSpinBox, QDoubleSpinBox, QFrame,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QSpinBox,
+    QDoubleSpinBox,
+    QFrame,
 )
 
 from ui.theme import C
 from ui.helpers import FONT
 
-
 # ═══════════════ 标签与布局 ════════════════════════════════
+
 
 def styled_label(text, color_key="text_2", bold=False, font_=FONT):
     """创建统一风格的 QLabel，支持颜色和粗体选项"""
@@ -49,6 +55,7 @@ def field_wrapper(parent, label_text):
 
 
 # ═══════════════ 表单字段构建 ════════════════════════════════
+
 
 def make_field(parent, label, default, show=None):
     """创建一行标签(130px) + QLineEdit"""

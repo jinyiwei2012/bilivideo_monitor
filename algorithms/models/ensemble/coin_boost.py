@@ -98,4 +98,11 @@ class CoinBoostAlgorithm(BaseAlgorithm):
                 # 例如 1% 投币率 → 置信度 1.0（上限）
                 confidence = min(1.0, 0.5 + coin_rate * 50)
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "coin_boost", "coin_rate": coins / current_views if current_views > 0 else 0})
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={"method": "coin_boost", "coin_rate": coins / current_views if current_views > 0 else 0},
+        )

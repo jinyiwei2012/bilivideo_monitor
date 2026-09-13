@@ -112,7 +112,14 @@ class QuantileEnsembleAlgorithm(BaseAlgorithm):
         if len(history) < 10:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "quantile_fallback"})
+            return self._std_result(
+                predicted_hours,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "quantile_fallback"},
+            )
 
         if _HAS_SKLEARN:
             try:
@@ -161,8 +168,8 @@ class QuantileEnsembleAlgorithm(BaseAlgorithm):
         if len(X) < 8:
             return None
 
-        y_target = np.diff(views[-len(X) - 1:]) / np.maximum(views[-len(X) - 1 : -1], 1)
-        y_target = y_target[-len(X):]
+        y_target = np.diff(views[-len(X) - 1 :]) / np.maximum(views[-len(X) - 1 : -1], 1)
+        y_target = y_target[-len(X) :]
 
         # 构造最新特征
         last_feat = []
@@ -175,8 +182,11 @@ class QuantileEnsembleAlgorithm(BaseAlgorithm):
             model = get_or_fit(
                 f"quantile_ensemble:{tau}",
                 lambda: _GBR(
-                    n_estimators=80, max_depth=3, learning_rate=0.1,
-                    loss="quantile", alpha=tau,  # 使用 Pinball loss
+                    n_estimators=80,
+                    max_depth=3,
+                    learning_rate=0.1,
+                    loss="quantile",
+                    alpha=tau,  # 使用 Pinball loss
                     random_state=42,
                 ),
                 X,
@@ -187,8 +197,8 @@ class QuantileEnsembleAlgorithm(BaseAlgorithm):
 
         # 中位数 (q50) 作为点预测
         median_growth = quantile_preds.get(0.5, 0)
-        lower_growth = quantile_preds.get(0.25, median_growth)   # 下四分位
-        upper_growth = quantile_preds.get(0.75, median_growth)   # 上四分位
+        lower_growth = quantile_preds.get(0.25, median_growth)  # 下四分位
+        upper_growth = quantile_preds.get(0.75, median_growth)  # 上四分位
 
         predicted_velocity = max(0, median_growth * current_views / 3600)
         if predicted_velocity < 1:
@@ -204,12 +214,19 @@ class QuantileEnsembleAlgorithm(BaseAlgorithm):
             interval_width = max(upper_growth - lower_growth, 1e-10)
             confidence = max(0.1, min(0.9, 0.5 / (1 + interval_width * 5)))
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={
                 "method": "quantile_sklearn",
                 "q10": round(float(quantile_preds.get(0.1, 0)), 4),  # 10% 下界
-                "q50": round(float(median_growth), 4),                # 中位数
+                "q50": round(float(median_growth), 4),  # 中位数
                 "q90": round(float(quantile_preds.get(0.9, 0)), 4),  # 90% 上界
-            })
+            },
+        )
 
     def _numpy_predict(self, video_data, threshold):
         """
@@ -238,7 +255,14 @@ class QuantileEnsembleAlgorithm(BaseAlgorithm):
         if n < 5:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "quantile_fallback"})
+            return self._std_result(
+                predicted_hours,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "quantile_fallback"},
+            )
 
         # 用 bootstrap 模拟分位数预测
         diffs = np.diff(views)  # 增量序列
@@ -251,11 +275,11 @@ class QuantileEnsembleAlgorithm(BaseAlgorithm):
 
         # 排序后取分位数
         bootstraps = np.sort(bootstraps)
-        q10 = bootstraps[int(n_boot * 0.1)]   # 10% 分位数
+        q10 = bootstraps[int(n_boot * 0.1)]  # 10% 分位数
         q25 = bootstraps[int(n_boot * 0.25)]  # 25% 分位数
-        q50 = bootstraps[int(n_boot * 0.5)]   # 50% 分位数（中位数）
+        q50 = bootstraps[int(n_boot * 0.5)]  # 50% 分位数（中位数）
         q75 = bootstraps[int(n_boot * 0.75)]  # 75% 分位数
-        q90 = bootstraps[int(n_boot * 0.9)]   # 90% 分位数
+        q90 = bootstraps[int(n_boot * 0.9)]  # 90% 分位数
 
         predicted_velocity = max(0, q50 / 3600)
         if predicted_velocity < 1:
@@ -270,9 +294,16 @@ class QuantileEnsembleAlgorithm(BaseAlgorithm):
             interval_width = max(q75 - q25, 1e-10)
             confidence = max(0.1, min(0.85, 0.5 / (1 + interval_width * 3)))
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={
                 "method": "quantile_numpy",
                 "q10": round(float(q10), 2),
                 "q50": round(float(q50), 2),
                 "q90": round(float(q90), 2),
-            })
+            },
+        )

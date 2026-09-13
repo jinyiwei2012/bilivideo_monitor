@@ -92,7 +92,14 @@ class WaveletDecompositionAlgorithm(BaseAlgorithm):
             # 数据不足或速度为零：使用基础匀速预测（回退模式）
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "wavelet_fallback"})
+            return self._std_result(
+                predicted_hours,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "wavelet_fallback"},
+            )
 
         try:
             # 取最近 32 个播放量数据点作为分析窗口（2 的幂次有利于小波分解）
@@ -122,14 +129,14 @@ class WaveletDecompositionAlgorithm(BaseAlgorithm):
             for i in range(len(levels) - 2, -1, -1):  # 从倒数第二级往上一级一级重建
                 approx_prev, detail_prev = levels[i]  # 当前级的近似和细节系数
                 # 上采样：每个点复制为两个点，恢复到本级分辨率
-                upsampled = np.repeat(reconstructed, 2)[:len(approx_prev)]  # 截断到本级长度
+                upsampled = np.repeat(reconstructed, 2)[: len(approx_prev)]  # 截断到本级长度
                 detail_filtered = detail_prev * 0.3  # 噪声过滤：保留 30% 高频细节，过滤 70%
                 reconstructed = upsampled + detail_filtered  # 重建信号 = 低频趋势 + 过滤后细节
 
             # === 计算重建序列的增长趋势 ===
             if len(reconstructed) >= 2:
                 # 取重建序列末尾 5 个点的差分均值作为增长量预测
-                growth = np.mean(np.diff(reconstructed[-min(5, len(reconstructed)):]))
+                growth = np.mean(np.diff(reconstructed[-min(5, len(reconstructed)) :]))
             else:
                 # 重建序列过短时回退到原始速度
                 growth = velocity * 3600
@@ -141,14 +148,25 @@ class WaveletDecompositionAlgorithm(BaseAlgorithm):
 
             # === 计算达标时间 ===
             remaining = threshold - current_views
-            predicted_hours = remaining / predicted_velocity if remaining > 0 and predicted_velocity > 0 else float("inf")
+            predicted_hours = (
+                remaining / predicted_velocity if remaining > 0 and predicted_velocity > 0 else float("inf")
+            )
             n_levels = len(levels)  # 小波分解级数
             # 置信度：基础 0.35 + 每级分解加 0.08（最多 4 级）+ 数据点加成（0-0.5），上限 0.85
             confidence = min(0.85, 0.35 + 0.08 * min(n_levels, 4) + 0.02 * min(n, 25))
 
-            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "wavelet", "levels": n_levels, "data_points": n})
+            return self._std_result(
+                predicted_hours,
+                confidence,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "wavelet", "levels": n_levels, "data_points": n},
+            )
         except Exception:
             # 任何异常都回退到匀速预测，确保鲁棒性
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "wavelet_error"})
+            return self._std_result(
+                predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "wavelet_error"}
+            )

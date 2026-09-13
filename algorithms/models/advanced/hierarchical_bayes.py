@@ -101,15 +101,15 @@ class HierarchicalBayesAlgorithm(BaseAlgorithm):
             sigma_likelihood = np.sqrt(local_var / max(len(views), 1))
 
             # 后验均值：精度加权（精度 = 1/方差）
-            posterior_mean = (mu_prior / (sigma_prior ** 2) + local_mean / (sigma_likelihood ** 2)) / (
-                1 / (sigma_prior ** 2) + 1 / (sigma_likelihood ** 2)
+            posterior_mean = (mu_prior / (sigma_prior**2) + local_mean / (sigma_likelihood**2)) / (
+                1 / (sigma_prior**2) + 1 / (sigma_likelihood**2)
             )
 
             # 后验方差：精度相加的倒数
-            posterior_var = 1 / (1 / (sigma_prior ** 2) + 1 / (sigma_likelihood ** 2))
+            posterior_var = 1 / (1 / (sigma_prior**2) + 1 / (sigma_likelihood**2))
 
             # 收缩因子：数值越大，预测越向先验收缩
-            shrinkage = local_var / (local_var + sigma_prior ** 2)
+            shrinkage = local_var / (local_var + sigma_prior**2)
             # 收缩速度 = (1-shrinkage)*局部速度 + shrinkage*UP主平均速度
             shrunk_velocity = (1 - shrinkage) * velocity + shrinkage * (mu_up / 3600)
 
@@ -128,11 +128,18 @@ class HierarchicalBayesAlgorithm(BaseAlgorithm):
                 # 置信度：CV 越小（估计越精确）+ 收缩越小（局部数据可信）-> 置信度越高
                 confidence = max(0.1, min(0.85, 0.5 - cv * 2 + 0.3 * (1 - shrinkage)))
 
-            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
+            return self._std_result(
+                predicted_hours,
+                confidence,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={
                     "method": "hierarchical_bayes",
                     "shrinkage": float(shrinkage),  # 收缩因子
                     "posterior_mean": float(posterior_mean),  # 后验均值
                     "up_avg_views": int(up_avg_views),  # UP 主平均播放量
-                })
+                },
+            )
         except Exception:
             return self._fallback(velocity, current_views, threshold, method="hierarchical_bayes")

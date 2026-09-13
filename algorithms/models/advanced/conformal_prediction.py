@@ -77,7 +77,14 @@ class ConformalPredictionAlgorithm(BaseAlgorithm):
         if len(history) < 10 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "conformal_fallback"})
+            return self._std_result(
+                predicted_hours,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "conformal_fallback"},
+            )
 
         try:
             # 取最近 30 个历史点作为分析窗口
@@ -133,13 +140,27 @@ class ConformalPredictionAlgorithm(BaseAlgorithm):
                 cv = interval_half / max(growth, 1e-10)
                 confidence = max(0.1, min(0.9, 0.6 / (1 + cv)))  # sigmoid 风格映射
 
-            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
+            return self._std_result(
+                predicted_hours,
+                confidence,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={
                     "method": "conformal",
                     "error_bound": round(float(interval_half), 2),
                     "alpha": 0.2,
-                })
+                },
+            )
         except Exception:
             # 异常回退：用当前速度做简单估算
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "conformal_error"})
+            return self._std_result(
+                predicted_hours,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "conformal_error"},
+            )

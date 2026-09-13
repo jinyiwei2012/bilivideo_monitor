@@ -15,23 +15,25 @@ from utils import PROJECT_ROOT, project_path  # noqa: F401 — 重新导出以�
 
 from PyQt6.QtGui import QFont
 
+
 # ── 字体定义 ─────────────────────────────────
 def _font(name="Microsoft YaHei UI", size=9, bold=False):
     f = QFont(name, size)
     f.setBold(bold)
     return f
 
-FONT = _font()                          # 标准字体
-FONT_BOLD = _font(bold=True)           # 粗体
-FONT_SM = _font(size=8)                 # 小号字体
-FONT_LG = _font(size=11, bold=True)    # 大号粗体
-FONT_MONO = _font("Consolas", 9)        # 等宽字体
+
+FONT = _font()  # 标准字体
+FONT_BOLD = _font(bold=True)  # 粗体
+FONT_SM = _font(size=8)  # 小号字体
+FONT_LG = _font(size=11, bold=True)  # 大号粗体
+FONT_MONO = _font("Consolas", 9)  # 等宽字体
 FONT_MONO_LG = _font("Consolas", 14, bold=True)  # 大号等宽粗体
 
 # ── 排版层级 (洛天依主题 v2) ────────────────
-FONT_TITLE = _font(size=13, bold=True)     # 窗口/区块标题
-FONT_SECTION = _font(size=11, bold=True)   # 小节标题
-FONT_CAPTION = _font(size=8)               # 辅助说明文字
+FONT_TITLE = _font(size=13, bold=True)  # 窗口/区块标题
+FONT_SECTION = _font(size=11, bold=True)  # 小节标题
+FONT_CAPTION = _font(size=8)  # 辅助说明文字
 
 # 统一间距 (排版对齐)
 SPACE_SM = 4
@@ -185,6 +187,7 @@ def abbrev(n):
 
 
 # ── 置信度辅助 ─────────────────────────────────
+
 
 def loss_to_confidence(val_loss: float) -> float:
     if val_loss is None or val_loss < 0:

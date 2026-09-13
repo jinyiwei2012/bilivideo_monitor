@@ -8,8 +8,15 @@ import numpy as np
 from datetime import datetime
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QComboBox, QCheckBox, QTreeWidget, QTreeWidgetItem,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QComboBox,
+    QCheckBox,
+    QTreeWidget,
+    QTreeWidgetItem,
     QSpinBox,
 )
 from PyQt6.QtCore import Qt, QTimer
@@ -168,7 +175,9 @@ class BacktestPanel:
                     views.append(float(v))
             return np.array(views, dtype=np.float64) if views else None
         except Exception as e:
-            import logging; logging.getLogger(__name__).debug("回测数据解析失败: %s", e)
+            import logging
+
+            logging.getLogger(__name__).debug("回测数据解析失败: %s", e)
             return None
 
     def _make_algo_predict_fn(self, algo_name: str):
@@ -189,11 +198,13 @@ class BacktestPanel:
             # 构建 history_data（算法需要的格式）
             history = []
             for i in range(n):
-                history.append({
-                    "view_count": int(train[i]),
-                    "view": int(train[i]),
-                    "timestamp": datetime.now(),  # 不影响速度计算
-                })
+                history.append(
+                    {
+                        "view_count": int(train[i]),
+                        "view": int(train[i]),
+                        "timestamp": datetime.now(),  # 不影响速度计算
+                    }
+                )
             video_data = {
                 "view_count": int(current_views),
                 "history_data": history,
@@ -213,7 +224,9 @@ class BacktestPanel:
                 else:
                     return current_views * 1.005
             except Exception as e:
-                import logging; logging.getLogger(__name__).debug("回测预测回退: %s", e)
+                import logging
+
+                logging.getLogger(__name__).debug("回测预测回退: %s", e)
                 return current_views * 1.01
 
         return predict_fn
@@ -248,35 +261,42 @@ class BacktestPanel:
                 if series is None
                 else f"数据点不足（{len(series)} < {params['min_train'] + 5}），像刚起的调子，再多攒几段旋律哦 ♪"
             )
-            invoke(lambda m=msg: [
-                self._status_lbl.setText(m),
-                self._status_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
-            ])
+            invoke(
+                lambda m=msg: [
+                    self._status_lbl.setText(m),
+                    self._status_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;"),
+                ]
+            )
             return
 
-        invoke(lambda n=len(series): [
-            self._status_lbl.setText(f"⏳ 回测中哦…{n} 个音符，天依正在认真听 ♪"),
-            self._status_lbl.setStyleSheet(f"color: {C['accent']}; background: transparent;")
-        ])
+        invoke(
+            lambda n=len(series): [
+                self._status_lbl.setText(f"⏳ 回测中哦…{n} 个音符，天依正在认真听 ♪"),
+                self._status_lbl.setStyleSheet(f"color: {C['accent']}; background: transparent;"),
+            ]
+        )
 
         # 构建预测器字典
         predictors = {}
 
         # 基础模型工厂
         if params["use_factories"]:
-            predictors.update({
-                "线性回归": make_linear_fn(order=1),
-                "二次回归": make_linear_fn(order=2),
-                "移动平均(5)": make_moving_avg_fn(window=5),
-                "移动平均(10)": make_moving_avg_fn(window=10),
-                "指数增长": make_exp_fn(),
-                "Theta(2.0)": make_theta_fn(theta=2.0),
-            })
+            predictors.update(
+                {
+                    "线性回归": make_linear_fn(order=1),
+                    "二次回归": make_linear_fn(order=2),
+                    "移动平均(5)": make_moving_avg_fn(window=5),
+                    "移动平均(10)": make_moving_avg_fn(window=10),
+                    "指数增长": make_exp_fn(),
+                    "Theta(2.0)": make_theta_fn(theta=2.0),
+                }
+            )
 
         # 注册算法
         if params["use_algorithms"]:
             try:
                 from algorithms.registry import AlgorithmRegistry
+
                 AlgorithmRegistry.initialize()
                 # 取前 30 个算法（避免回测太慢）
                 algo_names = AlgorithmRegistry.get_algorithm_names()[:30]
@@ -287,18 +307,23 @@ class BacktestPanel:
                         predictors[short] = fn
             except Exception as e:
                 import logging
+
                 logging.getLogger(__name__).error("加载算法失败: %s", e)
-                invoke(lambda: [
-                    self._status_lbl.setText("呜…加载算法失败啦，像乐器没调好音，请稍后再试哦 ♪"),
-                    self._status_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
-                ])
+                invoke(
+                    lambda: [
+                        self._status_lbl.setText("呜…加载算法失败啦，像乐器没调好音，请稍后再试哦 ♪"),
+                        self._status_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;"),
+                    ]
+                )
                 return
 
         if not predictors:
-            invoke(lambda: [
-                self._status_lbl.setText("呜…没有可以登台演唱的预测器呢…♪"),
-                self._status_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
-            ])
+            invoke(
+                lambda: [
+                    self._status_lbl.setText("呜…没有可以登台演唱的预测器呢…♪"),
+                    self._status_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;"),
+                ]
+            )
             return
 
         # 执行回测
@@ -352,9 +377,7 @@ class BacktestPanel:
         sum_lbl.setFont(FONT)
         self._summary_layout.addWidget(sum_lbl)
 
-        detail_lbl = QLabel(
-            f"数据点: {params['min_train']} 窗口 / {params['step']} 步长 / 共 {len(valid)} 个预测器"
-        )
+        detail_lbl = QLabel(f"数据点: {params['min_train']} 窗口 / {params['step']} 步长 / 共 {len(valid)} 个预测器")
         detail_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
         detail_lbl.setFont(FONT_SM)
         self._summary_layout.addWidget(detail_lbl)
@@ -363,8 +386,7 @@ class BacktestPanel:
         success_color = C["success"]
         danger_color = C["danger"]
         for rank, (name, rmse, mae, mape, n_tests) in enumerate(valid, 1):
-            vals = [name[:25], fmt_num(int(rmse)), fmt_num(int(mae)),
-                    f"{mape*100:.1f}%", str(n_tests), f"#{rank}"]
+            vals = [name[:25], fmt_num(int(rmse)), fmt_num(int(mae)), f"{mape*100:.1f}%", str(n_tests), f"#{rank}"]
             item = QTreeWidgetItem(vals)
             item.setTextAlignment(1, Qt.AlignmentFlag.AlignRight)
             item.setTextAlignment(2, Qt.AlignmentFlag.AlignRight)

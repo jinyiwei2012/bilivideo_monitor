@@ -114,7 +114,14 @@ class HotTrendAlgorithm(BaseAlgorithm):
         if len(history) < 12 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "hot_trend_fallback"})
+            return self._std_result(
+                predicted_hours,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "hot_trend_fallback"},
+            )
 
         try:
             # 取最近 40 条历史记录的播放量
@@ -134,7 +141,7 @@ class HotTrendAlgorithm(BaseAlgorithm):
                 v3 = np.diff(v2) if len(v2) >= 2 else np.zeros(len(v2))
 
                 # 加速度持续性检测：最近 5 个加速度点中正值所占比例
-                recent_v2 = v2[-min(5, len(v2)):]
+                recent_v2 = v2[-min(5, len(v2)) :]
                 accel_positive = np.sum(recent_v2 > 0)  # 正加速度的个数
                 accel_persistent = accel_positive / max(len(recent_v2), 1)  # 持续性 [0, 1]
 
@@ -170,13 +177,27 @@ class HotTrendAlgorithm(BaseAlgorithm):
             # 置信度：基础 0.3 + 加速度持续性加成（0-0.3）+ 数据点加成（0-0.5）
             confidence = max(0.1, min(0.85, 0.3 + 0.3 * accel_persistent + 0.02 * min(n, 25)))
 
-            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
+            return self._std_result(
+                predicted_hours,
+                confidence,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={
                     "method": "hot_trend",
                     "accel_persist": round(float(accel_persistent), 3),  # 加速度持续性 [0, 1]
                     "jerk": round(float(jerk), 3),  # 急动度（加速度的变化率）
-                })
+                },
+            )
         except Exception:
             # 任何异常回退到匀速预测
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "hot_trend_error"})
+            return self._std_result(
+                predicted_hours,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "hot_trend_error"},
+            )

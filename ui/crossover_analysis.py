@@ -8,9 +8,19 @@ from typing import List, Dict, Optional, Tuple
 from datetime import datetime, timedelta
 
 from PyQt6.QtWidgets import (
-    QDialog, QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel,
-    QPushButton, QComboBox, QListWidget, QTreeWidget, QTreeWidgetItem,
-    QHeaderView, QMessageBox,
+    QDialog,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QGroupBox,
+    QLabel,
+    QPushButton,
+    QComboBox,
+    QListWidget,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QHeaderView,
+    QMessageBox,
 )
 from PyQt6.QtCore import Qt, QRect
 from PyQt6.QtGui import QPainter, QColor, QFont, QPen

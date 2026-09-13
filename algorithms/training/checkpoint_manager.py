@@ -347,7 +347,9 @@ class CheckpointManager:
             with open(self._active_file, "r", encoding="utf-8") as f:
                 return json.load(f).get("active_version", "")
         except Exception as e:
-            import logging; logging.getLogger(__name__).debug("Checkpoint操作失败: %s", e)
+            import logging
+
+            logging.getLogger(__name__).debug("Checkpoint操作失败: %s", e)
             return None
 
     def _write_active(self, version: str):
@@ -474,6 +476,7 @@ def load_best_checkpoint(algo_id: str, bvid: Optional[str] = None) -> Tuple[Opti
     # 尝试 registry 包装名（适配器包装的算法，checkpoint 存于 [Model] X/ 下）
     try:
         from algorithms.registry import AlgorithmRegistry
+
         mapped = AlgorithmRegistry.get_registry_key(algo_id)
         if mapped and mapped != algo_id:
             state, info = _try_load_checkpoint(mapped, bvid)

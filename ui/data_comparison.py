@@ -10,7 +10,9 @@ from typing import List, Dict, Optional, Tuple
 from datetime import datetime
 
 from PyQt6.QtWidgets import (
-    QDialog, QTabWidget, QVBoxLayout,
+    QDialog,
+    QTabWidget,
+    QVBoxLayout,
 )
 
 from ui.theme import C

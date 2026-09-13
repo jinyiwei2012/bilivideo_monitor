@@ -51,14 +51,14 @@ class PatchTSTSimpleAlgorithm(BaseAlgorithm):
         设置patch分割参数和注意力机制的超参数。
         """
         super().__init__()
-        self.patch_len = 4        # 每个patch的长度（包含多少个连续数据点）
-        self.stride = 2           # patch之间的步长（重叠步长）
-        self.d_model = 8          # 特征维度（简化版，原版是128/256）
-        self.num_heads = 2        # 注意力头数
-        self.min_seq_len = 8      # 最少需要的序列长度
+        self.patch_len = 4  # 每个patch的长度（包含多少个连续数据点）
+        self.stride = 2  # patch之间的步长（重叠步长）
+        self.d_model = 8  # 特征维度（简化版，原版是128/256）
+        self.num_heads = 2  # 注意力头数
+        self.min_seq_len = 8  # 最少需要的序列长度
 
-    training_window = 10     # 训练时使用的历史窗口长度
-    training_horizon = 3     # 训练时预测的未来步数
+    training_window = 10  # 训练时使用的历史窗口长度
+    training_horizon = 3  # 训练时预测的未来步数
 
     def predict(self, video_data, threshold=100000):
         """执行预测
@@ -84,7 +84,9 @@ class PatchTSTSimpleAlgorithm(BaseAlgorithm):
 
     def build_model(self):
         """构建PatchTST PyTorch模型实例"""
-        return PatchTSTTorchModel(in_features=getattr(self, '_training_n_features', 5), window=10, horizon=self.training_horizon)
+        return PatchTSTTorchModel(
+            in_features=getattr(self, "_training_n_features", 5), window=10, horizon=self.training_horizon
+        )
 
     def get_training_features(self):
         """返回训练时使用的多维特征列表"""
@@ -148,7 +150,7 @@ class PatchTSTSimpleAlgorithm(BaseAlgorithm):
             )
 
         # 简化版自注意力流程
-        patch_representations = self._patch_representation(patches)      # 编码每个patch
+        patch_representations = self._patch_representation(patches)  # 编码每个patch
         attention_weights, attended_repr = self._simplified_attention(patch_representations)  # 自注意力
 
         # 基于注意力加权的表示预测未来速度
@@ -422,4 +424,6 @@ class PatchTSTSimpleAlgorithm(BaseAlgorithm):
             "method": "patch_tst_simplified",
         }
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata=metadata)
+        return self._std_result(
+            predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata=metadata
+        )

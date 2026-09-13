@@ -124,7 +124,14 @@ class ViralPotentialAlgorithm(BaseAlgorithm):
                 # 置信度基于病毒评分水平
                 confidence = min(1.0, viral_score / 3)
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={
                 "method": "viral_potential",
                 "viral_score": viral_score,  # 病毒潜力评分
-            })
+            },
+        )

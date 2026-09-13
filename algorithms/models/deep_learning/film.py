@@ -54,8 +54,13 @@ class FiLMAlgorithm(BaseAlgorithm):
             PredictionResult 预测结果对象
         """
         return try_torch_predict(
-            self, video_data, threshold, FiLMTorchModel, self._numpy_predict,
-            window=self.training_window, horizon=self.training_horizon,
+            self,
+            video_data,
+            threshold,
+            FiLMTorchModel,
+            self._numpy_predict,
+            window=self.training_window,
+            horizon=self.training_horizon,
         )
 
     def build_model(self):
@@ -65,8 +70,10 @@ class FiLMAlgorithm(BaseAlgorithm):
             FiLMTorchModel 实例
         """
         return FiLMTorchModel(
-            in_features=getattr(self, '_training_n_features', 5),
-            window=self.training_window, horizon=self.training_horizon, d_model=32,
+            in_features=getattr(self, "_training_n_features", 5),
+            window=self.training_window,
+            horizon=self.training_horizon,
+            d_model=32,
         )
 
     def get_training_features(self) -> List[str]:
@@ -96,9 +103,12 @@ class FiLMAlgorithm(BaseAlgorithm):
         if len(history) < 8 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "film_fallback"})
+            return self._std_result(
+                predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "film_fallback"}
+            )
 
         import numpy as np
+
         views = np.array([h.get("view_count", 0) for h in history[-20:]], dtype=np.float64)
         n = len(views)
 
@@ -135,4 +145,11 @@ class FiLMAlgorithm(BaseAlgorithm):
             predicted_hours = remaining / predicted_velocity
             confidence = min(0.85, 0.3 + 0.02 * min(n, 25) + 0.1 * min(1, cycle_factor))
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "film_numpy", "dominant_period": round(period, 1), "data_points": n})
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={"method": "film_numpy", "dominant_period": round(period, 1), "data_points": n},
+        )

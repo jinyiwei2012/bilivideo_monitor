@@ -7,10 +7,22 @@ from typing import List, Dict
 from decimal import Decimal
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QPlainTextEdit, QRadioButton, QCheckBox, QLineEdit,
-    QComboBox, QTreeWidget, QTreeWidgetItem, QTabWidget,
-    QGroupBox, QMessageBox, QMenu,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QPlainTextEdit,
+    QRadioButton,
+    QCheckBox,
+    QLineEdit,
+    QComboBox,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QTabWidget,
+    QGroupBox,
+    QMessageBox,
+    QMenu,
 )
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QAction
@@ -53,9 +65,7 @@ class EntryTab(QWidget):
         self._snap_combo: QComboBox = QComboBox()
         self._container: QWidget = QWidget()
         self._tbl: QTreeWidget = QTreeWidget()
-        self._status: QLabel = QLabel(
-            "选好录入模式,输入BV号后,天依帮你整理输入表 ♪"
-        )
+        self._status: QLabel = QLabel("选好录入模式,输入BV号后,天依帮你整理输入表 ♪")
         self._ms_frame: QWidget = QWidget()
         self._snap_frame: QWidget = QWidget()
         self._dt_entry: QLineEdit = QLineEdit()
@@ -377,6 +387,7 @@ class EntryTab(QWidget):
     @staticmethod
     def _is_valid_bvid(s: str) -> bool:
         from ui.helpers import is_valid_bvid
+
         return is_valid_bvid(s)
 
     # ── Generate rows ──
@@ -412,12 +423,8 @@ class EntryTab(QWidget):
             self._create_single_row(bv, key, mode, existing_ms, existing_snap)
 
         n = len(self._rows)
-        detail = (
-            f"{len(periods)} 周期" if mode == "milestone" else "1 时间点"
-        )
-        self._status.setText(
-            f"已生成 {n} 行输入啦!♪ ({len(bvids)} 视频 × {detail}),填好后记得点「保存全部」哦"
-        )
+        detail = f"{len(periods)} 周期" if mode == "milestone" else "1 时间点"
+        self._status.setText(f"已生成 {n} 行输入啦!♪ ({len(bvids)} 视频 × {detail}),填好后记得点「保存全部」哦")
 
     def _validate_bvids(self, raw):
         bvids, invalid = [], []
@@ -438,7 +445,9 @@ class EntryTab(QWidget):
         not_monitored = [b for b in bvids if b not in self._monitored_set]
         if not_monitored:
             msg = "这些视频还没有开始被监控呢：\n" + "\n".join(not_monitored[:10]) + "\n\n要不要一起加入监控呀?♪"
-            reply = QMessageBox.question(self, "加入监控", msg, QMessageBox.StandardButton.Yes, QMessageBox.StandardButton.No)
+            reply = QMessageBox.question(
+                self, "加入监控", msg, QMessageBox.StandardButton.Yes, QMessageBox.StandardButton.No
+            )
             if reply == QMessageBox.StandardButton.Yes:
                 for bv in not_monitored:
                     if self._on_add_monitor:
@@ -559,12 +568,14 @@ class EntryTab(QWidget):
         if container_layout is not None:
             container_layout.insertWidget(container_layout.count() - 1, row_frame)
 
-        self._rows.append({
-            "bvid": bv,
-            "key": key,
-            "vars": vars_dict,
-            "mode": mode,
-        })
+        self._rows.append(
+            {
+                "bvid": bv,
+                "key": key,
+                "vars": vars_dict,
+                "mode": mode,
+            }
+        )
 
     # ── Save all ──
     def _save_all(self):
@@ -650,16 +661,19 @@ class EntryTab(QWidget):
             )
             video_db.add_monitor_record(record)
             try:
-                get_db().sync_monitor_record(bvid, {
-                    "timestamp": ts_str_full,
-                    "view_count": data.get("view_count", 0),
-                    "like_count": data.get("like_count", 0),
-                    "coin_count": data.get("coin_count", 0),
-                    "share_count": data.get("share_count", 0),
-                    "favorite_count": data.get("favorite_count", 0),
-                    "danmaku_count": data.get("danmaku_count", 0),
-                    "reply_count": data.get("reply_count", 0),
-                })
+                get_db().sync_monitor_record(
+                    bvid,
+                    {
+                        "timestamp": ts_str_full,
+                        "view_count": data.get("view_count", 0),
+                        "like_count": data.get("like_count", 0),
+                        "coin_count": data.get("coin_count", 0),
+                        "share_count": data.get("share_count", 0),
+                        "favorite_count": data.get("favorite_count", 0),
+                        "danmaku_count": data.get("danmaku_count", 0),
+                        "reply_count": data.get("reply_count", 0),
+                    },
+                )
             except Exception as e:
                 logger.debug("entry_tab 同步中央库失败 %s: %s", bvid, e)
             return True
@@ -670,7 +684,9 @@ class EntryTab(QWidget):
     # ── Reload table ──
     def _reload_table(self):
         self._tbl.clear()
-        self._tbl.setHeaderLabels(["bvid", "type", "time_key", "播放量", "点赞", "硬币", "收藏", "分享", "弹幕", "评论", "记录时间"])
+        self._tbl.setHeaderLabels(
+            ["bvid", "type", "time_key", "播放量", "点赞", "硬币", "收藏", "分享", "弹幕", "评论", "记录时间"]
+        )
 
         for row in get_db().get_milestones():
             item = QTreeWidgetItem(self._tbl)
@@ -691,8 +707,11 @@ class EntryTab(QWidget):
         if not selected:
             return
         reply = QMessageBox.question(
-            self, "确认", f"真的要删除选中的 {len(selected)} 条记录吗?删掉就像从歌单里划掉一首歌,就唱不回来了哦…",
-            QMessageBox.StandardButton.Yes, QMessageBox.StandardButton.No,
+            self,
+            "确认",
+            f"真的要删除选中的 {len(selected)} 条记录吗?删掉就像从歌单里划掉一首歌,就唱不回来了哦…",
+            QMessageBox.StandardButton.Yes,
+            QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:
             return

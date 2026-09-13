@@ -12,9 +12,18 @@ from datetime import datetime
 from typing import Optional, List, Dict
 
 from PyQt6.QtWidgets import (
-    QWidget, QHBoxLayout, QLabel, QPushButton,
-    QLineEdit, QComboBox, QTreeWidget, QTreeWidgetItem,
-    QHeaderView, QMessageBox, QFileDialog, QStackedWidget,
+    QWidget,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QLineEdit,
+    QComboBox,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QHeaderView,
+    QMessageBox,
+    QFileDialog,
+    QStackedWidget,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
@@ -31,6 +40,7 @@ logger = logging.getLogger(__name__)
 
 class _ParamPage(QWidget):
     """参数输入行页面"""
+
     def __init__(self, label: str, default: str, hint: str):
         super().__init__()
         self.entry = QLineEdit(default)
@@ -56,6 +66,7 @@ class _ParamPage(QWidget):
 
 class _DeleteFinishSignal(QWidget):
     """删除线程回调信号"""
+
     finished = pyqtSignal(object, int)  # del_data, count
 
 
@@ -252,11 +263,19 @@ class DatabaseQueryWindow(DialogBase):
 
         # 结果表格
         col_specs = [
-            ("seq", "序号", 50), ("bv", "BV号", 120), ("timestamp", "时间", 150),
-            ("views", "播放量", 90), ("likes", "点赞", 75), ("coins", "投币", 75),
-            ("shares", "分享", 75), ("favorites", "收藏", 75), ("danmaku", "弹幕", 75),
-            ("reply", "评论", 75), ("viewers_total", "总在线", 75),
-            ("viewers_web", "Web在线", 75), ("viewers_app", "APP在线", 75),
+            ("seq", "序号", 50),
+            ("bv", "BV号", 120),
+            ("timestamp", "时间", 150),
+            ("views", "播放量", 90),
+            ("likes", "点赞", 75),
+            ("coins", "投币", 75),
+            ("shares", "分享", 75),
+            ("favorites", "收藏", 75),
+            ("danmaku", "弹幕", 75),
+            ("reply", "评论", 75),
+            ("viewers_total", "总在线", 75),
+            ("viewers_web", "Web在线", 75),
+            ("viewers_app", "APP在线", 75),
             ("like_ratio", "播赞比", 75),
         ]
         self._result_tree = QTreeWidget()
@@ -324,8 +343,11 @@ class DatabaseQueryWindow(DialogBase):
     def _on_mode_changed(self, text: str):
         """查询模式切换"""
         idx_map = {
-            "最新N条": 0, "播放首次大于X": 1, "播放量大于X": 2,
-            "播放趋势": 3, "全量数据": 4,
+            "最新N条": 0,
+            "播放首次大于X": 1,
+            "播放量大于X": 2,
+            "播放趋势": 3,
+            "全量数据": 4,
         }
         idx = idx_map.get(text, 0)
         self._param_stack.setCurrentIndex(idx)
@@ -369,8 +391,7 @@ class DatabaseQueryWindow(DialogBase):
             conn.row_factory = sqlite3.Row
             cur = conn.cursor()
             cur.execute(
-                "SELECT * FROM predictions WHERE created_at <= ? ORDER BY algorithm, created_at DESC",
-                (timestamp,)
+                "SELECT * FROM predictions WHERE created_at <= ? ORDER BY algorithm, created_at DESC", (timestamp,)
             )
             pred_rows = cur.fetchall()
             seen = set()
@@ -383,28 +404,43 @@ class DatabaseQueryWindow(DialogBase):
             extra["_predictions"] = pred_list
 
             cur.execute(
-                "SELECT * FROM weekly_scores WHERE timestamp <= ? ORDER BY timestamp DESC LIMIT 1",
-                (timestamp,)
+                "SELECT * FROM weekly_scores WHERE timestamp <= ? ORDER BY timestamp DESC LIMIT 1", (timestamp,)
             )
             ws = cur.fetchone()
             if ws:
                 wd = dict(ws)
-                for k in ["total_score", "view_score", "interaction_score",
-                           "favorite_score", "coin_score", "like_score",
-                           "correction_a", "correction_b", "correction_c",
-                           "correction_d", "base_view_score"]:
+                for k in [
+                    "total_score",
+                    "view_score",
+                    "interaction_score",
+                    "favorite_score",
+                    "coin_score",
+                    "like_score",
+                    "correction_a",
+                    "correction_b",
+                    "correction_c",
+                    "correction_d",
+                    "base_view_score",
+                ]:
                     extra[f"weekly_{k}"] = wd.get(k, "")
 
             cur.execute(
-                "SELECT * FROM yearly_scores WHERE timestamp <= ? ORDER BY timestamp DESC LIMIT 1",
-                (timestamp,)
+                "SELECT * FROM yearly_scores WHERE timestamp <= ? ORDER BY timestamp DESC LIMIT 1", (timestamp,)
             )
             ys = cur.fetchone()
             if ys:
                 yd = dict(ys)
-                for k in ["total_score", "view_score", "interaction_score",
-                           "favorite_score", "coin_score", "like_score",
-                           "correction_a", "correction_b", "correction_c"]:
+                for k in [
+                    "total_score",
+                    "view_score",
+                    "interaction_score",
+                    "favorite_score",
+                    "coin_score",
+                    "like_score",
+                    "correction_a",
+                    "correction_b",
+                    "correction_c",
+                ]:
                     extra[f"yearly_{k}"] = yd.get(k, "")
         except Exception as e:
             logger.debug("查询视频额外数据失败: %s", e)
@@ -501,7 +537,7 @@ class DatabaseQueryWindow(DialogBase):
 
     @staticmethod
     def _get_param_int(widget, default: int) -> int:
-        if hasattr(widget, '_param_entry'):
+        if hasattr(widget, "_param_entry"):
             raw = widget._param_entry.text().strip()
             if raw.isdigit():
                 return int(raw)
@@ -570,7 +606,8 @@ class DatabaseQueryWindow(DialogBase):
                     (filter_bvid, thr),
                 )
             else:
-                cur.execute("""
+                cur.execute(
+                    """
                     WITH fa AS (
                         SELECT bvid, MIN(timestamp) as ft
                         FROM monitor_records WHERE view_count > ? GROUP BY bvid
@@ -578,7 +615,9 @@ class DatabaseQueryWindow(DialogBase):
                     SELECT m.* FROM monitor_records m
                     INNER JOIN fa f ON m.bvid = f.bvid AND m.timestamp = f.ft
                     ORDER BY m.timestamp DESC
-                """, (thr,))
+                """,
+                    (thr,),
+                )
         elif mode == "播放量大于X":
             thr = self._get_param_int(self._param_stack.widget(2), 10000)
             if filter_bvid:
@@ -703,7 +742,9 @@ class DatabaseQueryWindow(DialogBase):
             QMessageBox.warning(self, "要注意哦…", "还没有可导出的数据呢…像一首还没唱完的歌，天依等你收集更多音符哦 ♪")
             return
         fp, _ = QFileDialog.getSaveFileName(
-            self, "导出CSV", self._get_export_default_name("csv"),
+            self,
+            "导出CSV",
+            self._get_export_default_name("csv"),
             "CSV文件 (*.csv);;所有文件 (*.*)",
         )
         if not fp:
@@ -729,10 +770,16 @@ class DatabaseQueryWindow(DialogBase):
         try:
             import openpyxl  # type: ignore[import-untyped]
         except ImportError:
-            QMessageBox.critical(self, "呜…出错了", "呜…唱 Excel 这首歌还缺个伴奏呢，先安装 openpyxl 库，天依就能继续啦 ♪\n运行: pip install openpyxl")
+            QMessageBox.critical(
+                self,
+                "呜…出错了",
+                "呜…唱 Excel 这首歌还缺个伴奏呢，先安装 openpyxl 库，天依就能继续啦 ♪\n运行: pip install openpyxl",
+            )
             return
         fp, _ = QFileDialog.getSaveFileName(
-            self, "导出Excel", self._get_export_default_name("xlsx"),
+            self,
+            "导出Excel",
+            self._get_export_default_name("xlsx"),
             "Excel文件 (*.xlsx);;所有文件 (*.*)",
         )
         if not fp:
@@ -762,7 +809,9 @@ class DatabaseQueryWindow(DialogBase):
             return
 
         reply = QMessageBox.question(
-            self, "要注意哦…", f"真的要删除选中的 {len(sel)} 条记录吗？删掉就像从歌单里划掉旋律，就唱不回来了哦…",
+            self,
+            "要注意哦…",
+            f"真的要删除选中的 {len(sel)} 条记录吗？删掉就像从歌单里划掉旋律，就唱不回来了哦…",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:
@@ -799,7 +848,11 @@ class DatabaseQueryWindow(DialogBase):
                 self._delete_finished.emit(del_data, len(sel))
             except Exception as e:
                 logger.error("删除记录失败", exc_info=True)
-                invoke(lambda: QMessageBox.critical(self, "呜…出错了", "呜…删除失败啦，像橡皮擦没擦干净，天依会再试试的哦 ♪"))
+                invoke(
+                    lambda: QMessageBox.critical(
+                        self, "呜…出错了", "呜…删除失败啦，像橡皮擦没擦干净，天依会再试试的哦 ♪"
+                    )
+                )
 
         self._finish_delete_signal = _DeleteFinishSignal()
         self._finish_delete_signal.finished.connect(self._finish_delete)
@@ -810,10 +863,7 @@ class DatabaseQueryWindow(DialogBase):
 
     def _finish_delete(self, del_data: list, count: int):
         for bvid, ts in del_data:
-            self.query_results = [
-                r for r in self.query_results
-                if not (r["bvid"] == bvid and r["timestamp"] == ts)
-            ]
+            self.query_results = [r for r in self.query_results if not (r["bvid"] == bvid and r["timestamp"] == ts)]
         self._do_query()
         self._update_status(f"已删除 {count} 条记录啦，旋律安静下来了呢 ♪")
 

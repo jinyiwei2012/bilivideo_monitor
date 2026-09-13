@@ -48,6 +48,7 @@ def _get_memory_info(fresh: bool = False):
     # Windows
     try:
         import ctypes
+
         kernel32 = ctypes.windll.kernel32
 
         class MEMORYSTATUSEX(ctypes.Structure):
@@ -131,11 +132,11 @@ def get_safe_workers() -> int:
     total_mb, _ = _get_memory_info()
     cpu_count = os.cpu_count() or 4
 
-    if total_mb >= 32768:   # 32GB+
+    if total_mb >= 32768:  # 32GB+
         return min(16, max(4, cpu_count * 2))
     elif total_mb >= 16384:  # 16GB+
         return min(12, max(3, int(cpu_count * 1.5)))
-    elif total_mb >= 8192:   # 8GB+
+    elif total_mb >= 8192:  # 8GB+
         return min(8, max(2, cpu_count))
     else:
         return min(4, max(2, cpu_count // 2))
@@ -145,6 +146,7 @@ def get_memory_usage_mb() -> int:
     """获取当前进程内存占用（MB）。"""
     try:
         import psutil
+
         proc = psutil.Process()
         return int(proc.memory_info().rss // (1024 * 1024))
     except ImportError:

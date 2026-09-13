@@ -119,8 +119,10 @@ def build_alert_review(gui, hits, extra_video_ctx: dict = None) -> str:
     if extra_video_ctx:
         rows_ctx = ""
         for bvid, ctx in extra_video_ctx.items():
-            rows_ctx += f"<tr><td>{_esc(bvid)}</td><td>{_fmt_count(ctx.get('view_count', 0))}</td>" \
-                        f"<td>{_fmt_count(ctx.get('viewers_total', 0))}</td></tr>"
+            rows_ctx += (
+                f"<tr><td>{_esc(bvid)}</td><td>{_fmt_count(ctx.get('view_count', 0))}</td>"
+                f"<td>{_fmt_count(ctx.get('viewers_total', 0))}</td></tr>"
+            )
         video_ctx_block = f"""
         <div class="section">扫描时刻全量视频快照</div>
         <table>

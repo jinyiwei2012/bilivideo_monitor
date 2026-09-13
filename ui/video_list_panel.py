@@ -13,9 +13,17 @@ import threading
 import requests as _req
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QListWidget,
-    QListWidgetItem, QLabel, QPushButton, QLineEdit,
-    QFrame, QStyledItemDelegate, QStyle,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QListWidget,
+    QListWidgetItem,
+    QLabel,
+    QPushButton,
+    QLineEdit,
+    QFrame,
+    QStyledItemDelegate,
+    QStyle,
     QStackedLayout,
 )
 from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal, QObject, QRectF
@@ -23,18 +31,26 @@ from PyQt6.QtGui import QPixmap, QImage, QColor, QPainter, QPen, QFontMetrics, Q
 
 from ui.theme import C
 from ui.helpers import (
-    FONT, FONT_CAPTION, SPACE_SM, SPACE_MD, SPACE_LG,
-    fmt_num, nearest_threshold_gap, card_status_tag,
+    FONT,
+    FONT_CAPTION,
+    SPACE_SM,
+    SPACE_MD,
+    SPACE_LG,
+    fmt_num,
+    nearest_threshold_gap,
+    card_status_tag,
 )
 from ui.widgets import SectionHeader, EmptyState
 from ui.lty_voice import BUTTON_HINTS
 from utils.cover_manager import get_valid_cover, save_cover
 
 _cover_session = _req.Session()
-_cover_session.headers.update({
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-    "Referer": "https://www.bilibili.com/",
-})
+_cover_session.headers.update(
+    {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Referer": "https://www.bilibili.com/",
+    }
+)
 _cover_semaphore = threading.Semaphore(4)
 logger = logging.getLogger(__name__)
 
@@ -45,6 +61,7 @@ class CoverLoader(QObject):
     worker 内只处理 QImage（QPixmap 只能在 GUI 线程创建），
     转 QPixmap 由主线程在槽函数 `_on_cover_loaded` 中完成。
     """
+
     cover_loaded = pyqtSignal(str, object)  # bvid, QImage
 
     MAX_WORKERS = 4
@@ -95,8 +112,7 @@ class VideoCardDelegate(QStyledItemDelegate):
     def set_cover(self, bvid, pixmap):
         if pixmap and not pixmap.isNull():
             self._cover_cache[bvid] = pixmap.scaled(
-                self._thumb_size, Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation
+                self._thumb_size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
             )
 
     def paint(self, painter, option, index):
@@ -328,7 +344,7 @@ class VideoListPanel(QWidget):
             if data:
                 bvid = data.get("bvid", "")
                 self.video_selected.emit(bvid)
-                if hasattr(self.gui, '_select_video'):
+                if hasattr(self.gui, "_select_video"):
                     self.gui._select_video(bvid)
 
     def rebuild_list(self, videos):
@@ -355,9 +371,7 @@ class VideoListPanel(QWidget):
                         if isinstance(delegate, VideoCardDelegate):
                             delegate.set_cover(bvid, pixmap)
                 else:
-                    QTimer.singleShot(0, lambda b=bvid, u=cover_url: (
-                        self._cover_loader.load_cover(b, u)
-                    ))
+                    QTimer.singleShot(0, lambda b=bvid, u=cover_url: (self._cover_loader.load_cover(b, u)))
 
         self._update_count()
 
@@ -402,9 +416,7 @@ class VideoListPanel(QWidget):
                 if not pixmap.isNull() and isinstance(delegate, VideoCardDelegate):
                     delegate.set_cover(bvid, pixmap)
             else:
-                QTimer.singleShot(0, lambda b=bvid, u=cover_url: (
-                    self._cover_loader.load_cover(b, u)
-                ))
+                QTimer.singleShot(0, lambda b=bvid, u=cover_url: (self._cover_loader.load_cover(b, u)))
 
     def remove_card(self, bvid):
         """移除指定 BV 号的视频卡片（数据层删除后调用，保持界面一致）"""

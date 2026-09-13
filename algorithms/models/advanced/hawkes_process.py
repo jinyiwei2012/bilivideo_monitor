@@ -160,18 +160,34 @@ class HawkesProcessAlgorithm(BaseAlgorithm):
         if len(history) < 4 or velocity <= 0:
             # 数据不足或速度非正，使用简单速度外推
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "hawkes", "notes": "insufficient_data"})
+            return self._std_result(
+                predicted_hours,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "hawkes", "notes": "insufficient_data"},
+            )
 
         views_data = self._extract_views(history)
         if views_data is None:
-            return self._std_result(remaining / velocity, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "hawkes_fallback"})
+            return self._std_result(
+                remaining / velocity,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "hawkes_fallback"},
+            )
 
         views_arr, times = views_data
         try:
             return self._predict_impl(views_arr, times, current_views, velocity, remaining, threshold, video_data)
         except Exception as e:
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.0, current_views, threshold, velocity=velocity, metadata={"error": str(e)})
+            return self._std_result(
+                predicted_hours, 0.0, current_views, threshold, velocity=velocity, metadata={"error": str(e)}
+            )
 
     def _extract_views(self, history):
         """
@@ -275,7 +291,7 @@ class HawkesProcessAlgorithm(BaseAlgorithm):
 
         # 分支比：衡量病毒性的关键指标
         # 分支比 = integral_0^inf phi(tau) dtau = kappa / (theta * c^theta)
-        branching_ratio = self.kappa / (self.theta * (self.c ** self.theta))
+        branching_ratio = self.kappa / (self.theta * (self.c**self.theta))
         # 分支比 > 1 意味着超临界（病毒式传播），每次播放带来 > 1 次新播放
         is_viral = branching_ratio > 1.0
 
@@ -320,7 +336,13 @@ class HawkesProcessAlgorithm(BaseAlgorithm):
             predicted_hours = remaining / velocity  # 超出预测范围，回退为速度外推
             conf = 0.3
 
-        return self._std_result(predicted_hours, conf, current_views, threshold, velocity=adjusted_velocity, metadata={
+        return self._std_result(
+            predicted_hours,
+            conf,
+            current_views,
+            threshold,
+            velocity=adjusted_velocity,
+            metadata={
                 "method": "hawkes",
                 "branching_ratio": round(float(branching_ratio), 3),  # 分支比（关键指标）
                 "is_viral": is_viral,  # 是否处于病毒传播状态
@@ -328,6 +350,5 @@ class HawkesProcessAlgorithm(BaseAlgorithm):
                 "n_events": len(events),  # 事件数量
                 "hawkes_velocity": round(float(hawkes_velocity), 2),  # Hawkes 预测速度
                 "data_points": n,  # 数据点数量
-            })
-
-
+            },
+        )

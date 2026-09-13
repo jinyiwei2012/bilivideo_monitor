@@ -15,6 +15,7 @@ _http_session.headers.update(
     }
 )
 from requests.adapters import HTTPAdapter
+
 _adapter = HTTPAdapter(pool_connections=20, pool_maxsize=20, max_retries=0)
 _http_session.mount("https://", _adapter)
 _http_session.mount("http://", _adapter)

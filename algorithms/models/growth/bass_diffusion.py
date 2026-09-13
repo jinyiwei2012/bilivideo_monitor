@@ -93,7 +93,9 @@ class BassDiffusionAlgorithm(BaseAlgorithm):
         if len(history) < 5 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "bass_fallback"})
+            return self._std_result(
+                predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "bass_fallback"}
+            )
 
         try:
             # 提取最近30条历史数据的播放量，转为numpy数组进行数值计算
@@ -135,7 +137,14 @@ class BassDiffusionAlgorithm(BaseAlgorithm):
             # 和数据量（数据越多，拟合越可靠）
             confidence = min(0.85, 0.4 + 0.15 * min(q / p, 3) + 0.02 * min(n, 20))
 
-            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "bass_diffusion", "p": round(p, 4), "q": round(q, 4), "M": M})
+            return self._std_result(
+                predicted_hours,
+                confidence,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "bass_diffusion", "p": round(p, 4), "q": round(q, 4), "M": M},
+            )
         except Exception as e:
             logger.debug("Bass diffusion failed: %s", e)
             return self._fallback(velocity, current_views, threshold, method="bass_fallback")

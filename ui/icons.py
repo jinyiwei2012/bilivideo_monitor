@@ -11,80 +11,81 @@
     btn.setText(f"{ICONS['nav_monitor']} 监控列表")
     text = EMOJI_MAP.get(emoji, emoji)  # 替换单个 emoji
 """
+
 from ui.theme import C  # noqa: F401 — 确保主题已加载
 
 # ── 主题图标映射 ─────────────────────────────
 ICONS = {
     # 导航 (音符体系)
-    "nav_monitor": "♪",      # 监控列表
-    "nav_log": "♫",          # 日志
-    "nav_train": "♬",        # 模型训练
-    "nav_finetune": "♩",     # 微调训练
+    "nav_monitor": "♪",  # 监控列表
+    "nav_log": "♫",  # 日志
+    "nav_train": "♬",  # 模型训练
+    "nav_finetune": "♩",  # 微调训练
     # 功能区
-    "settings": "⚙",         # 设置
-    "push": "⇪",             # 全部推送
-    "model_act": "◉",        # 激活模型
-    "search": "⌕",           # 搜索
-    "refresh": "⟳",          # 刷新
-    "add": "＋",             # 添加
-    "remove": "－",          # 移除
-    "export": "↧",           # 导出
-    "import": "↥",           # 导入
-    "save": "⇓",             # 保存
-    "delete": "✕",           # 删除
+    "settings": "⚙",  # 设置
+    "push": "⇪",  # 全部推送
+    "model_act": "◉",  # 激活模型
+    "search": "⌕",  # 搜索
+    "refresh": "⟳",  # 刷新
+    "add": "＋",  # 添加
+    "remove": "－",  # 移除
+    "export": "↧",  # 导出
+    "import": "↥",  # 导入
+    "save": "⇓",  # 保存
+    "delete": "✕",  # 删除
     # 状态/装饰
     "success": "✓",
     "error": "✗",
     "warning": "△",
     "note": "♪",
-    "feather": "羽",         # 洛天依象征 (五音之羽)
+    "feather": "羽",  # 洛天依象征 (五音之羽)
     "star": "★",
     # 数据/图表
-    "chart": "◧",            # 图表/统计
+    "chart": "◧",  # 图表/统计
     "trend_up": "↗",
     "trend_down": "↘",
-    "target": "◎",           # 目标/阈值
-    "list": "☰",             # 列表/记录
-    "file": "▤",             # 文件
-    "folder": "▣",           # 文件夹
-    "image": "◇",            # 图片/封面
-    "doc": "▭",              # 文档/报告
-    "database": "⛁",         # 数据库
+    "target": "◎",  # 目标/阈值
+    "list": "☰",  # 列表/记录
+    "file": "▤",  # 文件
+    "folder": "▣",  # 文件夹
+    "image": "◇",  # 图片/封面
+    "doc": "▭",  # 文档/报告
+    "database": "⛁",  # 数据库
     # 网络/设备
-    "globe": "✈",            # 网络/全球
-    "link": "⌁",             # 链接
-    "lock": "⚿",             # 锁定
-    "key": "⚷",              # 密钥/API
-    "device": "▮",           # 设备/终端
-    "phone": "☎",            # 手机
-    "screen": "▣",           # 屏幕/窗口
+    "globe": "✈",  # 网络/全球
+    "link": "⌁",  # 链接
+    "lock": "⚿",  # 锁定
+    "key": "⚷",  # 密钥/API
+    "device": "▮",  # 设备/终端
+    "phone": "☎",  # 手机
+    "screen": "▣",  # 屏幕/窗口
     # 动作
-    "run": "▶",              # 运行/开始
-    "pause": "❚❚",          # 暂停
-    "stop": "■",             # 停止
+    "run": "▶",  # 运行/开始
+    "pause": "❚❚",  # 暂停
+    "stop": "■",  # 停止
     "up": "↑",
     "down": "↓",
     "left": "←",
     "right": "→",
     "check": "✓",
-    "time": "◷",             # 时间/历史
-    "calendar": "▦",         # 日期
-    "notice": "♡",           # 通知/提醒
-    "bell": "♪",             # 提示音
-    "chat": "♬",             # 弹幕/聊天
-    "light": "✦",            # 灵感/提示
-    "warn": "△",             # 警告
-    "ban": "⊗",              # 禁止/失败
-    "spark": "✹",            # 热门/飙升
-    "speed": "⚡",            # 速度/急速
-    "trophy": "♛",           # 排行/成就
-    "flag": "⚑",             # 标记
-    "user": "☺",             # 用户/UP主
-    "users": "☻",            # 多人
-    "ai": "◉",               # AI/模型
-    "brain": "◍",            # 训练/学习
-    "fire": "♨",             # 热门
-    "danger": "‼",           # 危险/异常
+    "time": "◷",  # 时间/历史
+    "calendar": "▦",  # 日期
+    "notice": "♡",  # 通知/提醒
+    "bell": "♪",  # 提示音
+    "chat": "♬",  # 弹幕/聊天
+    "light": "✦",  # 灵感/提示
+    "warn": "△",  # 警告
+    "ban": "⊗",  # 禁止/失败
+    "spark": "✹",  # 热门/飙升
+    "speed": "⚡",  # 速度/急速
+    "trophy": "♛",  # 排行/成就
+    "flag": "⚑",  # 标记
+    "user": "☺",  # 用户/UP主
+    "users": "☻",  # 多人
+    "ai": "◉",  # AI/模型
+    "brain": "◍",  # 训练/学习
+    "fire": "♨",  # 热门
+    "danger": "‼",  # 危险/异常
 }
 
 # ── 旧 emoji → 主题符号映射 (全程序换装用) ──
@@ -303,7 +304,7 @@ EMOJI_MAP = {
 
 # ── 装饰字符 (天依主题点缀) ───────────────────
 DECOR = {
-    "wave": "〰",      # 水波 (洛水天依意象)
+    "wave": "〰",  # 水波 (洛水天依意象)
     "sparkle": "✦",
     "heart": "♡",
 }

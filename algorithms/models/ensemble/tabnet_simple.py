@@ -144,21 +144,27 @@ class TabnetSimpleAlgorithm(BaseAlgorithm):
 
         try:
             # 目标：播放量增长率（百分比差值）
-            y_target = np.diff(views[-len(X) - 1:]) / np.maximum(views[-len(X) - 1 : -1], 1)
-            y_target = y_target[-len(X):].astype(np.float32).reshape(-1, 1)
+            y_target = np.diff(views[-len(X) - 1 :]) / np.maximum(views[-len(X) - 1 : -1], 1)
+            y_target = y_target[-len(X) :].astype(np.float32).reshape(-1, 1)
 
             # TabNet: 8 个决策层 + 8 个注意力层，entmax 稀疏注意力
             model = get_or_fit(
                 "tabnet_simple",
                 lambda: _TabNet(
-                    n_d=8, n_a=8, n_steps=3, gamma=1.5,
-                    n_independent=2, n_shared=2,
+                    n_d=8,
+                    n_a=8,
+                    n_steps=3,
+                    gamma=1.5,
+                    n_independent=2,
+                    n_shared=2,
                     optimizer_fn=lambda params: type("opt", (), {"__module__": ""})(),
                     mask_type="entmax",  # 稀疏注意力：自动将不重要特征归零
                     verbose=0,
                 ),
-                X, y_target,
-                max_epochs=100, patience=10,  # 早停策略
+                X,
+                y_target,
+                max_epochs=100,
+                patience=10,  # 早停策略
                 batch_size=min(64, len(X) // 2),
                 virtual_batch_size=min(32, len(X) // 4) if len(X) >= 20 else None,
             )
@@ -185,7 +191,14 @@ class TabnetSimpleAlgorithm(BaseAlgorithm):
                 cv = float(np.std(residuals) / max(np.mean(np.abs(y_target)), 1e-10))
                 confidence = max(0.1, min(0.85, 0.6 - cv * 0.5))
 
-            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "tabnet_lib", "n_d": 8, "n_a": 8})
+            return self._std_result(
+                predicted_hours,
+                confidence,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "tabnet_lib", "n_d": 8, "n_a": 8},
+            )
         except Exception:
             return None
 
@@ -226,7 +239,7 @@ class TabnetSimpleAlgorithm(BaseAlgorithm):
             # 构造 7 维特征矩阵
             features = np.column_stack(
                 [
-                    np.log1p(views),   # log(1+x) 对数变换
+                    np.log1p(views),  # log(1+x) 对数变换
                     np.log1p(likes),
                     np.log1p(coins),
                     np.log1p(favs),
@@ -241,9 +254,9 @@ class TabnetSimpleAlgorithm(BaseAlgorithm):
             # 局部 RandomState(42)：与旧全局随机种子序列完全一致（值不变），且不污染全局 RNG
             _rng = np.random.RandomState(42)
             # 随机初始化权重矩阵（模拟注意力网络）
-            W = _rng.randn(n_features, n_features) * 0.1      # 特征变换矩阵
-            V = _rng.randn(n_features, 1) * 0.1               # 注意力评分向量
-            W_out = _rng.randn(n_features, 1) * 0.01          # 输出层权重
+            W = _rng.randn(n_features, n_features) * 0.1  # 特征变换矩阵
+            V = _rng.randn(n_features, 1) * 0.1  # 注意力评分向量
+            W_out = _rng.randn(n_features, 1) * 0.01  # 输出层权重
 
             # Step 1: 特征变换
             H = features @ W
@@ -275,6 +288,13 @@ class TabnetSimpleAlgorithm(BaseAlgorithm):
                 attn_entropy = -np.sum(attn_weights * np.log(attn_weights + 1e-10)) / np.log(n_features)
                 confidence = max(0.1, min(0.8, 0.6 - attn_entropy * 0.3))
 
-            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "tabnet", "trend_signal": float(trend)})
+            return self._std_result(
+                predicted_hours,
+                confidence,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "tabnet", "trend_signal": float(trend)},
+            )
         except Exception:
             return self._fallback(velocity, current_views, threshold, method="tabnet_lib")

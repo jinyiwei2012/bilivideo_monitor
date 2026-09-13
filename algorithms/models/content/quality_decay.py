@@ -110,7 +110,14 @@ class QualityDecayAlgorithm(BaseAlgorithm):
         if len(history) < 8 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "quality_decay_fallback"})
+            return self._std_result(
+                predicted_hours,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "quality_decay_fallback"},
+            )
 
         try:
             # 取最近 40 条历史记录中的播放量
@@ -134,7 +141,7 @@ class QualityDecayAlgorithm(BaseAlgorithm):
             # 近期速度趋势：最近 10 点的差分均值 + 加速度修正
             if n >= 5:
                 # 最近 min(10, n) 个点的差分均值（每步增长量）
-                recent_diffs = np.diff(views[-min(10, n):])
+                recent_diffs = np.diff(views[-min(10, n) :])
                 recent_growth = np.mean(recent_diffs)
                 # 趋势加速度：最近两步差分的变化量（正值加速、负值减速）
                 trend_accel = recent_diffs[-1] - recent_diffs[-2] if len(recent_diffs) >= 2 else 0
@@ -163,14 +170,28 @@ class QualityDecayAlgorithm(BaseAlgorithm):
             # 置信度：基础 0.3 + 质量加成（0-0.3）+ 数据点加成（0-0.5），上限 0.85
             confidence = max(0.1, min(0.85, 0.3 + 0.3 * quality + 0.02 * min(n, 25)))
 
-            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
+            return self._std_result(
+                predicted_hours,
+                confidence,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={
                     "method": "quality_decay",
                     "quality": round(float(quality), 3),  # 内容质量评分
                     "decay_rate": round(float(quality_decay_rate), 5),  # 质量调整衰减率
                     "age_hours": round(float(age_hours), 1),  # 视频发布至今的小时数
-                })
+                },
+            )
         except Exception:
             # 任何异常回退到匀速预测
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "quality_decay_error"})
+            return self._std_result(
+                predicted_hours,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "quality_decay_error"},
+            )

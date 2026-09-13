@@ -7,7 +7,11 @@ import logging
 import threading
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
     QTextEdit,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
@@ -36,7 +40,8 @@ class AIQAWindow(DialogBase):
             sw, sh = 1920, 1080
 
         super().__init__(
-            parent, "AI智能问答助手 ♪",
+            parent,
+            "AI智能问答助手 ♪",
             (int(sw * 0.48), int(sh * 0.68)),
             modal=False,
         )
@@ -307,18 +312,18 @@ class AIQAWindow(DialogBase):
             lines.append(
                 f'<p style="margin:8px 0 0 0;"><span style="'
                 f'color:{role_color}; font-weight:bold; font-size:10pt;">'
-                f'{_html_escape(header)}</span></p>'
+                f"{_html_escape(header)}</span></p>"
             )
             lines.append(
                 f'<p style="margin:2px 0 6px 0;"><span style="'
                 f'color:{C["text_1"]}; font-size:10pt;">'
-                f'{_html_escape(body)}</span></p>'
+                f"{_html_escape(body)}</span></p>"
             )
         else:
             lines.append(
                 f'<p style="margin:8px 0 6px 0;"><span style="'
                 f'color:{role_color}; font-weight:bold; font-size:10pt;">'
-                f'{_html_escape(content)}</span></p>'
+                f"{_html_escape(content)}</span></p>"
             )
         return "".join(lines)
 

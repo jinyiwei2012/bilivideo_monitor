@@ -128,4 +128,11 @@ class TrendRegressionAlgorithm(BaseAlgorithm):
                     predicted_hours = remaining / velocity
                 confidence = 0.4
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=self.calculate_velocity(video_data), metadata={"method": "trend_regression", "history_points": len(history)})
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=self.calculate_velocity(video_data),
+            metadata={"method": "trend_regression", "history_points": len(history)},
+        )

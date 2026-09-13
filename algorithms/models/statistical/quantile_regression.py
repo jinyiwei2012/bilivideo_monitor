@@ -156,23 +156,41 @@ class QuantileRegressionAlgorithm(BaseAlgorithm):
         remaining = threshold - current_views
         # 已达阈值
         if remaining <= 0:
-            return self._std_result(0, 1.0, current_views, threshold, velocity=velocity, metadata={"method": "quantile"})
+            return self._std_result(
+                0, 1.0, current_views, threshold, velocity=velocity, metadata={"method": "quantile"}
+            )
 
         # 数据不足
         if len(history) < 5 or velocity <= 0:
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "quantile", "notes": "insufficient_data"})
+            return self._std_result(
+                predicted_hours,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "quantile", "notes": "insufficient_data"},
+            )
 
         # 提取并排序播放量序列
         views_sorted = self._extract_views(history)
         if views_sorted is None or len(views_sorted) < 5:
-            return self._std_result(remaining / velocity, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "quantile_fallback"})
+            return self._std_result(
+                remaining / velocity,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "quantile_fallback"},
+            )
 
         try:
             return self._predict_impl(views_sorted, current_views, velocity, remaining, threshold, video_data)
         except Exception as e:
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.0, current_views, threshold, velocity=velocity, metadata={"error": str(e)})
+            return self._std_result(
+                predicted_hours, 0.0, current_views, threshold, velocity=velocity, metadata={"error": str(e)}
+            )
 
     def _extract_views(self, history):
         """
@@ -249,7 +267,14 @@ class QuantileRegressionAlgorithm(BaseAlgorithm):
         y = np.array(y_list)
 
         if len(X) < 3:
-            return self._std_result(remaining / velocity, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "quantile_insufficient"})
+            return self._std_result(
+                remaining / velocity,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "quantile_insufficient"},
+            )
 
         # ── 拟合多个分位数 ────────────────────────
         quantiles = {
@@ -271,7 +296,9 @@ class QuantileRegressionAlgorithm(BaseAlgorithm):
                     1.0,
                     views_sorted[-1] / 10000,  # 最新播放量
                     (views_sorted[-1] - views_sorted[-2]) / 100,  # 最新增量
-                    np.mean(views_sorted[-7:]) / 10000 if len(views_sorted) >= 7 else views_sorted[-1] / 10000,  # 7 日均值
+                    (
+                        np.mean(views_sorted[-7:]) / 10000 if len(views_sorted) >= 7 else views_sorted[-1] / 10000
+                    ),  # 7 日均值
                     min(age_hours / 168.0, 1.0),  # 年龄
                     quality,  # 质量
                 ]
@@ -317,13 +344,18 @@ class QuantileRegressionAlgorithm(BaseAlgorithm):
             predicted_hours = remaining / velocity
             conf = 0.35
 
-        return self._std_result(predicted_hours, conf, current_views, threshold, velocity=velocity, metadata={
+        return self._std_result(
+            predicted_hours,
+            conf,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={
                 "method": "quantile",
                 "daily_growth_median": round(float(median_pred), 2),
                 "daily_growth_optimistic": round(float(optimistic_pred), 2),
                 "daily_growth_pessimistic": round(float(pessimistic_pred), 2),
                 "prediction_spread": round(float(prediction_spread), 2),  # 乐观-悲观差距
                 "data_points": n,
-            })
-
-
+            },
+        )

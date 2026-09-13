@@ -23,6 +23,7 @@ _MAX_CACHE_SIZE = 200
 
 class _LRUDict(OrderedDict):
     """固定容量的 LRU 字典，超出容量时自动淘汰最久未使用的条目。"""
+
     __slots__ = ("maxsize",)
 
     def __init__(self, maxsize=_MAX_CACHE_SIZE, *args, **kwargs):
@@ -44,6 +45,7 @@ class _LRUDict(OrderedDict):
     def __getitem__(self, key):
         self.move_to_end(key)
         return super().__getitem__(key)
+
 
 # ── 模块级单例：surge detector（避免每轮预测重复创建类） ──
 _surge_detector = None
@@ -286,6 +288,7 @@ class AlgorithmRegistry:
         if derived is None:
             derived = {}
             import numpy as np
+
             # 时间戳必须用 float64：unix 秒级时间戳 ~1.78e9，float32 的 ulp=128s，
             # 大于 75s 采样间隔 → 相邻点被舍入为相同值，polyfit 斜率系统性失真。
             v_arr = np.array(view_values, dtype=np.float64)
@@ -306,9 +309,7 @@ class AlgorithmRegistry:
                 elif n >= 2:
                     dt = ts_arr[-1] - ts_arr[-2]
                     if dt > 0:
-                        derived["velocity_polyfit"] = max(
-                            0.0, float((v_arr[-1] - v_arr[-2]) / max(dt, 1e-8) * 3600.0)
-                        )
+                        derived["velocity_polyfit"] = max(0.0, float((v_arr[-1] - v_arr[-2]) / max(dt, 1e-8) * 3600.0))
                     else:
                         derived["velocity_polyfit"] = 0.0
                 else:
@@ -328,8 +329,8 @@ class AlgorithmRegistry:
                 # MAD 剪除只移除"假爆发"补量点，两类噪声同时防御。
                 if n >= 4:
                     _k = min(12, n - 1)
-                    _seg_ts = ts_arr[-_k - 1:]
-                    _seg_v = v_arr[-_k - 1:]
+                    _seg_ts = ts_arr[-_k - 1 :]
+                    _seg_v = v_arr[-_k - 1 :]
                     _dt = np.diff(_seg_ts)
                     _dv = np.diff(_seg_v)
                     _valid_dt = _dt > 0
@@ -396,8 +397,8 @@ class AlgorithmRegistry:
                     _age_hours = float(ts_arr[-1] - ts_arr[0]) / 3600.0 if ts_arr[-1] > ts_arr[0] else 0.0
                     # 早期基准段(前1/4)与近期段(末1/4)的正速率中位 → 生命周期衰减比
                     _q = max(4, n // 4)
-                    _early_diff = np.diff(v_arr[:_q + 2])
-                    _recent_diff = np.diff(v_arr[-_q - 1:])
+                    _early_diff = np.diff(v_arr[: _q + 2])
+                    _recent_diff = np.diff(v_arr[-_q - 1 :])
                     _early_pos = _early_diff[_early_diff > 0]
                     _recent_pos = _recent_diff[_recent_diff > 0]
                     _early_rate = float(np.median(_early_pos)) if len(_early_pos) >= 3 else 0.0
@@ -434,9 +435,9 @@ class AlgorithmRegistry:
         return {
             "view_count": current_value,
             "history_data": history_list,
-            "_sorted": True,                # history_list 已按时间升序，算法无需再次排序
+            "_sorted": True,  # history_list 已按时间升序，算法无需再次排序
             "_velocity": derived.get("velocity_polyfit", 0.0),  # 预计算速度，避免各算法重复 compute
-            "velocity": derived.get("velocity_polyfit", 0.0),    # 兼容直接访问
+            "velocity": derived.get("velocity_polyfit", 0.0),  # 兼容直接访问
             "timestamp": now,
             "timestamp_str": now.strftime("%Y-%m-%d %H:%M:%S"),
             "bvid": bvid,
@@ -473,6 +474,7 @@ class AlgorithmRegistry:
                 return safe_datetime(t)
             except Exception:
                 from datetime import datetime as dt
+
                 return dt.min
 
         merged.sort(key=lambda x: _ts_dt(x[0]))
@@ -498,9 +500,7 @@ class AlgorithmRegistry:
             if pred_hours > 0:
                 # anchor = 首个未达阈值（算法预测的真实对象），非固定 thresholds[0]
                 _anchor_t = next((t for t in thresholds if current_value < t), thresholds[0])
-                avg_velocity = (
-                    (_anchor_t - current_value) / max(pred_hours, 1) if _anchor_t > current_value else 0
-                )
+                avg_velocity = (_anchor_t - current_value) / max(pred_hours, 1) if _anchor_t > current_value else 0
                 prediction = current_value + avg_velocity * short_hours
             else:
                 prediction = current_value * 1.01
@@ -546,8 +546,9 @@ class AlgorithmRegistry:
         }
 
     @classmethod
-    def _run_parallel_predictions(cls, current_value, bvid, cached_video_data, thresholds, threshold_names,
-                                  anchor_threshold=None):
+    def _run_parallel_predictions(
+        cls, current_value, bvid, cached_video_data, thresholds, threshold_names, anchor_threshold=None
+    ):
         results = {}
         valid_count = 0
         na_count = 0
@@ -578,6 +579,7 @@ class AlgorithmRegistry:
             try:
                 import warnings
                 import numpy as np
+
                 # 抑制 polyfit/LAPACK 数值稳定性噪音警告（数据不足时常见）
                 with warnings.catch_warnings():
                     warnings.filterwarnings("ignore", category=RuntimeWarning, module="numpy")
@@ -589,9 +591,7 @@ class AlgorithmRegistry:
                 if prediction_result is None:
                     res = cls._make_na_result(current_value, w)
                 else:
-                    res = cls._to_registry_result(
-                        prediction_result, current_value, thresholds, threshold_names, w
-                    )
+                    res = cls._to_registry_result(prediction_result, current_value, thresholds, threshold_names, w)
                 return (
                     n,
                     {
@@ -606,13 +606,16 @@ class AlgorithmRegistry:
             except Exception as e:
                 logger.warning(
                     "[%s] 视频(%s),使用'底模'预测失败 降级原因: %s",
-                    n, bvid, e,
+                    n,
+                    bvid,
+                    e,
                 )
                 return n, {"prediction": current_value, "confidence": 0, "weight": 0.01, "error": str(e)}, e
 
         with cls._pool_lock:
             if cls._pool is None:
                 from utils.memory_guard import get_safe_workers
+
                 workers = get_safe_workers()
                 cls._pool = ThreadPoolExecutor(max_workers=workers)
             pool = cls._pool
@@ -648,9 +651,8 @@ class AlgorithmRegistry:
                     hist = hist[-10:]
                 _window_weight_history[name] = hist
 
-                window_error = (
-                    sum(h * (decay ** (len(hist) - i)) for i, h in enumerate(hist))
-                    / max(sum(decay ** (len(hist) - i) for i in range(len(hist))), 1e-10)
+                window_error = sum(h * (decay ** (len(hist) - i)) for i, h in enumerate(hist)) / max(
+                    sum(decay ** (len(hist) - i) for i in range(len(hist))), 1e-10
                 )
                 window_factor = max(0.2, 1.0 / (1.0 + window_error * 5))
                 results[name]["weight"] = w * (0.5 + 0.5 * window_factor)
@@ -741,7 +743,7 @@ class AlgorithmRegistry:
                 mean_v = sum(valid_vals) / len(valid_vals)
                 if mean_v > 0:
                     variance = sum((p - mean_v) ** 2 for p in valid_vals) / len(valid_vals)
-                    cv = (variance ** 0.5) / mean_v
+                    cv = (variance**0.5) / mean_v
                     ensemble_conf = max(0.0, min(1.0, math.exp(-cv * 2)))
                 else:
                     ensemble_conf = 0.0
@@ -818,7 +820,7 @@ class AlgorithmRegistry:
         # log 空间加权离散度 → 共识置信（算法对到达时间分歧越小越可信）
         mean_log = sum(w * lh for w, lh in hours_w) / total_w
         var_log = sum(w * (lh - mean_log) ** 2 for w, lh in hours_w) / total_w
-        log_cv = (var_log ** 0.5) / max(abs(mean_log), 1e-9)
+        log_cv = (var_log**0.5) / max(abs(mean_log), 1e-9)
 
         eta_hours = math.exp(median_log)
         return {
@@ -830,8 +832,9 @@ class AlgorithmRegistry:
         }
 
     @classmethod
-    def predict_all(cls, history: List, current_value: float, bvid: str = "",
-                    db_history: List = None, **kwargs) -> Dict:
+    def predict_all(
+        cls, history: List, current_value: float, bvid: str = "", db_history: List = None, **kwargs
+    ) -> Dict:
         """对所有注册算法发起并行预测，返回加权集成结果。
 
         Args:
@@ -883,7 +886,11 @@ class AlgorithmRegistry:
             logger.debug("集成偏差反馈记录失败: %s", e)
 
         results, valid_count, na_count = cls._run_parallel_predictions(
-            current_value, bvid, cached_video_data, thresholds, threshold_names,
+            current_value,
+            bvid,
+            cached_video_data,
+            thresholds,
+            threshold_names,
             anchor_threshold=anchor_threshold,
         )
 
@@ -990,14 +997,19 @@ class AlgorithmRegistry:
                 interval_width = 0
         logger.info(
             "[%s] 综合预测: %.0f (有效 %d/%d, 区间 ±%d%%)",
-            bvid, weighted_pred, valid_count, len(results) - 1, interval_width,
+            bvid,
+            weighted_pred,
+            valid_count,
+            len(results) - 1,
+            interval_width,
         )
 
         return results
 
     @classmethod
-    def update_accuracy(cls, algorithm_name: str, predicted: float = None, actual: float = None,
-                        accuracy: float = None):
+    def update_accuracy(
+        cls, algorithm_name: str, predicted: float = None, actual: float = None, accuracy: float = None
+    ):
         """更新单个算法的准确率记录并同步到权重管理器（B1 修复）。
 
         统一入口，两种调用方式：
@@ -1093,9 +1105,13 @@ class AlgorithmRegistry:
             logger.debug("获取算法权重信息失败: %s", e)
             return [
                 {
-                    "name": n, "accuracy": 0.5, "final_weight": 1.0,
-                    "ml_weight": 1.0, "user_weight": None,
-                    "is_customized": False, "samples": 0,
+                    "name": n,
+                    "accuracy": 0.5,
+                    "final_weight": 1.0,
+                    "ml_weight": 1.0,
+                    "user_weight": None,
+                    "is_customized": False,
+                    "samples": 0,
                 }
                 for n in names
             ]
@@ -1154,10 +1170,7 @@ class AlgorithmRegistry:
                                 # 回测用索引时间（等间隔假设），构造 video_data
                                 base_ts = 1_700_000_000.0
                                 for _i, _v in enumerate(train):
-                                    hist_list.append(
-                                        {"view_count": float(_v),
-                                         "timestamp": base_ts + _i * 75.0}
-                                    )
+                                    hist_list.append({"view_count": float(_v), "timestamp": base_ts + _i * 75.0})
                                 vd = {
                                     "view_count": float(train[-1]),
                                     "history_data": hist_list,
@@ -1176,6 +1189,7 @@ class AlgorithmRegistry:
                                 return float(train[-1]) * 1.01
                             except Exception:
                                 return float(train[-1]) if len(train) > 0 else 0.0
+
                         return fn
 
                     result = backtester.backtest(series, _make_fn())
@@ -1218,6 +1232,7 @@ class AlgorithmRegistry:
     def get_trainable_info(cls) -> List[Dict]:
         """获取所有支持训练的算法的检查点信息。"""
         from algorithms.training.checkpoint_manager import CheckpointManager
+
         if not cls._initialized:
             cls.initialize()
         result = []
@@ -1228,14 +1243,16 @@ class AlgorithmRegistry:
             ckpt = CheckpointManager(aid)
             versions = ckpt.list_versions()
             active = ckpt.active_version()
-            result.append({
-                "algorithm_id": aid,
-                "name": getattr(algo, "name", aid),
-                "category": getattr(algo, "category", ""),
-                "has_ckpt": ckpt.has_checkpoint(),
-                "active_version": active or "",
-                "version_count": len(versions),
-            })
+            result.append(
+                {
+                    "algorithm_id": aid,
+                    "name": getattr(algo, "name", aid),
+                    "category": getattr(algo, "category", ""),
+                    "has_ckpt": ckpt.has_checkpoint(),
+                    "active_version": active or "",
+                    "version_count": len(versions),
+                }
+            )
         return result
 
     @classmethod

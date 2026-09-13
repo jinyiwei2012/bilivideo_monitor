@@ -60,12 +60,12 @@ THEME_LIGHT = {
     "border_default": "#d3e3f5",
     "border_subtle": "#e8f0fa",
     # ── 洛天依主题令牌 ──────────────────────
-    "lty_blue": "#66ccff",       # 官方应援色「天依蓝」
+    "lty_blue": "#66ccff",  # 官方应援色「天依蓝」
     "lty_blue_deep": "#4d9fff",  # 深一阶天依蓝 (可读性)
-    "lty_blue_light": "#b8e4ff", # 浅天依蓝 (水波高光)
-    "lty_jade": "#63d3a5",       # 翡翠绿 (绿瞳/玉佩)
-    "lty_wave_a": "#66ccff",     # 水波渐变起点
-    "lty_wave_b": "#b8e4ff",     # 水波渐变终点
+    "lty_blue_light": "#b8e4ff",  # 浅天依蓝 (水波高光)
+    "lty_jade": "#63d3a5",  # 翡翠绿 (绿瞳/玉佩)
+    "lty_wave_a": "#66ccff",  # 水波渐变起点
+    "lty_wave_b": "#b8e4ff",  # 水波渐变终点
     # 大屏专用（深色）
     "dash_bg": "#0b1220",
     "dash_card_bg": "#101a2c",
@@ -136,6 +136,7 @@ THEME_DARK = {
 C = dict(THEME_LIGHT)
 
 # ── 全局 QSS 样式表 ─────────────────────────
+
 
 def _build_qss(theme: dict) -> str:
     """根据主题令牌生成全局 QSS 样式表"""

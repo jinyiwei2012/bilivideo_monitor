@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 _HAS_SKLEARN = False
 try:
     from sklearn.ensemble import GradientBoostingRegressor
+
     _HAS_SKLEARN = True
 except ImportError:
     pass
@@ -60,7 +61,7 @@ class ResidualCorrectionAlgorithm(BaseAlgorithm):
         """初始化残差修正算法实例。"""
         super().__init__()
         self._corrector = None  # 缓存的修正模型
-        self._last_bvid = ""    # 上一个处理的视频 BV 号
+        self._last_bvid = ""  # 上一个处理的视频 BV 号
 
     def predict(self, video_data: Dict, threshold: int = 100000) -> PredictionResult:
         """
@@ -85,7 +86,14 @@ class ResidualCorrectionAlgorithm(BaseAlgorithm):
         if len(history) < 15 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "residual_fallback"})
+            return self._std_result(
+                predicted_hours,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "residual_fallback"},
+            )
 
         if _HAS_SKLEARN:
             try:
@@ -134,22 +142,22 @@ class ResidualCorrectionAlgorithm(BaseAlgorithm):
         diffs = np.diff(views)  # 一阶差分（速度）
         accels = np.diff(diffs) if len(diffs) >= 2 else np.zeros(len(diffs))  # 二阶差分（加速度）
         if len(accels) < len(diffs):
-            accels = np.pad(accels, (0, len(diffs) - len(accels)), 'edge')  # 补齐长度
+            accels = np.pad(accels, (0, len(diffs) - len(accels)), "edge")  # 补齐长度
 
-        engagement = likes[-len(diffs):] / np.maximum(views[-len(diffs):], 1)  # 互动率
+        engagement = likes[-len(diffs) :] / np.maximum(views[-len(diffs) :], 1)  # 互动率
         quality = self.get_quality_score(video_data)
 
         p = 5  # 特征窗口
         X, y = [], []
         for i in range(p, len(diffs)):
             feat = [
-                diffs[i] / max(views[i], 1),                                                # 速度（归一化）
+                diffs[i] / max(views[i], 1),  # 速度（归一化）
                 accels[i] / max(diffs[i], 1e-10) if i < len(accels) and abs(diffs[i]) > 1e-10 else 0,  # 加速度
-                engagement[i] if i < len(engagement) else 0,                                # 互动率
-                np.mean(diffs[max(0, i - 5): i + 1]) / max(views[i], 1),                   # 5步移动平均速度
-                np.std(diffs[max(0, i - 5): i + 1]) / max(np.mean(views[max(0, i - 5): i + 1]), 1),  # 速度CV
-                quality,                                                                     # 质量评分
-                i / max(n, 1),                                                               # 时间进度
+                engagement[i] if i < len(engagement) else 0,  # 互动率
+                np.mean(diffs[max(0, i - 5) : i + 1]) / max(views[i], 1),  # 5步移动平均速度
+                np.std(diffs[max(0, i - 5) : i + 1]) / max(np.mean(views[max(0, i - 5) : i + 1]), 1),  # 速度CV
+                quality,  # 质量评分
+                i / max(n, 1),  # 时间进度
             ]
             X.append(feat)
             y.append(diffs[i])
@@ -166,27 +174,27 @@ class ResidualCorrectionAlgorithm(BaseAlgorithm):
         # GBM 学习残差模式（学习的是偏差而非原始值）
         model = get_or_fit(
             "residual_correction",
-            lambda: GradientBoostingRegressor(
-                n_estimators=80, max_depth=3, learning_rate=0.05, random_state=42
-            ),
+            lambda: GradientBoostingRegressor(n_estimators=80, max_depth=3, learning_rate=0.05, random_state=42),
             X,
             residual,
         )
 
         # 预测当前残差
-        last_feat = np.array([
-            diffs[-1] / max(views[-2], 1) if n >= 2 else 0,
-            accels[-1] / max(diffs[-1], 1e-10) if len(accels) > 0 and abs(diffs[-1]) > 1e-10 else 0,
-            engagement[-1] if len(engagement) > 0 else 0,
-            np.mean(diffs[-min(5, len(diffs)):]) / max(views[-1], 1),
-            np.std(diffs[-min(5, len(diffs)):]) / max(np.mean(views[-min(5, len(diffs)):]), 1),
-            quality,
-            (n - 1) / max(n, 1),
-        ]).reshape(1, -1)
+        last_feat = np.array(
+            [
+                diffs[-1] / max(views[-2], 1) if n >= 2 else 0,
+                accels[-1] / max(diffs[-1], 1e-10) if len(accels) > 0 and abs(diffs[-1]) > 1e-10 else 0,
+                engagement[-1] if len(engagement) > 0 else 0,
+                np.mean(diffs[-min(5, len(diffs)) :]) / max(views[-1], 1),
+                np.std(diffs[-min(5, len(diffs)) :]) / max(np.mean(views[-min(5, len(diffs)) :]), 1),
+                quality,
+                (n - 1) / max(n, 1),
+            ]
+        ).reshape(1, -1)
 
         predicted_residual = float(model.predict(last_feat)[0])
         # 基准增长 = 近期平均速度
-        base_growth = np.mean(diffs[-min(5, len(diffs)):]) if len(diffs) >= 2 else velocity * 3600
+        base_growth = np.mean(diffs[-min(5, len(diffs)) :]) if len(diffs) >= 2 else velocity * 3600
         # 修正后的增长 = 基准 + 预测残差
         corrected_growth = max(0, base_growth + predicted_residual)
 
@@ -202,11 +210,18 @@ class ResidualCorrectionAlgorithm(BaseAlgorithm):
         predicted_hours = remaining / predicted_velocity if remaining > 0 else float("inf")
         confidence = max(0.1, min(0.9, 0.5 / (1 + residuals_cv)))
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={
                 "method": "residual_correction",
-                "correction": round(float(predicted_residual), 2),    # 修正量
-                "residual_cv": round(float(residuals_cv), 3),         # 残差变异系数
-            })
+                "correction": round(float(predicted_residual), 2),  # 修正量
+                "residual_cv": round(float(residuals_cv), 3),  # 残差变异系数
+            },
+        )
 
     def _numpy_predict(self, video_data, threshold):
         """
@@ -256,4 +271,11 @@ class ResidualCorrectionAlgorithm(BaseAlgorithm):
         predicted_hours = remaining / predicted_velocity if remaining > 0 else float("inf")
         confidence = min(0.85, 0.35 + 0.02 * len(views))  # 数据点越多越可信
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "residual_numpy"})
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={"method": "residual_numpy"},
+        )

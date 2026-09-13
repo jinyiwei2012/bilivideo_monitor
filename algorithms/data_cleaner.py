@@ -58,7 +58,7 @@ def zscore_filter(series: np.ndarray, window: int = 10, threshold: float = 3.0) 
         return np.zeros(len(series), dtype=bool)
     mask = np.zeros(len(series), dtype=bool)
     for i in range(window, len(series)):
-        local = series[max(0, i - window): i]  # 局部窗口
+        local = series[max(0, i - window) : i]  # 局部窗口
         mu, sigma = np.mean(local), np.std(local)
         if sigma > 1e-8:  # 方差太小不判断
             z = abs(series[i] - mu) / sigma
@@ -87,8 +87,8 @@ def savitzky_golay_smooth(series: np.ndarray, window: int = 5, order: int = 2) -
     smoothed = series.copy().astype(float)
     for i in range(half, len(series) - half):
         x = np.arange(-half, half + 1)  # [-2, -1, 0, 1, 2] for window=5
-        A = np.vstack([x ** k for k in range(order + 1)]).T  # Vandermonde 矩阵
-        y = series[i - half: i + half + 1]
+        A = np.vstack([x**k for k in range(order + 1)]).T  # Vandermonde 矩阵
+        y = series[i - half : i + half + 1]
         try:
             coeff = np.linalg.lstsq(A, y, rcond=None)[0]  # 最小二乘拟合
             smoothed[i] = coeff[0]  # 取常数项作为平滑值
@@ -122,7 +122,9 @@ def interpolate_outliers(series: np.ndarray, mask: np.ndarray) -> np.ndarray:
             next_idx += 1
         if prev_idx >= 0 and next_idx < len(mask):
             # 线性插值在两个有效点之间
-            result[idx] = result[prev_idx] + (result[next_idx] - result[prev_idx]) * (idx - prev_idx) / (next_idx - prev_idx)
+            result[idx] = result[prev_idx] + (result[next_idx] - result[prev_idx]) * (idx - prev_idx) / (
+                next_idx - prev_idx
+            )
         elif prev_idx >= 0:
             result[idx] = result[prev_idx]
         elif next_idx < len(mask):

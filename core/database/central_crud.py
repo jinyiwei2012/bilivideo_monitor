@@ -524,14 +524,20 @@ class CentralCRUD:
                          predicted_seconds, predicted_time, confidence, current_views,
                          predicted_views, metadata, predicted_hours, current_velocity)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                        (bvid, r["algorithm"], r["algorithm_id"],
-                         _clamp_int(r.get("target_threshold", 0)),
-                         _clamp_int(r.get("predicted_seconds", 0)),
-                         r.get("predicted_time", ""), r["confidence"],
-                         _clamp_int(r.get("current_views", 0)),
-                         _clamp_int(r.get("predicted_views", 0)),
-                         r.get("metadata", ""), r.get("predicted_hours", 0),
-                         r.get("current_velocity", 0)),
+                        (
+                            bvid,
+                            r["algorithm"],
+                            r["algorithm_id"],
+                            _clamp_int(r.get("target_threshold", 0)),
+                            _clamp_int(r.get("predicted_seconds", 0)),
+                            r.get("predicted_time", ""),
+                            r["confidence"],
+                            _clamp_int(r.get("current_views", 0)),
+                            _clamp_int(r.get("predicted_views", 0)),
+                            r.get("metadata", ""),
+                            r.get("predicted_hours", 0),
+                            r.get("current_velocity", 0),
+                        ),
                     )
                 conn.commit()
                 return True
@@ -550,13 +556,20 @@ class CentralCRUD:
                      interval_lower, interval_upper, interval_width_ratio,
                      surge_correction_applied, surge_magnitude, surge_type)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (bvid, timestamp,
-                     int(data.get("prediction", 0)), data.get("confidence", 0),
-                     data.get("valid_algos", 0), data.get("total_algos", 0),
-                     interval.get("lower"), interval.get("upper"),
-                     interval.get("interval_width_ratio"),
-                     int(data.get("surge_correction_applied", False)),
-                     data.get("surge_magnitude"), data.get("surge_type", "")),
+                    (
+                        bvid,
+                        timestamp,
+                        int(data.get("prediction", 0)),
+                        data.get("confidence", 0),
+                        data.get("valid_algos", 0),
+                        data.get("total_algos", 0),
+                        interval.get("lower"),
+                        interval.get("upper"),
+                        interval.get("interval_width_ratio"),
+                        int(data.get("surge_correction_applied", False)),
+                        data.get("surge_magnitude"),
+                        data.get("surge_type", ""),
+                    ),
                 )
                 conn.commit()
                 return True
@@ -592,13 +605,21 @@ class CentralCRUD:
                      favorite_score, coin_score, like_score, correction_a, correction_b,
                      correction_c, correction_d, base_view_score)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (bvid, timestamp,
-                     score_data.get("total_score", 0), score_data.get("view_score", 0),
-                     score_data.get("interaction_score", 0), score_data.get("favorite_score", 0),
-                     score_data.get("coin_score", 0), score_data.get("like_score", 0),
-                     score_data.get("correction_a", 0), score_data.get("correction_b", 0),
-                     score_data.get("correction_c", 0), score_data.get("correction_d", 0),
-                     score_data.get("base_view_score", 0)),
+                    (
+                        bvid,
+                        timestamp,
+                        score_data.get("total_score", 0),
+                        score_data.get("view_score", 0),
+                        score_data.get("interaction_score", 0),
+                        score_data.get("favorite_score", 0),
+                        score_data.get("coin_score", 0),
+                        score_data.get("like_score", 0),
+                        score_data.get("correction_a", 0),
+                        score_data.get("correction_b", 0),
+                        score_data.get("correction_c", 0),
+                        score_data.get("correction_d", 0),
+                        score_data.get("base_view_score", 0),
+                    ),
                 )
                 conn.commit()
                 return True
@@ -616,12 +637,19 @@ class CentralCRUD:
                      favorite_score, coin_score, like_score, correction_a, correction_b,
                      correction_c)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (bvid, timestamp,
-                     score_data.get("total_score", 0), score_data.get("view_score", 0),
-                     score_data.get("interaction_score", 0), score_data.get("favorite_score", 0),
-                     score_data.get("coin_score", 0), score_data.get("like_score", 0),
-                     score_data.get("correction_a", 0), score_data.get("correction_b", 0),
-                     score_data.get("correction_c", 0)),
+                    (
+                        bvid,
+                        timestamp,
+                        score_data.get("total_score", 0),
+                        score_data.get("view_score", 0),
+                        score_data.get("interaction_score", 0),
+                        score_data.get("favorite_score", 0),
+                        score_data.get("coin_score", 0),
+                        score_data.get("like_score", 0),
+                        score_data.get("correction_a", 0),
+                        score_data.get("correction_b", 0),
+                        score_data.get("correction_c", 0),
+                    ),
                 )
                 conn.commit()
                 return True
@@ -658,7 +686,8 @@ class CentralCRUD:
                 if result["deleted"] > 0:
                     logger.info(
                         "中央库预测清理完成: 删除%d行, 保留%d行",
-                        result["deleted"], result["kept"],
+                        result["deleted"],
+                        result["kept"],
                     )
         except Exception as e:
             logger.warning("中央库预测清理失败: %s", e, exc_info=True)

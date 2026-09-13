@@ -3,12 +3,20 @@
 
 三个标签页：同期对比、增速排名、预测一致性
 """
+
 import logging
 from datetime import datetime, timedelta
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QTabWidget,
+    QTableWidget,
+    QTableWidgetItem,
+    QHeaderView,
     QComboBox,
 )
 
@@ -226,6 +234,7 @@ class VideoCompareEnhanced:
 
     def _refresh_consistency(self):
         import numpy as np
+
         rows = []
 
         for v in self.gui.monitored_videos:

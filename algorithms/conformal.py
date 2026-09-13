@@ -89,7 +89,7 @@ class ConformalPredictor:
             self._scores.append(score)
             # 超过上限时裁剪后半段，保留最近的样本（适应分布漂移）
             if len(self._scores) > self.max_scores:
-                self._scores = self._scores[-self.max_scores // 2:]
+                self._scores = self._scores[-self.max_scores // 2 :]
 
     def predict_interval(self, y_pred: float) -> Dict:
         """为给定预测值计算保形预测区间。
@@ -105,7 +105,13 @@ class ConformalPredictor:
             dict: {lower, upper, coverage, calibrated, interval_width_ratio, calibration_size}
         """
         if y_pred <= 0:
-            return {"lower": 0, "upper": 0, "coverage": 1 - self.alpha, "calibrated": False, "interval_width_ratio": 0.0}
+            return {
+                "lower": 0,
+                "upper": 0,
+                "coverage": 1 - self.alpha,
+                "calibrated": False,
+                "interval_width_ratio": 0.0,
+            }
 
         import math as _math
 

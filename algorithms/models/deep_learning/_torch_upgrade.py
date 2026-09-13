@@ -510,7 +510,7 @@ if _torch_available:  # noqa: C901
             # 多头 QKV 投影
             qkv = self.qkv(h).reshape(B, W, 3, self.heads, self.dk).permute(2, 0, 3, 1, 4)
             q, k, v = qkv[0], qkv[1], qkv[2]  # [B, H, W, dk]
-            scores = (q @ k.transpose(-2, -1)) / (self.dk ** 0.5)  # 避免 np.sqrt 导致 torch.compile 失败
+            scores = (q @ k.transpose(-2, -1)) / (self.dk**0.5)  # 避免 np.sqrt 导致 torch.compile 失败
             # Top-K mask 实现稀疏注意力
             top_k = max(1, int(W * self.top_k_ratio))
             top_vals, _ = scores.topk(top_k, dim=-1)
@@ -1152,14 +1152,18 @@ if _torch_available:  # noqa: C901
             self.horizon = horizon
             self.scales = scales
             self.proj = nn.Linear(in_features, d_model)
-            self.down_samples = nn.ModuleList([
-                nn.AvgPool1d(kernel_size=2**s, stride=2**s) if 2**s <= window // 4 else nn.Identity()
-                for s in range(scales)
-            ])
-            self.mixers = nn.ModuleList([
-                nn.Sequential(nn.Linear(d_model, d_model * 2), nn.GELU(), nn.Linear(d_model * 2, d_model))
-                for _ in range(scales)
-            ])
+            self.down_samples = nn.ModuleList(
+                [
+                    nn.AvgPool1d(kernel_size=2**s, stride=2**s) if 2**s <= window // 4 else nn.Identity()
+                    for s in range(scales)
+                ]
+            )
+            self.mixers = nn.ModuleList(
+                [
+                    nn.Sequential(nn.Linear(d_model, d_model * 2), nn.GELU(), nn.Linear(d_model * 2, d_model))
+                    for _ in range(scales)
+                ]
+            )
             self.fusion = nn.Linear(scales * d_model, d_model)  # 多尺度融合
             self.head = nn.Linear(d_model * window, horizon)
 
@@ -1220,7 +1224,9 @@ if _torch_available:  # noqa: C901
                 self.backward_convs.append(
                     nn.Conv1d(channels, channels, kernel_size, dilation=dil, padding=dil * (kernel_size - 1) // 2)
                 )
-            self.head = nn.Sequential(nn.Linear(channels * 2 * window, horizon * 2), nn.GELU(), nn.Linear(horizon * 2, horizon))
+            self.head = nn.Sequential(
+                nn.Linear(channels * 2 * window, horizon * 2), nn.GELU(), nn.Linear(horizon * 2, horizon)
+            )
 
         def forward(self, x):
             """前向传播。
@@ -1239,9 +1245,9 @@ if _torch_available:  # noqa: C901
                 h_f = F.gelu(f_conv(h_f))
                 h_b = F.gelu(b_conv(h_b))
             h_cat = torch.cat([h_f, h_b.flip(-1)], dim=1).flatten(1)  # 双向拼接（反向翻转回正序）
-            y = self.head(h_cat)                                                  # [B, H]
-            y = self.revin(y.unsqueeze(-1), "denorm")                             # [B, H, F]（denorm 内 stdev 广播）
-            return y.mean(dim=-1)                                                  # [B, H] 聚合回标量预测
+            y = self.head(h_cat)  # [B, H]
+            y = self.revin(y.unsqueeze(-1), "denorm")  # [B, H, F]（denorm 内 stdev 广播）
+            return y.mean(dim=-1)  # [B, H] 聚合回标量预测
 
     # ── 32. WPMixer（小波包多分辨率混合, AAAI 2025） ──
     class WPMixerTorchModel(nn.Module):
@@ -1265,10 +1271,12 @@ if _torch_available:  # noqa: C901
             self.horizon = horizon
             self.proj = nn.Linear(in_features, d_model)
             # 多分辨率分支：原始 + 2x down + 4x down
-            self.branches = nn.ModuleList([
-                nn.Sequential(nn.Linear(window * d_model, d_model * 4), nn.GELU(), nn.Linear(d_model * 4, horizon))
-                for _ in range(3)
-            ])
+            self.branches = nn.ModuleList(
+                [
+                    nn.Sequential(nn.Linear(window * d_model, d_model * 4), nn.GELU(), nn.Linear(d_model * 4, horizon))
+                    for _ in range(3)
+                ]
+            )
             self.down2 = nn.AvgPool1d(2, 2)
             self.down4 = nn.AvgPool1d(4, 4)
             self.fusion = nn.Linear(3 * horizon, horizon)
@@ -1321,12 +1329,16 @@ if _torch_available:  # noqa: C901
             self.horizon = horizon
             self.n_components = n_components
             self.encoder = nn.Sequential(
-                nn.Linear(window * in_features, d_model), nn.GELU(), nn.Linear(d_model, d_model),
+                nn.Linear(window * in_features, d_model),
+                nn.GELU(),
+                nn.Linear(d_model, d_model),
             )
             # Koopman 算子 K: 用线性层学习动力系统的演化矩阵
             self.K = nn.Linear(d_model, d_model * n_components, bias=False)  # 无偏置的线性变换
             self.decoder = nn.Sequential(
-                nn.Linear(d_model * n_components, d_model), nn.GELU(), nn.Linear(d_model, horizon),
+                nn.Linear(d_model * n_components, d_model),
+                nn.GELU(),
+                nn.Linear(d_model, horizon),
             )
 
         def forward(self, x):
@@ -1387,7 +1399,9 @@ if _torch_available:  # noqa: C901
                 end = min(start + self.seg_len, W)
                 seg = x[:, start:end, :]
                 if seg.shape[1] < self.seg_len:
-                    seg = F.pad(seg.flatten(1), (0, self.seg_len * F - seg.flatten(1).shape[1])).view(B, self.seg_len, F)
+                    seg = F.pad(seg.flatten(1), (0, self.seg_len * F - seg.flatten(1).shape[1])).view(
+                        B, self.seg_len, F
+                    )
                 segs.append(seg.flatten(1))
             x_stacked = torch.stack(segs, dim=1)  # [B, Nseg, seg_len*F]
             h = self.proj(x_stacked)  # [B, Nseg, D]
@@ -1416,7 +1430,9 @@ if _torch_available:  # noqa: C901
             self.proj = nn.Linear(in_features, d_model)
             self.legendre = nn.Linear(1, 8)  # 每个时间位置独立投影到 8 维 Legendre 基底
             self.freq_mix = nn.Sequential(
-                nn.Linear(8 * d_model, d_model * 2), nn.GELU(), nn.Linear(d_model * 2, d_model),
+                nn.Linear(8 * d_model, d_model * 2),
+                nn.GELU(),
+                nn.Linear(d_model * 2, d_model),
             )
             self.head = nn.Linear(d_model * window, horizon)
 
@@ -1460,7 +1476,9 @@ if _torch_available:  # noqa: C901
             self.horizon = horizon
             self.proj = nn.Linear(in_features, d_model)
             self.freq_mlp = nn.Sequential(
-                nn.Linear(window // 2 + 1, d_model), nn.GELU(), nn.Linear(d_model, window // 2 + 1),
+                nn.Linear(window // 2 + 1, d_model),
+                nn.GELU(),
+                nn.Linear(d_model, window // 2 + 1),
             )  # 频域 MLP（幅度处理）
             self.head = nn.Linear(d_model * window, horizon)
 
@@ -1510,7 +1528,9 @@ if _torch_available:  # noqa: C901
             self.out_proj = nn.Linear(d_model, d_model)
             # 趋势分解：移动平均
             self.trend_avg = nn.AvgPool1d(kernel_size=3, stride=1, padding=1)
-            self.head = nn.Sequential(nn.Linear(d_model * window, horizon * 2), nn.GELU(), nn.Linear(horizon * 2, horizon))
+            self.head = nn.Sequential(
+                nn.Linear(d_model * window, horizon * 2), nn.GELU(), nn.Linear(horizon * 2, horizon)
+            )
 
         def _auto_correlation(self, x):
             """通过 FFT 计算时序自相关系数。
@@ -1573,7 +1593,9 @@ if _torch_available:  # noqa: C901
             self.n_modes = n_modes
             self.proj = nn.Linear(in_features, d_model)
             self.freq_enhance = nn.Sequential(
-                nn.Linear(d_model * 2, d_model * 4), nn.GELU(), nn.Linear(d_model * 4, d_model),
+                nn.Linear(d_model * 2, d_model * 4),
+                nn.GELU(),
+                nn.Linear(d_model * 4, d_model),
             )
             self.head = nn.Linear(d_model * window, horizon)
 
@@ -1649,7 +1671,7 @@ if _torch_available:  # noqa: C901
             h = self.proj(x)  # [B, W, D]
             B, W, D = h.shape
             # 步长采样
-            sampled = h[:, ::self.stride, :]  # [B, N, D]  每隔 stride 步采样
+            sampled = h[:, :: self.stride, :]  # [B, N, D]  每隔 stride 步采样
             if sampled.shape[1] < self.n_samples:
                 pad_len = self.n_samples - sampled.shape[1]
                 sampled = F.pad(sampled, (0, 0, 0, pad_len))  # 补齐不足
@@ -1784,7 +1806,7 @@ from collections import OrderedDict
 
 _GPU_MODEL_LRU: OrderedDict = OrderedDict()  # algo_bvid_key → (model, vram_mb, ts)
 _GPU_LRU_LOCK = threading.Lock()
-_GPU_VRAM_RESERVE_MB = 512     # 保留 512MB 给其他操作
+_GPU_VRAM_RESERVE_MB = 512  # 保留 512MB 给其他操作
 _GPU_VRAM_MIN_FREE_RATIO = 0.15  # 至少保留 15% 显存空闲
 
 
@@ -1900,6 +1922,7 @@ def release_cached_models(algorithms_dict: dict = None, keep_bvid: str = "") -> 
     if algorithms_dict is None:
         try:
             from algorithms.registry import AlgorithmRegistry
+
             algorithms_dict = AlgorithmRegistry._algorithms
         except Exception:
             return 0
@@ -1924,6 +1947,7 @@ def release_cached_models(algorithms_dict: dict = None, keep_bvid: str = "") -> 
         count += 1
     if count > 0:
         import gc
+
         gc.collect()
         try:
             torch.cuda.empty_cache()
@@ -2030,34 +2054,66 @@ def try_torch_predict(
 
     # ── Phase 1: ONNX Runtime（NPU/CPU 优先）──────────
     from algorithms.training.device import get_preferred_device
+
     prefer = get_preferred_device()
-    skip_onnx = (prefer == "cuda")
-    skip_torch = (prefer == "onnx_dml" or prefer == "cpu")
+    skip_onnx = prefer == "cuda"
+    skip_torch = prefer == "onnx_dml" or prefer == "cpu"
 
     x_arr, v_mean, v_std = _build_torch_input(video_data, feats, window)
     if x_arr is not None:
         if prefer == "auto":
             # 自动模式：基准测试排序后端，按速度依次尝试
             ranked = _rank_backends(
-                algo_id, x_arr, window, len(feats) + 5, v_mean, v_std,
-                algorithm, video_data, threshold, model_source,
-                model_cls=model_cls, model_kwargs=model_kwargs,
-                features=feats, horizon=horizon
+                algo_id,
+                x_arr,
+                window,
+                len(feats) + 5,
+                v_mean,
+                v_std,
+                algorithm,
+                video_data,
+                threshold,
+                model_source,
+                model_cls=model_cls,
+                model_kwargs=model_kwargs,
+                features=feats,
+                horizon=horizon,
             )
             for backend in ranked:
                 if backend == "onnx":
                     onnx_result = _try_onnx_predict(
-                        algo_id, bvid, x_arr, window, len(feats) + 5,
-                        v_mean, v_std, algorithm, video_data, threshold, model_source
+                        algo_id,
+                        bvid,
+                        x_arr,
+                        window,
+                        len(feats) + 5,
+                        v_mean,
+                        v_std,
+                        algorithm,
+                        video_data,
+                        threshold,
+                        model_source,
                     )
                     if onnx_result is not None:
                         return onnx_result
                 elif backend == "npu":
                     npu_result = _try_npu_predict(
-                        algo_id, bvid, x_arr, window, len(feats) + 5, v_mean, v_std,
-                        algorithm, video_data, threshold, model_source,
-                        model_cls=model_cls, model_kwargs=model_kwargs,
-                        feats=feats, horizon=horizon, state=state,
+                        algo_id,
+                        bvid,
+                        x_arr,
+                        window,
+                        len(feats) + 5,
+                        v_mean,
+                        v_std,
+                        algorithm,
+                        video_data,
+                        threshold,
+                        model_source,
+                        model_cls=model_cls,
+                        model_kwargs=model_kwargs,
+                        feats=feats,
+                        horizon=horizon,
+                        state=state,
                     )
                     if npu_result is not None:
                         return npu_result
@@ -2066,8 +2122,17 @@ def try_torch_predict(
                     break
         elif not skip_onnx:
             onnx_result = _try_onnx_predict(
-                algo_id, bvid, x_arr, window, len(feats) + 5,
-                v_mean, v_std, algorithm, video_data, threshold, model_source
+                algo_id,
+                bvid,
+                x_arr,
+                window,
+                len(feats) + 5,
+                v_mean,
+                v_std,
+                algorithm,
+                video_data,
+                threshold,
+                model_source,
             )
             if onnx_result is not None:
                 return onnx_result
@@ -2132,8 +2197,15 @@ def try_torch_predict(
         long_velocity = None
         if bool(getattr(model, "_dual_output", False)) and len(y) > horizon:
             long_velocity = max(0.0, float(y[horizon]) * v_std + v_mean)
-        return _generic_result(algorithm, video_data, threshold, predicted_velocity, y,
-                               model_source=model_source, long_velocity=long_velocity)
+        return _generic_result(
+            algorithm,
+            video_data,
+            threshold,
+            predicted_velocity,
+            y,
+            model_source=model_source,
+            long_velocity=long_velocity,
+        )
 
     except Exception as e:
         # GPU OOM 时尝试淘汰后重试一次
@@ -2142,8 +2214,9 @@ def try_torch_predict(
                 _evict_lru_gpu_model()
                 torch.cuda.empty_cache()
                 algorithm._cached_torch_model = None
-                return try_torch_predict(algorithm, video_data, threshold, model_cls,
-                                         fallback_fn, model_kwargs, features, window, horizon)
+                return try_torch_predict(
+                    algorithm, video_data, threshold, model_cls, fallback_fn, model_kwargs, features, window, horizon
+                )
             except Exception:
                 pass
 
@@ -2151,6 +2224,7 @@ def try_torch_predict(
         if x_arr is not None:
             try:
                 from algorithms.training.npu_inference import get_npu_engine
+
                 engine = get_npu_engine()
                 if engine.is_available:
                     model = getattr(algorithm, "_cached_torch_model", None)
@@ -2165,8 +2239,15 @@ def try_torch_predict(
                     long_velocity = None
                     if bool(getattr(model, "_dual_output", False)) and len(y_np) > horizon:
                         long_velocity = max(0.0, float(y_np[horizon]) * v_std + v_mean)
-                    return _generic_result(algorithm, video_data, threshold, predicted_velocity, y_np,
-                                           model_source=model_source, long_velocity=long_velocity)
+                    return _generic_result(
+                        algorithm,
+                        video_data,
+                        threshold,
+                        predicted_velocity,
+                        y_np,
+                        model_source=model_source,
+                        long_velocity=long_velocity,
+                    )
             except Exception:
                 pass
 
@@ -2176,9 +2257,17 @@ def try_torch_predict(
         window_val = window
         in_features_val = len(feats) + 5 if feats else 15
         onnx_result = _try_onnx_predict(
-            algo_id, bvid, x_arr if x_arr is not None else _build_torch_input(video_data, feats, window)[0],
-            window_val, in_features_val, v_mean, v_std,
-            algorithm, video_data, threshold, model_source
+            algo_id,
+            bvid,
+            x_arr if x_arr is not None else _build_torch_input(video_data, feats, window)[0],
+            window_val,
+            in_features_val,
+            v_mean,
+            v_std,
+            algorithm,
+            video_data,
+            threshold,
+            model_source,
         )
         if onnx_result is not None:
             return onnx_result
@@ -2193,9 +2282,22 @@ _AUTO_BENCHMARKED: set = set()
 _BENCHMARK_LOCK = threading.Lock()
 
 
-def _rank_backends(algo_id, x_arr, window, in_features, v_mean, v_std,
-                   algorithm, video_data, threshold, model_source,
-                   model_cls, model_kwargs, features, horizon) -> List[str]:
+def _rank_backends(
+    algo_id,
+    x_arr,
+    window,
+    in_features,
+    v_mean,
+    v_std,
+    algorithm,
+    video_data,
+    threshold,
+    model_source,
+    model_cls,
+    model_kwargs,
+    features,
+    horizon,
+) -> List[str]:
     """基准测试各推理后端速度，返回按速度排序的后端列表（最快优先）。
 
     首次调用时对 torch / NPU / ONNX 各执行 warmup + 10 次推理取均值，
@@ -2209,11 +2311,13 @@ def _rank_backends(algo_id, x_arr, window, in_features, v_mean, v_std,
             return _AUTO_BACKEND_RANK[algo_id]
 
         import time as _time
+
         rankings = []  # [(backend_name, avg_latency_ms), ...]
 
         # ── Benchmark torch ─────────────────────
         try:
             from algorithms.training.checkpoint_manager import load_best_checkpoint
+
             bvid_ = video_data.get("bvid", "")
             state_, _ = load_best_checkpoint(algo_id, bvid=bvid_)
             if state_ is not None:
@@ -2239,8 +2343,9 @@ def _rank_backends(algo_id, x_arr, window, in_features, v_mean, v_std,
         # ── Benchmark NPU ───────────────────────
         try:
             from algorithms.training.npu_inference import get_npu_engine
+
             engine = get_npu_engine()
-            if engine.is_available and 'state_' in dir() and state_ is not None:
+            if engine.is_available and "state_" in dir() and state_ is not None:
                 model_n = load_checkpoint_model(model_cls, model_kwargs, state_, window, in_features, horizon)
                 # Prepare (compile once, cached on disk)
                 engine.prepare_model(algo_id, model_n, torch.from_numpy(x_arr).unsqueeze(0))
@@ -2261,6 +2366,7 @@ def _rank_backends(algo_id, x_arr, window, in_features, v_mean, v_std,
         # ── Benchmark ONNX ──────────────────────
         try:
             from algorithms.training.onnx_exporter import get_onnx_session, is_onnx_available
+
             if is_onnx_available():
                 session = get_onnx_session()
                 for _ in range(3):  # warmup
@@ -2280,17 +2386,17 @@ def _rank_backends(algo_id, x_arr, window, in_features, v_mean, v_std,
         if not result:
             result = ["torch"]
         _AUTO_BACKEND_RANK[algo_id] = result
-        logger.info("[%s] 后端排序: %s", algo_id, " > ".join(
-            f"{n}({l:.2f}ms)" for n, l in sorted_rankings
-        ))
+        logger.info("[%s] 后端排序: %s", algo_id, " > ".join(f"{n}({l:.2f}ms)" for n, l in sorted_rankings))
         return result
 
 
-def _try_onnx_predict(algo_id, bvid, x_arr, window, in_features, v_mean, v_std,
-                      algorithm, video_data, threshold, model_source):
+def _try_onnx_predict(
+    algo_id, bvid, x_arr, window, in_features, v_mean, v_std, algorithm, video_data, threshold, model_source
+):
     """ONNX Runtime 推理尝试，成功返回 PredictionResult，失败返回 None。"""
     try:
         from algorithms.training.onnx_exporter import get_onnx_session, is_onnx_available
+
         if not is_onnx_available():
             return None
 
@@ -2304,18 +2410,41 @@ def _try_onnx_predict(algo_id, bvid, x_arr, window, in_features, v_mean, v_std,
         long_velocity = None
         if len(y) > horizon:
             long_velocity = max(0.0, float(y[horizon]) * v_std + v_mean)
-        return _generic_result(algorithm, video_data, threshold, predicted_velocity, y,
-                               model_source=f"{model_source}+ONNX", long_velocity=long_velocity)
+        return _generic_result(
+            algorithm,
+            video_data,
+            threshold,
+            predicted_velocity,
+            y,
+            model_source=f"{model_source}+ONNX",
+            long_velocity=long_velocity,
+        )
     except Exception:
         return None
 
 
-def _try_npu_predict(algo_id, bvid, x_arr, window, in_features, v_mean, v_std,
-                     algorithm, video_data, threshold, model_source,
-                     model_cls=None, model_kwargs=None, feats=None, horizon=None, state=None):
+def _try_npu_predict(
+    algo_id,
+    bvid,
+    x_arr,
+    window,
+    in_features,
+    v_mean,
+    v_std,
+    algorithm,
+    video_data,
+    threshold,
+    model_source,
+    model_cls=None,
+    model_kwargs=None,
+    feats=None,
+    horizon=None,
+    state=None,
+):
     """NPU 推理尝试，成功返回 PredictionResult，失败返回 None。"""
     try:
         from algorithms.training.npu_inference import get_npu_engine
+
         engine = get_npu_engine()
         if not engine.is_available:
             return None
@@ -2324,8 +2453,7 @@ def _try_npu_predict(algo_id, bvid, x_arr, window, in_features, v_mean, v_std,
         if model is None or (bvid and not getattr(algorithm, "_cached_bvid", "") == bvid):
             if model_cls is None or state is None:
                 return None
-            model = load_checkpoint_model(model_cls, model_kwargs, state, window, in_features,
-                                          int(horizon or 3))
+            model = load_checkpoint_model(model_cls, model_kwargs, state, window, in_features, int(horizon or 3))
             algorithm._cached_torch_model = model
             algorithm._cached_bvid = bvid or ""
 
@@ -2335,8 +2463,15 @@ def _try_npu_predict(algo_id, bvid, x_arr, window, in_features, v_mean, v_std,
         long_velocity = None
         if bool(getattr(model, "_dual_output", False)) and len(y_np) > int(horizon or 3):
             long_velocity = max(0.0, float(y_np[int(horizon or 3)]) * v_std + v_mean)
-        return _generic_result(algorithm, video_data, threshold, predicted_velocity, y_np,
-                               model_source=f"{model_source}+NPU", long_velocity=long_velocity)
+        return _generic_result(
+            algorithm,
+            video_data,
+            threshold,
+            predicted_velocity,
+            y_np,
+            model_source=f"{model_source}+NPU",
+            long_velocity=long_velocity,
+        )
     except Exception:
         return None
 
@@ -2367,10 +2502,7 @@ def _add_derived_features(arr: np.ndarray) -> np.ndarray:
         roll_mean = np.full(N, float(target.mean()))
     # rolling std (window=5)
     if N >= 5:
-        roll_std = np.array([
-            float(np.std(target[max(0, i-2):min(N, i+3)]))
-            for i in range(N)
-        ], dtype=np.float32)
+        roll_std = np.array([float(np.std(target[max(0, i - 2) : min(N, i + 3)])) for i in range(N)], dtype=np.float32)
     else:
         roll_std = np.full(N, float(target.std() or 1.0))
     # 加速度（view_count 的二阶差分）
@@ -2561,7 +2693,7 @@ def load_checkpoint_model(model_cls, model_kwargs, state, window, in_features, h
         state = state[0]
     if not isinstance(state, dict):
         raise TypeError(f"checkpoint 格式异常 (type={type(state).__name__})")
-    state = {k[len("_orig_mod."):] if k.startswith("_orig_mod.") else k: v for k, v in state.items()}
+    state = {k[len("_orig_mod.") :] if k.startswith("_orig_mod.") else k: v for k, v in state.items()}
 
     model = model_cls(**mk)
     try:

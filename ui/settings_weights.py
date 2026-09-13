@@ -5,8 +5,13 @@
 import logging
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-    QCheckBox, QDoubleSpinBox, QMessageBox,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QPushButton,
+    QCheckBox,
+    QDoubleSpinBox,
+    QMessageBox,
 )
 
 from ui.theme import C
@@ -33,8 +38,7 @@ class SettingsWeightsMixin:
 
         info_sec = QWidget()
         info_sec.setStyleSheet(
-            f"background-color: {C['bg_elevated']}; "
-            f"border: 1px solid {C['border_sub']}; border-radius: 2px;"
+            f"background-color: {C['bg_elevated']}; " f"border: 1px solid {C['border_sub']}; border-radius: 2px;"
         )
         info_layout = QVBoxLayout(info_sec)
         info_layout.setContentsMargins(14, 10, 14, 8)
@@ -48,10 +52,7 @@ class SettingsWeightsMixin:
 
         # 表头
         hdr = QWidget()
-        hdr.setStyleSheet(
-            f"background-color: {C['bg_surface']}; "
-            f"border: 1px solid {C['border_sub']};"
-        )
+        hdr.setStyleSheet(f"background-color: {C['bg_surface']}; " f"border: 1px solid {C['border_sub']};")
         hdr_layout = QHBoxLayout(hdr)
         hdr_layout.setContentsMargins(6, 4, 6, 4)
         col_defs = [("算法", 200), ("自定义", 70), ("权重值", 100), ("ML权重", 100), ("准确率", 100), ("样本数", 80)]
@@ -77,10 +78,7 @@ class SettingsWeightsMixin:
         algo_info = AlgorithmRegistry.get_weights_info()
         for info in algo_info:
             row = QWidget()
-            row.setStyleSheet(
-                f"background-color: {C['bg_surface']}; "
-                f"border-bottom: 1px solid {C['border_sub']};"
-            )
+            row.setStyleSheet(f"background-color: {C['bg_surface']}; " f"border-bottom: 1px solid {C['border_sub']};")
             rl = QHBoxLayout(row)
             rl.setContentsMargins(4, 2, 4, 2)
 
@@ -146,14 +144,19 @@ class SettingsWeightsMixin:
 
         page_layout.addWidget(btn_row)
 
-
     def _reset_all_weights(self):
-        if QMessageBox.question(self.dlg, "要注意哦…", "真的要重置所有自定义权重吗?重置后就像调回出厂音色,天依会重新练习的…♪",
-                                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes:
+        if (
+            QMessageBox.question(
+                self.dlg,
+                "要注意哦…",
+                "真的要重置所有自定义权重吗?重置后就像调回出厂音色,天依会重新练习的…♪",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            == QMessageBox.StandardButton.Yes
+        ):
             get_weight_manager().reset_weights()
             self._refresh_weights()
             QMessageBox.information(self.dlg, "完成啦 ♪", "已重置所有权重啦 ♪ 天依会重新开始练习的")
-
 
     def _refresh_weights(self):
         algo_info = AlgorithmRegistry.get_weights_info()
@@ -163,7 +166,6 @@ class SettingsWeightsMixin:
                 self._weight_vars[name].setValue(info.get("user_weight") or info.get("final_weight", 1.0))
             if name in self._weight_check_vars:
                 self._weight_check_vars[name].setChecked(info["is_customized"])
-
 
     def _save_weights(self):
         for name, cb in self._weight_check_vars.items():

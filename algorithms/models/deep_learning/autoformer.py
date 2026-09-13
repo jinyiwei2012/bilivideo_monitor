@@ -56,8 +56,13 @@ class AutoformerAlgorithm(BaseAlgorithm):
             PredictionResult 预测结果对象
         """
         return try_torch_predict(
-            self, video_data, threshold, AutoformerTorchModel, self._numpy_predict,
-            window=self.training_window, horizon=self.training_horizon,
+            self,
+            video_data,
+            threshold,
+            AutoformerTorchModel,
+            self._numpy_predict,
+            window=self.training_window,
+            horizon=self.training_horizon,
         )
 
     def build_model(self):
@@ -67,8 +72,11 @@ class AutoformerAlgorithm(BaseAlgorithm):
             AutoformerTorchModel 实例
         """
         return AutoformerTorchModel(
-            in_features=getattr(self, '_training_n_features', 5),
-            window=self.training_window, horizon=self.training_horizon, d_model=32, n_heads=2,
+            in_features=getattr(self, "_training_n_features", 5),
+            window=self.training_window,
+            horizon=self.training_horizon,
+            d_model=32,
+            n_heads=2,
         )
 
     def get_training_features(self) -> List[str]:
@@ -106,28 +114,36 @@ class AutoformerAlgorithm(BaseAlgorithm):
         if len(history) < 8 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "autoformer_fallback"})
+            return self._std_result(
+                predicted_hours,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "autoformer_fallback"},
+            )
 
         import numpy as np
+
         views = np.array([h.get("view_count", 0) for h in history[-24:]], dtype=np.float64)
         n = len(views)
 
         # 移动平均趋势（核大小=3）
         ma_kernel = 3
         if n >= ma_kernel * 2:
-            trend = np.convolve(views, np.ones(ma_kernel) / ma_kernel, mode='valid')
+            trend = np.convolve(views, np.ones(ma_kernel) / ma_kernel, mode="valid")
         else:
             trend = views
 
         # 季节性 = 原始 - 趋势（高频残差）
-        seasonal = views[-len(trend):] - trend if len(trend) > 0 else views - np.mean(views)
+        seasonal = views[-len(trend) :] - trend if len(trend) > 0 else views - np.mean(views)
 
         # 自相关分析：找出最强周期
         if len(seasonal) >= 4:
-            ac = np.correlate(seasonal - np.mean(seasonal), seasonal - np.mean(seasonal), mode='full')
-            ac = ac[len(ac) // 2:]  # 仅保留正滞后
+            ac = np.correlate(seasonal - np.mean(seasonal), seasonal - np.mean(seasonal), mode="full")
+            ac = ac[len(ac) // 2 :]  # 仅保留正滞后
             ac = ac / (ac[0] + 1e-8)  # 归一化
-            peak_lag = np.argmax(ac[1:min(8, len(ac))]) + 1 if len(ac) > 1 else 1
+            peak_lag = np.argmax(ac[1 : min(8, len(ac))]) + 1 if len(ac) > 1 else 1
         else:
             peak_lag = 1
 
@@ -141,7 +157,18 @@ class AutoformerAlgorithm(BaseAlgorithm):
             predicted_velocity = velocity
 
         remaining = threshold - current_views
-        predicted_hours = (remaining / predicted_velocity) if remaining > 0 and predicted_velocity > 0 else (remaining / velocity if velocity > 0 else float("inf"))
+        predicted_hours = (
+            (remaining / predicted_velocity)
+            if remaining > 0 and predicted_velocity > 0
+            else (remaining / velocity if velocity > 0 else float("inf"))
+        )
         confidence = min(0.85, 0.35 + 0.02 * min(n, 20))
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "autoformer_numpy", "peak_lag": peak_lag, "data_points": n})
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={"method": "autoformer_numpy", "peak_lag": peak_lag, "data_points": n},
+        )

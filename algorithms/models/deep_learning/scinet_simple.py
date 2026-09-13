@@ -37,8 +37,8 @@ class ScinetSimpleAlgorithm(BaseAlgorithm):
     category = "深度学习"
     default_weight = 1.3
 
-    training_window = 10     # 训练时使用的历史窗口长度
-    training_horizon = 3     # 训练时预测的未来步数
+    training_window = 10  # 训练时使用的历史窗口长度
+    training_horizon = 3  # 训练时预测的未来步数
 
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
         """执行预测
@@ -62,7 +62,9 @@ class ScinetSimpleAlgorithm(BaseAlgorithm):
 
     def build_model(self):
         """构建SCINet PyTorch模型实例"""
-        return SCINetTorchModel(in_features=getattr(self, '_training_n_features', 5), hidden=16, horizon=self.training_horizon)
+        return SCINetTorchModel(
+            in_features=getattr(self, "_training_n_features", 5), hidden=16, horizon=self.training_horizon
+        )
 
     def get_training_features(self) -> List[str]:
         """返回训练时使用的多维特征列表"""
@@ -103,12 +105,12 @@ class ScinetSimpleAlgorithm(BaseAlgorithm):
                 2. 卷积平滑偶数序列提取低频趋势
                 3. 计算偶数-奇数差异
                 """
-                even = x[::2]    # 偶数位采样
-                odd = x[1::2]   # 奇数位采样
+                even = x[::2]  # 偶数位采样
+                odd = x[1::2]  # 奇数位采样
                 if len(even) > len(odd):
                     even = even[: len(odd)]  # 对齐长度
-                diff = even - odd             # 奇偶差异信号
-                k = np.array([0.5, 0.5])     # 简化卷积核（移动平均）
+                diff = even - odd  # 奇偶差异信号
+                k = np.array([0.5, 0.5])  # 简化卷积核（移动平均）
 
                 def conv1d(signal, kernel):
                     """简化1D卷积（same模式）"""
@@ -116,8 +118,8 @@ class ScinetSimpleAlgorithm(BaseAlgorithm):
 
                 # 卷积平滑偶数序列
                 even_filt = conv1d(even, k)
-                even_out = even - even_filt   # 去除低频趋势后的残差
-                odd_out = odd + even_filt     # 将低频趋势广播到奇数序列
+                even_out = even - even_filt  # 去除低频趋势后的残差
+                odd_out = odd + even_filt  # 将低频趋势广播到奇数序列
                 return even_out, odd_out, diff
 
             def _interact(even, odd, diff):
@@ -160,6 +162,13 @@ class ScinetSimpleAlgorithm(BaseAlgorithm):
                 predicted_hours = remaining / predicted_velocity
                 confidence = max(0.1, min(0.8, 0.5))
 
-            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "scinet", "scales": 2})
+            return self._std_result(
+                predicted_hours,
+                confidence,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "scinet", "scales": 2},
+            )
         except Exception:
             return self._fallback(velocity, current_views, threshold, method="scinet")

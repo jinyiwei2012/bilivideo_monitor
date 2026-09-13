@@ -48,7 +48,7 @@ class MoiraiAlgorithm(BaseAlgorithm):
     algorithm_id = "moirai"
     description = "Salesforce MOIRAI 时序基础模型（HuggingFace 零样本）"
     category = "Transformer模型"
-    default_weight = 1.5    # 基础模型权重稍高（预训练优势）
+    default_weight = 1.5  # 基础模型权重稍高（预训练优势）
 
     def __init__(self):
         """初始化MOIRAI算法
@@ -56,8 +56,8 @@ class MoiraiAlgorithm(BaseAlgorithm):
         设置模型缓存、加载尝试标记，并检查HuggingFace环境是否可用。
         """
         super().__init__()
-        self._cached_model = None      # 缓存已加载的MOIRAI模型
-        self._tried_load = False       # 是否已尝试加载模型
+        self._cached_model = None  # 缓存已加载的MOIRAI模型
+        self._tried_load = False  # 是否已尝试加载模型
         self._available = is_hf_available()  # HuggingFace环境是否可用
 
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
@@ -266,4 +266,6 @@ class MoiraiAlgorithm(BaseAlgorithm):
                 confidence = 1.0
         metadata = {"reason": reason}
         metadata.update(extra or {})
-        return self._std_result(predicted_hours, confidence, int(current_views), threshold, velocity=float(velocity), metadata=metadata)
+        return self._std_result(
+            predicted_hours, confidence, int(current_views), threshold, velocity=float(velocity), metadata=metadata
+        )

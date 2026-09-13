@@ -93,17 +93,38 @@ class ThetaForecastAlgorithm(BaseAlgorithm):
 
         # 数据不足
         if len(history) < 4 or velocity <= 0:
-            return self._std_result(remaining / velocity if velocity > 0 else float("inf"), 0.3, current_views, threshold, velocity=velocity, metadata={"method": "theta", "notes": "insufficient_data"})
+            return self._std_result(
+                remaining / velocity if velocity > 0 else float("inf"),
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "theta", "notes": "insufficient_data"},
+            )
 
         views_sorted = self._extract_views(history)
         if views_sorted is None or len(views_sorted) < 4:
-            return self._std_result(remaining / velocity, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "theta_fallback"})
+            return self._std_result(
+                remaining / velocity,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "theta_fallback"},
+            )
 
         try:
             return self._compute_theta(views_sorted, current_views, velocity, remaining, threshold)
         except Exception as e:
             logger.warning(f"Theta预测失败: {e}")
-            return self._std_result(remaining / velocity if velocity > 0 else float("inf"), 0.0, current_views, threshold, velocity=velocity, metadata={"error": str(e)})
+            return self._std_result(
+                remaining / velocity if velocity > 0 else float("inf"),
+                0.0,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"error": str(e)},
+            )
 
     def _extract_views(self, history):
         """从历史记录中提取并排序播放量序列
@@ -196,12 +217,17 @@ class ThetaForecastAlgorithm(BaseAlgorithm):
             fit_quality = max(0.0, 1.0 - np.std(residuals) / max(scale, 1))
             confidence = min(0.9, 0.4 + 0.3 * fit_quality + 0.2 * min(1.0, n / 20))
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={
                 "method": "theta",
                 "trend_slope": coeffs[0],
                 "ses_last": float(ses_last),
                 "forecast_horizon": n_future,
                 "data_points": n,
-            })
-
-
+            },
+        )

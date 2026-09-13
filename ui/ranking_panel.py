@@ -6,7 +6,14 @@
 from datetime import datetime
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QTreeWidget, QTreeWidgetItem, QHeaderView,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QComboBox,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QHeaderView,
 )
 from PyQt6.QtCore import Qt
 

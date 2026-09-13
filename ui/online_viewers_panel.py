@@ -3,6 +3,7 @@
 实时查看所有监控视频的在线观看人数
 15s 刷新，数据写入独立 SQLite 数据库（与主视频 dict 分离，避免锁争用）。
 """
+
 import logging
 import threading
 import os
@@ -11,8 +12,14 @@ from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTreeWidget,
-    QTreeWidgetItem, QPushButton, QHeaderView,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QPushButton,
+    QHeaderView,
 )
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QFont, QColor
@@ -38,15 +45,13 @@ def _get_viewer_db(bvid: str) -> sqlite3.Connection:
     if bvid in _db_cache:
         return _db_cache[bvid]
     from config import DATA_DIR
+
     db_path = os.path.join(DATA_DIR, bvid, "viewercount.db")
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
     db = sqlite3.connect(db_path, check_same_thread=False)
     db.execute("PRAGMA journal_mode=WAL")
     db.execute("PRAGMA synchronous=NORMAL")
-    db.execute(
-        "CREATE TABLE IF NOT EXISTS viewers "
-        "(timestamp TEXT, total INTEGER, web INTEGER, app INTEGER)"
-    )
+    db.execute("CREATE TABLE IF NOT EXISTS viewers " "(timestamp TEXT, total INTEGER, web INTEGER, app INTEGER)")
     db.commit()
     _db_cache[bvid] = db
     return db
@@ -68,9 +73,7 @@ def _read_viewers() -> dict:
     result = {}
     with _db_lock:
         for bvid, db in list(_db_cache.items()):
-            cur = db.execute(
-                "SELECT total, web, app FROM viewers ORDER BY timestamp DESC LIMIT 1"
-            )
+            cur = db.execute("SELECT total, web, app FROM viewers ORDER BY timestamp DESC LIMIT 1")
             row = cur.fetchone()
             if row:
                 result[bvid] = {"total": row[0], "web": row[1], "app": row[2]}
@@ -238,8 +241,14 @@ class OnlineViewersPanel(QWidget):
     def _on_header_click(self, index):
         """点击表头排序"""
         col_map = {
-            0: "rank", 1: "title", 2: "bvid", 3: "viewers_total",
-            4: "viewers_web", 5: "viewers_app", 6: "view_count", 7: "online_rate",
+            0: "rank",
+            1: "title",
+            2: "bvid",
+            3: "viewers_total",
+            4: "viewers_web",
+            5: "viewers_app",
+            6: "view_count",
+            7: "online_rate",
         }
         col = col_map.get(index, "viewers_total")
         if self._sort_col == col:
@@ -300,7 +309,8 @@ class OnlineViewersPanel(QWidget):
         cached = _read_viewers()
         ranked = sorted(
             [(v, v.get("viewers_total", cached.get(v.get("bvid", ""), {}).get("total", 0))) for v in videos],
-            key=lambda x: x[1], reverse=True,
+            key=lambda x: x[1],
+            reverse=True,
         )
         priority_videos = [v for v, _ in ranked[:TOP_N_FETCH]]
 
@@ -325,6 +335,7 @@ class OnlineViewersPanel(QWidget):
         def _fetch_one(bvid, cid):
             try:
                 from core import bilibili_api
+
                 viewers = bilibili_api.get_video_viewers(bvid, cid)
                 if viewers:
                     total = _parse_viewer_count(viewers.get("total", "0"))
@@ -373,9 +384,14 @@ class OnlineViewersPanel(QWidget):
 
         def _sort_key(r):
             idx_map = {
-                "title": 1, "bvid": 0, "view_count": 2,
-                "viewers_total": 3, "viewers_web": 4, "viewers_app": 5,
-                "online_rate": 6, "rank": 3,
+                "title": 1,
+                "bvid": 0,
+                "view_count": 2,
+                "viewers_total": 3,
+                "viewers_web": 4,
+                "viewers_app": 5,
+                "online_rate": 6,
+                "rank": 3,
             }
             val = r[idx_map.get(col_key, 3)]
             return val.lower() if isinstance(val, str) else val

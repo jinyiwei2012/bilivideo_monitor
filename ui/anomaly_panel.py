@@ -9,8 +9,14 @@ import logging
 from datetime import datetime
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QTreeWidget, QTreeWidgetItem, QTextEdit,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QTextEdit,
 )
 from PyQt6.QtCore import Qt
 
@@ -106,7 +112,9 @@ class AnomalyPanel:
         try:
             return datetime.fromisoformat(str(ts)) if isinstance(ts, str) else datetime.fromtimestamp(float(ts))
         except Exception as e:
-            import logging; logging.getLogger(__name__).debug("异常面板时间戳解析失败: %s", e)
+            import logging
+
+            logging.getLogger(__name__).debug("异常面板时间戳解析失败: %s", e)
             return datetime.now()
 
     def _scan(self):
@@ -246,7 +254,10 @@ class AnomalyPanel:
         self._alert_data = results
         for index, r in enumerate(results):
             values = (
-                r["bvid"], r["title"], r["type"], r["time"],
+                r["bvid"],
+                r["title"],
+                r["type"],
+                r["time"],
                 fmt_num(r["views"]),
                 fmt_num(r["delta"]) if r["delta"] > 0 else "\u2014",
                 f"{r['velocity']:.0f}" if r["velocity"] > 0 else "\u2014",

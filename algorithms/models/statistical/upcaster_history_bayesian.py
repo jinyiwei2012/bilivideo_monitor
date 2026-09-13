@@ -116,7 +116,9 @@ class UpcasterHistoryBayesianAlgorithm(BaseAlgorithm):
             "method": "bayesian_update",
         }
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=posterior_velocity, metadata=metadata)
+        return self._std_result(
+            predicted_hours, confidence, current_views, threshold, velocity=posterior_velocity, metadata=metadata
+        )
 
     def _bayesian_update(
         self,
@@ -307,4 +309,6 @@ class UpcasterHistoryBayesianAlgorithm(BaseAlgorithm):
 
         metadata = {"method": "fallback_no_history", "prior_velocity": None, "posterior_velocity": velocity}
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata=metadata)
+        return self._std_result(
+            predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata=metadata
+        )

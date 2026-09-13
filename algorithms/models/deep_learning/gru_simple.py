@@ -68,7 +68,7 @@ class GRUSimpleAlgorithm(BaseAlgorithm):
         Returns:
             GRUTorchModel 实例
         """
-        return GRUTorchModel(in_features=getattr(self, '_training_n_features', 5), horizon=self.training_horizon)
+        return GRUTorchModel(in_features=getattr(self, "_training_n_features", 5), horizon=self.training_horizon)
 
     def get_training_features(self):
         """获取训练使用的特征列表。
@@ -102,11 +102,20 @@ class GRUSimpleAlgorithm(BaseAlgorithm):
 
         remaining = threshold - current_views
         if remaining <= 0:
-            return self._std_result(0, 1.0, current_views, threshold, velocity=velocity, metadata={"method": "gru_simple"})
+            return self._std_result(
+                0, 1.0, current_views, threshold, velocity=velocity, metadata={"method": "gru_simple"}
+            )
 
         if velocity <= 0 or len(history) < 2:
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "gru_simple", "notes": "insufficient_data"})
+            return self._std_result(
+                predicted_hours,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "gru_simple", "notes": "insufficient_data"},
+            )
 
         # ── 构建输入特征 ──────────────────────────
         views_seq = [h.get("view_count", 0) for h in history[-8:]]  # 取最近 8 条
@@ -149,10 +158,17 @@ class GRUSimpleAlgorithm(BaseAlgorithm):
         n_points = len(history)
         conf = min(1.0, 0.4 + n_points * 0.04 + quality * 0.2)
 
-        return self._std_result(predicted_hours, conf, current_views, threshold, velocity=adjusted_velocity, metadata={
+        return self._std_result(
+            predicted_hours,
+            conf,
+            current_views,
+            threshold,
+            velocity=adjusted_velocity,
+            metadata={
                 "method": "gru_simple",
                 "update_gate": round(z_update, 3),
                 "reset_gate": round(r_reset, 3),
                 "hidden_state": round(hidden_state, 3),
                 "sequence_length": len(views_seq),
-            })
+            },
+        )

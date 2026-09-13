@@ -95,4 +95,11 @@ class EnsembleWeightedAlgorithm(BaseAlgorithm):
             # 置信度：多个信号源参与，固定置信度较高
             confidence = 0.7
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "ensemble_weighted", "weights": [w for _, w in weighted_predictions]})
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={"method": "ensemble_weighted", "weights": [w for _, w in weighted_predictions]},
+        )

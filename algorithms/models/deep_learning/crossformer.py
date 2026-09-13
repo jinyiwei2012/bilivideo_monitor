@@ -58,8 +58,13 @@ class CrossformerAlgorithm(BaseAlgorithm):
             PredictionResult 预测结果对象
         """
         return try_torch_predict(
-            self, video_data, threshold, CrossformerTorchModel, self._numpy_predict,
-            window=self.training_window, horizon=self.training_horizon,
+            self,
+            video_data,
+            threshold,
+            CrossformerTorchModel,
+            self._numpy_predict,
+            window=self.training_window,
+            horizon=self.training_horizon,
         )
 
     def build_model(self):
@@ -69,8 +74,11 @@ class CrossformerAlgorithm(BaseAlgorithm):
             CrossformerTorchModel 实例
         """
         return CrossformerTorchModel(
-            in_features=getattr(self, '_training_n_features', 5),
-            window=self.training_window, horizon=self.training_horizon, d_model=32, seg_len=4,
+            in_features=getattr(self, "_training_n_features", 5),
+            window=self.training_window,
+            horizon=self.training_horizon,
+            d_model=32,
+            seg_len=4,
         )
 
     def get_training_features(self) -> List[str]:
@@ -100,15 +108,23 @@ class CrossformerAlgorithm(BaseAlgorithm):
         if len(history) < 8 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "crossformer_fallback"})
+            return self._std_result(
+                predicted_hours,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "crossformer_fallback"},
+            )
 
         import numpy as np
+
         views = np.array([h.get("view_count", 0) for h in history[-20:]], dtype=np.float64)
         n, seg_len = len(views), 4
         n_segs = max(1, n // seg_len)  # 分段数量
         seg_diffs = []
         for i in range(n_segs):
-            seg = views[i * seg_len: (i + 1) * seg_len]
+            seg = views[i * seg_len : (i + 1) * seg_len]
             if len(seg) >= 2:
                 seg_diffs.append(np.mean(np.diff(seg)))  # 每段的平均差分
 
@@ -118,7 +134,11 @@ class CrossformerAlgorithm(BaseAlgorithm):
             weights = np.ones(len(seg_arr))
             if len(seg_arr) >= 2:
                 for i in range(len(seg_arr)):
-                    corr = np.corrcoef(views[i*seg_len:(i+1)*seg_len], views[-seg_len:])[0, 1] if n >= seg_len else 0.5
+                    corr = (
+                        np.corrcoef(views[i * seg_len : (i + 1) * seg_len], views[-seg_len:])[0, 1]
+                        if n >= seg_len
+                        else 0.5
+                    )
                     weights[i] = max(0.1, corr)  # 相关系数不能为负
             growth = np.average(seg_arr, weights=weights)  # 加权平均
         else:
@@ -132,4 +152,11 @@ class CrossformerAlgorithm(BaseAlgorithm):
         predicted_hours = remaining / predicted_velocity if remaining > 0 and predicted_velocity > 0 else float("inf")
         confidence = min(0.85, 0.3 + 0.02 * min(n_segs, 5) + 0.02 * min(n, 20))
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "crossformer_numpy", "segments": n_segs})
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={"method": "crossformer_numpy", "segments": n_segs},
+        )

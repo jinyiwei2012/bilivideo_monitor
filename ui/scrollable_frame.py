@@ -9,7 +9,9 @@
 """
 
 from PyQt6.QtWidgets import (
-    QScrollArea, QWidget, QVBoxLayout,
+    QScrollArea,
+    QWidget,
+    QVBoxLayout,
 )
 from PyQt6.QtCore import Qt
 
@@ -88,6 +90,7 @@ class ScrollableFrame(QScrollArea):
     def clear(self):
         """清空内部容器中除伸缩项外的所有控件"""
         from PyQt6.QtWidgets import QWidgetItem
+
         while self._layout.count() > 1:
             item = self._layout.takeAt(0)
             if isinstance(item, QWidgetItem):

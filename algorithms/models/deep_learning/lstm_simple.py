@@ -35,8 +35,8 @@ class LSTMSimpleAlgorithm(BaseAlgorithm):
     category = "深度学习"
     default_weight = 1.3
 
-    training_window = 10     # 训练时使用的历史窗口长度
-    training_horizon = 3     # 训练时预测的未来步数
+    training_window = 10  # 训练时使用的历史窗口长度
+    training_horizon = 3  # 训练时预测的未来步数
 
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
         """执行预测
@@ -66,7 +66,7 @@ class LSTMSimpleAlgorithm(BaseAlgorithm):
         Returns:
             LSTMTorchModel: LSTM模型，输入特征数由_training_n_features决定，预测步数为training_horizon
         """
-        return LSTMTorchModel(in_features=getattr(self, '_training_n_features', 5), horizon=self.training_horizon)
+        return LSTMTorchModel(in_features=getattr(self, "_training_n_features", 5), horizon=self.training_horizon)
 
     def get_training_features(self):
         """返回训练时使用的多维特征列表
@@ -143,4 +143,11 @@ class LSTMSimpleAlgorithm(BaseAlgorithm):
             # 置信度：历史数据越多、质量越高，置信度越高
             confidence = min(1.0, 0.5 + len(history) * 0.05 + quality * 0.2)
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "lstm_simple", "sequence_length": len(history)})
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={"method": "lstm_simple", "sequence_length": len(history)},
+        )

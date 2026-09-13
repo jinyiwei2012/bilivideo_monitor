@@ -42,8 +42,8 @@ class TimesfmSimpleAlgorithm(BaseAlgorithm):
     category = "深度学习"
     default_weight = 1.4
 
-    training_window = 12     # 训练窗口（输入序列更长以匹配patch尺寸）
-    training_horizon = 3     # 预测步数
+    training_window = 12  # 训练窗口（输入序列更长以匹配patch尺寸）
+    training_horizon = 3  # 预测步数
 
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
         """执行预测
@@ -72,7 +72,12 @@ class TimesfmSimpleAlgorithm(BaseAlgorithm):
             TimesFMTorchModel: patch_len=4, d_model=32, n_heads=2的简化模型
         """
         return TimesFMTorchModel(
-            in_features=getattr(self, '_training_n_features', 5), window=12, patch_len=4, d_model=32, n_heads=2, horizon=self.training_horizon
+            in_features=getattr(self, "_training_n_features", 5),
+            window=12,
+            patch_len=4,
+            d_model=32,
+            n_heads=2,
+            horizon=self.training_horizon,
         )
 
     def get_training_features(self) -> List[str]:
@@ -121,17 +126,17 @@ class TimesfmSimpleAlgorithm(BaseAlgorithm):
             d_model = 16
             # 局部 RandomState(42)：与旧全局随机种子序列完全一致（值不变），且不污染全局 RNG
             _rng = np.random.RandomState(42)
-            W_emb = _rng.randn(patch_len, d_model) * 0.02   # 嵌入矩阵
-            patch_emb = patches_norm @ W_emb                       # [n_patches, d_model]
+            W_emb = _rng.randn(patch_len, d_model) * 0.02  # 嵌入矩阵
+            patch_emb = patches_norm @ W_emb  # [n_patches, d_model]
 
             # ===== 自注意力：计算QKV =====
             W_q = _rng.randn(d_model, d_model) * 0.01
             W_k = _rng.randn(d_model, d_model) * 0.01
             W_v = _rng.randn(d_model, d_model) * 0.01
 
-            Q = patch_emb @ W_q   # 查询
-            K = patch_emb @ W_k   # 键
-            V = patch_emb @ W_v   # 值
+            Q = patch_emb @ W_q  # 查询
+            K = patch_emb @ W_k  # 键
+            V = patch_emb @ W_v  # 值
 
             # 缩放点积注意力
             attn = Q @ K.T / np.sqrt(d_model)
@@ -141,7 +146,7 @@ class TimesfmSimpleAlgorithm(BaseAlgorithm):
 
             # ===== 预测头：线性映射到未来值 =====
             W_pred = _rng.randn(d_model, 4) * 0.01
-            pred_patch = context[-1:] @ W_pred                # 只用最后一个patch的输出预测
+            pred_patch = context[-1:] @ W_pred  # 只用最后一个patch的输出预测
             future_vals = pred_patch.flatten() * patch_stds[-1] + patch_means[-1]  # 反归一化
 
             # 从预测的4个未来值计算速度
@@ -156,6 +161,13 @@ class TimesfmSimpleAlgorithm(BaseAlgorithm):
                 predicted_hours = remaining / predicted_velocity
                 confidence = max(0.1, min(0.8, 0.5))
 
-            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "timesfm", "n_patches": n_patches})
+            return self._std_result(
+                predicted_hours,
+                confidence,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "timesfm", "n_patches": n_patches},
+            )
         except Exception:
             return self._fallback(velocity, current_views, threshold, method="timesfm")

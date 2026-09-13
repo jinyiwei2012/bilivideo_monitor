@@ -3,6 +3,7 @@
 
 从 video_db.py 提取的分数相关方法，作为 Mixin 被 VideoDatabase 继承。
 """
+
 import logging
 from typing import Dict, Optional
 

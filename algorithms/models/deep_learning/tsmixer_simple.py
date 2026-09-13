@@ -42,8 +42,8 @@ class TsmixerSimpleAlgorithm(BaseAlgorithm):
     category = "深度学习"
     default_weight = 1.2
 
-    training_window = 10     # 训练时使用的历史窗口长度
-    training_horizon = 3     # 训练时预测的未来步数
+    training_window = 10  # 训练时使用的历史窗口长度
+    training_horizon = 3  # 训练时预测的未来步数
 
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
         """执行预测
@@ -67,7 +67,9 @@ class TsmixerSimpleAlgorithm(BaseAlgorithm):
 
     def build_model(self):
         """构建TSMixer PyTorch模型实例"""
-        return TSMixerTorchModel(in_features=getattr(self, '_training_n_features', 5), window=10, horizon=self.training_horizon)
+        return TSMixerTorchModel(
+            in_features=getattr(self, "_training_n_features", 5), window=10, horizon=self.training_horizon
+        )
 
     def get_training_features(self) -> List[str]:
         """返回训练时使用的多维特征列表"""
@@ -115,12 +117,12 @@ class TsmixerSimpleAlgorithm(BaseAlgorithm):
             X = np.where(np.isfinite(X), X, 0)  # 处理 inf/nan
 
             # ===== TimeMix：时间维度混合（随机投影 + ReLU） =====
-            W_time = np.random.RandomState(42).randn(X.shape[1], 4) * 0.1   # [4, 4]
-            H_time = np.maximum(X @ W_time, 0)                               # ReLU激活
+            W_time = np.random.RandomState(42).randn(X.shape[1], 4) * 0.1  # [4, 4]
+            H_time = np.maximum(X @ W_time, 0)  # ReLU激活
 
             # ===== ChannelMix：通道维度混合（随机投影 + ReLU） =====
             W_channel = np.random.RandomState(43).randn(H_time.shape[1], 1) * 0.1  # [4, 1]
-            H_channel = np.maximum(H_time @ W_channel, 0)                           # ReLU激活
+            H_channel = np.maximum(H_time @ W_channel, 0)  # ReLU激活
 
             # ===== 输出头：线性投影到预测值 =====
             W_out = np.random.RandomState(44).randn(H_channel.shape[0], 1) * 0.01  # [T-1, 1]
@@ -140,6 +142,13 @@ class TsmixerSimpleAlgorithm(BaseAlgorithm):
                 # 置信度随数据量对数增长
                 confidence = min(0.8, 0.4 + 0.05 * np.log1p(len(history)))
 
-            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "tsmixer", "window": len(history)})
+            return self._std_result(
+                predicted_hours,
+                confidence,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "tsmixer", "window": len(history)},
+            )
         except Exception:
             return self._fallback(velocity, current_views, threshold, method="tsmixer")

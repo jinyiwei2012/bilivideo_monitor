@@ -40,8 +40,8 @@ class MambaS6Algorithm(BaseAlgorithm):
     category = "深度学习"
     default_weight = 1.3
 
-    training_window = 10     # 训练时使用的历史窗口长度
-    training_horizon = 3     # 训练时预测的未来步数
+    training_window = 10  # 训练时使用的历史窗口长度
+    training_horizon = 3  # 训练时预测的未来步数
 
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
         """执行预测
@@ -71,7 +71,9 @@ class MambaS6Algorithm(BaseAlgorithm):
         Returns:
             MambaS6TorchModel: 选择性SSM模型，d_state=4表示状态空间维度
         """
-        return MambaS6TorchModel(in_features=getattr(self, '_training_n_features', 5), d_state=4, horizon=self.training_horizon)
+        return MambaS6TorchModel(
+            in_features=getattr(self, "_training_n_features", 5), d_state=4, horizon=self.training_horizon
+        )
 
     def get_training_features(self) -> List[str]:
         """返回训练时使用的多维特征列表"""
@@ -136,6 +138,13 @@ class MambaS6Algorithm(BaseAlgorithm):
                 predicted_hours = remaining / predicted_velocity
                 confidence = 0.5
 
-            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "mamba_s6", "state_dim": 2})
+            return self._std_result(
+                predicted_hours,
+                confidence,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "mamba_s6", "state_dim": 2},
+            )
         except Exception:
             return self._fallback(velocity, current_views, threshold, method="mamba_s6")

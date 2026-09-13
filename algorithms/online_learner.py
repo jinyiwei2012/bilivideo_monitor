@@ -30,11 +30,11 @@ logger = logging.getLogger(__name__)
 
 # ── 默认参数 ──────────────────────────────────
 # 这些参数控制 Hedge 算法的行为，可根据需要调整
-DEFAULT_ETA = 0.5        # Hedge 学习率（越大权重对误差越敏感）
+DEFAULT_ETA = 0.5  # Hedge 学习率（越大权重对误差越敏感）
 DEFAULT_MIN_WEIGHT = 0.05  # 最低权重（防止算法被彻底淘汰出局）
-DEFAULT_WARMUP = 5       # 至少需要 N 次反馈才开始调整（冷启动保护）
-DEFAULT_DECAY = 0.95     # EWMA 衰减系数（越大越重视历史，越平滑）
-MAX_TRACKERS = 5000      # 最大追踪器数量，超出时清理最久未更新的
+DEFAULT_WARMUP = 5  # 至少需要 N 次反馈才开始调整（冷启动保护）
+DEFAULT_DECAY = 0.95  # EWMA 衰减系数（越大越重视历史，越平滑）
+MAX_TRACKERS = 5000  # 最大追踪器数量，超出时清理最久未更新的
 
 
 class _AlgorithmTracker:
@@ -44,18 +44,30 @@ class _AlgorithmTracker:
     使用 __slots__ 节省内存（因为可能有几十到上百个算法）。
     """
 
-    __slots__ = ("name", "weight", "cumulative_loss", "ewma_loss", "error_count",
-                 "last_error", "last_update", "recent_errors", "recent_sum", "recent_sumsq",
-                 "_ftrl_g2", "_ftrl_g", "_ftrl_z")
+    __slots__ = (
+        "name",
+        "weight",
+        "cumulative_loss",
+        "ewma_loss",
+        "error_count",
+        "last_error",
+        "last_update",
+        "recent_errors",
+        "recent_sum",
+        "recent_sumsq",
+        "_ftrl_g2",
+        "_ftrl_g",
+        "_ftrl_z",
+    )
 
     def __init__(self, name: str, initial_weight: float = 1.0):
         self.name = name  # 算法名称
         self.weight = initial_weight  # 当前权重
-        self.cumulative_loss = 0.0     # Hedge 累积损失（∑ log(1+error)）
-        self.ewma_loss = 0.0           # 指数加权移动平均误差（近期表现指标）
-        self.error_count = 0           # 已收到反馈的次数
+        self.cumulative_loss = 0.0  # Hedge 累积损失（∑ log(1+error)）
+        self.ewma_loss = 0.0  # 指数加权移动平均误差（近期表现指标）
+        self.error_count = 0  # 已收到反馈的次数
         self.last_error: float | None = None  # 最近一次的相对误差
-        self.last_update: float = 0.0   # 上次更新时间戳（epoch seconds）
+        self.last_update: float = 0.0  # 上次更新时间戳（epoch seconds）
         self.recent_errors: List[float] = []  # 最近 N 次误差，用于波动率检测
         # 近期误差的增量聚合（避免 _adjust_eta 每次全量重建列表）
         self.recent_sum: float = 0.0
@@ -155,13 +167,13 @@ class OnlineLearner:
         now = time.time()
         with self._lock:
             # 按 last_update 升序排列（最旧的在前）
-            sorted_trackers = sorted(self._trackers.items(),
-                                     key=lambda kv: kv[1].last_update)
+            sorted_trackers = sorted(self._trackers.items(), key=lambda kv: kv[1].last_update)
             removed = 0
             for name, t in sorted_trackers:
                 # 超过容量上限或超过最大空闲时间，则移除
-                if len(self._trackers) - removed > MAX_TRACKERS or \
-                   (t.last_update > 0 and now - t.last_update > max_age_seconds):
+                if len(self._trackers) - removed > MAX_TRACKERS or (
+                    t.last_update > 0 and now - t.last_update > max_age_seconds
+                ):
                     del self._trackers[name]
                     removed += 1
                 else:
@@ -427,7 +439,7 @@ class OnlineLearner:
         var = total_sq / n - mean * mean
         if var < 0.0:
             var = 0.0
-        cv = (var ** 0.5) / mean  # 变异系数 = σ / μ
+        cv = (var**0.5) / mean  # 变异系数 = σ / μ
         return n, mean, cv
 
     def _adjust_eta(self):
@@ -476,8 +488,12 @@ class OnlineLearner:
             t.last_update = time.time()
 
     def update_ftrl(
-        self, name: str, gradient: float,
-        lr: float = 0.01, l1_lambda: float = 0.001, l2_lambda: float = 0.001,
+        self,
+        name: str,
+        gradient: float,
+        lr: float = 0.01,
+        l1_lambda: float = 0.001,
+        l2_lambda: float = 0.001,
         beta: float = 1.0,
     ):
         """Follow The Regularized Leader (FTRL-Proximal) 更新单个算法权重。

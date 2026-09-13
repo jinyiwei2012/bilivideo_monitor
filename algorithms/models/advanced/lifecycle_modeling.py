@@ -133,8 +133,12 @@ class LifecycleModelAlgorithm(BaseAlgorithm):
         if len(history) < 3:
             velocity = self.calculate_velocity(video_data)
             return self._make_result(
-                current_views, threshold, velocity,
-                confidence=0.3, stage=LifecycleStage.INTRODUCTION, reason="insufficient_data",
+                current_views,
+                threshold,
+                velocity,
+                confidence=0.3,
+                stage=LifecycleStage.INTRODUCTION,
+                reason="insufficient_data",
             )
 
         # 提取播放量和时间序列
@@ -143,8 +147,12 @@ class LifecycleModelAlgorithm(BaseAlgorithm):
         if len(views) < 3:
             velocity = self.calculate_velocity(video_data)
             return self._make_result(
-                current_views, threshold, velocity,
-                confidence=0.3, stage=LifecycleStage.INTRODUCTION, reason="short_series",
+                current_views,
+                threshold,
+                velocity,
+                confidence=0.3,
+                stage=LifecycleStage.INTRODUCTION,
+                reason="short_series",
             )
 
         # 计算速度序列
@@ -153,8 +161,12 @@ class LifecycleModelAlgorithm(BaseAlgorithm):
         if len(velocities) < 2:
             velocity = velocities[-1] if len(velocities) > 0 else 0.0
             return self._make_result(
-                current_views, threshold, velocity,
-                confidence=0.4, stage=LifecycleStage.INTRODUCTION, reason="single_velocity",
+                current_views,
+                threshold,
+                velocity,
+                confidence=0.4,
+                stage=LifecycleStage.INTRODUCTION,
+                reason="single_velocity",
             )
 
         # 判断当前生命周期阶段
@@ -253,8 +265,7 @@ class LifecycleModelAlgorithm(BaseAlgorithm):
         return LifecycleStage.INTRODUCTION, "default", 0.5
 
     def _predict_for_stage(
-        self, stage: LifecycleStage, views: np.ndarray, velocities: np.ndarray,
-        timestamps: np.ndarray, video_data: Dict
+        self, stage: LifecycleStage, views: np.ndarray, velocities: np.ndarray, timestamps: np.ndarray, video_data: Dict
     ) -> Tuple[float, float]:
         """
         根据生命周期阶段选择对应的预测策略
@@ -445,8 +456,7 @@ class LifecycleModelAlgorithm(BaseAlgorithm):
         return np.array(velocities), np.array(vel_times)
 
     def _make_result(
-        self, current_views: int, threshold: int, velocity: float,
-        confidence: float, stage: LifecycleStage, reason: str
+        self, current_views: int, threshold: int, velocity: float, confidence: float, stage: LifecycleStage, reason: str
     ) -> PredictionResult:
         """
         构造预测结果对象
@@ -481,4 +491,6 @@ class LifecycleModelAlgorithm(BaseAlgorithm):
             "method": "lifecycle_based",  # 方法标识
         }
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata=metadata)
+        return self._std_result(
+            predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata=metadata
+        )

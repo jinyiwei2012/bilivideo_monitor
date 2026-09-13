@@ -4,8 +4,14 @@
 
 import logging
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QDoubleSpinBox, QMessageBox, QFrame,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QDoubleSpinBox,
+    QMessageBox,
+    QFrame,
 )
 from PyQt6.QtCore import QTimer
 from ui.theme import C
@@ -29,7 +35,6 @@ class SettingsGeneralMixin:
         self._build_general_window_section(page)
         self._build_general_retry_section(page)
         self._build_general_status_section(page)
-
 
     def _build_general_appearance_section(self, page):
         """界面外观：主题选择 (深色/亮色) — B2 主题偏好设置入口"""
@@ -71,7 +76,6 @@ class SettingsGeneralMixin:
         hint.setStyleSheet(f"color: {C['text_3']}; font-size: 8pt;")
         sec.layout().addWidget(hint)
 
-
     def _build_general_predict_section(self, page):
         sec = self._section(page, "预测参数")
         self.predict_hours = self._spin_field(
@@ -97,7 +101,6 @@ class SettingsGeneralMixin:
         hint = QLabel("例: 播放量超过最高档 1000万 后，自动追加 5000万 为新目标 ♪")
         hint.setStyleSheet(f"color: {C['text_3']}; font-size: 8pt;")
         esc_sec.layout().addWidget(hint)
-
 
     def _build_general_retry_section(self, page):
         sec = QFrame(page)
@@ -135,7 +138,6 @@ class SettingsGeneralMixin:
         apply_btn = QPushButton("应用重试设置")
         apply_btn.clicked.connect(self._apply_retry_settings)
         sec_layout.addWidget(apply_btn)
-
 
     def _build_general_status_section(self, page):
         sec = QFrame(page)
@@ -187,13 +189,11 @@ class SettingsGeneralMixin:
 
         self._refresh_status()
 
-
     def _apply_retry_settings(self):
         get_bilibili_api().max_retries = int(self.retry_count_var.value())
         get_bilibili_api().base_retry_delay = self.base_delay_var.value()
         get_bilibili_api()._min_request_interval = self.min_interval_var.value()
         QMessageBox.information(self.dlg, "更新好啦 ♪", "重试设置更新好啦 ♪ 天依会按新的节奏去唱歌的哦~")
-
 
     def _refresh_status(self):
         import threading
@@ -207,7 +207,6 @@ class SettingsGeneralMixin:
             QTimer.singleShot(0, lambda s=status: self._apply_status(s))
 
         threading.Thread(target=_worker, daemon=True).start()
-
 
     def _apply_status(self, status: dict):
         for key, label in self.status_labels.items():
@@ -229,11 +228,12 @@ class SettingsGeneralMixin:
                 label.setStyleSheet(f"color: {C['success']};")
             label.setText(v)
 
-
     def _reset_status(self):
         reply = QMessageBox.question(
-            self.dlg, "确认", "真的要重置所有状态吗?重置后原来的进度就像歌的间奏一样,唱不回来了哦…",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            self.dlg,
+            "确认",
+            "真的要重置所有状态吗?重置后原来的进度就像歌的间奏一样,唱不回来了哦…",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply == QMessageBox.StandardButton.Yes:
             get_bilibili_api().reset_status()

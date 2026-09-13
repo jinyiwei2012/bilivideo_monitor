@@ -164,8 +164,9 @@ def _ts_to_iso(ts: float) -> str:
     return datetime.fromtimestamp(ts).isoformat()
 
 
-def _load_records(bvid: str, features: Tuple[str, ...], data_root: str = _DATA_ROOT,
-                  min_timestamp: Optional[float] = None) -> Tuple[Optional[np.ndarray], float]:
+def _load_records(
+    bvid: str, features: Tuple[str, ...], data_root: str = _DATA_ROOT, min_timestamp: Optional[float] = None
+) -> Tuple[Optional[np.ndarray], float]:
     """从单个视频的 SQLite 数据库读取 monitor_records 表。
 
     返回按 timestamp 升序排列的 numpy 数组。
@@ -197,8 +198,9 @@ def _load_records(bvid: str, features: Tuple[str, ...], data_root: str = _DATA_R
         if min_timestamp is not None:
             # 数据库存储 ISO 字符串，需要转换后比较
             _iso = _ts_to_iso(min_timestamp)
-            cursor.execute(f"SELECT {cols}, timestamp FROM monitor_records WHERE timestamp > ? ORDER BY timestamp ASC",
-                           (_iso,))
+            cursor.execute(
+                f"SELECT {cols}, timestamp FROM monitor_records WHERE timestamp > ? ORDER BY timestamp ASC", (_iso,)
+            )
         else:
             cursor.execute(f"SELECT {cols}, timestamp FROM monitor_records ORDER BY timestamp ASC")
         rows = cursor.fetchall()
@@ -309,11 +311,11 @@ class VideoTimeSeriesDataset(Dataset):
             bvids = [b for b in bvids if _safe_bvid(b)]
 
         # ── 数据结构 ─────────────────────────────────
-        self._series: List[np.ndarray] = []      # 每个视频归一化后的特征矩阵 [N, F + n_derived]
-        self._velocity: List[np.ndarray] = []    # 每个视频的目标速度序列 [N-1]
-        self._long_rate: List[np.ndarray] = []   # 每个视频的长期平均速率序列 [N]（A+B 长期段）
+        self._series: List[np.ndarray] = []  # 每个视频归一化后的特征矩阵 [N, F + n_derived]
+        self._velocity: List[np.ndarray] = []  # 每个视频的目标速度序列 [N-1]
+        self._long_rate: List[np.ndarray] = []  # 每个视频的长期平均速率序列 [N]（A+B 长期段）
         self._index: List[Tuple[int, int]] = []  # 样本索引: (series_idx, start_offset)
-        self._global_max_ts = 0.0                # 所有视频中的最大 timestamp
+        self._global_max_ts = 0.0  # 所有视频中的最大 timestamp
 
         # 遍历每个视频加载数据并生成样本
         for bvid in bvids:
@@ -352,10 +354,9 @@ class VideoTimeSeriesDataset(Dataset):
 
             # 滚动标准差（窗口大小=5）：揭示局部波动程度
             if N >= 5:
-                roll_std = np.array([
-                    float(np.std(target[max(0, i-2):min(N, i+3)]))
-                    for i in range(N)
-                ], dtype=np.float32)
+                roll_std = np.array(
+                    [float(np.std(target[max(0, i - 2) : min(N, i + 3)])) for i in range(N)], dtype=np.float32
+                )
             else:
                 # 数据量不足时使用全局标准差填充
                 roll_std = np.full(N, float(target.std() or 1.0))

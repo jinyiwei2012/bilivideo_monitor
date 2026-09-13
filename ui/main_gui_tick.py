@@ -146,6 +146,7 @@ def do_periodic_sync(gui):
             _maybe_cleanup_old_records(gui)
 
             import gc
+
             gc.collect()
         except Exception as e:
             logger.warning("每小时同步异常: %s", e)
@@ -181,7 +182,8 @@ def _maybe_cleanup_predictions(gui):
         if total_deleted > 0:
             logger.info(
                 "15天预测清理完成: 共删除 %d 行重复数据 (镜像 %d 行)",
-                total_deleted, total_mirror_deleted,
+                total_deleted,
+                total_mirror_deleted,
             )
     except Exception as e:
         logger.warning("预测清理异常: %s", e)
@@ -198,8 +200,10 @@ def _maybe_cleanup_online_learner(gui):
     gui._last_learner_cleanup = now
     try:
         from algorithms.online_learner import get_online_learner
+
         get_online_learner().cleanup_stale(max_age_seconds=7200)
         import gc
+
         gc.collect()
     except Exception as e:
         logger.debug("OnlineLearner 清理失败: %s", e)

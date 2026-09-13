@@ -6,8 +6,13 @@ import logging
 import threading
 from datetime import datetime
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPlainTextEdit,
-    QPushButton, QComboBox, QStackedWidget,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QPlainTextEdit,
+    QPushButton,
+    QComboBox,
+    QStackedWidget,
 )
 from PyQt6.QtCore import QTimer
 from PyQt6.QtGui import QColor, QTextCharFormat, QTextCursor, QFont
@@ -42,6 +47,7 @@ class LogPanelHandler(logging.Handler):
             self._log_panel.add_log(level, msg)
         except Exception:
             import sys
+
             sys.stderr.write(f"LogPanelHandler.emit 失败: {record.getMessage()}\n")
 
 
@@ -187,7 +193,7 @@ class LogPanel(QWidget):
 
         with self._entries_lock:
             if len(self._log_entries) > self._MAX_ENTRIES:
-                self._log_entries = self._log_entries[-self._MAX_ENTRIES:]
+                self._log_entries = self._log_entries[-self._MAX_ENTRIES :]
 
         self._sync_empty_state()
         self._flush_timer.stop()
@@ -225,9 +231,7 @@ class LogPanel(QWidget):
         self._displayed_lines += 1
 
         # 自动滚动到底部
-        self._text.verticalScrollBar().setValue(
-            self._text.verticalScrollBar().maximum()
-        )
+        self._text.verticalScrollBar().setValue(self._text.verticalScrollBar().maximum())
 
     def _on_level_change(self, level):
         """切换日志等级筛选"""

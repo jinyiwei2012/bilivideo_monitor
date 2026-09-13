@@ -56,8 +56,13 @@ class KoopaAlgorithm(BaseAlgorithm):
             PredictionResult 预测结果对象
         """
         return try_torch_predict(
-            self, video_data, threshold, KoopaTorchModel, self._numpy_predict,
-            window=self.training_window, horizon=self.training_horizon,
+            self,
+            video_data,
+            threshold,
+            KoopaTorchModel,
+            self._numpy_predict,
+            window=self.training_window,
+            horizon=self.training_horizon,
         )
 
     def build_model(self):
@@ -67,9 +72,11 @@ class KoopaAlgorithm(BaseAlgorithm):
             KoopaTorchModel 实例
         """
         return KoopaTorchModel(
-            in_features=getattr(self, '_training_n_features', 5),
-            window=self.training_window, horizon=self.training_horizon,
-            d_model=32, n_components=4,
+            in_features=getattr(self, "_training_n_features", 5),
+            window=self.training_window,
+            horizon=self.training_horizon,
+            d_model=32,
+            n_components=4,
         )
 
     def get_training_features(self) -> List[str]:
@@ -99,9 +106,12 @@ class KoopaAlgorithm(BaseAlgorithm):
         if len(history) < 8 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "koopa_fallback"})
+            return self._std_result(
+                predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "koopa_fallback"}
+            )
 
         import numpy as np
+
         views = np.array([h.get("view_count", 0) for h in history[-20:]], dtype=np.float64)
         n = len(views)
 
@@ -109,7 +119,7 @@ class KoopaAlgorithm(BaseAlgorithm):
         # 每行是长度为 L 的滑动窗口子序列
         L = min(8, n // 2)  # 嵌入维度
         if L >= 3 and n >= 2 * L:
-            H = np.array([views[i:i+L] for i in range(n - L + 1)])  # (n-L+1) × L
+            H = np.array([views[i : i + L] for i in range(n - L + 1)])  # (n-L+1) × L
             H = H - np.mean(H, axis=0)  # 去均值
 
             # SVD 分解得到 Koopman 分量
@@ -141,4 +151,11 @@ class KoopaAlgorithm(BaseAlgorithm):
             n_comp = min(3, L // 2) if n >= 6 else 1
             confidence = min(0.85, 0.3 + 0.1 * n_comp + 0.02 * min(n, 20))
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "koopa_numpy", "components": min(3, L // 2), "data_points": n})
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={"method": "koopa_numpy", "components": min(3, L // 2), "data_points": n},
+        )

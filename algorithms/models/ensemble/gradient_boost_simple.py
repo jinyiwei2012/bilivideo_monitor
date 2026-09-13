@@ -134,8 +134,8 @@ class GradientBoostSimpleAlgorithm(BaseAlgorithm):
             return None
 
         # 目标转换为增长率：t 时刻相对于 t-1 的增长百分比
-        y_target = np.diff(views[-len(X) - 1:]) / np.maximum(views[-len(X) - 1 : -1], 1)
-        y_target = y_target[-len(X):]
+        y_target = np.diff(views[-len(X) - 1 :]) / np.maximum(views[-len(X) - 1 : -1], 1)
+        y_target = y_target[-len(X) :]
 
         # GBR: 100 棵树，max_depth=4，学习率 0.1（渐进拟合残差）
         model = get_or_fit(
@@ -168,7 +168,14 @@ class GradientBoostSimpleAlgorithm(BaseAlgorithm):
             cv = float(np.std(residuals) / max(np.mean(np.abs(y_target)), 1e-10))
             confidence = max(0.1, min(0.85, 0.6 - cv * 0.5))
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "gradient_boost_sklearn", "n_estimators": 100})
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={"method": "gradient_boost_sklearn", "n_estimators": 100},
+        )
 
     def _numpy_predict(self, video_data: Dict[str, Any], threshold: int) -> PredictionResult:
         """
@@ -209,4 +216,11 @@ class GradientBoostSimpleAlgorithm(BaseAlgorithm):
             confidence = min(1.0, 0.5 + engagement * 2 + quality * 0.3)
 
         residuals_count = 3 if confidence > 0 else 0  # 模拟 3 轮残差修正
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "gradient_boost_numpy", "residuals": residuals_count})
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={"method": "gradient_boost_numpy", "residuals": residuals_count},
+        )

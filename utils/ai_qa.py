@@ -140,7 +140,7 @@ class AIQASession:
 
     def clear_api_key(self):
         """使用后清除 API Key（内存安全）。
-        
+
         先覆写为等长空字节再置空，防止密钥残留于堆内存。
         """
         if self.api_key:

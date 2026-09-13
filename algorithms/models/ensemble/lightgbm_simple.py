@@ -91,7 +91,14 @@ class LightGBMSimpleAlgorithm(BaseAlgorithm):
         remaining = threshold - current_views
         if remaining <= 0:
             # 已达标
-            return self._std_result(0, 1.0, current_views, threshold, velocity=velocity, metadata={"method": "lightgbm", "note": "already_reached"})
+            return self._std_result(
+                0,
+                1.0,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "lightgbm", "note": "already_reached"},
+            )
 
         # 数据不足或速度为零 → numpy 回退
         if len(history) < 10 or velocity <= 0:
@@ -191,12 +198,12 @@ class LightGBMSimpleAlgorithm(BaseAlgorithm):
 
         # LightGBM 训练参数：leaf-wise 生长 + 列采样
         model = lgb.LGBMRegressor(
-            n_estimators=80,        # 树的数量
-            max_depth=4,            # 最大深度
-            learning_rate=0.1,      # 学习率
-            subsample=0.8,          # 样本采样率（GOSS 风格）
-            colsample_bytree=0.8,   # 每棵树的特征采样率
-            verbosity=-1,           # 完全静默
+            n_estimators=80,  # 树的数量
+            max_depth=4,  # 最大深度
+            learning_rate=0.1,  # 学习率
+            subsample=0.8,  # 样本采样率（GOSS 风格）
+            colsample_bytree=0.8,  # 每棵树的特征采样率
+            verbosity=-1,  # 完全静默
         )
         model.fit(X, y_target)
 
@@ -227,7 +234,14 @@ class LightGBMSimpleAlgorithm(BaseAlgorithm):
         cv = float(np.std(residuals) / max(np.mean(np.abs(y_target)), 1e-10))
         confidence = max(0.1, min(0.85, 0.6 - cv * 0.5))
 
-        return self._std_result(pred_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "lightgbm", "n_estimators": 80})
+        return self._std_result(
+            pred_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={"method": "lightgbm", "n_estimators": 80},
+        )
 
     def _numpy_predict(self, current_views, velocity, remaining, threshold) -> PredictionResult:
         """
@@ -246,8 +260,22 @@ class LightGBMSimpleAlgorithm(BaseAlgorithm):
             PredictionResult: 预测结果对象
         """
         if velocity <= 0:
-            return self._std_result(float("inf"), 0.0, current_views, threshold, velocity=velocity, metadata={"method": "lightgbm_numpy_fallback"})
+            return self._std_result(
+                float("inf"),
+                0.0,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "lightgbm_numpy_fallback"},
+            )
         # 匀速外推
         predicted_hours = remaining / velocity
         confidence = 0.3
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "lightgbm_numpy_fallback"})
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={"method": "lightgbm_numpy_fallback"},
+        )

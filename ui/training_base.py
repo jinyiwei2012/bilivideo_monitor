@@ -14,8 +14,13 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QPlainTextEdit, QProgressBar,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QPlainTextEdit,
+    QProgressBar,
 )
 from PyQt6.QtCore import Qt
 
@@ -246,7 +251,7 @@ class TrainingMonitor:
 
         # 震荡：按变异系数降低 LR
         if issue_type == "oscillation":
-            recent = [p[1] for p in pts[-min(6, n):]]
+            recent = [p[1] for p in pts[-min(6, n) :]]
             mean = sum(recent) / len(recent)
             if mean > 1e-8:
                 max_dev = max(abs(v - mean) for v in recent)
@@ -306,7 +311,7 @@ class TrainingMonitor:
 
         # 震荡：按变异系数计算裁剪阈值
         if issue_type == "oscillation":
-            recent = [p[1] for p in pts[-min(6, n):]]
+            recent = [p[1] for p in pts[-min(6, n) :]]
             mean = sum(recent) / len(recent)
             if mean > 1e-8:
                 max_dev = max(abs(v - mean) for v in recent)
@@ -514,6 +519,7 @@ class BaseTrainingPanel(AsyncQueueRunner, QWidget):
         # 释放 matplotlib figure，避免内存泄漏
         try:
             import matplotlib.pyplot as plt
+
             plt.close(self._fig)
         except Exception:
             pass
@@ -600,7 +606,9 @@ class BaseTrainingPanel(AsyncQueueRunner, QWidget):
         layout.addWidget(self._monitor_icon)
 
         self._monitor_status = QLabel("天依在等训练开始哦 ♪")
-        self._monitor_status.setStyleSheet(f"color: {C['text_3']}; background-color: {C['bg_surface']}; font-size: 8pt;")
+        self._monitor_status.setStyleSheet(
+            f"color: {C['text_3']}; background-color: {C['bg_surface']}; font-size: 8pt;"
+        )
         layout.addWidget(self._monitor_status, 1)
 
         self._monitor_tip = QLabel("")
@@ -615,9 +623,7 @@ class BaseTrainingPanel(AsyncQueueRunner, QWidget):
         text, color = self._monitor.get_status_display()
         if self._monitor_status:
             self._monitor_status.setText(text)
-            self._monitor_status.setStyleSheet(
-                f"color: {color}; background-color: {C['bg_surface']}; font-size: 8pt;"
-            )
+            self._monitor_status.setStyleSheet(f"color: {color}; background-color: {C['bg_surface']}; font-size: 8pt;")
         tip = self._monitor.get_tip()
         if self._monitor_tip:
             self._monitor_tip.setText(tip)

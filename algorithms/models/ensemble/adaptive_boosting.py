@@ -304,7 +304,7 @@ class AdaBoostAlgorithm(BaseAlgorithm):
         mask = values <= stump["threshold"]
 
         predictions = np.zeros(len(X))
-        predictions[mask] = stump["prediction_left"]   # 小于等于阈值的样本
+        predictions[mask] = stump["prediction_left"]  # 小于等于阈值的样本
         predictions[~mask] = stump["prediction_right"]  # 大于阈值的样本
 
         return predictions

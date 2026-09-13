@@ -7,13 +7,25 @@ from typing import List, Dict
 from datetime import datetime, timedelta
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QListWidget, QListWidgetItem, QRadioButton, QFrame,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QListWidget,
+    QListWidgetItem,
+    QRadioButton,
+    QFrame,
     QSizePolicy,
 )
 from PyQt6.QtCore import Qt, QRect
 from PyQt6.QtGui import (
-    QPainter, QColor, QPen, QFont, QBrush, QFontMetrics,
+    QPainter,
+    QColor,
+    QPen,
+    QFont,
+    QBrush,
+    QFontMetrics,
 )
 
 from ui.theme import C
@@ -122,9 +134,7 @@ class TrendChart(QWidget):
             ratio = i / (n_ticks - 1) if n_ticks > 1 else 0
             ts = self._min_ts + timedelta(seconds=ts_span * ratio)
             x = int(_ML + cw * ratio)
-            label = (
-                ts.strftime("%m-%d %H:%M") if ts_span < 86400 * 7 else ts.strftime("%m-%d")
-            )
+            label = ts.strftime("%m-%d %H:%M") if ts_span < 86400 * 7 else ts.strftime("%m-%d")
             painter.setPen(QColor(C.get("text_2", "#8b949e")))
             painter.setFont(tick_font)
             painter.drawText(int(x - 30), int(H - _MB + 6), 60, 16, Qt.AlignmentFlag.AlignCenter.value, label)
@@ -168,6 +178,7 @@ class TrendChart(QWidget):
                 # Need to use drawPolygon
                 from PyQt6.QtGui import QPolygon
                 from PyQt6.QtCore import QPoint
+
                 points = [QPoint(x, y) for x, y in path]
                 painter.drawPolygon(QPolygon(points))
 
@@ -342,10 +353,12 @@ class TrendTab(QWidget):
         sel = self._listbox.selectedItems()
         if not sel:
             from PyQt6.QtWidgets import QMessageBox
+
             QMessageBox.warning(self, "♪ 提示", "至少选 1 个视频哦,不然天依不知道唱哪首 ♪")
             return
         if len(sel) > 8:
             from PyQt6.QtWidgets import QMessageBox
+
             QMessageBox.warning(self, "♪ 提示", "一次最多对比 8 个视频呢,天依的耳朵也要歇一歇 ♪")
             return
 
@@ -437,7 +450,9 @@ class TrendTab(QWidget):
         valid = [v for v in self._selected if v.get("bvid", "") in series_map]
         if not valid:
             metric_label = next((lb for k, lb in METRICS if k == metric), metric)
-            self._chart.set_placeholder(f"呜…这些视频还没有「{metric_label}」的历史数据呢,天依先记在心里,等数据来了再画 ♪")
+            self._chart.set_placeholder(
+                f"呜…这些视频还没有「{metric_label}」的历史数据呢,天依先记在心里,等数据来了再画 ♪"
+            )
             return None
 
         self._valid_videos_cache = valid

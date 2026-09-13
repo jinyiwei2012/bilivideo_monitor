@@ -75,37 +75,39 @@ class BayesianModelAveragingAlgorithm(BaseAlgorithm):
         if len(history) < 12 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "bma_fallback"})
+            return self._std_result(
+                predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "bma_fallback"}
+            )
 
         views = np.array([h.get("view_count", 0) for h in history], dtype=np.float64)
         n = len(views)
 
         # ========== 构建基模型池：5 个不同复杂度的预测器 ==========
         methods = []  # 各模型预测的增量（播放量/数据点）
-        names = []    # 模型名称，用于 k 值映射
+        names = []  # 模型名称，用于 k 值映射
 
         # M1: 线性拟合 — 复杂度 k=2（斜率+截距）
         # 仅需 3 个数据点，适合早期视频
         if n >= 3:
-            methods.append(np.polyfit(np.arange(min(10, n)), views[-min(10, n):], 1)[0])
+            methods.append(np.polyfit(np.arange(min(10, n)), views[-min(10, n) :], 1)[0])
             names.append("linear")
 
         # M2: 二次多项式 — 复杂度 k=3（二次+一次+常数）
         # 需要 5 个数据点，适合捕捉曲率变化
         if n >= 5:
-            methods.append(np.polyfit(np.arange(min(10, n)), views[-min(10, n):], 2)[0])
+            methods.append(np.polyfit(np.arange(min(10, n)), views[-min(10, n) :], 2)[0])
             names.append("quadratic")
 
         # M3: 移动平均 — 复杂度 k=1（最简模型，仅一个均值参数）
         # 数据少时的最强基线模型，BIC 惩罚最小
-        methods.append(np.mean(np.diff(views[-min(8, n):])))
+        methods.append(np.mean(np.diff(views[-min(8, n) :])))
         names.append("moving_avg")
 
         # M4: 指数增长 — 复杂度 k=2（对 log 值做线性拟合）
         # 适合病毒式传播视频
         if n >= 5:
             try:
-                log_v = np.log(np.maximum(views[-min(10, n):], 1))
+                log_v = np.log(np.maximum(views[-min(10, n) :], 1))
                 methods.append(np.polyfit(np.arange(len(log_v)), log_v, 1)[0] * views[-1])
                 names.append("exponential")
             except Exception:
@@ -114,7 +116,7 @@ class BayesianModelAveragingAlgorithm(BaseAlgorithm):
         # M5: 三次多项式 — 复杂度 k=4（最高阶，仅数据充足时启用）
         # BIC 会对高 k 强烈惩罚，只有拟合极好时才有效
         if n >= 8:
-            methods.append(np.polyfit(np.arange(min(10, n)), views[-min(10, n):], 3)[0])
+            methods.append(np.polyfit(np.arange(min(10, n)), views[-min(10, n) :], 3)[0])
             names.append("cubic")
 
         # 基模型不足 2 个时直接使用简单匀速
@@ -123,11 +125,11 @@ class BayesianModelAveragingAlgorithm(BaseAlgorithm):
         else:
             # ========== BIC 计算：用最后 30% 数据做验证集 ==========
             val_start = max(1, int(n * 0.7))
-            actual = np.diff(views[val_start - 1:])  # 验证集的实际增量序列
+            actual = np.diff(views[val_start - 1 :])  # 验证集的实际增量序列
 
-            bics = []         # 各模型的 BIC 值
+            bics = []  # 各模型的 BIC 值
             valid_methods = []  # 对应有 BIC 的模型预测
-            valid_names = []    # 对应模型名
+            valid_names = []  # 对应模型名
 
             for i, method_growth in enumerate(methods):
                 if i >= len(actual):
@@ -173,9 +175,16 @@ class BayesianModelAveragingAlgorithm(BaseAlgorithm):
         top_weight = weights.max() if "weights" in dir() else 1.0
         confidence = max(0.1, min(0.9, 0.3 + 0.3 * top_weight + 0.02 * min(n_models, 5)))
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={
                 "method": "bma",
                 "n_models": n_models,
                 "top_weight": round(float(top_weight), 3),
                 "delta_bic": round(float(delta_bic.max() - delta_bic.min()), 1) if "delta_bic" in dir() else 0,
-            })
+            },
+        )

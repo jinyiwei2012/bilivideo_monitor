@@ -29,10 +29,10 @@ from typing import Dict, List, Tuple, Callable
 class RollingBacktester:
     """
     滚动窗口回测器。
-    
+
     对时间序列执行滑动窗口交叉验证，评估预测函数的离线表现。
     不修改任何实际数据，纯离线评估。
-    
+
     用法
     ----
     >>> backtester = RollingBacktester(min_train=10, step=3, horizon=1)
@@ -43,7 +43,7 @@ class RollingBacktester:
     def __init__(self, min_train: int = 10, step: int = 3, horizon: int = 1):
         """
         初始化回测器。
-        
+
         Args:
             min_train: 最小训练窗口大小（数据点个数）
             step: 窗口向前滑动的步长
@@ -53,11 +53,9 @@ class RollingBacktester:
         self.step = step
         self.horizon = horizon
 
-    def backtest(
-        self, series: np.ndarray, predict_fn: Callable[[np.ndarray], float]
-    ) -> Dict[str, float]:
+    def backtest(self, series: np.ndarray, predict_fn: Callable[[np.ndarray], float]) -> Dict[str, float]:
         """对单个预测函数执行滚动回测。
-        
+
         流程：
         1. 从 min_train 点开始，用 [0:i) 的数据训练/预测
         2. 预测第 i+horizon-1 个点（下一个观测）
@@ -94,22 +92,21 @@ class RollingBacktester:
         errors_arr = np.array(errors)
         ape_arr = np.array(abs_pct_errors)
         return {
-            "rmse": float(np.sqrt(np.mean(errors_arr ** 2))),  # 均方根误差
+            "rmse": float(np.sqrt(np.mean(errors_arr**2))),  # 均方根误差
             "mae": float(np.mean(np.abs(errors_arr))),  # 平均绝对误差
             "mape": float(np.mean(ape_arr)),  # 平均绝对百分比误差
             "n_tests": len(errors),  # 测试样本数
         }
 
     def backtest_multi_predictor(
-        self, series: np.ndarray,
-        predictors: Dict[str, Callable[[np.ndarray], float]]
+        self, series: np.ndarray, predictors: Dict[str, Callable[[np.ndarray], float]]
     ) -> Dict[str, Dict[str, float]]:
         """对多个预测函数同时回测。
-        
+
         Args:
             series: 时间序列数据
             predictors: {名称: 预测函数} 字典
-            
+
         Returns:
             {name: {rmse, mae, mape, n_tests}, ...}
         """
@@ -119,9 +116,7 @@ class RollingBacktester:
         return results
 
     def select_top_k(
-        self, series: np.ndarray,
-        predictors: Dict[str, Callable[[np.ndarray], float]],
-        k: int = 5
+        self, series: np.ndarray, predictors: Dict[str, Callable[[np.ndarray], float]], k: int = 5
     ) -> List[Tuple[str, float, float]]:
         """回测后选出最优 k 个预测器，返回 (name, weight, mape)。
 
@@ -162,7 +157,7 @@ class RollingBacktester:
 def make_linear_fn(order: int = 1) -> Callable:
     """
     线性/多项式回归预测函数工厂。
-    
+
     用 polyfit 拟合训练数据的多项式趋势，
     然后预测下一个值。order=1 为线性，order=2 为二次。
 
@@ -172,17 +167,19 @@ def make_linear_fn(order: int = 1) -> Callable:
     Returns:
         Callable: predict_fn(train_data) → float
     """
+
     def fn(train: np.ndarray) -> float:
         if len(train) < 2:
             return float(train[-1]) if len(train) > 0 else 0
         return float(np.polyval(np.polyfit(np.arange(len(train)), train, order), len(train)))
+
     return fn
 
 
 def make_moving_avg_fn(window: int = 5) -> Callable:
     """
     移动平均预测函数工厂。
-    
+
     计算最近 window 个点的差分的平均值作为预测增量。
 
     Args:
@@ -191,29 +188,33 @@ def make_moving_avg_fn(window: int = 5) -> Callable:
     Returns:
         Callable: predict_fn(train_data) → float
     """
+
     def fn(train: np.ndarray) -> float:
         if len(train) < 2:
             return float(train[-1]) if len(train) > 0 else 0
         diffs = np.diff(train[-window:])  # 最近窗口的一阶差分
         return train[-1] + np.mean(diffs) if len(diffs) > 0 else float(train[-1])
+
     return fn
 
 
 def make_exp_fn() -> Callable:
     """
     指数增长预测函数工厂。
-    
+
     对数据进行 log 变换后用线性回归拟合，再 exp 回去，
     适合预测呈指数增长模式的数据。
 
     Returns:
         Callable: predict_fn(train_data) → float
     """
+
     def fn(train: np.ndarray) -> float:
         if len(train) < 3:
             return float(train[-1]) if len(train) > 0 else 0
         log_v = np.log(np.maximum(train, 1))  # log 变换，确保非负
         return float(np.exp(np.polyval(np.polyfit(np.arange(len(log_v)), log_v, 1), len(log_v))))
+
     return fn
 
 
@@ -230,6 +231,7 @@ def make_theta_fn(theta: float = 2.0) -> Callable:
     Returns:
         Callable: predict_fn(train_data) → float
     """
+
     def fn(train: np.ndarray) -> float:
         if len(train) < 4:
             return float(train[-1]) if len(train) > 0 else 0
@@ -237,6 +239,7 @@ def make_theta_fn(theta: float = 2.0) -> Callable:
         trend = np.polyfit(x, train, 1)  # 线性趋势
         seasonal = train - np.polyval(trend, x)  # 去趋势后的季节分量
         # 取最近一段季节分量的均值作为调整
-        season_adj = np.mean(seasonal[-max(1, len(train)//4):])
+        season_adj = np.mean(seasonal[-max(1, len(train) // 4) :])
         return float(np.polyval(trend, len(train)) + 0.5 * season_adj)
+
     return fn

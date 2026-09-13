@@ -382,4 +382,6 @@ class TsfcClassificationAlgorithm(BaseAlgorithm):
         metadata = {"reason": reason, "method": "tsfc_classification"}
         if extra:
             metadata.update(extra)  # 合并额外数据（桶标签、倍数等）
-        return self._std_result(predicted_hours, confidence, int(current_views), threshold, velocity=float(velocity), metadata=metadata)
+        return self._std_result(
+            predicted_hours, confidence, int(current_views), threshold, velocity=float(velocity), metadata=metadata
+        )

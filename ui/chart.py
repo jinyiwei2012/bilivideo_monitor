@@ -7,12 +7,21 @@
 
 from datetime import datetime
 from PyQt6.QtWidgets import (
-    QGraphicsView, QGraphicsScene, QGraphicsTextItem, QGraphicsItem,
-    QWidget, QVBoxLayout,
+    QGraphicsView,
+    QGraphicsScene,
+    QGraphicsTextItem,
+    QGraphicsItem,
+    QWidget,
+    QVBoxLayout,
 )
 from PyQt6.QtCore import Qt, QRectF, QPointF
 from PyQt6.QtGui import (
-    QPainter, QPen, QBrush, QColor, QFont, QPolygonF,
+    QPainter,
+    QPen,
+    QBrush,
+    QColor,
+    QFont,
+    QPolygonF,
 )
 
 from ui.theme import C
@@ -108,8 +117,7 @@ class ChartWidget(QWidget):
         pred_val = prediction.get("prediction", 0) if prediction else 0
         rate_val = prediction.get("rate_per_sec", 0) if prediction else 0
 
-        fp = (bvid, mode, max_points, len(history),
-              history[-1][1] if history else 0, pred_val, rate_val)
+        fp = (bvid, mode, max_points, len(history), history[-1][1] if history else 0, pred_val, rate_val)
         if fp == self._chart_fp:
             return
         self._chart_fp = fp
@@ -135,8 +143,14 @@ class ChartWidget(QWidget):
 
         if len(history) < 2:
             self._draw_grid(W, H, ML, MR, MT, MB, cw, ch, 0, 1)
-            self._draw_text(W // 2, H // 2, "音符还太少啦…至少再攒 2 条,天依就能开唱了 ♪",
-                            QColor(C["text_3"]), 11, Qt.AlignmentFlag.AlignCenter)
+            self._draw_text(
+                W // 2,
+                H // 2,
+                "音符还太少啦…至少再攒 2 条,天依就能开唱了 ♪",
+                QColor(C["text_3"]),
+                11,
+                Qt.AlignmentFlag.AlignCenter,
+            )
             return
 
         if self._mode == "step":
@@ -148,8 +162,7 @@ class ChartWidget(QWidget):
         """绘制空状态占位"""
         W = self._view.width() or 600
         H = self._view.height() or 300
-        self._draw_text(W // 2, H // 2, text, QColor(C["text_3"]), 11,
-                        Qt.AlignmentFlag.AlignCenter)
+        self._draw_text(W // 2, H // 2, text, QColor(C["text_3"]), 11, Qt.AlignmentFlag.AlignCenter)
 
     def _draw_text(self, x, y, text, color, size=8, align=Qt.AlignmentFlag.AlignCenter):
         """在场景中绘制文本"""
@@ -159,8 +172,7 @@ class ChartWidget(QWidget):
         item.setDefaultTextColor(color)
 
         if align == Qt.AlignmentFlag.AlignCenter:
-            item.setPos(x - item.boundingRect().width() / 2,
-                        y - item.boundingRect().height() / 2)
+            item.setPos(x - item.boundingRect().width() / 2, y - item.boundingRect().height() / 2)
         elif align == Qt.AlignmentFlag.AlignRight:
             item.setPos(x - item.boundingRect().width(), y)
         elif align == Qt.AlignmentFlag.AlignLeft:
@@ -215,8 +227,7 @@ class ChartWidget(QWidget):
             frac = 1 - i / rows
             val = min_v + frac * (max_v - min_v)
             label = f"+{abbrev(val)}" if is_delta and val > 0 else abbrev(val)
-            self._draw_text(ML - 4, y - 6, label, QColor(C["text_3"]), 8,
-                            Qt.AlignmentFlag.AlignRight)
+            self._draw_text(ML - 4, y - 6, label, QColor(C["text_3"]), 8, Qt.AlignmentFlag.AlignRight)
 
     def _compute_scale(self, values, cw, ch, ML, MR, MT):
         """计算坐标比例"""
@@ -246,8 +257,7 @@ class ChartWidget(QWidget):
             if min_v <= rel_thr <= max_v * 1.05:
                 ty = py(rel_thr)
                 self._draw_line(ML, ty, W - MR, ty, col, dash=(6, 4))
-                self._draw_text(W - MR + 2, ty - 6, fmt_num(thr), QColor(col), 8,
-                                Qt.AlignmentFlag.AlignLeft)
+                self._draw_text(W - MR + 2, ty - 6, fmt_num(thr), QColor(col), 8, Qt.AlignmentFlag.AlignLeft)
 
     def _add_series_item(self, points, dots, line_color, line_width=2, dot_width=2):
         """把折线 + 数据点作为**单个**图元加入场景（替代逐段/逐点建 item）。
@@ -309,11 +319,9 @@ class ChartWidget(QWidget):
         lx = px(n - 1, n)
         lv = py(views_list[-1])
         cur_val = views_list[-1]
-        self._draw_rect(lx - 32, lv - 22, lx + 32, lv - 6,
-                        C["bilibili"])
+        self._draw_rect(lx - 32, lv - 22, lx + 32, lv - 6, C["bilibili"])
         label_text = f"+{fmt_num(cur_val)}" if cur_val > 0 and base_v else fmt_num(cur_val)
-        self._draw_text(lx, lv - 14, label_text, QColor("#ffffff"), 8,
-                        Qt.AlignmentFlag.AlignCenter)
+        self._draw_text(lx, lv - 14, label_text, QColor("#ffffff"), 8, Qt.AlignmentFlag.AlignCenter)
 
         # 预测投影
         if self._prediction:
@@ -330,8 +338,7 @@ class ChartWidget(QWidget):
                 # 预测点
                 self._draw_oval(proj_x, proj_y, 4, _PRED_COLOR, "#ffffff", 2)
                 label = f"预测 {fmt_num(int(pred_val))}" if base_v else f"预测 {fmt_num(int(w_pred))}"
-                self._draw_text(proj_x, proj_y - 14, label, QColor(_PRED_COLOR), 8,
-                                Qt.AlignmentFlag.AlignCenter)
+                self._draw_text(proj_x, proj_y - 14, label, QColor(_PRED_COLOR), 8, Qt.AlignmentFlag.AlignCenter)
 
         # X 轴时间标签
         step = max(1, n // 6)
@@ -340,8 +347,7 @@ class ChartWidget(QWidget):
                 t_str = self._fmt_ts(ts)
                 if i == 0:
                     t_str = ""
-                self._draw_text(px(i, n), H - MB + 6, t_str, QColor(C["text_3"]), 8,
-                                Qt.AlignmentFlag.AlignCenter)
+                self._draw_text(px(i, n), H - MB + 6, t_str, QColor(C["text_3"]), 8, Qt.AlignmentFlag.AlignCenter)
 
         # 图例
         items = [("播放" + ("增长" if base_v else "量"), C["bilibili"])]
@@ -355,8 +361,7 @@ class ChartWidget(QWidget):
         lx0 = ML + 4
         for label, col in items:
             self._draw_rect(lx0, 8, lx0 + 8, 16, col)
-            self._draw_text(lx0 + 10, 12, label, QColor(C["text_2"]), 8,
-                            Qt.AlignmentFlag.AlignLeft)
+            self._draw_text(lx0 + 10, 12, label, QColor(C["text_2"]), 8, Qt.AlignmentFlag.AlignLeft)
             lx0 += len(label) * 7 + 22
 
     @staticmethod
@@ -394,12 +399,18 @@ class ChartWidget(QWidget):
 
         mode_name = "增量" if is_delta else "全量"
         shown = min(len(history), self._max_points)
-        self._draw_text(W - MR - 2, 12,
-                        f"{mode_name} | {shown}/{len(history)} 点",
-                        QColor(C["text_3"]), 8, Qt.AlignmentFlag.AlignRight)
+        self._draw_text(
+            W - MR - 2,
+            12,
+            f"{mode_name} | {shown}/{len(history)} 点",
+            QColor(C["text_3"]),
+            8,
+            Qt.AlignmentFlag.AlignRight,
+        )
         if base_v:
-            self._draw_text(W - MR - 2, 24, f"起始 {fmt_num(base_v)}",
-                            QColor(C["text_3"]), 7, Qt.AlignmentFlag.AlignRight)
+            self._draw_text(
+                W - MR - 2, 24, f"起始 {fmt_num(base_v)}", QColor(C["text_3"]), 7, Qt.AlignmentFlag.AlignRight
+            )
 
     def _draw_step_chart(self, history, W, H, ML, MR, MT, MB, cw, ch):
         """绘制新增折线图"""
@@ -407,8 +418,9 @@ class ChartWidget(QWidget):
         tail = history[-n_keep:]
         deltas = [(tail[i][0], tail[i][1] - tail[i - 1][1]) for i in range(1, len(tail))]
         if not deltas:
-            self._draw_text(W // 2, H // 2, "音符还太少啦…天依还没法开唱 ♪", QColor(C["text_3"]), 11,
-                            Qt.AlignmentFlag.AlignCenter)
+            self._draw_text(
+                W // 2, H // 2, "音符还太少啦…天依还没法开唱 ♪", QColor(C["text_3"]), 11, Qt.AlignmentFlag.AlignCenter
+            )
             return
 
         values = [v for _, v in deltas]
@@ -469,8 +481,7 @@ class ChartWidget(QWidget):
         ly = py(last_v)
         label_text = f"+{fmt_num(last_v)}" if last_v >= 0 else fmt_num(last_v)
         self._draw_rect(lx - 34, ly - 22, lx + 34, ly - 6, C["chart_line"])
-        self._draw_text(lx, ly - 14, label_text, QColor("#ffffff"), 8,
-                        Qt.AlignmentFlag.AlignCenter)
+        self._draw_text(lx, ly - 14, label_text, QColor("#ffffff"), 8, Qt.AlignmentFlag.AlignCenter)
 
         # 预测投影
         if pred_delta is not None:
@@ -480,16 +491,21 @@ class ChartWidget(QWidget):
             self._draw_line(lx, ly, proj_x, proj_y, _PRED_COLOR, dash=(4, 4))
             self._draw_oval(proj_x, proj_y, 4, _PRED_COLOR, "#ffffff", 2)
             sign = "+" if pred_delta >= 0 else ""
-            self._draw_text(proj_x, proj_y - 14, f"预测 {sign}{fmt_num(int(pred_delta))}",
-                            QColor(_PRED_COLOR), 8, Qt.AlignmentFlag.AlignCenter)
+            self._draw_text(
+                proj_x,
+                proj_y - 14,
+                f"预测 {sign}{fmt_num(int(pred_delta))}",
+                QColor(_PRED_COLOR),
+                8,
+                Qt.AlignmentFlag.AlignCenter,
+            )
 
         # X 轴时间标签
         step = max(1, n // 6)
         for i, (ts, _) in enumerate(deltas):
             if i % step == 0 or i == n - 1:
                 t_str = self._fmt_ts(ts)
-                self._draw_text(px(i), H - MB + 6, t_str, QColor(C["text_3"]), 8,
-                                Qt.AlignmentFlag.AlignCenter)
+                self._draw_text(px(i), H - MB + 6, t_str, QColor(C["text_3"]), 8, Qt.AlignmentFlag.AlignCenter)
 
         # 统计
         total = sum(values)
@@ -498,8 +514,7 @@ class ChartWidget(QWidget):
         if pred_delta is not None:
             sign = "+" if pred_delta >= 0 else ""
             info += f" | 预测 {sign}{fmt_num(int(pred_delta))}"
-        self._draw_text(W - MR - 2, 12, info, QColor(C["text_3"]), 8,
-                        Qt.AlignmentFlag.AlignRight)
+        self._draw_text(W - MR - 2, 12, info, QColor(C["text_3"]), 8, Qt.AlignmentFlag.AlignRight)
 
 
 def draw_chart_placeholder(canvas, text=None):

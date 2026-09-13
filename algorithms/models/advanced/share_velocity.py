@@ -99,7 +99,14 @@ class ShareVelocityAlgorithm(BaseAlgorithm):
                 # 置信度基于分享率水平
                 confidence = min(1.0, 0.5 + share_rate * 100)
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={
                 "method": "share_velocity",
                 "share_rate": shares / current_views if current_views > 0 else 0,  # 分享率
-            })
+            },
+        )

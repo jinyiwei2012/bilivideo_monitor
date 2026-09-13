@@ -54,13 +54,13 @@ class TimesNetSimpleAlgorithm(BaseAlgorithm):
         设置候选周期列表和卷积参数。
         """
         super().__init__()
-        self.periods = [3, 6, 12]       # 候选周期长度（对应短/中/长周期）
-        self.min_seq_len = 15           # 最少需要的序列长度
-        self.conv_kernel = 2            # 简化卷积核大小
-        self.min_data_points = 15       # 最少需要的数据点数
+        self.periods = [3, 6, 12]  # 候选周期长度（对应短/中/长周期）
+        self.min_seq_len = 15  # 最少需要的序列长度
+        self.conv_kernel = 2  # 简化卷积核大小
+        self.min_data_points = 15  # 最少需要的数据点数
 
-    training_window = 10     # 训练时使用的历史窗口长度
-    training_horizon = 3     # 训练时预测的未来步数
+    training_window = 10  # 训练时使用的历史窗口长度
+    training_horizon = 3  # 训练时预测的未来步数
 
     def predict(self, video_data, threshold=100000):
         """执行预测
@@ -84,7 +84,9 @@ class TimesNetSimpleAlgorithm(BaseAlgorithm):
 
     def build_model(self):
         """构建TimesNet PyTorch模型实例"""
-        return TimessNetTorchModel(in_features=getattr(self, '_training_n_features', 5), window=10, horizon=self.training_horizon)
+        return TimessNetTorchModel(
+            in_features=getattr(self, "_training_n_features", 5), window=10, horizon=self.training_horizon
+        )
 
     def get_training_features(self):
         """返回训练时使用的多维特征列表"""
@@ -223,11 +225,11 @@ class TimesNetSimpleAlgorithm(BaseAlgorithm):
         # 简化"卷积"：使用统计特征代替
         features = [
             np.mean(col_means),  # 列均值均值（周期内全局水平）
-            np.std(col_means),   # 列均值标准差（周期内变异程度）
+            np.std(col_means),  # 列均值标准差（周期内变异程度）
             np.mean(row_means),  # 行均值均值（周期间全局水平）
-            np.std(row_means),   # 行均值标准差（周期间变异程度）
-            np.mean(matrix),     # 全局均值
-            np.std(matrix),      # 全局标准差
+            np.std(row_means),  # 行均值标准差（周期间变异程度）
+            np.mean(matrix),  # 全局均值
+            np.std(matrix),  # 全局标准差
         ]
 
         return np.array(features)
@@ -436,4 +438,6 @@ class TimesNetSimpleAlgorithm(BaseAlgorithm):
             "method": "times_net_simplified",
         }
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata=metadata)
+        return self._std_result(
+            predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata=metadata
+        )

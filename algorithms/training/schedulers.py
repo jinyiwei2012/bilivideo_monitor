@@ -152,10 +152,10 @@ class ComboScheduler:
         self.min_lr = min_lr
 
         # ── 运行时状态 ───────────────────────────────
-        self._step_count = 0           # 累计双曲线步数（不限模式）
-        self._mode = "hyperbolic"      # 当前模式："hyperbolic" 或 "plateau"
+        self._step_count = 0  # 累计双曲线步数（不限模式）
+        self._mode = "hyperbolic"  # 当前模式："hyperbolic" 或 "plateau"
         self._best_val = float("inf")  # 历史最佳验证损失
-        self._plateau_counter = 0      # 连续未改善的轮数计数
+        self._plateau_counter = 0  # 连续未改善的轮数计数
         self._last_lrs = list(self.base_lrs)  # 上次学习率快照
 
     def step(self, epoch: int = None):
@@ -200,7 +200,9 @@ class ComboScheduler:
                 pg["lr"] = new_lr
             logger.info(
                 "[ComboScheduler] plateau 检测 (val_loss %.4f 连续 %d 轮未改善)，切换为衰减模式 LR=%.6f",
-                val_loss, self.plateau_patience, new_lrs[0],
+                val_loss,
+                self.plateau_patience,
+                new_lrs[0],
             )
             # 重置计数器（防止重复触发）
             self._plateau_counter = 0

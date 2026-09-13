@@ -108,4 +108,11 @@ class ExponentialDecayAlgorithm(BaseAlgorithm):
                     # 置信度基于模型拟合程度
                     confidence = 0.7
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "exponential_decay", "decay_rate": 0.693 / 24})
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={"method": "exponential_decay", "decay_rate": 0.693 / 24},
+        )

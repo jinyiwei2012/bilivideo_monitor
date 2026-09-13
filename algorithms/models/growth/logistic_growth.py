@@ -174,7 +174,9 @@ class LogisticGrowthAlgorithm(BaseAlgorithm):
         """
         return K / (1 + np.exp(-r * (t - t0)))
 
-    def _fit_curve(self, times: np.ndarray, views: np.ndarray, video_info: Dict[str, Any]) -> Tuple[float, float, float]:
+    def _fit_curve(
+        self, times: np.ndarray, views: np.ndarray, video_info: Dict[str, Any]
+    ) -> Tuple[float, float, float]:
         """拟合Logistic曲线，返回 (K, r, t0)。
 
         使用 scipy.curve_fit 对历史数据进行非线性最小二乘拟合，
@@ -259,6 +261,10 @@ class LogisticGrowthAlgorithm(BaseAlgorithm):
         history_data = self._normalize_history(video_data.get("history_data", []))
         return self._to_prediction_result(
             self._predict_inner(current_views, threshold, history_data, video_data),
-            current_views, video_data, threshold,
-            method="logistic_growth", invalid_hours=float("inf"), invalid_velocity=0,
+            current_views,
+            video_data,
+            threshold,
+            method="logistic_growth",
+            invalid_hours=float("inf"),
+            invalid_velocity=0,
         )

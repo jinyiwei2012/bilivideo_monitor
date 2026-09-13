@@ -101,7 +101,14 @@ class SpectralResidualAlgorithm(BaseAlgorithm):
         if len(history) < 10 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "spectral_fallback"})
+            return self._std_result(
+                predicted_hours,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "spectral_fallback"},
+            )
 
         try:
             # 取最近 32 条历史记录（2 的幂次更有利于 FFT 计算效率）
@@ -120,7 +127,7 @@ class SpectralResidualAlgorithm(BaseAlgorithm):
             kernel = min(5, len(log_amp) // 2)  # 滤波核大小自适应数据长度
             if kernel >= 3:
                 kernel_arr = np.ones(kernel) / kernel  # 等权滑动平均核
-                bg = np.convolve(log_amp, kernel_arr, mode='same')  # 一维卷积做滑动平均
+                bg = np.convolve(log_amp, kernel_arr, mode="same")  # 一维卷积做滑动平均
             else:
                 bg = np.mean(log_amp)  # 核太小则用全局均值替代
 
@@ -166,9 +173,18 @@ class SpectralResidualAlgorithm(BaseAlgorithm):
             # 置信度：突发越少越可信，基础 0.5 × (1-突发比例) + 数据点加成
             confidence = max(0.1, min(0.85, 0.5 * (1 - burst_ratio) + 0.02 * min(n, 25)))
 
-            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "spectral_residual", "burst_ratio": round(burst_ratio, 3), "data_points": n})
+            return self._std_result(
+                predicted_hours,
+                confidence,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "spectral_residual", "burst_ratio": round(burst_ratio, 3), "data_points": n},
+            )
         except Exception:
             # 任何异常回退到匀速预测
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "spectral_error"})
+            return self._std_result(
+                predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "spectral_error"}
+            )

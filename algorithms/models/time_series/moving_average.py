@@ -116,4 +116,6 @@ class MovingAverageAlgorithm(BaseAlgorithm):
             "trend": "上涨" if growth > 0 else "下跌",
         }
 
-        return self._std_result(max(0, predicted_hours), confidence, current_views, threshold, velocity=velocity, metadata=metadata)
+        return self._std_result(
+            max(0, predicted_hours), confidence, current_views, threshold, velocity=velocity, metadata=metadata
+        )

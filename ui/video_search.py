@@ -10,9 +10,17 @@ import webbrowser
 from typing import List, Dict, Callable, Optional
 
 from PyQt6.QtWidgets import (
-    QWidget, QHBoxLayout, QLabel, QPushButton,
-    QLineEdit, QTreeWidget, QTreeWidgetItem, QHeaderView,
-    QMessageBox, QApplication, QMenu,
+    QWidget,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QLineEdit,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QHeaderView,
+    QMessageBox,
+    QApplication,
+    QMenu,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont, QAction
@@ -360,8 +368,9 @@ class VideoSearchWindow(DialogBase):
                 img_data = io.BytesIO(resp.content)
                 pixmap = QPixmap()
                 if pixmap.loadFromData(img_data.getvalue()):
-                    pixmap = pixmap.scaled(320, 180, Qt.AspectRatioMode.KeepAspectRatio,
-                                           Qt.TransformationMode.SmoothTransformation)
+                    pixmap = pixmap.scaled(
+                        320, 180, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+                    )
                     cover_lbl = QLabel()
                     cover_lbl.setPixmap(pixmap)
                     cover_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)

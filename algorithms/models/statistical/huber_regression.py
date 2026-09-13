@@ -262,9 +262,9 @@ class HuberRegressionAlgorithm(BaseAlgorithm):
             w = self._huber_weights(standardized_res)
 
             # Step 4: 加权最小二乘更新（避免 np.diag 产生 O(n²) 稠密矩阵）
-            Xw = X_aug * w[:, np.newaxis]   # 加权特征 (n, f+1)，O(n) 内存
-            XtWX = X_aug.T @ Xw              # (f+1, f+1)
-            XtWy = Xw.T @ y                  # (f+1,)
+            Xw = X_aug * w[:, np.newaxis]  # 加权特征 (n, f+1)，O(n) 内存
+            XtWX = X_aug.T @ Xw  # (f+1, f+1)
+            XtWy = Xw.T @ y  # (f+1,)
             try:
                 beta = np.linalg.solve(XtWX, XtWy)
             except np.linalg.LinAlgError:

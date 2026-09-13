@@ -154,11 +154,13 @@ class MultiTaskSimpleAlgorithm(BaseAlgorithm):
             for j in range(p):
                 feat.extend([views[i - j - 1], likes[i - j - 1], coins[i - j - 1]])
             X_list.append(feat)
-            y_list.append([
-                views[i - 1] / max(views[i - 2], 1) - 1,  # t-1 -> t 的相对增长率
-                views[i] / max(views[i - 1], 1) - 1,       # t -> t+1 的相对增长率
-                views[i + 1] / max(views[i], 1) - 1,       # t+1 -> t+2 的相对增长率
-            ])
+            y_list.append(
+                [
+                    views[i - 1] / max(views[i - 2], 1) - 1,  # t-1 -> t 的相对增长率
+                    views[i] / max(views[i - 1], 1) - 1,  # t -> t+1 的相对增长率
+                    views[i + 1] / max(views[i], 1) - 1,  # t+1 -> t+2 的相对增长率
+                ]
+            )
 
         if len(X_list) < 8:
             return None  # 训练样本不足
@@ -183,8 +185,13 @@ class MultiTaskSimpleAlgorithm(BaseAlgorithm):
             with torch.no_grad():
                 last_feat = []
                 for j in range(p):
-                    last_feat.extend([views[-j - 1], likes[-j - 1] if len(likes) > j + 1 else 0,
-                                      coins[-j - 1] if len(coins) > j + 1 else 0])
+                    last_feat.extend(
+                        [
+                            views[-j - 1],
+                            likes[-j - 1] if len(likes) > j + 1 else 0,
+                            coins[-j - 1] if len(coins) > j + 1 else 0,
+                        ]
+                    )
                 pred_t = model(torch.tensor([last_feat], dtype=torch.float32)).numpy()[0]  # 预测的相对增长率
 
             # 预测速度 = 平均相对增长率 * 当前播放量 / 3600（转换为小时速度）
@@ -201,7 +208,11 @@ class MultiTaskSimpleAlgorithm(BaseAlgorithm):
                 confidence = min(0.85, 0.4 + 0.3 * min(1.0, float(len(X_list)) / 30) + 0.15)
 
             return self._std_result(
-                predicted_hours, confidence, current_views, threshold, velocity=velocity,
+                predicted_hours,
+                confidence,
+                current_views,
+                threshold,
+                velocity=velocity,
                 metadata={"method": "multi_task_torch", "n_tasks": n_tasks},
             )
         except Exception:
@@ -234,8 +245,12 @@ class MultiTaskSimpleAlgorithm(BaseAlgorithm):
         if len(history) < 3:
             velocity = self.calculate_velocity(video_data)
             return self._make_result(
-                current_views, self.thresholds[0], velocity,
-                confidence=0.3, multi_predictions=[], reason="insufficient_data",
+                current_views,
+                self.thresholds[0],
+                velocity,
+                confidence=0.3,
+                multi_predictions=[],
+                reason="insufficient_data",
             )
 
         # 提取播放量和时间序列
@@ -244,8 +259,7 @@ class MultiTaskSimpleAlgorithm(BaseAlgorithm):
         if len(views) < 3:
             velocity = self.calculate_velocity(video_data)
             return self._make_result(
-                current_views, self.thresholds[0], velocity,
-                confidence=0.3, multi_predictions=[], reason="short_series"
+                current_views, self.thresholds[0], velocity, confidence=0.3, multi_predictions=[], reason="short_series"
             )
 
         # 计算速度序列
@@ -254,8 +268,12 @@ class MultiTaskSimpleAlgorithm(BaseAlgorithm):
         if len(velocities) < 2:
             velocity = velocities[-1] if len(velocities) > 0 else 0.0
             return self._make_result(
-                current_views, self.thresholds[0], velocity,
-                confidence=0.4, multi_predictions=[], reason="single_velocity",
+                current_views,
+                self.thresholds[0],
+                velocity,
+                confidence=0.4,
+                multi_predictions=[],
+                reason="single_velocity",
             )
 
         # 多任务预测：同时对三个阈值独立预测
@@ -268,8 +286,12 @@ class MultiTaskSimpleAlgorithm(BaseAlgorithm):
         main_threshold = self._select_main_threshold(current_views)
 
         return self._make_result(
-            current_views, main_threshold, adjusted_velocity,
-            confidence=confidence, multi_predictions=multi_predictions, reason=reason,
+            current_views,
+            main_threshold,
+            adjusted_velocity,
+            confidence=confidence,
+            multi_predictions=multi_predictions,
+            reason=reason,
         )
 
     def _multi_predict(
@@ -544,8 +566,13 @@ class MultiTaskSimpleAlgorithm(BaseAlgorithm):
         return np.array(velocities), np.array(vel_times)
 
     def _make_result(
-        self, current_views: int, threshold: int, velocity: float,
-        confidence: float, multi_predictions: List[Dict], reason: str,
+        self,
+        current_views: int,
+        threshold: int,
+        velocity: float,
+        confidence: float,
+        multi_predictions: List[Dict],
+        reason: str,
     ) -> PredictionResult:
         """
         构造预测结果对象
@@ -582,8 +609,12 @@ class MultiTaskSimpleAlgorithm(BaseAlgorithm):
         }
 
         return self._std_result(
-            predicted_hours, confidence, current_views, threshold,
-            velocity=velocity, metadata=metadata,
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata=metadata,
         )
 
 

@@ -43,8 +43,8 @@ class MLPPredictorAlgorithm(BaseAlgorithm):
     description = "经典前馈神经网络预测（torch checkpoint 优先，否则 numpy 简化）"
     category = "深度学习"
 
-    training_window = 10     # 训练时使用的历史窗口长度
-    training_horizon = 3     # 训练时预测的未来步数
+    training_window = 10  # 训练时使用的历史窗口长度
+    training_horizon = 3  # 训练时预测的未来步数
 
     def __init__(self):
         """初始化MLP预测器
@@ -56,9 +56,9 @@ class MLPPredictorAlgorithm(BaseAlgorithm):
         - b2: (1,) 输出层偏置
         """
         super().__init__()
-        self.input_size = 6        # 输入特征维度
-        self.hidden_size = 16      # 隐藏层神经元数
-        self.output_size = 1       # 输出维度（单个增长量预测值）
+        self.input_size = 6  # 输入特征维度
+        self.hidden_size = 16  # 隐藏层神经元数
+        self.output_size = 1  # 输出维度（单个增长量预测值）
 
         # 随机初始化权重（小方差防止梯度饱和）
         self.W1 = np.random.randn(self.input_size, self.hidden_size) * 0.1
@@ -72,7 +72,11 @@ class MLPPredictorAlgorithm(BaseAlgorithm):
         Returns:
             MLPTorchModel: 用于训练的新模型实例
         """
-        return MLPTorchModel(in_features=getattr(self, '_training_n_features', 5), window=self.training_window, horizon=self.training_horizon)
+        return MLPTorchModel(
+            in_features=getattr(self, "_training_n_features", 5),
+            window=self.training_window,
+            horizon=self.training_horizon,
+        )
 
     def get_training_features(self):
         """返回训练时使用的多维特征列表"""
@@ -176,12 +180,12 @@ class MLPPredictorAlgorithm(BaseAlgorithm):
             next_data = history_data[i + 1]
 
             features = [
-                current.get("view", 0) / 10000,     # 归一化播放量
-                current.get("like", 0) / 1000,       # 归一化点赞
-                current.get("coin", 0) / 100,        # 归一化投币
-                current.get("share", 0) / 100,       # 归一化分享
-                current.get("reply", 0) / 100,       # 归一化评论
-                i / 10,                              # 时间步（归一化位置）
+                current.get("view", 0) / 10000,  # 归一化播放量
+                current.get("like", 0) / 1000,  # 归一化点赞
+                current.get("coin", 0) / 100,  # 归一化投币
+                current.get("share", 0) / 100,  # 归一化分享
+                current.get("reply", 0) / 100,  # 归一化评论
+                i / 10,  # 时间步（归一化位置）
             ]
 
             # 下一时刻相对当前的播放量增长
@@ -212,8 +216,8 @@ class MLPPredictorAlgorithm(BaseAlgorithm):
         Returns:
             (输出预测值 [N, 1], 隐藏层加权输入z1, 隐藏层激活a1)
         """
-        z1 = X @ self.W1 + self.b1    # 隐藏层加权输入
-        a1 = self._relu(z1)           # ReLU激活
+        z1 = X @ self.W1 + self.b1  # 隐藏层加权输入
+        a1 = self._relu(z1)  # ReLU激活
         z2 = a1 @ self.W2 + self.b2  # 输出层
 
         return z2, z1, a1
@@ -321,7 +325,11 @@ class MLPPredictorAlgorithm(BaseAlgorithm):
                 lambda _v, _t: None,  # numpy回退返回None
                 window=self.training_window,
                 horizon=self.training_horizon,
-                model_kwargs={"in_features": getattr(self, '_training_n_features', 5), "window": self.training_window, "horizon": self.training_horizon},
+                model_kwargs={
+                    "in_features": getattr(self, "_training_n_features", 5),
+                    "window": self.training_window,
+                    "horizon": self.training_horizon,
+                },
             )
             if result is None or not hasattr(result, "predicted_hours"):
                 return None

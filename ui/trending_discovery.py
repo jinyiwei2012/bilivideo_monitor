@@ -7,8 +7,13 @@ import threading
 from typing import Dict, List, Optional, Callable
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QTabWidget, QMessageBox,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QTabWidget,
+    QMessageBox,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
@@ -35,7 +40,8 @@ class TrendingDiscoveryWindow(DialogBase):
             sw, sh = 1920, 1080
 
         super().__init__(
-            parent, "热门视频发现",
+            parent,
+            "热门视频发现",
             (int(sw * 0.48), int(sh * 0.68)),
             modal=False,
         )

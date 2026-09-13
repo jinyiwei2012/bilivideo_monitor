@@ -99,7 +99,14 @@ class LikeMomentumAlgorithm(BaseAlgorithm):
                 # 置信度：点赞率越高，预测越可信
                 confidence = min(1.0, 0.5 + like_rate * 20)
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={
                 "method": "like_momentum",
                 "like_rate": likes / current_views if current_views > 0 else 0,  # 点赞率
-            })
+            },
+        )

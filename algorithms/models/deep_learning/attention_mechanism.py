@@ -60,7 +60,7 @@ class AttentionMechanismAlgorithm(BaseAlgorithm):
             AttentionTorchModel 实例
         """
         return AttentionTorchModel(
-            in_features=getattr(self, '_training_n_features', 5),
+            in_features=getattr(self, "_training_n_features", 5),
             d_model=32,
             n_heads=4,
             window=self.training_window,
@@ -325,7 +325,11 @@ class AttentionMechanismAlgorithm(BaseAlgorithm):
                 lambda _v, _t: None,
                 window=self.training_window,
                 horizon=self.training_horizon,
-                model_kwargs={"in_features": getattr(self, '_training_n_features', 5), "window": self.training_window, "horizon": self.training_horizon},
+                model_kwargs={
+                    "in_features": getattr(self, "_training_n_features", 5),
+                    "window": self.training_window,
+                    "horizon": self.training_horizon,
+                },
             )
             if result is None or not hasattr(result, "predicted_hours"):
                 return None

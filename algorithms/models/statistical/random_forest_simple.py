@@ -140,8 +140,8 @@ class RandomForestSimpleAlgorithm(BaseAlgorithm):
 
         # 目标变量改为增长率（比绝对播放量更适合树模型）
         # 增长率 = 相邻点之差 / 前一点值
-        y_target = np.diff(views[-len(X) - 1:]) / np.maximum(views[-len(X) - 1 : -1], 1)
-        y_target = y_target[-len(X):]  # 对齐长度
+        y_target = np.diff(views[-len(X) - 1 :]) / np.maximum(views[-len(X) - 1 : -1], 1)
+        y_target = y_target[-len(X) :]  # 对齐长度
 
         # RandomForest: 100 棵树，max_depth=6 防止过拟合，n_jobs=-1 并行加速
         model = get_or_fit(
@@ -180,7 +180,14 @@ class RandomForestSimpleAlgorithm(BaseAlgorithm):
             cv = float(np.std(residuals) / max(np.mean(np.abs(y_target)), 1e-10))  # CV = std/mean
             confidence = max(0.1, min(0.85, 0.6 - cv * 0.5))
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "random_forest_sklearn", "n_estimators": 100})
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={"method": "random_forest_sklearn", "n_estimators": 100},
+        )
 
     def _numpy_predict(self, video_data: Dict[str, Any], threshold: int) -> PredictionResult:
         """
@@ -230,4 +237,11 @@ class RandomForestSimpleAlgorithm(BaseAlgorithm):
             # 置信度随互动率和质量分提高
             confidence = min(1.0, 0.5 + features["engagement_rate"] * 3 + features["quality_score"] * 0.3)
 
-        return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={"method": "random_forest_numpy", "features": features})
+        return self._std_result(
+            predicted_hours,
+            confidence,
+            current_views,
+            threshold,
+            velocity=velocity,
+            metadata={"method": "random_forest_numpy", "features": features},
+        )

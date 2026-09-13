@@ -236,6 +236,10 @@ class HoltWintersAlgorithm(BaseAlgorithm):
         history_data = self._normalize_history(video_data.get("history_data", []))
         return self._to_prediction_result(
             self._predict_inner(current_views, threshold, history_data, video_data),
-            current_views, video_data, threshold,
-            method="holt_winters", invalid_hours=float("inf"), invalid_velocity=0,
+            current_views,
+            video_data,
+            threshold,
+            method="holt_winters",
+            invalid_hours=float("inf"),
+            invalid_velocity=0,
         )

@@ -2,14 +2,20 @@
 历史弹幕拉取对话框
 从 B站 API 拉取指定月份的历史弹幕并存入本地数据库
 """
+
 import logging
 import threading
 from datetime import datetime
 from typing import List
 
 from PyQt6.QtWidgets import (
-    QWidget, QHBoxLayout, QPushButton,
-    QComboBox, QTextEdit, QMessageBox, QProgressBar,
+    QWidget,
+    QHBoxLayout,
+    QPushButton,
+    QComboBox,
+    QTextEdit,
+    QMessageBox,
+    QProgressBar,
 )
 from PyQt6.QtCore import QTimer
 
@@ -17,6 +23,7 @@ from ui.theme import C
 from ui.dialog_base import DialogBase
 
 logger = logging.getLogger(__name__)
+
 
 # 可选月份（当前月 + 过去 11 个月）
 def _available_months() -> List[str]:
@@ -106,14 +113,16 @@ class DanmakuHistoryWindow:
         prog_sec.layout().addWidget(self._log_text)
 
         # ── 底部按钮 ──
-        dlg.button_row([
-            ("关闭", self.dlg.close, ""),
-        ])
+        dlg.button_row(
+            [
+                ("关闭", self.dlg.close, ""),
+            ]
+        )
 
     def _refresh_video_list(self):
         self._video_cb.clear()
         self._bvid_map = []
-        videos = getattr(self.gui, 'monitored_videos', []) or []
+        videos = getattr(self.gui, "monitored_videos", []) or []
         for v in videos:
             bvid = v.get("bvid", "")
             title = v.get("title", bvid)[:40]
@@ -145,11 +154,12 @@ class DanmakuHistoryWindow:
         self._log(f"天依开始收集 {bvid} 在 {month} 的弹幕啦…像捞起银河里的星光 ♪")
 
         from core.bilibili_danmaku import get_danmaku_monitor
+
         monitor = get_danmaku_monitor()
 
         # 获取 cid
         video_info = None
-        for v in (self.gui.monitored_videos or []):
+        for v in self.gui.monitored_videos or []:
             if v.get("bvid") == bvid:
                 video_info = v
                 break
@@ -157,6 +167,7 @@ class DanmakuHistoryWindow:
         cid = video_info.get("cid", 0) if video_info else 0
         if not cid:
             from core import get_bilibili_api
+
             try:
                 info = get_bilibili_api().get_video_info(bvid)
                 cid = info.get("cid", 0) if info else 0
@@ -170,36 +181,36 @@ class DanmakuHistoryWindow:
             return
 
         video_db = None
-        if self.gui and hasattr(self.gui, 'video_dbs'):
+        if self.gui and hasattr(self.gui, "video_dbs"):
             video_db = self.gui.video_dbs.get(bvid)
 
         # 后台线程拉取
         def _worker():
             try:
+
                 def progress(date, count, total):
                     pct = int((progress._idx + 1) / total * 100) if total > 0 else 0
                     progress._idx += 1
                     QTimer.singleShot(0, lambda: self._progress_bar.setValue(pct))
-                    QTimer.singleShot(0, lambda: self._log(
-                        f"  {date}: {count} 条弹幕"
-                    ))
+                    QTimer.singleShot(0, lambda: self._log(f"  {date}: {count} 条弹幕"))
 
                 progress._idx = 0
 
                 total = monitor.fetch_history_danmaku(
-                    bvid, cid, video_db=video_db,
-                    month=month, on_progress=progress,
+                    bvid,
+                    cid,
+                    video_db=video_db,
+                    month=month,
+                    on_progress=progress,
                 )
-                QTimer.singleShot(0, lambda: self._log(
-                    f"\n完成啦!♪ 天依收集了 {total} 条弹幕,大家的歌声都被好好收下了"
-                ))
+                QTimer.singleShot(
+                    0, lambda: self._log(f"\n完成啦!♪ 天依收集了 {total} 条弹幕,大家的歌声都被好好收下了")
+                )
             except Exception as e:
                 logger.warning("历史弹幕拉取失败 %s: %s", bvid, e)
-                QTimer.singleShot(0, lambda: self._log(
-                    "呜…拉取的时候出了点小状况,天依会再试试的哦 ♪"
-                ))
+                QTimer.singleShot(0, lambda: self._log("呜…拉取的时候出了点小状况,天依会再试试的哦 ♪"))
             finally:
                 QTimer.singleShot(0, lambda: self._fetch_btn.setEnabled(True))
-                QTimer.singleShot(0, lambda: setattr(self, '_fetching', False))
+                QTimer.singleShot(0, lambda: setattr(self, "_fetching", False))
 
         threading.Thread(target=_worker, daemon=True).start()

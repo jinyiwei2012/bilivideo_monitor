@@ -107,7 +107,14 @@ class MomentumBreakoutAlgorithm(BaseAlgorithm):
         if len(history) < 12 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "momentum_fallback"})
+            return self._std_result(
+                predicted_hours,
+                0.3,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={"method": "momentum_fallback"},
+            )
 
         try:
             # 取最近 40 条历史记录的播放量
@@ -123,7 +130,7 @@ class MomentumBreakoutAlgorithm(BaseAlgorithm):
                 # 快均线 (5 点 SMA)：近期增长速度的短期移动平均
                 fast_ma = np.mean(diffs[-5:]) if len(diffs) >= 5 else np.mean(diffs)
                 # 慢均线 (15 点 SMA)：较长时间窗口的增长速度均值
-                slow_ma = np.mean(diffs[-min(15, len(diffs)):])
+                slow_ma = np.mean(diffs[-min(15, len(diffs)) :])
 
                 # MACD: 快-慢 的差分指数平滑
                 # MACD 线 = 快均线 - 慢均线，正值表示短期增速高于长期（加速信号）
@@ -158,13 +165,22 @@ class MomentumBreakoutAlgorithm(BaseAlgorithm):
             # 置信度：基础 0.35 + 数据点加成（0-0.5），上限 0.85
             confidence = max(0.1, min(0.85, 0.35 + 0.02 * min(n, 25)))
 
-            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
+            return self._std_result(
+                predicted_hours,
+                confidence,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={
                     "method": "momentum_breakout",
                     "macd": round(float(macd_line), 4) if "macd_line" in dir() else 0,  # MACD 线值
                     "pos_ratio": round(float(pos_ratio), 3),  # 正差分比例
-                })
+                },
+            )
         except Exception:
             # 任何异常回退到匀速预测
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "momentum_error"})
+            return self._std_result(
+                predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "momentum_error"}
+            )

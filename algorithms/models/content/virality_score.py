@@ -118,7 +118,9 @@ class ViralityScoreAlgorithm(BaseAlgorithm):
         if len(history) < 8 or velocity <= 0:
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "viral_fallback"})
+            return self._std_result(
+                predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "viral_fallback"}
+            )
 
         try:
             # 取最近 30 条历史记录，提取五个维度的数据
@@ -132,8 +134,10 @@ class ViralityScoreAlgorithm(BaseAlgorithm):
 
             # 维度1: 播放量增速（权重 0.30）
             # 计算最近 8 个点的相对增长率：差分均值 / 原始均值
-            recent_views = views[-min(8, n):]
-            view_growth = np.mean(np.diff(recent_views)) / max(np.mean(recent_views[:-1]), 1) if len(recent_views) >= 2 else 0
+            recent_views = views[-min(8, n) :]
+            view_growth = (
+                np.mean(np.diff(recent_views)) / max(np.mean(recent_views[:-1]), 1) if len(recent_views) >= 2 else 0
+            )
             # 归一化：增长率 × 20，限制在 [0, 1]（增长率 5% = 满分）
             view_score = min(1.0, max(0, view_growth * 20))
 
@@ -141,20 +145,20 @@ class ViralityScoreAlgorithm(BaseAlgorithm):
             # 综合互动指标：点赞×1 + 硬币×2 + 收藏×3，硬币和收藏代表更深用户认同
             engagement = (likes + coins * 2 + favs * 3) / np.maximum(views, 1)
             # 取最近 5 个点的平均互动率进行归一化
-            recent_eng = engagement[-min(5, n):]
+            recent_eng = engagement[-min(5, n) :]
             eng_score = min(1.0, np.mean(recent_eng) * 20)
 
             # 维度3: 分享率（权重 0.15）
             # 分享数 / 播放量，分享天然稀少但传播信号最强
             share_rate = shares / np.maximum(views, 1)
             # 归一化系数 ×50（高于互动×20），因为分享比例通常远小于互动比例
-            share_score = min(1.0, np.mean(share_rate[-min(5, n):]) * 50)
+            share_score = min(1.0, np.mean(share_rate[-min(5, n) :]) * 50)
 
             # 维度4: 加速度（权重 0.20）
             # 播放量增速的变化趋势：二阶差分（加速度）的均值
             if n >= 6:
                 vel = np.diff(views)  # 一阶差分 = 每步增长量（速度）
-                accel = np.diff(vel[-min(6, len(vel)):])  # 二阶差分 = 加速度
+                accel = np.diff(vel[-min(6, len(vel)) :])  # 二阶差分 = 加速度
                 # 加速度得分映射到 [0, 1]，以 0.5 为中心（零加速度 = 0.5 分）
                 accel_score = min(1.0, max(0, np.mean(accel) / max(abs(np.mean(accel)), 1e-10)) * 0.5 + 0.5)
             else:
@@ -181,7 +185,13 @@ class ViralityScoreAlgorithm(BaseAlgorithm):
             # 置信度：基础 0.3 + 病毒评分加成（0-0.4）+ 数据点加成（0-0.5），上限 0.85
             confidence = max(0.1, min(0.85, 0.3 + 0.4 * virality + 0.02 * min(n, 25)))
 
-            return self._std_result(predicted_hours, confidence, current_views, threshold, velocity=velocity, metadata={
+            return self._std_result(
+                predicted_hours,
+                confidence,
+                current_views,
+                threshold,
+                velocity=velocity,
+                metadata={
                     "method": "virality_score",
                     "virality": round(float(virality), 3),  # 综合病毒传播评分 [0, 1]
                     "boost": round(float(boost), 2),  # 加速因子 [0.5, 2.5]
@@ -191,9 +201,12 @@ class ViralityScoreAlgorithm(BaseAlgorithm):
                         "share": round(float(share_score), 2),  # 分享率子评分
                         "accel": round(float(accel_score), 2),  # 加速度子评分
                     },
-                })
+                },
+            )
         except Exception:
             # 任何异常回退到匀速预测
             remaining = threshold - current_views
             predicted_hours = remaining / velocity if velocity > 0 else float("inf")
-            return self._std_result(predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "viral_error"})
+            return self._std_result(
+                predicted_hours, 0.3, current_views, threshold, velocity=velocity, metadata={"method": "viral_error"}
+            )
