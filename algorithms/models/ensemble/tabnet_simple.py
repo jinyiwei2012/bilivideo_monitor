@@ -237,11 +237,12 @@ class TabnetSimpleAlgorithm(BaseAlgorithm):
             features = np.nan_to_num(features)  # NaN/Inf 处理
 
             n_features = features.shape[1]
-            np.random.seed(42)  # 固定随机种子保证可复现
+            # 局部 RandomState(42)：与旧全局随机种子序列完全一致（值不变），且不污染全局 RNG
+            _rng = np.random.RandomState(42)
             # 随机初始化权重矩阵（模拟注意力网络）
-            W = np.random.randn(n_features, n_features) * 0.1      # 特征变换矩阵
-            V = np.random.randn(n_features, 1) * 0.1               # 注意力评分向量
-            W_out = np.random.randn(n_features, 1) * 0.01          # 输出层权重
+            W = _rng.randn(n_features, n_features) * 0.1      # 特征变换矩阵
+            V = _rng.randn(n_features, 1) * 0.1               # 注意力评分向量
+            W_out = _rng.randn(n_features, 1) * 0.01          # 输出层权重
 
             # Step 1: 特征变换
             H = features @ W

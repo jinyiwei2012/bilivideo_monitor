@@ -108,8 +108,9 @@ class DeeparSimpleAlgorithm(BaseAlgorithm):
             sigma_ret = np.std(returns) + 1e-10  # 返回率波动
 
             n_samples = 200  # 蒙特卡洛采样路径数
-            np.random.seed(42)  # 固定随机种子确保可重复性
-            future_returns = np.random.normal(mu_ret, sigma_ret, (n_samples, 30))  # [200, 30]
+            # 局部 RandomState(42)：与旧全局随机种子序列完全一致（值不变），且不污染全局 RNG
+            _rng = np.random.RandomState(42)
+            future_returns = _rng.normal(mu_ret, sigma_ret, (n_samples, 30))  # [200, 30]
             future_views_samples = np.zeros((n_samples, 30))
             future_views_samples[:, 0] = views[-1] * (1 + future_returns[:, 0])
             for t in range(1, 30):

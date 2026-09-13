@@ -655,3 +655,18 @@ class TestMemoryHealthOffMainThread:
         tick.global_tick(_GUI())
         assert called["ff"] == ["mem-health"], f"应经 fire_and_forget 调度，实际 {called['ff']}"
         assert called["sync"] == [], "不应在主线程同步调用 do_memory_health_check"
+
+
+class TestNoGlobalRandomSeedPollution:
+    """M2.10b: 算法模块不得用 np.random.seed() 污染全局 RNG（应使用局部 RandomState/default_rng）。"""
+
+    def test_no_np_random_seed_in_models(self):
+        import pathlib
+
+        root = pathlib.Path(__file__).resolve().parents[1] / "algorithms" / "models"
+        offenders = [
+            str(p.relative_to(root))
+            for p in root.rglob("*.py")
+            if "np.random.seed(" in p.read_text(encoding="utf-8")
+        ]
+        assert not offenders, f"仍存在污染全局 RNG 的 np.random.seed: {offenders}"

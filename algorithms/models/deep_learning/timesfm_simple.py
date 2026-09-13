@@ -120,14 +120,15 @@ class TimesfmSimpleAlgorithm(BaseAlgorithm):
 
             # ===== Patch嵌入：线性投影到d_model维空间 =====
             d_model = 16
-            np.random.seed(42)  # 固定种子保证可复现
-            W_emb = np.random.randn(patch_len, d_model) * 0.02   # 嵌入矩阵
+            # 局部 RandomState(42)：与旧全局随机种子序列完全一致（值不变），且不污染全局 RNG
+            _rng = np.random.RandomState(42)
+            W_emb = _rng.randn(patch_len, d_model) * 0.02   # 嵌入矩阵
             patch_emb = patches_norm @ W_emb                       # [n_patches, d_model]
 
             # ===== 自注意力：计算QKV =====
-            W_q = np.random.randn(d_model, d_model) * 0.01
-            W_k = np.random.randn(d_model, d_model) * 0.01
-            W_v = np.random.randn(d_model, d_model) * 0.01
+            W_q = _rng.randn(d_model, d_model) * 0.01
+            W_k = _rng.randn(d_model, d_model) * 0.01
+            W_v = _rng.randn(d_model, d_model) * 0.01
 
             Q = patch_emb @ W_q   # 查询
             K = patch_emb @ W_k   # 键
@@ -140,7 +141,7 @@ class TimesfmSimpleAlgorithm(BaseAlgorithm):
             context = attn @ V  # 注意力加权输出
 
             # ===== 预测头：线性映射到未来值 =====
-            W_pred = np.random.randn(d_model, 4) * 0.01
+            W_pred = _rng.randn(d_model, 4) * 0.01
             pred_patch = context[-1:] @ W_pred                # 只用最后一个patch的输出预测
             future_vals = pred_patch.flatten() * patch_stds[-1] + patch_means[-1]  # 反归一化
 

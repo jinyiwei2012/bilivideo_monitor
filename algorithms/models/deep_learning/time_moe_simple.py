@@ -118,11 +118,12 @@ class TimeMoeSimpleAlgorithm(BaseAlgorithm):
             current_eng = engagement[-1] if len(engagement) > 0 else 0
 
             n_experts = 4  # 4个专家
-            np.random.seed(42)  # 固定随机种子保证可复现
+            # 局部 RandomState(42)：与旧全局随机种子序列完全一致（值不变），且不污染全局 RNG
+            _rng = np.random.RandomState(42)
             # 路由器权重（2维输入 → 4维logits）
-            W_gate = np.random.randn(2, n_experts) * 0.1
+            W_gate = _rng.randn(2, n_experts) * 0.1
             # 各专家权重（2维输入 → 1维预测值）
-            W_exp = [np.random.randn(2, 1) * 0.1 for _ in range(n_experts)]
+            W_exp = [_rng.randn(2, 1) * 0.1 for _ in range(n_experts)]
 
             # 路由计算：2维输入 → 4维logits → softmax概率
             routing_input = np.array([recent_growth, current_eng])
