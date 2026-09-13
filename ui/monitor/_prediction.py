@@ -430,29 +430,37 @@ def _predict_single(gui, bvid, video) -> dict:
 
     threading.Thread(target=_save_all, daemon=True).start()
 
-    # 每批次预测后释放模型缓存 + 强制 GC
-    _maybe_release_memory()
+    # 内存压力时才释放模型缓存（替代原先"每 N 次预测必清"）
+    _maybe_release_memory(gui)
 
     return result
 
 
-# 批处理计数器：每 N 次预测后清理内存
-_predict_count = 0
-_PREDICT_CLEANUP_INTERVAL = 3
+def _maybe_release_memory(gui=None):
+    """仅在内存压力（进程 RSS 超阈值或系统可用内存不足）时释放 PyTorch 模型缓存。
 
+    替代原先"每 3 次预测必清"的策略：该策略在内存充足时也强制清空缓存，
+    导致模型被反复重载、预测延迟上升。现改为按真实内存压力触发，
+    并保留当前活跃视频的模型（见 `release_cached_models(keep_bvid=...)`）。
+    """
+    try:
+        from utils.memory_guard import is_memory_pressure
+    except Exception:
+        return
+    if not is_memory_pressure():
+        return
+    keep_bvid = (getattr(gui, "selected_bvid", "") or "") if gui is not None else ""
+    try:
+        from algorithms.models.deep_learning._torch_upgrade import release_cached_models
 
-def _maybe_release_memory():
-    """每 N 次预测后释放 PyTorch 模型缓存并强制 GC。"""
-    global _predict_count
-    _predict_count += 1
-    if _predict_count % _PREDICT_CLEANUP_INTERVAL == 0:
-        import gc
-        try:
-            from algorithms.models.deep_learning._torch_upgrade import release_cached_models
-            release_cached_models()
-        except Exception:
-            pass
-        gc.collect()
+        released = release_cached_models(keep_bvid=keep_bvid)
+        if released:
+            logger.info("[Mem] 内存压力触发模型缓存释放: %d 个 (保留 bvid=%s)", released, keep_bvid or "-")
+    except Exception:
+        logger.debug("释放模型缓存失败", exc_info=True)
+    import gc
+
+    gc.collect()
 
 
 def _online_learning_feedback(gui, bvid, results, actual_view, prev_result):

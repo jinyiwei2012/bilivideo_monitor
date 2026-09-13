@@ -265,3 +265,73 @@ class TestTorchPredictCacheFirst:
         result = u.try_torch_predict(algo, self._video_data(), 100000, model_cls=object, fallback_fn=lambda vd, th: "FB")
         assert calls, "checkpoint 签名变化时应重新调用 load_best_checkpoint"
         assert result == "FB"
+
+
+class TestReleaseCachedModelsKeepActive:
+    """M1.2: release_cached_models 保留当前活跃 bvid 的模型，释放其余并返回数量。"""
+
+    def test_keeps_active_bvid(self):
+        import algorithms.models.deep_learning._torch_upgrade as u
+
+        class _Model:
+            def cpu(self):
+                return self
+
+        class _Algo:
+            def __init__(self, bvid):
+                self._cached_torch_model = _Model()
+                self._cached_bvid = bvid
+                self._cached_ckpt_sig = ("s",)
+                self._cached_model_source = "video"
+
+        keep = _Algo("BV1")
+        drop = _Algo("BV2")
+        n = u.release_cached_models({"keep": keep, "drop": drop}, keep_bvid="BV1")
+        assert n == 1
+        assert keep._cached_torch_model is not None  # 活跃视频模型保留
+        assert keep._cached_bvid == "BV1"
+        assert drop._cached_torch_model is None  # 其余释放
+        assert drop._cached_bvid == ""
+        assert drop._cached_ckpt_sig is None
+
+    def test_release_all_without_keep(self):
+        import algorithms.models.deep_learning._torch_upgrade as u
+
+        class _Model:
+            def cpu(self):
+                return self
+
+        class _Algo:
+            def __init__(self):
+                self._cached_torch_model = _Model()
+                self._cached_bvid = "BV1"
+
+        a = _Algo()
+        n = u.release_cached_models({"x": a})
+        assert n == 1
+        assert a._cached_torch_model is None
+
+
+class TestMaybeReleaseMemoryPressure:
+    """M1.2: _maybe_release_memory 仅在内存压力时释放，内存充足时不动。"""
+
+    def test_only_under_pressure(self, monkeypatch):
+        import ui.monitor._prediction as pred
+        import utils.memory_guard as mg
+        import algorithms.models.deep_learning._torch_upgrade as u
+
+        called = []
+
+        def _release(*a, **k):
+            called.append(k.get("keep_bvid"))
+            return 0
+
+        monkeypatch.setattr(u, "release_cached_models", _release)
+
+        monkeypatch.setattr(mg, "is_memory_pressure", lambda *a, **k: False)
+        pred._maybe_release_memory(None)
+        assert called == [], "内存充足时不应释放模型缓存"
+
+        monkeypatch.setattr(mg, "is_memory_pressure", lambda *a, **k: True)
+        pred._maybe_release_memory(None)
+        assert called, "内存压力时应调用 release_cached_models"

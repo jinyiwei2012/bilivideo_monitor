@@ -1887,29 +1887,41 @@ def clear_all_gpu_models():
         pass
 
 
-def release_cached_models(algorithms_dict: dict = None):
-    """释放所有算法实例中缓存的 PyTorch 模型，回收内存。
-    预测周期结束后调用，保留 ONNX session（体积小）。
-    
+def release_cached_models(algorithms_dict: dict = None, keep_bvid: str = "") -> int:
+    """释放各算法实例缓存的 PyTorch 模型以回收内存，保留 ONNX session（体积小）。
+
     Args:
-        algorithms_dict: AlgorithmRegistry._algorithms 或类似 dict
+        algorithms_dict: AlgorithmRegistry._algorithms 或类似 dict。
+        keep_bvid: 保留该 bvid 对应的模型缓存（当前活跃视频），避免立刻重载。
+
+    Returns:
+        int: 实际释放的模型数量。
     """
     if algorithms_dict is None:
         try:
             from algorithms.registry import AlgorithmRegistry
             algorithms_dict = AlgorithmRegistry._algorithms
         except Exception:
-            return
+            return 0
     count = 0
     for algo in algorithms_dict.values():
-        if hasattr(algo, "_cached_torch_model") and algo._cached_torch_model is not None:
+        if getattr(algo, "_cached_torch_model", None) is None:
+            continue
+        # 保留当前活跃视频的模型，避免下一轮预测立刻重载（LRU 语义）
+        if keep_bvid and getattr(algo, "_cached_bvid", "") == keep_bvid:
+            continue
+        try:
+            algo._cached_torch_model.cpu()
+        except Exception:
+            pass
+        algo._cached_torch_model = None
+        algo._cached_bvid = ""
+        for attr in ("_cached_ckpt_sig", "_cached_model_source"):
             try:
-                algo._cached_torch_model.cpu()
+                setattr(algo, attr, None)
             except Exception:
                 pass
-            algo._cached_torch_model = None
-            algo._cached_bvid = ""
-            count += 1
+        count += 1
     if count > 0:
         import gc
         gc.collect()
@@ -1917,7 +1929,8 @@ def release_cached_models(algorithms_dict: dict = None):
             torch.cuda.empty_cache()
         except Exception:
             pass
-        logger.debug("[Mem] 释放 %d 个 PyTorch 模型缓存", count)
+        logger.debug("[Mem] 释放 %d 个 PyTorch 模型缓存 (保留 bvid=%s)", count, keep_bvid or "-")
+    return count
 
 
 # ════════════════════════════════════════════════════════

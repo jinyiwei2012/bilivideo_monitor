@@ -31,11 +31,15 @@ _cached_total_mb: int = 0
 _cached_avail_mb: int = 0
 
 
-def _get_memory_info():
-    """获取系统内存信息，返回 (total_mb, available_mb)。"""
+def _get_memory_info(fresh: bool = False):
+    """获取系统内存信息，返回 (total_mb, available_mb)。
+
+    Args:
+        fresh: True 时强制重新检测（供内存压力判断用），且不重复打印 info 日志。
+    """
     global _cached_total_mb, _cached_avail_mb
     with _cache_lock:
-        if _cached_total_mb > 0:
+        if not fresh and _cached_total_mb > 0:
             return _cached_total_mb, _cached_avail_mb
 
     total_mb = 0
@@ -87,7 +91,8 @@ def _get_memory_info():
         _cached_total_mb = total_mb
         _cached_avail_mb = avail_mb
 
-    logger.info("[MemoryGuard] 系统内存: %dMB 总 / %dMB 可用", total_mb, avail_mb)
+    if not fresh:
+        logger.info("[MemoryGuard] 系统内存: %dMB 总 / %dMB 可用", total_mb, avail_mb)
     return total_mb, avail_mb
 
 
@@ -156,3 +161,23 @@ def format_memory_info() -> str:
         f"系统: {total_mb // 1024}GB 总 / {avail_mb // 1024:.1f}GB 可用  |  "
         f"进程: {usage_mb}MB  |  模型并发: {slots}  |  线程池: {workers}"
     )
+
+
+def is_memory_pressure(rss_threshold_mb: int = 6144, avail_floor_mb: int = 1024) -> bool:
+    """判断当前是否处于内存压力状态（用于决定是否释放模型缓存）。
+
+    判定（任一成立即为压力）：
+    - 当前进程 RSS ≥ rss_threshold_mb
+    - 系统可用物理内存 < avail_floor_mb
+
+    无法检测时返回 False（保守：不主动释放，避免频繁重载模型）。
+    """
+    rss_mb = get_memory_usage_mb()
+    _, avail_mb = _get_memory_info(fresh=True)
+    if rss_mb and rss_mb >= rss_threshold_mb:
+        logger.debug("[MemoryGuard] 内存压力: 进程 RSS %dMB ≥ %dMB", rss_mb, rss_threshold_mb)
+        return True
+    if avail_mb and avail_mb < avail_floor_mb:
+        logger.debug("[MemoryGuard] 内存压力: 系统可用 %dMB < %dMB", avail_mb, avail_floor_mb)
+        return True
+    return False
