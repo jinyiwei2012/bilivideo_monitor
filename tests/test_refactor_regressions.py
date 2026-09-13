@@ -2739,7 +2739,8 @@ class TestTypeGate:
         path = root / ".mypy-baseline.json"
         assert path.is_file(), "缺少 .mypy-baseline.json（M3.8 类型基线）"
         errors = json.loads(path.read_text(encoding="utf-8"))["errors"]
-        assert errors, "基线不应为空（历史错误需显式挂起）"
+        assert isinstance(errors, list), "基线 errors 必须是列表"
+        # 空列表 = 零容忍（历史错误已全部修复）；非空则为棘轮挂起项
         assert len(errors) == len(set(errors)), "基线存在重复键"
         for key in errors:
             parts = key.split("|", 2)

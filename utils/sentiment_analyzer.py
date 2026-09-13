@@ -139,13 +139,32 @@ def _tokenize(text: str) -> List[str]:
         if not matched:
             if re.match(r"[\u4e00-\u9fff]", text_copy[i]):
                 tokens.append(text_copy[i])
-            elif re.match(r"[a-zA-Z]+", text_copy[i:]):
-                m = re.match(r"[a-zA-Z]+", text_copy[i:])
+            elif (m := re.match(r"[a-zA-Z]+", text_copy[i:])) is not None:
                 tokens.append(m.group())
                 i += m.end()
                 continue
             i += 1
     return tokens
+
+
+def _score_tokens(tokens: List[str]) -> float:
+    score = 0.0
+    for i, token in enumerate(tokens):
+        weight = 1.0
+        # 检查前面是否有程度副词
+        if i >= 1 and tokens[i - 1] in _INTENSIFIERS:
+            weight *= 1.5
+        elif i >= 2 and tokens[i - 2] in _INTENSIFIERS:
+            weight *= 1.3
+        # 检查前面是否有否定词（向后看最多2个token）
+        if any(tokens[j] in _NEGATORS for j in range(max(0, i - 2), i)):
+            weight *= -1.0
+
+        if token in _POSITIVE_WORDS:
+            score += weight
+        elif token in _NEGATIVE_WORDS:
+            score -= weight
+    return score
 
 
 def analyze_sentiment(texts: List[str]) -> Dict:
@@ -160,22 +179,7 @@ def analyze_sentiment(texts: List[str]) -> Dict:
             neutral_count += 1
             continue
         tokens = _tokenize(text.strip())
-        score = 0
-        for i, token in enumerate(tokens):
-            weight = 1.0
-            # 检查前面是否有程度副词
-            if i >= 1 and tokens[i - 1] in _INTENSIFIERS:
-                weight *= 1.5
-            elif i >= 2 and tokens[i - 2] in _INTENSIFIERS:
-                weight *= 1.3
-            # 检查前面是否有否定词（向后看最多2个token）
-            if any(tokens[j] in _NEGATORS for j in range(max(0, i - 2), i)):
-                weight *= -1.0
-
-            if token in _POSITIVE_WORDS:
-                score += weight
-            elif token in _NEGATIVE_WORDS:
-                score -= weight
+        score = _score_tokens(tokens)
 
         if score > 0.5:
             pos_count += 1

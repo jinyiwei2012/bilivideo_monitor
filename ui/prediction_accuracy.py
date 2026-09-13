@@ -96,7 +96,9 @@ class PredictionAccuracyPanel:
         self._table = QTableWidget()
         self._table.setColumnCount(6)
         self._table.setHorizontalHeaderLabels(["预测时间", "算法", "预测值", "实际值", "偏差", "准确率"])
-        self._table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        header = self._table.horizontalHeader()
+        if header is not None:
+            header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self._table.setStyleSheet(f"""
             QTableWidget {{
                 background-color: {C['bg_elevated']}; color: {C['text_1']};

@@ -11,6 +11,7 @@
 import json
 import logging
 import threading
+from typing import Any
 
 from PyQt6.QtWidgets import (
     QWidget,
@@ -534,8 +535,9 @@ class _AddAccountDialog(QDialog):
         if not name or not raw:
             QMessageBox.warning(self, "要注意哦…", "要先填写账号名称和 Cookie 哦…♪")
             return
-        if hasattr(self.parent(), "_parse_cookie_input"):
-            cookies = self.parent()._parse_cookie_input(raw)  # type: ignore
+        parent: Any = self.parent()
+        if hasattr(parent, "_parse_cookie_input"):
+            cookies = parent._parse_cookie_input(raw)
         else:
             cookies = {}
         if not cookies:

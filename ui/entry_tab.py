@@ -388,7 +388,8 @@ class EntryTab(QWidget):
     def _is_valid_bvid(s: str) -> bool:
         from ui.helpers import is_valid_bvid
 
-        return is_valid_bvid(s)
+        result: bool = is_valid_bvid(s)
+        return result
 
     # ── Generate rows ──
     def _generate_rows(self):
@@ -407,8 +408,11 @@ class EntryTab(QWidget):
             return
 
         # Clear old rows
-        for i in reversed(range(self._container.layout().count())):
-            item = self._container.layout().itemAt(i)
+        container_layout = self._container.layout()
+        if container_layout is None:
+            return
+        for i in reversed(range(container_layout.count())):
+            item = container_layout.itemAt(i)
             if item is not None:
                 w = item.widget()
                 if w is not None:
@@ -565,7 +569,7 @@ class EntryTab(QWidget):
 
         # Add to scrollable container
         container_layout = self._container.layout()
-        if container_layout is not None:
+        if isinstance(container_layout, QVBoxLayout):
             container_layout.insertWidget(container_layout.count() - 1, row_frame)
 
         self._rows.append(

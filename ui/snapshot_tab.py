@@ -3,7 +3,7 @@
 """
 
 import logging
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, cast
 from datetime import datetime, timedelta
 from collections import defaultdict
 
@@ -46,6 +46,9 @@ from .data_comparison import (
     _blend,
     _darken,
 )
+
+_PALETTE = cast(list[str], PALETTE)
+_ON_ACCENT = cast(str, C["on_accent"])
 
 _bar_snap_logger = logging.getLogger("data_comparison.snapshot")
 
@@ -157,11 +160,14 @@ class SnapshotBarChart(QWidget):
     def _compute_layout(self, chosen_metrics):
         all_section_widths = []
         metric_data_map: Dict[str, dict] = {}
+        data = self._data
+        if data is None:
+            return metric_data_map, 500
 
         bvid_order = [v.get("bvid", "") for v in self._selected_videos]
 
         for metric in chosen_metrics:
-            bars = self._data.get(metric, [])
+            bars = data.get(metric) or []
             if not isinstance(bars, list) or not bars:
                 all_section_widths.append(0)
                 continue
@@ -288,7 +294,7 @@ class SnapshotBarChart(QWidget):
             bvid = group["bvid"]
             title = group["title"]
             bars = group["bars"]
-            g_color = QColor(PALETTE[g_idx % len(PALETTE)])
+            g_color = QColor(_PALETTE[g_idx % len(_PALETTE)])
 
             g_center = x_cursor + (len(bars) * (BAR_W + inner_gap) - inner_gap) // 2
             painter.setPen(g_color)
@@ -320,13 +326,13 @@ class SnapshotBarChart(QWidget):
         ts_lbl = bar["ts"]
         source = bar["source"]
 
-        hex_color = PALETTE[g_idx % len(PALETTE)]
+        hex_color = _PALETTE[g_idx % len(_PALETTE)]
         if source == "milestone":
             bar_color = QColor(_darken(hex_color, 0.75))
             bar_color2 = QColor(_darken(hex_color, 0.55))
         else:
             ratio = b_idx / max(len(bars) - 1, 1)
-            bar_color = QColor(_blend(hex_color, C["on_accent"], 0.15 + ratio * 0.2))
+            bar_color = QColor(_blend(hex_color, _ON_ACCENT, 0.15 + ratio * 0.2))
             bar_color2 = QColor(hex_color)
 
         x0 = x_cursor

@@ -63,7 +63,7 @@ def _save_predictions_to_db(gui, bvid, current_view, results):
     video_db = gui.video_dbs.get(bvid)
     rows = []
     ensemble_data = None
-    coherence_rows = []
+    coherence_rows: list[dict] = []
 
     if video_db:
         for name, r in results.items():
@@ -202,7 +202,7 @@ def _calc_growth_rate(history: list) -> float:
         last_ts, last_v = safe_datetime(history[-1][0]), history[-1][1]
         dt_sec = (last_ts - first_ts).total_seconds()
         if dt_sec > 0 and last_v > first_v:
-            return (last_v - first_v) / dt_sec
+            return float((last_v - first_v) / dt_sec)
     except Exception as e:
         logger.debug("计算增长率失败: %s", e)
     return 0.0
@@ -246,7 +246,7 @@ def _calc_surge_aware_growth_rate(history: list) -> float:
             if surge_vel > 0 and adj_vel > 0:
                 correction = adj_vel / surge_vel
                 correction = max(0.4, min(1.0, correction))
-                return raw_rate * correction
+                return float(raw_rate * correction)
     except Exception as e:
         logger.debug("推流感知速率计算失败: %s", e)
         pass
@@ -454,7 +454,7 @@ def _predict_single(gui, bvid, video) -> dict:
     # 内存压力时才释放模型缓存（替代原先"每 N 次预测必清"）
     _maybe_release_memory(gui)
 
-    return result
+    return dict(result)
 
 
 def _maybe_release_memory(gui=None):

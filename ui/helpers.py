@@ -105,11 +105,11 @@ def reload_thresholds() -> None:
         raw = cfg.get("prediction", {}).get("thresholds", [])
         if not raw:
             # 默认阈值单点定义见 config.DEFAULT_CONFIG
-            raw = cast("dict[str, Any]", DEFAULT_CONFIG)["prediction"]["thresholds"]
+            raw = DEFAULT_CONFIG["prediction"]["thresholds"]
     except Exception:
         from config import DEFAULT_CONFIG
 
-        raw = cast("dict[str, Any]", DEFAULT_CONFIG)["prediction"]["thresholds"]
+        raw = DEFAULT_CONFIG["prediction"]["thresholds"]
 
     values = []
     names = []

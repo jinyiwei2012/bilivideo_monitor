@@ -320,7 +320,9 @@ class VideoSearchWindow(DialogBase):
         import_action.triggered.connect(lambda: self._import_single(video))
         menu.addAction(import_action)
 
-        menu.exec(self.tree.viewport().mapToGlobal(pos))
+        viewport = self.tree.viewport()
+        if viewport is not None:
+            menu.exec(viewport.mapToGlobal(pos))
 
     def _show_video_detail(self, video):
         """弹出详情对话框显示搜索结果的视频信息"""
@@ -438,7 +440,12 @@ class VideoSearchWindow(DialogBase):
         btn_layout.addWidget(open_btn)
 
         import_btn = QPushButton("＋ 导入监控 ♪")
-        import_btn.clicked.connect(lambda: [dlg.accept(), self._import_single(video)])
+
+        def import_video() -> None:
+            dlg.accept()
+            self._import_single(video)
+
+        import_btn.clicked.connect(import_video)
         btn_layout.addWidget(import_btn)
 
         close_btn = QPushButton("关闭")
@@ -450,7 +457,9 @@ class VideoSearchWindow(DialogBase):
 
     def _copy_bvid(self, bvid):
         """复制 BV 号到剪贴板"""
-        QApplication.clipboard().setText(bvid)
+        clipboard = QApplication.clipboard()
+        if clipboard is not None:
+            clipboard.setText(bvid)
         self.status_lbl.setText(f"已把 {bvid} 记进歌词本啦 ♪")
         self.status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
 

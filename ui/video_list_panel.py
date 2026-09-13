@@ -145,7 +145,8 @@ class VideoCardDelegate(QStyledItemDelegate):
         bvid = data.get("bvid", "")
         thumb = self._cover_cache.get(bvid)
         thumb_rect = QRectF(x, y, 80, 45)
-        radius = C["radius_sm"]
+        radius_value = C["radius_sm"]
+        radius = float(radius_value) if isinstance(radius_value, (int, float, str)) else 0.0
         path = QPainterPath()
         path.addRoundedRect(thumb_rect, radius, radius)
 
@@ -330,6 +331,8 @@ class VideoListPanel(QWidget):
         """按当前搜索词过滤列表（去抖后执行）"""
         for i in range(self._list.count()):
             item = self._list.item(i)
+            if item is None:
+                continue
             data = item.data(Qt.ItemDataRole.UserRole)
             if data:
                 bvid = data.get("bvid", "").lower()

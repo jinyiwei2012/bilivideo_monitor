@@ -6,6 +6,7 @@
 import os
 import json
 import logging
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
@@ -328,7 +329,7 @@ class ReportSchedulerWindow(QDialog):
 
         results = []
         try:
-            fmts = {
+            fmts: dict[str, list[Callable[[list], str]]] = {
                 "html": [export_html],
                 "excel": [export_excel],
                 "csv": [export_csv],
@@ -457,7 +458,8 @@ def load_export_schedule() -> dict:
     """读取已保存的导出排程配置。"""
     try:
         if _SCHEDULE_CONFIG.exists():
-            return json.loads(_SCHEDULE_CONFIG.read_text(encoding="utf-8"))
+            data = json.loads(_SCHEDULE_CONFIG.read_text(encoding="utf-8"))
+            return dict(data) if isinstance(data, dict) else {}
     except Exception as e:
         logger.debug("读取导出排程失败: %s", e)
     return {}

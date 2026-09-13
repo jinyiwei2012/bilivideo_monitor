@@ -609,7 +609,7 @@ def _build_palette(theme: dict) -> QPalette:
 
 
 # ── 全局 QApplication 引用 ─────────────────
-qapp: QApplication = None  # 由 init_theme() 设置
+qapp: QApplication | None = None  # 由 init_theme() 设置
 
 
 def init_theme(app: QApplication, dark: bool = False):
@@ -640,4 +640,5 @@ def init_theme(app: QApplication, dark: bool = False):
 def toggle_theme():
     """切换深色/亮色主题"""
     is_dark = C.get("bg_base") == THEME_DARK.get("bg_base")
-    init_theme(qapp, dark=not is_dark)
+    if qapp is not None:
+        init_theme(qapp, dark=not is_dark)

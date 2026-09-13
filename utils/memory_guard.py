@@ -31,7 +31,7 @@ _cached_total_mb: int = 0
 _cached_avail_mb: int = 0
 
 
-def _get_memory_info(fresh: bool = False):
+def _get_memory_info(fresh: bool = False) -> tuple[int, int]:
     """获取系统内存信息，返回 (total_mb, available_mb)。
 
     Args:
@@ -75,9 +75,10 @@ def _get_memory_info(fresh: bool = False):
     # Linux / macOS fallback
     if total_mb == 0:
         try:
-            mem_bytes = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
+            sysconf = getattr(os, "sysconf")
+            mem_bytes = sysconf("SC_PAGE_SIZE") * sysconf("SC_PHYS_PAGES")
             total_mb = int(mem_bytes // (1024 * 1024))
-            avail_bytes = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_AVPHYS_PAGES")
+            avail_bytes = sysconf("SC_PAGE_SIZE") * sysconf("SC_AVPHYS_PAGES")
             avail_mb = int(avail_bytes // (1024 * 1024))
         except Exception:
             pass
@@ -97,7 +98,7 @@ def _get_memory_info(fresh: bool = False):
     return total_mb, avail_mb
 
 
-def refresh_memory_info():
+def refresh_memory_info() -> tuple[int, int]:
     """重新检测系统内存（用于 UI 刷新）。"""
     global _cached_total_mb, _cached_avail_mb
     with _cache_lock:

@@ -105,6 +105,7 @@ def calculate_weekly_score(data: VideoData) -> WeeklyScoreResult:
     coin_score = coin * correction_c
 
     # 点赞得点
+    like_score: float
     if like > coin * 2:
         like_score = coin * 2
     else:

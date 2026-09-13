@@ -12,7 +12,7 @@ import logging
 import time
 import random
 import json
-from typing import Optional, Tuple, List, Dict
+from typing import Optional, Sequence, Tuple, List, Dict, cast
 
 import cv2
 import numpy as np
@@ -51,7 +51,7 @@ def _get_challenge_data(gt: str, challenge: str) -> Optional[Dict]:
         if not data.get("success"):
             logger.warning("geetest get.php not successful: %s", data)
             return None
-        return data
+        return cast(Dict, data)
     except Exception as e:
         logger.warning("geetest get.php error: %s", e)
         return None
@@ -90,8 +90,8 @@ def _detect_gap(bg_img: np.ndarray, slice_img: np.ndarray) -> int:
     sl_edge = cv2.Canny(sl_gray, 100, 200)
 
     # 多尺度模板匹配
-    best_val = -1
-    best_loc = (0, 0)
+    best_val = -1.0
+    best_loc: Sequence[int] = (0, 0)
     for scale in [1.0, 0.9, 0.8]:
         w = int(sl_gray.shape[1] * scale)
         h = int(sl_gray.shape[0] * scale)
@@ -135,7 +135,7 @@ def _generate_trace(distance: float) -> Tuple[List[Dict], int]:
         passtime: 总耗时(ms)
     """
     trace = []
-    x, y = 0, 0
+    x, y = 0.0, 0
     t = 0
 
     # 起始停顿（100~300ms）
@@ -149,7 +149,7 @@ def _generate_trace(distance: float) -> Tuple[List[Dict], int]:
 
     # 前段: 快速加速
     while fast_part > 0:
-        step = random.randint(5, 15)
+        step: float = random.randint(5, 15)
         if step > fast_part:
             step = fast_part
         x += step
@@ -160,7 +160,7 @@ def _generate_trace(distance: float) -> Tuple[List[Dict], int]:
 
     # 中段: 缓慢逼近
     while remain - x > 3:
-        step = random.randint(1, 5)
+        step = float(random.randint(1, 5))
         if x + step > remain:
             step = remain - x
         x += step

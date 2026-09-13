@@ -380,7 +380,7 @@ class DatabaseQueryWindow(DialogBase):
         return backup if os.path.exists(backup) else None
 
     def _load_extra_data(self, bvid: str, timestamp: str) -> dict:
-        extra = {}
+        extra: dict = {}
         vdp = self._get_video_db_path(bvid)
         if not vdp:
             return extra
@@ -557,7 +557,7 @@ class DatabaseQueryWindow(DialogBase):
             cur.execute("SELECT * FROM monitor_records ORDER BY timestamp ASC")
         elif mode == "全量数据":
             cur.execute("SELECT * FROM monitor_records ORDER BY timestamp DESC")
-        return cur.fetchall()
+        return list(cur.fetchall())
 
     def _run_fallback_query(self, mode, filter_bvid, bvid_for_trend):
         raw_rows = self._query_central_db(mode, filter_bvid, bvid_for_trend)
@@ -768,7 +768,7 @@ class DatabaseQueryWindow(DialogBase):
             QMessageBox.warning(self, "要注意哦…", "还没有可导出的数据呢…像一段空白乐谱，先查一查再导出吧 ♪")
             return
         try:
-            import openpyxl  # type: ignore[import-untyped]
+            import openpyxl
         except ImportError:
             QMessageBox.critical(
                 self,

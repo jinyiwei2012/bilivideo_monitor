@@ -255,16 +255,26 @@ def show_update_dialog(gui, latest, current, url, changelog, channel="stable"):
         info_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         btn_layout.addWidget(info_lbl)
     elif is_frozen():
+
+        def download_exe() -> None:
+            dlg.accept()
+            show_download_progress(gui, "正在下载新版本哦…♪", perform_exe_self_update)
+
         dl_btn = _make_btn(
             "⬇ aria2 下载更新 ♪",
-            lambda: (dlg.accept(), show_download_progress(gui, "正在下载新版本哦…♪", perform_exe_self_update)),
+            download_exe,
         )
         btn_layout.addWidget(dl_btn)
     else:
         git_btn = _make_btn("↥ Git Pull 自动拉取 ♪", lambda: _on_git_pull())
+
+        def download_zip() -> None:
+            dlg.accept()
+            show_download_progress(gui, "正在下载最新源码哦…♪", perform_source_download_zip)
+
         zip_btn = _make_btn(
             "⬇ aria2 下载 ZIP ♪",
-            lambda: (dlg.accept(), show_download_progress(gui, "正在下载最新源码哦…♪", perform_source_download_zip)),
+            download_zip,
         )
         btn_layout.addWidget(git_btn)
         btn_layout.addWidget(zip_btn)

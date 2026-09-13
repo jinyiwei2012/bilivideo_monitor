@@ -5,6 +5,7 @@ PyQt6 版本：使用 QtAgg 后端替代 TkAgg。
 """
 
 try:
+    import importlib
     import matplotlib
 
     # 设置 Matplotlib 后端为 QtAgg（必须在导入 pyplot 之前）
@@ -25,8 +26,8 @@ try:
 
     warnings.filterwarnings("ignore", message="Glyph.*missing from font.*")
 
-    from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
-    from matplotlib.figure import Figure
+    FigureCanvasQTAgg = getattr(importlib.import_module("matplotlib.backends.backend_qtagg"), "FigureCanvasQTAgg")
+    Figure = getattr(importlib.import_module("matplotlib.figure"), "Figure")
 
     mpl_available = True
 except Exception:

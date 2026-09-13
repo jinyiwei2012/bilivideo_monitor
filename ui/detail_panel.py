@@ -572,7 +572,7 @@ class DetailPanel(_RatioDanmakuMixin):
         ft_h.addWidget(self._finetune_status, 1)
 
         info_layout.addWidget(ft_bar)
-        layout.addWidget(info, 1)
+        layout.addWidget(info)
         self._detail_header.setFixedHeight(info.sizeHint().height() + 20)
 
     def _open_finetune_dialog(self, bvid: str):
@@ -675,7 +675,7 @@ class DetailPanel(_RatioDanmakuMixin):
             delta_lbl.setStyleSheet(f"color: {C['success']}; background-color: transparent;")
             card_layout.addWidget(delta_lbl)
 
-            layout.addWidget(card, 1)
+            layout.addWidget(card)
             self._stat_labels[key] = (val_lbl, delta_lbl)
 
     def update_stat_bar(self, video):

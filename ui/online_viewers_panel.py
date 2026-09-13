@@ -36,7 +36,7 @@ MAX_VIEWER_FETCH_WORKERS = 4
 TOP_N_FETCH = 20
 
 # ── 模块级在线人数数据库（每个视频独立 data/<BV>/viewercount.db）──
-_db_cache: dict = {}
+_db_cache: dict[str, sqlite3.Connection] = {}
 _db_lock = threading.Lock()
 
 
@@ -341,6 +341,8 @@ class OnlineViewersPanel(QWidget):
 
     def _wait_viewer_futures(self, fetchable):
         """按原超时等待在线人数抓取任务并吞掉单任务错误。"""
+        if self._fetch_pool is None:
+            return
         futures = [self._fetch_pool.submit(self._fetch_one_viewer, bvid, cid) for bvid, cid in fetchable]
         for f in as_completed(futures, timeout=10):
             try:

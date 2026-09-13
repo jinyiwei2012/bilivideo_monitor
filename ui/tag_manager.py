@@ -16,11 +16,23 @@ from PyQt6.QtWidgets import (
     QScrollArea,
 )
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QMouseEvent
+from typing import Callable
 
 from ui.theme import C
 from ui.helpers import FONT
 from ui.dialog_base import DialogBase
 from utils.tag_manager import get_tags, set_tags, all_tags, suggest_tags
+
+
+class _TagDeleteLabel(QLabel):
+    def __init__(self, tag: str, delete_tag: Callable[[str], None]):
+        super().__init__("✗")
+        self._tag = tag
+        self._delete_tag = delete_tag
+
+    def mousePressEvent(self, event: QMouseEvent | None) -> None:
+        self._delete_tag(self._tag)
 
 
 class TagManagerWindow:
@@ -132,7 +144,12 @@ class TagManagerWindow:
         right_layout.addWidget(self._filter_combo)
 
         clear_btn = QPushButton("清除筛选")
-        clear_btn.clicked.connect(lambda: [self._filter_combo.setCurrentIndex(0), self._refresh()])
+
+        def clear_filter() -> None:
+            self._filter_combo.setCurrentIndex(0)
+            self._refresh()
+
+        clear_btn.clicked.connect(clear_filter)
         right_layout.addWidget(clear_btn)
 
         main_layout.addWidget(right)
@@ -187,7 +204,10 @@ class TagManagerWindow:
     def _refresh_tags(self):
         """刷新当前选中视频的标签显示"""
         for i in reversed(range(self._tags_layout.count())):
-            w = self._tags_layout.itemAt(i).widget()
+            item = self._tags_layout.itemAt(i)
+            if item is None:
+                continue
+            w = item.widget()
             if w is not None:
                 w.setParent(None)
                 w.deleteLater()
@@ -208,10 +228,9 @@ class TagManagerWindow:
             lbl.setFont(FONT)
             row_layout.addWidget(lbl)
 
-            del_lbl = QLabel("✗")
+            del_lbl = _TagDeleteLabel(tag, self._delete_tag)
             del_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
             del_lbl.setFont(FONT)
-            del_lbl.mousePressEvent = lambda e, t=tag: self._delete_tag(t)
             row_layout.addWidget(del_lbl, 0, Qt.AlignmentFlag.AlignRight)
 
             self._tags_layout.insertWidget(self._tags_layout.count() - 1, row)
@@ -228,13 +247,13 @@ class TagManagerWindow:
     def _add_tag(self):
         """为选中视频添加新标签"""
         if not self._selected_bvid:
-            QMessageBox.warning(self.dlg.window, "提示", "先在左侧选一个视频吧,天依好帮你贴标签 ♪")
+            QMessageBox.warning(self.dlg.window(), "提示", "先在左侧选一个视频吧,天依好帮你贴标签 ♪")
             return
         tag = self._tag_entry.text().strip()
         if not tag:
             return
         if " " in tag:
-            QMessageBox.warning(self.dlg.window, "提示", "标签里不能有空格哦,像歌词不能断行一样 ♪")
+            QMessageBox.warning(self.dlg.window(), "提示", "标签里不能有空格哦,像歌词不能断行一样 ♪")
             return
         existing = get_tags(self._selected_bvid)
         if tag not in existing:
@@ -254,11 +273,11 @@ class TagManagerWindow:
         existing = set(get_tags(self._selected_bvid))
         new_tags = [t for t in suggestions if t not in existing]
         if not new_tags:
-            QMessageBox.information(self.dlg.window, "提示", "没有新的建议标签呢,天依的灵感也需要酝酿一下 ♪")
+            QMessageBox.information(self.dlg.window(), "提示", "没有新的建议标签呢,天依的灵感也需要酝酿一下 ♪")
             return
         added = ", ".join(new_tags)
         reply = QMessageBox.question(
-            self.dlg.window,
+            self.dlg.window(),
             "标签建议",
             f"天依建议贴上这些标签：\n{added}\n\n要贴上吗?♪",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,

@@ -332,7 +332,8 @@ def _finalize_delete(gui, bvid):
 def copy_bvid(gui, bvid):
     """复制 BV 号到剪贴板"""
     cb = QApplication.clipboard()
-    cb.setText(bvid)
+    if cb is not None:
+        cb.setText(bvid)
     gui._sb("status", f"已把 {bvid} 抄进小本本啦 ♪ 天依记得住哦~", C["success"])
 
 

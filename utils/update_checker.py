@@ -12,7 +12,7 @@ import os
 import sys
 import threading
 import subprocess
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple, cast
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -20,8 +20,11 @@ import requests
 
 from config import DATA_DIR, load_config, save_config
 
+QMessageBox: Any
 try:
-    from PyQt6.QtWidgets import QMessageBox
+    from PyQt6 import QtWidgets
+
+    QMessageBox = QtWidgets.QMessageBox
 except ImportError:
     QMessageBox = None
 
@@ -41,7 +44,7 @@ CACHE_TTL = timedelta(hours=24)
 def get_update_channel() -> str:
     """获取当前更新通道: 'stable' 或 'beta'"""
     cfg = load_config()
-    return cfg.get("update_channel", "stable")
+    return cast(str, cfg.get("update_channel", "stable"))
 
 
 def set_update_channel(channel: str):
@@ -193,7 +196,7 @@ def _load_cache() -> Optional[dict]:
             data = json.loads(CACHE_FILE.read_text(encoding="utf-8"))
             cached_time = datetime.fromisoformat(data.get("cached_at", "2000-01-01"))
             if datetime.now() - cached_time < CACHE_TTL:
-                return data
+                return cast(dict[str, Any], data)
     except Exception:
         pass
     return None

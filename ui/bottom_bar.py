@@ -32,10 +32,10 @@ class BottomBar(QWidget):
     def _build_bottom_bar(self):
         """构建底部操作栏"""
         # 水波分隔线 (洛天依意象)
-        self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(0, 0, 0, 0)
-        self.layout.setSpacing(0)
-        self.layout.addWidget(WaveDivider())
+        self._layout = QVBoxLayout(self)
+        self._layout.setContentsMargins(0, 0, 0, 0)
+        self._layout.setSpacing(0)
+        self._layout.addWidget(WaveDivider())
 
         bar = QWidget()
         bar.setFixedHeight(46)
@@ -120,11 +120,11 @@ class BottomBar(QWidget):
         ar_h.addWidget(self._ar_check)
         h.addWidget(ar_w)
 
-        self.layout.addWidget(bar)
+        self._layout.addWidget(bar)
 
     def _build_status_bar(self):
         """构建底部状态栏"""
-        self.layout.addWidget(WaveDivider())
+        self._layout.addWidget(WaveDivider())
 
         bar = QWidget()
         bar.setFixedHeight(22)
@@ -155,7 +155,7 @@ class BottomBar(QWidget):
             h.addWidget(lbl)
             self._sb_labels[key] = lbl
 
-        self.layout.addWidget(bar)
+        self._layout.addWidget(bar)
 
     def update_sb(self, key, text, color=None):
         """更新状态栏标签的文本和颜色"""

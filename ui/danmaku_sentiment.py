@@ -88,7 +88,8 @@ def get_sentiment(gui, bvid: str) -> dict | None:
         return None
     cache = getattr(gui, "_danmaku_sentiment", None)
     if cache and bvid in cache:
-        return cache.get(bvid)
+        cached = cache.get(bvid)
+        return dict(cached) if isinstance(cached, dict) else None
     return analyze_recent(gui, bvid)
 
 

@@ -94,8 +94,9 @@ class RankingPanel:
             }}
         """)
         hdr = self._tree.header()
-        hdr.setStretchLastSection(True)
-        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        if hdr is not None:
+            hdr.setStretchLastSection(True)
+            hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
         self._tree.setColumnWidth(0, 30)
         self._tree.setColumnWidth(1, 100)
         self._tree.setColumnWidth(2, 220)

@@ -80,7 +80,9 @@ class VideoCompareEnhanced:
         self._peer_table = QTableWidget()
         self._peer_table.setColumnCount(4)
         self._peer_table.setHorizontalHeaderLabels(["视频", "当前播放量", "同期增量", "日均增速"])
-        self._peer_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        peer_header = self._peer_table.horizontalHeader()
+        if peer_header is not None:
+            peer_header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         ol.addWidget(self._peer_table, 1)
 
         self._tabs.addTab(tab, "◧ 同期对比")
@@ -100,11 +102,10 @@ class VideoCompareEnhanced:
             base_views = views
             for ts, vc in reversed(history):
                 try:
-                    t = safe_timestamp(ts)
+                    timestamp = safe_timestamp(ts)
                 except Exception:
                     continue  # 脏数据跳过
-                if isinstance(t, (int, float)):
-                    t = datetime.fromtimestamp(t)
+                t = datetime.fromtimestamp(timestamp)
                 if t < cutoff:
                     base_views = vc
                     break
@@ -147,7 +148,9 @@ class VideoCompareEnhanced:
         self._vel_table = QTableWidget()
         self._vel_table.setColumnCount(5)
         self._vel_table.setHorizontalHeaderLabels(["排名", "视频", "播放量", "时段增量", "时均增量"])
-        self._vel_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        velocity_header = self._vel_table.horizontalHeader()
+        if velocity_header is not None:
+            velocity_header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         ol.addWidget(self._vel_table, 1)
 
         self._tabs.addTab(tab, "♬ 增速排名")
@@ -165,24 +168,22 @@ class VideoCompareEnhanced:
             history = self.gui.history_data.get(bvid, [])
             base_views = views
             base_t = None
-            actual_hours = 0
+            actual_hours = 0.0
             for ts, vc in reversed(history):
                 try:
-                    t = safe_timestamp(ts)
+                    timestamp = safe_timestamp(ts)
                 except Exception:
                     continue  # 脏数据跳过
-                if isinstance(t, (int, float)):
-                    t = datetime.fromtimestamp(t)
+                t = datetime.fromtimestamp(timestamp)
                 if t < cutoff:
                     base_views = vc
                     base_t = t  # 记录 cutoff 边界处的时间点
                     if len(history) >= 2:
                         try:
-                            latest_t = safe_timestamp(history[-1][0])
+                            latest_timestamp = safe_timestamp(history[-1][0])
                         except Exception:
-                            latest_t = None  # 脏数据跳过
-                        if isinstance(latest_t, (int, float)):
-                            latest_t = datetime.fromtimestamp(latest_t)
+                            latest_timestamp = None  # 脏数据跳过
+                        latest_t = datetime.fromtimestamp(latest_timestamp) if latest_timestamp is not None else None
                         if latest_t is not None:
                             actual_hours = (latest_t - base_t).total_seconds() / 3600
                     break
@@ -227,7 +228,9 @@ class VideoCompareEnhanced:
         self._con_table = QTableWidget()
         self._con_table.setColumnCount(4)
         self._con_table.setHorizontalHeaderLabels(["视频", "算法数", "平均预测(h)", "标准差(h)"])
-        self._con_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        consistency_header = self._con_table.horizontalHeader()
+        if consistency_header is not None:
+            consistency_header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         ol.addWidget(self._con_table, 1)
 
         self._tabs.addTab(tab, "◎ 预测一致性")

@@ -3,7 +3,7 @@
 """
 
 import logging
-from typing import List, Dict
+from typing import List, Dict, cast
 from datetime import datetime, timedelta
 
 from PyQt6.QtWidgets import (
@@ -32,6 +32,9 @@ from ui.theme import C
 from .data_comparison import _fmt, PALETTE, PALETTE_LIGHT, METRICS, _ML, _MR, _MT, _MB
 
 logger = logging.getLogger(__name__)
+
+_PALETTE = cast(list[str], PALETTE)
+_PALETTE_LIGHT = cast(list[str], PALETTE_LIGHT)
 
 
 class TrendChart(QWidget):
@@ -99,12 +102,12 @@ class TrendChart(QWidget):
         ts_span = (self._max_ts - self._min_ts).total_seconds() or 1
         val_range = self._max_val - self._min_val or 1
 
-        def to_x(ts):
-            return _ML + (ts - self._min_ts).total_seconds() / ts_span * cw
+        self._draw_axes(painter, W, H, cw, ch, ts_span, self._min_ts)
+        self._draw_series(painter, cw, ch, ts_span, val_range)
 
-        def to_y(v):
-            return _MT + ch - (v - self._min_val) / val_range * ch
+        painter.end()
 
+    def _draw_axes(self, painter, W, H, cw, ch, ts_span, min_ts):
         # 标题
         painter.setPen(QColor(C["text_1"]))
         title_font = QFont("Microsoft YaHei UI", 11)
@@ -132,12 +135,19 @@ class TrendChart(QWidget):
         tick_font = QFont("Consolas", 8)
         for i in range(n_ticks):
             ratio = i / (n_ticks - 1) if n_ticks > 1 else 0
-            ts = self._min_ts + timedelta(seconds=ts_span * ratio)
+            ts = min_ts + timedelta(seconds=ts_span * ratio)
             x = int(_ML + cw * ratio)
             label = ts.strftime("%m-%d %H:%M") if ts_span < 86400 * 7 else ts.strftime("%m-%d")
             painter.setPen(QColor(C["text_2"]))
             painter.setFont(tick_font)
             painter.drawText(int(x - 30), int(H - _MB + 6), 60, 16, Qt.AlignmentFlag.AlignCenter.value, label)
+
+    def _draw_series(self, painter, cw, ch, ts_span, val_range):
+        def to_x(ts):
+            return _ML + (ts - self._min_ts).total_seconds() / ts_span * cw
+
+        def to_y(v):
+            return _MT + ch - (v - self._min_val) / val_range * ch
 
         # 绘制所有折线
         line_pen = QPen()
@@ -148,8 +158,8 @@ class TrendChart(QWidget):
             if not pts:
                 continue
 
-            color = QColor(PALETTE[idx % len(PALETTE)])
-            color_light = QColor(PALETTE_LIGHT[idx % len(PALETTE_LIGHT)])
+            color = QColor(_PALETTE[idx % len(_PALETTE)])
+            color_light = QColor(_PALETTE_LIGHT[idx % len(_PALETTE_LIGHT)])
 
             # 构建折线坐标
             coords = []
@@ -200,8 +210,6 @@ class TrendChart(QWidget):
             val_font.setBold(True)
             painter.setFont(val_font)
             painter.drawText(lx + 8, ly - 14, _fmt(pts[-1][1]))
-
-        painter.end()
 
 
 class TrendTab(QWidget):
@@ -417,7 +425,7 @@ class TrendTab(QWidget):
         for idx, video in enumerate(valid):
             bvid = video.get("bvid", "")
             title = video.get("title", bvid)[:18]
-            color = PALETTE[idx % len(PALETTE)]
+            color = _PALETTE[idx % len(_PALETTE)]
             leg_item = QLabel(f"  {title} ({bvid})")
             leg_item.setStyleSheet(f"""
                 color: {color}; background: transparent;

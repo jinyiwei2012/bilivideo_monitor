@@ -260,20 +260,21 @@ class BacktestPanel:
                 if series is None
                 else f"数据点不足（{len(series)} < {params['min_train'] + 5}），像刚起的调子，再多攒几段旋律哦 ♪"
             )
-            invoke(
-                lambda m=msg: [
-                    self._status_lbl.setText(m),
-                    self._status_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;"),
-                ]
-            )
+
+            def show_insufficient_data() -> None:
+                self._status_lbl.setText(msg)
+                self._status_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
+
+            invoke(show_insufficient_data)
             return
 
-        invoke(
-            lambda n=len(series): [
-                self._status_lbl.setText(f"⏳ 回测中哦…{n} 个音符，天依正在认真听 ♪"),
-                self._status_lbl.setStyleSheet(f"color: {C['accent']}; background: transparent;"),
-            ]
-        )
+        series_length = len(series)
+
+        def show_running() -> None:
+            self._status_lbl.setText(f"⏳ 回测中哦…{series_length} 个音符，天依正在认真听 ♪")
+            self._status_lbl.setStyleSheet(f"color: {C['accent']}; background: transparent;")
+
+        invoke(show_running)
 
         # 构建预测器字典
         predictors = {}
@@ -308,21 +309,21 @@ class BacktestPanel:
                 import logging
 
                 logging.getLogger(__name__).error("加载算法失败: %s", e)
-                invoke(
-                    lambda: [
-                        self._status_lbl.setText("呜…加载算法失败啦，像乐器没调好音，请稍后再试哦 ♪"),
-                        self._status_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;"),
-                    ]
-                )
+
+                def show_load_failure() -> None:
+                    self._status_lbl.setText("呜…加载算法失败啦，像乐器没调好音，请稍后再试哦 ♪")
+                    self._status_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
+
+                invoke(show_load_failure)
                 return
 
         if not predictors:
-            invoke(
-                lambda: [
-                    self._status_lbl.setText("呜…没有可以登台演唱的预测器呢…♪"),
-                    self._status_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;"),
-                ]
-            )
+
+            def show_no_predictors() -> None:
+                self._status_lbl.setText("呜…没有可以登台演唱的预测器呢…♪")
+                self._status_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
+
+            invoke(show_no_predictors)
             return
 
         # 执行回测
@@ -342,8 +343,10 @@ class BacktestPanel:
         self._tree.clear()
         # 清空 summary_frame
         while self._summary_layout.count():
-            item = self._summary_layout.takeAt(0)
-            w = item.widget()
+            layout_item = self._summary_layout.takeAt(0)
+            if layout_item is None:
+                continue
+            w = layout_item.widget()
             if w:
                 w.setParent(None)
                 w.deleteLater()
@@ -384,17 +387,17 @@ class BacktestPanel:
         # 表格
         for rank, (name, rmse, mae, mape, n_tests) in enumerate(valid, 1):
             vals = [name[:25], fmt_num(int(rmse)), fmt_num(int(mae)), f"{mape*100:.1f}%", str(n_tests), f"#{rank}"]
-            item = QTreeWidgetItem(vals)
-            item.setTextAlignment(1, Qt.AlignmentFlag.AlignRight)
-            item.setTextAlignment(2, Qt.AlignmentFlag.AlignRight)
-            item.setTextAlignment(3, Qt.AlignmentFlag.AlignRight)
-            item.setTextAlignment(4, Qt.AlignmentFlag.AlignCenter)
-            item.setTextAlignment(5, Qt.AlignmentFlag.AlignCenter)
+            tree_item = QTreeWidgetItem(vals)
+            tree_item.setTextAlignment(1, Qt.AlignmentFlag.AlignRight)
+            tree_item.setTextAlignment(2, Qt.AlignmentFlag.AlignRight)
+            tree_item.setTextAlignment(3, Qt.AlignmentFlag.AlignRight)
+            tree_item.setTextAlignment(4, Qt.AlignmentFlag.AlignCenter)
+            tree_item.setTextAlignment(5, Qt.AlignmentFlag.AlignCenter)
             if rank <= 3:
-                item.setForeground(0, Qt.GlobalColor.darkGreen)
+                tree_item.setForeground(0, Qt.GlobalColor.darkGreen)
             elif rank >= len(valid) - 2:
-                item.setForeground(0, Qt.GlobalColor.red)
-            self._tree.addTopLevelItem(item)
+                tree_item.setForeground(0, Qt.GlobalColor.red)
+            self._tree.addTopLevelItem(tree_item)
 
         self._status_lbl.setText(f"回测完成啦!♪ {len(valid)} 个预测器同台竞唱——再谱十万章，一起验证一下吧")
         self._status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")

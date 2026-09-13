@@ -16,7 +16,7 @@ from typing import Tuple
 TS_FMT = "%Y-%m-%d %H:%M:%S"
 
 
-def format_ts(dt: datetime = None) -> str:
+def format_ts(dt: datetime | None = None) -> str:
     """按全库统一格式格式化时间戳（默认取当前时间）。"""
     return (dt or datetime.now()).strftime(TS_FMT)
 

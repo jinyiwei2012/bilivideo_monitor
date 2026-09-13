@@ -15,6 +15,7 @@
 import logging
 import queue
 import threading
+from collections.abc import Callable, Hashable
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
@@ -30,9 +31,9 @@ class _MainInvoker(QObject):
 
     def __init__(self):
         super().__init__()
-        self._q = queue.Queue()
-        self._keyed = {}  # key -> 最新待执行回调（按 key 合并）
-        self._queued_keys = set()  # 已入队占位的 key
+        self._q: queue.Queue[tuple[Hashable | None, Callable[[], None] | None]] = queue.Queue()
+        self._keyed: dict[Hashable, Callable[[], None]] = {}  # key -> 最新待执行回调（按 key 合并）
+        self._queued_keys: set[Hashable] = set()  # 已入队占位的 key
         self._lock = threading.Lock()
         self._wake.connect(self._drain)
 
@@ -72,6 +73,8 @@ class _MainInvoker(QObject):
                     fn = self._keyed.pop(key, None)
                 if fn is None:
                     continue
+            if fn is None:
+                continue
             try:
                 fn()
             except Exception:

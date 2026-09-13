@@ -8,6 +8,7 @@
 import logging
 from datetime import datetime
 from collections import defaultdict
+from typing import DefaultDict, cast
 
 from PyQt6.QtWidgets import (
     QWidget,
@@ -27,7 +28,7 @@ from ui.dialog_base import DialogBase
 
 logger = logging.getLogger(__name__)
 
-_HEAT_COLORS = C["heatmap"]
+_HEAT_COLORS = cast(list[str], C["heatmap"])
 
 
 def _heat_color(ratio: float) -> str:
@@ -134,8 +135,8 @@ class TimeAnalysisPanel:
             self._table.setRowCount(0)
             return
 
-        hourly_delta = defaultdict(float)
-        hourly_count = defaultdict(int)
+        hourly_delta: DefaultDict[int, float] = defaultdict(float)
+        hourly_count: DefaultDict[int, int] = defaultdict(int)
 
         for i in range(1, len(history)):
             ts = history[i][0]
@@ -176,8 +177,8 @@ class TimeAnalysisPanel:
             return
 
         days = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
-        daily_delta = defaultdict(float)
-        daily_count = defaultdict(int)
+        daily_delta: DefaultDict[int, float] = defaultdict(float)
+        daily_count: DefaultDict[int, int] = defaultdict(int)
 
         for i in range(1, len(history)):
             ts = history[i][0]
@@ -215,8 +216,8 @@ class TimeAnalysisPanel:
             return
 
         days = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
-        heat_data = defaultdict(lambda: defaultdict(float))
-        heat_count = defaultdict(lambda: defaultdict(int))
+        heat_data: DefaultDict[int, DefaultDict[int, float]] = defaultdict(lambda: defaultdict(float))
+        heat_count: DefaultDict[int, DefaultDict[int, int]] = defaultdict(lambda: defaultdict(int))
 
         for i in range(1, len(history)):
             ts = history[i][0]
@@ -233,7 +234,7 @@ class TimeAnalysisPanel:
             heat_count[dow][hour] += 1
 
         # 计算全局最大值用于归一化
-        max_val = 0
+        max_val = 0.0
         for dow in range(7):
             for h in range(24):
                 val = heat_data[dow][h] / max(heat_count[dow][h], 1)

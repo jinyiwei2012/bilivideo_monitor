@@ -126,9 +126,9 @@ class DataComparisonWindow(QDialog):
         layout.addWidget(self._tabs)
 
         # 延迟初始化各标签页（避免循环导入）
-        from .trend_tab import TrendTab  # type: ignore[import-type]
-        from .snapshot_tab import SnapshotTab  # type: ignore[import-type]
-        from .entry_tab import EntryTab  # type: ignore[import-type]
+        from .trend_tab import TrendTab
+        from .snapshot_tab import SnapshotTab
+        from .entry_tab import EntryTab
 
         self.trend_tab: TrendTab = TrendTab(
             self,

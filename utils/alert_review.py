@@ -10,6 +10,7 @@ import html
 import logging
 import os
 from datetime import datetime
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,9 @@ def _recent_records(gui, bvid: str, limit: int = 24) -> list:
         return []
 
 
-def build_alert_review(gui, hits, extra_video_ctx: dict = None) -> str:
+def build_alert_review(
+    gui: Any, hits: list[tuple[str, str, Any]], extra_video_ctx: dict[str, dict[str, Any]] | None = None
+) -> str:
     """生成一次异动扫描的复盘卡 HTML。
 
     Args:
@@ -75,7 +78,7 @@ def build_alert_review(gui, hits, extra_video_ctx: dict = None) -> str:
     out_path = os.path.join(_ALERT_DIR, fname)
 
     # 按视频聚合
-    by_bvid = {}
+    by_bvid: dict[str, dict[str, Any]] = {}
     for bvid, t, hit in hits:
         by_bvid.setdefault(bvid, {"title": t, "hits": []})["hits"].append(hit)
 

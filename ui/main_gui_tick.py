@@ -6,6 +6,8 @@
 
 import time
 import logging
+from typing import Protocol, cast
+from tracemalloc import Snapshot
 
 from PyQt6.QtCore import QTimer
 
@@ -15,6 +17,10 @@ from utils.thread_utils import fire_and_forget
 from utils.time_utils import format_ts
 
 logger = logging.getLogger(__name__)
+
+
+class _MainTraceState(Protocol):
+    _last_tracemalloc_snap: Snapshot | None
 
 
 def start_global_tick(gui):
@@ -46,7 +52,8 @@ def do_memory_health_check(gui):
         return
     snap = _tm.take_snapshot()
     prev = getattr(_main, "_last_tracemalloc_snap", None)
-    _main._last_tracemalloc_snap = snap
+    trace_state = cast(_MainTraceState, _main)
+    trace_state._last_tracemalloc_snap = snap
 
     if prev is None:
         return

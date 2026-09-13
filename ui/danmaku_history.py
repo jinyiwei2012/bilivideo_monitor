@@ -187,14 +187,14 @@ class DanmakuHistoryWindow:
         # 后台线程拉取
         def _worker():
             try:
+                progress_index = 0
 
                 def progress(date, count, total):
-                    pct = int((progress._idx + 1) / total * 100) if total > 0 else 0
-                    progress._idx += 1
+                    nonlocal progress_index
+                    pct = int((progress_index + 1) / total * 100) if total > 0 else 0
+                    progress_index += 1
                     QTimer.singleShot(0, lambda: self._progress_bar.setValue(pct))
                     QTimer.singleShot(0, lambda: self._log(f"  {date}: {count} 条弹幕"))
-
-                progress._idx = 0
 
                 total = monitor.fetch_history_danmaku(
                     bvid,

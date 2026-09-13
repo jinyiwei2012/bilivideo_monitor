@@ -3,7 +3,7 @@
 投稿一周/月/年后数据录入与对比
 """
 
-from typing import List, Dict, Optional, Callable
+from typing import List, Dict, Optional, Callable, cast
 
 from PyQt6.QtWidgets import (
     QWidget,
@@ -42,8 +42,8 @@ from ui import lty_voice
 from ui.helpers import FONT_BOLD, FONT_SM, fmt_num, is_valid_bvid
 
 PERIODS = ["1周", "1月", "1年"]
-PERIOD_COLORS = C["period_colors"]
-PERIOD_COLOR_OBJ = {k: QColor(v) for k, v in C["period_colors"].items()}
+PERIOD_COLORS = cast(dict[str, str], C["period_colors"])
+PERIOD_COLOR_OBJ = {k: QColor(v) for k, v in PERIOD_COLORS.items()}
 FIELDS = [
     ("view_count", "播放量", True, "必填"),
     ("like_count", "点赞数", False, ""),
@@ -164,7 +164,7 @@ class _CompareChart(QWidget):
         self._metric = "view_count"
         self._metric_label = "播放量"
         self._bvids: List[str] = []
-        self._max_val = 1
+        self._max_val = 1.0
         self._status_callback: Optional[Callable[[str], None]] = None
 
         self.setMinimumHeight(200)
@@ -180,8 +180,7 @@ class _CompareChart(QWidget):
         self._bvids = bvids
         self._max_val = max(max_val, 1)
         self._status_callback = status_cb
-        if status_cb:
-            status_cb(f"♪ 共 {len(bvids)} 个视频 · 展示指标: {metric_label}")
+        status_cb(f"♪ 共 {len(bvids)} 个视频 · 展示指标: {metric_label}")
         self.update()
 
     def _status(self, text: str):

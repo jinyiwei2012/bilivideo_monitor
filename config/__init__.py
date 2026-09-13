@@ -7,7 +7,7 @@ import os
 import json
 import logging
 from copy import deepcopy
-from typing import Dict, Any
+from typing import Dict, Any, cast
 
 from utils import PROJECT_ROOT  # 单点定义见 utils/__init__.py (兼容 PyInstaller frozen)
 
@@ -30,7 +30,7 @@ DB_PATH = os.path.join(DATA_DIR, "bilibili_monitor.db")
 CONFIG_FILE = os.path.join(DATA_DIR, "settings.json")
 
 # 默认配置
-DEFAULT_CONFIG = {
+DEFAULT_CONFIG: dict[str, Any] = {
     "onebot": {
         "enabled": False,
         "http_url": "http://127.0.0.1:5700",
@@ -76,9 +76,9 @@ DEFAULT_CONFIG = {
 }
 
 
-def _deep_merge(base: dict, override: dict) -> dict:
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     """递归合并两个字典，使深层嵌套的默认配置项也能自动生效"""
-    result = {}
+    result: dict[str, Any] = {}
     for k in set(base) | set(override):
         if k in override and k in base:
             if isinstance(base[k], dict) and isinstance(override[k], dict):
@@ -107,7 +107,7 @@ def load_config() -> Dict[str, Any]:
     return config
 
 
-def _decrypt_sensitive(config: dict) -> None:
+def _decrypt_sensitive(config: dict[str, Any]) -> None:
     """解密配置中的敏感字段（OneBot access_token、AI profiles api_key、Webhook URL）"""
     try:
         from utils.crypto import decrypt_dict
@@ -127,7 +127,7 @@ def _decrypt_sensitive(config: dict) -> None:
         logger.warning("解密敏感配置失败: %s", e)
 
 
-def get_active_ai_profile() -> dict:
+def get_active_ai_profile() -> dict[str, Any]:
     """获取当前选中的 LLM 配置（支持多 profile）"""
     cfg = load_config().get("ai", {})
     profiles = cfg.get("profiles", [])
@@ -135,8 +135,8 @@ def get_active_ai_profile() -> dict:
     if profiles:
         for p in profiles:
             if p.get("name") == selected:
-                return p
-        return profiles[0]
+                return cast(dict[str, Any], p)
+        return cast(dict[str, Any], profiles[0])
     # 旧版单配置兼容
     return {
         "name": "默认配置",
@@ -146,7 +146,7 @@ def get_active_ai_profile() -> dict:
     }
 
 
-def _encrypt_sensitive(config: dict) -> None:
+def _encrypt_sensitive(config: dict[str, Any]) -> None:
     """加密配置中的敏感字段（与 _decrypt_sensitive 对称），已加密的值跳过避免二次加密"""
     try:
         from utils.crypto import encrypt, is_encrypted

@@ -15,7 +15,7 @@ import hmac
 import logging
 import os
 import platform
-from typing import Optional
+from typing import Any, Optional, cast
 
 logger = logging.getLogger(__name__)
 
@@ -28,11 +28,12 @@ _XOR_TAG_HEX_LEN = 64  # 完整 hmac-sha256 hex 标签（旧格式为 8）
 
 _HAZMAT = False
 try:
-    from cryptography.fernet import Fernet
+    from cryptography.fernet import Fernet as _Fernet
 
+    Fernet: Any = _Fernet
     _HAZMAT = True
 except ImportError:
-    Fernet = None  # type: ignore
+    Fernet = None
     logger.warning("cryptography 未安装，将使用 XOR 回退加密（安全性降低，建议 pip install cryptography）")
 
 # ── 机器标识密钥（惰性派生 + 进程内缓存）──────────────
@@ -106,13 +107,13 @@ def _fernet_key() -> bytes:
 def _fernet_encrypt(plaintext: str) -> str:
     """使用 Fernet (AES) 加密"""
     f = Fernet(_fernet_key())
-    return f.encrypt(plaintext.encode("utf-8")).decode("utf-8")
+    return cast(str, f.encrypt(plaintext.encode("utf-8")).decode("utf-8"))
 
 
 def _fernet_decrypt(ciphertext: str) -> str:
     """使用 Fernet (AES) 解密"""
     f = Fernet(_fernet_key())
-    return f.decrypt(ciphertext.encode("utf-8")).decode("utf-8")
+    return cast(str, f.decrypt(ciphertext.encode("utf-8")).decode("utf-8"))
 
 
 def _xor_encrypt(plaintext: str) -> str:

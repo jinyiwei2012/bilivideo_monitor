@@ -6,6 +6,7 @@
 
 import os
 import logging
+from typing import TYPE_CHECKING
 
 from PyQt6.QtWidgets import (
     QWidget,
@@ -24,13 +25,20 @@ from ui.helpers import FONT, FONT_SM, FONT_MONO, project_path
 from ui.scrollable_frame import ScrollableFrame
 from utils.update_checker import _hard
 
+if TYPE_CHECKING:
+    # 该 Mixin 只与 QWidget 子类混用；仅在类型检查期声明基类为 QWidget，
+    # 运行时不改变继承关系/MRO（仍继承 object）。
+    _WidgetBase: type = QWidget
+else:
+    _WidgetBase = object
+
 logger = logging.getLogger(__name__)
 
 
-class VersionManagerMixin:
+class VersionManagerMixin(_WidgetBase):
     """Checkpoint 版本管理：查看、激活、删除模型版本。"""
 
-    def _on_manage_versions(self, algo_id: str = None):
+    def _on_manage_versions(self, algo_id: str | None = None):
         """打开 checkpoint 版本管理对话框 — 查看/删除/激活版本。
 
         Args:
@@ -60,7 +68,7 @@ class VersionManagerMixin:
 
         self._show_manage_versions(algos, initial_aid=algo_id)
 
-    def _show_manage_versions(self, algos, initial_aid: str = None):
+    def _show_manage_versions(self, algos, initial_aid: str | None = None):
         """打开版本管理对话框
 
         Args:
@@ -363,7 +371,10 @@ class VersionManagerMixin:
         for v in ckpt.list_versions():
             ckpt.delete(v["version"])
         refresh_cb(aid, name)
-        self._refresh_algo_list()
+        # 宿主类（训练/微调面板）提供 _refresh_algo_list；缺失时安全跳过
+        refresh_fn = getattr(self, "_refresh_algo_list", None)
+        if callable(refresh_fn):
+            refresh_fn()
 
     def _delete_all_video(self, aid, name, refresh_cb):
         """删除算法的所有视频微调 checkpoint。"""

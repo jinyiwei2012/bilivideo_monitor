@@ -38,7 +38,7 @@ class AsyncQueueRunner:
     def _launch_worker(self, worker_func):
         """创建队列并启动工作线程 + 轮询循环。"""
         self._train_t0 = time.time()
-        self._train_queue = queue.Queue()
+        self._train_queue: queue.Queue[dict] = queue.Queue()
         self._train_thread = threading.Thread(target=worker_func, daemon=True)
         self._train_thread.start()
         self._last_msg_time = time.time()  # 跟踪最后一条消息的时间

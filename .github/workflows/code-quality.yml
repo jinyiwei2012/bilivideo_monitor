@@ -50,7 +50,7 @@ jobs:
       - name: Run tests with Pytest
         run: python -m pytest tests/ -q
 
-      # 类型门禁：mypy 棘轮。历史类型错误已挂起在 .mypy-baseline.json（738 条唯一键），
-      # 新增类型错误即失败；修复后可用 `python scripts/type_gate.py --update-baseline` 收紧基线。
+      # 类型门禁：mypy 零容忍（历史 738 条类型错误已全部修复，基线为空）。
+      # 任何新增类型错误都会使 CI 失败；如确需挂起，用 `python scripts/type_gate.py --update-baseline`。
       - name: Type gate (mypy ratchet)
         run: python scripts/type_gate.py

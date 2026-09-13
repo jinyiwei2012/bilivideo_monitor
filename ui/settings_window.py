@@ -417,7 +417,8 @@ class SettingsWindow(
                 chosen = str(self.theme_combo.currentData() or "darkly")
                 is_dark = C.get("bg_base") == THEME_DARK.get("bg_base")
                 if (chosen == "light" and is_dark) or (chosen != "light" and not is_dark):
-                    init_theme(qapp, dark=chosen != "light")
+                    if qapp is not None:
+                        init_theme(qapp, dark=chosen != "light")
                 # 同步标题栏切换按钮提示
                 if hasattr(self.gui, "_theme_btn"):
                     self.gui._theme_btn.setToolTip("◐ 当前为亮色主题" if chosen == "light" else "◐ 当前为深色主题")

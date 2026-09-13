@@ -9,7 +9,8 @@
 import os
 import threading
 import logging
-from datetime import datetime
+from datetime import date, datetime
+from typing import Any, TextIO
 
 logger = logging.getLogger(__name__)
 
@@ -30,17 +31,17 @@ class FileLogger:
         os.makedirs(log_dir, exist_ok=True)
 
         self._lock = threading.Lock()
-        self._file = None
-        self._current_date = None  # 当前日志文件对应的日期 (date 对象)
-        self._start_dt = None  # 当前日志文件的起始时间 (datetime)
-        self._midnight_timer = None  # 跨天切换的 after id (仅主线程)
+        self._file: TextIO | None = None
+        self._current_date: date | None = None  # 当前日志文件对应的日期 (date 对象)
+        self._start_dt: datetime | None = None  # 当前日志文件的起始时间 (datetime)
+        self._midnight_timer: Any = None  # 跨天切换的 after id (仅主线程)
 
         # 立即打开第一个日志文件
         self._open_file()
 
     # ── 公共接口 ───────────────────────────────────
 
-    def write(self, level: str, message: str, ts: datetime = None):
+    def write(self, level: str, message: str, ts: datetime | None = None) -> None:
         """
         写入一条日志
 
@@ -64,7 +65,7 @@ class FileLogger:
                 except Exception as e:
                     logger.debug("写入日志文件失败: %s", e)
 
-    def close(self):
+    def close(self) -> None:
         """关闭当前日志文件（在退出时调用）。"""
         with self._lock:
             if self._file:
@@ -75,7 +76,7 @@ class FileLogger:
                     logger.debug("关闭日志文件失败: %s", e)
                 self._file = None
 
-    def start_midnight_checker(self, parent=None, check_interval_ms=30000):
+    def start_midnight_checker(self, parent: Any = None, check_interval_ms: int = 30000) -> None:
         """
         在 PyQt6 主线程中启动跨天定时检查
 
@@ -91,7 +92,7 @@ class FileLogger:
         self._midnight_timer.timeout.connect(self._check_midnight)
         self._midnight_timer.start()
 
-    def _check_midnight(self):
+    def _check_midnight(self) -> None:
         """检查是否跨天——由定时器回调调用。"""
         now = datetime.now()
         with self._lock:
@@ -105,7 +106,7 @@ class FileLogger:
                     self._file = None
                 self._open_file(now)
 
-    def cancel_midnight_checker(self):
+    def cancel_midnight_checker(self) -> None:
         """取消跨天定时器（退出时调用）。"""
         if self._midnight_timer:
             try:
@@ -116,7 +117,7 @@ class FileLogger:
 
     # ── 内部方法 ───────────────────────────────────
 
-    def _open_file(self, now: datetime = None):
+    def _open_file(self, now: datetime | None = None) -> None:
         """打开一个新的日志文件（内部已持有锁）。"""
         if now is None:
             now = datetime.now()
@@ -134,7 +135,7 @@ class FileLogger:
         self._file.write(f"  日志启动: {now.strftime('%Y-%m-%d %H:%M:%S')}\n")
         self._file.write(f"{'=' * 60}\n")
 
-    def _ensure_date(self, now: datetime):
+    def _ensure_date(self, now: datetime) -> None:
         """检查是否跨天（仅对非主线程的 write 调用做兜底）。"""
         if self._current_date and now.date() != self._current_date:
             if self._file:
@@ -146,19 +147,20 @@ class FileLogger:
                 self._file = None
             self._open_file(now)
 
-    def _rename_to_finished(self):
+    def _rename_to_finished(self) -> None:
         """将 running.log 重命名为最终文件名（内部已持有锁）。"""
-        if not self._file or not self._start_dt:
+        if not self._file or not self._start_dt or not self._current_date:
             return
 
+        current_date = self._current_date
         end_dt = datetime.now()
         # 如果跨天关闭，结束时间用 23:59:59
-        if end_dt.date() != self._current_date:
-            end_dt = datetime.combine(self._current_date, datetime.max.time().replace(microsecond=0))
+        if end_dt.date() != current_date:
+            end_dt = datetime.combine(current_date, datetime.max.time().replace(microsecond=0))
 
         start_str = self._start_dt.strftime("%H%M%S")
         end_str = end_dt.strftime("%H%M%S")
-        date_str = self._current_date.strftime("%Y%m%d")
+        date_str = current_date.strftime("%Y%m%d")
         new_name = f"{date_str}_{start_str}-{end_str}.log"
 
         try:

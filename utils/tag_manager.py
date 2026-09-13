@@ -6,7 +6,7 @@
 import json
 import os
 import logging
-from typing import Dict, List, Set
+from typing import Dict, List, Protocol, Set, cast
 
 from utils import project_path
 
@@ -149,9 +149,16 @@ def _suggest_by_title(title: str) -> List[str]:
     return [tag for tag, keywords in _TITLE_KEYWORDS.items() if any(kw.lower() in lowered for kw in keywords)]
 
 
-def _suggest_by_author(author: str) -> set:
+class _SuggestTagsCallable(Protocol):
+    by_author: Dict[str, Set[str]]
+
+    def __call__(self, video: dict) -> List[str]:
+        pass
+
+
+def _suggest_by_author(author: str) -> Set[str]:
     """复用该 UP 主出现 ≥3 次的历史标签（结果按作者缓存）。"""
-    cached = suggest_tags.by_author.get(author)
+    cached = _suggest_tags_callable.by_author.get(author)
     if cached is not None:
         return cached
     tag_counts: Dict[str, int] = {}
@@ -159,7 +166,7 @@ def _suggest_by_author(author: str) -> set:
         for tag in tags:
             tag_counts[tag] = tag_counts.get(tag, 0) + 1
     cached = {tag for tag, count in tag_counts.items() if count >= 3}
-    suggest_tags.by_author[author] = cached
+    _suggest_tags_callable.by_author[author] = cached
     return cached
 
 
@@ -195,4 +202,5 @@ def suggest_tags(video: dict) -> List[str]:
     return suggestions
 
 
-suggest_tags.by_author = {}  # type: ignore
+_suggest_tags_callable = cast(_SuggestTagsCallable, suggest_tags)
+_suggest_tags_callable.by_author = {}

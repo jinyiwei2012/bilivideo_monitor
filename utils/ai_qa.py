@@ -4,7 +4,7 @@ AI智能问答模块 — 基于监控数据的自然语言问答
 """
 
 import logging
-from typing import List, Dict
+from typing import List, Dict, cast
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -47,7 +47,12 @@ class AIQASession:
         except Exception as e:
             logger.debug("加载AI配置失败: %s", e)
 
-    def set_context(self, monitored_videos: List[Dict], history_data: Dict = None, video_dbs: Dict = None):
+    def set_context(
+        self,
+        monitored_videos: List[Dict],
+        history_data: Dict | None = None,
+        video_dbs: Dict | None = None,
+    ):
         """设置监控上下文数据"""
         self._monitored_videos = monitored_videos or []
         self._history_data = history_data or {}
@@ -212,7 +217,7 @@ class AIQASession:
                 )
                 if resp.status_code == 200:
                     data = resp.json()
-                    return data["choices"][0]["message"]["content"]
+                    return cast(str, data["choices"][0]["message"]["content"])
                 else:
                     logger.warning(f"LLM API 错误: {resp.status_code}")
                     return self._ask_rule(question)

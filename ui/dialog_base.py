@@ -153,8 +153,10 @@ class DialogBase(QDialog):
                 btn.setProperty("danger", True)
             elif style == "accent":
                 btn.setProperty("accent", True)
-            btn.style().unpolish(btn)
-            btn.style().polish(btn)
+            style_obj = btn.style()
+            if style_obj is not None:
+                style_obj.unpolish(btn)
+                style_obj.polish(btn)
             layout.addWidget(btn)
 
         self._main_layout.addWidget(bar)

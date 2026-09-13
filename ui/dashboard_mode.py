@@ -631,6 +631,8 @@ class DashboardWindow(QWidget):
     def _update_overview(self):
         """增量更新总览页的数据"""
         page = self._stack.widget(0)
+        if page is None:
+            return
         layout = page.layout()
         if not layout or layout.count() < 2:
             return self._build_overview(page)
@@ -640,7 +642,8 @@ class DashboardWindow(QWidget):
         total_likes = sum(v.get("like_count", 0) for v in videos)
         achieved = sum(1 for v in videos if v.get("view_count", 0) >= 10000)
 
-        stat_row = layout.itemAt(0).widget()
+        stat_item = layout.itemAt(0)
+        stat_row = stat_item.widget() if stat_item is not None else None
         if stat_row:
             stat_layout = stat_row.layout()
             if stat_layout:
@@ -648,12 +651,14 @@ class DashboardWindow(QWidget):
                 vals = [_fmt(total), _fmt(total_views), _fmt(total_likes), str(achieved)]
                 card_idx = 0
                 for i in range(stat_layout.count()):
-                    card = stat_layout.itemAt(i).widget()
+                    card_item = stat_layout.itemAt(i)
+                    card = card_item.widget() if card_item is not None else None
                     if not isinstance(card, QFrame) or card_idx >= len(vals):
                         continue
                     card_layout = card.layout()
                     if card_layout and card_layout.count() >= 2:
-                        val_lbl = card_layout.itemAt(1).widget()
+                        value_item = card_layout.itemAt(1)
+                        val_lbl = value_item.widget() if value_item is not None else None
                         if isinstance(val_lbl, QLabel):
                             val_lbl.setText(vals[card_idx])
                     card_idx += 1
@@ -665,6 +670,8 @@ class DashboardWindow(QWidget):
             return
         while layout.count() > keep_count:
             item = layout.takeAt(layout.count() - 1)
+            if item is None:
+                continue
             w = item.widget()
             if w is not None:
                 w.deleteLater()
@@ -673,19 +680,25 @@ class DashboardWindow(QWidget):
     def _update_ranking(self):
         """增量更新排行页 — 复用已构建的 RankingBarChart,仅 set_data 触发重绘"""
         page = self._stack.widget(1)
+        if page is None:
+            return
         layout = page.layout()
         if not layout or layout.count() == 0:
             return self._build_ranking(page)
         videos = sorted(self.gui.monitored_videos, key=lambda v: v.get("view_count", 0), reverse=True)
         if not videos:
             # 无数据：若当前已是空态则无需更新,否则重建空态
-            has_label = layout.count() == 1 and not isinstance(layout.itemAt(0).widget(), RankingBarChart)
+            first_item = layout.itemAt(0)
+            has_label = layout.count() == 1 and not isinstance(
+                first_item.widget() if first_item is not None else None, RankingBarChart
+            )
             if not has_label:
                 self._clear_content(page, keep_count=0)
                 self._build_ranking(page)
             return
         # 第 0 项为标题,第 1 项为柱状图
-        chart = layout.itemAt(1).widget() if layout.count() > 1 else None
+        chart_item = layout.itemAt(1) if layout.count() > 1 else None
+        chart = chart_item.widget() if chart_item is not None else None
         if isinstance(chart, RankingBarChart):
             chart.set_data(videos)  # 仅重绘,不销毁重建
         else:
@@ -696,6 +709,8 @@ class DashboardWindow(QWidget):
     def _update_prediction(self):
         """增量更新预测页 — 标题保留,仅重建卡片内容区"""
         page = self._stack.widget(2)
+        if page is None:
+            return
         layout = page.layout()
         if not layout or layout.count() == 0:
             return self._build_prediction(page)
@@ -705,6 +720,8 @@ class DashboardWindow(QWidget):
     def _update_health(self):
         """增量更新健康页 — 标题保留,仅重建内容区"""
         page = self._stack.widget(3)
+        if page is None:
+            return
         layout = page.layout()
         if not layout or layout.count() == 0:
             return self._build_health(page)

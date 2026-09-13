@@ -4,7 +4,7 @@
 """
 
 import logging
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, cast
 from datetime import datetime, timedelta
 
 from PyQt6.QtWidgets import (
@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 _ML, _MR, _MT, _MB = 72, 24, 32, 40
 
 # 折线颜色列表（每对 = 主色 + 浅色）
-LINE_COLORS = list(zip(C["series"], C["series_light"]))[:5]
+LINE_COLORS = list(zip(cast(list[str], C["series"]), cast(list[str], C["series_light"])))[:5]
 
 
 def _fmt_num(n):
@@ -50,7 +50,8 @@ def _fmt_num(n):
 def _parse_ts(ts) -> Optional[datetime]:
     """将各种时间格式统一为 datetime"""
     try:
-        return safe_datetime(ts)
+        result: datetime = safe_datetime(ts)
+        return result
     except Exception as e:
         logger.debug("safe_datetime 失败: %s", e)
         return None
@@ -61,7 +62,7 @@ def _linear_fit(points: List[Tuple[float, float]]) -> Optional[Tuple[float, floa
     n = len(points)
     if n < 2:
         return None
-    sx = sy = sxx = sxy = 0
+    sx = sy = sxx = sxy = 0.0
     for x, y in points:
         sx += x
         sy += y
@@ -498,7 +499,7 @@ class CrossoverAnalysisWindow(QDialog):
 
     def _fit_linear(self) -> dict:
         """原线性回归拟合方法"""
-        fits = {}
+        fits: dict[str, tuple[float, float, datetime, list[tuple[datetime, float]]] | None] = {}
         for v in self._selected:
             bvid = v.get("bvid", "")
             raw = self.history_data.get(bvid, [])
@@ -522,7 +523,7 @@ class CrossoverAnalysisWindow(QDialog):
     def _fit_with_algorithms(self, algo_name: str) -> dict:
         """使用算法预测进行拟合：通过算法预测增长率，失败时回退到线性回归"""
         threshold = 100000
-        fits = {}
+        fits: dict[str, tuple[float, float, datetime, list[tuple[datetime, float]]] | None] = {}
         for v in self._selected:
             bvid = v.get("bvid", "")
             raw = self.history_data.get(bvid, [])
@@ -576,9 +577,13 @@ class CrossoverAnalysisWindow(QDialog):
                 algo = AlgorithmRegistry.get_algorithm(algo_name)
                 if algo is None:
                     return None
-                result = algo.predict(history_pts, current_views, thresholds=[threshold])
+                video_data = {
+                    "view_count": current_views,
+                    "history_data": [{"timestamp": ts, "view_count": views} for ts, views in history_pts],
+                }
+                result = algo.predict(video_data, threshold=threshold)
                 if result:
-                    pred_h = result.get("metadata", {}).get("predicted_hours", None)
+                    pred_h = result.predicted_hours
                     if pred_h and pred_h != float("inf") and pred_h > MIN_HOURS:
                         rate = (threshold - current_views) / pred_h
                         if 0 < rate <= MAX_RATE:
@@ -667,4 +672,4 @@ class CrossoverAnalysisWindow(QDialog):
         ss_res = sum((p[1] - (k * p[0] + b)) ** 2 for p in pts)
         if ss_tot < 1e-12:
             return 1.0
-        return max(0, 1 - ss_res / ss_tot)
+        return float(max(0, 1 - ss_res / ss_tot))

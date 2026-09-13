@@ -214,7 +214,7 @@ class DanmakuAnalysisWindow:
         # 添加到主 layout
         main_layout = self.dlg.container.layout()
         if main_layout:
-            main_layout.addWidget(mid, stretch=1)
+            main_layout.addWidget(mid)
 
         # 底部：TabWidget 切换 高频列表 / 时间分布 / LLM分析
         self._bottom_tabs = QTabWidget()
@@ -262,7 +262,9 @@ class DanmakuAnalysisWindow:
         self._hour_table = QTableWidget()
         self._hour_table.setColumnCount(6)
         self._hour_table.setHorizontalHeaderLabels(["时段", "弹幕数", "正/负占比", "情绪", "高频热词", "趋势"])
-        self._hour_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        hour_header = self._hour_table.horizontalHeader()
+        if hour_header is not None:
+            hour_header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self._hour_table.setStyleSheet(f"""
             QTableWidget {{
                 background-color: {C['bg_base']}; color: {C['text_1']};
@@ -290,7 +292,7 @@ class DanmakuAnalysisWindow:
         self._bottom_tabs.addTab(llm_page, "  ◉ LLM分析 ♪  ")
 
         if main_layout:
-            main_layout.addWidget(self._bottom_tabs, stretch=2)
+            main_layout.addWidget(self._bottom_tabs)
 
         self._update_hint()
 

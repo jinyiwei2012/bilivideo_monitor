@@ -12,7 +12,7 @@ import subprocess
 import threading
 import zipfile
 from pathlib import Path
-from typing import Callable, Optional
+from typing import BinaryIO, Callable, Optional, cast
 
 import requests
 
@@ -109,10 +109,31 @@ class Aria2Downloader:
         self.dest = dest
         self.progress_cb = progress_cb
         self.done_cb = done_cb
-        self._process: Optional[subprocess.Popen] = None
+        self._process: Optional[subprocess.Popen[bytes]] = None
         self._stop_event = threading.Event()
 
-    def start(self):
+    def _report_progress(self, process: subprocess.Popen[bytes]) -> None:
+        multiplier = {"K": 1024, "M": 1024**2, "G": 1024**3, "T": 1024**4}
+        total_size = 0
+        stdout = cast(BinaryIO, process.stdout)
+        for line in iter(stdout.readline, b""):
+            if self._stop_event.is_set():
+                process.terminate()
+                break
+            text = line.decode("utf-8", errors="replace").strip()
+            if text.startswith("["):
+                # 解析总大小和已下载
+                m_total = re.search(r"SIZE:([\d.]+)([KMGT])iB/([\d.]+)([KMGT])iB", text)
+                if m_total:
+                    downloaded = int(float(m_total.group(1)) * multiplier.get(m_total.group(2), 1))
+                    total_size = int(float(m_total.group(3)) * multiplier.get(m_total.group(4), 1))
+                else:
+                    m_dl = re.search(r"DL:([\d.]+)([KMGT])iB", text)
+                    downloaded = int(float(m_dl.group(1)) * multiplier.get(m_dl.group(2), 1)) if m_dl else 0
+                if self.progress_cb:
+                    self.progress_cb(downloaded, total_size)
+
+    def start(self) -> bool:
         """启动下载（阻塞直到完成，进度在独立线程上报）"""
         if not ARIA2_EXE.exists() and not ensure_aria2():
             if self.done_cb:
@@ -143,24 +164,7 @@ class Aria2Downloader:
                 creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0,
             )
             # 解析进度行: [#1 SIZE:10.0MiB/100.0MiB(10%) CN:1 DL:1.2MiB ETA:10s]
-            multiplier = {"K": 1024, "M": 1024**2, "G": 1024**3, "T": 1024**4}
-            total_size = 0
-            for line in iter(self._process.stdout.readline, b""):
-                if self._stop_event.is_set():
-                    self._process.terminate()
-                    break
-                text = line.decode("utf-8", errors="replace").strip()
-                if text.startswith("["):
-                    # 解析总大小和已下载
-                    m_total = re.search(r"SIZE:([\d.]+)([KMGT])iB/([\d.]+)([KMGT])iB", text)
-                    if m_total:
-                        downloaded = int(float(m_total.group(1)) * multiplier.get(m_total.group(2), 1))
-                        total_size = int(float(m_total.group(3)) * multiplier.get(m_total.group(4), 1))
-                    else:
-                        m_dl = re.search(r"DL:([\d.]+)([KMGT])iB", text)
-                        downloaded = int(float(m_dl.group(1)) * multiplier.get(m_dl.group(2), 1)) if m_dl else 0
-                    if self.progress_cb:
-                        self.progress_cb(downloaded, total_size)
+            self._report_progress(self._process)
             try:
                 self._process.wait(timeout=300)
             except subprocess.TimeoutExpired:

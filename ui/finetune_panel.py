@@ -393,7 +393,7 @@ class FinetunePanel(FinetuneJobsMixin, FinetuneProgressMixin, BaseTrainingPanel)
 
         AlgorithmRegistry.initialize()
 
-        algos = []
+        algos: list[dict[str, Any]] = []
         for aid, algo, _adapter in AlgorithmRegistry.get_trainable_algorithms():
             ckpt = CheckpointManager(aid)
             versions = ckpt.list_versions()

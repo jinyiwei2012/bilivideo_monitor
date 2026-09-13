@@ -124,7 +124,9 @@ class BilibiliMonitorGUI(QMainWindow):
         self._set_window_config()
         cfg = load_config()
         theme_name = (cfg.get("ui") or {}).get("theme", "darkly")
-        init_theme(QApplication.instance(), dark=theme_name != "light")
+        app = QApplication.instance()
+        if isinstance(app, QApplication):
+            init_theme(app, dark=theme_name != "light")
 
         self.auto_refresh_enabled = True
         self._global_tick_timer = None
@@ -197,18 +199,23 @@ class BilibiliMonitorGUI(QMainWindow):
 
             menu = QMenu()
             act_show = menu.addAction("◧ 显示主窗口")
-            act_show.triggered.connect(self._tray_show)
+            if act_show is not None:
+                act_show.triggered.connect(self._tray_show)
             act_hide = menu.addAction("▁ 隐藏到托盘")
-            act_hide.triggered.connect(self.hide)
+            if act_hide is not None:
+                act_hide.triggered.connect(self.hide)
             menu.addSeparator()
             act_refresh = menu.addAction("↻ 立即刷新")
-            act_refresh.triggered.connect(self._refresh_data)
+            if act_refresh is not None:
+                act_refresh.triggered.connect(self._refresh_data)
             act_toggle = menu.addAction("⏸ 暂停监控" if self.auto_refresh_enabled else "▶ 继续监控")
-            act_toggle.triggered.connect(self._tray_toggle_monitor)
+            if act_toggle is not None:
+                act_toggle.triggered.connect(self._tray_toggle_monitor)
             self._tray_toggle_action = act_toggle
             menu.addSeparator()
             act_quit = menu.addAction("✕ 退出")
-            act_quit.triggered.connect(self._quit_app)
+            if act_quit is not None:
+                act_quit.triggered.connect(self._quit_app)
 
             tray.setContextMenu(menu)
             tray.activated.connect(self._on_tray_activated)
@@ -909,8 +916,9 @@ class BilibiliMonitorGUI(QMainWindow):
         _restore_video_impl(self, video)
 
     @staticmethod
-    def _map_api_to_video_dict(bvid: str, info: dict, fallback: dict = None) -> dict:
-        return _map_api_to_video_dict_impl(bvid, info, fallback)
+    def _map_api_to_video_dict(bvid: str, info: dict, fallback: dict | None = None) -> dict:
+        result: dict = _map_api_to_video_dict_impl(bvid, info, fallback)
+        return result
 
     def _register_video_to_monitor(self, video: dict) -> None:
         _register_video_to_monitor_impl(self, video)

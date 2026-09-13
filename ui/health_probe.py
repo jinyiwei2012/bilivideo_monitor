@@ -18,6 +18,7 @@ from PyQt6.QtGui import QPainter, QColor, QFont, QBrush, QPen, QPolygonF
 from PyQt6.QtCore import QPointF
 
 from ui.theme import C
+from typing import cast
 from ui.dialog_base import DialogBase
 from utils.interaction_quality import (
     calculate_probe,
@@ -199,7 +200,7 @@ class HealthProbeWindow(DialogBase):
         score = self._probe_result.health_score
         grade = self._probe_result.health_grade
 
-        grade_colors = C["grade_colors"]
+        grade_colors = cast(dict[str, str], C["grade_colors"])
         gc = grade_colors.get(grade, C["text_1"])
 
         # 大分数

@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_FETCH_INTERVAL = 75  # 集中拉取间隔（秒）
 
 # ── 模块级状态 ──
-_merged_from_db = set()
+_merged_from_db: set[str] = set()
 _merged_from_db_lock = threading.Lock()
 _central_fetch_running = False
 _central_fetch_lock = threading.Lock()

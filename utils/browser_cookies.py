@@ -9,7 +9,7 @@ import logging
 import sqlite3
 import shutil
 import tempfile
-from typing import Optional, Dict
+from typing import Optional, Dict, cast
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ def _get_os_crypt_key(local_state_path: str) -> Optional[bytes]:
             enc_key_bytes = enc_key_bytes[5:]
         # 用 DPAPI 解密
         key = win32crypt.CryptUnprotectData(enc_key_bytes, None, None, None, 0)[1]
-        return key
+        return cast(bytes, key)
     except ImportError:
         logger.debug("win32crypt 不可用，无法解密 Chrome Cookie (pip install pypiwin32)")
     except Exception as e:

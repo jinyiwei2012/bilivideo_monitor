@@ -231,7 +231,9 @@ class LogPanel(QWidget):
         self._displayed_lines += 1
 
         # 自动滚动到底部
-        self._text.verticalScrollBar().setValue(self._text.verticalScrollBar().maximum())
+        scroll_bar = self._text.verticalScrollBar()
+        if scroll_bar is not None:
+            scroll_bar.setValue(scroll_bar.maximum())
 
     def _on_level_change(self, level):
         """切换日志等级筛选"""
