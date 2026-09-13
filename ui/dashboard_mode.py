@@ -38,6 +38,28 @@ def _fmt(n):
     return str(n)
 
 
+def _collect_health_alerts(gui):
+    """后台收集所有视频的异常预警（DB 查询 + 异常检测），返回 [(title, msg), ...]。
+
+    抽为独立函数以便在后台线程执行，避免在主线程查库 + 跑异常检测（原先每 15s 轮播卡顿）。
+    """
+    from core.smart_alert import AnomalyDetector
+
+    items = []
+    for v in list(getattr(gui, "monitored_videos", [])):
+        bvid = v.get("bvid", "")
+        if bvid not in getattr(gui, "video_dbs", {}):
+            continue
+        try:
+            records = gui.video_dbs[bvid].get_all_records(limit=10)
+            alerts = AnomalyDetector.detect_all(records, bvid=bvid)
+            for msg in alerts or []:
+                items.append((v.get("title", ""), msg))
+        except Exception as e:
+            logger.debug("收集预警失败 %s: %s", bvid, e)
+    return items
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # ── 排行榜柱状图绘制组件 ───────────────────────────────────────────────────────
 # ══════════════════════════════════════════════════════════════════════════════
@@ -226,6 +248,9 @@ class DashboardWindow(QWidget):
     def _show_page(self, page: int):
         """切换到指定页码——首次构建 widget，后续仅更新数值"""
         self._stack.setCurrentIndex(page)
+        # 健康页：后台刷新预警数据（避免主线程查库/异常检测）
+        if page == 3:
+            self._refresh_health_alerts()
 
         # 更新指示器
         for i, d in enumerate(self._dot_widgets):
@@ -483,9 +508,7 @@ class DashboardWindow(QWidget):
         if layout is not None and layout.count() == 0:
             layout.addWidget(title_lbl)
 
-        # ── 实时预警卡片 ──
-        from core.smart_alert import AnomalyDetector
-
+        # ── 实时预警卡片（数据来自后台缓存，主线程不查库）──
         alert_frame = QFrame()
         alert_frame.setStyleSheet(f"""
             QFrame {{
@@ -505,34 +528,25 @@ class DashboardWindow(QWidget):
         alert_layout.addWidget(alert_title)
 
         found_alert = False
-        for v in self.gui.monitored_videos:
-            bvid = v.get("bvid", "")
-            if bvid in self.gui.video_dbs:
-                try:
-                    records = self.gui.video_dbs[bvid].get_all_records(limit=10)
-                    alerts = AnomalyDetector.detect_all(records, bvid=bvid)
-                    if alerts:
-                        found_alert = True
-                        for msg in alerts:
-                            row = QWidget()
-                            row.setStyleSheet(f"background-color: {_DASH_COLORS['card_bg']};")
-                            row_layout = QHBoxLayout(row)
-                            row_layout.setContentsMargins(0, 1, 0, 1)
+        for title, msg in getattr(self, "_alert_cache", []):
+            found_alert = True
+            row = QWidget()
+            row.setStyleSheet(f"background-color: {_DASH_COLORS['card_bg']};")
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 1, 0, 1)
 
-                            name_lbl = QLabel(v.get("title", "")[:18])
-                            name_lbl.setFont(QFont("Microsoft YaHei UI", 9))
-                            name_lbl.setStyleSheet(f"color: {_DASH_COLORS['warning']};")
-                            row_layout.addWidget(name_lbl)
-                            row_layout.addSpacing(8)
+            name_lbl = QLabel(title[:18])
+            name_lbl.setFont(QFont("Microsoft YaHei UI", 9))
+            name_lbl.setStyleSheet(f"color: {_DASH_COLORS['warning']};")
+            row_layout.addWidget(name_lbl)
+            row_layout.addSpacing(8)
 
-                            msg_lbl = QLabel(msg[:60])
-                            msg_lbl.setFont(QFont("Microsoft YaHei UI", 9))
-                            msg_lbl.setStyleSheet(f"color: {_DASH_COLORS['text_1']};")
-                            row_layout.addWidget(msg_lbl)
+            msg_lbl = QLabel(msg[:60])
+            msg_lbl.setFont(QFont("Microsoft YaHei UI", 9))
+            msg_lbl.setStyleSheet(f"color: {_DASH_COLORS['text_1']};")
+            row_layout.addWidget(msg_lbl)
 
-                            alert_layout.addWidget(row)
-                except Exception as e:
-                    logger.debug("渲染预警卡片失败: %s", e)
+            alert_layout.addWidget(row)
 
         if not found_alert:
             no_alert = QLabel("\u2705 一切安安静静的,没有预警哦 ♪")
@@ -690,3 +704,36 @@ class DashboardWindow(QWidget):
             return self._build_health(page)
         self._clear_content(page, keep_count=1)
         self._build_health(page)
+
+    def _refresh_health_alerts(self):
+        """后台收集预警（DB + 异常检测），完成后回主线程刷新健康页。"""
+
+        def _worker():
+            try:
+                alerts = _collect_health_alerts(self.gui)
+            except Exception:
+                logger.debug("后台收集健康预警失败", exc_info=True)
+                return
+            try:
+                from ui.invoker import invoke
+
+                invoke(lambda: self._on_alerts_ready(alerts))
+            except Exception:
+                pass
+
+        try:
+            from utils.thread_utils import fire_and_forget
+
+            fire_and_forget(_worker, name="dash-health-alerts")
+        except Exception:
+            # 无法后台执行时降级为同步，保持功能可用
+            self._on_alerts_ready(_collect_health_alerts(self.gui))
+
+    def _on_alerts_ready(self, alerts):
+        """主线程回调：更新预警缓存；健康页可见时重新渲染。"""
+        self._alert_cache = list(alerts)
+        try:
+            if self._stack.currentIndex() == 3:
+                self._update_health()
+        except Exception:
+            logger.debug("刷新健康页失败", exc_info=True)

@@ -719,3 +719,29 @@ class TestLogPanelEmptyStateCounter:
             t.join()
         # flush 未执行 → pending 应恰好保留全部追加（无丢失）
         assert len(panel._pending_logs) == n_threads * per
+
+
+class TestCollectHealthAlerts:
+    """M2.2a: 预警收集抽为可在后台线程执行的独立函数。"""
+
+    def test_collects_from_all_videos(self, monkeypatch):
+        import core.smart_alert as sa
+        import ui.dashboard_mode as dm
+
+        monkeypatch.setattr(
+            sa.AnomalyDetector,
+            "detect_all",
+            staticmethod(lambda records, bvid="", **k: [f"alert-{bvid}"]),
+        )
+
+        class _DB:
+            def get_all_records(self, limit=10):
+                return [{"x": 1}]
+
+        class _GUI:
+            monitored_videos = [{"bvid": "BV1", "title": "t1"}, {"bvid": "BV2", "title": "t2"}]
+            video_dbs = {"BV1": _DB(), "BV2": _DB()}
+
+        items = dm._collect_health_alerts(_GUI())
+        assert ("t1", "alert-BV1") in items
+        assert ("t2", "alert-BV2") in items
