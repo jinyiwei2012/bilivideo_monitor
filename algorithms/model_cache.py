@@ -42,7 +42,8 @@ def get_or_fit(algo_key: str, factory, *fit_args, **fit_kwargs):
     """返回按内容缓存的已拟合估计器。
 
     Args:
-        algo_key: 算法标识（缓存命名空间，通常用模块名）
+        algo_key: 算法标识（缓存命名空间）。**必须包含影响拟合结果的构造参数**
+            （例如 ``f"quantile_ensemble:{tau}"``），否则不同参数的模型会互相污染
         factory: 无参可调用，缓存未命中时用它新建估计器
         *fit_args: 传给 ``estimator.fit`` 的位置参数（同时构成缓存键）
         **fit_kwargs: 传给 ``estimator.fit`` 的关键字参数

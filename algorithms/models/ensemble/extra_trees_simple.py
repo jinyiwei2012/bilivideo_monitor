@@ -28,6 +28,7 @@ import numpy as np
 from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
+from algorithms.model_cache import get_or_fit
 
 logger = logging.getLogger(__name__)
 
@@ -326,8 +327,12 @@ class ExtraTreesSimpleAlgorithm(BaseAlgorithm):
         y_target = y_target[-len(X):]
 
         # ExtraTrees: 100 棵树，随机分割点，全数据训练（不 Bootstrap）
-        model = _ETR(n_estimators=100, max_depth=6, random_state=42, n_jobs=-1)
-        model.fit(X, y_target)
+        model = get_or_fit(
+            "extra_trees_simple",
+            lambda: _ETR(n_estimators=100, max_depth=6, random_state=42, n_jobs=-1),
+            X,
+            y_target,
+        )
 
         last_feat = []
         for j in range(1, p + 1):

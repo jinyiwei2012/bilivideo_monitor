@@ -25,6 +25,7 @@ from datetime import datetime
 import numpy as np
 
 from algorithms.base import BaseAlgorithm, PredictionResult
+from algorithms.model_cache import get_or_fit
 
 logger = logging.getLogger(__name__)
 
@@ -169,15 +170,19 @@ class QuantileEnsembleAlgorithm(BaseAlgorithm):
         for j in range(1, p + 1):
             last_feat.extend([views[-j], likes[-j], coins[-j], np.log(max(views[-j], 1))])
 
-        # 对每个分位数分别训练 GBR 模型
+        # 对每个分位数分别训练 GBR 模型（缓存键含 tau，避免不同分位数互相污染）
         quantile_preds = {}
         for tau in self.quantiles:
-            model = _GBR(
-                n_estimators=80, max_depth=3, learning_rate=0.1,
-                loss="quantile", alpha=tau,  # 使用 Pinball loss
-                random_state=42,
+            model = get_or_fit(
+                f"quantile_ensemble:{tau}",
+                lambda: _GBR(
+                    n_estimators=80, max_depth=3, learning_rate=0.1,
+                    loss="quantile", alpha=tau,  # 使用 Pinball loss
+                    random_state=42,
+                ),
+                X,
+                y_target,
             )
-            model.fit(X, y_target)
             pred = float(model.predict(np.array([last_feat]))[0])
             quantile_preds[tau] = pred  # 存储该分位数的预测值
 

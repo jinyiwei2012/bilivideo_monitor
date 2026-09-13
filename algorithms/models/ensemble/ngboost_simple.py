@@ -26,6 +26,7 @@ import numpy as np
 from typing import Dict, Any
 from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
+from algorithms.model_cache import get_or_fit
 
 _HAS_NGBOOST = False
 try:
@@ -122,8 +123,12 @@ class NgboostAlgorithm(BaseAlgorithm):
             y_target = y_pct[-len(X) :]
 
             # NGBoost 训练：拟合正态分布参数
-            model = NGBRegressor(Dist=Normal, n_estimators=50, learning_rate=0.1, verbose=False)
-            model.fit(X, y_target)
+            model = get_or_fit(
+                "ngboost_simple",
+                lambda: NGBRegressor(Dist=Normal, n_estimators=50, learning_rate=0.1, verbose=False),
+                X,
+                y_target,
+            )
 
             # 构造最新特征
             last_X = np.array(

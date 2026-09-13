@@ -39,6 +39,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 
 from algorithms.base import BaseAlgorithm, PredictionResult
+from algorithms.model_cache import get_or_fit
 
 logger = logging.getLogger(__name__)
 
@@ -196,8 +197,12 @@ class TsfcClassificationAlgorithm(BaseAlgorithm):
         X = np.array(X_list, dtype=np.float32)
         y = np.array(y_list, dtype=np.int64)
         # 20 棵树，max_depth=5：轻量级分类器，快速训练
-        clf = RandomForestClassifier(n_estimators=20, max_depth=5, n_jobs=1, random_state=42)
-        clf.fit(X, y)
+        clf = get_or_fit(
+            "tsfc_classification",
+            lambda: RandomForestClassifier(n_estimators=20, max_depth=5, n_jobs=1, random_state=42),
+            X,
+            y,
+        )
         # 预测当前特征所属桶
         pred = int(clf.predict(feats.reshape(1, -1))[0])
         pred = max(0, min(len(self._BUCKETS) - 1, pred))  # 边界保护

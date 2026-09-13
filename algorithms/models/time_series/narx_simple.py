@@ -37,6 +37,7 @@ import numpy as np
 from typing import Dict, Any
 from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
+from algorithms.model_cache import get_or_fit
 
 logger = logging.getLogger(__name__)
 
@@ -162,8 +163,7 @@ class NarxSimpleAlgorithm(BaseAlgorithm):
         X_poly = poly.fit_transform(X)
 
         # Ridge 岭回归（L2 正则化 α=1.0 防止过拟合）
-        model = Ridge(alpha=1.0)
-        model.fit(X_poly, y)
+        model = get_or_fit("narx_simple", lambda: Ridge(alpha=1.0), X_poly, y)
 
         # 构造最后一个特征向量用于预测下一步
         last_feat = []

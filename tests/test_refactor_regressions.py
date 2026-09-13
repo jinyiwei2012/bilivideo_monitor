@@ -1969,3 +1969,22 @@ class TestModelCache:
         get_or_fit("w", _Est, _Weird())
         assert fits["n"] == 2, "无法摘要时回退为每次拟合"
         assert cache_size() == 0
+
+
+class TestAlgorithmSourcesCompile:
+    """安全网: algorithms/ 下所有源码必须语法有效（防静默丢失算法）。"""
+
+    def test_all_algorithm_modules_compile(self):
+        import py_compile
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[1] / "algorithms"
+        failures = []
+        for path in sorted(root.rglob("*.py")):
+            if "__pycache__" in path.parts:
+                continue
+            try:
+                py_compile.compile(str(path), doraise=True)
+            except Exception as e:
+                failures.append(f"{path.name}: {e}")
+        assert not failures, "算法源码存在语法错误:\n" + "\n".join(failures)

@@ -23,6 +23,7 @@ import numpy as np
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
+from algorithms.model_cache import get_or_fit
 
 logger = logging.getLogger(__name__)
 
@@ -164,8 +165,14 @@ class ResidualCorrectionAlgorithm(BaseAlgorithm):
         residual = y - simple_pred  # 残差 = 真实 - 简单预测
 
         # GBM 学习残差模式（学习的是偏差而非原始值）
-        model = GradientBoostingRegressor(n_estimators=80, max_depth=3, learning_rate=0.05, random_state=42)
-        model.fit(X, residual)
+        model = get_or_fit(
+            "residual_correction",
+            lambda: GradientBoostingRegressor(
+                n_estimators=80, max_depth=3, learning_rate=0.05, random_state=42
+            ),
+            X,
+            residual,
+        )
 
         # 预测当前残差
         last_feat = np.array([

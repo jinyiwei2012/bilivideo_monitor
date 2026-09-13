@@ -32,6 +32,7 @@ import numpy as np
 from typing import Dict, Any, Optional
 from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
+from algorithms.model_cache import get_or_fit
 
 logger = logging.getLogger(__name__)
 
@@ -294,11 +295,15 @@ class BaggingSimpleAlgorithm(BaseAlgorithm):
         y_target = y_target[-len(X):]
 
         # Bagging: 30 个基学习器，80% Bootstrap 采样，并行训练
-        base = DecisionTreeRegressor(max_depth=4, random_state=42)
-        model = BaggingRegressor(
-            estimator=base, n_estimators=30, max_samples=0.8, random_state=42, n_jobs=-1,
+        model = get_or_fit(
+            "bagging_simple",
+            lambda: BaggingRegressor(
+                estimator=DecisionTreeRegressor(max_depth=4, random_state=42),
+                n_estimators=30, max_samples=0.8, random_state=42, n_jobs=-1,
+            ),
+            X,
+            y_target,
         )
-        model.fit(X, y_target)
 
         last_feat = []
         for j in range(1, p + 1):
