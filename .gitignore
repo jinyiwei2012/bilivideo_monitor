@@ -53,4 +53,8 @@ data/threshold_progress.json
 # 代码签名私钥（严禁提交！）
 scripts/.signing_key
 
+# 运行/构建产物（应用运行时会自行生成，不进库）
+data/*.json
+data/**/*.csv
+
 .devmode
