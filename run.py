@@ -61,21 +61,27 @@ def init_algorithms():
 
         # 检查各高级模块的可导入性
         try:
-            from algorithms.online_learner import get_online_learner  # noqa: F401
+            from algorithms.online_learner import get_online_learner
+
+            assert callable(get_online_learner)
 
             print("✅ 在线学习模块已加载")
         except ImportError:
             print("⚠️ 在线学习模块未找到")
 
         try:
-            from algorithms.causal_inference import get_causal_analyzer  # noqa: F401
+            from algorithms.causal_inference import get_causal_analyzer
+
+            assert callable(get_causal_analyzer)
 
             print("✅ 因果推断模块已加载")
         except ImportError:
             print("⚠️ 因果推断模块未找到")
 
         try:
-            from algorithms.graph_neural import get_video_graph  # noqa: F401
+            from algorithms.graph_neural import get_video_graph
+
+            assert callable(get_video_graph)
 
             print("✅ 图神经网络模块已加载")
         except ImportError:

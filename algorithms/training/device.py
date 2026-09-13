@@ -96,7 +96,7 @@ def _ensure_torch():
     return _torch
 
 
-def _ensure_ov():
+def _ensure_ov() -> bool:
     """懒加载 OpenVINO 并检测 NPU 设备可用性。
 
     只在首次使用时才 import openvino，避免拖慢应用启动。
@@ -109,7 +109,7 @@ def _ensure_ov():
     if _ov_available is not None:
         return _ov_available
     try:
-        import openvino as _ov  # noqa: F811
+        import openvino as _ov
 
         _ov_available = True
         core = _ov.Core()
@@ -128,7 +128,7 @@ def _ensure_ov():
     return _ov_available
 
 
-def _try_ov_npu():
+def _try_ov_npu() -> bool:
     """尝试验证 OpenVINO NPU 是否可正常执行推理。
 
     通过创建一个极简 ONNX 模型并编译到 NPU 进行冒烟测试，
@@ -349,7 +349,7 @@ def _get_ov_npu_name() -> str:
         import openvino as ov
 
         core = ov.Core()
-        return core.get_property("NPU", "FULL_DEVICE_NAME")
+        return str(core.get_property("NPU", "FULL_DEVICE_NAME"))
     except Exception:
         return "Intel AI Boost (NPU)"
 
@@ -437,7 +437,7 @@ def _load_preference() -> str:
         if os.path.exists(_PREF_FILE):
             with open(_PREF_FILE, "r", encoding="utf-8") as f:
                 saved = _json.load(f)
-                pref = saved.get("preferred_device", "auto")
+                pref = str(saved.get("preferred_device", "auto"))
                 if pref in {"auto", "onnx_dml", "cuda", "cpu", "openvino_npu"}:
                     return pref
     except Exception:

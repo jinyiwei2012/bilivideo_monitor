@@ -12,8 +12,6 @@
     text = EMOJI_MAP.get(emoji, emoji)  # 替换单个 emoji
 """
 
-from ui.theme import C  # noqa: F401 — 确保主题已加载
-
 # ── 主题图标映射 ─────────────────────────────
 ICONS = {
     # 导航 (音符体系)

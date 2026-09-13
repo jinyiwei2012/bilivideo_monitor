@@ -9,11 +9,53 @@
 """
 
 import math
+from typing import Any, cast
+
 from ui.theme import C
 
-from utils import PROJECT_ROOT, project_path  # noqa: F401 — 重新导出以方便使用
+from utils import PROJECT_ROOT, project_path
 
 from PyQt6.QtGui import QFont
+
+__all__ = [
+    "C",
+    "DEFAULT_INTERVAL",
+    "FAST_GAP",
+    "FAST_INTERVAL",
+    "FONT",
+    "FONT_BOLD",
+    "FONT_CAPTION",
+    "FONT_LG",
+    "FONT_MONO",
+    "FONT_MONO_LG",
+    "FONT_SECTION",
+    "FONT_SM",
+    "FONT_TITLE",
+    "PREDICT_INTERVAL",
+    "PROJECT_ROOT",
+    "QFont",
+    "SPACE_LG",
+    "SPACE_MD",
+    "SPACE_SM",
+    "SPACE_XL",
+    "THRESHOLDS",
+    "THRESHOLD_NAMES",
+    "THRESH_COLORS",
+    "abbrev",
+    "auto_threshold_name",
+    "card_status_tag",
+    "clear_loss_chart",
+    "fmt_eta",
+    "fmt_num",
+    "format_confidence",
+    "is_valid_bvid",
+    "load_algo_confidence",
+    "loss_to_confidence",
+    "math",
+    "nearest_threshold_gap",
+    "project_path",
+    "reload_thresholds",
+]
 
 
 # ── 字体定义 ─────────────────────────────────
@@ -46,15 +88,16 @@ THRESHOLDS: list = []
 THRESHOLD_NAMES: list = []
 THRESH_COLORS: list = []
 
-_THRESH_PALETTE = C["thresh_palette"]
+_THRESH_PALETTE: list[str] = cast("list[str]", C["thresh_palette"])
 
 
-def _get_threshold_colors(n):
+def _get_threshold_colors(n: int) -> list[str]:
     return [_THRESH_PALETTE[i % len(_THRESH_PALETTE)] for i in range(n)]
 
 
-def reload_thresholds():
+def reload_thresholds() -> None:
     """从配置文件加载阈值列表"""
+    raw: Any = []
     try:
         from config import load_config, DEFAULT_CONFIG
 
@@ -62,11 +105,11 @@ def reload_thresholds():
         raw = cfg.get("prediction", {}).get("thresholds", [])
         if not raw:
             # 默认阈值单点定义见 config.DEFAULT_CONFIG
-            raw = DEFAULT_CONFIG["prediction"]["thresholds"]
+            raw = cast("dict[str, Any]", DEFAULT_CONFIG)["prediction"]["thresholds"]
     except Exception:
         from config import DEFAULT_CONFIG
 
-        raw = DEFAULT_CONFIG["prediction"]["thresholds"]
+        raw = cast("dict[str, Any]", DEFAULT_CONFIG)["prediction"]["thresholds"]
 
     values = []
     names = []
