@@ -22,7 +22,7 @@ class _ScoreOpsMixin:
             with self._lock:
                 self._mirror_conn.execute(
                     """
-                    INSERT INTO weekly_scores
+                    INSERT OR REPLACE INTO weekly_scores
                     (timestamp, total_score, view_score, interaction_score,
                      favorite_score, coin_score, like_score,
                      correction_a, correction_b, correction_c, correction_d,
@@ -56,7 +56,7 @@ class _ScoreOpsMixin:
             with self._lock:
                 self._mirror_conn.execute(
                     """
-                    INSERT INTO yearly_scores
+                    INSERT OR REPLACE INTO yearly_scores
                     (timestamp, total_score, view_score, interaction_score,
                      favorite_score, coin_score, like_score,
                      correction_a, correction_b, correction_c)
@@ -88,7 +88,7 @@ class _ScoreOpsMixin:
                 cursor = conn.cursor()
                 cursor.execute(
                     """
-                    INSERT INTO weekly_scores
+                    INSERT OR REPLACE INTO weekly_scores
                     (timestamp, total_score, view_score, interaction_score,
                      favorite_score, coin_score, like_score,
                      correction_a, correction_b, correction_c, correction_d,
@@ -151,7 +151,7 @@ class _ScoreOpsMixin:
                 cursor = conn.cursor()
                 cursor.execute(
                     """
-                    INSERT INTO yearly_scores
+                    INSERT OR REPLACE INTO yearly_scores
                     (timestamp, total_score, view_score, interaction_score,
                      favorite_score, coin_score, like_score,
                      correction_a, correction_b, correction_c)

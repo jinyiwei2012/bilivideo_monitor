@@ -1425,3 +1425,63 @@ class TestCleanupUsesPlainComparison:
             assert remaining == ["2026-01-02 10:00:00", "2026-01-03 10:00:00"]
         finally:
             d._conn.close()
+
+
+class TestScoresUniqueTimestamp:
+    """M2.11a: 分数表 timestamp 唯一 → upsert 幂等。"""
+
+    @staticmethod
+    def _isolate(monkeypatch, tmp_path):
+        import core.database.video_db as vdb
+
+        # 让 mirror_base == base_dir，避免写入仓库 data/ 目录
+        monkeypatch.setattr(vdb, "project_path", lambda *parts: str(tmp_path))
+        return vdb
+
+    def test_same_timestamp_upsert_keeps_one_row(self, tmp_path, monkeypatch):
+        vdb = self._isolate(monkeypatch, tmp_path)
+        db = vdb.VideoDatabase("BV1xx411c7mD", base_dir=str(tmp_path))
+        try:
+            assert db.add_weekly_score("2026-01-01 10:00:00", {"total_score": 1.0})
+            assert db.add_weekly_score("2026-01-01 10:00:00", {"total_score": 2.0})
+            rows = db.get_weekly_scores()
+            assert len(rows) == 1, "同一 timestamp 只应保留一行"
+            assert rows[0]["total_score"] == 2.0
+
+            assert db.add_yearly_score("2026-01-01 10:00:00", {"total_score": 5.0})
+            assert db.add_yearly_score("2026-01-01 10:00:00", {"total_score": 6.0})
+            yrows = db.get_yearly_scores()
+            assert len(yrows) == 1 and yrows[0]["total_score"] == 6.0
+        finally:
+            db.close()
+
+    def test_v4_migration_dedupes_and_builds_unique_index(self, tmp_path, monkeypatch):
+        import sqlite3
+
+        vdb = self._isolate(monkeypatch, tmp_path)
+
+        # 造一个 v3 旧库：重复 timestamp + 旧普通索引
+        d = tmp_path / "BV1xx411c7mD"
+        d.mkdir()
+        con = sqlite3.connect(str(d / "BV1xx411c7mD.db"))
+        con.execute(
+            "CREATE TABLE weekly_scores (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TIMESTAMP, total_score REAL)"
+        )
+        con.execute("CREATE INDEX idx_weekly_timestamp ON weekly_scores(timestamp)")
+        con.execute("INSERT INTO weekly_scores (timestamp, total_score) VALUES ('2026-01-01 10:00:00', 1.0)")
+        con.execute("INSERT INTO weekly_scores (timestamp, total_score) VALUES ('2026-01-01 10:00:00', 2.0)")
+        con.execute("PRAGMA user_version = 3")
+        con.commit()
+        con.close()
+
+        db = vdb.VideoDatabase("BV1xx411c7mD", base_dir=str(tmp_path))
+        try:
+            rows = db.get_weekly_scores()
+            assert len(rows) == 1 and rows[0]["total_score"] == 2.0
+
+            names = {r[0] for r in db._conn.execute("SELECT name FROM sqlite_master WHERE type='index'")}
+            assert "idx_weekly_ts" in names, "应创建唯一索引"
+            assert "idx_weekly_timestamp" not in names, "旧普通索引应被删除"
+            assert db._conn.execute("PRAGMA user_version").fetchone()[0] == 4
+        finally:
+            db.close()

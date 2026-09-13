@@ -210,7 +210,7 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
                 base_view_score REAL
             )
         """, False),
-        ("CREATE INDEX IF NOT EXISTS idx_weekly_timestamp ON weekly_scores(timestamp)", False),
+        ("CREATE UNIQUE INDEX IF NOT EXISTS idx_weekly_ts ON weekly_scores(timestamp)", True),
         ("""
             CREATE TABLE IF NOT EXISTS yearly_scores (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -226,7 +226,7 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
                 correction_c REAL
             )
         """, False),
-        ("CREATE INDEX IF NOT EXISTS idx_yearly_timestamp ON yearly_scores(timestamp)", False),
+        ("CREATE UNIQUE INDEX IF NOT EXISTS idx_yearly_ts ON yearly_scores(timestamp)", True),
         ("""
             CREATE TABLE IF NOT EXISTS danmaku_records (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -291,8 +291,42 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
                 # v2→v3: 添加 Proto 弹幕新字段 (dmid/like_count/pool/dm_from) + 更新 UNIQUE 索引
                 self._migrate_danmaku_v3(conn)
                 cursor.execute("PRAGMA user_version = 3")
+            if db_version < 4:
+                # v3→v4: 分数表 timestamp 去重 + 唯一索引（使 INSERT OR REPLACE 幂等）
+                self._migrate_scores_unique(conn)
+                cursor.execute("PRAGMA user_version = 4")
 
             conn.commit()
+
+    def _migrate_scores_unique(self, conn):
+        """v3→v4 迁移：分数表按 timestamp 去重并建唯一索引。
+
+        唯一索引让 `INSERT OR REPLACE` 按 timestamp 幂等（同一时刻只保留一行），
+        是 M2.11「惰性物化 + 每小时桶」重写的前提。
+        """
+        cursor = conn.cursor()
+        targets = (
+            ("weekly_scores", "idx_weekly_timestamp", "idx_weekly_ts"),
+            ("yearly_scores", "idx_yearly_timestamp", "idx_yearly_ts"),
+        )
+        for table, old_idx, new_idx in targets:
+            cursor.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)
+            )
+            if not cursor.fetchone():
+                continue
+            try:
+                cursor.execute(
+                    f"DELETE FROM {table} WHERE id NOT IN (SELECT MAX(id) FROM {table} GROUP BY timestamp)"
+                )
+            except sqlite3.Error as e:
+                logger.debug("v3→v4 %s 去重失败: %s", table, e)
+            cursor.execute(f"DROP INDEX IF EXISTS {old_idx}")
+            try:
+                cursor.execute(f"CREATE UNIQUE INDEX IF NOT EXISTS {new_idx} ON {table}(timestamp)")
+            except sqlite3.OperationalError:
+                logger.warning("v3→v4: %s 无法创建唯一索引", table)
+        conn.commit()
 
     def set_central_db(self, central_db):
         """注入中央数据库引用，用于写入时同步兜底
