@@ -1202,3 +1202,60 @@ class TestCoverLoaderThreading:
             loader.shutdown()
         # 关闭后不再提交（不抛异常）
         loader.load_cover("BV2", "u")
+
+
+class TestSearchDebounce:
+    """M2.10g: 搜索输入去抖后过滤。"""
+
+    def test_on_search_starts_timer_and_apply_filters(self):
+        import ui.video_list_panel as vlp
+
+        class _Timer:
+            def __init__(self):
+                self.starts = 0
+
+            def start(self):
+                self.starts += 1
+
+        class _Item:
+            def __init__(self, data):
+                self._data = data
+                self.hidden = None
+
+            def data(self, role):
+                return self._data
+
+            def setHidden(self, flag):
+                self.hidden = flag
+
+        class _List:
+            def __init__(self, items):
+                self._items = items
+
+            def count(self):
+                return len(self._items)
+
+            def item(self, i):
+                return self._items[i]
+
+        class _Panel:
+            _search_text = ""
+
+        panel = _Panel()
+        panel._search_timer = _Timer()
+
+        vlp.VideoListPanel._on_search(panel, "  ABC ")
+        assert panel._search_text == "abc"
+        assert panel._search_timer.starts == 1, "输入变化应触发一次去抖计时"
+
+        items = [
+            _Item({"bvid": "BV1abc", "title": "hello"}),
+            _Item({"bvid": "BV2", "title": "world"}),
+            _Item(None),
+        ]
+        panel._list = _List(items)
+
+        vlp.VideoListPanel._apply_search(panel)
+        assert items[0].hidden is False
+        assert items[1].hidden is True
+        assert items[2].hidden is None, "无 data 的项不应改动"

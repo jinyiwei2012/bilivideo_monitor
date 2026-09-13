@@ -189,6 +189,8 @@ class VideoListPanel(QWidget):
 
     video_selected = pyqtSignal(str)  # bvid
 
+    SEARCH_DEBOUNCE_MS = 200  # 搜索去抖间隔（毫秒）
+
     def __init__(self, parent, gui):
         super().__init__(parent)
         self.gui = gui
@@ -196,6 +198,12 @@ class VideoListPanel(QWidget):
         self._cover_cache = OrderedDict()
         self._card_widgets = {}  # bvid -> QListWidgetItem（索引，避免线性扫描 O(N²)）
         self._search_text = ""
+
+        # 搜索去抖：避免每次按键都全表扫描
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(self.SEARCH_DEBOUNCE_MS)
+        self._search_timer.timeout.connect(self._apply_search)
 
         # 封面加载器 — 在主线程通过 QTimer.singleShot 延迟加载，_cover_semaphore(4) 限制并发
         self._cover_loader = CoverLoader()
@@ -299,8 +307,12 @@ class VideoListPanel(QWidget):
             self._list.update(self._list.indexFromItem(item))
 
     def _on_search(self, text):
-        """搜索过滤"""
+        """搜索输入变化：记录关键词并去抖，避免每次按键都全表扫描"""
         self._search_text = text.strip().lower()
+        self._search_timer.start()
+
+    def _apply_search(self):
+        """按当前搜索词过滤列表（去抖后执行）"""
         for i in range(self._list.count()):
             item = self._list.item(i)
             data = item.data(Qt.ItemDataRole.UserRole)
