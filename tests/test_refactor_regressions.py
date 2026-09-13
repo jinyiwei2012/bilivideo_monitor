@@ -890,3 +890,90 @@ class TestOnlineViewersBackgroundCache:
 
         ovp.OnlineViewersPanel._update_ui_after_fetch(_Fake(), cached={"x": 1})
         assert seen["cached"] == {"x": 1}
+
+
+class TestDetailScoreHistoryCache:
+    """M2.2b: 历史分数走后台缓存，主线程不查库。"""
+
+    @staticmethod
+    def _make_panel(cache, pending):
+        from ui.detail_panel import DetailPanel
+
+        panel = DetailPanel.__new__(DetailPanel)
+        panel._score_history_cache = cache
+        panel._score_history_pending = pending
+        panel._current_tab_name = "☰ 详细数据"
+        panel._detail_text_fp = None
+        return panel
+
+    @staticmethod
+    def _make_db():
+        class _DB:
+            def __init__(self):
+                self.calls = 0
+
+            def get_weekly_scores(self, limit=5):
+                self.calls += 1
+                return [
+                    {"timestamp": "2026-01-01T00:00", "total_score": 1.0},
+                    {"timestamp": "2026-01-02T00:00", "total_score": 2.0},
+                ]
+
+            def get_yearly_scores(self, limit=5):
+                self.calls += 1
+                return []
+
+        return _DB()
+
+    @staticmethod
+    def _make_gui(db):
+        class _Gui:
+            video_dbs = {"BV1": db}
+            selected_bvid = "OTHER"
+
+        return _Gui()
+
+    def test_main_thread_does_not_touch_db(self, monkeypatch):
+        import ui.detail_panel as dp
+
+        monkeypatch.setattr(dp, "fire_and_forget", lambda fn, *a, **k: None)
+        monkeypatch.setattr(dp, "invoke", lambda fn: fn())
+
+        db = self._make_db()
+        panel = self._make_panel({}, set())
+        panel.gui = self._make_gui(db)
+
+        weekly, yearly = panel._get_score_history("BV1")
+        assert weekly == [] and yearly == []
+        assert db.calls == 0, "主线程不应查库"
+
+    def test_background_load_populates_cache(self, monkeypatch):
+        import ui.detail_panel as dp
+
+        monkeypatch.setattr(dp, "fire_and_forget", lambda fn, *a, **k: fn())
+        monkeypatch.setattr(dp, "invoke", lambda fn: fn())
+
+        db = self._make_db()
+        panel = self._make_panel({}, set())
+        panel.gui = self._make_gui(db)
+
+        panel._get_score_history("BV1")
+        assert db.calls == 2
+        assert len(panel._score_history_cache["BV1"][0]) == 2
+        assert panel._score_history_cache["BV1"][1] == []
+
+    def test_pending_dedup(self, monkeypatch):
+        import ui.detail_panel as dp
+
+        sched = {"n": 0}
+        monkeypatch.setattr(dp, "fire_and_forget", lambda fn, *a, **k: sched.__setitem__("n", sched["n"] + 1))
+        monkeypatch.setattr(dp, "invoke", lambda fn: fn())
+
+        db = self._make_db()
+        panel = self._make_panel({}, set())
+        panel.gui = self._make_gui(db)
+
+        panel._get_score_history("BV1")
+        panel._get_score_history("BV1")
+        assert sched["n"] == 1, "同一 bvid 只应调度一次后台读取"
+        assert "BV1" in panel._score_history_pending

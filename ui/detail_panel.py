@@ -30,6 +30,7 @@ from ui import lty_voice
 from ui.chart import ChartWidget
 from ui.detail_tabs import _RatioDanmakuMixin
 from ui.invoker import invoke
+from utils.thread_utils import fire_and_forget
 from utils.weekly_score import calculate_from_dict as _calc_ws
 from utils.yearly_score import calculate_yearly_from_dict as _calc_ys
 from utils.update_checker import _confirm_risky
@@ -217,6 +218,8 @@ class DetailPanel(_RatioDanmakuMixin):
         self._rendered_modes = set()
         self._chart_fingerprint = None
         self._detail_text_fp = None
+        self._score_history_cache = {}       # bvid -> (weekly_rows, yearly_rows)
+        self._score_history_pending = set()  # 正在后台读取的 bvid
         self._header_bvid = None  # 缓存当前 header 对应的 bvid，避免重复构建
         self._header_video = None  # 缓存当前 header 对应的 video 对象（身份校验，防陈旧缓存）
 
@@ -802,6 +805,51 @@ class DetailPanel(_RatioDanmakuMixin):
 
     # ── Detail Text ─────────────────────────────
 
+    def _get_score_history(self, bvid):
+        """返回该视频历史分数缓存 (weekly_rows, yearly_rows)，并触发后台刷新。
+
+        主线程永不查库：无缓存时先返回空，待后台读取完成后经 invoke 补渲染。
+        """
+        cached = self._score_history_cache.get(bvid)
+        self._schedule_score_history_load(bvid)
+        if cached is None:
+            return [], []
+        return cached
+
+    def _schedule_score_history_load(self, bvid):
+        """后台读取周刊/年刊分数历史并写入缓存（同一 bvid 去重）。"""
+        if bvid in self._score_history_pending:
+            return
+        db = getattr(self.gui, "video_dbs", {}).get(bvid) if self.gui is not None else None
+        if db is None:
+            return
+        self._score_history_pending.add(bvid)
+        prev = self._score_history_cache.get(bvid)
+
+        def _load():
+            try:
+                weekly = db.get_weekly_scores(limit=5)
+                yearly = db.get_yearly_scores(limit=5)
+            except Exception:
+                weekly, yearly = [], []
+
+            def _apply():
+                self._score_history_pending.discard(bvid)
+                fresh = (weekly, yearly)
+                if fresh == prev:
+                    return
+                self._score_history_cache[bvid] = fresh
+                if (self.gui is not None and self.gui.selected_bvid == bvid
+                        and self._current_tab_name == "☰ 详细数据"):
+                    self._detail_text_fp = None
+                    video = self._get_selected_video()
+                    if video:
+                        self._fill_detail_text(video)
+
+            invoke(_apply)
+
+        fire_and_forget(_load, name=f"score-history:{bvid}")
+
     def _fill_detail_text(self, video):
         """填充详细数据"""
         # Fingerprint check
@@ -923,16 +971,15 @@ class DetailPanel(_RatioDanmakuMixin):
                 escaped = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
                 html_parts.append(f"<span style='{css}'>{escaped}</span>\n")
 
-        # Historical scores
+        # Historical scores（后台缓存读取，避免主线程逐次查库）
         if bvid in self.gui.video_dbs:
-            history_scores = self.gui.video_dbs[bvid].get_weekly_scores(limit=5)
+            history_scores, yearly_scores = self._get_score_history(bvid)
             if len(history_scores) > 1:
                 html_parts.append(f"<span style='{style_map['head']}'>\n=== 历史周刊分数 ===\n</span>")
                 for row in history_scores:
                     ts_str = row.get("timestamp", "")[:16]
                     total = row.get("total_score", 0)
                     html_parts.append(f"<span style='{style_map['mono']}'>  {ts_str}  {total:>10,.2f}\n</span>")
-            yearly_scores = self.gui.video_dbs[bvid].get_yearly_scores(limit=5)
             if len(yearly_scores) > 1:
                 html_parts.append(f"<span style='{style_map['head']}'>\n=== 历史年刊分数 ===\n</span>")
                 for row in yearly_scores:
