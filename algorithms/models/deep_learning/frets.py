@@ -12,10 +12,9 @@ FreTS (频域多层感知机 / Frequency-domain MLPs)
 """
 
 import logging
-from typing import Dict, List, Optional
-from datetime import datetime
+from typing import List
 
-from algorithms.base import BaseAlgorithm, PredictionResult
+from algorithms.base import BaseAlgorithm
 from algorithms.models.deep_learning._torch_upgrade import FreTSTorchModel, try_torch_predict
 
 logger = logging.getLogger(__name__)

@@ -8,7 +8,7 @@ import logging
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFrame, QLabel,
-    QPushButton, QWidget, QSizePolicy,
+    QPushButton, QWidget,
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont

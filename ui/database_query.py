@@ -9,22 +9,21 @@ import sqlite3
 import threading
 import urllib.parse
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QWidget, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QComboBox, QTreeWidget, QTreeWidgetItem,
     QHeaderView, QMessageBox, QFileDialog, QStackedWidget,
-    QFrame,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QFont, QAction, QIcon
+from PyQt6.QtGui import QFont
 
 from ui.theme import C
 from ui.helpers import FONT, FONT_SM, project_path, is_valid_bvid
 from ui.invoker import invoke
 from ui.dialog_base import DialogBase
-from ui.database_query_export import _BASE_EXPORT_HEADERS, build_export_headers, build_export_row
+from ui.database_query_export import build_export_headers, build_export_row
 from utils.update_checker import _confirm_risky
 
 logger = logging.getLogger(__name__)

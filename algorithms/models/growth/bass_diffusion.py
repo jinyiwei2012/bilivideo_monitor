@@ -34,7 +34,6 @@ Bass扩散模型是Frank Bass于1969年提出的经典创新扩散理论模型�
 import logging
 import numpy as np
 from typing import Dict
-from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
 
 logger = logging.getLogger(__name__)

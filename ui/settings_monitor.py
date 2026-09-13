@@ -4,11 +4,10 @@
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QSpinBox, QFrame,
+    QSpinBox,
 )
-from PyQt6.QtCore import Qt
 from ui.theme import C
-from ui.helpers import FONT_SM, auto_threshold_name
+from ui.helpers import auto_threshold_name
 
 
 class SettingsMonitorMixin:

@@ -30,7 +30,6 @@ MSTL多重季节分解预测算法 (Multiple Seasonal-Trend decomposition using 
 import numpy as np
 import warnings
 from typing import Dict, Any
-from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
 
 # ── 可选依赖检测 ──────────────────────────────────

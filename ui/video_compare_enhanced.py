@@ -9,12 +9,11 @@ from datetime import datetime, timedelta
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView,
-    QMessageBox, QFrame, QComboBox,
+    QComboBox,
 )
-from PyQt6.QtCore import Qt
 
 from ui.theme import C
-from ui.helpers import FONT, FONT_MONO, fmt_num, THRESHOLDS, THRESHOLD_NAMES
+from ui.helpers import fmt_num
 from ui.dialog_base import DialogBase
 from utils.time_utils import safe_timestamp
 

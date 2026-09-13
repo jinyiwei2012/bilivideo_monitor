@@ -5,8 +5,8 @@
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QLineEdit, QListWidget, QListWidgetItem, QComboBox, QMessageBox,
-    QScrollArea, QFrame,
+    QLineEdit, QListWidget, QComboBox, QMessageBox,
+    QScrollArea,
 )
 from PyQt6.QtCore import Qt
 

@@ -17,7 +17,7 @@ import math
 import numpy as np
 from typing import Dict
 from datetime import datetime
-from algorithms.base import BaseAlgorithm, PredictionResult
+from algorithms.base import BaseAlgorithm
 from algorithms.models.deep_learning._torch_upgrade import BiLSTMTorchModel, try_torch_predict
 
 

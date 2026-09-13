@@ -26,7 +26,6 @@ ICLR 2023论文的简化实现——将时间序列分割为Patch（类似NLP中
 
 import numpy as np
 from typing import Dict, List, Tuple, Optional
-from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
 from algorithms.models.deep_learning._torch_upgrade import PatchTSTTorchModel, try_torch_predict
 

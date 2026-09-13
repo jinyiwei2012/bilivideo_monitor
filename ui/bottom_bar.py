@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 
 from ui.theme import C
-from ui.helpers import FONT, FONT_CAPTION, SPACE_MD, SPACE_LG
+from ui.helpers import FONT_CAPTION, SPACE_MD, SPACE_LG
 from ui.widgets import WaveDivider
 from ui.lty_voice import STATUS, BUTTON_HINTS
 

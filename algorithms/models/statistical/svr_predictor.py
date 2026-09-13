@@ -18,9 +18,8 @@
 """
 
 import numpy as np
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Tuple
 import logging
-from datetime import datetime
 
 from algorithms.base import BaseAlgorithm, PredictionResult
 

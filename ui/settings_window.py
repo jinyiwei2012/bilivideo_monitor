@@ -10,20 +10,14 @@ import os
 import logging
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QTabWidget, QLineEdit, QSpinBox, QDoubleSpinBox, QCheckBox,
-    QMessageBox, QFrame, QSizePolicy,
+    QWidget, QVBoxLayout, QTabWidget, QMessageBox,
 )
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont
 
 from ui.theme import C
-from ui.helpers import FONT, project_path, auto_threshold_name, SPACE_MD, SPACE_LG
+from ui.helpers import project_path, auto_threshold_name, SPACE_MD, SPACE_LG
 from ui.widgets import SectionHeader, WaveDivider
 from ui.dialog_base import DialogBase
 from ui.settings_common import (
-    styled_label,
-    field_wrapper,
     make_field,
     make_spin_field,
     make_spin_field_float,

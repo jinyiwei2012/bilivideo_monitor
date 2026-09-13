@@ -23,7 +23,6 @@ def _sanitize(title: str) -> str:
     return safe[:_MAX_TITLE_LEN]
 
 
-import re as _re
 
 from core.constants import BV_PATTERN as _BVID_RE
 

@@ -12,7 +12,7 @@ from pathlib import Path
 from PyQt6.QtWidgets import (
     QDialog, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QRadioButton, QComboBox, QCheckBox, QListWidget, QMessageBox,
-    QFrame, QApplication,
+    QFrame,
 )
 from PyQt6.QtCore import QTimer
 

@@ -25,7 +25,6 @@ TSMixer (MLP Mixer) — 纯MLP架构时间序列预测器
 
 import numpy as np
 from typing import Dict, Any, List
-from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
 from algorithms.models.deep_learning._torch_upgrade import TSMixerTorchModel, try_torch_predict
 

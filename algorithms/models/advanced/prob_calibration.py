@@ -25,8 +25,7 @@
 
 import logging
 import numpy as np
-from typing import Dict, Optional
-from datetime import datetime
+from typing import Dict
 from algorithms.base import BaseAlgorithm, PredictionResult
 
 logger = logging.getLogger(__name__)

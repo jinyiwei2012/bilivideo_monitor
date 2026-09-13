@@ -10,17 +10,15 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QPlainTextEdit, QRadioButton, QCheckBox, QLineEdit,
     QComboBox, QTreeWidget, QTreeWidgetItem, QTabWidget,
-    QGroupBox, QMessageBox, QFrame, QHeaderView, QMenu,
-    QSizePolicy,
+    QGroupBox, QMessageBox, QMenu,
 )
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QAction, QCursor
+from PyQt6.QtGui import QAction
 
 from core.database import get_db
 from ui.theme import C
 from ui.scrollable_frame import ScrollableFrame
 from .data_comparison import _fmt, _parse_dt
-from utils.update_checker import _confirm_risky
 
 logger = logging.getLogger(__name__)
 

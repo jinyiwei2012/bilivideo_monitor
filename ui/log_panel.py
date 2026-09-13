@@ -5,12 +5,11 @@
 import logging
 import threading
 from datetime import datetime
-from collections import deque
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPlainTextEdit,
     QPushButton, QComboBox, QStackedWidget,
 )
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import QTimer
 from PyQt6.QtGui import QColor, QTextCharFormat, QTextCursor, QFont
 
 from ui.theme import C

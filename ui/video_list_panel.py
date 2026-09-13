@@ -6,7 +6,6 @@
 """
 
 import logging
-from io import BytesIO
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 import threading
@@ -16,7 +15,7 @@ import requests as _req
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QListWidget,
     QListWidgetItem, QLabel, QPushButton, QLineEdit,
-    QFrame, QSizePolicy, QStyledItemDelegate, QStyle,
+    QFrame, QStyledItemDelegate, QStyle,
     QStackedLayout,
 )
 from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal, QObject, QRectF

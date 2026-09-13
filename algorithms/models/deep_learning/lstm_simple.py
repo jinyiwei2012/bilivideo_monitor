@@ -17,7 +17,6 @@ LSTM简化预测算法
     "Long Short-Term Memory" (Hochreiter & Schmidhuber, 1997)
 """
 
-from datetime import datetime
 from typing import Dict, Any
 from algorithms.base import BaseAlgorithm, PredictionResult
 from algorithms.models.deep_learning._torch_upgrade import LSTMTorchModel, try_torch_predict

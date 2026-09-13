@@ -20,7 +20,6 @@ MOIRAI在大量公开时序数据（10亿+时间点）上预训练，支持任�
 """
 
 import logging
-from datetime import datetime
 from typing import Any, Dict, List, Tuple
 
 import numpy as np

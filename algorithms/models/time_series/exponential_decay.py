@@ -24,7 +24,6 @@
     基于B站推荐算法的时效性衰减特征
 """
 
-from datetime import datetime
 import math
 from typing import Dict, Any
 from algorithms.base import BaseAlgorithm, PredictionResult

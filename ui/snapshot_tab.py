@@ -3,15 +3,14 @@
 """
 
 import logging
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional
 from datetime import datetime, timedelta
 from collections import defaultdict
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QListWidget, QListWidgetItem, QCheckBox, QLineEdit,
-    QFrame, QSizePolicy, QMessageBox, QScrollBar,
-    QGroupBox,
+    QFrame, QSizePolicy, QMessageBox, QGroupBox,
 )
 from PyQt6.QtCore import Qt, QRect, QTimer
 from PyQt6.QtGui import (

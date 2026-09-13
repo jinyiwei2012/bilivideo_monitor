@@ -10,12 +10,12 @@ import webbrowser
 from typing import List, Dict, Callable, Optional
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QWidget, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QTreeWidget, QTreeWidgetItem, QHeaderView,
-    QDialog, QMessageBox, QApplication, QMenu,
+    QMessageBox, QApplication, QMenu,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QFont, QPixmap, QAction
+from PyQt6.QtGui import QFont, QAction
 
 from core import get_bilibili_api
 from ui.theme import C
@@ -323,7 +323,7 @@ class VideoSearchWindow(DialogBase):
         like = video.get("like", 0)
         pic = video.get("pic", "")
 
-        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame
+        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton
         from PyQt6.QtGui import QPixmap, QFont
         from PyQt6.QtCore import Qt
 

@@ -8,10 +8,10 @@ from datetime import datetime
 from typing import List
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QComboBox, QTextEdit, QMessageBox, QProgressBar, QFrame,
+    QWidget, QHBoxLayout, QPushButton,
+    QComboBox, QTextEdit, QMessageBox, QProgressBar,
 )
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import QTimer
 
 from ui.theme import C
 from ui.dialog_base import DialogBase

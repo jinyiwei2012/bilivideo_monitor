@@ -7,13 +7,12 @@ import os
 import re
 import logging
 import threading
-from typing import Optional
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QComboBox, QPlainTextEdit, QTreeWidget,
     QTreeWidgetItem, QHeaderView, QMessageBox, QDialog,
-    QTextEdit, QCheckBox,
+    QCheckBox,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont

@@ -8,7 +8,6 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QCheckBox, QMessageBox, QComboBox,
 )
-from PyQt6.QtCore import Qt
 from ui.theme import C
 
 logger = logging.getLogger(__name__)

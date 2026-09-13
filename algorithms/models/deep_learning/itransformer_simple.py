@@ -13,7 +13,6 @@ iTransformer (倒置Transformer / Inverted Transformer)
 
 import numpy as np
 from typing import Dict, Any, List
-from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
 from algorithms.models.deep_learning._torch_upgrade import ITransformerTorchModel, try_torch_predict
 

@@ -24,7 +24,6 @@
 
 import numpy as np
 from typing import Dict, List, Tuple, Callable
-from datetime import datetime
 
 
 class RollingBacktester:

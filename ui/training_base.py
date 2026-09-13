@@ -15,17 +15,14 @@ from typing import Any, Dict, List, Optional
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QPlainTextEdit, QProgressBar, QFrame,
+    QPlainTextEdit, QProgressBar,
 )
-from PyQt6.QtCore import QTimer, Qt
-from PyQt6.QtGui import QFont
+from PyQt6.QtCore import Qt
 
 from ui.mpl_imports import mpl_available, Figure, FigureCanvasQTAgg
 from ui.theme import C
 from ui.async_queue_runner import AsyncQueueRunner
 from ui.helpers import (
-    FONT,
-    FONT_SM,
     clear_loss_chart,
 )
 

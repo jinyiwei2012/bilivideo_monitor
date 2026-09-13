@@ -3,7 +3,6 @@
 投稿一周/月/年后数据录入与对比
 """
 
-import math
 from typing import List, Dict, Optional, Callable
 
 from PyQt6.QtWidgets import (
@@ -12,10 +11,9 @@ from PyQt6.QtWidgets import (
     QTreeWidgetItem, QHeaderView, QTabWidget, QMessageBox,
     QButtonGroup, QFrame, QMenu,
 )
-from PyQt6.QtCore import Qt, QTimer, QRectF, QSize
+from PyQt6.QtCore import Qt, QRectF
 from PyQt6.QtGui import (
     QFont, QPainter, QColor, QBrush, QPen, QAction,
-    QResizeEvent,
 )
 
 from core.database import get_db
@@ -23,8 +21,7 @@ from ui.theme import C
 from ui.scrollable_frame import ScrollableFrame
 from ui.dialog_base import DialogBase
 from ui import lty_voice
-from utils.update_checker import _confirm_risky
-from ui.helpers import FONT, FONT_BOLD, FONT_SM, fmt_num, is_valid_bvid
+from ui.helpers import FONT_BOLD, FONT_SM, fmt_num, is_valid_bvid
 
 PERIODS = ["1周", "1月", "1年"]
 PERIOD_COLORS = {"1周": "#58a6ff", "1月": "#3fb950", "1年": "#f5a623"}

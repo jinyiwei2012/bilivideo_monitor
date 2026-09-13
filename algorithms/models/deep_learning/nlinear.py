@@ -28,10 +28,9 @@ AAAI 2023论文的实现——极简却高效的时序预测方法，用于B站�
 """
 
 import logging
-from typing import Dict, List, Optional
-from datetime import datetime
+from typing import List
 
-from algorithms.base import BaseAlgorithm, PredictionResult
+from algorithms.base import BaseAlgorithm
 from algorithms.models.deep_learning._torch_upgrade import NLinearTorchModel, try_torch_predict
 
 logger = logging.getLogger(__name__)

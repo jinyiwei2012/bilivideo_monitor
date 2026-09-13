@@ -2,29 +2,18 @@
 关于作者标签页
 """
 
-import os
 import logging
 import webbrowser
-from typing import Any, Dict, List, Optional
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QLineEdit, QComboBox, QTextEdit, QCheckBox, QSpinBox,
-    QDoubleSpinBox, QGroupBox, QTabWidget, QFrame, QMessageBox,
-    QScrollArea, QSizePolicy, QHeaderView, QTreeWidget, QTreeWidgetItem,
-    QGridLayout, QProgressBar, QSplitter, QDialog, QFileDialog,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
 )
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QFont
+from PyQt6.QtCore import Qt
 
 from ui.theme import C
-from ui.helpers import FONT, FONT_BOLD, FONT_SM, FONT_MONO, project_path
-from algorithms.registry import AlgorithmRegistry
-from algorithms.weight_manager import get_weight_manager
-from utils.update_checker import _s, _hard, _train, _confirm_risky
-from ui.scrollable_frame import ScrollableFrame
+from ui.helpers import FONT
 
-from ui.settings_common import styled_label as _styled_label, field_wrapper as _field_wrapper
+from ui.settings_common import styled_label as _styled_label
 
 logger = logging.getLogger(__name__)
 

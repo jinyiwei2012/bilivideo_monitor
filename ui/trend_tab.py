@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QListWidget, QListWidgetItem, QRadioButton, QFrame,
-    QScrollBar, QSizePolicy,
+    QSizePolicy,
 )
 from PyQt6.QtCore import Qt, QRect
 from PyQt6.QtGui import (

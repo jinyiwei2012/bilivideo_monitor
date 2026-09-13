@@ -1,13 +1,9 @@
 """预测工具函数"""
 import threading
-import time
 import logging
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
-import json
-import numpy as np
-from algorithms.registry import AlgorithmRegistry
 from algorithms.base import BaseAlgorithm as BA
 
 
@@ -19,8 +15,8 @@ class _SurgeDetector(BA):
 
 
 _SURGE_DETECTOR = _SurgeDetector()
-from core import bilibili_api, db, MonitorRecord, PredictionRecord
-from ui.helpers import THRESHOLDS, THRESHOLD_NAMES, _parse_viewer_count
+from core import bilibili_api
+from ui.helpers import THRESHOLDS, THRESHOLD_NAMES
 from utils.time_utils import now_ts, safe_datetime, normalize_timestamp
 
 # ── 模块级状态 ──
@@ -221,7 +217,6 @@ def _calc_surge_aware_growth_rate(history: list) -> float:
         return raw_rate
 
     try:
-        from algorithms.base import BaseAlgorithm as BA
 
         # 构建临时 video_data 用于推流检测
         history_list = []
@@ -265,7 +260,6 @@ def _detect_surge_for_ui(history: list) -> dict:
                    velocity_history, decay_half_life_hours
     """
     try:
-        from algorithms.base import BaseAlgorithm as BA
 
         if len(history) < 8:
             return {"is_surging": False, "surge_type": "none"}

@@ -8,7 +8,7 @@ import threading
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QTextEdit, QMessageBox,
+    QTextEdit,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from PyQt6.QtGui import QFont, QTextCursor
@@ -164,7 +164,6 @@ class AIQAWindow(DialogBase):
 
     def eventFilter(self, a0, a1):
         """捕获 Enter/Shift+Enter 事件"""
-        from PyQt6.QtCore import QEvent
         from PyQt6.QtGui import QKeyEvent
 
         if a0 is self._input_entry and isinstance(a1, QKeyEvent):

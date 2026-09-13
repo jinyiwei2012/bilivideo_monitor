@@ -2,18 +2,15 @@
 账号 / Cookie 设置 — PyQt6 版
 """
 
-import json
 import logging
 import threading
-from typing import Optional, Dict
+from typing import Dict
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QLineEdit, QComboBox, QPlainTextEdit, QMessageBox, QDialog,
-    QFrame, QDialogButtonBox,
+    QComboBox, QPlainTextEdit, QMessageBox, QDialog,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer
-from PyQt6.QtGui import QFont, QPixmap
+from PyQt6.QtCore import QTimer
 
 from ui.theme import C
 from ui.helpers import FONT, FONT_SM

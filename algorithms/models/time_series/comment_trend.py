@@ -18,7 +18,6 @@
     基于B站推荐算法机制：互动率（点赞、评论、转发）是影响视频推荐量的重要因子
 """
 
-from datetime import datetime
 from typing import Dict, Any
 from algorithms.base import BaseAlgorithm, PredictionResult
 

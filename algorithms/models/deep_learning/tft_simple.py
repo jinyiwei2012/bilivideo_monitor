@@ -25,7 +25,6 @@ Google Cloud AI 2019论文的简化实现——结合静态/动态特征的多�
 
 import numpy as np
 from typing import Dict, List, Tuple, Optional
-from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
 from algorithms.models.deep_learning._torch_upgrade import TFTTorchModel, try_torch_predict
 

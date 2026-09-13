@@ -13,13 +13,11 @@ from utils.time_utils import format_ts
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTableWidget, QTableWidgetItem, QComboBox, QHeaderView,
-    QMessageBox, QFrame,
 )
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont, QColor
+from PyQt6.QtGui import QColor
 
 from ui.theme import C
-from ui.helpers import FONT, FONT_MONO, fmt_num
+from ui.helpers import fmt_num
 from ui.dialog_base import DialogBase
 
 logger = logging.getLogger(__name__)

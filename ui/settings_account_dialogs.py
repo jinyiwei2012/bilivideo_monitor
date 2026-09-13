@@ -183,7 +183,6 @@ class _QRCodeLoginDialog(QDialog):
     def _gen_qr(self, qr_url: str):
         try:
             import qrcode
-            from PIL import Image
             import io
 
             img = qrcode.make(qr_url).resize((200, 200))

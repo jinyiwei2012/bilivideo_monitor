@@ -27,7 +27,6 @@ TabNet 使用注意力机制进行特征选择，无需手动特征工程。
 import logging
 import numpy as np
 from typing import Dict, Any
-from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
 from algorithms.model_cache import get_or_fit
 

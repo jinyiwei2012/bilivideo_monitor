@@ -4,25 +4,21 @@
 
 import os
 import logging
-import webbrowser
-from typing import Any, Dict, List, Optional
+from typing import Dict
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QLineEdit, QComboBox, QTextEdit, QCheckBox, QSpinBox,
-    QDoubleSpinBox, QGroupBox, QTabWidget, QFrame, QMessageBox,
-    QScrollArea, QSizePolicy, QHeaderView,
-    QGridLayout, QProgressBar, QSplitter, QFileDialog,
+    QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
+    QComboBox, QCheckBox, QSpinBox,
+    QMessageBox,
+    QProgressBar, QFileDialog,
 )
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import QTimer
 
 from ui.theme import C
-from ui.helpers import FONT, FONT_BOLD, FONT_SM, FONT_MONO, project_path
-from algorithms.registry import AlgorithmRegistry
-from algorithms.weight_manager import get_weight_manager
-from utils.update_checker import _s, _train, _confirm_risky
+from ui.helpers import FONT, FONT_SM, FONT_MONO
+from utils.update_checker import _train
 from ui.scrollable_frame import ScrollableFrame
-from ui.settings_common import styled_label as _styled_label, field_wrapper as _field_wrapper
+from ui.settings_common import styled_label as _styled_label
 from ui.async_queue_runner import AsyncQueueRunner
 from ui.training_version import VersionManagerMixin
 

@@ -4,13 +4,11 @@
 使用 QTimer 替代 Tkinter root.after() 实现每秒 tick。
 """
 
-import threading
 import time
 import logging
 
 from PyQt6.QtCore import QTimer
 
-from core.smart_alert import AnomalyDetector
 from ui.invoker import invoke
 from ui.theme import C
 from utils.thread_utils import fire_and_forget

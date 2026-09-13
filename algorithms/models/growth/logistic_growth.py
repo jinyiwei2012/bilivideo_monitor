@@ -39,7 +39,6 @@ Logistic增长模型（也称Verhulst模型）是经典的S型增长曲线，描
 import numpy as np
 import logging
 from typing import List, Dict, Any, Optional, Tuple
-from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
 
 logger = logging.getLogger(__name__)

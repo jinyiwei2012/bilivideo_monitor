@@ -15,9 +15,8 @@ GRU简化预测算法 (Gated Recurrent Unit Simplified)
 - GRU 通常比 LSTM 训练更快、更少过拟合，在小样本任务上常优于 LSTM
 """
 
-from datetime import datetime
 import math
-from algorithms.base import BaseAlgorithm, PredictionResult
+from algorithms.base import BaseAlgorithm
 from algorithms.models.deep_learning._torch_upgrade import GRUTorchModel, try_torch_predict
 
 

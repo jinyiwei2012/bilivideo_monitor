@@ -27,7 +27,6 @@ ICLR 2020论文的简化实现，使用基函数展开捕捉时序模式，用�
 
 import numpy as np
 from typing import Dict, List, Tuple, Optional
-from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
 from algorithms.models.deep_learning._torch_upgrade import NBeatsTorchModel, try_torch_predict
 

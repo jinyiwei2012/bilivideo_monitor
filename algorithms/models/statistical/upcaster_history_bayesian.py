@@ -22,7 +22,6 @@ UP主历史表现贝叶斯模型 — Upcaster History Bayesian Model
 
 import numpy as np
 from typing import Dict, Any, List, Optional, Tuple
-from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
 
 

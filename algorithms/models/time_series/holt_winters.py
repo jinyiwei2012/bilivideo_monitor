@@ -33,7 +33,6 @@ Holt-Winters指数平滑预测算法 (Holt-Winters Exponential Smoothing)
 
 import numpy as np
 from typing import List, Dict, Any, Optional, Tuple
-from datetime import datetime
 import logging
 
 from algorithms.base import BaseAlgorithm, PredictionResult

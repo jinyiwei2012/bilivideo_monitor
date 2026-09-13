@@ -25,7 +25,6 @@ TimesFM (谷歌时序基础模型) — Decoder-only预训练时序模型
 
 import numpy as np
 from typing import Dict, Any, List
-from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
 from algorithms.models.deep_learning._torch_upgrade import TimesFMTorchModel, try_torch_predict
 

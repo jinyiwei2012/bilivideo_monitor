@@ -29,7 +29,6 @@ Theta方法是M3预测竞赛的亚军方法，通过构造Theta线
 
 import numpy as np
 from typing import Dict
-from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
 
 

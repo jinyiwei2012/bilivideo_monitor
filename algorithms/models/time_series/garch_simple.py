@@ -33,7 +33,6 @@ GARCH波动率预测算法 (Generalized AutoRegressive Conditional Heteroskedast
 import logging
 import numpy as np
 from typing import Dict, Any
-from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
 
 logger = logging.getLogger(__name__)

@@ -10,7 +10,6 @@ Theme 使用 QPalette + 全局 QSS 实现深色/亮色统一切换。
 import logging
 from PyQt6.QtGui import QPalette, QColor, QFont
 from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import Qt
 
 logger = logging.getLogger(__name__)
 

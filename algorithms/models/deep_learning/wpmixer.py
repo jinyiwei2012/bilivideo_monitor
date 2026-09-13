@@ -25,10 +25,9 @@ AAAI 2025论文的B站视频播放量预测实现——通过多分辨率分支�
 """
 
 import logging
-from typing import Dict, List, Optional
-from datetime import datetime
+from typing import List
 
-from algorithms.base import BaseAlgorithm, PredictionResult
+from algorithms.base import BaseAlgorithm
 from algorithms.models.deep_learning._torch_upgrade import WPMixerTorchModel, try_torch_predict
 
 logger = logging.getLogger(__name__)

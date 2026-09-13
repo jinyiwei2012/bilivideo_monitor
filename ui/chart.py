@@ -5,13 +5,12 @@
 使用 QGraphicsView + QGraphicsScene 替代 Tkinter Canvas。
 """
 
-import math
 from datetime import datetime
 from PyQt6.QtWidgets import (
     QGraphicsView, QGraphicsScene, QGraphicsTextItem, QGraphicsItem,
-    QGraphicsLineItem, QGraphicsRectItem, QWidget, QVBoxLayout,
+    QWidget, QVBoxLayout,
 )
-from PyQt6.QtCore import Qt, QRectF, QPointF, pyqtSignal
+from PyQt6.QtCore import Qt, QRectF, QPointF
 from PyQt6.QtGui import (
     QPainter, QPen, QBrush, QColor, QFont, QPolygonF,
 )

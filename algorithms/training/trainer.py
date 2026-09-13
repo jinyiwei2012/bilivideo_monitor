@@ -66,12 +66,11 @@ import time
 from typing import Callable, Dict, List, Optional
 
 import numpy as np
-from utils import project_path
 from algorithms.training.checkpoint_manager import CheckpointManager
 from algorithms.training.device import get_device
 from algorithms.training.dataset import VideoTimeSeriesDataset, estimate_dataset_size
-from algorithms.training.schedulers import HyperbolicLR, ComboScheduler
-from algorithms.training.trainer_io import save_checkpoint, _save_model_to_video_dir, evaluate_model
+from algorithms.training.schedulers import ComboScheduler
+from algorithms.training.trainer_io import save_checkpoint, evaluate_model
 
 # 模块级日志记录器
 logger = logging.getLogger(__name__)

@@ -12,9 +12,8 @@ FEDformer (频域增强分解Transformer / Frequency Enhanced Decomposed Transfo
 """
 
 import logging
-from typing import Dict, List
-from datetime import datetime
-from algorithms.base import BaseAlgorithm, PredictionResult
+from typing import List
+from algorithms.base import BaseAlgorithm
 from algorithms.models.deep_learning._torch_upgrade import FEDformerTorchModel, try_torch_predict
 
 logger = logging.getLogger(__name__)

@@ -13,10 +13,9 @@ from PyQt6.QtWidgets import (
     QPushButton, QMessageBox, QSpinBox, QFrame,
 )
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont
 
 from ui.theme import C
-from ui.helpers import FONT, FONT_SM, FONT_BOLD, FAST_GAP, FAST_INTERVAL
+from ui.helpers import FAST_GAP, FAST_INTERVAL
 
 logger = logging.getLogger(__name__)
 

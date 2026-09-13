@@ -7,19 +7,17 @@ import json
 import logging
 import math
 import os
-from typing import List, Optional
+from typing import List
 from datetime import datetime
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QLineEdit, QComboBox, QTextEdit, QTabWidget, QFrame,
-    QMessageBox, QSpinBox, QProgressBar, QCheckBox, QSizePolicy,
-    QScrollArea, QListWidget, QListWidgetItem, QTreeWidget,
+    QLineEdit, QComboBox, QTextEdit, QTabWidget, QMessageBox, QTreeWidget,
     QTreeWidgetItem, QHeaderView, QRadioButton, QButtonGroup,
     QTableWidget, QTableWidgetItem,
 )
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QFont, QPainter, QColor, QBrush, QPen, QFontMetrics
+from PyQt6.QtGui import QFont, QPainter, QColor, QBrush, QPen
 
 from ui.theme import C
 from ui.dialog_base import DialogBase

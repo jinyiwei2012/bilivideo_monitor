@@ -35,7 +35,6 @@
         scheduler.update(val_loss)       # 检测 plateau
 """
 
-import math
 import logging
 
 # 模块级日志记录器

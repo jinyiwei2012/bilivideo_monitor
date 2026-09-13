@@ -5,11 +5,10 @@
 import logging
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QDoubleSpinBox, QSpinBox, QMessageBox, QFrame,
+    QDoubleSpinBox, QMessageBox, QFrame,
 )
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import QTimer
 from ui.theme import C
-from ui.helpers import FONT
 from core.bilibili_api import get_bilibili_api
 from utils.update_checker import _confirm_risky
 
@@ -85,7 +84,6 @@ class SettingsGeneralMixin:
         # ── 阈值阶梯自动扩档 (A1) ──
         esc_sec = self._section(page, "阈值阶梯自动扩档")
         from PyQt6.QtWidgets import QCheckBox
-        from PyQt6.QtCore import Qt as _Qt
 
         self.auto_escalate = QCheckBox("达到最高档后自动追加更高目标")
         self.auto_escalate.setChecked(bool(self._cfg.get("prediction", {}).get("auto_escalate", True)))

@@ -306,7 +306,6 @@ class OnlineLearner:
         Returns:
             dict: {算法名: 全局分数}，分数越高代表历史预测越准（1.0=平均水平）
         """
-        import math as _math
 
         with self._lock:
             # 算法名 → (加权误差和, 样本数)

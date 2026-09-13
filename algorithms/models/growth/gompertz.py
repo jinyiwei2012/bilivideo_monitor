@@ -28,7 +28,6 @@ Gompertz增长模型是Benjamin Gompertz于1825年提出的S型增长曲线，
 """
 
 from typing import Dict, Any
-from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
 
 

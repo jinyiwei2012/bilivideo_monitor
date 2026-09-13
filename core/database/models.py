@@ -1,6 +1,5 @@
 """数据模型定义 —— 视频信息、监控记录、预测记录的数据类及 BV 号校验"""
 
-import re
 from dataclasses import dataclass
 
 

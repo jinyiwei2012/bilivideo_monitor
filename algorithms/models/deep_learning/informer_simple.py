@@ -17,7 +17,6 @@ Informer简化版 (Informer Simplified)
 
 import numpy as np
 from typing import Dict, List, Tuple, Optional
-from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
 from algorithms.models.deep_learning._torch_upgrade import InformerTorchModel, try_torch_predict
 

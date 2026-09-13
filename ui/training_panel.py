@@ -13,31 +13,26 @@ from datetime import datetime
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QCheckBox, QComboBox, QSpinBox, QDoubleSpinBox, QProgressBar,
-    QFrame, QTabWidget, QGroupBox, QGridLayout, QScrollArea,
-    QPlainTextEdit, QMessageBox, QDialog, QSplitter, QSizePolicy,
-    QToolButton, QLineEdit, QTreeWidget, QTreeWidgetItem,
-    QRadioButton, QButtonGroup, QFileDialog,
+    QCheckBox, QComboBox, QSpinBox, QProgressBar,
+    QFrame, QPlainTextEdit, QMessageBox, QDialog, QLineEdit, QRadioButton, QButtonGroup,
 )
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QFont
+from PyQt6.QtCore import Qt
 
 from ui.theme import C
 from ui.helpers import (
     FONT,
     FONT_SM,
     FONT_MONO,
-    FONT_BOLD,
     loss_to_confidence,
     format_confidence,
     load_algo_confidence,
     project_path,
 )
 from ui.scrollable_frame import ScrollableFrame
-from ui.training_base import BaseTrainingPanel, TrainingMonitor
+from ui.training_base import BaseTrainingPanel
 from ui.training_version import VersionManagerMixin
 from ui.invoker import invoke
-from utils.update_checker import _hard, _train, _confirm_risky
+from utils.update_checker import _train, _confirm_risky
 
 logger = logging.getLogger(__name__)
 

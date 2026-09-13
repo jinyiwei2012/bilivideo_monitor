@@ -20,8 +20,7 @@ GBM 学习残差的模式（系统性偏差），而非学习原始值。
 
 import logging
 import numpy as np
-from typing import Dict, List, Optional, Tuple
-from datetime import datetime
+from typing import Dict
 from algorithms.base import BaseAlgorithm, PredictionResult
 from algorithms.model_cache import get_or_fit
 

@@ -9,13 +9,12 @@ from typing import List, Dict, Optional
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QComboBox, QRadioButton, QTextEdit, QMessageBox,
-    QGridLayout, QButtonGroup, QScrollArea, QFrame,
+    QGridLayout, QButtonGroup,
 )
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont
 
 from ui.theme import C
-from ui.helpers import FONT, FONT_MONO
+from ui.helpers import FONT_MONO
 from ui.dialog_base import DialogBase
 from utils.weekly_score import (
     VideoData,

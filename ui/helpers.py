@@ -13,8 +13,7 @@ from ui.theme import C
 
 from utils import PROJECT_ROOT, project_path  # noqa: F401 — 重新导出以方便使用
 
-from PyQt6.QtGui import QFont, QColor
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtGui import QFont
 
 # ── 字体定义 ─────────────────────────────────
 def _font(name="Microsoft YaHei UI", size=9, bold=False):

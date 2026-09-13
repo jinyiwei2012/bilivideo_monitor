@@ -31,7 +31,6 @@ SIRD 传染病传播模型 (Susceptible-Infected-Recovered-Depleted)
 
 import numpy as np
 from typing import Dict, Any
-from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
 
 # 尝试导入 scipy（用于常微分方程求解）

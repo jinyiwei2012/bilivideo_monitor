@@ -17,7 +17,7 @@ Execution Provider 优先级: DirectML(NPU) > CPU
 import os
 import threading
 import logging
-from typing import Dict, Optional, Tuple, Any
+from typing import Dict, Optional, Any
 
 import numpy as np
 
@@ -318,7 +318,6 @@ def _export_from_checkpoint(
     构建一个通用骨架模型加载权重后导出。
     """
     try:
-        import torch
         import torch.nn as nn
 
         # 通用骨架：匹配大部分 _torch_upgrade 中的模型签名

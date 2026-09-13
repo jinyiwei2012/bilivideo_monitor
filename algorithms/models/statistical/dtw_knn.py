@@ -16,7 +16,6 @@ DTW-kNN — 动态时间规整 k 近邻预测
 
 import numpy as np
 from typing import Dict, Any
-from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
 
 # scipy 全局可用性标记（简化版 DTW 使用纯 numpy，实际未强依赖 scipy）

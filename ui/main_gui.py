@@ -13,14 +13,14 @@ import threading
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QLabel, QPushButton, QStackedWidget, QStatusBar,
-    QSizePolicy, QApplication, QMenu, QSplashScreen, QSystemTrayIcon,
+    QApplication, QMenu, QSplashScreen, QSystemTrayIcon,
 )
-from PyQt6.QtCore import Qt, QTimer, QSize
-from PyQt6.QtGui import QAction, QFont, QPixmap, QIcon, QColor
+from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QAction, QPixmap, QIcon, QColor
 
 from ui.theme import C, init_theme
 from ui.helpers import (
-    FONT, FONT_MONO, FONT_BOLD, DEFAULT_INTERVAL,
+    DEFAULT_INTERVAL,
     FAST_INTERVAL, FAST_GAP, PREDICT_INTERVAL, project_path,
     SPACE_SM, SPACE_MD, SPACE_LG,
 )

@@ -7,25 +7,20 @@
 
 import time
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QCheckBox, QComboBox, QSpinBox, QDoubleSpinBox, QProgressBar,
-    QFrame, QTabWidget, QGroupBox, QGridLayout, QScrollArea,
-    QPlainTextEdit, QMessageBox, QDialog, QSplitter, QSizePolicy,
-    QToolButton, QLineEdit, QTreeWidget, QTreeWidgetItem,
-    QRadioButton, QButtonGroup, QHeaderView,
+    QCheckBox, QSpinBox, QProgressBar,
+    QFrame, QMessageBox, QRadioButton, QButtonGroup,
 )
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QFont
+from PyQt6.QtCore import QTimer
 
 from ui.theme import C
 from ui.helpers import (
     FONT,
     FONT_SM,
     FONT_MONO,
-    FONT_BOLD,
     loss_to_confidence,
     format_confidence,
     load_algo_confidence,

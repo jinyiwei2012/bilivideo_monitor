@@ -147,7 +147,6 @@ class AlgorithmRegistry:
         try:
             import importlib
             import os
-            from .base import BaseAlgorithm
 
             current_dir = os.path.dirname(__file__)
             models_dir = os.path.join(current_dir, "models")
@@ -667,7 +666,6 @@ class AlgorithmRegistry:
             surge_info dict，同 BaseAlgorithm.detect_surge() 返回值
         """
         try:
-            from algorithms.base import BaseAlgorithm as BA
 
             bvid = cached_video_data.get("bvid", "")
             n_points = len(cached_video_data.get("history_data", []))
@@ -1152,7 +1150,6 @@ class AlgorithmRegistry:
                             if len(train) < 3:
                                 return float(train[-1]) if len(train) > 0 else 0.0
                             try:
-                                import numpy as _np
                                 hist_list = []
                                 # 回测用索引时间（等间隔假设），构造 video_data
                                 base_ts = 1_700_000_000.0

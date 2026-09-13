@@ -19,7 +19,7 @@ CNN-LSTM混合预测模型 (Convolutional Neural Network + Long Short-Term Memor
 import math
 import numpy as np
 from datetime import datetime
-from algorithms.base import BaseAlgorithm, PredictionResult
+from algorithms.base import BaseAlgorithm
 from algorithms.models.deep_learning._torch_upgrade import CNNLSTMTorchModel, try_torch_predict
 
 

@@ -9,21 +9,18 @@ import threading
 from datetime import datetime
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QTabWidget, QTextEdit, QRadioButton, QLineEdit,
     QScrollArea, QCheckBox, QDialog, QProgressBar, QSizePolicy,
-    QMessageBox, QApplication,
+    QMessageBox,
 )
-from PyQt6.QtCore import Qt, QTimer, QSize
-from PyQt6.QtGui import (
-    QFont, QTextCharFormat, QColor, QTextCursor, QPixmap, QMouseEvent,
-)
+from PyQt6.QtCore import Qt
 
 from ui.theme import C
 from ui.helpers import (
-    FONT, FONT_SM, FONT_BOLD, FONT_MONO, FONT_MONO_LG,
+    FONT_MONO_LG,
     FONT_TITLE, FONT_CAPTION, SPACE_MD,
-    THRESHOLDS, THRESHOLD_NAMES, THRESH_COLORS, fmt_num,
+    THRESHOLDS, THRESHOLD_NAMES, fmt_num,
 )
 from ui.widgets import SectionHeader, EmptyState, WaveDivider
 from ui import lty_voice

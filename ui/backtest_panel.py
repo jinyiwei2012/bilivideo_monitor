@@ -10,7 +10,7 @@ from datetime import datetime
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QComboBox, QCheckBox, QTreeWidget, QTreeWidgetItem,
-    QHeaderView, QSpinBox, QFrame,
+    QSpinBox,
 )
 from PyQt6.QtCore import Qt, QTimer
 

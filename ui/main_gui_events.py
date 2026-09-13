@@ -5,8 +5,6 @@
 所有函数接收 gui (BilibiliMonitorGUI) 作为第一个参数。
 """
 
-import sys
-import threading
 import math
 import re
 import time
@@ -15,18 +13,17 @@ from datetime import datetime, timedelta
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextEdit,
-    QProgressBar, QWidget, QFrame, QRadioButton, QMessageBox,
+    QProgressBar, QWidget, QRadioButton, QMessageBox,
     QLineEdit, QApplication,
 )
-from PyQt6.QtCore import Qt, QTimer, QSize
+from PyQt6.QtCore import Qt, QTimer
 
 from ui.theme import C
 from ui.invoker import invoke, invoke_later
 from ui.helpers import (
-    FONT, FONT_SM, THRESHOLD_NAMES, fmt_num,
+    THRESHOLD_NAMES, fmt_num,
     nearest_threshold_gap, fmt_eta,
 )
-from ui.chart import draw_chart_placeholder
 from ui.lty_voice import (
     success, error, warning, confirm_delete, no_video, add_video_success,
 )
