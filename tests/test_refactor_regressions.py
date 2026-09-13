@@ -327,7 +327,6 @@ class TestMaybeReleaseMemoryPressure:
 
     def test_only_under_pressure(self, monkeypatch):
         import ui.monitor._prediction as pred
-        import utils.memory_guard as mg
         import algorithms.models.deep_learning._torch_upgrade as u
 
         called = []
@@ -338,11 +337,11 @@ class TestMaybeReleaseMemoryPressure:
 
         monkeypatch.setattr(u, "release_cached_models", _release)
 
-        monkeypatch.setattr(mg, "is_memory_pressure", lambda *a, **k: False)
+        monkeypatch.setattr(pred, "is_memory_pressure", lambda *a, **k: False)
         pred._maybe_release_memory(None)
         assert called == [], "内存充足时不应释放模型缓存"
 
-        monkeypatch.setattr(mg, "is_memory_pressure", lambda *a, **k: True)
+        monkeypatch.setattr(pred, "is_memory_pressure", lambda *a, **k: True)
         pred._maybe_release_memory(None)
         assert called, "内存压力时应调用 release_cached_models"
 

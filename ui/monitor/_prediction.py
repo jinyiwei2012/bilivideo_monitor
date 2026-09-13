@@ -1,12 +1,21 @@
 """预测工具函数"""
 
+import gc
+import json
 import logging
 import threading
+import time
 from datetime import datetime
 
+import numpy as np
+
 from algorithms.base import BaseAlgorithm as BA
-from core import bilibili_api
+from algorithms.online_learner import get_online_learner
+from algorithms.registry import AlgorithmRegistry
+from core import bilibili_api, db
+from core.up_database import UpDatabase
 from ui.helpers import THRESHOLDS, THRESHOLD_NAMES
+from utils.memory_guard import is_memory_pressure
 from utils.time_utils import now_ts, safe_datetime, normalize_timestamp
 
 logger = logging.getLogger(__name__)
@@ -29,8 +38,6 @@ _last_up_fetch_time: dict = {}
 def _sync_predictions_to_central(bvid, rows, ensemble_data, coherence_rows):
     """将预测数据同步到中央库（预测 + 集成 + 共识度）"""
     try:
-        from core import db
-
         db.sync_predictions(bvid, rows)
         if ensemble_data:
             db.sync_prediction_ensemble(bvid, now_ts(), ensemble_data)
@@ -42,8 +49,6 @@ def _sync_predictions_to_central(bvid, rows, ensemble_data, coherence_rows):
 
 def _json_default(obj):
     """JSON 序列化辅助：将 numpy 类型转为 Python 原生类型"""
-    import numpy as np
-
     if isinstance(obj, (np.integer,)):
         return int(obj)
     if isinstance(obj, (np.floating,)):
@@ -61,8 +66,6 @@ def _save_predictions_to_db(gui, bvid, current_view, results):
     coherence_rows = []
 
     if video_db:
-        import json
-
         for name, r in results.items():
             if name == "_weighted" or "error" in r:
                 continue
@@ -152,16 +155,12 @@ def _get_up_db():
     """获取 UP主 数据库单例"""
     global _up_db
     if _up_db is None:
-        from core.up_database import UpDatabase
-
         _up_db = UpDatabase()
     return _up_db
 
 
 def _save_up_data(uid: int):
     """拉取 UP主信息+统计数据，保存到数据库（每 UP主 每小时最多一次）"""
-    import time
-
     now = time.time()
     last = _last_up_fetch_time.get(uid, 0)
     if now - last < 3600:
@@ -313,15 +312,11 @@ def _predict_single(gui, bvid, video) -> dict:
     # B3: 冷启动权重预热 —— 每个视频首次预测时后台跑离线回测，用 MAPE 初始化权重
     try:
         if len(history) >= 15:
-            from algorithms.registry import AlgorithmRegistry
-
             with gui._data_lock:
                 warmed_key = f"_warmup_{bvid}"
                 already = getattr(gui, warmed_key, False)
             if not already:
-                import threading as _th
-
-                _th.Thread(
+                threading.Thread(
                     target=lambda: AlgorithmRegistry.warmup_weights_from_backtest(bvid, history),
                     daemon=True,
                     name=f"warmup-{bvid}",
@@ -445,10 +440,6 @@ def _maybe_release_memory(gui=None):
     导致模型被反复重载、预测延迟上升。现改为按真实内存压力触发，
     并保留当前活跃视频的模型（见 `release_cached_models(keep_bvid=...)`）。
     """
-    try:
-        from utils.memory_guard import is_memory_pressure
-    except Exception:
-        return
     if not is_memory_pressure():
         return
     keep_bvid = (getattr(gui, "selected_bvid", "") or "") if gui is not None else ""
@@ -460,8 +451,6 @@ def _maybe_release_memory(gui=None):
             logger.info("[Mem] 内存压力触发模型缓存释放: %d 个 (保留 bvid=%s)", released, keep_bvid or "-")
     except Exception:
         logger.debug("释放模型缓存失败", exc_info=True)
-    import gc
-
     gc.collect()
 
 
@@ -476,9 +465,6 @@ def _online_learning_feedback(gui, bvid, results, actual_view, prev_result):
     if prev_result is None or actual_view <= 0:
         return
     try:
-        from algorithms.online_learner import get_online_learner
-        from algorithms.registry import AlgorithmRegistry
-
         prev_prediction = prev_result.get("prediction", 0)
         if prev_prediction > 0:
             learner = get_online_learner()
