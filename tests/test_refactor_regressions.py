@@ -1365,3 +1365,35 @@ class TestLightVideoInfoRead:
         sqlite3.connect(str(d / f"{bvid}.db")).close()  # 空库，无表
 
         assert CentralCRUD._read_video_info_light(bvid, str(tmp_path)) is None
+
+
+class TestTimeUtilsCanonicalFormat:
+    """M2.9c: 统一时间戳格式（空格分隔、秒精度、可字典序比较）。"""
+
+    def test_format_and_now_use_canonical_fmt(self):
+        from datetime import datetime
+
+        from utils.time_utils import TS_FMT, format_ts, now_ts
+
+        assert TS_FMT == "%Y-%m-%d %H:%M:%S"
+        s = format_ts(datetime(2026, 1, 2, 3, 4, 5, 123456))
+        assert s == "2026-01-02 03:04:05", "不应含微秒或 T"
+        assert "T" not in s and "." not in s
+        assert len(now_ts()) == 19
+
+    def test_mixed_format_breaks_range_comparison(self):
+        from datetime import datetime
+
+        from utils.time_utils import format_ts
+
+        same_day_later = format_ts(datetime(2026, 1, 2, 12, 0, 0))
+        iso_cutoff = datetime(2026, 1, 2, 3, 0, 0).isoformat()
+        # 修复前的缺陷：同一天、晚于 cutoff 的行会被 isoformat 误判为小于 cutoff
+        assert (same_day_later >= iso_cutoff) is False
+        assert (same_day_later >= format_ts(datetime(2026, 1, 2, 3, 0, 0))) is True
+
+    def test_normalize_timestamp_outputs_canonical(self):
+        from utils.time_utils import normalize_timestamp
+
+        _, _, s = normalize_timestamp("2026-01-02T03:04:05.123456")
+        assert s == "2026-01-02 03:04:05", "解析 ISO 输入后应输出规范格式"
