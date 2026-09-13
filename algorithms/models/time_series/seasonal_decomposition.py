@@ -59,6 +59,7 @@ class SeasonalDecompositionAlgorithm(BaseAlgorithm):
     """
 
     name = "季节性分解"
+    algorithm_id = "seasonal_decomposition"
     description = "分解趋势、季节性和残差成分"
     category = "时间序列"
 

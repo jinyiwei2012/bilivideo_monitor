@@ -46,6 +46,7 @@ class AdaBoostAlgorithm(BaseAlgorithm):
     """
 
     name = "自适应提升"
+    algorithm_id = "adaptive_boosting"
     description = "AdaBoost集成学习，提高预测精度"
     category = "集成学习"
 

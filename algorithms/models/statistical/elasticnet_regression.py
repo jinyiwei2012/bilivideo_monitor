@@ -42,6 +42,7 @@ class ElasticNetRegressionAlgorithm(BaseAlgorithm):
     """
 
     name = "ElasticNet回归"
+    algorithm_id = "elasticnet_regression"
     description = "L1+L2正则化线性回归，坐标下降优化"
     category = "统计模型"
 

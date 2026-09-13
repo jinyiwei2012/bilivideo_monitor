@@ -59,7 +59,9 @@ class BassDiffusionAlgorithm(BaseAlgorithm):
     """
 
     name = "Bass扩散"
-    algorithm_id = "bass_diffusion"
+    # 与 advanced/bass_diffusion.py（更完整：含粉丝数/互动率/质量分数 + 二分求解）区分：
+    # 两者同用 id 会让注册表相互覆盖（M3.5 修复）
+    algorithm_id = "bass_diffusion_growth"
     description = "创新扩散理论建模视频传播曲线"
     category = "扩散模型"
     default_weight = 1.2

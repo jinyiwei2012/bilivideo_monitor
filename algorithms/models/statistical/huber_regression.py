@@ -43,6 +43,7 @@ class HuberRegressionAlgorithm(BaseAlgorithm):
     """
 
     name = "Huber回归"
+    algorithm_id = "huber_regression"
     description = "Huber鲁棒回归，对异常值不敏感"
     category = "统计模型"
 

@@ -173,16 +173,13 @@ class TestCryptoRoundTrip:
 
 
 class TestRegistryAlgorithmIdUnique:
-    """M0.2: 注册表 algorithm_id 唯一性。
+    """M0.2/M3.5: 注册表 algorithm_id 唯一性。
 
-    当前已知重复：`advanced/bass_diffusion.py` 与 `growth/bass_diffusion.py`
-    同用 `algorithm_id="bass_diffusion"`（计划 M3.5 合并或改 id）。修复前标记 xfail。
+    `advanced/bass_diffusion.py` 与 `growth/bass_diffusion.py` 曾同用
+    `algorithm_id="bass_diffusion"` 导致相互覆盖；M3.5 已给后者改为
+    `bass_diffusion_growth`，本用例作为回归门禁。
     """
 
-    @pytest.mark.xfail(
-        reason="已知重复 algorithm_id=bass_diffusion（advanced 与 growth 各一份，M3.5 待处理）",
-        strict=False,
-    )
     def test_algorithm_ids_unique(self):
         from algorithms.registry import AlgorithmRegistry
 
@@ -191,6 +188,15 @@ class TestRegistryAlgorithmIdUnique:
         ids = [getattr(a, "algorithm_id", None) for a in algos]
         dupes = sorted({i for i in ids if i and ids.count(i) > 1})
         assert not dupes, f"重复 algorithm_id: {dupes}"
+
+    def test_algorithm_ids_present(self):
+        """M3.5: 每个注册算法都必须有 algorithm_id（否则脱离权重/在线学习的 id 追踪）。"""
+        from algorithms.registry import AlgorithmRegistry
+
+        AlgorithmRegistry.initialize()
+        algos = AlgorithmRegistry.get_all_algorithms()
+        missing = sorted({type(a).__name__ for a in algos if not getattr(a, "algorithm_id", None)})
+        assert not missing, f"缺少 algorithm_id 的算法: {missing}"
 
 
 class TestTorchPredictCacheFirst:
