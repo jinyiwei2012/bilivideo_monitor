@@ -873,9 +873,8 @@ class DetailPanel(_RatioDanmakuMixin):
 
         fire_and_forget(_load, name=f"score-history:{bvid}")
 
-    def _fill_detail_text(self, video):
-        """填充详细数据"""
-        # Fingerprint check
+    def _detail_text_fingerprint(self, video):
+        """计算详细数据文本使用的视频字段指纹。"""
         fp_fields = (
             video.get("view_count", 0),
             video.get("like_count", 0),
@@ -888,11 +887,11 @@ class DetailPanel(_RatioDanmakuMixin):
             video.get("title", ""),
             video.get("author", ""),
         )
-        new_fp = hash(fp_fields)
-        if new_fp == self._detail_text_fp:
-            return
-        self._detail_text_fp = new_fp
+        return hash(fp_fields)
 
+    @staticmethod
+    def _detail_base_lines(video):
+        """构建视频信息、播放数据、互动率和阈值进度行。"""
         bvid = video.get("bvid", "")
         title = video.get("title", "N/A")
         author = video.get("author", "未知")
@@ -902,69 +901,70 @@ class DetailPanel(_RatioDanmakuMixin):
         pub_str = datetime.fromtimestamp(pub_ts).strftime("%Y-%m-%d %H:%M") if pub_ts else "—"
         dur_str = f"{dur // 60}:{dur % 60:02d}" if dur else "—"
 
-        lines = []
-
-        def add(text, style=""):
-            lines.append((text, style))
-
-        add("=== 视频信息 ===", "head")
-        add(f"BV号    {bvid}", "mono")
-        add(f"标题    {title}", "mono")
-        add(f"UP主    {author}", "mono")
-        add(f"时长    {dur_str}", "mono")
-        add(f"发布    {pub_str}", "mono")
-        add("")
-        add("=== 播放数据 ===", "head")
-        add(f"播放量  {fmt_num(views)}", "mono_b")
-        add(f"点赞    {fmt_num(video.get('like_count', 0))}", "mono")
-        add(f"投币    {fmt_num(video.get('coin_count', 0))}", "mono")
-        add(f"分享    {fmt_num(video.get('share_count', 0))}", "mono")
-        add(f"收藏    {fmt_num(video.get('favorite_count', 0))}", "mono")
-        add(f"弹幕    {fmt_num(video.get('danmaku_count', 0))}", "mono")
-        add(f"评论    {fmt_num(video.get('reply_count', 0))}", "mono")
-        add("")
-        add("=== 互动率 ===", "head")
-        add(f"点赞率  {video.get('like_count', 0) / max(views, 1) * 100:.2f}%", "mono")
-        add(f"投币率  {video.get('coin_count', 0) / max(views, 1) * 100:.2f}%", "mono")
-        add(f"收藏率  {video.get('favorite_count', 0) / max(views, 1) * 100:.2f}%", "mono")
-        add("")
-        add("=== 在线人数 ===", "head")
+        lines = [
+            ("=== 视频信息 ===", "head"),
+            (f"BV号    {bvid}", "mono"),
+            (f"标题    {title}", "mono"),
+            (f"UP主    {author}", "mono"),
+            (f"时长    {dur_str}", "mono"),
+            (f"发布    {pub_str}", "mono"),
+            ("", ""),
+            ("=== 播放数据 ===", "head"),
+            (f"播放量  {fmt_num(views)}", "mono_b"),
+            (f"点赞    {fmt_num(video.get('like_count', 0))}", "mono"),
+            (f"投币    {fmt_num(video.get('coin_count', 0))}", "mono"),
+            (f"分享    {fmt_num(video.get('share_count', 0))}", "mono"),
+            (f"收藏    {fmt_num(video.get('favorite_count', 0))}", "mono"),
+            (f"弹幕    {fmt_num(video.get('danmaku_count', 0))}", "mono"),
+            (f"评论    {fmt_num(video.get('reply_count', 0))}", "mono"),
+            ("", ""),
+            ("=== 互动率 ===", "head"),
+            (f"点赞率  {video.get('like_count', 0) / max(views, 1) * 100:.2f}%", "mono"),
+            (f"投币率  {video.get('coin_count', 0) / max(views, 1) * 100:.2f}%", "mono"),
+            (f"收藏率  {video.get('favorite_count', 0) / max(views, 1) * 100:.2f}%", "mono"),
+            ("", ""),
+            ("=== 在线人数 ===", "head"),
+        ]
         viewers_total = video.get("viewers_total", 0)
         if viewers_total > 0:
             viewers_raw = video.get("viewers_total_raw", "")
-            add(f"总在线  {fmt_num(viewers_total)}  ({viewers_raw})", "mono_accent")
-            add(f"Web端   {fmt_num(video.get('viewers_web', 0))}", "mono")
-            add(f"APP端   {fmt_num(video.get('viewers_app', 0))}", "mono")
+            lines.append((f"总在线  {fmt_num(viewers_total)}  ({viewers_raw})", "mono_accent"))
+            lines.append((f"Web端   {fmt_num(video.get('viewers_web', 0))}", "mono"))
+            lines.append((f"APP端   {fmt_num(video.get('viewers_app', 0))}", "mono"))
         else:
-            add("暂无人在线,天依在等你来点亮 ♪", "mono")
-        add("")
-        add("=== 阈值进度 ===", "head")
+            lines.append(("暂无人在线,天依在等你来点亮 ♪", "mono"))
+        lines.append(("", ""))
+        lines.append(("=== 阈值进度 ===", "head"))
         for t, name in zip(THRESHOLDS, THRESHOLD_NAMES):
             p = min(100, views / t * 100)
             g = t - views
             if g > 0:
-                add(f"{name}  {p:.1f}%  (还差 {fmt_num(g)})", "mono")
+                lines.append((f"{name}  {p:.1f}%  (还差 {fmt_num(g)})", "mono"))
             else:
-                add(f"{name}  已达成 ✓", "mono_ok")
+                lines.append((f"{name}  已达成 ✓", "mono_ok"))
+        return lines
 
-        # Build HTML
-        html_parts = [
-            "<pre style='font-family: Consolas; font-size: 10pt; line-height: 1.4; margin: 0; white-space: pre-wrap;'>"
-        ]
-        style_map = {
+    @staticmethod
+    def _detail_style_map():
+        """返回详细数据 HTML 使用的样式映射。"""
+        return {
             "head": f"color: {C['bilibili']}; font-weight: bold;",
             "mono": f"color: {C['text_1']};",
             "mono_b": f"color: {C['bilibili']}; font-weight: bold;",
             "mono_ok": f"color: {C['success']};",
             "mono_accent": f"color: {C['accent']}; font-weight: bold;",
         }
+
+    @staticmethod
+    def _append_detail_lines(html_parts, lines, style_map):
+        """把带样式的文本行转义后追加到 HTML。"""
         for text, style in lines:
             css = style_map.get(style, f"color: {C['text_1']};")
             escaped = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
             html_parts.append(f"<span style='{css}'>{escaped}</span>\n")
-        html_parts.append("</pre>")
 
-        # Weekly score section
+    def _append_score_sections(self, html_parts, style_map, video):
+        """追加周刊和年刊当前分数。"""
         ws = self._calc_weekly_score(video)
         if ws:
             extra = [
@@ -987,12 +987,7 @@ class DetailPanel(_RatioDanmakuMixin):
                 ),
                 (f"点赞得点  {ws.like_score:>10,.2f}", "mono"),
             ]
-            for text, style in extra:
-                css = style_map.get(style, f"color: {C['text_1']};")
-                escaped = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                html_parts.append(f"<span style='{css}'>{escaped}</span>\n")
-
-        # Yearly score section
+            self._append_detail_lines(html_parts, extra, style_map)
         ys = self._calc_yearly_score(video)
         if ys:
             extra = [
@@ -1012,27 +1007,43 @@ class DetailPanel(_RatioDanmakuMixin):
                 ),
                 (f"点赞得点  {ys.like_score:>10,.2f}", "mono"),
             ]
-            for text, style in extra:
-                css = style_map.get(style, f"color: {C['text_1']};")
-                escaped = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                html_parts.append(f"<span style='{css}'>{escaped}</span>\n")
+            self._append_detail_lines(html_parts, extra, style_map)
 
-        # Historical scores（后台缓存读取，避免主线程逐次查库）
-        if bvid in self.gui.video_dbs:
-            history_scores, yearly_scores = self._get_score_history(bvid)
-            if len(history_scores) > 1:
-                html_parts.append(f"<span style='{style_map['head']}'>\n=== 历史周刊分数 ===\n</span>")
-                for row in history_scores:
-                    ts_str = row.get("timestamp", "")[:16]
-                    total = row.get("total_score", 0)
-                    html_parts.append(f"<span style='{style_map['mono']}'>  {ts_str}  {total:>10,.2f}\n</span>")
-            if len(yearly_scores) > 1:
-                html_parts.append(f"<span style='{style_map['head']}'>\n=== 历史年刊分数 ===\n</span>")
-                for row in yearly_scores:
-                    ts_str = row.get("timestamp", "")[:16]
-                    total = row.get("total_score", 0)
-                    html_parts.append(f"<span style='{style_map['mono']}'>  {ts_str}  {total:>10,.2f}\n</span>")
+    def _append_historical_scores(self, html_parts, style_map, bvid):
+        """追加后台缓存中的历史周刊和年刊分数。"""
+        if bvid not in self.gui.video_dbs:
+            return
+        history_scores, yearly_scores = self._get_score_history(bvid)
+        if len(history_scores) > 1:
+            html_parts.append(f"<span style='{style_map['head']}'>\n=== 历史周刊分数 ===\n</span>")
+            for row in history_scores:
+                ts_str = row.get("timestamp", "")[:16]
+                total = row.get("total_score", 0)
+                html_parts.append(f"<span style='{style_map['mono']}'>  {ts_str}  {total:>10,.2f}\n</span>")
+        if len(yearly_scores) > 1:
+            html_parts.append(f"<span style='{style_map['head']}'>\n=== 历史年刊分数 ===\n</span>")
+            for row in yearly_scores:
+                ts_str = row.get("timestamp", "")[:16]
+                total = row.get("total_score", 0)
+                html_parts.append(f"<span style='{style_map['mono']}'>  {ts_str}  {total:>10,.2f}\n</span>")
 
+    def _fill_detail_text(self, video):
+        """填充详细数据"""
+        new_fp = self._detail_text_fingerprint(video)
+        if new_fp == self._detail_text_fp:
+            return
+        self._detail_text_fp = new_fp
+
+        bvid = video.get("bvid", "")
+        lines = self._detail_base_lines(video)
+        html_parts = [
+            "<pre style='font-family: Consolas; font-size: 10pt; line-height: 1.4; margin: 0; white-space: pre-wrap;'>"
+        ]
+        style_map = self._detail_style_map()
+        self._append_detail_lines(html_parts, lines, style_map)
+        html_parts.append("</pre>")
+        self._append_score_sections(html_parts, style_map, video)
+        self._append_historical_scores(html_parts, style_map, bvid)
         html_parts.append("</pre>")
         self._detail_text.setHtml("".join(html_parts))
 

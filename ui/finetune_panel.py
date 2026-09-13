@@ -628,79 +628,85 @@ class FinetunePanel(BaseTrainingPanel):
             return
 
         if payload.get("stage") == "epoch":
-            aid = payload.get("algo_id", "")
-            bvid_ = payload.get("bvid", "") or self._current_bvid
-            ep = payload.get("epoch", 0)
-            tloss = payload.get("train_loss", 0.0)
-            vloss = payload.get("val_loss", -1.0)
-
-            key = f"{aid}@{bvid_}"
-            if key not in self._auto_monitors:
-                self._auto_monitors[key] = TrainingMonitor()
-            mon = self._auto_monitors[key]
-            mon.update(ep, tloss, vloss if vloss >= 0 else -1)
-
-            if mon.level in ("warning", "danger") and self._auto_control is not None:
-                status = mon.status
-                if "nan" in status.lower():
-                    self._auto_control["early_stop"] = True
-                    payload["_adjustment"] = "⚙ NaN 检测 — 提前停止"
-                elif "爆炸" in status:
-                    scale = mon.compute_lr_scale("explosion")
-                    gc = mon.compute_grad_clip("explosion")
-                    self._auto_control["lr_scale"] = scale
-                    if gc > 0:
-                        self._auto_control["grad_clip"] = gc
-                    self._algo_lr_factors[aid] = max(0.01, min(10.0, self._algo_lr_factors.get(aid, 1.0) * scale))
-                    parts = [f"LR×{scale:.2f}"]
-                    if gc > 0:
-                        parts.append(f"梯度裁剪={gc:.2f}")
-                    parts.append(f"累计×{self._algo_lr_factors[aid]:.2f}")
-                    payload["_adjustment"] = f"⚙ Loss 爆炸 — {', '.join(parts)}"
-                elif "严重过拟合" in status:
-                    self._auto_control["early_stop"] = True
-                    wd = mon.compute_weight_decay()
-                    if wd > 0:
-                        self._auto_control["weight_decay"] = wd
-                    payload["_adjustment"] = "⚙ 严重过拟合 — 提前停止" + (f", weight_decay={wd:.4f}" if wd > 0 else "")
-                elif "震荡" in status:
-                    scale = mon.compute_lr_scale("oscillation")
-                    gc = mon.compute_grad_clip("oscillation")
-                    self._auto_control["lr_scale"] = scale
-                    if gc > 0:
-                        self._auto_control["grad_clip"] = gc
-                    self._algo_lr_factors[aid] = max(0.01, min(10.0, self._algo_lr_factors.get(aid, 1.0) * scale))
-                    parts = [f"LR×{scale:.2f}"]
-                    if gc > 0:
-                        parts.append(f"梯度裁剪={gc:.2f}")
-                    parts.append(f"累计×{self._algo_lr_factors[aid]:.2f}")
-                    payload["_adjustment"] = f"⚙ Loss 震荡 — {', '.join(parts)}"
-                elif "过拟合" in status:
-                    scale = mon.compute_lr_scale("overfitting")
-                    wd = mon.compute_weight_decay()
-                    self._auto_control["lr_scale"] = scale
-                    if wd > 0:
-                        self._auto_control["weight_decay"] = wd
-                    self._algo_lr_factors[aid] = max(0.01, min(10.0, self._algo_lr_factors.get(aid, 1.0) * scale))
-                    parts = [f"LR×{scale:.2f}"]
-                    if wd > 0:
-                        parts.append(f"weight_decay={wd:.4f}")
-                    parts.append(f"累计×{self._algo_lr_factors[aid]:.2f}")
-                    payload["_adjustment"] = f"⚙ 过拟合 — {', '.join(parts)}"
-                elif "欠拟合" in status or "下降过慢" in status:
-                    scale = mon.compute_lr_scale("underfitting")
-                    self._auto_control["lr_scale"] = scale
-                    self._algo_lr_factors[aid] = max(0.01, min(10.0, self._algo_lr_factors.get(aid, 1.0) * scale))
-                    payload["_adjustment"] = f"⚙ 欠拟合 — LR×{scale:.2f} (累计×{self._algo_lr_factors[aid]:.2f})"
-                elif "不再收敛" in status:
-                    self._auto_control["early_stop"] = True
-                    payload["_adjustment"] = "⚙ 不再收敛 — 提前停止"
+            self._handle_finetune_epoch(payload)
 
         self._train_queue.put(payload)
 
+    def _handle_finetune_epoch(self, payload):
+        aid = payload.get("algo_id", "")
+        bvid_ = payload.get("bvid", "") or self._current_bvid
+        key = f"{aid}@{bvid_}"
+        if key not in self._auto_monitors:
+            self._auto_monitors[key] = TrainingMonitor()
+        mon = self._auto_monitors[key]
+        vloss = payload.get("val_loss", -1.0)
+        mon.update(payload.get("epoch", 0), payload.get("train_loss", 0.0), vloss if vloss >= 0 else -1)
+        if mon.level in ("warning", "danger") and self._auto_control is not None:
+            self._apply_finetune_adjustment(payload, aid, mon)
+
+    def _update_finetune_lr(self, aid, scale):
+        self._auto_control["lr_scale"] = scale
+        self._algo_lr_factors[aid] = max(0.01, min(10.0, self._algo_lr_factors.get(aid, 1.0) * scale))
+
+    def _apply_finetune_adjustment(self, payload, aid, mon):
+        status = mon.status
+        if "nan" in status.lower():
+            self._auto_control["early_stop"] = True
+            payload["_adjustment"] = "⚙ NaN 检测 — 提前停止"
+        elif "爆炸" in status:
+            self._apply_finetune_instability(payload, aid, mon, "explosion", "⚙ Loss 爆炸 — ")
+        elif "严重过拟合" in status:
+            self._apply_severe_overfitting(payload, mon)
+        elif "震荡" in status:
+            self._apply_finetune_instability(payload, aid, mon, "oscillation", "⚙ Loss 震荡 — ")
+        elif "过拟合" in status:
+            self._apply_finetune_overfitting(payload, aid, mon)
+        elif "欠拟合" in status or "下降过慢" in status:
+            scale = mon.compute_lr_scale("underfitting")
+            self._update_finetune_lr(aid, scale)
+            payload["_adjustment"] = f"⚙ 欠拟合 — LR×{scale:.2f} (累计×{self._algo_lr_factors[aid]:.2f})"
+        elif "不再收敛" in status:
+            self._auto_control["early_stop"] = True
+            payload["_adjustment"] = "⚙ 不再收敛 — 提前停止"
+
+    def _apply_finetune_instability(self, payload, aid, mon, reason, prefix):
+        scale = mon.compute_lr_scale(reason)
+        gc = mon.compute_grad_clip(reason)
+        self._update_finetune_lr(aid, scale)
+        if gc > 0:
+            self._auto_control["grad_clip"] = gc
+        parts = [f"LR×{scale:.2f}"]
+        if gc > 0:
+            parts.append(f"梯度裁剪={gc:.2f}")
+        parts.append(f"累计×{self._algo_lr_factors[aid]:.2f}")
+        payload["_adjustment"] = f"{prefix}{', '.join(parts)}"
+
+    def _apply_severe_overfitting(self, payload, mon):
+        self._auto_control["early_stop"] = True
+        wd = mon.compute_weight_decay()
+        if wd > 0:
+            self._auto_control["weight_decay"] = wd
+        payload["_adjustment"] = "⚙ 严重过拟合 — 提前停止" + (f", weight_decay={wd:.4f}" if wd > 0 else "")
+
+    def _apply_finetune_overfitting(self, payload, aid, mon):
+        scale = mon.compute_lr_scale("overfitting")
+        wd = mon.compute_weight_decay()
+        self._update_finetune_lr(aid, scale)
+        if wd > 0:
+            self._auto_control["weight_decay"] = wd
+        parts = [f"LR×{scale:.2f}"]
+        if wd > 0:
+            parts.append(f"weight_decay={wd:.4f}")
+        parts.append(f"累计×{self._algo_lr_factors[aid]:.2f}")
+        payload["_adjustment"] = f"⚙ 过拟合 — {', '.join(parts)}"
+
     def _start_finetune_worker(self, selected_videos, selected_algos, epochs, batch, total, mode, progress_cb):
         """创建后台工作线程并启动，遍历选定视频和算法逐一执行微调"""
+        self._launch_worker(
+            self._make_finetune_worker(selected_videos, selected_algos, epochs, batch, total, mode, progress_cb)
+        )
 
+    def _make_finetune_worker(self, selected_videos, selected_algos, epochs, batch, total, mode, progress_cb):
         def _worker():
             from algorithms.training.trainer import ModelTrainer
             from algorithms.training.checkpoint_manager import CheckpointManager
@@ -718,97 +724,101 @@ class FinetunePanel(BaseTrainingPanel):
                         self._train_queue.put({"stage": "cancelled", "done": done, "total": total})
                         return
                     done += 1
-
-                    if mode == "retrain":
-                        vid_ckpt = CheckpointManager(aid, bvid=bvid)
-                        deleted = vid_ckpt.delete_all()
-                        model_path = _os.path.join(_data_root, bvid, "model", f"{aid}.pt")
-                        try:
-                            if _os.path.exists(model_path):
-                                _os.remove(model_path)
-                        except Exception as e:
-                            logger.debug("忽略异常: %s", e)
-                        if deleted:
-                            self._train_queue.put(
-                                {
-                                    "stage": "log",
-                                    "text": f"  ✕ 已清除 {aid}@{bvid} 的 {deleted} 个旧版本",
-                                }
-                            )
-
-                    self._skip_algo_flag[0] = False
-                    QTimer.singleShot(0, lambda: self._skip_btn.setEnabled(True))
-
-                    self._train_queue.put(
-                        {
-                            "stage": "start",
-                            "done": done,
-                            "total": total,
-                            "aid": aid,
-                            "bvid": bvid,
-                        }
+                    self._run_finetune_task(
+                        trainer,
+                        CheckpointManager,
+                        _os,
+                        _data_root,
+                        aid,
+                        bvid,
+                        epochs,
+                        batch,
+                        done,
+                        total,
+                        mode,
+                        progress_cb,
                     )
-                    self._auto_control = {}
-                    default_epochs = epochs
-                    self._algo_lr_factors[aid] = 1.0
-                    prev_lr = None
-                    try:
-                        prev_ckpt = CheckpointManager(aid, bvid=bvid)
-                        prev_versions = prev_ckpt.list_versions()
-                        if prev_versions:
-                            for _v in prev_versions:
-                                if _v["active"]:
-                                    plr = _v.get("learning_rate", -1.0)
-                                    if plr > 0:
-                                        prev_lr = plr
-                                    break
-                    except Exception as e:
-                        logger.debug("忽略异常: %s", e)
-                    algo_factor = self._algo_lr_factors.get(aid, 1.0)
-                    effective_lr = (prev_lr or 0.001) * algo_factor
-                    try:
-                        ver = trainer.finetune_for_video(
-                            algo_id=aid,
-                            bvid=bvid,
-                            epochs=default_epochs,
-                            batch_size=batch,
-                            progress_cb=progress_cb,
-                            control_dict=self._auto_control,
-                            lr=effective_lr,
-                            use_new_data_only=self._use_new_data_only,
-                        )
-                        ckpt = CheckpointManager(aid, bvid=bvid)
-                        versions = ckpt.list_versions()
-                        val_loss = -1.0
-                        if versions:
-                            val_loss = versions[0].get("val_loss", -1.0)
-                        conf = loss_to_confidence(val_loss)
-                        self._train_queue.put(
-                            {
-                                "stage": "done",
-                                "done": done,
-                                "total": total,
-                                "aid": aid,
-                                "bvid": bvid,
-                                "version": ver[:12],
-                                "confidence": conf,
-                                "val_loss": val_loss,
-                            }
-                        )
-                    except Exception as e:
-                        self._train_queue.put(
-                            {
-                                "stage": "error",
-                                "done": done,
-                                "total": total,
-                                "aid": aid,
-                                "bvid": bvid,
-                                "error": str(e),
-                            }
-                        )
             self._train_queue.put({"stage": "all_done", "done": done, "total": total})
 
-        self._launch_worker(_worker)
+        return _worker
+
+    def _run_finetune_task(
+        self,
+        trainer,
+        checkpoint_manager,
+        os_module,
+        data_root,
+        aid,
+        bvid,
+        epochs,
+        batch,
+        done,
+        total,
+        mode,
+        progress_cb,
+    ):
+        if mode == "retrain":
+            self._clear_finetune_task(checkpoint_manager, os_module, data_root, aid, bvid)
+        self._skip_algo_flag[0] = False
+        QTimer.singleShot(0, lambda: self._skip_btn.setEnabled(True))
+        self._train_queue.put({"stage": "start", "done": done, "total": total, "aid": aid, "bvid": bvid})
+        self._auto_control = {}
+        self._algo_lr_factors[aid] = 1.0
+        effective_lr = (self._previous_finetune_lr(checkpoint_manager, aid, bvid) or 0.001) * self._algo_lr_factors.get(
+            aid, 1.0
+        )
+        try:
+            ver = trainer.finetune_for_video(
+                algo_id=aid,
+                bvid=bvid,
+                epochs=epochs,
+                batch_size=batch,
+                progress_cb=progress_cb,
+                control_dict=self._auto_control,
+                lr=effective_lr,
+                use_new_data_only=self._use_new_data_only,
+            )
+            versions = checkpoint_manager(aid, bvid=bvid).list_versions()
+            val_loss = versions[0].get("val_loss", -1.0) if versions else -1.0
+            self._train_queue.put(
+                {
+                    "stage": "done",
+                    "done": done,
+                    "total": total,
+                    "aid": aid,
+                    "bvid": bvid,
+                    "version": ver[:12],
+                    "confidence": loss_to_confidence(val_loss),
+                    "val_loss": val_loss,
+                }
+            )
+        except Exception as e:
+            self._train_queue.put(
+                {"stage": "error", "done": done, "total": total, "aid": aid, "bvid": bvid, "error": str(e)}
+            )
+
+    def _clear_finetune_task(self, checkpoint_manager, os_module, data_root, aid, bvid):
+        deleted = checkpoint_manager(aid, bvid=bvid).delete_all()
+        model_path = os_module.path.join(data_root, bvid, "model", f"{aid}.pt")
+        try:
+            if os_module.path.exists(model_path):
+                os_module.remove(model_path)
+        except Exception as e:
+            logger.debug("忽略异常: %s", e)
+        if deleted:
+            self._train_queue.put({"stage": "log", "text": f"  ✕ 已清除 {aid}@{bvid} 的 {deleted} 个旧版本"})
+
+    def _previous_finetune_lr(self, checkpoint_manager, aid, bvid):
+        try:
+            prev_versions = checkpoint_manager(aid, bvid=bvid).list_versions()
+            if prev_versions:
+                for version in prev_versions:
+                    if version["active"]:
+                        learning_rate = version.get("learning_rate", -1.0)
+                        return learning_rate if learning_rate > 0 else None
+        except Exception as e:
+            logger.debug("忽略异常: %s", e)
+        return None
 
     def _on_cancel(self):
         """取消当前正在运行的全部微调任务"""

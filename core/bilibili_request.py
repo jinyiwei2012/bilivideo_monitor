@@ -182,6 +182,20 @@ def _handle_successful_response(self, data, attempt, max_retries, skip_retry, pr
     return data.get("data") if "data" in data else None, False
 
 
+def _process_request_response(self, response, method, url, attempt, max_retries, skip_retry, proxy_idx):
+    sc = response.status_code
+    if sc == 412:
+        if _handle_http_412_response(self, attempt, max_retries, skip_retry, proxy_idx):
+            return None, True
+        return None, False
+    if sc >= 500 or sc == 429:
+        raise requests.exceptions.HTTPError(f"HTTP {sc}")
+    data = response.json()
+    self._consecutive_412_errors = 0
+    logger.debug("← %s %s → %s", method.upper(), url.split("?")[0], sc)
+    return _handle_successful_response(self, data, attempt, max_retries, skip_retry, proxy_idx)
+
+
 def _request(
     self, method: str, url: str, max_retries: int = None, skip_retry: bool = False, **kwargs
 ) -> Optional[Dict]:
@@ -198,17 +212,9 @@ def _request(
             response = _do_http_request(self, method, url, request_kwargs, cookies)
             if response is None:
                 continue
-            sc = response.status_code
-            if sc == 412:
-                if _handle_http_412_response(self, attempt, max_retries, skip_retry, proxy_idx):
-                    continue
-                return None
-            if sc >= 500 or sc == 429:
-                raise requests.exceptions.HTTPError(f"HTTP {sc}")
-            data = response.json()
-            self._consecutive_412_errors = 0
-            logger.debug("← %s %s → %s", method.upper(), url.split("?")[0], sc)
-            result, should_retry = _handle_successful_response(self, data, attempt, max_retries, skip_retry, proxy_idx)
+            result, should_retry = _process_request_response(
+                self, response, method, url, attempt, max_retries, skip_retry, proxy_idx
+            )
             if should_retry:
                 continue
             return result

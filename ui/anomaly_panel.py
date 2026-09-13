@@ -128,123 +128,123 @@ class AnomalyPanel:
 
         def worker():
             """后台工作线程：遍历每个视频，执行异常检测"""
-            results = []
-            for video in self.gui.monitored_videos:
-                bvid = video.get("bvid", "")
-                history = self.gui.history_data.get(bvid, [])
-                if len(history) < 3:
-                    continue
-
-                # 构建完整 records（从DB获取含 viewers_total 的上下文）
-                full_records = []
-                try:
-                    video_db = self.gui.video_dbs.get(bvid)
-                    if video_db:
-                        raw = video_db.get_all_records(limit=30)
-                        for r in raw:
-                            full_records.append(
-                                {
-                                    "timestamp": r["timestamp"],
-                                    "view_count": r["view_count"],
-                                    "like_count": r.get("like_count", 0),
-                                    "coin_count": r.get("coin_count", 0),
-                                    "favorite_count": r.get("favorite_count", 0),
-                                    "share_count": r.get("share_count", 0),
-                                    "danmaku_count": r.get("danmaku_count", 0),
-                                    "reply_count": r.get("reply_count", 0),
-                                    "viewers_total": r.get("viewers_total", 0),
-                                }
-                            )
-                except Exception as e:
-                    logger.debug("从DB获取记录失败 %s: %s", bvid, e)
-                if len(full_records) < 3:
-                    continue
-
-                # 计算最近 2h 增量和速率
-                recent = history[-10:] if len(history) >= 10 else history
-                if len(recent) >= 2:
-                    t_first, v_first = recent[0]
-                    t_last, v_last = recent[-1]
-                    dt_first = self._parse_dt(t_first)
-                    dt_last = self._parse_dt(t_last)
-                    hours = max((dt_last - dt_first).total_seconds() / 3600, 0.01)
-                    delta_views = max(0, v_last - v_first)
-                    velocity = delta_views / hours
-                else:
-                    delta_views = 0
-                    velocity = 0
-
-                current_views = video.get("view_count", 0)
-                online = video.get("viewers_total", 0)
-
-                try:
-                    # 获取 UP 主信息（用于买量检测）
-                    up_info = None
-                    owner_mid = video.get("owner_mid", 0) or video.get("mid", 0)
-                    if owner_mid and hasattr(self.gui, "_cached_up_info"):
-                        up_info = self.gui._cached_up_info.get(str(owner_mid))
-
-                    # 调用异常检测器
-                    alerts = AnomalyDetector.detect_all(full_records, bvid=bvid, video=video, up_info=up_info)
-                    for a in alerts:
-                        # 根据告警文本匹配异常类型图标
-                        if "买量" in a or "疑似买量" in a:
-                            type_icon = "♪ 疑似买量"
-                        elif "直播" in a:
-                            type_icon = "● 正在直播"
-                        elif "增速" in a:
-                            type_icon = "↗ 增速飙升"
-                        elif "趋势" in a or "放缓" in a:
-                            type_icon = "↘ 趋势反转"
-                        elif "停滞" in a:
-                            type_icon = "⏸ 播放停滞"
-                        elif "深夜" in a:
-                            type_icon = "♪ 深夜异常"
-                        elif "在线人数飙升" in a:
-                            type_icon = "◉ 在线飙升"
-                        elif "暴跌" in a or "断崖" in a:
-                            type_icon = "↘ 在线暴跌"
-                        else:
-                            type_icon = "△ 其他"
-
-                        time_str = dt_last.strftime("%m-%d %H:%M") if len(recent) >= 2 else "--"
-                        results.append(
-                            {
-                                "bvid": bvid,
-                                "title": video.get("title", bvid)[:22],
-                                "type": type_icon,
-                                "time": time_str,
-                                "views": current_views,
-                                "delta": delta_views,
-                                "velocity": velocity,
-                                "online": online,
-                                "alert_text": a,
-                                "author": video.get("author", ""),
-                                "pubdate": video.get("pubdate", 0),
-                            }
-                        )
-                except Exception as e:
-                    logger.debug("异常检测失败 %s: %s", bvid, e)
-                    results.append(
-                        {
-                            "bvid": bvid,
-                            "title": video.get("title", bvid)[:22],
-                            "type": "△ 错误",
-                            "time": "--",
-                            "views": current_views,
-                            "delta": 0,
-                            "velocity": 0,
-                            "online": online,
-                            "alert_text": "呜…这个视频的检测出了点小状况，天依已悄悄记下问题啦 ♪",
-                            "author": "",
-                            "pubdate": 0,
-                        }
-                    )
+            results = self._collect_scan_results()
 
             # 回主线程更新 UI
             invoke(lambda: self._show_results(results))
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _collect_scan_results(self):
+        results = []
+        for video in self.gui.monitored_videos:
+            bvid = video.get("bvid", "")
+            history = self.gui.history_data.get(bvid, [])
+            if len(history) < 3:
+                continue
+            full_records = self._load_scan_records(bvid)
+            if len(full_records) < 3:
+                continue
+            recent, dt_last, delta_views, velocity = self._scan_velocity(history)
+            results.extend(
+                self._detect_video_anomalies(video, bvid, full_records, recent, dt_last, delta_views, velocity)
+            )
+        return results
+
+    def _load_scan_records(self, bvid):
+        full_records = []
+        try:
+            video_db = self.gui.video_dbs.get(bvid)
+            if video_db:
+                raw = video_db.get_all_records(limit=30)
+                for r in raw:
+                    full_records.append(
+                        {
+                            "timestamp": r["timestamp"],
+                            "view_count": r["view_count"],
+                            "like_count": r.get("like_count", 0),
+                            "coin_count": r.get("coin_count", 0),
+                            "favorite_count": r.get("favorite_count", 0),
+                            "share_count": r.get("share_count", 0),
+                            "danmaku_count": r.get("danmaku_count", 0),
+                            "reply_count": r.get("reply_count", 0),
+                            "viewers_total": r.get("viewers_total", 0),
+                        }
+                    )
+        except Exception as e:
+            logger.debug("从DB获取记录失败 %s: %s", bvid, e)
+        return full_records
+
+    def _scan_velocity(self, history):
+        recent = history[-10:] if len(history) >= 10 else history
+        if len(recent) < 2:
+            return recent, None, 0, 0
+        t_first, v_first = recent[0]
+        t_last, v_last = recent[-1]
+        dt_first = self._parse_dt(t_first)
+        dt_last = self._parse_dt(t_last)
+        hours = max((dt_last - dt_first).total_seconds() / 3600, 0.01)
+        delta_views = max(0, v_last - v_first)
+        return recent, dt_last, delta_views, delta_views / hours
+
+    def _alert_type_icon(self, alert):
+        icon_rules = (
+            (("买量", "疑似买量"), "♪ 疑似买量"),
+            (("直播",), "● 正在直播"),
+            (("增速",), "↗ 增速飙升"),
+            (("趋势", "放缓"), "↘ 趋势反转"),
+            (("停滞",), "⏸ 播放停滞"),
+            (("深夜",), "♪ 深夜异常"),
+            (("在线人数飙升",), "◉ 在线飙升"),
+            (("暴跌", "断崖"), "↘ 在线暴跌"),
+        )
+        for markers, icon in icon_rules:
+            if any(marker in alert for marker in markers):
+                return icon
+        return "△ 其他"
+
+    def _detect_video_anomalies(self, video, bvid, full_records, recent, dt_last, delta_views, velocity):
+        current_views = video.get("view_count", 0)
+        online = video.get("viewers_total", 0)
+        try:
+            up_info = None
+            owner_mid = video.get("owner_mid", 0) or video.get("mid", 0)
+            if owner_mid and hasattr(self.gui, "_cached_up_info"):
+                up_info = self.gui._cached_up_info.get(str(owner_mid))
+            alerts = AnomalyDetector.detect_all(full_records, bvid=bvid, video=video, up_info=up_info)
+            return [
+                {
+                    "bvid": bvid,
+                    "title": video.get("title", bvid)[:22],
+                    "type": self._alert_type_icon(alert),
+                    "time": dt_last.strftime("%m-%d %H:%M") if len(recent) >= 2 else "--",
+                    "views": current_views,
+                    "delta": delta_views,
+                    "velocity": velocity,
+                    "online": online,
+                    "alert_text": alert,
+                    "author": video.get("author", ""),
+                    "pubdate": video.get("pubdate", 0),
+                }
+                for alert in alerts
+            ]
+        except Exception as e:
+            logger.debug("异常检测失败 %s: %s", bvid, e)
+            return [
+                {
+                    "bvid": bvid,
+                    "title": video.get("title", bvid)[:22],
+                    "type": "△ 错误",
+                    "time": "--",
+                    "views": current_views,
+                    "delta": 0,
+                    "velocity": 0,
+                    "online": online,
+                    "alert_text": "呜…这个视频的检测出了点小状况，天依已悄悄记下问题啦 ♪",
+                    "author": "",
+                    "pubdate": 0,
+                }
+            ]
 
     def _show_results(self, results):
         """在表格中展示异常检测结果，高亮严重异常"""

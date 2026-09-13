@@ -480,6 +480,80 @@ class AnomalyDetector:
         return hit.message if hit else None
 
     @staticmethod
+    def _paid_promotion_interaction_score(video: Dict, views: int):
+        likes = video.get("like_count", 0) or 0
+        coins = video.get("coin_count", 0) or 0
+        favorites = video.get("favorite_count", 0) or 0
+        shares = video.get("share_count", 0) or 0
+        danmaku = video.get("danmaku_count", 0) or 0
+
+        rates = {
+            "like": likes / views,
+            "coin": coins / views,
+            "favorite": favorites / views,
+            "share": shares / views,
+            "danmaku": danmaku / views,
+        }
+        like_score, like_reason = AnomalyDetector._paid_promotion_like_score(rates["like"])
+        coin_score, coin_reason = AnomalyDetector._paid_promotion_coin_score(rates["coin"])
+        score = like_score + coin_score
+        reasons = [reason for reason in (like_reason, coin_reason) if reason]
+        interaction_checks = (
+            (rates["danmaku"] < 0.001, "弹幕率极低"),
+            (rates["favorite"] < 0.02, "收藏率偏低"),
+            (rates["share"] < 0.001, "分享率极低"),
+        )
+        for matched, reason in interaction_checks:
+            if matched:
+                score += 1
+                reasons.append(reason)
+        return rates, score, reasons
+
+    @staticmethod
+    def _paid_promotion_like_score(like_rate: float):
+        if like_rate < 0.01:
+            return 2, "点赞率极低"
+        if like_rate < 0.02:
+            return 1, "点赞率偏低"
+        return 0, None
+
+    @staticmethod
+    def _paid_promotion_coin_score(coin_rate: float):
+        if coin_rate < 0.003:
+            return 2, "投币率极低"
+        if coin_rate < 0.01:
+            return 1, "投币率偏低"
+        return 0, None
+
+    @staticmethod
+    def _paid_promotion_growth_score(records: List[Dict], score: int):
+        if len(records) < 7:
+            return score, None
+        rows = _sorted_records(records)
+        growths = []
+        for i in range(1, len(rows)):
+            growths.append(rows[i].get("view_count", 0) - rows[i - 1].get("view_count", 0))
+        recent_growth = sum(growths[-3:]) / 3 if len(growths) >= 3 else 0
+        older_growth = sum(growths[-6:-3]) / 3 if len(growths) >= 6 else 0
+        if older_growth > 0 and recent_growth > older_growth * 1.5 and score >= 2:
+            return score + 2, "播放突增但互动低迷"
+        return score, None
+
+    @staticmethod
+    def _has_paid_promotion_night_growth(records: List[Dict], views: int) -> bool:
+        hour = datetime.now().hour
+        if not (hour < 7 or hour >= 23) or len(records) < 4:
+            return False
+        rows = _sorted_records(records)
+        recent = rows[-4:]
+        total_growth = recent[-1].get("view_count", 0) - recent[0].get("view_count", 0)
+        dt0 = _parse_dt(recent[0].get("timestamp") or recent[0].get("time"))
+        dt1 = _parse_dt(recent[-1].get("timestamp") or recent[-1].get("time"))
+        span_h = (dt1 - dt0).total_seconds() / 3600 if dt0 is not None and dt1 is not None else 0.0
+        night_rate = total_growth / span_h if span_h > 0 else 0
+        return night_rate > views * 0.001
+
+    @staticmethod
     def detect_paid_promotion_scored(records: List[Dict], video: Dict = None) -> Optional[AlertHit]:
         """
         综合检测疑似买必火/付费推广（7 维评分 + 播放量分级）
@@ -491,81 +565,17 @@ class AnomalyDetector:
         if views < 3000:
             return None  # 播放量太低，数据不足以判断
 
-        likes = video.get("like_count", 0) or 0
-        coins = video.get("coin_count", 0) or 0
-        favorites = video.get("favorite_count", 0) or 0
-        shares = video.get("share_count", 0) or 0
-        danmaku = video.get("danmaku_count", 0) or 0
-
-        like_rate = likes / views
-        coin_rate = coins / views
-        fav_rate = favorites / views
-        share_rate = shares / views
-        danmaku_rate = danmaku / views
-
-        score = 0
-        reasons = []
-
-        # S1: 点赞率
-        if like_rate < 0.01:
-            score += 2
-            reasons.append("点赞率极低")
-        elif like_rate < 0.02:
-            score += 1
-            reasons.append("点赞率偏低")
-
-        # S2: 投币率
-        if coin_rate < 0.003:
-            score += 2
-            reasons.append("投币率极低")
-        elif coin_rate < 0.01:
-            score += 1
-            reasons.append("投币率偏低")
-
-        # S3: 弹幕率
-        if danmaku_rate < 0.001:
-            score += 1
-            reasons.append("弹幕率极低")
-
-        # S4: 收藏率
-        if fav_rate < 0.02:
-            score += 1
-            reasons.append("收藏率偏低")
-
-        # S5: 分享率
-        if share_rate < 0.001:
-            score += 1
-            reasons.append("分享率极低")
+        rates, score, reasons = AnomalyDetector._paid_promotion_interaction_score(video, views)
 
         # S6: 近期播放突增且互动低（使用增量而非累积值）
-        if len(records) >= 7:
-            rows = _sorted_records(records)
-            growths = []
-            for i in range(1, len(rows)):
-                growths.append(rows[i].get("view_count", 0) - rows[i - 1].get("view_count", 0))
-            recent_growth = sum(growths[-3:]) / 3 if len(growths) >= 3 else 0
-            older_growth = sum(growths[-6:-3]) / 3 if len(growths) >= 6 else 0
-            if older_growth > 0 and recent_growth > older_growth * 1.5:
-                if score >= 2:  # 播放突增 + 已有互动率低
-                    score += 2
-                    reasons.append("播放突增但互动低迷")
+        score, growth_reason = AnomalyDetector._paid_promotion_growth_score(records, score)
+        if growth_reason:
+            reasons.append(growth_reason)
 
         # S7: 夜间时段异常播放
-        hour = datetime.now().hour
-        if hour < 7 or hour >= 23:
-            if len(records) >= 4:
-                rows = _sorted_records(records)
-                recent = rows[-4:]
-                total_growth = recent[-1].get("view_count", 0) - recent[0].get("view_count", 0)
-                span_h = 0.0
-                dt0 = _parse_dt(recent[0].get("timestamp") or recent[0].get("time"))
-                dt1 = _parse_dt(recent[-1].get("timestamp") or recent[-1].get("time"))
-                if dt0 is not None and dt1 is not None:
-                    span_h = (dt1 - dt0).total_seconds() / 3600
-                night_rate = total_growth / span_h if span_h > 0 else 0
-                if night_rate > views * 0.001:
-                    score += 1
-                    reasons.append("夜间播放异常增长")
+        if AnomalyDetector._has_paid_promotion_night_growth(records, views):
+            score += 1
+            reasons.append("夜间播放异常增长")
 
         if score < 3:
             return None
@@ -579,8 +589,8 @@ class AnomalyDetector:
             key="paid_promo",
             message=(
                 f"{level}！综合评分 {score}/9\n"
-                f"  点赞率{like_rate * 100:.1f}% 投币率{coin_rate * 100:.1f}%"
-                f" 收藏率{fav_rate * 100:.1f}% 弹幕率{danmaku_rate * 100:.2f}%\n"
+                f"  点赞率{rates['like'] * 100:.1f}% 投币率{rates['coin'] * 100:.1f}%"
+                f" 收藏率{rates['favorite'] * 100:.1f}% 弹幕率{rates['danmaku'] * 100:.2f}%\n"
                 f"  异常项: {detail}"
             ),
             confidence=round(conf, 2),

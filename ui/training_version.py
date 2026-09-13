@@ -174,69 +174,7 @@ class VersionManagerMixin:
             layout.addWidget(no_ver)
         else:
             for v in versions:
-                row = QFrame(detail_frame)
-                row.setStyleSheet(f"background-color: {C['bg_elevated']};")
-                row_layout = QHBoxLayout(row)
-                row_layout.setContentsMargins(4, 1, 4, 1)
-                layout.addWidget(row)
-
-                active_tag = "★ " if v.get("active") else "  "
-                ver_lbl = QLabel(f"{active_tag}{v['version']}")
-                ver_lbl.setStyleSheet(
-                    f"color: {C['success'] if v.get('active') else C['text_1']}; "
-                    f"background: transparent; font: {FONT_MONO};"
-                )
-                ver_lbl.setFixedWidth(200)
-                row_layout.addWidget(ver_lbl)
-
-                if not v.get("active") and len(versions) > 1:
-                    activate_btn = QPushButton("激活 ♪")
-                    activate_btn.setFixedWidth(50)
-                    ver_val = v["version"]
-                    activate_btn.clicked.connect(
-                        lambda checked=False, c=ckpt, ver=ver_val, a=aid, n=name, cb=refresh_cb: (
-                            self._activate_version(c, ver, a, n, cb)
-                        )
-                    )
-                    row_layout.addWidget(activate_btn)
-
-                export_btn = QPushButton("导出 .pt ♪")
-                export_btn.setFixedWidth(70)
-                ver_val = v["version"]
-                export_btn.clicked.connect(
-                    lambda checked=False, c=ckpt, ver=ver_val, a=aid: (self._export_version(c, ver, a))
-                )
-                row_layout.addWidget(export_btn)
-
-                if len(versions) > 1:
-                    del_btn = QPushButton("✗")
-                    del_btn.setFixedWidth(30)
-                    ver_val = v["version"]
-                    del_btn.clicked.connect(
-                        lambda checked=False, ver=ver_val, c=ckpt, a=aid, n=name, cb=refresh_cb: (
-                            c.delete(ver),
-                            cb(a, n),
-                        )
-                    )
-                    row_layout.addWidget(del_btn)
-
-                vl = v.get("val_loss", -1)
-                meta_parts = []
-                if vl >= 0:
-                    meta_parts.append(f"val_loss={vl:.4f}")
-                dc = v.get("data_count", 0)
-                if dc:
-                    meta_parts.append(f"{dc} 样本")
-                ca = v.get("created_at", "")
-                if ca:
-                    meta_parts.append(str(ca)[:16])
-                if meta_parts:
-                    meta_lbl = QLabel("  ·  ".join(meta_parts))
-                    meta_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
-                    meta_lbl.setFont(FONT_SM)
-                    row_layout.addWidget(meta_lbl)
-
-                row_layout.addStretch()
+                self._draw_global_version_row(detail_frame, layout, ckpt, versions, v, aid, name, refresh_cb)
 
         bvids = list_video_finetune_bvids(aid)
         if bvids:
@@ -248,29 +186,9 @@ class VersionManagerMixin:
                 v_ckpt = CheckpointManager(aid, bvid=bvid)
                 v_vers = v_ckpt.list_versions()
                 for v in v_vers:
-                    row = QFrame(detail_frame)
-                    row.setStyleSheet(f"background-color: {C['bg_elevated']};")
-                    row_layout = QHBoxLayout(row)
-                    row_layout.setContentsMargins(4, 1, 4, 1)
-                    layout.addWidget(row)
-
-                    bvid_lbl = QLabel(f"  ▣ {bvid}  {v['version']}")
-                    bvid_lbl.setStyleSheet(f"color: {C['text_1']}; background: transparent;")
-                    bvid_lbl.setFont(FONT_MONO)
-                    row_layout.addWidget(bvid_lbl)
-                    row_layout.addStretch()
-
-                    del_btn = QPushButton("✗")
-                    del_btn.setFixedWidth(30)
-                    bvid_val = bvid
-                    ver_val = v["version"]
-                    del_btn.clicked.connect(
-                        lambda checked=False, b=bvid_val, ver=ver_val, a=aid, n=name, cb=refresh_cb: (
-                            CheckpointManager(a, bvid=b).delete(ver),
-                            cb(a, n),
-                        )
+                    self._draw_video_version_row(
+                        detail_frame, layout, CheckpointManager, bvid, v, aid, name, refresh_cb
                     )
-                    row_layout.addWidget(del_btn)
 
         if versions or bvids:
             layout.addSpacing(4)
@@ -310,6 +228,96 @@ class VersionManagerMixin:
             btn_row_layout.addStretch()
 
         layout.addStretch()
+
+    def _draw_global_version_row(self, detail_frame, layout, ckpt, versions, v, aid, name, refresh_cb):
+        row = QFrame(detail_frame)
+        row.setStyleSheet(f"background-color: {C['bg_elevated']};")
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(4, 1, 4, 1)
+        layout.addWidget(row)
+
+        active_tag = "★ " if v.get("active") else "  "
+        ver_lbl = QLabel(f"{active_tag}{v['version']}")
+        ver_lbl.setStyleSheet(
+            f"color: {C['success'] if v.get('active') else C['text_1']}; "
+            f"background: transparent; font: {FONT_MONO};"
+        )
+        ver_lbl.setFixedWidth(200)
+        row_layout.addWidget(ver_lbl)
+
+        if not v.get("active") and len(versions) > 1:
+            activate_btn = QPushButton("激活 ♪")
+            activate_btn.setFixedWidth(50)
+            ver_val = v["version"]
+            activate_btn.clicked.connect(
+                lambda checked=False, c=ckpt, ver=ver_val, a=aid, n=name, cb=refresh_cb: (
+                    self._activate_version(c, ver, a, n, cb)
+                )
+            )
+            row_layout.addWidget(activate_btn)
+
+        export_btn = QPushButton("导出 .pt ♪")
+        export_btn.setFixedWidth(70)
+        ver_val = v["version"]
+        export_btn.clicked.connect(lambda checked=False, c=ckpt, ver=ver_val, a=aid: (self._export_version(c, ver, a)))
+        row_layout.addWidget(export_btn)
+
+        if len(versions) > 1:
+            del_btn = QPushButton("✗")
+            del_btn.setFixedWidth(30)
+            ver_val = v["version"]
+            del_btn.clicked.connect(
+                lambda checked=False, ver=ver_val, c=ckpt, a=aid, n=name, cb=refresh_cb: (
+                    c.delete(ver),
+                    cb(a, n),
+                )
+            )
+            row_layout.addWidget(del_btn)
+
+        self._draw_version_meta(row_layout, v)
+        row_layout.addStretch()
+
+    def _draw_version_meta(self, row_layout, version):
+        meta_parts = []
+        val_loss = version.get("val_loss", -1)
+        if val_loss >= 0:
+            meta_parts.append(f"val_loss={val_loss:.4f}")
+        data_count = version.get("data_count", 0)
+        if data_count:
+            meta_parts.append(f"{data_count} 样本")
+        created_at = version.get("created_at", "")
+        if created_at:
+            meta_parts.append(str(created_at)[:16])
+        if meta_parts:
+            meta_lbl = QLabel("  ·  ".join(meta_parts))
+            meta_lbl.setStyleSheet(f"color: {C['text_3']}; background: transparent;")
+            meta_lbl.setFont(FONT_SM)
+            row_layout.addWidget(meta_lbl)
+
+    def _draw_video_version_row(self, detail_frame, layout, checkpoint_manager, bvid, version, aid, name, refresh_cb):
+        row = QFrame(detail_frame)
+        row.setStyleSheet(f"background-color: {C['bg_elevated']};")
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(4, 1, 4, 1)
+        layout.addWidget(row)
+
+        bvid_lbl = QLabel(f"  ▣ {bvid}  {version['version']}")
+        bvid_lbl.setStyleSheet(f"color: {C['text_1']}; background: transparent;")
+        bvid_lbl.setFont(FONT_MONO)
+        row_layout.addWidget(bvid_lbl)
+        row_layout.addStretch()
+
+        del_btn = QPushButton("✗")
+        del_btn.setFixedWidth(30)
+        bvid_val = bvid
+        ver_val = version["version"]
+        del_btn.clicked.connect(
+            lambda checked=False, b=bvid_val, ver=ver_val, a=aid, n=name, cb=refresh_cb: (
+                checkpoint_manager(a, bvid=b).delete(ver),
+                cb(a, n),
+            )
+        )
+        row_layout.addWidget(del_btn)
 
     def _activate_version(self, ckpt, ver, aid, name, refresh_cb):
         """激活指定版本并刷新详情"""

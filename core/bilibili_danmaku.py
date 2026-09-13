@@ -84,6 +84,79 @@ class DanmakuMonitor:
         """获取上次拉取的段号，-1 表示从未拉取。"""
         return self._progress.get(self._make_key(bvid, cid), -1)
 
+    def _restore_progress(self, key: str, video_db) -> int:
+        with self._lock:
+            last_seg = self._progress.get(key, -1)
+        if last_seg >= 0 or not video_db:
+            return last_seg
+        try:
+            db_last = video_db.get_max_danmaku_segment()
+            if db_last > 0:
+                last_seg = db_last
+                with self._lock:
+                    self._progress[key] = db_last
+        except Exception:
+            logger.debug("[弹幕] 从 DB 恢复进度失败，将从段 1 重新获取")
+        return last_seg
+
+    def _segment_limit(self, total_segs: int) -> Tuple[int, int]:
+        if total_segs == _MAX_SEGMENTS_KNOWN_BOGUS:
+            return _MAX_SEGMENTS, 0
+        if total_segs > 0:
+            return min(total_segs, _MAX_SEGMENTS), total_segs
+        return _MAX_SEGMENTS, total_segs
+
+    def _handle_segment_error(self, bvid: str, seg: int, error_streak: int) -> bool:
+        if error_streak >= _MAX_ERROR_STREAK:
+            logger.warning("[弹幕] %s 连续 %d 次 API 错误，段=%d 放弃本轮", bvid, error_streak, seg)
+            return True
+        time.sleep(1.0)
+        return False
+
+    def _advance_empty_segment(self, bvid: str, seg: int, empty_streak: int, total_segs: int):
+        if total_segs > 0 and total_segs != _MAX_SEGMENTS_KNOWN_BOGUS:
+            seg += 1
+            if seg % 10 == 0:
+                time.sleep(_SEGMENT_DELAY)
+            return seg, empty_streak, False
+        empty_streak += 1
+        if empty_streak >= _MAX_EMPTY_STREAK:
+            logger.debug("[弹幕] %s 连续 %d 个空段，停止拉取", bvid, empty_streak)
+            return seg, empty_streak, True
+        seg += 1
+        if seg % 5 == 0:
+            time.sleep(_SEGMENT_DELAY)
+        return seg, empty_streak, False
+
+    def _fetch_new_segments(self, bvid, cid, aid, video_db, start_seg, max_seg, total_segs):
+        total_new = 0
+        empty_streak = 0
+        error_streak = 0
+        seg = start_seg
+        parsed_fmt = None
+        while seg <= max_seg:
+            danmaku_list, is_error = self._fetch_segment(cid, seg, aid, prefer_fmt=parsed_fmt)
+            if is_error:
+                error_streak += 1
+                if self._handle_segment_error(bvid, seg, error_streak):
+                    break
+                continue
+            error_streak = 0
+            if not danmaku_list:
+                seg, empty_streak, should_stop = self._advance_empty_segment(bvid, seg, empty_streak, total_segs)
+                if should_stop:
+                    break
+                continue
+            empty_streak = 0
+            if parsed_fmt is None and danmaku_list[0].get("dmid", 0) > 0:
+                parsed_fmt = "proto"
+            if video_db:
+                self._save_to_db(video_db, bvid, cid, seg, danmaku_list)
+            total_new += len(danmaku_list)
+            seg += 1
+            time.sleep(_SEGMENT_DELAY)
+        return total_new, seg, parsed_fmt
+
     # ──────────────────────────────────────────────
     #  主入口：增量拉取
     # ──────────────────────────────────────────────
@@ -108,18 +181,7 @@ class DanmakuMonitor:
         key = self._make_key(bvid, cid)
 
         # ── 恢复进度 ──
-        with self._lock:
-            last_seg = self._progress.get(key, -1)
-
-        if last_seg < 0 and video_db:
-            try:
-                db_last = video_db.get_max_danmaku_segment()
-                if db_last > 0:
-                    last_seg = db_last
-                    with self._lock:
-                        self._progress[key] = db_last
-            except Exception:
-                logger.debug("[弹幕] 从 DB 恢复进度失败，将从段 1 重新获取")
+        last_seg = self._restore_progress(key, video_db)
 
         # ── 阶段 1: 获取视频弹幕元数据 ──
         view_info = self._fetch_danmaku_view(cid, aid)
@@ -135,14 +197,7 @@ class DanmakuMonitor:
         # - DmSegConfig.total (field 2) 在 API 中为"最大分页容量"（固定 100），非实际段数
         # - 实际段数 = ceil(视频时长 / page_size_ms)
         # - 若无法获取时长，用空段检测兜底
-        if total_segs == _MAX_SEGMENTS_KNOWN_BOGUS:
-            # API 返回的是固定值 100，不可信 → 用空段试探
-            max_seg = _MAX_SEGMENTS
-            total_segs = 0  # 标记为不可信
-        elif total_segs > 0:
-            max_seg = min(total_segs, _MAX_SEGMENTS)
-        else:
-            max_seg = _MAX_SEGMENTS
+        max_seg, total_segs = self._segment_limit(total_segs)
 
         start_seg = max(1, last_seg + 1)
         if start_seg > max_seg:
@@ -151,54 +206,7 @@ class DanmakuMonitor:
         logger.info("[弹幕] %s 开始拉取 段 %d-%d (总段数=%d)", bvid, start_seg, max_seg, total_segs or -1)
 
         # ── 阶段 2: 逐段拉取 ──
-        total_new = 0
-        empty_streak = 0
-        error_streak = 0
-        seg = start_seg
-        parsed_fmt = None  # 第一次成功解析后锁定格式
-
-        while seg <= max_seg:
-            danmaku_list, is_error = self._fetch_segment(cid, seg, aid, prefer_fmt=parsed_fmt)
-
-            if is_error:
-                error_streak += 1
-                if error_streak >= _MAX_ERROR_STREAK:
-                    logger.warning("[弹幕] %s 连续 %d 次 API 错误，段=%d 放弃本轮", bvid, error_streak, seg)
-                    break  # 不前进 seg——该段将在下一轮重试
-                time.sleep(1.0)
-                continue
-
-            error_streak = 0
-
-            if not danmaku_list:
-                # 有可靠段数时不停在空段上（已确认视频长度覆盖）
-                if total_segs > 0 and total_segs != _MAX_SEGMENTS_KNOWN_BOGUS:
-                    seg += 1
-                    if seg % 10 == 0:
-                        time.sleep(_SEGMENT_DELAY)
-                    continue
-
-                # 无可靠段数时用空段试探停止
-                empty_streak += 1
-                if empty_streak >= _MAX_EMPTY_STREAK:
-                    logger.debug("[弹幕] %s 连续 %d 个空段，停止拉取", bvid, empty_streak)
-                    break
-                seg += 1
-                if seg % 5 == 0:
-                    time.sleep(_SEGMENT_DELAY)
-                continue
-
-            empty_streak = 0
-            if parsed_fmt is None and danmaku_list and danmaku_list[0].get("dmid", 0) > 0:
-                parsed_fmt = "proto"
-
-            # 存库
-            if video_db:
-                self._save_to_db(video_db, bvid, cid, seg, danmaku_list)
-
-            total_new += len(danmaku_list)
-            seg += 1
-            time.sleep(_SEGMENT_DELAY)
+        total_new, seg, parsed_fmt = self._fetch_new_segments(bvid, cid, aid, video_db, start_seg, max_seg, total_segs)
 
         # 更新进度
         with self._lock:

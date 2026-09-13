@@ -638,6 +638,122 @@ class BaseAlgorithm(ABC):
 
         return indices[0], indices[-1]
 
+    def _surge_velocities(self, views: List[float], timestamps: List[float]):
+        """计算当前、短期及长期基线速度。"""
+        n = len(views)
+        current_size = min(3, n - 1)
+        v_current = self._calc_velocity_window(views, timestamps, n - current_size - 1, n)
+        short_size = min(7, n - 1)
+        v_short = self._calc_velocity_window(views, timestamps, n - short_size - 1, n)
+        baseline_end = max(0, n - short_size - 2)
+        if baseline_end >= 4:
+            v_baseline = self._calc_velocity_window(views, timestamps, 0, baseline_end + 1)
+        else:
+            v_baseline = v_short
+        return v_current, v_short, v_baseline
+
+    def _surge_period_velocities(self, views: List[float], timestamps: List[float], v_current: float):
+        """计算同日、同周同期速度及与当前速度的比值。"""
+        now_ts = timestamps[-1]
+        v_daily = 0.0
+        v_weekly = 0.0
+        daily_ratio = 1.0
+        weekly_ratio = 1.0
+        d_start, d_end = self._find_period_window(timestamps, now_ts, 86400)
+        if d_start >= 0:
+            v_daily = self._calc_velocity_window(views, timestamps, d_start, d_end + 1)
+            if v_daily > 0 and v_current > 0:
+                daily_ratio = v_current / v_daily
+        w_start, w_end = self._find_period_window(timestamps, now_ts, 604800)
+        if w_start >= 0:
+            v_weekly = self._calc_velocity_window(views, timestamps, w_start, w_end + 1)
+            if v_weekly > 0 and v_current > 0:
+                weekly_ratio = v_current / v_weekly
+        return v_daily, v_weekly, daily_ratio, weekly_ratio
+
+    @staticmethod
+    def _fill_surge_velocity_fields(
+        result, v_current, v_short, v_baseline, v_daily, v_weekly, daily_ratio, weekly_ratio
+    ):
+        """填充推流检测结果中的速度与周期对比字段。"""
+        result["baseline_velocity"] = v_baseline
+        result["surge_velocity"] = v_current
+        result["daily_baseline_velocity"] = v_daily
+        result["weekly_baseline_velocity"] = v_weekly
+        result["velocity_history"] = {
+            "current": round(v_current),
+            "short_term": round(v_short),
+            "long_baseline": round(v_baseline),
+            "daily_same_period": round(v_daily) if v_daily > 0 else None,
+            "weekly_same_period": round(v_weekly) if v_weekly > 0 else None,
+        }
+        result["period_comparison"] = {
+            "daily_ratio": round(daily_ratio, 2) if v_daily > 0 else None,
+            "weekly_ratio": round(weekly_ratio, 2) if v_weekly > 0 else None,
+        }
+
+    def _has_consistent_mild_surge(self, views, timestamps, v_baseline):
+        """检查最近三个有效区间是否持续高于轻度推流阈值。"""
+        n = len(views)
+        recent_vels: List[float] = []
+        for i in range(max(0, n - 5), n - 1):
+            v_i = self._calc_velocity_window(views, timestamps, i, i + 2)
+            if v_i > 0:
+                recent_vels.append(v_i)
+        return len(recent_vels) >= 3 and all(v > v_baseline * 1.3 for v in recent_vels[-3:])
+
+    @staticmethod
+    def _set_primary_surge_classification(result, surge_ratio, is_seasonal):
+        """填充强度为 moderate 或 strong 的主要推流分类。"""
+        if surge_ratio >= 3.0 and not is_seasonal:
+            result["is_surging"] = True
+            result["surge_confidence"] = min(0.95, 0.7 + (surge_ratio - 3.0) * 0.04)
+            result["surge_type"] = "strong"
+            result["decay_half_life_hours"] = max(2.0, 6.0 - surge_ratio * 0.5)
+            return True
+        if surge_ratio >= 2.0 and not is_seasonal:
+            result["is_surging"] = True
+            result["surge_confidence"] = 0.6 + (surge_ratio - 2.0) * 0.2
+            result["surge_type"] = "moderate"
+            result["decay_half_life_hours"] = 8.0
+            return True
+        return False
+
+    def _set_mild_surge_classification(self, result, views, timestamps, v_baseline, surge_ratio, is_seasonal):
+        """在主要分类未命中时检查轻度推流。"""
+        if surge_ratio >= 1.5 and not is_seasonal and len(views) >= 5:
+            if self._has_consistent_mild_surge(views, timestamps, v_baseline):
+                result["is_surging"] = True
+                result["surge_confidence"] = 0.5
+                result["surge_type"] = "mild"
+                result["decay_half_life_hours"] = 12.0
+
+    def _classify_surge(self, result, views, timestamps, v_current, v_baseline, v_daily, daily_ratio):
+        """按原阈值分类推流强度并填充结果。"""
+        surge_ratio = v_current / max(v_baseline, 0.01)
+        result["surge_magnitude"] = round(surge_ratio, 2)
+        is_seasonal = v_daily > 0 and daily_ratio < 1.5
+        classified = self._set_primary_surge_classification(result, surge_ratio, is_seasonal)
+        if not classified:
+            self._set_mild_surge_classification(result, views, timestamps, v_baseline, surge_ratio, is_seasonal)
+        if is_seasonal and not result["is_surging"] and v_daily > 0 and daily_ratio >= 3.0:
+            result["is_surging"] = True
+            result["surge_confidence"] = 0.55
+            result["surge_type"] = "strong"
+            result["decay_half_life_hours"] = 4.0
+            result["surge_magnitude"] = daily_ratio
+
+    def _adjust_surge_half_life(self, result, video_data):
+        """根据视频年龄调整并约束推流半衰期。"""
+        age_hours = self.get_video_age_hours(video_data)
+        if age_hours > 336:
+            result["decay_half_life_hours"] *= 0.6
+        elif age_hours > 168:
+            result["decay_half_life_hours"] *= 0.8
+        elif age_hours < 24:
+            result["decay_half_life_hours"] *= 1.3
+        result["decay_half_life_hours"] = max(1.0, min(24.0, result["decay_half_life_hours"]))
+
     def detect_surge(self, video_data: Dict[str, Any]) -> Dict[str, Any]:
         """检测视频是否正在经历大推流（流量激增）。
 
@@ -683,116 +799,18 @@ class BaseAlgorithm(ABC):
             if n < 8:
                 return result
 
-            # ── 多窗口速度计算 ──────────────────────
-            # W_current: 最近约 5-10 分钟的窗口
-            current_size = min(3, n - 1)
-            v_current = self._calc_velocity_window(views, timestamps, n - current_size - 1, n)
-
-            # W_short: 最近约 15-30 分钟的窗口
-            short_size = min(7, n - 1)
-            v_short = self._calc_velocity_window(views, timestamps, n - short_size - 1, n)
-
-            # W_baseline: 推流前的长期基线速度（所有早期数据）
-            baseline_end = max(0, n - short_size - 2)
-            if baseline_end >= 4:
-                v_baseline = self._calc_velocity_window(views, timestamps, 0, baseline_end + 1)
-            else:
-                v_baseline = v_short
-
-            # ── 周期对比：同日同时段速度 ──────────────
-            now_ts = timestamps[-1]
-            v_daily = 0.0
-            v_weekly = 0.0
-            daily_ratio = 1.0
-            weekly_ratio = 1.0
-
-            # 同日对比（24h 前相同时间段）
-            d_start, d_end = self._find_period_window(timestamps, now_ts, 86400)
-            if d_start >= 0:
-                v_daily = self._calc_velocity_window(views, timestamps, d_start, d_end + 1)
-                if v_daily > 0 and v_current > 0:
-                    daily_ratio = v_current / v_daily
-
-            # 同周对比（7 天前相同时间段）
-            w_start, w_end = self._find_period_window(timestamps, now_ts, 604800)
-            if w_start >= 0:
-                v_weekly = self._calc_velocity_window(views, timestamps, w_start, w_end + 1)
-                if v_weekly > 0 and v_current > 0:
-                    weekly_ratio = v_current / v_weekly
-
-            # ── 填充结果基础字段 ──────────────────────
-            result["baseline_velocity"] = v_baseline
-            result["surge_velocity"] = v_current
-            result["daily_baseline_velocity"] = v_daily
-            result["weekly_baseline_velocity"] = v_weekly
-            result["velocity_history"] = {
-                "current": round(v_current),
-                "short_term": round(v_short),
-                "long_baseline": round(v_baseline),
-                "daily_same_period": round(v_daily) if v_daily > 0 else None,
-                "weekly_same_period": round(v_weekly) if v_weekly > 0 else None,
-            }
-            result["period_comparison"] = {
-                "daily_ratio": round(daily_ratio, 2) if v_daily > 0 else None,
-                "weekly_ratio": round(weekly_ratio, 2) if v_weekly > 0 else None,
-            }
+            v_current, v_short, v_baseline = self._surge_velocities(views, timestamps)
+            v_daily, v_weekly, daily_ratio, weekly_ratio = self._surge_period_velocities(views, timestamps, v_current)
+            self._fill_surge_velocity_fields(
+                result, v_current, v_short, v_baseline, v_daily, v_weekly, daily_ratio, weekly_ratio
+            )
 
             if v_baseline <= 0:
                 result["adjusted_velocity"] = v_current
                 return result
 
-            # ── 推流强度判定（综合近期 + 周期对比）───
-            surge_ratio = v_current / max(v_baseline, 0.01)
-            result["surge_magnitude"] = round(surge_ratio, 2)
-
-            # 周期性检查：如果同日同时段速度也高 → 可能是日常波动而非推流
-            is_seasonal = False
-            if v_daily > 0 and daily_ratio < 1.5:
-                # 同日速度差异不大 → 这是每天都会出现的正常高峰
-                is_seasonal = True
-
-            if surge_ratio >= 3.0 and not is_seasonal:
-                result["is_surging"] = True
-                result["surge_confidence"] = min(0.95, 0.7 + (surge_ratio - 3.0) * 0.04)
-                result["surge_type"] = "strong"
-                result["decay_half_life_hours"] = max(2.0, 6.0 - surge_ratio * 0.5)
-            elif surge_ratio >= 2.0 and not is_seasonal:
-                result["is_surging"] = True
-                result["surge_confidence"] = 0.6 + (surge_ratio - 2.0) * 0.2
-                result["surge_type"] = "moderate"
-                result["decay_half_life_hours"] = 8.0
-            elif surge_ratio >= 1.5:
-                # 轻度推流：需趋势一致性 + 排除周期性
-                if not is_seasonal and n >= 5:
-                    recent_vels: List[float] = []
-                    for i in range(max(0, n - 5), n - 1):
-                        v_i = self._calc_velocity_window(views, timestamps, i, i + 2)
-                        if v_i > 0:
-                            recent_vels.append(v_i)
-                    if len(recent_vels) >= 3 and all(v > v_baseline * 1.3 for v in recent_vels[-3:]):
-                        result["is_surging"] = True
-                        result["surge_confidence"] = 0.5
-                        result["surge_type"] = "mild"
-                        result["decay_half_life_hours"] = 12.0
-
-            # 如果被周期性排除了，但速度和周期比也异常高（同日 3x+），仍标记
-            if is_seasonal and not result["is_surging"] and v_daily > 0 and daily_ratio >= 3.0:
-                result["is_surging"] = True
-                result["surge_confidence"] = 0.55
-                result["surge_type"] = "strong"
-                result["decay_half_life_hours"] = 4.0
-                result["surge_magnitude"] = daily_ratio
-
-            # ── 根据视频年龄调整半衰期 ──────────────────
-            age_hours = self.get_video_age_hours(video_data)
-            if age_hours > 336:
-                result["decay_half_life_hours"] *= 0.6
-            elif age_hours > 168:
-                result["decay_half_life_hours"] *= 0.8
-            elif age_hours < 24:
-                result["decay_half_life_hours"] *= 1.3
-
-            result["decay_half_life_hours"] = max(1.0, min(24.0, result["decay_half_life_hours"]))
+            self._classify_surge(result, views, timestamps, v_current, v_baseline, v_daily, daily_ratio)
+            self._adjust_surge_half_life(result, video_data)
 
             # ── 计算调整后的预测速度 ──────────────────
             result["adjusted_velocity"] = self._compute_surge_adjusted_velocity(result, v_current, v_short, v_baseline)

@@ -188,8 +188,7 @@ def _stop_predictor(bvid):
 # ══════════════════════════════════════════════
 
 
-def _fetch_one_video(gui, bvid, video):
-    """拉取单个视频数据：API → 更新字段 → 在线人数 → 历史记录 → 写DB → UI 回调 → 分发预测"""
+def _log_fetch_route(gui, bvid):
     try:
         proxy_hint = bilibili_api.proxy_manager.peek_proxy()
         if proxy_hint:
@@ -199,98 +198,104 @@ def _fetch_one_video(gui, bvid, video):
     except Exception:
         pass
 
+
+def _get_video_info(gui, bvid):
     try:
         info = bilibili_api.get_video_info(bvid)
         if not info:
             gui.log_panel.add_log("WARNING", f"[{bvid}] 获取视频信息失败（返回 None）")
-            return
+            return None
+        return info
     except Exception as e:
         gui.log_panel.add_log("ERROR", f"[{bvid}] 获取视频信息异常: {e}")
-        return
+        return None
 
-    stat = info.get("stat", {})
 
-    with gui._data_lock:
-        owner = info.get("owner", {})
-        video["title"] = info.get("title", video.get("title", ""))
-        video["author"] = owner.get("name", video.get("author", ""))
-        video["pic"] = info.get("pic", video.get("pic", ""))
-        video["_cid"] = info.get("cid", 0)
-        owner_id = owner.get("mid", 0)
-        if owner_id:
-            from ui.monitor._prediction import _save_up_data
+def _update_video_fields(gui, video, info, stat):
+    owner = info.get("owner", {})
+    video["title"] = info.get("title", video.get("title", ""))
+    video["author"] = owner.get("name", video.get("author", ""))
+    video["pic"] = info.get("pic", video.get("pic", ""))
+    video["_cid"] = info.get("cid", 0)
+    owner_id = owner.get("mid", 0)
+    if owner_id:
+        from ui.monitor._prediction import _save_up_data
 
-            _save_up_data(owner_id)
-        video["view_count"] = stat.get("view", video.get("view_count", 0))
-        video["like_count"] = stat.get("like", video.get("like_count", 0))
-        video["coin_count"] = stat.get("coin", video.get("coin_count", 0))
-        video["share_count"] = stat.get("share", video.get("share_count", 0))
-        video["favorite_count"] = stat.get("favorite", video.get("favorite_count", 0))
-        video["danmaku_count"] = stat.get("danmaku", video.get("danmaku_count", 0))
-        video["reply_count"] = stat.get("reply", video.get("reply_count", 0))
+        _save_up_data(owner_id)
+    video["view_count"] = stat.get("view", video.get("view_count", 0))
+    video["like_count"] = stat.get("like", video.get("like_count", 0))
+    video["coin_count"] = stat.get("coin", video.get("coin_count", 0))
+    video["share_count"] = stat.get("share", video.get("share_count", 0))
+    video["favorite_count"] = stat.get("favorite", video.get("favorite_count", 0))
+    video["danmaku_count"] = stat.get("danmaku", video.get("danmaku_count", 0))
+    video["reply_count"] = stat.get("reply", video.get("reply_count", 0))
 
-    # 获取在线人数（使用独立 _viewers_lock，减少 _data_lock 争用）
-    with gui._viewers_lock:
-        try:
-            cid = info.get("cid", 0)
-            if cid:
-                viewers = bilibili_api.get_video_viewers(bvid, cid)
-                if viewers:
-                    gui.log_panel.add_log(
-                        "DEBUG",
-                        f"[{bvid}] 在线响应 总:{viewers.get('total', '0')} 网页:{viewers.get('count', '0')}",
-                    )
-                    video["viewers_total_raw"] = viewers.get("total", "0")
-                    video["viewers_web_raw"] = viewers.get("count", "0")
-                    video["viewers_total"] = _parse_viewer_count(viewers.get("total", "0"))
-                    video["viewers_web"] = _parse_viewer_count(viewers.get("count", "0"))
-                    video["viewers_app"] = max(0, video["viewers_total"] - video["viewers_web"])
-                else:
-                    video["viewers_total"] = video.get("viewers_total", 0)
-                    video["viewers_web"] = video.get("viewers_web", 0)
-                    video["viewers_app"] = video.get("viewers_app", 0)
-            else:
-                video["viewers_total"] = video.get("viewers_total", 0)
-                video["viewers_web"] = video.get("viewers_web", 0)
-                video["viewers_app"] = video.get("viewers_app", 0)
-        except Exception as e:
-            gui.log_panel.add_log("WARNING", f"[{bvid}] 获取在线人数失败: {e}")
-            video["viewers_total"] = video.get("viewers_total", 0)
-            video["viewers_web"] = video.get("viewers_web", 0)
-            video["viewers_app"] = video.get("viewers_app", 0)
 
-    # 写入历史记录
-    ts = datetime.now()
-    with gui._data_lock:
-        if bvid not in gui.history_data:
-            gui.history_data[bvid] = []
-        gui.history_data[bvid].append((ts, video["view_count"]))
-        if len(gui.history_data[bvid]) > 1000:
-            gui.history_data[bvid] = gui.history_data[bvid][-800:]
+def _retain_viewer_counts(video):
+    video["viewers_total"] = video.get("viewers_total", 0)
+    video["viewers_web"] = video.get("viewers_web", 0)
+    video["viewers_app"] = video.get("viewers_app", 0)
 
-    # 写入视频库
+
+def _update_video_viewers(gui, bvid, video, info):
+    try:
+        cid = info.get("cid", 0)
+        if not cid:
+            _retain_viewer_counts(video)
+            return
+        viewers = bilibili_api.get_video_viewers(bvid, cid)
+        if not viewers:
+            _retain_viewer_counts(video)
+            return
+        gui.log_panel.add_log(
+            "DEBUG",
+            f"[{bvid}] 在线响应 总:{viewers.get('total', '0')} 网页:{viewers.get('count', '0')}",
+        )
+        video["viewers_total_raw"] = viewers.get("total", "0")
+        video["viewers_web_raw"] = viewers.get("count", "0")
+        video["viewers_total"] = _parse_viewer_count(viewers.get("total", "0"))
+        video["viewers_web"] = _parse_viewer_count(viewers.get("count", "0"))
+        video["viewers_app"] = max(0, video["viewers_total"] - video["viewers_web"])
+    except Exception as e:
+        gui.log_panel.add_log("WARNING", f"[{bvid}] 获取在线人数失败: {e}")
+        _retain_viewer_counts(video)
+
+
+def _append_history(gui, bvid, video, ts):
+    if bvid not in gui.history_data:
+        gui.history_data[bvid] = []
+    gui.history_data[bvid].append((ts, video["view_count"]))
+    if len(gui.history_data[bvid]) > 1000:
+        gui.history_data[bvid] = gui.history_data[bvid][-800:]
+
+
+def _monitor_record(bvid, video, ts):
+    return MonitorRecord(
+        bvid=bvid,
+        timestamp=format_ts(ts),
+        view_count=video["view_count"],
+        like_count=video["like_count"],
+        coin_count=video["coin_count"],
+        share_count=video["share_count"],
+        favorite_count=video["favorite_count"],
+        danmaku_count=video["danmaku_count"],
+        reply_count=video["reply_count"],
+        viewers_total=video.get("viewers_total", 0),
+        viewers_web=video.get("viewers_web", 0),
+        viewers_app=video.get("viewers_app", 0),
+    )
+
+
+def _save_monitor_record(gui, bvid, video, ts):
     try:
         if bvid in gui.video_dbs:
-            rec = MonitorRecord(
-                bvid=bvid,
-                timestamp=format_ts(ts),
-                view_count=video["view_count"],
-                like_count=video["like_count"],
-                coin_count=video["coin_count"],
-                share_count=video["share_count"],
-                favorite_count=video["favorite_count"],
-                danmaku_count=video["danmaku_count"],
-                reply_count=video["reply_count"],
-                viewers_total=video.get("viewers_total", 0),
-                viewers_web=video.get("viewers_web", 0),
-                viewers_app=video.get("viewers_app", 0),
-            )
-            gui.video_dbs[bvid].add_monitor_record(rec)
+            gui.video_dbs[bvid].add_monitor_record(_monitor_record(bvid, video, ts))
             # 分数改为惰性物化（utils.score_materializer.ensure_scores），不再每抓取写入
     except Exception as e:
         gui.log_panel.add_log("WARNING", f"[{bvid}] 写数据库失败: {e}")
 
-    # 同步中央库
+
+def _sync_monitor_record(gui, bvid, video, ts):
     try:
         db.sync_monitor_record(
             bvid,
@@ -311,18 +316,21 @@ def _fetch_one_video(gui, bvid, video):
     except Exception as e:
         gui.log_panel.add_log("WARNING", f"[{bvid}] 同步中央监控记录失败: {e}")
 
-    # 同步视频信息到中央库
+
+def _sync_video_info(gui, bvid, video):
     try:
         db.sync_video_info(bvid, video)
     except Exception as e:
         gui.log_panel.add_log("WARNING", f"[{bvid}] 同步中央视频信息失败: {e}")
 
-    # 后台拉取弹幕（登记线程,退出时统一 join）
+
+def _start_danmaku_fetch(gui, bvid, video):
     cid = video.get("_cid", 0)
     if cid:
         _start_tracked_thread(_fetch_danmaku_bg, args=(gui, bvid, cid), name=f"dm-{bvid}")
 
-    # 阈值突破检测 + 自动扩档（仅在播放量有效时执行；A1）
+
+def _check_video_thresholds(gui, bvid, video):
     try:
         from core.threshold_escalation import check_thresholds
 
@@ -330,15 +338,55 @@ def _fetch_one_video(gui, bvid, video):
     except Exception as e:
         logger.debug("阈值检查失败 %s: %s", bvid, e)
 
-    # 主线程 UI 更新（通过 _invoker 跨线程安全调用）
-    invoke(lambda v=video.copy(), b=bvid: _on_fetch_done(gui, b, v))
 
-    # ── 分发到预测线程 ──
+def _notify_predictor(gui, bvid, video):
     _ensure_predictor(gui, bvid, video)
     with _predictors_lock:
         predictor = _predictors.get(bvid)
     if predictor:
         predictor.notify()
+
+
+def _fetch_one_video(gui, bvid, video):
+    """拉取单个视频数据：API → 更新字段 → 在线人数 → 历史记录 → 写DB → UI 回调 → 分发预测"""
+    _log_fetch_route(gui, bvid)
+    info = _get_video_info(gui, bvid)
+    if info is None:
+        return
+    stat = info.get("stat", {})
+
+    with gui._data_lock:
+        _update_video_fields(gui, video, info, stat)
+
+    # 获取在线人数（使用独立 _viewers_lock，减少 _data_lock 争用）
+    with gui._viewers_lock:
+        _update_video_viewers(gui, bvid, video, info)
+
+    # 写入历史记录
+    ts = datetime.now()
+    with gui._data_lock:
+        _append_history(gui, bvid, video, ts)
+
+    # 写入视频库
+    _save_monitor_record(gui, bvid, video, ts)
+
+    # 同步中央库
+    _sync_monitor_record(gui, bvid, video, ts)
+
+    # 同步视频信息到中央库
+    _sync_video_info(gui, bvid, video)
+
+    # 后台拉取弹幕（登记线程,退出时统一 join）
+    _start_danmaku_fetch(gui, bvid, video)
+
+    # 阈值突破检测 + 自动扩档（仅在播放量有效时执行；A1）
+    _check_video_thresholds(gui, bvid, video)
+
+    # 主线程 UI 更新（通过 _invoker 跨线程安全调用）
+    invoke(lambda v=video.copy(), b=bvid: _on_fetch_done(gui, b, v))
+
+    # ── 分发到预测线程 ──
+    _notify_predictor(gui, bvid, video)
 
 
 def _on_fetch_done(gui, bvid, video):

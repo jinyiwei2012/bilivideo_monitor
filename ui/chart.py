@@ -412,21 +412,8 @@ class ChartWidget(QWidget):
                 W - MR - 2, 24, f"起始 {fmt_num(base_v)}", QColor(C["text_3"]), 7, Qt.AlignmentFlag.AlignRight
             )
 
-    def _draw_step_chart(self, history, W, H, ML, MR, MT, MB, cw, ch):
-        """绘制新增折线图"""
-        n_keep = min(len(history), max(2, self._max_points) + 1)
-        tail = history[-n_keep:]
-        deltas = [(tail[i][0], tail[i][1] - tail[i - 1][1]) for i in range(1, len(tail))]
-        if not deltas:
-            self._draw_text(
-                W // 2, H // 2, "音符还太少啦…天依还没法开唱 ♪", QColor(C["text_3"]), 11, Qt.AlignmentFlag.AlignCenter
-            )
-            return
-
-        values = [v for _, v in deltas]
-        n = len(deltas)
-
-        # 计算预测增量
+    def _step_prediction_delta(self, tail, n):
+        """按历史平均采样间隔计算预测增量。"""
         pred_delta = None
         if self._prediction and n >= 2:
             rate = self._prediction.get("rate_per_sec", 0)
@@ -443,7 +430,11 @@ class ChartWidget(QWidget):
                 if intervals:
                     avg_interval = sum(intervals) / len(intervals)
                     pred_delta = rate * avg_interval
+        return pred_delta
 
+    @staticmethod
+    def _step_scale(values, pred_delta):
+        """计算新增折线图的纵轴范围。"""
         values_for_scale = values + ([pred_delta] if pred_delta is not None else [])
         v_min = min(0, min(values_for_scale))
         v_max = max(0, max(values_for_scale))
@@ -453,7 +444,70 @@ class ChartWidget(QWidget):
         pad = span * 0.1
         v_min -= pad
         v_max += pad
-        span = v_max - v_min
+        return v_min, v_max, v_max - v_min
+
+    def _draw_step_zero_and_series(self, values, n, px, py, W, ML, MR, v_min, v_max):
+        """按原顺序绘制零线、折线和数据点。"""
+        if v_min <= 0 <= v_max:
+            zy = py(0)
+            self._draw_line(ML, zy, W - MR, zy, C["text_3"])
+        points = [(px(i), py(values[i])) for i in range(n)]
+        dots = [(px(i), py(v), 4, C["success"] if v >= 0 else C["danger"]) for i, v in enumerate(values)]
+        self._add_series_item(points, dots, C["chart_line"], line_width=2)
+
+    def _draw_step_prediction(self, pred_delta, lx, ly, n, py, W, ML, MR):
+        """绘制新增模式的预测投影。"""
+        if pred_delta is None:
+            return
+        spacing_val = (W - ML - MR) / (n - 1) if n > 1 else 30
+        proj_x = min(lx + spacing_val, W - MR - 10)
+        proj_y = py(pred_delta)
+        self._draw_line(lx, ly, proj_x, proj_y, _PRED_COLOR, dash=(4, 4))
+        self._draw_oval(proj_x, proj_y, 4, _PRED_COLOR, C["on_accent"], 2)
+        sign = "+" if pred_delta >= 0 else ""
+        self._draw_text(
+            proj_x,
+            proj_y - 14,
+            f"预测 {sign}{fmt_num(int(pred_delta))}",
+            QColor(_PRED_COLOR),
+            8,
+            Qt.AlignmentFlag.AlignCenter,
+        )
+
+    def _draw_step_time_labels(self, deltas, n, px, H, MB):
+        """绘制新增模式的横轴时间标签。"""
+        step = max(1, n // 6)
+        for i, (ts, _) in enumerate(deltas):
+            if i % step == 0 or i == n - 1:
+                t_str = self._fmt_ts(ts)
+                self._draw_text(px(i), H - MB + 6, t_str, QColor(C["text_3"]), 8, Qt.AlignmentFlag.AlignCenter)
+
+    def _draw_step_stats(self, values, n, pred_delta, W, MR):
+        """绘制新增模式统计文字。"""
+        total = sum(values)
+        avg = total / n if n else 0
+        info = f"新增 | {n} 点 | 总+{fmt_num(total)} | 均+{fmt_num(avg)}"
+        if pred_delta is not None:
+            sign = "+" if pred_delta >= 0 else ""
+            info += f" | 预测 {sign}{fmt_num(int(pred_delta))}"
+        self._draw_text(W - MR - 2, 12, info, QColor(C["text_3"]), 8, Qt.AlignmentFlag.AlignRight)
+
+    def _draw_step_chart(self, history, W, H, ML, MR, MT, MB, cw, ch):
+        """绘制新增折线图"""
+        n_keep = min(len(history), max(2, self._max_points) + 1)
+        tail = history[-n_keep:]
+        deltas = [(tail[i][0], tail[i][1] - tail[i - 1][1]) for i in range(1, len(tail))]
+        if not deltas:
+            self._draw_text(
+                W // 2, H // 2, "音符还太少啦…天依还没法开唱 ♪", QColor(C["text_3"]), 11, Qt.AlignmentFlag.AlignCenter
+            )
+            return
+
+        values = [v for _, v in deltas]
+        n = len(deltas)
+
+        pred_delta = self._step_prediction_delta(tail, n)
+        v_min, v_max, span = self._step_scale(values, pred_delta)
 
         def py(v):
             return MT + ch - ((v - v_min) / span) * ch
@@ -465,15 +519,7 @@ class ChartWidget(QWidget):
 
         # 网格
         self._draw_grid(W, H, ML, MR, MT, MB, cw, ch, v_min, v_max, is_delta=True)
-        # 0 基准线
-        if v_min <= 0 <= v_max:
-            zy = py(0)
-            self._draw_line(ML, zy, W - MR, zy, C["text_3"])
-
-        # 折线 + 数据点（单图元一次绘制，避免逐段/逐点建 item）
-        points = [(px(i), py(values[i])) for i in range(n)]
-        dots = [(px(i), py(v), 4, C["success"] if v >= 0 else C["danger"]) for i, v in enumerate(values)]
-        self._add_series_item(points, dots, C["chart_line"], line_width=2)
+        self._draw_step_zero_and_series(values, n, px, py, W, ML, MR, v_min, v_max)
 
         # 最新标注
         last_v = values[-1]
@@ -483,38 +529,9 @@ class ChartWidget(QWidget):
         self._draw_rect(lx - 34, ly - 22, lx + 34, ly - 6, C["chart_line"])
         self._draw_text(lx, ly - 14, label_text, QColor(C["on_accent"]), 8, Qt.AlignmentFlag.AlignCenter)
 
-        # 预测投影
-        if pred_delta is not None:
-            spacing_val = (W - ML - MR) / (n - 1) if n > 1 else 30
-            proj_x = min(lx + spacing_val, W - MR - 10)
-            proj_y = py(pred_delta)
-            self._draw_line(lx, ly, proj_x, proj_y, _PRED_COLOR, dash=(4, 4))
-            self._draw_oval(proj_x, proj_y, 4, _PRED_COLOR, C["on_accent"], 2)
-            sign = "+" if pred_delta >= 0 else ""
-            self._draw_text(
-                proj_x,
-                proj_y - 14,
-                f"预测 {sign}{fmt_num(int(pred_delta))}",
-                QColor(_PRED_COLOR),
-                8,
-                Qt.AlignmentFlag.AlignCenter,
-            )
-
-        # X 轴时间标签
-        step = max(1, n // 6)
-        for i, (ts, _) in enumerate(deltas):
-            if i % step == 0 or i == n - 1:
-                t_str = self._fmt_ts(ts)
-                self._draw_text(px(i), H - MB + 6, t_str, QColor(C["text_3"]), 8, Qt.AlignmentFlag.AlignCenter)
-
-        # 统计
-        total = sum(values)
-        avg = total / n if n else 0
-        info = f"新增 | {n} 点 | 总+{fmt_num(total)} | 均+{fmt_num(avg)}"
-        if pred_delta is not None:
-            sign = "+" if pred_delta >= 0 else ""
-            info += f" | 预测 {sign}{fmt_num(int(pred_delta))}"
-        self._draw_text(W - MR - 2, 12, info, QColor(C["text_3"]), 8, Qt.AlignmentFlag.AlignRight)
+        self._draw_step_prediction(pred_delta, lx, ly, n, py, W, ML, MR)
+        self._draw_step_time_labels(deltas, n, px, H, MB)
+        self._draw_step_stats(values, n, pred_delta, W, MR)
 
 
 def draw_chart_placeholder(canvas, text=None):

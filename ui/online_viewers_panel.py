@@ -290,6 +290,64 @@ class OnlineViewersPanel(QWidget):
         if self._active:
             invoke(lambda c=cached: self._update_ui_after_fetch(c))
 
+    def _selected_viewer_bvid(self):
+        """返回在线人数表中当前选中的 BV 号。"""
+        selected_bvid = None
+        sel = self._tree.selectedItems()
+        if sel:
+            selected_bvid = sel[0].data(0, Qt.ItemDataRole.UserRole + 1)
+        return selected_bvid
+
+    @staticmethod
+    def _priority_viewer_videos(videos, cached, selected_bvid):
+        """按缓存在线人数选取优先视频并补入当前选中视频。"""
+        ranked = sorted(
+            [(v, v.get("viewers_total", cached.get(v.get("bvid", ""), {}).get("total", 0))) for v in videos],
+            key=lambda x: x[1],
+            reverse=True,
+        )
+        priority_videos = [v for v, _ in ranked[:TOP_N_FETCH]]
+        if selected_bvid:
+            for v in videos:
+                if v.get("bvid") == selected_bvid and v not in priority_videos:
+                    priority_videos.append(v)
+                    break
+        return priority_videos
+
+    @staticmethod
+    def _fetchable_viewer_videos(priority_videos):
+        """提取具备 cid 的 BV 号和 cid 对。"""
+        fetchable = []
+        for v in priority_videos:
+            cid = v.get("_cid", 0) or v.get("cid", 0)
+            if cid:
+                fetchable.append((v.get("bvid", ""), cid))
+        return fetchable
+
+    @staticmethod
+    def _fetch_one_viewer(bvid, cid):
+        """拉取并缓存一个视频的在线观看人数。"""
+        try:
+            from core import bilibili_api
+
+            viewers = bilibili_api.get_video_viewers(bvid, cid)
+            if viewers:
+                total = _parse_viewer_count(viewers.get("total", "0"))
+                web = _parse_viewer_count(viewers.get("count", "0"))
+                app = max(0, total - web)
+                _write_viewer(bvid, total, web, app)
+        except Exception:
+            pass
+
+    def _wait_viewer_futures(self, fetchable):
+        """按原超时等待在线人数抓取任务并吞掉单任务错误。"""
+        futures = [self._fetch_pool.submit(self._fetch_one_viewer, bvid, cid) for bvid, cid in fetchable]
+        for f in as_completed(futures, timeout=10):
+            try:
+                f.result()
+            except Exception:
+                pass
+
     def _fetch_all_viewers(self):
         """并发拉取高优先级视频的在线观看人数，写入独立缓存。"""
         gui = self.gui
@@ -299,58 +357,17 @@ class OnlineViewersPanel(QWidget):
         if not videos:
             return
 
-        # 选中的视频
-        selected_bvid = None
-        sel = self._tree.selectedItems()
-        if sel:
-            selected_bvid = sel[0].data(0, Qt.ItemDataRole.UserRole + 1)
-
-        # 按缓存中的在线人数排序
+        selected_bvid = self._selected_viewer_bvid()
         cached = _read_viewers()
-        ranked = sorted(
-            [(v, v.get("viewers_total", cached.get(v.get("bvid", ""), {}).get("total", 0))) for v in videos],
-            key=lambda x: x[1],
-            reverse=True,
-        )
-        priority_videos = [v for v, _ in ranked[:TOP_N_FETCH]]
-
-        if selected_bvid:
-            for v in videos:
-                if v.get("bvid") == selected_bvid and v not in priority_videos:
-                    priority_videos.append(v)
-                    break
-
-        fetchable = []
-        for v in priority_videos:
-            cid = v.get("_cid", 0) or v.get("cid", 0)
-            if cid:
-                fetchable.append((v.get("bvid", ""), cid))
+        priority_videos = self._priority_viewer_videos(videos, cached, selected_bvid)
+        fetchable = self._fetchable_viewer_videos(priority_videos)
 
         if not fetchable:
             return
 
         if self._fetch_pool is None:
             self._fetch_pool = ThreadPoolExecutor(max_workers=MAX_VIEWER_FETCH_WORKERS)
-
-        def _fetch_one(bvid, cid):
-            try:
-                from core import bilibili_api
-
-                viewers = bilibili_api.get_video_viewers(bvid, cid)
-                if viewers:
-                    total = _parse_viewer_count(viewers.get("total", "0"))
-                    web = _parse_viewer_count(viewers.get("count", "0"))
-                    app = max(0, total - web)
-                    _write_viewer(bvid, total, web, app)
-            except Exception:
-                pass
-
-        futures = [self._fetch_pool.submit(_fetch_one, bvid, cid) for bvid, cid in fetchable]
-        for f in as_completed(futures, timeout=10):
-            try:
-                f.result()
-            except Exception:
-                pass
+        self._wait_viewer_futures(fetchable)
 
     def _populate(self, cached=None):
         """填充树形表格：合并视频列表（标题/播放量）与在线人数缓存

@@ -108,6 +108,130 @@ def login_with_password_fallback(self, username: str, password: str) -> Dict:
     return result
 
 
+def _password_login_result(self, resp, data: Dict, include_sid: bool = False) -> Dict:
+    cookies = _extract_login_cookies(self, resp, data)
+    if not cookies:
+        mid_raw = str(data.get("mid", ""))
+        cookie_values = {
+            "SESSDATA": data.get("sessdata", ""),
+            "bili_jct": data.get("bili_jct", ""),
+            "DedeUserID": mid_raw,
+            "DedeUserID__ckMd5": hashlib.md5(mid_raw.encode(), usedforsecurity=False).hexdigest() if mid_raw else "",
+        }
+        if include_sid:
+            cookie_values["sid"] = data.get("sid", "")
+        cookies = {k: v for k, v in cookie_values.items() if v}
+    set_cookies(self, cookies)
+    refresh_token = data.get("refresh_token", "")
+    return {
+        "code": 0,
+        "message": "登录成功",
+        "cookies": cookies,
+        "refresh_token": refresh_token,
+        "need_captcha": False,
+        "captcha_type": 0,
+        "captcha_phone": "",
+    }
+
+
+def _submit_geetest_login(self, login_url: str, username: str, encrypted_password: str, captcha: str):
+    validate, seccode = captcha.split(":", 1)
+    login_data = {
+        "username": username,
+        "password": encrypted_password,
+        "keep": 1,
+        "source": "main_web",
+        "validate": validate,
+        "seccode": seccode,
+    }
+    resp = self.session.post(
+        login_url,
+        data=login_data,
+        headers={
+            "User-Agent": random.choice(self.USER_AGENTS),
+            "Referer": "https://www.bilibili.com/",
+        },
+        timeout=15,
+    )
+    data = resp.json()
+    if data.get("code") == 0:
+        d = data.get("data", {})
+        cookies = _extract_login_cookies(self, resp, d) or {
+            "SESSDATA": d.get("sessdata", ""),
+            "bili_jct": d.get("bili_jct", ""),
+            "DedeUserID": str(d.get("mid", "")),
+        }
+        cookies = {k: v for k, v in cookies.items() if v}
+        set_cookies(self, cookies)
+        return {
+            "code": 0,
+            "message": "登录成功",
+            "cookies": cookies,
+            "refresh_token": d.get("refresh_token", ""),
+            "need_captcha": False,
+            "captcha_type": 0,
+            "captcha_phone": "",
+        }, data
+    return None, data
+
+
+def _try_auto_geetest_login(self, login_url: str, username: str, encrypted_password: str, data: Dict):
+    d = data.get("data", {})
+    gt = d.get("gt", "")
+    challenge = d.get("challenge", "")
+    if not gt or not challenge:
+        return None
+    solved = _auto_solve_geetest(self, gt, challenge)
+    if not solved:
+        return None
+    validate, seccode = solved
+    login_data = {
+        "username": username,
+        "password": encrypted_password,
+        "keep": 1,
+        "source": "main_web",
+        "validate": validate,
+        "seccode": seccode,
+    }
+    resp = self.session.post(
+        login_url,
+        data=login_data,
+        headers={
+            "User-Agent": random.choice(self.USER_AGENTS),
+            "Referer": "https://www.bilibili.com/",
+        },
+        timeout=15,
+    )
+    data = resp.json()
+    if data.get("code") == 0:
+        return _password_login_result(self, resp, data.get("data", {}))
+    return None
+
+
+def _password_login_failure(data: Dict, api_code: int, need_captcha: bool) -> Dict:
+    ct = 0
+    phone = ""
+    gt_val = ""
+    challenge_val = ""
+    if need_captcha:
+        d = data.get("data", {})
+        ct = d.get("captcha_type", 6)
+        phone = d.get("phone", "") or d.get("captcha_phone", "")
+        gt_val = d.get("gt", "")
+        challenge_val = d.get("challenge", "")
+    return {
+        "code": api_code,
+        "message": data.get("message", "登录失败"),
+        "cookies": {},
+        "refresh_token": "",
+        "need_captcha": need_captcha,
+        "captcha_type": ct,
+        "captcha_phone": phone,
+        "gt": gt_val,
+        "challenge": challenge_val,
+    }
+
+
 def login_with_password(self, username: str, password: str, captcha: str = "", captcha_type: int = 0) -> Dict:
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric import padding
@@ -161,151 +285,22 @@ def login_with_password(self, username: str, password: str, captcha: str = "", c
 
         if api_code == 0:
             d = data.get("data", {})
-            cookies = _extract_login_cookies(self, resp, d)
-            if not cookies:
-                import hashlib as _hl
-
-                mid_raw = str(d.get("mid", ""))
-                # B站协议要求 ckMd5 = md5(DedeUserID)，属协议字段而非安全用途
-                ckMd5 = _hl.md5(mid_raw.encode(), usedforsecurity=False).hexdigest() if mid_raw else ""
-                cookies = {
-                    "SESSDATA": d.get("sessdata", ""),
-                    "bili_jct": d.get("bili_jct", ""),
-                    "DedeUserID": mid_raw,
-                    "DedeUserID__ckMd5": ckMd5,
-                    "sid": d.get("sid", ""),
-                }
-                cookies = {k: v for k, v in cookies.items() if v}
-            set_cookies(self, cookies)
-            refresh_token = d.get("refresh_token", "")
-            self._refresh_token = refresh_token
-            return {
-                "code": 0,
-                "message": "登录成功",
-                "cookies": cookies,
-                "refresh_token": refresh_token,
-                "need_captcha": False,
-                "captcha_type": 0,
-                "captcha_phone": "",
-            }
+            result = _password_login_result(self, resp, d, include_sid=True)
+            self._refresh_token = result["refresh_token"]
+            return result
 
         if captcha and captcha_type == -1 and ":" in captcha:
-            validate, seccode = captcha.split(":", 1)
-            _login_data = {
-                "username": username,
-                "password": encrypted_password,
-                "keep": 1,
-                "source": "main_web",
-                "validate": validate,
-                "seccode": seccode,
-            }
-            resp_g = self.session.post(
-                login_url,
-                data=_login_data,
-                headers={
-                    "User-Agent": random.choice(self.USER_AGENTS),
-                    "Referer": "https://www.bilibili.com/",
-                },
-                timeout=15,
-            )
-            data_g = resp_g.json()
-            if data_g.get("code") == 0:
-                d_g = data_g.get("data", {})
-                cookies = _extract_login_cookies(self, resp_g, d_g) or {
-                    "SESSDATA": d_g.get("sessdata", ""),
-                    "bili_jct": d_g.get("bili_jct", ""),
-                    "DedeUserID": str(d_g.get("mid", "")),
-                }
-                cookies = {k: v for k, v in cookies.items() if v}
-                set_cookies(self, cookies)
-                return {
-                    "code": 0,
-                    "message": "登录成功",
-                    "cookies": cookies,
-                    "refresh_token": d_g.get("refresh_token", ""),
-                    "need_captcha": False,
-                    "captcha_type": 0,
-                    "captcha_phone": "",
-                }
-            need_captcha = False  # 将在下方根据 API 返回值重新判断
-            data = data_g
+            result, data = _submit_geetest_login(self, login_url, username, encrypted_password, captcha)
+            if result:
+                return result
             api_code = data.get("code", -1)
 
         need_captcha = data.get("need_captcha", False) or api_code in [-629, -352]
         if need_captcha and not captcha:
-            d = data.get("data", {})
-            gt = d.get("gt", "")
-            challenge = d.get("challenge", "")
-            if gt and challenge:
-                solved = _auto_solve_geetest(self, gt, challenge)
-                if solved:
-                    validate, seccode = solved
-                    _login_data = {
-                        "username": username,
-                        "password": encrypted_password,
-                        "keep": 1,
-                        "source": "main_web",
-                        "validate": validate,
-                        "seccode": seccode,
-                    }
-                    resp2 = self.session.post(
-                        login_url,
-                        data=_login_data,
-                        headers={
-                            "User-Agent": random.choice(self.USER_AGENTS),
-                            "Referer": "https://www.bilibili.com/",
-                        },
-                        timeout=15,
-                    )
-                    data2 = resp2.json()
-                    if data2.get("code") == 0:
-                        d2 = data2.get("data", {})
-                        cookies = _extract_login_cookies(self, resp2, d2)
-                        if not cookies:
-                            mid2 = str(d2.get("mid", ""))
-                            cookies = {
-                                k: v
-                                for k, v in {
-                                    "SESSDATA": d2.get("sessdata", ""),
-                                    "bili_jct": d2.get("bili_jct", ""),
-                                    "DedeUserID": mid2,
-                                    "DedeUserID__ckMd5": (
-                                        hashlib.md5(mid2.encode(), usedforsecurity=False).hexdigest() if mid2 else ""
-                                    ),
-                                }.items()
-                                if v
-                            }
-                        set_cookies(self, cookies)
-                        return {
-                            "code": 0,
-                            "message": "登录成功",
-                            "cookies": cookies,
-                            "refresh_token": d2.get("refresh_token", ""),
-                            "need_captcha": False,
-                            "captcha_type": 0,
-                            "captcha_phone": "",
-                        }
-        ct = 0
-        phone = ""
-        gt_val = ""
-        challenge_val = ""
-        if need_captcha:
-            d = data.get("data", {})
-            ct = d.get("captcha_type", 6)
-            phone = d.get("phone", "") or d.get("captcha_phone", "")
-            gt_val = d.get("gt", "")
-            challenge_val = d.get("challenge", "")
-        return {
-            "code": api_code,
-            "message": data.get("message", "登录失败"),
-            "cookies": {},
-            "refresh_token": "",
-            "need_captcha": need_captcha,
-            "captcha_type": ct,
-            "captcha_phone": phone,
-            "gt": gt_val,
-            "challenge": challenge_val,
-        }
+            result = _try_auto_geetest_login(self, login_url, username, encrypted_password, data)
+            if result:
+                return result
+        return _password_login_failure(data, api_code, need_captcha)
 
     except Exception as e:
         logger.warning(f"自有密码登录失败，尝试 bilibili-api-python 兜底: {e}")
@@ -448,6 +443,84 @@ def get_qrcode_login_url(self) -> Optional[Dict]:
     return None
 
 
+def _apply_qr_poll_status(result: Dict, data: Dict) -> bool:
+    code = data.get("code", -1)
+    log_data = data.get("data", {})
+    if code == 86038:
+        result["status"] = -1
+        result["message"] = "二维码已过期"
+        return False
+    if code == 86101:
+        result["message"] = "等待扫码"
+        return False
+    if code != 0:
+        result["message"] = log_data.get("message", data.get("message", f"错误码 {code}"))
+        return False
+    raw_status = log_data.get("status")
+    if raw_status == 2:
+        result["status"] = 2
+        result["message"] = "登录成功"
+        return True
+    if raw_status == 1:
+        result["status"] = 1
+        result["message"] = log_data.get("message", "已扫码，请在手机上确认")
+    elif raw_status == 0:
+        result["message"] = "等待扫码"
+    else:
+        result["status"] = -1
+        result["message"] = "未知的扫码状态，请重试"
+    return False
+
+
+def _collect_qr_redirect_cookies(self, resp, data: Dict) -> Dict:
+    cookies = _extract_login_cookies(self, resp, data)
+    if not cookies:
+        redirect_url = data.get("url", "")
+        if redirect_url:
+            parsed = urlparse(redirect_url)
+            params = parse_qs(parsed.query)
+            cookies = {
+                k: params.get(k, [None])[0] for k in ("SESSDATA", "bili_jct", "DedeUserID") if params.get(k, [None])[0]
+            }
+    return cookies
+
+
+def _collect_qr_response_cookies(self, resp, data: Dict) -> Dict:
+    cookies = _collect_qr_redirect_cookies(self, resp, data)
+    if not cookies:
+        for ci in data.get("cookie_info", {}).get("cookies", []):
+            name = ci.get("name", "")
+            if name in ("SESSDATA", "bili_jct", "DedeUserID"):
+                cookies[name] = ci.get("value", "")
+    if not cookies:
+        for k in ("SESSDATA", "bili_jct", "DedeUserID"):
+            value = resp.cookies.get(k)
+            if value:
+                cookies[k] = value
+    return cookies
+
+
+def _exchange_qr_refresh_token(self, sess, data: Dict) -> Dict:
+    cookies = {}
+    logger.debug("QR 登录未取到 Cookie，尝试从 refresh_token 换票")
+    token_data = {"refresh_token": data["refresh_token"]}
+    try:
+        ex = sess.post("https://passport.bilibili.com/x/passport-login/web/exchange", data=token_data, timeout=10)
+        if ex.status_code == 200:
+            exd = ex.json().get("data", {})
+            cookies = _extract_login_cookies(self, ex, exd)
+    except Exception as e2:
+        logger.debug("exchange 换票失败: %s", e2)
+    return cookies
+
+
+def _collect_qr_login_cookies(self, sess, resp, data: Dict) -> Dict:
+    cookies = _collect_qr_response_cookies(self, resp, data)
+    if not cookies and data.get("refresh_token"):
+        cookies = _exchange_qr_refresh_token(self, sess, data)
+    return cookies
+
+
 def poll_qrcode_login(self, qrcode_key: str) -> Optional[Dict]:
     sess = _init_qr_session(self)
     url = "https://passport.bilibili.com/x/passport-login/web/qrcode/poll"
@@ -462,68 +535,10 @@ def poll_qrcode_login(self, qrcode_key: str) -> Optional[Dict]:
         data = resp.json()
         log_data = data.get("data", {})
         logger.debug("QR poll response: code=%s status=%s", data.get("code"), log_data.get("status"))
-        code = data.get("code", -1)
-        if code == 86038:
-            result["status"] = -1
-            result["message"] = "二维码已过期"
-            return result
-        if code == 86101:
-            result["message"] = "等待扫码"
-            return result
-        if code != 0:
-            result["message"] = log_data.get("message", data.get("message", f"错误码 {code}"))
+        if not _apply_qr_poll_status(result, data):
             return result
 
-        d = data.get("data", {})
-        raw_status = d.get("status")
-        if raw_status == 2:
-            result["status"] = 2
-            result["message"] = "登录成功"
-        elif raw_status == 1:
-            result["status"] = 1
-            result["message"] = d.get("message", "已扫码，请在手机上确认")
-            return result
-        elif raw_status == 0:
-            result["message"] = "等待扫码"
-            return result
-        else:
-            result["status"] = -1
-            result["message"] = "未知的扫码状态，请重试"
-            return result
-
-        cookies = _extract_login_cookies(self, resp, d)
-        if not cookies:
-            redirect_url = d.get("url", "")
-            if redirect_url:
-                parsed = urlparse(redirect_url)
-                params = parse_qs(parsed.query)
-                cookies = {
-                    k: params.get(k, [None])[0]
-                    for k in ("SESSDATA", "bili_jct", "DedeUserID")
-                    if params.get(k, [None])[0]
-                }
-        if not cookies:
-            for ci in d.get("cookie_info", {}).get("cookies", []):
-                name = ci.get("name", "")
-                if name in ("SESSDATA", "bili_jct", "DedeUserID"):
-                    cookies[name] = ci.get("value", "")
-        if not cookies:
-            for k in ("SESSDATA", "bili_jct", "DedeUserID"):
-                v = resp.cookies.get(k)
-                if v:
-                    cookies[k] = v
-        if not cookies and d.get("refresh_token"):
-            logger.debug("QR 登录未取到 Cookie，尝试从 refresh_token 换票")
-            token_data = {"refresh_token": d["refresh_token"]}
-            try:
-                ex = sess.post(
-                    "https://passport.bilibili.com/x/passport-login/web/exchange", data=token_data, timeout=10
-                )
-                if ex.status_code == 200:
-                    exd = ex.json().get("data", {})
-                    cookies = _extract_login_cookies(self, ex, exd)
-            except Exception as e2:
-                logger.debug("exchange 换票失败: %s", e2)
+        cookies = _collect_qr_login_cookies(self, sess, resp, log_data)
         if cookies:
             set_cookies(self, cookies)
             _persist_cookies(self, cookies)

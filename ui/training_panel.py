@@ -985,24 +985,38 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
         total = len(selected)
         algo_lr_factors: Dict[str, float] = {}
         completed_count = [0]
+        batch_interval, batch_interval_mode = self._parse_batch_interval(interval_val, interval_unit)
+        callback = self._make_train_callback(total, is_incremental, batch_log)
+        train_one = self._make_train_one_algo(
+            is_incremental,
+            lr,
+            epochs,
+            batch,
+            batch_log,
+            batch_interval,
+            batch_interval_mode,
+            algo_lr_factors,
+            completed_count,
+            total,
+            callback,
+        )
+        worker = self._make_train_worker(
+            selected, parallel, completed_count, train_one, ThreadPoolExecutor, as_completed
+        )
+        self._launch_worker(worker)
 
-        # 解析 batch 日志间隔
-        batch_interval = None
-        batch_interval_mode = "%"  # % 或 count
+    def _parse_batch_interval(self, interval_val, interval_unit):
+        """解析 batch 日志间隔。"""
         try:
             val = float(interval_val)
             if interval_unit == "%":
                 val = max(1, min(100, val))  # 限制 1%~100%
-                batch_interval = val / 100.0  # 转为比例
-                batch_interval_mode = "%"
-            else:
-                val = max(1, int(val))
-                batch_interval = val
-                batch_interval_mode = "count"
+                return val / 100.0, "%"
+            return max(1, int(val)), "count"
         except (ValueError, TypeError):
-            batch_interval = 0.1  # 默认 10%
-            batch_interval_mode = "%"
+            return 0.1, "%"
 
+    def _make_train_callback(self, total, is_incremental, batch_log):
         def _cb(payload: Dict):
             """训练回调 — 线程安全。batch_log 关闭时过滤 batch 消息。"""
             payload["_total_selected"] = total
@@ -1019,6 +1033,22 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
 
             self._train_queue.put(payload)
 
+        return _cb
+
+    def _make_train_one_algo(
+        self,
+        is_incremental,
+        lr,
+        epochs,
+        batch,
+        batch_log,
+        batch_interval,
+        batch_interval_mode,
+        algo_lr_factors,
+        completed_count,
+        total,
+        callback,
+    ):
         def _train_one_algo(aid):
             """在独立线程中训练单个算法。每个算法有自己的 trainer/control/monitor。"""
             if self._cancel_flag[0]:
@@ -1053,7 +1083,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
                     [aid],
                     epochs=epochs,
                     batch_size=batch,
-                    progress_cb=_cb,
+                    progress_cb=callback,
                     init_from_global=is_incremental,
                     lr=effective_lr,
                     control_dict=control,
@@ -1066,6 +1096,9 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
                 )
                 return aid, False
 
+        return _train_one_algo
+
+    def _make_train_worker(self, selected, parallel, completed_count, train_one, thread_pool_executor, as_completed):
         def _worker():
             """并行训练调度线程"""
             try:
@@ -1076,13 +1109,13 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
                         if self._cancel_flag[0]:
                             self._train_queue.put({"stage": "cancelled", "remaining": selected[completed_count[0] :]})
                             break
-                        ok, success = _train_one_algo(aid)
+                        ok, success = train_one(aid)
                         results[ok] = ok if success else ""
                 else:
                     # 并行模式
                     self._append_log(f"⚡ 并行训练 ({parallel} 线程)")
-                    with ThreadPoolExecutor(max_workers=parallel) as pool:
-                        futures = {pool.submit(_train_one_algo, aid): aid for aid in selected}
+                    with thread_pool_executor(max_workers=parallel) as pool:
+                        futures = {pool.submit(train_one, aid): aid for aid in selected}
                         for f in as_completed(futures):
                             if self._cancel_flag[0]:
                                 # 取消剩余任务
@@ -1100,7 +1133,7 @@ class TrainingPanel(BaseTrainingPanel, VersionManagerMixin):
             except Exception as e:
                 self._train_queue.put({"stage": "fatal", "error": str(e)})
 
-        self._launch_worker(_worker)
+        return _worker
 
     def _on_cancel(self):
         """取消训练按钮回调"""

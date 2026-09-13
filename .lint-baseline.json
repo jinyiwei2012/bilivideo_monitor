@@ -1,24 +1,3 @@
 {
-  "complex_functions": [
-    "AnomalyDetector.detect_paid_promotion_scored",
-    "AnomalyPanel._scan",
-    "BaseAlgorithm.detect_surge",
-    "ChartWidget._draw_step_chart",
-    "DanmakuAnalysisWindow._render_hour_sentiment",
-    "DanmakuMonitor.fetch_new_danmaku",
-    "DetailPanel._fill_detail_text",
-    "FinetunePanel._handle_finetune_progress",
-    "FinetunePanel._start_finetune_worker",
-    "OnlineViewersPanel._fetch_all_viewers",
-    "TrainingPanel._start_train_thread",
-    "VersionManagerMixin._draw_version_detail_pyqt",
-    "_export_from_checkpoint",
-    "_fetch_one_video",
-    "_predict_single",
-    "_request",
-    "diff_cmd",
-    "login_with_password",
-    "poll_qrcode_login",
-    "scan_alerts_background"
-  ]
+  "complex_functions": []
 }

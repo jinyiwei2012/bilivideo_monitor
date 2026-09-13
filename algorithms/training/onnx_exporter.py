@@ -325,104 +325,100 @@ def _benchmark_dml_vs_cpu(onnx_path: str) -> bool:
         return False
 
 
+def _clean_export_state(state: dict) -> dict:
+    clean_state = {}
+    for key, value in state.items():
+        if key.startswith("_orig_mod."):
+            key = key[len("_orig_mod.") :]
+        clean_state[key] = value
+    return clean_state
+
+
+def _infer_export_hidden(state: dict, in_features: int) -> int:
+    hidden = 64
+    for key, value in state.items():
+        if "weight_ih" in key or "weight_hh" in key:
+            return value.shape[0]
+        if "weight" in key and len(value.shape) == 2:
+            if value.shape[1] == in_features or value.shape[0] > in_features:
+                return value.shape[0]
+    return hidden
+
+
+def _infer_export_head_out(clean_state: dict) -> int:
+    head_cands = [int(value.shape[0]) for key, value in clean_state.items() if _is_export_head_weight(key, value)]
+    if head_cands:
+        small = [output for output in head_cands if 1 < output <= 8]
+        if small:
+            return max(small)
+    return 3
+
+
+def _is_export_head_weight(key: str, value) -> bool:
+    if not (key.endswith(".weight") or key == "weight") or value.ndim != 2:
+        return False
+    return any(token in key.lower() for token in ("fc", "head", "linear", "proj", "predict"))
+
+
+def _build_export_model(state: dict, window: int, in_features: int, head_out: int):
+    import torch.nn as nn
+
+    class OnnxExportModel(nn.Module):
+        def __init__(self):
+            super().__init__()
+            keys = list(state.keys())
+            hidden = _infer_export_hidden(state, in_features)
+            if any("lstm" in key.lower() for key in keys):
+                self.rnn = nn.LSTM(in_features, hidden, batch_first=True)
+                self.fc = nn.Linear(hidden, head_out)
+            elif any("gru" in key.lower() for key in keys):
+                self.rnn = nn.GRU(in_features, hidden, batch_first=True)
+                self.fc = nn.Linear(hidden, head_out)
+            elif any("conv" in key.lower() for key in keys):
+                self.conv = nn.Conv1d(in_features, hidden, 3, padding=1)
+                self.fc = nn.Linear(hidden * window, head_out)
+            elif any("encoder" in key.lower() or "attention" in key.lower() for key in keys):
+                encoder_layer = nn.TransformerEncoderLayer(
+                    d_model=in_features, nhead=max(1, in_features // 2), batch_first=True
+                )
+                self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=1)
+                self.fc = nn.Linear(in_features, head_out)
+            else:
+                self.fc = nn.Sequential(
+                    nn.Flatten(),
+                    nn.Linear(window * in_features, hidden),
+                    nn.GELU(),
+                    nn.Linear(hidden, hidden // 2),
+                    nn.GELU(),
+                    nn.Linear(hidden // 2, head_out),
+                )
+
+        def forward(self, x):
+            if hasattr(self, "rnn"):
+                out, _ = self.rnn(x)
+                return self.fc(out[:, -1, :])
+            if hasattr(self, "conv"):
+                out = self.conv(x.transpose(1, 2))
+                return self.fc(out.reshape(out.shape[0], -1))
+            if hasattr(self, "encoder"):
+                out = self.encoder(x)
+                return self.fc(out[:, -1, :])
+            return self.fc(x)
+
+    return OnnxExportModel()
+
+
 def _export_from_checkpoint(state: dict, algo_id: str, bvid: str, window: int, in_features: int) -> Optional[str]:
     """从 checkpoint state_dict 自动导出 ONNX。
 
     构建一个通用骨架模型加载权重后导出。
     """
     try:
-        import torch.nn as nn
-
-        # 通用骨架：匹配大部分 _torch_upgrade 中的模型签名
-        class OnnxExportModel(nn.Module):
-            def __init__(self, head_out=3):
-                super().__init__()
-                # 根据 state_dict 推断模型结构
-                self._build_from_state(state, window, in_features, head_out)
-
-            def _build_from_state(self, state, window, in_features, head_out=3):
-                """从 state_dict 的 key 模式推断结构。"""
-                keys = list(state.keys())
-                # 检测模型类型
-                has_lstm = any("lstm" in k.lower() for k in keys)
-                has_gru = any("gru" in k.lower() for k in keys)
-                has_conv = any("conv" in k.lower() for k in keys)
-                has_transformer = any("encoder" in k.lower() or "attention" in k.lower() for k in keys)
-
-                # 推断隐藏维度
-                hidden = 64
-                for k in keys:
-                    if "weight_ih" in k or "weight_hh" in k:
-                        hidden = state[k].shape[0]
-                        break
-                    if "weight" in k and len(state[k].shape) == 2:
-                        if state[k].shape[1] == in_features or state[k].shape[0] > in_features:
-                            hidden = state[k].shape[0]
-                            break
-
-                if has_lstm:
-                    self.rnn = nn.LSTM(in_features, hidden, batch_first=True)
-                    self.fc = nn.Linear(hidden, head_out)
-                elif has_gru:
-                    self.rnn = nn.GRU(in_features, hidden, batch_first=True)
-                    self.fc = nn.Linear(hidden, head_out)
-                elif has_conv:
-                    self.conv = nn.Conv1d(in_features, hidden, 3, padding=1)
-                    self.fc = nn.Linear(hidden * window, head_out)
-                elif has_transformer:
-                    encoder_layer = nn.TransformerEncoderLayer(
-                        d_model=in_features, nhead=max(1, in_features // 2), batch_first=True
-                    )
-                    self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=1)
-                    self.fc = nn.Linear(in_features, head_out)
-                else:
-                    # 默认 MLP
-                    self.fc = nn.Sequential(
-                        nn.Flatten(),
-                        nn.Linear(window * in_features, hidden),
-                        nn.GELU(),
-                        nn.Linear(hidden, hidden // 2),
-                        nn.GELU(),
-                        nn.Linear(hidden // 2, head_out),
-                    )
-
-            def forward(self, x):
-                if hasattr(self, "rnn"):
-                    out, _ = self.rnn(x)
-                    return self.fc(out[:, -1, :])
-                elif hasattr(self, "conv"):
-                    out = self.conv(x.transpose(1, 2))
-                    return self.fc(out.reshape(out.shape[0], -1))
-                elif hasattr(self, "encoder"):
-                    out = self.encoder(x)
-                    return self.fc(out[:, -1, :])
-                else:
-                    return self.fc(x)
-
-        # 清理 state_dict 中的 _orig_mod 前缀
-        clean_state = {}
-        for k, v in state.items():
-            if k.startswith("_orig_mod."):
-                k = k[len("_orig_mod.") :]
-            clean_state[k] = v
-
-        # 推断 head 输出宽度：优先找 fc/head 系 2D 权重中"形状像最终投影"的那个。
-        # A+B 双尺度训练把 head 扩为 horizon+1（如 3→4），宽度硬编码 3 会丢 head 权重。
-        head_out = 3
-        head_cands = []
-        for k, v in clean_state.items():
-            if not (k.endswith(".weight") or k == "weight") or v.ndim != 2:
-                continue
-            if any(t in k.lower() for t in ("fc", "head", "linear", "proj", "predict")):
-                head_cands.append((k, int(v.shape[0])))
-        if head_cands:
-            # 最终投影通常是输出维最小（3 或 4）的候选
-            small = [o for _, o in head_cands if 1 < o <= 8]
-            if small:
-                head_out = max(small)  # 3(旧/单头) → 3；4(双头 H+1=4) → 4
+        clean_state = _clean_export_state(state)
+        head_out = _infer_export_head_out(clean_state)
         logger.debug("[ONNX] 自动导出骨架 head_out=%d (state keys=%d)", head_out, len(clean_state))
 
-        model = OnnxExportModel(head_out=head_out)
+        model = _build_export_model(clean_state, window, in_features, head_out)
         # 尝试加载，忽略不匹配的 key（自动推断的模型可能不完全匹配）
         model.load_state_dict(clean_state, strict=False)
         model.eval()

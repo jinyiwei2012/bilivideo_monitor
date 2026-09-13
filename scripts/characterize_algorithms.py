@@ -218,73 +218,75 @@ def run_cmd(out_path: str | None) -> int:
     return 0
 
 
-def diff_cmd(baseline_path: str, tol: float, expect_changed: set | None = None, flaky: set | None = None) -> int:
-    """对比基线。expect_changed: 允许变更并展示; flaky: 运行间不稳定, 完全跳过。"""
-    expect_changed = expect_changed or set()
-    flaky = flaky or set()
-    with open(baseline_path, encoding="utf-8") as fh:
-        baseline = json.load(fh)
-    current = _clean(run_all())
+def _compare_result_field(key, field, baseline_result, current_result, tol):
+    bv, cv = baseline_result.get(field), current_result.get(field)
+    if bv is None or cv is None:
+        return [(key, f"{field}空值", bv, cv)] if bv != cv else []
+    if isinstance(bv, (int, float)) and isinstance(cv, (int, float)):
+        return [(key, field, bv, cv)] if abs(bv - cv) > tol * max(1.0, abs(bv)) else []
+    return [(key, field, bv, cv)] if bv != cv else []
 
+
+def _compare_algorithm_entry(key, baseline_entry, current_entry, tol):
+    if baseline_entry is None or current_entry is None:
+        return [(key, "缺失", baseline_entry is None, current_entry is None)]
+    if "error" in baseline_entry or "error" in current_entry:
+        baseline_error = baseline_entry.get("error")
+        current_error = current_entry.get("error")
+        return [(key, "错误", baseline_error, current_error)] if baseline_error != current_error else []
+    baseline_result, current_result = baseline_entry.get("result"), current_entry.get("result")
+    if baseline_result is None or current_result is None:
+        return [(key, "result缺失", baseline_result, current_result)]
+    differences = []
+    for field in ("predicted_hours", "confidence", "current_velocity"):
+        differences.extend(_compare_result_field(key, field, baseline_result, current_result, tol))
+    if baseline_result.get("null") != current_result.get("null"):
+        differences.append((key, "null标志", baseline_result, current_result))
+    return differences
+
+
+def _route_differences(key, differences, expect_changed, flaky, mismatches, changed_expected, skipped_flaky):
+    if key in flaky:
+        skipped_flaky.extend(differences)
+    elif key in expect_changed:
+        changed_expected.extend(differences)
+    else:
+        mismatches.extend(differences)
+
+
+def _compare_algorithms(baseline, current, tol, expect_changed, flaky):
     mismatches = []
     changed_expected = []
     skipped_flaky = []
-    all_keys = set(baseline) | set(current)
-    for key in sorted(all_keys):
+    for key in sorted(set(baseline) | set(current)):
         if key.startswith("__"):
             continue  # 元数据键 (计时/汇总) 单独处理
-        b, c = baseline.get(key), current.get(key)
-        km = []
-        if b is None or c is None:
-            km.append((key, "缺失", b is None, c is None))
-        elif "error" in b or "error" in c:
-            if b.get("error") != c.get("error"):
-                km.append((key, "错误", b.get("error"), c.get("error")))
-        else:
-            br, cr = b.get("result"), c.get("result")
-            if br is None or cr is None:
-                km.append((key, "result缺失", br, cr))
-            else:
-                for field in ("predicted_hours", "confidence", "current_velocity"):
-                    bv, cv = br.get(field), cr.get(field)
-                    if bv is None or cv is None:
-                        if bv != cv:
-                            km.append((key, f"{field}空值", bv, cv))
-                        continue
-                    if isinstance(bv, (int, float)) and isinstance(cv, (int, float)):
-                        if abs(bv - cv) > tol * max(1.0, abs(bv)):
-                            km.append((key, field, bv, cv))
-                    elif bv != cv:
-                        km.append((key, field, bv, cv))
-                if br.get("null") != cr.get("null"):
-                    km.append((key, "null标志", br, cr))
-        if key in flaky:
-            skipped_flaky.extend(km)
-        elif key in expect_changed:
-            changed_expected.extend(km)
-        else:
-            mismatches.extend(km)
+        differences = _compare_algorithm_entry(key, baseline.get(key), current.get(key), tol)
+        _route_differences(key, differences, expect_changed, flaky, mismatches, changed_expected, skipped_flaky)
+    return mismatches, changed_expected, skipped_flaky
 
-    # predict_all 快照对比 (宽松: 仅 prediction 关键值, 并行求和有浮点噪声)
+
+def _compare_predict_all(baseline, current, tol, expect_changed, mismatches, changed_expected):
     bp, cp = baseline.get("__predict_all__", {}), current.get("__predict_all__", {})
-    if "error" not in bp and "error" not in cp:
-        bw = bp.get("_weighted", {}).get("prediction", 0) or 0
-        cw = cp.get("_weighted", {}).get("prediction", 0) or 0
-        if abs(bw - cw) > tol * max(1.0, abs(bw)):
-            wm = ("__predict_all__/_weighted", "prediction", bw, cw)
-            # 集成预测是各算法输出的聚合: 有算法被预期变更时, 集成变化是自然结果
-            if expect_changed:
-                changed_expected.append(wm)
-            else:
-                mismatches.append(wm)
-        for k in set(bp) - set(cp) | set(cp) - set(bp):
-            if k != "_weighted":
-                mismatches.append((f"__predict_all__/{k}", "存在性差异", k in bp, k in cp))
-    else:
+    if "error" in bp or "error" in cp:
         if bp.get("error") != cp.get("error"):
             mismatches.append(("__predict_all__", "错误", bp.get("error"), cp.get("error")))
+        return
+    bw = bp.get("_weighted", {}).get("prediction", 0) or 0
+    cw = cp.get("_weighted", {}).get("prediction", 0) or 0
+    if abs(bw - cw) > tol * max(1.0, abs(bw)):
+        wm = ("__predict_all__/_weighted", "prediction", bw, cw)
+        # 集成预测是各算法输出的聚合: 有算法被预期变更时, 集成变化是自然结果
+        if expect_changed:
+            changed_expected.append(wm)
+        else:
+            mismatches.append(wm)
+    for key in set(bp) - set(cp) | set(cp) - set(bp):
+        if key != "_weighted":
+            mismatches.append((f"__predict_all__/{key}", "存在性差异", key in bp, key in cp))
 
-    # ── 性能对比: predict_all 耗时不得劣化 3 倍以上, 且必须 < 75s ──
+
+def _compare_performance(baseline, current, mismatches):
     be = baseline.get("__predict_all_elapsed__", 0) or 0
     ce = current.get("__predict_all_elapsed__", 0) or 0
     print(f"性能: predict_all 基线={be}s 当前={ce}s")
@@ -293,6 +295,8 @@ def diff_cmd(baseline_path: str, tol: float, expect_changed: set | None = None, 
     elif be > 0 and ce > be * 3 and ce > be + 1.0:
         mismatches.append(("__predict_all_elapsed__", "性能劣化>3x", be, ce))
 
+
+def _print_expected_differences(changed_expected, skipped_flaky):
     if changed_expected:
         print(f"ℹ️  预期变更 {len(changed_expected)} 处 (在 --expect-changed 名单内):")
         for key, field, bv, cv in changed_expected[:20]:
@@ -300,6 +304,8 @@ def diff_cmd(baseline_path: str, tol: float, expect_changed: set | None = None, 
     if skipped_flaky:
         print(f"⏭️  跳过 {len(skipped_flaky)} 处已知不稳定 (--flaky): " f"{sorted({k for k, *_ in skipped_flaky})}")
 
+
+def _print_diff_result(mismatches, tol):
     if mismatches:
         print(f"❌ 发现 {len(mismatches)} 处差异 (tol={tol}):")
         for key, field, bv, cv in mismatches[:40]:
@@ -309,6 +315,25 @@ def diff_cmd(baseline_path: str, tol: float, expect_changed: set | None = None, 
         return 1
     print(f"✅ 无差异 (tol={tol})")
     return 0
+
+
+def diff_cmd(baseline_path: str, tol: float, expect_changed: set | None = None, flaky: set | None = None) -> int:
+    """对比基线。expect_changed: 允许变更并展示; flaky: 运行间不稳定, 完全跳过。"""
+    expect_changed = expect_changed or set()
+    flaky = flaky or set()
+    with open(baseline_path, encoding="utf-8") as fh:
+        baseline = json.load(fh)
+    current = _clean(run_all())
+
+    mismatches, changed_expected, skipped_flaky = _compare_algorithms(baseline, current, tol, expect_changed, flaky)
+
+    # predict_all 快照对比 (宽松: 仅 prediction 关键值, 并行求和有浮点噪声)
+    _compare_predict_all(baseline, current, tol, expect_changed, mismatches, changed_expected)
+
+    # ── 性能对比: predict_all 耗时不得劣化 3 倍以上, 且必须 < 75s ──
+    _compare_performance(baseline, current, mismatches)
+    _print_expected_differences(changed_expected, skipped_flaky)
+    return _print_diff_result(mismatches, tol)
 
 
 def main() -> int:

@@ -249,6 +249,90 @@ def _maybe_cleanup_old_records(gui):
         logger.warning("数据保留清理异常: %s", e)
 
 
+def _alert_records(gui, bvid, record_window):
+    records = []
+    try:
+        video_db = gui.video_dbs.get(bvid)
+        if video_db:
+            raw = video_db.get_all_records(limit=record_window)
+            for r in raw:
+                records.append(
+                    {
+                        "timestamp": r["timestamp"],
+                        "view_count": r["view_count"],
+                        "like_count": r.get("like_count", 0),
+                        "coin_count": r.get("coin_count", 0),
+                        "viewers_total": r.get("viewers_total", 0),
+                    }
+                )
+    except Exception as e:
+        logger.debug("从DB获取记录失败 %s: %s", bvid, e)
+    return records
+
+
+def _collect_alert_hits(gui, detector, record_window):
+    hits = []
+    for video in gui.monitored_videos:
+        bvid = video.get("bvid", "")
+        records = _alert_records(gui, bvid, record_window)
+        if len(records) < 5:
+            continue
+        try:
+            for hit in detector.detect_all_scored(records, bvid=bvid, video=video):
+                hits.append((bvid, video.get("title", bvid)[:20], hit))
+        except Exception as e:
+            logger.debug("忽略异常: %s", e)
+    return hits
+
+
+def _log_alert_hits(gui, hits):
+    for bvid, title, hit in hits:
+        gui.log_panel.add_log(
+            "WARNING",
+            f"[{bvid}] {title} | {hit.message[:60]} | 确定度 {hit.confidence:.0%} [{hit.level}]",
+        )
+
+
+def _build_high_alert_message(gui, high_hits):
+    title = f"‼ 天依注意到 {len(high_hits)} 条高确定度异常 ♪"
+    msg_lines = [title, "─" * 20]
+    for bvid, hit_title, hit in high_hits[:5]:
+        conf_tag = f"({hit.confidence:.0%})" if hit.confidence < 0.9 else ""
+        msg_lines.append(f"  [{bvid}] {hit_title} {conf_tag}")
+        msg_lines.append(f"    {hit.message}")
+        try:
+            from ui.danmaku_sentiment import format_summary
+
+            emo = format_summary(gui, bvid)
+            if emo:
+                msg_lines.append(f"    {emo}")
+        except Exception as e:
+            logger.debug("读取弹幕情绪失败: %s", e)
+    if len(high_hits) > 5:
+        msg_lines.append(f"  … 还有 {len(high_hits) - 5} 条高确定度异常")
+    return title, "\n".join(msg_lines)
+
+
+def _push_high_alerts(gui, notification_manager, hits, high_hits):
+    title, msg = _build_high_alert_message(gui, high_hits)
+    try:
+        notification_manager.send_qq_private(msg)
+        notification_manager.send_qq_group(msg)
+        notification_manager.send_webhook(f"{title}\n{msg}")
+        notification_manager.send_windows_notification(title, msg[:256])
+        gui.log_panel.add_log("INFO", f"高确定度异常告警已推送 ({len(high_hits)} 条)")
+        try:
+            from utils.alert_review import build_alert_review
+
+            review_path = build_alert_review(gui, hits)
+            if review_path:
+                gui.log_panel.add_log("INFO", f"异动复盘卡已生成: {review_path}")
+        except Exception as e:
+            logger.debug("生成异动复盘卡失败: %s", e)
+    except Exception as e:
+        logger.debug("推送异常告警失败: %s", e)
+
+
 def scan_alerts_background(gui):
     """后台扫描全量视频的异常，更新状态栏 + 推送通知。
 
@@ -263,33 +347,7 @@ def scan_alerts_background(gui):
     # 5min 扫描节奏下需要覆盖 ~3h（75s/条 → 144 条）；给足余量
     RECORD_WINDOW = 160
 
-    hits = []  # (bvid, title, AlertHit)
-    for video in gui.monitored_videos:
-        bvid = video.get("bvid", "")
-        records = []
-        try:
-            video_db = gui.video_dbs.get(bvid)
-            if video_db:
-                raw = video_db.get_all_records(limit=RECORD_WINDOW)
-                for r in raw:
-                    records.append(
-                        {
-                            "timestamp": r["timestamp"],
-                            "view_count": r["view_count"],
-                            "like_count": r.get("like_count", 0),
-                            "coin_count": r.get("coin_count", 0),
-                            "viewers_total": r.get("viewers_total", 0),
-                        }
-                    )
-        except Exception as e:
-            logger.debug("从DB获取记录失败 %s: %s", bvid, e)
-        if len(records) < 5:
-            continue
-        try:
-            for hit in AnomalyDetector.detect_all_scored(records, bvid=bvid, video=video):
-                hits.append((bvid, video.get("title", bvid)[:20], hit))
-        except Exception as e:
-            logger.debug("忽略异常: %s", e)
+    hits = _collect_alert_hits(gui, AnomalyDetector, RECORD_WINDOW)
 
     if not hits:
         invoke(lambda: gui._sb("alert", ""))
@@ -301,51 +359,12 @@ def scan_alerts_background(gui):
     invoke(lambda: gui._sb("alert", f"‼ 天依注意到 {n} 条异常 ♪", C["danger"]))
 
     # 日志记录全部命中（含确定度）
-    for bvid, t, hit in hits:
-        gui.log_panel.add_log(
-            "WARNING",
-            f"[{bvid}] {t} | {hit.message[:60]} | 确定度 {hit.confidence:.0%} [{hit.level}]",
-        )
+    _log_alert_hits(gui, hits)
 
     if not high_hits:
         return  # 仅中低确定度 → 不打扰推送
 
-    title = f"‼ 天依注意到 {len(high_hits)} 条高确定度异常 ♪"
-    msg_lines = [title, "─" * 20]
-    for bvid, t, hit in high_hits[:5]:
-        conf_tag = f"({hit.confidence:.0%})" if hit.confidence < 0.9 else ""
-        msg_lines.append(f"  [{bvid}] {t} {conf_tag}")
-        msg_lines.append(f"    {hit.message}")
-        # A3: 告警附带该视频弹幕情绪侧写
-        try:
-            from ui.danmaku_sentiment import format_summary
-
-            emo = format_summary(gui, bvid)
-            if emo:
-                msg_lines.append(f"    {emo}")
-        except Exception as e:
-            logger.debug("读取弹幕情绪失败: %s", e)
-    if len(high_hits) > 5:
-        msg_lines.append(f"  … 还有 {len(high_hits) - 5} 条高确定度异常")
-    msg = "\n".join(msg_lines)
-    try:
-        notification_manager.send_qq_private(msg)
-        notification_manager.send_qq_group(msg)
-        notification_manager.send_webhook(f"{title}\n{msg}")
-        notification_manager.send_windows_notification(title, msg[:256])
-        gui.log_panel.add_log("INFO", f"高确定度异常告警已推送 ({len(high_hits)} 条)")
-
-        # A2: 生成异动复盘卡（含全部命中的确定度明细），通知附带路径
-        try:
-            from utils.alert_review import build_alert_review
-
-            review_path = build_alert_review(gui, hits)
-            if review_path:
-                gui.log_panel.add_log("INFO", f"异动复盘卡已生成: {review_path}")
-        except Exception as e:
-            logger.debug("生成异动复盘卡失败: %s", e)
-    except Exception as e:
-        logger.debug("推送异常告警失败: %s", e)
+    _push_high_alerts(gui, notification_manager, hits, high_hits)
 
 
 def wal_checkpoint_worker(gui):

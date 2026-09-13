@@ -304,12 +304,7 @@ def _detect_surge_for_ui(history: list) -> dict:
         return {"is_surging": False, "surge_type": "none"}
 
 
-def _predict_single(gui, bvid, video) -> dict:
-    """在 worker 线程中对单个视频运行预测（纯函数，无 UI 调用）"""
-    current_view = video.get("view_count", 0)
-    history = _merge_history(gui, bvid)
-
-    # B3: 冷启动权重预热 —— 每个视频首次预测时后台跑离线回测，用 MAPE 初始化权重
+def _schedule_weight_warmup(gui, bvid, history):
     try:
         if len(history) >= 15:
             with gui._data_lock:
@@ -326,8 +321,8 @@ def _predict_single(gui, bvid, video) -> dict:
     except Exception as e:
         logger.debug("权重预热调度失败 %s: %s", bvid, e)
 
-    # 运行所有算法进行预测
-    # 研究补进: 把实时信号(viewers在线/时段)注入 video_data, 此前已拉取但从不被算法消费
+
+def _collect_live_features(video):
     live_features = {}
     try:
         _v_total = video.get("viewers_total", 0) or 0
@@ -338,17 +333,10 @@ def _predict_single(gui, bvid, video) -> dict:
             live_features["viewers_app"] = max(0, _v_total - _v_web)
     except Exception:
         pass
-    results = AlgorithmRegistry.predict_all(
-        history,
-        current_view,
-        bvid=bvid,
-        thresholds=THRESHOLDS,
-        threshold_names=THRESHOLD_NAMES,
-        live_features=live_features,
-    )
+    return live_features
 
-    weighted = results.get("_weighted", {})
-    w_pred = weighted.get("prediction", current_view)
+
+def _partition_prediction_results(results):
     success_list = []
     fail_list = []
     for name, r in results.items():
@@ -358,14 +346,15 @@ def _predict_single(gui, bvid, video) -> dict:
             fail_list.append((name, r["error"]))
         else:
             success_list.append((name, r["prediction"], r["weight"], r["confidence"], r.get("predicted_hours", 0)))
+    return success_list, fail_list
 
+
+def _build_prediction_result(bvid, current_view, results, rate_per_sec, surge_info):
+    weighted = results.get("_weighted", {})
+    w_pred = weighted.get("prediction", current_view)
+    success_list, fail_list = _partition_prediction_results(results)
     growth = w_pred - current_view
-    rate_per_sec = _calc_surge_aware_growth_rate(history)
-
-    # ── 推流检测信息（供 UI 展示）──────────────────
-    surge_info = _detect_surge_for_ui(history)
-
-    result = {
+    return {
         "bvid": bvid,
         "prediction": w_pred,
         "current_view": current_view,
@@ -401,13 +390,9 @@ def _predict_single(gui, bvid, video) -> dict:
             if name != "_weighted" and "error" not in r and r.get("coherence")
         ],
     }
-    # 在线学习反馈
-    with gui._data_lock:
-        prev_result = gui.prediction_results.get(bvid)
-        gui.prediction_results[bvid] = result
-    _online_learning_feedback(gui, bvid, results, current_view, prev_result)
 
-    # ── 保形预测校准 ──
+
+def _update_ensemble_accuracy(prev_result, current_view):
     try:
         if prev_result is not None:
             prev_pred = prev_result.get("prediction", 0)
@@ -416,16 +401,55 @@ def _predict_single(gui, bvid, video) -> dict:
     except Exception as e:
         logger.debug("保形预测校准失败: %s", e)
 
-    # 后台：图更新 + 视频库保存 + 中央库同步
-    def _save_all():
-        try:
-            _update_video_graph(gui, bvid, video)
-            rows, ensemble, coherence = _save_predictions_to_db(gui, bvid, current_view, results)
-            _sync_predictions_to_central(bvid, rows, ensemble, coherence)
-        except Exception:
-            logger.exception("后台保存预测数据失败 %s", bvid)
 
-    threading.Thread(target=_save_all, daemon=True).start()
+def _save_prediction_outputs(gui, bvid, video, current_view, results):
+    try:
+        _update_video_graph(gui, bvid, video)
+        rows, ensemble, coherence = _save_predictions_to_db(gui, bvid, current_view, results)
+        _sync_predictions_to_central(bvid, rows, ensemble, coherence)
+    except Exception:
+        logger.exception("后台保存预测数据失败 %s", bvid)
+
+
+def _predict_single(gui, bvid, video) -> dict:
+    """在 worker 线程中对单个视频运行预测（纯函数，无 UI 调用）"""
+    current_view = video.get("view_count", 0)
+    history = _merge_history(gui, bvid)
+
+    # B3: 冷启动权重预热 —— 每个视频首次预测时后台跑离线回测，用 MAPE 初始化权重
+    _schedule_weight_warmup(gui, bvid, history)
+
+    # 运行所有算法进行预测
+    # 研究补进: 把实时信号(viewers在线/时段)注入 video_data, 此前已拉取但从不被算法消费
+    live_features = _collect_live_features(video)
+    results = AlgorithmRegistry.predict_all(
+        history,
+        current_view,
+        bvid=bvid,
+        thresholds=THRESHOLDS,
+        threshold_names=THRESHOLD_NAMES,
+        live_features=live_features,
+    )
+
+    rate_per_sec = _calc_surge_aware_growth_rate(history)
+
+    # ── 推流检测信息（供 UI 展示）──────────────────
+    surge_info = _detect_surge_for_ui(history)
+
+    result = _build_prediction_result(bvid, current_view, results, rate_per_sec, surge_info)
+    # 在线学习反馈
+    with gui._data_lock:
+        prev_result = gui.prediction_results.get(bvid)
+        gui.prediction_results[bvid] = result
+    _online_learning_feedback(gui, bvid, results, current_view, prev_result)
+
+    # ── 保形预测校准 ──
+    _update_ensemble_accuracy(prev_result, current_view)
+
+    # 后台：图更新 + 视频库保存 + 中央库同步
+    threading.Thread(
+        target=_save_prediction_outputs, args=(gui, bvid, video, current_view, results), daemon=True
+    ).start()
 
     # 内存压力时才释放模型缓存（替代原先"每 N 次预测必清"）
     _maybe_release_memory(gui)

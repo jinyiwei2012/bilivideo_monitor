@@ -451,6 +451,100 @@ class DanmakuAnalysisWindow:
 
         self._count_lbl.setText(f"共 {len(texts)} 条，先列出前 {min(50, len(texts))} 条，天依慢慢听 ♪")
 
+    def _hour_sentiment_records(self, bvid):
+        """读取带内容和发送时间的本地弹幕记录。"""
+        rows_data = []
+        if self.gui and bvid and bvid in self.gui.video_dbs:
+            vdb = self.gui.video_dbs[bvid]
+            records = vdb.get_danmaku_records(limit=5000)
+            rows_data = [r for r in records if r.get("content") and r.get("send_time")]
+        return rows_data
+
+    @staticmethod
+    def _hour_sentiment_buckets(rows_data):
+        """按发送时间的小时段聚合弹幕文本。"""
+        buckets: dict = {}
+        for r in rows_data:
+            try:
+                hour = datetime.fromtimestamp(int(r["send_time"])).hour
+            except (ValueError, OSError, TypeError):
+                continue
+            buckets.setdefault(hour, []).append(r["content"])
+        return buckets
+
+    @staticmethod
+    def _hour_sentiment_label(pos, neg):
+        """按原阈值返回时段情绪标签和主题颜色。"""
+        if pos >= 0.5:
+            return "正向", C["success"]
+        if neg >= 0.5:
+            return "负向", C["danger"]
+        if pos > neg + 0.1:
+            return "偏正向", C["success"]
+        if neg > pos + 0.1:
+            return "偏负向", C["danger"]
+        return "中性", C["text_2"]
+
+    def _build_hour_sentiment_rows(self, buckets, analyze_sentiment, extract_keywords):
+        """计算每个小时段的情绪、热词和总记录数。"""
+        hour_rows = []
+        total_n = 0
+        for hour in sorted(buckets):
+            texts_h = buckets[hour]
+            ratio = analyze_sentiment(texts_h)
+            pos, neg = ratio["positive"], ratio["negative"]
+            total_n += len(texts_h)
+            label, color = self._hour_sentiment_label(pos, neg)
+            kws = [w for w, _ in extract_keywords(texts_h, top_n=3)]
+            hour_rows.append((hour, len(texts_h), pos, neg, label, color, kws))
+        return hour_rows, total_n
+
+    def _set_empty_hour_row(self, hour):
+        """填充没有弹幕的小时行。"""
+        self._hour_table.setItem(hour, 0, QTableWidgetItem(f"{hour:02d}:00"))
+        self._hour_table.setItem(hour, 1, QTableWidgetItem("—"))
+        for j in range(2, 6):
+            self._hour_table.setItem(hour, j, QTableWidgetItem(""))
+
+    def _set_hour_sentiment_row(self, hour, hit):
+        """填充有弹幕的小时情绪行。"""
+        _, n, pos, neg, label, color, kws = hit
+        bar = "█" * max(1, int(pos * 20)) + "░" * max(1, int(neg * 20))
+        items = [
+            (f"{hour:02d}:00", C["text_1"]),
+            (str(n), C["text_2"]),
+            (f"👍{pos * 100:.0f}% 👎{neg * 100:.0f}%", C["text_2"]),
+            (label, color),
+            ("/".join(kws) if kws else "—", C["accent"]),
+            (bar, C["success"] if pos >= neg else C["danger"]),
+        ]
+        for j, (text, _c) in enumerate(items):
+            item = QTableWidgetItem(text)
+            item.setForeground(QColor(_c))
+            self._hour_table.setItem(hour, j, item)
+
+    def _populate_hour_sentiment_table(self, hour_rows):
+        """按 24 小时骨架填充时段情绪表。"""
+        self._hour_table.clearContents()
+        self._hour_table.setRowCount(24)
+        for hour in range(24):
+            self._hour_table.setRowHeight(hour, 22)
+            hit = next((h for h in hour_rows if h[0] == hour), None)
+            if hit is None:
+                self._set_empty_hour_row(hour)
+                continue
+            self._set_hour_sentiment_row(hour, hit)
+
+    def _set_hour_sentiment_summary(self, hour_rows, total_n):
+        """填充弹幕高峰和最暖时段摘要。"""
+        peak = max(hour_rows, key=lambda h: h[1], default=None)
+        most_pos = max(hour_rows, key=lambda h: h[2] - h[3], default=None)
+        if peak and most_pos:
+            self._hour_summary.setText(
+                f"♪ 共 {total_n} 条带时间弹幕 | 弹幕高峰: {peak[0]:02d}:00({peak[1]}条) | "
+                f"情绪最暖时段: {most_pos[0]:02d}:00 ({most_pos[4]})"
+            )
+
     def _render_hour_sentiment(self, bvid: str):
         """「时段情绪联动」：按弹幕 send_time 的小时段聚合,分析各时段情绪与热词。
 
@@ -460,84 +554,17 @@ class DanmakuAnalysisWindow:
         try:
             from utils.sentiment_analyzer import analyze_sentiment, extract_keywords
 
-            rows_data = []
-            if self.gui and bvid and bvid in self.gui.video_dbs:
-                vdb = self.gui.video_dbs[bvid]
-                # 上限 5000 条,避免超热门视频全表读取卡死主线程(足够统计小时段分布)
-                records = vdb.get_danmaku_records(limit=5000)
-                rows_data = [r for r in records if r.get("content") and r.get("send_time")]
+            rows_data = self._hour_sentiment_records(bvid)
             if not rows_data:
                 self._hour_table.setRowCount(0)
                 self._hour_summary.setText(
                     "没有带时间戳的本地弹幕记录哦…天依去多拉几次弹幕存进歌谱,就能看到各时段的心情变化啦 ♪"
                 )
                 return
-
-            # 按小时段聚合文本
-            buckets: dict = {}
-            for r in rows_data:
-                try:
-                    hour = datetime.fromtimestamp(int(r["send_time"])).hour
-                except (ValueError, OSError, TypeError):
-                    continue
-                buckets.setdefault(hour, []).append(r["content"])
-
-            # 计算每时段情绪 + 热词
-            hour_rows = []
-            total_n = 0
-            for hour in sorted(buckets):
-                texts_h = buckets[hour]
-                ratio = analyze_sentiment(texts_h)
-                pos, neg = ratio["positive"], ratio["negative"]
-                total_n += len(texts_h)
-                if pos >= 0.5:
-                    label, color = "正向", C["success"]
-                elif neg >= 0.5:
-                    label, color = "负向", C["danger"]
-                elif pos > neg + 0.1:
-                    label, color = "偏正向", C["success"]
-                elif neg > pos + 0.1:
-                    label, color = "偏负向", C["danger"]
-                else:
-                    label, color = "中性", C["text_2"]
-                kws = [w for w, _ in extract_keywords(texts_h, top_n=3)]
-                hour_rows.append((hour, len(texts_h), pos, neg, label, color, kws))
-
-            # 24h 完整骨架（无弹幕时段标记 —）
-            self._hour_table.clearContents()  # 清除上一轮残留单元格
-            self._hour_table.setRowCount(24)
-            for hour in range(24):
-                self._hour_table.setRowHeight(hour, 22)
-                hit = next((h for h in hour_rows if h[0] == hour), None)
-                if hit is None:
-                    self._hour_table.setItem(hour, 0, QTableWidgetItem(f"{hour:02d}:00"))
-                    self._hour_table.setItem(hour, 1, QTableWidgetItem("—"))
-                    for j in range(2, 6):
-                        self._hour_table.setItem(hour, j, QTableWidgetItem(""))
-                    continue
-                _, n, pos, neg, label, color, kws = hit
-                # 正负对比迷你条文本
-                bar = "█" * max(1, int(pos * 20)) + "░" * max(1, int(neg * 20))
-                items = [
-                    (f"{hour:02d}:00", C["text_1"]),
-                    (str(n), C["text_2"]),
-                    (f"👍{pos * 100:.0f}% 👎{neg * 100:.0f}%", C["text_2"]),
-                    (label, color),
-                    ("/".join(kws) if kws else "—", C["accent"]),
-                    (bar, C["success"] if pos >= neg else C["danger"]),
-                ]
-                for j, (text, _c) in enumerate(items):
-                    item = QTableWidgetItem(text)
-                    item.setForeground(QColor(_c))
-                    self._hour_table.setItem(hour, j, item)
-
-            peak = max(hour_rows, key=lambda h: h[1], default=None)
-            most_pos = max(hour_rows, key=lambda h: h[2] - h[3], default=None)
-            if peak and most_pos:
-                self._hour_summary.setText(
-                    f"♪ 共 {total_n} 条带时间弹幕 | 弹幕高峰: {peak[0]:02d}:00({peak[1]}条) | "
-                    f"情绪最暖时段: {most_pos[0]:02d}:00 ({most_pos[4]})"
-                )
+            buckets = self._hour_sentiment_buckets(rows_data)
+            hour_rows, total_n = self._build_hour_sentiment_rows(buckets, analyze_sentiment, extract_keywords)
+            self._populate_hour_sentiment_table(hour_rows)
+            self._set_hour_sentiment_summary(hour_rows, total_n)
         except Exception as e:
             logger.debug("时段情绪联动渲染失败: %s", e)
             self._hour_table.setRowCount(0)
