@@ -50,6 +50,31 @@ from .data_comparison import (
 _bar_snap_logger = logging.getLogger("data_comparison.snapshot")
 
 
+def _parse_user_dt(text: str):
+    """解析用户输入的时间（支持 "YYYY-MM-DD HH:MM" 与 "YYYY-MM-DD"）；失败返回 None。"""
+    for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _filter_ts_by_range(all_ts, start_dt, end_dt) -> list:
+    """按可选起止时间过滤时间戳列表（无法解析的时间戳跳过）。"""
+    filtered = []
+    for ts_str in all_ts:
+        ts_dt = _parse_dt(ts_str)
+        if not ts_dt:
+            continue
+        if start_dt and ts_dt < start_dt:
+            continue
+        if end_dt and ts_dt > end_dt:
+            continue
+        filtered.append(ts_str)
+    return filtered
+
+
 class SnapshotBarChart(QWidget):
     """自定义柱状图控件 — 使用 QPainter 绘制快照对比柱状图"""
 
@@ -652,6 +677,13 @@ class SnapshotTab(QWidget):
             self._ts_listbox.addItem(ts)
 
     # ── Custom range ──
+    @staticmethod
+    def _entry_dt(entry, text: str):
+        """取输入框时间：空值或仍为占位符时视为未填。"""
+        if not text or text == entry.placeholderText():
+            return None
+        return _parse_user_dt(text)
+
     def _apply_custom_range(self):
         all_ts = self._ts_avail
         if not all_ts:
@@ -664,42 +696,14 @@ class SnapshotTab(QWidget):
             QMessageBox.warning(self, "♪ 提示", "至少填一个时间范围呀,不然天依不知道截哪一段 ♪")
             return
 
-        if not start_str or start_str == self._start_entry.placeholderText():
-            start_dt = None
-        else:
-            try:
-                start_dt = datetime.strptime(start_str, "%Y-%m-%d %H:%M")
-            except ValueError:
-                try:
-                    start_dt = datetime.strptime(start_str, "%Y-%m-%d")
-                except ValueError:
-                    start_dt = None
-
-        if not end_str or end_str == self._end_entry.placeholderText():
-            end_dt = None
-        else:
-            try:
-                end_dt = datetime.strptime(end_str, "%Y-%m-%d %H:%M")
-            except ValueError:
-                try:
-                    end_dt = datetime.strptime(end_str, "%Y-%m-%d")
-                except ValueError:
-                    end_dt = None
+        start_dt = self._entry_dt(self._start_entry, start_str)
+        end_dt = self._entry_dt(self._end_entry, end_str)
 
         if start_dt is None and end_dt is None:
             QMessageBox.warning(self, "♪ 提示", "呜…这个时间格式天依看不懂呢,试试 YYYY-MM-DD HH:MM 哦")
             return
 
-        filtered = []
-        for ts_str in all_ts:
-            ts_dt = _parse_dt(ts_str)
-            if not ts_dt:
-                continue
-            if start_dt and ts_dt < start_dt:
-                continue
-            if end_dt and ts_dt > end_dt:
-                continue
-            filtered.append(ts_str)
+        filtered = _filter_ts_by_range(all_ts, start_dt, end_dt)
 
         if not filtered:
             QMessageBox.warning(self, "♪ 提示", "这段时间里没有数据点呢…像休止符一样安静,换个范围试试 ♪")

@@ -180,15 +180,26 @@ class DataComparisonWindow(QDialog):
 
 
 def _parse_dt(s: str) -> Optional[datetime]:
-    """将时间字符串解析为 datetime 对象，支持多种格式"""
+    """将时间字符串解析为 datetime 对象，支持多种格式。
+
+    注意：必须用**完整字符串**匹配格式。早期实现写成 ``s[: len(fmt)]`` ——
+    ``len(fmt)`` 是格式串自身的长度、并非渲染后的日期串长度（如
+    ``"%Y-%m-%d %H:%M:%S"`` 为 17 而实际串为 19），会把尾部截断，
+    导致任何时间戳都解析失败、依赖它的筛选/绘图全部静默降级。
+    """
     if not s:
         return None
+    text = s.strip()
     for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M:%S"):
         try:
-            return datetime.strptime(s[: len(fmt)].strip(), fmt)
-        except Exception as e:
-            logger.debug("解析时间字符串失败: %s", e)
-    return None
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+    try:  # 兜底：带微秒 / 时区 / 其他 ISO 变体
+        return datetime.fromisoformat(text)
+    except ValueError:
+        logger.debug("解析时间字符串失败: %s", text)
+        return None
 
 
 def _hex_to_rgb(hex_color: str) -> Tuple[int, int, int]:

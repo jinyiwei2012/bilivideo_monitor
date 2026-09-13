@@ -18,7 +18,6 @@
     "OnlineViewersPanel._fetch_all_viewers",
     "PredictionAccuracyPanel._load_data",
     "SnapshotBarChart.paintEvent",
-    "SnapshotTab._apply_custom_range",
     "TrainingPanel._start_train_thread",
     "VersionManagerMixin._draw_version_detail_pyqt",
     "_export_from_checkpoint",

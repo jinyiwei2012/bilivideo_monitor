@@ -2345,3 +2345,38 @@ class TestPersistSettings:
         assert [t[0] for t in saved["prediction"]["thresholds"]] == [100000], "非法阈值行应跳过"
         assert saved["prediction"]["thresholds"][0][1], "空名称应自动命名"
         assert saved["ai"]["enabled"] is True
+
+
+class TestSnapshotRangeHelpers:
+    """M3.4: _apply_custom_range 抽出的日期解析 / 区间过滤行为。"""
+
+    def test_parse_user_dt_formats(self):
+        from datetime import datetime
+
+        from ui.snapshot_tab import _parse_user_dt
+
+        assert _parse_user_dt("2026-01-02 03:04") == datetime(2026, 1, 2, 3, 4)
+        assert _parse_user_dt("2026-01-02") == datetime(2026, 1, 2, 0, 0)
+        assert _parse_user_dt("02/01/2026") is None, "非支持格式应返回 None"
+        assert _parse_user_dt("") is None
+
+    def test_filter_ts_by_range(self):
+        from datetime import datetime
+
+        from ui.snapshot_tab import _filter_ts_by_range
+
+        ts = [
+            "2026-01-01 10:00:00",
+            "2026-01-02 10:00:00",
+            "2026-01-03T10:00:00",
+            "garbage",
+        ]
+        got = _filter_ts_by_range(ts, datetime(2026, 1, 2), datetime(2026, 1, 3, 23, 59))
+        assert got == ["2026-01-02 10:00:00", "2026-01-03T10:00:00"], "无法解析的时间戳应被跳过"
+
+        # 上界为当日 00:00 时，10:00 的点应被排除（边界语义）
+        assert _filter_ts_by_range(ts, datetime(2026, 1, 2), datetime(2026, 1, 3)) == ["2026-01-02 10:00:00"]
+
+        assert _filter_ts_by_range(ts, None, None) == ts[:3], "无界时仅丢弃解析失败项"
+        assert _filter_ts_by_range(ts, datetime(2026, 1, 9), None) == []
+        assert _filter_ts_by_range(ts, None, datetime(2025, 12, 31)) == []
