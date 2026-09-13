@@ -218,3 +218,127 @@ class TestAnomalyDetectorScored:
         assert isinstance(hits, list)
         assert all(isinstance(h, AlertHit) for h in hits)
         assert all(h.key for h in hits), "每个告警必须有 key 用于去重"
+
+
+class TestOnlineLearnerHedge:
+    """`OnlineLearner`: Hedge 权重更新契约（集成权重的核心）。"""
+
+    @staticmethod
+    def _learner(names, warmup=5):
+        from algorithms.online_learner import OnlineLearner
+
+        return OnlineLearner(list(names), warmup=warmup)
+
+    def test_cold_start_weights_uniform_and_normalized(self):
+        learner = self._learner(["a", "b", "c"])
+        weights = learner.get_weights()
+        assert set(weights) == {"a", "b", "c"}
+        assert sum(weights.values()) == pytest.approx(1.0)
+        assert len(set(round(w, 6) for w in weights.values())) == 1, "冷启动权重应均匀"
+
+    def test_unregistered_or_nonpositive_actual_is_skipped(self):
+        learner = self._learner(["a"])
+        learner.update("not_registered", predicted=1.0, actual=2.0)  # 不应抛异常
+        learner.update("a", predicted=100.0, actual=0.0)  # actual<=0 跳过
+        learner.update("a", predicted=100.0, actual=-5.0)
+        stats = learner.get_algorithm_stats()
+        assert stats["a"]["error_count"] == 0, "非法更新不应计入样本"
+
+    def test_better_algorithm_gains_weight_after_warmup(self):
+        learner = self._learner(["good", "bad"], warmup=3)
+        for _ in range(8):
+            learner.update("good", predicted=1000.0, actual=1001.0)  # 极小相对误差
+            learner.update("bad", predicted=1000.0, actual=5000.0)  # 极大相对误差
+        weights = learner.get_weights()
+        assert weights["good"] > weights["bad"], f"Hedge 应奖励表现好的算法: {weights}"
+        assert weights["bad"] >= learner.min_weight * 0.5, "min_weight 保护不应被完全淘汰"
+        assert sum(weights.values()) == pytest.approx(1.0)
+
+    def test_register_unregister_and_remove_by_prefix(self):
+        learner = self._learner(["BV1x/_weighted"])
+        learner.register("algo_a")
+        learner.register("algo_a")  # 幂等
+        assert "algo_a" in learner.get_weights()
+        learner.unregister("algo_a")
+        assert "algo_a" not in learner.get_weights()
+
+        learner.register("BV2y/linear")
+        learner.register("BV2y/exponential")
+        learner.remove_by_prefix("BV2y/")
+        assert not any(k.startswith("BV2y/") for k in learner.get_weights())
+
+    def test_save_load_roundtrip(self, tmp_path):
+        learner = self._learner(["a", "b"], warmup=1)
+        for _ in range(4):
+            learner.update("a", predicted=100.0, actual=101.0)
+            learner.update("b", predicted=100.0, actual=900.0)
+        path = tmp_path / "learner.json"
+        learner.save(str(path))
+        assert path.is_file()
+
+        restored = self._learner(["a", "b"], warmup=1)
+        restored.load(str(path))
+        assert restored.get_weights() == pytest.approx(learner.get_weights())
+
+    def test_global_algorithm_scores_after_samples(self):
+        learner = self._learner(["a", "b"], warmup=1)
+        for _ in range(5):
+            learner.update("a", predicted=100.0, actual=100.0)
+            learner.update("b", predicted=100.0, actual=400.0)
+        scores = learner.get_global_algorithm_scores(min_samples=2)
+        assert isinstance(scores, dict)
+        assert "a" in scores and "b" in scores
+        assert scores["a"] > scores["b"], "准确率更高的算法应有更高全局分"
+
+
+class TestPrepareVideoData:
+    """`AlgorithmRegistry._prepare_video_data`: 历史统一转换 + 派生特征缓存键。
+
+    注意：`_derived_cache` / `_cache_lock` 定义在组合类 AlgorithmRegistry 上
+    （mixin 单独使用不完整），故这里按真实消费者路径调用。
+    """
+
+    @staticmethod
+    def _history(n=20, start=100.0, step=10.0, ts0=1_700_000_000.0, dt=75.0):
+        return [(ts0 + dt * i, start + step * i) for i in range(n)]
+
+    def test_returns_expected_contract(self):
+        from algorithms.registry import AlgorithmRegistry
+
+        history = self._history()
+        data = AlgorithmRegistry._prepare_video_data(history, 290.0, BVID)
+        assert isinstance(data, dict)
+        assert data["view_count"] == 290.0
+        assert data["bvid"] == BVID
+        assert data["_sorted"] is True, "history_list 应已按时间升序"
+        assert data["velocity"] == data["_velocity"]
+        assert data["velocity"] > 0, "递增历史的预计算速度应为正"
+        assert isinstance(data["history_data"], list) and len(data["history_data"]) == 20
+        assert "timestamp" in data["history_data"][0]
+        datetime.strptime(data["timestamp_str"], TS_FMT)  # 规范时间戳格式
+
+    def test_empty_and_single_point_history_do_not_crash(self):
+        from algorithms.registry import AlgorithmRegistry
+
+        for history in ([], [(1_700_000_000.0, 100.0)]):
+            data = AlgorithmRegistry._prepare_video_data(history, 100.0, BVID)
+            assert data["view_count"] == 100.0
+
+    def test_cache_key_includes_content_digest(self):
+        """缓存键含内容摘要：长度/当前值相同但内容变化时必须重新计算。"""
+        from algorithms.registry import AlgorithmRegistry
+
+        AlgorithmRegistry._derived_cache.clear()
+        h1 = self._history()
+        AlgorithmRegistry._prepare_video_data(h1, 290.0, BVID)
+        size1 = len(AlgorithmRegistry._derived_cache)
+
+        # 同样长度、同样 current_value，但历史内容不同 → 必须产生新缓存条目
+        h2 = [(ts, v * 1.5) for ts, v in h1]
+        AlgorithmRegistry._prepare_video_data(h2, 290.0, BVID)
+        size2 = len(AlgorithmRegistry._derived_cache)
+        assert size2 > size1, "内容变化必须产生新的缓存键（避免命中陈旧派生特征）"
+
+        # 完全相同的内容 → 命中缓存，不新增条目
+        AlgorithmRegistry._prepare_video_data(h1, 290.0, BVID)
+        assert len(AlgorithmRegistry._derived_cache) == size2, "相同内容应命中缓存"
