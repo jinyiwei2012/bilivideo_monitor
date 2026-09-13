@@ -612,3 +612,46 @@ class TestCoverValidityCache:
         p2 = cm.get_valid_cover(bvid)
         assert p1 == p2 == str(tmp_path / f"{bvid}.jpg")
         assert calls["n"] == 1, "第二次调用应命中缓存，不再计算 MD5"
+
+
+class TestMemoryHealthOffMainThread:
+    """M2.10a: do_memory_health_check 必须经 fire_and_forget 后台执行，不得在主线程同步调用。"""
+
+    def test_scheduled_via_fire_and_forget(self, monkeypatch):
+        import ui.main_gui_tick as tick
+
+        called = {"ff": [], "sync": []}
+        monkeypatch.setattr(tick, "fire_and_forget", lambda fn, name=None, **k: called["ff"].append(name))
+        monkeypatch.setattr(tick, "do_memory_health_check", lambda gui: called["sync"].append(1))
+        monkeypatch.setattr(tick, "do_periodic_sync", lambda gui: None)
+        monkeypatch.setattr(tick, "wal_checkpoint_worker", lambda gui: None)
+        monkeypatch.setattr(tick, "scan_alerts_background", lambda gui: None)
+
+        class _Badge:
+            def setText(self, *a):
+                pass
+
+            def setStyleSheet(self, *a):
+                pass
+
+        class _GUI:
+            auto_refresh_enabled = True
+            DEFAULT_INTERVAL = 75
+            FAST_INTERVAL = 10
+            _global_tick_timer = None
+            _last_countdown_text = ""
+            _last_mode_text = ""
+            _last_interval_text = ""
+            _video_timers = {}
+            _tick_counter = 9  # +1 = 10 → 命中 %1800==10
+
+            def __init__(self):
+                self._countdown_badge = _Badge()
+                self._mode_pill = _Badge()
+
+            def _sb(self, *a, **k):
+                pass
+
+        tick.global_tick(_GUI())
+        assert called["ff"] == ["mem-health"], f"应经 fire_and_forget 调度，实际 {called['ff']}"
+        assert called["sync"] == [], "不应在主线程同步调用 do_memory_health_check"

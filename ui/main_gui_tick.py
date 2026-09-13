@@ -111,7 +111,8 @@ def global_tick(gui):
             fire_and_forget(lambda: scan_alerts_background(gui), name="scan-alerts")
         # 每 30 分钟检查内存增长
         elif gui._tick_counter % 1800 == 10:
-            do_memory_health_check(gui)
+            # tracemalloc 快照对比较耗时，移到后台线程，避免卡住主线程
+            fire_and_forget(lambda: do_memory_health_check(gui), name="mem-health")
     except Exception:
         logger.exception("_global_tick 异常，继续调度")
 
