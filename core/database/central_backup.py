@@ -190,46 +190,52 @@ class CentralBackup:
                 )
 
     def _sync_monitor_records_to_central(self, active_cur, central_cur, result):
-        """同步 monitor_records 表到中央库（按时间戳去重增量同步）"""
-        central_cur.execute("SELECT DISTINCT bvid FROM monitor_records")
-        central_bvids = {r["bvid"] for r in central_cur.fetchall()}
+        """同步 monitor_records 表到中央库（按高水位线增量同步）。
+
+        每个 bvid 以中央库已同步的最大 timestamp 作为水位线，只扫描并写入该线之后的
+        记录 → 耗时由 O(全表) 降为 O(增量)，且不再把两侧全量记录拉进内存。
+        """
+        central_cur.execute("SELECT bvid, MAX(timestamp) AS wm FROM monitor_records GROUP BY bvid")
+        watermark = {r["bvid"]: (r["wm"] or "") for r in central_cur.fetchall()}
+        central_bvids = set(watermark)
+
         active_cur.execute("SELECT DISTINCT bvid FROM monitor_records")
         active_bvids = {r["bvid"] for r in active_cur.fetchall()}
 
         for bvid in active_bvids:
-            central_cur.execute("SELECT timestamp FROM monitor_records WHERE bvid=?", (bvid,))
-            central_ts = {r["timestamp"] for r in central_cur.fetchall()}
-            active_cur.execute("SELECT * FROM monitor_records WHERE bvid=? ORDER BY timestamp ASC", (bvid,))
+            since = watermark.get(bvid, "")
+            active_cur.execute(
+                "SELECT * FROM monitor_records WHERE bvid=? AND timestamp > ? ORDER BY timestamp ASC",
+                (bvid, since),
+            )
             for row in active_cur.fetchall():
                 rd = dict(row)
-                if rd["timestamp"] not in central_ts:
-                    lvr = rd.get("like_view_ratio", 0)
-                    if not lvr and rd.get("view_count") and rd.get("like_count"):
-                        lvr = round(rd["like_count"] / rd["view_count"], 6)
-                    central_cur.execute(
-                        """INSERT INTO monitor_records
-                        (bvid, timestamp, view_count, like_count, coin_count, share_count,
-                         favorite_count, danmaku_count, reply_count, viewers_app,
-                         viewers_web, viewers_total, like_view_ratio)
-                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                        (
-                            rd["bvid"],
-                            rd["timestamp"],
-                            rd.get("view_count", 0),
-                            rd.get("like_count", 0),
-                            rd.get("coin_count", 0),
-                            rd.get("share_count", 0),
-                            rd.get("favorite_count", 0),
-                            rd.get("danmaku_count", 0),
-                            rd.get("reply_count", 0),
-                            rd.get("viewers_app", 0),
-                            rd.get("viewers_web", 0),
-                            rd.get("viewers_total", 0),
-                            lvr,
-                        ),
-                    )
-                    central_ts.add(rd["timestamp"])
-                    result["synced_records"] += 1
+                lvr = rd.get("like_view_ratio", 0)
+                if not lvr and rd.get("view_count") and rd.get("like_count"):
+                    lvr = round(rd["like_count"] / rd["view_count"], 6)
+                central_cur.execute(
+                    """INSERT INTO monitor_records
+                    (bvid, timestamp, view_count, like_count, coin_count, share_count,
+                     favorite_count, danmaku_count, reply_count, viewers_app,
+                     viewers_web, viewers_total, like_view_ratio)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (
+                        rd["bvid"],
+                        rd["timestamp"],
+                        rd.get("view_count", 0),
+                        rd.get("like_count", 0),
+                        rd.get("coin_count", 0),
+                        rd.get("share_count", 0),
+                        rd.get("favorite_count", 0),
+                        rd.get("danmaku_count", 0),
+                        rd.get("reply_count", 0),
+                        rd.get("viewers_app", 0),
+                        rd.get("viewers_web", 0),
+                        rd.get("viewers_total", 0),
+                        lvr,
+                    ),
+                )
+                result["synced_records"] += 1
         return active_bvids, central_bvids
 
     def _sync_per_video_details(self, active_bvids, central_bvids, central_cur, result):

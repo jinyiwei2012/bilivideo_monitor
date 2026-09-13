@@ -1611,3 +1611,78 @@ class TestScoreMaterializer:
             assert db.get_weekly_scores() == [], "现算不应落库"
         finally:
             db.close()
+
+
+class TestCentralIncrementalSync:
+    """M2.5b: 中央同步按高水位线只处理增量。"""
+
+    _COLS = (
+        "bvid TEXT, timestamp TEXT, view_count INTEGER, like_count INTEGER, coin_count INTEGER,"
+        " share_count INTEGER, favorite_count INTEGER, danmaku_count INTEGER, reply_count INTEGER,"
+        " viewers_app INTEGER, viewers_web INTEGER, viewers_total INTEGER, like_view_ratio REAL"
+    )
+
+    @staticmethod
+    def _mk_pair():
+        import sqlite3
+
+        a = sqlite3.connect(":memory:")
+        c = sqlite3.connect(":memory:")
+        a.row_factory = sqlite3.Row
+        c.row_factory = sqlite3.Row
+        a.execute(f"CREATE TABLE monitor_records ({TestCentralIncrementalSync._COLS})")
+        c.execute(f"CREATE TABLE monitor_records ({TestCentralIncrementalSync._COLS})")
+        return a, c
+
+    def test_only_incremental_rows_copied(self):
+        from core.database.central_backup import CentralBackup
+
+        a, c = self._mk_pair()
+        try:
+            a.executemany(
+                "INSERT INTO monitor_records (bvid, timestamp, view_count) VALUES (?,?,?)",
+                [
+                    ("BV1", "2026-01-01 10:00:00", 100),
+                    ("BV1", "2026-01-01 11:00:00", 200),
+                    ("BV1", "2026-01-01 12:00:00", 300),
+                ],
+            )
+            c.execute(
+                "INSERT INTO monitor_records (bvid, timestamp, view_count) VALUES ('BV1','2026-01-01 10:00:00',100)"
+            )
+            a.commit()
+            c.commit()
+
+            result = {"synced_records": 0}
+            active_bvids, central_bvids = CentralBackup(None)._sync_monitor_records_to_central(
+                a.cursor(), c.cursor(), result
+            )
+            assert active_bvids == {"BV1"}
+            assert central_bvids == {"BV1"}
+            assert result["synced_records"] == 2, "只补 11:00 与 12:00"
+            got = [r[0] for r in c.execute("SELECT timestamp FROM monitor_records ORDER BY timestamp")]
+            assert got == ["2026-01-01 10:00:00", "2026-01-01 11:00:00", "2026-01-01 12:00:00"]
+        finally:
+            a.close()
+            c.close()
+
+    def test_new_bvid_full_copy_and_lvr_filled(self):
+        from core.database.central_backup import CentralBackup
+
+        a, c = self._mk_pair()
+        try:
+            a.execute(
+                "INSERT INTO monitor_records (bvid, timestamp, view_count, like_count) VALUES ('BV2','2026-02-01 08:00:00',1000,50)"
+            )
+            a.commit()
+
+            result = {"synced_records": 0}
+            _, central_bvids = CentralBackup(None)._sync_monitor_records_to_central(a.cursor(), c.cursor(), result)
+            assert central_bvids == set(), "中央库此前无该 bvid"
+            assert result["synced_records"] == 1
+            row = c.execute("SELECT timestamp, like_view_ratio FROM monitor_records").fetchone()
+            assert row[0] == "2026-02-01 08:00:00"
+            assert abs(row[1] - 0.05) < 1e-9, "缺失的播赞比应被补算"
+        finally:
+            a.close()
+            c.close()
