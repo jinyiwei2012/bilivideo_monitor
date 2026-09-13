@@ -23,7 +23,7 @@
 ## 快速开始
 
 ### 环境要求
-- Windows 10 / 11 | Python 3.10+ | Conda (推荐)
+- Windows 10 / 11 | Python 3.10+ | Conda（本项目固定使用环境 **`bili`**，Python 3.10.20 / Anaconda）
 
 ### 安装
 
@@ -31,14 +31,21 @@
 git clone https://github.com/jinyiwei2012/bilivideo_monitor.git
 cd bilivideo-monitor
 
-conda create -n bilibili python=3.10
-conda activate bilibili
+conda create -n bili python=3.10
+conda activate bili
 
 pip install -r requirements.txt
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 
 python main.py
 ```
+
+> **环境固定（强制）**：本项目所有命令（`pytest` / `flake8` / `radon` / `black` / `python main.py`）**只能在 conda 环境 `bili` 中执行**。开工前校验：
+> ```powershell
+> conda activate bili
+> python -c "import sys; assert sys.prefix.endswith(r'\envs\bili'), sys.prefix; print('env OK', sys.executable)"
+> ```
+> 依赖（torch / NPU / ONNX 等）仅装在该环境；换环境会得到错误的测试/运行结果。
 
 首次启动会自动创建 `data/` 目录和 SQLite 数据库，后台加载预测算法。
 
@@ -132,6 +139,8 @@ class MyAlgorithm(BaseAlgorithm):
 
 ## 开发命令
 
+> 所有命令须在 conda 环境 **`bili`** 中运行（见上方「环境固定」）。
+
 ```bash
 python main.py                    # 启动
 black --line-length=120 .         # 格式化
@@ -147,6 +156,7 @@ pre-commit run --all-files        # 提交前检查
 - [algorithms/ALGORITHMS.md](algorithms/ALGORITHMS.md) — 算法详细说明
 - [CHANGELOG.md](CHANGELOG.md) — 版本更新日志
 - [AGENTS.md](AGENTS.md) — AI 助理开发指南
+- [OPTIMIZATION_PLAN.md](OPTIMIZATION_PLAN.md) — 重构/优化方案（含待改动方法清单、大型文件重构步骤）
 
 ## 注意事项
 
