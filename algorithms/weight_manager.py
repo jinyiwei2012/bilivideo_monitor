@@ -192,6 +192,28 @@ class WeightManager:
         self._recalculate_ml_weights()
         self._save_weights_sync()
 
+    def update_accuracy_batch(self, records):
+        """批量更新多个算法的准确率记录：整批仅重算一次、仅落盘一次。
+
+        生产回路的误差反馈每轮会喂入 ~120 个算法；逐条调用 update_accuracy 会导致
+        ~120 次全量 ML 重算 + JSON 写盘。批量接口把它们合并为 1 次。
+
+        Args:
+            records: 可迭代的 (algorithm_name, accuracy) 序列。
+        """
+        pairs = [(name, max(0.0, min(1.0, float(acc)))) for name, acc in records if name]
+        if not pairs:
+            return
+        with self._lock:
+            for algorithm_name, accuracy in pairs:
+                bucket = self.accuracy_records.setdefault(algorithm_name, [])
+                bucket.append(accuracy)
+                if len(bucket) > 100:
+                    self.accuracy_records[algorithm_name] = bucket[-100:]
+        # 锁外：整批只重算一次 + 只落盘一次
+        self._recalculate_ml_weights()
+        self._save_weights_sync()
+
     def _recalculate_ml_weights(self):
         """重新计算机器学习权重。
 

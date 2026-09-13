@@ -1032,6 +1032,46 @@ class AlgorithmRegistry:
             logger.debug("更新算法准确率失败 %s: %s", algorithm_name, e)
 
     @classmethod
+    def update_accuracy_batch(cls, items):
+        """批量更新多个算法的准确率记录（整批仅重算/落盘一次）。
+
+        与逐条 update_accuracy 语义等价，但把 WeightManager 的全量 ML 重算与
+        JSON 写盘从 N 次降为 1 次（生产回路 ~120 算法/轮）。
+
+        Args:
+            items: 可迭代的 (algorithm_name, predicted, actual) 三元组；
+                   predicted/actual 用于换算准确率（actual<=0 时记 0.5）。
+        """
+        collected = []
+        for item in items:
+            try:
+                name, predicted, actual = item
+            except Exception:
+                continue
+            if not name:
+                continue
+            if name not in cls._algorithms:
+                name = cls.get_registry_key(name)
+            algo = cls._algorithms.get(name)
+            if predicted is not None and actual is not None and actual > 0:
+                _base = max(abs(predicted), actual, 1.0)
+                rel_err = abs(predicted - actual) / _base
+                accuracy = max(0.0, min(1.0, 1.0 - rel_err))
+            else:
+                accuracy = 0.5
+            try:
+                if algo is not None and hasattr(algo, "update_accuracy"):
+                    algo.update_accuracy(accuracy)
+            except Exception as e:
+                logger.debug("算法内部准确率更新失败 %s: %s", name, e)
+            collected.append((name, accuracy))
+        if collected:
+            try:
+                get_weight_manager().update_accuracy_batch(collected)
+            except Exception as e:
+                logger.debug("批量更新算法准确率失败: %s", e)
+
+    @classmethod
     def update_ensemble_accuracy(cls, predicted: float, actual: float):
         """用集成预测值与实际值更新保形预测器的校准集。"""
         try:

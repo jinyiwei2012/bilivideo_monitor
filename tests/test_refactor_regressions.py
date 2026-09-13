@@ -335,3 +335,65 @@ class TestMaybeReleaseMemoryPressure:
         monkeypatch.setattr(mg, "is_memory_pressure", lambda *a, **k: True)
         pred._maybe_release_memory(None)
         assert called, "内存压力时应调用 release_cached_models"
+
+
+class TestWeightManagerBatch:
+    """M1.3: 批量更新准确率 —— 整批只重算/落盘一次，且与逐条结果数值一致。"""
+
+    def test_batch_recalcs_once_and_matches_single(self, tmp_path, monkeypatch):
+        from algorithms.weight_manager import WeightManager
+
+        names = [f"algo_{i}" for i in range(120)]
+        accs = [0.1 + (i % 9) * 0.1 for i in range(120)]
+
+        wm_batch = WeightManager(save_dir=str(tmp_path / "batch"))
+        calls = {"recalc": 0, "save": 0}
+        orig_recalc = wm_batch._recalculate_ml_weights
+        orig_save = wm_batch._save_weights_sync
+
+        def _recalc():
+            calls["recalc"] += 1
+            orig_recalc()
+
+        def _save():
+            calls["save"] += 1
+            orig_save()
+
+        monkeypatch.setattr(wm_batch, "_recalculate_ml_weights", _recalc)
+        monkeypatch.setattr(wm_batch, "_save_weights_sync", _save)
+
+        wm_batch.update_accuracy_batch(list(zip(names, accs)))
+        assert calls["recalc"] == 1, "批量更新应只重算一次"
+        assert calls["save"] == 1, "批量更新应只落盘一次"
+
+        wm_single = WeightManager(save_dir=str(tmp_path / "single"))
+        for n, a in zip(names, accs):
+            wm_single.update_accuracy(n, a)
+
+        assert wm_batch.ml_weights == pytest.approx(wm_single.ml_weights)
+        assert wm_batch.accuracy_records == wm_single.accuracy_records
+
+
+class TestRegistryAccuracyBatch:
+    """M1.3: AlgorithmRegistry.update_accuracy_batch 把整批交给 WeightManager 一次。"""
+
+    def test_delegates_batch_once(self, monkeypatch):
+        import algorithms.registry as reg
+
+        captured = []
+
+        class _WM:
+            def update_accuracy_batch(self, records):
+                captured.append(list(records))
+
+        monkeypatch.setattr(reg, "get_weight_manager", lambda: _WM())
+        # 避免触发 registry 初始化（get_registry_key 内部会 initialize 137 个算法）
+        monkeypatch.setattr(reg.AlgorithmRegistry, "get_registry_key", classmethod(lambda cls, x: x))
+
+        reg.AlgorithmRegistry.update_accuracy_batch([("algo_a", 100, 120), ("algo_b", 50, 0)])
+
+        assert len(captured) == 1, "应只调用一次 WeightManager.update_accuracy_batch"
+        accs = dict(captured[0])
+        assert list(accs.keys()) == ["algo_a", "algo_b"]
+        assert accs["algo_a"] == pytest.approx(1.0 - 20 / 120, abs=1e-6)
+        assert accs["algo_b"] == pytest.approx(0.5)

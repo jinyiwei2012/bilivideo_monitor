@@ -485,7 +485,9 @@ def _online_learning_feedback(gui, bvid, results, actual_view, prev_result):
 
         learner = get_online_learner()
         # B1: 每轮真实误差 → per-算法准确率（仅当上轮有有效预测且播放量真实变化）
+        # 整批收集后一次性重算/落盘，避免 ~120 次全量 ML 重算 + JSON 写盘（M1.3）
         _fed_algos = set()
+        _acc_items = []
         for name, pred_val, _, _, _ in prev_result.get("success_list", []):
             if pred_val > 0:
                 algo_key = bvid + "/" + name
@@ -494,10 +496,12 @@ def _online_learning_feedback(gui, bvid, results, actual_view, prev_result):
             # WeightManager 用全局算法名（不带 bvid 前缀）
             if name not in _fed_algos and pred_val > 0:
                 _fed_algos.add(name)
-                try:
-                    AlgorithmRegistry.update_accuracy(name, predicted=pred_val, actual=actual_view)
-                except Exception:
-                    pass
+                _acc_items.append((name, pred_val, actual_view))
+        if _acc_items:
+            try:
+                AlgorithmRegistry.update_accuracy_batch(_acc_items)
+            except Exception:
+                pass
     except Exception as e:
         logger.debug("在线学习反馈失败: %s", e)
 
