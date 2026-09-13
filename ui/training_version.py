@@ -334,7 +334,7 @@ class VersionManagerMixin:
             src = os.path.join(project_path("algorithms", "checkpoints", aid), f"{ver}.pt")
             shutil.copyfile(src, path)
             QMessageBox.information(self, "完成啦 ♪", f"已导出到:\n{path}")
-        except Exception as e:
+        except Exception:
             logger.error("导出checkpoint版本失败", exc_info=True)
             QMessageBox.critical(self, "呜…出错了", "呜…导出失败啦，请稍后再试哦 ♪")
 

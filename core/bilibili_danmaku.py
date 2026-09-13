@@ -125,7 +125,6 @@ class DanmakuMonitor:
         view_info = self._fetch_danmaku_view(cid, aid)
         total_segs = view_info.get("total_segments", 0)
         danmaku_count = view_info.get("count", 0)
-        page_size_ms = view_info.get("page_size", 360000)
 
         # 无弹幕的视频直接跳过（count 字段可靠，为 0 表示确实无弹幕）
         if danmaku_count == 0 and view_info:

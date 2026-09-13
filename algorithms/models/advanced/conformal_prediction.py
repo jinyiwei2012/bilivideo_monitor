@@ -118,8 +118,6 @@ class ConformalPredictionAlgorithm(BaseAlgorithm):
                 # 趋势预测：用全序列线性外推一步
                 trend = np.polyfit(np.arange(n), views, 1)  # 一次多项式拟合
                 point_pred = np.polyval(trend, n + 1)  # 对 t=n+1 的时间点预测
-                lower = point_pred - error_bound  # 预测区间下界
-                upper = point_pred + error_bound  # 预测区间上界
 
                 growth = point_pred - views[-1]  # 预测的增长量
                 interval_half = error_bound  # 区间半宽 = 保形误差

@@ -139,7 +139,7 @@ class VideoCardDelegate(QStyledItemDelegate):
 
         margin = SPACE_MD
         x, y = rect.x() + margin, rect.y() + margin
-        w, h = rect.width() - 2 * margin, rect.height() - 2 * margin
+        w = rect.width() - 2 * margin
 
         # 封面缩略图 (圆角裁剪 + 细描边)
         bvid = data.get("bvid", "")

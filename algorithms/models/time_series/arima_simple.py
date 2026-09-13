@@ -91,7 +91,6 @@ class ArimaSimpleAlgorithm(BaseAlgorithm):
         返回:
             PredictionResult: 预测结果对象
         """
-        current_views = video_data.get("view_count", 0)
         history = video_data.get("history_data", [])
 
         # 优先使用 pmdarima 自动 ARIMA（自动选择最优阶数）

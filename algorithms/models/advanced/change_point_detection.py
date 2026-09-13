@@ -340,7 +340,6 @@ class ChangePointDetectionAlgorithm(BaseAlgorithm):
             surge_info = self.detect_surge(video_data)
             if surge_info.get("is_surging"):
                 # 检测到推流 → 使用衰减模型而非简单乘数
-                surge_mag = surge_info["surge_magnitude"]
                 decay_factor = self.get_surge_decay_factor(video_data, hours_ahead=2.0)
 
                 if surge_info["surge_type"] == "strong":

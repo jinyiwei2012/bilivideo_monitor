@@ -350,7 +350,6 @@ class AlgorithmRegistry:
                                 # 窗口起点：从末段反向扫描，找最后一个正增量段(补量)之前
                                 # 连续 0 串的起点；窗口 = [冻结起点, 末段]。
                                 _win_dv = _dv[_valid_dt]
-                                _win_dt = _dt[_valid_dt]
                                 # 反向找补量段：最后一个正增量段下标
                                 _pos_i = np.where(_win_dv > 0)[0]
                                 if len(_pos_i) > 0:
@@ -708,7 +707,6 @@ class AlgorithmRegistry:
 
         # ── 检测是否处于推流状态 ──────────────────
         is_surging = False
-        surge_mag = 1.0
         try:
             # 用预测值离散度作为推流代理指标
             # 推流时算法预测值差异大（部分算法检测到激增，部分未检测到）
@@ -719,7 +717,6 @@ class AlgorithmRegistry:
                     # CV > 0.3 提示算法间存在显著分歧 → 可能推流
                     if cv > 0.3:
                         is_surging = True
-                        surge_mag = min(5.0, 1.0 + cv * 3)
         except Exception as e:
             logger.debug("推流检测计算失败: %s", e)
 

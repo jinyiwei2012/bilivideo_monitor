@@ -217,7 +217,6 @@ class BacktestPanel:
                 velocity = getattr(result, "current_velocity", 0)
                 # 用预测小时数和速度反推下一个值
                 if velocity > 0 and predicted_hours != float("inf") and predicted_hours > 0:
-                    remaining = (predicted_hours * 3600) * velocity / 3600
                     return current_views + velocity * (75.0 / 3600.0)  # 75秒短周期
                 elif velocity > 0:
                     return current_views + velocity * (75.0 / 3600.0)
@@ -383,8 +382,6 @@ class BacktestPanel:
         self._summary_layout.addWidget(detail_lbl)
 
         # 表格
-        success_color = C["success"]
-        danger_color = C["danger"]
         for rank, (name, rmse, mae, mape, n_tests) in enumerate(valid, 1):
             vals = [name[:25], fmt_num(int(rmse)), fmt_num(int(mae)), f"{mape*100:.1f}%", str(n_tests), f"#{rank}"]
             item = QTreeWidgetItem(vals)

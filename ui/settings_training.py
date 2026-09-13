@@ -248,7 +248,7 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
                     self._tr_mem_lbl.setText(mem_str)
             except Exception:
                 pass
-        except Exception as e:
+        except Exception:
             logger.warning("检测训练设备失败", exc_info=True)
             self._tr_device_lbl.setText("呜…设备检测失败啦，请稍后再试哦 ♪")
             self._tr_device_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent; font-weight: bold;")
@@ -322,7 +322,7 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
             from algorithms.registry import AlgorithmRegistry
 
             algos = AlgorithmRegistry.get_trainable_info()
-        except Exception as e:
+        except Exception:
             logger.error("加载可训练算法列表失败", exc_info=True)
             err_lbl = _styled_label("呜…算法列表加载失败啦，请稍后再试哦 ♪", "danger")
             (self._tr_algo_frame.layout() or QVBoxLayout(self._tr_algo_frame)).addWidget(err_lbl)
@@ -436,7 +436,7 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
                     sub = trainer.train_global([aid], epochs=epochs, batch_size=batch, progress_cb=_cb)
                     results.update(sub)
                 self._train_queue.put({"stage": "all_done", "results": results})
-            except Exception as e:
+            except Exception:
                 logger.error("全局训练失败", exc_info=True)
                 self._train_queue.put({"stage": "fatal", "error": "训练时出了点小问题，请稍后再试哦 ♪"})
 
@@ -466,7 +466,7 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
                 == QMessageBox.StandardButton.Yes
             ):
                 os.startfile(os.path.dirname(path))
-        except Exception as e:
+        except Exception:
             logger.error("导出模型checkpoint失败", exc_info=True)
             QMessageBox.critical(self.dlg, "呜…出错了", "呜…导出失败啦，请稍后再试哦 ♪")
             self._tr_status_lbl.setText("呜…导出失败啦，请稍后再试哦 ♪")
@@ -489,7 +489,7 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
                 self.dlg, "完成啦 ♪", f"已导入 {count} 个算法的模型啦 ♪\n\n刷新算法列表就能看到更新哦 ♪"
             )
             self._refresh_algo_list()
-        except Exception as e:
+        except Exception:
             logger.error("导入模型checkpoint失败", exc_info=True)
             QMessageBox.critical(self.dlg, "呜…出错了", "呜…导入失败啦，请检查文件是不是完整的哦 ♪")
 

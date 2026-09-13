@@ -151,7 +151,6 @@ class SnapshotBarChart(QWidget):
             }
 
         max_section_W = max(all_section_widths) if all_section_widths else 500
-        real_W = max(_BAR_ML + max_section_W + 10, W)
 
         painter.setClipRect(0, 0, W, H)
 
@@ -260,7 +259,6 @@ class SnapshotBarChart(QWidget):
                         bar_color2 = QColor(hex_color)
 
                     x0 = x_cursor
-                    x1 = x0 + BAR_W
                     y0 = val_to_y(val)
                     y1 = sec_y0 + _BAR_MT + chart_H
 
@@ -692,8 +690,6 @@ class SnapshotTab(QWidget):
             QMessageBox.warning(self, "♪ 提示", "呜…这个时间格式天依看不懂呢,试试 YYYY-MM-DD HH:MM 哦")
             return
 
-        first_ts = _parse_dt(all_ts[-1]) if all_ts else None
-        last_ts = _parse_dt(all_ts[0]) if all_ts else None
 
         filtered = []
         for ts_str in all_ts:

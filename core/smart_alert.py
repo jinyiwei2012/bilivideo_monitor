@@ -186,7 +186,6 @@ class AnomalyDetector:
         # 最近 1 段 vs 前段中位（稳健基线：不被单点噪声干扰）
         last_rate = rates[-1]
         prev_rates = rates[:-1]
-        base_rate = max(_median(prev_rates), 1e-9)
         current_views = rows[-1].get("view_count", 0)
 
         # 自适应倍数：大视频增速更稳定，用更小倍数

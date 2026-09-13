@@ -203,7 +203,7 @@ class VideoSearchWindow(DialogBase):
         try:
             results = get_bilibili_api().search_videos(kw, page=1, page_size=20)
             self._search_done.emit(results or [], None)
-        except Exception as e:
+        except Exception:
             logger.error("B站视频搜索失败", exc_info=True)
             self._search_done.emit([], "搜索没有回音呢，像对着山谷唱歌，请稍后再试哦 ♪")
 

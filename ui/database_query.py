@@ -566,7 +566,7 @@ class DatabaseQueryWindow(DialogBase):
         self._status_update.emit(f"中央库找到 {len(raw_rows)} 条记录啦，天依正在整理它们的旋律哦…♪")
         try:
             extra_list, anames = self._load_query_extra_data(raw_rows)
-        except Exception as e:
+        except Exception:
             logger.exception("加载关联数据失败")
             self._status_update.emit("呜…关联数据像躲起来的小音符，天依没找到呢，请稍后再试哦 ♪")
             self._reset_query_state()
@@ -582,7 +582,7 @@ class DatabaseQueryWindow(DialogBase):
             raw_rows = self._run_query(cur, mode, filter_bvid, bvid_for_trend)
             conn.close()
             return raw_rows
-        except Exception as e:
+        except Exception:
             logger.error("中央库查询失败", exc_info=True)
             QMessageBox.critical(self, "呜…出错了", "呜…中央库打不开呢，像深夜书店暂时关上了门，天依会再试试的哦 ♪")
             self._reset_query_state()
@@ -702,7 +702,7 @@ class DatabaseQueryWindow(DialogBase):
                     item.setTextAlignment(1, Qt.AlignmentFlag.AlignLeft)
                 self._result_tree.addTopLevelItem(item)
             self._update_status(f"查询到 {len(raw_rows)} 条记录啦，像听见了同样多段旋律 ♪")
-        except Exception as e:
+        except Exception:
             logger.exception("显示查询结果失败")
             self._update_status("呜…结果没有顺利唱出来呢，请稍后再试哦 ♪")
         self._reset_query_state()
@@ -759,7 +759,7 @@ class DatabaseQueryWindow(DialogBase):
                     extra = el[i - 1] if i - 1 < len(el) else None
                     w.writerow(build_export_row(i, row, extra, self._algo_names))
             QMessageBox.information(self, "完成啦 ♪", f"数据唱成歌，收进 CSV 歌谱啦:\n{fp}")
-        except Exception as e:
+        except Exception:
             logger.error("导出CSV失败", exc_info=True)
             QMessageBox.critical(self, "呜…出错了", "呜…CSV 导出失败啦，像墨水不小心洒了，天依会再试试的哦 ♪")
 
@@ -798,7 +798,7 @@ class DatabaseQueryWindow(DialogBase):
                 ws.column_dimensions[col[0].column_letter].width = min(ml + 2, 50)
             wb.save(fp)
             QMessageBox.information(self, "完成啦 ♪", f"数据唱成歌，收进 Excel 歌谱啦:\n{fp}")
-        except Exception as e:
+        except Exception:
             logger.error("导出Excel失败", exc_info=True)
             QMessageBox.critical(self, "呜…出错了", "呜…Excel 导出失败啦，像装订好的歌谱散开了，天依会再试试的哦 ♪")
 
@@ -846,7 +846,7 @@ class DatabaseQueryWindow(DialogBase):
                 conn.commit()
                 conn.close()
                 self._delete_finished.emit(del_data, len(sel))
-            except Exception as e:
+            except Exception:
                 logger.error("删除记录失败", exc_info=True)
                 invoke(
                     lambda: QMessageBox.critical(

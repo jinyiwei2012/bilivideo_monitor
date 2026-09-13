@@ -419,7 +419,6 @@ class VideoTimeSeriesDataset(Dataset):
             self._series = [s.to(device) for s in self._series]
             self._velocity = [v.to(device) for v in self._velocity]
             self._long_rate = [l.to(device) for l in self._long_rate]
-        n_feat = len(self.features) + self._n_derived
         logger.info(
             "[dataset] 加载完成: %d 视频, %d 样本 (window=%d, horizon=%d, features=%d, derived=%d, max_ts=%.0f)",
             len(self._series),

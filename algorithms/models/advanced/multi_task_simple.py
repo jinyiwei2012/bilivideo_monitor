@@ -101,7 +101,6 @@ class MultiTaskSimpleAlgorithm(BaseAlgorithm):
         Returns:
             PredictionResult: 预测结果对象
         """
-        current_views = video_data.get("view_count", 0)
         history = video_data.get("history_data", [])
 
         # 优先尝试 PyTorch 路径（需要 >= 20 个数据点）

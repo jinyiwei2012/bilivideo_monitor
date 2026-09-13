@@ -111,7 +111,7 @@ class UpDatabase:
             )
             conn.commit()
             return True
-        except Exception as e:
+        except Exception:
             logger.exception("更新UP主信息失败 uid=%s", info.get("uid", "?"))
             return False
         finally:
@@ -131,7 +131,7 @@ class UpDatabase:
             )
             conn.commit()
             return True
-        except Exception as e:
+        except Exception:
             logger.exception("添加UP主历史记录失败 uid=%s", uid)
             return False
         finally:
@@ -218,7 +218,7 @@ class UpDatabase:
             )
             conn.commit()
             return True
-        except Exception as e:
+        except Exception:
             logger.exception("设置UP主追踪状态失败 uid=%s", uid)
             return False
         finally:
@@ -233,7 +233,7 @@ class UpDatabase:
             c.execute("DELETE FROM up_history WHERE uid=?", (uid,))
             conn.commit()
             return True
-        except Exception as e:
+        except Exception:
             logger.exception("删除UP主数据失败 uid=%s", uid)
             return False
         finally:

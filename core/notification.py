@@ -111,7 +111,7 @@ class NotificationManager:
             except json.JSONDecodeError as e:
                 logger.warning("WS %s 返回无效 JSON: %s", action, e)
                 return False  # 不触发回退——数据格式错误不会因 HTTP 改善
-            except Exception as e:
+            except Exception:
                 logger.exception("WS %s 异常", action)
                 return None
 

@@ -76,7 +76,6 @@ class GradientBoostSimpleAlgorithm(BaseAlgorithm):
         Returns:
             PredictionResult: 预测结果对象
         """
-        current_views = video_data.get("view_count", 0)
         history = video_data.get("history_data", [])
 
         # 优先使用 sklearn GradientBoostingRegressor 做梯度提升预测

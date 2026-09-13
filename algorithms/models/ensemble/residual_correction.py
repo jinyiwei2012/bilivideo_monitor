@@ -135,7 +135,6 @@ class ResidualCorrectionAlgorithm(BaseAlgorithm):
 
         views = np.array([h.get("view_count", 0) for h in history], dtype=np.float64)
         likes = np.array([h.get("like_count", 0) for h in history], dtype=np.float64)
-        coins = np.array([h.get("coin_count", 0) for h in history], dtype=np.float64)
         n = len(views)
 
         # 构建特征：速度、加速度、互动率、时间衰减
@@ -200,7 +199,6 @@ class ResidualCorrectionAlgorithm(BaseAlgorithm):
 
         # 置信度：残差预测的变异系数 (CV)
         residuals_cv = np.std(residual) / max(np.mean(np.abs(y)), 1e-10)
-        feature_importance = float(np.mean(model.feature_importances_))  # 特征重要性均值
 
         predicted_velocity = max(0, corrected_growth / 3600)
         if predicted_velocity < 1:

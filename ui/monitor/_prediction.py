@@ -240,8 +240,6 @@ def _calc_surge_aware_growth_rate(history: list) -> float:
         surge_info = _SURGE_DETECTOR.detect_surge(video_data)
 
         if surge_info.get("is_surging"):
-            surge_mag = surge_info["surge_magnitude"]
-            surge_type = surge_info["surge_type"]
             adj_vel = surge_info.get("adjusted_velocity", 0)
             surge_vel = surge_info.get("surge_velocity", raw_rate * 3600)
 

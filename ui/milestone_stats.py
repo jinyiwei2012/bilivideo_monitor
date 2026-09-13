@@ -284,7 +284,6 @@ class _CompareChart(QWidget):
                     painter.setPen(Qt.PenStyle.NoPen)
                     painter.drawRect(bx, MT + ch - 4, bx2 - bx, 4)
 
-            lx = int(gx + bar_total_w / 2)
             painter.setPen(QColor(C["text_1"]))
             painter.setFont(font_title)
             painter.drawText(QRectF(0, MT + ch + 2, self.width(), 16), Qt.AlignmentFlag.AlignHCenter, title)

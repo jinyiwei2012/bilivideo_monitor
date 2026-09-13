@@ -126,7 +126,6 @@ class QualityDecayAlgorithm(BaseAlgorithm):
 
             # 通过基类方法获取视频的内容质量分、互动率和视频年龄（小时）
             quality = self.get_quality_score(video_data)  # 质量评分 [0, 1]
-            engagement = self.get_engagement_rate(video_data)  # 互动率
             age_hours = self.get_video_age_hours(video_data)  # 视频发布至今的小时数
 
             # 质量加权的指数衰减

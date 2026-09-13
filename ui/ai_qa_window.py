@@ -253,7 +253,7 @@ class AIQAWindow(DialogBase):
         try:
             answer = self.session.ask(question)
             self._answer_ready.emit(answer, "")
-        except Exception as e:
+        except Exception:
             logger.error("AI问答失败", exc_info=True)
             self._answer_ready.emit("", "呜…天依没能听见数据的心声呢，请稍后再试哦 ♪")
 
@@ -278,8 +278,6 @@ class AIQAWindow(DialogBase):
 
     def _replace_last_assistant(self, text: str):
         """替换最后一段助手回复（替换"思考中..."占位）"""
-        html = self._build_message("assistant", text)
-        full_html = self._chat_text.toHtml()
         # 用正则或简单字符串替换找最后一个 assistant 消息
         # 更可靠的方式：清除最后一段 HTML 标记再追加
         doc = self._chat_text.document()

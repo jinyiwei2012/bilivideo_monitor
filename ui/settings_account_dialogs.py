@@ -101,7 +101,7 @@ class _CookieEditorDialog(QDialog):
             return
         try:
             entries = json.loads(raw)
-        except json.JSONDecodeError as e:
+        except json.JSONDecodeError:
             logger.warning("解析 Cookie-Editor JSON 失败", exc_info=True)
             QMessageBox.critical(self, "呜…出错了", "呜…JSON 格式好像不太对呢，检查一下再试试哦 ♪")
             return
@@ -209,7 +209,7 @@ class _QRCodeLoginDialog(QDialog):
         def _worker():
             try:
                 result = get_bilibili_api().poll_qrcode_login(self._qrcode_key)
-            except Exception as e:
+            except Exception:
                 logger.warning("轮询二维码登录状态异常", exc_info=True)
                 result = {"status": 0, "message": "呜…轮询登录状态出问题啦，请稍后再试哦 ♪"}
             invoke(lambda r=result: self._status_label.setText(r.get("message", "")))
@@ -409,7 +409,7 @@ class _PasswordLoginDialog(QDialog):
                     uname, pwd, captcha=captcha_code, captcha_type=self._captcha_type
                 )
                 self._result_signal.emit(result)
-            except Exception as e:
+            except Exception:
                 logger.error("密码登录异常", exc_info=True)
                 self._result_signal.emit({"code": -1, "message": "呜…登录失败啦，请稍后再试哦 ♪"})
 

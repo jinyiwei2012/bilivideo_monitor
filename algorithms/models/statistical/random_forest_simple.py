@@ -67,7 +67,6 @@ class RandomForestSimpleAlgorithm(BaseAlgorithm):
         返回:
             PredictionResult: 预测结果
         """
-        current_views = video_data.get("view_count", 0)
         history = video_data.get("history_data", [])
 
         # 优先使用 sklearn RandomForestRegressor 做特征工程预测

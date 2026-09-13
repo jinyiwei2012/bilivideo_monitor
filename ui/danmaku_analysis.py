@@ -398,7 +398,7 @@ class DanmakuAnalysisWindow:
             self._llm_btn.setEnabled(True)
             self._save_to_file(silent=True)
             self._load_local_llm_result()
-        except Exception as e:
+        except Exception:
             logger.error("弹幕/评论分析失败", exc_info=True)
             self._status_lbl.setText("呜…分析卡住啦，像音符突然停住，天依会再试试的哦 ♪")
             self._status_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
@@ -422,7 +422,6 @@ class DanmakuAnalysisWindow:
         keywords = extract_keywords(texts, top_n=30)
         self._display_keywords(keywords)
 
-        freq = generate_word_freq(texts)
 
         self._draw_time_distribution(texts)
 
@@ -491,7 +490,7 @@ class DanmakuAnalysisWindow:
             for hour in sorted(buckets):
                 texts_h = buckets[hour]
                 ratio = analyze_sentiment(texts_h)
-                pos, neg, neu = ratio["positive"], ratio["negative"], ratio["neutral"]
+                pos, neg = ratio["positive"], ratio["negative"]
                 total_n += len(texts_h)
                 if pos >= 0.5:
                     label, color = "正向", C["success"]
@@ -737,7 +736,7 @@ class DanmakuAnalysisWindow:
                 else:
                     logger.warning("LLM API 请求失败: HTTP %s, %s", resp.status_code, resp.text[:500])
                     return "呜…API 那边没有回应呢，天依会再敲敲门的，请稍后再试哦 ♪"
-        except Exception as e:
+        except Exception:
             logger.error("LLM 深度分析异常", exc_info=True)
             return "呜…AI 走神了一下下，请稍后再试哦 ♪"
 
@@ -785,7 +784,7 @@ class DanmakuAnalysisWindow:
                 )
             self._status_lbl.setText(f"LLM 分析完成啦!♪ 报告收进歌谱啦 → {filepath}")
             self._status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
-        except Exception as e:
+        except Exception:
             logger.warning("保存LLM分析结果失败", exc_info=True)
             if self.gui and hasattr(self.gui, "log_panel"):
                 self.gui.log_panel.add_log("WARNING", "保存LLM分析结果失败啦…♪")
@@ -826,7 +825,7 @@ class DanmakuAnalysisWindow:
                 self._status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
                 QTimer.singleShot(100, lambda: self._bottom_tabs.setCurrentIndex(2))
                 self._llm_btn.setEnabled(True)
-        except Exception as e:
+        except Exception:
             logger.warning("加载本地LLM分析结果失败", exc_info=True)
             if self.gui and hasattr(self.gui, "log_panel"):
                 self.gui.log_panel.add_log("WARNING", "加载本地LLM分析结果失败啦…♪")

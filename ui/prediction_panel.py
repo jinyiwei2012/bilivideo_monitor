@@ -539,7 +539,6 @@ class PredictionPanel:
         """创建全部信息面板 widget"""
         layout = self._info_content_layout
         dyn = self._info_dynamic = {}
-        views = max(video.get("view_count", 0), 1)
 
         # ── 互动率概览 ──
         layout.addWidget(SectionHeader("◧ 互动率概览 ♪"))

@@ -43,7 +43,7 @@ class Dialogs:
             from ui.tag_manager import TagManagerWindow
 
             TagManagerWindow(self.gui, self.gui)
-        except Exception as e:
+        except Exception:
             logger.error("打开标签管理失败", exc_info=True)
             QMessageBox.critical(self.gui, "呜…出错了", "呜…标签库打不开呢，像翻不到的那一页乐谱，天依会再找找的哦 ♪")
 
@@ -57,7 +57,7 @@ class Dialogs:
             from ui.backtest_panel import BacktestPanel
 
             BacktestPanel(self.gui, self.gui)
-        except Exception as e:
+        except Exception:
             logger.error("打开预测回测失败", exc_info=True)
             QMessageBox.critical(
                 self.gui, "呜…出错了", "呜…回测面板没搭起来呢，天依还想验证谁的歌声更准呢，请稍后再试哦 ♪"
@@ -73,7 +73,7 @@ class Dialogs:
             from ui.ranking_panel import RankingPanel
 
             RankingPanel(self.gui, self.gui)
-        except Exception as e:
+        except Exception:
             logger.error("打开排行榜失败", exc_info=True)
             QMessageBox.critical(
                 self.gui, "呜…出错了", "呜…排行榜打不开啦，天依还想给大家的歌排排座次呢，请稍后再试哦 ♪"
@@ -89,7 +89,7 @@ class Dialogs:
             from ui.anomaly_panel import AnomalyPanel
 
             AnomalyPanel(self.gui, self.gui)
-        except Exception as e:
+        except Exception:
             logger.error("打开异常检测失败", exc_info=True)
             QMessageBox.critical(self.gui, "呜…出错了", "呜…异常检测打不开啦，天依的耳朵正竖着呢，请稍后再试哦 ♪")
 
@@ -160,7 +160,7 @@ class Dialogs:
             from ui.database_query import DatabaseQueryWindow
 
             DatabaseQueryWindow(self.gui)
-        except Exception as e:
+        except Exception:
             logger.error("打开数据库查询失败", exc_info=True)
             QMessageBox.critical(self.gui, "呜…出错了", "呜…数据库查询打不开啦，像找不到的那本乐谱，天依会再找找的哦 ♪")
 
@@ -174,7 +174,7 @@ class Dialogs:
             from ui.video_search import VideoSearchWindow
 
             VideoSearchWindow(self.gui, on_import=self.gui._import_search_results)
-        except Exception as e:
+        except Exception:
             logger.error("打开视频搜索失败", exc_info=True)
             QMessageBox.critical(self.gui, "呜…出错了", "呜…视频搜索打不开啦，天依还想帮你找新歌呢，请稍后再试哦 ♪")
 
@@ -194,7 +194,7 @@ class Dialogs:
                 video_dbs=self.gui.video_dbs,
                 on_add_monitor=self.gui._add_bvid_to_monitor,
             )
-        except Exception as e:
+        except Exception:
             logger.error("打开数据对比失败", exc_info=True)
             QMessageBox.critical(
                 self.gui, "呜…出错了", "呜…数据对比打不开啦，天依还想听听两首歌有什么不同呢，请稍后再试哦 ♪"
@@ -215,7 +215,7 @@ class Dialogs:
                 history_data=self.gui.history_data,
                 video_dbs=self.gui.video_dbs,
             )
-        except Exception as e:
+        except Exception:
             logger.error("打开交叉计算失败", exc_info=True)
             QMessageBox.critical(self.gui, "呜…出错了", "呜…交叉计算打不开啦，像两条旋律没能交汇，天依再试试哦 ♪")
 
@@ -241,7 +241,7 @@ class Dialogs:
             from ui.weekly_score import WeeklyScoreWindow
 
             WeeklyScoreWindow(self.gui, monitored_videos=self.gui.monitored_videos, video_dbs=self.gui.video_dbs)
-        except Exception as e:
+        except Exception:
             logger.error("打开周刊分数计算失败", exc_info=True)
             QMessageBox.critical(self.gui, "呜…出错了", "呜…周刊分数打不开啦，天依还想给每首歌打个分呢，请稍后再试哦 ♪")
 
@@ -259,7 +259,7 @@ class Dialogs:
                 monitored_videos=self.gui.monitored_videos,
                 on_add_monitor=self.gui._add_bvid_to_monitor,
             )
-        except Exception as e:
+        except Exception:
             logger.error("打开里程碑统计失败", exc_info=True)
             QMessageBox.critical(
                 self.gui, "呜…出错了", "呜…里程碑统计打不开啦，天依还想数数追光的路程呢，请稍后再试哦 ♪"
@@ -289,7 +289,7 @@ class Dialogs:
             from ui.algorithm_compare import AlgorithmCompareWindow
 
             AlgorithmCompareWindow(self.gui, gui=self.gui)
-        except Exception as e:
+        except Exception:
             logger.error("打开算法比较失败", exc_info=True)
             QMessageBox.critical(self.gui, "呜…出错了", "呜…算法比较打不开啦，天依还想看看谁唱得最准呢，请稍后再试哦 ♪")
 
@@ -303,7 +303,7 @@ class Dialogs:
             from ui.settings_window import SettingsWindow
 
             SettingsWindow(self.gui, gui=self.gui)
-        except Exception as e:
+        except Exception:
             logger.error("打开系统设置失败", exc_info=True)
             QMessageBox.critical(self.gui, "呜…出错了", "呜…设置打不开啦，天依还想调一调自己的声音呢，请稍后再试哦 ♪")
 
@@ -337,7 +337,7 @@ class Dialogs:
 
                     QTimer.singleShot(0, lambda v=video: self.gui._register_video_to_monitor(v))
                     added += 1
-                except Exception as e:
+                except Exception:
                     logger.warning("导入 %s 失败", bvid, exc_info=True)
                     self.gui.log_panel.add_log("WARNING", f"导入 {bvid} 失败啦…♪")
                     skipped += 1
@@ -472,7 +472,7 @@ class Dialogs:
                 )
                 scroll_layout.addWidget(slbl)
 
-        except Exception as e:
+        except Exception:
             logger.error("加载算法信息失败", exc_info=True)
             err_lbl = QLabel("呜…算法信息走丢啦，像找不到的歌词页，天依会再找找的哦 ♪")
             err_lbl.setStyleSheet(f"color: {C['danger']};")
@@ -504,7 +504,7 @@ class Dialogs:
             from core import get_bilibili_api
 
             UpTrackerWindow(self.gui, api=get_bilibili_api())
-        except Exception as e:
+        except Exception:
             logger.error("打开UP主追踪失败", exc_info=True)
             QMessageBox.critical(
                 self.gui, "呜…出错了", "呜…UP主追踪打不开啦，天依还想看看大家最近在唱什么歌呢，请稍后再试哦 ♪"
@@ -521,7 +521,7 @@ class Dialogs:
             from core import get_bilibili_api
 
             DanmakuAnalysisWindow(self.gui, api=get_bilibili_api(), gui=self.gui)
-        except Exception as e:
+        except Exception:
             logger.error("打开弹幕分析失败", exc_info=True)
             QMessageBox.critical(
                 self.gui, "呜…出错了", "呜…弹幕分析打不开啦，天依还想听听大家心里的歌声呢，请稍后再试哦 ♪"
@@ -537,7 +537,7 @@ class Dialogs:
             from ui.danmaku_history import DanmakuHistoryWindow
 
             DanmakuHistoryWindow(parent=self.gui, gui=self.gui)
-        except Exception as e:
+        except Exception:
             logger.error("打开历史弹幕失败", exc_info=True)
             QMessageBox.critical(self.gui, "呜…出错了", "呜…历史弹幕打不开啦，天依还想翻翻过去的留言呢，请稍后再试哦 ♪")
 
@@ -552,7 +552,7 @@ class Dialogs:
             from core import get_bilibili_api
 
             TrendingDiscoveryWindow(self.gui, api=get_bilibili_api(), on_add_monitor=self.gui._add_bvid_to_monitor)
-        except Exception as e:
+        except Exception:
             logger.error("打开热门发现失败", exc_info=True)
             QMessageBox.critical(
                 self.gui, "呜…出错了", "呜…热门发现打不开啦，天依还想看看最近流行的旋律呢，请稍后再试哦 ♪"
@@ -568,7 +568,7 @@ class Dialogs:
             from ui.ai_qa_window import AIQAWindow
 
             AIQAWindow(self.gui, gui=self.gui)
-        except Exception as e:
+        except Exception:
             logger.error("打开AI问答失败", exc_info=True)
             QMessageBox.critical(self.gui, "呜…出错了", "呜…AI问答打不开啦，天依还想和你聊聊数据呢，请稍后再试哦 ♪")
 
@@ -582,7 +582,7 @@ class Dialogs:
             from ui.prediction_accuracy import PredictionAccuracyPanel
 
             PredictionAccuracyPanel(parent=self.gui, gui=self.gui)
-        except Exception as e:
+        except Exception:
             logger.error("打开预测回看失败", exc_info=True)
             QMessageBox.critical(
                 self.gui, "呜…出错了", "呜…预测回看打不开啦，天依还想看看之前的预言准不准呢，请稍后再试哦 ♪"
@@ -594,7 +594,7 @@ class Dialogs:
             from ui.time_analysis import TimeAnalysisPanel
 
             TimeAnalysisPanel(parent=self.gui, gui=self.gui)
-        except Exception as e:
+        except Exception:
             logger.error("打开时段分析失败", exc_info=True)
             QMessageBox.critical(
                 self.gui, "呜…出错了", "呜…时段分析打不开啦，天依还想看看歌声都出现在几点呢，请稍后再试哦 ♪"
@@ -606,7 +606,7 @@ class Dialogs:
             from ui.video_compare_enhanced import VideoCompareEnhanced
 
             VideoCompareEnhanced(parent=self.gui, gui=self.gui)
-        except Exception as e:
+        except Exception:
             logger.error("打开视频对比增强失败", exc_info=True)
             QMessageBox.critical(
                 self.gui, "呜…出错了", "呜…视频对比打不开啦，天依还想听听谁唱得更响亮呢，请稍后再试哦 ♪"
@@ -618,7 +618,7 @@ class Dialogs:
             from ui.dashboard_mode import DashboardWindow
 
             DashboardWindow(gui=self.gui, parent=self.gui)
-        except Exception as e:
+        except Exception:
             logger.error("打开数据大屏失败", exc_info=True)
             QMessageBox.critical(
                 self.gui, "呜…出错了", "呜…数据大屏打不开啦，天依还想把星星都点亮给你看呢，请稍后再试哦 ♪"
@@ -634,7 +634,7 @@ class Dialogs:
             from ui.report_scheduler import ReportSchedulerWindow
 
             ReportSchedulerWindow(self.gui, gui=self.gui)
-        except Exception as e:
+        except Exception:
             logger.error("打开报告导出失败", exc_info=True)
             QMessageBox.critical(
                 self.gui, "呜…出错了", "呜…报告导出打不开啦，天依还想把这段旋律写下来给你呢，请稍后再试哦 ♪"
