@@ -8,7 +8,6 @@ from datetime import datetime
 from typing import List, Dict, Optional
 
 from .models import VideoInfo, MonitorRecord, PredictionRecord
-from .video_db import VideoDatabase
 
 logger = logging.getLogger(__name__)
 
@@ -139,16 +138,39 @@ class CentralCRUD:
             logger.warning("清理中央库旧监控记录失败: %s", e)
             return 0
 
+    @staticmethod
+    def _read_video_info_light(bvid: str, data_dir: str) -> Optional[Dict]:
+        """轻量只读读取单个视频库的 video_info 行（不建表、不迁移）。
+
+        同步路径原先构造完整 VideoDatabase（建表 + 3 次 schema 迁移）仅为读一行，
+        这里改为直接 SELECT；库/表不存在或出错时返回 None。
+        """
+        db_path = os.path.join(data_dir, bvid, f"{bvid}.db")
+        if not os.path.exists(db_path):
+            return None
+        conn = None
+        try:
+            conn = sqlite3.connect(db_path, check_same_thread=False, timeout=5)
+            conn.row_factory = sqlite3.Row
+            cur = conn.execute("SELECT * FROM video_info WHERE id = 1")
+            row = cur.fetchone()
+            return dict(row) if row else None
+        except Exception as e:
+            logger.debug("轻量读取 video_info 失败 %s: %s", bvid, e)
+            return None
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
     def sync_from_video_db(self, bvid: str) -> bool:
         """从单个视频独立库同步视频信息到总数据库（仅同步元数据，不包含监控记录）"""
         try:
             with self.db._get_connection() as conn:
                 cursor = conn.cursor()
-                video_db = VideoDatabase(bvid, self.db.data_dir)
-                try:
-                    video_info = video_db.get_video_info()
-                finally:
-                    video_db.close()
+                video_info = self._read_video_info_light(bvid, self.db.data_dir)
                 if not video_info:
                     return True
                 cursor.execute(

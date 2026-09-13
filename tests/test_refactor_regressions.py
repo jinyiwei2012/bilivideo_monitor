@@ -1328,3 +1328,40 @@ class TestAgeHoursMemo:
         video = {"history_data": [], "timestamp": time.time() - 3600}
         age = BaseAlgorithm.get_video_age_hours(self._algo(), video)
         assert 0.9 < age < 1.1
+
+
+class TestLightVideoInfoRead:
+    """M2.5: 同步路径轻量只读 video_info（不建表/不迁移）。"""
+
+    def test_reads_existing_row_and_skips_missing(self, tmp_path):
+        import sqlite3
+
+        from core.database.central_crud import CentralCRUD
+
+        bvid = "BV1"
+        d = tmp_path / bvid
+        d.mkdir()
+        db = sqlite3.connect(str(d / f"{bvid}.db"))
+        db.execute("CREATE TABLE video_info (id INTEGER PRIMARY KEY, title TEXT, view_count INTEGER)")
+        db.execute("INSERT INTO video_info (id, title, view_count) VALUES (1, 't', 5)")
+        db.commit()
+        db.close()
+
+        # 不存在的视频 → None，且不应创建任何文件
+        assert CentralCRUD._read_video_info_light("nosuch", str(tmp_path)) is None
+        assert not (tmp_path / "nosuch").exists()
+
+        row = CentralCRUD._read_video_info_light(bvid, str(tmp_path))
+        assert row and row["title"] == "t" and row["view_count"] == 5
+
+    def test_missing_table_returns_none(self, tmp_path):
+        import sqlite3
+
+        from core.database.central_crud import CentralCRUD
+
+        bvid = "BV2"
+        d = tmp_path / bvid
+        d.mkdir()
+        sqlite3.connect(str(d / f"{bvid}.db")).close()  # 空库，无表
+
+        assert CentralCRUD._read_video_info_light(bvid, str(tmp_path)) is None
