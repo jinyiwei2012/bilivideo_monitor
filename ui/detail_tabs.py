@@ -11,7 +11,9 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QTextCursor
 
 from ui.theme import C
+from ui.invoker import invoke
 from ui.widgets import SectionHeader
+from utils.thread_utils import fire_and_forget
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +88,7 @@ class _RatioDanmakuMixin:
     # ── Danmaku ─────────────────────────────────
 
     def _refresh_danmaku_display(self):
-        """从数据库加载弹幕并刷新显示"""
+        """从缓存渲染弹幕；数据库读取在后台完成（不阻塞主线程）"""
         bvid = self.gui.selected_bvid
         if not bvid:
             self._dm_text.setVisible(True)
@@ -100,32 +102,64 @@ class _RatioDanmakuMixin:
             self._dm_count_lbl.setText("呜…数据库还没找到呢")
             return
 
-        try:
-            records = video_db.get_danmaku_records(limit=200)
-        except Exception as e:
-            logger.debug("弹幕记录获取失败: %s", e)
-            records = []
-        count = video_db.count_danmaku()
+        cached = self._dm_cache.get(bvid)
+        if cached is not None:
+            self._render_danmaku(cached["records"], cached["count"])
+        self._schedule_danmaku_load(bvid, video_db)
+
+    def _render_danmaku(self, records, count):
+        """渲染弹幕文本（仅主线程 UI 操作，不查库）"""
         self._dm_count_lbl.setText(f"♪ 共 {count} 条")
 
         self._dm_text.clear()
         if not records:
             self._dm_text.setVisible(False)
             self._dm_empty.setVisible(True)
-        else:
-            self._dm_text.setVisible(True)
-            self._dm_empty.setVisible(False)
-            html = "<pre style='font-family: \"Microsoft YaHei UI\"; font-size: 10pt; margin: 0; white-space: pre-wrap;'>"
-            for r in records[-200:]:
-                ts = r.get("video_ts", 0)
-                m, s = divmod(int(ts), 60)
-                html += f"<span style='color: {C['log_time']}; font-family: Consolas; font-size: 9pt;'>[{m:02d}:{s:02d}]</span> "
-                content = r.get("content", "")
-                content = content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                html += f"<span style='color: {C['text_1']};'>{content}</span><br>"
-            html += "</pre>"
-            self._dm_text.setHtml(html)
-            # Scroll to bottom
-            cursor = self._dm_text.textCursor()
-            cursor.movePosition(QTextCursor.MoveOperation.End)
-            self._dm_text.setTextCursor(cursor)
+            return
+        self._dm_text.setVisible(True)
+        self._dm_empty.setVisible(False)
+        html = "<pre style='font-family: \"Microsoft YaHei UI\"; font-size: 10pt; margin: 0; white-space: pre-wrap;'>"
+        for r in records[-200:]:
+            ts = r.get("video_ts", 0)
+            m, s = divmod(int(ts), 60)
+            html += f"<span style='color: {C['log_time']}; font-family: Consolas; font-size: 9pt;'>[{m:02d}:{s:02d}]</span> "
+            content = r.get("content", "")
+            content = content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            html += f"<span style='color: {C['text_1']};'>{content}</span><br>"
+        html += "</pre>"
+        self._dm_text.setHtml(html)
+        # Scroll to bottom
+        cursor = self._dm_text.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        self._dm_text.setTextCursor(cursor)
+
+    def _schedule_danmaku_load(self, bvid, video_db):
+        """后台读取弹幕记录与总数；仅当计数变化时才重渲（同一 bvid 去重）"""
+        if bvid in self._dm_pending:
+            return
+        self._dm_pending.add(bvid)
+
+        def _load():
+            try:
+                records = video_db.get_danmaku_records(limit=200)
+            except Exception as e:
+                logger.debug("弹幕记录获取失败: %s", e)
+                records = []
+            try:
+                count = video_db.count_danmaku()
+            except Exception:
+                count = len(records)
+
+            def _apply():
+                self._dm_pending.discard(bvid)
+                prev = self._dm_cache.get(bvid)
+                if prev is not None and prev["count"] == count:
+                    return
+                self._dm_cache[bvid] = {"records": records, "count": count}
+                if (self.gui is not None and self.gui.selected_bvid == bvid
+                        and self._current_tab_name == "♬ 弹幕"):
+                    self._render_danmaku(records, count)
+
+            invoke(_apply)
+
+        fire_and_forget(_load, name=f"danmaku:{bvid}")

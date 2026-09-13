@@ -220,6 +220,8 @@ class DetailPanel(_RatioDanmakuMixin):
         self._detail_text_fp = None
         self._score_history_cache = {}       # bvid -> (weekly_rows, yearly_rows)
         self._score_history_pending = set()  # 正在后台读取的 bvid
+        self._dm_cache = {}                  # bvid -> {"records": [...], "count": int}
+        self._dm_pending = set()              # 正在后台读取弹幕的 bvid
         self._header_bvid = None  # 缓存当前 header 对应的 bvid，避免重复构建
         self._header_video = None  # 缓存当前 header 对应的 video 对象（身份校验，防陈旧缓存）
 

@@ -977,3 +977,87 @@ class TestDetailScoreHistoryCache:
         panel._get_score_history("BV1")
         assert sched["n"] == 1, "同一 bvid 只应调度一次后台读取"
         assert "BV1" in panel._score_history_pending
+
+
+class TestDanmakuBackgroundLoad:
+    """M2.2c: 弹幕后台读取，计数变化才重渲。"""
+
+    @staticmethod
+    def _panel():
+        from ui.detail_panel import DetailPanel
+
+        panel = DetailPanel.__new__(DetailPanel)
+        panel._dm_cache = {}
+        panel._dm_pending = set()
+        panel._current_tab_name = "♬ 弹幕"
+        return panel
+
+    def test_schedule_does_not_query_and_only_rerenders_on_count_change(self, monkeypatch):
+        import ui.detail_tabs as dt
+
+        monkeypatch.setattr(dt, "invoke", lambda fn: fn())
+
+        state = {"records": [{"video_ts": 1, "content": "a"}], "count": 1}
+
+        class _DB:
+            def __init__(self):
+                self.calls = 0
+
+            def get_danmaku_records(self, limit=200):
+                self.calls += 1
+                return state["records"]
+
+            def count_danmaku(self):
+                return state["count"]
+
+        db = _DB()
+        holds = {"fn": None}
+        monkeypatch.setattr(dt, "fire_and_forget", lambda fn, *a, **k: holds.__setitem__("fn", fn))
+
+        class _Gui:
+            selected_bvid = "BV1"
+            video_dbs = {"BV1": db}
+
+        panel = self._panel()
+        panel.gui = _Gui()
+        rendered = []
+        panel._render_danmaku = lambda records, count: rendered.append(count)
+
+        panel._schedule_danmaku_load("BV1", db)
+        assert db.calls == 0, "调度时不得查库"
+        assert "BV1" in panel._dm_pending
+
+        holds["fn"]()
+        assert db.calls == 1
+        assert rendered == [1]
+
+        # 计数未变 → 不重渲
+        panel._schedule_danmaku_load("BV1", db)
+        holds["fn"]()
+        assert rendered == [1], "计数未变不应重渲"
+
+        # 计数变化 → 重渲
+        state["count"] = 2
+        state["records"] = state["records"] + [{"video_ts": 2, "content": "b"}]
+        panel._schedule_danmaku_load("BV1", db)
+        holds["fn"]()
+        assert rendered == [1, 2]
+
+    def test_pending_dedup(self, monkeypatch):
+        import ui.detail_tabs as dt
+
+        monkeypatch.setattr(dt, "invoke", lambda fn: fn())
+        sched = {"n": 0}
+        monkeypatch.setattr(dt, "fire_and_forget", lambda fn, *a, **k: sched.__setitem__("n", sched["n"] + 1))
+
+        class _DB:
+            def get_danmaku_records(self, limit=200):
+                return []
+
+            def count_danmaku(self):
+                return 0
+
+        panel = self._panel()
+        panel._schedule_danmaku_load("BV1", _DB())
+        panel._schedule_danmaku_load("BV1", _DB())
+        assert sched["n"] == 1, "同一 bvid 只应调度一次后台读取"
