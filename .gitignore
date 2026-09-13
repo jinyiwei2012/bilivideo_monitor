@@ -35,6 +35,7 @@ reports/
 
 # Agent 会话缓存
 .omo/
+.commandcode/
 
 _wheels/
 
@@ -47,6 +48,7 @@ algorithms/checkpoints/*/
 # 敏感配置文件（含Cookie/API密钥）
 data/network_config.json
 data/settings.json
+data/threshold_progress.json
 
 # 代码签名私钥（严禁提交！）
 scripts/.signing_key
