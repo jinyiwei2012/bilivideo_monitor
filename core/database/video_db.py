@@ -523,10 +523,10 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
     def delete_monitor_records_before(self, cutoff: str) -> int:
         """删除 timestamp 早于 cutoff 的监控记录（主库+镜像），返回删除行数。
 
-        用 SQLite datetime() 归一化，兼容 "YYYY-MM-DD HH:MM:SS" 与 ISO "T" 两种格式。
-        返回 0 表示未删除或失败。
+        时间戳全库统一为 "YYYY-MM-DD HH:MM:SS"（见 utils.time_utils），
+        因此可直接字典序比较并命中 timestamp 索引。返回 0 表示未删除或失败。
         """
-        sql = "DELETE FROM monitor_records WHERE datetime(replace(timestamp, 'T', ' ')) < datetime(?)"
+        sql = "DELETE FROM monitor_records WHERE timestamp < ?"
         try:
             with self._get_connection() as conn:
                 cur = conn.cursor()

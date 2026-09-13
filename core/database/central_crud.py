@@ -123,15 +123,13 @@ class CentralCRUD:
     def delete_monitor_records_before(self, cutoff: str) -> int:
         """删除中央库中 timestamp 早于 cutoff 的监控记录，返回删除行数。
 
-        用 SQLite datetime() 归一化，兼容混合时间戳格式。
+        时间戳全库统一为 "YYYY-MM-DD HH:MM:SS"（见 utils.time_utils），
+        可直接字典序比较并命中索引。
         """
         try:
             with self.db._get_connection() as conn:
                 cur = conn.cursor()
-                cur.execute(
-                    "DELETE FROM monitor_records WHERE datetime(replace(timestamp, 'T', ' ')) < datetime(?)",
-                    (cutoff,),
-                )
+                cur.execute("DELETE FROM monitor_records WHERE timestamp < ?", (cutoff,))
                 deleted = cur.rowcount
                 conn.commit()
                 return max(0, int(deleted))

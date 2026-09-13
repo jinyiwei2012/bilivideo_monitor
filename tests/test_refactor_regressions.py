@@ -1397,3 +1397,31 @@ class TestTimeUtilsCanonicalFormat:
 
         _, _, s = normalize_timestamp("2026-01-02T03:04:05.123456")
         assert s == "2026-01-02 03:04:05", "解析 ISO 输入后应输出规范格式"
+
+
+class TestCleanupUsesPlainComparison:
+    """M2.9c: 统一格式后清理用纯字典序比较（可命中索引）。"""
+
+    def test_central_delete_by_canonical_cutoff(self, tmp_path):
+        from core.database.central_db import Database
+
+        d = Database(db_path=str(tmp_path / "central.db"))
+        try:
+            conn = d._conn
+            conn.executemany(
+                "INSERT INTO monitor_records (bvid, timestamp) VALUES (?, ?)",
+                [
+                    ("BV1", "2026-01-01 10:00:00"),
+                    ("BV1", "2026-01-02 10:00:00"),
+                    ("BV1", "2026-01-03 10:00:00"),
+                ],
+            )
+            conn.commit()
+
+            deleted = d.delete_monitor_records_before("2026-01-02 10:00:00")
+            assert deleted == 1
+
+            remaining = [r[0] for r in conn.execute("SELECT timestamp FROM monitor_records ORDER BY timestamp")]
+            assert remaining == ["2026-01-02 10:00:00", "2026-01-03 10:00:00"]
+        finally:
+            d._conn.close()
