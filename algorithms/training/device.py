@@ -32,8 +32,10 @@
     get_preferred_device()  — 获取当前推理设备偏好
 """
 
-import os
+import json as _json
 import logging
+import os
+from contextlib import contextmanager
 from typing import Optional, Dict, Any
 
 # 模块级日志记录器
@@ -426,8 +428,6 @@ def get_device_info() -> Dict[str, Any]:
 
 # ── 用户推理设备偏好 ────────────────────────────
 
-import json as _json
-
 _PREF_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data", "device_preference.json")
 
 
@@ -495,8 +495,6 @@ def get_preferred_device() -> str:
 
 
 # ── NPU 上下文管理器 ──────────────────────────────
-
-from contextlib import contextmanager
 
 
 @contextmanager

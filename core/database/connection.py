@@ -1,7 +1,9 @@
 """数据库连接管理及全局 HTTP 会话"""
 
-import requests
 import logging
+
+import requests
+from requests.adapters import HTTPAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +16,6 @@ _http_session.headers.update(
         "Referer": "https://www.bilibili.com/",
     }
 )
-from requests.adapters import HTTPAdapter
 
 _adapter = HTTPAdapter(pool_connections=20, pool_maxsize=20, max_retries=0)
 _http_session.mount("https://", _adapter)

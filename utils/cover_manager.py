@@ -8,6 +8,7 @@ import os
 import re
 
 from config import COVER_DIR
+from core.constants import BV_PATTERN as _BVID_RE
 
 logger = logging.getLogger(__name__)
 
@@ -21,9 +22,6 @@ def _sanitize(title: str) -> str:
     if not safe:
         safe = "untitled"
     return safe[:_MAX_TITLE_LEN]
-
-
-from core.constants import BV_PATTERN as _BVID_RE
 
 
 def _cover_path(bvid: str, title: str = "") -> str:

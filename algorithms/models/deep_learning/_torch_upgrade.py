@@ -13,9 +13,14 @@
 """
 
 import logging
+import threading
+import time
+from collections import OrderedDict
 from typing import Any, Callable, Dict, List
 
 import numpy as np
+
+from utils.memory_guard import get_safe_model_slots
 
 logger = logging.getLogger(__name__)
 
@@ -39,9 +44,6 @@ DEFAULT_WINDOW = 10
 """默认输入窗口长度（时间步数）"""
 
 # 模型加载信号量：基于系统可用内存动态限制并发
-import threading
-from utils.memory_guard import get_safe_model_slots
-
 _model_load_semaphore = threading.BoundedSemaphore(get_safe_model_slots())
 _model_sem_lock = threading.Lock()
 DEFAULT_HORIZON = 3
@@ -1799,10 +1801,6 @@ else:
 # ════════════════════════════════════════════════════════
 #  VRAM 感知的 GPU 模型缓存（LRU 淘汰）
 # ════════════════════════════════════════════════════════
-
-import threading
-import time
-from collections import OrderedDict
 
 _GPU_MODEL_LRU: OrderedDict = OrderedDict()  # algo_bvid_key → (model, vram_mb, ts)
 _GPU_LRU_LOCK = threading.Lock()

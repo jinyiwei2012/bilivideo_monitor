@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass
 
+from core.constants import BV_PATTERN as _BVID_PATTERN
+
 
 @dataclass
 class VideoInfo:
@@ -71,9 +73,6 @@ class PredictionRecord:
     is_reached: bool = False  # 是否已达到目标阈值
     actual_time: str = ""  # 实际到达目标的时间
     error_rate: float = 0.0  # 预测误差率
-
-
-from core.constants import BV_PATTERN as _BVID_PATTERN
 
 
 def _validate_bvid(bvid: str) -> str:

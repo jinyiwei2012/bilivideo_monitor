@@ -1,11 +1,15 @@
 """预测工具函数"""
 
-import threading
 import logging
+import threading
 from datetime import datetime
 
-logger = logging.getLogger(__name__)
 from algorithms.base import BaseAlgorithm as BA
+from core import bilibili_api
+from ui.helpers import THRESHOLDS, THRESHOLD_NAMES
+from utils.time_utils import now_ts, safe_datetime, normalize_timestamp
+
+logger = logging.getLogger(__name__)
 
 
 class _SurgeDetector(BA):
@@ -16,9 +20,6 @@ class _SurgeDetector(BA):
 
 
 _SURGE_DETECTOR = _SurgeDetector()
-from core import bilibili_api
-from ui.helpers import THRESHOLDS, THRESHOLD_NAMES
-from utils.time_utils import now_ts, safe_datetime, normalize_timestamp
 
 # ── 模块级状态 ──
 _up_db = None

@@ -3,13 +3,15 @@
 将 core/data/ 的旧数据结构数据同步到 data/ 新目录
 """
 
+import importlib
 import os
 import shutil
 import sqlite3
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import DATA_DIR
+# 注意：必须在插入 sys.path 之后再导入 config，故用 importlib 而非 import 语句（E402）
+DATA_DIR = importlib.import_module("config").DATA_DIR
 
 old_base = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "core", "data")
 new_base = DATA_DIR

@@ -13,6 +13,10 @@ from typing import Dict, List, Optional, Any
 
 from core.proxy_manager import ProxyManager
 from core.constants import USER_AGENTS
+from core.bilibili_request import _RequestMixin
+from core.bilibili_auth import _AuthMixin
+from core.bilibili_video import _VideoMixin
+from core.bilibili_up import _UpMixin
 
 # Suppress InsecureRequestWarning for SOCKS/HTTP proxies using self-signed certs
 from urllib3.exceptions import InsecureRequestWarning
@@ -56,12 +60,6 @@ class _CurlCffiResponse:
             from requests.exceptions import HTTPError
 
             raise HTTPError(f"HTTP {self.status_code}", response=self)
-
-
-from core.bilibili_request import _RequestMixin
-from core.bilibili_auth import _AuthMixin
-from core.bilibili_video import _VideoMixin
-from core.bilibili_up import _UpMixin
 
 
 class BilibiliAPI(_RequestMixin, _AuthMixin, _VideoMixin, _UpMixin):

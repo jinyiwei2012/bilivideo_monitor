@@ -27,8 +27,6 @@ from ui.settings_common import (
     make_section_widget as _section_widget,
 )
 
-logger = logging.getLogger(__name__)
-
 # ── 导入各子模块 Mixin ──
 from ui.settings_notification import SettingsNotificationMixin
 from ui.settings_monitor import SettingsMonitorMixin
@@ -39,6 +37,8 @@ from ui.settings_ai import SettingsAIMixin
 from ui.settings_weights import SettingsWeightsMixin
 from ui.settings_training import SettingsTrainingMixin
 from ui.settings_about import SettingsAboutMixin
+
+logger = logging.getLogger(__name__)
 
 
 class SettingsWindow(

@@ -16,6 +16,7 @@
     - predict_all 全管线快照 (含 _weighted 集成结果)
     - 非确定性算法 (随机种子) 由调用前固定 seed 保证可复现
 """
+
 from __future__ import annotations
 
 import inspect
@@ -114,8 +115,13 @@ def call_predict(algo, video_data, current_value, history):
     t0 = time.perf_counter()
     if len(positional) >= 4:  # 旧签名 predict(current_views, target_views, history_data, video_info)
         history_data = [
-            {"view": v, "like": max(0, v // 100), "coin": max(0, v // 1000),
-             "favorite": max(0, v // 500), "share": max(0, v // 2000)}
+            {
+                "view": v,
+                "like": max(0, v // 100),
+                "coin": max(0, v // 1000),
+                "favorite": max(0, v // 500),
+                "share": max(0, v // 2000),
+            }
             for _, v in history
         ]
         raw = algo.predict(current_value, 100000, history_data, video_data)
@@ -212,8 +218,7 @@ def run_cmd(out_path: str | None) -> int:
     return 0
 
 
-def diff_cmd(baseline_path: str, tol: float, expect_changed: set | None = None,
-             flaky: set | None = None) -> int:
+def diff_cmd(baseline_path: str, tol: float, expect_changed: set | None = None, flaky: set | None = None) -> int:
     """对比基线。expect_changed: 允许变更并展示; flaky: 运行间不稳定, 完全跳过。"""
     expect_changed = expect_changed or set()
     flaky = flaky or set()
@@ -293,8 +298,7 @@ def diff_cmd(baseline_path: str, tol: float, expect_changed: set | None = None,
         for key, field, bv, cv in changed_expected[:20]:
             print(f"  {key} [{field}]: 基线={bv!r} 当前={cv!r}")
     if skipped_flaky:
-        print(f"⏭️  跳过 {len(skipped_flaky)} 处已知不稳定 (--flaky): "
-              f"{sorted({k for k, *_ in skipped_flaky})}")
+        print(f"⏭️  跳过 {len(skipped_flaky)} 处已知不稳定 (--flaky): " f"{sorted({k for k, *_ in skipped_flaky})}")
 
     if mismatches:
         print(f"❌ 发现 {len(mismatches)} 处差异 (tol={tol}):")
@@ -320,7 +324,9 @@ def main() -> int:
         return run_cmd(out_path)
     if mode == "diff":
         if len(args) < 2:
-            print("用法: python scripts/characterize_algorithms.py diff <baseline.json> [--tol 1e-6] [--expect-changed k1,k2] [--flaky k1,k2]")
+            print(
+                "用法: python scripts/characterize_algorithms.py diff <baseline.json> [--tol 1e-6] [--expect-changed k1,k2] [--flaky k1,k2]"
+            )
             return 1
         tol = 1e-6
         expect_changed = set()

@@ -10,6 +10,7 @@
   4. 无 GPU 或检测失败 → 安装 CPU 版
   5. 安装后验证 torch.cuda.is_available()
 """
+
 from __future__ import annotations
 
 import re
@@ -47,9 +48,7 @@ def detect_cuda() -> CudaInfo:
     if not nvidia_smi:
         return CudaInfo(None, None)
     try:
-        out = subprocess.run(
-            [nvidia_smi], capture_output=True, text=True, timeout=30
-        ).stdout
+        out = subprocess.run([nvidia_smi], capture_output=True, text=True, timeout=30).stdout
     except Exception:
         return CudaInfo(None, None)
 
@@ -106,9 +105,7 @@ def torch_usable() -> bool:
             "print('cuda_available', torch.cuda.is_available());"
             "print('gpu', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'N/A')"
         )
-        out = subprocess.run(
-            [sys.executable, "-c", code], capture_output=True, text=True, timeout=60
-        )
+        out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60)
         if out.returncode != 0:
             return False
         print(out.stdout.strip())

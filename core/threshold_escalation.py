@@ -16,9 +16,9 @@ import logging
 import os
 import threading
 
-logger = logging.getLogger(__name__)
-
 from config import DATA_DIR
+
+logger = logging.getLogger(__name__)
 
 _PROGRESS_FILE = os.path.join(DATA_DIR, "threshold_progress.json")
 _lock = threading.Lock()
