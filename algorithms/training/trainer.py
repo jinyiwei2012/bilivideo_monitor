@@ -337,25 +337,10 @@ class ModelTrainer:
             RuntimeError: 算法未注册、不支持训练、或数据不足。
         """
         # 1. 实例化算法对象
-        algo = self._instantiate_algorithm(algo_id)
-        if algo is None:
-            raise RuntimeError(f"算法 {algo_id} 未注册或不支持训练")
-        if not hasattr(algo, "build_model"):
-            raise RuntimeError(f"算法 {algo_id} 未实现 build_model()")
+        algo = self._get_trainable_algorithm(algo_id)
 
         # 2. 读取已有 checkpoint 的数据范围（用于增量训练和新数据模式）
-        prev_epochs = 0  # 之前已完成的训练轮数
-        data_trained_until = 0.0  # 之前已训练到的数据时间戳
-        try:
-            _pc_ckpt = CheckpointManager(algo_id, bvid=bvid)
-            _pc_ver = _pc_ckpt.list_versions()
-            for _v in _pc_ver:
-                if _v["active"]:
-                    prev_epochs = _v.get("completed_epochs", 0)
-                    data_trained_until = _v.get("data_trained_until", 0.0)
-                    break
-        except Exception as e:
-            logger.debug("忽略异常: %s", e)
+        prev_epochs, data_trained_until = self._load_training_progress(algo_id, bvid)
 
         # 3. 确定数据时间范围并构建数据集
         # 如果需要只训练新数据且已有训练截止时间戳，则只加载新数据
@@ -372,61 +357,109 @@ class ModelTrainer:
         scheduler = ComboScheduler(optimizer, k=0.1, plateau_patience=5, plateau_factor=0.5, min_lr=1e-6)
 
         # 5b. 恢复调度器状态（增量训练续训）
+        self._restore_scheduler(scheduler, algo_id, bvid, prev_epochs)
+
+        # 6. 训练循环
+        epoch_versions = self._run_training_loop(
+            model,
+            train_loader,
+            val_loader,
+            optimizer,
+            loss_fn,
+            preprocess,
+            control_dict,
+            algo_id,
+            bvid,
+            epochs,
+            progress_cb,
+            scheduler,
+            dataset,
+            prev_epochs,
+        )
+
+        # 7. 清理：仅保留最优 epoch 的 checkpoint，删除中间版本
+        return self._select_best_checkpoint(epoch_versions, algo_id, bvid)
+
+    # ── 辅助方法 ─────────────────────────────────────
+
+    def _get_trainable_algorithm(self, algo_id):
+        """实例化并检查算法是否支持训练。"""
+        algo = self._instantiate_algorithm(algo_id)
+        if algo is None:
+            raise RuntimeError(f"算法 {algo_id} 未注册或不支持训练")
+        if not hasattr(algo, "build_model"):
+            raise RuntimeError(f"算法 {algo_id} 未实现 build_model()")
+        return algo
+
+    @staticmethod
+    def _load_training_progress(algo_id, bvid):
+        """读取 active checkpoint 已完成轮数和数据截止时间。"""
+        prev_epochs = 0
+        data_trained_until = 0.0
+        try:
+            checkpoint = CheckpointManager(algo_id, bvid=bvid)
+            for version in checkpoint.list_versions():
+                if version["active"]:
+                    prev_epochs = version.get("completed_epochs", 0)
+                    data_trained_until = version.get("data_trained_until", 0.0)
+                    break
+        except Exception as e:
+            logger.debug("忽略异常: %s", e)
+        return prev_epochs, data_trained_until
+
+    @staticmethod
+    def _restore_scheduler(scheduler, algo_id, bvid, prev_epochs):
+        """恢复增量训练的调度器步数和完整状态。"""
         if prev_epochs > 0:
             scheduler._step_count = prev_epochs  # 直接设置步数计数器
         try:
-            _sd_ckpt = CheckpointManager(algo_id, bvid=bvid)
-            _sd_ver = _sd_ckpt.list_versions()
-            for _v in _sd_ver:
-                if _v["active"]:
-                    _saved_sd = _v.get("scheduler_state")
-                    if _saved_sd:
-                        scheduler.load_state_dict(_saved_sd)  # 恢复完整调度器状态
+            checkpoint = CheckpointManager(algo_id, bvid=bvid)
+            for version in checkpoint.list_versions():
+                if version["active"]:
+                    saved_state = version.get("scheduler_state")
+                    if saved_state:
+                        scheduler.load_state_dict(saved_state)  # 恢复完整调度器状态
                     break
         except Exception as e:
             logger.debug("忽略异常: %s", e)
 
-        # 6. 训练循环
-        best_val = float("inf")  # 最佳验证损失
-        best_tracked = float("inf")  # 用于 checkpoint 筛选的最佳 loss（含 train_loss）
-        last_val = -1.0  # 最近一次验证损失
-        start_time = time.time()  # 记录训练开始时间
-        best_epoch = 0  # 最佳 epoch 编号
-        train_losses = []  # 训练损失历史（用于早停判断）
-        epoch_versions = []  # 每轮保存的 checkpoint (version, loss, epoch)
+    def _run_training_loop(
+        self,
+        model,
+        train_loader,
+        val_loader,
+        optimizer,
+        loss_fn,
+        preprocess,
+        control_dict,
+        algo_id,
+        bvid,
+        epochs,
+        progress_cb,
+        scheduler,
+        dataset,
+        prev_epochs,
+    ):
+        """执行 epoch 循环并记录每轮 checkpoint。"""
+        best_val = float("inf")
+        best_tracked = float("inf")
+        start_time = time.time()
+        best_epoch = 0
+        train_losses = []
+        epoch_versions = []
 
         for epoch in range(epochs):
-            # 检查控制指令（early_stop / lr_scale 等）
             if self._check_control(
                 control_dict, epoch, algo_id, bvid, optimizer, progress_cb, epochs, scheduler=scheduler
             ):
                 break
-
-            # 训练一个 epoch
             train_loss = self._train_epoch(
                 model, train_loader, optimizer, loss_fn, preprocess, control_dict, algo_id, progress_cb=progress_cb
             )
             train_losses.append(train_loss)
-
-            # 调度器步进（双曲线模式）
-            if control_dict and control_dict.get("lr_scale"):
-                # lr_scale 已由 _check_control 应用到 base_lrs，跳过自动衰减
-                pass
-            else:
-                scheduler.step_hyperbolic()
-
-            # 动态早停检查
-            if control_dict and control_dict.get("early_stop"):
-                if control_dict.pop("_force_early_stop", False):
-                    break
-                if len(train_losses) >= 6:
-                    recent_3 = sum(train_losses[-3:]) / 3
-                    prev_3 = sum(train_losses[-6:-3]) / 3
-                    if prev_3 > 1e-8 and (prev_3 - recent_3) / prev_3 < 0.015:
-                        break
-                control_dict["early_stop"] = False
-
-            # 验证并发送 epoch 进度
+            self._step_scheduler(scheduler, control_dict)
+            if self._should_stop_training(control_dict, train_losses):
+                break
             last_val = self._validate_and_emit(
                 model,
                 val_loader,
@@ -442,17 +475,9 @@ class ModelTrainer:
                 start_time,
                 prev_epochs=prev_epochs,
             )
-            # 更新最佳 epoch 追踪
-            if val_loader is not None and last_val < best_val:
-                best_val = last_val
-                best_epoch = epoch + 1
-            # 用于 checkpoint 筛选：有验证集用 val_loss，否则用 train_loss
-            tracked_loss = last_val if val_loader is not None else train_loss
-            if tracked_loss < best_tracked:
-                best_tracked = tracked_loss
-
-            # ── 每 epoch 保存 checkpoint（断点续训保护） ──
-            data_until = getattr(dataset, "max_timestamp", 0.0)
+            best_val, best_epoch, best_tracked, tracked_loss = self._update_best_losses(
+                val_loader, last_val, train_loss, best_val, best_epoch, best_tracked, epoch
+            )
             version = save_checkpoint(
                 model,
                 algo_id,
@@ -464,23 +489,57 @@ class ModelTrainer:
                 1,
                 optimizer,
                 prev_epochs=prev_epochs,
-                data_trained_until=data_until,
+                data_trained_until=getattr(dataset, "max_timestamp", 0.0),
                 scheduler=scheduler,
                 best_epoch=best_epoch,
             )
             epoch_versions.append((version, tracked_loss, epoch + 1))
-
-            # 调度器 Plateau 检测
             scheduler.update(last_val)
+        return epoch_versions
 
-        # 7. 清理：仅保留最优 epoch 的 checkpoint，删除中间版本
+    @staticmethod
+    def _step_scheduler(scheduler, control_dict):
+        """执行每轮双曲线调度，保留手动 LR 缩放的跳过规则。"""
+        if control_dict and control_dict.get("lr_scale"):
+            return
+        scheduler.step_hyperbolic()
+
+    @staticmethod
+    def _should_stop_training(control_dict, train_losses):
+        """应用强制停止和动态早停规则。"""
+        if not control_dict or not control_dict.get("early_stop"):
+            return False
+        if control_dict.pop("_force_early_stop", False):
+            return True
+        if len(train_losses) >= 6:
+            recent_3 = sum(train_losses[-3:]) / 3
+            prev_3 = sum(train_losses[-6:-3]) / 3
+            if prev_3 > 1e-8 and (prev_3 - recent_3) / prev_3 < 0.015:
+                return True
+        control_dict["early_stop"] = False
+        return False
+
+    @staticmethod
+    def _update_best_losses(val_loader, last_val, train_loss, best_val, best_epoch, best_tracked, epoch):
+        """更新验证损失和 checkpoint 筛选损失。"""
+        if val_loader is not None and last_val < best_val:
+            best_val = last_val
+            best_epoch = epoch + 1
+        tracked_loss = last_val if val_loader is not None else train_loss
+        if tracked_loss < best_tracked:
+            best_tracked = tracked_loss
+        return best_val, best_epoch, best_tracked, tracked_loss
+
+    @staticmethod
+    def _select_best_checkpoint(epoch_versions, algo_id, bvid):
+        """仅保留最优 epoch checkpoint 并返回其版本。"""
         if len(epoch_versions) > 1:
             epoch_versions.sort(key=lambda x: x[1])  # 按 loss 升序
             best_version, best_loss, best_ep = epoch_versions[0]
             ckpt_cleanup = CheckpointManager(algo_id, bvid=bvid)
             deleted = 0
-            for v, _, _ in epoch_versions[1:]:
-                if ckpt_cleanup.delete(v):
+            for version, _, _ in epoch_versions[1:]:
+                if ckpt_cleanup.delete(version):
                     deleted += 1
             logger.info(
                 "[trainer] %s 保留最优 epoch %d (loss=%.4f)，清理 %d 个中间版本",
@@ -490,11 +549,9 @@ class ModelTrainer:
                 deleted,
             )
             return best_version
-        elif epoch_versions:
+        if epoch_versions:
             return epoch_versions[0][0]
         return ""
-
-    # ── 辅助方法 ─────────────────────────────────────
 
     def _prepare_dataset(self, algo, algo_id, bvid, batch_size, val_ratio, min_timestamp=None):
         """构建数据集和 DataLoader。
@@ -620,70 +677,12 @@ class ModelTrainer:
         model = algo.build_model()
         algo_h = int(getattr(algo, "training_horizon", 3))
 
-        def _load_state_dict_dual(state) -> bool:
-            """加载 checkpoint：先按 H 宽直载（旧格式/不可扩展模型）；
-            head 尺寸不匹配时把模型扩为 H+1（A+B 双尺度新格式）后重载。"""
-            if not isinstance(state, dict):
-                return False
-            state = {k[len("_orig_mod.") :] if k.startswith("_orig_mod.") else k: v for k, v in state.items()}
-            try:
-                model.load_state_dict(state)
-                return True
-            except Exception:
-                try:
-                    from algorithms.models.deep_learning._torch_upgrade import expand_final_projection
-
-                    if not expand_final_projection(model, algo_h):
-                        return False
-                    model.load_state_dict(state)
-                    return True
-                except Exception:
-                    return False
-
         if init_from_global:
-            loaded = False
-            # 优先从视频级 checkpoint 加载（增量训练续训）
-            if bvid:
-                video_ckpt = CheckpointManager(algo_id, bvid=bvid)
-                if video_ckpt.has_checkpoint():
-                    state = video_ckpt.load()
-                    if state is not None:
-                        try:
-                            ok = _load_state_dict_dual(state)
-                        except Exception:
-                            ok = False
-                        if ok:
-                            logger.info("[trainer] %s 从视频 %s checkpoint 续训", algo_id, bvid)
-                            loaded = True
-                        else:
-                            logger.warning("[trainer] %s 加载视频 state_dict 失败(形状不匹配，尝试重训)", algo_id)
-            # 降级到全局 checkpoint
-            if not loaded:
-                global_ckpt = CheckpointManager(algo_id)
-                if global_ckpt.has_checkpoint():
-                    state = global_ckpt.load()
-                    if state is not None:
-                        try:
-                            ok = _load_state_dict_dual(state)
-                        except Exception:
-                            ok = False
-                        if ok:
-                            logger.info("[trainer] %s 从全局 checkpoint 初始化", algo_id)
-                            loaded = True
-                        else:
-                            logger.warning("[trainer] %s 加载全局 state_dict 失败(形状不匹配，尝试重训)", algo_id)
+            self._load_initial_checkpoint(model, algo_h, algo_id, bvid)
 
         # A+B 双尺度：无可续训 checkpoint（全新训练）时，把唯一最终投影 Linear 输出宽
         # 从 H 扩到 H+1（第 H+1 维 = 长期平均速率）。已有 H 宽 checkpoint 续训时保持原架构。
-        if not bool(getattr(model, "_dual_output", False)):
-            try:
-                from algorithms.models.deep_learning._torch_upgrade import expand_final_projection
-
-                dual = expand_final_projection(model, algo_h)
-            except Exception as e:
-                logger.debug("[trainer] %s 双输出扩维失败(保持短期): %s", algo_id, e)
-                dual = False
-            setattr(model, "_dual_output", bool(dual))
+        self._ensure_dual_output(model, algo_h, algo_id)
         setattr(algo, "_dual_output", bool(getattr(model, "_dual_output", False)))
 
         # 将模型移动到检测到的最优设备（GPU/NPU/CPU）
@@ -704,6 +703,80 @@ class ModelTrainer:
         # 获取 batch 预处理函数（默认直接解包 (x, y)）
         preprocess = getattr(algo, "preprocess_batch", _default_preprocess)
         return model, optimizer, loss_fn, preprocess
+
+    @staticmethod
+    def _load_state_dict_dual(model, state, algo_h):
+        """加载 H 或 A+B 双尺度 checkpoint state_dict。"""
+        if not isinstance(state, dict):
+            return False
+        state = {k[len("_orig_mod.") :] if k.startswith("_orig_mod.") else k: v for k, v in state.items()}
+        try:
+            model.load_state_dict(state)
+            return True
+        except Exception:
+            try:
+                from algorithms.models.deep_learning._torch_upgrade import expand_final_projection
+
+                if not expand_final_projection(model, algo_h):
+                    return False
+                model.load_state_dict(state)
+                return True
+            except Exception:
+                return False
+
+    def _load_initial_checkpoint(self, model, algo_h, algo_id, bvid):
+        """按视频级、全局级顺序加载初始化 checkpoint。"""
+        loaded = False
+        if bvid:
+            loaded = self._load_checkpoint_source(
+                model,
+                algo_h,
+                CheckpointManager(algo_id, bvid=bvid),
+                "[trainer] %s 从视频 %s checkpoint 续训",
+                "[trainer] %s 加载视频 state_dict 失败(形状不匹配，尝试重训)",
+                algo_id,
+                bvid,
+            )
+        if not loaded:
+            self._load_checkpoint_source(
+                model,
+                algo_h,
+                CheckpointManager(algo_id),
+                "[trainer] %s 从全局 checkpoint 初始化",
+                "[trainer] %s 加载全局 state_dict 失败(形状不匹配，尝试重训)",
+                algo_id,
+            )
+
+    def _load_checkpoint_source(self, model, algo_h, checkpoint, success_message, failure_message, *message_args):
+        """尝试从单个 checkpoint 来源加载模型权重。"""
+        if not checkpoint.has_checkpoint():
+            return False
+        state = checkpoint.load()
+        if state is None:
+            return False
+        try:
+            ok = self._load_state_dict_dual(model, state, algo_h)
+        except Exception:
+            ok = False
+        if ok:
+            logger.info(success_message, *message_args)
+            return True
+        logger.warning(failure_message, message_args[0])
+        return False
+
+    @staticmethod
+    def _ensure_dual_output(model, algo_h, algo_id):
+        """为全新训练模型尝试扩展 A+B 双尺度输出。"""
+        if bool(getattr(model, "_dual_output", False)):
+            return
+        try:
+            from algorithms.models.deep_learning._torch_upgrade import expand_final_projection
+
+            dual = expand_final_projection(model, algo_h)
+        except Exception as e:
+            logger.debug("[trainer] %s 双输出扩维失败(保持短期): %s", algo_id, e)
+            dual = False
+        setattr(model, "_dual_output", bool(dual))
 
     @staticmethod
     def _check_control(control_dict, epoch, algo_id, bvid, optimizer, progress_cb, epochs, scheduler=None):
@@ -797,27 +870,10 @@ class ModelTrainer:
         total_batches = len(train_loader)
 
         # batch 报告间隔：优先使用用户配置，否则默认每 10%
-        report_interval = max(1, total_batches // 10)  # 默认 10%
-        if control_dict and control_dict.get("_batch_interval"):
-            bi = control_dict["_batch_interval"]
-            mode = control_dict.get("_batch_interval_mode", "%")
-            if mode == "%":
-                report_interval = max(1, int(total_batches * bi))
-            else:
-                report_interval = max(1, int(bi))
+        report_interval = self._get_batch_report_interval(total_batches, control_dict)
 
         # 从 control_dict 读取配置（带默认值）
-        act_decay = 0.0
-        label_noise = 0.0
-        mixup_alpha = 0.0
-        amp_weight = False
-        feat_dropout = 0.0
-        if control_dict is not None:
-            act_decay = control_dict.get("activation_decay", 0.0)
-            label_noise = control_dict.get("label_smoothing", 0.0)
-            mixup_alpha = control_dict.get("mixup_alpha", 0.0)
-            amp_weight = control_dict.get("amplitude_weight", False)
-            feat_dropout = control_dict.get("feat_dropout", 0.0)
+        act_decay, label_noise, mixup_alpha, amp_weight, feat_dropout = self._get_epoch_options(control_dict)
 
         for batch in train_loader:
             # ── 数据预处理 ────────────────────────────
@@ -825,96 +881,21 @@ class ModelTrainer:
             # non_blocking=True: pin_memory 路径异步传输（GPU 预载时已同设备，no-op）
             x = x.to(self.device, non_blocking=True)
             y = y.to(self.device, non_blocking=True)
-
-            # ── Label Smoothing: 回归版标签平滑 ────────
-            # 给目标加 ~1% 噪声，防止过拟合精确值
-            if label_noise > 0 and y.numel() > 0:
-                y_std = y.std().item()
-                if y_std > 1e-8:
-                    noise = torch.randn_like(y) * y_std * label_noise
-                    y = y + noise
-
-            # ── MixUp 数据增强 ─────────────────────────
-            # 随机混合两个 batch 样本：x' = lam*x + (1-lam)*x[perm]
-            if mixup_alpha > 0 and x.size(0) > 1:
-                lam = float(np.random.beta(mixup_alpha, mixup_alpha))
-                perm = torch.randperm(x.size(0), device=self.device)
-                x = lam * x + (1 - lam) * x[perm]
-                y = lam * y + (1 - lam) * y[perm]
-
-            # ── Repulsive Diversity: 特征随机丢弃 ──────
-            # 按概率随机丢弃整个特征维度，迫使模型不依赖单一特征
-            if feat_dropout > 0 and x.dim() >= 2:
-                # x shape: [B, W, F] (3D) 或 [B, F] (2D)
-                feat_dim = x.shape[-1]
-                if feat_dim > 1:
-                    if x.dim() == 3:
-                        # 3D: 对每个特征维度生成 Bernoulli mask
-                        mask = torch.bernoulli(torch.full((feat_dim,), 1.0 - feat_dropout, device=self.device)).view(
-                            1, 1, feat_dim
-                        )
-                    else:
-                        # 2D: 对每个特征维度生成 Bernoulli mask
-                        mask = torch.bernoulli(torch.full((feat_dim,), 1.0 - feat_dropout, device=self.device)).view(
-                            1, feat_dim
-                        )
-                    x = x * mask
+            x, y = self._augment_batch(x, y, label_noise, mixup_alpha, feat_dropout)
 
             # ── 前向传播（AMP 混合精度） ─────────────────
             optimizer.zero_grad(set_to_none=True)
             with torch.amp.autocast(device_type=self.device.type, enabled=self._use_amp):
                 pred = model(x)
-                # 如果预测输出多了一个维度（如 [B, H, 1] → [B, H]）
-                if pred.dim() == y.dim() + 1 and pred.shape[-1] == 1:
-                    pred = pred.squeeze(-1)
-
-                # A+B 双尺度兼容：数据目标恒为 H+1 宽（短期 H 步 ⊕ 长期 1 维），
-                # 而不可扩展的模型（无唯一投影层，如 N-BEATS/DeepAR 等）输出仍为 H 宽。
-                # 此时截取目标前 H 维（仅监督短期增量，长期维不参与损失）。
-                if y.shape[-1] > pred.shape[-1]:
-                    y = y[..., : pred.shape[-1]]
-
-                # ── SPADE-S 偏斜修正：按振幅加权 ────────────
-                # 避免高播放量视频的 loss 主导梯度，按目标振幅归一化
-                if amp_weight:
-                    diff = pred - y
-                    sq_err = diff**2
-                    # 分母 = |y| 的均值（按最后一个维度），clamp(min=1.0) 防止除零
-                    denom = y.abs().mean(dim=-1, keepdim=True).clamp(min=1.0).detach()
-                    loss = (sq_err / denom).mean()
-                else:
-                    loss = loss_fn(pred, y)
-
-                # ── Activation Decay: 对预测输出加 L2 正则 ──
-                # 平滑损失曲面，提高泛化能力
-                if act_decay > 0:
-                    loss = loss + act_decay * (pred**2).mean()
+                loss = self._compute_training_loss(pred, y, loss_fn, amp_weight, act_decay)
 
             # ── NaN/Inf 检测（使用未缩放的原始 loss） ──────
             loss_val = float(loss.item())
-            if control_dict is not None and (math.isnan(loss_val) or math.isinf(loss_val)):
-                # 检测到异常值时触发强制早停（直接退出整个训练）
-                logger.warning("[trainer] %s NaN/Inf mid-epoch, early stopping", algo_id)
-                control_dict["early_stop"] = True
-                control_dict["_force_early_stop"] = True
+            if self._has_invalid_loss(loss_val, control_dict, algo_id):
                 break
 
             # ── 反向传播（AMP: GradScaler 缩放 loss） ──────
-            if self._scaler:
-                self._scaler.scale(loss).backward()
-                # 梯度裁剪前必须先 unscale，还原真实梯度
-                self._scaler.unscale_(optimizer)
-            else:
-                loss.backward()
-            # 梯度裁剪（防止梯度爆炸）
-            if control_dict is not None and control_dict.get("grad_clip", 0) > 0:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), control_dict["grad_clip"])
-            # 优化器步进（AMP: scaler 控制 step + update）
-            if self._scaler:
-                self._scaler.step(optimizer)
-                self._scaler.update()
-            else:
-                optimizer.step()
+            self._backward_and_step(model, optimizer, loss, control_dict)
 
             train_loss += loss_val
             n_batches += 1
@@ -934,6 +915,105 @@ class ModelTrainer:
                 )
 
         return train_loss / max(1, n_batches)
+
+    @staticmethod
+    def _get_batch_report_interval(total_batches, control_dict):
+        """计算 batch 进度报告间隔。"""
+        report_interval = max(1, total_batches // 10)  # 默认 10%
+        if control_dict and control_dict.get("_batch_interval"):
+            bi = control_dict["_batch_interval"]
+            mode = control_dict.get("_batch_interval_mode", "%")
+            if mode == "%":
+                report_interval = max(1, int(total_batches * bi))
+            else:
+                report_interval = max(1, int(bi))
+        return report_interval
+
+    @staticmethod
+    def _get_epoch_options(control_dict):
+        """读取一个 epoch 使用的数据增强和正则化配置。"""
+        act_decay = 0.0
+        label_noise = 0.0
+        mixup_alpha = 0.0
+        amp_weight = False
+        feat_dropout = 0.0
+        if control_dict is not None:
+            act_decay = control_dict.get("activation_decay", 0.0)
+            label_noise = control_dict.get("label_smoothing", 0.0)
+            mixup_alpha = control_dict.get("mixup_alpha", 0.0)
+            amp_weight = control_dict.get("amplitude_weight", False)
+            feat_dropout = control_dict.get("feat_dropout", 0.0)
+        return act_decay, label_noise, mixup_alpha, amp_weight, feat_dropout
+
+    def _augment_batch(self, x, y, label_noise, mixup_alpha, feat_dropout):
+        """按原有顺序应用标签噪声、MixUp 和特征丢弃。"""
+        if label_noise > 0 and y.numel() > 0:
+            y_std = y.std().item()
+            if y_std > 1e-8:
+                noise = torch.randn_like(y) * y_std * label_noise
+                y = y + noise
+        if mixup_alpha > 0 and x.size(0) > 1:
+            lam = float(np.random.beta(mixup_alpha, mixup_alpha))
+            perm = torch.randperm(x.size(0), device=self.device)
+            x = lam * x + (1 - lam) * x[perm]
+            y = lam * y + (1 - lam) * y[perm]
+        if feat_dropout > 0 and x.dim() >= 2:
+            x = self._drop_features(x, feat_dropout)
+        return x, y
+
+    def _drop_features(self, x, feat_dropout):
+        """随机丢弃整个输入特征维度。"""
+        feat_dim = x.shape[-1]
+        if feat_dim <= 1:
+            return x
+        if x.dim() == 3:
+            mask = torch.bernoulli(torch.full((feat_dim,), 1.0 - feat_dropout, device=self.device)).view(1, 1, feat_dim)
+        else:
+            mask = torch.bernoulli(torch.full((feat_dim,), 1.0 - feat_dropout, device=self.device)).view(1, feat_dim)
+        return x * mask
+
+    @staticmethod
+    def _compute_training_loss(pred, y, loss_fn, amp_weight, act_decay):
+        """对齐 A+B 目标并计算原有训练损失。"""
+        if pred.dim() == y.dim() + 1 and pred.shape[-1] == 1:
+            pred = pred.squeeze(-1)
+        if y.shape[-1] > pred.shape[-1]:
+            y = y[..., : pred.shape[-1]]
+        if amp_weight:
+            diff = pred - y
+            sq_err = diff**2
+            denom = y.abs().mean(dim=-1, keepdim=True).clamp(min=1.0).detach()
+            loss = (sq_err / denom).mean()
+        else:
+            loss = loss_fn(pred, y)
+        if act_decay > 0:
+            loss = loss + act_decay * (pred**2).mean()
+        return loss
+
+    @staticmethod
+    def _has_invalid_loss(loss_val, control_dict, algo_id):
+        """检测 NaN/Inf 并设置强制早停控制标记。"""
+        if control_dict is None or not (math.isnan(loss_val) or math.isinf(loss_val)):
+            return False
+        logger.warning("[trainer] %s NaN/Inf mid-epoch, early stopping", algo_id)
+        control_dict["early_stop"] = True
+        control_dict["_force_early_stop"] = True
+        return True
+
+    def _backward_and_step(self, model, optimizer, loss, control_dict):
+        """执行反向传播、梯度裁剪和优化器步进。"""
+        if self._scaler:
+            self._scaler.scale(loss).backward()
+            self._scaler.unscale_(optimizer)
+        else:
+            loss.backward()
+        if control_dict is not None and control_dict.get("grad_clip", 0) > 0:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), control_dict["grad_clip"])
+        if self._scaler:
+            self._scaler.step(optimizer)
+            self._scaler.update()
+        else:
+            optimizer.step()
 
     def _validate_and_emit(
         self,

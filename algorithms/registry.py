@@ -241,14 +241,8 @@ class AlgorithmRegistry:
             return str(len(history_list))
 
     @classmethod
-    def _prepare_video_data(cls, history: List[Tuple], current_value: float, bvid: str = "") -> Dict:
-        """将 (timestamp, view_count) 历史元组统一转为 video_data 字典。
-
-        避免每个 adapter 重复做同样的类型转换，集中处理可提升约 30% 性能。
-        """
-        now = datetime.now()
+    def _normalize_history(cls, history: List[Tuple]) -> List:
         history_list = []
-        view_values = [v for _, v in history]
 
         for ts, v in history:
             if isinstance(ts, datetime):
@@ -274,6 +268,192 @@ class AlgorithmRegistry:
                     "datetime": ts if isinstance(ts, datetime) else datetime.fromtimestamp(ts_ts),
                 }
             )
+        return history_list
+
+    @classmethod
+    def _populate_velocity_features(cls, derived, v_arr, ts_arr, n, np):
+        diffs = np.diff(v_arr).astype(np.float32)
+        derived["velocity_mean"] = float(np.mean(diffs))
+        derived["velocity_std"] = float(np.std(diffs)) if n > 2 else 0.0
+        derived["velocity_cv"] = derived["velocity_std"] / max(abs(derived["velocity_mean"]), 1e-10)
+        derived["velocity_median"] = float(np.median(diffs))
+        # ── 预计算 velocity（polyfit），消除 100+ 算法各自重复计算 ──
+        if n >= 5:
+            k = min(10, n)
+            slope = np.polyfit(ts_arr[-k:], v_arr[-k:], 1)[0]
+            # slope 单位 views/秒 → views/小时 应 ×3600（与下方 2 点分支一致）
+            derived["velocity_polyfit"] = max(0.0, float(slope * 3600.0))
+        elif n >= 2:
+            dt = ts_arr[-1] - ts_arr[-2]
+            if dt > 0:
+                derived["velocity_polyfit"] = max(0.0, float((v_arr[-1] - v_arr[-2]) / max(dt, 1e-8) * 3600.0))
+            else:
+                derived["velocity_polyfit"] = 0.0
+        else:
+            derived["velocity_polyfit"] = 0.0
+        # ── 加速度 / 急动度 ──
+        if n >= 3:
+            accels = np.diff(diffs)
+            derived["acceleration"] = float(np.mean(accels)) if len(accels) > 0 else 0.0
+        if n >= 4 and len(diffs) >= 3:
+            accels = np.diff(diffs)
+            jerks = np.diff(accels) if len(accels) >= 2 else np.array([0.0])
+            derived["jerk"] = float(np.mean(jerks)) if len(jerks) > 0 else 0.0
+
+    @classmethod
+    def _populate_freeze_recovery(cls, derived, _dv, _valid_dt, _seg_ts, _seg_v, _ceil, np):
+        _win_dv = _dv[_valid_dt]
+        # 反向找补量段：最后一个正增量段下标
+        _pos_i = np.where(_win_dv > 0)[0]
+        if len(_pos_i) > 0:
+            _last_pos = int(_pos_i[-1])
+            # 冻结起点 = 补量段前连续 0 段的起点
+            _fz_start = _last_pos
+            while _fz_start > 0 and _win_dv[_fz_start - 1] == 0:
+                _fz_start -= 1
+            # 窗口覆盖 [起点段, 末段] 的真实时间与增长
+            _t_start = _seg_ts[_fz_start]
+            _t_end = _seg_ts[-1]
+            _rec_dt = float(_t_end - _t_start)
+            _rec_dv = float(_seg_v[-1] - _seg_v[_fz_start])
+            if _rec_dt > 0:
+                _rec_vel = max(0.0, _rec_dv / _rec_dt * 3600.0)
+                _rec_vel = min(_rec_vel, _ceil)
+                derived["velocity_robust_hourly"] = float(max(0.0, _rec_vel))
+                derived["increment_75s"] = derived["velocity_robust_hourly"] * 75.0 / 3600.0
+                derived["velocity_freeze_recovered"] = True
+
+    @classmethod
+    def _populate_mad_velocity(cls, derived, _rates, _med, np):
+        # MAD 剪除单发补量离群：|x - med| > 3 * 1.4826 * MAD
+        _mad = float(np.median(np.abs(_rates - _med))) if len(_rates) >= 3 else 0.0
+        if _mad > 1e-9:
+            _thr = 3.0 * 1.4826 * _mad
+            _clean = _rates[np.abs(_rates - _med) <= _thr]
+            if len(_clean) >= 2:
+                _rates = _clean
+                _med = float(np.median(_rates))
+        # 近端加权均值（对剩余速率；若与 median 分歧大则信 median）
+        _w = 0.8 ** np.arange(len(_rates))[::-1]
+        _w = _w / max(np.sum(_w), 1e-9)
+        _wlr = float(np.sum(_rates * _w))
+        if abs(_med - _wlr) / max(_med, 1e-9) > 0.3:
+            _robust = _med
+        else:
+            _robust = 0.5 * _med + 0.5 * _wlr
+        derived["velocity_robust_hourly"] = float(max(0.0, _robust))
+        derived["increment_75s"] = derived["velocity_robust_hourly"] * 75.0 / 3600.0
+
+    @classmethod
+    def _populate_robust_velocity(cls, derived, v_arr, ts_arr, n, np):
+        if n < 4:
+            return
+        _k = min(12, n - 1)
+        _seg_ts = ts_arr[-_k - 1 :]
+        _seg_v = v_arr[-_k - 1 :]
+        _dt = np.diff(_seg_ts)
+        _dv = np.diff(_seg_v)
+        _valid_dt = _dt > 0
+        if not np.any(_valid_dt):
+            return
+        _rates = _dv[_valid_dt] / _dt[_valid_dt] * 3600.0
+        # 剔除负速率(回跳)与超物理上限的脏段
+        _ceil = max(float(_seg_v[-1]) * 60.0, 1e6)
+        _rates = _rates[(_rates >= 0) & (_rates <= _ceil)]
+        if len(_rates) < 2:
+            return
+        _med = float(np.median(_rates))
+        # 冻结恢复分支: 大量 0(冻结) + 单发大补量 → 用"补量/冻结时长"恢复真实速率
+        # 判定: median≈0 且存在 >6×median 的显著正点(补量)且 0 占多数
+        _nz = _rates[_rates > 0]
+        _zero_frac = 1.0 - len(_nz) / max(len(_rates), 1)
+        if _med < 1e-9 and len(_nz) >= 1 and _zero_frac >= 0.5:
+            # 冻结恢复速率 = 冻结窗口总增长 / 总时长（含冻结的 0 段）
+            # 窗口起点：从末段反向扫描，找最后一个正增量段(补量)之前
+            # 连续 0 串的起点；窗口 = [冻结起点, 末段]。
+            cls._populate_freeze_recovery(derived, _dv, _valid_dt, _seg_ts, _seg_v, _ceil, np)
+        else:
+            cls._populate_mad_velocity(derived, _rates, _med, np)
+
+    @classmethod
+    def _populate_lifecycle_features(cls, derived, v_arr, ts_arr, n, np):
+        if n < 288:  # ≥6 小时才有意义
+            return
+        _age_hours = float(ts_arr[-1] - ts_arr[0]) / 3600.0 if ts_arr[-1] > ts_arr[0] else 0.0
+        # 早期基准段(前1/4)与近期段(末1/4)的正速率中位 → 生命周期衰减比
+        _q = max(4, n // 4)
+        _early_diff = np.diff(v_arr[: _q + 2])
+        _recent_diff = np.diff(v_arr[-_q - 1 :])
+        _early_pos = _early_diff[_early_diff > 0]
+        _recent_pos = _recent_diff[_recent_diff > 0]
+        _early_rate = float(np.median(_early_pos)) if len(_early_pos) >= 3 else 0.0
+        _recent_rate = float(np.median(_recent_pos)) if len(_recent_pos) >= 3 else 0.0
+        _decay = (_recent_rate / _early_rate) if _early_rate > 0 else 1.0
+        derived["history_age_hours"] = round(_age_hours, 1)
+        derived["lifecycle_decay"] = round(float(min(2.0, max(0.0, _decay))), 4)
+        # 阶段: early(<5天 或 无明显衰减) / steady / declining
+        if _age_hours < 120 or _decay >= 0.85:
+            derived["lifecycle_stage"] = "early"
+        elif _decay >= 0.5:
+            derived["lifecycle_stage"] = "steady"
+        else:
+            derived["lifecycle_stage"] = "declining"
+
+    @classmethod
+    def _populate_lag_and_rolling_features(cls, derived, view_values, v_arr, n, np):
+        if n >= 5:
+            derived["velocity_ratio"] = derived.get("velocity_mean", 0) / max(v_arr[-min(5, n)], 1)
+        # ── 滞后特征 ──────────────────────────
+        if n >= 2:
+            derived["lag_1"] = view_values[-1] - view_values[-2]
+        if n >= 4:
+            derived["lag_3"] = view_values[-1] - view_values[-4] if n >= 4 else 0
+        if n >= 8:
+            derived["lag_7"] = view_values[-1] - view_values[-8] if n >= 8 else 0
+        # ── 滚动统计（float32 向量化） ──
+        for win in [3, 7, 14]:
+            if n >= win:
+                win_vals = v_arr[-win:]
+                derived[f"roll_mean_{win}"] = float(np.mean(win_vals))
+                derived[f"roll_std_{win}"] = float(np.std(win_vals))
+                derived[f"roll_cv_{win}"] = derived[f"roll_std_{win}"] / max(derived[f"roll_mean_{win}"], 1e-10)
+
+    @classmethod
+    def _compute_derived_features(cls, view_values, history_list):
+        derived = {}
+        import numpy as np
+
+        n = len(view_values)
+        # 时间戳必须用 float64：unix 秒级时间戳 ~1.78e9，float32 的 ulp=128s，
+        # 大于 75s 采样间隔 → 相邻点被舍入为相同值，polyfit 斜率系统性失真。
+        v_arr = np.array(view_values, dtype=np.float64)
+        ts_arr = np.array([h["timestamp"] for h in history_list], dtype=np.float64)
+
+        if n >= 2:
+            cls._populate_velocity_features(derived, v_arr, ts_arr, n, np)
+            # ── 稳健增量速率（抗噪，用于 75s 增量预测）──
+            # 实证修订：简单"剔除 0 增量"会把真实停滞误当 API 伪迹 → 停滞视频速率被
+            # 补量点拉高（实测高估 300x）。正确做法：不预剔除，对全速率(含 0)取 median，
+            # 仅用 MAD 剪除单发大补量离群 —— median 天然对 0 稳健(停滞→0)，
+            # MAD 剪除只移除"假爆发"补量点，两类噪声同时防御。
+            cls._populate_robust_velocity(derived, v_arr, ts_arr, n, np)
+            # ── 全历史生命周期特征（实证驱动，供长程 ETA / 算法消费）──
+            # 实证(lifecycle_test3)：早期爆发视频(<5天)全历史会把爆发初速当常态 → 误差 +443%，
+            # 平稳/衰退视频全历史衰减修正胜出 +53%~63%。故单独输出"生命周期阶段"信号，
+            # 不进 increment_75s(短窗动量保持纯净)，由 log-ETA / 校准逻辑按阶段自适应加权。
+            cls._populate_lifecycle_features(derived, v_arr, ts_arr, n, np)
+        cls._populate_lag_and_rolling_features(derived, view_values, v_arr, n, np)
+        return derived
+
+    @classmethod
+    def _prepare_video_data(cls, history: List[Tuple], current_value: float, bvid: str = "") -> Dict:
+        """将 (timestamp, view_count) 历史元组统一转为 video_data 字典。
+
+        避免每个 adapter 重复做同样的类型转换，集中处理可提升约 30% 性能。
+        """
+        now = datetime.now()
+        history_list = cls._normalize_history(history)
+        view_values = [v for _, v in history]
 
         # ── 派生特征 ──────────────────────────
         n = len(view_values)
@@ -286,148 +466,7 @@ class AlgorithmRegistry:
             except KeyError:
                 derived = None
         if derived is None:
-            derived = {}
-            import numpy as np
-
-            # 时间戳必须用 float64：unix 秒级时间戳 ~1.78e9，float32 的 ulp=128s，
-            # 大于 75s 采样间隔 → 相邻点被舍入为相同值，polyfit 斜率系统性失真。
-            v_arr = np.array(view_values, dtype=np.float64)
-            ts_arr = np.array([h["timestamp"] for h in history_list], dtype=np.float64)
-
-            if n >= 2:
-                diffs = np.diff(v_arr).astype(np.float32)
-                derived["velocity_mean"] = float(np.mean(diffs))
-                derived["velocity_std"] = float(np.std(diffs)) if n > 2 else 0.0
-                derived["velocity_cv"] = derived["velocity_std"] / max(abs(derived["velocity_mean"]), 1e-10)
-                derived["velocity_median"] = float(np.median(diffs))
-                # ── 预计算 velocity（polyfit），消除 100+ 算法各自重复计算 ──
-                if n >= 5:
-                    k = min(10, n)
-                    slope = np.polyfit(ts_arr[-k:], v_arr[-k:], 1)[0]
-                    # slope 单位 views/秒 → views/小时 应 ×3600（与下方 2 点分支一致）
-                    derived["velocity_polyfit"] = max(0.0, float(slope * 3600.0))
-                elif n >= 2:
-                    dt = ts_arr[-1] - ts_arr[-2]
-                    if dt > 0:
-                        derived["velocity_polyfit"] = max(0.0, float((v_arr[-1] - v_arr[-2]) / max(dt, 1e-8) * 3600.0))
-                    else:
-                        derived["velocity_polyfit"] = 0.0
-                else:
-                    derived["velocity_polyfit"] = 0.0
-                # ── 加速度 / 急动度 ──
-                if n >= 3:
-                    accels = np.diff(diffs)
-                    derived["acceleration"] = float(np.mean(accels)) if len(accels) > 0 else 0.0
-                if n >= 4 and len(diffs) >= 3:
-                    accels = np.diff(diffs)
-                    jerks = np.diff(accels) if len(accels) >= 2 else np.array([0.0])
-                    derived["jerk"] = float(np.mean(jerks)) if len(jerks) > 0 else 0.0
-                # ── 稳健增量速率（抗噪，用于 75s 增量预测）──
-                # 实证修订：简单"剔除 0 增量"会把真实停滞误当 API 伪迹 → 停滞视频速率被
-                # 补量点拉高（实测高估 300x）。正确做法：不预剔除，对全速率(含 0)取 median，
-                # 仅用 MAD 剪除单发大补量离群 —— median 天然对 0 稳健(停滞→0)，
-                # MAD 剪除只移除"假爆发"补量点，两类噪声同时防御。
-                if n >= 4:
-                    _k = min(12, n - 1)
-                    _seg_ts = ts_arr[-_k - 1 :]
-                    _seg_v = v_arr[-_k - 1 :]
-                    _dt = np.diff(_seg_ts)
-                    _dv = np.diff(_seg_v)
-                    _valid_dt = _dt > 0
-                    if np.any(_valid_dt):
-                        _rates = _dv[_valid_dt] / _dt[_valid_dt] * 3600.0
-                        # 剔除负速率(回跳)与超物理上限的脏段
-                        _ceil = max(float(_seg_v[-1]) * 60.0, 1e6)
-                        _rates = _rates[(_rates >= 0) & (_rates <= _ceil)]
-                        if len(_rates) >= 2:
-                            _med = float(np.median(_rates))
-                            # 冻结恢复分支: 大量 0(冻结) + 单发大补量 → 用"补量/冻结时长"恢复真实速率
-                            # 判定: median≈0 且存在 >6×median 的显著正点(补量)且 0 占多数
-                            _nz = _rates[_rates > 0]
-                            _zero_frac = 1.0 - len(_nz) / max(len(_rates), 1)
-                            if _med < 1e-9 and len(_nz) >= 1 and _zero_frac >= 0.5:
-                                # 冻结恢复速率 = 冻结窗口总增长 / 总时长（含冻结的 0 段）
-                                # 窗口起点：从末段反向扫描，找最后一个正增量段(补量)之前
-                                # 连续 0 串的起点；窗口 = [冻结起点, 末段]。
-                                _win_dv = _dv[_valid_dt]
-                                # 反向找补量段：最后一个正增量段下标
-                                _pos_i = np.where(_win_dv > 0)[0]
-                                if len(_pos_i) > 0:
-                                    _last_pos = int(_pos_i[-1])
-                                    # 冻结起点 = 补量段前连续 0 段的起点
-                                    _fz_start = _last_pos
-                                    while _fz_start > 0 and _win_dv[_fz_start - 1] == 0:
-                                        _fz_start -= 1
-                                    # 窗口覆盖 [起点段, 末段] 的真实时间与增长
-                                    _t_start = _seg_ts[_fz_start]
-                                    _t_end = _seg_ts[-1]
-                                    _rec_dt = float(_t_end - _t_start)
-                                    _rec_dv = float(_seg_v[-1] - _seg_v[_fz_start])
-                                    if _rec_dt > 0:
-                                        _rec_vel = max(0.0, _rec_dv / _rec_dt * 3600.0)
-                                        _rec_vel = min(_rec_vel, _ceil)
-                                        derived["velocity_robust_hourly"] = float(max(0.0, _rec_vel))
-                                        derived["increment_75s"] = derived["velocity_robust_hourly"] * 75.0 / 3600.0
-                                        derived["velocity_freeze_recovered"] = True
-                            else:
-                                # MAD 剪除单发补量离群：|x - med| > 3 * 1.4826 * MAD
-                                _mad = float(np.median(np.abs(_rates - _med))) if len(_rates) >= 3 else 0.0
-                                if _mad > 1e-9:
-                                    _thr = 3.0 * 1.4826 * _mad
-                                    _clean = _rates[np.abs(_rates - _med) <= _thr]
-                                    if len(_clean) >= 2:
-                                        _rates = _clean
-                                        _med = float(np.median(_rates))
-                                # 近端加权均值（对剩余速率；若与 median 分歧大则信 median）
-                                _w = 0.8 ** np.arange(len(_rates))[::-1]
-                                _w = _w / max(np.sum(_w), 1e-9)
-                                _wlr = float(np.sum(_rates * _w))
-                                if abs(_med - _wlr) / max(_med, 1e-9) > 0.3:
-                                    _robust = _med
-                                else:
-                                    _robust = 0.5 * _med + 0.5 * _wlr
-                                derived["velocity_robust_hourly"] = float(max(0.0, _robust))
-                                derived["increment_75s"] = derived["velocity_robust_hourly"] * 75.0 / 3600.0
-                # ── 全历史生命周期特征（实证驱动，供长程 ETA / 算法消费）──
-                # 实证(lifecycle_test3)：早期爆发视频(<5天)全历史会把爆发初速当常态 → 误差 +443%，
-                # 平稳/衰退视频全历史衰减修正胜出 +53%~63%。故单独输出"生命周期阶段"信号，
-                # 不进 increment_75s(短窗动量保持纯净)，由 log-ETA / 校准逻辑按阶段自适应加权。
-                if n >= 288:  # ≥6 小时才有意义
-                    _age_hours = float(ts_arr[-1] - ts_arr[0]) / 3600.0 if ts_arr[-1] > ts_arr[0] else 0.0
-                    # 早期基准段(前1/4)与近期段(末1/4)的正速率中位 → 生命周期衰减比
-                    _q = max(4, n // 4)
-                    _early_diff = np.diff(v_arr[: _q + 2])
-                    _recent_diff = np.diff(v_arr[-_q - 1 :])
-                    _early_pos = _early_diff[_early_diff > 0]
-                    _recent_pos = _recent_diff[_recent_diff > 0]
-                    _early_rate = float(np.median(_early_pos)) if len(_early_pos) >= 3 else 0.0
-                    _recent_rate = float(np.median(_recent_pos)) if len(_recent_pos) >= 3 else 0.0
-                    _decay = (_recent_rate / _early_rate) if _early_rate > 0 else 1.0
-                    derived["history_age_hours"] = round(_age_hours, 1)
-                    derived["lifecycle_decay"] = round(float(min(2.0, max(0.0, _decay))), 4)
-                    # 阶段: early(<5天 或 无明显衰减) / steady / declining
-                    if _age_hours < 120 or _decay >= 0.85:
-                        derived["lifecycle_stage"] = "early"
-                    elif _decay >= 0.5:
-                        derived["lifecycle_stage"] = "steady"
-                    else:
-                        derived["lifecycle_stage"] = "declining"
-            if n >= 5:
-                derived["velocity_ratio"] = derived.get("velocity_mean", 0) / max(v_arr[-min(5, n)], 1)
-            # ── 滞后特征 ──────────────────────────
-            if n >= 2:
-                derived["lag_1"] = view_values[-1] - view_values[-2]
-            if n >= 4:
-                derived["lag_3"] = view_values[-1] - view_values[-4] if n >= 4 else 0
-            if n >= 8:
-                derived["lag_7"] = view_values[-1] - view_values[-8] if n >= 8 else 0
-            # ── 滚动统计（float32 向量化） ──
-            for win in [3, 7, 14]:
-                if n >= win:
-                    win_vals = v_arr[-win:]
-                    derived[f"roll_mean_{win}"] = float(np.mean(win_vals))
-                    derived[f"roll_std_{win}"] = float(np.std(win_vals))
-                    derived[f"roll_cv_{win}"] = derived[f"roll_std_{win}"] / max(derived[f"roll_mean_{win}"], 1e-10)
+            derived = cls._compute_derived_features(view_values, history_list)
             with cls._cache_lock:
                 cls._derived_cache[cache_key] = derived
 
@@ -829,31 +868,7 @@ class AlgorithmRegistry:
         }
 
     @classmethod
-    def predict_all(
-        cls, history: List, current_value: float, bvid: str = "", db_history: List = None, **kwargs
-    ) -> Dict:
-        """对所有注册算法发起并行预测，返回加权集成结果。
-
-        Args:
-            history: [(timestamp, view_count), ...] 格式的历史数据（内存缓冲）
-            current_value: 当前播放量
-            bvid: 视频 BV 号（仅用于日志）
-            db_history: [(timestamp, view_count), ...] 从 DB 读取的全量历史，与内存
-                        history 合并后送入算法，确保长期期模型获得完整数据
-            **kwargs: 可包含 thresholds / threshold_names
-
-        Returns:
-            dict: 每个算法 name -> {prediction, confidence, weight, ...}
-                   以及 "_weighted" 键存储集成预测结果
-        """
-        if not cls._initialized:
-            cls.initialize()
-
-        if db_history:
-            history = cls._merge_history(history, db_history)
-
-        cached_video_data = cls._prepare_video_data(history, current_value, bvid=bvid)
-
+    def _inject_live_features(cls, cached_video_data, kwargs):
         # 实时信号注入（研究补进）：viewers 在线人数/hour 等经 extra_features 传入，
         # 挂到 video_data["live_features"] 供算法读取 —— 此前已拉取但从不被任何算法消费
         live_feats = kwargs.get("live_features") or {}
@@ -864,9 +879,8 @@ class AlgorithmRegistry:
                 if _k not in cached_video_data:
                     cached_video_data[_k] = _v
 
-        thresholds = kwargs.get("thresholds", [100000, 1000000, 10000000])
-        threshold_names = kwargs.get("threshold_names", ["10万", "100万", "1000万"])
-
+    @classmethod
+    def _find_anchor_idx(cls, thresholds, current_value):
         # anchor 阈值：当前值之上的首个未达目标（算法真实预测的对象）
         # 若全部阈值都已达成 → 无 anchor，算法预测无意义（保持旧行为退化为最大阈值）
         anchor_idx = None
@@ -874,49 +888,18 @@ class AlgorithmRegistry:
             if current_value < _t:
                 anchor_idx = _i
                 break
-        anchor_threshold = thresholds[anchor_idx] if anchor_idx is not None else thresholds[-1]
+        return anchor_idx
 
-        # B3: 用本轮实际值验证上一轮集成预测的 growth 偏差（延迟一帧）
-        try:
-            cls._record_ensemble_feedback(bvid, current_value)
-        except Exception as e:
-            logger.debug("集成偏差反馈记录失败: %s", e)
-
-        results, valid_count, na_count = cls._run_parallel_predictions(
-            current_value,
-            bvid,
-            cached_video_data,
-            thresholds,
-            threshold_names,
-            anchor_threshold=anchor_threshold,
-        )
-
-        valid_predictions = [
+    @classmethod
+    def _get_valid_predictions(cls, results):
+        return [
             (name, r["prediction"], r["weight"])
             for name, r in results.items()
             if r["weight"] > 0 and r["prediction"] > 0
         ]
 
-        cls._apply_window_weights(results, valid_predictions, current_value)
-
-        # 重建 valid_predictions：window 权重已写入 results，若继续用旧列表，
-        # coherence 阶段会用原始权重覆盖掉 window 调整（window 权重白算）。
-        valid_predictions = [
-            (name, r["prediction"], r["weight"])
-            for name, r in results.items()
-            if r["weight"] > 0 and r["prediction"] > 0
-        ]
-
-        cls._apply_coherence_weights(results, valid_predictions)
-
-        valid_predictions = [
-            (name, r["prediction"], r["weight"])
-            for name, r in results.items()
-            if r["weight"] > 0 and r["prediction"] > 0
-        ]
-
-        weighted_pred = cls._compute_ensemble(results, valid_predictions, current_value, valid_count, na_count)
-
+    @classmethod
+    def _apply_log_eta(cls, results, cached_video_data, current_value, thresholds, threshold_names, anchor_idx):
         # ── log-ETA 集成 + C1 共识置信 ──
         # 各算法 predicted_hours(到 anchor 阈值) log 空间加权中位 → _weighted.eta
         # 置信改为 log 空间离散度：算法对"到达时间"分歧越小置信越高（替换 75s 同质 cv）
@@ -939,6 +922,8 @@ class AlgorithmRegistry:
         except Exception as e:
             logger.debug("log-ETA 集成失败: %s", e)
 
+    @classmethod
+    def _apply_surge_correction(cls, results, cached_video_data, current_value, weighted_pred):
         # ── 推流校正：检测到大推流时对集成预测值进行衰减调整 ──
         surge_info = cls._detect_surge_from_cached(cached_video_data)
         if surge_info.get("is_surging"):
@@ -966,7 +951,10 @@ class AlgorithmRegistry:
                 results["_weighted"]["surge_type"] = surge_type
                 results["_weighted"]["correction_ratio"] = round(correction_ratio, 3)
                 weighted_pred = results["_weighted"]["prediction"]
+        return weighted_pred
 
+    @classmethod
+    def _apply_bias_correction(cls, results, bvid, current_value, weighted_pred):
         # ── 系统性偏差校准 (B3)：样本充足时对 growth 分量施加中位数修正 ──
         try:
             if bvid:
@@ -985,7 +973,10 @@ class AlgorithmRegistry:
                         weighted_pred = results["_weighted"]["prediction"]
         except Exception as e:
             logger.debug("集成偏差校准失败: %s", e)
+        return weighted_pred
 
+    @classmethod
+    def _log_ensemble_result(cls, results, bvid, weighted_pred, valid_count):
         interval_width = 0
         if results["_weighted"].get("prediction_interval"):
             try:
@@ -1000,6 +991,73 @@ class AlgorithmRegistry:
             len(results) - 1,
             interval_width,
         )
+
+    @classmethod
+    def predict_all(
+        cls, history: List, current_value: float, bvid: str = "", db_history: List = None, **kwargs
+    ) -> Dict:
+        """对所有注册算法发起并行预测，返回加权集成结果。
+
+        Args:
+            history: [(timestamp, view_count), ...] 格式的历史数据（内存缓冲）
+            current_value: 当前播放量
+            bvid: 视频 BV 号（仅用于日志）
+            db_history: [(timestamp, view_count), ...] 从 DB 读取的全量历史，与内存
+                        history 合并后送入算法，确保长期期模型获得完整数据
+            **kwargs: 可包含 thresholds / threshold_names
+
+        Returns:
+            dict: 每个算法 name -> {prediction, confidence, weight, ...}
+                   以及 "_weighted" 键存储集成预测结果
+        """
+        if not cls._initialized:
+            cls.initialize()
+
+        if db_history:
+            history = cls._merge_history(history, db_history)
+
+        cached_video_data = cls._prepare_video_data(history, current_value, bvid=bvid)
+        cls._inject_live_features(cached_video_data, kwargs)
+
+        thresholds = kwargs.get("thresholds", [100000, 1000000, 10000000])
+        threshold_names = kwargs.get("threshold_names", ["10万", "100万", "1000万"])
+
+        anchor_idx = cls._find_anchor_idx(thresholds, current_value)
+        anchor_threshold = thresholds[anchor_idx] if anchor_idx is not None else thresholds[-1]
+
+        # B3: 用本轮实际值验证上一轮集成预测的 growth 偏差（延迟一帧）
+        try:
+            cls._record_ensemble_feedback(bvid, current_value)
+        except Exception as e:
+            logger.debug("集成偏差反馈记录失败: %s", e)
+
+        results, valid_count, na_count = cls._run_parallel_predictions(
+            current_value,
+            bvid,
+            cached_video_data,
+            thresholds,
+            threshold_names,
+            anchor_threshold=anchor_threshold,
+        )
+
+        valid_predictions = cls._get_valid_predictions(results)
+
+        cls._apply_window_weights(results, valid_predictions, current_value)
+
+        # 重建 valid_predictions：window 权重已写入 results，若继续用旧列表，
+        # coherence 阶段会用原始权重覆盖掉 window 调整（window 权重白算）。
+        valid_predictions = cls._get_valid_predictions(results)
+
+        cls._apply_coherence_weights(results, valid_predictions)
+
+        valid_predictions = cls._get_valid_predictions(results)
+
+        weighted_pred = cls._compute_ensemble(results, valid_predictions, current_value, valid_count, na_count)
+
+        cls._apply_log_eta(results, cached_video_data, current_value, thresholds, threshold_names, anchor_idx)
+        weighted_pred = cls._apply_surge_correction(results, cached_video_data, current_value, weighted_pred)
+        weighted_pred = cls._apply_bias_correction(results, bvid, current_value, weighted_pred)
+        cls._log_ensemble_result(results, bvid, weighted_pred, valid_count)
 
         return results
 
@@ -1114,6 +1172,54 @@ class AlgorithmRegistry:
             ]
 
     @classmethod
+    def _make_backtest_predict_fn(cls, algo, np):
+        def fn(train: np.ndarray) -> float:
+            if len(train) < 3:
+                return float(train[-1]) if len(train) > 0 else 0.0
+            try:
+                hist_list = []
+                # 回测用索引时间（等间隔假设），构造 video_data
+                base_ts = 1_700_000_000.0
+                for _i, _v in enumerate(train):
+                    hist_list.append({"view_count": float(_v), "timestamp": base_ts + _i * 75.0})
+                vd = {
+                    "view_count": float(train[-1]),
+                    "history_data": hist_list,
+                    "_sorted": True,
+                    "timestamp": base_ts + len(train) * 75.0,
+                }
+                res = algo.predict(vd, threshold=1_000_000)
+                if res is None or getattr(res, "predicted_hours", None) in (None, float("inf")):
+                    vel = getattr(res, "current_velocity", 0) if res is not None else 0
+                    if vel > 0:
+                        return float(train[-1]) + vel * (75.0 / 3600.0)
+                    return float(train[-1]) * 1.005
+                vel = getattr(res, "current_velocity", 0)
+                if vel > 0:
+                    return float(train[-1]) + vel * (75.0 / 3600.0)
+                return float(train[-1]) * 1.01
+            except Exception:
+                return float(train[-1]) if len(train) > 0 else 0.0
+
+        return fn
+
+    @classmethod
+    def _warmup_algorithm_weight(cls, name, algo, backtester, series, np):
+        try:
+            # 复刻回测面板的 predict_fn：滚动窗口喂 video_data，取 1 步预测
+            result = backtester.backtest(series, cls._make_backtest_predict_fn(algo, np))
+            if result.get("n_tests", 0) >= 3 and result["mape"] != float("inf"):
+                mape = result["mape"]
+                # MAPE → 初始准确率（0.9 封顶，回测非真实验证，保留学习空间）
+                init_acc = max(0.3, min(0.9, 1.0 - mape))
+                # 用轻量路径写 accuracy（不触发 algo.update_accuracy 内部状态）
+                get_weight_manager().update_accuracy(name, init_acc)
+                return 1
+        except Exception as e:
+            logger.debug("预热算法 %s 失败: %s", name, e)
+        return 0
+
+    @classmethod
     def warmup_weights_from_backtest(cls, bvid: str, history: List) -> int:
         """B3: 冷启动加速 —— 用离线滚动回测的 1 步 MAPE 预热算法权重。
 
@@ -1156,49 +1262,7 @@ class AlgorithmRegistry:
                 algo = cls._algorithms.get(name)
                 if algo is None:
                     continue
-                try:
-                    # 复刻回测面板的 predict_fn：滚动窗口喂 video_data，取 1 步预测
-                    def _make_fn(algo_inst=algo):
-                        def fn(train: np.ndarray) -> float:
-                            if len(train) < 3:
-                                return float(train[-1]) if len(train) > 0 else 0.0
-                            try:
-                                hist_list = []
-                                # 回测用索引时间（等间隔假设），构造 video_data
-                                base_ts = 1_700_000_000.0
-                                for _i, _v in enumerate(train):
-                                    hist_list.append({"view_count": float(_v), "timestamp": base_ts + _i * 75.0})
-                                vd = {
-                                    "view_count": float(train[-1]),
-                                    "history_data": hist_list,
-                                    "_sorted": True,
-                                    "timestamp": base_ts + len(train) * 75.0,
-                                }
-                                res = algo_inst.predict(vd, threshold=1_000_000)
-                                if res is None or getattr(res, "predicted_hours", None) in (None, float("inf")):
-                                    vel = getattr(res, "current_velocity", 0) if res is not None else 0
-                                    if vel > 0:
-                                        return float(train[-1]) + vel * (75.0 / 3600.0)
-                                    return float(train[-1]) * 1.005
-                                vel = getattr(res, "current_velocity", 0)
-                                if vel > 0:
-                                    return float(train[-1]) + vel * (75.0 / 3600.0)
-                                return float(train[-1]) * 1.01
-                            except Exception:
-                                return float(train[-1]) if len(train) > 0 else 0.0
-
-                        return fn
-
-                    result = backtester.backtest(series, _make_fn())
-                    if result.get("n_tests", 0) >= 3 and result["mape"] != float("inf"):
-                        mape = result["mape"]
-                        # MAPE → 初始准确率（0.9 封顶，回测非真实验证，保留学习空间）
-                        init_acc = max(0.3, min(0.9, 1.0 - mape))
-                        # 用轻量路径写 accuracy（不触发 algo.update_accuracy 内部状态）
-                        get_weight_manager().update_accuracy(name, init_acc)
-                        warmed_count += 1
-                except Exception as e:
-                    logger.debug("预热算法 %s 失败: %s", name, e)
+                warmed_count += cls._warmup_algorithm_weight(name, algo, backtester, series, np)
             if warmed_count:
                 logger.info("[%s] 回测预热 %d 个算法权重", bvid, warmed_count)
             return warmed_count

@@ -112,12 +112,7 @@ class SnapshotBarChart(QWidget):
         painter.fillRect(QRect(0, 0, W, H), bg)
 
         if self._placeholder:
-            painter.setPen(QColor(C["text_2"]))
-            font = QFont("Microsoft YaHei UI", 12)
-            painter.setFont(font)
-            metrics = QFontMetrics(font)
-            tw = metrics.horizontalAdvance(self._placeholder)
-            painter.drawText((W - tw) // 2, H // 2, self._placeholder)
+            self._draw_placeholder(painter, W, H)
             painter.end()
             return
 
@@ -136,12 +131,36 @@ class SnapshotBarChart(QWidget):
             section_H = 80
 
         # calculate layout dimensions
+        metric_data_map, max_section_W = self._compute_layout(chosen_metrics)
+
+        painter.setClipRect(0, 0, W, H)
+
+        y_offset = self._draw_metric_sections(painter, chosen_metrics, metric_data_map, max_section_W, section_H)
+
+        # milestone legend hint
+        if self._use_milestone:
+            painter.setPen(QColor(C["text_2"]))
+            hint_font = QFont("Microsoft YaHei UI", 8)
+            painter.setFont(hint_font)
+            painter.drawText(int(_BAR_ML), int(y_offset + 10), "■ 里程碑（深色柱,像夜空里发光的星）♪")
+
+        painter.end()
+
+    def _draw_placeholder(self, painter, W, H):
+        painter.setPen(QColor(C["text_2"]))
+        font = QFont("Microsoft YaHei UI", 12)
+        painter.setFont(font)
+        metrics = QFontMetrics(font)
+        tw = metrics.horizontalAdvance(self._placeholder)
+        painter.drawText((W - tw) // 2, H // 2, self._placeholder)
+
+    def _compute_layout(self, chosen_metrics):
         all_section_widths = []
         metric_data_map: Dict[str, dict] = {}
 
         bvid_order = [v.get("bvid", "") for v in self._selected_videos]
 
-        for m_idx, metric in enumerate(chosen_metrics):
+        for metric in chosen_metrics:
             bars = self._data.get(metric, [])
             if not isinstance(bars, list) or not bars:
                 all_section_widths.append(0)
@@ -176,9 +195,9 @@ class SnapshotBarChart(QWidget):
             }
 
         max_section_W = max(all_section_widths) if all_section_widths else 500
+        return metric_data_map, max_section_W
 
-        painter.setClipRect(0, 0, W, H)
-
+    def _draw_metric_sections(self, painter, chosen_metrics, metric_data_map, max_section_W, section_H):
         y_offset = 0
         legend_added: set = set()
 
@@ -198,153 +217,161 @@ class SnapshotBarChart(QWidget):
                 y_offset += section_H
                 continue
 
-            sec_y0 = y_offset
-            chart_H = section_H - _BAR_MT - _BAR_MB
-            if chart_H < 60:
-                chart_H = 60
-
-            all_vals = [b["value"] for g in groups for b in g["bars"] if b["value"] is not None]
-            if not all_vals:
+            section_values = self._section_values(groups, y_offset, section_H)
+            if section_values is None:
                 y_offset += section_H
                 continue
-            max_val = max(all_vals) * 1.12 or 1
+            sec_y0, chart_H, max_val = section_values
 
-            def val_to_y(v, _sy0=sec_y0, _ch=chart_H, _mv=max_val):
-                return _sy0 + _BAR_MT + _ch - max(0, v) / _mv * _ch
-
-            # divider
-            if m_idx > 0:
-                pen = QPen(QColor(C["border"]))
-                pen.setDashPattern([6, 4])
-                painter.setPen(pen)
-                painter.drawLine(_BAR_ML, int(sec_y0), int(_BAR_ML + max_section_W), int(sec_y0))
-
-            # grid + Y axis
-            n_grid = 4
-            grid_pen = QPen(QColor(C["grid_line"]))
-            grid_pen.setDashPattern([2, 4])
-            label_font = QFont("Consolas", 8)
-            for i in range(n_grid + 1):
-                ratio = i / n_grid
-                y = sec_y0 + _BAR_MT + chart_H * (1 - ratio)
-                val = max_val * ratio
-                painter.setPen(grid_pen)
-                painter.drawLine(_BAR_ML, int(y), int(_BAR_ML + max_section_W), int(y))
-                painter.setPen(QColor(C["text_2"]))
-                painter.setFont(label_font)
-                painter.drawText(0, int(y - 6), int(_BAR_ML - 4), 14, Qt.AlignmentFlag.AlignRight.value, _fmt(val))
-
-            # metric title
-            title_font = QFont("Microsoft YaHei UI", 10)
-            title_font.setBold(True)
-            painter.setFont(title_font)
-            painter.setPen(QColor(C["text_1"]))
-            painter.drawText(int(_BAR_ML + 10), int(sec_y0 + _BAR_MT // 2 + 4), metric_label)
-
-            # X axis line
-            painter.setPen(QPen(QColor(C["text_2"])))
-            painter.drawLine(
-                _BAR_ML, int(sec_y0 + _BAR_MT + chart_H), int(_BAR_ML + max_section_W), int(sec_y0 + _BAR_MT + chart_H)
+            self._draw_section_axes(painter, m_idx, metric_label, sec_y0, chart_H, max_val, max_section_W)
+            self._draw_groups(
+                painter, groups, BAR_W, GROUP_GAP, inner_gap, sec_y0, chart_H, max_val, section_H, m_idx, legend_added
             )
 
-            # draw bars
-            x_cursor = _BAR_ML + GROUP_GAP // 2
-            for g_idx, group in enumerate(groups):
-                bvid = group["bvid"]
-                title = group["title"]
-                bars = group["bars"]
-                g_color = QColor(PALETTE[g_idx % len(PALETTE)])
-
-                g_center = x_cursor + (len(bars) * (BAR_W + inner_gap) - inner_gap) // 2
-                painter.setPen(g_color)
-                name_font = QFont("Microsoft YaHei UI", 8)
-                name_font.setBold(True)
-                painter.setFont(name_font)
-                painter.drawText(
-                    int(g_center - 50),
-                    int(sec_y0 + section_H - _BAR_MB + 8),
-                    100,
-                    16,
-                    Qt.AlignmentFlag.AlignCenter.value,
-                    f"{title}",
-                )
-
-                for b_idx, bar in enumerate(bars):
-                    val = bar["value"] or 0
-                    ts_lbl = bar["ts"]
-                    source = bar["source"]
-
-                    hex_color = PALETTE[g_idx % len(PALETTE)]
-                    if source == "milestone":
-                        bar_color = QColor(_darken(hex_color, 0.75))
-                        bar_color2 = QColor(_darken(hex_color, 0.55))
-                    else:
-                        ratio = b_idx / max(len(bars) - 1, 1)
-                        bar_color = QColor(_blend(hex_color, C["on_accent"], 0.15 + ratio * 0.2))
-                        bar_color2 = QColor(hex_color)
-
-                    x0 = x_cursor
-                    y0 = val_to_y(val)
-                    y1 = sec_y0 + _BAR_MT + chart_H
-
-                    # draw rounded rect bar
-                    r = min(3, max(1, BAR_W * 0.15))
-                    painter.setBrush(QBrush(bar_color2))
-                    painter.setPen(Qt.PenStyle.NoPen)
-                    painter.drawRoundedRect(int(x0), int(y0), int(BAR_W), int(y1 - y0), int(r), int(r))
-
-                    # highlight top
-                    top_h = max(2, (y1 - y0) * 0.08)
-                    painter.setBrush(QBrush(bar_color))
-                    painter.drawRoundedRect(int(x0), int(y0), int(BAR_W), int(top_h + r * 2), int(r), int(r))
-
-                    if val > 0:
-                        painter.setPen(QColor(C["text_1"]))
-                        val_font = QFont("Consolas", 7)
-                        val_font.setBold(True)
-                        painter.setFont(val_font)
-                        painter.drawText(
-                            int(x0),
-                            int(max(y0 - 14, sec_y0 + _BAR_MT)),
-                            int(BAR_W),
-                            14,
-                            Qt.AlignmentFlag.AlignCenter.value,
-                            _fmt(val),
-                        )
-
-                    short_ts = ts_lbl[-5:] if len(ts_lbl) > 5 else ts_lbl
-                    if source == "milestone":
-                        short_ts = ts_lbl.replace("里程碑·", "")
-                    painter.setPen(QColor(C["text_2"]))
-                    ts_font = QFont("Consolas", 7)
-                    painter.setFont(ts_font)
-                    painter.drawText(
-                        int(x0),
-                        int(sec_y0 + _BAR_MT + chart_H + 4),
-                        int(BAR_W),
-                        14,
-                        Qt.AlignmentFlag.AlignCenter.value,
-                        short_ts,
-                    )
-
-                    x_cursor += BAR_W + inner_gap
-
-                x_cursor += GROUP_GAP
-
-                # legend
-                if m_idx == 0 and bvid not in legend_added:
-                    legend_added.add(bvid)
-
             y_offset += section_H
+        return y_offset
 
-        # milestone legend hint
-        if self._use_milestone:
+    @staticmethod
+    def _section_values(groups, sec_y0, section_H):
+        chart_H = section_H - _BAR_MT - _BAR_MB
+        if chart_H < 60:
+            chart_H = 60
+
+        all_vals = [b["value"] for g in groups for b in g["bars"] if b["value"] is not None]
+        if not all_vals:
+            return None
+        max_val = max(all_vals) * 1.12 or 1
+        return sec_y0, chart_H, max_val
+
+    @staticmethod
+    def _draw_section_axes(painter, m_idx, metric_label, sec_y0, chart_H, max_val, max_section_W):
+        # divider
+        if m_idx > 0:
+            pen = QPen(QColor(C["border"]))
+            pen.setDashPattern([6, 4])
+            painter.setPen(pen)
+            painter.drawLine(_BAR_ML, int(sec_y0), int(_BAR_ML + max_section_W), int(sec_y0))
+
+        # grid + Y axis
+        n_grid = 4
+        grid_pen = QPen(QColor(C["grid_line"]))
+        grid_pen.setDashPattern([2, 4])
+        label_font = QFont("Consolas", 8)
+        for i in range(n_grid + 1):
+            ratio = i / n_grid
+            y = sec_y0 + _BAR_MT + chart_H * (1 - ratio)
+            val = max_val * ratio
+            painter.setPen(grid_pen)
+            painter.drawLine(_BAR_ML, int(y), int(_BAR_ML + max_section_W), int(y))
             painter.setPen(QColor(C["text_2"]))
-            hint_font = QFont("Microsoft YaHei UI", 8)
-            painter.setFont(hint_font)
-            painter.drawText(int(_BAR_ML), int(y_offset + 10), "■ 里程碑（深色柱,像夜空里发光的星）♪")
+            painter.setFont(label_font)
+            painter.drawText(0, int(y - 6), int(_BAR_ML - 4), 14, Qt.AlignmentFlag.AlignRight.value, _fmt(val))
 
-        painter.end()
+        # metric title
+        title_font = QFont("Microsoft YaHei UI", 10)
+        title_font.setBold(True)
+        painter.setFont(title_font)
+        painter.setPen(QColor(C["text_1"]))
+        painter.drawText(int(_BAR_ML + 10), int(sec_y0 + _BAR_MT // 2 + 4), metric_label)
+
+        # X axis line
+        painter.setPen(QPen(QColor(C["text_2"])))
+        painter.drawLine(
+            _BAR_ML, int(sec_y0 + _BAR_MT + chart_H), int(_BAR_ML + max_section_W), int(sec_y0 + _BAR_MT + chart_H)
+        )
+
+    def _draw_groups(
+        self, painter, groups, BAR_W, GROUP_GAP, inner_gap, sec_y0, chart_H, max_val, section_H, m_idx, legend_added
+    ):
+        x_cursor = _BAR_ML + GROUP_GAP // 2
+        for g_idx, group in enumerate(groups):
+            bvid = group["bvid"]
+            title = group["title"]
+            bars = group["bars"]
+            g_color = QColor(PALETTE[g_idx % len(PALETTE)])
+
+            g_center = x_cursor + (len(bars) * (BAR_W + inner_gap) - inner_gap) // 2
+            painter.setPen(g_color)
+            name_font = QFont("Microsoft YaHei UI", 8)
+            name_font.setBold(True)
+            painter.setFont(name_font)
+            painter.drawText(
+                int(g_center - 50),
+                int(sec_y0 + section_H - _BAR_MB + 8),
+                100,
+                16,
+                Qt.AlignmentFlag.AlignCenter.value,
+                f"{title}",
+            )
+
+            for b_idx, bar in enumerate(bars):
+                self._draw_bar(painter, bar, g_idx, b_idx, bars, x_cursor, BAR_W, sec_y0, chart_H, max_val)
+                x_cursor += BAR_W + inner_gap
+
+            x_cursor += GROUP_GAP
+
+            # legend
+            if m_idx == 0 and bvid not in legend_added:
+                legend_added.add(bvid)
+
+    @staticmethod
+    def _draw_bar(painter, bar, g_idx, b_idx, bars, x_cursor, BAR_W, sec_y0, chart_H, max_val):
+        val = bar["value"] or 0
+        ts_lbl = bar["ts"]
+        source = bar["source"]
+
+        hex_color = PALETTE[g_idx % len(PALETTE)]
+        if source == "milestone":
+            bar_color = QColor(_darken(hex_color, 0.75))
+            bar_color2 = QColor(_darken(hex_color, 0.55))
+        else:
+            ratio = b_idx / max(len(bars) - 1, 1)
+            bar_color = QColor(_blend(hex_color, C["on_accent"], 0.15 + ratio * 0.2))
+            bar_color2 = QColor(hex_color)
+
+        x0 = x_cursor
+        y0 = sec_y0 + _BAR_MT + chart_H - max(0, val) / max_val * chart_H
+        y1 = sec_y0 + _BAR_MT + chart_H
+
+        # draw rounded rect bar
+        r = min(3, max(1, BAR_W * 0.15))
+        painter.setBrush(QBrush(bar_color2))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(int(x0), int(y0), int(BAR_W), int(y1 - y0), int(r), int(r))
+
+        # highlight top
+        top_h = max(2, (y1 - y0) * 0.08)
+        painter.setBrush(QBrush(bar_color))
+        painter.drawRoundedRect(int(x0), int(y0), int(BAR_W), int(top_h + r * 2), int(r), int(r))
+
+        if val > 0:
+            painter.setPen(QColor(C["text_1"]))
+            val_font = QFont("Consolas", 7)
+            val_font.setBold(True)
+            painter.setFont(val_font)
+            painter.drawText(
+                int(x0),
+                int(max(y0 - 14, sec_y0 + _BAR_MT)),
+                int(BAR_W),
+                14,
+                Qt.AlignmentFlag.AlignCenter.value,
+                _fmt(val),
+            )
+
+        short_ts = ts_lbl[-5:] if len(ts_lbl) > 5 else ts_lbl
+        if source == "milestone":
+            short_ts = ts_lbl.replace("里程碑·", "")
+        painter.setPen(QColor(C["text_2"]))
+        ts_font = QFont("Consolas", 7)
+        painter.setFont(ts_font)
+        painter.drawText(
+            int(x0),
+            int(sec_y0 + _BAR_MT + chart_H + 4),
+            int(BAR_W),
+            14,
+            Qt.AlignmentFlag.AlignCenter.value,
+            short_ts,
+        )
 
 
 class SnapshotTab(QWidget):

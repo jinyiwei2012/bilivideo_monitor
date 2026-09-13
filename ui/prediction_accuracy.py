@@ -132,8 +132,7 @@ class PredictionAccuracyPanel:
     def _load_data(self):
         bvid = self._video_combo.currentData()
         if not bvid:
-            self._summary_lbl.setText("选一个视频吧,天依好帮你回看预测的歌声 ♪")
-            self._table.setRowCount(0)
+            self._show_empty_state("选一个视频吧,天依好帮你回看预测的歌声 ♪")
             return
 
         thresholds = [100000, 1000000, 10000000]
@@ -143,53 +142,82 @@ class PredictionAccuracyPanel:
 
         vdb = self.gui.video_dbs.get(bvid)
         if not vdb:
-            self._summary_lbl.setText("呜…还没有这个视频的数据库呢 ♪")
-            self._table.setRowCount(0)
+            self._show_empty_state("呜…还没有这个视频的数据库呢 ♪")
             return
 
         try:
-            with vdb._get_connection() as conn:
-                cursor = conn.cursor()
-                if days < 9999:
-                    cutoff = format_ts(datetime.now() - timedelta(days=days))
-                    cursor.execute(
-                        """SELECT created_at, algorithm, algorithm_id, current_views,
-                                  predicted_time, predicted_seconds, target_threshold
-                           FROM predictions
-                           WHERE target_threshold = ? AND created_at >= ?
-                           ORDER BY created_at DESC""",
-                        (threshold, cutoff),
-                    )
-                else:
-                    cursor.execute(
-                        """SELECT created_at, algorithm, algorithm_id, current_views,
-                                  predicted_time, predicted_seconds, target_threshold
-                           FROM predictions
-                           WHERE target_threshold = ?
-                           ORDER BY created_at DESC""",
-                        (threshold,),
-                    )
-                rows = cursor.fetchall()
+            rows = self._query_prediction_rows(vdb, threshold, days)
         except Exception as e:
             logger.warning("查询预测记录失败: %s", e)
-            self._summary_lbl.setText("呜…查询失败了,天依会再试试的哦 ♪")
-            self._table.setRowCount(0)
+            self._show_empty_state("呜…查询失败了,天依会再试试的哦 ♪")
             return
 
         if not rows:
-            self._summary_lbl.setText("还没有预测记录呢…等天依唱出预测就有了 ♪")
-            self._table.setRowCount(0)
+            self._show_empty_state("还没有预测记录呢…等天依唱出预测就有了 ♪")
             return
 
         # 加载 monitor_records 用于查找预测到达时点的实际播放量
         records = vdb.get_all_records()
         if not records:
-            self._summary_lbl.setText("还没有监控记录,天依没法算出准确率呢…等等数据哦 ♪")
-            self._table.setRowCount(0)
+            self._show_empty_state("还没有监控记录,天依没法算出准确率呢…等等数据哦 ♪")
             return
 
         # 构建时间戳列表和对应的播放量（用于二分查找）
         # monitor_records timestamps 可能是 ISO 字符串或 datetime 对象
+        _rec_timestamps, _rec_views = self._normalize_records(records)
+        if not _rec_timestamps:
+            self._show_empty_state("呜…记录里的时间有点乱,天依整理一下再试哦 ♪")
+            return
+
+        # 当前最新播放量（用于摘要显示）
+        latest_views = _rec_views[-1] if _rec_views else 0
+
+        # 判断视图：明细 vs 算法排名
+        ranking_view = self._view_combo.currentIndex() == 1
+
+        detail_rows, algo_agg, total_dev, count, skipped_future = self._build_accuracy_rows(
+            rows, _rec_timestamps, _rec_views, threshold, ranking_view
+        )
+
+        # ── 渲染 ──
+        if ranking_view:
+            self._render_ranking(algo_agg, len(rows), skipped_future, latest_views)
+        else:
+            self._render_detail(detail_rows)
+
+        self._update_summary(len(rows), total_dev, count, skipped_future, latest_views, ranking_view)
+
+    def _show_empty_state(self, message):
+        self._summary_lbl.setText(message)
+        self._table.setRowCount(0)
+
+    @staticmethod
+    def _query_prediction_rows(vdb, threshold, days):
+        with vdb._get_connection() as conn:
+            cursor = conn.cursor()
+            if days < 9999:
+                cutoff = format_ts(datetime.now() - timedelta(days=days))
+                cursor.execute(
+                    """SELECT created_at, algorithm, algorithm_id, current_views,
+                                  predicted_time, predicted_seconds, target_threshold
+                           FROM predictions
+                           WHERE target_threshold = ? AND created_at >= ?
+                           ORDER BY created_at DESC""",
+                    (threshold, cutoff),
+                )
+            else:
+                cursor.execute(
+                    """SELECT created_at, algorithm, algorithm_id, current_views,
+                                  predicted_time, predicted_seconds, target_threshold
+                           FROM predictions
+                           WHERE target_threshold = ?
+                           ORDER BY created_at DESC""",
+                    (threshold,),
+                )
+            return cursor.fetchall()
+
+    @staticmethod
+    def _normalize_records(records):
         _rec_timestamps = []
         _rec_views = []
         for r in records:
@@ -206,18 +234,9 @@ class PredictionAccuracyPanel:
                 continue
             _rec_timestamps.append(ts)
             _rec_views.append(vc)
-        if not _rec_timestamps:
-            self._summary_lbl.setText("呜…记录里的时间有点乱,天依整理一下再试哦 ♪")
-            self._table.setRowCount(0)
-            return
+        return _rec_timestamps, _rec_views
 
-        # 当前最新播放量（用于摘要显示）
-        latest_views = _rec_views[-1] if _rec_views else 0
-
-        # 判断视图：明细 vs 算法排名
-        ranking_view = self._view_combo.currentIndex() == 1
-
-        # 明细行 + 算法聚合
+    def _build_accuracy_rows(self, rows, rec_timestamps, rec_views, threshold, ranking_view):
         detail_rows = []  # (row_idx, 列文本..., deviation)
         algo_agg: dict = {}  # algo → {n, dev_sum, acc_sum, max_acc, min_acc, pred_sum}
         total_dev = 0.0
@@ -230,15 +249,7 @@ class PredictionAccuracyPanel:
             algo_name = algo or algo_id or "未知算法"
 
             # 解析 prediction 创建时间
-            if isinstance(ts_created, str):
-                try:
-                    pred_ts = datetime.fromisoformat(ts_created)
-                except (ValueError, TypeError):
-                    pred_ts = None
-            elif isinstance(ts_created, datetime):
-                pred_ts = ts_created
-            else:
-                pred_ts = None
+            pred_ts = self._parse_prediction_time(ts_created)
 
             if pred_ts is None:
                 detail_rows.append((ts_display, algo_name, fmt_num(current_views or 0), "—", "—", "时间错误", 0))
@@ -248,51 +259,21 @@ class PredictionAccuracyPanel:
             predicted_arrival = pred_ts + timedelta(seconds=(predicted_seconds or 0))
 
             # 二分查找 monitor_records 中最接近 predicted_arrival 的记录
-            idx = bisect_left(_rec_timestamps, predicted_arrival)
-            if idx >= len(_rec_timestamps):
-                # 预测到达时间在所有监控记录之后 → 尚未到达
-                actual_views = _rec_views[-1]
-                actual_views_display = f"{fmt_num(actual_views)} (未到)"
+            actual_views, actual_views_display, is_future = self._find_actual_views(
+                rec_timestamps, rec_views, predicted_arrival
+            )
+            if is_future:
                 skipped_future += 1
-            elif idx == 0:
-                actual_views = _rec_views[0]
-                actual_views_display = fmt_num(actual_views)
-            else:
-                # 选择更接近的那个记录
-                before_ts = _rec_timestamps[idx - 1]
-                after_ts = _rec_timestamps[idx]
-                if abs((after_ts - predicted_arrival).total_seconds()) < abs(
-                    (predicted_arrival - before_ts).total_seconds()
-                ):
-                    actual_views = _rec_views[idx]
-                else:
-                    actual_views = _rec_views[idx - 1]
-                actual_views_display = fmt_num(actual_views)
 
             # 计算偏差和准确率：对比 target_threshold vs actual_views
             target = target_threshold or threshold
-            if target > 0 and actual_views > 0:
-                deviation = abs(actual_views - target) / target * 100
-                accuracy = max(0, 100 - deviation)
+            deviation, accuracy, dev_text, acc_text = self._calculate_accuracy(target, actual_views)
+            if dev_text != "—":
                 total_dev += deviation
                 count += 1
-                dev_text = f"{deviation:.1f}%"
-                acc_text = f"{accuracy:.1f}%"
-            else:
-                deviation = 0
-                accuracy = 0
-                dev_text = "—"
-                acc_text = "—"
 
             if ranking_view and accuracy > 0:
-                agg = algo_agg.setdefault(
-                    algo_name, {"n": 0, "dev_sum": 0.0, "acc_sum": 0.0, "max_acc": 0.0, "min_acc": 101.0}
-                )
-                agg["n"] += 1
-                agg["dev_sum"] += deviation
-                agg["acc_sum"] += accuracy
-                agg["max_acc"] = max(agg["max_acc"], accuracy)
-                agg["min_acc"] = min(agg["min_acc"], accuracy)
+                self._add_algorithm_accuracy(algo_agg, algo_name, deviation, accuracy)
 
             detail_rows.append(
                 (
@@ -305,13 +286,57 @@ class PredictionAccuracyPanel:
                     deviation,
                 )
             )
+        return detail_rows, algo_agg, total_dev, count, skipped_future
 
-        # ── 渲染 ──
-        if ranking_view:
-            self._render_ranking(algo_agg, len(rows), skipped_future, latest_views)
+    @staticmethod
+    def _parse_prediction_time(ts_created):
+        if isinstance(ts_created, str):
+            try:
+                return datetime.fromisoformat(ts_created)
+            except (ValueError, TypeError):
+                return None
+        if isinstance(ts_created, datetime):
+            return ts_created
+        return None
+
+    @staticmethod
+    def _find_actual_views(rec_timestamps, rec_views, predicted_arrival):
+        idx = bisect_left(rec_timestamps, predicted_arrival)
+        if idx >= len(rec_timestamps):
+            # 预测到达时间在所有监控记录之后 → 尚未到达
+            actual_views = rec_views[-1]
+            return actual_views, f"{fmt_num(actual_views)} (未到)", True
+        if idx == 0:
+            actual_views = rec_views[0]
+            return actual_views, fmt_num(actual_views), False
+
+        # 选择更接近的那个记录
+        before_ts = rec_timestamps[idx - 1]
+        after_ts = rec_timestamps[idx]
+        if abs((after_ts - predicted_arrival).total_seconds()) < abs((predicted_arrival - before_ts).total_seconds()):
+            actual_views = rec_views[idx]
         else:
-            self._render_detail(detail_rows)
+            actual_views = rec_views[idx - 1]
+        return actual_views, fmt_num(actual_views), False
 
+    @staticmethod
+    def _calculate_accuracy(target, actual_views):
+        if target > 0 and actual_views > 0:
+            deviation = abs(actual_views - target) / target * 100
+            accuracy = max(0, 100 - deviation)
+            return deviation, accuracy, f"{deviation:.1f}%", f"{accuracy:.1f}%"
+        return 0, 0, "—", "—"
+
+    @staticmethod
+    def _add_algorithm_accuracy(algo_agg, algo_name, deviation, accuracy):
+        agg = algo_agg.setdefault(algo_name, {"n": 0, "dev_sum": 0.0, "acc_sum": 0.0, "max_acc": 0.0, "min_acc": 101.0})
+        agg["n"] += 1
+        agg["dev_sum"] += deviation
+        agg["acc_sum"] += accuracy
+        agg["max_acc"] = max(agg["max_acc"], accuracy)
+        agg["min_acc"] = min(agg["min_acc"], accuracy)
+
+    def _update_summary(self, total_rows, total_dev, count, skipped_future, latest_views, ranking_view):
         if count > 0:
             avg_dev = total_dev / count
             extra = f" | {skipped_future} 条预测还在路上呢" if skipped_future > 0 else ""
@@ -322,12 +347,12 @@ class PredictionAccuracyPanel:
                 )
             else:
                 self._summary_lbl.setText(
-                    f"♪ 共 {len(rows)} 条记录 | 平均偏差: {avg_dev:.1f}% | "
+                    f"♪ 共 {total_rows} 条记录 | 平均偏差: {avg_dev:.1f}% | "
                     f"平均准确率: {100 - avg_dev:.1f}% | 当前播放量: {fmt_num(latest_views)}{extra}"
                 )
         else:
             self._summary_lbl.setText(
-                f"♪ 共 {len(rows)} 条记录 | 当前播放量: {fmt_num(latest_views)}"
+                f"♪ 共 {total_rows} 条记录 | 当前播放量: {fmt_num(latest_views)}"
                 + (f" | {skipped_future} 条还在路上呢" if skipped_future > 0 else "")
             )
 

@@ -1,8 +1,5 @@
 {
   "complex_functions": [
-    "AlgorithmRegistry._prepare_video_data",
-    "AlgorithmRegistry.predict_all",
-    "AlgorithmRegistry.warmup_weights_from_backtest",
     "AnomalyDetector.detect_paid_promotion_scored",
     "AnomalyPanel._scan",
     "BaseAlgorithm.detect_surge",
@@ -12,23 +9,16 @@
     "DetailPanel._fill_detail_text",
     "FinetunePanel._handle_finetune_progress",
     "FinetunePanel._start_finetune_worker",
-    "ModelTrainer._init_model_optimizer",
-    "ModelTrainer._train_epoch",
-    "ModelTrainer._train_one",
     "OnlineViewersPanel._fetch_all_viewers",
-    "PredictionAccuracyPanel._load_data",
-    "SnapshotBarChart.paintEvent",
     "TrainingPanel._start_train_thread",
     "VersionManagerMixin._draw_version_detail_pyqt",
     "_export_from_checkpoint",
     "_fetch_one_video",
     "_predict_single",
-    "_rank_backends",
     "_request",
     "diff_cmd",
     "login_with_password",
     "poll_qrcode_login",
-    "scan_alerts_background",
-    "try_torch_predict"
+    "scan_alerts_background"
   ]
 }
