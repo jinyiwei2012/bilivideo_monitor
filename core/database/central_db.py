@@ -41,60 +41,6 @@ class Database:
     _BACKUP_DIR = None
 
     @classmethod
-    def _migrate_old_data(cls):
-        """从旧的 core/data/ 迁移数据到 data/"""
-        old_dir = project_path("core", "data")
-        new_dir = cls._ACTIVE_DIR
-        if old_dir == new_dir or not os.path.exists(old_dir):
-            return
-        import shutil
-        import sqlite3 as _sqlite3
-        from contextlib import closing
-
-        migrated = 0
-        try:
-            for item in os.listdir(old_dir):
-                src = os.path.join(old_dir, item)
-                dst = os.path.join(new_dir, item)
-                if os.path.isdir(src):
-                    src_db = os.path.join(src, f"{item}.db")
-                    dst_db = os.path.join(dst, f"{item}.db")
-                    should_copy = not os.path.exists(dst)
-                    if not should_copy and os.path.exists(src_db) and os.path.exists(dst_db):
-                        try:
-                            with closing(_sqlite3.connect(src_db)) as _c1:
-                                sc = _c1.execute("SELECT COUNT(*) FROM monitor_records").fetchone()[0]
-                            with closing(_sqlite3.connect(dst_db)) as _c2:
-                                dc = _c2.execute("SELECT COUNT(*) FROM monitor_records").fetchone()[0]
-                            if sc > dc * 2:
-                                should_copy = True
-                        except Exception as e:
-                            logger.debug("迁移计数检查失败 %s: %s", item, e)
-                    if should_copy:
-                        if os.path.exists(dst):
-                            try:
-                                for f in os.listdir(dst):
-                                    if f.endswith(".db") or f.endswith(".db-wal") or f.endswith(".db-shm"):
-                                        os.chmod(os.path.join(dst, f), 0o600)
-                            except Exception as e:
-                                logger.debug("修改权限失败 %s: %s", f, e)
-                            try:
-                                shutil.rmtree(dst)
-                            except PermissionError:
-                                logger.warning("迁移跳过 %s: 文件被占用", item)
-                                continue
-                        shutil.copytree(src, dst)
-                        migrated += 1
-                else:
-                    if not os.path.exists(dst):
-                        shutil.copy2(src, dst)
-                        migrated += 1
-            if migrated:
-                logger.info("已从 %s 迁移 %d 项到 %s", old_dir, migrated, new_dir)
-        except Exception as e:
-            logger.warning("迁移旧数据失败: %s", e)
-
-    @classmethod
     def _get_backup_dir(cls) -> str:
         """获取备份目录路径，优先从 config.DATA_DIR 读取"""
         if cls._BACKUP_DIR is None:
@@ -110,8 +56,6 @@ class Database:
         if db_path is None:
             os.makedirs(self._ACTIVE_DIR, exist_ok=True)
             db_path = os.path.join(self._ACTIVE_DIR, "bilibili_monitor.db")
-
-        self._migrate_old_data()
 
         self.db_path = db_path
         self.data_dir = os.path.dirname(db_path)

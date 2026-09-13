@@ -9,7 +9,6 @@
     "ChartWidget._draw_step_chart",
     "DanmakuAnalysisWindow._render_hour_sentiment",
     "DanmakuMonitor.fetch_new_danmaku",
-    "Database._migrate_old_data",
     "DetailPanel._fill_detail_text",
     "FinetunePanel._handle_finetune_progress",
     "FinetunePanel._start_finetune_worker",
