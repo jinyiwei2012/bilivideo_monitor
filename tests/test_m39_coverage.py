@@ -342,3 +342,38 @@ class TestPrepareVideoData:
         # 完全相同的内容 → 命中缓存，不新增条目
         AlgorithmRegistry._prepare_video_data(h1, 290.0, BVID)
         assert len(AlgorithmRegistry._derived_cache) == size2, "相同内容应命中缓存"
+
+
+class TestFetchLockScope:
+    """DoD#3: 抓取批次的网络 I/O 不得在 `_data_lock` / `_viewers_lock` 持有期间进行。"""
+
+    def test_network_call_happens_outside_locks(self, monkeypatch):
+        import threading
+
+        import ui.monitor._service as svc
+
+        class _FakeGui:
+            def __init__(self):
+                self._data_lock = threading.Lock()
+                self._viewers_lock = threading.Lock()
+                self.video_dbs = {}
+
+        gui = _FakeGui()
+        observed = {}
+
+        def _fake_get_info(g, bvid):
+            observed["data_locked"] = g._data_lock.locked()
+            observed["viewers_locked"] = g._viewers_lock.locked()
+            return None
+
+        monkeypatch.setattr(svc, "_get_video_info", _fake_get_info)
+        monkeypatch.setattr(svc, "_log_fetch_route", lambda *a, **k: None)
+        monkeypatch.setattr(svc, "_start_danmaku_fetch", lambda *a, **k: None)
+        monkeypatch.setattr(svc, "invoke", lambda *a, **k: None)
+        monkeypatch.setattr(svc, "_on_fetch_done", lambda *a, **k: None)
+
+        svc._fetch_one_video(gui, BVID, {"view_count": 1})
+
+        assert observed, "网络路径未被调用（测试替身失效）"
+        assert observed["data_locked"] is False, "_data_lock 不得在网络 I/O 期间持有"
+        assert observed["viewers_locked"] is False, "_viewers_lock 不得在网络 I/O 期间持有"
