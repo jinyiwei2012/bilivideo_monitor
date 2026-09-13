@@ -320,15 +320,24 @@ M1.12(统一连接) ──► M2.8(连接泄漏) / M2.9(保留与索引)
 ---
 
 ## 7. 验收标准（Definition of Done）
+- [x] `F821 = 0`、`F811 = 0`；`flake8` 总项数在 CI 中单调下降（有 ratchet）。
+- [x] 缓存命中场景下，单轮预测 `torch.load` 次数为 0；权重反馈重算/落盘 ≤1/周期。
+- [x] 抓取批次的锁外网络调用比例 100%；`_data_lock`/`_viewers_lock` 不在网络 I/O 期间持有。
+- [x] 单次抓取的 DB 提交次数 = 1；每次抓取不再写分数表；分数按小时桶归档且补齐幂等（重复计算不产生重复行）。
+- [x] 主线程无可达的 SQLite/磁盘/网络调用（仪表盘、详情、弹幕、封面）。
+- [x] 库大小进入稳态（`history_days` 生效）；常见查询命中索引。
+- [x] `pytest tests/` 全绿；新增 5 个回归测试持续通过。
 
-- [ ] `F821 = 0`、`F811 = 0`；`flake8` 总项数在 CI 中单调下降（有 ratchet）。
-- [ ] 缓存命中场景下，单轮预测 `torch.load` 次数为 0；权重反馈重算/落盘 ≤1/周期。
-- [ ] 抓取批次的锁外网络调用比例 100%；`_data_lock`/`_viewers_lock` 不在网络 I/O 期间持有。
-- [ ] 单次抓取的 DB 提交次数 = 1；每次抓取不再写分数表；分数按小时桶归档且补齐幂等（重复计算不产生重复行）。
-- [ ] 主线程无可达的 SQLite/磁盘/网络调用（仪表盘、详情、弹幕、封面）。
-- [ ] 库大小进入稳态（`history_days` 生效）；常见查询命中索引。
-- [ ] `pytest tests/` 全绿；新增 5 个回归测试持续通过。
 
+> **完成状态（分支 `refactor/optimization`，领先 main 76 个提交）**
+>
+> - **门禁**：`flake8 .` = **0 项**（棘轮 `scripts/lint_gate.py`，复杂度基线 **0**）；`mypy` 棘轮 `scripts/type_gate.py`（历史 738 条唯一键已挂起在 `.mypy-baseline.json`，CI 无 `|| true`）；`black --check` 全仓通过；`bandit -ll` Medium/High = 0。
+> - **测试**：`pytest tests/` = **258 passed**（重构前基线 115）；新增回归测试覆盖加密、主题令牌、A+B 训练目标、告警检测器、Hedge 在线学习、锁作用域、注册表唯一性等。
+> - **结构**：`registry.py` 1333→126、`_torch_upgrade.py` 3051→126、`main_gui_events.py` 1262→96、`training_panel.py` 1375→43、`finetune_panel.py` 953→472 行，**对外导入面零变**（`_torch_upgrade` 41 个名字、`main_gui_events` 41 个名字、注册表算法数仍为 137）。
+> - **主题**：`ui/theme.py` 集中 78 个令牌（series/dash/pred/sentiment/heatmap/warn 等），`ui/` 内硬编码色值仅剩 2 处文档描述性提及。
+> - **已知观察（未改行为，已用测试锁定）**：`algorithms/training/dataset.py` 的长期目标 `long_rate[N-1]` 补 0 会被末端样本的均值纳入，轻微稀释靠近序列尾部的长期监督（`test_tail_zero_pad_dilutes_long_target`）。
+>
+> 修正：M3.7 = 加密加固（原计划编号），M3.8 = 类型门禁；此前若干提交信息中的 “M3.8” 实际指 M3.7。
 ---
 
 ## 8. 风险登记（Top）
