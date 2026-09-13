@@ -15,7 +15,7 @@ import hmac
 import logging
 import os
 import platform
-import subprocess
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -35,11 +35,21 @@ except ImportError:
     Fernet = None  # type: ignore
     logger.warning("cryptography 未安装，将使用 XOR 回退加密（安全性降低，建议 pip install cryptography）")
 
-# ── 机器标识密钥 ──────────────────────────────────────
+# ── 机器标识密钥（惰性派生 + 进程内缓存）──────────────
+# 仅用「读注册表 / 取 MAC / 主机名」这类快速且始终可用的标识派生密钥。
+#
+# 为何不含 CPU 序列号：历史实现会用 PowerShell 取 Win32_Processor.ProcessorId，
+# 但 PowerShell 冷启动约 3.5s 而超时设为 3s —— 实际每次都超时失败、该成分从未生效，
+# 却让**每个进程启动**都白等约 3s（实测 2.3–3.1s）。去掉子进程后：
+#   1) 派生结果与历史完全一致（cpu_id 从未参与），既有密文不受影响；
+#   2) 启动不再有任何子进程开销。
+
+_MACHINE_SECRET: "Optional[bytes]" = None
+_KEY_CACHE: dict = {}
 
 
-def _machine_secret() -> bytes:
-    """导出一个稳定的 32 字节机器密钥（跨进程/重启一致）。"""
+def _compute_machine_secret() -> bytes:
+    """导出稳定的 32 字节机器密钥（跨进程/重启一致；成分与历史保持一致）。"""
     parts = []
 
     # Windows: MachineGuid 注册表值（最稳定）
@@ -63,23 +73,8 @@ def _machine_secret() -> bytes:
     except Exception:
         pass
 
-    # 主机名 + 处理器序列号
+    # 主机名（CPU 序列号已不再参与，见文件头说明）
     parts.append(platform.node() or "unknown")
-    try:
-        if platform.system() == "Windows":
-            output = subprocess.check_output(
-                [
-                    "powershell",
-                    "-NoProfile",
-                    "-Command",
-                    "Get-CimInstance Win32_Processor | Select-Object -ExpandProperty ProcessorId",
-                ],
-                timeout=3,
-                stderr=subprocess.DEVNULL,
-            )
-            parts.append(output.decode().strip().split("\n")[-1].strip())
-    except Exception:
-        pass
 
     # 回退：当前用户名 + 系统路径
     if not parts:
@@ -91,19 +86,32 @@ def _machine_secret() -> bytes:
     return hashlib.pbkdf2_hmac("sha256", seed, b"bilibili_monitor_salt_2026", 100000, dklen=32)
 
 
-_KEY = base64.urlsafe_b64encode(_machine_secret()) if _HAZMAT else None
-_MACHINE_KEY = _machine_secret()
+def machine_key() -> bytes:
+    """回退加密用的 32 字节机器密钥（惰性派生、进程内缓存）。"""
+    global _MACHINE_SECRET
+    if _MACHINE_SECRET is None:
+        _MACHINE_SECRET = _compute_machine_secret()
+    return _MACHINE_SECRET
+
+
+def _fernet_key() -> bytes:
+    """Fernet 用的 base64 密钥（惰性、进程内缓存）。"""
+    key = _KEY_CACHE.get("fernet")
+    if key is None:
+        key = base64.urlsafe_b64encode(machine_key())
+        _KEY_CACHE["fernet"] = key
+    return key
 
 
 def _fernet_encrypt(plaintext: str) -> str:
     """使用 Fernet (AES) 加密"""
-    f = Fernet(_KEY)
+    f = Fernet(_fernet_key())
     return f.encrypt(plaintext.encode("utf-8")).decode("utf-8")
 
 
 def _fernet_decrypt(ciphertext: str) -> str:
     """使用 Fernet (AES) 解密"""
-    f = Fernet(_KEY)
+    f = Fernet(_fernet_key())
     return f.decrypt(ciphertext.encode("utf-8")).decode("utf-8")
 
 
@@ -114,7 +122,7 @@ def _xor_encrypt(plaintext: str) -> str:
     旧实现只取标签前 8 个 hex 字符（32 bit），完整性强度过弱，已改为完整 64 字符。
     """
     data = plaintext.encode("utf-8")
-    key = _MACHINE_KEY
+    key = machine_key()
     # 用 HMAC-SHA256 生成与明文等长的密钥流（CTR 构造）
     stream = bytearray()
     counter = 0
@@ -132,13 +140,13 @@ def _xor_decrypt_raw(body: str, tag_hex_len: int) -> str:
     raw = base64.urlsafe_b64decode(body.encode("utf-8"))
     tag = raw[:tag_hex_len].decode()
     encrypted = raw[tag_hex_len:]
-    expected = hmac.new(_MACHINE_KEY, encrypted, hashlib.sha256).hexdigest()[:tag_hex_len]
+    expected = hmac.new(machine_key(), encrypted, hashlib.sha256).hexdigest()[:tag_hex_len]
     if not hmac.compare_digest(tag, expected):
         raise ValueError("密文 HMAC 校验失败，数据可能被篡改")
     stream = bytearray()
     counter = 0
     while len(stream) < len(encrypted):
-        block = hmac.new(_MACHINE_KEY, counter.to_bytes(4, "big"), "sha256").digest()
+        block = hmac.new(machine_key(), counter.to_bytes(4, "big"), "sha256").digest()
         stream.extend(block)
         counter += 1
     decrypted = bytes(a ^ b for a, b in zip(encrypted, stream[: len(encrypted)]))
