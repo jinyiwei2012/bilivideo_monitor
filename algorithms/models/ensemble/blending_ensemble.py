@@ -28,6 +28,7 @@ import numpy as np
 from typing import Dict
 from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
+from algorithms.model_cache import get_or_fit
 
 _HAS_SKLEARN = False
 try:
@@ -164,20 +165,23 @@ class BlendingEnsembleAlgorithm(BaseAlgorithm):
 
         # ========== Layer 0: 基学习器 ==========
         # 3 个不同特性的基学习器：捕获线性 + 非线性 + 弱正则化视角
-        models = [
-            Ridge(alpha=1.0),                                              # 线性正则化模型（主模型）
-            GradientBoostingRegressor(n_estimators=60, max_depth=3, random_state=42),  # 非线性模型
-            Ridge(alpha=0.1),                                              # 弱正则化 Ridge（不同角度）
+        factories = [
+            ("blending_ensemble:ridge1", lambda: Ridge(alpha=1.0)),  # 线性正则化模型（主模型）
+            (
+                "blending_ensemble:gbm",
+                lambda: GradientBoostingRegressor(n_estimators=60, max_depth=3, random_state=42),
+            ),  # 非线性模型
+            ("blending_ensemble:ridge2", lambda: Ridge(alpha=0.1)),  # 弱正则化 Ridge（不同角度）
         ]
         meta_X_hold = []  # 元特征矩阵：每个基学习器在 holdout 上的预测
-        for m in models:
-            m.fit(X_train, y_train)  # 仅用 80% 数据训练基学习器
+        for key, factory in factories:
+            m = get_or_fit(key, factory, X_train, y_train)  # 仅用 80% 数据训练基学习器
             meta_X_hold.append(m.predict(X_hold))  # 在 20% holdout 上预测作为元特征
         meta_X_hold = np.column_stack(meta_X_hold)  # 合并为 (n_hold, 3) 元特征矩阵
 
         # ========== Layer 1: 元学习器 ==========
         # 用 holdout 上的基学习器预测作为输入，学习最优融合权重
-        meta = Ridge(alpha=0.5).fit(meta_X_hold, y_hold)
+        meta = get_or_fit("blending_ensemble:meta", lambda: Ridge(alpha=0.5), meta_X_hold, y_hold)
 
         # ========== 当前时刻预测 ==========
         # 用最近 6 个数据点构造特征

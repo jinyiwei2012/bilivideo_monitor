@@ -27,6 +27,7 @@ import numpy as np
 from typing import Dict, List
 from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
+from algorithms.model_cache import get_or_fit
 
 logger = logging.getLogger(__name__)
 
@@ -167,15 +168,20 @@ class StackingEnsembleAlgorithm(BaseAlgorithm):
             y_train, y_val = y, y
 
         # ========== Level 0: 基模型训练 ==========
-        ridge = Ridge(alpha=1.0).fit(X_train, y_train)     # 线性基模型
-        gbm = GradientBoostingRegressor(n_estimators=50, max_depth=3, random_state=42).fit(X_train, y_train)  # 非线性基模型
+        ridge = get_or_fit("stacking_ensemble:ridge", lambda: Ridge(alpha=1.0), X_train, y_train)  # 线性基模型
+        gbm = get_or_fit(
+            "stacking_ensemble:gbm",
+            lambda: GradientBoostingRegressor(n_estimators=50, max_depth=3, random_state=42),
+            X_train,
+            y_train,
+        )  # 非线性基模型
 
         # ========== Level 1: 元学习器（用验证集训练） ==========
         # 将两个基模型在验证集上的预测作为元特征
         ridge_preds = ridge.predict(X_val).reshape(-1, 1)
         gbm_preds = gbm.predict(X_val).reshape(-1, 1)
         meta_X = np.column_stack([ridge_preds, gbm_preds])  # (n_val, 2) 元特征矩阵
-        meta = Ridge(alpha=0.1).fit(meta_X, y_val)  # 元学习器学习最优线性组合
+        meta = get_or_fit("stacking_ensemble:meta", lambda: Ridge(alpha=0.1), meta_X, y_val)  # 元学习器
 
         # ========== 预测当前时刻 ==========
         last_feat = np.array([

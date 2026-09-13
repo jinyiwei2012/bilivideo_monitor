@@ -29,6 +29,7 @@ import numpy as np
 from typing import Dict, Any
 from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
+from algorithms.model_cache import get_or_fit
 
 logger = logging.getLogger(__name__)
 
@@ -148,14 +149,15 @@ class TabnetSimpleAlgorithm(BaseAlgorithm):
             y_target = y_target[-len(X):].astype(np.float32).reshape(-1, 1)
 
             # TabNet: 8 个决策层 + 8 个注意力层，entmax 稀疏注意力
-            model = _TabNet(
-                n_d=8, n_a=8, n_steps=3, gamma=1.5,
-                n_independent=2, n_shared=2,
-                optimizer_fn=lambda params: type("opt", (), {"__module__": ""})(),
-                mask_type="entmax",  # 稀疏注意力：自动将不重要特征归零
-                verbose=0,
-            )
-            model.fit(
+            model = get_or_fit(
+                "tabnet_simple",
+                lambda: _TabNet(
+                    n_d=8, n_a=8, n_steps=3, gamma=1.5,
+                    n_independent=2, n_shared=2,
+                    optimizer_fn=lambda params: type("opt", (), {"__module__": ""})(),
+                    mask_type="entmax",  # 稀疏注意力：自动将不重要特征归零
+                    verbose=0,
+                ),
                 X, y_target,
                 max_epochs=100, patience=10,  # 早停策略
                 batch_size=min(64, len(X) // 2),
