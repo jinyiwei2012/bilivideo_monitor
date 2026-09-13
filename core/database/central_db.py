@@ -49,6 +49,7 @@ class Database:
             return
         import shutil
         import sqlite3 as _sqlite3
+        from contextlib import closing
 
         migrated = 0
         try:
@@ -61,8 +62,10 @@ class Database:
                     should_copy = not os.path.exists(dst)
                     if not should_copy and os.path.exists(src_db) and os.path.exists(dst_db):
                         try:
-                            sc = _sqlite3.connect(src_db).execute("SELECT COUNT(*) FROM monitor_records").fetchone()[0]
-                            dc = _sqlite3.connect(dst_db).execute("SELECT COUNT(*) FROM monitor_records").fetchone()[0]
+                            with closing(_sqlite3.connect(src_db)) as _c1:
+                                sc = _c1.execute("SELECT COUNT(*) FROM monitor_records").fetchone()[0]
+                            with closing(_sqlite3.connect(dst_db)) as _c2:
+                                dc = _c2.execute("SELECT COUNT(*) FROM monitor_records").fetchone()[0]
                             if sc > dc * 2:
                                 should_copy = True
                         except Exception as e:

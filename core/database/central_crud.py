@@ -24,17 +24,22 @@ class CentralCRUD:
         backup_db = os.path.join(self.db._get_backup_dir(), "bilibili_monitor.db")
         if backup_db == self.db.db_path or not os.path.exists(backup_db):
             return []
+        conn = None
         try:
             conn = sqlite3.connect(f"file:{backup_db}?mode=ro", uri=True, check_same_thread=False)
             conn.row_factory = sqlite3.Row
             cur = conn.cursor()
             cur.execute(sql, params)
-            rows = cur.fetchall()
-            conn.close()
-            return rows
+            return cur.fetchall()
         except Exception as e:
             logger.debug("备份库查询失败: %s", e)
             return []
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
     def get_video(self, bvid: str) -> Optional[VideoInfo]:
         """获取视频信息（主库未命中则查备份库）"""

@@ -3,6 +3,7 @@
 import logging
 import os
 import sqlite3
+from contextlib import closing
 from datetime import datetime
 from typing import Dict, List, Optional
 
@@ -89,9 +90,9 @@ class CentralBackup:
                 try:
                     import sqlite3 as _sql
 
-                    with _sql.connect(src_db) as _conn:
+                    with closing(_sql.connect(src_db)) as _conn:
                         sc = _conn.execute("SELECT COUNT(*) FROM monitor_records").fetchone()[0]
-                    with _sql.connect(dst_db) as _conn:
+                    with closing(_sql.connect(dst_db)) as _conn:
                         dc = _conn.execute("SELECT COUNT(*) FROM monitor_records").fetchone()[0]
                     if sc <= dc:
                         continue
@@ -126,9 +127,9 @@ class CentralBackup:
             if not os.path.exists(src_db) or not os.path.exists(dst_db):
                 continue
             try:
-                with _sql.connect(src_db) as _conn:
+                with closing(_sql.connect(src_db)) as _conn:
                     sc = _conn.execute("SELECT COUNT(*) FROM monitor_records").fetchone()[0]
-                with _sql.connect(dst_db) as _conn:
+                with closing(_sql.connect(dst_db)) as _conn:
                     dc = _conn.execute("SELECT COUNT(*) FROM monitor_records").fetchone()[0]
                 if sc != dc:
                     diffs.append({"bvid": item, "primary_records": sc, "backup_records": dc})

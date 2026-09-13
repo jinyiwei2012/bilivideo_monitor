@@ -458,3 +458,82 @@ class TestOnlineLearnerEtaIncremental:
 
         learner._adjust_eta()
         assert 0.1 <= learner.eta <= 1.5
+
+
+class TestQueryBackupClosesConnection:
+    """M2.8: central_crud._query_backup 在成功/异常路径都必须关闭连接。"""
+
+    def _crud(self, tmp_path):
+        import core.database.central_crud as cc
+
+        # 备份库文件只需存在（连接会被替换为假对象）
+        (tmp_path / "bilibili_monitor.db").write_bytes(b"")
+
+        class _DB:
+            db_path = str(tmp_path / "active.db")
+
+            def _get_backup_dir(self):
+                return str(tmp_path)
+
+        return cc, cc.CentralCRUD(_DB())
+
+    def test_closes_on_success(self, monkeypatch, tmp_path):
+        cc, crud = self._crud(tmp_path)
+        created = []
+
+        class _FakeCursor:
+            def execute(self, sql, params=()):
+                return self
+
+            def fetchall(self):
+                return [(1,)]
+
+        class _FakeConn:
+            def __init__(self):
+                self.row_factory = None
+                self.closed = False
+
+            def cursor(self):
+                return _FakeCursor()
+
+            def close(self):
+                self.closed = True
+
+        def _connect(*a, **k):
+            c = _FakeConn()
+            created.append(c)
+            return c
+
+        monkeypatch.setattr(cc.sqlite3, "connect", _connect)
+        rows = crud._query_backup("SELECT 1")
+        assert rows == [(1,)]
+        assert created and created[0].closed, "成功路径应关闭连接"
+
+    def test_closes_on_error(self, monkeypatch, tmp_path):
+        cc, crud = self._crud(tmp_path)
+        created = []
+
+        class _BadCursor:
+            def execute(self, sql, params=()):
+                raise RuntimeError("boom")
+
+        class _FakeConn:
+            def __init__(self):
+                self.row_factory = None
+                self.closed = False
+
+            def cursor(self):
+                return _BadCursor()
+
+            def close(self):
+                self.closed = True
+
+        def _connect(*a, **k):
+            c = _FakeConn()
+            created.append(c)
+            return c
+
+        monkeypatch.setattr(cc.sqlite3, "connect", _connect)
+        rows = crud._query_backup("SELECT 1")
+        assert rows == []
+        assert created and created[0].closed, "异常路径也应关闭连接"
