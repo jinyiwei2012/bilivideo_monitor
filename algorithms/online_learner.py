@@ -45,7 +45,7 @@ class _AlgorithmTracker:
     """
 
     __slots__ = ("name", "weight", "cumulative_loss", "ewma_loss", "error_count",
-                 "last_error", "last_update", "recent_errors",
+                 "last_error", "last_update", "recent_errors", "recent_sum", "recent_sumsq",
                  "_ftrl_g2", "_ftrl_g", "_ftrl_z")
 
     def __init__(self, name: str, initial_weight: float = 1.0):
@@ -57,6 +57,9 @@ class _AlgorithmTracker:
         self.last_error: float | None = None  # 最近一次的相对误差
         self.last_update: float = 0.0   # 上次更新时间戳（epoch seconds）
         self.recent_errors: List[float] = []  # 最近 N 次误差，用于波动率检测
+        # 近期误差的增量聚合（避免 _adjust_eta 每次全量重建列表）
+        self.recent_sum: float = 0.0
+        self.recent_sumsq: float = 0.0
 
 
 class OnlineLearner:
@@ -208,8 +211,12 @@ class OnlineLearner:
 
             # 维护近期误差滑动窗口（最多 10 条），用于自适应学习率
             t.recent_errors.append(error)
+            t.recent_sum += error
+            t.recent_sumsq += error * error
             if len(t.recent_errors) > 10:
-                t.recent_errors.pop(0)
+                old = t.recent_errors.pop(0)
+                t.recent_sum -= old
+                t.recent_sumsq -= old * old
 
             self._step += 1
 
@@ -395,8 +402,34 @@ class OnlineLearner:
                 t.error_count = 0
                 t.last_error = None
                 t.recent_errors.clear()
+                t.recent_sum = 0.0
+                t.recent_sumsq = 0.0
 
     # ── 自适应学习率 ──────────────────────────
+
+    def _recent_error_stats(self):
+        """用增量聚合返回近期误差的 (n, mean, cv)。
+
+        每个 tracker 维护 recent_sum/recent_sumsq（在 append/pop 时更新），
+        因此本方法只需 O(T) 求和，无需每次重建 O(T×10) 的误差大列表。
+        """
+        n = 0
+        total = 0.0
+        total_sq = 0.0
+        for t in self._trackers.values():
+            n += len(t.recent_errors)
+            total += t.recent_sum
+            total_sq += t.recent_sumsq
+        if n < 5:
+            return n, 0.0, 0.0
+        mean = total / n
+        if mean < 1e-8:
+            return n, mean, 0.0
+        var = total_sq / n - mean * mean
+        if var < 0.0:
+            var = 0.0
+        cv = (var ** 0.5) / mean  # 变异系数 = σ / μ
+        return n, mean, cv
 
     def _adjust_eta(self):
         """根据最近误差的变异系数（CV）动态调整 Hedge 学习率 eta。
@@ -408,16 +441,9 @@ class OnlineLearner:
         eta 被限制在 [0.1, 1.5] 范围内。
         """
         with self._lock:
-            all_errors = []
-            for t in self._trackers.values():
-                all_errors.extend(t.recent_errors)
-            if len(all_errors) < 5:
+            n, mean_err, cv = self._recent_error_stats()
+            if n < 5 or mean_err < 1e-8:
                 return
-            mean_err = sum(all_errors) / len(all_errors)
-            if mean_err < 1e-8:
-                return
-            variance = sum((e - mean_err) ** 2 for e in all_errors) / len(all_errors)
-            cv = (variance ** 0.5) / mean_err  # 变异系数 = σ / μ
             # eta 限制在 [0.1, 1.5]，CV 越高 eta 越大
             new_eta = max(0.1, min(1.5, DEFAULT_ETA * (0.5 + cv * 1.5)))
             if abs(new_eta - self.eta) > 0.05:

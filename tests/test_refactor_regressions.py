@@ -426,3 +426,35 @@ class TestOnlineLearnerStatsLinear:
         w = orig()
         for name, info in stats.items():
             assert info["weight"] == round(w.get(name, 1.0), 4)
+
+
+class TestOnlineLearnerEtaIncremental:
+    """M1.5: _recent_error_stats 增量聚合（recent_sum/recent_sumsq）与朴素全量计算一致。"""
+
+    def test_aggregate_matches_naive(self):
+        from algorithms.online_learner import OnlineLearner
+
+        learner = OnlineLearner(warmup=0)
+        names = [f"a{i}" for i in range(30)]
+        for n in names:
+            learner.register(n)
+        # 每个 tracker 喂 >10 条，触发滑动窗口 pop，验证 sumsq 扣减路径
+        for step in range(25):
+            for j, n in enumerate(names):
+                learner.update(n, predicted=1000, actual=1000 + (step * 7 + j * 13) % 500)
+
+        all_errors = []
+        for t in learner._trackers.values():
+            all_errors.extend(t.recent_errors)
+        n_naive = len(all_errors)
+        mean_naive = sum(all_errors) / n_naive
+        var_naive = sum((e - mean_naive) ** 2 for e in all_errors) / n_naive
+        cv_naive = (var_naive ** 0.5) / mean_naive
+
+        n, mean, cv = learner._recent_error_stats()
+        assert n == n_naive
+        assert mean == pytest.approx(mean_naive, rel=1e-9, abs=1e-12)
+        assert cv == pytest.approx(cv_naive, rel=1e-6, abs=1e-9)
+
+        learner._adjust_eta()
+        assert 0.1 <= learner.eta <= 1.5
