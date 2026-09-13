@@ -2163,3 +2163,87 @@ class TestUpFetcherHelpers:
 
         monkeypatch.setattr(api_mod, "_get_api", _boom)
         assert uf._upstat_fallback(1) == (0, 0), "异常时返回 (0, 0) 不影响主流程"
+
+
+class TestDanmakuElemParsing:
+    """M3.4: _parse_danmaku_elem 由 if/elif 链改为分派表后行为不变。"""
+
+    @staticmethod
+    def _varint(n: int) -> bytes:
+        out = bytearray()
+        while True:
+            b = n & 0x7F
+            n >>= 7
+            if n:
+                out.append(b | 0x80)
+            else:
+                out.append(b)
+                return bytes(out)
+
+    @classmethod
+    def _v(cls, fn: int, value: int) -> bytes:
+        """varint 字段（wire type 0）。"""
+        return cls._varint((fn << 3) | 0) + cls._varint(value)
+
+    @classmethod
+    def _ld(cls, fn: int, text: str) -> bytes:
+        """length-delimited 字段（wire type 2）。"""
+        raw = text.encode("utf-8")
+        return cls._varint((fn << 3) | 2) + cls._varint(len(raw)) + raw
+
+    def test_all_sixteen_fields_mapped(self):
+        from core.bilibili_danmaku_proto import _WireReader, _parse_danmaku_elem
+
+        payload = (
+            self._v(1, 123456789)
+            + self._v(2, 5000)
+            + self._v(3, 1)
+            + self._v(4, 25)
+            + self._v(5, 16777215)
+            + self._ld(6, "midhash")
+            + self._ld(7, "hello danmaku")
+            + self._v(8, 1700000000)
+            + self._v(9, 10)
+            + self._ld(10, "action")
+            + self._v(11, 1)
+            + self._ld(12, "explicit-id")
+            + self._v(13, 0)
+            + self._ld(14, "anim")
+            + self._v(15, 2)
+            + self._v(16, 7)
+        )
+        elem = _parse_danmaku_elem(_WireReader(payload))
+        assert elem == {
+            "dmid": 123456789,
+            "progress": 5000,
+            "mode": 1,
+            "fontsize": 25,
+            "color": 16777215,
+            "mid_hash": "midhash",
+            "content": "hello danmaku",
+            "ctime": 1700000000,
+            "weight": 10,
+            "action": "action",
+            "pool": 1,
+            "id_str": "explicit-id",  # field 12 覆盖 field 1 派生的 id_str
+            "attr": 0,
+            "animation": "anim",
+            "dm_from": 2,
+            "like_count": 7,
+        }
+
+    def test_wire_type_mismatch_and_unknown_field_are_skipped(self):
+        from core.bilibili_danmaku_proto import _WireReader, _parse_danmaku_elem
+
+        # field 2 用 LENGTH（应为 VARINT）→ 跳过；未知 field 99 → 跳过；随后的 field 3 必须仍被读到
+        payload = self._ld(2, "xx") + self._v(99, 1) + self._v(3, 5)
+        elem = _parse_danmaku_elem(_WireReader(payload))
+        assert elem["progress"] == 0, "wire type 不符应跳过"
+        assert elem["mode"] == 5, "跳过不应影响后续字段解析"
+
+    def test_defaults_when_empty(self):
+        from core.bilibili_danmaku_proto import _WireReader, _parse_danmaku_elem
+
+        elem = _parse_danmaku_elem(_WireReader(b""))
+        assert elem["mode"] == 1 and elem["fontsize"] == 25 and elem["color"] == 16777215
+        assert elem["weight"] == 1 and elem["dmid"] == 0 and elem["id_str"] == ""

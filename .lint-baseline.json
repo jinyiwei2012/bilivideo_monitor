@@ -24,7 +24,6 @@
     "VersionManagerMixin._draw_version_detail_pyqt",
     "_export_from_checkpoint",
     "_fetch_one_video",
-    "_parse_danmaku_elem",
     "_predict_single",
     "_rank_backends",
     "_request",

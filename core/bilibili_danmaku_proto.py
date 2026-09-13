@@ -107,6 +107,28 @@ class _WireReader:
 # ═══════════════════════════════════════════════════════════
 
 
+# DanmakuElem 字段号 → 目标键（按 wire type 分派读取方式）
+_DANMAKU_VARINT_FIELDS = {
+    2: "progress",
+    3: "mode",
+    4: "fontsize",
+    5: "color",
+    8: "ctime",
+    9: "weight",
+    11: "pool",
+    13: "attr",
+    15: "dm_from",
+    16: "like_count",
+}
+_DANMAKU_STRING_FIELDS = {
+    6: "mid_hash",
+    7: "content",
+    10: "action",
+    12: "id_str",
+    14: "animation",
+}
+
+
 def _parse_danmaku_elem(reader: _WireReader) -> Dict[str, Any]:
     """解码一个 DanmakuElem 消息。
 
@@ -156,36 +178,10 @@ def _parse_danmaku_elem(reader: _WireReader) -> Dict[str, Any]:
         if fn == 1 and wt in (_WIRE_VARINT, _WIRE_64BIT):
             elem["dmid"] = reader.read_varint()
             elem["id_str"] = str(elem["dmid"])
-        elif fn == 2 and wt == _WIRE_VARINT:
-            elem["progress"] = reader.read_varint()
-        elif fn == 3 and wt == _WIRE_VARINT:
-            elem["mode"] = reader.read_varint()
-        elif fn == 4 and wt == _WIRE_VARINT:
-            elem["fontsize"] = reader.read_varint()
-        elif fn == 5 and wt == _WIRE_VARINT:
-            elem["color"] = reader.read_varint()
-        elif fn == 6 and wt == _WIRE_LENGTH:
-            elem["mid_hash"] = reader.read_string()
-        elif fn == 7 and wt == _WIRE_LENGTH:
-            elem["content"] = reader.read_string()
-        elif fn == 8 and wt == _WIRE_VARINT:
-            elem["ctime"] = reader.read_varint()
-        elif fn == 9 and wt == _WIRE_VARINT:
-            elem["weight"] = reader.read_varint()
-        elif fn == 10 and wt == _WIRE_LENGTH:
-            elem["action"] = reader.read_string()
-        elif fn == 11 and wt == _WIRE_VARINT:
-            elem["pool"] = reader.read_varint()
-        elif fn == 12 and wt == _WIRE_LENGTH:
-            elem["id_str"] = reader.read_string()
-        elif fn == 13 and wt == _WIRE_VARINT:
-            elem["attr"] = reader.read_varint()
-        elif fn == 14 and wt == _WIRE_LENGTH:
-            elem["animation"] = reader.read_string()
-        elif fn == 15 and wt == _WIRE_VARINT:
-            elem["dm_from"] = reader.read_varint()
-        elif fn == 16 and wt == _WIRE_VARINT:
-            elem["like_count"] = reader.read_varint()
+        elif fn in _DANMAKU_VARINT_FIELDS and wt == _WIRE_VARINT:
+            elem[_DANMAKU_VARINT_FIELDS[fn]] = reader.read_varint()
+        elif fn in _DANMAKU_STRING_FIELDS and wt == _WIRE_LENGTH:
+            elem[_DANMAKU_STRING_FIELDS[fn]] = reader.read_string()
         else:
             _skip_field(reader, wt)
 
