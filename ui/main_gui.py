@@ -523,6 +523,7 @@ class BilibiliMonitorGUI(QMainWindow):
             ("◧  数据对比", lambda: self._dialogs.open_data_comparison()),
             ("⟳  交叉计算", lambda: self._dialogs.open_crossover_analysis()),
             ("▦  周刊分数", lambda: self._dialogs.open_weekly_score()),
+            ("♪  周/年分数中心", lambda: self._dialogs.open_score_center()),
             ("♛  里程碑", lambda: self._dialogs.open_milestone_stats()),
             ("🆙  UP主追踪", lambda: self._dialogs.open_up_tracker()),
             ("♬  弹幕分析", lambda: self._dialogs.open_danmaku_analysis()),

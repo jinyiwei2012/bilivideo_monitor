@@ -203,6 +203,15 @@ class Dialogs:
     # 周刊分数
     # ──────────────────────────────────────────
 
+    def open_score_center(self):
+        """打开周/年分数中心窗口（按需物化 + 范围查询 + 补齐归档）"""
+        try:
+            from ui.score_center import open_score_center
+            open_score_center(self.gui)
+        except Exception:
+            logger.exception("打开分数中心失败")
+            QMessageBox.critical(self.gui, "呜…出错了", "呜…分数中心打不开啦，天依还想帮你把分数好好归档呢，请稍后再试哦 ♪")
+
     def open_weekly_score(self):
         """打开周刊分数计算窗口"""
         try:
