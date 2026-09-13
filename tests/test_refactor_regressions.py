@@ -1485,3 +1485,102 @@ class TestScoresUniqueTimestamp:
             assert db._conn.execute("PRAGMA user_version").fetchone()[0] == 4
         finally:
             db.close()
+
+
+class TestScoreMaterializer:
+    """M2.11b: 分数按整点桶惰性物化（水位线增量 + 幂等）。"""
+
+    @staticmethod
+    def _mkdb(tmp_path, monkeypatch):
+        import core.database.video_db as vdb
+
+        monkeypatch.setattr(vdb, "project_path", lambda *parts: str(tmp_path))
+        return vdb.VideoDatabase("BV1xx411c7mD", base_dir=str(tmp_path))
+
+    @staticmethod
+    def _rec(db, ts, views):
+        from core.database.models import MonitorRecord
+
+        return MonitorRecord(
+            bvid=db.bvid,
+            timestamp=ts,
+            view_count=views,
+            like_count=10,
+            coin_count=1,
+            share_count=0,
+            favorite_count=2,
+            danmaku_count=0,
+            reply_count=0,
+        )
+
+    def test_hourly_buckets_watermark_and_idempotency(self, tmp_path, monkeypatch):
+        from utils.score_materializer import ensure_scores
+
+        db = self._mkdb(tmp_path, monkeypatch)
+        try:
+            for ts, v in [
+                ("2026-01-01 10:05:00", 1000),
+                ("2026-01-01 10:45:00", 2000),
+                ("2026-01-01 11:10:00", 3000),
+            ]:
+                db.add_monitor_record(self._rec(db, ts, v))
+
+            r1 = ensure_scores(db)
+            assert r1["computed"] == 2, "10 点与 11 点两个桶"
+            rows = db.get_weekly_scores()
+            assert [r["timestamp"] for r in rows] == ["2026-01-01 11:00:00", "2026-01-01 10:00:00"]
+
+            from dataclasses import asdict
+
+            from utils.weekly_score import calculate_from_dict as calc_weekly
+
+            def _expect(views):
+                return asdict(
+                    calc_weekly(
+                        {
+                            "view_count": views,
+                            "like_count": 10,
+                            "coin_count": 1,
+                            "favorite_count": 2,
+                            "danmaku_count": 0,
+                            "reply_count": 0,
+                        }
+                    )
+                )["total_score"]
+
+            ten = next(r for r in rows if r["timestamp"].startswith("2026-01-01 10"))
+            eleven = next(r for r in rows if r["timestamp"].startswith("2026-01-01 11"))
+            assert ten["total_score"] == _expect(2000), "10 点桶应取 10:45 那条"
+            assert eleven["total_score"] == _expect(3000), "11 点桶应取 11:10 那条"
+
+            # 当前小时桶刷新：同一桶内新记录 → 仍只一行、分数更新
+            db.add_monitor_record(self._rec(db, "2026-01-01 11:50:00", 9000))
+            r2 = ensure_scores(db)
+            assert r2["computed"] == 1, "只刷新 11 点桶"
+            rows2 = db.get_weekly_scores()
+            assert len(rows2) == 2, "幂等：不新增行"
+            eleven2 = next(r for r in rows2 if r["timestamp"].startswith("2026-01-01 11"))
+            assert eleven2["total_score"] == _expect(9000)
+            assert eleven2["total_score"] != eleven["total_score"]
+
+            # 新整点 → 新桶（同时会刷新当前 11 点桶：水位线是桶时刻，早于桶内记录）
+            db.add_monitor_record(self._rec(db, "2026-01-01 12:05:00", 10000))
+            r3 = ensure_scores(db)
+            assert r3["computed"] == 2, "刷新 11 点桶 + 新增 12 点桶"
+            assert len(db.get_weekly_scores()) == 3
+            assert len(db.get_yearly_scores()) == 3
+        finally:
+            db.close()
+
+    def test_current_scores_computes_without_writing(self, tmp_path, monkeypatch):
+        from utils.score_materializer import current_scores
+
+        db = self._mkdb(tmp_path, monkeypatch)
+        try:
+            assert current_scores(db) is None, "无记录时返回 None"
+            db.add_monitor_record(self._rec(db, "2026-01-01 10:00:00", 5000))
+            weekly, yearly = current_scores(db)
+            assert weekly["total_score"] > 0 and yearly["total_score"] > 0
+            assert db.get_weekly_scores() == [], "现算不应落库"
+        finally:
+            db.close()
