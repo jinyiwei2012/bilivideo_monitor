@@ -22,6 +22,7 @@ from typing import Dict, Any
 import numpy as np
 
 from algorithms.base import BaseAlgorithm, PredictionResult
+from algorithms.model_cache import get_or_fit
 
 logger = logging.getLogger(__name__)
 
@@ -144,8 +145,12 @@ class RandomForestSimpleAlgorithm(BaseAlgorithm):
         y_target = y_target[-len(X):]  # 对齐长度
 
         # RandomForest: 100 棵树，max_depth=6 防止过拟合，n_jobs=-1 并行加速
-        model = _RF(n_estimators=100, max_depth=6, random_state=42, n_jobs=-1)
-        model.fit(X, y_target)
+        model = get_or_fit(
+            "random_forest_simple",
+            lambda: _RF(n_estimators=100, max_depth=6, random_state=42, n_jobs=-1),
+            X,
+            y_target,
+        )
 
         # 构造最新数据点的特征用于预测
         last_feat = []

@@ -28,6 +28,7 @@ from typing import Dict, Any
 import numpy as np
 
 from algorithms.base import BaseAlgorithm, PredictionResult
+from algorithms.model_cache import get_or_fit
 
 logger = logging.getLogger(__name__)
 
@@ -138,8 +139,12 @@ class GradientBoostSimpleAlgorithm(BaseAlgorithm):
         y_target = y_target[-len(X):]
 
         # GBR: 100 棵树，max_depth=4，学习率 0.1（渐进拟合残差）
-        model = _GBR(n_estimators=100, max_depth=4, learning_rate=0.1, random_state=42)
-        model.fit(X, y_target)
+        model = get_or_fit(
+            "gradient_boost_simple",
+            lambda: _GBR(n_estimators=100, max_depth=4, learning_rate=0.1, random_state=42),
+            X,
+            y_target,
+        )
 
         # 构造最新特征用于预测
         last_feat = []

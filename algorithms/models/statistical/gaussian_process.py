@@ -22,6 +22,7 @@ import numpy as np
 from typing import Dict
 from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
+from algorithms.model_cache import get_or_fit
 
 logger = logging.getLogger(__name__)
 
@@ -119,8 +120,12 @@ class GaussianProcessAlgorithm(BaseAlgorithm):
         # RBF 核: 平滑趋势建模，长度尺度=3.0
         # WhiteKernel: 观测噪声建模，噪声水平=0.1
         kernel = RBF(length_scale=3.0) + WhiteKernel(noise_level=0.1)
-        gp = GaussianProcessRegressor(kernel=kernel, normalize_y=True, n_restarts_optimizer=3)
-        gp.fit(X, views)
+        gp = get_or_fit(
+            "gaussian_process",
+            lambda: GaussianProcessRegressor(kernel=kernel, normalize_y=True, n_restarts_optimizer=3),
+            X,
+            views,
+        )
 
         # 预测未来 10 个点
         X_pred = np.arange(n, n + 10).reshape(-1, 1)

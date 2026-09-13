@@ -1890,3 +1890,82 @@ class TestTorchInputMemo:
         video = {"history_data": [self._entry(0)]}
         assert _build_torch_input(video, ("view_count",), 5) == (None, 0.0, 1.0)
         assert "_torch_input_memo" not in video, "历史不足时不应写缓存"
+
+
+class TestModelCache:
+    """M2.6b: 已拟合估计器按内容缓存（内容变化即重训，LRU 有界）。"""
+
+    def test_same_content_reuses_and_changes_refits(self):
+        import numpy as np
+
+        from algorithms.model_cache import cache_size, clear_model_cache, get_or_fit
+
+        clear_model_cache()
+        fits = {"n": 0}
+
+        class _Est:
+            def fit(self, X, y):
+                fits["n"] += 1
+                return self
+
+            def predict(self, X):
+                return np.zeros(len(X))
+
+        X = np.array([[1.0], [2.0], [3.0]])
+        y = np.array([1.0, 2.0, 3.0])
+
+        m1 = get_or_fit("t_algo", _Est, X, y)
+        m2 = get_or_fit("t_algo", _Est, X, y)
+        assert fits["n"] == 1, "相同内容只应拟合一次"
+        assert m1 is m2, "命中缓存应返回同一实例"
+        assert cache_size() == 1
+
+        y2 = np.array([2.0, 4.0, 6.0])
+        m3 = get_or_fit("t_algo", _Est, X, y2)
+        assert fits["n"] == 2, "内容变化后应重新拟合"
+        assert m3 is not m1
+
+        get_or_fit("t_other", _Est, X, y)
+        assert fits["n"] == 3, "不同算法命名空间互不干扰"
+
+    def test_lru_bound_and_clear(self):
+        import numpy as np
+
+        import algorithms.model_cache as mc
+
+        mc.clear_model_cache()
+
+        class _Est:
+            def fit(self, X, y):
+                return self
+
+        old = mc._MAXSIZE
+        mc._MAXSIZE = 3
+        try:
+            for i in range(5):
+                mc.get_or_fit("k", _Est, np.array([[float(i)]]), np.array([float(i)]))
+            assert mc.cache_size() == 3, "应受 LRU 上限约束"
+        finally:
+            mc._MAXSIZE = old
+        assert mc.clear_model_cache() >= 1
+        assert mc.cache_size() == 0
+
+    def test_unhashable_input_falls_back_without_caching(self):
+        from algorithms.model_cache import cache_size, clear_model_cache, get_or_fit
+
+        clear_model_cache()
+        fits = {"n": 0}
+
+        class _Est:
+            def fit(self, obj):
+                fits["n"] += 1
+                return self
+
+        class _Weird:
+            def __len__(self):
+                raise TypeError("not an array")
+
+        get_or_fit("w", _Est, _Weird())
+        get_or_fit("w", _Est, _Weird())
+        assert fits["n"] == 2, "无法摘要时回退为每次拟合"
+        assert cache_size() == 0

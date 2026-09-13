@@ -32,6 +32,7 @@ from typing import Dict, Any
 import numpy as np
 
 from algorithms.base import BaseAlgorithm, PredictionResult
+from algorithms.model_cache import get_or_fit
 
 logger = logging.getLogger(__name__)
 
@@ -167,15 +168,19 @@ class XGBoostSimpleAlgorithm(BaseAlgorithm):
         y_target = y_growth[-len(X) :]
 
         # XGBoost 训练：带行/列采样 + 正则化
-        model = xgb.XGBRegressor(
-            n_estimators=80,          # 树的数量
-            max_depth=4,              # 最大深度
-            learning_rate=0.1,        # 学习率
-            subsample=0.8,            # 行采样率（每棵树用 80% 数据）
-            colsample_bytree=0.8,     # 列采样率（每棵树用 80% 特征）
-            verbosity=0,              # 静默训练
+        model = get_or_fit(
+            "xgboost_simple",
+            lambda: xgb.XGBRegressor(
+                n_estimators=80,          # 树的数量
+                max_depth=4,              # 最大深度
+                learning_rate=0.1,        # 学习率
+                subsample=0.8,            # 行采样率（每棵树用 80% 数据）
+                colsample_bytree=0.8,     # 列采样率（每棵树用 80% 特征）
+                verbosity=0,              # 静默训练
+            ),
+            X,
+            y_target,
         )
-        model.fit(X, y_target)
 
         # 构造最新特征
         last_feat = []
