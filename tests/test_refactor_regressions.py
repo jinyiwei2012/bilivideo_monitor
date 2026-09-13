@@ -1115,3 +1115,90 @@ class TestInvokerKeyedCoalescing:
         inv.invoke(lambda: ran.append("after"))
         inv._drain()
         assert ran == ["after"], "单回调异常不应阻断后续"
+
+
+class TestCoverLoaderThreading:
+    """M2.10f: 封面 worker 只产出 QImage + 有界线程池。"""
+
+    def test_fetch_uses_qimage_not_qpixmap(self, monkeypatch):
+        import ui.video_list_panel as vlp
+
+        class _Resp:
+            status_code = 200
+            content = b"fake-bytes"
+
+        class _Session:
+            def get(self, url, timeout=10):
+                return _Resp()
+
+        class _FakeImage:
+            def __init__(self):
+                self.loaded = None
+
+            def loadFromData(self, data):
+                self.loaded = data
+                return True
+
+            def isNull(self):
+                return False
+
+        def _no_pixmap(*a, **k):
+            raise AssertionError("worker 不应构造 QPixmap")
+
+        monkeypatch.setattr(vlp, "_cover_session", _Session())
+        monkeypatch.setattr(vlp, "save_cover", lambda b, c: None)
+        monkeypatch.setattr(vlp, "QImage", _FakeImage)
+        monkeypatch.setattr(vlp, "QPixmap", _no_pixmap)
+
+        got = []
+        loader = vlp.CoverLoader()
+        try:
+            loader.cover_loaded.connect(lambda bvid, obj: got.append((bvid, obj)))
+            loader._fetch("BV1", "http://x/y.png")
+        finally:
+            loader.shutdown()
+
+        assert got and got[0][0] == "BV1"
+        assert isinstance(got[0][1], _FakeImage)
+        assert got[0][1].loaded == b"fake-bytes"
+
+    def test_on_cover_loaded_converts_image_to_pixmap(self, monkeypatch):
+        import ui.video_list_panel as vlp
+        from PyQt6.QtGui import QImage
+
+        converted = []
+
+        class _FakePixmap:
+            @staticmethod
+            def fromImage(img):
+                converted.append(img)
+                return "pixmap"
+
+        monkeypatch.setattr(vlp, "QPixmap", _FakePixmap)
+
+        class _List:
+            def itemDelegate(self):
+                return None
+
+        class _Panel:
+            _card_widgets = {}
+
+            def __init__(self):
+                self._list = _List()
+
+        image = QImage()
+        vlp.VideoListPanel._on_cover_loaded(_Panel(), "BV1", image)
+        assert converted == [image], "主线程应把 QImage 转成 QPixmap"
+
+    def test_bounded_pool_wiring(self, monkeypatch):
+        import ui.video_list_panel as vlp
+
+        loader = vlp.CoverLoader()
+        try:
+            assert loader._pool._max_workers == vlp.CoverLoader.MAX_WORKERS
+            monkeypatch.setattr(loader, "_fetch", lambda b, u: None)
+            loader.load_cover("BV1", "u")
+        finally:
+            loader.shutdown()
+        # 关闭后不再提交（不抛异常）
+        loader.load_cover("BV2", "u")

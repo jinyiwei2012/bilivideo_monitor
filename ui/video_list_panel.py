@@ -8,6 +8,7 @@
 import logging
 from io import BytesIO
 from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 import threading
 
 import requests as _req
@@ -19,7 +20,7 @@ from PyQt6.QtWidgets import (
     QStackedLayout,
 )
 from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal, QObject, QRectF
-from PyQt6.QtGui import QPixmap, QColor, QPainter, QPen, QFontMetrics, QPainterPath
+from PyQt6.QtGui import QPixmap, QImage, QColor, QPainter, QPen, QFontMetrics, QPainterPath
 
 from ui.theme import C
 from ui.helpers import (
@@ -40,32 +41,48 @@ logger = logging.getLogger(__name__)
 
 
 class CoverLoader(QObject):
-    """封面异步加载器 - 在后台线程加载封面图片"""
-    cover_loaded = pyqtSignal(str, object)  # bvid, QPixmap
+    """封面异步加载器 - 在有界线程池中加载封面图片
 
-    def __init__(self):
-        super().__init__()
+    worker 内只处理 QImage（QPixmap 只能在 GUI 线程创建），
+    转 QPixmap 由主线程在槽函数 `_on_cover_loaded` 中完成。
+    """
+    cover_loaded = pyqtSignal(str, object)  # bvid, QImage
+
+    MAX_WORKERS = 4
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
         self._running = True
+        self._pool = ThreadPoolExecutor(max_workers=self.MAX_WORKERS, thread_name_prefix="cover")
 
     def load_cover(self, bvid, url):
         """在后台线程加载封面——不阻塞主线程"""
         if not self._running:
             return
+        try:
+            self._pool.submit(self._fetch, bvid, url)
+        except RuntimeError:
+            pass  # 线程池已关闭（应用退出）
 
-        def _fetch():
-            try:
-                with _cover_semaphore:
-                    resp = _cover_session.get(url, timeout=10)
-                    if resp.status_code == 200:
-                        pixmap = QPixmap()
-                        pixmap.loadFromData(resp.content)
-                        if not pixmap.isNull():
-                            self.cover_loaded.emit(bvid, pixmap)
-                            save_cover(bvid, resp.content)
-            except Exception as e:
-                logger.debug("封面加载失败 %s: %s", bvid, e)
+    def _fetch(self, bvid, url):
+        if not self._running:
+            return
+        try:
+            with _cover_semaphore:
+                resp = _cover_session.get(url, timeout=10)
+                if resp.status_code == 200:
+                    image = QImage()
+                    image.loadFromData(resp.content)
+                    if not image.isNull():
+                        self.cover_loaded.emit(bvid, image)
+                        save_cover(bvid, resp.content)
+        except Exception as e:
+            logger.debug("封面加载失败 %s: %s", bvid, e)
 
-        threading.Thread(target=_fetch, daemon=True, name=f"cover-{bvid}").start()
+    def shutdown(self):
+        """应用退出时释放线程池"""
+        self._running = False
+        self._pool.shutdown(wait=False)
 
 
 class VideoCardDelegate(QStyledItemDelegate):
@@ -188,7 +205,7 @@ class VideoListPanel(QWidget):
 
     def closeEvent(self, event):
         """清理封面加载器"""
-        self._cover_loader._running = False
+        self._cover_loader.shutdown()
         super().closeEvent(event)
 
     def _build(self):
@@ -270,8 +287,9 @@ class VideoListPanel(QWidget):
         self._list_stack.setCurrentWidget(self._empty_state)
         layout.addLayout(self._list_stack, 1)
 
-    def _on_cover_loaded(self, bvid, pixmap):
-        """封面加载完成回调"""
+    def _on_cover_loaded(self, bvid, image):
+        """封面加载完成回调（主线程：QImage → QPixmap）"""
+        pixmap = QPixmap.fromImage(image) if isinstance(image, QImage) else image
         delegate = self._list.itemDelegate()
         if isinstance(delegate, VideoCardDelegate):
             delegate.set_cover(bvid, pixmap)
