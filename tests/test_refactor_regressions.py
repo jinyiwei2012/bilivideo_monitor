@@ -1061,3 +1061,57 @@ class TestDanmakuBackgroundLoad:
         panel._schedule_danmaku_load("BV1", _DB())
         panel._schedule_danmaku_load("BV1", _DB())
         assert sched["n"] == 1, "同一 bvid 只应调度一次后台读取"
+
+
+class TestInvokerKeyedCoalescing:
+    """M2.10: invoker 按 key 合并 + 背压 + 异常走 logger。"""
+
+    @staticmethod
+    def _make():
+        from ui.invoker import _MainInvoker
+
+        inv = _MainInvoker()
+        inv._wake.disconnect()  # 模拟跨线程排队，避免同线程直连时同步执行
+        return inv
+
+    def test_key_coalescing_keeps_latest(self):
+        inv = self._make()
+        ran = []
+        inv.invoke(lambda: ran.append("a1"), key="k")
+        inv.invoke(lambda: ran.append("a2"), key="k")
+        inv.invoke(lambda: ran.append("a3"), key="k")
+        assert ran == [], "未 drain 前不应执行"
+        inv._drain()
+        assert ran == ["a3"], "同一 key 只执行最新回调"
+
+    def test_unkeyed_fifo_all_run(self):
+        inv = self._make()
+        ran = []
+        inv.invoke(lambda: ran.append(1))
+        inv.invoke(lambda: ran.append(2))
+        inv._drain()
+        assert ran == [1, 2]
+
+    def test_backpressure_drops_new(self, monkeypatch):
+        import ui.invoker as iv
+
+        monkeypatch.setattr(iv, "_MAX_QUEUE", 2)
+        inv = self._make()
+        ran = []
+        inv.invoke(lambda: ran.append(1))
+        inv.invoke(lambda: ran.append(2))
+        inv.invoke(lambda: ran.append(3))  # 超限 → 丢弃
+        inv._drain()
+        assert ran == [1, 2]
+
+    def test_exception_logged_and_isolated(self):
+        inv = self._make()
+        ran = []
+
+        def _boom():
+            raise RuntimeError("boom")
+
+        inv.invoke(_boom)
+        inv.invoke(lambda: ran.append("after"))
+        inv._drain()
+        assert ran == ["after"], "单回调异常不应阻断后续"
