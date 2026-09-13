@@ -12,8 +12,6 @@ from datetime import datetime
 
 from PyQt6.QtCore import QTimer
 
-logger = logging.getLogger(__name__)
-
 # 线程安全的主线程调度 — 从共享模块导入，消除 _service.py 中的重复实现
 from ui.invoker import invoke
 
@@ -21,6 +19,8 @@ from core import bilibili_api, db, MonitorRecord
 from utils.thread_utils import fire_and_forget
 from utils.time_utils import format_ts
 from ui.helpers import _parse_viewer_count
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_FETCH_INTERVAL = 75  # 集中拉取间隔（秒）
 
