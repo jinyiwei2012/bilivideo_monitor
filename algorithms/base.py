@@ -7,7 +7,9 @@
 
 import logging
 import math
+import threading
 from abc import ABC, abstractmethod
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime
@@ -15,6 +17,38 @@ import time
 from utils.time_utils import format_ts, safe_timestamp
 
 logger = logging.getLogger(__name__)
+
+# ── curve_fit 结果缓存（内容寻址，避免历史未变时重复拟合）──────────────
+# 键包含 (模型函数, 时间序列, 播放序列, 初值, 上界, maxfev)，因此输入一变即自动失效，
+# 不存在陈旧问题；仅用 LRU 上限约束内存（曲线拟合远比构建键昂贵）。
+_CURVE_FIT_CACHE: "OrderedDict[tuple, tuple]" = OrderedDict()
+_CURVE_FIT_LOCK = threading.Lock()
+_CURVE_FIT_MAXSIZE = 256
+
+
+def _curve_fit_cache_key(model_func, times, views, p0, bounds, maxfev):
+    """构造内容寻址缓存键；无法哈希时返回 None（表示不缓存）。"""
+    try:
+        import numpy as np
+
+        func = getattr(model_func, "__func__", model_func)
+        name = getattr(func, "__qualname__", repr(func))
+        return (
+            name,
+            np.asarray(times, dtype=float).tobytes(),
+            np.asarray(views, dtype=float).tobytes(),
+            tuple(float(x) for x in (p0 or ())),
+            str(bounds),
+            int(maxfev),
+        )
+    except Exception:
+        return None
+
+
+def clear_curve_fit_cache():
+    """清空 curve_fit 缓存（测试 / 内存回收用）。"""
+    with _CURVE_FIT_LOCK:
+        _CURVE_FIT_CACHE.clear()
 
 
 @dataclass(slots=True)
@@ -303,17 +337,35 @@ class BaseAlgorithm(ABC):
     def _safe_curve_fit(self, model_func, times, views, p0, bounds, maxfev=5000):
         """对 scipy curve_fit 的安全封装, 失败时回退到初始参数。
 
+        结果按内容缓存（见 :func:`_curve_fit_cache_key`）：同一轮预测内多个算法
+        共用同一段历史时不会重复拟合；历史变化后键改变，自动重算。
+
         Returns:
             (popt, success): popt 为拟合参数, success 为 True/False
         """
         from scipy.optimize import curve_fit
 
+        key = _curve_fit_cache_key(model_func, times, views, p0, bounds, maxfev)
+        if key is not None:
+            with _CURVE_FIT_LOCK:
+                hit = _CURVE_FIT_CACHE.get(key)
+            if hit is not None:
+                return hit
+
         try:
             popt, _ = curve_fit(model_func, times, views, p0=p0, bounds=bounds, maxfev=maxfev)
-            return popt, True
+            result = (popt, True)
         except Exception as e:
             logger.debug("curve_fit 失败，回退到初始参数: %s", e)
-            return p0, False
+            result = (p0, False)
+
+        if key is not None:
+            with _CURVE_FIT_LOCK:
+                _CURVE_FIT_CACHE[key] = result
+                _CURVE_FIT_CACHE.move_to_end(key)
+                while len(_CURVE_FIT_CACHE) > _CURVE_FIT_MAXSIZE:
+                    _CURVE_FIT_CACHE.popitem(last=False)
+        return result
 
     # ── 公共辅助方法 ───────────────────────────────
 

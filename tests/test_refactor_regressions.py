@@ -1751,3 +1751,91 @@ class TestScoreCenterLogic:
         order.clear()
         sc.load_scores(db, "yearly")
         assert order == ["ensure", "yearly"]
+
+
+class TestCurveFitCache:
+    """M2.6: curve_fit 结果按内容缓存（历史未变不重复拟合）。"""
+
+    @staticmethod
+    def _algo():
+        from algorithms.base import BaseAlgorithm
+
+        class _Algo:
+            _safe_curve_fit = BaseAlgorithm._safe_curve_fit
+
+            def _model(self, t, a, b):
+                return a * t + b
+
+        return _Algo()
+
+    def test_same_input_fits_once(self, monkeypatch):
+        import numpy as np
+
+        from algorithms.base import BaseAlgorithm, clear_curve_fit_cache
+
+        clear_curve_fit_cache()
+        calls = {"n": 0}
+
+        def _fake(func, x, y, p0=None, bounds=None, maxfev=None):
+            calls["n"] += 1
+            return np.array([1.0, 2.0]), None
+
+        monkeypatch.setattr("scipy.optimize.curve_fit", _fake)
+
+        algo = self._algo()
+        times = np.array([1.0, 2.0, 3.0])
+        views = np.array([10.0, 20.0, 30.0])
+        args = (algo._model, times, views, [1.0, 1.0], (0, np.inf))
+
+        r1 = BaseAlgorithm._safe_curve_fit(algo, *args)
+        r2 = BaseAlgorithm._safe_curve_fit(algo, *args)
+        assert calls["n"] == 1, "相同输入只应拟合一次"
+        assert r1[1] is True and r2[1] is True
+
+        # 数据变化 → 缓存自然失效
+        BaseAlgorithm._safe_curve_fit(algo, algo._model, times, views * 2, [1.0, 1.0], (0, np.inf))
+        assert calls["n"] == 2, "输入变化后应重新拟合"
+
+    def test_failure_cached_and_falls_back(self, monkeypatch):
+        import numpy as np
+
+        from algorithms.base import BaseAlgorithm, clear_curve_fit_cache
+
+        clear_curve_fit_cache()
+        calls = {"n": 0}
+
+        def _boom(*a, **k):
+            calls["n"] += 1
+            raise RuntimeError("no convergence")
+
+        monkeypatch.setattr("scipy.optimize.curve_fit", _boom)
+
+        algo = self._algo()
+        times = np.array([1.0, 2.0])
+        views = np.array([1.0, 2.0])
+        r1 = BaseAlgorithm._safe_curve_fit(algo, algo._model, times, views, [1.0, 1.0], (0, np.inf))
+        r2 = BaseAlgorithm._safe_curve_fit(algo, algo._model, times, views, [1.0, 1.0], (0, np.inf))
+        assert calls["n"] == 1, "失败结果也应缓存，避免重复尝试"
+        assert r1[1] is False and r2[1] is False
+        assert list(r1[0]) == [1.0, 1.0], "失败时回退初始参数"
+
+    def test_different_bounds_not_shared(self, monkeypatch):
+        import numpy as np
+
+        from algorithms.base import BaseAlgorithm, clear_curve_fit_cache
+
+        clear_curve_fit_cache()
+        calls = {"n": 0}
+
+        def _fake(func, x, y, p0=None, bounds=None, maxfev=None):
+            calls["n"] += 1
+            return np.array([1.0]), None
+
+        monkeypatch.setattr("scipy.optimize.curve_fit", _fake)
+
+        algo = self._algo()
+        times = np.array([1.0, 2.0])
+        views = np.array([1.0, 2.0])
+        BaseAlgorithm._safe_curve_fit(algo, algo._model, times, views, [1.0], (0, np.inf))
+        BaseAlgorithm._safe_curve_fit(algo, algo._model, times, views, [1.0], (0, 10))
+        assert calls["n"] == 2, "不同 bounds 不应共用缓存"
