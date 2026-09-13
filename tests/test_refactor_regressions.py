@@ -2056,9 +2056,7 @@ class TestTagSuggestions:
 
         assert _suggest_by_title("Python 编程教学 入门 指南") == ["教程", "编程"]
         assert _suggest_by_title("什么关键词都没有") == []
-        got = suggest_tags(
-            {"title": "Python 编程教学", "author": "", "view_count": 2_000_000, "duration": 2400}
-        )
+        got = suggest_tags({"title": "Python 编程教学", "author": "", "view_count": 2_000_000, "duration": 2400})
         assert got == ["百万播放", "中视频 (30-60min)", "教程", "编程"]
 
 
