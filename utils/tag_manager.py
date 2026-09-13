@@ -100,6 +100,69 @@ def get_all_tagged() -> Dict[str, List[str]]:
     return dict(_tags)
 
 
+_VIEW_SUGGESTIONS = (
+    (10_000_000, "千万播放"),
+    (1_000_000, "百万播放"),
+    (100_000, "十万播放"),
+)
+"""播放量区间 → 标签（降序，首个命中生效）"""
+
+_DURATION_SUGGESTIONS = (
+    (3600, "长视频 (>1h)"),
+    (1800, "中视频 (30-60min)"),
+)
+"""时长区间 → 标签（降序，首个命中生效）"""
+
+_TITLE_KEYWORDS: Dict[str, List[str]] = {
+    "教程": ["教程", "教学", "入门", "指南", "实战", "新手"],
+    "游戏": ["游戏", "通关", "攻略", "实况", "Minecraft", "原神", "LOL"],
+    "音乐": ["音乐", "MV", "翻唱", "钢琴", "吉他", "演奏"],
+    "科技": ["评测", "开箱", "科技", "数码", "手机", "电脑", "芯片"],
+    "动画": ["动画", "动漫", "番剧", "MAD", "AMV"],
+    "生活": ["vlog", "VLOG", "日常", "美食", "做饭", "探店"],
+    "知识": ["科普", "历史", "哲学", "数学", "物理", "经济"],
+    "影视": ["电影", "解说", "剧集", "剪辑", "混剪"],
+    "编程": ["Python", "Java", "C++", "编程", "代码", "开源"],
+}
+"""标题关键词 → 标签"""
+
+
+def _suggest_by_views(views: int) -> str:
+    """按播放量区间给出标签（不落在任何区间时返回空串）。"""
+    for threshold, label in _VIEW_SUGGESTIONS:
+        if views >= threshold:
+            return label
+    return "播放<1万" if views < 10_000 else ""
+
+
+def _suggest_by_duration(duration: int) -> str:
+    """按时长给出标签（不落在任何区间时返回空串）。"""
+    for threshold, label in _DURATION_SUGGESTIONS:
+        if duration >= threshold:
+            return label
+    return "短视频 (<1min)" if 0 < duration <= 60 else ""
+
+
+def _suggest_by_title(title: str) -> List[str]:
+    """按标题关键词给出标签（每个类目至多一个）。"""
+    lowered = title.lower()
+    return [tag for tag, keywords in _TITLE_KEYWORDS.items() if any(kw.lower() in lowered for kw in keywords)]
+
+
+def _suggest_by_author(author: str) -> set:
+    """复用该 UP 主出现 ≥3 次的历史标签（结果按作者缓存）。"""
+    cached = suggest_tags.by_author.get(author)
+    if cached is not None:
+        return cached
+    tag_counts: Dict[str, int] = {}
+    for tags in get_all_tagged().values():
+        for tag in tags:
+            tag_counts[tag] = tag_counts.get(tag, 0) + 1
+    cached = {tag for tag, count in tag_counts.items() if count >= 3}
+    suggest_tags.by_author[author] = cached
+    return cached
+
+
 def suggest_tags(video: dict) -> List[str]:
     """根据视频元数据自动建议标签。
 
@@ -115,55 +178,17 @@ def suggest_tags(video: dict) -> List[str]:
     views = video.get("view_count", 0)
     duration = video.get("duration", 0)
 
-    # 按播放量区间
-    if views >= 10_000_000:
-        suggestions.append("千万播放")
-    elif views >= 1_000_000:
-        suggestions.append("百万播放")
-    elif views >= 100_000:
-        suggestions.append("十万播放")
-    elif views < 10_000:
-        suggestions.append("播放<1万")
-
-    # 按时长
-    if duration >= 3600:
-        suggestions.append("长视频 (>1h)")
-    elif duration >= 1800:
-        suggestions.append("中视频 (30-60min)")
-    elif 0 < duration <= 60:
-        suggestions.append("短视频 (<1min)")
+    # 按播放量区间 / 时长
+    for label in (_suggest_by_views(views), _suggest_by_duration(duration)):
+        if label:
+            suggestions.append(label)
 
     # 按标题关键词
-    keywords_map = {
-        "教程": ["教程", "教学", "入门", "指南", "实战", "新手"],
-        "游戏": ["游戏", "通关", "攻略", "实况", "Minecraft", "原神", "LOL"],
-        "音乐": ["音乐", "MV", "翻唱", "钢琴", "吉他", "演奏"],
-        "科技": ["评测", "开箱", "科技", "数码", "手机", "电脑", "芯片"],
-        "动画": ["动画", "动漫", "番剧", "MAD", "AMV"],
-        "生活": ["vlog", "VLOG", "日常", "美食", "做饭", "探店"],
-        "知识": ["科普", "历史", "哲学", "数学", "物理", "经济"],
-        "影视": ["电影", "解说", "剧集", "剪辑", "混剪"],
-        "编程": ["Python", "Java", "C++", "编程", "代码", "开源"],
-    }
-    for tag, keywords in keywords_map.items():
-        for kw in keywords:
-            if kw.lower() in title.lower():
-                suggestions.append(tag)
-                break
+    suggestions.extend(_suggest_by_title(title))
 
     # 按 UP 主（如果已有此 UP 主的标签，建议复用）
     if author:
-        existing = suggest_tags.by_author.get(author)
-        if existing is None:
-            existing = set()
-            tag_counts: Dict[str, int] = {}
-            for bvid, tags in get_all_tagged().items():
-                for tag in tags:
-                    tag_counts[tag] = tag_counts.get(tag, 0) + 1
-            # 出现 3 次以上的标签建议复用
-            existing = {tag for tag, count in tag_counts.items() if count >= 3}
-            suggest_tags.by_author[author] = existing
-        for tag in existing:
+        for tag in _suggest_by_author(author):
             if tag not in suggestions:
                 suggestions.append(tag)
 

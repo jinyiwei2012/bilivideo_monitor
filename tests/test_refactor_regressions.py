@@ -2028,3 +2028,67 @@ class TestChartSeriesSingleItem:
         assert many < 60, f"图元数应远小于点数(400)，实际 {many}"
         # 点数 ×10 但图元数只差个位数（差异来自 X 轴时间标签数量），即无线性增长
         assert many - few <= 6, f"图元数不应随点数线性增长: 40点={few} 400点={many}"
+
+
+class TestTagSuggestions:
+    """M3.4: suggest_tags 拆分助手后行为不变。"""
+
+    def test_views_and_duration_buckets(self):
+        from utils.tag_manager import _suggest_by_duration, _suggest_by_views
+
+        assert [_suggest_by_views(v) for v in (20_000_000, 2_000_000, 200_000, 50_000, 5_000)] == [
+            "千万播放",
+            "百万播放",
+            "十万播放",
+            "",
+            "播放<1万",
+        ]
+        assert [_suggest_by_duration(d) for d in (7200, 2400, 45, 0, 600)] == [
+            "长视频 (>1h)",
+            "中视频 (30-60min)",
+            "短视频 (<1min)",
+            "",
+            "",
+        ]
+
+    def test_title_keywords_and_combined(self):
+        from utils.tag_manager import _suggest_by_title, suggest_tags
+
+        assert _suggest_by_title("Python 编程教学 入门 指南") == ["教程", "编程"]
+        assert _suggest_by_title("什么关键词都没有") == []
+        got = suggest_tags(
+            {"title": "Python 编程教学", "author": "", "view_count": 2_000_000, "duration": 2400}
+        )
+        assert got == ["百万播放", "中视频 (30-60min)", "教程", "编程"]
+
+
+class TestProxyListParsing:
+    """M3.4: _parse_proxy_list 拆分后三种源格式行为不变。"""
+
+    def test_geonode_and_proxyscrape_json(self):
+        from core.proxy_manager import ProxyManager as P
+
+        geonode = '{"data": [{"ip": "1.2.3.4", "port": 8080, "protocols": ["http", "socks5", "ftp"]}]}'
+        assert P._parse_proxy_list(geonode, "https://geonode.example/list") == [
+            "http://1.2.3.4:8080",
+            "socks5://1.2.3.4:8080",
+        ]
+        scrape = '[{"ip": "5.6.7.8", "port": "3128", "protocol": "SOCKS4"}]'
+        assert P._parse_proxy_list(scrape, "https://www.proxyscrape.com/api") == ["socks4://5.6.7.8:3128"]
+        assert P._parse_proxy_list("{not json", "https://www.proxyscrape.com/api") == []
+
+    def test_plain_text_and_default_proto(self):
+        from core.proxy_manager import ProxyManager as P
+
+        text = "9.9.9.9:1080\n# comment\n\nhttp://u:p@10.0.0.1:8080\n"
+        assert P._parse_proxy_list(text, "https://x/socks5.txt") == [
+            "socks5://9.9.9.9:1080",
+            "http://u:p@10.0.0.1:8080",
+        ]
+        assert P._parse_proxy_list(text, "https://x/list.txt") == [
+            "http://9.9.9.9:1080",
+            "http://u:p@10.0.0.1:8080",
+        ]
+        assert P._default_proto("a/SOCKS4.txt") == "socks4"
+        assert P._default_proto("b/socks5.txt") == "socks5"
+        assert P._default_proto("c.txt") == "http"

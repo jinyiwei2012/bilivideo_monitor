@@ -17,7 +17,6 @@
     "ModelTrainer._train_one",
     "OnlineViewersPanel._fetch_all_viewers",
     "PredictionAccuracyPanel._load_data",
-    "ProxyManager._parse_proxy_list",
     "SettingsWindow._persist_settings",
     "SnapshotBarChart.paintEvent",
     "SnapshotTab._apply_custom_range",
@@ -35,7 +34,6 @@
     "login_with_password",
     "poll_qrcode_login",
     "scan_alerts_background",
-    "suggest_tags",
     "try_torch_predict"
   ]
 }

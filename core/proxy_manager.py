@@ -17,6 +17,9 @@ from core.constants import USER_AGENTS
 
 logger = logging.getLogger(__name__)
 
+# 支持的代理协议（解析代理列表时的白名单）
+_PROXY_SCHEMES = ("http", "https", "socks4", "socks5")
+
 
 class ProxyManager:
     """代理管理器：轮询、UA绑定、失败计数与自动清理"""
@@ -431,54 +434,68 @@ class ProxyManager:
             logger.info(f"代理自动发现: 测试 {tested} 个, 新增 {added} 个可用代理 (共 {len(self.proxies)} 个)")
 
     @staticmethod
-    def _parse_proxy_list(text: str, src_url: str) -> List[str]:
-        """解析不同格式的代理列表，根据源自动识别协议"""
-        urls = []
+    def _default_proto(src_url: str) -> str:
+        """据源地址推断默认协议（http / socks4 / socks5）。"""
+        lowered = src_url.lower()
+        if "socks5" in lowered:
+            return "socks5"
+        if "socks4" in lowered:
+            return "socks4"
+        return "http"
 
-        # 根据源 URL 确定默认协议
-        proto = "http"
-        if "socks5" in src_url.lower():
-            proto = "socks5"
-        elif "socks4" in src_url.lower():
-            proto = "socks4"
-
-        # JSON 格式（geonode 源）
-        if "geonode" in src_url:
-            try:
-                data = json.loads(text)
-                for item in data.get("data", []):
-                    ip = item.get("ip", "")
-                    port = item.get("port", "")
-                    protocols = item.get("protocols", [])
-                    for p in protocols:
-                        if p in ("http", "https", "socks4", "socks5"):
-                            urls.append(f"{p}://{ip}:{port}")
-            except json.JSONDecodeError:
-                pass
-        elif "proxyscrape" in src_url.lower():
-            # proxyscrape JSON 格式
-            try:
-                data = json.loads(text)
-                if isinstance(data, list):
-                    for item in data:
-                        ip = item.get("ip", "")
-                        port = item.get("port", "")
-                        p = str(item.get("protocol", "http")).lower()
-                        if p in ("http", "https", "socks4", "socks5"):
-                            urls.append(f"{p}://{ip}:{port}")
-            except json.JSONDecodeError:
-                pass
-        else:
-            # 纯文本格式 (ip:port 每行一个)
-            for line in text.strip().split("\n"):
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                if "://" in line:
-                    urls.append(line)
-                else:
-                    urls.append(f"{proto}://{line}")
+    @staticmethod
+    def _parse_geonode_json(text: str) -> List[str]:
+        """解析 geonode 源的 JSON 代理列表（item.protocols 决定协议）。"""
+        urls: List[str] = []
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            return urls
+        for item in data.get("data", []):
+            ip = item.get("ip", "")
+            port = item.get("port", "")
+            for proto in item.get("protocols", []):
+                if proto in _PROXY_SCHEMES:
+                    urls.append(f"{proto}://{ip}:{port}")
         return urls
+
+    @staticmethod
+    def _parse_proxyscrape_json(text: str) -> List[str]:
+        """解析 proxyscrape 源的 JSON 代理列表（item.protocol 决定协议）。"""
+        urls: List[str] = []
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            return urls
+        if not isinstance(data, list):
+            return urls
+        for item in data:
+            ip = item.get("ip", "")
+            port = item.get("port", "")
+            proto = str(item.get("protocol", "http")).lower()
+            if proto in _PROXY_SCHEMES:
+                urls.append(f"{proto}://{ip}:{port}")
+        return urls
+
+    @staticmethod
+    def _parse_plain_proxy_text(text: str, proto: str) -> List[str]:
+        """解析纯文本代理列表：每行 ip:port（# 为注释，已带 scheme 的原样保留）。"""
+        urls: List[str] = []
+        for raw in text.strip().split("\n"):
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            urls.append(line if "://" in line else f"{proto}://{line}")
+        return urls
+
+    @staticmethod
+    def _parse_proxy_list(text: str, src_url: str) -> List[str]:
+        """解析不同格式的代理列表，根据源自动识别协议。"""
+        if "geonode" in src_url:
+            return ProxyManager._parse_geonode_json(text)
+        if "proxyscrape" in src_url.lower():
+            return ProxyManager._parse_proxyscrape_json(text)
+        return ProxyManager._parse_plain_proxy_text(text, ProxyManager._default_proto(src_url))
 
     def _proxy_exists(self, url: str) -> bool:
         """检查代理是否已在池中"""
