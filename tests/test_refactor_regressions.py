@@ -1686,3 +1686,68 @@ class TestCentralIncrementalSync:
         finally:
             a.close()
             c.close()
+
+
+class TestScoreCenterLogic:
+    """M2.11d: 分数中心纯逻辑（范围 / 过滤 / 格式化 / 先物化再读）。"""
+
+    def test_range_cutoff_mapping(self):
+        from datetime import datetime, timedelta
+
+        from ui.score_center import range_cutoff
+        from utils.time_utils import format_ts
+
+        assert range_cutoff("全部") is None
+        assert range_cutoff("未知范围") is None
+        for label, days in (("最近7天", 7), ("最近30天", 30), ("最近90天", 90)):
+            assert range_cutoff(label) == format_ts(datetime.now() - timedelta(days=days))
+
+    def test_filter_rows_by_cutoff(self):
+        from ui.score_center import filter_rows
+
+        rows = [{"timestamp": "2026-01-01 10:00:00"}, {"timestamp": "2026-01-03 10:00:00"}]
+        assert filter_rows(rows, None) == rows
+        assert filter_rows(rows, "2026-01-02 00:00:00") == [{"timestamp": "2026-01-03 10:00:00"}]
+
+    def test_format_score_row_columns_and_none(self):
+        from ui.score_center import WEEKLY_COLUMNS, YEARLY_COLUMNS, format_score_row
+
+        row = {"timestamp": "2026-01-01 10:00:00", "total_score": 1234.5, "correction_a": None}
+        weekly = format_score_row(row, "weekly")
+        yearly = format_score_row(row, "yearly")
+        assert len(weekly) == len(WEEKLY_COLUMNS)
+        assert len(yearly) == len(YEARLY_COLUMNS)
+        assert weekly[0] == "2026-01-01 10:00:00"
+        assert weekly[1] == "1,234.50"
+        assert weekly[7] == "", "None 应渲染为空串"
+
+    def test_sort_rows_ascending(self):
+        from ui.score_center import sort_rows_ascending
+
+        rows = [{"timestamp": "2026-01-02 10:00:00"}, {"timestamp": "2026-01-01 10:00:00"}]
+        assert [r["timestamp"] for r in sort_rows_ascending(rows)] == [
+            "2026-01-01 10:00:00",
+            "2026-01-02 10:00:00",
+        ]
+
+    def test_load_scores_materializes_before_read(self, monkeypatch):
+        import ui.score_center as sc
+
+        order = []
+        monkeypatch.setattr(sc, "ensure_scores", lambda db: order.append("ensure"))
+
+        class _DB:
+            def get_weekly_scores(self, limit=0):
+                order.append("weekly")
+                return [{"timestamp": "x"}]
+
+            def get_yearly_scores(self, limit=0):
+                order.append("yearly")
+                return []
+
+        db = _DB()
+        assert sc.load_scores(db, "weekly") == [{"timestamp": "x"}]
+        assert order == ["ensure", "weekly"], "必须先物化再读"
+        order.clear()
+        sc.load_scores(db, "yearly")
+        assert order == ["ensure", "yearly"]
