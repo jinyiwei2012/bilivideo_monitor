@@ -8,7 +8,7 @@
 import math
 from datetime import datetime
 from PyQt6.QtWidgets import (
-    QGraphicsView, QGraphicsScene, QGraphicsTextItem,
+    QGraphicsView, QGraphicsScene, QGraphicsTextItem, QGraphicsItem,
     QGraphicsLineItem, QGraphicsRectItem, QWidget, QVBoxLayout,
 )
 from PyQt6.QtCore import Qt, QRectF, QPointF, pyqtSignal
@@ -22,6 +22,48 @@ from ui.helpers import fmt_num, abbrev, THRESHOLDS, THRESHOLD_NAMES, THRESH_COLO
 _PRED_COLOR = "#0969da"
 _PRED_LIGHT = "#58a6ff"
 _PRED_BG = "#ddf4ff"
+
+
+class _PolylineItem(QGraphicsItem):
+    """把整条折线与全部数据点作为一个图元一次绘制。
+
+    旧实现是「每段一条 QGraphicsLineItem + 每个点一个 QGraphicsEllipseItem」，
+    1000 点会生成约 2000 个图元；此图元只在 ``paint()`` 里画一次折线与若干圆点，
+    图元数降为 1，场景管理与重绘开销随之下降。
+
+    Args:
+        points: 折线顶点 [(x, y), ...]
+        dots: 数据点 [(x, y, r, fill_color), ...]（支持逐点不同颜色）
+        line_color: 折线颜色
+        line_width: 折线宽度
+        dot_outline: 数据点描边颜色
+        dot_width: 数据点描边宽度
+        bounds: 图元包围盒（已含笔宽/半径余量）
+    """
+
+    def __init__(self, points, dots, line_color, line_width, dot_outline, dot_width, bounds):
+        super().__init__()
+        self._points = [(float(x), float(y)) for x, y in points]
+        self._dots = [(float(x), float(y), float(r), QColor(color)) for x, y, r, color in dots]
+        self._line_color = QColor(line_color)
+        self._line_width = float(line_width)
+        self._dot_outline = QColor(dot_outline)
+        self._dot_width = float(dot_width)
+        self._bounds = bounds
+
+    def boundingRect(self):  # noqa: N802 (Qt 命名约定)
+        return self._bounds
+
+    def paint(self, painter, option, widget=None):  # noqa: N802 (Qt 命名约定)
+        if len(self._points) >= 2:
+            painter.setPen(QPen(self._line_color, self._line_width))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawPolyline(QPolygonF([QPointF(x, y) for x, y in self._points]))
+        if self._dots:
+            painter.setPen(QPen(self._dot_outline, self._dot_width))
+            for x, y, r, color in self._dots:
+                painter.setBrush(QBrush(color))
+                painter.drawEllipse(QPointF(x, y), r, r)
 
 
 class ChartWidget(QWidget):
@@ -208,6 +250,34 @@ class ChartWidget(QWidget):
                 self._draw_text(W - MR + 2, ty - 6, fmt_num(thr), QColor(col), 8,
                                 Qt.AlignmentFlag.AlignLeft)
 
+    def _add_series_item(self, points, dots, line_color, line_width=2, dot_width=2):
+        """把折线 + 数据点作为**单个**图元加入场景（替代逐段/逐点建 item）。
+
+        Args:
+            points: 折线顶点 [(x, y), ...]
+            dots: 数据点 [(x, y, r, fill_color), ...]
+            line_color: 折线颜色
+            line_width: 折线宽度
+            dot_width: 数据点描边宽度
+
+        Returns:
+            加入的 _PolylineItem；无点时返回 None
+        """
+        if not points and not dots:
+            return None
+        xs = [p[0] for p in points] + [d[0] for d in dots]
+        ys = [p[1] for p in points] + [d[1] for d in dots]
+        margin = max(6.0, line_width) + max((d[2] for d in dots), default=0.0) + 2.0
+        bounds = QRectF(
+            min(xs) - margin,
+            min(ys) - margin,
+            (max(xs) - min(xs)) + 2 * margin,
+            (max(ys) - min(ys)) + 2 * margin,
+        )
+        item = _PolylineItem(points, dots, line_color, line_width, C["bg_base"], dot_width, bounds)
+        self._scene.addItem(item)
+        return item
+
     def _draw_series(self, history, px, py, ML, MT, W, MR, ch, views_list):
         """绘制面积 + 折线 + 数据点"""
         n = len(history)
@@ -221,17 +291,11 @@ class ChartWidget(QWidget):
         pts.append([W - MR, MT + ch])
         self._draw_polygon(pts, C["chart_area"])
 
-        # 折线
-        for i in range(n - 1):
-            x1, y1 = px(i, n), py(views_list[i])
-            x2, y2 = px(i + 1, n), py(views_list[i + 1])
-            self._draw_line(x1, y1, x2, y2, C["chart_line"], width=2)
-
-        # 数据点（固定间隔）
+        # 折线 + 数据点（单图元一次绘制，避免逐段/逐点建 item）
+        points = [(px(i, n), py(views_list[i])) for i in range(n)]
         max_pts = min(self._max_points, n)
-        for i in self._pick_dot_indices(n, max_pts):
-            x, y = px(i, n), py(views_list[i])
-            self._draw_oval(x, y, 4, C["chart_dot"], C["bg_base"], 2)
+        dots = [(px(i, n), py(views_list[i]), 4, C["chart_dot"]) for i in self._pick_dot_indices(n, max_pts)]
+        self._add_series_item(points, dots, C["chart_line"], line_width=2)
 
     def _pick_dot_indices(self, n, max_points):
         """固定间隔选取数据点索引"""
@@ -395,17 +459,10 @@ class ChartWidget(QWidget):
             zy = py(0)
             self._draw_line(ML, zy, W - MR, zy, C["text_3"])
 
-        # 折线
-        for i in range(n - 1):
-            x1, y1 = px(i), py(values[i])
-            x2, y2 = px(i + 1), py(values[i + 1])
-            self._draw_line(x1, y1, x2, y2, C["chart_line"], width=2)
-
-        # 数据点
-        for i, v in enumerate(values):
-            x, y = px(i), py(v)
-            dot_col = C["success"] if v >= 0 else C["danger"]
-            self._draw_oval(x, y, 4, dot_col, C["bg_base"], 2)
+        # 折线 + 数据点（单图元一次绘制，避免逐段/逐点建 item）
+        points = [(px(i), py(values[i])) for i in range(n)]
+        dots = [(px(i), py(v), 4, C["success"] if v >= 0 else C["danger"]) for i, v in enumerate(values)]
+        self._add_series_item(points, dots, C["chart_line"], line_width=2)
 
         # 最新标注
         last_v = values[-1]

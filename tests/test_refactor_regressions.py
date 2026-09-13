@@ -1988,3 +1988,40 @@ class TestAlgorithmSourcesCompile:
             except Exception as e:
                 failures.append(f"{path.name}: {e}")
         assert not failures, "算法源码存在语法错误:\n" + "\n".join(failures)
+
+
+class TestChartSeriesSingleItem:
+    """M2.1: 折线+数据点合并为单图元（图元数不随点数线性增长）。"""
+
+    @staticmethod
+    def _items(count):
+        import os
+
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        from datetime import datetime, timedelta
+
+        from PyQt6.QtWidgets import QApplication
+
+        from ui.chart import ChartWidget
+
+        app = QApplication.instance() or QApplication([])
+        widget = ChartWidget()
+        widget.resize(800, 360)
+        base = datetime(2026, 1, 1)
+        hist = [(base + timedelta(hours=i), 1000 + i * i * 10) for i in range(count)]
+        widget.update_chart({"BV1xx411c7mD": hist}, "BV1xx411c7mD", {"bvid": "BV1xx411c7mD"},
+                            mode="full", max_points=20)
+        app.processEvents()
+        return len(widget._scene.items())
+
+    def test_item_count_stays_bounded(self):
+        import pytest
+
+        try:
+            many = self._items(400)
+            few = self._items(40)
+        except Exception as e:  # 无 Qt 平台插件时跳过，避免环境噪声
+            pytest.skip(f"离屏 Qt 不可用: {e}")
+        assert many < 60, f"图元数应远小于点数(400)，实际 {many}"
+        # 点数 ×10 但图元数只差个位数（差异来自 X 轴时间标签数量），即无线性增长
+        assert many - few <= 6, f"图元数不应随点数线性增长: 40点={few} 400点={many}"
