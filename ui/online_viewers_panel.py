@@ -272,8 +272,13 @@ class OnlineViewersPanel(QWidget):
             self._fetch_all_viewers()
         finally:
             self._refresh_lock.release()
+        # 在后台读取各视频最新在线人数（避免主线程逐视频查库）
+        try:
+            cached = _read_viewers()
+        except Exception:
+            cached = {}
         if self._active:
-            invoke(self._update_ui_after_fetch)
+            invoke(lambda c=cached: self._update_ui_after_fetch(c))
 
     def _fetch_all_viewers(self):
         """并发拉取高优先级视频的在线观看人数，写入独立缓存。"""
@@ -335,9 +340,14 @@ class OnlineViewersPanel(QWidget):
             except Exception:
                 pass
 
-    def _populate(self):
-        """填充树形表格：合并视频列表（标题/播放量）与在线人数缓存"""
-        cached = _read_viewers()
+    def _populate(self, cached=None):
+        """填充树形表格：合并视频列表（标题/播放量）与在线人数缓存
+
+        cached 由后台线程读取后经 invoke 传入，避免在主线程逐视频查库；
+        未传入时回退到同步读取（兼容直接调用）。
+        """
+        if cached is None:
+            cached = _read_viewers()
         gui = self.gui
         if gui is None:
             return
@@ -421,8 +431,8 @@ class OnlineViewersPanel(QWidget):
                 self._tree.addTopLevelItem(item)
                 self._item_map[bvid] = item
 
-    def _update_ui_after_fetch(self):
-        self._populate()
+    def _update_ui_after_fetch(self, cached=None):
+        self._populate(cached)
         self._time_lbl.setText(f"上次刷新: {datetime.now().strftime('%H:%M:%S')}")
 
     # ── 生命周期 ──────────────────────────────────────────
