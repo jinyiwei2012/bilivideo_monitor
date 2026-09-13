@@ -1259,3 +1259,24 @@ class TestSearchDebounce:
         assert items[0].hidden is False
         assert items[1].hidden is True
         assert items[2].hidden is None, "无 data 的项不应改动"
+
+
+class TestDiffusionSchedule:
+    """M2.10h: 反向扩散少步采样时间步序列。"""
+
+    def test_full_steps_when_none_or_ge(self):
+        from algorithms.models.deep_learning.diffusion_ts import _diffusion_schedule
+
+        assert _diffusion_schedule(5) == [4, 3, 2, 1, 0]
+        assert _diffusion_schedule(5, 5) == [4, 3, 2, 1, 0]
+        assert _diffusion_schedule(5, 10) == [4, 3, 2, 1, 0]
+
+    def test_reduced_steps_descending_and_includes_zero(self):
+        from algorithms.models.deep_learning.diffusion_ts import _diffusion_schedule
+
+        sched = _diffusion_schedule(100, 20)
+        assert sched[0] == 99
+        assert sched[-1] == 0
+        assert len(sched) == 20
+        assert sched == sorted(set(sched), reverse=True)
+        assert all(0 <= t < 100 for t in sched)

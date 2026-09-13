@@ -30,6 +30,23 @@ from algorithms.training.device import get_device
 
 logger = logging.getLogger(__name__)
 
+
+def _diffusion_schedule(n_steps: int, steps: int = None) -> list:
+    """生成反向扩散采样时间步序列（从大到小）。
+
+    steps 为 None 或 >= n_steps 时返回完整序列 [n_steps-1, ..., 0]；
+    否则按均匀间隔取 steps 个时间步（含 0）实现少步采样，
+    在几乎不损失质量的前提下显著降低推理耗时。
+    """
+    if steps is None or steps >= n_steps:
+        return list(range(n_steps - 1, -1, -1))
+    steps = max(1, int(steps))
+    if steps == 1:
+        return [0]
+    idx = {round(i * (n_steps - 1) / (steps - 1)) for i in range(steps)}
+    return sorted((int(i) for i in idx), reverse=True)
+
+
 _torch_available = True
 try:
     import torch
@@ -188,10 +205,13 @@ if _torch_available:
             return self.out_conv(h)
 
         @torch.no_grad()
-        def sample(self, shape, device):
-            """完整反向扩散采样：从纯噪声 x_T 逐步去噪到 x_0。
+        def sample(self, shape, device, steps: int = None):
+            """反向扩散采样：从纯噪声 x_T 逐步去噪到 x_0。
 
-            对每一步 t（从 T-1 到 0）：
+            支持少步采样：steps < n_steps 时按均匀间隔跳步（DDIM 式），
+            显著降低推理耗时；steps=None 走完整 T→0 步。
+
+            对每一步 t：
             1. 预测噪声 ε̂ = model(x_t, t)
             2. 计算 x_{t-1} 的均值
             3. 加噪声（t > 0 时）或直接输出（t = 0 时）
@@ -199,12 +219,13 @@ if _torch_available:
             Args:
                 shape: 目标张量形状 (B, C, L)
                 device: 计算设备
+                steps: 采样步数（None = 全部 n_steps 步）
 
             Returns:
                 去噪后的样本 [B, C, L]
             """
             x = torch.randn(shape, device=device)  # 初始化：x_T ~ N(0, I)
-            for t in reversed(range(self.n_steps)):  # 从 T-1 到 0
+            for t in _diffusion_schedule(self.n_steps, steps):  # 从 T-1 到 0
                 t_batch = torch.full((shape[0],), t, device=device, dtype=torch.long)
                 eps = self.forward(x, t_batch)
                 ab = self.alpha_bars[t]
@@ -241,6 +262,9 @@ class DiffusionTSAlgorithm(BaseAlgorithm):
     """训练窗口长度（时间步数）"""
     training_horizon = 3
     """预测步数"""
+
+    SAMPLE_STEPS = 20
+    """反向扩散采样步数（少步采样；None = 完整 n_steps 步）"""
 
     def __init__(self):
         """初始化 Diffusion TS 算法。
@@ -310,7 +334,9 @@ class DiffusionTSAlgorithm(BaseAlgorithm):
         if std < 1e-8:
             std = 1.0
         # 直接采样预测段（简化：不做 conditional inpainting，纯生成）
-        sample = self._cached_model.sample((1, 1, self.training_horizon), self._device)
+        sample = self._cached_model.sample(
+            (1, 1, self.training_horizon), self._device, steps=self.SAMPLE_STEPS
+        )
         y_norm = sample.cpu().numpy().reshape(-1)  # [H]
         predicted = max(0.0, float(y_norm[0]) * std + mean)  # 反归一化
         return predicted, 0.7, {"horizon_pred": y_norm.tolist(), "method": "diffusion_ddpm"}
