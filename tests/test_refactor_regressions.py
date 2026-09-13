@@ -191,3 +191,77 @@ class TestRegistryAlgorithmIdUnique:
         ids = [getattr(a, "algorithm_id", None) for a in algos]
         dupes = sorted({i for i in ids if i and ids.count(i) > 1})
         assert not dupes, f"重复 algorithm_id: {dupes}"
+
+
+class TestTorchPredictCacheFirst:
+    """M1.1: 已缓存模型 + checkpoint 签名未变时，`try_torch_predict` 不再调用
+    `load_best_checkpoint`（避免每次预测都做 torch.load 磁盘读取）。
+
+    注意：`try_torch_predict` 内部使用局部 `from ... import`，因此必须 patch
+    **源模块** `algorithms.training.checkpoint_manager` / `algorithms.training.device`。
+    """
+
+    _BVID = "BV1xx411c7mD"
+
+    def _fake_algo(self, sig):
+        class _FakeAlgo:
+            algorithm_id = "unit_fake_algo"
+            name = "unit_fake"
+
+        a = _FakeAlgo()
+        a._ckpt = object()
+        a._device = object()
+        a._cached_torch_model = object()
+        a._cached_bvid = self._BVID
+        a._cached_ckpt_sig = sig
+        a._cached_model_source = "video"
+        return a
+
+    def _video_data(self):
+        return {"bvid": self._BVID, "view_count": 1000, "history_data": []}
+
+    def test_cache_hit_skips_checkpoint_load(self, monkeypatch):
+        import algorithms.models.deep_learning._torch_upgrade as u
+        import algorithms.training.checkpoint_manager as ckpt_mod
+        import algorithms.training.device as dev
+
+        monkeypatch.setattr(u, "_torch_available", True)
+        monkeypatch.setattr(u, "_build_torch_input", lambda *a, **k: (None, 0.0, 1.0))
+        monkeypatch.setattr(dev, "get_preferred_device", lambda: "cpu")
+        monkeypatch.setattr(ckpt_mod, "checkpoint_signature", lambda *a, **k: ("sig",))
+
+        calls = []
+
+        def _load(*a, **k):
+            calls.append(1)
+            return None, None
+
+        monkeypatch.setattr(ckpt_mod, "load_best_checkpoint", _load)
+
+        algo = self._fake_algo(("sig",))
+        result = u.try_torch_predict(algo, self._video_data(), 100000, model_cls=object, fallback_fn=lambda vd, th: "FB")
+        assert calls == [], "缓存命中（签名未变）时不应调用 load_best_checkpoint"
+        assert result == "FB"
+
+    def test_signature_change_triggers_reload(self, monkeypatch):
+        import algorithms.models.deep_learning._torch_upgrade as u
+        import algorithms.training.checkpoint_manager as ckpt_mod
+        import algorithms.training.device as dev
+
+        monkeypatch.setattr(u, "_torch_available", True)
+        monkeypatch.setattr(u, "_build_torch_input", lambda *a, **k: (None, 0.0, 1.0))
+        monkeypatch.setattr(dev, "get_preferred_device", lambda: "cpu")
+        monkeypatch.setattr(ckpt_mod, "checkpoint_signature", lambda *a, **k: ("changed",))
+
+        calls = []
+
+        def _load(*a, **k):
+            calls.append(1)
+            return None, None
+
+        monkeypatch.setattr(ckpt_mod, "load_best_checkpoint", _load)
+
+        algo = self._fake_algo(("old",))  # 缓存签名与当前不一致
+        result = u.try_torch_predict(algo, self._video_data(), 100000, model_cls=object, fallback_fn=lambda vd, th: "FB")
+        assert calls, "checkpoint 签名变化时应重新调用 load_best_checkpoint"
+        assert result == "FB"

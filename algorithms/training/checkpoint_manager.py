@@ -486,6 +486,49 @@ def load_best_checkpoint(algo_id: str, bvid: Optional[str] = None) -> Tuple[Opti
     return None, None
 
 
+def checkpoint_signature(algo_id: str, bvid: Optional[str] = None) -> Optional[tuple]:
+    """返回最佳可用 checkpoint 的轻量签名（仅 os.stat，不加载 state dict）。
+
+    用于判断"已缓存的模型是否仍对应当前 checkpoint"；只有签名变化时才需重新读取。
+    解析顺序与 load_best_checkpoint 一致：视频微调 → 全局 → registry 包装名。
+
+    Returns:
+        None 表示无可用 checkpoint；否则返回
+        (source, cid, path, mtime_ns, size)。
+    """
+
+    def _one(cid: str, bv: Optional[str]):
+        try:
+            ckpt = CheckpointManager(cid, bvid=bv)
+            if not ckpt.has_checkpoint():
+                return None
+            active = ckpt.active_version()
+            if not active:
+                return None
+            path = os.path.join(ckpt._dir, f"{active}.pt")
+            st = os.stat(path)
+            return ("video" if bv else "global", cid, path, st.st_mtime_ns, st.st_size)
+        except Exception:
+            return None
+
+    sig = _one(algo_id, bvid) if bvid else None
+    if sig is None:
+        sig = _one(algo_id, None)
+    if sig is not None:
+        return sig
+    try:
+        from algorithms.registry import AlgorithmRegistry
+
+        mapped = AlgorithmRegistry.get_registry_key(algo_id)
+        if mapped and mapped != algo_id:
+            sig = _one(mapped, bvid) if bvid else None
+            if sig is None:
+                sig = _one(mapped, None)
+    except Exception:
+        sig = None
+    return sig
+
+
 def list_all_trained_algorithms() -> List[str]:
     """扫描 checkpoints/ 目录，返回有 active checkpoint 的算法标识符列表。
 

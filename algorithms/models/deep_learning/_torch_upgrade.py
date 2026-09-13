@@ -1979,13 +1979,37 @@ def try_torch_predict(
         algorithm._device = get_device()
 
     # 优先加载视频微调 checkpoint，回退到全局
-    from algorithms.training.checkpoint_manager import load_best_checkpoint
+    from algorithms.training.checkpoint_manager import load_best_checkpoint, checkpoint_signature
 
     algo_id = getattr(algorithm, "algorithm_id", "unknown")
     bvid = video_data.get("bvid", "")
-    state, model_source = load_best_checkpoint(algo_id, bvid=bvid)
-    if state is None:
-        return fallback_fn(video_data, threshold)
+
+    # 缓存优先：已缓存该 bvid 的 torch 模型且 checkpoint 签名未变时，
+    # 跳过 load_best_checkpoint（其内部 torch.load 是最重的磁盘 I/O）。
+    state = None
+    cached_model = getattr(algorithm, "_cached_torch_model", None)
+    cache_ok = (
+        cached_model is not None
+        and (not bvid or getattr(algorithm, "_cached_bvid", "") == bvid)
+        and getattr(algorithm, "_cached_model_source", None) is not None
+    )
+    if cache_ok:
+        cur_sig = checkpoint_signature(algo_id, bvid)
+        if cur_sig is None or cur_sig != getattr(algorithm, "_cached_ckpt_sig", None):
+            cache_ok = False  # checkpoint 变化/不可解析 → 走常规加载
+
+    if cache_ok:
+        model_source = algorithm._cached_model_source
+    else:
+        state, model_source = load_best_checkpoint(algo_id, bvid=bvid)
+        if state is None:
+            return fallback_fn(video_data, threshold)
+        # 记录签名与来源，供后续调用走缓存优先路径
+        try:
+            algorithm._cached_ckpt_sig = checkpoint_signature(algo_id, bvid)
+            algorithm._cached_model_source = model_source
+        except Exception:
+            pass
 
     gpu_key = f"{algo_id}@{bvid}" if bvid else algo_id
     feats = features or DEFAULT_FEATURES
