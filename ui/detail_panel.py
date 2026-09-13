@@ -31,6 +31,7 @@ from ui.chart import ChartWidget
 from ui.detail_tabs import _RatioDanmakuMixin
 from ui.invoker import invoke
 from utils.thread_utils import fire_and_forget
+from utils.score_materializer import ensure_scores
 from utils.weekly_score import calculate_from_dict as _calc_ws
 from utils.yearly_score import calculate_yearly_from_dict as _calc_ys
 from utils.update_checker import _confirm_risky
@@ -830,6 +831,8 @@ class DetailPanel(_RatioDanmakuMixin):
 
         def _load():
             try:
+                # 先按整点桶补齐归档（幂等），再读最近 5 点
+                ensure_scores(db)
                 weekly = db.get_weekly_scores(limit=5)
                 yearly = db.get_yearly_scores(limit=5)
             except Exception:

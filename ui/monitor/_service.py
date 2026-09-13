@@ -281,8 +281,7 @@ def _fetch_one_video(gui, bvid, video):
                 viewers_app=video.get("viewers_app", 0),
             )
             gui.video_dbs[bvid].add_monitor_record(rec)
-            gui._save_weekly_score(bvid, video, format_ts(ts))
-            gui._save_yearly_score(bvid, video, format_ts(ts))
+            # 分数改为惰性物化（utils.score_materializer.ensure_scores），不再每抓取写入
     except Exception as e:
         gui.log_panel.add_log("WARNING", f"[{bvid}] 写数据库失败: {e}")
 

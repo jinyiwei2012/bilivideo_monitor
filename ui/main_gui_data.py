@@ -4,7 +4,6 @@
 
 import logging
 from datetime import datetime
-from dataclasses import asdict
 from PyQt6.QtWidgets import QMessageBox
 
 from utils.time_utils import format_ts
@@ -39,18 +38,6 @@ def map_api_to_video_dict(bvid: str, info: dict, fallback: dict | None = None) -
     }
 
 
-def _calc_ws(video):
-    """延迟导入 weekly_score"""
-    from utils.weekly_score import calculate_from_dict
-    return calculate_from_dict(video)
-
-
-def _calc_ys(video):
-    """延迟导入 yearly_score"""
-    from utils.yearly_score import calculate_yearly_from_dict
-    return calculate_yearly_from_dict(video)
-
-
 def refresh_data(gui):
     """手动刷新数据"""
     gui._do_fetch()
@@ -68,38 +55,6 @@ def save_watch_list(gui):
     config = load_config()
     config["watch_list"] = [v.get("bvid", "") for v in gui.monitored_videos]
     save_config(config)
-
-
-def save_weekly_score(gui, bvid, video, timestamp):
-    """保存周刊分数到视频数据库 + 同步到中央库"""
-    try:
-        ws = _calc_ws(video)
-        if ws and bvid in gui.video_dbs:
-            score_data = asdict(ws)
-            gui.video_dbs[bvid].add_weekly_score(timestamp, score_data)
-            try:
-                from core import db
-                db.sync_weekly_score(bvid, timestamp, score_data)
-            except Exception as e:
-                logger.warning("同步周刊分数到中央库失败 %s: %s", bvid, e)
-    except Exception as e:
-        logger.warning("保存周刊分数失败 %s: %s", bvid, e)
-
-
-def save_yearly_score(gui, bvid, video, timestamp):
-    """保存年刊分数到视频数据库 + 同步到中央库"""
-    try:
-        ys = _calc_ys(video)
-        if ys and bvid in gui.video_dbs:
-            score_data = asdict(ys)
-            gui.video_dbs[bvid].add_yearly_score(timestamp, score_data)
-            try:
-                from core import db
-                db.sync_yearly_score(bvid, timestamp, score_data)
-            except Exception as e:
-                logger.warning("同步年刊分数到中央库失败 %s: %s", bvid, e)
-    except Exception as e:
-        logger.warning("保存年刊分数失败 %s: %s", bvid, e)
 
 
 def restore_video(gui, video):
@@ -142,8 +97,7 @@ def register_video_to_monitor(gui, video):
                 reply_count=video["reply_count"],
             )
             video_db.add_monitor_record(rec)
-            save_weekly_score(gui, bvid, video, format_ts(now))
-            save_yearly_score(gui, bvid, video, format_ts(now))
+            # 分数改为惰性物化（utils.score_materializer.ensure_scores），不再逐条写入
     except Exception as e:
         gui.log_panel.add_log("WARNING", f"数据库初始化失败: {bvid}: {e}")
         return  # 不注册没有可用 DB 的视频

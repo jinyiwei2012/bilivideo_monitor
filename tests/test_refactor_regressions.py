@@ -978,6 +978,33 @@ class TestDetailScoreHistoryCache:
         assert sched["n"] == 1, "同一 bvid 只应调度一次后台读取"
         assert "BV1" in panel._score_history_pending
 
+    def test_background_load_materializes_before_read(self, monkeypatch):
+        import ui.detail_panel as dp
+
+        order = []
+        monkeypatch.setattr(dp, "fire_and_forget", lambda fn, *a, **k: fn())
+        monkeypatch.setattr(dp, "invoke", lambda fn: fn())
+        monkeypatch.setattr(dp, "ensure_scores", lambda db: order.append("ensure"))
+
+        class _DB:
+            def get_weekly_scores(self, limit=5):
+                order.append("weekly")
+                return []
+
+            def get_yearly_scores(self, limit=5):
+                order.append("yearly")
+                return []
+
+        class _Gui:
+            video_dbs = {"BV1": _DB()}
+            selected_bvid = "OTHER"
+
+        panel = self._make_panel({}, set())
+        panel.gui = _Gui()
+
+        panel._get_score_history("BV1")
+        assert order == ["ensure", "weekly", "yearly"], "后台应先物化归档再读最近 5 点"
+
 
 class TestDanmakuBackgroundLoad:
     """M2.2c: 弹幕后台读取，计数变化才重渲。"""

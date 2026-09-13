@@ -62,8 +62,6 @@ from ui.main_gui_data import (
     refresh_data as _refresh_data_impl,
     load_watch_list as _load_watch_list_impl,
     save_watch_list as _save_watch_list_impl,
-    save_weekly_score as _save_weekly_score_impl,
-    save_yearly_score as _save_yearly_score_impl,
     restore_video as _restore_video_impl,
     register_video_to_monitor as _register_video_to_monitor_impl,
     prompt_backup_sync as _prompt_backup_sync_impl,
@@ -859,12 +857,6 @@ class BilibiliMonitorGUI(QMainWindow):
 
     def _register_video_to_monitor(self, video: dict) -> None:
         _register_video_to_monitor_impl(self, video)
-
-    def _save_weekly_score(self, bvid, video, timestamp):
-        _save_weekly_score_impl(self, bvid, video, timestamp)
-
-    def _save_yearly_score(self, bvid, video, timestamp):
-        _save_yearly_score_impl(self, bvid, video, timestamp)
 
     def _save_watch_list(self):
         _save_watch_list_impl(self)
