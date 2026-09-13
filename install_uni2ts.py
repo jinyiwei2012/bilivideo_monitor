@@ -23,6 +23,7 @@
     - 若 torch 版本 < 2.6, 旧版 torch.load 行为兼容性更好; torch 2.13 下
       MOIRAI 通过 safetensors 加载权重, 不受 weights_only 变更影响
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -110,10 +111,15 @@ def ensure_numpy_pandas() -> bool:
     print("检测到 numpy/pandas 被降级 → 用 --no-deps 恢复到 requirements 要求的版本...")
     return run(
         [
-            sys.executable, "-m", "pip", "install",
-            "numpy>=2.2.0,<2.3.0", "pandas>=2.2.0",
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "numpy>=2.2.0,<2.3.0",
+            "pandas>=2.2.0",
             "--no-deps",
-            "--index-url", PYPI_MIRROR,
+            "--index-url",
+            PYPI_MIRROR,
         ]
     )
 
@@ -129,10 +135,14 @@ def main() -> int:
     print(f"\n[1/4] 安装 uni2ts=={version} (--no-deps, 绕过元数据约束)")
     if not run(
         [
-            sys.executable, "-m", "pip", "install",
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
             f"uni2ts=={version}",
             "--no-deps",
-            "--index-url", PYPI_MIRROR,
+            "--index-url",
+            PYPI_MIRROR,
         ]
     ):
         return 1
@@ -140,9 +150,13 @@ def main() -> int:
     print("\n[2/4] 安装 uni2ts 运行时依赖 (torch/numpy/scipy 保持不变)")
     if not run(
         [
-            sys.executable, "-m", "pip", "install",
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
             *UNI2TS_DEPS,
-            "--index-url", PYPI_MIRROR,
+            "--index-url",
+            PYPI_MIRROR,
         ]
     ):
         return 1
@@ -150,10 +164,14 @@ def main() -> int:
     print(f"\n[2.5/4] 安装 gluonts=={GLUONTS_PIN} (--no-deps, 解锁 numpy~=1.16 + pandas<2.2 钉)")
     if not run(
         [
-            sys.executable, "-m", "pip", "install",
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
             GLUONTS_PIN,
             "--no-deps",
-            "--index-url", PYPI_MIRROR,
+            "--index-url",
+            PYPI_MIRROR,
         ]
     ):
         return 1
