@@ -29,7 +29,7 @@ import math
 import logging
 import random
 import numpy as np
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
 

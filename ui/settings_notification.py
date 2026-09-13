@@ -185,8 +185,9 @@ class SettingsNotificationMixin:
                 QTimer.singleShot(0, lambda: self._show_test_result(result))
             except Exception as e:
                 logger.warning("OneBot 连接测试异常: %s", e)
+                err = str(e)  # 绑定到局部变量：except 块结束后 e 会被删除，闭包需捕获 err
                 from PyQt6.QtCore import QTimer
-                QTimer.singleShot(0, lambda: self._show_test_result({"ok": False, "error": str(e)}))
+                QTimer.singleShot(0, lambda: self._show_test_result({"ok": False, "error": err}))
 
         Thread(target=_do_test, daemon=True).start()
 

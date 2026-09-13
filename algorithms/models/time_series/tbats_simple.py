@@ -140,7 +140,7 @@ class TbatsSimpleAlgorithm(BaseAlgorithm):
             estimator = _TBATS(seasonal_periods=[7, 14], use_box_cox=True)
             fitted = estimator.fit(views)
             # 预测未来 14 天
-            forecast_views = np.array(forecast)
+            forecast_views = np.array(fitted.forecast(steps=14))
 
             target_idx = np.where(forecast_views >= threshold)[0]
             if len(target_idx) > 0 and target_idx[0] < 14:
