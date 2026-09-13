@@ -20,6 +20,7 @@ from PyQt6.QtGui import QFont, QColor
 from ui.theme import C
 from ui.helpers import FONT, FONT_SM, fmt_num, _parse_viewer_count
 from ui.invoker import invoke
+from utils.time_utils import now_ts
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +58,7 @@ def _write_viewer(bvid: str, total: int, web: int, app: int):
         db = _get_viewer_db(bvid)
         db.execute(
             "INSERT INTO viewers (timestamp, total, web, app) VALUES (?, ?, ?, ?)",
-            (datetime.now().isoformat(), total, web, app),
+            (now_ts(), total, web, app),
         )
         db.commit()
 

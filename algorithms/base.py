@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime
 import time
-from utils.time_utils import safe_timestamp
+from utils.time_utils import format_ts, safe_timestamp
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +54,7 @@ class PredictionResult:
             "current_views": self.current_views,
             "current_velocity": self.current_velocity,
             "metadata": self.metadata,
-            "timestamp": self.timestamp.isoformat(),
+            "timestamp": format_ts(self.timestamp),
         }
 
 

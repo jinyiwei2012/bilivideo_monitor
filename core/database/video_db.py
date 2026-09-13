@@ -7,6 +7,7 @@ import threading
 import logging
 from datetime import datetime
 from utils import project_path
+from utils.time_utils import now_ts
 from typing import List, Dict, Optional
 
 from .connection import _ConnectionCtx
@@ -693,7 +694,7 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
                 r.get("predicted_hours", 0),
                 r.get("current_velocity", 0),
                 1 if reached else 0,
-                datetime.now().isoformat() if reached else "",
+                now_ts() if reached else "",
             )
         try:
             with self._get_connection() as conn:

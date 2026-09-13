@@ -7,6 +7,8 @@ from datetime import datetime
 from dataclasses import asdict
 from PyQt6.QtWidgets import QMessageBox
 
+from utils.time_utils import format_ts
+
 logger = logging.getLogger(__name__)
 
 
@@ -130,7 +132,7 @@ def register_video_to_monitor(gui, video):
             gui.history_data[bvid] = [(now, video["view_count"])]
             rec = MonitorRecord(
                 bvid=bvid,
-                timestamp=now.isoformat(),
+                timestamp=format_ts(now),
                 view_count=video["view_count"],
                 like_count=video["like_count"],
                 coin_count=video["coin_count"],
@@ -140,8 +142,8 @@ def register_video_to_monitor(gui, video):
                 reply_count=video["reply_count"],
             )
             video_db.add_monitor_record(rec)
-            save_weekly_score(gui, bvid, video, now.isoformat())
-            save_yearly_score(gui, bvid, video, now.isoformat())
+            save_weekly_score(gui, bvid, video, format_ts(now))
+            save_yearly_score(gui, bvid, video, format_ts(now))
     except Exception as e:
         gui.log_panel.add_log("WARNING", f"数据库初始化失败: {bvid}: {e}")
         return  # 不注册没有可用 DB 的视频

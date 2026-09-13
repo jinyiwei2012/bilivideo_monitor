@@ -21,7 +21,7 @@ class _SurgeDetector(BA):
 _SURGE_DETECTOR = _SurgeDetector()
 from core import bilibili_api, db, MonitorRecord, PredictionRecord
 from ui.helpers import THRESHOLDS, THRESHOLD_NAMES, _parse_viewer_count
-from utils.time_utils import safe_datetime, normalize_timestamp
+from utils.time_utils import now_ts, safe_datetime, normalize_timestamp
 
 # ── 模块级状态 ──
 _up_db = None
@@ -34,9 +34,9 @@ def _sync_predictions_to_central(bvid, rows, ensemble_data, coherence_rows):
         from core import db
         db.sync_predictions(bvid, rows)
         if ensemble_data:
-            db.sync_prediction_ensemble(bvid, datetime.now().isoformat(), ensemble_data)
+            db.sync_prediction_ensemble(bvid, now_ts(), ensemble_data)
         if coherence_rows:
-            db.sync_algorithm_coherence(bvid, datetime.now().isoformat(), coherence_rows)
+            db.sync_algorithm_coherence(bvid, now_ts(), coherence_rows)
     except Exception as e:
         logger.debug("同步预测数据到中央库失败 %s: %s", bvid, e)
 

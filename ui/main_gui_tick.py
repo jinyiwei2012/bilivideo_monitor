@@ -14,6 +14,7 @@ from core.smart_alert import AnomalyDetector
 from ui.invoker import invoke
 from ui.theme import C
 from utils.thread_utils import fire_and_forget
+from utils.time_utils import format_ts
 
 logger = logging.getLogger(__name__)
 
@@ -227,7 +228,7 @@ def _maybe_cleanup_old_records(gui):
             return  # <=0 表示永久保留
         from datetime import datetime, timedelta
 
-        cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+        cutoff = format_ts(datetime.now() - timedelta(days=days))
         total = 0
         for bvid, video_db in list(gui.video_dbs.items()):
             try:

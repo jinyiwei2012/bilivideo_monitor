@@ -19,6 +19,7 @@ from ui.invoker import invoke
 
 from core import bilibili_api, db, MonitorRecord
 from utils.thread_utils import fire_and_forget
+from utils.time_utils import format_ts
 from ui.helpers import _parse_viewer_count
 
 DEFAULT_FETCH_INTERVAL = 75  # 集中拉取间隔（秒）
@@ -267,7 +268,7 @@ def _fetch_one_video(gui, bvid, video):
         if bvid in gui.video_dbs:
             rec = MonitorRecord(
                 bvid=bvid,
-                timestamp=ts.strftime("%Y-%m-%d %H:%M:%S"),
+                timestamp=format_ts(ts),
                 view_count=video["view_count"],
                 like_count=video["like_count"],
                 coin_count=video["coin_count"],
@@ -280,8 +281,8 @@ def _fetch_one_video(gui, bvid, video):
                 viewers_app=video.get("viewers_app", 0),
             )
             gui.video_dbs[bvid].add_monitor_record(rec)
-            gui._save_weekly_score(bvid, video, ts.strftime("%Y-%m-%d %H:%M:%S"))
-            gui._save_yearly_score(bvid, video, ts.strftime("%Y-%m-%d %H:%M:%S"))
+            gui._save_weekly_score(bvid, video, format_ts(ts))
+            gui._save_yearly_score(bvid, video, format_ts(ts))
     except Exception as e:
         gui.log_panel.add_log("WARNING", f"[{bvid}] 写数据库失败: {e}")
 
@@ -290,7 +291,7 @@ def _fetch_one_video(gui, bvid, video):
         db.sync_monitor_record(
             bvid,
             {
-                "timestamp": ts.strftime("%Y-%m-%d %H:%M:%S"),
+                "timestamp": format_ts(ts),
                 "view_count": video["view_count"],
                 "like_count": video["like_count"],
                 "coin_count": video["coin_count"],

@@ -7,6 +7,7 @@ from dataclasses import fields
 from datetime import datetime
 from typing import List, Dict, Optional
 
+from utils.time_utils import now_ts
 from .models import VideoInfo, MonitorRecord, PredictionRecord
 
 logger = logging.getLogger(__name__)
@@ -452,7 +453,7 @@ class CentralCRUD:
                         data.get("danmaku_count"),
                         data.get("reply_count"),
                         data.get("note"),
-                        data.get("recorded_at", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+                        data.get("recorded_at") or now_ts(),
                     ),
                 )
                 conn.commit()

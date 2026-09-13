@@ -8,6 +8,8 @@ import logging
 from bisect import bisect_left
 from datetime import datetime, timedelta
 
+from utils.time_utils import format_ts
+
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTableWidget, QTableWidgetItem, QComboBox, QHeaderView,
@@ -143,7 +145,7 @@ class PredictionAccuracyPanel:
             with vdb._get_connection() as conn:
                 cursor = conn.cursor()
                 if days < 9999:
-                    cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+                    cutoff = format_ts(datetime.now() - timedelta(days=days))
                     cursor.execute(
                         """SELECT created_at, algorithm, algorithm_id, current_views,
                                   predicted_time, predicted_seconds, target_threshold

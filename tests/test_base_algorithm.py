@@ -47,7 +47,7 @@ class TestPredictionResult:
         assert d["predicted_hours"] == 48.0
         assert d["confidence"] == 0.85
         assert d["current_views"] == 5000
-        assert d["timestamp"] == "2025-06-01T12:00:00"
+        assert d["timestamp"] == "2025-06-01 12:00:00"
 
     def test_to_dict_roundtrip(self):
         """测试 to_dict() 前后字段类型一致"""
