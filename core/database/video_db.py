@@ -174,6 +174,8 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
         """, False),
         # 已有重复数据时 UNIQUE 索引创建会失败（罕见），由后续清理修复
         ("CREATE UNIQUE INDEX IF NOT EXISTS idx_predict_unique ON predictions(algorithm, target_threshold)", True),
+        # 预测历史按 created_at 排序查询的覆盖索引
+        ("CREATE INDEX IF NOT EXISTS idx_predict_created_at ON predictions(created_at)", False),
         ("""
             CREATE TABLE IF NOT EXISTS algorithm_performance (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -252,6 +254,8 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
         ("CREATE INDEX IF NOT EXISTS idx_danmaku_dmid ON danmaku_records(dmid) WHERE dmid > 0", True),
         # 去重：优先用 dmid（Proto 唯一弹幕ID），回退用内容指纹
         ("CREATE UNIQUE INDEX IF NOT EXISTS idx_danmaku_unique ON danmaku_records(bvid, oid, dmid)", True),
+        # 弹幕按时间排序展示的覆盖索引
+        ("CREATE INDEX IF NOT EXISTS idx_danmaku_video_ts ON danmaku_records(video_ts)", False),
     ]
 
     @staticmethod

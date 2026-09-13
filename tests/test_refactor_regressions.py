@@ -826,3 +826,25 @@ class TestMaybeCleanupOldRecords:
 
         self._run(monkeypatch, 0, {"BV1": _VDB()})
         assert not calls, "history_days<=0 时应跳过"
+
+
+class TestIndexesAdded:
+    """M2.9b: 新增覆盖索引已注册/创建。"""
+
+    def test_video_db_index_statements_present(self):
+        from core.database.video_db import VideoDatabase
+
+        sqls = " ".join(s for s, _ in VideoDatabase.SCHEMA_STATEMENTS)
+        assert "idx_predict_created_at" in sqls
+        assert "idx_danmaku_video_ts" in sqls
+
+    def test_central_indexes_created(self, tmp_path):
+        from core.database.central_db import Database
+
+        d = Database(db_path=str(tmp_path / "central.db"))
+        try:
+            names = {r[0] for r in d._conn.execute("SELECT name FROM sqlite_master WHERE type='index'")}
+        finally:
+            d._conn.close()
+        assert "idx_videos_owner_id" in names
+        assert "idx_predictions_created_at" in names
