@@ -9,7 +9,7 @@ import logging
 import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime
 import time
 from utils.time_utils import safe_timestamp
@@ -425,6 +425,30 @@ class BaseAlgorithm(ABC):
         score = self._W_ENGAGEMENT * engagement + self._W_DANMAKU * danmaku_density + self._W_COIN_LIKE * coin_like_ratio
         return min(1.0, max(0.0, score))
 
+    def _oldest_history_epoch(self, video_data: Dict[str, Any], history: List) -> Optional[float]:
+        """返回 history 中最早记录的 Unix 时间戳；结果缓存在 video_data 上。
+
+        排序是单轮预测的热点（被 40+ 算法调用），缓存键取
+        (历史长度, 末条时间戳)，历史变化时自动失效。
+        """
+        last = history[-1]
+        key = (len(history), last.get("timestamp") if isinstance(last, dict) else None)
+        cached = video_data.get("_oldest_ts_memo")
+        if isinstance(cached, tuple) and cached[0] == key:
+            return cached[1]
+
+        oldest = None
+        sorted_history = sorted(history, key=self._timestamp_sort_key)
+        t = sorted_history[0].get("timestamp", None)
+        if t is not None:
+            try:
+                oldest = safe_timestamp(t)
+            except Exception as e:
+                logger.debug("时间戳安全解析失败: %s", e)
+                oldest = time.time()
+        video_data["_oldest_ts_memo"] = (key, oldest)
+        return oldest
+
     def get_video_age_hours(self, video_data: Dict[str, Any]) -> float:
         """计算视频发布至今的小时数。
 
@@ -437,14 +461,8 @@ class BaseAlgorithm(ABC):
         now = datetime.now()
 
         if len(history) >= 1:
-            sorted_history = sorted(history, key=self._timestamp_sort_key)
-            t = sorted_history[0].get("timestamp", None)
-            if t is not None:
-                try:
-                    ts_val = safe_timestamp(t)
-                except Exception as e:
-                    logger.debug("时间戳安全解析失败: %s", e)
-                    ts_val = time.time()
+            ts_val = self._oldest_history_epoch(video_data, history)
+            if ts_val is not None:
                 return max(0.0, (time.time() - ts_val) / 3600.0)
         # 回退：用 video_data 自身的 timestamp
         ts = video_data.get("timestamp")

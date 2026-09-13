@@ -1280,3 +1280,51 @@ class TestDiffusionSchedule:
         assert len(sched) == 20
         assert sched == sorted(set(sched), reverse=True)
         assert all(0 <= t < 100 for t in sched)
+
+
+class TestAgeHoursMemo:
+    """M2.7a: get_video_age_hours 排序结果按轮缓存（只排一次）。"""
+
+    @staticmethod
+    def _algo():
+        from algorithms.base import BaseAlgorithm
+
+        class _Algo:
+            _timestamp_sort_key = staticmethod(BaseAlgorithm._timestamp_sort_key)
+            _oldest_history_epoch = BaseAlgorithm._oldest_history_epoch
+
+        return _Algo()
+
+    def test_sorted_once_per_round(self, monkeypatch):
+        import algorithms.base as bmod
+        from algorithms.base import BaseAlgorithm
+
+        algo = self._algo()
+        video = {"history_data": [{"timestamp": f"2026-01-0{i + 1} 00:00:00"} for i in range(3)]}
+
+        real_sorted = sorted
+        calls = {"n": 0}
+
+        def _spy(*a, **k):
+            calls["n"] += 1
+            return real_sorted(*a, **k)
+
+        monkeypatch.setattr(bmod, "sorted", _spy, raising=False)
+
+        a1 = BaseAlgorithm.get_video_age_hours(algo, video)
+        a2 = BaseAlgorithm.get_video_age_hours(algo, video)
+        assert calls["n"] == 1, "同一 video_data 只应排序一次"
+        assert abs(a1 - a2) < 1e-6
+
+        video["history_data"].append({"timestamp": "2026-01-04 00:00:00"})
+        BaseAlgorithm.get_video_age_hours(algo, video)
+        assert calls["n"] == 2, "历史变化后应重新排序"
+
+    def test_fallback_timestamp_path(self):
+        import time
+
+        from algorithms.base import BaseAlgorithm
+
+        video = {"history_data": [], "timestamp": time.time() - 3600}
+        age = BaseAlgorithm.get_video_age_hours(self._algo(), video)
+        assert 0.9 < age < 1.1
