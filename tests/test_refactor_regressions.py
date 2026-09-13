@@ -2090,3 +2090,76 @@ class TestProxyListParsing:
         assert P._default_proto("a/SOCKS4.txt") == "socks4"
         assert P._default_proto("b/socks5.txt") == "socks5"
         assert P._default_proto("c.txt") == "http"
+
+
+class TestUpFetcherHelpers:
+    """M3.4: _source_a_up_stat 拆分后的分页汇总 / 兜底行为。"""
+
+    def test_single_page_no_pagination(self):
+        from core.up_fetcher import _sum_all_video_stats
+
+        first = {"list": [{"play": 10, "like": 1}, {"play": 20, "like": 2}]}
+        assert _sum_all_video_stats(None, first, sync_fn=lambda _req: None) == (30, 3)
+
+    def test_paginates_until_short_page(self):
+        from core.up_fetcher import _sum_all_video_stats
+
+        class _User:
+            def get_videos(self, ps=50, pn=1):
+                return {"pn": pn}
+
+        pages = {
+            2: {"list": [{"play": 100, "like": 10}] * 50},
+            3: {"list": [{"play": 5, "like": 1}]},  # 不足一页 → 停止
+        }
+        calls = []
+
+        def _sync(req):
+            calls.append(req["pn"])
+            return pages[req["pn"]]
+
+        first = {"list": [{"play": 1, "like": 0}], "page": {"count": 120}}
+        views, likes = _sum_all_video_stats(_User(), first, _sync)
+        assert (views, likes) == (1 + 5000 + 5, 0 + 500 + 1)
+        assert calls == [2, 3], "遇到不足一页即停"
+
+    def test_caps_at_ten_pages(self):
+        from core.up_fetcher import _sum_all_video_stats
+
+        class _User:
+            def get_videos(self, ps=50, pn=1):
+                return {"pn": pn}
+
+        calls = []
+
+        def _sync(req):
+            calls.append(req["pn"])
+            return {"list": [{"play": 1, "like": 0}] * 50}
+
+        first = {"list": [], "page": {"count": 5000}}
+        _sum_all_video_stats(_User(), first, _sync)
+        assert calls == list(range(2, 11)), "最多取 10 页（500 个视频）防失控"
+
+    def test_upstat_fallback_success_and_failure(self, monkeypatch):
+        import sys
+
+        import core.up_fetcher as uf
+
+        # 注意：core.bilibili_api 这个“包属性”是 BilibiliAPI 实例（core/__init__.py 的别名），
+        # 必须直接 patch 模块对象本身，否则 monkeypatch 会解析到实例。
+        api_mod = sys.modules["core.bilibili_api"]
+
+        class _Api:
+            BASE_URL = "https://api.bilibili.com"
+
+            def _request(self, *args, **kwargs):
+                return {"archive": {"view": 123}, "likes": 45}
+
+        monkeypatch.setattr(api_mod, "_get_api", lambda: _Api())
+        assert uf._upstat_fallback(1) == (123, 45)
+
+        def _boom():
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(api_mod, "_get_api", _boom)
+        assert uf._upstat_fallback(1) == (0, 0), "异常时返回 (0, 0) 不影响主流程"

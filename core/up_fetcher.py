@@ -13,7 +13,7 @@ UP主数据多源获取器
 
 import math
 import logging
-from typing import Dict, List, Optional, Callable
+from typing import Callable, Dict, List, Optional, Tuple
 
 import core.bilibili_api as _own_api_mod
 
@@ -226,6 +226,59 @@ def _fetch_video_count(u, uid: int, result: Dict) -> None:
             logger.debug("自有API获取投稿数失败 UID=%s: %s", uid, e)
 
 
+def _sum_all_video_stats(user, first_page: Dict, sync_fn) -> Tuple[int, int]:
+    """累加 UP 主全部视频的播放/点赞：分页取全量，最多 10 页（500 个）防失控。
+
+    Args:
+        user: bilibili_api 的 User 实例
+        first_page: 首页返回（须含 "list"）
+        sync_fn: bilibili_api.sync
+
+    Returns:
+        (total_views, total_likes)
+    """
+    views = sum(int(v.get("play", 0)) for v in first_page["list"])
+    likes = sum(int(v.get("like", 0)) for v in first_page["list"])
+    # 视频总数：bilibili-api-python 在 page.count，个别版本在顶层 count/total
+    page_info = first_page.get("page") or {}
+    total = page_info.get("count") or first_page.get("count") or first_page.get("total") or 0
+    if total <= 50:
+        return views, likes
+
+    for pn in range(2, min(math.ceil(total / 50), 10) + 1):
+        page_data = sync_fn(user.get_videos(ps=50, pn=pn))
+        if not page_data or "list" not in page_data or not page_data["list"]:
+            break
+        views += sum(int(v.get("play", 0)) for v in page_data["list"])
+        likes += sum(int(v.get("like", 0)) for v in page_data["list"])
+        if len(page_data["list"]) < 50:
+            break  # 不足一页说明已取完
+    return views, likes
+
+
+def _upstat_fallback(uid: int) -> Tuple[int, int]:
+    """用自有 API 的 upstat 兜底（get_videos 可能被 412 限流）。
+
+    Returns:
+        (views, likes)；失败返回 (0, 0)
+    """
+    try:
+        from core.bilibili_api import _get_api as _own_api
+
+        _api = _own_api()
+        data = _api._request(
+            "GET",
+            f"{_api.BASE_URL}/x/space/upstat",
+            params={"mid": uid},
+        )
+        views = data["archive"]["view"] if data and data.get("archive", {}).get("view") else 0
+        likes = data["likes"] if data and data.get("likes") else 0
+        return int(views or 0), int(likes or 0)
+    except Exception as e:
+        logger.debug("自有API upstat失败 UID=%s: %s", uid, e)
+        return 0, 0
+
+
 def _source_a_up_stat(uid: int) -> Optional[Dict]:
     """数据源A：使用 bilibili-api-python 获取 UP 主统计数据"""
     try:
@@ -247,43 +300,17 @@ def _source_a_up_stat(uid: int) -> Optional[Dict]:
         try:
             vdata = sync(u.get_videos(ps=50, pn=1))
             if vdata and "list" in vdata:
-                views = sum(int(v.get("play", 0)) for v in vdata["list"])
-                likes = sum(int(v.get("like", 0)) for v in vdata["list"])
-                # 视频总数：bilibili-api-python 在 vdata["page"]["count"]，个别版本在顶层 count/total
-                page_info = vdata.get("page") or {}
-                total = page_info.get("count") or vdata.get("count") or vdata.get("total") or 0
-                if total > 50:
-                    # 最多取 10 页（500 个视频）防失控
-                    for pn in range(2, min(math.ceil(total / 50), 10) + 1):
-                        page_data = sync(u.get_videos(ps=50, pn=pn))
-                        if not page_data or "list" not in page_data or not page_data["list"]:
-                            break
-                        views += sum(int(v.get("play", 0)) for v in page_data["list"])
-                        likes += sum(int(v.get("like", 0)) for v in page_data["list"])
-                        if len(page_data["list"]) < 50:
-                            break  # 不足一页说明已取完
-                stat["total_views"] = views
-                stat["total_likes"] = likes
+                stat["total_views"], stat["total_likes"] = _sum_all_video_stats(u, vdata, sync)
         except Exception as e:
             logger.debug("源A获取视频列表失败 UID=%s: %s", uid, e)
 
         # get_videos 可能被 412 限流，用自有 API 的 upstat 兜底（带 Cookie）
         if not stat["total_views"]:
-            try:
-                from core.bilibili_api import _get_api as _own_api
-
-                _api = _own_api()
-                data = _api._request(
-                    "GET",
-                    f"{_api.BASE_URL}/x/space/upstat",
-                    params={"mid": uid},
-                )
-                if data and data.get("archive", {}).get("view"):
-                    stat["total_views"] = data["archive"]["view"]
-                if data and data.get("likes"):
-                    stat["total_likes"] = data["likes"]
-            except Exception as e:
-                logger.debug("自有API upstat失败 UID=%s: %s", uid, e)
+            fb_views, fb_likes = _upstat_fallback(uid)
+            if fb_views:
+                stat["total_views"] = fb_views
+            if fb_likes:
+                stat["total_likes"] = fb_likes
 
         if stat.get("follower_count") or stat.get("total_views"):
             return stat
