@@ -413,7 +413,6 @@ class DanmakuAnalysisWindow:
         from utils.sentiment_analyzer import (
             analyze_sentiment,
             extract_keywords,
-            generate_word_freq,
         )
 
         sentiment = analyze_sentiment(texts)
@@ -421,7 +420,6 @@ class DanmakuAnalysisWindow:
 
         keywords = extract_keywords(texts, top_n=30)
         self._display_keywords(keywords)
-
 
         self._draw_time_distribution(texts)
 

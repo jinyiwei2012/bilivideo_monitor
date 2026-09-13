@@ -337,7 +337,7 @@ class OnlineLearner:
         if not agg:
             return {}
         # 平均 EWMA 误差 → 归一化为相对分数（误差小 → 分高）
-        avg_loss = sum(l for l, s in agg.values()) / sum(s for _, s in agg.values()) if agg else 0.0
+        avg_loss = sum(loss for loss, s in agg.values()) / sum(s for _, s in agg.values()) if agg else 0.0
         scores = {}
         for algo_name, (loss_w, samples) in agg.items():
             if samples < min_samples:

@@ -30,11 +30,10 @@ from algorithms.base import BaseAlgorithm, PredictionResult
 
 logger = logging.getLogger(__name__)
 
-# 检查 sklearn 是否可用（需要 IsotonicRegression 和 LogisticRegression）
+# 检查 sklearn 是否可用（需要 IsotonicRegression）
 _HAS_SKLEARN = False
 try:
     from sklearn.isotonic import IsotonicRegression  # 保序回归
-    from sklearn.linear_model import LogisticRegression  # 备用（未使用）
 
     _HAS_SKLEARN = True
 except ImportError:

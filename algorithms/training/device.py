@@ -513,7 +513,6 @@ def npu_context(enabled: bool = True):
     Args:
         enabled: True 表示启用 NPU，False 表示禁用（恢复到 auto）。
     """
-    global _preferred_device
     previous = _preferred_device
     try:
         if enabled:

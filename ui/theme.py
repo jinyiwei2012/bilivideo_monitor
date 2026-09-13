@@ -488,7 +488,7 @@ def init_theme(app: QApplication, dark: bool = False):
 
     必须在 QApplication 创建后调用。
     """
-    global qapp, C
+    global qapp
     qapp = app
 
     theme_dict = THEME_DARK if dark else THEME_LIGHT

@@ -508,7 +508,11 @@ class CentralCRUD:
             return True
         # SQLite INTEGER 最大值 (64位带符号)
         _SQLITE_INT_MAX = 2**63 - 1
-        _clamp_int = lambda v: min(max(int(v or 0), -_SQLITE_INT_MAX), _SQLITE_INT_MAX)
+
+        def _clamp_int(v):
+            """把数值夹到 SQLite 64 位有符号整数范围内。"""
+            return min(max(int(v or 0), -_SQLITE_INT_MAX), _SQLITE_INT_MAX)
+
         try:
             with self.db._get_connection() as conn:
                 cursor = conn.cursor()

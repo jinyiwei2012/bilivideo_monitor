@@ -873,8 +873,3 @@ class DatabaseQueryWindow(DialogBase):
         self._extra_data = []
         self._algo_names = []
         self._update_status("结果清空啦，像画上休止符，随时可以再唱哦 ♪")
-
-
-# 辅助信号类用于删除线程回调
-class _DeleteFinishSignal(QWidget):
-    finished = pyqtSignal(object, int)  # del_data, count

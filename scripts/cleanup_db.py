@@ -14,7 +14,9 @@
 用法: python scripts/cleanup_db.py [--dry-run]
 """
 
-import sqlite3, os, sys
+import os
+import sqlite3
+import sys
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -98,7 +100,9 @@ def main():
         print(f"\n[{d.name}]")
         for p in sorted(d.rglob("*.db"), key=lambda x: -os.path.getsize(x)):
             s, pr, pf = clean_one_db(p, dry)
-            total_saved += s; total_pred += pr; total_perf += pf
+            total_saved += s
+            total_pred += pr
+            total_perf += pf
 
     print(f"\n{'='*55}")
     print(f"总计: pred {total_pred}条 + perf {total_perf}条, 省 {total_saved:.0f}MB")

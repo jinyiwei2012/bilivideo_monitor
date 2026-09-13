@@ -410,7 +410,7 @@ class VideoTimeSeriesDataset(Dataset):
         # .copy() 断开与原始 numpy 数组的共享内存，确保 DataLoader 多进程安全
         self._series = [torch.from_numpy(s.copy()) for s in self._series]
         self._velocity = [torch.from_numpy(v.copy()) for v in self._velocity]
-        self._long_rate = [torch.from_numpy(l.copy()) for l in self._long_rate]
+        self._long_rate = [torch.from_numpy(rate.copy()) for rate in self._long_rate]
         # ── VRAM 预载：将全部时序数据提前移入 GPU 显存 ──
         # 消除训练时逐 batch 的 CPU→GPU 传输，但会占用显存
         # 仅 CUDA 设备启用（DirectML/NPU 不适合此模式）
@@ -418,7 +418,7 @@ class VideoTimeSeriesDataset(Dataset):
         if self._on_device:
             self._series = [s.to(device) for s in self._series]
             self._velocity = [v.to(device) for v in self._velocity]
-            self._long_rate = [l.to(device) for l in self._long_rate]
+            self._long_rate = [rate.to(device) for rate in self._long_rate]
         logger.info(
             "[dataset] 加载完成: %d 视频, %d 样本 (window=%d, horizon=%d, features=%d, derived=%d, max_ts=%.0f)",
             len(self._series),

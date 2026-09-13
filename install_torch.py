@@ -122,7 +122,7 @@ def install_from(mirror: str, wheel: str, packages: list[str]) -> bool:
     index = f"{mirror}/{wheel}"
     if run_pip(["install", *packages, "--index-url", index, "--extra-index-url", PYPI_MIRRORS[0]]):
         return True
-    print(f"  常规安装失败 (可能被已装包的元数据拦截), 尝试 --no-deps ...")
+    print("  常规安装失败 (可能被已装包的元数据拦截), 尝试 --no-deps ...")
     return run_pip(["install", *packages, "--no-deps", "--index-url", index])
 
 

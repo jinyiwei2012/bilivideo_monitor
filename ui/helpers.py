@@ -66,7 +66,6 @@ def _get_threshold_colors(n):
 
 def reload_thresholds():
     """从配置文件加载阈值列表"""
-    global THRESHOLDS, THRESHOLD_NAMES, THRESH_COLORS
     try:
         from config import load_config, DEFAULT_CONFIG
 

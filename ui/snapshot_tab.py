@@ -690,7 +690,6 @@ class SnapshotTab(QWidget):
             QMessageBox.warning(self, "♪ 提示", "呜…这个时间格式天依看不懂呢,试试 YYYY-MM-DD HH:MM 哦")
             return
 
-
         filtered = []
         for ts_str in all_ts:
             ts_dt = _parse_dt(ts_str)

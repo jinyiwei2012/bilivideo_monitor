@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 _HAS_SKLEARN = False
 try:
-    from sklearn.linear_model import Ridge, Lasso
+    from sklearn.linear_model import Ridge
     from sklearn.ensemble import GradientBoostingRegressor
 
     _HAS_SKLEARN = True
