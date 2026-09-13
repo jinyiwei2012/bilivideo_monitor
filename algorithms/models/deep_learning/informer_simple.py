@@ -146,7 +146,7 @@ class InformerSimpleAlgorithm(BaseAlgorithm):
         velocities, _ = self._calculate_velocity_series(views, timestamps)
 
         if len(velocities) < self.look_back_window:
-            velocity = velocities[-1] if len(velocities) > 0 else 0.0
+            velocity = float(velocities[-1]) if len(velocities) > 0 else 0.0
             return self._make_result(
                 current_views,
                 threshold,
@@ -221,7 +221,8 @@ class InformerSimpleAlgorithm(BaseAlgorithm):
         """
         n = len(series)
         if n < 2:
-            return np.eye(n) if n > 0 else np.array([])
+            identity: np.ndarray = np.eye(n) if n > 0 else np.array([])
+            return identity
 
         # 构造Q, K, V（简化：使用序列本身，省略线性变换）
         # 实际Transformer中QKV是通过线性变换得到的，这里简化
@@ -278,10 +279,11 @@ class InformerSimpleAlgorithm(BaseAlgorithm):
         distilled = []
         for i in range(0, n - downsample_rate + 1, downsample_rate):
             # 取局部最大值作为蒸馏后的表示
-            local_max = np.max(series[i : i + downsample_rate])
+            local_max = float(np.max(series[i : i + downsample_rate]))
             distilled.append(local_max)
 
-        return np.array(distilled)
+        distilled_array: np.ndarray = np.array(distilled)
+        return distilled_array
 
     def _predict_from_attention(
         self, attention_weights: Optional[np.ndarray], distilled: Optional[np.ndarray], velocities: np.ndarray
@@ -300,7 +302,7 @@ class InformerSimpleAlgorithm(BaseAlgorithm):
             (预测速度, 置信度)
         """
         if distilled is None or len(distilled) == 0:
-            predicted_vel = velocities[-1]
+            predicted_vel = float(velocities[-1])
             confidence = 0.4
             return max(predicted_vel, 0.0), confidence
 
@@ -309,25 +311,25 @@ class InformerSimpleAlgorithm(BaseAlgorithm):
         if len(distilled) >= 2:
             # 一次多项式趋势拟合
             x = np.arange(len(distilled))
-            slope = np.polyfit(x, distilled, 1)[0]
+            slope = float(np.polyfit(x, distilled, 1)[0])
 
             # 预测下一个值 = 最后值 + 趋势
-            next_value = distilled[-1] + slope
+            next_value = float(distilled[-1]) + slope
 
             # 结合近期速度加权平均（最近速度占 70%）
-            recent_vel = velocities[-1]
+            recent_vel = float(velocities[-1])
 
             # 加权平均（偏重近期实际速度）
             predicted_vel = 0.3 * next_value + 0.7 * recent_vel
 
             # 置信度：蒸馏后的序列越平滑，置信度越高
             if len(distilled) >= 3:
-                smoothness = 1.0 / (np.std(distilled) + 1e-6)
+                smoothness = 1.0 / (float(np.std(distilled)) + 1e-6)
                 confidence = min(0.8, 0.5 + 0.1 * smoothness)
             else:
                 confidence = 0.6
         else:
-            predicted_vel = velocities[-1]
+            predicted_vel = float(velocities[-1])
             confidence = 0.5
 
         return max(predicted_vel, 0.0), confidence

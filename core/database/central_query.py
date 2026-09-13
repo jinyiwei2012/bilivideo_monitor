@@ -3,7 +3,7 @@
 import csv
 import logging
 import os
-from typing import List, Dict
+from typing import Any, Dict, List, Sequence
 
 from .models import _validate_bvid
 
@@ -13,10 +13,10 @@ logger = logging.getLogger(__name__)
 class CentralQuery:
     """Query operations for central database (delegated from Database)"""
 
-    def __init__(self, database):
+    def __init__(self, database: Any) -> None:
         self.db = database
 
-    def _run_query(self, sql: str, params: tuple = ()) -> List[Dict]:
+    def _run_query(self, sql: str, params: Sequence[Any] = ()) -> List[Dict]:
         """执行查询并返回字典列表"""
         try:
             with self.db._get_connection() as conn:
@@ -32,11 +32,11 @@ class CentralQuery:
         return self._run_query(sql, (bvid,) + params)
 
     def query_monitor_records(
-        self, bvid: str, start_time: str = None, end_time: str = None, limit: int = 1000
+        self, bvid: str, start_time: str | None = None, end_time: str | None = None, limit: int = 1000
     ) -> List[Dict]:
         """按时间范围查询监控记录"""
         conditions = ["bvid = ?"]
-        params = [bvid]
+        params: list[Any] = [bvid]
         if start_time:
             conditions.append("timestamp >= ?")
             params.append(start_time)
@@ -86,7 +86,7 @@ class CentralQuery:
             logger.warning("获取统计失败: %s", e)
         return stats
 
-    def export_video_to_csv(self, bvid: str, filepath: str = None) -> str:
+    def export_video_to_csv(self, bvid: str, filepath: str | None = None) -> str:
         """导出视频数据到 CSV 文件"""
         _validate_bvid(bvid)
         if filepath is None:

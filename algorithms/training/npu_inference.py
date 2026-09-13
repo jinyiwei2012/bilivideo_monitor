@@ -370,7 +370,7 @@ class NpuInferenceEngine:
 
         ireq = entry.compiled_model.create_infer_request()
         ireq.infer([input_data])
-        result = ireq.get_output_tensor(0).data
+        result: np.ndarray = ireq.get_output_tensor(0).data
         self._stats.total_inferences += 1
         return result
 

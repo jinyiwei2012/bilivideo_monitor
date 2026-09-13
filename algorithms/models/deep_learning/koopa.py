@@ -131,7 +131,7 @@ class KoopaAlgorithm(BaseAlgorithm):
                     components.append(np.mean(np.diff(comp)) if len(comp) >= 2 else 0)
 
                 if components:
-                    growth = np.mean(components) * L  # × L 以还原到原始尺度
+                    growth = float(np.mean(components)) * L  # × L 以还原到原始尺度
                 else:
                     growth = velocity * 3600
             except np.linalg.LinAlgError:

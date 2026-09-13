@@ -24,7 +24,7 @@ Stacking 层次结构：
 
 import logging
 import numpy as np
-from typing import Dict
+from typing import Dict, Optional
 from algorithms.base import BaseAlgorithm, PredictionResult
 from algorithms.model_cache import get_or_fit
 
@@ -104,7 +104,7 @@ class StackingEnsembleAlgorithm(BaseAlgorithm):
 
         return self._numpy_stack(video_data, threshold)
 
-    def _sklearn_stack(self, video_data, threshold):
+    def _sklearn_stack(self, video_data, threshold) -> Optional[PredictionResult]:
         """
         sklearn 完整版 Stacking 集成。
 
@@ -137,7 +137,7 @@ class StackingEnsembleAlgorithm(BaseAlgorithm):
         n = len(views)
 
         p = 7  # 特征窗口
-        X, y = [], []
+        X_list, y_list = [], []
         for i in range(p, n - 1):
             feat = []
             # 基模型1: 简单线性趋势
@@ -148,23 +148,23 @@ class StackingEnsembleAlgorithm(BaseAlgorithm):
             # 基模型3: 加权移动平均速度
             feat.append(np.mean(np.diff(views[i - p : i])))
             # 基模型4: 互动率趋势
-            feat.append(np.mean(likes[i - p : i]) / max(np.mean(views[i - p : i]), 1))
+            feat.append(np.mean(likes[i - p : i]) / max(float(np.mean(views[i - p : i])), 1.0))
             # 基模型5: 投币趋势
-            feat.append(np.mean(coins[i - p : i]) / max(np.mean(views[i - p : i]), 1))
+            feat.append(np.mean(coins[i - p : i]) / max(float(np.mean(views[i - p : i])), 1.0))
             # 基模型6: 加速度（二阶差分均值）
             diffs = np.diff(views[i - p : i + 1])
             feat.append(np.mean(np.diff(diffs)) if len(diffs) >= 2 else 0)
             # 基模型7: 变异系数（波动程度）
-            sm = np.mean(views[i - p : i + 1])
+            sm = float(np.mean(views[i - p : i + 1]))
             feat.append(np.std(views[i - p : i + 1]) / max(sm, 1))
 
-            X.append(feat)
-            y.append(views[i] - views[i - 1])
+            X_list.append(feat)
+            y_list.append(views[i] - views[i - 1])
 
-        if len(X) < 10:
+        if len(X_list) < 10:
             return None
 
-        X, y = np.array(X), np.array(y)
+        X, y = np.array(X_list), np.array(y_list)
         # 80/20 训练/验证分割
         split = int(len(X) * 0.8)
         X_train, X_val = X[:split], X[split:]
@@ -196,10 +196,10 @@ class StackingEnsembleAlgorithm(BaseAlgorithm):
                 np.polyfit(np.arange(p), views[-p:], 1)[0],  # 基模型1
                 np.polyfit(np.arange(p), np.log(np.maximum(views[-p:], 1)), 1)[0],  # 基模型2
                 np.mean(np.diff(views[-p:])),  # 基模型3
-                np.mean(likes[-p:]) / max(np.mean(views[-p:]), 1),  # 基模型4
-                np.mean(coins[-p:]) / max(np.mean(views[-p:]), 1),  # 基模型5
+                np.mean(likes[-p:]) / max(float(np.mean(views[-p:])), 1.0),  # 基模型4
+                np.mean(coins[-p:]) / max(float(np.mean(views[-p:])), 1.0),  # 基模型5
                 np.mean(np.diff(np.diff(views[-(p + 1) :]))) if n >= p + 2 else 0,  # 基模型6
-                np.std(views[-p:]) / max(np.mean(views[-p:]), 1),  # 基模型7
+                np.std(views[-p:]) / max(float(np.mean(views[-p:])), 1.0),  # 基模型7
             ]
         ).reshape(1, -1)
 
@@ -231,7 +231,7 @@ class StackingEnsembleAlgorithm(BaseAlgorithm):
             },
         )
 
-    def _numpy_stack(self, video_data, threshold):
+    def _numpy_stack(self, video_data, threshold) -> PredictionResult:
         """
         numpy 简化版 Stacking 集成。
 

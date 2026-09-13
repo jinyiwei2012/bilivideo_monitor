@@ -93,7 +93,7 @@ class GaussianProcessAlgorithm(BaseAlgorithm):
         # numpy 回退：简化的 RBF 核 GP
         return self._numpy_predict(video_data, threshold)
 
-    def _sklearn_predict(self, video_data, threshold):
+    def _sklearn_predict(self, video_data, threshold) -> PredictionResult:
         """
         使用 sklearn GaussianProcessRegressor 进行预测
 
@@ -157,7 +157,7 @@ class GaussianProcessAlgorithm(BaseAlgorithm):
             metadata={"method": "gp_sklearn", "uncertainty": round(uncertainty, 4)},
         )
 
-    def _numpy_predict(self, video_data, threshold):
+    def _numpy_predict(self, video_data, threshold) -> PredictionResult:
         """
         使用 numpy 简化版 GP 进行预测
 

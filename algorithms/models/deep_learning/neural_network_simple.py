@@ -87,7 +87,7 @@ class NeuralNetworkSimpleAlgorithm(BaseAlgorithm):
 
         remaining = threshold - current_views
         if remaining <= 0:
-            predicted_hours = 0
+            predicted_hours: float = 0
             confidence = 1.0
         elif velocity <= 0:
             predicted_hours = float("inf")

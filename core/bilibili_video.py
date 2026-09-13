@@ -6,27 +6,27 @@ B站API模块 - 视频操作
 import math
 import random
 import logging
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 
 logger = logging.getLogger(__name__)
 
 
-def get_video_info(self, bvid: str) -> Optional[Dict]:
+def get_video_info(self: Any, bvid: str) -> Optional[Dict[str, Any]]:
     params = {"bvid": bvid}
     result = self._request("GET", self.VIDEO_URL, params=params)
     if result:
-        return result
+        return cast(Dict[str, Any], result)
     result = _get_video_info_fallback(self, bvid)
     if result:
         return result
     return _get_video_info_browser_fallback(self, bvid)
 
 
-def _get_video_info_browser_fallback(self, bvid: str) -> Optional[Dict]:
+def _get_video_info_browser_fallback(self: Any, bvid: str) -> Optional[Dict[str, Any]]:
     try:
         from core.browser_fallback import fetch_video_info_playwright
 
-        return fetch_video_info_playwright(bvid)
+        return cast(Optional[Dict[str, Any]], fetch_video_info_playwright(bvid))
     except ImportError:
         pass
     except Exception as e:
@@ -34,7 +34,7 @@ def _get_video_info_browser_fallback(self, bvid: str) -> Optional[Dict]:
     return None
 
 
-def _get_video_info_fallback(self, bvid: str) -> Optional[Dict]:
+def _get_video_info_fallback(self: Any, bvid: str) -> Optional[Dict[str, Any]]:
     try:
         from bilibili_api import sync
         from bilibili_api.video import Video
@@ -72,7 +72,7 @@ def _get_video_info_fallback(self, bvid: str) -> Optional[Dict]:
     return None
 
 
-def get_video_stat(self, bvid: str) -> Optional[Dict]:
+def get_video_stat(self: Any, bvid: str) -> Optional[Dict[str, Any]]:
     video_info = get_video_info(self, bvid)
     if not video_info:
         return None
@@ -89,7 +89,7 @@ def get_video_stat(self, bvid: str) -> Optional[Dict]:
     }
 
 
-def get_video_viewers(self, bvid: str, cid: Optional[int] = None) -> Optional[Dict]:
+def get_video_viewers(self: Any, bvid: str, cid: Optional[int] = None) -> Optional[Dict[str, Any]]:
     try:
         if cid is None:
             video_info = get_video_info(self, bvid)
@@ -113,7 +113,7 @@ def get_video_viewers(self, bvid: str, cid: Optional[int] = None) -> Optional[Di
     return None
 
 
-def _get_video_viewers_fallback(self, bvid: str, cid: int) -> Optional[Dict]:
+def _get_video_viewers_fallback(self: Any, bvid: str, cid: int) -> Optional[Dict[str, Any]]:
     try:
         from bilibili_api import sync
         from bilibili_api.video import Video
@@ -133,14 +133,14 @@ def _get_video_viewers_fallback(self, bvid: str, cid: int) -> Optional[Dict]:
     return None
 
 
-def get_video_cid(self, bvid: str) -> Optional[int]:
+def get_video_cid(self: Any, bvid: str) -> Optional[int]:
     info = get_video_info(self, bvid)
     if info:
         return info.get("cid")
     return None
 
 
-def get_video_danmaku(self, oid: int) -> List[Dict]:
+def get_video_danmaku(self: Any, oid: int) -> List[Dict[str, Any]]:
     try:
         self._ensure_min_interval()
         idx, proxy, ua = self.proxy_manager.get_proxy_binding()
@@ -162,7 +162,7 @@ def get_video_danmaku(self, oid: int) -> List[Dict]:
         from defusedxml.ElementTree import fromstring as _xml_parse
 
         root = _xml_parse(resp.content)
-        danmaku = []
+        danmaku: List[Dict[str, Any]] = []
         for d in root.findall(".//d"):
             p = d.get("p", "")
             parts = p.split(",")
@@ -180,10 +180,10 @@ def get_video_danmaku(self, oid: int) -> List[Dict]:
         return []
 
 
-def get_video_comments(self, aid: int, limit: int = 20) -> List[Dict]:
+def get_video_comments(self: Any, aid: int, limit: int = 20) -> List[Dict[str, Any]]:
     max_pages = 50 if limit == 0 else max(1, math.ceil(limit / 20))
     max_pages = min(max_pages, 250)
-    all_replies = []
+    all_replies: List[Dict[str, Any]] = []
 
     for page in range(1, max_pages + 1):
         params = {"oid": aid, "type": 1, "pn": page, "ps": 20, "sort": 2}

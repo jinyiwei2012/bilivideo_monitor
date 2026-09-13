@@ -20,7 +20,7 @@ Torch 实现 + 降级链：
 """
 
 import logging
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -158,7 +158,7 @@ class KnfAlgorithm(BaseAlgorithm):
         super().__init__()
         self._device = get_device()
         self._ckpt = CheckpointManager(self.algorithm_id)
-        self._cached_model = None
+        self._cached_model: Optional[KnfTorchModel] = None
         self._features = ["view_count", "like_count", "coin_count", "favorite_count", "share_count"]
 
     # —— BaseAlgorithm ——
@@ -179,7 +179,8 @@ class KnfAlgorithm(BaseAlgorithm):
         if _torch_available:
             try:
                 v, conf, meta = self._torch_predict(video_data)
-                return self._make_result(current_views, threshold, v, conf, "knf_torch", meta)
+                result: PredictionResult = self._make_result(current_views, threshold, v, conf, "knf_torch", meta)
+                return result
             except Exception as e:
                 logger.warning("[knf] torch 推理失败，降级 numpy: %s", e)
         return self._numpy_predict(video_data, current_views, threshold)
@@ -232,7 +233,7 @@ class KnfAlgorithm(BaseAlgorithm):
 
         history = video_data.get("history_data", [])
         n = self.training_window
-        arr = np.zeros((n, len(self._features)), dtype=np.float32)
+        arr: np.ndarray = np.zeros((n, len(self._features)), dtype=np.float32)
         recent = history[-n:] if len(history) >= n else history
         offset = n - len(recent)
         for i, e in enumerate(recent):
@@ -243,7 +244,8 @@ class KnfAlgorithm(BaseAlgorithm):
         mean = arr_ext.mean(axis=0, keepdims=True)
         std = arr_ext.std(axis=0, keepdims=True)
         std = np.where(std < 1e-8, 1.0, std)
-        return ((arr_ext - mean) / std).astype(np.float32)
+        normalized: np.ndarray = ((arr_ext - mean) / std).astype(np.float32)
+        return normalized
 
     def _denormalize_prediction(self, video_data: Dict[str, Any], y_norm: np.ndarray) -> float:
         """模型预测的是 z-score 后的速度差分，需反归一化到原始尺度。
@@ -258,7 +260,7 @@ class KnfAlgorithm(BaseAlgorithm):
         history = video_data.get("history_data", [])
         views = [float(e.get("view_count", 0) or 0) for e in history]
         if len(views) < 2:
-            return self.calculate_velocity(video_data)
+            return float(self.calculate_velocity(video_data))
         ts = []
         for e in history:
             t = e.get("timestamp", 0)
@@ -271,7 +273,7 @@ class KnfAlgorithm(BaseAlgorithm):
             if dt > 0:
                 velocities.append((views[i] - views[i - 1]) / dt)
         if not velocities:
-            return self.calculate_velocity(video_data)
+            return float(self.calculate_velocity(video_data))
         v = np.array(velocities, dtype=np.float32)
         mean = float(v.mean())
         std = float(v.std()) if len(v) > 1 else 1.0
@@ -298,13 +300,17 @@ class KnfAlgorithm(BaseAlgorithm):
         """
         history = video_data.get("history_data", [])
         if len(history) < 5:
-            v = self.calculate_velocity(video_data)
-            return self._make_result(current_views, threshold, v, 0.3, "insufficient_data", {})
+            velocity = self.calculate_velocity(video_data)
+            result: PredictionResult = self._make_result(
+                current_views, threshold, velocity, 0.3, "insufficient_data", {}
+            )
+            return result
 
         velocities = self._compute_velocity_series(history)
         if len(velocities) < 3:
-            v = self.calculate_velocity(video_data)
-            return self._make_result(current_views, threshold, v, 0.3, "short_series", {})
+            velocity = self.calculate_velocity(video_data)
+            result = self._make_result(current_views, threshold, velocity, 0.3, "short_series", {})
+            return result
 
         # 简化版 KNF：把速度序列做 EMA 平滑 + 一阶 AR 外推
         # EMA 模拟 Koopman 全局演化
@@ -318,7 +324,7 @@ class KnfAlgorithm(BaseAlgorithm):
         else:
             slope = 0.0
         predicted = max(0.0, ema + slope)  # EMA + 趋势修正
-        return self._make_result(
+        result = self._make_result(
             current_views,
             threshold,
             predicted,
@@ -326,6 +332,7 @@ class KnfAlgorithm(BaseAlgorithm):
             "knf_numpy_fallback",
             {"ema": ema, "slope": slope, "method": "knf_simplified"},
         )
+        return result
 
     @staticmethod
     def _compute_velocity_series(history: List[Dict]) -> List[float]:

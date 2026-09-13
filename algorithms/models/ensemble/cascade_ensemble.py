@@ -78,7 +78,7 @@ class CascadeEnsembleAlgorithm(BaseAlgorithm):
             return 0.0
         np.arange(n)  # 生成 x 轴索引（后续可能用于扩展）
         slope = (views[-1] - views[0]) / max(n - 1, 1)  # 首尾斜率
-        return slope
+        return float(slope)
 
     def _level2_prediction(self, views: np.ndarray, l1_output: float) -> Tuple[float, float]:
         """
@@ -145,7 +145,7 @@ class CascadeEnsembleAlgorithm(BaseAlgorithm):
 
         # 最终: 组合三级信息
         final = l2_output * 0.5 + seasonal_effect * 0.3 + (l2_smoothed - views[-1]) * 0.2
-        return final
+        return float(final)
 
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
         """
@@ -240,7 +240,7 @@ class CascadeEnsembleAlgorithm(BaseAlgorithm):
             predictions = [l1_daily, l2_daily, l3_daily]
             pred_mean = np.mean(predictions)
             pred_std = np.std(predictions)
-            consistency = max(0.0, 1.0 - pred_std / max(abs(pred_mean), 1))  # 三级一致性
+            consistency = max(0.0, 1.0 - pred_std / max(abs(float(pred_mean)), 1.0))  # 三级一致性
 
             # ── 逐日模拟预测 ─────────────────────────
             forecast_days = min(365, max(10, int((threshold - current_views) / max(daily_growth, 1)) + 5))
@@ -259,7 +259,7 @@ class CascadeEnsembleAlgorithm(BaseAlgorithm):
             if target_day is not None and target_day <= 365:
                 predicted_hours = target_day * 24
                 data_qual = min(1.0, n / 15)  # 数据质量因子
-                conf = min(0.9, 0.35 + 0.2 * data_qual + 0.2 * consistency + 0.1 * quality + 0.05 * engagement)
+                conf = float(min(0.9, 0.35 + 0.2 * data_qual + 0.2 * consistency + 0.1 * quality + 0.05 * engagement))
             else:
                 predicted_hours = remaining / velocity
                 conf = 0.35

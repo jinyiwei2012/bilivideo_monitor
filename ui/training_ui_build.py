@@ -1,8 +1,11 @@
 """UI construction for :mod:`ui.training_panel`."""
 
+from typing import Optional, cast
+
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QButtonGroup,
+    QBoxLayout,
     QCheckBox,
     QComboBox,
     QFrame,
@@ -14,23 +17,31 @@ from PyQt6.QtWidgets import (
     QRadioButton,
     QSpinBox,
     QVBoxLayout,
+    QWidget,
 )
 
 from ui.helpers import FONT, FONT_SM
 from ui.scrollable_frame import ScrollableFrame
 from ui.theme import C
+from ui.training_base import _TrainingPanelContract
 from utils.update_checker import _train
 
 
-class TrainingUiMixin:
+class TrainingUiMixin(_TrainingPanelContract):
+    _train_btn: Optional[QPushButton]
+    _cancel_btn: Optional[QPushButton]
+    _skip_btn: Optional[QPushButton]
+    _progress: Optional[QProgressBar]
+    _status_lbl: Optional[QLabel]
+
     def _build_ui(self):
         """构建训练面板的完整 UI 布局"""
-        outer_layout = QVBoxLayout(self)
+        outer_layout = QVBoxLayout(cast(QWidget, self))
         outer_layout.setContentsMargins(0, 0, 0, 0)
         outer_layout.setSpacing(0)
 
         # ── 顶部信息栏：设备信息、数据规模、强制 CPU 开关 ──
-        info_bar = QFrame(self)
+        info_bar = QFrame(cast(QWidget, self))
         info_bar.setStyleSheet(f"background-color: {C['bg_elevated']};")
         info_layout = QHBoxLayout(info_bar)
         info_layout.setContentsMargins(8, 8, 8, 4)
@@ -67,7 +78,7 @@ class TrainingUiMixin:
         info_layout.addWidget(refresh_btn)
 
         # ── 主体区域: 左(算法列表) | 右(图表+日志) ──
-        body = QFrame(self)
+        body = QFrame(cast(QWidget, self))
         body.setStyleSheet(f"background-color: {C['bg_base']};")
         outer_layout.addWidget(body, 1)
         body_layout = QHBoxLayout(body)
@@ -78,13 +89,13 @@ class TrainingUiMixin:
         self._build_chart_section(body)
 
         # ── 底部控制栏 ──
-        self._build_controls(self)
+        self._build_controls(cast(QWidget, self))
 
     def _build_algo_section(self, parent):
         """构建左侧算法列表区域"""
         left = QFrame(parent)
         left.setStyleSheet(f"background-color: {C['bg_surface']};")
-        parent_layout = parent.layout()
+        parent_layout = cast(QBoxLayout, parent.layout())
         parent_layout.addWidget(left, 35)
 
         left_layout = QVBoxLayout(left)
@@ -147,13 +158,13 @@ class TrainingUiMixin:
             lbl.setFixedWidth(w)
             hdr_row_layout.addWidget(lbl)
         hdr_row_layout.addStretch()
-        self._algo_frame.layout().addWidget(hdr_row)  # 将表头添加到滚动容器的布局中
+        cast(QBoxLayout, self._algo_frame.layout()).addWidget(hdr_row)  # 将表头添加到滚动容器的布局中
 
     def _build_chart_section(self, parent):
         """构建右侧图表和日志区域"""
         right = QFrame(parent)
         right.setStyleSheet(f"background-color: {C['bg_surface']};")
-        parent_layout = parent.layout()
+        parent_layout = cast(QBoxLayout, parent.layout())
         parent_layout.addWidget(right, 65)
 
         right_layout = QVBoxLayout(right)
@@ -227,7 +238,7 @@ class TrainingUiMixin:
         self._mode_incremental = QRadioButton("增量训练")
         self._mode_retrain = QRadioButton("重新训练")
         self._mode_retrain.setEnabled(_train() == "normal")
-        self._mode_group = QButtonGroup(self)
+        self._mode_group = QButtonGroup(cast(QWidget, self))
         self._mode_group.addButton(self._mode_incremental)
         self._mode_group.addButton(self._mode_retrain)
         self._mode_incremental.setChecked(True)
@@ -297,5 +308,5 @@ class TrainingUiMixin:
         ctrl_layout.addWidget(self._status_lbl)
 
         # Add ctrl to parent layout
-        parent_layout = self.layout()
+        parent_layout = cast(QBoxLayout, self.layout())
         parent_layout.addWidget(ctrl)

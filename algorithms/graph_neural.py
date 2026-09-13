@@ -20,7 +20,7 @@
 import math
 import threading
 import logging
-from typing import Dict, List, Optional
+from typing import cast, Dict, List, Optional
 from datetime import datetime
 from collections import defaultdict
 import numpy as np
@@ -475,7 +475,7 @@ class VideoGraph:
 
         if count == 0:
             return 0.0
-        return min(1.0, w)
+        return cast(float, min(1.0, w))
 
 
 # ── 全局单例 ────────────────────────────────────────

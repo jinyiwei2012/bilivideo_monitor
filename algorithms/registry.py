@@ -6,9 +6,11 @@
 产生带权重加权的集成预测结果（ensemble prediction）。
 """
 
-from typing import Dict, List
+from concurrent.futures import ThreadPoolExecutor
+from typing import Dict, List, Optional, Tuple
 import threading
 
+from .base import BaseAlgorithm
 from . import weight_manager as _weight_manager
 from .registry_parts import EnsembleMixin, FeaturePrepMixin, ModelLoadMixin, WarmupMixin
 from .registry_parts._shared import _LRUDict, _MAX_CACHE_SIZE, logger
@@ -26,10 +28,10 @@ class AlgorithmRegistry(FeaturePrepMixin, EnsembleMixin, WarmupMixin, ModelLoadM
         - 输出加权集成预测 + 保形预测区间
     """
 
-    _algorithms: Dict = {}
+    _algorithms: Dict[str, BaseAlgorithm] = {}
     _initialized = False
     _pool_lock = threading.RLock()  # RLock to allow reentrant pool access
-    _pool = None
+    _pool: Optional[ThreadPoolExecutor] = None
     _init_lock = threading.Lock()
     _history_lock = threading.Lock()
     _cache_lock = threading.Lock()  # 保护 _derived_cache 并发读写
@@ -37,11 +39,11 @@ class AlgorithmRegistry(FeaturePrepMixin, EnsembleMixin, WarmupMixin, ModelLoadM
 
     # B3: 集成偏差校准 —— 记录每个 bvid 上一次集成预测 (prediction, current_value)
     # 下次预测时用新的 current_value 作"实际值"验证 growth 偏差
-    _prev_ensemble_pred: Dict = {}
+    _prev_ensemble_pred: Dict[str, Tuple[Optional[float], Optional[float]]] = {}
     _prev_ensemble_lock = threading.Lock()
 
     @classmethod
-    def _record_ensemble_feedback(cls, bvid: str, current_value: float):
+    def _record_ensemble_feedback(cls, bvid: str, current_value: float) -> None:
         """用上一轮集成预测验证本轮实际增长，记录系统性偏差样本 (B3)。"""
         if not bvid:
             return
@@ -65,7 +67,7 @@ class AlgorithmRegistry(FeaturePrepMixin, EnsembleMixin, WarmupMixin, ModelLoadM
             logger.debug("记录集成偏差样本失败: %s", e)
 
     @classmethod
-    def reset_ensemble_bias(cls, bvid: str):
+    def reset_ensemble_bias(cls, bvid: str) -> None:
         """删除某视频的偏差样本（删除监控时调用）。"""
         with cls._prev_ensemble_lock:
             cls._prev_ensemble_pred.pop(bvid, None)
@@ -77,7 +79,7 @@ class AlgorithmRegistry(FeaturePrepMixin, EnsembleMixin, WarmupMixin, ModelLoadM
             pass
 
     @classmethod
-    def initialize(cls):
+    def initialize(cls) -> None:
         """初始化：自动加载并注册所有算法（双检锁线程安全）
 
         只会执行一次，之后的重复调用被忽略。
@@ -95,7 +97,7 @@ class AlgorithmRegistry(FeaturePrepMixin, EnsembleMixin, WarmupMixin, ModelLoadM
             logger.info("算法注册完成，共 %d 个算法", len(cls._algorithms))
 
     @classmethod
-    def get_algorithm(cls, name: str):
+    def get_algorithm(cls, name: str) -> Optional[BaseAlgorithm]:
         """按名称获取已注册的算法实例。"""
         if not cls._initialized:
             cls.initialize()
@@ -112,11 +114,11 @@ class AlgorithmRegistry(FeaturePrepMixin, EnsembleMixin, WarmupMixin, ModelLoadM
         for key, algo in cls._algorithms.items():
             raw_id = getattr(algo, "algorithm_id", None)
             if raw_id == algorithm_id:
-                return key
+                return str(key)
         return algorithm_id
 
     @classmethod
-    def get_all_algorithms(cls):
+    def get_all_algorithms(cls) -> List[BaseAlgorithm]:
         """获取所有已注册算法实例的列表。"""
         if not cls._initialized:
             cls.initialize()
@@ -130,7 +132,7 @@ class AlgorithmRegistry(FeaturePrepMixin, EnsembleMixin, WarmupMixin, ModelLoadM
         return list(cls._algorithms.keys())
 
     @classmethod
-    def shutdown(cls):
+    def shutdown(cls) -> None:
         """关闭线程池，释放资源（应用退出时调用）。"""
         with cls._pool_lock:
             pool = cls._pool
@@ -139,7 +141,7 @@ class AlgorithmRegistry(FeaturePrepMixin, EnsembleMixin, WarmupMixin, ModelLoadM
             pool.shutdown(wait=False)
 
     @classmethod
-    def reset(cls):
+    def reset(cls) -> None:
         """重置注册器：清空所有已注册算法并关闭线程池。"""
         cls.shutdown()
         cls._algorithms = {}

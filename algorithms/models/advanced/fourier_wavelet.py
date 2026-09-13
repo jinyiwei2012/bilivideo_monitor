@@ -118,7 +118,9 @@ class FourierWaveletAlgorithm(BaseAlgorithm):
                 # 周期性强度：重建序列最近 14 点的标准差 vs 残差标准差
                 # 周期性越强，预测越不确定（因为波动大）
                 periodicity = (
-                    np.std(reconstructed[-14:]) / max(np.std(detrended), 1) if len(reconstructed) >= 14 else 0.5
+                    float(np.std(reconstructed[-14:])) / max(float(np.std(detrended)), 1)
+                    if len(reconstructed) >= 14
+                    else 0.5
                 )
                 confidence = max(0.1, min(0.8, 0.5 - periodicity * 0.3))
 

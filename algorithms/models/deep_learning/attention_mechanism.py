@@ -124,7 +124,7 @@ class AttentionMechanismAlgorithm(BaseAlgorithm):
 
             if predicted_growth <= 0:
                 views = [d["view"] for d in history_data]
-                predicted_growth = max(1, np.mean([views[i] - views[i - 1] for i in range(1, len(views))]))
+                predicted_growth = max(1.0, float(np.mean([views[i] - views[i - 1] for i in range(1, len(views))])))
 
             remaining = target_views - current_views
             days_needed = remaining / predicted_growth
@@ -177,9 +177,10 @@ class AttentionMechanismAlgorithm(BaseAlgorithm):
 
             sequence.append([view / 10000, growth_rate / 1000, like_rate * 10, time_enc])
 
-        return np.array(sequence)
+        prepared: np.ndarray = np.array(sequence)
+        return prepared
 
-    def _apply_attention(self, sequence: np.ndarray) -> np.ndarray:
+    def _apply_attention(self, sequence: np.ndarray) -> float:
         """应用简化版缩放点积注意力机制。
 
         使用最近 3 步的平均作为查询向量（Query），
@@ -211,7 +212,7 @@ class AttentionMechanismAlgorithm(BaseAlgorithm):
         attention_weights = exp_scores / np.sum(exp_scores)
 
         # 加权求和得到上下文
-        context = np.sum(attention_weights * values)
+        context = float(np.sum(attention_weights * values))
 
         return context
 
@@ -230,7 +231,7 @@ class AttentionMechanismAlgorithm(BaseAlgorithm):
             预测的每日播放量增长（不低于 1）
         """
         # 最近的增长率（反归一化）
-        recent_growth = sequence[-1][1] * 1000  # 反归一化（乘以1000）
+        recent_growth = float(sequence[-1][1]) * 1000  # 反归一化（乘以1000）
 
         # 注意力上下文（反归一化）
         attention_growth = context * 1000  # 反归一化（乘以1000）
@@ -238,7 +239,7 @@ class AttentionMechanismAlgorithm(BaseAlgorithm):
         # 结合两者（近期偏重 60%）
         predicted = 0.6 * recent_growth + 0.4 * attention_growth
 
-        return max(1, predicted)  # 保底最小值
+        return max(1.0, float(predicted))  # 保底最小值
 
     def _calculate_confidence(self, sequence: np.ndarray, context: float) -> float:
         """计算预测置信度。
@@ -263,7 +264,7 @@ class AttentionMechanismAlgorithm(BaseAlgorithm):
         growth_rates = sequence[:, 1]  # 增长率列
         if len(growth_rates) > 1:
             cv = np.std(growth_rates) / (np.mean(np.abs(growth_rates)) + 0.001)  # 变异系数
-            stability = max(0, 1 - cv)  # CV 越小越稳定
+            stability = max(0.0, 1.0 - float(cv))  # CV 越小越稳定
             base_conf = 0.6 * base_conf + 0.4 * stability
 
         return min(0.9, base_conf)

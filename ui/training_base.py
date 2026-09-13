@@ -11,13 +11,14 @@ import queue as _q
 import time
 import math
 import logging
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, cast
 
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
     QLabel,
+    QLayout,
     QPushButton,
     QPlainTextEdit,
     QProgressBar,
@@ -32,6 +33,144 @@ from ui.helpers import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class _TrainingPanelContract:
+    """Static contract shared by split training-panel mixins; empty at runtime."""
+
+    if TYPE_CHECKING:
+        main: Any
+        _training: bool
+        _cancel_flag: List[bool]
+        _skip_algo_flag: List[bool]
+        _train_thread: Optional[threading.Thread]
+        _train_queue: Optional[_q.Queue[Any]]
+        _train_t0: Optional[float]
+        _loss_history: List[Dict[str, Any]]
+        _monitor: "TrainingMonitor"
+        _last_monitor_status: str
+        _last_monitor_log_epoch: int
+        _train_btn: Optional[QPushButton]
+        _cancel_btn: Optional[QPushButton]
+        _skip_btn: Optional[QPushButton]
+        _progress: Optional[QProgressBar]
+        _status_lbl: Optional[QLabel]
+        _force_cpu_cb: Any
+        _device_lbl: QLabel
+        _data_lbl: QLabel
+        _saved_title: Optional[str]
+
+    if TYPE_CHECKING:
+
+        def _launch_worker(self, worker_func: Any) -> None:
+            pass
+
+        def _append_log(self, text: str) -> None:
+            pass
+
+        def _prepare_training(self) -> None:
+            pass
+
+        def _cleanup_training(self) -> None:
+            pass
+
+        def _build_chart_widgets(self, parent: QWidget, title: str = "") -> QWidget:
+            pass
+
+        def _build_monitor_bar(self, parent: QWidget) -> QWidget:
+            pass
+
+        def _build_log_widgets(self, parent: QWidget, title: str = "日志") -> QWidget:
+            pass
+
+        def _update_chart(self) -> None:
+            pass
+
+        def _refresh_monitor(self) -> None:
+            pass
+
+        def _on_force_cpu(self) -> None:
+            pass
+
+        def _refresh_all(self) -> None:
+            pass
+
+        def _select_all(self, flag: bool) -> None:
+            pass
+
+        def _select_untrained(self) -> None:
+            pass
+
+    if TYPE_CHECKING:
+
+        def _on_manage_versions(self, algo_id: Optional[str] = None) -> None:
+            pass
+
+        def _on_lr_auto_toggle(self) -> None:
+            pass
+
+        def _on_train_start(self) -> None:
+            pass
+
+        def _on_cancel(self) -> None:
+            pass
+
+        def _on_skip_algo(self) -> None:
+            pass
+
+        def _on_batch_finetune(self) -> None:
+            pass
+
+        def _start_train_thread(self, *args: Any) -> None:
+            pass
+
+        def _open_log_file(self, algo_count: int, epochs: int, batch: int, mode: str, lr: float = 0.001) -> None:
+            pass
+
+        def _close_log_file(self) -> None:
+            pass
+
+        def _safe_sb(self, key: str, text: str, color: Any = None) -> None:
+            pass
+
+        def _refresh_algo_list(self) -> None:
+            pass
+
+    if TYPE_CHECKING:
+
+        def _update_algo_row(
+            self,
+            aid: str,
+            status: Optional[str] = None,
+            status_color: Any = None,
+            conf: Optional[str] = None,
+            conf_color: Any = None,
+            ver: Optional[str] = None,
+        ) -> None:
+            pass
+
+        def layout(self) -> Optional[QLayout]:
+            pass
+
+        def window(self) -> Optional[QWidget]:
+            pass
+
+
+if TYPE_CHECKING:
+
+    class _TypedAsyncQueueRunner:
+        _train_thread: Optional[threading.Thread]
+        _train_queue: Optional[_q.Queue[Any]]
+        _train_t0: Optional[float]
+
+        def _launch_worker(self, worker_func: Any) -> None:
+            pass
+
+        def _cleanup_training(self) -> None:
+            pass
+
+else:
+    _TypedAsyncQueueRunner = AsyncQueueRunner
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 训练质量监控器
@@ -53,6 +192,9 @@ class TrainingMonitor:
         self.suggestions: List[str] = []
         self._overfit_streak = 0  # 过拟合连续计数
         self._no_improve_streak = 0  # 不收敛连续计数
+        self._finding_level = "good"
+        self._finding_status = "训练正常"
+        self._finding_suggestions: List[str] = []
 
     STATUS_LABELS = {
         "good": ("● 训练良好", C["success"]),
@@ -239,50 +381,62 @@ class TrainingMonitor:
         if n < 2:
             return 1.0
 
-        # 爆炸：按跳升比例大幅降低 LR
         if issue_type == "explosion":
-            prev = pts[-2][1]
-            curr = pts[-1][1]
-            if prev > 1e-8 and curr > prev:
-                jump_ratio = curr / prev
-                scale = 1.0 / max(jump_ratio, 1.5)
-                return max(0.1, min(0.6, scale))
-            return 0.5
-
-        # 震荡：按变异系数降低 LR
+            return self._explosion_lr_scale(pts)
         if issue_type == "oscillation":
-            recent = [p[1] for p in pts[-min(6, n) :]]
-            mean = sum(recent) / len(recent)
-            if mean > 1e-8:
-                max_dev = max(abs(v - mean) for v in recent)
-                cv = max_dev / mean
-                scale = 1.0 / (1.0 + cv * 3.0)
-                return max(0.3, min(0.9, scale))
-            return 0.7
-
-        # 过拟合：按验证 loss 上升比例降低 LR
+            return self._oscillation_lr_scale(pts, n)
         if issue_type == "overfitting":
-            recent_vl = [p[2] for p in pts[-4:] if p[2] >= 0]
-            if len(recent_vl) >= 3:
-                vl_increasing = sum(1 for i in range(1, len(recent_vl)) if recent_vl[i] > recent_vl[i - 1])
-                ratio = vl_increasing / (len(recent_vl) - 1)
-                scale = 1.0 - ratio * 0.5
-                return max(0.3, min(0.85, scale))
-            return 0.7
-
-        # 欠拟合：按实际下降速度与目标速度的比值提高 LR
+            return self._overfitting_lr_scale(pts)
         if issue_type == "underfitting":
-            early_avg = sum(p[1] for p in pts[:3]) / 3
-            late_avg = sum(p[1] for p in pts[-3:]) / 3
-            if early_avg > 1e-8 and late_avg > 0:
-                drop_ratio = (early_avg - late_avg) / early_avg
-                per_epoch = drop_ratio / max(1, n - 1)
-                target_per_epoch = 0.015
-                scale = target_per_epoch / max(1e-4, per_epoch)
-                return max(1.05, min(2.5, scale))
-            return 1.5
-
+            return self._underfitting_lr_scale(pts, n)
         return 1.0
+
+    @staticmethod
+    def _explosion_lr_scale(pts: List[tuple]) -> float:
+        """按 loss 跳升比例降低学习率。"""
+        prev = pts[-2][1]
+        curr = pts[-1][1]
+        if prev > 1e-8 and curr > prev:
+            jump_ratio = curr / prev
+            scale = 1.0 / max(jump_ratio, 1.5)
+            return float(max(0.1, min(0.6, scale)))
+        return 0.5
+
+    @staticmethod
+    def _oscillation_lr_scale(pts: List[tuple], n: int) -> float:
+        """按 loss 变异系数降低学习率。"""
+        recent = [p[1] for p in pts[-min(6, n) :]]
+        mean = sum(recent) / len(recent)
+        if mean > 1e-8:
+            max_dev = max(abs(v - mean) for v in recent)
+            cv = max_dev / mean
+            scale = 1.0 / (1.0 + cv * 3.0)
+            return float(max(0.3, min(0.9, scale)))
+        return 0.7
+
+    @staticmethod
+    def _overfitting_lr_scale(pts: List[tuple]) -> float:
+        """按验证 loss 上升比例降低学习率。"""
+        recent_vl = [p[2] for p in pts[-4:] if p[2] >= 0]
+        if len(recent_vl) >= 3:
+            vl_increasing = sum(1 for i in range(1, len(recent_vl)) if recent_vl[i] > recent_vl[i - 1])
+            ratio = vl_increasing / (len(recent_vl) - 1)
+            scale = 1.0 - ratio * 0.5
+            return max(0.3, min(0.85, scale))
+        return 0.7
+
+    @staticmethod
+    def _underfitting_lr_scale(pts: List[tuple], n: int) -> float:
+        """按实际下降速度与目标速度的比值提高学习率。"""
+        early_avg = sum(p[1] for p in pts[:3]) / 3
+        late_avg = sum(p[1] for p in pts[-3:]) / 3
+        if early_avg > 1e-8 and late_avg > 0:
+            drop_ratio = (early_avg - late_avg) / early_avg
+            per_epoch = drop_ratio / max(1, n - 1)
+            target_per_epoch = 0.015
+            scale = target_per_epoch / max(1e-4, per_epoch)
+            return float(max(1.05, min(2.5, scale)))
+        return 1.5
 
     # ── 动态梯度裁剪系数 ──────────────────────
 
@@ -306,7 +460,7 @@ class TrainingMonitor:
             curr = pts[-1][1]
             if prev > 1e-8 and curr > prev:
                 jump_ratio = curr / prev
-                return max(0.1, min(10.0, 2.0 / max(1.5, jump_ratio - 0.5)))
+                return float(max(0.1, min(10.0, 2.0 / max(1.5, jump_ratio - 0.5))))
             return 1.0
 
         # 震荡：按变异系数计算裁剪阈值
@@ -316,7 +470,7 @@ class TrainingMonitor:
             if mean > 1e-8:
                 max_dev = max(abs(v - mean) for v in recent)
                 cv = max_dev / mean
-                return max(0.5, min(20.0, 5.0 / max(1.0, cv * 2)))
+                return float(max(0.5, min(20.0, 5.0 / max(1.0, cv * 2))))
             return 5.0
 
         return 0.0
@@ -364,7 +518,7 @@ class TrainingMonitor:
 # ══════════════════════════════════════════════════════════════════════════════
 
 
-class BaseTrainingPanel(AsyncQueueRunner, QWidget):
+class BaseTrainingPanel(_TypedAsyncQueueRunner, QWidget):
     """训练/微调面板的共享基类 — PyQt6 版。
 
     提供：
@@ -412,7 +566,7 @@ class BaseTrainingPanel(AsyncQueueRunner, QWidget):
         # 图表（由 _build_chart_widgets 设置）
         self._fig: Optional[Figure] = None
         self._canvas: Optional[FigureCanvasQTAgg] = None
-        self._ax = None
+        self._ax: Any = None
 
         # 日志（由 _build_log_widgets 设置）
         self._log_text: Optional[QPlainTextEdit] = None
@@ -452,7 +606,7 @@ class BaseTrainingPanel(AsyncQueueRunner, QWidget):
             return chart_frame
 
         # 初始化 matplotlib 图表的样式和轴
-        self._fig = Figure(figsize=(5, 2.5), dpi=80, facecolor=C["bg_elevated"])
+        self._fig = Figure(figsize=(5, 2.5), dpi=80, facecolor=cast(str, C["bg_elevated"]))
         self._ax = self._fig.add_subplot(111)
         self._ax.set_facecolor(C["bg_elevated"])
         self._ax.tick_params(colors=C["text_3"], labelsize=7)

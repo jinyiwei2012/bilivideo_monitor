@@ -149,20 +149,20 @@ class NHitsAlgorithm(BaseAlgorithm):
                 # 非重叠窗口均值池化（模拟MaxPool）
                 pooled = np.array([np.mean(scale_views[i : i + k]) for i in range(0, len(scale_views) - k + 1, k)])
                 if len(pooled) >= 2:
-                    growth = np.mean(np.diff(pooled))  # 该尺度下的平均增长
+                    growth = float(np.mean(np.diff(pooled)))  # 该尺度下的平均增长
                     scales.append(growth / k)  # 归一化到原始尺度（每步增长）
 
         if scales:
-            growth = np.mean(scales)  # 各尺度均值融合
+            growth = float(np.mean(scales))  # 各尺度均值融合
         else:
             growth = velocity * 3600  # 无有效尺度时回退到当前速度
 
         # === 残差修正 (模拟 backcast 残差传递) ===
         # 最近观察值与多尺度估计的加权融合
-        recent_growth = views[-1] - views[-2] if len(views) >= 2 else growth
+        recent_growth = float(views[-1] - views[-2]) if len(views) >= 2 else growth
         predicted_growth = 0.6 * growth + 0.4 * recent_growth  # 残差修正权重 6:4
 
-        predicted_velocity = max(0, predicted_growth / 3600)
+        predicted_velocity = max(0.0, float(predicted_growth) / 3600)
         if predicted_velocity < 1:
             predicted_velocity = velocity  # 预测速度过低时使用当前速度兜底
 

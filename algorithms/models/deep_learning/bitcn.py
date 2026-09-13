@@ -133,14 +133,14 @@ class BiTCNAlgorithm(BaseAlgorithm):
             if n >= len(kernel):
                 diffs = np.diff(views)
                 conv_signal = np.convolve(diffs[-len(kernel) :], kernel, mode="valid")
-                conv_growth = np.mean(conv_signal) if len(conv_signal) > 0 else 0
+                conv_growth = float(np.mean(conv_signal)) if len(conv_signal) > 0 else 0.0
             else:
-                conv_growth = np.mean(np.diff(views))
+                conv_growth = float(np.mean(np.diff(views)))
         else:
             conv_growth = velocity * 3600
 
         # 融合双向 + 卷积三路信号
-        forward_growth = max(0, fwd_ema - views[-1]) + np.mean(np.diff(views[-3:])) if n >= 3 else 0
+        forward_growth = max(0.0, float(fwd_ema - views[-1])) + float(np.mean(np.diff(views[-3:]))) if n >= 3 else 0.0
         backward_growth = max(0, views[-1] - bwd_ema) * 0.3  # 反向修正 (权重较低)
         growth = 0.5 * forward_growth + 0.2 * backward_growth + 0.3 * conv_growth
 

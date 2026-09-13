@@ -1,10 +1,16 @@
 """FeaturePrepMixin extracted from algorithms.registry."""
 
-from typing import Dict, List, Tuple
+import threading
+from typing import Any, Dict, List, Tuple
 from datetime import datetime
+
+from ._shared import _LRUDict
 
 
 class FeaturePrepMixin:
+    _cache_lock: threading.Lock
+    _derived_cache: _LRUDict
+
     @classmethod
     def _content_digest(cls, history_list: List) -> str:
         """派生特征缓存键的内容摘要：全量时间戳+播放量的轻量 md5。
@@ -202,7 +208,7 @@ class FeaturePrepMixin:
 
     @classmethod
     def _compute_derived_features(cls, view_values, history_list):
-        derived = {}
+        derived: Dict[str, Any] = {}
         import numpy as np
 
         n = len(view_values)

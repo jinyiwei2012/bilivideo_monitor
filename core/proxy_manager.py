@@ -9,7 +9,7 @@ import re
 import threading
 import time
 import warnings
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Match, Optional, Tuple
 
 import requests
 
@@ -30,9 +30,9 @@ class ProxyManager:
     # 全局 SSL 验证开关（默认关闭以兼容自签名代理证书）
     ssl_verify: bool = False
 
-    def __init__(self):
+    def __init__(self) -> None:
         """初始化代理管理器，设置代理列表、UA 映射、失败计数等"""
-        self.proxies: List[Dict] = []
+        self.proxies: List[Dict[str, str]] = []
         self.current_proxy_index = 0
         self._proxy_ua_map: Dict[int, str] = {}  # 代理索引 → 绑定 UA
         self._proxy_failure_count: Dict[int, int] = {}  # 代理索引 → 失败次数
@@ -51,7 +51,7 @@ class ProxyManager:
     def _check_socks() -> bool:
         """检测 PySocks 是否可用"""
         try:
-            import socks  # noqa: F401
+            __import__("socks")
 
             return True
         except ImportError:
@@ -76,7 +76,7 @@ class ProxyManager:
         if "@" in url:
             url = f"***@{url.split('@', 1)[-1]}"
 
-        def _mask_ip(m):
+        def _mask_ip(m: Match[str]) -> str:
             ip = m.group(0)
             parts = ip.split(".")
             if len(parts) == 4:
@@ -87,7 +87,7 @@ class ProxyManager:
 
     # ── UA 绑定 ────────────────────────────────────────────
 
-    def init_ua_bindings(self):
+    def init_ua_bindings(self) -> None:
         """为每个代理绑定一个固定UA"""
         for i in range(len(self.proxies)):
             self._proxy_ua_map[i] = random.choice(self.USER_AGENTS)
@@ -97,7 +97,7 @@ class ProxyManager:
 
     # ── 代理轮询 ──────────────────────────────────────────
 
-    def get_proxy_binding(self) -> Tuple[Optional[int], Optional[Dict], Optional[str]]:
+    def get_proxy_binding(self) -> Tuple[Optional[int], Optional[Dict[str, str]], Optional[str]]:
         """获取下一个代理及其绑定UA，跳过失败过多的代理（线程安全）"""
         with self._lock:
             if not self.proxies:
@@ -124,7 +124,7 @@ class ProxyManager:
             self._current_request_proxy_idx = idx
             return idx, self.proxies[0], self._proxy_ua_map.get(0, random.choice(self.USER_AGENTS))
 
-    def get_next_proxy(self) -> Optional[Dict]:
+    def get_next_proxy(self) -> Optional[Dict[str, str]]:
         """获取下一个代理（简单轮询，不检查失败计数）"""
         with self._lock:
             if not self.proxies:
@@ -150,7 +150,7 @@ class ProxyManager:
 
     # ── 添加/清理 ─────────────────────────────────────────
 
-    def add_proxy(self, proxy: Dict):
+    def add_proxy(self, proxy: Dict[str, str]) -> None:
         """添加代理（自动识别协议）"""
         with self._lock:
             normalized = {}
@@ -163,7 +163,7 @@ class ProxyManager:
         masked = self.mask_url(proxy.get("http", "unknown"))
         logger.info(f"已添加代理: {masked}")
 
-    def clear_proxies(self):
+    def clear_proxies(self) -> None:
         """清空代理列表"""
         with self._lock:
             self.proxies = []
@@ -183,7 +183,7 @@ class ProxyManager:
             if proxy_idx is not None and proxy_idx < len(self.proxies):
                 current_failures = self._proxy_failure_count.get(proxy_idx, 0)
                 self._proxy_failure_count[proxy_idx] = current_failures + 1
-                new_ua = random.choice(self.USER_AGENTS)
+                new_ua: str = random.choice(self.USER_AGENTS)
                 self._proxy_ua_map[proxy_idx] = new_ua
                 masked = self.mask_url(self.proxies[proxy_idx].get("http", ""))
                 total = current_failures + 1
@@ -217,7 +217,7 @@ class ProxyManager:
     }
 
     @staticmethod
-    def _build_result() -> dict:
+    def _build_result() -> Dict[str, Any]:
         """构建代理测试结果的默认字典"""
         return {
             "ok": False,
@@ -265,7 +265,7 @@ class ProxyManager:
         return f"连接失败: {err_str[:200]}"
 
     @staticmethod
-    def _proxy_http_request(proxy_url: str, test_url: str, ua: str, timeout: int) -> dict:
+    def _proxy_http_request(proxy_url: str, test_url: str, ua: str, timeout: int) -> Dict[str, Any]:
         """通过代理发起 HTTP 请求，成功返回响应结果，失败在 result 中记录 error 并返回"""
         import requests
         from urllib3.exceptions import InsecureRequestWarning
@@ -306,7 +306,7 @@ class ProxyManager:
         return result
 
     @staticmethod
-    def _parse_bilibili_json(resp, result: dict) -> dict:
+    def _parse_bilibili_json(resp: requests.Response, result: Dict[str, Any]) -> Dict[str, Any]:
         """解析 B站 API JSON 响应，返回填充后的 result"""
         result["latency_ms"] = result.get("latency_ms") or 0
 
@@ -335,7 +335,7 @@ class ProxyManager:
         return result
 
     @staticmethod
-    def _proxy_geo_lookup(proxy_url: str, ua: str, timeout: int) -> dict:
+    def _proxy_geo_lookup(proxy_url: str, ua: str, timeout: int) -> Dict[str, Any]:
         """通过 ip-api.com 查询代理出口 IP 的地区/ASN/ISP，出错返回空 dict"""
         import requests
         from urllib3.exceptions import InsecureRequestWarning
@@ -367,7 +367,7 @@ class ProxyManager:
         return {}
 
     @staticmethod
-    def _log_test_result(proxy_url: str, result: dict):
+    def _log_test_result(proxy_url: str, result: Dict[str, Any]) -> None:
         """记录代理测试结果到日志"""
         masked = ProxyManager.mask_url(proxy_url)
         if result.get("ok"):
@@ -380,7 +380,7 @@ class ProxyManager:
 
     # ── 代理自动发现 ──────────────────────────────────
 
-    def start_auto_discovery(self, interval: int = 600):
+    def start_auto_discovery(self, interval: int = 600) -> None:
         """启动后台线程定期自动发现免费代理"""
         self._discovery_interval = interval
         if not self._auto_discovery_running:
@@ -388,7 +388,7 @@ class ProxyManager:
             threading.Thread(target=self._auto_discovery_loop, daemon=True, name="proxy-discovery").start()
             logger.info(f"代理自动发现已启动（间隔 {interval}s）")
 
-    def _auto_discovery_loop(self):
+    def _auto_discovery_loop(self) -> None:
         """后台自动发现循环"""
         while self._auto_discovery_running:
             try:
@@ -406,7 +406,7 @@ class ProxyManager:
         "https://raw.githubusercontent.com/ProxyScrape/free-proxy-list/refs/heads/main/proxies/all/data.json",
     ]
 
-    def _discover_free_proxies(self):
+    def _discover_free_proxies(self) -> None:
         """从多个免费代理源拉取代理列表并加入池"""
         added = 0
         tested = 0
@@ -507,7 +507,7 @@ class ProxyManager:
             return False
 
     @staticmethod
-    def test_proxy(proxy_url: str, timeout: int = 30, test_url: str = None) -> dict:
+    def test_proxy(proxy_url: str, timeout: int = 30, test_url: Optional[str] = None) -> Dict[str, Any]:
         """测试单个代理的可用性、延迟、地区、ASN、ISP
 
         默认测试 B站视频 API，实际获取一次数据验证代理可用性。

@@ -13,7 +13,7 @@ UP主数据多源获取器
 
 import math
 import logging
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 
 import core.bilibili_api as _own_api_mod
 
@@ -37,7 +37,7 @@ except ImportError:
 
 
 # ── 工具 ──────────────────────────────────────────────────
-def _fmt_tried(sources: list) -> str:
+def _fmt_tried(sources: List[str]) -> str:
     """格式化已尝试的数据源列表，用箭头连接"""
     return " → ".join(s for s in sources if s)
 
@@ -47,7 +47,9 @@ def _fmt_tried(sources: list) -> str:
 # ══════════════════════════════════════════════════════════
 
 
-def get_up_info_multi(uid: int, own_api_get_up_info: Callable) -> Optional[Dict]:
+def get_up_info_multi(
+    uid: int, own_api_get_up_info: Callable[[int], Optional[Dict[str, Any]]]
+) -> Optional[Dict[str, Any]]:
     """多源获取 UP 主基本信息
 
     Args:
@@ -86,7 +88,9 @@ def get_up_info_multi(uid: int, own_api_get_up_info: Callable) -> Optional[Dict]
     return None
 
 
-def get_up_stat_multi(uid: int, own_api_get_up_stat: Callable) -> Optional[Dict]:
+def get_up_stat_multi(
+    uid: int, own_api_get_up_stat: Callable[[int], Optional[Dict[str, Any]]]
+) -> Optional[Dict[str, Any]]:
     """多源获取 UP 主统计数据（总播放 / 总点赞 / 粉丝）"""
     tried = []
 
@@ -114,7 +118,9 @@ def get_up_stat_multi(uid: int, own_api_get_up_stat: Callable) -> Optional[Dict]
     return None
 
 
-def search_up_users_multi(keyword: str, page: int, own_api_search: Callable) -> List[Dict]:
+def search_up_users_multi(
+    keyword: str, page: int, own_api_search: Callable[[str, int], List[Dict[str, Any]]]
+) -> List[Dict[str, Any]]:
     """多源搜索 UP 主"""
     tried = []
 
@@ -147,7 +153,7 @@ def search_up_users_multi(keyword: str, page: int, own_api_search: Callable) -> 
 # ══════════════════════════════════════════════════════════
 
 
-def _source_a_up_info(uid: int) -> Optional[Dict]:
+def _source_a_up_info(uid: int) -> Optional[Dict[str, Any]]:
     """数据源A：使用 bilibili-api-python 获取 UP 主基本信息"""
     try:
         from bilibili_api.user import User
@@ -167,7 +173,7 @@ def _source_a_up_info(uid: int) -> Optional[Dict]:
     return None
 
 
-def _fetch_from_bilibili_api(u, uid: int) -> Optional[Dict]:
+def _fetch_from_bilibili_api(u: Any, uid: int) -> Optional[Dict[str, Any]]:
     """从 bilibili-api-python 的 get_user_info 获取 UP 主基本信息"""
     from bilibili_api import sync
 
@@ -188,7 +194,7 @@ def _fetch_from_bilibili_api(u, uid: int) -> Optional[Dict]:
     }
 
 
-def _fetch_relation_info(u, uid: int, result: Dict) -> None:
+def _fetch_relation_info(u: Any, uid: int, result: Dict[str, Any]) -> None:
     """从 get_relation_info() 获取粉丝数"""
     from bilibili_api import sync
 
@@ -200,7 +206,7 @@ def _fetch_relation_info(u, uid: int, result: Dict) -> None:
         logger.debug("获取粉丝数失败 UID=%s: %s", uid, e)
 
 
-def _fetch_video_count(u, uid: int, result: Dict) -> None:
+def _fetch_video_count(u: Any, uid: int, result: Dict[str, Any]) -> None:
     """获取投稿数：先用 bilibili-api-python，再用自有 API 兜底"""
     from bilibili_api import sync
 
@@ -226,7 +232,7 @@ def _fetch_video_count(u, uid: int, result: Dict) -> None:
             logger.debug("自有API获取投稿数失败 UID=%s: %s", uid, e)
 
 
-def _sum_all_video_stats(user, first_page: Dict, sync_fn) -> Tuple[int, int]:
+def _sum_all_video_stats(user: Any, first_page: Dict[str, Any], sync_fn: Callable[[Any], Any]) -> Tuple[int, int]:
     """累加 UP 主全部视频的播放/点赞：分页取全量，最多 10 页（500 个）防失控。
 
     Args:
@@ -279,7 +285,7 @@ def _upstat_fallback(uid: int) -> Tuple[int, int]:
         return 0, 0
 
 
-def _source_a_up_stat(uid: int) -> Optional[Dict]:
+def _source_a_up_stat(uid: int) -> Optional[Dict[str, Any]]:
     """数据源A：使用 bilibili-api-python 获取 UP 主统计数据"""
     try:
         from bilibili_api import sync
@@ -319,7 +325,7 @@ def _source_a_up_stat(uid: int) -> Optional[Dict]:
     return None
 
 
-def _source_a_search(keyword: str, page: int) -> Optional[List[Dict]]:
+def _source_a_search(keyword: str, page: int) -> Optional[List[Dict[str, Any]]]:
     """数据源A：使用 bilibili-api-python 搜索 UP 主"""
     try:
         from bilibili_api import sync
@@ -327,7 +333,7 @@ def _source_a_search(keyword: str, page: int) -> Optional[List[Dict]]:
 
         results = sync(search_by_type(keyword, SearchObjectType.USER, page=page))
         if results and "result" in results:
-            return results["result"]
+            return cast(List[Dict[str, Any]], results["result"])
     except Exception as e:
         logger.debug("源 A search 失败: %s", e)
     return None
@@ -351,7 +357,7 @@ _CURL_HEADERS = {
 }
 
 
-def _curl_get(path: str, params: dict = None) -> Optional[Dict]:
+def _curl_get(path: str, params: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     """使用 curl_cffi 发起 GET 请求（TLS 指纹 = Chrome120）"""
     if not _HAS_CURL_CFFI:
         return None
@@ -368,14 +374,14 @@ def _curl_get(path: str, params: dict = None) -> Optional[Dict]:
         if resp.status_code == 200:
             data = resp.json()
             if data.get("code") == 0:
-                return data.get("data")
+                return cast(Optional[Dict[str, Any]], data.get("data"))
         return None
     except Exception as e:
         logger.debug("curl_cffi GET %s 失败: %s", path, e)
         return None
 
 
-def _source_b_up_info(uid: int) -> Optional[Dict]:
+def _source_b_up_info(uid: int) -> Optional[Dict[str, Any]]:
     """数据源B：使用 curl_cffi 获取 UP 主基本信息"""
     data = _curl_get("/x/space/acc/info", {"mid": uid})
     if data:
@@ -393,7 +399,7 @@ def _source_b_up_info(uid: int) -> Optional[Dict]:
     return None
 
 
-def _source_b_up_stat(uid: int) -> Optional[Dict]:
+def _source_b_up_stat(uid: int) -> Optional[Dict[str, Any]]:
     """数据源B：使用 curl_cffi 获取 UP 主统计数据"""
     data = _curl_get("/x/space/upstat", {"mid": uid})
     if data:
@@ -411,7 +417,7 @@ def _source_b_up_stat(uid: int) -> Optional[Dict]:
     return _source_b_stat_from_videos(uid)
 
 
-def _source_b_stat_from_videos(uid: int, max_pages: int = 5) -> Optional[Dict]:
+def _source_b_stat_from_videos(uid: int, max_pages: int = 5) -> Optional[Dict[str, Any]]:
     """数据源B 兜底：从 UP 主视频列表逐页汇总总播放量和总点赞数"""
     total_views = 0
     total_likes = 0
@@ -439,12 +445,12 @@ def _source_b_stat_from_videos(uid: int, max_pages: int = 5) -> Optional[Dict]:
     return None
 
 
-def _source_b_search(keyword: str, page: int) -> Optional[List[Dict]]:
+def _source_b_search(keyword: str, page: int) -> Optional[List[Dict[str, Any]]]:
     """数据源B：使用 curl_cffi 搜索 UP 主"""
     data = _curl_get(
         "/x/web-interface/search/type",
         {"search_type": "bili_user", "keyword": keyword, "page": page},
     )
     if data and "result" in data:
-        return data["result"]
+        return cast(List[Dict[str, Any]], data["result"])
     return None

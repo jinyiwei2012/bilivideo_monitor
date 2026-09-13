@@ -3,6 +3,7 @@ OneBot / Notification / Webhook 通知设置 — PyQt6 版
 """
 
 import logging
+from typing import TYPE_CHECKING, Any
 
 from PyQt6.QtWidgets import (
     QWidget,
@@ -16,6 +17,7 @@ from PyQt6.QtWidgets import (
     QComboBox,
 )
 from ui.theme import C
+from ui.dialog_base import DialogBase
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +32,24 @@ _WEBHOOK_TYPES = [
 
 class SettingsNotificationMixin:
     """OneBot / Webhook notification settings tab."""
+
+    _cfg: dict[str, Any]
+    dlg: DialogBase
+
+    if TYPE_CHECKING:
+
+        def _section(self, parent: QWidget, title: str, padding: tuple[int, ...] | None = None) -> QWidget:
+            raise NotImplementedError
+
+        def _field(
+            self,
+            parent: QWidget,
+            label: str,
+            default: Any,
+            show: Any = None,
+            show_password: Any = None,
+        ) -> QLineEdit:
+            raise NotImplementedError
 
     def _build_notification_tab(self, nb):
         page = QWidget()
@@ -57,11 +77,14 @@ class SettingsNotificationMixin:
         self.onebot_enabled = QCheckBox("启用 OneBot 通知")
         self.onebot_enabled.setChecked(enabled)
         self.onebot_enabled.setStyleSheet(f"color: {C['text_2']};")
-        sec.layout().addWidget(self.onebot_enabled)
+        sec_layout = sec.layout()
+        if sec_layout is not None:
+            sec_layout.addWidget(self.onebot_enabled)
 
         test_btn = QPushButton("测试连接")
         test_btn.clicked.connect(self._test_connection)
-        sec.layout().addWidget(test_btn)
+        if sec_layout is not None:
+            sec_layout.addWidget(test_btn)
 
         # ── Webhook 机器人 ──
         self._build_webhook_section(page)
@@ -70,6 +93,8 @@ class SettingsNotificationMixin:
         """Webhook 机器人：企业微信 / 钉钉 / Slack / Discord / 自定义"""
         sec = self._section(page, "Webhook 机器人")
         self._webhook_sec_layout = sec.layout()
+        if self._webhook_sec_layout is None:
+            return
 
         saved = self._cfg.get("notification", {}).get("webhooks", []) or []
         for wh in saved:

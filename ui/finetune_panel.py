@@ -6,12 +6,14 @@
 """
 
 import logging
-from typing import Dict, List
+from queue import Queue
+from typing import Any, Dict, List, cast
 
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
+    QLayout,
     QLabel,
     QPushButton,
     QCheckBox,
@@ -47,6 +49,13 @@ except ImportError:
 
 class FinetunePanel(FinetuneJobsMixin, FinetuneProgressMixin, BaseTrainingPanel):
     """微调面板 — 与训练面板同级同显示"""
+
+    _cancel_btn: QPushButton
+    _monitor_status: QLabel
+    _progress: QProgressBar
+    _skip_btn: QPushButton
+    _status_lbl: QLabel
+    _train_queue: Queue[dict[str, Any]]
 
     def __init__(self, parent: QWidget, main_gui):
         super().__init__(parent, main_gui)
@@ -322,7 +331,7 @@ class FinetunePanel(FinetuneJobsMixin, FinetuneProgressMixin, BaseTrainingPanel)
         self._status_lbl.setFixedWidth(250)
         ctrl_layout.addWidget(self._status_lbl)
 
-        parent_layout = self.layout()
+        parent_layout = cast(QLayout, self.layout())
         parent_layout.addWidget(ctrl)
 
     # ══════════════════════════════════════════════
@@ -493,8 +502,10 @@ class FinetunePanel(FinetuneJobsMixin, FinetuneProgressMixin, BaseTrainingPanel)
                 return 0.0
             for v in versions:
                 if v["version"] == active_v:
-                    return loss_to_confidence(v.get("val_loss", -1.0))
-            return loss_to_confidence(versions[0].get("val_loss", -1.0))
+                    confidence = loss_to_confidence(v.get("val_loss", -1.0))
+                    return float(confidence)
+            confidence = loss_to_confidence(versions[0].get("val_loss", -1.0))
+            return float(confidence)
         except Exception as e:
             import logging
 

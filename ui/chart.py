@@ -6,22 +6,17 @@
 """
 
 from datetime import datetime
+from typing import cast
+from PyQt6.QtCore import QPointF, QRectF, Qt
+from PyQt6.QtGui import QBrush, QColor, QFont, QPainter, QPen, QPolygonF
 from PyQt6.QtWidgets import (
+    QGraphicsItem,
     QGraphicsView,
     QGraphicsScene,
     QGraphicsTextItem,
-    QGraphicsItem,
+    QStyleOptionGraphicsItem,
     QWidget,
     QVBoxLayout,
-)
-from PyQt6.QtCore import Qt, QRectF, QPointF
-from PyQt6.QtGui import (
-    QPainter,
-    QPen,
-    QBrush,
-    QColor,
-    QFont,
-    QPolygonF,
 )
 
 from ui.theme import C
@@ -49,7 +44,7 @@ class _PolylineItem(QGraphicsItem):
         bounds: 图元包围盒（已含笔宽/半径余量）
     """
 
-    def __init__(self, points, dots, line_color, line_width, dot_outline, dot_width, bounds):
+    def __init__(self, points, dots, line_color, line_width, dot_outline, dot_width, bounds: QRectF):
         super().__init__()
         self._points = [(float(x), float(y)) for x, y in points]
         self._dots = [(float(x), float(y), float(r), QColor(color)) for x, y, r, color in dots]
@@ -59,10 +54,16 @@ class _PolylineItem(QGraphicsItem):
         self._dot_width = float(dot_width)
         self._bounds = bounds
 
-    def boundingRect(self):  # noqa: N802 (Qt 命名约定)
+    def boundingRect(self) -> QRectF:  # noqa: N802 (Qt 命名约定)
         return self._bounds
 
-    def paint(self, painter, option, widget=None):  # noqa: N802 (Qt 命名约定)
+    def paint(
+        self,
+        painter: QPainter | None,
+        option: QStyleOptionGraphicsItem | None,
+        widget: QWidget | None = None,
+    ) -> None:  # noqa: N802 (Qt 命名约定)
+        painter = cast(QPainter, painter)
         if len(self._points) >= 2:
             painter.setPen(QPen(self._line_color, self._line_width))
             painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -315,7 +316,6 @@ class ChartWidget(QWidget):
     def _draw_annotations(self, history, views_list, px, py, W, H, ML, MR, MB, base_v=0):
         """绘制标注、时间轴、图例、预测点"""
         n = len(history)
-        # 最新值标注
         lx = px(n - 1, n)
         lv = py(views_list[-1])
         cur_val = views_list[-1]
@@ -323,24 +323,25 @@ class ChartWidget(QWidget):
         label_text = f"+{fmt_num(cur_val)}" if cur_val > 0 and base_v else fmt_num(cur_val)
         self._draw_text(lx, lv - 14, label_text, QColor(C["on_accent"]), 8, Qt.AlignmentFlag.AlignCenter)
 
-        # 预测投影
+        self._draw_prediction_projection(lx, lv, n, px, py, W, ML, MR, base_v)
+        self._draw_time_labels(history, px, H, MB)
+        self._draw_legend(ML, base_v)
+
+    def _draw_prediction_projection(self, lx, lv, n, px, py, W, ML, MR, base_v):
         if self._prediction:
             w_pred = self._prediction.get("prediction", 0)
             pred_val = w_pred - base_v if base_v > 0 else w_pred
             if pred_val > 0:
-                last_x = lx
-                last_y = lv
                 spacing_val = (W - ML - MR) / (n - 1) if n > 1 else 30
-                proj_x = min(last_x + spacing_val, W - MR - 10)
+                proj_x = min(lx + spacing_val, W - MR - 10)
                 proj_y = py(pred_val)
-                # 虚线连接
-                self._draw_line(last_x, last_y, proj_x, proj_y, _PRED_COLOR, dash=(4, 4))
-                # 预测点
+                self._draw_line(lx, lv, proj_x, proj_y, _PRED_COLOR, dash=(4, 4))
                 self._draw_oval(proj_x, proj_y, 4, _PRED_COLOR, C["on_accent"], 2)
                 label = f"预测 {fmt_num(int(pred_val))}" if base_v else f"预测 {fmt_num(int(w_pred))}"
                 self._draw_text(proj_x, proj_y - 14, label, QColor(_PRED_COLOR), 8, Qt.AlignmentFlag.AlignCenter)
 
-        # X 轴时间标签
+    def _draw_time_labels(self, history, px, H, MB):
+        n = len(history)
         step = max(1, n // 6)
         for i, (ts, _) in enumerate(history):
             if i % step == 0 or i == n - 1:
@@ -349,7 +350,7 @@ class ChartWidget(QWidget):
                     t_str = ""
                 self._draw_text(px(i, n), H - MB + 6, t_str, QColor(C["text_3"]), 8, Qt.AlignmentFlag.AlignCenter)
 
-        # 图例
+    def _draw_legend(self, ML, base_v):
         items = [("播放" + ("增长" if base_v else "量"), C["bilibili"])]
         for idx in range(min(3, len(THRESHOLD_NAMES))):
             items.append((THRESHOLD_NAMES[idx] + "阈值", THRESH_COLORS[idx]))

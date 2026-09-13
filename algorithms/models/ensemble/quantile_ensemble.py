@@ -19,7 +19,7 @@
 """
 
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import numpy as np
 
@@ -123,13 +123,15 @@ class QuantileEnsembleAlgorithm(BaseAlgorithm):
 
         if _HAS_SKLEARN:
             try:
-                return self._sklearn_predict(video_data, threshold)
+                result = self._sklearn_predict(video_data, threshold)
+                if result is not None:
+                    return result
             except Exception as e:
                 logger.debug("分位数集成 sklearn 失败: %s", e)
 
         return self._numpy_predict(video_data, threshold)
 
-    def _sklearn_predict(self, video_data, threshold):
+    def _sklearn_predict(self, video_data, threshold) -> Optional[PredictionResult]:
         """
         使用 sklearn GBR + pinball loss 训练多分位数模型。
 
@@ -156,15 +158,15 @@ class QuantileEnsembleAlgorithm(BaseAlgorithm):
         coins = np.array([h.get("coin_count", 0) for h in history], dtype=np.float64)
 
         p = 5  # 滑动窗口大小
-        X, y = [], []
+        X_list, y_list = [], []
         for i in range(p, len(views)):
             feat = []
             for j in range(1, p + 1):
                 feat.extend([views[i - j], likes[i - j], coins[i - j], np.log(max(views[i - j], 1))])
-            X.append(feat)
-            y.append(views[i])
+            X_list.append(feat)
+            y_list.append(views[i])
 
-        X, y = np.array(X), np.array(y)
+        X, _ = np.array(X_list), np.array(y_list)
         if len(X) < 8:
             return None
 
@@ -206,7 +208,7 @@ class QuantileEnsembleAlgorithm(BaseAlgorithm):
 
         remaining = threshold - current_views
         if remaining <= 0:
-            predicted_hours, confidence = 0, 1.0
+            predicted_hours, confidence = 0.0, 1.0
         else:
             predicted_hours = remaining / predicted_velocity if predicted_velocity > 0 else float("inf")
             # 区间宽度倒数为置信度：区间越窄 → 置信度越高
@@ -228,7 +230,7 @@ class QuantileEnsembleAlgorithm(BaseAlgorithm):
             },
         )
 
-    def _numpy_predict(self, video_data, threshold):
+    def _numpy_predict(self, video_data, threshold) -> PredictionResult:
         """
         使用 numpy bootstrap 模拟分位数预测。
 
@@ -267,14 +269,14 @@ class QuantileEnsembleAlgorithm(BaseAlgorithm):
         # 用 bootstrap 模拟分位数预测
         diffs = np.diff(views)  # 增量序列
         n_boot = 200  # bootstrap 抽样次数
-        bootstraps = []
+        bootstrap_samples = []
         rng = np.random.RandomState(42)  # 固定种子保证可复现
         for _ in range(n_boot):
             sample = rng.choice(diffs, size=len(diffs), replace=True)  # 有放回抽样
-            bootstraps.append(np.mean(sample))  # 每次取均值
+            bootstrap_samples.append(np.mean(sample))  # 每次取均值
 
         # 排序后取分位数
-        bootstraps = np.sort(bootstraps)
+        bootstraps = np.sort(bootstrap_samples)
         q10 = bootstraps[int(n_boot * 0.1)]  # 10% 分位数
         q25 = bootstraps[int(n_boot * 0.25)]  # 25% 分位数
         q50 = bootstraps[int(n_boot * 0.5)]  # 50% 分位数（中位数）

@@ -1,8 +1,10 @@
 """PyTorch model definitions extracted from the compatibility facade."""
 
+from typing import TYPE_CHECKING
+
 from .context import _torch_available, nn
 
-if _torch_available:  # noqa: C901
+if _torch_available or TYPE_CHECKING:  # noqa: C901
 
     class LSTMTorchModel(nn.Module):
         """LSTM 长短期记忆网络 PyTorch 模型骨架。
@@ -253,13 +255,13 @@ if _torch_available:  # noqa: C901
             return self.head(h.flatten(1))
 
 else:
-    LSTMTorchModel = None  # type: ignore
-    GRUTorchModel = None  # type: ignore
-    BiLSTMTorchModel = None  # type: ignore
-    MLPTorchModel = None  # type: ignore
-    TCNTorchModel = None  # type: ignore
-    CNNLSTMTorchModel = None  # type: ignore
-    AttentionTorchModel = None  # type: ignore
+    LSTMTorchModel = None
+    GRUTorchModel = None
+    BiLSTMTorchModel = None
+    MLPTorchModel = None
+    TCNTorchModel = None
+    CNNLSTMTorchModel = None
+    AttentionTorchModel = None
 
 __all__ = [
     "LSTMTorchModel",

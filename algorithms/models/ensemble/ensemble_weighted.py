@@ -69,7 +69,7 @@ class EnsembleWeightedAlgorithm(BaseAlgorithm):
         weighted_predictions = []
         if remaining <= 0:
             # 已达标
-            predicted_hours = 0
+            predicted_hours = 0.0
             confidence = 1.0
         elif velocity <= 0:
             # 无增长

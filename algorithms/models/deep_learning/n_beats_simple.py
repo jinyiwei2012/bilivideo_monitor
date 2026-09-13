@@ -145,7 +145,7 @@ class NBeatsSimpleAlgorithm(BaseAlgorithm):
 
         if len(velocities) < self.lookback_window:
             # 数据不够回看窗口，使用平均速度
-            avg_vel = np.mean(velocities) if len(velocities) > 0 else 10.0
+            avg_vel = float(np.mean(velocities)) if len(velocities) > 0 else 10.0
             return self._make_result(
                 current_views,
                 threshold,
@@ -165,9 +165,9 @@ class NBeatsSimpleAlgorithm(BaseAlgorithm):
 
         # 取最后一个预测值作为未来速度
         if len(combined_forecast) > 0:
-            predicted_velocity = combined_forecast[-1]
+            predicted_velocity = float(combined_forecast[-1])
         else:
-            predicted_velocity = velocities[-1]
+            predicted_velocity = float(velocities[-1])
 
         # 计算置信度
         confidence = self._calculate_confidence(velocities, combined_forecast)
@@ -243,12 +243,14 @@ class NBeatsSimpleAlgorithm(BaseAlgorithm):
             np.ndarray: 季节性分量（与输入同长度）
         """
         if len(series) < 4:
-            return np.array([])
+            short_empty: np.ndarray = np.array([])
+            return short_empty
 
         # 简化：假设周期为4（对应4个数据点一个周期）
         period = min(4, len(series) // 2)
         if period < 2:
-            return np.array([])
+            empty: np.ndarray = np.array([])
+            return empty
 
         # 使用正弦拟合简化版
         np.arange(len(series))
@@ -263,7 +265,8 @@ class NBeatsSimpleAlgorithm(BaseAlgorithm):
             fft_filtered = np.zeros_like(fft, dtype=complex)
             fft_filtered[:keep] = fft[:keep]
             seasonality = irfft(fft_filtered, n=len(series))
-            return seasonality
+            seasonal_values: np.ndarray = seasonality
+            return seasonal_values
         except Exception:
             # FFT失败，返回零
             return np.zeros(len(series))
@@ -291,7 +294,8 @@ class NBeatsSimpleAlgorithm(BaseAlgorithm):
         repeats = (horizon + period - 1) // period
         forecast = np.tile(pattern, repeats)[:horizon]
 
-        return forecast
+        seasonal_forecast: np.ndarray = forecast
+        return seasonal_forecast
 
     def _calculate_confidence(self, series: np.ndarray, forecast: np.ndarray) -> float:
         """计算预测置信度
@@ -321,7 +325,7 @@ class NBeatsSimpleAlgorithm(BaseAlgorithm):
                     errors.append(error)
 
             if errors:
-                mae = np.mean(errors)
+                mae = float(np.mean(errors))
                 confidence = max(0.3, 1.0 - mae)
             else:
                 confidence = 0.5

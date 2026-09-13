@@ -9,7 +9,7 @@ import os
 import re
 import threading
 import logging
-from typing import Dict, List, Optional
+from typing import ClassVar, Dict, List, Optional
 
 from utils import project_path
 
@@ -38,7 +38,7 @@ class Database:
     MILESTONE_PERIODS = ["1周", "1月", "1年"]
 
     _ACTIVE_DIR = project_path("core", "data")
-    _BACKUP_DIR = None
+    _BACKUP_DIR: ClassVar[str | None] = None
 
     @classmethod
     def _get_backup_dir(cls) -> str:
@@ -52,7 +52,7 @@ class Database:
                 cls._BACKUP_DIR = cls._ACTIVE_DIR
         return cls._BACKUP_DIR
 
-    def __init__(self, db_path: str = None):
+    def __init__(self, db_path: str | None = None) -> None:
         if db_path is None:
             os.makedirs(self._ACTIVE_DIR, exist_ok=True)
             db_path = os.path.join(self._ACTIVE_DIR, "bilibili_monitor.db")
@@ -74,11 +74,11 @@ class Database:
         self._query = CentralQuery(self)
         self._backup = CentralBackup(self)
 
-    def _get_connection(self):
+    def _get_connection(self) -> _ConnectionCtx:
         """返回线程安全的连接上下文管理器（兼容 with 语法）"""
         return _ConnectionCtx(self._conn, self._lock)
 
-    def init_database(self):
+    def init_database(self) -> None:
         """初始化总数据库表结构
 
         创建 videos、monitor_records、predictions、video_milestones 等核心表及索引
@@ -236,7 +236,7 @@ class Database:
             self._migrate_db(conn)
             conn.commit()
 
-    def _migrate_db(self, conn):
+    def _migrate_db(self, conn: sqlite3.Connection) -> None:
         """总数据库迁移：检查并添加缺少的列"""
         cursor = conn.cursor()
         schema_upgrades = {
@@ -306,14 +306,14 @@ class Database:
             logger.warning("下载封面失败 %s: %s", bvid, e)
         return ""
 
-    def wal_checkpoint(self):
+    def wal_checkpoint(self) -> None:
         """周期性 WAL checkpoint，控制 WAL 文件大小"""
         try:
             self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         except Exception as e:
             logger.debug("WAL checkpoint 失败: %s", e)
 
-    def close(self):
+    def close(self) -> None:
         """关闭数据库连接，刷新 WAL"""
         try:
             self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
@@ -373,13 +373,13 @@ class Database:
     def add_prediction(self, prediction: PredictionRecord) -> bool:
         return self._crud.add_prediction(prediction)
 
-    def get_predictions(self, bvid: str = None, algorithm: str = None, limit: int = 100) -> List[Dict]:
+    def get_predictions(self, bvid: str | None = None, algorithm: str | None = None, limit: int = 100) -> List[Dict]:
         return self._crud.get_predictions(bvid, algorithm, limit)
 
     def upsert_milestone(self, bvid: str, period: str, data: dict) -> bool:
         return self._crud.upsert_milestone(bvid, period, data)
 
-    def get_milestones(self, bvid: str = None) -> list:
+    def get_milestones(self, bvid: str | None = None) -> list:
         return self._crud.get_milestones(bvid)
 
     def get_all_milestones_grouped(self) -> dict:
@@ -391,7 +391,7 @@ class Database:
     # ── 查询委托 ──────────────────────────────────────────────────────
 
     def query_monitor_records(
-        self, bvid: str, start_time: str = None, end_time: str = None, limit: int = 1000
+        self, bvid: str, start_time: str | None = None, end_time: str | None = None, limit: int = 1000
     ) -> List[Dict]:
         return self._query.query_monitor_records(bvid, start_time, end_time, limit)
 
@@ -404,7 +404,7 @@ class Database:
     def get_summary_stats(self) -> Dict:
         return self._query.get_summary_stats()
 
-    def export_video_to_csv(self, bvid: str, filepath: str = None) -> str:
+    def export_video_to_csv(self, bvid: str, filepath: str | None = None) -> str:
         return self._query.export_video_to_csv(bvid, filepath)
 
     # ── 备份同步委托 ──────────────────────────────────────────────────
@@ -412,7 +412,7 @@ class Database:
     def sync_to_central(self) -> dict:
         return self._backup.sync_to_central()
 
-    def sync_per_video_dbs_to_backup(self):
+    def sync_per_video_dbs_to_backup(self) -> None:
         return self._backup.sync_per_video_dbs_to_backup()
 
     def check_backup_diffs(self) -> List[Dict]:
@@ -423,10 +423,10 @@ class Database:
         return self._crud.cleanup_duplicate_predictions()
 
 
-_db = None
+_db: Database | None = None
 
 
-def get_db():
+def get_db() -> Database:
     """获取全局 Database 单例（惰性初始化）"""
     global _db
     if _db is None:

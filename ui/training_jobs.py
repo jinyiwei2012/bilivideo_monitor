@@ -1,10 +1,11 @@
 """Training parameter validation and configuration."""
 
-from typing import List
+from typing import List, cast
 
-from PyQt6.QtWidgets import QMessageBox
+from PyQt6.QtWidgets import QCheckBox, QComboBox, QLineEdit, QMessageBox, QRadioButton, QSpinBox, QWidget
 
 from ui.theme import C
+from ui.training_base import _TrainingPanelContract
 from utils.update_checker import _confirm_risky
 
 _torch_available = True
@@ -14,7 +15,19 @@ except ImportError:
     _torch_available = False
 
 
-class TrainingJobsMixin:
+class TrainingJobsMixin(_TrainingPanelContract):
+    _lr_auto_cb: QCheckBox
+    _lr_entry: QLineEdit
+    _check_vars: dict[str, QCheckBox]
+    _epoch_spin: QSpinBox
+    _batch_spin: QSpinBox
+    _parallel_spin: QSpinBox
+    _mode_incremental: QRadioButton
+    _batch_log_cb: QCheckBox
+    _batch_interval_entry: QLineEdit
+    _batch_interval_combo: QComboBox
+    _saved_title: str | None
+
     def _on_lr_auto_toggle(self):
         """自动/手动学习率切换：自动时锁定输入框，并填入推荐值。"""
         if self._lr_auto_cb.isChecked():
@@ -22,7 +35,7 @@ class TrainingJobsMixin:
             auto_lr = self._auto_compute_lr()
             self._lr_entry.setText(f"{auto_lr:.6f}")
         else:
-            if _confirm_risky("切换到手动学习率模式", self):
+            if _confirm_risky("切换到手动学习率模式", cast(QWidget, self)):
                 self._lr_entry.setReadOnly(False)
             else:
                 self._lr_auto_cb.setChecked(True)
@@ -78,12 +91,12 @@ class TrainingJobsMixin:
         if self._training:
             return None
         if not _torch_available:
-            QMessageBox.critical(self, "呜…torch 未安装", "呜…要先安装 PyTorch 哦:\npip install torch ♪")
+            QMessageBox.critical(cast(QWidget, self), "呜…torch 未安装", "呜…要先安装 PyTorch 哦:\npip install torch ♪")
             return None
 
         selected = [aid for aid, cb in self._check_vars.items() if cb.isChecked()]
         if not selected:
-            QMessageBox.warning(self, "要注意哦…", "至少要勾选一个算法哦,天依才能开唱 ♪")
+            QMessageBox.warning(cast(QWidget, self), "要注意哦…", "至少要勾选一个算法哦,天依才能开唱 ♪")
             return None
 
         epochs = max(1, self._epoch_spin.value())
@@ -122,13 +135,15 @@ class TrainingJobsMixin:
             try:
                 lr = float(self._lr_entry.text())
             except (ValueError, TypeError):
-                QMessageBox.critical(self, "呜…学习率无效", "呜…天依看不懂这个学习率呢…请输入有效的数字哦 ♪")
+                QMessageBox.critical(
+                    cast(QWidget, self), "呜…学习率无效", "呜…天依看不懂这个学习率呢…请输入有效的数字哦 ♪"
+                )
                 return None
             lr = max(1e-8, min(1.0, lr))
             lr_label = f"手动 ({lr:.6f})"
 
         reply = QMessageBox.question(
-            self,
+            cast(QWidget, self),
             "要开始训练吗 ♪",
             f"天依要开始训练啦 ♪\n"
             f"模式: {mode_label}  并行: {parallel}\n"
@@ -167,8 +182,9 @@ class TrainingJobsMixin:
             val = self._batch_interval_entry.text()
             unit = self._batch_interval_combo.currentText()
             self._append_log(f"☰ 详细日志：每 {val}{unit} batch 输出进度")
-        self._status_lbl.setText(f"天依在准备哦…要训练 {len(selected)} 个算法呢 ♪")
-        self._status_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
+        if self._status_lbl is not None:
+            self._status_lbl.setText(f"天依在准备哦…要训练 {len(selected)} 个算法呢 ♪")
+            self._status_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
 
         # ── 全局反馈：窗口标题 + 主界面状态栏 ──
         try:

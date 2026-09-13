@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import threading
+from typing import Any, TypedDict, cast
 
 from config import DATA_DIR
 
@@ -24,10 +25,56 @@ _PROGRESS_FILE = os.path.join(DATA_DIR, "threshold_progress.json")
 _lock = threading.Lock()
 
 # bvid -> {"reached": [threshold, ...], "auto_appended": [threshold, ...]}
-_progress: dict = {}
 
 
-def _load():
+class _ProgressState(TypedDict):
+    reached: list[int]
+    auto_appended: list[int]
+
+
+class _ThresholdResult(TypedDict):
+    notified: list[str]
+    escalated: bool
+    new_threshold: int | None
+
+
+_progress: dict[str, Any] = {}
+
+
+def _evaluate_thresholds(bvid: str, current_views: int) -> tuple[list[tuple[int, str]], int, bool, int | None]:
+    thresholds, names = _load_current_thresholds()
+    if not thresholds:
+        return [], 0, False, None
+
+    state = _load_or_create(bvid)
+    reached = set(state["reached"])
+    newly: list[tuple[int, str]] = []
+    for threshold, name in sorted(zip(thresholds, names), key=lambda item: item[0]):
+        if current_views >= threshold and threshold not in reached:
+            newly.append((threshold, name))
+            reached.add(threshold)
+    state["reached"] = sorted(reached)
+
+    max_threshold = max(thresholds)
+    new_threshold = None
+    escalated = False
+    if current_views >= max_threshold:
+        auto, factor = _escalate_config()
+        auto_appended = set(state.get("auto_appended", []))
+        if auto and factor >= 1.5:
+            candidate = int(max_threshold * factor)
+            if candidate > max_threshold and candidate <= 100_000_000_000 and candidate not in auto_appended:
+                new_threshold = candidate
+                auto_appended.add(candidate)
+                state["auto_appended"] = sorted(auto_appended)
+                escalated = True
+
+    if newly or escalated:
+        _save()
+    return newly, max_threshold, escalated, new_threshold
+
+
+def _load() -> None:
     """加载达标记录（幂等，仅在内存为空时读取一次）"""
     global _progress
     if _progress:
@@ -41,7 +88,7 @@ def _load():
     _progress.setdefault("_videos", {})
 
 
-def _save():
+def _save() -> None:
     """持久化达标记录"""
     try:
         os.makedirs(os.path.dirname(_PROGRESS_FILE), exist_ok=True)
@@ -62,7 +109,7 @@ def _fmt_threshold(t: int) -> str:
     return str(t)
 
 
-def _fmt_count(n) -> str:
+def _fmt_count(n: int) -> str:
     if n >= 100_000_000:
         return f"{n / 100_000_000:.2f}亿"
     if n >= 10_000:
@@ -70,7 +117,7 @@ def _fmt_count(n) -> str:
     return str(n)
 
 
-def _load_current_thresholds():
+def _load_current_thresholds() -> tuple[list[int], list[str]]:
     """读取当前生效的阈值列表（从 helpers 或 config 兜底）"""
     try:
         from ui.helpers import THRESHOLDS, THRESHOLD_NAMES
@@ -83,7 +130,8 @@ def _load_current_thresholds():
         from config import load_config
 
         raw = load_config().get("prediction", {}).get("thresholds", [])
-        values, names = [], []
+        values: list[int] = []
+        names: list[str] = []
         if raw and isinstance(raw[0], (list, tuple)):
             for item in raw:
                 values.append(int(item[0]))
@@ -99,7 +147,7 @@ def _load_current_thresholds():
     return [100000, 1000000, 10000000], ["10万", "100万", "1000万"]
 
 
-def _log(gui, level: str, msg: str):
+def _log(gui: Any, level: str, msg: str) -> None:
     """写日志（gui 可能为 None）"""
     try:
         if gui is not None and getattr(gui, "log_panel", None) is not None:
@@ -108,7 +156,7 @@ def _log(gui, level: str, msg: str):
         pass
 
 
-def _send(title: str, body: str):
+def _send(title: str, body: str) -> None:
     """发送通知（全部渠道: Windows + QQ + Webhook）"""
     try:
         from core.notification import notification_manager
@@ -122,7 +170,7 @@ def _send(title: str, body: str):
         logger.debug("通知发送失败: %s", e)
 
 
-def check_thresholds(gui, bvid: str, video: dict, current_views: int) -> dict:
+def check_thresholds(gui: Any, bvid: str, video: dict[str, Any], current_views: int) -> _ThresholdResult:
     """在每次 fetch 后调用：检查阈值突破 + 自动扩档。
 
     Args:
@@ -134,42 +182,16 @@ def check_thresholds(gui, bvid: str, video: dict, current_views: int) -> dict:
     Returns:
         dict: {"notified": [str,...], "escalated": bool, "new_threshold": int|None}
     """
-    result = {"notified": [], "escalated": False, "new_threshold": None}
+    result: _ThresholdResult = {"notified": [], "escalated": False, "new_threshold": None}
     if not current_views or current_views <= 0:
         return result
 
     title = ((video.get("title") if isinstance(video, dict) else None) or "")[:20] or bvid
 
     with _lock:
-        thresholds, names = _load_current_thresholds()
-        if not thresholds:
+        newly, max_threshold, escalated, new_t = _evaluate_thresholds(bvid, current_views)
+        if max_threshold == 0:
             return result
-
-        state = _load_or_create(bvid)
-        reached = set(state["reached"])
-        newly = []
-        for t, name in sorted(zip(thresholds, names), key=lambda x: x[0]):
-            if current_views >= t and t not in reached:
-                newly.append((t, name))
-                reached.add(t)
-        state["reached"] = sorted(reached)
-
-        max_threshold = max(thresholds)
-        escalated = False
-        new_t = None
-        if current_views >= max_threshold:
-            auto, factor = _escalate_config()
-            auto_appended = set(state.get("auto_appended", []))
-            if auto and factor >= 1.5:
-                candidate = int(max_threshold * factor)
-                if candidate > max_threshold and candidate <= 100_000_000_000 and candidate not in auto_appended:
-                    new_t = candidate
-                    auto_appended.add(candidate)
-                    state["auto_appended"] = sorted(auto_appended)
-                    escalated = True
-
-        if newly or escalated:
-            _save()
 
     # 锁外动作：通知 + 扩档落地
     for t, name in newly:
@@ -189,15 +211,15 @@ def check_thresholds(gui, bvid: str, video: dict, current_views: int) -> dict:
     return result
 
 
-def _load_or_create(bvid: str) -> dict:
+def _load_or_create(bvid: str) -> _ProgressState:
     """获取单个视频进度状态（调用方需已持锁）"""
     _load()
-    vids = _progress.setdefault("_videos", {})
+    vids = cast(dict[str, _ProgressState], _progress.setdefault("_videos", {}))
     state = vids.setdefault(bvid, {"reached": [], "auto_appended": []})
     return state
 
 
-def _escalate_config() -> tuple:
+def _escalate_config() -> tuple[bool, float]:
     """读取扩档配置: (auto_enabled, factor)"""
     try:
         from config import load_config
@@ -209,7 +231,7 @@ def _escalate_config() -> tuple:
         return True, 5.0
 
 
-def _apply_escalation(gui, bvid: str, title: str, old_max: int, new_t: int):
+def _apply_escalation(gui: Any, bvid: str, title: str, old_max: int, new_t: int) -> None:
     """将新档位写入 config 并重载全局阈值"""
     try:
         from config import load_config, save_config
@@ -217,7 +239,8 @@ def _apply_escalation(gui, bvid: str, title: str, old_max: int, new_t: int):
 
         cfg = load_config()
         th = cfg.setdefault("prediction", {}).setdefault("thresholds", [])
-        values, names = [], []
+        values: list[int] = []
+        names: list[str] = []
         for x in th:
             if isinstance(x, (list, tuple)) and x:
                 values.append(int(x[0]))
@@ -247,7 +270,7 @@ def _apply_escalation(gui, bvid: str, title: str, old_max: int, new_t: int):
         logger.debug("自动扩档落地失败: %s", e)
 
 
-def reset_bvid_progress(bvid: str):
+def reset_bvid_progress(bvid: str) -> None:
     """重置单个视频的达标记录（重新添加监控时调用）"""
     with _lock:
         _load()

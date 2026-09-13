@@ -5,7 +5,7 @@ import os
 import sqlite3
 from contextlib import closing
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 class CentralBackup:
     """Backup and sync operations for central database (delegated from Database)"""
 
-    def __init__(self, database):
+    def __init__(self, database: Any) -> None:
         self.db = database
 
     def sync_to_central(self) -> dict:
@@ -69,7 +69,7 @@ class CentralBackup:
                     pass
         return result
 
-    def sync_per_video_dbs_to_backup(self):
+    def sync_per_video_dbs_to_backup(self) -> None:
         """关闭前将活跃库的所有视频独立库同步到备份目录"""
         backup_base = self.db._get_backup_dir()
         if backup_base == self.db.data_dir:
@@ -140,7 +140,9 @@ class CentralBackup:
 
     # ── 内部同步方法 ──────────────────────────────────────────────────
 
-    def _sync_videos_to_central(self, active_cur, central_cur, result):
+    def _sync_videos_to_central(
+        self, active_cur: sqlite3.Cursor, central_cur: sqlite3.Cursor, result: dict[str, int]
+    ) -> None:
         """同步 videos 表到中央库（补全新记录和缺失字段）"""
         active_cur.execute("SELECT * FROM videos")
         for av in (dict(r) for r in active_cur.fetchall()):
@@ -189,7 +191,9 @@ class CentralBackup:
                     ),
                 )
 
-    def _sync_monitor_records_to_central(self, active_cur, central_cur, result):
+    def _sync_monitor_records_to_central(
+        self, active_cur: sqlite3.Cursor, central_cur: sqlite3.Cursor, result: dict[str, int]
+    ) -> tuple[set[str], set[str]]:
         """同步 monitor_records 表到中央库（按高水位线增量同步）。
 
         每个 bvid 以中央库已同步的最大 timestamp 作为水位线，只扫描并写入该线之后的
@@ -238,7 +242,13 @@ class CentralBackup:
                 result["synced_records"] += 1
         return active_bvids, central_bvids
 
-    def _sync_per_video_details(self, active_bvids, central_bvids, central_cur, result):
+    def _sync_per_video_details(
+        self,
+        active_bvids: set[str],
+        central_bvids: set[str],
+        central_cur: sqlite3.Cursor,
+        result: dict[str, int],
+    ) -> None:
         """同步每个视频的预测、周刊、年刊数据到中央库"""
         for bvid in active_bvids | central_bvids:
             video_db = self._open_video_db_ro(bvid)
@@ -285,7 +295,7 @@ class CentralBackup:
         return None
 
     @staticmethod
-    def _sync_video_predictions(central_cur, bvid: str, vcur) -> int:
+    def _sync_video_predictions(central_cur: sqlite3.Cursor, bvid: str, vcur: sqlite3.Cursor) -> int:
         """同步视频独立库的 predictions 到中央库"""
         try:
             vcur.execute("PRAGMA table_info(predictions)")
@@ -348,7 +358,7 @@ class CentralBackup:
         return len(batch)
 
     @staticmethod
-    def _sync_video_weekly_scores(central_cur, bvid: str, vcur) -> int:
+    def _sync_video_weekly_scores(central_cur: sqlite3.Cursor, bvid: str, vcur: sqlite3.Cursor) -> int:
         """同步视频独立库的 weekly_scores 到中央库"""
         try:
             vcur.execute("SELECT timestamp FROM weekly_scores LIMIT 1")
@@ -399,7 +409,7 @@ class CentralBackup:
         return len(batch)
 
     @staticmethod
-    def _sync_video_yearly_scores(central_cur, bvid: str, vcur) -> int:
+    def _sync_video_yearly_scores(central_cur: sqlite3.Cursor, bvid: str, vcur: sqlite3.Cursor) -> int:
         """同步视频独立库的 yearly_scores 到中央库"""
         try:
             vcur.execute("SELECT timestamp FROM yearly_scores LIMIT 1")
@@ -447,7 +457,7 @@ class CentralBackup:
         return len(batch)
 
     @staticmethod
-    def _ensure_central_tables(cur):
+    def _ensure_central_tables(cur: sqlite3.Cursor) -> None:
         """确保中央库有完整的表结构（兼容首次同步）"""
         cur.execute("""CREATE TABLE IF NOT EXISTS videos (
             bvid TEXT PRIMARY KEY, title TEXT, view_count INTEGER DEFAULT 0,
@@ -517,7 +527,7 @@ class CentralBackup:
             pass
 
     @staticmethod
-    def _migrate_central_predictions(cur):
+    def _migrate_central_predictions(cur: sqlite3.Cursor) -> None:
         """确保中央库 predictions 表包含独立库的全部字段"""
         cur.execute("PRAGMA table_info(predictions)")
         existing = {r[1] if isinstance(r, (list, tuple)) else r["name"] for r in cur.fetchall()}

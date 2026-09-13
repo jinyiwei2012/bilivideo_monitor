@@ -25,7 +25,7 @@ Blending 集成 (Blending Ensemble) 模块
 """
 
 import numpy as np
-from typing import Dict
+from typing import Dict, Optional
 from algorithms.base import BaseAlgorithm, PredictionResult
 from algorithms.model_cache import get_or_fit
 
@@ -101,14 +101,16 @@ class BlendingEnsembleAlgorithm(BaseAlgorithm):
         # 优先使用 sklearn 完整版
         if _HAS_SKLEARN and len(history) >= 30:
             try:
-                return self._sklearn_blend(video_data, threshold)
+                result = self._sklearn_blend(video_data, threshold)
+                if result is not None:
+                    return result
             except Exception:
                 pass
 
         # 回退到 NumPy 简易版
         return self._numpy_blend(video_data, threshold)
 
-    def _sklearn_blend(self, video_data, threshold):
+    def _sklearn_blend(self, video_data, threshold) -> Optional[PredictionResult]:
         """
         sklearn 完整版 Blending：Ridge + GBM 基学习器 + Ridge 元学习器。
 
@@ -141,24 +143,24 @@ class BlendingEnsembleAlgorithm(BaseAlgorithm):
         n = len(views)
 
         p = 6  # 特征窗口大小
-        X_all, y_all = [], []
+        X_all_list, y_all_list = [], []
         # 滑动窗口构造特征和目标
         for i in range(p, n - 1):
             feat = [
                 np.polyfit(np.arange(p), views[i - p : i], 1)[0],  # 特征1: 线性趋势
                 np.mean(np.diff(views[i - p : i])),  # 特征2: 平均速度
-                np.mean(likes[i - p : i]) / max(np.mean(views[i - p : i]), 1),  # 特征3: 点赞率
-                np.mean(coins[i - p : i]) / max(np.mean(views[i - p : i]), 1),  # 特征4: 投币率
-                np.std(views[i - p : i]) / max(np.mean(views[i - p : i]), 1),  # 特征5: 变异系数
+                np.mean(likes[i - p : i]) / max(float(np.mean(views[i - p : i])), 1.0),  # 特征3: 点赞率
+                np.mean(coins[i - p : i]) / max(float(np.mean(views[i - p : i])), 1.0),  # 特征4: 投币率
+                np.std(views[i - p : i]) / max(float(np.mean(views[i - p : i])), 1.0),  # 特征5: 变异系数
                 max(views[i - 1] / max(views[i - 2], 1) - 1, 0),  # 特征6: 最近增长率
             ]
-            X_all.append(feat)
-            y_all.append(views[i] - views[i - 1])  # 目标: 单步播放量增量
+            X_all_list.append(feat)
+            y_all_list.append(views[i] - views[i - 1])  # 目标: 单步播放量增量
 
-        if len(X_all) < 15:
+        if len(X_all_list) < 15:
             return None  # 训练数据不足
 
-        X_all, y_all = np.array(X_all), np.array(y_all)
+        X_all, y_all = np.array(X_all_list), np.array(y_all_list)
 
         # Blending 核心：固定 80/20 分割，holdout 完全不参与基学习器训练
         split = int(len(X_all) * 0.8)
@@ -180,13 +182,13 @@ class BlendingEnsembleAlgorithm(BaseAlgorithm):
             ),  # 非线性模型
             ("blending_ensemble:ridge2", lambda: Ridge(alpha=0.1)),  # 弱正则化 Ridge（不同角度）
         ]
-        meta_X_hold = []  # 元特征矩阵：每个基学习器在 holdout 上的预测
+        meta_X_hold_list = []  # 元特征矩阵：每个基学习器在 holdout 上的预测
         models = []  # 已拟合的基学习器（当前时刻预测复用）
         for key, factory in factories:
             m = get_or_fit(key, factory, X_train, y_train)  # 仅用 80% 数据训练基学习器
             models.append(m)
-            meta_X_hold.append(m.predict(X_hold))  # 在 20% holdout 上预测作为元特征
-        meta_X_hold = np.column_stack(meta_X_hold)  # 合并为 (n_hold, 3) 元特征矩阵
+            meta_X_hold_list.append(m.predict(X_hold))  # 在 20% holdout 上预测作为元特征
+        meta_X_hold = np.column_stack(meta_X_hold_list)  # 合并为 (n_hold, 3) 元特征矩阵
 
         # ========== Layer 1: 元学习器 ==========
         # 用 holdout 上的基学习器预测作为输入，学习最优融合权重
@@ -198,9 +200,9 @@ class BlendingEnsembleAlgorithm(BaseAlgorithm):
             [
                 np.polyfit(np.arange(p), views[-p:], 1)[0],  # 特征1
                 np.mean(np.diff(views[-p:])),  # 特征2
-                np.mean(likes[-p:]) / max(np.mean(views[-p:]), 1),  # 特征3
-                np.mean(coins[-p:]) / max(np.mean(views[-p:]), 1),  # 特征4
-                np.std(views[-p:]) / max(np.mean(views[-p:]), 1),  # 特征5
+                np.mean(likes[-p:]) / max(float(np.mean(views[-p:])), 1.0),  # 特征3
+                np.mean(coins[-p:]) / max(float(np.mean(views[-p:])), 1.0),  # 特征4
+                np.std(views[-p:]) / max(float(np.mean(views[-p:])), 1.0),  # 特征5
                 max(views[-1] / max(views[-2], 1) - 1, 0),  # 特征6
             ]
         ).reshape(1, -1)
@@ -232,7 +234,7 @@ class BlendingEnsembleAlgorithm(BaseAlgorithm):
             },
         )
 
-    def _numpy_blend(self, video_data, threshold):
+    def _numpy_blend(self, video_data, threshold) -> PredictionResult:
         """
         NumPy 简易版 Blending：只用播放量数据，均值/中位数偏见加权。
 

@@ -8,6 +8,7 @@
 import json
 import os
 import logging
+from typing import Any, Callable, TypeVar, cast
 
 from PyQt6.QtWidgets import (
     QWidget,
@@ -40,6 +41,8 @@ from ui.settings_about import SettingsAboutMixin
 
 logger = logging.getLogger(__name__)
 
+_Converted = TypeVar("_Converted", int, float)
+
 
 class SettingsWindow(
     SettingsNotificationMixin,
@@ -53,6 +56,8 @@ class SettingsWindow(
     SettingsAboutMixin,
 ):
     """统一设置窗口 — PyQt6 版"""
+
+    dlg: DialogBase
 
     def __init__(self, parent=None, gui=None):
         self.dlg = DialogBase(parent, "系统设置", (0, 0), modal=False)
@@ -83,7 +88,7 @@ class SettingsWindow(
         self.setup_ui()
 
     # ── 网络配置持久化 ──
-    def _load_net_config(self) -> dict:
+    def _load_net_config(self) -> dict[str, Any]:
         if os.path.exists(self._net_cfg_file):
             try:
                 with open(self._net_cfg_file, "r", encoding="utf-8") as f:
@@ -97,7 +102,7 @@ class SettingsWindow(
                     acc_cookies = acc.get("cookies", {})
                     if acc_cookies:
                         decrypt_dict(acc_cookies, "SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid")
-                return cfg
+                return cast(dict[str, Any], cfg)
             except Exception as e:
                 logger.debug("加载网络配置失败: %s", e)
         return {"proxies": [], "cookies": {}, "accounts": [], "ssl_verify": False}
@@ -191,6 +196,8 @@ class SettingsWindow(
         # 统一各标签页顶部标题 (洛天依排版: SectionHeader + 水波分隔线)
         for i in range(self._tabs.count()):
             page = self._tabs.widget(i)
+            if page is None:
+                continue
             layout = page.layout()
             if layout is None or not isinstance(layout, QVBoxLayout):
                 continue
@@ -222,7 +229,7 @@ class SettingsWindow(
 
     def _validate_settings(self):
         try:
-            max_m = int(self.max_monitors.text() if hasattr(self.max_monitors, "text") else self.max_monitors)
+            max_m = int(self.max_monitors.text())
             if not (10 <= max_m <= 500):
                 QMessageBox.critical(
                     self.dlg, "呜…没通过验证", "最大监控数要在 10 ~ 500 之间哦,像天依的歌也有音域范围呢 ♪"
@@ -258,7 +265,7 @@ class SettingsWindow(
         return True
 
     @staticmethod
-    def _text_or_value(widget, cast):
+    def _text_or_value(widget: Any, convert: Callable[[Any], _Converted]) -> _Converted:
         """兼容 QLineEdit(.text) / QSpinBox(.value) / 裸值 的取值转换。"""
         if hasattr(widget, "text"):
             raw = widget.text()
@@ -266,7 +273,7 @@ class SettingsWindow(
             raw = widget.value()
         else:
             raw = widget
-        return cast(raw)
+        return convert(raw)
 
     def _collect_onebot_cfg(self):
         """收集 OneBot / QQ 通知配置。"""

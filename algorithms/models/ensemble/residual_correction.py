@@ -20,7 +20,7 @@ GBM 学习残差的模式（系统性偏差），而非学习原始值。
 
 import logging
 import numpy as np
-from typing import Dict
+from typing import Dict, Optional
 from algorithms.base import BaseAlgorithm, PredictionResult
 from algorithms.model_cache import get_or_fit
 
@@ -97,13 +97,15 @@ class ResidualCorrectionAlgorithm(BaseAlgorithm):
 
         if _HAS_SKLEARN:
             try:
-                return self._sklearn_predict(video_data, threshold)
+                result = self._sklearn_predict(video_data, threshold)
+                if result is not None:
+                    return result
             except Exception as e:
                 logger.debug("残差修正 sklearn 失败: %s", e)
 
         return self._numpy_predict(video_data, threshold)
 
-    def _sklearn_predict(self, video_data, threshold):
+    def _sklearn_predict(self, video_data, threshold) -> Optional[PredictionResult]:
         """
         使用 sklearn GBM 学习残差模式并进行修正。
 
@@ -147,7 +149,7 @@ class ResidualCorrectionAlgorithm(BaseAlgorithm):
         quality = self.get_quality_score(video_data)
 
         p = 5  # 特征窗口
-        X, y = [], []
+        X_list, y_list = [], []
         for i in range(p, len(diffs)):
             feat = [
                 diffs[i] / max(views[i], 1),  # 速度（归一化）
@@ -158,13 +160,13 @@ class ResidualCorrectionAlgorithm(BaseAlgorithm):
                 quality,  # 质量评分
                 i / max(n, 1),  # 时间进度
             ]
-            X.append(feat)
-            y.append(diffs[i])
+            X_list.append(feat)
+            y_list.append(diffs[i])
 
-        if len(X) < 8:
+        if len(X_list) < 8:
             return None
 
-        X, y = np.array(X), np.array(y)
+        X, y = np.array(X_list), np.array(y_list)
         # 计算残差：真实增量 vs 简单速度预测（上一步的真实值作为基准）
         simple_pred = np.roll(y, 1)  # 滞后一个位置作为简单预测
         simple_pred[0] = y[0]
@@ -221,7 +223,7 @@ class ResidualCorrectionAlgorithm(BaseAlgorithm):
             },
         )
 
-    def _numpy_predict(self, video_data, threshold):
+    def _numpy_predict(self, video_data, threshold) -> PredictionResult:
         """
         numpy 简化版残差修正。
 

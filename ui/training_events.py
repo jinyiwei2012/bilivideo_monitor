@@ -2,15 +2,22 @@
 
 import logging
 import time
-from typing import List
+from typing import Any, Dict, List
+
+from PyQt6.QtWidgets import QLabel, QProgressBar
 
 from ui.helpers import format_confidence, load_algo_confidence, loss_to_confidence
 from ui.theme import C
+from ui.training_base import _TrainingPanelContract
 
 logger = logging.getLogger(__name__)
 
 
-class TrainingEventsMixin:
+class TrainingEventsMixin(_TrainingPanelContract):
+    _algo_confidence: Dict[str, float]
+    _algo_meta: Dict[str, Dict[str, Any]]
+    _status_lbl: QLabel | None
+    _progress: QProgressBar | None
     STAGE_HANDLERS = {
         "start": "_on_stage_start",
         "batch": "_on_stage_batch",
@@ -28,7 +35,7 @@ class TrainingEventsMixin:
         stage = msg.get("stage")
         handler_name = self.STAGE_HANDLERS.get(stage)
         if handler_name:
-            return getattr(self, handler_name)(msg)
+            return bool(getattr(self, handler_name)(msg))
         return False
 
     def _on_stage_start(self, msg):
@@ -106,42 +113,7 @@ class TrainingEventsMixin:
             self._progress.setValue(pct)
         vtxt = f"  val={vloss:.4f}" if vloss >= 0 else ""
 
-        # ── EMA 加权 ETA：最近 epoch 权重更高 ──
-        epoch_duration = max(0, elapsed - self._last_epoch_elapsed)
-        self._last_epoch_elapsed = elapsed
-        if epoch_duration > 0 and epoch_duration < 3600:  # 排除异常值
-            self._epoch_times.append(epoch_duration)
-            if len(self._epoch_times) > 10:
-                self._epoch_times = self._epoch_times[-10:]
-
-        total_eta_str = ""
-        if self._epoch_times:
-            # EMA：衰减因子 0.7，最近 epoch 权重指数级更高
-            alpha = 0.7
-            recent_weights = [alpha ** (len(self._epoch_times) - 1 - i) for i in range(len(self._epoch_times))]
-            weight_sum = sum(recent_weights)
-            ema_epoch = sum(t * w for t, w in zip(self._epoch_times, recent_weights)) / max(weight_sum, 1e-10)
-
-            # 本算法剩余时间
-            algo_remaining = ema_epoch * (eps - ep)
-            algo_eta = self._fmt_duration(algo_remaining)
-
-            # 总训练剩余时间 = 本算法剩余 + 未开始算法预估
-            cur = msg.get("current", 0)
-            tot = msg.get("total", 1)
-            remaining_algos = tot - cur
-            if remaining_algos > 0 and hasattr(self, "_algo_durations") and self._algo_durations:
-                avg_algo_time = sum(self._algo_durations) / len(self._algo_durations)
-                # 已完成算法数较少时，用本算法当前速率补充
-                if len(self._algo_durations) < 2:
-                    avg_algo_time = max(avg_algo_time, ema_epoch * eps * 0.8)
-                other_remaining = avg_algo_time * (remaining_algos - 1)  # -1 因为当前算法已在算
-            else:
-                # 无历史数据：用本算法速率外推
-                other_remaining = ema_epoch * eps * max(0, remaining_algos - 1)
-
-            total_remaining = algo_remaining + other_remaining
-            total_eta_str = f"  ⏱本{algo_eta} 总{self._fmt_duration(total_remaining)}"
+        total_eta_str = self._epoch_eta(msg, ep, eps, elapsed)
 
         if self._status_lbl:
             self._status_lbl.setText(
@@ -184,6 +156,35 @@ class TrainingEventsMixin:
             f"confidence={conf_str}  |  "
             f"{elapsed:.1f}s"
         )
+
+    def _epoch_eta(self, msg, ep, eps, elapsed) -> str:
+        """更新 epoch 耗时历史并生成本算法及总体 ETA。"""
+        epoch_duration = max(0, elapsed - self._last_epoch_elapsed)
+        self._last_epoch_elapsed = elapsed
+        if 0 < epoch_duration < 3600:
+            self._epoch_times.append(epoch_duration)
+            if len(self._epoch_times) > 10:
+                self._epoch_times = self._epoch_times[-10:]
+        if not self._epoch_times:
+            return ""
+
+        alpha = 0.7
+        recent_weights = [alpha ** (len(self._epoch_times) - 1 - i) for i in range(len(self._epoch_times))]
+        weight_sum = sum(recent_weights)
+        ema_epoch = sum(t * w for t, w in zip(self._epoch_times, recent_weights)) / max(weight_sum, 1e-10)
+        algo_remaining = ema_epoch * (eps - ep)
+        remaining_algos = msg.get("total", 1) - msg.get("current", 0)
+        other_remaining = self._remaining_algorithms_eta(ema_epoch, eps, remaining_algos)
+        return f"  ⏱本{self._fmt_duration(algo_remaining)} 总{self._fmt_duration(algo_remaining + other_remaining)}"
+
+    def _remaining_algorithms_eta(self, ema_epoch, eps, remaining_algos):
+        """估算当前算法之外的剩余训练时间。"""
+        if remaining_algos > 0 and hasattr(self, "_algo_durations") and self._algo_durations:
+            avg_algo_time = sum(self._algo_durations) / len(self._algo_durations)
+            if len(self._algo_durations) < 2:
+                avg_algo_time = max(avg_algo_time, ema_epoch * eps * 0.8)
+            return avg_algo_time * (remaining_algos - 1)
+        return ema_epoch * eps * max(0, remaining_algos - 1)
 
     def _on_stage_done(self, msg):
         """处理单个算法训练完成事件"""
@@ -322,7 +323,9 @@ class TrainingEventsMixin:
         # 恢复窗口标题和状态栏
         try:
             if self._saved_title:
-                self.window().setWindowTitle(self._saved_title)
+                window = self.window()
+                if window is not None:
+                    window.setWindowTitle(self._saved_title)
         except Exception:
             pass
         self._safe_sb("status", "天依准备好啦 ♪", color=C["text_3"])

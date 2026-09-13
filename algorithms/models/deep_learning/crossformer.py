@@ -140,7 +140,7 @@ class CrossformerAlgorithm(BaseAlgorithm):
                         else 0.5
                     )
                     weights[i] = max(0.1, corr)  # 相关系数不能为负
-            growth = np.average(seg_arr, weights=weights)  # 加权平均
+            growth = float(np.average(seg_arr, weights=weights))  # 加权平均
         else:
             growth = velocity * 3600
 

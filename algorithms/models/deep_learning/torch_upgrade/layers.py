@@ -1,8 +1,10 @@
 """PyTorch model definitions extracted from the compatibility facade."""
 
+from typing import TYPE_CHECKING
+
 from .context import _torch_available, torch
 
-if _torch_available:  # noqa: C901
+if _torch_available or TYPE_CHECKING:  # noqa: C901
 
     def nn_pad1d(x, left, right):
         """手写 1D padding 包装器，使用 replicate 模式填充。
@@ -31,7 +33,7 @@ if _torch_available:  # noqa: C901
         return torch.nn.functional.avg_pool1d(x, kernel, stride=stride)
 
 else:
-    nn_pad1d = None  # type: ignore
-    nn_avg_pool1d = None  # type: ignore
+    nn_pad1d = None
+    nn_avg_pool1d = None
 
 __all__ = ["nn_pad1d", "nn_avg_pool1d"]

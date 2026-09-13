@@ -12,6 +12,7 @@
 import logging
 import threading
 from datetime import datetime, timedelta
+from typing import Any
 
 from PyQt6.QtCore import QPointF, Qt
 from PyQt6.QtGui import QColor, QPainter, QPen, QPolygonF
@@ -117,15 +118,17 @@ def filter_rows(rows: list, cutoff) -> list:
     return [r for r in rows if str(r.get("timestamp", "")) >= cutoff]
 
 
-def load_scores(video_db, kind: str = "weekly") -> list:
+def load_scores(video_db: Any, kind: str = "weekly") -> list[dict[str, Any]]:
     """先按整点桶补齐归档（幂等），再读取全部分数行。
 
     这是「先物化再读」契约的唯一入口：详情面板与分数中心都走它，保证趋势始终含最新点。
     """
     ensure_scores(video_db)
     if kind == "yearly":
-        return video_db.get_yearly_scores(limit=0)
-    return video_db.get_weekly_scores(limit=0)
+        rows: list[dict[str, Any]] = video_db.get_yearly_scores(limit=0)
+        return rows
+    rows = video_db.get_weekly_scores(limit=0)
+    return rows
 
 
 def sort_rows_ascending(rows: list) -> list:
@@ -236,10 +239,14 @@ class ScoreCenterWindow:
         ):
             table = QTableWidget(0, len(columns))
             table.setHorizontalHeaderLabels(list(columns))
-            table.verticalHeader().setVisible(False)
+            vertical_header = table.verticalHeader()
+            if vertical_header is not None:
+                vertical_header.setVisible(False)
             table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
             table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-            table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+            horizontal_header = table.horizontalHeader()
+            if horizontal_header is not None:
+                horizontal_header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
             table.setStyleSheet(_TABLE_QSS)
             self._tables[kind] = table
             self._tabs.addTab(table, name)

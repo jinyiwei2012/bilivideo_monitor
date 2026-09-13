@@ -123,7 +123,7 @@ class LightTSAlgorithm(BaseAlgorithm):
         sampled = views[::stride]
         # 差分 × stride 以补偿降采样导致的"跳跃"
         diffs = np.diff(sampled) if len(sampled) >= 2 else np.diff(views)
-        growth = np.mean(diffs) * stride  # × stride 还原到原始步长尺度
+        growth = float(np.mean(diffs)) * stride  # × stride 还原到原始步长尺度
 
         predicted_velocity = max(0, growth / 3600)
         if predicted_velocity < 1:

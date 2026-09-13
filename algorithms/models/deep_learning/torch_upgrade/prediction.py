@@ -1,6 +1,6 @@
 """Extracted torch-upgrade helpers."""
 
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 from .backends import _rank_backends, _try_npu_predict, _try_onnx_predict
 from .context import (
@@ -403,8 +403,8 @@ def try_torch_predict(
     threshold: int,
     model_cls: type,
     fallback_fn: Callable,
-    model_kwargs: Dict[str, Any] = None,
-    features: List[str] = None,
+    model_kwargs: Optional[Dict[str, Any]] = None,
+    features: Optional[List[str]] = None,
     window: int = DEFAULT_WINDOW,
     horizon: int = DEFAULT_HORIZON,
 ):

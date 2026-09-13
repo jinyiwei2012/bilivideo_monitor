@@ -246,7 +246,7 @@ class LogisticGrowthAlgorithm(BaseAlgorithm):
                 return None  # 目标超过承载能力，不可达
             # t = t0 - ln(ratio) / r
             t = t0 - np.log(ratio) / r
-            return max(0, t)  # 确保非负
+            return float(max(0.0, t))  # 确保非负
         except Exception:
             return None
 

@@ -1,9 +1,11 @@
 """PyTorch model definitions extracted from the compatibility facade."""
 
+from typing import TYPE_CHECKING
+
 from .context import _torch_available, nn, torch
 from .layers import nn_avg_pool1d, nn_pad1d
 
-if _torch_available:  # noqa: C901
+if _torch_available or TYPE_CHECKING:  # noqa: C901
 
     class DLinearTorchModel(nn.Module):
         """DLinear PyTorch 模型骨架。
@@ -673,21 +675,21 @@ if _torch_available:  # noqa: C901
             return out
 
 else:
-    DLinearTorchModel = None  # type: ignore
-    NBeatsTorchModel = None  # type: ignore
-    PatchTSTTorchModel = None  # type: ignore
-    InformerTorchModel = None  # type: ignore
-    TFTTorchModel = None  # type: ignore
-    TimessNetTorchModel = None  # type: ignore
-    TIDETorchModel = None  # type: ignore
-    TSMixerTorchModel = None  # type: ignore
-    DeepARTorchModel = None  # type: ignore
-    ChronosTorchModel = None  # type: ignore
-    MambaS6TorchModel = None  # type: ignore
-    ITransformerTorchModel = None  # type: ignore
-    SCINetTorchModel = None  # type: ignore
-    TimesFMTorchModel = None  # type: ignore
-    TimeMoETorchModel = None  # type: ignore
+    DLinearTorchModel = None
+    NBeatsTorchModel = None
+    PatchTSTTorchModel = None
+    InformerTorchModel = None
+    TFTTorchModel = None
+    TimessNetTorchModel = None
+    TIDETorchModel = None
+    TSMixerTorchModel = None
+    DeepARTorchModel = None
+    ChronosTorchModel = None
+    MambaS6TorchModel = None
+    ITransformerTorchModel = None
+    SCINetTorchModel = None
+    TimesFMTorchModel = None
+    TimeMoETorchModel = None
 
 __all__ = [
     "DLinearTorchModel",

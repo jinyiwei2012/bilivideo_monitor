@@ -4,11 +4,18 @@ import logging
 import os
 import time
 from datetime import datetime
+from typing import Optional, TextIO
+
+from ui.training_base import _TrainingPanelContract
 
 logger = logging.getLogger(__name__)
 
 
-class TrainingLoggingMixin:
+class TrainingLoggingMixin(_TrainingPanelContract):
+    _log_dir: str
+    _log_file: Optional[TextIO]
+    _log_file_path: str
+
     def _open_log_file(self, algo_count: int, epochs: int, batch: int, mode: str, lr: float = 0.001):
         """创建训练日志文件。"""
         os.makedirs(self._log_dir, exist_ok=True)
@@ -41,10 +48,11 @@ class TrainingLoggingMixin:
 
     def __del__(self):
         """析构时兜底关闭日志文件，防止异常路径下文件句柄泄漏。"""
-        if getattr(self, "_log_file", None) is not None:
+        log_file = getattr(self, "_log_file", None)
+        if log_file is not None:
             try:
-                self._log_file.flush()
-                self._log_file.close()
+                log_file.flush()
+                log_file.close()
             except Exception:
                 pass
             self._log_file = None

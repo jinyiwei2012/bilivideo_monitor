@@ -42,7 +42,8 @@ def _add_derived_features(arr: np.ndarray) -> np.ndarray:
     # 生命周期阶段（前20%早期、中间40%中期、后40%晚期）
     lifecycle_phase = np.where(rel_pos < 0.2, 0.0, np.where(rel_pos < 0.6, 1.0, 2.0)).astype(np.float32)
     extras = np.column_stack([roll_mean, roll_std, accel, rel_pos, lifecycle_phase])
-    return np.column_stack([arr, extras])
+    derived: np.ndarray = np.column_stack([arr, extras])
+    return derived
 
 
 def _build_torch_input(video_data, features, window):

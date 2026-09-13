@@ -108,7 +108,7 @@ class ConformalPredictionAlgorithm(BaseAlgorithm):
                 growth = velocity * 3600  # 每小时间隔的增长量
                 interval_half = growth * 0.2  # 区间半宽设为增长的 20%
             else:
-                residuals = np.sort(residuals)  # 残差从小到大排序
+                residuals = list(np.sort(residuals))  # 残差从小到大排序
                 alpha = 0.2  # 显著性水平（覆盖率 = 1-alpha = 80%）
                 # 取 (1-alpha) 分位数：使区间覆盖 80% 的真值
                 q_idx = int(np.ceil((1 - alpha) * len(residuals))) - 1

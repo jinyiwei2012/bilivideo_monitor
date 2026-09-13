@@ -53,7 +53,7 @@ class ElasticNetRegressionAlgorithm(BaseAlgorithm):
         self.l1_ratio = 0.5  # L1/L2 混合比例 (0.5 = 等量混合)
         self.max_iter = 1000  # 最大迭代次数
         self.tol = 1e-4  # 收敛容差
-        self.coef_ = None  # 特征系数
+        self.coef_: Any = None  # 特征系数
         self.intercept_ = 0.0  # 截距
 
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
@@ -146,7 +146,7 @@ class ElasticNetRegressionAlgorithm(BaseAlgorithm):
         返回:
             Tuple[np.ndarray, np.ndarray]: (标准化特征矩阵 X, 标准化标签 y)
         """
-        X, y = [], []
+        X_rows, y_rows = [], []
         for i in range(len(history_data) - 1):
             cur = history_data[i]
             nxt = history_data[i + 1]
@@ -171,11 +171,11 @@ class ElasticNetRegressionAlgorithm(BaseAlgorithm):
                 day_week,  # 星期特征
             ]
             growth = nxt.get("view", 0) - cur.get("view", 0)
-            X.append(features)
-            y.append(growth)
+            X_rows.append(features)
+            y_rows.append(growth)
 
-        X = np.array(X, dtype=float)
-        y = np.array(y, dtype=float)
+        X = np.array(X_rows, dtype=float)
+        y = np.array(y_rows, dtype=float)
 
         # Z-score 标准化（保存均值和标准差以供反标准化）
         self._X_mean = np.mean(X, axis=0)
@@ -245,7 +245,7 @@ class ElasticNetRegressionAlgorithm(BaseAlgorithm):
 
             # 更新截距：截距 = mean(residuals + 旧截距)
             old_intercept = self.intercept_
-            self.intercept_ = np.mean(residuals + self.intercept_)
+            self.intercept_ = float(np.mean(residuals + self.intercept_))
             residuals += old_intercept - self.intercept_  # 更新残差以反映新截距
             max_change = max(max_change, abs(old_intercept - self.intercept_))
 

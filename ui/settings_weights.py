@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ui.theme import C
+from ui.dialog_base import DialogBase
 from ui.helpers import FONT, FONT_SM, FONT_MONO
 from algorithms.registry import AlgorithmRegistry
 from algorithms.weight_manager import get_weight_manager
@@ -28,6 +29,8 @@ logger = logging.getLogger(__name__)
 
 class SettingsWeightsMixin:
     """Algorithm weight configuration settings tab."""
+
+    dlg: DialogBase
 
     def _build_weights_tab(self, nb):
         page = QWidget()

@@ -40,7 +40,7 @@ TBATS 是一种强大的时间序列预测模型，特别设计用于处理复�
 
 import logging
 import numpy as np
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from algorithms.base import BaseAlgorithm, PredictionResult
 
 logger = logging.getLogger(__name__)
@@ -111,7 +111,7 @@ class TbatsSimpleAlgorithm(BaseAlgorithm):
 
         return self._numpy_predict(video_data, threshold)
 
-    def _tbats_predict(self, video_data: Dict[str, Any], threshold: int) -> PredictionResult:
+    def _tbats_predict(self, video_data: Dict[str, Any], threshold: int) -> Optional[PredictionResult]:
         """使用 tbats 库进行 Box-Cox 变换 + 三角函数多重季节分解预测
 
         参数:

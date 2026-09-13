@@ -4,7 +4,7 @@
 
 import os
 import logging
-from typing import Dict
+from typing import TYPE_CHECKING, Dict
 
 from PyQt6.QtWidgets import (
     QWidget,
@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import QTimer
 
 from ui.theme import C
+from ui.dialog_base import DialogBase
 from ui.helpers import FONT, FONT_SM, FONT_MONO
 from utils.update_checker import _train
 from ui.scrollable_frame import ScrollableFrame
@@ -34,6 +35,13 @@ logger = logging.getLogger(__name__)
 class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
     """Model training settings tab."""
 
+    dlg: DialogBase
+
+    if TYPE_CHECKING:
+
+        def _section(self, parent: QWidget, title: str, padding: tuple[int, ...] | None = None) -> QWidget:
+            raise NotImplementedError
+
     def _build_training_tab(self, nb):
         page = QWidget()
         page.setStyleSheet(f"background-color: {C['bg_base']};")
@@ -43,6 +51,8 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
 
         dev_sec = self._section(page, "训练设备 ♪", padding=(16, 12, 6))
         dev_layout = dev_sec.layout()
+        if dev_layout is None:
+            return
 
         dev_row = QWidget()
         dev_row.setStyleSheet(f"background-color: {C['bg_elevated']};")
@@ -95,6 +105,8 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
         # 数据规模
         data_sec = self._section(page, "数据规模 ♪", padding=(16, 6, 6))
         data_layout = data_sec.layout()
+        if data_layout is None:
+            return
         self._tr_data_lbl = _styled_label("估算中哦…♪", "text_1")
         data_layout.addWidget(self._tr_data_lbl)
         refresh_data_btn = QPushButton("重新估算 ♪")
@@ -104,6 +116,8 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
         # 可训练算法列表
         list_sec = self._section(page, "可训练算法（PyTorch）♪", padding=(16, 6, 6))
         list_layout = list_sec.layout()
+        if not isinstance(list_layout, QVBoxLayout):
+            return
 
         hdr = QWidget()
         hdr.setStyleSheet(f"background-color: {C['bg_surface']}; " f"border: 1px solid {C['border_sub']};")
@@ -149,6 +163,8 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
 
         ctrl_sec = self._section(page, "训练控制 ♪", padding=(16, 6, 12))
         ctrl_layout = ctrl_sec.layout()
+        if ctrl_layout is None:
+            return
 
         param_row = QWidget()
         param_row.setStyleSheet(f"background-color: {C['bg_elevated']};")
@@ -214,10 +230,11 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
         self._tr_status_lbl = _styled_label("准备好啦 ♪", "text_3", font_=FONT_SM)
         ctrl_layout.addWidget(self._tr_status_lbl)
 
-        self._train_thread = None  # AsyncQueueRunner 属性预初始化
-        self._train_queue = None
+        if not TYPE_CHECKING:
+            self._train_thread = None  # AsyncQueueRunner 属性预初始化
+            self._train_queue = None
+            self._train_t0 = None
         self._tr_cancel_flag = [False]
-        self._train_t0 = None
 
         self._refresh_device_info()
         self._refresh_data_size()
@@ -419,7 +436,9 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
         def _cb(payload: Dict):
             payload = dict(payload)
             payload["_total_selected"] = len(selected)
-            self._train_queue.put(payload)
+            train_queue = self._train_queue
+            if train_queue is not None:
+                train_queue.put(payload)
 
         def _worker():
             try:
@@ -430,15 +449,21 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
                 results = {}
                 while remaining:
                     if self._tr_cancel_flag[0]:
-                        self._train_queue.put({"stage": "cancelled", "remaining": remaining})
+                        train_queue = self._train_queue
+                        if train_queue is not None:
+                            train_queue.put({"stage": "cancelled", "remaining": remaining})
                         break
                     aid = remaining.pop(0)
                     sub = trainer.train_global([aid], epochs=epochs, batch_size=batch, progress_cb=_cb)
                     results.update(sub)
-                self._train_queue.put({"stage": "all_done", "results": results})
+                train_queue = self._train_queue
+                if train_queue is not None:
+                    train_queue.put({"stage": "all_done", "results": results})
             except Exception:
                 logger.error("全局训练失败", exc_info=True)
-                self._train_queue.put({"stage": "fatal", "error": "训练时出了点小问题，请稍后再试哦 ♪"})
+                train_queue = self._train_queue
+                if train_queue is not None:
+                    train_queue.put({"stage": "fatal", "error": "训练时出了点小问题，请稍后再试哦 ♪"})
 
         # 线程 + 队列 + 轮询由 AsyncQueueRunner 提供
         self._launch_worker(_worker)
@@ -563,5 +588,6 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
         self._tr_train_btn.setEnabled(True)
         self._tr_cancel_btn.setEnabled(False)
         self._refresh_algo_list()
-        self._train_queue = None
-        self._train_thread = None
+        if not TYPE_CHECKING:
+            self._train_queue = None
+            self._train_thread = None

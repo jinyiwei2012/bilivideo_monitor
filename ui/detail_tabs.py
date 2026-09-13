@@ -4,12 +4,15 @@
 """
 
 import logging
+from typing import Any, Protocol
 
 from PyQt6.QtWidgets import (
     QWidget,
     QHBoxLayout,
     QLabel,
     QFrame,
+    QTextEdit,
+    QVBoxLayout,
 )
 from PyQt6.QtGui import QTextCursor
 
@@ -21,8 +24,26 @@ from utils.thread_utils import fire_and_forget
 logger = logging.getLogger(__name__)
 
 
+class _VideoDatabase(Protocol):
+    def get_danmaku_records(self, limit: int = 5000) -> list[dict[str, Any]]:
+        raise NotImplementedError
+
+    def count_danmaku(self) -> int:
+        raise NotImplementedError
+
+
 class _RatioDanmakuMixin:
     """互动率 + 弹幕标签页 Mixin"""
+
+    gui: Any
+    _ratio_layout: QVBoxLayout
+    _ratio_bars: list[tuple[QFrame, QLabel]]
+    _dm_text: QTextEdit
+    _dm_empty: QWidget
+    _dm_count_lbl: QLabel
+    _dm_cache: dict[str, dict[str, Any]]
+    _dm_pending: set[str]
+    _current_tab_name: str
 
     # ── Ratio Frame ─────────────────────────────
 

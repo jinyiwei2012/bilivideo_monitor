@@ -1,10 +1,11 @@
 """Finetune configuration, worker orchestration, and automatic adjustment logic."""
 
 import logging
-from typing import Dict
+from queue import Queue
+from typing import TYPE_CHECKING, Any, Callable, Dict
 
 from PyQt6.QtCore import QTimer
-from PyQt6.QtWidgets import QMessageBox
+from PyQt6.QtWidgets import QCheckBox, QLabel, QMessageBox, QPushButton, QRadioButton, QSpinBox, QWidget
 
 from ui.helpers import loss_to_confidence, project_path
 from ui.theme import C
@@ -13,7 +14,39 @@ from ui.training_base import TrainingMonitor
 logger = logging.getLogger(__name__)
 
 
-class FinetuneJobsMixin:
+if TYPE_CHECKING:
+
+    class _FinetuneJobsHost(QWidget):
+        main: Any
+        _algo_lr_factors: dict[str, float]
+        _algo_vars: dict[str, QCheckBox]
+        _auto_control: dict[str, Any]
+        _auto_monitors: dict[str, TrainingMonitor]
+        _batch_spin: QSpinBox
+        _cancel_btn: QPushButton
+        _cancel_flag: list[bool]
+        _current_bvid: str
+        _epoch_spin: QSpinBox
+        _mode_retrain: QRadioButton
+        _skip_algo_flag: list[bool]
+        _skip_btn: QPushButton
+        _status_lbl: QLabel
+        _task_detail: QLabel
+        _task_lbl: QLabel
+        _train_queue: Queue[dict[str, Any]]
+        _training: bool
+        _use_new_data_only: bool
+        _video_results: dict[str, list[dict[str, Any]]]
+        _video_vars: dict[str, QCheckBox]
+        _append_log: Callable[[str], None]
+        _launch_worker: Callable[[Callable[[], None]], None]
+        _prepare_training: Callable[[], None]
+
+else:
+    _FinetuneJobsHost = object
+
+
+class FinetuneJobsMixin(_FinetuneJobsHost):
     """Provide finetune job setup and worker-thread orchestration."""
 
     def _on_start(self):
@@ -89,34 +122,32 @@ class FinetuneJobsMixin:
             return None
 
         self._use_new_data_only = False
-        if mode == "incremental":
-            has_prev = False
-            try:
-                from algorithms.training.checkpoint_manager import CheckpointManager
-
-                for _bv in selected_videos:
-                    for _al in selected_algos:
-                        _cm = CheckpointManager(_al, bvid=_bv)
-                        if _cm.has_checkpoint():
-                            has_prev = True
-                            break
-                    if has_prev:
-                        break
-            except Exception as e:
-                logger.debug("忽略异常: %s", e)
-            if has_prev:
-                reply = QMessageBox.question(
-                    self,
-                    "数据范围怎么选呀 ♪",
-                    "已经有微调好的 checkpoint 啦,训练数据范围要选哪种呢?\n\n"
-                    "「是」 = 只唱上次练习截止后的新歌(续训,速度快)\n"
-                    "「否」 = 把这首视频的全部历史数据都唱一遍(更充分)",
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                    QMessageBox.StandardButton.Yes,
-                )
-                self._use_new_data_only = reply == QMessageBox.StandardButton.Yes
+        if mode == "incremental" and self._has_previous_finetune(selected_videos, selected_algos):
+            reply = QMessageBox.question(
+                self,
+                "数据范围怎么选呀 ♪",
+                "已经有微调好的 checkpoint 啦,训练数据范围要选哪种呢?\n\n"
+                "「是」 = 只唱上次练习截止后的新歌(续训,速度快)\n"
+                "「否」 = 把这首视频的全部历史数据都唱一遍(更充分)",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            self._use_new_data_only = reply == QMessageBox.StandardButton.Yes
 
         return (selected_videos, selected_algos, epochs, batch, total, mode)
+
+    @staticmethod
+    def _has_previous_finetune(selected_videos: list[str], selected_algos: list[str]) -> bool:
+        try:
+            from algorithms.training.checkpoint_manager import CheckpointManager
+
+            for bvid in selected_videos:
+                for aid in selected_algos:
+                    if CheckpointManager(aid, bvid=bvid).has_checkpoint():
+                        return True
+        except Exception as e:
+            logger.debug("忽略异常: %s", e)
+        return False
 
     def _handle_finetune_progress(self, payload: Dict, mode: str):
         """训练回调 — 运行在工作线程中，负责通信 + 自动调整"""

@@ -55,7 +55,7 @@ class MambaS6Algorithm(BaseAlgorithm):
         Returns:
             PredictionResult: 预测结果
         """
-        return try_torch_predict(
+        result: PredictionResult = try_torch_predict(
             self,
             video_data,
             threshold,
@@ -64,6 +64,7 @@ class MambaS6Algorithm(BaseAlgorithm):
             window=self.training_window,
             horizon=self.training_horizon,
         )
+        return result
 
     def build_model(self):
         """构建Mamba S6 PyTorch模型实例

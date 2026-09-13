@@ -221,7 +221,7 @@ def hf_cache_dir() -> str:
     try:
         from huggingface_hub import constants
 
-        return constants.HF_HUB_CACHE
+        return str(constants.HF_HUB_CACHE)
     except Exception:
         import os
 

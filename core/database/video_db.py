@@ -8,7 +8,7 @@ import logging
 from datetime import datetime
 from utils import project_path
 from utils.time_utils import now_ts
-from typing import List, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from .connection import _ConnectionCtx
 from .models import _validate_bvid, MonitorRecord, PredictionRecord
@@ -24,7 +24,7 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
     同时维护一个镜像连接同步写入 data/ 目录。
     """
 
-    def __init__(self, bvid: str, base_dir: str = None):
+    def __init__(self, bvid: str, base_dir: str | None = None) -> None:
         """初始化视频独立数据库
 
         Args:
@@ -49,8 +49,8 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
         self._conn.execute("PRAGMA synchronous=NORMAL")  # 平衡写入安全与速度
 
         # 镜像连接：同步写入 data/ 目录（延迟初始化，首次写入时才创建以节省内存）
-        self._mirror_conn = None
-        self._mirror_path = None
+        self._mirror_conn: sqlite3.Connection | None = None
+        self._mirror_path: str | None = None
         mirror_base = project_path("data")
         if mirror_base != base_dir:
             mirror_dir = os.path.join(mirror_base, bvid)
@@ -58,7 +58,7 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
             self._mirror_path = os.path.join(mirror_dir, f"{bvid}.db")
 
         # 中央数据库引用（用于写入兜底，由调用方通过 set_central_db 注入）
-        self._central_db = None
+        self._central_db: Any = None
 
         try:
             self._init_db()
@@ -71,11 +71,11 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
         except Exception as e:
             logger.debug("初始化镜像数据库失败 %s: %s", self.bvid, e)
 
-    def _get_connection(self):
+    def _get_connection(self) -> _ConnectionCtx:
         """返回线程安全的连接上下文管理器（兼容 with 语法）"""
         return _ConnectionCtx(self._conn, self._lock)
 
-    def _ensure_mirror(self):
+    def _ensure_mirror(self) -> None:
         """延迟创建镜像数据库连接（首次写入时调用，节省内存）。"""
         if self._mirror_conn is not None or self._mirror_path is None:
             return
@@ -90,10 +90,10 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
             logger.warning("创建镜像数据库连接失败 %s: %s", self.bvid, e, exc_info=True)
             self._mirror_conn = None
 
-    def _execute_on_all(self, sql: str, params: tuple = ()):
+    def _execute_on_all(self, sql: str, params: tuple[Any, ...] = ()) -> None:
         """在主连接和镜像连接上同时执行 SQL"""
 
-        def _exec(conn, label="main"):
+        def _exec(conn: sqlite3.Connection, label: str = "main") -> None:
             try:
                 conn.execute(sql, params) if params else conn.execute(sql)
                 conn.commit()
@@ -107,7 +107,7 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
             with _ConnectionCtx(self._mirror_conn, self._lock) as conn:
                 _exec(conn, "mirror")
 
-    def _raw_connection(self):
+    def _raw_connection(self) -> sqlite3.Connection:
         """返回原始连接（用于需要直接操作的场景）"""
         return self._conn
 
@@ -282,17 +282,17 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
     ]
 
     @staticmethod
-    def _apply_schema(cursor) -> None:
+    def _apply_schema(cursor: sqlite3.Cursor) -> None:
         """在指定 cursor 上执行共享 schema 定义 (主库/镜像库共用)。"""
         for sql, tolerant in VideoDatabase.SCHEMA_STATEMENTS:
             try:
                 cursor.execute(sql)
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 if not tolerant:
                     raise
                 logger.debug("schema 语句跳过(容忍): %.80s | %s", sql, e)
 
-    def _init_db(self):
+    def _init_db(self) -> None:
         """初始化数据库：创建所需的表、索引，并执行 schema 迁移"""
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -320,7 +320,7 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
 
             conn.commit()
 
-    def _migrate_scores_unique(self, conn):
+    def _migrate_scores_unique(self, conn: sqlite3.Connection) -> None:
         """v3→v4 迁移：分数表按 timestamp 去重并建唯一索引。
 
         唯一索引让 `INSERT OR REPLACE` 按 timestamp 幂等（同一时刻只保留一行），
@@ -346,7 +346,7 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
                 logger.warning("v3→v4: %s 无法创建唯一索引", table)
         conn.commit()
 
-    def set_central_db(self, central_db):
+    def set_central_db(self, central_db: Any) -> None:
         """注入中央数据库引用，用于写入时同步兜底
 
         Args:
@@ -354,7 +354,7 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
         """
         self._central_db = central_db
 
-    def _init_mirror_tables(self):
+    def _init_mirror_tables(self) -> None:
         """在镜像连接上创建与主库相同的表结构（仅当镜像连接存在时）。
 
         schema 单点定义见 SCHEMA_STATEMENTS, 与主库共用。
@@ -368,7 +368,7 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
         except Exception as e:
             logger.warning("初始化镜像数据库表失败 %s: %s", self.bvid, e, exc_info=True)
 
-    def _migrate_db(self, conn):
+    def _migrate_db(self, conn: sqlite3.Connection) -> None:
         """检查并迁移数据库：添加缺少的列、自动计算默认值
 
         Args:
@@ -378,7 +378,7 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
         self._migrate_schema_upgrades(cursor)
         self._migrate_compute_values(cursor)
 
-    def _migrate_schema_upgrades(self, cursor):
+    def _migrate_schema_upgrades(self, cursor: sqlite3.Cursor) -> None:
         """迁移数据库模式：添加缺少的列
 
         根据预定义的 schema_upgrades 字典，逐表检查并添加缺失的列，
@@ -439,7 +439,7 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
                     except Exception as e:
                         logger.warning(f"迁移失败 {table}.{col_name}: {e}")
 
-    def _migrate_compute_values(self, cursor):
+    def _migrate_compute_values(self, cursor: sqlite3.Cursor) -> None:
         """自动计算缺失的数值字段
 
         补充 like_view_ratio（播赞比）和 predicted_hours 等派生字段
@@ -475,7 +475,7 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
         except Exception as e:
             logger.debug("更新 predictions predicted_hours 失败: %s", e)
 
-    def _exec_mirror(self, sql: str, params: tuple = ()):
+    def _exec_mirror(self, sql: str, params: tuple[Any, ...] = ()) -> None:
         """在镜像连接上执行 SQL（若镜像已创建）。
 
         与主库写入共用同一 SQL/参数定义, 消除 _mirror_* 重复方法。
@@ -489,7 +489,7 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
         except Exception as e:
             logger.debug("镜像写入失败 %s: %s", self.bvid, e)
 
-    def save_video_info(self, video_info: Dict):
+    def save_video_info(self, video_info: Dict) -> None:
         """保存（插入或替换）视频信息到 video_info 表, 并同步镜像库。
 
         Args:
@@ -728,11 +728,11 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
         # SQLite INTEGER 最大值 (64位带符号)
         _SQLITE_INT_MAX = 2**63 - 1
 
-        def _clamp_int(v):
+        def _clamp_int(v: Any) -> int:
             """把数值夹到 SQLite 64 位有符号整数范围内。"""
             return min(max(int(v or 0), -_SQLITE_INT_MAX), _SQLITE_INT_MAX)
 
-        def _prediction_params(r):
+        def _prediction_params(r: dict[str, Any]) -> tuple[Any, ...]:
             """构造 predictions 行参数，补全 is_reached / actual_time"""
             views = _clamp_int(r.get("current_views", 0))
             threshold = _clamp_int(r.get("target_threshold", 0))
@@ -852,7 +852,7 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
             logger.warning("清理预测重复失败 %s: %s", self.bvid, e, exc_info=True)
         return result
 
-    def close(self):
+    def close(self) -> None:
         """关闭数据库连接，刷新 WAL
 
         依次 checkpoint、关闭主连接、关闭镜像连接
@@ -869,7 +869,7 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
             except Exception as e:
                 logger.debug("关闭镜像数据库连接失败: %s", e)
 
-    def wal_checkpoint(self):
+    def wal_checkpoint(self) -> None:
         """安全执行 WAL checkpoint，持有锁避免与写入冲突"""
         try:
             with self._lock:

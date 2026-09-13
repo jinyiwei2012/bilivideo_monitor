@@ -131,7 +131,7 @@ class TimesNetSimpleAlgorithm(BaseAlgorithm):
         velocities, _ = self._calculate_velocity_series(views, timestamps)
 
         if len(velocities) < self.min_seq_len:
-            velocity = velocities[-1] if len(velocities) > 0 else 0.0
+            velocity = float(velocities[-1]) if len(velocities) > 0 else 0.0
             return self._make_result(
                 current_views, threshold, velocity, confidence=0.4, period_features=None, reason="short_velocity_series"
             )
@@ -141,7 +141,7 @@ class TimesNetSimpleAlgorithm(BaseAlgorithm):
 
         if not period_features:
             # 无法提取周期特征，使用平均速度
-            avg_vel = np.mean(velocities)
+            avg_vel = float(np.mean(velocities))
             return self._make_result(
                 current_views, threshold, avg_vel, confidence=0.4, period_features=None, reason="no_period_found"
             )
@@ -214,7 +214,8 @@ class TimesNetSimpleAlgorithm(BaseAlgorithm):
             np.ndarray: 6维特征向量
         """
         if matrix.size == 0:
-            return np.array([0.0, 0.0, 0.0])
+            empty_features: np.ndarray = np.array([0.0, 0.0, 0.0])
+            return empty_features
 
         # 周期内模式（列均值：每个周期位置的平均值）
         col_means = np.mean(matrix, axis=0)
@@ -232,7 +233,8 @@ class TimesNetSimpleAlgorithm(BaseAlgorithm):
             np.std(matrix),  # 全局标准差
         ]
 
-        return np.array(features)
+        convolution_features: np.ndarray = np.array(features)
+        return convolution_features
 
     def _predict_from_period_features(
         self, period_features: Dict[int, np.ndarray], velocities: np.ndarray
@@ -252,21 +254,21 @@ class TimesNetSimpleAlgorithm(BaseAlgorithm):
             (预测速度, 置信度)
         """
         if not period_features:
-            return velocities[-1] if len(velocities) > 0 else 0.0, 0.3
+            return float(velocities[-1]) if len(velocities) > 0 else 0.0, 0.3
 
         # 融合多周期特征：所有周期的所有统计量拼接
-        all_features = []
+        all_features: List[float] = []
         for period, feats in period_features.items():
-            all_features.extend(feats)
+            all_features.extend(float(value) for value in feats)
 
         if not all_features:
-            return velocities[-1], 0.3
+            return float(velocities[-1]), 0.3
 
         # 使用特征均值作为预测
-        feature_mean = np.mean(all_features)
+        feature_mean = float(np.mean(all_features))
 
         # 结合近期速度
-        recent_vel = velocities[-1]
+        recent_vel = float(velocities[-1])
 
         # 判断周期性强度（基于自相关系数）
         periodicity_strength = self._calculate_periodicity(velocities)
@@ -323,7 +325,7 @@ class TimesNetSimpleAlgorithm(BaseAlgorithm):
                 return 0.0
 
             # 映射到 [0, 1]（负相关视为无周期）
-            periodicity = max(0, autocorr)
+            periodicity = max(0.0, float(autocorr))
             return periodicity
         except Exception:
             return 0.0

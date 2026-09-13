@@ -18,7 +18,7 @@ Mar-BiLSTM — 马尔可夫增强双向LSTM（Markov-augmented BiLSTM）
 """
 
 import logging
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -134,7 +134,7 @@ class MarBilstmAlgorithm(BaseAlgorithm):
         super().__init__()
         self._device = get_device()  # 获取计算设备（CPU/CUDA）
         self._ckpt = CheckpointManager(self.algorithm_id)  # checkpoint管理器
-        self._cached_model = None  # 模型缓存（避免重复加载）
+        self._cached_model: Optional[MarBilstmTorchModel] = None  # 模型缓存（避免重复加载）
         self._features = ["view_count", "like_count", "coin_count", "favorite_count", "share_count"]  # 基础特征
 
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
@@ -153,7 +153,10 @@ class MarBilstmAlgorithm(BaseAlgorithm):
         if _torch_available:
             try:
                 v, conf, meta = self._torch_predict(video_data)
-                return self._make_result(current_views, threshold, v, conf, "mar_bilstm_torch", meta)
+                result: PredictionResult = self._make_result(
+                    current_views, threshold, v, conf, "mar_bilstm_torch", meta
+                )
+                return result
             except Exception as e:
                 logger.warning("[mar_bilstm] torch 失败，降级: %s", e)
         return self._numpy_predict(video_data, current_views, threshold)
@@ -219,7 +222,7 @@ class MarBilstmAlgorithm(BaseAlgorithm):
         history = video_data.get("history_data", [])
         n = self.training_window
         # 创建零填充的特征数组
-        arr = np.zeros((n, len(self._features)), dtype=np.float32)
+        arr: np.ndarray = np.zeros((n, len(self._features)), dtype=np.float32)
         # 取最近n个记录（不足则右对齐填充）
         recent = history[-n:] if len(history) >= n else history
         offset = n - len(recent)
@@ -260,22 +263,25 @@ class MarBilstmAlgorithm(BaseAlgorithm):
         history = video_data.get("history_data", [])
         velocities = self._velocity_series(history)
         if len(velocities) < 3:
-            v = self.calculate_velocity(video_data)
-            return self._make_result(current_views, threshold, v, 0.3, "insufficient_data", {})
+            velocity = self.calculate_velocity(video_data)
+            result: PredictionResult = self._make_result(
+                current_views, threshold, velocity, 0.3, "insufficient_data", {}
+            )
+            return result
         # 简化：双向EMA + 5个状态的硬分配
-        v = np.array(velocities, dtype=np.float32)
+        velocity_array = np.array(velocities, dtype=np.float32)
         # forward EMA（前向指数移动平均）
-        fwd = v[0]
-        for x in v[1:]:
+        fwd = velocity_array[0]
+        for x in velocity_array[1:]:
             fwd = 0.4 * x + 0.6 * fwd
         # backward EMA（后向指数移动平均）
-        bwd = v[-1]
-        for x in v[::-1][1:]:
+        bwd = velocity_array[-1]
+        for x in velocity_array[::-1][1:]:
             bwd = 0.4 * x + 0.6 * bwd
         bi = 0.5 * (fwd + bwd)  # 双向融合
         # 状态分配：基于近期均值 vs 全局均值的比例
-        recent_mean = float(np.mean(v[-3:]))
-        global_mean = float(np.mean(v))
+        recent_mean = float(np.mean(velocity_array[-3:]))
+        global_mean = float(np.mean(velocity_array))
         ratio = recent_mean / (global_mean + 1e-6)
         # 硬分配到5种增长状态
         if ratio < 0.5:
@@ -294,7 +300,7 @@ class MarBilstmAlgorithm(BaseAlgorithm):
             multiplier = 1.6
             state = "viral"  # 爆发
         predicted = max(0.0, bi * multiplier)
-        return self._make_result(
+        result = self._make_result(
             current_views,
             threshold,
             predicted,
@@ -302,6 +308,7 @@ class MarBilstmAlgorithm(BaseAlgorithm):
             "mar_bilstm_numpy_fallback",
             {"state": state, "multiplier": multiplier, "bi_ema": bi, "method": "bi_ema_state"},
         )
+        return result
 
     @staticmethod
     def _velocity_series(history: List[Dict]) -> List[float]:

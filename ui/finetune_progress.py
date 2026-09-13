@@ -2,14 +2,47 @@
 
 import logging
 import time
+from typing import TYPE_CHECKING, Any, Callable, cast
+
+from PyQt6.QtWidgets import QLabel, QProgressBar
 
 from ui.helpers import format_confidence, loss_to_confidence
 from ui.theme import C
+from ui.training_base import TrainingMonitor
 
 logger = logging.getLogger(__name__)
 
 
-class FinetuneProgressMixin:
+if TYPE_CHECKING:
+
+    class _FinetuneProgressHost:
+        main: Any
+        _current_aid: str
+        _current_bvid: str
+        _last_finetune_count: int
+        _loss_history: list[dict[str, Any]]
+        _monitor: TrainingMonitor
+        _monitor_status: QLabel
+        _progress: QProgressBar
+        _status_lbl: QLabel
+        _task_detail: QLabel
+        _task_lbl: QLabel
+        _train_t0: float | None
+        _video_results: dict[str, list[dict[str, Any]]]
+        _append_log: Callable[[str], None]
+        _clear_chart: Callable[[], None]
+        _refresh_algo_row: Callable[[int, str, str, str, str, str, str], None]
+        _refresh_monitor: Callable[[], None]
+        _update_chart: Callable[[], None]
+
+        def _cleanup_training(self) -> None:
+            pass
+
+else:
+    _FinetuneProgressHost = object
+
+
+class FinetuneProgressMixin(_FinetuneProgressHost):
     """Handle queued finetune progress messages on the UI thread."""
 
     STAGE_HANDLERS = {
@@ -23,12 +56,15 @@ class FinetuneProgressMixin:
         "all_done": "_on_stage_all_done",
     }
 
-    def _handle_stage(self, msg) -> bool:
+    def _handle_stage(self, msg: dict[str, Any]) -> bool:
         """根据消息阶段字段分发到对应的处理函数"""
-        stage = msg.get("stage")
+        stage = cast(str | None, msg.get("stage"))
+        if stage is None:
+            return False
         handler_name = self.STAGE_HANDLERS.get(stage)
         if handler_name:
-            return getattr(self, handler_name)(msg)
+            handler: Callable[[dict[str, Any]], bool | None] = getattr(self, handler_name)
+            return bool(handler(msg))
         return False
 
     def _on_stage_start(self, msg):
@@ -56,7 +92,7 @@ class FinetuneProgressMixin:
         self._status_lbl.setStyleSheet(f"color: {C['text_2']}; background: transparent;")
         self._append_log(f"── [{done}/{total}] 开始微调 {aid}@{bvid} ──")
         self.main.set_finetune_status(f"◎ 天依在微调 {bvid}: [{done}/{total}] {aid} ♪")
-        self._refresh_algo_row(0, aid, "▶ 训练中", C["accent"], "", "", "")
+        self._refresh_algo_row(0, aid, "▶ 训练中", cast(str, C["accent"]), "", "", "")
 
     def _on_stage_epoch(self, msg):
         """处理每个 epoch 的进度更新：更新 Loss 图表、进度条和质量监控"""
@@ -140,7 +176,9 @@ class FinetuneProgressMixin:
             }
         )
 
-        self._refresh_algo_row(0, aid, f"✓ {ver}", C["success"], conf_str, conf_color, f"v{msg.get('done', 0)}")
+        self._refresh_algo_row(
+            0, aid, f"✓ {ver}", cast(str, C["success"]), conf_str, conf_color, f"v{msg.get('done', 0)}"
+        )
 
         self._status_lbl.setText(f"✓ {aid}@{bvid} 唱好啦 ♪ → {ver}  conf={conf_str}  ({done}/{total})")
         self._status_lbl.setStyleSheet(f"color: {C['success']}; background: transparent;")
@@ -159,7 +197,7 @@ class FinetuneProgressMixin:
         self._status_lbl.setText(f"呜…{aid}@{bvid} 没学会呢,天依不会放弃的,看看日志再试一次哦 ♪")
         self._status_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
         self._append_log(f"  ✗ {aid}@{bvid}: {err}")
-        self._refresh_algo_row(0, aid, "✗ 失败", C["danger"], "", "", "")
+        self._refresh_algo_row(0, aid, "✗ 失败", cast(str, C["danger"]), "", "", "")
 
     def _on_stage_auto_adjust(self, msg):
         """处理自动调整事件：记录调整操作到日志"""

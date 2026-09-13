@@ -129,7 +129,7 @@ class BaggingSimpleAlgorithm(BaseAlgorithm):
             Returns:
                 dict: 树节点，包含 {"value"} 或 {"feature", "threshold", "left", "right"}
             """
-            node = {}
+            node: Dict[str, Any] = {}
             # 终止条件：达到最大深度 / 样本太少 / 方差为零
             if depth >= self.max_depth or len(y) < self.min_samples or np.std(y) < 1e-8:
                 node["value"] = float(np.mean(y))
@@ -188,7 +188,10 @@ class BaggingSimpleAlgorithm(BaseAlgorithm):
             Returns:
                 np.ndarray: 预测值数组
             """
-            return np.array([self._predict_one(x, self.tree) for x in X])
+            tree = self.tree
+            if tree is None:
+                raise RuntimeError("regression tree is not fitted")
+            return np.array([self._predict_one(x, tree) for x in X])
 
         def _predict_one(self, x: np.ndarray, node: dict) -> float:
             """对单个样本预测。
@@ -201,7 +204,7 @@ class BaggingSimpleAlgorithm(BaseAlgorithm):
                 float: 预测值
             """
             if "value" in node:
-                return node["value"]  # 叶节点返回存储值
+                return float(node["value"])  # 叶节点返回存储值
             if x[node["feature"]] <= node["threshold"]:
                 return self._predict_one(x, node["left"])
             return self._predict_one(x, node["right"])
@@ -270,7 +273,7 @@ class BaggingSimpleAlgorithm(BaseAlgorithm):
                 predicted_hours, 0.0, current_views, threshold, velocity=velocity, metadata={"error": str(e)}
             )
 
-    def _sklearn_predict(self, video_data: Dict[str, Any], threshold: int) -> PredictionResult:
+    def _sklearn_predict(self, video_data: Dict[str, Any], threshold: int) -> Optional[PredictionResult]:
         """
         使用 sklearn BaggingRegressor + 决策树基学习器做 Bootstrap 集成。
 
@@ -295,15 +298,15 @@ class BaggingSimpleAlgorithm(BaseAlgorithm):
         coins = np.array([h.get("coin_count", 0) for h in history], dtype=np.float64)
 
         p = 5
-        X, y = [], []
+        X_list, y_list = [], []
         for i in range(p, len(views)):
             feat = []
             for j in range(1, p + 1):
                 feat.extend([views[i - j], likes[i - j], coins[i - j], np.log(max(views[i - j], 1))])
-            X.append(feat)
-            y.append(views[i])
+            X_list.append(feat)
+            y_list.append(views[i])
 
-        X, y = np.array(X), np.array(y)
+        X, _ = np.array(X_list), np.array(y_list)
         if len(X) < 8:
             return None
 
@@ -334,7 +337,7 @@ class BaggingSimpleAlgorithm(BaseAlgorithm):
 
         remaining = threshold - current_views
         if remaining <= 0:
-            predicted_hours, confidence = 0, 1.0
+            predicted_hours, confidence = 0.0, 1.0
         else:
             predicted_hours = remaining / predicted_velocity if predicted_velocity > 0 else float("inf")
             residuals = np.abs(y_target - model.predict(X))
@@ -380,7 +383,9 @@ class BaggingSimpleAlgorithm(BaseAlgorithm):
         order = np.argsort(timestamps)  # 按时间排序
         return np.array(views_vals, dtype=float)[order]
 
-    def _predict_impl(self, views_sorted, current_views, velocity, remaining, threshold, video_data):
+    def _predict_impl(
+        self, views_sorted, current_views, velocity, remaining, threshold, video_data
+    ) -> PredictionResult:
         """
         执行 Bagging 核心预测（numpy 版）。
 

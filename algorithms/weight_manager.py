@@ -27,9 +27,11 @@ import json
 import math
 import threading
 import logging
-from typing import Dict, List
+import importlib
+from typing import Any, Dict, List, Optional
 from datetime import datetime
-from utils import project_path
+
+project_path = importlib.import_module("utils").project_path
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +43,7 @@ class WeightManager:
     通过互斥锁 _lock 保证线程安全，权重变更后异步写盘。
     """
 
-    def __init__(self, save_dir: str = None):
+    def __init__(self, save_dir: Optional[str] = None):
         """初始化权重管理器。
 
         Args:
@@ -68,7 +70,7 @@ class WeightManager:
         # 从磁盘加载已有权重数据
         self._load_weights()
 
-    def _get_weights_file(self, bvid: str = None) -> str:
+    def _get_weights_file(self, bvid: Optional[str] = None) -> str:
         """获取权重文件路径。
 
         bvid 不为 None 时返回视频专属权重文件（多视频隔离），
@@ -119,7 +121,7 @@ class WeightManager:
         except Exception as e:
             logger.warning("保存权重失败: %s", e)
 
-    def _write_weights_file(self, data: dict, bvid: str = None):
+    def _write_weights_file(self, data: Dict[str, Any], bvid: Optional[str] = None):
         """执行实际的文件写入（可在后台线程中调用）。
 
         Args:

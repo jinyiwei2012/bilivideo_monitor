@@ -49,7 +49,7 @@ class TideSimpleAlgorithm(BaseAlgorithm):
         Returns:
             PredictionResult: 预测结果
         """
-        return try_torch_predict(
+        result: PredictionResult = try_torch_predict(
             self,
             video_data,
             threshold,
@@ -58,6 +58,7 @@ class TideSimpleAlgorithm(BaseAlgorithm):
             window=self.training_window,
             horizon=self.training_horizon,
         )
+        return result
 
     def build_model(self):
         """构建TIDE PyTorch模型实例"""
@@ -105,13 +106,13 @@ class TideSimpleAlgorithm(BaseAlgorithm):
 
         try:
             # 取最近5个数据点的平均差分作为未来速度（最近信息权重最高）
-            future_velocity = max(0, np.mean(np.diff(views[-5:])) / 3600) if len(views) >= 5 else velocity
+            future_velocity = max(0.0, float(np.mean(np.diff(views[-5:]))) / 3600) if len(views) >= 5 else velocity
             # 不低于当前速度的50%（防止TIDE过度调低预测）
             predicted_velocity = max(future_velocity, velocity * 0.5)
 
             remaining = threshold - current_views
             if remaining <= 0:
-                predicted_hours, confidence = 0, 1.0  # 已达到阈值
+                predicted_hours, confidence = 0.0, 1.0  # 已达到阈值
             else:
                 predicted_hours = remaining / predicted_velocity
                 confidence = min(0.85, 0.5 + 0.01 * len(history))  # 数据越多置信度越高

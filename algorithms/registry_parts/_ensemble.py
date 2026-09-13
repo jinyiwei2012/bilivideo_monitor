@@ -1,20 +1,47 @@
 """EnsembleMixin extracted from algorithms.registry."""
 
-from typing import Dict, List
+import threading
+import importlib
+from typing import Any, cast, Dict, List, Optional, TYPE_CHECKING
 import math
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from ._shared import _LRUDict, _get_surge_detector, get_weight_manager, logger
+from ..base import BaseAlgorithm
 
 
 class EnsembleMixin:
+    _algorithms: Dict[str, BaseAlgorithm]
+    _pool_lock: threading.RLock
+    _pool: Optional[ThreadPoolExecutor]
+    _history_lock: threading.Lock
+    _window_weight_history: Dict[str, List[float]]
+    _surge_cache: _LRUDict
+    _initialized: bool
+
+    if TYPE_CHECKING:
+
+        @classmethod
+        def initialize(cls) -> None:
+            raise NotImplementedError
+
+        @classmethod
+        def _prepare_video_data(cls, history: List, current_value: float, bvid: str = "") -> Dict:
+            raise NotImplementedError
+
+        @classmethod
+        def _record_ensemble_feedback(cls, bvid: str, current_value: float) -> None:
+            raise NotImplementedError
+
     @classmethod
     def _merge_history(cls, memory_history: List, db_history: List) -> List:
         """合并内存历史与 DB 全量历史，按时间戳去重。
 
         DB 历史可覆盖更早的区间，确保长期期模型获得完整数据。
         """
-        from utils.time_utils import safe_datetime, normalize_timestamp
+        time_utils = importlib.import_module("utils.time_utils")
+        safe_datetime = time_utils.safe_datetime
+        normalize_timestamp = time_utils.normalize_timestamp
 
         def _ts_str(ts_val):
             try:
@@ -174,9 +201,8 @@ class EnsembleMixin:
 
         with cls._pool_lock:
             if cls._pool is None:
-                from utils.memory_guard import get_safe_workers
-
-                workers = get_safe_workers()
+                memory_guard = importlib.import_module("utils.memory_guard")
+                workers = memory_guard.get_safe_workers()
                 cls._pool = ThreadPoolExecutor(max_workers=workers)
             pool = cls._pool
         futures = [pool.submit(_run_single, item) for item in cls._algorithms.items()]
@@ -237,7 +263,7 @@ class EnsembleMixin:
                 if not hasattr(cls, "_surge_cache"):
                     cls._surge_cache = _LRUDict(maxsize=100)
                 if cache_key in cls._surge_cache:
-                    return cls._surge_cache[cache_key]
+                    return cast(Dict[Any, Any], cls._surge_cache[cache_key])
 
             # 复用模块级单例，避免每次创建新类和实例
             detector = _get_surge_detector()
@@ -345,7 +371,28 @@ class EnsembleMixin:
         Returns:
             dict: {"eta_hours": ..., "eta_log_cv": ..., "eta_n": ...} 写入 _weighted.eta
         """
-        hours_w = []  # (weight, log_hours)
+        hours_w = cls._collect_log_hours(results)
+        if len(hours_w) < 3:
+            return None
+
+        total_w = sum(w for w, _ in hours_w)
+        median_log = cls._weighted_median_log(hours_w, total_w)
+        mean_log = sum(w * lh for w, lh in hours_w) / total_w
+        var_log = sum(w * (lh - mean_log) ** 2 for w, lh in hours_w) / total_w
+        log_cv = (var_log**0.5) / max(abs(mean_log), 1e-9)
+
+        eta_hours = math.exp(median_log)
+        return {
+            "eta_hours": round(eta_hours, 2),
+            "eta_log_cv": round(log_cv, 4),
+            "eta_n": len(hours_w),
+            "eta_threshold": thresholds[anchor_idx] if anchor_idx is not None else None,
+            "eta_threshold_name": threshold_names[anchor_idx] if anchor_idx is not None else None,
+        }
+
+    @staticmethod
+    def _collect_log_hours(results):
+        hours_w = []
         for name, r in results.items():
             if name == "_weighted" or "error" in r:
                 continue
@@ -359,11 +406,10 @@ class EnsembleMixin:
             if h > 876000 or h < 1 / 60.0:
                 continue
             hours_w.append((w, math.log(h)))
-        if len(hours_w) < 3:
-            return None
+        return hours_w
 
-        # 加权中位数（log 空间）
-        total_w = sum(w for w, _ in hours_w)
+    @staticmethod
+    def _weighted_median_log(hours_w, total_w):
         hours_w.sort(key=lambda x: x[1])
         acc = 0.0
         median_log = None
@@ -374,20 +420,7 @@ class EnsembleMixin:
                 break
         if median_log is None:
             median_log = hours_w[-1][1]
-
-        # log 空间加权离散度 → 共识置信（算法对到达时间分歧越小越可信）
-        mean_log = sum(w * lh for w, lh in hours_w) / total_w
-        var_log = sum(w * (lh - mean_log) ** 2 for w, lh in hours_w) / total_w
-        log_cv = (var_log**0.5) / max(abs(mean_log), 1e-9)
-
-        eta_hours = math.exp(median_log)
-        return {
-            "eta_hours": round(eta_hours, 2),
-            "eta_log_cv": round(log_cv, 4),
-            "eta_n": len(hours_w),
-            "eta_threshold": thresholds[anchor_idx] if anchor_idx is not None else None,
-            "eta_threshold_name": threshold_names[anchor_idx] if anchor_idx is not None else None,
-        }
+        return median_log
 
     @classmethod
     def _inject_live_features(cls, cached_video_data, kwargs):
@@ -516,7 +549,12 @@ class EnsembleMixin:
 
     @classmethod
     def predict_all(
-        cls, history: List, current_value: float, bvid: str = "", db_history: List = None, **kwargs
+        cls,
+        history: List,
+        current_value: float,
+        bvid: str = "",
+        db_history: Optional[List] = None,
+        **kwargs: Any,
     ) -> Dict:
         """对所有注册算法发起并行预测，返回加权集成结果。
 
@@ -581,4 +619,4 @@ class EnsembleMixin:
         weighted_pred = cls._apply_bias_correction(results, bvid, current_value, weighted_pred)
         cls._log_ensemble_result(results, bvid, weighted_pred, valid_count)
 
-        return results
+        return cast(Dict[Any, Any], results)

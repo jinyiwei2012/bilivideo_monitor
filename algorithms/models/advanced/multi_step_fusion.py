@@ -134,7 +134,7 @@ class MultiStepFusionAlgorithm(BaseAlgorithm):
                     # 归一化残差 = |预测-真实| / 真实值（相对误差）
                     scores.append(abs(actual - pred_i) / max(actual, 1e-10))
             if scores:
-                scores = np.sort(scores)  # 按相对误差排序
+                scores = list(np.sort(scores))  # 按相对误差排序
                 q_idx = int(np.ceil((1 - alpha) * len(scores))) - 1
                 q_idx = max(0, min(q_idx, len(scores) - 1))
                 conformal_bound = scores[q_idx]  # (1-alpha) 分位数作为误差边界
@@ -207,5 +207,5 @@ class MultiStepFusionAlgorithm(BaseAlgorithm):
             # 近步线性权重大（稳定），远步二次权重大（捕获趋势变化）
             # 线性权重从 1.0 线性衰减到 1/(steps+1)，最少保留 20%
             w1 = max(0.2, 1.0 - step / (steps + 1))
-            preds.append(w1 * p1 + (1 - w1) * p2)  # 加权融合
+            preds.append(float(w1 * p1 + (1 - w1) * p2))  # 加权融合
         return preds

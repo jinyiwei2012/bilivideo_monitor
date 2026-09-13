@@ -267,7 +267,7 @@ class RichardsCurveAlgorithm(BaseAlgorithm):
 
             # t = t0 - ln(inner) / r
             t = t0 - np.log(inner) / r
-            return max(0, t)  # 确保非负
+            return float(max(0.0, t))  # 确保非负
         except Exception:
             return None
 

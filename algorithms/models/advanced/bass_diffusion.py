@@ -80,7 +80,7 @@ class BassDiffusionAlgorithm(BaseAlgorithm):
         super().__init__()
         self.p = 0.03  # 创新系数，代表外部推荐/曝光带来的初始增长
         self.q = 0.38  # 模仿系数，代表口碑传播/社交分享带来的增长（社交媒体通常较高）
-        self.m = 10000000  # 市场潜力，代表理论上的最大播放量上限（默认1000万）
+        self.m: float = 10000000  # 市场潜力，代表理论上的最大播放量上限（默认1000万）
 
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
         """

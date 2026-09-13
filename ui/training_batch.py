@@ -2,6 +2,7 @@
 
 import logging
 import threading
+from typing import cast
 
 from PyQt6.QtWidgets import (
     QCheckBox,
@@ -22,11 +23,12 @@ from ui.helpers import FONT_SM
 from ui.invoker import invoke
 from ui.scrollable_frame import ScrollableFrame
 from ui.theme import C
+from ui.training_base import _TrainingPanelContract
 
 logger = logging.getLogger(__name__)
 
 
-class TrainingBatchMixin:
+class TrainingBatchMixin(_TrainingPanelContract):
     def _on_batch_finetune(self):
         """打开批量微调对话框：选择视频 + 算法，一键微调。"""
         from algorithms.registry import AlgorithmRegistry
@@ -39,7 +41,9 @@ class TrainingBatchMixin:
                 algo_list.append({"algorithm_id": aid, "name": getattr(algo, "name", aid)})
 
         if not algo_list:
-            QMessageBox.warning(self, "要注意哦…", "还没有训练好的算法可以微调呢…先训练一下,天依才能唱得更准哦 ♪")
+            QMessageBox.warning(
+                cast(QWidget, self), "要注意哦…", "还没有训练好的算法可以微调呢…先训练一下,天依才能唱得更准哦 ♪"
+            )
             return
 
         videos = []
@@ -53,7 +57,9 @@ class TrainingBatchMixin:
             logger.debug("忽略异常: %s", e)
 
         if not videos:
-            QMessageBox.warning(self, "要注意哦…", "还没有监控中的视频呢…像点一首新歌那样添加一个,天依就来帮它微调 ♪")
+            QMessageBox.warning(
+                cast(QWidget, self), "要注意哦…", "还没有监控中的视频呢…像点一首新歌那样添加一个,天依就来帮它微调 ♪"
+            )
             return
 
         dialog, ui = self._build_batch_dialog(algo_list, videos)
@@ -103,7 +109,7 @@ class TrainingBatchMixin:
 
     def _build_batch_dialog(self, algo_list, videos):
         """构建批量微调对话框，返回 (dialog, ui_dict)"""
-        dialog = QDialog(self)
+        dialog = QDialog(cast(QWidget, self))
         dialog.setWindowTitle("批量微调 ♪")
         dialog.resize(650, 500)
         dialog.setModal(True)

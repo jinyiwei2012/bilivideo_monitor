@@ -47,8 +47,8 @@ class BayesianRegressionAlgorithm(BaseAlgorithm):
         super().__init__()
         self.alpha = 1.0  # 先验精度（正则化强度）
         self.beta = 1.0  # 噪声精度（观测噪声的倒数）
-        self.mean = None  # 后验均值向量
-        self.cov = None  # 后验协方差矩阵
+        self.mean: Any = None  # 后验均值向量
+        self.cov: Any = None  # 后验协方差矩阵
 
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
         """

@@ -127,7 +127,7 @@ class BayesianModelAveragingAlgorithm(BaseAlgorithm):
             val_start = max(1, int(n * 0.7))
             actual = np.diff(views[val_start - 1 :])  # 验证集的实际增量序列
 
-            bics = []  # 各模型的 BIC 值
+            bics_list = []  # 各模型的 BIC 值
             valid_methods = []  # 对应有 BIC 的模型预测
             valid_names = []  # 对应模型名
 
@@ -146,15 +146,15 @@ class BayesianModelAveragingAlgorithm(BaseAlgorithm):
                 k_map = {"linear": 2, "quadratic": 3, "moving_avg": 1, "exponential": 2, "cubic": 4}
                 k = k_map.get(names[i], 2)
                 bic = len(actual) * np.log(mse) + k * np.log(len(actual))
-                bics.append(bic)
+                bics_list.append(bic)
                 valid_methods.append(method_growth)
                 valid_names.append(names[i])
 
-            if not bics:
+            if not bics_list:
                 growth = methods[0]  # 没有 BIC 可用，取第一个基模型
             else:
                 # ========== ΔBIC → softmax → 后验权重 ==========
-                bics = np.array(bics)
+                bics = np.array(bics_list)
                 delta_bic = bics - bics.min()  # 每个模型相对于最优模型的 BIC 差距
                 weights = np.exp(-0.5 * delta_bic)  # 后验权重正比于 exp(-0.5 * ΔBIC)
                 weights /= weights.sum()  # 归一化使权重和为 1

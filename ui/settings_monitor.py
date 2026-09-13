@@ -2,6 +2,8 @@
 监控参数设置 — PyQt6 版
 """
 
+from typing import TYPE_CHECKING, Any
+
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -16,6 +18,13 @@ from ui.helpers import auto_threshold_name
 
 class SettingsMonitorMixin:
     """Monitor parameter settings tab."""
+
+    _cfg: dict[str, Any]
+
+    if TYPE_CHECKING:
+
+        def _section(self, parent: QWidget, title: str, padding: tuple[int, ...] | None = None) -> QWidget:
+            raise NotImplementedError
 
     def _build_monitor_tab(self, nb):
         page = QWidget()
@@ -37,18 +46,25 @@ class SettingsMonitorMixin:
         self.max_monitors.setValue(self._cfg.get("monitor", {}).get("max_monitor_count", 100))
         rl.addWidget(self.max_monitors)
         rl.addStretch()
-        sec.layout().addWidget(row)
+        sec_layout = sec.layout()
+        if sec_layout is not None:
+            sec_layout.addWidget(row)
 
         th_sec = self._section(page, "播放量阈值")
         hint = QLabel("每个阈值都是一个小小的里程碑哦,唱到那里的时候,天依会提醒你的 ♪")
         hint.setStyleSheet(f"color: {C['text_3']}; font-size: 8pt;")
-        th_sec.layout().addWidget(hint)
+        th_layout = th_sec.layout()
+        if th_layout is not None:
+            th_layout.addWidget(hint)
 
         th_list_frame = QWidget()
         th_list_frame.setLayout(QVBoxLayout())
-        th_list_frame.layout().setContentsMargins(0, 0, 0, 0)
+        th_list_layout = th_list_frame.layout()
+        if th_list_layout is not None:
+            th_list_layout.setContentsMargins(0, 0, 0, 0)
         th_list_frame.setStyleSheet(f"background-color: {C['bg_elevated']};")
-        th_sec.layout().addWidget(th_list_frame)
+        if th_layout is not None:
+            th_layout.addWidget(th_list_frame)
 
         self._thresh_rows = []
 
@@ -67,7 +83,8 @@ class SettingsMonitorMixin:
 
         add_btn = QPushButton("+ 添加阈值")
         add_btn.clicked.connect(lambda: self._add_threshold_row(th_list_frame))
-        th_sec.layout().addWidget(add_btn)
+        if th_layout is not None:
+            th_layout.addWidget(add_btn)
 
     def _add_threshold_row(self, parent, value=100000, name=""):
         row = QWidget(parent)
@@ -89,8 +106,15 @@ class SettingsMonitorMixin:
 
         del_btn = QPushButton("✗")
         del_btn.setStyleSheet(f"color: {C['danger']}; border: none;")
-        del_btn.clicked.connect(lambda: (row.deleteLater(), self._thresh_rows.remove((v_spin, n_entry, row))))
+
+        def _delete_row() -> None:
+            row.deleteLater()
+            self._thresh_rows.remove((v_spin, n_entry, row))
+
+        del_btn.clicked.connect(_delete_row)
         rl.addWidget(del_btn)
 
-        parent.layout().addWidget(row)
+        parent_layout = parent.layout()
+        if parent_layout is not None:
+            parent_layout.addWidget(row)
         self._thresh_rows.append((v_spin, n_entry, row))

@@ -5,7 +5,7 @@ UP主数据库管理模块 — 管理UP主信息与历史趋势数据
 import logging
 import sqlite3
 import os
-from typing import List, Dict, Optional
+from typing import Any, Dict, List, Optional
 from utils import project_path
 
 logger = logging.getLogger(__name__)
@@ -19,17 +19,17 @@ class UpDatabase:
     使用中央数据库 data/bilibili_monitor.db 中的 up_info 和 up_history 表
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """初始化数据库，确保数据目录存在并创建所需的表"""
         os.makedirs(_DATA_DIR, exist_ok=True)
         self._db_path = os.path.join(_DATA_DIR, "bilibili_monitor.db")
         self._init_tables()
 
-    def _get_conn(self):
+    def _get_conn(self) -> sqlite3.Connection:
         """获取数据库连接"""
         return sqlite3.connect(self._db_path)
 
-    def _init_tables(self):
+    def _init_tables(self) -> None:
         """初始化 UP 主信息表和趋势历史表"""
         conn = self._get_conn()
         try:
@@ -69,7 +69,7 @@ class UpDatabase:
         finally:
             conn.close()
 
-    def upsert_up(self, info: Dict) -> bool:
+    def upsert_up(self, info: Dict[str, Any]) -> bool:
         """插入或更新UP主信息
 
         Args:
@@ -137,7 +137,7 @@ class UpDatabase:
         finally:
             conn.close()
 
-    def get_up(self, uid: int) -> Optional[Dict]:
+    def get_up(self, uid: int) -> Optional[Dict[str, Any]]:
         """查询单个UP主信息"""
         conn = self._get_conn()
         try:
@@ -151,7 +151,7 @@ class UpDatabase:
         finally:
             conn.close()
 
-    def get_all_ups(self, only_tracking: bool = True) -> List[Dict]:
+    def get_all_ups(self, only_tracking: bool = True) -> List[Dict[str, Any]]:
         """获取所有UP主列表（可选仅返回正在追踪的）"""
         conn = self._get_conn()
         try:
@@ -166,7 +166,7 @@ class UpDatabase:
         finally:
             conn.close()
 
-    def get_history(self, uid: int, limit: int = 100) -> List[Dict]:
+    def get_history(self, uid: int, limit: int = 100) -> List[Dict[str, Any]]:
         """获取UP主历史趋势"""
         conn = self._get_conn()
         try:
@@ -186,7 +186,7 @@ class UpDatabase:
         finally:
             conn.close()
 
-    def get_up_videos(self, uid: int) -> List[Dict]:
+    def get_up_videos(self, uid: int) -> List[Dict[str, Any]]:
         """获取UP主在监控数据库中的视频列表"""
         conn = self._get_conn()
         try:

@@ -56,7 +56,7 @@ class ChronosBaseAlgorithm(BaseAlgorithm):
         Returns:
             PredictionResult 预测结果对象
         """
-        return try_torch_predict(
+        result: PredictionResult = try_torch_predict(
             self,
             video_data,
             threshold,
@@ -65,6 +65,7 @@ class ChronosBaseAlgorithm(BaseAlgorithm):
             window=self.training_window,
             horizon=self.training_horizon,
         )
+        return result
 
     def build_model(self):
         """构建训练用的 PyTorch 模型。
@@ -136,7 +137,7 @@ class ChronosBaseAlgorithm(BaseAlgorithm):
             future_views = future_trend + future_seasonal  # 未来播放量 = 趋势 + 季节
             future_views = np.maximum(future_views, 0)  # 非负约束
 
-            predicted_velocity = max(0, np.mean(np.diff(future_views)) / 3600)  # 每小时速度
+            predicted_velocity = max(0.0, float(np.mean(np.diff(future_views))) / 3600)  # 每小时速度
             if predicted_velocity < 1:
                 predicted_velocity = velocity
 
@@ -146,7 +147,7 @@ class ChronosBaseAlgorithm(BaseAlgorithm):
             else:
                 predicted_hours = remaining / predicted_velocity
                 # 置信度：残差相对标准差越小 → 拟合越好
-                residual_std = np.std(residuals) / max(np.mean(views), 1)
+                residual_std = float(np.std(residuals)) / max(float(np.mean(views)), 1.0)
                 confidence = max(0.1, min(0.85, 0.5 - residual_std * 5))
 
             return self._std_result(

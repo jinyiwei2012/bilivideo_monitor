@@ -54,7 +54,7 @@ class DeeparSimpleAlgorithm(BaseAlgorithm):
         Returns:
             PredictionResult 预测结果对象
         """
-        return try_torch_predict(
+        result: PredictionResult = try_torch_predict(
             self,
             video_data,
             threshold,
@@ -63,6 +63,7 @@ class DeeparSimpleAlgorithm(BaseAlgorithm):
             window=self.training_window,
             horizon=self.training_horizon,
         )
+        return result
 
     def build_model(self):
         """构建训练用的 PyTorch 模型。
@@ -116,7 +117,7 @@ class DeeparSimpleAlgorithm(BaseAlgorithm):
             future_views_samples[:, 0] = views[-1] * (1 + future_returns[:, 0])
             for t in range(1, 30):
                 future_views_samples[:, t] = future_views_samples[:, t - 1] * (1 + future_returns[:, t])
-            future_views_samples = np.maximum(future_views_samples, 0)  # 非负约束
+            future_views_samples = np.asarray(np.maximum(future_views_samples, 0))  # 非负约束
 
             remaining = threshold - current_views
             if remaining <= 0:
@@ -131,15 +132,15 @@ class DeeparSimpleAlgorithm(BaseAlgorithm):
 
             # 各采样路径的速度（前 7 天的平均小时速度）
             velocity_samples = np.mean(np.diff(future_views_samples[:, :7]) / 3600, axis=1)
-            median_velocity = max(0, np.median(velocity_samples))  # 使用中位数更稳健
+            median_velocity = max(0.0, float(np.median(velocity_samples)))  # 使用中位数更稳健
             if median_velocity < 1:
                 median_velocity = velocity
 
             predicted_hours = remaining / median_velocity
             # 概率目标：30 天后播放量 ≥ 目标的采样占比
-            prob_reach = np.mean(future_views_samples[:, -1] >= threshold)
+            prob_reach = float(np.mean(future_views_samples[:, -1] >= threshold))
             # 不确定性：噪声比（σ/μ）越大 → 越不确定
-            uncertainty = sigma_ret / max(abs(mu_ret), 1e-10)
+            uncertainty = float(sigma_ret) / max(abs(float(mu_ret)), 1e-10)
             confidence = max(0.05, min(0.85, prob_reach * 0.8 + 0.1 / (1 + uncertainty)))
 
             return self._std_result(

@@ -34,7 +34,7 @@ NARX预测算法 (Nonlinear AutoRegressive with eXogenous inputs)
 
 import logging
 import numpy as np
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from algorithms.base import BaseAlgorithm, PredictionResult
 from algorithms.model_cache import get_or_fit
 
@@ -108,7 +108,7 @@ class NarxSimpleAlgorithm(BaseAlgorithm):
 
         return self._numpy_predict(video_data, threshold)
 
-    def _sklearn_predict(self, video_data: Dict[str, Any], threshold: int) -> PredictionResult:
+    def _sklearn_predict(self, video_data: Dict[str, Any], threshold: int) -> Optional[PredictionResult]:
         """使用 sklearn Ridge + 多项式特征做 NARX 非线性自回归预测
 
         构建特征矩阵:
@@ -156,13 +156,13 @@ class NarxSimpleAlgorithm(BaseAlgorithm):
         if len(X) < 5:
             return None
 
-        X, y = np.array(X), np.array(y)
+        X_arr, y_arr = np.array(X), np.array(y)
         # 二次多项式特征扩展（捕获非线性交叉项如 views×likes）
         poly = PolynomialFeatures(degree=2, include_bias=False)
-        X_poly = poly.fit_transform(X)
+        X_poly = poly.fit_transform(X_arr)
 
         # Ridge 岭回归（L2 正则化 α=1.0 防止过拟合）
-        model = get_or_fit("narx_simple", lambda: Ridge(alpha=1.0), X_poly, y)
+        model = get_or_fit("narx_simple", lambda: Ridge(alpha=1.0), X_poly, y_arr)
 
         # 构造最后一个特征向量用于预测下一步
         last_feat = []
@@ -181,11 +181,11 @@ class NarxSimpleAlgorithm(BaseAlgorithm):
 
         remaining = threshold - current_views
         if remaining <= 0:
-            predicted_hours, confidence = 0, 1.0
+            predicted_hours, confidence = 0.0, 1.0
         else:
             predicted_hours = remaining / predicted_velocity if predicted_velocity > 0 else float("inf")
             # 计算残差和变异系数（RMSE / 均值）作为模型质量评估
-            residuals = y - model.predict(X_poly)
+            residuals = y_arr - model.predict(X_poly)
             rmse = np.sqrt(np.mean(residuals**2))
             cv = float(rmse / max(np.mean(np.abs(y)), 1))  # 变异系数
             confidence = max(0.1, min(0.85, 0.6 - cv))  # 变异系数越小置信度越高
@@ -242,13 +242,13 @@ class NarxSimpleAlgorithm(BaseAlgorithm):
             if len(X) < 3:
                 return self._fallback(velocity, current_views, threshold, method="narx_sklearn")
 
-            X, y = np.array(X), np.array(y)
+            X_arr, y_arr = np.array(X), np.array(y)
             # 添加截距项（全1列）
-            X = np.column_stack([np.ones(len(X)), X])
+            X_arr = np.column_stack([np.ones(len(X_arr)), X_arr])
 
             # 最小二乘求解
             try:
-                theta = np.linalg.lstsq(X, y, rcond=None)[0]
+                theta = np.linalg.lstsq(X_arr, y_arr, rcond=None)[0]
             except np.linalg.LinAlgError:
                 return self._fallback(velocity, current_views, threshold, method="narx_sklearn")
 
@@ -274,9 +274,9 @@ class NarxSimpleAlgorithm(BaseAlgorithm):
             else:
                 predicted_hours = remaining / predicted_velocity
                 # 计算残差和变异系数
-                residuals = y - X @ theta
+                residuals = y_arr - X_arr @ theta
                 rmse = np.sqrt(np.mean(residuals**2)) if len(residuals) > 0 else 1
-                cv = rmse / max(np.mean(y), 1)
+                cv = rmse / max(np.mean(y_arr), 1)
                 confidence = max(0.1, min(0.85, 0.6 - cv))
 
             return self._std_result(

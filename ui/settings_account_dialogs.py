@@ -212,6 +212,8 @@ class _QRCodeLoginDialog(QDialog):
             except Exception:
                 logger.warning("轮询二维码登录状态异常", exc_info=True)
                 result = {"status": 0, "message": "呜…轮询登录状态出问题啦，请稍后再试哦 ♪"}
+            if result is None:
+                return
             invoke(lambda r=result: self._status_label.setText(r.get("message", "")))
             if result.get("status") == 2:
                 invoke(self._poll_timer.stop)

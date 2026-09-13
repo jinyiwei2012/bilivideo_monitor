@@ -30,7 +30,7 @@ SARIMA季节性预测算法 (Seasonal ARIMA)
 
 import logging
 import numpy as np
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from datetime import datetime
 from algorithms.base import BaseAlgorithm, PredictionResult
 
@@ -125,7 +125,7 @@ class SARIMASimpleAlgorithm(BaseAlgorithm):
         # 最终回退到 NumPy 简化版
         return self._numpy_predict(video_data, threshold)
 
-    def _auto_sarima_predict(self, video_data, threshold):
+    def _auto_sarima_predict(self, video_data, threshold) -> Optional[PredictionResult]:
         """使用 pmdarima.auto_arima 自动选择最优 SARIMA 阶数进行季节预测
 
         参数:
@@ -191,7 +191,7 @@ class SARIMASimpleAlgorithm(BaseAlgorithm):
         except Exception:
             return None
 
-    def _statsmodels_predict(self, video_data: Dict[str, Any], threshold: int) -> PredictionResult:
+    def _statsmodels_predict(self, video_data: Dict[str, Any], threshold: int) -> Optional[PredictionResult]:
         """使用 statsmodels SARIMAX 固定阶数预测
 
         参数:
@@ -444,7 +444,7 @@ class SARIMASimpleAlgorithm(BaseAlgorithm):
         if ar_matrix.shape[0] <= p or ar_matrix.shape[1] <= 0:
             return np.zeros(p)
         try:
-            return np.linalg.lstsq(ar_matrix, y_centered[p:], rcond=None)[0]
+            return np.asarray(np.linalg.lstsq(ar_matrix, y_centered[p:], rcond=None)[0])
         except np.linalg.LinAlgError:
             return np.zeros(p)
 
@@ -486,7 +486,7 @@ class SARIMASimpleAlgorithm(BaseAlgorithm):
         if ma_matrix.shape[0] <= q or ma_matrix.shape[1] <= 0:
             return np.zeros(q)
         try:
-            return np.linalg.lstsq(ma_matrix, y_centered[q:], rcond=None)[0]
+            return np.asarray(np.linalg.lstsq(ma_matrix, y_centered[q:], rcond=None)[0])
         except np.linalg.LinAlgError:
             return np.zeros(q)
 
@@ -513,7 +513,7 @@ class SARIMASimpleAlgorithm(BaseAlgorithm):
         # 截取整周期部分，reshape 为 (n_full, m)
         seasonal_vals = views_sorted[: n_full * m].reshape(n_full, m)
         trend = float(np.mean(views_sorted))  # 总体趋势均值
-        return np.mean(seasonal_vals, axis=0) - trend  # 每个位置偏离均值的量
+        return np.asarray(np.mean(seasonal_vals, axis=0) - trend)  # 每个位置偏离均值的量
 
     @staticmethod
     def _forecast(

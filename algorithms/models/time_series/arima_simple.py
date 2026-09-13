@@ -28,7 +28,7 @@ ARIMA预测算法 (Autoregressive Integrated Moving Average)
 
 import logging
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 import numpy as np
 
@@ -114,7 +114,7 @@ class ArimaSimpleAlgorithm(BaseAlgorithm):
         # 最终回退到 NumPy 简化版
         return self._numpy_predict(video_data, threshold)
 
-    def _auto_arima_predict(self, video_data: Dict[str, Any], threshold: int) -> PredictionResult:
+    def _auto_arima_predict(self, video_data: Dict[str, Any], threshold: int) -> Optional[PredictionResult]:
         """使用 pmdarima.auto_arima 自动选择最优 ARIMA 阶数进行预测
 
         通过 stepwise 搜索算法在 (p,d,q) 参数空间中自动寻找
@@ -212,7 +212,7 @@ class ArimaSimpleAlgorithm(BaseAlgorithm):
         except Exception:
             return None
 
-    def _statsmodels_predict(self, video_data: Dict[str, Any], threshold: int) -> PredictionResult:
+    def _statsmodels_predict(self, video_data: Dict[str, Any], threshold: int) -> Optional[PredictionResult]:
         """使用 statsmodels ARIMA(2,1,1) 固定阶数进行预测
 
         固定使用 (p=2, d=1, q=1) 阶数，这是中等长度时间序列的常用配置。
@@ -313,7 +313,7 @@ class ArimaSimpleAlgorithm(BaseAlgorithm):
             velocity = self.calculate_velocity(video_data)
             remaining = threshold - current_views
             if remaining <= 0:
-                predicted_hours = 0
+                predicted_hours = 0.0
             elif velocity <= 0:
                 predicted_hours = float("inf")
             else:

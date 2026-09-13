@@ -2,18 +2,25 @@
 
 import logging
 import threading
-from typing import Dict, List
+from typing import Any, Dict, List, cast
 
-from PyQt6.QtWidgets import QCheckBox, QFrame, QHBoxLayout, QLabel
+from PyQt6.QtWidgets import QCheckBox, QFrame, QHBoxLayout, QLabel, QLayout
 
 from ui.helpers import FONT, FONT_MONO, FONT_SM, format_confidence, load_algo_confidence
 from ui.invoker import invoke
 from ui.theme import C
+from ui.training_base import _TrainingPanelContract
 
 logger = logging.getLogger(__name__)
 
 
-class TrainingRefreshMixin:
+class TrainingRefreshMixin(_TrainingPanelContract):
+    _algo_frame: QFrame
+    _algo_count_lbl: QLabel
+    _check_vars: Dict[str, QCheckBox]
+    _algo_meta: Dict[str, Dict[str, Any]]
+    _algo_row_refs: Dict[str, List[QLabel]]
+
     def _safe_sb(self, key, text, color=None):
         """线程安全的状态栏更新 — 统一 try/except，消除 11 处重复模板"""
         try:
@@ -87,7 +94,8 @@ class TrainingRefreshMixin:
         """扫描有 build_model 的算法"""
         from algorithms.registry import AlgorithmRegistry
 
-        return AlgorithmRegistry.get_trainable_info()
+        algorithms: List[Dict[str, Any]] = AlgorithmRegistry.get_trainable_info()
+        return algorithms
 
     def _refresh_algo_list(self):
         """刷新算法列表，显示每个算法的状态、置信度和版本"""
@@ -96,6 +104,8 @@ class TrainingRefreshMixin:
         if layout is not None:
             while layout.count():
                 item = layout.takeAt(0)
+                if item is None:
+                    continue
                 w = item.widget()
                 if w is not None:
                     w.deleteLater()
@@ -110,7 +120,7 @@ class TrainingRefreshMixin:
             err_lbl = QLabel("呜…算法列表加载失败啦,请稍后再试哦 ♪")
             err_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;")
             err_lbl.setFont(FONT)
-            self._algo_frame.layout().addWidget(err_lbl)
+            cast(QLayout, self._algo_frame.layout()).addWidget(err_lbl)
             return
 
         trained = sum(1 for a in algos if a["has_ckpt"])
@@ -125,7 +135,7 @@ class TrainingRefreshMixin:
             row_layout = QHBoxLayout(row)
             row_layout.setContentsMargins(4, 1, 4, 1)
             row_layout.setSpacing(2)
-            self._algo_frame.layout().addWidget(row)
+            cast(QLayout, self._algo_frame.layout()).addWidget(row)
 
             cb = QCheckBox("")
             cb.setChecked(not a["has_ckpt"])
@@ -187,11 +197,11 @@ class TrainingRefreshMixin:
     def _update_algo_row(
         self,
         aid: str,
-        status: str = None,
-        status_color: str = None,
-        conf: str = None,
-        conf_color: str = None,
-        ver: str = None,
+        status: str | None = None,
+        status_color: str | None = None,
+        conf: str | None = None,
+        conf_color: str | None = None,
+        ver: str | None = None,
     ):
         """动态更新算法列表行的状态/置信度/版本列。"""
         refs = self._algo_row_refs.get(aid)

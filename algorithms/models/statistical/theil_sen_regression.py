@@ -201,7 +201,7 @@ class TheilSenRegressionAlgorithm(BaseAlgorithm):
         order = np.argsort(timestamps)
         return np.array(views_vals, dtype=float)[order]
 
-    def _predict_impl(self, views_arr, current_views, velocity, remaining, threshold):
+    def _predict_impl(self, views_arr, current_views, velocity, remaining, threshold) -> PredictionResult:
         """
         执行 Theil-Sen 核心预测
 
@@ -254,7 +254,7 @@ class TheilSenRegressionAlgorithm(BaseAlgorithm):
         trend_consistency = 1.0
         if len(segment_slopes) >= 2:
             # 变异系数 CV = std / |mean|
-            slope_cv = np.std(segment_slopes) / max(abs(np.mean(segment_slopes)), 1)
+            slope_cv = float(np.std(segment_slopes)) / max(abs(float(np.mean(segment_slopes))), 1)
             # CV 越小 → 一致性越高
             trend_consistency = max(0.0, 1.0 - min(slope_cv, 3.0) * 0.3)
 

@@ -2,21 +2,27 @@
 
 import logging
 import threading
+from typing import TYPE_CHECKING
 
 from utils.memory_guard import get_safe_model_slots
 
 logger = logging.getLogger("algorithms.models.deep_learning._torch_upgrade")
 
 _torch_available = True
-try:
+if TYPE_CHECKING:
     import torch
     import torch.nn as nn
     import torch.nn.functional as F
-except ImportError:
-    _torch_available = False
-    torch = None
-    nn = None  # type: ignore
-    F = None  # type: ignore
+else:
+    try:
+        import torch
+        import torch.nn as nn
+        import torch.nn.functional as F
+    except ImportError:
+        _torch_available = False
+        torch = None
+        nn = None
+        F = None
 
 DEFAULT_FEATURES = ["view_count", "like_count", "coin_count", "favorite_count", "share_count"]
 DEFAULT_WINDOW = 10

@@ -76,7 +76,7 @@ class TrendRegressionAlgorithm(BaseAlgorithm):
             velocity = self.calculate_velocity(video_data)
             remaining = threshold - current_views
             if remaining <= 0:
-                predicted_hours = 0
+                predicted_hours = 0.0
             elif velocity <= 0:
                 predicted_hours = float("inf")
             else:

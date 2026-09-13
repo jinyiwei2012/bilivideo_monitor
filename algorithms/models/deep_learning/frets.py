@@ -134,7 +134,7 @@ class FreTSAlgorithm(BaseAlgorithm):
         reconstructed += np.polyval(trend, np.arange(n))  # 加回线性趋势
 
         if n >= 5:
-            growth = np.mean(np.diff(reconstructed[-5:]))  # 最近 5 步的平均增长
+            growth = float(np.mean(np.diff(reconstructed[-5:])))  # 最近 5 步的平均增长
         else:
             growth = velocity * 3600
 

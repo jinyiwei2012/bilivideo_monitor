@@ -9,37 +9,44 @@ import logging
 import random
 import hashlib
 import threading
-from typing import Dict, Optional
+from typing import Any, Dict, Optional, Protocol, cast
 from urllib.parse import urlparse, parse_qs
 
 logger = logging.getLogger(__name__)
 _persist_lock = threading.Lock()  # 防止并发写入 network_config.json
 
 
-def set_cookies(self, cookies: Dict):
+class _CredentialLike(Protocol):
+    sessdata: str
+    bili_jct: str
+    dedeuserid: str
+    ac_time_value: str
+
+
+def set_cookies(self: Any, cookies: Dict[str, Any]) -> None:
     cookies = self._sanitize_cookies(cookies)
     self._cookies = cookies
     self.session.cookies.update(cookies)
     logger.info("已设置Cookie")
 
 
-def get_refresh_token(self) -> str:
-    return self._refresh_token
+def get_refresh_token(self: Any) -> str:
+    return str(self._refresh_token)
 
 
-def get_accounts(self) -> list:
-    return list(self._accounts)
+def get_accounts(self: Any) -> list[Dict[str, Any]]:
+    return cast(list[Dict[str, Any]], list(self._accounts))
 
 
-def get_active_account(self) -> str:
-    return self._account_name
+def get_active_account(self: Any) -> str:
+    return str(self._account_name)
 
 
-def get_account_names(self) -> list:
-    return [a["name"] for a in self._accounts]
+def get_account_names(self: Any) -> list[str]:
+    return [str(a["name"]) for a in self._accounts]
 
 
-def add_account(self, name: str, cookies: dict = None, refresh_token: str = ""):
+def add_account(self: Any, name: str, cookies: Optional[Dict[str, Any]] = None, refresh_token: str = "") -> None:
     for acc in self._accounts:
         if acc["name"] == name:
             acc["cookies"] = cookies or acc["cookies"]
@@ -48,7 +55,7 @@ def add_account(self, name: str, cookies: dict = None, refresh_token: str = ""):
     self._accounts.append({"name": name, "cookies": cookies or {}, "refresh_token": refresh_token, "active": False})
 
 
-def remove_account(self, name: str):
+def remove_account(self: Any, name: str) -> None:
     self._accounts = [a for a in self._accounts if a["name"] != name]
     if self._account_name == name:
         if not self._accounts:
@@ -61,7 +68,7 @@ def remove_account(self, name: str):
         switch_account(self, self._account_name)
 
 
-def switch_account(self, name: str):
+def switch_account(self: Any, name: str) -> bool:
     for acc in self._accounts:
         if acc["name"] == name:
             for a in self._accounts:
@@ -76,14 +83,15 @@ def switch_account(self, name: str):
     return False
 
 
-def login_with_password_fallback(self, username: str, password: str) -> Dict:
+def login_with_password_fallback(self: Any, username: str, password: str) -> Dict[str, Any]:
     result = {"code": -1, "message": "", "cookies": {}, "refresh_token": ""}
     try:
         from bilibili_api import sync
         from bilibili_api.login_v2 import login_with_password as _bili_login
         from bilibili_api.utils.geetest import Geetest, GeetestType
 
-        g = Geetest(GeetestType.LOGIN)
+        geetest_class: Any = Geetest
+        g = geetest_class(GeetestType.LOGIN)
         try:
             cred = sync(_bili_login(username, password, g))
         except Exception:
@@ -91,11 +99,12 @@ def login_with_password_fallback(self, username: str, password: str) -> Dict:
             return result
 
         if hasattr(cred, "sessdata") and cred.sessdata:
+            credential = cast(_CredentialLike, cred)
             cookies = {
-                "SESSDATA": str(cred.sessdata),
-                "bili_jct": str(cred.bili_jct),
-                "DedeUserID": str(cred.dedeuserid),
-                "ac_time_value": getattr(cred, "ac_time_value", ""),
+                "SESSDATA": str(credential.sessdata),
+                "bili_jct": str(credential.bili_jct),
+                "DedeUserID": str(credential.dedeuserid),
+                "ac_time_value": getattr(credential, "ac_time_value", ""),
             }
             set_cookies(self, cookies)
             _persist_cookies(self, cookies)
@@ -108,7 +117,7 @@ def login_with_password_fallback(self, username: str, password: str) -> Dict:
     return result
 
 
-def _password_login_result(self, resp, data: Dict, include_sid: bool = False) -> Dict:
+def _password_login_result(self: Any, resp: Any, data: Dict[str, Any], include_sid: bool = False) -> Dict[str, Any]:
     cookies = _extract_login_cookies(self, resp, data)
     if not cookies:
         mid_raw = str(data.get("mid", ""))
@@ -134,7 +143,9 @@ def _password_login_result(self, resp, data: Dict, include_sid: bool = False) ->
     }
 
 
-def _submit_geetest_login(self, login_url: str, username: str, encrypted_password: str, captcha: str):
+def _submit_geetest_login(
+    self: Any, login_url: str, username: str, encrypted_password: str, captcha: str
+) -> tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
     validate, seccode = captcha.split(":", 1)
     login_data = {
         "username": username,
@@ -175,7 +186,9 @@ def _submit_geetest_login(self, login_url: str, username: str, encrypted_passwor
     return None, data
 
 
-def _try_auto_geetest_login(self, login_url: str, username: str, encrypted_password: str, data: Dict):
+def _try_auto_geetest_login(
+    self: Any, login_url: str, username: str, encrypted_password: str, data: Dict[str, Any]
+) -> Optional[Dict[str, Any]]:
     d = data.get("data", {})
     gt = d.get("gt", "")
     challenge = d.get("challenge", "")
@@ -208,7 +221,7 @@ def _try_auto_geetest_login(self, login_url: str, username: str, encrypted_passw
     return None
 
 
-def _password_login_failure(data: Dict, api_code: int, need_captcha: bool) -> Dict:
+def _password_login_failure(data: Dict[str, Any], api_code: int, need_captcha: bool) -> Dict[str, Any]:
     ct = 0
     phone = ""
     gt_val = ""
@@ -232,9 +245,11 @@ def _password_login_failure(data: Dict, api_code: int, need_captcha: bool) -> Di
     }
 
 
-def login_with_password(self, username: str, password: str, captcha: str = "", captcha_type: int = 0) -> Dict:
+def login_with_password(
+    self: Any, username: str, password: str, captcha: str = "", captcha_type: int = 0
+) -> Dict[str, Any]:
     from cryptography.hazmat.primitives import serialization
-    from cryptography.hazmat.primitives.asymmetric import padding
+    from cryptography.hazmat.primitives.asymmetric import padding, rsa
     from cryptography.hazmat.backends import default_backend
 
     try:
@@ -253,7 +268,9 @@ def login_with_password(self, username: str, password: str, captcha: str = "", c
         pubkey = key_resp["key"]
         hash_str = key_resp.get("hash", "")
 
-        pub_key_obj = serialization.load_pem_public_key(pubkey.encode(), backend=default_backend())
+        pub_key_obj = cast(
+            rsa.RSAPublicKey, serialization.load_pem_public_key(pubkey.encode(), backend=default_backend())
+        )
         encrypted = pub_key_obj.encrypt(
             (hash_str + password).encode(),
             padding.PKCS1v15(),
@@ -290,16 +307,16 @@ def login_with_password(self, username: str, password: str, captcha: str = "", c
             return result
 
         if captcha and captcha_type == -1 and ":" in captcha:
-            result, data = _submit_geetest_login(self, login_url, username, encrypted_password, captcha)
-            if result:
-                return result
+            geetest_result, data = _submit_geetest_login(self, login_url, username, encrypted_password, captcha)
+            if geetest_result:
+                return geetest_result
             api_code = data.get("code", -1)
 
         need_captcha = data.get("need_captcha", False) or api_code in [-629, -352]
         if need_captcha and not captcha:
-            result = _try_auto_geetest_login(self, login_url, username, encrypted_password, data)
-            if result:
-                return result
+            auto_result = _try_auto_geetest_login(self, login_url, username, encrypted_password, data)
+            if auto_result:
+                return auto_result
         return _password_login_failure(data, api_code, need_captcha)
 
     except Exception as e:
@@ -318,11 +335,11 @@ def login_with_password(self, username: str, password: str, captcha: str = "", c
         }
 
 
-def _auto_solve_geetest(self, gt: str, challenge: str):
+def _auto_solve_geetest(self: Any, gt: str, challenge: str) -> Optional[tuple[str, str]]:
     try:
         from utils.geetest_solver import solve
 
-        result = solve(gt, challenge)
+        result: Optional[tuple[str, str]] = solve(gt, challenge)
         if result:
             logger.info("极验验证码自动求解成功")
             return result
@@ -334,7 +351,7 @@ def _auto_solve_geetest(self, gt: str, challenge: str):
     return None
 
 
-def _persist_cookies(self, cookies: dict):
+def _persist_cookies(self: Any, cookies: Dict[str, Any]) -> None:
     if not cookies:
         return
     with _persist_lock:
@@ -383,9 +400,9 @@ def _persist_cookies(self, cookies: dict):
             logger.warning("持久化 Cookie 失败: %s", e)
 
 
-def _extract_login_cookies(self, resp, data: dict) -> dict:
+def _extract_login_cookies(self: Any, resp: Any, data: Dict[str, Any]) -> Dict[str, Any]:
     wanted = ("SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid", "buvid3", "buvid4", "buvid_fp")
-    cookies = {}
+    cookies: Dict[str, Any] = {}
 
     redirect_url = data.get("url", "")
     if redirect_url:
@@ -405,7 +422,7 @@ def _extract_login_cookies(self, resp, data: dict) -> dict:
     return cookies
 
 
-def _init_qr_session(self):
+def _init_qr_session(self: Any) -> Any:
     if not hasattr(self, "_qr_session") or self._qr_session is None:
         import requests as _req
 
@@ -420,7 +437,7 @@ def _init_qr_session(self):
     return self._qr_session
 
 
-def _close_qr_session(self):
+def _close_qr_session(self: Any) -> None:
     """关闭二维码登录独立 Session"""
     if hasattr(self, "_qr_session") and self._qr_session is not None:
         try:
@@ -430,7 +447,7 @@ def _close_qr_session(self):
         self._qr_session = None
 
 
-def get_qrcode_login_url(self) -> Optional[Dict]:
+def get_qrcode_login_url(self: Any) -> Optional[Dict[str, Any]]:
     """获取 QR 扫码登录 URL 和密钥"""
     sess = _init_qr_session(self)
     try:
@@ -443,7 +460,7 @@ def get_qrcode_login_url(self) -> Optional[Dict]:
     return None
 
 
-def _apply_qr_poll_status(result: Dict, data: Dict) -> bool:
+def _apply_qr_poll_status(result: Dict[str, Any], data: Dict[str, Any]) -> bool:
     code = data.get("code", -1)
     log_data = data.get("data", {})
     if code == 86038:
@@ -472,7 +489,7 @@ def _apply_qr_poll_status(result: Dict, data: Dict) -> bool:
     return False
 
 
-def _collect_qr_redirect_cookies(self, resp, data: Dict) -> Dict:
+def _collect_qr_redirect_cookies(self: Any, resp: Any, data: Dict[str, Any]) -> Dict[str, Any]:
     cookies = _extract_login_cookies(self, resp, data)
     if not cookies:
         redirect_url = data.get("url", "")
@@ -485,7 +502,7 @@ def _collect_qr_redirect_cookies(self, resp, data: Dict) -> Dict:
     return cookies
 
 
-def _collect_qr_response_cookies(self, resp, data: Dict) -> Dict:
+def _collect_qr_response_cookies(self: Any, resp: Any, data: Dict[str, Any]) -> Dict[str, Any]:
     cookies = _collect_qr_redirect_cookies(self, resp, data)
     if not cookies:
         for ci in data.get("cookie_info", {}).get("cookies", []):
@@ -500,8 +517,8 @@ def _collect_qr_response_cookies(self, resp, data: Dict) -> Dict:
     return cookies
 
 
-def _exchange_qr_refresh_token(self, sess, data: Dict) -> Dict:
-    cookies = {}
+def _exchange_qr_refresh_token(self: Any, sess: Any, data: Dict[str, Any]) -> Dict[str, Any]:
+    cookies: Dict[str, Any] = {}
     logger.debug("QR 登录未取到 Cookie，尝试从 refresh_token 换票")
     token_data = {"refresh_token": data["refresh_token"]}
     try:
@@ -514,14 +531,14 @@ def _exchange_qr_refresh_token(self, sess, data: Dict) -> Dict:
     return cookies
 
 
-def _collect_qr_login_cookies(self, sess, resp, data: Dict) -> Dict:
+def _collect_qr_login_cookies(self: Any, sess: Any, resp: Any, data: Dict[str, Any]) -> Dict[str, Any]:
     cookies = _collect_qr_response_cookies(self, resp, data)
     if not cookies and data.get("refresh_token"):
         cookies = _exchange_qr_refresh_token(self, sess, data)
     return cookies
 
 
-def poll_qrcode_login(self, qrcode_key: str) -> Optional[Dict]:
+def poll_qrcode_login(self: Any, qrcode_key: str) -> Optional[Dict[str, Any]]:
     sess = _init_qr_session(self)
     url = "https://passport.bilibili.com/x/passport-login/web/qrcode/poll"
     result = {"status": 0, "message": "等待扫码", "cookies": {}}

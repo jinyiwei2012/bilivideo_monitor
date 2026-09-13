@@ -193,6 +193,20 @@ class BiLSTMSimpleAlgorithm(BaseAlgorithm):
         order = np.argsort(timestamps)  # 按时间排序
         return np.array(views_vals, dtype=float)[order]
 
+    @staticmethod
+    def _normalize_views(views_sorted):
+        """归一化播放量及其差分序列。"""
+        max_val = max(views_sorted)
+        min_val = min(views_sorted)
+        rng = max_val - min_val if max_val > min_val else 1
+        normalized = (views_sorted - min_val) / rng
+
+        diffs = np.diff(normalized)
+        diff_mean = np.mean(diffs) if len(diffs) > 0 else 0
+        diff_std = max(np.std(diffs), 1e-6) if len(diffs) > 0 else 1
+        norm_diffs = (diffs - diff_mean) / diff_std if len(diffs) > 0 else np.array([0])
+        return normalized, norm_diffs
+
     def _predict_impl(self, views_sorted, current_views, velocity, remaining, threshold, video_data):
         """执行 BiLSTM 核心预测逻辑。
 
@@ -222,17 +236,8 @@ class BiLSTMSimpleAlgorithm(BaseAlgorithm):
         quality = self.get_quality_score(video_data)
         engagement = self.get_engagement_rate(video_data)
 
-        # 标准化播放量序列（Min-Max 归一化）
-        max_val = max(views_sorted)
-        min_val = min(views_sorted)
-        rng = max_val - min_val if max_val > min_val else 1
-        normalized = (views_sorted - min_val) / rng
-
-        # 差分序列（增长率），z-score 标准化
-        diffs = np.diff(normalized)
-        diff_mean = np.mean(diffs) if len(diffs) > 0 else 0
-        diff_std = max(np.std(diffs), 1e-6) if len(diffs) > 0 else 1
-        norm_diffs = (diffs - diff_mean) / diff_std if len(diffs) > 0 else np.array([0])
+        # 标准化播放量序列（Min-Max）及差分序列（z-score）
+        normalized, norm_diffs = self._normalize_views(views_sorted)
 
         # ── LSTM参数初始化（正向） ──────────────────
         # 硬编码参数为简化的 numpy forward pass（模拟 PyTorch LSTM 的核心运算）

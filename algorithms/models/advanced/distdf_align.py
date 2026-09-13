@@ -242,7 +242,7 @@ class DistdfAlignAlgorithm(BaseAlgorithm):
             vs.append((views[i] - views[i - 1]) / dt)  # 播放量变化 / 时间变化
         return np.array(vs, dtype=np.float32)
 
-    def _make_result(self, current_views, threshold, velocity, confidence, reason, extra):
+    def _make_result(self, current_views, threshold, velocity, confidence, reason, extra) -> PredictionResult:
         """
         构造预测结果对象
 

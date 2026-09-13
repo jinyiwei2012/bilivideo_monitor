@@ -7,6 +7,7 @@ import os
 import re
 import logging
 import threading
+from typing import Any, TYPE_CHECKING, cast
 
 from PyQt6.QtWidgets import (
     QWidget,
@@ -28,6 +29,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 
 from ui.theme import C
+from ui.dialog_base import DialogBase
 from ui.helpers import FONT, FONT_SM, project_path
 from ui.invoker import invoke
 from core.bilibili_api import get_bilibili_api
@@ -150,6 +152,14 @@ class _BatchImportDialog(QDialog):
 
 class SettingsProxyMixin:
     """Proxy configuration settings tab."""
+
+    _net_cfg: dict[str, Any]
+    dlg: DialogBase
+
+    if TYPE_CHECKING:
+
+        def _save_net_config(self) -> None:
+            raise NotImplementedError
 
     def _build_proxy_tab(self, nb):
         page = QWidget()
@@ -408,9 +418,8 @@ class SettingsProxyMixin:
 
     def _auto_fetch_worker(self):
         import requests as _req
-        from core import bilibili_api as _api
 
-        api = _api.get_bilibili_api()
+        api = get_bilibili_api()
         pm = api.proxy_manager
         total_found = 0
         total_tested = 0
@@ -418,10 +427,7 @@ class SettingsProxyMixin:
         for src_url in pm.PROXY_SOURCES:
             source_name = src_url.split("/")[2]
             invoke(
-                lambda n=source_name: (
-                    self._auto_fetch_status.setText(f"⏳ 天依正从 {n} 寻找代理哦…♪"),
-                    self._auto_fetch_status.setStyleSheet(f"color: {C['warning']}; background: transparent;"),
-                )
+                lambda n=source_name: self._set_auto_fetch_status(f"⏳ 天依正从 {n} 寻找代理哦…♪", str(C["warning"]))
             )
             try:
                 resp = _req.get(src_url, timeout=10, headers={"User-Agent": "Mozilla/5.0"}, verify=False)  # nosec B501
@@ -431,12 +437,7 @@ class SettingsProxyMixin:
                 for url in urls:
                     total_tested += 1
                     # 在主线程创建 QTreeWidgetItem
-                    invoke(
-                        lambda u=url: (
-                            self._proxy_tree.addTopLevelItem(self._make_pending_item(u)),
-                            self._proxy_tree.scrollToBottomItem(),
-                        )
-                    )
+                    invoke(lambda u=url: self._append_pending_item(u))
                     result = ProxyManager.test_proxy(url, timeout=8)
                     ok = result.get("ok", False)
                     total_found += 1 if ok else 0
@@ -447,20 +448,27 @@ class SettingsProxyMixin:
             except Exception as e:
                 logger.debug("自动获取代理失败 %s: %s", source_name, e)
                 invoke(
-                    lambda n=source_name: (
-                        self._auto_fetch_status.setText(f"△ {n} 没找到代理呢…天依再去别处看看哦 ♪"),
-                        self._auto_fetch_status.setStyleSheet(f"color: {C['danger']}; background: transparent;"),
+                    lambda n=source_name: self._set_auto_fetch_status(
+                        f"△ {n} 没找到代理呢…天依再去别处看看哦 ♪", str(C["danger"])
                     )
                 )
 
         urls = [p.get("http", "") for p in pm.proxies if p.get("http")]
-        invoke(
-            lambda u=urls, tf=total_found, tt=total_tested: (
-                self._update_proxy_text(u),
-                self._auto_fetch_status.setText(f"✓ 天依听完了 {tt} 个,可用 {tf} 个 ♪"),
-                self._auto_fetch_status.setStyleSheet(f"color: {C['success']}; background: transparent;"),
-            )
-        )
+        invoke(lambda u=urls, tf=total_found, tt=total_tested: self._finish_auto_fetch(u, tf, tt))
+
+    def _set_auto_fetch_status(self, text: str, color: str) -> None:
+        self._auto_fetch_status.setText(text)
+        self._auto_fetch_status.setStyleSheet(f"color: {color}; background: transparent;")
+
+    def _append_pending_item(self, url: str) -> None:
+        item = self._make_pending_item(url)
+        self._proxy_tree.addTopLevelItem(item)
+        scroll_to_bottom = getattr(self._proxy_tree, "scrollToBottomItem")
+        scroll_to_bottom()
+
+    def _finish_auto_fetch(self, urls: list[str], total_found: int, total_tested: int) -> None:
+        self._update_proxy_text(urls)
+        self._set_auto_fetch_status(f"✓ 天依听完了 {total_tested} 个,可用 {total_found} 个 ♪", str(C["success"]))
 
     def _make_pending_item(self, url: str):
         """在主线程创建等待测试的 QTreeWidgetItem"""
@@ -474,7 +482,7 @@ class SettingsProxyMixin:
         """在主线程更新代理测试结果到 QTreeWidgetItem（通过 URL 匹配查找 item）"""
         for i in range(self._proxy_tree.topLevelItemCount()):
             item = self._proxy_tree.topLevelItem(i)
-            if item.text(0) == url:
+            if item is not None and item.text(0) == url:
                 item.setText(1, "✓" if ok else "✗")
                 item.setText(2, f"{result['latency_ms']}ms" if ok else (result.get("error", "超时")[:40]))
                 item.setText(3, result.get("country", "") or "")
@@ -500,13 +508,13 @@ class SettingsProxyMixin:
         if not url:
             return
         if not url.startswith("http"):
-            QMessageBox.warning(self, "要注意哦…", "呜…代理源地址要以 http:// 或 https:// 开头才行哦 ♪")
+            QMessageBox.warning(cast(QWidget, self), "要注意哦…", "呜…代理源地址要以 http:// 或 https:// 开头才行哦 ♪")
             return
         if url not in ProxyManager.PROXY_SOURCES:
             ProxyManager.PROXY_SOURCES.append(url)
             self._proxy_src_entry.clear()
             QMessageBox.information(
-                self, "添加好啦 ♪", f"代理源添加好啦 ♪\n{url}\n\n点「✈ 自动获取代理」,天依就去拉取哦~"
+                cast(QWidget, self), "添加好啦 ♪", f"代理源添加好啦 ♪\n{url}\n\n点「✈ 自动获取代理」,天依就去拉取哦~"
             )
 
     def _add_proxy_entry(self):
@@ -525,7 +533,7 @@ class SettingsProxyMixin:
         self._proxy_text.setPlainText("\n".join(lines))
 
     def _batch_import_proxies(self):
-        dlg = _BatchImportDialog(self._proxy_proto_combo.currentText(), self)
+        dlg = _BatchImportDialog(self._proxy_proto_combo.currentText(), cast(QWidget, self))
 
         def _on_import(imported):
             current = self._proxy_text.toPlainText().strip()
@@ -538,7 +546,7 @@ class SettingsProxyMixin:
             msg = f"导入成功啦 ♪ 带回了 {len(imported)} 条代理的歌谱\n当前代理歌单共 {len(all_lines)} 条"
             if dup_count:
                 msg += f"\n（其中 {dup_count} 条重复的,天依帮你悄悄划掉了哦）"
-            QMessageBox.information(self, "导入完成啦 ♪", msg)
+            QMessageBox.information(cast(QWidget, self), "导入完成啦 ♪", msg)
 
         dlg._imported.connect(_on_import)
         dlg.exec()
@@ -569,7 +577,9 @@ class SettingsProxyMixin:
         text = self._proxy_text.toPlainText().strip()
         proxy_list = [line.strip() for line in text.split("\n") if line.strip()]
         if not proxy_list:
-            QMessageBox.warning(self, "要注意哦…", "呜…要先输入要测试的代理哦,天依还没听到要检查的歌声呢 ♪")
+            QMessageBox.warning(
+                cast(QWidget, self), "要注意哦…", "呜…要先输入要测试的代理哦,天依还没听到要检查的歌声呢 ♪"
+            )
             return
 
         test_url = self._test_url_entry.text().strip()
@@ -649,7 +659,9 @@ class SettingsProxyMixin:
             failed = [
                 proxy_list[i]
                 for i in range(len(proxy_list))
-                if i < self._proxy_tree.topLevelItemCount() and self._proxy_tree.topLevelItem(i).text(1) == "✗"
+                if i < self._proxy_tree.topLevelItemCount()
+                and (item := self._proxy_tree.topLevelItem(i)) is not None
+                and item.text(1) == "✗"
             ]
             if failed:
                 self._auto_remove_failed_proxies(failed)
@@ -672,7 +684,7 @@ class SettingsProxyMixin:
         # 使用 invoke 确保从任意线程调用都安全
         invoke(
             lambda: QMessageBox.information(
-                self,
+                cast(QWidget, self),
                 "代理清理 ♪",
                 f"失效的代理已经清走啦 ♪ 像从歌单里划掉跑调的旋律\n共 {len(failed_urls)} 个:\n{masked}",
             )

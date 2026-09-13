@@ -1,14 +1,29 @@
 """WarmupMixin extracted from algorithms.registry."""
 
-from typing import List
+import threading
+from typing import Any, Callable, List, TYPE_CHECKING
+
+from numpy.typing import NDArray
+
+from ..base import BaseAlgorithm
 
 from ._shared import get_weight_manager, logger
 
 
 class WarmupMixin:
+    _history_lock: threading.Lock
+    _backtest_warmed: set[str]
+    _algorithms: dict[str, BaseAlgorithm]
+
+    if TYPE_CHECKING:
+
+        @classmethod
+        def get_algorithm_names(cls) -> List[str]:
+            raise NotImplementedError
+
     @classmethod
-    def _make_backtest_predict_fn(cls, algo, np):
-        def fn(train: np.ndarray) -> float:
+    def _make_backtest_predict_fn(cls, algo: BaseAlgorithm, np: Any) -> Callable[[NDArray[Any]], float]:
+        def fn(train: NDArray[Any]) -> float:
             if len(train) < 3:
                 return float(train[-1]) if len(train) > 0 else 0.0
             try:
@@ -39,7 +54,9 @@ class WarmupMixin:
         return fn
 
     @classmethod
-    def _warmup_algorithm_weight(cls, name, algo, backtester, series, np):
+    def _warmup_algorithm_weight(
+        cls, name: str, algo: BaseAlgorithm, backtester: Any, series: NDArray[Any], np: Any
+    ) -> int:
         try:
             # 复刻回测面板的 predict_fn：滚动窗口喂 video_data，取 1 步预测
             result = backtester.backtest(series, cls._make_backtest_predict_fn(algo, np))
@@ -74,7 +91,7 @@ class WarmupMixin:
                 return 0
             # 每视频只预热一次（启动后历史相对稳定，重复回测浪费 CPU）
             with cls._history_lock:
-                warmed = getattr(cls, "_backtest_warmed", set())
+                warmed: set[str] = getattr(cls, "_backtest_warmed", set())
                 cls._backtest_warmed = warmed
                 if bvid in warmed:
                     return 0

@@ -6,14 +6,14 @@ B站API模块 - HTTP请求核心
 import time
 import random
 import logging
-from typing import Dict, Any, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, cast
 
 import requests
 
 logger = logging.getLogger(__name__)
 
 
-def _ensure_min_interval(self):
+def _ensure_min_interval(self: Any) -> None:
     with self._interval_lock:
         target = max(
             self._min_request_interval * 0.5,
@@ -25,12 +25,12 @@ def _ensure_min_interval(self):
         self._last_request_time = time.time()
 
 
-def _rotate_user_agent(self):
+def _rotate_user_agent(self: Any) -> None:
     self.session.headers["User-Agent"] = random.choice(self.USER_AGENTS)
     logger.debug(f"User-Agent已更换: {self.session.headers['User-Agent'][:50]}...")
 
 
-def _get_request_cookies(self) -> Dict:
+def _get_request_cookies(self: Any) -> Dict[str, Any]:
     cookies = dict(self._cookies)
     cookies.setdefault("buvid3", self._buvid3)
     cookies.setdefault("buvid4", self._buvid4)
@@ -40,7 +40,7 @@ def _get_request_cookies(self) -> Dict:
     return cookies
 
 
-def _update_public_headers(self):
+def _update_public_headers(self: Any) -> None:
     self._public_session.headers.update(
         {
             "User-Agent": random.choice(self.USER_AGENTS),
@@ -49,15 +49,15 @@ def _update_public_headers(self):
     )
 
 
-def _get_retry_delay(self, attempt: int) -> float:
+def _get_retry_delay(self: Any, attempt: int) -> float:
     base_delay = self.base_retry_delay * (2**attempt)
     jitter = random.uniform(0, base_delay * 0.5)
     delay = min(base_delay + jitter, self.max_retry_delay)
-    return delay
+    return float(delay)
 
 
-def _apply_bypass_measures(self, attempt: int, proxy_idx: Optional[int] = None):
-    measures = []
+def _apply_bypass_measures(self: Any, attempt: int, proxy_idx: Optional[int] = None) -> None:
+    measures: list[str] = []
     self._on_request_failure(proxy_idx)
     measures.append("已更换User-Agent")
     if attempt >= 1:
@@ -72,18 +72,18 @@ def _apply_bypass_measures(self, attempt: int, proxy_idx: Optional[int] = None):
     logger.info(f"绕过措施: {', '.join(measures)}")
 
 
-def _is_412_error(self, data: Dict) -> bool:
+def _is_412_error(self: Any, data: Dict[str, Any]) -> bool:
     if isinstance(data, dict):
         code = data.get("code")
         return code in [-412, -509, -10403] or "请求过于频繁" in str(data.get("message", ""))
     return False
 
 
-def _get_error_info(self, data: Dict):
+def _get_error_info(self: Any, data: Dict[str, Any]) -> tuple[Any, Any]:
     return data.get("code", -1), data.get("message", "未知错误")
 
 
-def _prepare_request_kwargs(self, **kwargs) -> Tuple[Dict, Optional[int]]:
+def _prepare_request_kwargs(self: Any, **kwargs: Any) -> Tuple[Dict[str, Any], Optional[int]]:
     idx, proxy, ua = self.proxy_manager.get_proxy_binding()
     request_kwargs = {"timeout": 15, **kwargs}
     if proxy:
@@ -107,8 +107,10 @@ def _prepare_request_kwargs(self, **kwargs) -> Tuple[Dict, Optional[int]]:
     return request_kwargs, idx
 
 
-def _do_http_request(self, method, url, request_kwargs, cookies):
-    err = None
+def _do_http_request(
+    self: Any, method: str, url: str, request_kwargs: Dict[str, Any], cookies: Optional[Dict[str, Any]]
+) -> Any:
+    err: Optional[Exception] = None
     if self._has_curl_cffi and self._curl_session:
         try:
             from core.bilibili_api import _CurlCffiResponse
@@ -143,7 +145,9 @@ def _do_http_request(self, method, url, request_kwargs, cookies):
         raise
 
 
-def _handle_http_412_response(self, attempt, max_retries, skip_retry, proxy_idx: Optional[int] = None) -> bool:
+def _handle_http_412_response(
+    self: Any, attempt: int, max_retries: int, skip_retry: bool, proxy_idx: Optional[int] = None
+) -> bool:
     self._consecutive_412_errors += 1
     logger.error(f"HTTP 412错误 (第{attempt + 1}次尝试)")
     if attempt < max_retries and not skip_retry:
@@ -155,7 +159,14 @@ def _handle_http_412_response(self, attempt, max_retries, skip_retry, proxy_idx:
     return False
 
 
-def _handle_successful_response(self, data, attempt, max_retries, skip_retry, proxy_idx: Optional[int] = None):
+def _handle_successful_response(
+    self: Any,
+    data: Any,
+    attempt: int,
+    max_retries: int,
+    skip_retry: bool,
+    proxy_idx: Optional[int] = None,
+) -> tuple[Any, bool]:
     if not isinstance(data, dict):
         return data, False
     api_code = data.get("code", 0)
@@ -182,7 +193,16 @@ def _handle_successful_response(self, data, attempt, max_retries, skip_retry, pr
     return data.get("data") if "data" in data else None, False
 
 
-def _process_request_response(self, response, method, url, attempt, max_retries, skip_retry, proxy_idx):
+def _process_request_response(
+    self: Any,
+    response: Any,
+    method: str,
+    url: str,
+    attempt: int,
+    max_retries: int,
+    skip_retry: bool,
+    proxy_idx: Optional[int],
+) -> tuple[Any, bool]:
     sc = response.status_code
     if sc == 412:
         if _handle_http_412_response(self, attempt, max_retries, skip_retry, proxy_idx):
@@ -197,8 +217,13 @@ def _process_request_response(self, response, method, url, attempt, max_retries,
 
 
 def _request(
-    self, method: str, url: str, max_retries: int = None, skip_retry: bool = False, **kwargs
-) -> Optional[Dict]:
+    self: Any,
+    method: str,
+    url: str,
+    max_retries: Optional[int] = None,
+    skip_retry: bool = False,
+    **kwargs: Any,
+) -> Optional[Dict[str, Any]]:
     if max_retries is None:
         max_retries = self.max_retries
     last_error = None
@@ -217,7 +242,7 @@ def _request(
             )
             if should_retry:
                 continue
-            return result
+            return cast(Optional[Dict[str, Any]], result)
         except requests.exceptions.Timeout:
             last_error = "请求超时"
             logger.error(f"请求超时 (第{attempt + 1}次尝试)")
@@ -249,7 +274,7 @@ def _request(
     return None
 
 
-def _request_public(self, method: str, url: str, **kwargs) -> Any:
+def _request_public(self: Any, method: str, url: str, **kwargs: Any) -> Optional[Dict[str, Any]]:
     max_attempts = 3
     last_error = None
     for attempt in range(max_attempts):
@@ -275,7 +300,7 @@ def _request_public(self, method: str, url: str, **kwargs) -> Any:
                 return None
             data = resp.json()
             if data.get("code") == 0:
-                return data.get("data")
+                return cast(Optional[Dict[str, Any]], data.get("data"))
             last_error = f"API code {data.get('code')}"
         except Exception as e:
             last_error = str(e)

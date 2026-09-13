@@ -50,6 +50,8 @@ from datetime import datetime
 from typing import Optional, Dict, List, Any, Tuple
 from utils import project_path
 
+CheckpointSignature = Tuple[str, str, str, int, int]
+
 # 模块级日志记录器
 logger = logging.getLogger(__name__)
 
@@ -250,7 +252,8 @@ class CheckpointManager:
             return None
         try:
             # 使用 CPU 加载以确保兼容性（即使训练用 GPU）
-            return torch.load(path, map_location="cpu", weights_only=True)
+            state_dict: Dict = torch.load(path, map_location="cpu", weights_only=True)
+            return state_dict
         except Exception as e:
             logger.error("[%s] 加载 checkpoint 失败: %s", self.algo_id, e)
             return None
@@ -345,7 +348,8 @@ class CheckpointManager:
             return None
         try:
             with open(self._active_file, "r", encoding="utf-8") as f:
-                return json.load(f).get("active_version", "")
+                active_version: str = json.load(f).get("active_version", "")
+                return active_version
         except Exception as e:
             import logging
 
@@ -372,7 +376,8 @@ class CheckpointManager:
             return {}
         try:
             with open(self._meta_file, "r", encoding="utf-8") as f:
-                return json.load(f)
+                metadata: Dict = json.load(f)
+                return metadata
         except Exception:
             return {}
 
@@ -489,7 +494,7 @@ def load_best_checkpoint(algo_id: str, bvid: Optional[str] = None) -> Tuple[Opti
     return None, None
 
 
-def checkpoint_signature(algo_id: str, bvid: Optional[str] = None) -> Optional[tuple]:
+def checkpoint_signature(algo_id: str, bvid: Optional[str] = None) -> Optional[CheckpointSignature]:
     """返回最佳可用 checkpoint 的轻量签名（仅 os.stat，不加载 state dict）。
 
     用于判断"已缓存的模型是否仍对应当前 checkpoint"；只有签名变化时才需重新读取。
@@ -500,7 +505,7 @@ def checkpoint_signature(algo_id: str, bvid: Optional[str] = None) -> Optional[t
         (source, cid, path, mtime_ns, size)。
     """
 
-    def _one(cid: str, bv: Optional[str]):
+    def _one(cid: str, bv: Optional[str]) -> Optional[CheckpointSignature]:
         try:
             ckpt = CheckpointManager(cid, bvid=bv)
             if not ckpt.has_checkpoint():

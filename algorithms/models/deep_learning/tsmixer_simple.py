@@ -55,7 +55,7 @@ class TsmixerSimpleAlgorithm(BaseAlgorithm):
         Returns:
             PredictionResult: 预测结果
         """
-        return try_torch_predict(
+        result: PredictionResult = try_torch_predict(
             self,
             video_data,
             threshold,
@@ -64,6 +64,7 @@ class TsmixerSimpleAlgorithm(BaseAlgorithm):
             window=self.training_window,
             horizon=self.training_horizon,
         )
+        return result
 
     def build_model(self):
         """构建TSMixer PyTorch模型实例"""
@@ -129,7 +130,7 @@ class TsmixerSimpleAlgorithm(BaseAlgorithm):
             v_pred = H_channel.T @ W_out  # [1, 1]
 
             # 转换为每小时速度（百分比变化 × 绝对播放量平台 / 3600秒）
-            predicted_velocity = max(0, float(v_pred[0, 0]) * abs(np.mean(views[-5:])) / 3600)
+            predicted_velocity = max(0.0, float(v_pred[0, 0]) * abs(float(np.mean(views[-5:]))) / 3600)
             if predicted_velocity < 1:
                 predicted_velocity = velocity  # 预测过低时使用当前速度
 

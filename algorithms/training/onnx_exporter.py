@@ -17,17 +17,19 @@ Execution Provider 优先级: DirectML(NPU) > CPU
 import os
 import threading
 import logging
-from typing import Dict, Optional, Any
+from typing import TYPE_CHECKING, Dict, Optional
 
 import numpy as np
 
 logger = logging.getLogger(__name__)
 
+if TYPE_CHECKING:
+    import torch
+
 # ONNX Runtime 可用性检测
 _onnx_available = False
-_ort = None
 try:
-    import onnxruntime as _ort
+    import onnxruntime
 
     _onnx_available = True
 except ImportError:
@@ -83,7 +85,7 @@ def has_onnx_model(algo_id: str, bvid: str = "") -> bool:
 
 
 def export_to_onnx(
-    model: Any,
+    model: "torch.nn.Module",
     algo_id: str,
     bvid: str = "",
     window: int = 10,
@@ -120,7 +122,7 @@ def export_to_onnx(
 
         model.eval()
         device = next(model.parameters()).device
-        dummy = torch.randn(1, window, in_features, device=device)
+        dummy = (torch.randn(1, window, in_features, device=device),)
 
         # torch >= 2.6 重构了 onnx 内部 API，用 dynamo 导出兜底
         try:
@@ -170,9 +172,11 @@ class ONNXInferenceSession:
     """
 
     def __init__(self):
-        self._sessions: Dict[str, Any] = {}  # key → ort.InferenceSession
+        self._sessions: Dict[str, "onnxruntime.InferenceSession"] = {}  # key → ort.InferenceSession
 
-    def get_or_load(self, algo_id: str, bvid: str = "", window: int = 10, in_features: int = 10) -> Optional[Any]:
+    def get_or_load(
+        self, algo_id: str, bvid: str = "", window: int = 10, in_features: int = 10
+    ) -> Optional["onnxruntime.InferenceSession"]:
         """获取或创建 ONNX 推理会话。
 
         优先加载已有 onnx 文件；若无则尝试从 checkpoint 导出。
@@ -196,7 +200,10 @@ class ONNXInferenceSession:
             try:
                 # 需要知道模型类 — 通过算法注册表推断
                 # 这里使用通用方法：创建一个最小骨架模型
-                onnx_path = _export_from_checkpoint(state, algo_id, bvid, window, in_features)
+                exported_path = _export_from_checkpoint(state, algo_id, bvid, window, in_features)
+                if exported_path is None:
+                    return None
+                onnx_path = exported_path
             except Exception as e:
                 logger.debug("[ONNX] 从checkpoint导出失败 %s: %s", algo_id, e)
                 return None
@@ -214,11 +221,13 @@ class ONNXInferenceSession:
 
             if use_dml:
                 try:
-                    sess = _ort.InferenceSession(onnx_path, providers=["DmlExecutionProvider", "CPUExecutionProvider"])
+                    sess = onnxruntime.InferenceSession(
+                        onnx_path, providers=["DmlExecutionProvider", "CPUExecutionProvider"]
+                    )
                 except Exception:
-                    sess = _ort.InferenceSession(onnx_path, providers=["CPUExecutionProvider"])
+                    sess = onnxruntime.InferenceSession(onnx_path, providers=["CPUExecutionProvider"])
             else:
-                sess = _ort.InferenceSession(onnx_path, providers=["CPUExecutionProvider"])
+                sess = onnxruntime.InferenceSession(onnx_path, providers=["CPUExecutionProvider"])
             self._sessions[key] = sess
             return sess
         except Exception as e:
@@ -249,9 +258,10 @@ class ONNXInferenceSession:
         if session is None:
             return None
         try:
-            x = x_arr.astype(np.float32).reshape(1, window, in_features)
+            x: np.ndarray = x_arr.astype(np.float32).reshape(1, window, in_features)
             out = session.run(None, {"input": x})
-            return out[0].reshape(-1).astype(np.float64)
+            result: np.ndarray = out[0].reshape(-1).astype(np.float64)
+            return result
         except Exception as e:
             logger.debug("[ONNX] 推理失败 %s: %s", algo_id, e)
             return None
@@ -282,8 +292,8 @@ def _benchmark_dml_vs_cpu(onnx_path: str) -> bool:
     import numpy as np
 
     try:
-        sess_dml = _ort.InferenceSession(onnx_path, providers=["DmlExecutionProvider"])
-        sess_cpu = _ort.InferenceSession(onnx_path, providers=["CPUExecutionProvider"])
+        sess_dml = onnxruntime.InferenceSession(onnx_path, providers=["DmlExecutionProvider"])
+        sess_cpu = onnxruntime.InferenceSession(onnx_path, providers=["CPUExecutionProvider"])
 
         # 取第一个输入的形状
         inp = sess_dml.get_inputs()[0]
@@ -338,10 +348,10 @@ def _infer_export_hidden(state: dict, in_features: int) -> int:
     hidden = 64
     for key, value in state.items():
         if "weight_ih" in key or "weight_hh" in key:
-            return value.shape[0]
+            return int(value.shape[0])
         if "weight" in key and len(value.shape) == 2:
             if value.shape[1] == in_features or value.shape[0] > in_features:
-                return value.shape[0]
+                return int(value.shape[0])
     return hidden
 
 
@@ -360,12 +370,14 @@ def _is_export_head_weight(key: str, value) -> bool:
     return any(token in key.lower() for token in ("fc", "head", "linear", "proj", "predict"))
 
 
-def _build_export_model(state: dict, window: int, in_features: int, head_out: int):
+def _build_export_model(state: dict, window: int, in_features: int, head_out: int) -> "torch.nn.Module":
     import torch.nn as nn
 
     class OnnxExportModel(nn.Module):
         def __init__(self):
             super().__init__()
+            self.rnn: nn.Module
+            self.fc: nn.Module
             keys = list(state.keys())
             hidden = _infer_export_hidden(state, in_features)
             if any("lstm" in key.lower() for key in keys):

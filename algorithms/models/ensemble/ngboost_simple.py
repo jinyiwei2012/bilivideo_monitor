@@ -102,20 +102,20 @@ class NgboostAlgorithm(BaseAlgorithm):
             coins = np.array([h.get("coin", 0) for h in history], dtype=np.float64)
 
             p = 4  # 滑动窗口大小
-            X, y = [], []
+            X_list, y_list = [], []
             # 构造特征：播放量 + 点赞 + 投币 的 4 步滞后值
             for i in range(p, len(views)):
-                X.append(
+                X_list.append(
                     [views[i - j] for j in range(1, p + 1)]
                     + [likes[i - j] for j in range(1, p + 1)]
                     + [coins[i - j] for j in range(1, p + 1)]
                 )
-                y.append(views[i])
+                y_list.append(views[i])
 
-            if len(X) < 5:
+            if len(X_list) < 5:
                 return self._fallback(velocity, current_views, threshold)
 
-            X, y = np.array(X), np.array(y)
+            X, _ = np.array(X_list), np.array(y_list)
 
             # 目标：播放量增长率（百分比差值），更稳定
             y_pct = np.diff(views[-len(X) - 1 :]) / np.maximum(views[-len(X) - 1 : -1], 1)

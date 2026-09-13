@@ -255,7 +255,7 @@ class GompertzGrowthAlgorithm(BaseAlgorithm):
                 return None  # ln值异常，目标不可达
             # t = -ln(inner) / c
             t = -np.log(inner) / c
-            return max(0, t)
+            return float(max(0.0, t))
         except Exception:
             return None
 

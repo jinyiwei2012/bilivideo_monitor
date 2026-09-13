@@ -77,7 +77,8 @@ class TCNSimpleAlgorithm(BaseAlgorithm):
                 idx = i + padding - j * dilation  # 空洞采样的索引
                 if 0 <= idx < len(padded):
                     out[i] += padded[idx] * kernel[j]
-        return out
+        output: np.ndarray = out
+        return output
 
     def _residual_block(self, seq: np.ndarray, dilation: int) -> np.ndarray:
         """TCN残差块: 两层空洞卷积 + ReLU + Dropout + 残差连接
@@ -112,7 +113,8 @@ class TCNSimpleAlgorithm(BaseAlgorithm):
         else:
             out = conv2
 
-        return out
+        output: np.ndarray = np.array(out, copy=False)
+        return output
 
     training_window = 10  # 训练时使用的历史窗口长度
     training_horizon = 3  # 训练时预测的未来步数
@@ -266,8 +268,8 @@ class TCNSimpleAlgorithm(BaseAlgorithm):
             )
 
         # z-score标准化
-        mean_val = np.mean(log_diff)
-        std_val = max(np.std(log_diff), 1e-6)  # 防止除零
+        mean_val = float(np.mean(log_diff))
+        std_val = max(float(np.std(log_diff)), 1e-6)  # 防止除零
         normalized = (log_diff - mean_val) / std_val
 
         # ── 通过TCN残差块 ────────────────────────
@@ -279,17 +281,17 @@ class TCNSimpleAlgorithm(BaseAlgorithm):
 
         # ── 预测: 外推最后一个TCN输出 ──────────────
         last_val = tcn_out[-1] if len(tcn_out) > 0 else 0
-        trend = np.mean(tcn_out[-min(5, len(tcn_out)) :]) if len(tcn_out) >= 2 else last_val
+        trend = float(np.mean(tcn_out[-min(5, len(tcn_out)) :])) if len(tcn_out) >= 2 else float(last_val)
 
         # 根据最近波动估计不确定性（波动越大预测越难）
-        recent_volatility = np.std(tcn_out[-min(10, len(tcn_out)) :]) if len(tcn_out) >= 5 else 0.5
+        recent_volatility = float(np.std(tcn_out[-min(10, len(tcn_out)) :])) if len(tcn_out) >= 5 else 0.5
 
         # ── 生成未来预测 ──────────────────────────
-        growth_per_day = np.mean(np.diff(views_sorted)) if n > 1 else velocity * 24
+        growth_per_day = float(np.mean(np.diff(views_sorted))) if n > 1 else velocity * 24
         forecast_days = min(365, max(10, int((threshold - current_views) / max(growth_per_day, 1)) + 5))
 
         pred_views = float(current_views)
-        current_log = log_views[-1]
+        current_log = float(log_views[-1])
 
         target_day = None
         for day in range(1, forecast_days + 1):

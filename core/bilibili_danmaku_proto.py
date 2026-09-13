@@ -55,12 +55,12 @@ class _WireReader:
     def _read_fixed64(self) -> float:
         v = struct.unpack_from("<d", self._buf, self._pos)[0]
         self._pos += 8
-        return v
+        return float(v)
 
     def _read_fixed32(self) -> float:
         v = struct.unpack_from("<f", self._buf, self._pos)[0]
         self._pos += 4
-        return v
+        return float(v)
 
     def read_field(self) -> Optional[Tuple[int, int]]:
         """读取下一个 tag，返回 (field_number, wire_type)。EOF 返回 None。"""
@@ -228,7 +228,7 @@ def _parse_colorful(reader: _WireReader) -> str:
     return src
 
 
-def _skip_field(reader: _WireReader, wire_type: int):
+def _skip_field(reader: _WireReader, wire_type: int) -> None:
     """跳过未知/不关心的字段。"""
     if wire_type == _WIRE_VARINT:
         reader.read_varint()
@@ -264,7 +264,7 @@ def parse_danmaku_segment(data: bytes) -> List[Dict[str, Any]]:
 
     try:
         reader = _WireReader(data)
-        results = []
+        results: List[Dict[str, Any]] = []
 
         while not reader.eof():
             field = reader.read_field()
@@ -291,6 +291,29 @@ def parse_danmaku_segment(data: bytes) -> List[Dict[str, Any]]:
         return []
 
 
+def _apply_danmaku_view_field(reader: _WireReader, result: Dict[str, Any], field_number: int, wire_type: int) -> None:
+    if field_number == 1 and wire_type == _WIRE_VARINT:
+        result["state"] = reader.read_varint()
+    elif field_number == 4 and wire_type == _WIRE_LENGTH:
+        sub_data = reader.read_length_delimited()
+        cfg = _parse_dm_seg_config(_WireReader(sub_data))
+        result["total_segments"] = cfg["total"]
+        result["page_size"] = cfg["page_size"]
+    elif field_number == 5 and wire_type == _WIRE_LENGTH:
+        reader.read_length_delimited()
+    elif field_number == 6 and wire_type == _WIRE_LENGTH:
+        sub_data = reader.read_length_delimited()
+        url = _parse_colorful(_WireReader(sub_data))
+        if url:
+            result["special_dm_urls"].append(url)
+    elif field_number == 8 and wire_type == _WIRE_VARINT:
+        result["count"] = reader.read_varint()
+    elif field_number == 9 and wire_type == _WIRE_LENGTH:
+        reader.read_length_delimited()
+    else:
+        _skip_field(reader, wire_type)
+
+
 def parse_danmaku_view(data: bytes) -> Dict[str, Any]:
     """解析 dm/web/view 返回的 Protobuf (DmWebViewReply)。
 
@@ -312,7 +335,7 @@ def parse_danmaku_view(data: bytes) -> Dict[str, Any]:
 
     try:
         reader = _WireReader(data)
-        result = {
+        result: Dict[str, Any] = {
             "state": 0,
             "total_segments": 0,
             "page_size": 360000,
@@ -326,43 +349,14 @@ def parse_danmaku_view(data: bytes) -> Dict[str, Any]:
                 break
             fn, wt = field
 
-            if fn == 1 and wt == _WIRE_VARINT:
-                result["state"] = reader.read_varint()
-            elif fn == 4 and wt == _WIRE_LENGTH:
-                # dmSge (DmSegConfig) — 分段配置
-                sub_data = reader.read_length_delimited()
-                sub = _WireReader(sub_data)
-                cfg = _parse_dm_seg_config(sub)
-                result["total_segments"] = cfg["total"]
-                result["page_size"] = cfg["page_size"]
-            elif fn == 5 and wt == _WIRE_LENGTH:
-                # flag (DanmakuFlagConfig) — 云屏蔽配置 (B站 2024+ 新增)
-                reader.read_length_delimited()
-            elif fn == 6 and wt == _WIRE_LENGTH:
-                # specialDms (repeated string) — BAS弹幕专包url
-                sub_data = reader.read_length_delimited()
-                sub = _WireReader(sub_data)
-                url = _parse_colorful(sub)
-                if url:
-                    result["special_dm_urls"].append(url)
-            elif fn == 8 and wt == _WIRE_VARINT:
-                result["count"] = reader.read_varint()
-            elif fn == 9 and wt == _WIRE_LENGTH:
-                # commandDms (repeated CommandDm) — 互动弹幕
-                reader.read_length_delimited()
-            elif fn in (10, 11, 12, 13, 14):
-                # player_config / report_filter / expressions / post_panel / activity_meta
-                # B站 2024+ 新增字段，暂不解析
-                _skip_field(reader, wt)
-            else:
-                _skip_field(reader, wt)
+            _apply_danmaku_view_field(reader, result, fn, wt)
 
         return result
     except Exception:
         return {}
 
 
-def try_parse_danmaku(data: bytes) -> Tuple[Optional[List[Dict]], str]:
+def try_parse_danmaku(data: bytes) -> Tuple[Optional[List[Dict[str, Any]]], str]:
     """自动检测格式并解析弹幕数据。
 
     尝试顺序: Protobuf → XML → None
@@ -382,7 +376,7 @@ def try_parse_danmaku(data: bytes) -> Tuple[Optional[List[Dict]], str]:
             from defusedxml.ElementTree import fromstring as _xml_parse
 
             root = _xml_parse(data)
-            danmaku = []
+            danmaku: List[Dict[str, Any]] = []
             for d in root.findall(".//d"):
                 p = d.get("p", "")
                 parts = p.split(",")

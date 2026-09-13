@@ -1,7 +1,6 @@
 """Training panel public facade."""
 
-import io
-from typing import Dict, Optional
+from typing import Dict, Optional, TextIO
 
 from PyQt6.QtWidgets import QCheckBox, QWidget
 
@@ -46,7 +45,7 @@ class TrainingPanel(
 
         # 日志存盘
         self._log_dir = project_path("data", "log", "training")
-        self._log_file: Optional[io.TextIOWrapper] = None
+        self._log_file: Optional[TextIO] = None
         self._log_file_path: str = ""
         self._saved_title: Optional[str] = None  # 训练时保存的窗口标题
 

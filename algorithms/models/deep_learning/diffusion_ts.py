@@ -19,7 +19,7 @@ DDPM 核心公式：
 """
 
 import logging
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -30,7 +30,7 @@ from algorithms.training.device import get_device
 logger = logging.getLogger(__name__)
 
 
-def _diffusion_schedule(n_steps: int, steps: int = None) -> list:
+def _diffusion_schedule(n_steps: int, steps: Optional[int] = None) -> List[int]:
     """生成反向扩散采样时间步序列（从大到小）。
 
     steps 为 None 或 >= n_steps 时返回完整序列 [n_steps-1, ..., 0]；
@@ -107,7 +107,7 @@ if _torch_available:
             self.norm2 = nn.GroupNorm(min(8, ch), ch)
             self.t_proj = nn.Linear(t_dim, ch)  # 时间嵌入投影
 
-        def forward(self, x, t_emb):
+        def forward(self, x: "torch.Tensor", t_emb: "torch.Tensor") -> "torch.Tensor":
             """前向：两次归一化+卷积+时间注入 + 残差连接。
 
             Args:
@@ -122,7 +122,8 @@ if _torch_available:
             h = h + self.t_proj(F.silu(t_emb)).unsqueeze(-1)  # 时间条件注入
             h = F.silu(self.norm2(h))
             h = self.conv2(h)
-            return h + x  # 残差连接
+            output: "torch.Tensor" = h + x
+            return output  # 残差连接
 
     class DiffusionTSTorchModel(nn.Module):
         """UNet1D + 时间嵌入的扩散模型。
@@ -131,6 +132,12 @@ if _torch_available:
 
         架构：输入卷积 → 两个下采样残差块 → 两个上采样残差块 → 输出卷积。
         """
+
+        betas: "torch.Tensor"
+        alphas: "torch.Tensor"
+        alpha_bars: "torch.Tensor"
+        _train_t: "torch.Tensor"
+        _train_eps: "torch.Tensor"
 
         def __init__(self, in_channels: int = 1, base: int = 32, t_dim: int = 64, n_steps: int = 100):
             """初始化扩散模型。
@@ -160,7 +167,7 @@ if _torch_available:
             self.register_buffer("alphas", alphas)
             self.register_buffer("alpha_bars", alpha_bars)
 
-        def forward(self, x: "torch.Tensor", t: "torch.Tensor" = None) -> "torch.Tensor":
+        def forward(self, x: "torch.Tensor", t: Optional["torch.Tensor"] = None) -> "torch.Tensor":
             """前向传播 - 支持训练模式和推理模式。
 
             训练模式（trainer 调用 model(x) 不带 t）：
@@ -193,7 +200,8 @@ if _torch_available:
                 h = self.down2(h, t_emb)
                 h = self.up1(h, t_emb)
                 h = self.up2(h, t_emb)
-                return self.out_conv(h)  # 预测噪声 ε̂，trainer 用 MSELoss(ε̂, eps)
+                training_output: "torch.Tensor" = self.out_conv(h)
+                return training_output  # 预测噪声 ε̂，trainer 用 MSELoss(ε̂, eps)
             # 推理模式
             t_emb = self.t_embed(t)
             h = self.in_conv(x)
@@ -201,10 +209,13 @@ if _torch_available:
             h = self.down2(h, t_emb)
             h = self.up1(h, t_emb)
             h = self.up2(h, t_emb)
-            return self.out_conv(h)
+            output: "torch.Tensor" = self.out_conv(h)
+            return output
 
         @torch.no_grad()
-        def sample(self, shape, device, steps: int = None):
+        def sample(
+            self, shape: Tuple[int, ...], device: Optional["torch.device"], steps: Optional[int] = None
+        ) -> "torch.Tensor":
             """反向扩散采样：从纯噪声 x_T 逐步去噪到 x_0。
 
             支持少步采样：steps < n_steps 时按均匀间隔跳步（DDIM 式），
@@ -274,8 +285,10 @@ class DiffusionTSAlgorithm(BaseAlgorithm):
         super().__init__()
         self._device = get_device()
         self._ckpt = CheckpointManager(self.algorithm_id)
-        self._cached_model = None
-        self._cached_model_for_training = None  # 训练时 preprocess → forward 传递噪声用
+        self._cached_model: Optional[DiffusionTSTorchModel] = None
+        self._cached_model_for_training: Optional[DiffusionTSTorchModel] = (
+            None  # 训练时 preprocess → forward 传递噪声用
+        )
         # 单通道：speed 序列
         self._series_len = self.training_window + self.training_horizon
 
@@ -295,7 +308,10 @@ class DiffusionTSAlgorithm(BaseAlgorithm):
         if _torch_available:
             try:
                 v, conf, meta = self._torch_predict(video_data)
-                return self._make_result(current_views, threshold, v, conf, "diffusion_ts_torch", meta)
+                result: PredictionResult = self._make_result(
+                    current_views, threshold, v, conf, "diffusion_ts_torch", meta
+                )
+                return result
             except Exception as e:
                 logger.warning("[diffusion_ts] torch 失败，降级: %s", e)
         return self._numpy_predict(video_data, current_views, threshold)
@@ -327,7 +343,6 @@ class DiffusionTSAlgorithm(BaseAlgorithm):
             model.to(self._device).eval()
             self._cached_model = model
             self._cached_bvid = bvid or ""
-        model = self._cached_model
         mean = float(np.mean(velocities))
         std = float(np.std(velocities)) if len(velocities) > 1 else 1.0
         if std < 1e-8:
@@ -355,18 +370,21 @@ class DiffusionTSAlgorithm(BaseAlgorithm):
         history = video_data.get("history_data", [])
         velocities = self._velocity_series(history)
         if len(velocities) < 3:
-            v = self.calculate_velocity(video_data)
-            return self._make_result(current_views, threshold, v, 0.3, "insufficient_data", {})
+            velocity = self.calculate_velocity(video_data)
+            result: PredictionResult = self._make_result(
+                current_views, threshold, velocity, 0.3, "insufficient_data", {}
+            )
+            return result
         # 简化版：用历史均值 + 高斯扰动的多次采样取均值
-        v = np.array(velocities, dtype=np.float32)
-        mean = float(v.mean())
-        std = float(v.std()) if len(v) > 1 else 0.0
+        velocity_array = np.array(velocities, dtype=np.float32)
+        mean = float(velocity_array.mean())
+        std = float(velocity_array.std()) if len(velocity_array) > 1 else 0.0
         # 模拟"扩散去噪"：从噪声开始 + 朝均值收敛
         rng = np.random.default_rng(42)
         sample_count = 16
         samples = mean + std * rng.standard_normal(sample_count) * 0.3  # 缩小方差
         predicted = max(0.0, float(np.mean(samples)))
-        return self._make_result(
+        result = self._make_result(
             current_views,
             threshold,
             predicted,
@@ -374,6 +392,7 @@ class DiffusionTSAlgorithm(BaseAlgorithm):
             "diffusion_numpy_fallback",
             {"mean": mean, "std": std, "method": "gaussian_mc"},
         )
+        return result
 
     @staticmethod
     def _velocity_series(history: List[Dict]) -> List[float]:

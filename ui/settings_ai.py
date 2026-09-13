@@ -3,6 +3,7 @@ AI 配置标签页
 """
 
 import logging
+from typing import TYPE_CHECKING, Any
 
 from PyQt6.QtWidgets import (
     QWidget,
@@ -16,6 +17,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import QTimer
 
 from ui.theme import C
+from ui.dialog_base import DialogBase
 from ui.helpers import FONT_SM
 from utils.update_checker import _hard, _confirm_risky
 
@@ -26,6 +28,14 @@ logger = logging.getLogger(__name__)
 
 class SettingsAIMixin:
     """AI / LLM configuration settings tab."""
+
+    _cfg: dict[str, Any]
+    dlg: DialogBase
+
+    if TYPE_CHECKING:
+
+        def _section(self, parent: QWidget, title: str, padding: tuple[int, ...] | None = None) -> QWidget:
+            raise NotImplementedError
 
     def _build_ai_tab(self, nb):
         page = QWidget()
@@ -49,7 +59,8 @@ class SettingsAIMixin:
         self._ai_profile_cb.currentIndexChanged.connect(self._on_ai_profile_selected)
         sr_layout.addWidget(self._ai_profile_cb)
         sr_layout.addStretch()
-        sec_layout.addWidget(sel_row)
+        if sec_layout is not None:
+            sec_layout.addWidget(sel_row)
 
         profiles = ai_cfg.get("profiles", [])
         if not profiles:
@@ -91,7 +102,8 @@ class SettingsAIMixin:
         self._ai_endpoint_entry = _field_wrapper(detail, "接口地址")
         self._ai_model_entry = _field_wrapper(detail, "模型名称")
         detail_layout.addStretch()
-        sec_layout.addWidget(detail)
+        if sec_layout is not None:
+            sec_layout.addWidget(detail)
 
         btn_row = QWidget()
         btn_row.setStyleSheet(f"background-color: {C['bg_elevated']};")
@@ -113,7 +125,8 @@ class SettingsAIMixin:
         new_btn.clicked.connect(self._new_ai_profile)
         br_layout.addWidget(new_btn)
         br_layout.addStretch()
-        sec_layout.addWidget(btn_row)
+        if sec_layout is not None:
+            sec_layout.addWidget(btn_row)
 
         # 快速填入行
         preset_row = QWidget()

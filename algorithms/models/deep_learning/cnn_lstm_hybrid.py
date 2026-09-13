@@ -65,7 +65,8 @@ class CNNLSTMHybridAlgorithm(BaseAlgorithm):
         """
         k = len(kernel)
         if len(seq) < k:
-            return np.array([np.mean(seq * kernel[: len(seq)])])
+            short_output: np.ndarray = np.array([np.mean(seq * kernel[: len(seq)])])
+            return short_output
         out = np.zeros(len(seq) - k + 1)
         for i in range(len(out)):
             out[i] = np.dot(seq[i : i + k], kernel)  # 滑动窗口点积
@@ -94,15 +95,23 @@ class CNNLSTMHybridAlgorithm(BaseAlgorithm):
                 conv_out = self._conv1d(seq, edge_kernel)
                 if len(conv_out) > 0:
                     # 四个统计量描述卷积输出的分布
-                    features.extend([np.max(conv_out), np.min(conv_out), np.mean(conv_out), np.std(conv_out)])
+                    features.extend(
+                        [
+                            float(np.max(conv_out)),
+                            float(np.min(conv_out)),
+                            float(np.mean(conv_out)),
+                            float(np.std(conv_out)),
+                        ]
+                    )
 
                 # 平滑卷积核（移动平均）
                 smooth_kernel = np.ones(k_size) / k_size
                 smooth_out = self._conv1d(seq, smooth_kernel)
                 if len(smooth_out) > 0:
-                    features.extend([np.mean(smooth_out), smooth_out[-1] if len(smooth_out) > 0 else 0])
+                    features.extend([float(np.mean(smooth_out)), float(smooth_out[-1]) if len(smooth_out) > 0 else 0.0])
 
-        return np.array(features)
+        convolution_features: np.ndarray = np.array(features)
+        return convolution_features
 
     training_window = 10
     """训练窗口长度（时间步数）"""
@@ -295,7 +304,7 @@ class CNNLSTMHybridAlgorithm(BaseAlgorithm):
         # 综合预测因子
         combined_factor = cnn_growth_factor + lstm_accel
 
-        mean_daily_growth = np.mean(np.diff(views_sorted)) if n > 1 else velocity * 24
+        mean_daily_growth = float(np.mean(np.diff(views_sorted))) if n > 1 else velocity * 24
         adjusted_growth = mean_daily_growth * max(0.3, combined_factor)
         forecast_days = min(365, max(10, int((threshold - current_views) / max(adjusted_growth, 1)) + 5))
 
@@ -310,7 +319,7 @@ class CNNLSTMHybridAlgorithm(BaseAlgorithm):
 
             # 综合日增长 = 基础增长 × 加速因子 × (1 + 残差衰减项)
             daily_growth = adjusted_growth * accel * (1.0 + (1.0 - decay) * 0.2)
-            pred_views += max(0, daily_growth)
+            pred_views += max(0.0, float(daily_growth))
 
             if pred_views >= threshold:
                 target_day = day
@@ -321,7 +330,11 @@ class CNNLSTMHybridAlgorithm(BaseAlgorithm):
             # 置信度 = 数据量 + CNN 趋势强度 + 质量评分 + 互动率
             conf = min(
                 0.9,
-                0.3 + 0.2 * min(1.0, n / 20) + 0.2 * min(1.0, abs(cnn_trend) * 5) + 0.15 * quality + 0.05 * engagement,
+                0.3
+                + 0.2 * min(1.0, n / 20)
+                + 0.2 * min(1.0, abs(float(cnn_trend)) * 5)
+                + 0.15 * quality
+                + 0.05 * engagement,
             )
         else:
             predicted_hours = remaining / velocity

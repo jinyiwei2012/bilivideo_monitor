@@ -206,7 +206,7 @@ class MarkovSwitchingAlgorithm(BaseAlgorithm):
         order = np.argsort(timestamps)
         return np.array(views_vals, dtype=float)[order]
 
-    def _predict_impl(self, views_arr, current_views, velocity, remaining, threshold, video_data):
+    def _predict_impl(self, views_arr, current_views, velocity, remaining, threshold, video_data) -> PredictionResult:
         """执行马尔可夫体制转换核心预测
 
         完整的预测流程：

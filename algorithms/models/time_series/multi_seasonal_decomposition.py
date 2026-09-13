@@ -242,7 +242,9 @@ class MultiSeasonalDecompositionAlgorithm(BaseAlgorithm):
         hours_per_point = max(0.1, min(24.0, hours_per_point))
         return views_arr, hours_per_point
 
-    def _predict_impl(self, views_arr, hours_per_point, current_views, velocity, remaining, threshold, video_data):
+    def _predict_impl(
+        self, views_arr, hours_per_point, current_views, velocity, remaining, threshold, video_data
+    ) -> PredictionResult:
         """执行多季节性分解核心预测
 
         参数:

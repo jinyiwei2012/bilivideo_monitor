@@ -9,7 +9,7 @@ import random
 import logging
 import threading
 import warnings
-from typing import Dict, List, Optional, Any
+from typing import Any, Callable, Dict, List, Optional, ParamSpec, TypeVar, cast
 
 from core.proxy_manager import ProxyManager
 from core.constants import USER_AGENTS
@@ -25,11 +25,14 @@ warnings.filterwarnings("ignore", category=InsecureRequestWarning)
 
 logger = logging.getLogger(__name__)
 
+_P = ParamSpec("_P")
+_T = TypeVar("_T")
+
 
 class BilibiliAPIError(Exception):
     """B站API异常基类"""
 
-    def __init__(self, code: int, message: str):
+    def __init__(self, code: int, message: str) -> None:
         self.code = code
         self.message = message
         super().__init__(f"[{code}] {message}")
@@ -42,7 +45,7 @@ class RateLimitError(BilibiliAPIError):
 class _CurlCffiResponse:
     """将 curl_cffi response 包装为与 requests.Response 兼容的接口"""
 
-    def __init__(self, resp):
+    def __init__(self, resp: Any) -> None:
         self.status_code = resp.status_code
         self.content = resp.content
         self.raw = resp.content
@@ -52,10 +55,10 @@ class _CurlCffiResponse:
         self.cookies = resp.cookies
         self._resp = resp
 
-    def json(self, **kwargs):
+    def json(self, **kwargs: Any) -> Any:
         return self._resp.json(**kwargs)
 
-    def raise_for_status(self):
+    def raise_for_status(self) -> None:
         if self.status_code >= 400:
             from requests.exceptions import HTTPError
 
@@ -87,7 +90,7 @@ class BilibiliAPI(_RequestMixin, _AuthMixin, _VideoMixin, _UpMixin):
         "Accept-Encoding": "gzip, deflate, br",
     }
 
-    def __init__(self):
+    def __init__(self) -> None:
         """初始化 BilibiliAPI 实例，创建连接池、加载 Cookie 和代理配置"""
         self.session = requests.Session()
 
@@ -105,7 +108,7 @@ class BilibiliAPI(_RequestMixin, _AuthMixin, _VideoMixin, _UpMixin):
         self._public_session.mount("http://", pub_adapter)
 
         # curl_cffi Session（TLS 指纹伪装，主 API 路径优先使用）
-        self._curl_session = None
+        self._curl_session: Any = None
         self._has_curl_cffi = False
         self._impersonate = ""
         self._init_curl_cffi()
@@ -128,9 +131,9 @@ class BilibiliAPI(_RequestMixin, _AuthMixin, _VideoMixin, _UpMixin):
         self._interval_lock = threading.Lock()
 
         # cookie支持（多账号）
-        self._cookies: Dict = {}
+        self._cookies: Dict[str, Any] = {}
         self._refresh_token: str = ""
-        self._accounts: list = []
+        self._accounts: list[Dict[str, Any]] = []
         self._active_account_idx: int = -1
         self._account_name: str = "默认"
 
@@ -153,19 +156,20 @@ class BilibiliAPI(_RequestMixin, _AuthMixin, _VideoMixin, _UpMixin):
 
         return _uuid.uuid4().hex.upper()[:16] + _uuid.uuid4().hex.upper()[:16] + "infoc"
 
-    def _init_curl_cffi(self):
+    def _init_curl_cffi(self) -> None:
         """初始化 curl_cffi 会话（TLS 指纹伪装）"""
         try:
             from curl_cffi import requests as _curl_req
 
-            self._curl_session = _curl_req.Session(impersonate="chrome131")
-            self._curl_session.headers.update(
+            curl_session: Any = _curl_req.Session(impersonate="chrome131")
+            curl_session.headers.update(
                 {
                     "Referer": "https://www.bilibili.com/",
                     "Accept": "application/json, text/plain, */*",
                     "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
                 }
             )
+            self._curl_session = curl_session
             self._has_curl_cffi = True
             self._impersonate = "chrome131"
             logger.info("curl_cffi TLS 指纹伪装已启用 (impersonate=chrome131)")
@@ -174,9 +178,9 @@ class BilibiliAPI(_RequestMixin, _AuthMixin, _VideoMixin, _UpMixin):
             logger.info("curl_cffi 未安装，使用 requests 直连 (pip install curl_cffi)")
 
     @staticmethod
-    def _sanitize_cookies(cookies: Dict) -> Dict:
+    def _sanitize_cookies(cookies: Dict[str, Any]) -> Dict[str, Any]:
         """清理 cookie 值中非 Latin-1 字符，防止 requests 编码报错"""
-        sanitized = {}
+        sanitized: Dict[str, Any] = {}
         for k, v in cookies.items():
             if isinstance(v, str):
                 sanitized[k] = v.encode("latin-1", errors="replace").decode("latin-1")
@@ -184,7 +188,7 @@ class BilibiliAPI(_RequestMixin, _AuthMixin, _VideoMixin, _UpMixin):
                 sanitized[k] = v
         return sanitized
 
-    def _load_saved_network_config(self):
+    def _load_saved_network_config(self) -> None:
         """从 network_config.json 加载多账号 Cookie 和代理"""
         try:
             import json
@@ -246,7 +250,7 @@ class BilibiliAPI(_RequestMixin, _AuthMixin, _VideoMixin, _UpMixin):
         except Exception as e:
             logger.warning(f"加载网络配置失败: {e}")
 
-    def _update_headers(self, extra_headers: Dict = None):
+    def _update_headers(self, extra_headers: Optional[Dict[str, str]] = None) -> None:
         """更新请求头"""
         headers = self.BASE_HEADERS.copy()
         headers["User-Agent"] = random.choice(self.USER_AGENTS)
@@ -254,21 +258,23 @@ class BilibiliAPI(_RequestMixin, _AuthMixin, _VideoMixin, _UpMixin):
             headers.update(extra_headers)
         self.session.headers.update(headers)
 
-    def _on_request_failure(self, proxy_idx: Optional[int] = None):
+    def _on_request_failure(self, proxy_idx: Optional[int] = None) -> None:
         """标记请求失败：委托 ProxyManager 处理并更新 session UA"""
         new_ua = self.proxy_manager.on_request_failure(proxy_idx)
         if new_ua:
             self.session.headers["User-Agent"] = new_ua
 
-    def add_proxy(self, proxy: Dict):
+    def add_proxy(self, proxy: Dict[str, str]) -> None:
         """添加代理（委托给 ProxyManager）"""
         self.proxy_manager.add_proxy(proxy)
 
-    def clear_proxies(self):
+    def clear_proxies(self) -> None:
         """清空代理列表（委托给 ProxyManager）"""
         self.proxy_manager.clear_proxies()
 
-    def bypass_412_with_retry(self, func, *args, **kwargs) -> Optional[Any]:
+    def bypass_412_with_retry(
+        self, func: Callable[_P, Optional[_T]], *args: _P.args, **kwargs: _P.kwargs
+    ) -> Optional[_T]:
         """
         使用重试机制执行函数（用于需要多次尝试的操作）
         """
@@ -283,15 +289,15 @@ class BilibiliAPI(_RequestMixin, _AuthMixin, _VideoMixin, _UpMixin):
                 self._apply_bypass_measures(attempt)
         return None
 
-    def search_videos(self, keyword: str, page: int = 1, page_size: int = 20) -> List[Dict]:
+    def search_videos(self, keyword: str, page: int = 1, page_size: int = 20) -> List[Dict[str, Any]]:
         """搜索视频（多源兜底）"""
         params = {"keyword": keyword, "search_type": "video", "page": page, "pagesize": page_size}
         data = self._request("GET", self.SEARCH_URL, params=params)
         if data and "result" in data:
-            return data["result"]
+            return cast(List[Dict[str, Any]], data["result"])
         return self._search_videos_fallback(keyword, page, page_size)
 
-    def _search_videos_fallback(self, keyword: str, page: int, page_size: int) -> List[Dict]:
+    def _search_videos_fallback(self, keyword: str, page: int, page_size: int) -> List[Dict[str, Any]]:
         """使用 bilibili-api-python 兜底搜索"""
         try:
             from bilibili_api import sync
@@ -300,7 +306,7 @@ class BilibiliAPI(_RequestMixin, _AuthMixin, _VideoMixin, _UpMixin):
 
             result = sync(search_by_type(keyword, SearchObjectType.VIDEO, page=page))
             if result and "result" in result:
-                return result["result"]
+                return cast(List[Dict[str, Any]], result["result"])
         except ImportError:
             logger.debug("bilibili-api-python 未安装，跳过兜底搜索")
             pass
@@ -308,7 +314,7 @@ class BilibiliAPI(_RequestMixin, _AuthMixin, _VideoMixin, _UpMixin):
             logger.debug("bilibili-api 兜底搜索失败: %s", e)
         return []
 
-    def get_video_full_data(self, bvid: str) -> Optional[Dict]:
+    def get_video_full_data(self, bvid: str) -> Optional[Dict[str, Any]]:
         """获取视频完整数据"""
         video_info = self.get_video_info(bvid)
         if not video_info:
@@ -331,7 +337,7 @@ class BilibiliAPI(_RequestMixin, _AuthMixin, _VideoMixin, _UpMixin):
         }
 
     # ── WBI签名 ───────────────────────────────────────────
-    def _refresh_wbi_key(self):
+    def _refresh_wbi_key(self) -> None:
         """刷新 WBI 密钥（从 nav 接口获取）"""
         try:
             nav_url = f"{self.BASE_URL}/x/web-interface/nav"
@@ -355,7 +361,7 @@ class BilibiliAPI(_RequestMixin, _AuthMixin, _VideoMixin, _UpMixin):
             self._wbi_key = None
             logger.warning(f"WBI密钥刷新失败: {e}")
 
-    def _wbi_sign(self, params: dict) -> dict:
+    def _wbi_sign(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """为请求参数添加 WBI 签名"""
         if not self._wbi_key:
             self._refresh_wbi_key()
@@ -377,14 +383,14 @@ class BilibiliAPI(_RequestMixin, _AuthMixin, _VideoMixin, _UpMixin):
         return params
 
     # ── 热门视频 ─────────────────────────────────────────
-    def get_popular_videos(self, pn: int = 1, ps: int = 20) -> List[Dict]:
+    def get_popular_videos(self, pn: int = 1, ps: int = 20) -> List[Dict[str, Any]]:
         """获取热门视频列表"""
         data = self._request("GET", self.POPULAR_URL, params={"pn": pn, "ps": ps})
         if data and "list" in data:
-            return data["list"]
+            return cast(List[Dict[str, Any]], data["list"])
         return []
 
-    def get_weekly_series(self, number: int = None) -> List[Dict]:
+    def get_weekly_series(self, number: Optional[int] = None) -> List[Dict[str, Any]]:
         """获取每周必看列表（自动获取最新期数）"""
         series_list_url = f"{self.BASE_URL}/x/web-interface/popular/series/list"
         list_data = self._request("GET", series_list_url)
@@ -397,10 +403,10 @@ class BilibiliAPI(_RequestMixin, _AuthMixin, _VideoMixin, _UpMixin):
         params = {"number": number}
         data = self._request("GET", url, params=params)
         if data and "list" in data:
-            return data["list"]
+            return cast(List[Dict[str, Any]], data["list"])
         return []
 
-    def get_status(self) -> Dict:
+    def get_status(self) -> Dict[str, Any]:
         """获取API状态信息"""
         login_status = False
         login_name = ""
@@ -433,13 +439,13 @@ class BilibiliAPI(_RequestMixin, _AuthMixin, _VideoMixin, _UpMixin):
             "login_name": login_name,
         }
 
-    def reset_status(self):
+    def reset_status(self) -> None:
         """重置状态（用于连续失败后的恢复）"""
         self._consecutive_412_errors = 0
         self._min_request_interval = 0.5
         logger.info("API状态已重置")
 
-    def close(self):
+    def close(self) -> None:
         """关闭 HTTP Session，释放连接池。"""
         try:
             self.session.close()
@@ -453,11 +459,11 @@ class BilibiliAPI(_RequestMixin, _AuthMixin, _VideoMixin, _UpMixin):
 
 
 # 全局API实例（延迟初始化，避免拖慢模块导入）
-_bilibili_api_instance = None
+_bilibili_api_instance: Optional[BilibiliAPI] = None
 _bilibili_api_lock = threading.Lock()
 
 
-def _get_api():
+def _get_api() -> BilibiliAPI:
     """延迟获取/创建 BilibiliAPI 实例（双检锁线程安全）"""
     global _bilibili_api_instance
     if _bilibili_api_instance is None:
@@ -475,38 +481,38 @@ def get_bilibili_api() -> BilibiliAPI:
 # ── 模块级便捷函数（兼容 from core import bilibili_api 调用方式）──
 
 
-def get_video_info(bvid: str) -> Optional[Dict]:
+def get_video_info(bvid: str) -> Optional[Dict[str, Any]]:
     """模块级便捷函数：获取视频信息"""
     return _get_api().get_video_info(bvid)
 
 
-def get_video_stat(bvid: str) -> Optional[Dict]:
+def get_video_stat(bvid: str) -> Optional[Dict[str, Any]]:
     """模块级便捷函数：获取视频统计数据"""
     return _get_api().get_video_stat(bvid)
 
 
-def get_video_viewers(bvid: str, cid: int) -> Optional[Dict]:
+def get_video_viewers(bvid: str, cid: int) -> Optional[Dict[str, Any]]:
     """模块级便捷函数：获取视频观看人数"""
     return _get_api().get_video_viewers(bvid, cid)
 
 
-def get_up_info(uid: int) -> Optional[Dict]:
+def get_up_info(uid: int) -> Optional[Dict[str, Any]]:
     """模块级便捷函数：获取UP主信息"""
     return _get_api().get_up_info(uid)
 
 
-def get_up_stat(uid: int) -> Optional[Dict]:
+def get_up_stat(uid: int) -> Optional[Dict[str, Any]]:
     """模块级便捷函数：获取UP主统计数据"""
     return _get_api().get_up_stat(uid)
 
 
-def close():
+def close() -> None:
     """模块级便捷函数：关闭 API 实例"""
     _get_api().close()
 
 
 # 模块级便捷属性代理（from core import bilibili_api 导入的是模块而非实例）
-def __getattr__(name):
+def __getattr__(name: str) -> Any:
     """模块级属性代理，提供 bilibili_api 和 proxy_manager 的便捷访问"""
     if name == "bilibili_api":
         return _get_api()

@@ -256,4 +256,4 @@ class KalmanFilterAlgorithm(BaseAlgorithm):
 
         # 综合置信度：位置 60% + 速度 40%
         confidence = 0.6 * pos_conf + 0.4 * vel_conf
-        return min(0.95, max(0.3, confidence))  # 钳制在 [0.3, 0.95]
+        return float(min(0.95, max(0.3, confidence)))  # 钳制在 [0.3, 0.95]

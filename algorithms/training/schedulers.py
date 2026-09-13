@@ -36,22 +36,27 @@
 """
 
 import logging
+from typing import TYPE_CHECKING, Optional
 
 # 模块级日志记录器
 logger = logging.getLogger(__name__)
 
 # ── PyTorch 可用性检测 ─────────────────────────────────
 _torch_available = True
-try:
+if TYPE_CHECKING:
     import torch
-    from torch.optim.lr_scheduler import _LRScheduler
-except ImportError:
-    _torch_available = False
-    # 无 torch 时用 object 占位，保证模块可导入
-    _LRScheduler = object
+    from torch.optim.lr_scheduler import _LRScheduler as _SchedulerBase
+else:
+    try:
+        import torch
+        from torch.optim.lr_scheduler import _LRScheduler as _SchedulerBase
+    except ImportError:
+        _torch_available = False
+        # 无 torch 时用 object 占位，保证模块可导入
+        _SchedulerBase = object
 
 
-class HyperbolicLR(_LRScheduler):
+class HyperbolicLR(_SchedulerBase):
     """双曲线学习率衰减调度器。
 
     学习率按双曲线函数衰减，与总训练轮数无关，只依赖当前已完成的 epoch 数。
@@ -73,7 +78,7 @@ class HyperbolicLR(_LRScheduler):
         last_epoch: 初始 epoch 索引（续训时从非零开始，默认 -1）。
     """
 
-    def __init__(self, optimizer, k: float = 0.1, min_lr: float = 1e-6, last_epoch: int = -1):
+    def __init__(self, optimizer: "torch.optim.Optimizer", k: float = 0.1, min_lr: float = 1e-6, last_epoch: int = -1):
         """初始化双曲线衰减调度器。
 
         Args:
@@ -128,7 +133,7 @@ class ComboScheduler:
 
     def __init__(
         self,
-        optimizer,
+        optimizer: "torch.optim.Optimizer",
         k: float = 0.1,
         plateau_patience: int = 5,
         plateau_factor: float = 0.5,
@@ -158,7 +163,7 @@ class ComboScheduler:
         self._plateau_counter = 0  # 连续未改善的轮数计数
         self._last_lrs = list(self.base_lrs)  # 上次学习率快照
 
-    def step(self, epoch: int = None):
+    def step(self, epoch: Optional[int] = None):
         """兼容 PyTorch scheduler 接口的步进方法。
 
         Args:
@@ -231,7 +236,7 @@ class ComboScheduler:
             float: 第一个参数组的当前学习率，torch 不可用时返回 0.0。
         """
         if _torch_available and len(self.optimizer.param_groups) > 0:
-            return self.optimizer.param_groups[0]["lr"]
+            return float(self.optimizer.param_groups[0]["lr"])
         return 0.0
 
     def state_dict(self) -> dict:

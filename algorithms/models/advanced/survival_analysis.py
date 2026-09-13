@@ -319,7 +319,7 @@ class SurvivalAnalysisAlgorithm(BaseAlgorithm):
 
         recent = velocities[-min(3, len(velocities)) :]
         accel = (recent[-1] - recent[0]) / (len(recent) - 1)
-        return accel
+        return float(accel)
 
     def _extract_series(self, history: List[Dict]) -> Tuple[np.ndarray, np.ndarray]:
         """

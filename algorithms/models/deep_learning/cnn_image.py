@@ -11,7 +11,7 @@
 
 import logging
 import math
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -97,7 +97,8 @@ if _torch_available:
             h1 = self.branch1(img)  # 普通尺度
             h2 = self.branch2(img)  # 膨胀大尺度
             h = torch.cat([self.pool(h1), self.pool(h2)], dim=1)  # 双分支拼接
-            return self.head(h)  # [B, H]
+            output: "torch.Tensor" = self.head(h)
+            return output  # [B, H]
 
 
 class CnnImageAlgorithm(BaseAlgorithm):
@@ -127,7 +128,7 @@ class CnnImageAlgorithm(BaseAlgorithm):
         super().__init__()
         self._device = get_device()
         self._ckpt = CheckpointManager(self.algorithm_id)
-        self._cached_model = None
+        self._cached_model: Optional[CnnImageTorchModel] = None
         self._features = ["view_count", "like_count", "coin_count", "favorite_count", "share_count"]
 
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
@@ -146,7 +147,8 @@ class CnnImageAlgorithm(BaseAlgorithm):
         if _torch_available:
             try:
                 v, conf, meta = self._torch_predict(video_data)
-                return self._make_result(current_views, threshold, v, conf, "cnn_image_torch", meta)
+                result: PredictionResult = self._make_result(current_views, threshold, v, conf, "cnn_image_torch", meta)
+                return result
             except Exception as e:
                 logger.warning("[cnn_image] torch 失败，降级: %s", e)
         return self._numpy_predict(video_data, current_views, threshold)
@@ -207,7 +209,7 @@ class CnnImageAlgorithm(BaseAlgorithm):
 
         history = video_data.get("history_data", [])
         n = self.training_window
-        arr = np.zeros((n, len(self._features)), dtype=np.float32)
+        arr: np.ndarray = np.zeros((n, len(self._features)), dtype=np.float32)
         recent = history[-n:] if len(history) >= n else history
         offset = n - len(recent)
         for i, e in enumerate(recent):
@@ -244,22 +246,25 @@ class CnnImageAlgorithm(BaseAlgorithm):
         history = video_data.get("history_data", [])
         velocities = self._velocity_series(history)
         if len(velocities) < 3:
-            v = self.calculate_velocity(video_data)
-            return self._make_result(current_views, threshold, v, 0.3, "insufficient_data", {})
-        v = np.array(velocities, dtype=np.float32)
+            velocity = self.calculate_velocity(video_data)
+            result: PredictionResult = self._make_result(
+                current_views, threshold, velocity, 0.3, "insufficient_data", {}
+            )
+            return result
+        velocity_array = np.array(velocities, dtype=np.float32)
         # 简化"图像化"：把序列展开成 sqrt(L)×sqrt(L) 后做 mean-pool（替代卷积）
-        side = max(2, int(math.sqrt(len(v))))
-        pad = side * side - len(v)
+        side = max(2, int(math.sqrt(len(velocity_array))))
+        pad = side * side - len(velocity_array)
         if pad > 0:
-            v_pad = np.concatenate([v, np.full(pad, float(np.mean(v)))])
+            v_pad = np.concatenate([velocity_array, np.full(pad, float(np.mean(velocity_array)))])
         else:
-            v_pad = v[: side * side]
+            v_pad = velocity_array[: side * side]
         img = v_pad.reshape(side, side)
         # 2x2 mean pool（模拟卷积后的池化）
         ph = side // 2 * 2
         pooled = img[:ph, :ph].reshape(ph // 2, 2, ph // 2, 2).mean(axis=(1, 3))
         predicted = max(0.0, float(pooled.mean()))  # 池化后均值
-        return self._make_result(
+        result = self._make_result(
             current_views,
             threshold,
             predicted,
@@ -267,6 +272,7 @@ class CnnImageAlgorithm(BaseAlgorithm):
             "cnn_image_numpy_fallback",
             {"side": side, "pooled_shape": list(pooled.shape), "method": "mean_pool_2x2"},
         )
+        return result
 
     @staticmethod
     def _velocity_series(history: List[Dict]) -> List[float]:

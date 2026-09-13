@@ -5,7 +5,9 @@
 
 import logging
 import sqlite3
-from typing import List, Dict
+from typing import Any, Dict, List
+
+from .connection import _ConnectionCtx
 
 logger = logging.getLogger(__name__)
 
@@ -13,9 +15,14 @@ logger = logging.getLogger(__name__)
 class _DanmakuMixin:
     """弹幕记录表操作 Mixin — 需 mixin 到 VideoDatabase 类上。"""
 
+    bvid: str
+
+    def _get_connection(self) -> _ConnectionCtx:
+        raise NotImplementedError
+
     # ── 迁移 ────────────────────────────────────
 
-    def _migrate_danmaku_dedup(self, conn):
+    def _migrate_danmaku_dedup(self, conn: sqlite3.Connection) -> None:
         """v1→v2 迁移：去重弹幕记录并添加 UNIQUE 约束。"""
         cursor = conn.cursor()
         try:
@@ -47,7 +54,7 @@ class _DanmakuMixin:
         except sqlite3.Error as e:
             logger.debug("v1→v2 弹幕迁移失败 %s: %s", self.bvid, e)
 
-    def _migrate_danmaku_v3(self, conn):
+    def _migrate_danmaku_v3(self, conn: sqlite3.Connection) -> None:
         """v2→v3 迁移：添加 Proto 弹幕新字段 + 更新 UNIQUE 索引为 dmid 方案。"""
         cursor = conn.cursor()
         try:
@@ -92,7 +99,7 @@ class _DanmakuMixin:
 
     # ── CRUD ────────────────────────────────────
 
-    def add_danmaku_batch(self, rows: list) -> int:
+    def add_danmaku_batch(self, rows: list[dict[str, Any]]) -> int:
         """批量插入弹幕记录（跳过重复）。"""
         inserted = 0
         try:

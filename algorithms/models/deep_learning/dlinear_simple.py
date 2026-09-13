@@ -150,7 +150,7 @@ class DLinearSimpleAlgorithm(BaseAlgorithm):
 
         if len(velocities) < self.lookback_window:
             # 数据不够回看窗口
-            avg_vel = np.mean(velocities) if len(velocities) > 0 else 10.0
+            avg_vel = float(np.mean(velocities)) if len(velocities) > 0 else 10.0
             return self._make_result(
                 current_views,
                 threshold,
@@ -175,9 +175,9 @@ class DLinearSimpleAlgorithm(BaseAlgorithm):
 
         # 取最后一个预测值作为最终速度
         if len(combined_forecast) > 0:
-            predicted_velocity = combined_forecast[-1]
+            predicted_velocity = float(combined_forecast[-1])
         else:
-            predicted_velocity = velocities[-1]
+            predicted_velocity = float(velocities[-1])
 
         # 计算置信度
         confidence = self._calculate_confidence(velocities, combined_forecast)
@@ -230,7 +230,8 @@ class DLinearSimpleAlgorithm(BaseAlgorithm):
             预测的未来值数组 [forecast_horizon]
         """
         if len(series) < 2:
-            return np.array([series[0] if len(series) > 0 else 0.0] * self.forecast_horizon)
+            repeated: np.ndarray = np.array([series[0] if len(series) > 0 else 0.0] * self.forecast_horizon)
+            return repeated
 
         # 一次多项式拟合（线性回归）
         x = np.arange(len(series))
@@ -240,7 +241,8 @@ class DLinearSimpleAlgorithm(BaseAlgorithm):
         future_x = np.arange(len(series), len(series) + self.forecast_horizon)
         forecast = np.polyval(coeffs, future_x)
 
-        return forecast
+        linear_forecast: np.ndarray = forecast
+        return linear_forecast
 
     def _calculate_confidence(self, series: np.ndarray, forecast: np.ndarray) -> float:
         """计算预测置信度（简化交叉验证）。
@@ -278,7 +280,7 @@ class DLinearSimpleAlgorithm(BaseAlgorithm):
                         logger.debug("DLinear置信度计算失败: %s", e)
 
             if errors:
-                confidence = max(0.3, 1.0 - np.mean(errors))  # 误差越小置信度越高
+                confidence = max(0.3, 1.0 - float(np.mean(errors)))  # 误差越小置信度越高
             else:
                 confidence = 0.5
         else:

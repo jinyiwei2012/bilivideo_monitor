@@ -63,7 +63,7 @@
 import logging
 import math
 import time
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 from algorithms.training.checkpoint_manager import CheckpointManager
@@ -112,7 +112,10 @@ class ModelTrainer:
 
         自动检测最优计算设备并保存引用。
         """
-        self.device = get_device()
+        device = get_device()
+        if device is None:
+            raise AttributeError("'NoneType' object has no attribute 'type'")
+        self.device: torch.device = device
         # AMP 混合精度：CUDA 设备启用 GradScaler，CPU/DirectML 回退到 FP32
         self._scaler = torch.amp.GradScaler() if self.device.type == "cuda" else None
         # TF32 张量核心加速：Ampere+ GPU 上 matmul 约 2x 加速，精度损失可忽略
@@ -142,7 +145,7 @@ class ModelTrainer:
                                               #   样本数 × 0.5ms/样本 × 50 epoch
             }
         """
-        info = estimate_dataset_size()
+        info: Dict = estimate_dataset_size()
         # 粗略估算：每样本每 epoch 约 0.5ms（CPU），50 epoch
         # 该估算是保守估计，实际速度取决于硬件和模型复杂度
         est_sec = max(5, int(info["total_samples"] * 0.0005 * 50))
@@ -378,7 +381,8 @@ class ModelTrainer:
         )
 
         # 7. 清理：仅保留最优 epoch 的 checkpoint，删除中间版本
-        return self._select_best_checkpoint(epoch_versions, algo_id, bvid)
+        version: str = self._select_best_checkpoint(epoch_versions, algo_id, bvid)
+        return version
 
     # ── 辅助方法 ─────────────────────────────────────
 
@@ -446,7 +450,7 @@ class ModelTrainer:
         start_time = time.time()
         best_epoch = 0
         train_losses = []
-        epoch_versions = []
+        epoch_versions: List[Tuple[str, float, int]] = []
 
         for epoch in range(epochs):
             if self._check_control(
@@ -531,7 +535,7 @@ class ModelTrainer:
         return best_val, best_epoch, best_tracked, tracked_loss
 
     @staticmethod
-    def _select_best_checkpoint(epoch_versions, algo_id, bvid):
+    def _select_best_checkpoint(epoch_versions: List[Tuple[str, float, int]], algo_id, bvid) -> str:
         """仅保留最优 epoch checkpoint 并返回其版本。"""
         if len(epoch_versions) > 1:
             epoch_versions.sort(key=lambda x: x[1])  # 按 loss 升序
@@ -615,6 +619,8 @@ class ModelTrainer:
             logger.info("[trainer] %s batch_size 自动调整: %d → %d (数据量 %d)", algo_id, _orig_bs, batch_size, _n)
 
         # 划分训练集和验证集
+        train_set: torch.utils.data.Dataset
+        val_set: Optional[torch.utils.data.Dataset]
         if val_ratio > 0 and _n >= 10:
             # 数据量足够时划分验证集
             val_size = max(1, int(_n * val_ratio))

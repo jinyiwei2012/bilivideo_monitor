@@ -3,6 +3,7 @@
 import threading
 import time
 from collections import OrderedDict
+from typing import Any, Optional
 
 from .context import logger, torch
 
@@ -27,7 +28,7 @@ def _get_free_vram_mb(device) -> int:
         if device.type == "cuda":
             total = torch.cuda.get_device_properties(device).total_memory
             reserved = torch.cuda.memory_reserved(device)
-            return (total - reserved) // (1024 * 1024)
+            return int((total - reserved) // (1024 * 1024))
     except Exception:
         pass
     return -1
@@ -111,7 +112,7 @@ def clear_all_gpu_models():
         pass
 
 
-def release_cached_models(algorithms_dict: dict = None, keep_bvid: str = "") -> int:
+def release_cached_models(algorithms_dict: Optional[dict[str, Any]] = None, keep_bvid: str = "") -> int:
     """释放各算法实例缓存的 PyTorch 模型以回收内存，保留 ONNX session（体积小）。
 
     Args:
@@ -128,8 +129,9 @@ def release_cached_models(algorithms_dict: dict = None, keep_bvid: str = "") -> 
             algorithms_dict = AlgorithmRegistry._algorithms
         except Exception:
             return 0
+    cached_algorithms: dict[str, Any] = algorithms_dict
     count = 0
-    for algo in algorithms_dict.values():
+    for algo in cached_algorithms.values():
         if getattr(algo, "_cached_torch_model", None) is None:
             continue
         # 保留当前活跃视频的模型，避免下一轮预测立刻重载（LRU 语义）

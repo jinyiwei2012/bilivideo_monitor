@@ -96,7 +96,7 @@ class HawkesProcessAlgorithm(BaseAlgorithm):
         """
         if tau < 0:
             return 0.0  # 负时间差无意义
-        return self.kappa * (tau + self.c) ** (-(1 + self.theta))
+        return float(self.kappa * (tau + self.c) ** (-(1 + self.theta)))
 
     def _compute_intensity(self, events: np.ndarray, t_current: float) -> float:
         """
@@ -220,7 +220,9 @@ class HawkesProcessAlgorithm(BaseAlgorithm):
         order = np.argsort(timestamps)
         return np.array(views_vals, dtype=float)[order], np.array(timestamps, dtype=float)[order]
 
-    def _predict_impl(self, views_arr, times, current_views, velocity, remaining, threshold, video_data):
+    def _predict_impl(
+        self, views_arr, times, current_views, velocity, remaining, threshold, video_data
+    ) -> PredictionResult:
         """
         执行 Hawkes 过程核心预测逻辑
 
@@ -269,7 +271,7 @@ class HawkesProcessAlgorithm(BaseAlgorithm):
         if len(events) < 2:
             events = times[1:]  # 如果没有足够事件，用所有时间点
 
-        events = np.array(events)
+        events_arr = np.array(events)
 
         # 参数估计（基于数据自适应调整）
         self.mu = max(0.01, velocity / 3600.0 * 0.1)  # 基础强度 = 当前速度的 10%
@@ -281,7 +283,7 @@ class HawkesProcessAlgorithm(BaseAlgorithm):
         self.c = 1.0 + 2.0 * quality
 
         # 计算当前 Hawkes 强度并转换为小时播放速度
-        current_intensity = self._compute_intensity(events, now)
+        current_intensity = self._compute_intensity(events_arr, now)
         hawkes_velocity = current_intensity * event_threshold * 3600  # 转换为播放量/小时
 
         # 综合 Hawkes 速度（60%）与实测速度（40%）
@@ -307,7 +309,7 @@ class HawkesProcessAlgorithm(BaseAlgorithm):
             t_future = now + hour * 3600  # 未来时刻
 
             # 计算该时刻的 Hawkes 强度（自激励强度随时间衰减）
-            future_intensity = self._compute_intensity(events, t_future)
+            future_intensity = self._compute_intensity(events_arr, t_future)
             future_hourly = future_intensity * event_threshold * 3600  # 未来小时播放速度
 
             # 病毒性传播的加速效应 vs 普通视频的衰减效应

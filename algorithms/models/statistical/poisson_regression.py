@@ -210,7 +210,9 @@ class PoissonRegressionAlgorithm(BaseAlgorithm):
         order = np.argsort(timestamps)
         return np.array(views_vals, dtype=float)[order]
 
-    def _predict_impl(self, views_sorted, current_views, velocity, remaining, threshold, video_data):
+    def _predict_impl(
+        self, views_sorted, current_views, velocity, remaining, threshold, video_data
+    ) -> PredictionResult:
         """
         执行泊松回归核心预测
 

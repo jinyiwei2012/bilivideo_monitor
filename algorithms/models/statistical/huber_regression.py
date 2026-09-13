@@ -139,7 +139,7 @@ class HuberRegressionAlgorithm(BaseAlgorithm):
             Tuple[np.ndarray, np.ndarray, np.ndarray]:
                 (标准化特征矩阵, 标准化标签向量, 最后一个样本的标准化特征)
         """
-        X, y = [], []
+        X_rows, y_rows = [], []
         for i in range(len(history_data) - 1):
             cur = history_data[i]
             nxt = history_data[i + 1]
@@ -163,11 +163,11 @@ class HuberRegressionAlgorithm(BaseAlgorithm):
                 day_week,  # 星期特征
             ]
             growth = nxt.get("view", 0) - cur.get("view", 0)
-            X.append(features)
-            y.append(growth)
+            X_rows.append(features)
+            y_rows.append(growth)
 
-        X = np.array(X, dtype=float)
-        y = np.array(y, dtype=float)
+        X = np.array(X_rows, dtype=float)
+        y = np.array(y_rows, dtype=float)
 
         # Z-score 标准化（保存参数以备反标准化）
         self._X_mean = np.mean(X, axis=0)

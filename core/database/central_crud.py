@@ -5,7 +5,7 @@ import logging
 import os
 from dataclasses import fields
 from datetime import datetime
-from typing import List, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from utils.time_utils import now_ts
 from .models import VideoInfo, MonitorRecord, PredictionRecord
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 class CentralCRUD:
     """CRUD operations for central database (delegated from Database)"""
 
-    def __init__(self, database):
+    def __init__(self, database: Any) -> None:
         self.db = database
 
     def _query_backup(self, sql: str, params: tuple = ()) -> List[sqlite3.Row]:
@@ -396,7 +396,7 @@ class CentralCRUD:
             logger.warning("添加预测记录失败 %s: %s", prediction.bvid, e, exc_info=True)
             return False
 
-    def get_predictions(self, bvid: str = None, algorithm: str = None, limit: int = 100) -> List[Dict]:
+    def get_predictions(self, bvid: str | None = None, algorithm: str | None = None, limit: int = 100) -> List[Dict]:
         """获取预测记录，可按 bvid 和 algorithm 过滤"""
         try:
             with self.db._get_connection() as conn:
@@ -460,7 +460,7 @@ class CentralCRUD:
             logger.warning("里程碑写入失败: %s", e, exc_info=True)
             return False
 
-    def get_milestones(self, bvid: str = None) -> list:
+    def get_milestones(self, bvid: str | None = None) -> list:
         """查询里程碑数据"""
         try:
             with self.db._get_connection() as conn:
@@ -477,7 +477,7 @@ class CentralCRUD:
     def get_all_milestones_grouped(self) -> dict:
         """返回以 bvid 为键的里程碑字典"""
         rows = self.get_milestones()
-        result = {}
+        result: dict[str, dict[str, dict[Any, Any]]] = {}
         for row in rows:
             bv = row["bvid"]
             if bv not in result:
@@ -509,7 +509,7 @@ class CentralCRUD:
         # SQLite INTEGER 最大值 (64位带符号)
         _SQLITE_INT_MAX = 2**63 - 1
 
-        def _clamp_int(v):
+        def _clamp_int(v: Any) -> int:
             """把数值夹到 SQLite 64 位有符号整数范围内。"""
             return min(max(int(v or 0), -_SQLITE_INT_MAX), _SQLITE_INT_MAX)
 

@@ -25,7 +25,7 @@ CatBoost (Categorical Boosting) 是 Yandex 开发的高效梯度提升库，
 
 import math
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 import numpy as np
 
@@ -114,7 +114,7 @@ class CatBoostSimpleAlgorithm(BaseAlgorithm):
 
         return self._numpy_predict(current_views, velocity, remaining, threshold)
 
-    def _catboost_predict(self, history, current_views, velocity, remaining, threshold) -> PredictionResult:
+    def _catboost_predict(self, history, current_views, velocity, remaining, threshold) -> Optional[PredictionResult]:
         """
         CatBoost 真实实现预测。
 
@@ -151,7 +151,7 @@ class CatBoostSimpleAlgorithm(BaseAlgorithm):
         shares = np.array([h.get("share_count", 0) for h in history], dtype=np.float64)
 
         p = 5  # 滑动窗口大小
-        X, y = [], []
+        X_list, y_list = [], []
         for i in range(p, len(views)):
             feat = []
             for j in range(1, p + 1):
@@ -167,10 +167,10 @@ class CatBoostSimpleAlgorithm(BaseAlgorithm):
                 )
             # 星期几作为类别特征（CatBoost 原生支持）
             feat.append((i % 7))
-            X.append(feat)
-            y.append(views[i])
+            X_list.append(feat)
+            y_list.append(views[i])
 
-        X, y = np.array(X), np.array(y)
+        X, _ = np.array(X_list), np.array(y_list)
         if len(X) < 8:
             return None
 

@@ -78,7 +78,7 @@ class ExtraTreesSimpleAlgorithm(BaseAlgorithm):
         self.n_trees = 20  # 树的数量
         self.max_depth = 6  # 最大深度
         self.min_samples_split = 3  # 分裂最少样本数
-        self.trees: List[dict] = []  # 训练好的树列表
+        self.trees: List["ExtraTreesSimpleAlgorithm._Node"] = []  # 训练好的树列表
 
     class _Node:
         """
@@ -162,7 +162,7 @@ class ExtraTreesSimpleAlgorithm(BaseAlgorithm):
                 best_threshold = threshold
 
         # 没有有效分裂 → 叶节点
-        if best_feature is None or best_var_reduction < 0:
+        if best_feature is None or best_threshold is None or best_var_reduction < 0:
             node.is_leaf = True
             node.value = np.mean(y)
             return node
@@ -192,9 +192,13 @@ class ExtraTreesSimpleAlgorithm(BaseAlgorithm):
         """
         if node.is_leaf:
             return node.value
+        left = node.left
+        right = node.right
+        if left is None or right is None:
+            return node.value
         if x[node.feature_idx] <= node.threshold:
-            return self._predict_tree(node.left, x)
-        return self._predict_tree(node.right, x)
+            return self._predict_tree(left, x)
+        return self._predict_tree(right, x)
 
     def _prepare_features(
         self, views_seq: np.ndarray, features_dict: Dict[str, float]
@@ -302,7 +306,7 @@ class ExtraTreesSimpleAlgorithm(BaseAlgorithm):
                 predicted_hours, 0.0, current_views, threshold, velocity=velocity, metadata={"error": str(e)}
             )
 
-    def _sklearn_predict(self, video_data: Dict[str, Any], threshold: int) -> PredictionResult:
+    def _sklearn_predict(self, video_data: Dict[str, Any], threshold: int) -> Optional[PredictionResult]:
         """
         使用 sklearn ExtraTreesRegressor 做极限随机树回归预测。
 
@@ -330,15 +334,15 @@ class ExtraTreesSimpleAlgorithm(BaseAlgorithm):
         coins = np.array([h.get("coin_count", 0) for h in history], dtype=np.float64)
 
         p = 5
-        X, y = [], []
+        X_list, y_list = [], []
         for i in range(p, len(views)):
             feat = []
             for j in range(1, p + 1):
                 feat.extend([views[i - j], likes[i - j], coins[i - j], np.log(max(views[i - j], 1))])
-            X.append(feat)
-            y.append(views[i])
+            X_list.append(feat)
+            y_list.append(views[i])
 
-        X, y = np.array(X), np.array(y)
+        X, _ = np.array(X_list), np.array(y_list)
         if len(X) < 8:
             return None
 
@@ -363,7 +367,7 @@ class ExtraTreesSimpleAlgorithm(BaseAlgorithm):
 
         remaining = threshold - current_views
         if remaining <= 0:
-            predicted_hours, confidence = 0, 1.0
+            predicted_hours, confidence = 0.0, 1.0
         else:
             predicted_hours = remaining / predicted_velocity if predicted_velocity > 0 else float("inf")
             residuals = np.abs(y_target - model.predict(X))
@@ -411,7 +415,9 @@ class ExtraTreesSimpleAlgorithm(BaseAlgorithm):
         order = np.argsort(timestamps)  # 按时间排序
         return np.array(views_vals, dtype=float)[order]
 
-    def _predict_impl(self, views_sorted, current_views, velocity, remaining, threshold, video_data):
+    def _predict_impl(
+        self, views_sorted, current_views, velocity, remaining, threshold, video_data
+    ) -> PredictionResult:
         """
         执行 Extra Trees 核心预测（numpy 版）。
 
@@ -471,7 +477,7 @@ class ExtraTreesSimpleAlgorithm(BaseAlgorithm):
 
         # 所有树的预测取均值
         tree_preds = [self._predict_tree(t, last_features) for t in self.trees]
-        predicted_daily_growth = np.mean(tree_preds)
+        predicted_daily_growth = float(np.mean(tree_preds))
         pred_std = np.std(tree_preds)  # 树间预测标准差
 
         # 用质量评分调整日增长量
@@ -497,8 +503,8 @@ class ExtraTreesSimpleAlgorithm(BaseAlgorithm):
         if target_day is not None and target_day <= 365:
             predicted_hours = target_day * 24
             # 置信度: 树间一致性 + 数据量 + 质量
-            consistency = max(0.0, 1.0 - pred_std / max(abs(np.mean(tree_preds)), 1))
-            conf = min(0.9, 0.3 + 0.25 * min(1.0, n / 20) + 0.2 * consistency + 0.15 * quality)
+            consistency = max(0.0, 1.0 - pred_std / max(abs(float(np.mean(tree_preds))), 1.0))
+            conf = float(min(0.9, 0.3 + 0.25 * min(1.0, n / 20) + 0.2 * consistency + 0.15 * quality))
         else:
             predicted_hours = remaining / velocity
             conf = 0.35

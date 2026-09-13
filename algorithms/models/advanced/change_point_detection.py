@@ -22,7 +22,7 @@
 """
 
 import numpy as np
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Optional, Tuple
 from algorithms.base import BaseAlgorithm, PredictionResult
 
 
@@ -400,7 +400,7 @@ class ChangePointDetectionAlgorithm(BaseAlgorithm):
         # 使用最近 3 个速度值计算差分
         recent = velocities[-3:]
         accel = (recent[-1] - recent[0]) / (len(recent) - 1)  # 简单差分
-        return accel
+        return float(accel)
 
     def _calculate_simple_velocity(self, history: List[Dict]) -> float:
         """
@@ -445,7 +445,7 @@ class ChangePointDetectionAlgorithm(BaseAlgorithm):
             if dt_hours <= 0:
                 return 0.0
 
-            return max(0.0, (v1 - v0) / dt_hours)
+            return float(max(0.0, (v1 - v0) / dt_hours))
         except Exception:
             return 0.0
 
@@ -457,7 +457,7 @@ class ChangePointDetectionAlgorithm(BaseAlgorithm):
         confidence: float,
         change_points: List[Dict],
         strategy: str,
-        velocities: np.ndarray = None,
+        velocities: Optional[np.ndarray] = None,
     ) -> PredictionResult:
         """
         构造预测结果对象

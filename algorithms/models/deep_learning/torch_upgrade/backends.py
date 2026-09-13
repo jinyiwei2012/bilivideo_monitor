@@ -114,7 +114,7 @@ def _rank_backends(
 
         import time as _time
 
-        rankings = []  # [(backend_name, avg_latency_ms), ...]
+        rankings: List[tuple[str, float]] = []  # [(backend_name, avg_latency_ms), ...]
 
         # ── Benchmark torch ─────────────────────
         try:

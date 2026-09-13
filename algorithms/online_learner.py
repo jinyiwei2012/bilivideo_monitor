@@ -24,7 +24,7 @@ import threading
 import logging
 import json
 import os
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +72,9 @@ class _AlgorithmTracker:
         # 近期误差的增量聚合（避免 _adjust_eta 每次全量重建列表）
         self.recent_sum: float = 0.0
         self.recent_sumsq: float = 0.0
+        self._ftrl_g2: float = 0.0
+        self._ftrl_g: float = 0.0
+        self._ftrl_z: float = 0.0
 
 
 class OnlineLearner:
@@ -357,7 +360,7 @@ class OnlineLearner:
             filepath: JSON 文件路径
         """
         with self._lock:
-            data = {
+            data: Dict[str, Any] = {
                 "step": self._step,
                 "eta": self.eta,
                 "decay": self.decay,
@@ -516,18 +519,18 @@ class OnlineLearner:
             # 累积梯度平方（用于自适应学习率分母）
             g2 = getattr(t, "_ftrl_g2", 0.0)
             g2_new = g2 + gradient * gradient
-            t._ftrl_g2 = g2_new  # type: ignore
+            t._ftrl_g2 = g2_new
 
             # 累积梯度（带动量平滑）
             g_accum = getattr(t, "_ftrl_g", 0.0)
             g_accum_new = beta * g_accum + (1 - beta) * gradient
-            t._ftrl_g = g_accum_new  # type: ignore
+            t._ftrl_g = g_accum_new
 
             # FTRL 更新公式核心
             sigma = (math.sqrt(g2_new) - math.sqrt(g2)) / lr
             z = getattr(t, "_ftrl_z", 0.0)
             z_new = z + gradient - sigma * t.weight
-            t._ftrl_z = z_new  # type: ignore
+            t._ftrl_z = z_new
 
             # 软阈值（L1 正则产生稀疏解）
             eta = lr / (math.sqrt(g2_new) + l2_lambda)

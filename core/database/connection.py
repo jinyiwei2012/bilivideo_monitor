@@ -1,6 +1,9 @@
 """数据库连接管理及全局 HTTP 会话"""
 
 import logging
+import sqlite3
+from types import TracebackType
+from typing import Any, Literal
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -8,7 +11,7 @@ from requests.adapters import HTTPAdapter
 logger = logging.getLogger(__name__)
 
 # 模块级共享 Session，复用 TCP 连接，提升封面下载性能
-_http_session = requests.Session()
+_http_session: Any = requests.Session()
 _http_session.headers.update(
     {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -22,7 +25,7 @@ _http_session.mount("https://", _adapter)
 _http_session.mount("http://", _adapter)
 
 
-def close_http_session():
+def close_http_session() -> None:
     """关闭全局 HTTP Session，释放连接池内存（应用退出时调用）。"""
     global _http_session
     try:
@@ -39,7 +42,7 @@ class _ConnectionCtx:
 
     __slots__ = ("_conn", "_lock")
 
-    def __init__(self, conn, lock):
+    def __init__(self, conn: sqlite3.Connection, lock: Any) -> None:
         """初始化连接上下文
 
         Args:
@@ -49,12 +52,17 @@ class _ConnectionCtx:
         self._conn = conn
         self._lock = lock
 
-    def __enter__(self):
+    def __enter__(self) -> sqlite3.Connection:
         """进入上下文：获取锁并返回数据库连接"""
         self._lock.acquire()
         return self._conn
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> Literal[False]:
         """退出上下文：无异常则提交，有异常则回滚，最后释放锁"""
         try:
             if exc_type is None:
@@ -65,6 +73,6 @@ class _ConnectionCtx:
             self._lock.release()
         return False
 
-    def cursor(self):
+    def cursor(self) -> sqlite3.Cursor:
         """获取数据库游标"""
         return self._conn.cursor()

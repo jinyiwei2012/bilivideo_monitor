@@ -26,7 +26,7 @@ TabNet 使用注意力机制进行特征选择，无需手动特征工程。
 
 import logging
 import numpy as np
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from algorithms.base import BaseAlgorithm, PredictionResult
 from algorithms.model_cache import get_or_fit
 
@@ -98,7 +98,7 @@ class TabnetSimpleAlgorithm(BaseAlgorithm):
         # numpy 模拟版回退
         return self._numpy_predict(video_data, threshold)
 
-    def _tabnet_predict(self, video_data: Dict[str, Any], threshold: int) -> PredictionResult:
+    def _tabnet_predict(self, video_data: Dict[str, Any], threshold: int) -> Optional[PredictionResult]:
         """
         使用 pytorch_tabnet TabNetRegressor 做注意力特征选择网络预测。
 
@@ -130,15 +130,15 @@ class TabnetSimpleAlgorithm(BaseAlgorithm):
         shares = np.array([h.get("share_count", 0) for h in history], dtype=np.float64)
 
         p = 5  # 滑动窗口大小
-        X, y = [], []
+        X_list, y_list = [], []
         for i in range(p, len(views)):
             feat = []
             for j in range(1, p + 1):
                 feat.extend([views[i - j], likes[i - j], coins[i - j], favs[i - j], shares[i - j]])
-            X.append(feat)
-            y.append(views[i])
+            X_list.append(feat)
+            y_list.append(views[i])
 
-        X, y = np.array(X, dtype=np.float32), np.array(y, dtype=np.float32).reshape(-1, 1)
+        X, _ = np.array(X_list, dtype=np.float32), np.array(y_list, dtype=np.float32).reshape(-1, 1)
         if len(X) < 10:
             return None
 
@@ -183,7 +183,7 @@ class TabnetSimpleAlgorithm(BaseAlgorithm):
 
             remaining = threshold - current_views
             if remaining <= 0:
-                predicted_hours, confidence = 0, 1.0
+                predicted_hours, confidence = 0.0, 1.0
             else:
                 predicted_hours = remaining / predicted_velocity if predicted_velocity > 0 else float("inf")
                 # 置信度：残差变异系数

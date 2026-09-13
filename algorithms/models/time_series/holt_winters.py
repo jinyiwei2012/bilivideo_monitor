@@ -123,7 +123,7 @@ class HoltWintersAlgorithm(BaseAlgorithm):
             remaining = target_views - current_views
 
             # 迭代预测未来增长量
-            predicted_total = 0
+            predicted_total = 0.0
             days = 0
             max_days = 3650  # 最大预测天数（约10年），防止无限循环
 
@@ -198,7 +198,7 @@ class HoltWintersAlgorithm(BaseAlgorithm):
             # 更新季节性: Season_t = γ(Y_t - Level_t) + (1-γ)Season_{t-m}
             seasons[season_idx] = self.gamma * (value - level) + (1 - self.gamma) * seasons[season_idx]
 
-        return level, trend, seasons
+        return float(level), float(trend), [float(season) for season in seasons]
 
     def _calculate_confidence(self, diffs: List[float], level: float, trend: float) -> float:
         """计算预测置信度
@@ -224,7 +224,7 @@ class HoltWintersAlgorithm(BaseAlgorithm):
         # 趋势稳定性：正趋势增加置信度
         if trend > 0:
             # 趋势稳定性 = 趋势相对于平均增长的比例（≤1.0）
-            trend_stability = min(1.0, trend / (np.mean(diffs) + 1))
+            trend_stability = float(min(1.0, trend / (np.mean(diffs) + 1)))
             # 70%基础置信度 + 30%趋势稳定性
             base_conf = 0.7 * base_conf + 0.3 * trend_stability
 

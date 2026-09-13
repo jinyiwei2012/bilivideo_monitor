@@ -1,12 +1,15 @@
 """Training worker and thread orchestration."""
 
-from typing import Dict
+from typing import Any, Dict, cast
+
+from queue import Queue
 
 from ui.invoker import invoke
 from ui.theme import C
+from ui.training_base import _TrainingPanelContract
 
 
-class TrainingRunnerMixin:
+class TrainingRunnerMixin(_TrainingPanelContract):
     def _start_train_thread(
         self, selected, is_incremental, lr, epochs, batch, parallel, batch_log, interval_val, interval_unit
     ):
@@ -59,10 +62,10 @@ class TrainingRunnerMixin:
             if self._skip_algo_flag[0]:
                 payload["_adjustment"] = "⏭ 用户手动跳过"
                 payload["early_stop"] = True
-                self._train_queue.put(payload)
+                cast(Queue[Any], self._train_queue).put(payload)
                 return
 
-            self._train_queue.put(payload)
+            cast(Queue[Any], self._train_queue).put(payload)
 
         return _cb
 
@@ -95,7 +98,9 @@ class TrainingRunnerMixin:
                     _ckpt = CheckpointManager(aid)
                     _n = _ckpt.delete_all()
                     if _n:
-                        self._train_queue.put({"stage": "log", "text": f"  ✕ 已清除 {aid} 的 {_n} 个旧版本"})
+                        cast(Queue[Any], self._train_queue).put(
+                            {"stage": "log", "text": f"  ✕ 已清除 {aid} 的 {_n} 个旧版本"}
+                        )
 
                 self._skip_algo_flag[0] = False
                 if self._skip_btn:
@@ -122,7 +127,7 @@ class TrainingRunnerMixin:
                 completed_count[0] += 1
                 return aid, bool(sub.get(aid))
             except Exception as e:
-                self._train_queue.put(
+                cast(Queue[Any], self._train_queue).put(
                     {"stage": "error", "algo_id": aid, "current": completed_count[0], "total": total, "error": str(e)}
                 )
                 return aid, False
@@ -138,7 +143,9 @@ class TrainingRunnerMixin:
                     # 串行模式（保持原有行为）
                     for aid in selected:
                         if self._cancel_flag[0]:
-                            self._train_queue.put({"stage": "cancelled", "remaining": selected[completed_count[0] :]})
+                            cast(Queue[Any], self._train_queue).put(
+                                {"stage": "cancelled", "remaining": selected[completed_count[0] :]}
+                            )
                             break
                         ok, success = train_one(aid)
                         results[ok] = ok if success else ""
@@ -154,15 +161,17 @@ class TrainingRunnerMixin:
                                     if not remaining_f.done():
                                         remaining_f.cancel()
                                 remaining_aids = [futures[rf] for rf in futures if not rf.done()]
-                                self._train_queue.put({"stage": "cancelled", "remaining": remaining_aids})
+                                cast(Queue[Any], self._train_queue).put(
+                                    {"stage": "cancelled", "remaining": remaining_aids}
+                                )
                                 break
                             aid, success = f.result()
                             results[aid] = aid if success else ""
 
                 if not self._cancel_flag[0]:
-                    self._train_queue.put({"stage": "all_done", "results": results})
+                    cast(Queue[Any], self._train_queue).put({"stage": "all_done", "results": results})
             except Exception as e:
-                self._train_queue.put({"stage": "fatal", "error": str(e)})
+                cast(Queue[Any], self._train_queue).put({"stage": "fatal", "error": str(e)})
 
         return _worker
 

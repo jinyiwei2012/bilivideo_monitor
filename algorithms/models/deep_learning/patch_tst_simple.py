@@ -125,7 +125,7 @@ class PatchTSTSimpleAlgorithm(BaseAlgorithm):
         velocities, _ = self._calculate_velocity_series(views, timestamps)
 
         if len(velocities) < self.min_seq_len:
-            velocity = velocities[-1] if len(velocities) > 0 else 0.0
+            velocity = float(velocities[-1]) if len(velocities) > 0 else 0.0
             return self._make_result(
                 current_views,
                 threshold,
@@ -139,7 +139,7 @@ class PatchTSTSimpleAlgorithm(BaseAlgorithm):
         patches = self._create_patches(velocities)
 
         if len(patches) < 2:
-            velocity = velocities[-1]
+            velocity = float(velocities[-1])
             return self._make_result(
                 current_views,
                 threshold,
@@ -228,7 +228,8 @@ class PatchTSTSimpleAlgorithm(BaseAlgorithm):
 
             representations.append(extended)
 
-        return np.array(representations)  # shape: (num_patches, d_model)
+        patch_representations: np.ndarray = np.array(representations)
+        return patch_representations  # shape: (num_patches, d_model)
 
     def _simplified_attention(self, repr: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """简化版自注意力机制
@@ -279,7 +280,7 @@ class PatchTSTSimpleAlgorithm(BaseAlgorithm):
             (预测速度, 置信度)
         """
         if len(attended_repr) == 0:
-            return velocities[-1] if len(velocities) > 0 else 0.0, 0.3
+            return float(velocities[-1]) if len(velocities) > 0 else 0.0, 0.3
 
         # 使用注意力表示的第一个维度（对应均值）作为预测基准
         predicted_mean = attended_repr[0]

@@ -257,7 +257,7 @@ class WeibullGrowthAlgorithm(BaseAlgorithm):
 
             # t = λ * (-ln(ratio))^(1/k)
             t = lam * np.power(-np.log(ratio), 1.0 / k)
-            return max(0, t)  # 确保非负
+            return float(max(0.0, t))  # 确保非负
         except Exception:
             return None
 

@@ -50,7 +50,7 @@ class LSTMSimpleAlgorithm(BaseAlgorithm):
         Returns:
             PredictionResult: 预测结果，包含预测小时数、置信度等信息
         """
-        return try_torch_predict(
+        result: PredictionResult = try_torch_predict(
             self,
             video_data,
             threshold,
@@ -59,6 +59,7 @@ class LSTMSimpleAlgorithm(BaseAlgorithm):
             window=self.training_window,
             horizon=self.training_horizon,
         )
+        return result
 
     def build_model(self):
         """构建LSTM PyTorch模型实例
@@ -99,7 +100,7 @@ class LSTMSimpleAlgorithm(BaseAlgorithm):
         remaining = threshold - current_views
         if remaining <= 0:
             # 已经达到阈值
-            predicted_hours = 0
+            predicted_hours: float = 0
             confidence = 1.0
         elif velocity <= 0:
             # 增长停滞，无法达到阈值

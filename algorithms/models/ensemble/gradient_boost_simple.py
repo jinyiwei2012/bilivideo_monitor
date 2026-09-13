@@ -22,7 +22,7 @@
 """
 
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 import numpy as np
 
@@ -90,7 +90,7 @@ class GradientBoostSimpleAlgorithm(BaseAlgorithm):
         # 回退到 numpy 简化版
         return self._numpy_predict(video_data, threshold)
 
-    def _sklearn_predict(self, video_data: Dict[str, Any], threshold: int) -> PredictionResult:
+    def _sklearn_predict(self, video_data: Dict[str, Any], threshold: int) -> Optional[PredictionResult]:
         """
         使用 sklearn GradientBoostingRegressor 做梯度提升树预测。
 
@@ -119,16 +119,16 @@ class GradientBoostSimpleAlgorithm(BaseAlgorithm):
         coins = np.array([h.get("coin_count", 0) for h in history], dtype=np.float64)
 
         p = 5  # 滑动窗口大小
-        X, y = [], []
+        X_list, y_list = [], []
         # 构造特征和目标
         for i in range(p, len(views)):
             feat = []
             for j in range(1, p + 1):
                 feat.extend([views[i - j], likes[i - j], coins[i - j], np.log(max(views[i - j], 1))])
-            X.append(feat)
-            y.append(views[i])
+            X_list.append(feat)
+            y_list.append(views[i])
 
-        X, y = np.array(X), np.array(y)
+        X, _ = np.array(X_list), np.array(y_list)
         if len(X) < 8:
             return None
 
@@ -158,7 +158,7 @@ class GradientBoostSimpleAlgorithm(BaseAlgorithm):
         # 计算到达阈值所需时间
         remaining = threshold - current_views
         if remaining <= 0:
-            predicted_hours, confidence = 0, 1.0
+            predicted_hours, confidence = 0.0, 1.0
         else:
             predicted_hours = remaining / predicted_velocity if predicted_velocity > 0 else float("inf")
             # 置信度：基于残差的变异系数 (CV)
@@ -197,7 +197,7 @@ class GradientBoostSimpleAlgorithm(BaseAlgorithm):
 
         remaining = threshold - current_views
         if remaining <= 0:
-            predicted_hours, confidence = 0, 1.0
+            predicted_hours, confidence = 0.0, 1.0
         elif velocity <= 0:
             predicted_hours, confidence = float("inf"), 0.0
         else:

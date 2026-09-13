@@ -35,7 +35,7 @@ import re
 import logging
 import sqlite3
 from datetime import datetime
-from typing import List, Optional, Tuple
+from typing import TYPE_CHECKING, List, Optional, Tuple
 from utils import project_path
 
 import numpy as np
@@ -45,13 +45,17 @@ logger = logging.getLogger(__name__)
 
 # ── PyTorch 可用性检测 ─────────────────────────────────
 _torch_available = True
-try:
+if TYPE_CHECKING:
     import torch
-    from torch.utils.data import Dataset
-except ImportError:
-    _torch_available = False
-    # 无 torch 时用 object 占位，保证模块可导入
-    Dataset = object  # type: ignore
+    from torch.utils.data import Dataset as _DatasetBase
+else:
+    try:
+        import torch
+        from torch.utils.data import Dataset as _DatasetBase
+    except ImportError:
+        _torch_available = False
+        # 无 torch 时用 object 占位，保证模块可导入
+        _DatasetBase = object
 
 # BV 号格式正则：与 core/database/models.py 保持一致的校验规则
 _BVID_PATTERN = re.compile(r"^BV[A-Za-z0-9]{10,12}$")
@@ -88,7 +92,8 @@ def _robust_increments(target: np.ndarray) -> np.ndarray:
                     hi = min(len(seg), i + 4)
                     seg[i] = float(np.median(seg[lo:hi]))
         velocity[1:] = seg
-    return velocity
+    result: np.ndarray = velocity
+    return result
 
 
 def _safe_bvid(bvid: str) -> bool:
@@ -237,7 +242,7 @@ def _load_records(
     if not rows:
         return (None, 0.0)
     # 构建 numpy 数组
-    arr = np.zeros((len(rows), len(features)), dtype=np.float32)
+    arr: np.ndarray = np.zeros((len(rows), len(features)), dtype=np.float32)
     max_ts = 0.0
     for i, row in enumerate(rows):
         for j, feat in enumerate(features):
@@ -250,7 +255,7 @@ def _load_records(
     return (arr, max_ts)
 
 
-class VideoTimeSeriesDataset(Dataset):
+class VideoTimeSeriesDataset(_DatasetBase):
     """时序滑动窗口数据集，用于 PyTorch DataLoader。
 
     对每个视频的时序数据生成固定窗口大小的 (输入, 目标) 样本对。
@@ -337,9 +342,9 @@ class VideoTimeSeriesDataset(Dataset):
             bvids = [b for b in bvids if _safe_bvid(b)]
 
         # ── 数据结构 ─────────────────────────────────
-        self._series: List[np.ndarray] = []  # 每个视频归一化后的特征矩阵 [N, F + n_derived]
-        self._velocity: List[np.ndarray] = []  # 每个视频的目标速度序列 [N-1]
-        self._long_rate: List[np.ndarray] = []  # 每个视频的长期平均速率序列 [N]（A+B 长期段）
+        series_arrays: List[np.ndarray] = []  # 每个视频归一化后的特征矩阵 [N, F + n_derived]
+        velocity_arrays: List[np.ndarray] = []  # 每个视频的目标速度序列 [N-1]
+        long_rate_arrays: List[np.ndarray] = []  # 每个视频的长期平均速率序列 [N]（A+B 长期段）
         self._index: List[Tuple[int, int]] = []  # 样本索引: (series_idx, start_offset)
         self._global_max_ts = 0.0  # 所有视频中的最大 timestamp
 
@@ -421,10 +426,10 @@ class VideoTimeSeriesDataset(Dataset):
             if max_ts > self._global_max_ts:
                 self._global_max_ts = max_ts
             # 存储归一化后的数据
-            sidx = len(self._series)
-            self._series.append(arr_n)
-            self._velocity.append(vel_n)
-            self._long_rate.append(long_n)
+            sidx = len(series_arrays)
+            series_arrays.append(arr_n)
+            velocity_arrays.append(vel_n)
+            long_rate_arrays.append(long_n)
             # 生成所有有效滑动窗口的索引
             # 每个起点 s 满足 s + window + horizon <= N（长期段在 __getitem__ 内裁剪）
             max_start = arr.shape[0] - self.window - self.horizon
@@ -434,9 +439,9 @@ class VideoTimeSeriesDataset(Dataset):
         self.max_timestamp = self._global_max_ts
         # ── 预转为 torch Tensor，避免 __getitem__ 中重复 numpy→torch 转换 ──
         # .copy() 断开与原始 numpy 数组的共享内存，确保 DataLoader 多进程安全
-        self._series = [torch.from_numpy(s.copy()) for s in self._series]
-        self._velocity = [torch.from_numpy(v.copy()) for v in self._velocity]
-        self._long_rate = [torch.from_numpy(rate.copy()) for rate in self._long_rate]
+        self._series: List[torch.Tensor] = [torch.from_numpy(s.copy()) for s in series_arrays]
+        self._velocity: List[torch.Tensor] = [torch.from_numpy(v.copy()) for v in velocity_arrays]
+        self._long_rate: List[torch.Tensor] = [torch.from_numpy(rate.copy()) for rate in long_rate_arrays]
         # ── VRAM 预载：将全部时序数据提前移入 GPU 显存 ──
         # 消除训练时逐 batch 的 CPU→GPU 传输，但会占用显存
         # 仅 CUDA 设备启用（DirectML/NPU 不适合此模式）
@@ -464,7 +469,7 @@ class VideoTimeSeriesDataset(Dataset):
         """
         return len(self._index)
 
-    def __getitem__(self, idx: int):
+    def __getitem__(self, idx: int) -> Tuple["torch.Tensor", "torch.Tensor"]:
         """根据索引返回一个训练样本 (x, y)。
 
         Args:
@@ -530,7 +535,8 @@ def _zscore(arr: np.ndarray) -> np.ndarray:
     std = arr.std(axis=0, keepdims=True)
     # 防止除以极小的标准差
     std = np.where(std < 1e-8, 1.0, std)
-    return ((arr - mean) / std).astype(np.float32)
+    result: np.ndarray = ((arr - mean) / std).astype(np.float32)
+    return result
 
 
 def _zscore_1d(arr: np.ndarray) -> np.ndarray:
@@ -549,7 +555,8 @@ def _zscore_1d(arr: np.ndarray) -> np.ndarray:
     std = float(arr.std())
     if std < 1e-8:
         std = 1.0
-    return ((arr - mean) / std).astype(np.float32)
+    result: np.ndarray = ((arr - mean) / std).astype(np.float32)
+    return result
 
 
 # ── 数据集规模估算 ──────────────────────────────────

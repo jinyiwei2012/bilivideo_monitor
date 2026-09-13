@@ -4,18 +4,18 @@ UP主搜索、信息获取、统计数据和视频列表
 """
 
 import logging
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 
 logger = logging.getLogger(__name__)
 
 
-def search_up_users(self, keyword: str, page: int = 1, order: str = "fans") -> List[Dict]:
+def search_up_users(self: Any, keyword: str, page: int = 1, order: str = "fans") -> List[Dict[str, Any]]:
     from core.up_fetcher import search_up_users_multi
 
     return search_up_users_multi(keyword, page, lambda kw, p: _own_search_up_users(self, kw, p))
 
 
-def _own_search_up_users(self, keyword: str, page: int) -> List[Dict]:
+def _own_search_up_users(self: Any, keyword: str, page: int) -> List[Dict[str, Any]]:
     url = f"{self.BASE_URL}/x/web-interface/wbi/search/type"
     params = {
         "search_type": "bili_user",
@@ -32,17 +32,17 @@ def _own_search_up_users(self, keyword: str, page: int) -> List[Dict]:
         data = self._request_public("GET", url2, params=params2)
 
     if data and "result" in data:
-        return data["result"]
+        return cast(List[Dict[str, Any]], data["result"])
     return []
 
 
-def get_up_info(self, uid: int) -> Optional[Dict]:
+def get_up_info(self: Any, uid: int) -> Optional[Dict[str, Any]]:
     from core.up_fetcher import get_up_info_multi
 
     return get_up_info_multi(uid, lambda u: _own_get_up_info(self, u))
 
 
-def _own_get_up_info(self, uid: int) -> Optional[Dict]:
+def _own_get_up_info(self: Any, uid: int) -> Optional[Dict[str, Any]]:
     data = self._request_public("GET", f"{self.BASE_URL}/x/space/acc/info", params={"mid": uid})
     if data is None:
         data = self._request("GET", f"{self.BASE_URL}/x/space/acc/info", params={"mid": uid})
@@ -73,13 +73,13 @@ def _own_get_up_info(self, uid: int) -> Optional[Dict]:
     return None
 
 
-def get_up_stat(self, uid: int) -> Optional[Dict]:
+def get_up_stat(self: Any, uid: int) -> Optional[Dict[str, Any]]:
     from core.up_fetcher import get_up_stat_multi
 
     return get_up_stat_multi(uid, lambda u: _own_get_up_stat(self, u))
 
 
-def _own_get_up_stat(self, uid: int) -> Optional[Dict]:
+def _own_get_up_stat(self: Any, uid: int) -> Optional[Dict[str, Any]]:
     data = self._request("GET", f"{self.BASE_URL}/x/space/upstat", params={"mid": uid})
     if data is None:
         data = self._request_public("GET", f"{self.BASE_URL}/x/space/upstat", params={"mid": uid})
@@ -98,7 +98,7 @@ def _own_get_up_stat(self, uid: int) -> Optional[Dict]:
     return _calc_up_stat_from_videos(self, uid)
 
 
-def _calc_up_stat_from_videos(self, uid: int, max_pages: int = 5) -> Optional[Dict]:
+def _calc_up_stat_from_videos(self: Any, uid: int, max_pages: int = 5) -> Optional[Dict[str, Any]]:
     total_views = 0
     total_likes = 0
     try:
@@ -129,14 +129,14 @@ def _calc_up_stat_from_videos(self, uid: int, max_pages: int = 5) -> Optional[Di
     return None
 
 
-def get_up_videos(self, uid: int, page: int = 1, page_size: int = 30) -> List[Dict]:
+def get_up_videos(self: Any, uid: int, page: int = 1, page_size: int = 30) -> List[Dict[str, Any]]:
     url = f"{self.BASE_URL}/x/space/arc/search"
     params = {"mid": uid, "pn": page, "ps": page_size}
     data = self._request("GET", url, params=params)
     if data and "list" in data and "vlist" in data["list"]:
-        return data["list"]["vlist"]
+        return cast(List[Dict[str, Any]], data["list"]["vlist"])
     if data and "vlist" in data:
-        return data["vlist"]
+        return cast(List[Dict[str, Any]], data["vlist"])
     return []
 
 

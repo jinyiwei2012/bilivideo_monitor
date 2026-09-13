@@ -24,7 +24,7 @@
     - 长期外推可能偏离实际（播放量增长通常非线性）
 """
 
-from typing import Dict, Any
+from typing import Dict, Any, List
 from algorithms.base import BaseAlgorithm, PredictionResult
 
 
@@ -75,7 +75,7 @@ class TrendExtrapolationAlgorithm(BaseAlgorithm):
             prediction = current_views * 1.03
             confidence = 0.3
             slope = 0
-            future_predictions = []
+            future_predictions: List[float] = []
         else:
             views = [h.get("view_count", 0) for h in history]
             n = len(views)

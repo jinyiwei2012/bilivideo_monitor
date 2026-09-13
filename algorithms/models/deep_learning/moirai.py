@@ -77,7 +77,8 @@ class MoiraiAlgorithm(BaseAlgorithm):
         if self._available:
             try:
                 v, conf, meta = self._torch_predict(video_data)
-                return self._make_result(current_views, threshold, v, conf, "moirai_hf", meta)
+                result: PredictionResult = self._make_result(current_views, threshold, v, conf, "moirai_hf", meta)
+                return result
             except Exception as e:
                 # 首次失败记warning，后续整条HF路径关闭，避免日志刷屏
                 if not self._tried_load or self._cached_model is not None:
@@ -196,18 +197,21 @@ class MoiraiAlgorithm(BaseAlgorithm):
         history = video_data.get("history_data", [])
         velocities = self._velocity_series(history)
         if len(velocities) < 3:
-            v = self.calculate_velocity(video_data)
-            return self._make_result(current_views, threshold, v, 0.3, "insufficient_data", {})
-        v = np.array(velocities, dtype=np.float32)
+            velocity = self.calculate_velocity(video_data)
+            result: PredictionResult = self._make_result(
+                current_views, threshold, velocity, 0.3, "insufficient_data", {}
+            )
+            return result
+        velocity_array = np.array(velocities, dtype=np.float32)
         # 简化"基础模型"行为：趋势 + 季节 + 残差均值
-        if len(v) >= 4:
-            slope = float(np.polyfit(np.arange(len(v)), v, 1)[0])  # 一阶趋势斜率
+        if len(velocity_array) >= 4:
+            slope = float(np.polyfit(np.arange(len(velocity_array)), velocity_array, 1)[0])  # 一阶趋势斜率
         else:
             slope = 0.0
         # 简单"季节性"：如果有规律的周期，取最近3步均值
-        recent = float(np.mean(v[-3:]))
+        recent = float(np.mean(velocity_array[-3:]))
         predicted = max(0.0, recent + slope * 0.5)  # 趋势外推半步
-        return self._make_result(
+        result = self._make_result(
             current_views,
             threshold,
             predicted,
@@ -215,6 +219,7 @@ class MoiraiAlgorithm(BaseAlgorithm):
             "moirai_numpy_fallback",
             {"slope": slope, "recent_mean": recent, "method": "trend_plus_recent"},
         )
+        return result
 
     @staticmethod
     def _velocity_series(history: List[Dict]) -> List[float]:

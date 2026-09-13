@@ -129,12 +129,14 @@ class MLPPredictorAlgorithm(BaseAlgorithm):
 
             # 使用最后一个时间步的特征预测增长量
             last_features = X[-1].reshape(1, -1)
-            predicted_growth = self._forward(last_features)[0][0, 0]
+            predicted_growth = float(self._forward(last_features)[0][0, 0])
 
             if predicted_growth <= 0:
                 # 预测增长量为非正，回退到历史平均增长
                 views = [d["view"] for d in history_data]
-                predicted_growth = max(1, np.mean([views[i] - views[i - 1] for i in range(1, len(views))]))
+                predicted_growth = float(
+                    np.maximum(1.0, float(np.mean([views[i] - views[i - 1] for i in range(1, len(views))])))
+                )
 
             remaining = target_views - current_views
             days_needed = remaining / predicted_growth
@@ -205,7 +207,8 @@ class MLPPredictorAlgorithm(BaseAlgorithm):
         Returns:
             np.maximum(0, x): 所有负值置零
         """
-        return np.maximum(0, x)
+        activated: np.ndarray = np.maximum(0, x)
+        return activated
 
     def _forward(self, X: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """前向传播：输入 → 隐藏层(ReLU) → 输出层
@@ -289,8 +292,8 @@ class MLPPredictorAlgorithm(BaseAlgorithm):
         # 计算拟合误差：MAPE
         if n >= 5:
             predictions = self._forward(X)[0]
-            mape = np.mean(np.abs((y - predictions) / (np.abs(y) + 1)))
-            fit_quality = max(0, 1 - min(1, mape))
+            mape = float(np.mean(np.abs((y - predictions) / (np.abs(y) + 1))))
+            fit_quality = max(0.0, 1.0 - min(1.0, mape))
             base_conf = 0.5 * base_conf + 0.5 * fit_quality
 
         return min(0.9, base_conf)

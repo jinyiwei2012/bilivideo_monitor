@@ -78,7 +78,8 @@ class LagLlamaAlgorithm(BaseAlgorithm):
         if self._available:
             try:
                 v, conf, meta = self._torch_predict(video_data)
-                return self._make_result(current_views, threshold, v, conf, "lag_llama_hf", meta)
+                result: PredictionResult = self._make_result(current_views, threshold, v, conf, "lag_llama_hf", meta)
+                return result
             except Exception as e:
                 if not self._tried_load or self._cached_model is not None:
                     logger.warning("[lag_llama] HF 推理失败，降级: %s", e)
@@ -172,10 +173,14 @@ class LagLlamaAlgorithm(BaseAlgorithm):
         history = video_data.get("history_data", [])
         velocities = self._velocity_series(history)
         if len(velocities) < 3:
-            v = self.calculate_velocity(video_data)
-            return self._make_result(current_views, threshold, v, 0.3, "insufficient_data", {})
+            velocity = self.calculate_velocity(video_data)
+            result: PredictionResult = self._make_result(
+                current_views, threshold, velocity, 0.3, "insufficient_data", {}
+            )
+            return result
         predicted, conf, meta = self._lag_feature_predict(velocities, source="numpy_fallback")
-        return self._make_result(current_views, threshold, predicted, 0.45, "lag_llama_numpy_fallback", meta)
+        result = self._make_result(current_views, threshold, predicted, 0.45, "lag_llama_numpy_fallback", meta)
+        return result
 
     @staticmethod
     def _velocity_series(history: List[Dict]) -> List[float]:

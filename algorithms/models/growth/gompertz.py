@@ -95,7 +95,7 @@ class GompertzAlgorithm(BaseAlgorithm):
             else:
                 predicted_hours = float("inf")
             confidence = 0.3
-            metadata = {"method": "gompertz_simple", "reason": "insufficient_data"}
+            metadata: Dict[str, Any] = {"method": "gompertz_simple", "reason": "insufficient_data"}
         else:
             views = [h.get("view_count", 0) for h in history]
 

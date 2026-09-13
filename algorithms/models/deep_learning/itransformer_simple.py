@@ -52,7 +52,7 @@ class ITransformerSimpleAlgorithm(BaseAlgorithm):
         Returns:
             PredictionResult 预测结果对象
         """
-        return try_torch_predict(
+        result: PredictionResult = try_torch_predict(
             self,
             video_data,
             threshold,
@@ -61,6 +61,7 @@ class ITransformerSimpleAlgorithm(BaseAlgorithm):
             window=self.training_window,
             horizon=self.training_horizon,
         )
+        return result
 
     def build_model(self):
         """构建训练用的 PyTorch 模型。

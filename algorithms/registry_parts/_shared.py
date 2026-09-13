@@ -3,7 +3,10 @@
 import logging
 import sys
 from collections import OrderedDict
+from typing import Any, cast, Optional
 
+from ..base import BaseAlgorithm
+from ..weight_manager import WeightManager
 from ..weight_manager import get_weight_manager as _default_get_weight_manager
 
 logger = logging.getLogger("algorithms.registry")
@@ -11,23 +14,23 @@ logger = logging.getLogger("algorithms.registry")
 _MAX_CACHE_SIZE = 200
 
 
-def get_weight_manager():
+def get_weight_manager() -> WeightManager:
     registry_module = sys.modules.get("algorithms.registry")
     if registry_module is not None:
-        return registry_module.get_weight_manager()
-    return _default_get_weight_manager()
+        return cast(WeightManager, registry_module.get_weight_manager())
+    return cast(WeightManager, _default_get_weight_manager())
 
 
-class _LRUDict(OrderedDict):
+class _LRUDict(OrderedDict[Any, Any]):
     """固定容量的 LRU 字典，超出容量时自动淘汰最久未使用的条目。"""
 
     __slots__ = ("maxsize",)
 
-    def __init__(self, maxsize=_MAX_CACHE_SIZE, *args, **kwargs):
+    def __init__(self, maxsize: int = _MAX_CACHE_SIZE, *args: Any, **kwargs: Any) -> None:
         self.maxsize = maxsize
         super().__init__(*args, **kwargs)
 
-    def __setitem__(self, key, value):
+    def __setitem__(self, key: Any, value: Any) -> None:
         super().__setitem__(key, value)
         if len(self) > self.maxsize:
             # 不能用 popitem(last=False)：CPython 中其内部会经子类 __getitem__
@@ -39,23 +42,23 @@ class _LRUDict(OrderedDict):
                 return
             del self[oldest]
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: Any) -> Any:
         self.move_to_end(key)
         return super().__getitem__(key)
 
 
 # ── 模块级单例：surge detector（避免每轮预测重复创建类） ──
-_surge_detector = None
+_surge_detector: Optional[BaseAlgorithm] = None
 
 
-def _get_surge_detector():
+def _get_surge_detector() -> BaseAlgorithm:
     """获取 surge detector 模块级单例，延迟初始化。"""
     global _surge_detector
     if _surge_detector is None:
         from algorithms.base import BaseAlgorithm as BA
 
         class _SurgeDetector(BA):
-            def predict(self, video_data=None, threshold=100000):
+            def predict(self, video_data: Optional[dict[str, Any]] = None, threshold: int = 100000) -> Any:
                 pass
 
         _surge_detector = _SurgeDetector()

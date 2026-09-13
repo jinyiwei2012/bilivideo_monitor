@@ -32,7 +32,7 @@ GARCH波动率预测算法 (Generalized AutoRegressive Conditional Heteroskedast
 
 import logging
 import numpy as np
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from algorithms.base import BaseAlgorithm, PredictionResult
 
 logger = logging.getLogger(__name__)
@@ -106,7 +106,7 @@ class GarchSimpleAlgorithm(BaseAlgorithm):
 
         return self._numpy_predict(video_data, threshold)
 
-    def _arch_predict(self, video_data: Dict[str, Any], threshold: int) -> PredictionResult:
+    def _arch_predict(self, video_data: Dict[str, Any], threshold: int) -> Optional[PredictionResult]:
         """使用 arch 库 GARCH(1,1) 建模波动率并预测播放速度
 
         步骤:
@@ -156,7 +156,7 @@ class GarchSimpleAlgorithm(BaseAlgorithm):
 
             remaining = threshold - current_views
             if remaining <= 0:
-                predicted_hours, confidence = 0, 1.0
+                predicted_hours, confidence = 0.0, 1.0
             else:
                 predicted_hours = remaining / predicted_velocity if predicted_velocity > 0 else float("inf")
                 # 波动率相对于均值回报的比值 → 越小越稳定，置信度越高

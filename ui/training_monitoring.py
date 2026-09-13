@@ -1,7 +1,13 @@
 """Training quality monitor reactions."""
 
+from PyQt6.QtWidgets import QLineEdit
 
-class TrainingMonitoringMixin:
+from ui.training_base import _TrainingPanelContract
+
+
+class TrainingMonitoringMixin(_TrainingPanelContract):
+    _lr_entry: QLineEdit
+
     def _on_monitor_changed(self):
         """日志记录：状态变化时记录，同状态每 8 epoch 持续监测提醒。"""
         if self._monitor.level in ("warning", "danger") and self._monitor.suggestions:

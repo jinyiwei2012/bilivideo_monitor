@@ -1,8 +1,10 @@
 """PyTorch model definitions extracted from the compatibility facade."""
 
+from typing import TYPE_CHECKING
+
 from .context import F, _torch_available, nn, torch
 
-if _torch_available:  # noqa: C901
+if _torch_available or TYPE_CHECKING:  # noqa: C901
 
     class FiLMTorchModel(nn.Module):
         """FiLM（Frequency improved Legendre Memory）PyTorch 模型骨架。
@@ -320,12 +322,12 @@ if _torch_available:  # noqa: C901
             return self.head(h_seg)
 
 else:
-    FiLMTorchModel = None  # type: ignore
-    FreTSTorchModel = None  # type: ignore
-    AutoformerTorchModel = None  # type: ignore
-    FEDformerTorchModel = None  # type: ignore
-    LightTSTorchModel = None  # type: ignore
-    CrossformerTorchModel = None  # type: ignore
+    FiLMTorchModel = None
+    FreTSTorchModel = None
+    AutoformerTorchModel = None
+    FEDformerTorchModel = None
+    LightTSTorchModel = None
+    CrossformerTorchModel = None
 
 __all__ = [
     "FiLMTorchModel",

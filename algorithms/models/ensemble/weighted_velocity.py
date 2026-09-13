@@ -79,7 +79,7 @@ class WeightedVelocityAlgorithm(BaseAlgorithm):
 
         if len(history) >= 2:
             # 有足够历史数据：按时间远近加权计算速度
-            total_weight = 0
+            total_weight = 0.0
             weighted_velocity = 0
 
             for i, record in enumerate(history):

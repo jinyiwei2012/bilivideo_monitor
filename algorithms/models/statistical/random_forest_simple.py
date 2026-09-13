@@ -16,7 +16,7 @@
 """
 
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 import numpy as np
 
@@ -80,7 +80,7 @@ class RandomForestSimpleAlgorithm(BaseAlgorithm):
 
         return self._numpy_predict(video_data, threshold)
 
-    def _sklearn_predict(self, video_data: Dict[str, Any], threshold: int) -> PredictionResult:
+    def _sklearn_predict(self, video_data: Dict[str, Any], threshold: int) -> Optional[PredictionResult]:
         """
         使用 sklearn RandomForestRegressor 做特征工程 + 树模型预测
 
@@ -117,7 +117,7 @@ class RandomForestSimpleAlgorithm(BaseAlgorithm):
 
         # 构建时序特征：过去 p=5 个点
         p = 5
-        X, y = [], []
+        X_rows, y_rows = [], []
         for i in range(p, len(views)):
             feat = []
             for j in range(1, p + 1):  # 从最近到最远
@@ -130,10 +130,10 @@ class RandomForestSimpleAlgorithm(BaseAlgorithm):
                         np.log(max(views[i - j], 1)),  # 对数播放量（特征变换）
                     ]
                 )
-            X.append(feat)
-            y.append(views[i])  # 目标：当前播放量
+            X_rows.append(feat)
+            y_rows.append(views[i])  # 目标：当前播放量
 
-        X, y = np.array(X), np.array(y)
+        X, _ = np.array(X_rows), np.array(y_rows)
         if len(X) < 8:
             return None
 
@@ -171,7 +171,7 @@ class RandomForestSimpleAlgorithm(BaseAlgorithm):
 
         remaining = threshold - current_views
         if remaining <= 0:
-            predicted_hours, confidence = 0, 1.0
+            predicted_hours, confidence = 0.0, 1.0
         else:
             predicted_hours = remaining / predicted_velocity if predicted_velocity > 0 else float("inf")
             # 置信度基于残差的变异系数（CV）
@@ -222,7 +222,7 @@ class RandomForestSimpleAlgorithm(BaseAlgorithm):
 
         remaining = threshold - current_views
         if remaining <= 0:
-            predicted_hours, confidence = 0, 1.0
+            predicted_hours, confidence = 0.0, 1.0
         elif velocity <= 0:
             predicted_hours, confidence = float("inf"), 0.0
         else:

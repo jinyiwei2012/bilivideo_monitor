@@ -1,13 +1,33 @@
 """ModelLoadMixin extracted from algorithms.registry."""
 
-from typing import Dict, List
+from typing import Any, cast, Dict, Iterable, List, Optional, TYPE_CHECKING, Tuple
+import importlib
+
+from ..base import BaseAlgorithm
 
 from ._shared import get_weight_manager, logger
 
 
 class ModelLoadMixin:
+    _algorithms: Dict[str, BaseAlgorithm]
+    _initialized: bool
+
+    if TYPE_CHECKING:
+
+        @classmethod
+        def initialize(cls) -> None:
+            raise NotImplementedError
+
+        @classmethod
+        def get_registry_key(cls, algorithm_id: str) -> str:
+            raise NotImplementedError
+
+        @classmethod
+        def get_algorithm_names(cls) -> List[str]:
+            raise NotImplementedError
+
     @classmethod
-    def _load_model_algorithms(cls):
+    def _load_model_algorithms(cls) -> None:
         """扫描 models/ 目录, 直接实例化并注册所有算法 (不再经 ModelAlgorithmAdapter 包装)。"""
         try:
             import importlib
@@ -32,18 +52,7 @@ class ModelLoadMixin:
                     except Exception as e:
                         logger.warning("加载算法 %s 失败: %s", module_path, e)
                         continue
-                    for attr_name in dir(module):
-                        attr = getattr(module, attr_name)
-                        if isinstance(attr, type) and attr_name.endswith("Algorithm"):
-                            if "BaseAlgorithm" not in {c.__name__ for c in attr.__mro__}:
-                                continue
-                            try:
-                                instance = attr()
-                            except Exception as e:
-                                logger.debug("忽略算法 %s.%s: %s", module_path, attr_name, e)
-                                continue
-                            algo_name = f"[Model] {instance.name}"
-                            cls._algorithms[algo_name] = instance
+                    cls._register_module_algorithms(module, module_path)
 
         except Exception as e:
             logger.error("加载models算法失败: %s", e)
@@ -52,9 +61,29 @@ class ModelLoadMixin:
             traceback.print_exc()
 
     @classmethod
+    def _register_module_algorithms(cls, module: Any, module_path: str) -> None:
+        for attr_name in dir(module):
+            attr = getattr(module, attr_name)
+            if not isinstance(attr, type) or not attr_name.endswith("Algorithm"):
+                continue
+            if "BaseAlgorithm" not in {c.__name__ for c in attr.__mro__}:
+                continue
+            try:
+                instance = attr()
+            except Exception as e:
+                logger.debug("忽略算法 %s.%s: %s", module_path, attr_name, e)
+                continue
+            algo_name = f"[Model] {instance.name}"
+            cls._algorithms[algo_name] = instance
+
+    @classmethod
     def update_accuracy(
-        cls, algorithm_name: str, predicted: float = None, actual: float = None, accuracy: float = None
-    ):
+        cls,
+        algorithm_name: str,
+        predicted: Optional[float] = None,
+        actual: Optional[float] = None,
+        accuracy: Optional[float] = None,
+    ) -> None:
         """更新单个算法的准确率记录并同步到权重管理器（B1 修复）。
 
         统一入口，两种调用方式：
@@ -87,7 +116,7 @@ class ModelLoadMixin:
             logger.debug("更新算法准确率失败 %s: %s", algorithm_name, e)
 
     @classmethod
-    def update_accuracy_batch(cls, items):
+    def update_accuracy_batch(cls, items: Iterable[Tuple[str, Optional[float], Optional[float]]]) -> None:
         """批量更新多个算法的准确率记录（整批仅重算/落盘一次）。
 
         与逐条 update_accuracy 语义等价，但把 WeightManager 的全量 ML 重算与
@@ -127,7 +156,7 @@ class ModelLoadMixin:
                 logger.debug("批量更新算法准确率失败: %s", e)
 
     @classmethod
-    def update_ensemble_accuracy(cls, predicted: float, actual: float):
+    def update_ensemble_accuracy(cls, predicted: float, actual: float) -> None:
         """用集成预测值与实际值更新保形预测器的校准集。"""
         try:
             from ..conformal import get_conformal_predictor
@@ -137,7 +166,7 @@ class ModelLoadMixin:
             logger.debug("更新集成预测准确率失败: %s", e)
 
     @classmethod
-    def get_weights_info(cls) -> List[Dict]:
+    def get_weights_info(cls) -> List[Dict[str, Any]]:
         """获取所有算法的权重信息（供 UI 展示）。"""
         if not cls._initialized:
             cls.initialize()
@@ -145,7 +174,7 @@ class ModelLoadMixin:
         names = cls.get_algorithm_names()
 
         try:
-            return get_weight_manager().get_algorithm_info(names)
+            return cast(List[Dict[str, Any]], get_weight_manager().get_algorithm_info(names))
         except Exception as e:
             logger.debug("获取算法权重信息失败: %s", e)
             return [
@@ -162,9 +191,9 @@ class ModelLoadMixin:
             ]
 
     @classmethod
-    def get_trainable_info(cls) -> List[Dict]:
+    def get_trainable_info(cls) -> List[Dict[str, Any]]:
         """获取所有支持训练的算法的检查点信息。"""
-        from algorithms.training.checkpoint_manager import CheckpointManager
+        CheckpointManager = importlib.import_module("algorithms.training.checkpoint_manager").CheckpointManager
 
         if not cls._initialized:
             cls.initialize()
@@ -189,7 +218,7 @@ class ModelLoadMixin:
         return result
 
     @classmethod
-    def get_trainable_algorithms(cls) -> List:
+    def get_trainable_algorithms(cls) -> List[Tuple[str, BaseAlgorithm, BaseAlgorithm]]:
         """获取所有支持训练的算法列表（供训练调度使用）。"""
         if not cls._initialized:
             cls.initialize()

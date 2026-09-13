@@ -21,7 +21,7 @@
 import logging
 import threading
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +50,7 @@ class DanmakuMonitor:
     进度追踪：内存 _progress + DB get_max_danmaku_segment() 双重保障。
     """
 
-    def __init__(self, api):
+    def __init__(self, api: Any) -> None:
         self._api = api
         self._lock = threading.Lock()
         self._progress: Dict[str, int] = {}
@@ -58,7 +58,7 @@ class DanmakuMonitor:
     def _make_key(self, bvid: str, cid: int) -> str:
         return f"{bvid}:{cid}"
 
-    def _proxy_kwargs(self) -> dict:
+    def _proxy_kwargs(self) -> Dict[str, Any]:
         """构造直连请求的代理参数（与主管道共用同一代理池）。
 
         peek_proxy() 返回的是脱敏地址（mask_url 后），不可直接用于请求，
@@ -84,7 +84,7 @@ class DanmakuMonitor:
         """获取上次拉取的段号，-1 表示从未拉取。"""
         return self._progress.get(self._make_key(bvid, cid), -1)
 
-    def _restore_progress(self, key: str, video_db) -> int:
+    def _restore_progress(self, key: str, video_db: Any) -> int:
         with self._lock:
             last_seg = self._progress.get(key, -1)
         if last_seg >= 0 or not video_db:
@@ -113,7 +113,7 @@ class DanmakuMonitor:
         time.sleep(1.0)
         return False
 
-    def _advance_empty_segment(self, bvid: str, seg: int, empty_streak: int, total_segs: int):
+    def _advance_empty_segment(self, bvid: str, seg: int, empty_streak: int, total_segs: int) -> tuple[int, int, bool]:
         if total_segs > 0 and total_segs != _MAX_SEGMENTS_KNOWN_BOGUS:
             seg += 1
             if seg % 10 == 0:
@@ -128,7 +128,16 @@ class DanmakuMonitor:
             time.sleep(_SEGMENT_DELAY)
         return seg, empty_streak, False
 
-    def _fetch_new_segments(self, bvid, cid, aid, video_db, start_seg, max_seg, total_segs):
+    def _fetch_new_segments(
+        self,
+        bvid: str,
+        cid: int,
+        aid: int,
+        video_db: Any,
+        start_seg: int,
+        max_seg: int,
+        total_segs: int,
+    ) -> tuple[int, int, Optional[str]]:
         total_new = 0
         empty_streak = 0
         error_streak = 0
@@ -161,7 +170,7 @@ class DanmakuMonitor:
     #  主入口：增量拉取
     # ──────────────────────────────────────────────
 
-    def fetch_new_danmaku(self, bvid: str, cid: int, video_db=None, aid: int = 0) -> int:
+    def fetch_new_danmaku(self, bvid: str, cid: int, video_db: Any = None, aid: int = 0) -> int:
         """增量拉取新弹幕段，返回新增弹幕数量。
 
         两阶段流程：
@@ -222,7 +231,7 @@ class DanmakuMonitor:
     #  阶段 1: 获取元数据
     # ──────────────────────────────────────────────
 
-    def _fetch_danmaku_view(self, cid: int, aid: int = 0) -> dict:
+    def _fetch_danmaku_view(self, cid: int, aid: int = 0) -> Dict[str, Any]:
         """通过 dm/web/view 获取视频弹幕元数据。
 
         Returns:
@@ -275,7 +284,7 @@ class DanmakuMonitor:
 
     def _fetch_segment(
         self, cid: int, seg: int, aid: int = 0, prefer_fmt: Optional[str] = None
-    ) -> Tuple[List[Dict], bool]:
+    ) -> Tuple[List[Dict[str, Any]], bool]:
         """拉取单个弹幕段。使用 WBI 签名新版 API，Proto/XML 自动检测。
 
         Args:
@@ -328,19 +337,19 @@ class DanmakuMonitor:
                 elems = self._parse_xml(resp.content)
                 return elems, False
 
-            elems, fmt = try_parse_danmaku(resp.content)
-            if fmt == "none" or elems is None:
+            parsed_elems, fmt = try_parse_danmaku(resp.content)
+            if fmt == "none" or parsed_elems is None:
                 return [], False  # 无法解析但 HTTP 200 → 视为空段
             if fmt == "proto":
-                return self._normalize_elems(elems), False
+                return self._normalize_elems(parsed_elems), False
             # fmt == "xml": already in old format
-            return elems, False
+            return parsed_elems, False
 
         except Exception as e:
             logger.debug("拉取弹幕段失败 cid=%s seg=%d: %s", cid, seg, e)
             return [], True
 
-    def _normalize_elems(self, proto_elems: List[Dict]) -> List[Dict]:
+    def _normalize_elems(self, proto_elems: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """将 Proto 格式的弹幕字段名统一为 DB 存储格式。
 
         Proto 字段 → 存储字段:
@@ -353,7 +362,7 @@ class DanmakuMonitor:
             pool         → pool (new!)
             dmFrom       → dm_from (new!)
         """
-        normalized = []
+        normalized: List[Dict[str, Any]] = []
         for e in proto_elems:
             normalized.append(
                 {
@@ -374,13 +383,13 @@ class DanmakuMonitor:
             )
         return normalized
 
-    def _parse_xml(self, data: bytes) -> List[Dict]:
+    def _parse_xml(self, data: bytes) -> List[Dict[str, Any]]:
         """XML 格式降级解析。"""
         from defusedxml.ElementTree import fromstring as _xml_parse
 
         try:
             root = _xml_parse(data)
-            danmaku = []
+            danmaku: List[Dict[str, Any]] = []
             for d in root.findall(".//d"):
                 p = d.get("p", "")
                 parts = p.split(",")
@@ -445,12 +454,12 @@ class DanmakuMonitor:
                     data.get("message"),
                 )
                 return []
-            return data.get("data") or []
+            return cast(List[str], data.get("data") or [])
         except Exception as e:
             logger.debug("历史弹幕索引异常 cid=%d month=%s: %s", cid, month, e)
             return []
 
-    def fetch_history_segment(self, cid: int, date: str) -> List[Dict]:
+    def fetch_history_segment(self, cid: int, date: str) -> List[Dict[str, Any]]:
         """拉取指定日期的一条历史弹幕段。
 
         API: GET /x/v2/dm/web/history/seg.so
@@ -488,7 +497,14 @@ class DanmakuMonitor:
             logger.debug("历史弹幕段异常 cid=%d date=%s: %s", cid, date, e)
             return []
 
-    def fetch_history_danmaku(self, bvid: str, cid: int, video_db=None, month: str = None, on_progress=None) -> int:
+    def fetch_history_danmaku(
+        self,
+        bvid: str,
+        cid: int,
+        video_db: Any = None,
+        month: Optional[str] = None,
+        on_progress: Optional[Callable[[str, int, int], None]] = None,
+    ) -> int:
         """拉取指定月份的全部历史弹幕并存入 DB。
 
         两步流程：
@@ -543,10 +559,10 @@ class DanmakuMonitor:
     #  存库
     # ──────────────────────────────────────────────
 
-    def _save_to_db(self, video_db, bvid: str, cid: int, seg: int, elems: List[Dict]):
+    def _save_to_db(self, video_db: Any, bvid: str, cid: int, seg: int, elems: List[Dict[str, Any]]) -> None:
         """将弹幕以统一格式写入 DB。"""
         try:
-            rows = []
+            rows: List[Dict[str, Any]] = []
             for d in elems:
                 rows.append(
                     {
@@ -576,7 +592,7 @@ class DanmakuMonitor:
     #  进度管理
     # ──────────────────────────────────────────────
 
-    def reset_progress(self, bvid: str, cid: int = 0):
+    def reset_progress(self, bvid: str, cid: int = 0) -> None:
         """重置弹幕拉取进度（强制从头拉取）。"""
         if cid:
             with self._lock:
@@ -588,7 +604,7 @@ class DanmakuMonitor:
                 for k in keys:
                     self._progress.pop(k, None)
 
-    def get_stats(self, bvid: str, cid: int = 0) -> Dict:
+    def get_stats(self, bvid: str, cid: int = 0) -> Dict[str, Any]:
         """获取弹幕拉取统计。"""
         if cid:
             return {"last_segment": self._progress.get(self._make_key(bvid, cid), -1)}
@@ -603,7 +619,7 @@ _danmaku_monitor: Optional[DanmakuMonitor] = None
 _danmaku_lock = threading.Lock()
 
 
-def get_danmaku_monitor(api=None) -> DanmakuMonitor:
+def get_danmaku_monitor(api: Any = None) -> DanmakuMonitor:
     """获取全局弹幕监控单例。"""
     global _danmaku_monitor
     if _danmaku_monitor is None:

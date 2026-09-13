@@ -152,7 +152,7 @@ class ThetaForecastAlgorithm(BaseAlgorithm):
         order = np.argsort(timestamps)
         return np.array(views_vals)[order]
 
-    def _compute_theta(self, views_sorted, current_views, velocity, remaining, threshold):
+    def _compute_theta(self, views_sorted, current_views, velocity, remaining, threshold) -> PredictionResult:
         """执行Theta算法核心计算
 
         参数:

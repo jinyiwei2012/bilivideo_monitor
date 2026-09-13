@@ -173,7 +173,7 @@ class NLinearAlgorithm(BaseAlgorithm):
             coef = np.polyfit(x, normalized, 1)  # 一阶线性拟合
             future = np.polyval(coef, np.arange(len(normalized), len(normalized) + 5))  # 外推 5 步
             future_views = future * std + mean  # 反归一化恢复量纲
-            growth = max(0, np.mean(np.diff(future_views)))  # 平均每步增长
+            growth = max(0.0, float(np.mean(np.diff(future_views))))  # 平均每步增长
         else:
             growth = velocity * 3600  # 回退到小时级速度
 

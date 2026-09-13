@@ -26,7 +26,7 @@
 
 import logging
 import numpy as np
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Optional, Tuple
 from algorithms.base import BaseAlgorithm, PredictionResult
 
 logger = logging.getLogger(__name__)
@@ -115,7 +115,7 @@ class MultiTaskSimpleAlgorithm(BaseAlgorithm):
         # 回退到 numpy 路径
         return self._numpy_predict(video_data, threshold)
 
-    def _torch_predict(self, video_data: Dict[str, Any], threshold: int) -> PredictionResult:
+    def _torch_predict(self, video_data: Dict[str, Any], threshold: int) -> Optional[PredictionResult]:
         """
         PyTorch 路径：使用共享 MLP 多头预测
 
@@ -200,7 +200,7 @@ class MultiTaskSimpleAlgorithm(BaseAlgorithm):
 
             remaining = threshold - current_views
             if remaining <= 0:
-                predicted_hours, confidence = 0, 1.0
+                predicted_hours, confidence = 0.0, 1.0
             else:
                 predicted_hours = remaining / pred_velocity if pred_velocity > 0 else float("inf")
                 # 置信度基于训练样本量
@@ -431,9 +431,9 @@ class MultiTaskSimpleAlgorithm(BaseAlgorithm):
             return velocities[-1] if len(velocities) > 0 else 0.0, 0.4, "inconsistent"
 
         # 计算加权平均速度和一致性
-        weights = np.array(weights)
-        velocities_pred = np.array(velocities_pred)
-        weighted_vel = np.sum(velocities_pred * weights) / np.sum(weights)  # 加权平均
+        weights_arr = np.array(weights)
+        velocities_pred_arr = np.array(velocities_pred)
+        weighted_vel = np.sum(velocities_pred_arr * weights_arr) / np.sum(weights_arr)  # 加权平均
 
         # 检查一致性：变异系数 = 标准差 / 均值
         if len(velocities_pred) >= 2:
@@ -494,7 +494,7 @@ class MultiTaskSimpleAlgorithm(BaseAlgorithm):
             return 0.0
 
         accel = (recent[-1] - recent[0]) / (len(recent) - 1)
-        return accel
+        return float(accel)
 
     def _extract_series(self, history: List[Dict]) -> Tuple[np.ndarray, np.ndarray]:
         """

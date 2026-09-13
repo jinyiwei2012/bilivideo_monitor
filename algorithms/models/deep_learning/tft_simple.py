@@ -142,7 +142,7 @@ class TFTSimpleAlgorithm(BaseAlgorithm):
         velocities, _ = self._calculate_velocity_series(views, timestamps)
 
         if len(velocities) < self.look_back_window:
-            velocity = velocities[-1] if len(velocities) > 0 else 0.0
+            velocity = float(velocities[-1]) if len(velocities) > 0 else 0.0
             return self._make_result(
                 current_views,
                 threshold,
@@ -167,8 +167,8 @@ class TFTSimpleAlgorithm(BaseAlgorithm):
             threshold,
             predicted_velocity,
             confidence=confidence,
-            feature_weights=feature_weights,
-            attention_weights=attention_weights,
+            feature_weights=feature_weights.tolist(),
+            attention_weights=attention_weights.tolist() if attention_weights is not None else None,
             reason="tft",
         )
 
@@ -224,7 +224,8 @@ class TFTSimpleAlgorithm(BaseAlgorithm):
             video_type = 3.0  # 其他类型
         features.append(video_type)
 
-        return np.array(features)
+        extracted: np.ndarray = np.array(features)
+        return extracted
 
     def _variable_selection(self, features: np.ndarray) -> np.ndarray:
         """变量选择网络（简化版）
@@ -239,7 +240,8 @@ class TFTSimpleAlgorithm(BaseAlgorithm):
             np.ndarray: softmax归一化后的特征权重（和=1）
         """
         if len(features) == 0:
-            return np.array([])
+            empty: np.ndarray = np.array([])
+            return empty
 
         # 简化：使用特征的绝对值作为重要性代理
         # 实际TFT使用神经网络（带GRN）学习权重
@@ -249,7 +251,8 @@ class TFTSimpleAlgorithm(BaseAlgorithm):
         exp_importance = np.exp(importance - np.max(importance))
         weights = exp_importance / (np.sum(exp_importance) + 1e-6)
 
-        return weights
+        selected: np.ndarray = weights
+        return selected
 
     def _gated_residual_network(self, features: np.ndarray, weights: np.ndarray) -> np.ndarray:
         """门控残差网络（简化版）
@@ -267,7 +270,8 @@ class TFTSimpleAlgorithm(BaseAlgorithm):
             np.ndarray: 门控+残差后的输出
         """
         if len(features) == 0:
-            return np.array([])
+            empty: np.ndarray = np.array([])
+            return empty
 
         # 应用特征权重：赋权后的特征
         weighted_features = features * weights
@@ -282,7 +286,8 @@ class TFTSimpleAlgorithm(BaseAlgorithm):
         # 保证即使门控关闭，仍有小部分原始信息通过
         output = gated + features * 0.1
 
-        return output
+        gated_output: np.ndarray = output
+        return gated_output
 
     def _temporal_self_attention(self, features: np.ndarray) -> Tuple[np.ndarray, Optional[np.ndarray]]:
         """时态自注意力（简化版）
@@ -336,22 +341,22 @@ class TFTSimpleAlgorithm(BaseAlgorithm):
             (预测速度, 置信度)
         """
         if len(tft_output) == 0:
-            predicted_vel = velocities[-1] if len(velocities) > 0 else 0.0
+            predicted_vel = float(velocities[-1]) if len(velocities) > 0 else 0.0
             confidence = 0.3
             return max(predicted_vel, 0.0), confidence
 
         # 使用TFT输出的均值作为预测
-        predicted_vel = np.mean(tft_output)
+        predicted_vel = float(np.mean(tft_output))
 
         # 结合近期速度做混合预测（TFT预测:近期速度 = 3:7）
-        recent_vel = velocities[-1] if len(velocities) > 0 else 0.0
+        recent_vel = float(velocities[-1]) if len(velocities) > 0 else 0.0
 
         # 加权平均：TFT输出提供全局视图，近期速度提供局部精度
         final_vel = 0.3 * predicted_vel + 0.7 * recent_vel
 
         # 置信度：TFT输出方差越小（特征间越一致），置信度越高
         if len(tft_output) > 1:
-            variance = np.var(tft_output)
+            variance = float(np.var(tft_output))
             confidence = max(0.3, 1.0 - variance)
         else:
             confidence = 0.5

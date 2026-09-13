@@ -27,7 +27,7 @@ LightGBM 是微软开发的基于直方图的高效梯度提升框架，
 import math
 import logging
 import warnings
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 import numpy as np
 
@@ -115,7 +115,7 @@ class LightGBMSimpleAlgorithm(BaseAlgorithm):
 
         return self._numpy_predict(current_views, velocity, remaining, threshold)
 
-    def _lightgbm_predict(self, history, current_views, velocity, remaining, threshold) -> PredictionResult:
+    def _lightgbm_predict(self, history, current_views, velocity, remaining, threshold) -> Optional[PredictionResult]:
         """
         屏蔽 LightGBM 的特征名称警告后调用实现。
 
@@ -135,7 +135,9 @@ class LightGBMSimpleAlgorithm(BaseAlgorithm):
             warnings.filterwarnings("ignore", message="X does not have valid feature names")
             return self._lightgbm_predict_impl(history, current_views, velocity, remaining, threshold)
 
-    def _lightgbm_predict_impl(self, history, current_views, velocity, remaining, threshold) -> PredictionResult:
+    def _lightgbm_predict_impl(
+        self, history, current_views, velocity, remaining, threshold
+    ) -> Optional[PredictionResult]:
         """
         LightGBM 真实实现预测。
 
@@ -171,7 +173,7 @@ class LightGBMSimpleAlgorithm(BaseAlgorithm):
         shares = np.array([h.get("share_count", 0) for h in history], dtype=np.float64)
 
         p = 5  # 滑动窗口大小
-        X, y = [], []
+        X_list, y_list = [], []
         for i in range(p, len(views)):
             feat = []
             for j in range(1, p + 1):
@@ -185,10 +187,10 @@ class LightGBMSimpleAlgorithm(BaseAlgorithm):
                         math.log(max(views[i - j], 1)),
                     ]
                 )
-            X.append(feat)
-            y.append(views[i])
+            X_list.append(feat)
+            y_list.append(views[i])
 
-        X, y = np.array(X), np.array(y)
+        X, _ = np.array(X_list), np.array(y_list)
         if len(X) < 8:
             return None
 

@@ -152,8 +152,8 @@ class SVRPredictorAlgorithm(BaseAlgorithm):
         返回:
             Tuple[np.ndarray, np.ndarray]: (标准化特征矩阵, 标签向量)
         """
-        X = []
-        y = []
+        X_rows = []
+        y_rows = []
 
         for i in range(len(history_data) - 1):
             current = history_data[i]
@@ -171,12 +171,12 @@ class SVRPredictorAlgorithm(BaseAlgorithm):
             # 标签：相邻两点播放量之差
             growth = next_data.get("view", 0) - current.get("view", 0)
 
-            X.append(features)
-            y.append(growth)
+            X_rows.append(features)
+            y_rows.append(growth)
 
         # Z-score 标准化（保存均值/标准差以便预测时标准化新数据）
-        X = np.array(X, dtype=float)
-        y = np.array(y, dtype=float)
+        X = np.array(X_rows, dtype=float)
+        y = np.array(y_rows, dtype=float)
 
         if len(X) > 0:
             self.X_mean = np.mean(X, axis=0)

@@ -9,12 +9,15 @@ import asyncio
 import concurrent.futures
 import json
 import logging
-from typing import Dict, Any
+from typing import Any, Callable, Coroutine, Dict, ParamSpec, TypeVar, cast
 from uuid import uuid4
 
 import requests
 
 logger = logging.getLogger(__name__)
+
+_P = ParamSpec("_P")
+_T = TypeVar("_T")
 
 # websockets 库（异步，用于 WS 主力通道）
 try:
@@ -29,7 +32,7 @@ except ImportError:
 class NotificationManager:
     """通知管理器"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """初始化通知管理器，设置默认 OneBot 连接参数"""
         self.onebot_http = "http://127.0.0.1:5700"
         self.onebot_ws = "ws://127.0.0.1:6700"
@@ -37,10 +40,12 @@ class NotificationManager:
         self.enabled = True
         self.qq_private = ""
         self.qq_group = ""
-        self.webhooks: list = []  # [{name, url, type}]
-        self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)  # 防止单工作线程死锁（WS 调用可重入）
+        self.webhooks: list[dict[str, Any]] = []  # [{name, url, type}]
+        self._executor: concurrent.futures.ThreadPoolExecutor | None = concurrent.futures.ThreadPoolExecutor(
+            max_workers=2
+        )  # 防止单工作线程死锁（WS 调用可重入）
 
-    def configure(self, config: Dict[str, Any]):
+    def configure(self, config: Dict[str, Any]) -> None:
         """从 settings.json 的嵌套结构加载 OneBot / Webhook 配置"""
         ob_cfg = config.get("onebot", {})
         self.onebot_http = ob_cfg.get("http_url", self.onebot_http)
@@ -54,7 +59,7 @@ class NotificationManager:
 
     # ── OneBot 底层调用（WS → HTTP） ──────────────────────
 
-    def _run_async_safe(self, coro):
+    def _run_async_safe(self, coro: Coroutine[Any, Any, _T]) -> _T:
         """安全运行协程，兼容已有事件循环的线程"""
         try:
             asyncio.get_running_loop()
@@ -64,7 +69,9 @@ class NotificationManager:
         except RuntimeError:
             return asyncio.run(coro)
 
-    def _submit(self, fn, *args, **kwargs):
+    def _submit(
+        self, fn: Callable[_P, _T], *args: _P.args, **kwargs: _P.kwargs
+    ) -> concurrent.futures.Future[_T] | None:
         """向线程池投递任务；executor 已关闭(应用退出中)时静默丢弃。"""
         executor = self._executor
         if executor is None:
@@ -75,7 +82,7 @@ class NotificationManager:
             logger.debug("通知线程池已关闭,丢弃投递: %s", getattr(fn, "__name__", "task"))
             return None
 
-    def _call_action_ws(self, action: str, params: dict, timeout: float = 5) -> bool | None:
+    def _call_action_ws(self, action: str, params: dict[str, Any], timeout: float = 5) -> bool | None:
         """通过 WebSocket 调用 OneBot 动作（主力通道）
 
         返回 True=成功, False=失败(不回退), None=需要回退到 HTTP
@@ -92,7 +99,7 @@ class NotificationManager:
                 return None
             extra_headers["Authorization"] = f"Bearer {self.token}"
 
-        async def _call():
+        async def _call() -> bool | None:
             try:
                 async with websockets.connect(
                     uri, additional_headers=extra_headers, open_timeout=timeout, close_timeout=3
@@ -117,7 +124,7 @@ class NotificationManager:
 
         return self._run_async_safe(_call())
 
-    def _call_action_http(self, action: str, params: dict, timeout: float = 5) -> bool:
+    def _call_action_http(self, action: str, params: dict[str, Any], timeout: float = 5) -> bool:
         """通过 HTTP API 调用 OneBot 动作（保底通道）"""
         if not self.onebot_http:
             return False
@@ -131,7 +138,7 @@ class NotificationManager:
             headers["Authorization"] = f"Bearer {self.token}"
         try:
             resp = requests.post(url, json=params, headers=headers, timeout=timeout)
-            ok = resp.status_code == 200
+            ok: bool = resp.status_code == 200
             if not ok:
                 logger.warning("HTTP %s 返回 %d: %s", action, resp.status_code, resp.text[:120])
             return ok
@@ -142,7 +149,7 @@ class NotificationManager:
             logger.error("HTTP %s 异常: %s", action, e)
             return False
 
-    def _call_action(self, action: str, params: dict) -> bool:
+    def _call_action(self, action: str, params: dict[str, Any]) -> bool:
         """先 WS 后 HTTP 的 OneBot 动作调用（主力→保底）"""
         r = self._call_action_ws(action, params)
         if r is True:
@@ -201,7 +208,7 @@ class NotificationManager:
             return None
 
     @staticmethod
-    def _build_webhook_payload(wh_type: str, text: str) -> dict:
+    def _build_webhook_payload(wh_type: str, text: str) -> dict[str, Any]:
         """按渠道类型构造 POST JSON payload。text 为纯文本消息内容。"""
         t = (wh_type or "generic").lower()
         if t == "wecom":  # 企业微信机器人
@@ -214,7 +221,7 @@ class NotificationManager:
             return {"content": text[:1900]}
         return {"text": text}  # generic: 简单 {"text": ...}
 
-    def _post_webhook(self, wh: dict, text: str) -> bool:
+    def _post_webhook(self, wh: dict[str, Any], text: str) -> bool:
         """发送单个 webhook（阻塞调用，供线程池执行）"""
         url = wh.get("url", "")
         if not url:
@@ -249,7 +256,7 @@ class NotificationManager:
             sent_any = True
         return sent_any
 
-    def test_webhook(self, wh: dict) -> Dict[str, Any]:
+    def test_webhook(self, wh: dict[str, Any]) -> Dict[str, Any]:
         """同步测试单个 Webhook 配置（供设置界面「测试」按钮使用）"""
         url = wh.get("url", "")
         if not url:
@@ -292,7 +299,7 @@ class NotificationManager:
         if not self.qq_private or not self.enabled:
             return False
 
-        def _send():
+        def _send() -> None:
             self._call_action("send_private_msg", {"user_id": self.qq_private, "message": message})
 
         return self._submit(_send) is not None
@@ -302,12 +309,12 @@ class NotificationManager:
         if not self.qq_group or not self.enabled:
             return False
 
-        def _send():
+        def _send() -> None:
             self._call_action("send_group_msg", {"group_id": self.qq_group, "message": message})
 
         return self._submit(_send) is not None
 
-    def send_threshold_notification(self, bvid: str, title: str, threshold: int, current_views: int):
+    def send_threshold_notification(self, bvid: str, title: str, threshold: int, current_views: int) -> None:
         """发送阈值突破通知（Windows + QQ + Webhook 全渠道）"""
         message = (
             f"追上光啦!♪ 视频《{title}》播放量突破{threshold / 10000:.0f}万！\n"
@@ -350,7 +357,7 @@ class NotificationManager:
 
         return result
 
-    def _test_connection_ws(self, result: dict, ws_url: str = "", token: str = "") -> bool:
+    def _test_connection_ws(self, result: dict[str, Any], ws_url: str = "", token: str = "") -> bool:
         """WS 连通性检测（使用传入参数,不读实例状态）"""
         uri = ws_url or self.onebot_ws
         token = token if token is not None else self.token
@@ -361,13 +368,13 @@ class NotificationManager:
                 return False
             extra_headers["Authorization"] = f"Bearer {token}"
 
-        async def _check():
+        async def _check() -> dict[str, Any]:
             async with websockets.connect(uri, additional_headers=extra_headers, open_timeout=5, close_timeout=3) as ws:
                 payload = {"action": "get_version_info", "echo": str(uuid4())}
                 await ws.send(json.dumps(payload))
                 resp = await asyncio.wait_for(ws.recv(), timeout=5)
                 data = json.loads(resp)
-                return data
+                return cast(dict[str, Any], data)
 
         try:
             data = self._run_async_safe(_check())
@@ -383,7 +390,7 @@ class NotificationManager:
             result["error"] = f"WS 连接失败: {e}"
             return False
 
-    def _test_connection_http(self, result: dict, http_url: str = "", token: str = "") -> bool:
+    def _test_connection_http(self, result: dict[str, Any], http_url: str = "", token: str = "") -> bool:
         """HTTP 连通性检测（使用传入参数,不读实例状态）"""
         http_url = http_url or self.onebot_http
         token = token if token is not None else self.token
@@ -413,7 +420,7 @@ class NotificationManager:
             result["error"] = f"HTTP 异常: {e}"
         return False
 
-    def shutdown(self):
+    def shutdown(self) -> None:
         """关闭线程池，释放资源（应用退出时调用）。
 
         wait=False: 不等待已排队 POST 的 8s 超时,避免退出卡顿;

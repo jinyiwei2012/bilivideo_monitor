@@ -3,6 +3,7 @@
 """
 
 import logging
+from typing import TYPE_CHECKING, Any
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -15,6 +16,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import QTimer
 from ui.theme import C
+from ui.dialog_base import DialogBase
 from core.bilibili_api import get_bilibili_api
 from utils.update_checker import _confirm_risky
 
@@ -23,6 +25,20 @@ logger = logging.getLogger(__name__)
 
 class SettingsGeneralMixin:
     """General settings tab: prediction params, retry params, run status."""
+
+    _cfg: dict[str, Any]
+    dlg: DialogBase
+
+    if TYPE_CHECKING:
+
+        def _section(self, parent: QWidget, title: str, padding: tuple[int, ...] | None = None) -> QWidget:
+            raise NotImplementedError
+
+        def _spin_field(self, parent: QWidget, label: str, default: Any, fr: int, to: int) -> Any:
+            raise NotImplementedError
+
+        def _spin_field_float(self, parent: QWidget, label: str, default: Any, fr: float, to: float) -> Any:
+            raise NotImplementedError
 
     def _build_general_tab(self, nb):
         page = QWidget()
@@ -56,11 +72,14 @@ class SettingsGeneralMixin:
         self.theme_combo.setCurrentIndex(idx if idx >= 0 else 0)
         rl.addWidget(self.theme_combo)
         rl.addStretch()
-        sec.layout().addWidget(row)
+        sec_layout = sec.layout()
+        if sec_layout is not None:
+            sec_layout.addWidget(row)
 
         hint = QLabel("切换后新开的窗口立即生效;主界面需重启应用后全部换装 ♪ 天依两种模样都好看哦~")
         hint.setStyleSheet(f"color: {C['text_3']}; font-size: 8pt;")
-        sec.layout().addWidget(hint)
+        if sec_layout is not None:
+            sec_layout.addWidget(hint)
 
     def _build_general_window_section(self, page):
         """窗口行为：托盘驻留开关 (B1)"""
@@ -70,11 +89,14 @@ class SettingsGeneralMixin:
         self.close_to_tray = QCheckBox("关闭窗口时最小化到系统托盘（监控后台继续运行）")
         self.close_to_tray.setChecked(bool(self._cfg.get("ui", {}).get("close_to_tray", True)))
         self.close_to_tray.setStyleSheet(f"color: {C['text_2']};")
-        sec.layout().addWidget(self.close_to_tray)
+        sec_layout = sec.layout()
+        if sec_layout is not None:
+            sec_layout.addWidget(self.close_to_tray)
 
         hint = QLabel("关窗后,天依会藏到托盘里继续守着♪ 右击音符图标: 显示/隐藏、立即刷新、暂停/继续监控、退出")
         hint.setStyleSheet(f"color: {C['text_3']}; font-size: 8pt;")
-        sec.layout().addWidget(hint)
+        if sec_layout is not None:
+            sec_layout.addWidget(hint)
 
     def _build_general_predict_section(self, page):
         sec = self._section(page, "预测参数")
@@ -92,7 +114,9 @@ class SettingsGeneralMixin:
         self.auto_escalate = QCheckBox("达到最高档后自动追加更高目标")
         self.auto_escalate.setChecked(bool(self._cfg.get("prediction", {}).get("auto_escalate", True)))
         self.auto_escalate.setStyleSheet(f"color: {C['text_2']};")
-        esc_sec.layout().addWidget(self.auto_escalate)
+        esc_layout = esc_sec.layout()
+        if esc_layout is not None:
+            esc_layout.addWidget(self.auto_escalate)
 
         self.escalate_factor = self._spin_field_float(
             esc_sec, "阶梯倍数", self._cfg.get("prediction", {}).get("escalate_factor", 5.0), 1.5, 20.0
@@ -100,7 +124,8 @@ class SettingsGeneralMixin:
 
         hint = QLabel("例: 播放量超过最高档 1000万 后，自动追加 5000万 为新目标 ♪")
         hint.setStyleSheet(f"color: {C['text_3']}; font-size: 8pt;")
-        esc_sec.layout().addWidget(hint)
+        if esc_layout is not None:
+            esc_layout.addWidget(hint)
 
     def _build_general_retry_section(self, page):
         sec = QFrame(page)

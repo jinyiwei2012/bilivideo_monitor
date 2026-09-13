@@ -12,7 +12,7 @@ v2 (确定度重构):
 import logging
 import threading
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
@@ -32,7 +32,7 @@ class AlertHit:
     confidence: float  # 0~1，越高越确定
     level: str = field(default="medium")  # high / medium / low
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.confidence >= 0.75:
             self.level = "high"
         elif self.confidence >= 0.5:
@@ -41,7 +41,7 @@ class AlertHit:
             self.level = "low"
 
 
-def _cleanup_stale_alerts():
+def _cleanup_stale_alerts() -> None:
     """清理过期的告警冷却记录，防止内存泄漏"""
     now = datetime.now()
     cutoff = timedelta(minutes=_STALE_ALERT_CUTOFF_MINUTES)
@@ -81,7 +81,7 @@ def _clamp(v: float, lo: float = 0.0, hi: float = 1.0) -> float:
     return max(lo, min(hi, v))
 
 
-def _parse_dt(ts) -> Optional[datetime]:
+def _parse_dt(ts: Any) -> Optional[datetime]:
     """稳健解析时间戳（str / datetime / float）"""
     if isinstance(ts, datetime):
         return ts
@@ -96,7 +96,7 @@ def _parse_dt(ts) -> Optional[datetime]:
         return None
 
 
-def _sorted_records(records: List[Dict], max_n: Optional[int] = None) -> List[Dict]:
+def _sorted_records(records: List[Dict[str, Any]], max_n: Optional[int] = None) -> List[Dict[str, Any]]:
     """按时间排序记录，过滤无法解析时间戳的行，可选截断到最近 max_n 条"""
     valid = []
     for r in records:
@@ -111,7 +111,7 @@ def _sorted_records(records: List[Dict], max_n: Optional[int] = None) -> List[Di
     return rows
 
 
-def _recent_window(records: List[Dict], hours: float) -> List[Dict]:
+def _recent_window(records: List[Dict[str, Any]], hours: float) -> List[Dict[str, Any]]:
     """取最近 hours 小时内的记录（用于 5min 扫描节奏下的样本聚合）"""
     if not records:
         return []
@@ -136,6 +136,44 @@ def _median(vals: List[float]) -> float:
     if n % 2 == 1:
         return s[n // 2]
     return (s[n // 2 - 1] + s[n // 2]) / 2.0
+
+
+def _growth_rates(rows: List[Dict[str, Any]]) -> List[float]:
+    rates: List[float] = []
+    for i in range(1, len(rows)):
+        dt0 = _parse_dt(rows[i - 1].get("timestamp") or rows[i - 1].get("time"))
+        dt1 = _parse_dt(rows[i].get("timestamp") or rows[i].get("time"))
+        if dt0 is None or dt1 is None:
+            continue
+        hours = (dt1 - dt0).total_seconds() / 3600
+        if hours <= 0 or hours > 6:
+            continue
+        dv = rows[i].get("view_count", 0) - rows[i - 1].get("view_count", 0)
+        if dv >= 0:
+            rates.append(dv / hours)
+    return rates
+
+
+def _growth_multiplier(current_views: int) -> float:
+    if current_views > 1_0000_0000:
+        return 1.5
+    if current_views > 100_0000:
+        return 2.0
+    if current_views > 10_0000:
+        return 2.5
+    return 3.0
+
+
+def _growth_trigger_score(
+    last_rate: float, prev_rates: List[float], median_base: float, min_rate: float, multiplier: float
+) -> tuple[bool, float]:
+    if median_base > 0:
+        over = last_rate / (median_base * multiplier)
+        return last_rate > median_base * multiplier, _clamp(0.45 + (over - 1.0) * 0.35)
+    if last_rate > min_rate * 4 and len(prev_rates) >= 2:
+        over = last_rate / max(min_rate, 1e-9)
+        return True, _clamp(0.5 + min(over / 10.0, 1.0) * 0.35)
+    return False, 0.0
 
 
 # ══════════════════════════════════════════════
@@ -168,18 +206,7 @@ class AnomalyDetector:
             return None
 
         # 计算每段小时速率
-        rates = []
-        for i in range(1, len(rows)):
-            dt0 = _parse_dt(rows[i - 1].get("timestamp") or rows[i - 1].get("time"))
-            dt1 = _parse_dt(rows[i].get("timestamp") or rows[i].get("time"))
-            if dt0 is None or dt1 is None:
-                continue
-            hours = (dt1 - dt0).total_seconds() / 3600
-            if hours <= 0 or hours > 6:
-                continue  # 跳过异常大间隔，避免把跨天增长当作单段速率
-            dv = rows[i].get("view_count", 0) - rows[i - 1].get("view_count", 0)
-            if dv >= 0:
-                rates.append(dv / hours)  # 保留 0 增速段，使停滞→爆发有历史基线
+        rates = _growth_rates(rows)
         if len(rates) < 4:
             return None
 
@@ -189,14 +216,7 @@ class AnomalyDetector:
         current_views = rows[-1].get("view_count", 0)
 
         # 自适应倍数：大视频增速更稳定，用更小倍数
-        if current_views > 1_0000_0000:
-            multiplier = 1.5
-        elif current_views > 100_0000:
-            multiplier = 2.0
-        elif current_views > 10_0000:
-            multiplier = 2.5
-        else:
-            multiplier = 3.0
+        multiplier = _growth_multiplier(current_views)
 
         # 停滞→爆发特判：基线 ≈ 0 且最近速率超过量级门槛，是极强信号
         min_rate = max(10, current_views * 0.0001)
@@ -205,19 +225,7 @@ class AnomalyDetector:
         #   b) 停滞基线（中位 == 0，持续低速/零增速后突增）：
         #      要求 last 显著高于量级门槛，且前一正增速段也在爬升（连续两段加速）
         median_base = _median(prev_rates)
-        if median_base > 0:
-            over = last_rate / (median_base * multiplier)
-            triggered = last_rate > median_base * multiplier
-            conf = _clamp(0.45 + (over - 1.0) * 0.35)
-        else:
-            # 停滞后爆发：最近速率超过 min_rate 的数倍才视为"飙升"
-            if last_rate > min_rate * 4 and len(prev_rates) >= 2:
-                over = last_rate / max(min_rate, 1e-9)
-                triggered = True
-                conf = _clamp(0.5 + min(over / 10.0, 1.0) * 0.35)
-            else:
-                triggered = False
-                conf = 0.0
+        triggered, conf = _growth_trigger_score(last_rate, prev_rates, median_base, min_rate, multiplier)
         # 大视频出现爆发信号通常噪声更少 → 微增
         if triggered and current_views > 100_0000:
             conf = _clamp(conf + 0.05)
@@ -453,12 +461,16 @@ class AnomalyDetector:
     # ── UP主 直播上下文 ───────────────────────
 
     @staticmethod
-    def detect_live_streaming(_video: Dict = None, up_info: Dict = None) -> Optional[str]:
+    def detect_live_streaming(
+        _video: Optional[Dict[str, Any]] = None, up_info: Optional[Dict[str, Any]] = None
+    ) -> Optional[str]:
         hit = AnomalyDetector.detect_live_streaming_scored(_video, up_info)
         return hit.message if hit else None
 
     @staticmethod
-    def detect_live_streaming_scored(_video: Dict = None, up_info: Dict = None) -> Optional[AlertHit]:
+    def detect_live_streaming_scored(
+        _video: Optional[Dict[str, Any]] = None, up_info: Optional[Dict[str, Any]] = None
+    ) -> Optional[AlertHit]:
         """检测 UP 主是否正在直播（直播期间视频数据异常属于正常现象）"""
         if up_info:
             lr = up_info.get("live_room")
@@ -475,12 +487,12 @@ class AnomalyDetector:
     # ── 疑似买量 ──────────────────────────────
 
     @staticmethod
-    def detect_paid_promotion(records: List[Dict], video: Dict = None) -> Optional[str]:
+    def detect_paid_promotion(records: List[Dict[str, Any]], video: Optional[Dict[str, Any]] = None) -> Optional[str]:
         hit = AnomalyDetector.detect_paid_promotion_scored(records, video)
         return hit.message if hit else None
 
     @staticmethod
-    def _paid_promotion_interaction_score(video: Dict, views: int):
+    def _paid_promotion_interaction_score(video: Dict[str, Any], views: int) -> tuple[dict[str, float], int, list[str]]:
         likes = video.get("like_count", 0) or 0
         coins = video.get("coin_count", 0) or 0
         favorites = video.get("favorite_count", 0) or 0
@@ -510,7 +522,7 @@ class AnomalyDetector:
         return rates, score, reasons
 
     @staticmethod
-    def _paid_promotion_like_score(like_rate: float):
+    def _paid_promotion_like_score(like_rate: float) -> tuple[int, Optional[str]]:
         if like_rate < 0.01:
             return 2, "点赞率极低"
         if like_rate < 0.02:
@@ -518,7 +530,7 @@ class AnomalyDetector:
         return 0, None
 
     @staticmethod
-    def _paid_promotion_coin_score(coin_rate: float):
+    def _paid_promotion_coin_score(coin_rate: float) -> tuple[int, Optional[str]]:
         if coin_rate < 0.003:
             return 2, "投币率极低"
         if coin_rate < 0.01:
@@ -526,7 +538,7 @@ class AnomalyDetector:
         return 0, None
 
     @staticmethod
-    def _paid_promotion_growth_score(records: List[Dict], score: int):
+    def _paid_promotion_growth_score(records: List[Dict[str, Any]], score: int) -> tuple[int, Optional[str]]:
         if len(records) < 7:
             return score, None
         rows = _sorted_records(records)
@@ -554,7 +566,9 @@ class AnomalyDetector:
         return night_rate > views * 0.001
 
     @staticmethod
-    def detect_paid_promotion_scored(records: List[Dict], video: Dict = None) -> Optional[AlertHit]:
+    def detect_paid_promotion_scored(
+        records: List[Dict[str, Any]], video: Optional[Dict[str, Any]] = None
+    ) -> Optional[AlertHit]:
         """
         综合检测疑似买必火/付费推广（7 维评分 + 播放量分级）
         评分 >= 3 → 疑似买量；>= 5 → 高度疑似买量；确定度由评分折算
@@ -599,22 +613,30 @@ class AnomalyDetector:
     # ── 全检测器调度 ──────────────────────────
 
     @staticmethod
-    def detect_all(records: List[Dict], bvid: str = "", video: Dict = None, up_info: Dict = None) -> List[str]:
+    def detect_all(
+        records: List[Dict[str, Any]],
+        bvid: str = "",
+        video: Optional[Dict[str, Any]] = None,
+        up_info: Optional[Dict[str, Any]] = None,
+    ) -> List[str]:
         """运行所有检测器，返回触发的告警消息列表（兼容旧 API，返回 str）"""
         hits = AnomalyDetector.detect_all_scored(records, bvid=bvid, video=video, up_info=up_info)
         return [h.message for h in hits]
 
     @staticmethod
     def detect_all_scored(
-        records: List[Dict], bvid: str = "", video: Dict = None, up_info: Dict = None
+        records: List[Dict[str, Any]],
+        bvid: str = "",
+        video: Optional[Dict[str, Any]] = None,
+        up_info: Optional[Dict[str, Any]] = None,
     ) -> List[AlertHit]:
         """运行所有检测器，返回含确定度的结构化告警列表。
 
         冷却策略修复(P0)：先运行检测器得到命中，仅对真正命中的 key 占用冷却槽，
         避免"每次扫描都在冷却、真异常被压制"的缺陷。
         """
-        hits = []
-        detectors = [
+        hits: List[AlertHit] = []
+        detectors: list[tuple[str, Callable[[], Optional[AlertHit]]]] = [
             ("growth_spike", lambda: AnomalyDetector.detect_growth_spike_scored(records)),
             ("trend_reversal", lambda: AnomalyDetector.detect_trend_reversal_scored(records)),
             ("stall", lambda: AnomalyDetector.detect_stall_scored(records)),
@@ -622,7 +644,7 @@ class AnomalyDetector:
             ("viewer_crash", lambda: AnomalyDetector.detect_viewer_crash_scored(records)),
             ("night_surge", lambda: AnomalyDetector.detect_night_surge_scored(records)),
             ("paid_promo", lambda: AnomalyDetector.detect_paid_promotion_scored(records, video=video)),
-            ("live_stream", lambda: AnomalyDetector.detect_live_streaming_scored(video=video, up_info=up_info)),
+            ("live_stream", lambda: AnomalyDetector.detect_live_streaming_scored(video, up_info)),
         ]
         for key, detector in detectors:
             try:
@@ -639,7 +661,11 @@ class AnomalyDetector:
 
     @staticmethod
     def detect_all_min_confidence(
-        records: List[Dict], bvid: str = "", video: Dict = None, up_info: Dict = None, min_conf: float = 0.0
+        records: List[Dict[str, Any]],
+        bvid: str = "",
+        video: Optional[Dict[str, Any]] = None,
+        up_info: Optional[Dict[str, Any]] = None,
+        min_conf: float = 0.0,
     ) -> List[AlertHit]:
         """按最低确定度过滤后的告警（供通知分级使用）"""
         return [

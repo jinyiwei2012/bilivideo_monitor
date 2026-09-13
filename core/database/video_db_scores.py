@@ -5,7 +5,10 @@
 """
 
 import logging
-from typing import Dict, Optional
+import sqlite3
+from typing import Any, Dict, Optional
+
+from .connection import _ConnectionCtx
 
 logger = logging.getLogger(__name__)
 
@@ -13,9 +16,16 @@ logger = logging.getLogger(__name__)
 class _ScoreOpsMixin:
     """周刊/年刊分数的增删查操作（需要 self._get_connection, self._lock, self._mirror_conn, self.bvid）"""
 
+    bvid: str
+    _mirror_conn: sqlite3.Connection | None
+    _lock: Any
+
+    def _get_connection(self) -> _ConnectionCtx:
+        raise NotImplementedError
+
     # ── 镜像同步（内部方法）──────────────────────────────
 
-    def _mirror_add_weekly_score(self, timestamp: str, score_data: dict):
+    def _mirror_add_weekly_score(self, timestamp: str, score_data: dict[str, Any]) -> None:
         """将周刊分数同步写入镜像数据库"""
         if not self._mirror_conn:
             return
@@ -49,7 +59,7 @@ class _ScoreOpsMixin:
         except Exception as e:
             logger.debug("镜像添加周刊分数失败 %s: %s", self.bvid, e)
 
-    def _mirror_add_yearly_score(self, timestamp: str, score_data: dict):
+    def _mirror_add_yearly_score(self, timestamp: str, score_data: dict[str, Any]) -> None:
         """将年刊分数同步写入镜像数据库"""
         if not self._mirror_conn:
             return

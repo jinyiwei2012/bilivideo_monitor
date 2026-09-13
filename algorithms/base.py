@@ -6,27 +6,40 @@
 """
 
 import logging
+import importlib
 import math
 import threading
 from abc import ABC, abstractmethod
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Any, Callable, cast, Dict, List, Optional, Sequence, Tuple
 from datetime import datetime
 import time
-from utils.time_utils import format_ts, safe_timestamp
+
+_time_utils = importlib.import_module("utils.time_utils")
+format_ts: Callable[[datetime], str] = _time_utils.format_ts
+safe_timestamp: Callable[[Any], float] = _time_utils.safe_timestamp
 
 logger = logging.getLogger(__name__)
 
 # ── curve_fit 结果缓存（内容寻址，避免历史未变时重复拟合）──────────────
 # 键包含 (模型函数, 时间序列, 播放序列, 初值, 上界, maxfev)，因此输入一变即自动失效，
 # 不存在陈旧问题；仅用 LRU 上限约束内存（曲线拟合远比构建键昂贵）。
-_CURVE_FIT_CACHE: "OrderedDict[tuple, tuple]" = OrderedDict()
+CurveFitKey = tuple[str, bytes, bytes, tuple[float, ...], str, int]
+CurveFitResult = tuple[Any, bool]
+_CURVE_FIT_CACHE: "OrderedDict[CurveFitKey, CurveFitResult]" = OrderedDict()
 _CURVE_FIT_LOCK = threading.Lock()
 _CURVE_FIT_MAXSIZE = 256
 
 
-def _curve_fit_cache_key(model_func, times, views, p0, bounds, maxfev):
+def _curve_fit_cache_key(
+    model_func: Callable[..., Any],
+    times: Any,
+    views: Any,
+    p0: Optional[Sequence[float]],
+    bounds: Any,
+    maxfev: int,
+) -> Optional[CurveFitKey]:
     """构造内容寻址缓存键；无法哈希时返回 None（表示不缓存）。"""
     try:
         import numpy as np
@@ -45,7 +58,7 @@ def _curve_fit_cache_key(model_func, times, views, p0, bounds, maxfev):
         return None
 
 
-def clear_curve_fit_cache():
+def clear_curve_fit_cache() -> None:
     """清空 curve_fit 缓存（测试 / 内存回收用）。"""
     with _CURVE_FIT_LOCK:
         _CURVE_FIT_CACHE.clear()
@@ -107,8 +120,9 @@ class BaseAlgorithm(ABC):
     name: str = "基类算法"
     description: str = "预测算法基类"
     category: str = "基础"
+    algorithm_id: str
 
-    def __init__(self):
+    def __init__(self) -> None:
         pass
 
     @abstractmethod
@@ -128,7 +142,12 @@ class BaseAlgorithm(ABC):
         """
 
     def _fallback(
-        self, velocity: float, current_views: int, threshold: int, method: str = "", metadata: dict = None
+        self,
+        velocity: float,
+        current_views: int,
+        threshold: int,
+        method: str = "",
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> PredictionResult:
         """通用降级预测：当算法不可用或数据不足时，使用匀速外推。
 
@@ -180,9 +199,9 @@ class BaseAlgorithm(ABC):
         confidence: float,
         current_views: int,
         threshold: int,
-        velocity: float = None,
+        velocity: Optional[float] = None,
         method: str = "",
-        metadata: dict = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> PredictionResult:
         """统一的 PredictionResult 构造器（返回值样板收敛点）。
 
@@ -224,13 +243,13 @@ class BaseAlgorithm(ABC):
 
     def _to_prediction_result(
         self,
-        result,
+        result: Optional[Tuple[Optional[float], float]],
         current_views: int,
         video_data: Dict[str, Any],
         threshold: int,
         method: str = "",
         invalid_hours: float = -1.0,
-        invalid_velocity=None,
+        invalid_velocity: Optional[float] = None,
     ) -> PredictionResult:
         """把旧签名 (seconds, confidence) 元组或 None 包装为 PredictionResult (旧接口迁移用)。
 
@@ -246,31 +265,45 @@ class BaseAlgorithm(ABC):
         """
         now = datetime.now()
         algo_name = getattr(self, "name", type(self).__name__)
-        base = dict(
-            algorithm_name=algo_name,
-            algorithm_id=getattr(self, "algorithm_id", algo_name),
-            target_threshold=threshold,
-            current_views=current_views,
-            timestamp=now,
-        )
+        algorithm_id = getattr(self, "algorithm_id", algo_name)
         if result is None:
             vel = self.calculate_velocity(video_data) if invalid_velocity is None else invalid_velocity
             return PredictionResult(
-                predicted_hours=invalid_hours, confidence=0.0, current_velocity=vel, metadata={}, **base
+                algorithm_name=algo_name,
+                algorithm_id=algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=invalid_hours,
+                confidence=0.0,
+                current_views=current_views,
+                current_velocity=vel,
+                metadata={},
+                timestamp=now,
             )
         seconds, confidence = result
         if seconds is None or seconds == float("inf"):
             vel = self.calculate_velocity(video_data) if invalid_velocity is None else invalid_velocity
             return PredictionResult(
-                predicted_hours=float("inf"), confidence=0.0, current_velocity=vel, metadata={}, **base
+                algorithm_name=algo_name,
+                algorithm_id=algorithm_id,
+                target_threshold=threshold,
+                predicted_hours=float("inf"),
+                confidence=0.0,
+                current_views=current_views,
+                current_velocity=vel,
+                metadata={},
+                timestamp=now,
             )
         meta = {"method": method} if method else {}
         return PredictionResult(
+            algorithm_name=algo_name,
+            algorithm_id=algorithm_id,
+            target_threshold=threshold,
             predicted_hours=seconds / 3600.0,
             confidence=confidence,
+            current_views=current_views,
             current_velocity=self.calculate_velocity(video_data),
             metadata=meta,
-            **base,
+            timestamp=now,
         )
 
     @staticmethod
@@ -303,7 +336,7 @@ class BaseAlgorithm(ABC):
 
     # ── 共享时间序列预处理 ─────────────────────────
 
-    def _prepare_timeseries_data(self, history):
+    def _prepare_timeseries_data(self, history: List[Dict[str, Any]]) -> Tuple[Any, Any, None]:
         """将历史数据的混合格式时间戳解析为以天为单位的相对时间及播放量数组。
 
         Args:
@@ -346,7 +379,7 @@ class BaseAlgorithm(ABC):
 
     # ── 增长模型置信度计算 ─────────────────────────
 
-    def _growth_confidence(self, n_points, predicted, actual, multiplier):
+    def _growth_confidence(self, n_points: int, predicted: Any, actual: Any, multiplier: float) -> float:
         """通用的增长模型置信度计算。
 
         基于数据点数量和 MAPE 拟合误差综合评估。
@@ -363,11 +396,19 @@ class BaseAlgorithm(ABC):
                 base_conf = 0.5 * base_conf + 0.5 * fit_quality
             except Exception as e:
                 logger.debug("置信度 MAPE 计算失败: %s", e)
-        return min(0.95, base_conf)
+        return float(min(0.95, base_conf))
 
     # ── 安全曲线拟合封装 ───────────────────────────
 
-    def _safe_curve_fit(self, model_func, times, views, p0, bounds, maxfev=5000):
+    def _safe_curve_fit(
+        self,
+        model_func: Callable[..., Any],
+        times: Any,
+        views: Any,
+        p0: Sequence[float],
+        bounds: Any,
+        maxfev: int = 5000,
+    ) -> CurveFitResult:
         """对 scipy curve_fit 的安全封装, 失败时回退到初始参数。
 
         结果按内容缓存（见 :func:`_curve_fit_cache_key`）：同一轮预测内多个算法
@@ -403,12 +444,12 @@ class BaseAlgorithm(ABC):
     # ── 公共辅助方法 ───────────────────────────────
 
     @staticmethod
-    def _timestamp_sort_key(item):
+    def _timestamp_sort_key(item: Dict[str, Any]) -> float:
         ts = item.get("timestamp", 0)
         if isinstance(ts, (int, float)):
-            return ts
+            return cast(float, ts)
         if hasattr(ts, "timestamp"):
-            return ts.timestamp()
+            return cast(float, ts.timestamp())
         try:
             return datetime.fromisoformat(str(ts)).timestamp()
         except Exception as e:
@@ -425,13 +466,13 @@ class BaseAlgorithm(ABC):
         pre = video_data.get("derived_features", {})
         # 稳健速率（抗 API 延迟/跳变，median+加权LR 融合）优先 —— 实测噪声下 RMSE 低 2~4 倍
         if "velocity_robust_hourly" in pre and pre["velocity_robust_hourly"] > 0:
-            return pre["velocity_robust_hourly"]
+            return cast(float, pre["velocity_robust_hourly"])
         if "velocity_polyfit" in pre:
-            return pre["velocity_polyfit"]
+            return cast(float, pre["velocity_polyfit"])
         # 兼容 video_data 直接注入的 velocity 字段
         vel = video_data.get("velocity", 0)
         if vel > 0:
-            return vel
+            return cast(float, vel)
 
         history = video_data.get("history_data", [])
         if len(history) < 2:
@@ -443,39 +484,42 @@ class BaseAlgorithm(ABC):
             else:
                 sorted_hist = sorted(history, key=self._timestamp_sort_key)
 
-            if len(sorted_hist) >= 5:
-                import numpy as np
-
-                n_pts = min(10, len(sorted_hist))
-                recent = sorted_hist[-n_pts:]
-                t_arr = np.array([float(h.get("timestamp", 0)) for h in recent], dtype=np.float64)
-                v_arr = np.array([float(h.get("view_count", 0)) for h in recent], dtype=np.float64)
-                if np.max(t_arr) == np.min(t_arr):
-                    return 0.0
-                slope, _ = np.polyfit(t_arr, v_arr, 1)
-                # slope 单位 views/秒（时间戳为 unix 秒）→ views/小时 应 ×3600
-                return max(0.0, slope * 3600.0)
-            else:
-                recent = sorted_hist[-2:]
-                v0 = float(recent[0].get("view_count", 0))
-                v1 = float(recent[-1].get("view_count", 0))
-                t0 = recent[0].get("timestamp", 0)
-                t1 = recent[-1].get("timestamp", 0)
-                if hasattr(t0, "timestamp"):
-                    t0 = t0.timestamp()
-                elif not isinstance(t0, (int, float)):
-                    t0 = 0
-                if hasattr(t1, "timestamp"):
-                    t1 = t1.timestamp()
-                elif not isinstance(t1, (int, float)):
-                    t1 = 0
-                dt_hours = (t1 - t0) / 3600.0
-                if dt_hours <= 0:
-                    return 0.0
-                return max(0.0, (v1 - v0) / dt_hours)
+            return self._calculate_history_velocity(sorted_hist)
         except Exception as e:
             logger.debug("速率计算失败: %s", e)
             return 0.0
+
+    @staticmethod
+    def _calculate_history_velocity(sorted_hist: List[Dict[str, Any]]) -> float:
+        if len(sorted_hist) >= 5:
+            import numpy as np
+
+            n_pts = min(10, len(sorted_hist))
+            recent = sorted_hist[-n_pts:]
+            t_arr = np.array([float(h.get("timestamp", 0)) for h in recent], dtype=np.float64)
+            v_arr = np.array([float(h.get("view_count", 0)) for h in recent], dtype=np.float64)
+            if np.max(t_arr) == np.min(t_arr):
+                return 0.0
+            slope, _ = np.polyfit(t_arr, v_arr, 1)
+            return cast(float, max(0.0, slope * 3600.0))
+
+        recent = sorted_hist[-2:]
+        v0 = float(recent[0].get("view_count", 0))
+        v1 = float(recent[-1].get("view_count", 0))
+        t0 = recent[0].get("timestamp", 0)
+        t1 = recent[-1].get("timestamp", 0)
+        if hasattr(t0, "timestamp"):
+            t0 = t0.timestamp()
+        elif not isinstance(t0, (int, float)):
+            t0 = 0
+        if hasattr(t1, "timestamp"):
+            t1 = t1.timestamp()
+        elif not isinstance(t1, (int, float)):
+            t1 = 0
+        dt_hours = (t1 - t0) / 3600.0
+        if dt_hours <= 0:
+            return 0.0
+        return cast(float, max(0.0, (v1 - v0) / dt_hours))
 
     def get_engagement_rate(self, video_data: Dict[str, Any]) -> float:
         """计算综合互动率。
@@ -487,7 +531,7 @@ class BaseAlgorithm(ABC):
         coins = video_data.get("coin_count", 0) or 0
         favorites = video_data.get("favorite_count", 0) or 0
         shares = video_data.get("share_count", 0) or 0
-        return min(1.0, (likes + coins + favorites + shares) / views)
+        return cast(float, min(1.0, (likes + coins + favorites + shares) / views))
 
     def get_quality_score(self, video_data: Dict[str, Any]) -> float:
         """计算内容质量评分，取值范围 [0, 1]。
@@ -511,9 +555,9 @@ class BaseAlgorithm(ABC):
         score = (
             self._W_ENGAGEMENT * engagement + self._W_DANMAKU * danmaku_density + self._W_COIN_LIKE * coin_like_ratio
         )
-        return min(1.0, max(0.0, score))
+        return cast(float, min(1.0, max(0.0, score)))
 
-    def _oldest_history_epoch(self, video_data: Dict[str, Any], history: List) -> Optional[float]:
+    def _oldest_history_epoch(self, video_data: Dict[str, Any], history: List[Dict[str, Any]]) -> Optional[float]:
         """返回 history 中最早记录的 Unix 时间戳；结果缓存在 video_data 上。
 
         排序是单轮预测的热点（被 40+ 算法调用），缓存键取
@@ -523,7 +567,7 @@ class BaseAlgorithm(ABC):
         key = (len(history), last.get("timestamp") if isinstance(last, dict) else None)
         cached = video_data.get("_oldest_ts_memo")
         if isinstance(cached, tuple) and cached[0] == key:
-            return cached[1]
+            return cast(Optional[float], cached[1])
 
         oldest = None
         sorted_history = sorted(history, key=self._timestamp_sort_key)
@@ -556,7 +600,7 @@ class BaseAlgorithm(ABC):
         ts = video_data.get("timestamp")
         if ts is not None:
             if hasattr(ts, "timestamp"):
-                return max(0.0, (now - ts).total_seconds() / 3600.0)
+                return cast(float, max(0.0, (now - ts).total_seconds() / 3600.0))
             if isinstance(ts, (int, float)):
                 return max(0.0, (time.time() - ts) / 3600.0)
         return 0.0
@@ -638,7 +682,7 @@ class BaseAlgorithm(ABC):
 
         return indices[0], indices[-1]
 
-    def _surge_velocities(self, views: List[float], timestamps: List[float]):
+    def _surge_velocities(self, views: List[float], timestamps: List[float]) -> Tuple[float, float, float]:
         """计算当前、短期及长期基线速度。"""
         n = len(views)
         current_size = min(3, n - 1)
@@ -652,7 +696,9 @@ class BaseAlgorithm(ABC):
             v_baseline = v_short
         return v_current, v_short, v_baseline
 
-    def _surge_period_velocities(self, views: List[float], timestamps: List[float], v_current: float):
+    def _surge_period_velocities(
+        self, views: List[float], timestamps: List[float], v_current: float
+    ) -> Tuple[float, float, float, float]:
         """计算同日、同周同期速度及与当前速度的比值。"""
         now_ts = timestamps[-1]
         v_daily = 0.0
@@ -673,8 +719,15 @@ class BaseAlgorithm(ABC):
 
     @staticmethod
     def _fill_surge_velocity_fields(
-        result, v_current, v_short, v_baseline, v_daily, v_weekly, daily_ratio, weekly_ratio
-    ):
+        result: Dict[str, Any],
+        v_current: float,
+        v_short: float,
+        v_baseline: float,
+        v_daily: float,
+        v_weekly: float,
+        daily_ratio: float,
+        weekly_ratio: float,
+    ) -> None:
         """填充推流检测结果中的速度与周期对比字段。"""
         result["baseline_velocity"] = v_baseline
         result["surge_velocity"] = v_current
@@ -692,7 +745,7 @@ class BaseAlgorithm(ABC):
             "weekly_ratio": round(weekly_ratio, 2) if v_weekly > 0 else None,
         }
 
-    def _has_consistent_mild_surge(self, views, timestamps, v_baseline):
+    def _has_consistent_mild_surge(self, views: List[float], timestamps: List[float], v_baseline: float) -> bool:
         """检查最近三个有效区间是否持续高于轻度推流阈值。"""
         n = len(views)
         recent_vels: List[float] = []
@@ -703,7 +756,7 @@ class BaseAlgorithm(ABC):
         return len(recent_vels) >= 3 and all(v > v_baseline * 1.3 for v in recent_vels[-3:])
 
     @staticmethod
-    def _set_primary_surge_classification(result, surge_ratio, is_seasonal):
+    def _set_primary_surge_classification(result: Dict[str, Any], surge_ratio: float, is_seasonal: bool) -> bool:
         """填充强度为 moderate 或 strong 的主要推流分类。"""
         if surge_ratio >= 3.0 and not is_seasonal:
             result["is_surging"] = True
@@ -719,7 +772,15 @@ class BaseAlgorithm(ABC):
             return True
         return False
 
-    def _set_mild_surge_classification(self, result, views, timestamps, v_baseline, surge_ratio, is_seasonal):
+    def _set_mild_surge_classification(
+        self,
+        result: Dict[str, Any],
+        views: List[float],
+        timestamps: List[float],
+        v_baseline: float,
+        surge_ratio: float,
+        is_seasonal: bool,
+    ) -> None:
         """在主要分类未命中时检查轻度推流。"""
         if surge_ratio >= 1.5 and not is_seasonal and len(views) >= 5:
             if self._has_consistent_mild_surge(views, timestamps, v_baseline):
@@ -728,7 +789,16 @@ class BaseAlgorithm(ABC):
                 result["surge_type"] = "mild"
                 result["decay_half_life_hours"] = 12.0
 
-    def _classify_surge(self, result, views, timestamps, v_current, v_baseline, v_daily, daily_ratio):
+    def _classify_surge(
+        self,
+        result: Dict[str, Any],
+        views: List[float],
+        timestamps: List[float],
+        v_current: float,
+        v_baseline: float,
+        v_daily: float,
+        daily_ratio: float,
+    ) -> None:
         """按原阈值分类推流强度并填充结果。"""
         surge_ratio = v_current / max(v_baseline, 0.01)
         result["surge_magnitude"] = round(surge_ratio, 2)
@@ -743,7 +813,7 @@ class BaseAlgorithm(ABC):
             result["decay_half_life_hours"] = 4.0
             result["surge_magnitude"] = daily_ratio
 
-    def _adjust_surge_half_life(self, result, video_data):
+    def _adjust_surge_half_life(self, result: Dict[str, Any], video_data: Dict[str, Any]) -> None:
         """根据视频年龄调整并约束推流半衰期。"""
         age_hours = self.get_video_age_hours(video_data)
         if age_hours > 336:
@@ -875,7 +945,7 @@ class BaseAlgorithm(ABC):
         """
         surge_info = self.detect_surge(video_data)
         if surge_info["is_surging"]:
-            return surge_info["adjusted_velocity"]
+            return cast(float, surge_info["adjusted_velocity"])
         return self.calculate_velocity(video_data)
 
     def get_surge_decay_factor(self, video_data: Dict[str, Any], hours_ahead: float = 1.0) -> float:
@@ -904,11 +974,11 @@ class BaseAlgorithm(ABC):
         mag = surge_info["surge_magnitude"]
         surge_weight = min(0.9, (mag - 1.0) / mag)
         factor = 1.0 - surge_weight * (1.0 - decay)
-        return max(0.3, factor)
+        return cast(float, max(0.3, factor))
 
     # ── NPU 推理辅助 ──────────────────────────────
 
-    def _npu_infer(self, model, input_array, algo_name: str = ""):
+    def _npu_infer(self, model: Any, input_array: Any, algo_name: str = "") -> Any:
         """NPU 加速推理 — CUDA 不可用时自动降级到 NPU，否则用 PyTorch。
 
         用法：在 DL 算法的 predict() 中，将：
@@ -930,9 +1000,8 @@ class BaseAlgorithm(ABC):
         import numpy as np
 
         # 根据用户偏好和 CUDA 可用性决定是否尝试 NPU
-        from algorithms.training.device import get_preferred_device
-
-        prefer = get_preferred_device()
+        device_module = importlib.import_module("algorithms.training.device")
+        prefer = device_module.get_preferred_device()
         cuda_available = torch.cuda.is_available()
 
         if prefer == "openvino_npu":
@@ -946,10 +1015,9 @@ class BaseAlgorithm(ABC):
 
         if try_npu:
             try:
-                from algorithms.training.npu_inference import get_npu_engine
-
                 name = algo_name or self.__class__.__name__
-                engine = get_npu_engine()
+                npu_inference = importlib.import_module("algorithms.training.npu_inference")
+                engine = npu_inference.get_npu_engine()
                 if not engine.is_available:
                     raise RuntimeError("NPU 引擎不可用")
 

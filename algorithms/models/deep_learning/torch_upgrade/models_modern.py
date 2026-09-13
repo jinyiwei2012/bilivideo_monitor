@@ -1,8 +1,10 @@
 """PyTorch model definitions extracted from the compatibility facade."""
 
+from typing import TYPE_CHECKING
+
 from .context import F, _torch_available, nn, torch
 
-if _torch_available:  # noqa: C901
+if _torch_available or TYPE_CHECKING:  # noqa: C901
 
     class RevIN(nn.Module):
         """RevIN（可逆实例归一化）模块。
@@ -415,14 +417,14 @@ if _torch_available:  # noqa: C901
             return self.head(hn.squeeze(0))
 
 else:
-    RevIN = None  # type: ignore
-    NLinearTorchModel = None  # type: ignore
-    NHiTSTorchModel = None  # type: ignore
-    TimeMixerTorchModel = None  # type: ignore
-    BiTCNTorchModel = None  # type: ignore
-    WPMixerTorchModel = None  # type: ignore
-    KoopaTorchModel = None  # type: ignore
-    SegRNNTorchModel = None  # type: ignore
+    RevIN = None
+    NLinearTorchModel = None
+    NHiTSTorchModel = None
+    TimeMixerTorchModel = None
+    BiTCNTorchModel = None
+    WPMixerTorchModel = None
+    KoopaTorchModel = None
+    SegRNNTorchModel = None
 
 __all__ = [
     "RevIN",
