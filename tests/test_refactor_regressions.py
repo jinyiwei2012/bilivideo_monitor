@@ -2533,7 +2533,7 @@ class TestCryptoHardening:
 
         # 旧 XOR 格式：8 个 hex 字符的短标签、无前缀
         data = "legacy-xor".encode()
-        key = crypto._MACHINE_KEY
+        key = crypto.machine_key()
         stream = bytearray()
         counter = 0
         while len(stream) < len(data):
