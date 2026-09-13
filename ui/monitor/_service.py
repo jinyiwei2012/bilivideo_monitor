@@ -548,12 +548,60 @@ def _load_watch_list_from_db():
         return []
 
 
+def _attach_viewers(video: dict, bvid: str, info: dict) -> None:
+    """补充视频在线人数（失败仅记日志）。"""
+    try:
+        viewers = bilibili_api.get_video_viewers(bvid, info.get("cid", 0))
+        if viewers:
+            video["viewers_total_raw"] = viewers.get("total", "0")
+            video["viewers_web_raw"] = viewers.get("count", "0")
+            video["viewers_total"] = _parse_viewer_count(viewers.get("total", "0"))
+            video["viewers_web"] = _parse_viewer_count(viewers.get("count", "0"))
+            video["viewers_app"] = max(0, video["viewers_total"] - video["viewers_web"])
+    except Exception as e:
+        logger.debug("获取视频在线人数失败 %s: %s", bvid, e)
+
+
+def _attach_history(gui, bvid: str, video: dict) -> None:
+    """初始化视频库并挂载历史数据（失败仅记日志）。"""
+    try:
+        video_db = db.get_video_db(bvid)
+        gui.video_dbs[bvid] = video_db
+        video_db.save_video_info(video)
+        history = video_db.get_all_records()
+        if history:
+            gui.history_data[bvid] = [(row["timestamp"], row["view_count"]) for row in history]
+    except Exception as e:
+        logger.debug("初始化视频数据库失败 %s: %s", bvid, e)
+
+
+def _load_one_monitor(gui, bvid: str) -> bool:
+    """加载单个监控视频（元数据 + 在线人数 + 历史）。
+
+    Returns:
+        True 表示已加载并注册；False 表示已存在 / 无数据 / 失败
+    """
+    with gui._data_lock:
+        if any(v.get("bvid") == bvid for v in gui.monitored_videos):
+            return False
+    try:
+        info = bilibili_api.get_video_info(bvid)
+        if not info:
+            return False
+        video = gui._map_api_to_video_dict(bvid, info)
+        _attach_viewers(video, bvid, info)
+        _attach_history(gui, bvid, video)
+        invoke(lambda v=video: gui._restore_video(v))
+        return True
+    except Exception as e:
+        gui.log_panel.add_log("ERROR", f"加载视频 {bvid} 失败: {e}")
+        return False
+
+
 def load_watch_list(gui):
     """启动时加载监控列表，创建每视频预测线程，启动集中拉取"""
     from ui.theme import C
     from config import load_config
-    from core import db, bilibili_api
-    from ui.helpers import _parse_viewer_count
 
     config = load_config()
     watch_list = config.get("watch_list", [])
@@ -565,43 +613,9 @@ def load_watch_list(gui):
     gui._sb("status", f"天依正在加载 {len(watch_list)} 个监控视频…像在银河里收集星星 ♪", color=C["accent"])
 
     def _worker():
-        loaded = 0
         for bvid in watch_list:
-            with gui._data_lock:
-                if any(v.get("bvid") == bvid for v in gui.monitored_videos):
-                    continue
-            try:
-                info = bilibili_api.get_video_info(bvid)
-                if not info:
-                    continue
-                video = gui._map_api_to_video_dict(bvid, info)
-
-                try:
-                    viewers = bilibili_api.get_video_viewers(bvid, info.get("cid", 0))
-                    if viewers:
-                        video["viewers_total_raw"] = viewers.get("total", "0")
-                        video["viewers_web_raw"] = viewers.get("count", "0")
-                        video["viewers_total"] = _parse_viewer_count(viewers.get("total", "0"))
-                        video["viewers_web"] = _parse_viewer_count(viewers.get("count", "0"))
-                        video["viewers_app"] = max(0, video["viewers_total"] - video["viewers_web"])
-                except Exception as e:
-                    logger.debug("获取视频在线人数失败 %s: %s", bvid, e)
-
-                try:
-                    video_db = db.get_video_db(bvid)
-                    gui.video_dbs[bvid] = video_db
-                    video_db.save_video_info(video)
-                    history = video_db.get_all_records()
-                    if history:
-                        gui.history_data[bvid] = [(row["timestamp"], row["view_count"]) for row in history]
-                except Exception as e:
-                    logger.debug("初始化视频数据库失败 %s: %s", bvid, e)
-
-                invoke(lambda v=video: gui._restore_video(v))
-                loaded += 1
+            if _load_one_monitor(gui, bvid):
                 time.sleep(0.15)
-            except Exception as e:
-                gui.log_panel.add_log("ERROR", f"加载视频 {bvid} 失败: {e}")
 
         # ── 所有视频加载完成 → 创建每视频预测线程 + 启动集中拉取 ──
         for video in gui.monitored_videos:

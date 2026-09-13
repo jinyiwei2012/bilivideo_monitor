@@ -2380,3 +2380,95 @@ class TestSnapshotRangeHelpers:
         assert _filter_ts_by_range(ts, None, None) == ts[:3], "无界时仅丢弃解析失败项"
         assert _filter_ts_by_range(ts, datetime(2026, 1, 9), None) == []
         assert _filter_ts_by_range(ts, None, datetime(2025, 12, 31)) == []
+
+
+class TestMonitorLoadHelpers:
+    """M3.4: load_watch_list 抽出的单视频加载助手行为。"""
+
+    @staticmethod
+    def _fake_gui(existing=()):
+        import threading
+        import types
+
+        gui = types.SimpleNamespace()
+        gui._data_lock = threading.Lock()
+        gui.monitored_videos = list(existing)
+        gui.video_dbs = {}
+        gui.history_data = {}
+        gui.restored = []
+        gui.logs = []
+        gui._map_api_to_video_dict = lambda bvid, info: {
+            "bvid": bvid,
+            "title": info.get("title", ""),
+            "cid": info.get("cid", 0),
+        }
+        gui._restore_video = gui.restored.append
+        gui.log_panel = types.SimpleNamespace(add_log=lambda level, msg: gui.logs.append((level, msg)))
+        return gui
+
+    def test_skips_when_already_monitored(self, monkeypatch):
+        import ui.monitor._service as svc
+
+        gui = self._fake_gui(existing=[{"bvid": "BV1"}])
+        calls = {"n": 0}
+        monkeypatch.setattr(svc.bilibili_api, "get_video_info", lambda b: calls.__setitem__("n", calls["n"] + 1))
+
+        assert svc._load_one_monitor(gui, "BV1") is False
+        assert calls["n"] == 0, "已监控的视频不应再请求 API"
+
+    def test_loads_and_attaches_viewers_and_history(self, monkeypatch):
+        import ui.monitor._service as svc
+        from ui.helpers import _parse_viewer_count
+
+        gui = self._fake_gui()
+        monkeypatch.setattr(svc, "invoke", lambda fn: fn())
+        monkeypatch.setattr(svc.bilibili_api, "get_video_info", lambda b: {"title": "t", "cid": 7})
+        monkeypatch.setattr(
+            svc.bilibili_api,
+            "get_video_viewers",
+            lambda b, cid: {"total": "1.2万", "count": "3000"},
+        )
+
+        class _VDB:
+            def __init__(self):
+                self.saved = None
+
+            def save_video_info(self, video):
+                self.saved = video
+
+            def get_all_records(self):
+                return [{"timestamp": "2026-01-01 10:00:00", "view_count": 100}]
+
+        vdb = _VDB()
+        monkeypatch.setattr(svc.db, "get_video_db", lambda b: vdb)
+
+        assert svc._load_one_monitor(gui, "BV2") is True
+        video = gui.restored[0]
+        assert video["viewers_total_raw"] == "1.2万"
+        assert video["viewers_total"] == _parse_viewer_count("1.2万")
+        assert video["viewers_web"] == _parse_viewer_count("3000")
+        assert video["viewers_app"] == max(0, video["viewers_total"] - video["viewers_web"])
+        assert gui.video_dbs["BV2"] is vdb
+        assert gui.history_data["BV2"] == [("2026-01-01 10:00:00", 100)]
+        assert vdb.saved is video, "应把 video_info 写入视频库"
+
+    def test_api_failure_is_logged_and_returns_false(self, monkeypatch):
+        import ui.monitor._service as svc
+
+        gui = self._fake_gui()
+
+        def _boom(bvid):
+            raise RuntimeError("api down")
+
+        monkeypatch.setattr(svc.bilibili_api, "get_video_info", _boom)
+        assert svc._load_one_monitor(gui, "BV3") is False
+        assert gui.logs and gui.logs[0][0] == "ERROR"
+        assert gui.restored == []
+
+    def test_empty_info_returns_false(self, monkeypatch):
+        import ui.monitor._service as svc
+
+        gui = self._fake_gui()
+        monkeypatch.setattr(svc.bilibili_api, "get_video_info", lambda b: None)
+        assert svc._load_one_monitor(gui, "BV4") is False
+        assert gui.restored == [], "无元数据时不应注册视频"

@@ -26,7 +26,6 @@
     "_rank_backends",
     "_request",
     "diff_cmd",
-    "load_watch_list",
     "login_with_password",
     "poll_qrcode_login",
     "scan_alerts_background",
