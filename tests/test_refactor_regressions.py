@@ -537,3 +537,49 @@ class TestQueryBackupClosesConnection:
         rows = crud._query_backup("SELECT 1")
         assert rows == []
         assert created and created[0].closed, "异常路径也应关闭连接"
+
+
+class TestBatchFetchBounded:
+    """M2.4: _batch_fetch_all 使用有界线程池，不再"每视频一个 OS 线程"。"""
+
+    def test_bounded_concurrency_and_completes(self, monkeypatch):
+        import threading
+        import time
+        import ui.monitor._service as svc
+        import utils.memory_guard as mg
+
+        monkeypatch.setattr(mg, "get_safe_workers", lambda: 4)
+
+        active = []
+        max_active = {"n": 0}
+        completed = []
+        lock = threading.Lock()
+
+        def _fake_fetch(gui, bvid, video):
+            with lock:
+                active.append(bvid)
+                max_active["n"] = max(max_active["n"], len(active))
+            time.sleep(0.01)
+            with lock:
+                active.remove(bvid)
+                completed.append(bvid)
+
+        monkeypatch.setattr(svc, "_fetch_one_video", _fake_fetch)
+
+        class _LP:
+            def add_log(self, *a, **k):
+                pass
+
+        class _GUI:
+            def __init__(self, n):
+                self.monitored_videos = [{"bvid": f"BV{i:03d}"} for i in range(n)]
+                self.log_panel = _LP()
+
+            def _sb(self, *a, **k):
+                pass
+
+        svc._batch_fetch_all(_GUI(40))
+
+        assert len(completed) == 40, "所有视频都应被抓取"
+        assert max_active["n"] <= 4, f"并发应受限于 4，实际 {max_active['n']}"
+        assert max_active["n"] >= 1

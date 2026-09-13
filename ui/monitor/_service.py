@@ -7,6 +7,7 @@
 import threading
 import time
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
 from PyQt6.QtCore import QTimer
@@ -27,6 +28,7 @@ _merged_from_db = set()
 _merged_from_db_lock = threading.Lock()
 _central_fetch_running = False
 _central_fetch_lock = threading.Lock()
+_central_stop_event = threading.Event()  # 可中断的间隔等待（替代逐秒 sleep）
 
 _predictors: dict = {}          # bvid → VideoPredictor
 _predictors_lock = threading.Lock()
@@ -387,25 +389,24 @@ def _fetch_danmaku_bg(gui, bvid, cid):
 
 
 def _batch_fetch_all(gui):
-    """拉取所有监控视频的数据（并发）"""
-    videos = list(gui.monitored_videos)
+    """拉取所有监控视频的数据（有界并发，避免"每视频一个 OS 线程"）"""
+    videos = [v for v in list(gui.monitored_videos) if v.get("bvid", "")]
     if not videos:
         return
     gui.log_panel.add_log("INFO", f"开始集中拉取 {len(videos)} 个视频…")
-    threads = []
-    for video in videos:
-        bvid = video.get("bvid", "")
-        if not bvid:
-            continue
-        t = threading.Thread(
-            target=_fetch_one_video, args=(gui, bvid, video),
-            daemon=True, name=f"fetch-{bvid}"
-        )
-        t.start()
-        threads.append(t)
-        time.sleep(0.2)
-    for t in threads:
-        t.join(timeout=60)
+    try:
+        from utils.memory_guard import get_safe_workers
+
+        workers = max(1, min(get_safe_workers(), len(videos)))
+    except Exception:
+        workers = max(1, min(8, len(videos)))
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="fetch") as pool:
+        futures = {pool.submit(_fetch_one_video, gui, v["bvid"], v): v["bvid"] for v in videos}
+        for fut in as_completed(futures):
+            try:
+                fut.result()
+            except Exception as e:
+                logger.debug("抓取失败 %s: %s", futures.get(fut, ""), e)
     gui._sb("last_ref", f"上次刷新啦: {datetime.now().strftime('%H:%M:%S')} ♪")
 
 
@@ -416,6 +417,7 @@ def _start_central_fetcher(gui):
         if _central_fetch_running:
             return
         _central_fetch_running = True
+    _central_stop_event.clear()
 
     gui.log_panel.add_log("INFO", f"集中拉取已启动，每 {DEFAULT_FETCH_INTERVAL}s 拉取所有视频")
 
@@ -428,11 +430,9 @@ def _start_central_fetcher(gui):
                 _batch_fetch_all(gui)
             except Exception as e:
                 logger.error("集中拉取出错: %s", e)
-            for _ in range(DEFAULT_FETCH_INTERVAL):
-                with _central_fetch_lock:
-                    if not _central_fetch_running:
-                        break
-                time.sleep(1)
+            # 可中断等待：停止时立即唤醒，无需逐秒 sleep
+            if _central_stop_event.wait(DEFAULT_FETCH_INTERVAL):
+                break
 
     fire_and_forget(_loop, name="CentralFetcher")
 
@@ -442,6 +442,7 @@ def _stop_central_fetcher():
     global _central_fetch_running
     with _central_fetch_lock:
         _central_fetch_running = False
+    _central_stop_event.set()  # 唤醒正在等待的拉取循环，立即退出
 
 
 def _stop_all_workers():
