@@ -73,11 +73,11 @@ class TrendChart(QWidget):
 
         W = self.width()
         H = self.height()
-        bg = QColor(C.get("canvas_bg", "#0d1117"))
+        bg = QColor(C["canvas_bg"])
         painter.fillRect(QRect(0, 0, W, H), bg)
 
         if self._placeholder:
-            painter.setPen(QColor(C.get("text_2", "#8b949e")))
+            painter.setPen(QColor(C["text_2"]))
             font = QFont("Microsoft YaHei UI", 12)
             painter.setFont(font)
             metrics = QFontMetrics(font)
@@ -106,14 +106,14 @@ class TrendChart(QWidget):
             return _MT + ch - (v - self._min_val) / val_range * ch
 
         # 标题
-        painter.setPen(QColor(C.get("text_1", "#e6edf3")))
+        painter.setPen(QColor(C["text_1"]))
         title_font = QFont("Microsoft YaHei UI", 11)
         title_font.setBold(True)
         painter.setFont(title_font)
         painter.drawText(_ML, _MT // 2 + 4, f"对比指标: {self._metric_label} ♪")
 
         # 网格
-        grid_pen = QPen(QColor(C.get("grid_line", "#21262d")))
+        grid_pen = QPen(QColor(C["grid_line"]))
         grid_pen.setDashPattern([2, 4])
         n_grid = 5
         for i in range(n_grid + 1):
@@ -122,7 +122,7 @@ class TrendChart(QWidget):
             val = self._max_val * ratio
             painter.setPen(grid_pen)
             painter.drawLine(int(_ML), int(y), int(W - _MR), int(y))
-            painter.setPen(QColor(C.get("text_2", "#8b949e")))
+            painter.setPen(QColor(C["text_2"]))
             label_font = QFont("Consolas", 9)
             painter.setFont(label_font)
             painter.drawText(0, int(y - 6), int(_ML - 4), 14, Qt.AlignmentFlag.AlignRight.value, _fmt(val))
@@ -135,7 +135,7 @@ class TrendChart(QWidget):
             ts = self._min_ts + timedelta(seconds=ts_span * ratio)
             x = int(_ML + cw * ratio)
             label = ts.strftime("%m-%d %H:%M") if ts_span < 86400 * 7 else ts.strftime("%m-%d")
-            painter.setPen(QColor(C.get("text_2", "#8b949e")))
+            painter.setPen(QColor(C["text_2"]))
             painter.setFont(tick_font)
             painter.drawText(int(x - 30), int(H - _MB + 6), 60, 16, Qt.AlignmentFlag.AlignCenter.value, label)
 
@@ -192,7 +192,7 @@ class TrendChart(QWidget):
             # 最后一个数据点 + 标注
             lx, ly = coords[-1]
             painter.setBrush(QBrush(color))
-            painter.setPen(QPen(QColor(C.get("bg_base", "#0d1117")), 1))
+            painter.setPen(QPen(QColor(C["bg_base"]), 1))
             painter.drawEllipse(lx - 4, ly - 4, 8, 8)
 
             painter.setPen(QPen(color))

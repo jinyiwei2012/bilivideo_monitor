@@ -32,7 +32,7 @@ class ScrollableFrame(QScrollArea):
         """
         super().__init__(parent)
 
-        self._bg = bg or C.get("bg_elevated", "#1c2128")
+        self._bg = bg or C["bg_elevated"]
 
         self.setWidgetResizable(True)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)

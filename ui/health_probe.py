@@ -102,14 +102,14 @@ class RadarChartWidget(QWidget):
         for val, ang in zip(values, angles):
             r = radius * val / max_val
             data_points.append(QPointF(cx + r * math.cos(ang), cy + r * math.sin(ang)))
-        painter.setBrush(QBrush(QColor("#44fb7299")))
-        data_pen = QPen(QColor("#fb7299"), 2)
+        painter.setBrush(QBrush(QColor(C["probe_fill"])))
+        data_pen = QPen(QColor(C["brand_pink"]), 2)
         painter.setPen(data_pen)
         painter.drawPolygon(data_points)
 
         # 绘制数据点（粉色圆点）
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(QColor("#fb7299")))
+        painter.setBrush(QBrush(QColor(C["brand_pink"])))
         for val, ang in zip(values, angles):
             r = radius * val / max_val
             x = cx + r * math.cos(ang)
@@ -199,7 +199,7 @@ class HealthProbeWindow(DialogBase):
         score = self._probe_result.health_score
         grade = self._probe_result.health_grade
 
-        grade_colors = {"S": "#fb7299", "A": "#23ade5", "B": "#42b983", "C": "#f5a623", "D": "#e74c3c"}
+        grade_colors = C["grade_colors"]
         gc = grade_colors.get(grade, C["text_1"])
 
         # 大分数

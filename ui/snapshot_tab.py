@@ -108,11 +108,11 @@ class SnapshotBarChart(QWidget):
 
         W = self.width()
         H = self.height()
-        bg = QColor(C.get("canvas_bg", "#0d1117"))
+        bg = QColor(C["canvas_bg"])
         painter.fillRect(QRect(0, 0, W, H), bg)
 
         if self._placeholder:
-            painter.setPen(QColor(C.get("text_2", "#8b949e")))
+            painter.setPen(QColor(C["text_2"]))
             font = QFont("Microsoft YaHei UI", 12)
             painter.setFont(font)
             metrics = QFontMetrics(font)
@@ -214,14 +214,14 @@ class SnapshotBarChart(QWidget):
 
             # divider
             if m_idx > 0:
-                pen = QPen(QColor(C.get("border", "#30363d")))
+                pen = QPen(QColor(C["border"]))
                 pen.setDashPattern([6, 4])
                 painter.setPen(pen)
                 painter.drawLine(_BAR_ML, int(sec_y0), int(_BAR_ML + max_section_W), int(sec_y0))
 
             # grid + Y axis
             n_grid = 4
-            grid_pen = QPen(QColor(C.get("grid_line", "#21262d")))
+            grid_pen = QPen(QColor(C["grid_line"]))
             grid_pen.setDashPattern([2, 4])
             label_font = QFont("Consolas", 8)
             for i in range(n_grid + 1):
@@ -230,7 +230,7 @@ class SnapshotBarChart(QWidget):
                 val = max_val * ratio
                 painter.setPen(grid_pen)
                 painter.drawLine(_BAR_ML, int(y), int(_BAR_ML + max_section_W), int(y))
-                painter.setPen(QColor(C.get("text_2", "#8b949e")))
+                painter.setPen(QColor(C["text_2"]))
                 painter.setFont(label_font)
                 painter.drawText(0, int(y - 6), int(_BAR_ML - 4), 14, Qt.AlignmentFlag.AlignRight.value, _fmt(val))
 
@@ -238,11 +238,11 @@ class SnapshotBarChart(QWidget):
             title_font = QFont("Microsoft YaHei UI", 10)
             title_font.setBold(True)
             painter.setFont(title_font)
-            painter.setPen(QColor(C.get("text_1", "#e6edf3")))
+            painter.setPen(QColor(C["text_1"]))
             painter.drawText(int(_BAR_ML + 10), int(sec_y0 + _BAR_MT // 2 + 4), metric_label)
 
             # X axis line
-            painter.setPen(QPen(QColor(C.get("text_2", "#8b949e"))))
+            painter.setPen(QPen(QColor(C["text_2"])))
             painter.drawLine(
                 _BAR_ML, int(sec_y0 + _BAR_MT + chart_H), int(_BAR_ML + max_section_W), int(sec_y0 + _BAR_MT + chart_H)
             )
@@ -280,7 +280,7 @@ class SnapshotBarChart(QWidget):
                         bar_color2 = QColor(_darken(hex_color, 0.55))
                     else:
                         ratio = b_idx / max(len(bars) - 1, 1)
-                        bar_color = QColor(_blend(hex_color, "#ffffff", 0.15 + ratio * 0.2))
+                        bar_color = QColor(_blend(hex_color, C["on_accent"], 0.15 + ratio * 0.2))
                         bar_color2 = QColor(hex_color)
 
                     x0 = x_cursor
@@ -299,7 +299,7 @@ class SnapshotBarChart(QWidget):
                     painter.drawRoundedRect(int(x0), int(y0), int(BAR_W), int(top_h + r * 2), int(r), int(r))
 
                     if val > 0:
-                        painter.setPen(QColor(C.get("text_1", "#e6edf3")))
+                        painter.setPen(QColor(C["text_1"]))
                         val_font = QFont("Consolas", 7)
                         val_font.setBold(True)
                         painter.setFont(val_font)
@@ -315,7 +315,7 @@ class SnapshotBarChart(QWidget):
                     short_ts = ts_lbl[-5:] if len(ts_lbl) > 5 else ts_lbl
                     if source == "milestone":
                         short_ts = ts_lbl.replace("里程碑·", "")
-                    painter.setPen(QColor(C.get("text_2", "#8b949e")))
+                    painter.setPen(QColor(C["text_2"]))
                     ts_font = QFont("Consolas", 7)
                     painter.setFont(ts_font)
                     painter.drawText(
@@ -339,7 +339,7 @@ class SnapshotBarChart(QWidget):
 
         # milestone legend hint
         if self._use_milestone:
-            painter.setPen(QColor(C.get("text_2", "#8b949e")))
+            painter.setPen(QColor(C["text_2"]))
             hint_font = QFont("Microsoft YaHei UI", 8)
             painter.setFont(hint_font)
             painter.drawText(int(_BAR_ML), int(y_offset + 10), "■ 里程碑（深色柱,像夜空里发光的星）♪")

@@ -166,7 +166,7 @@ class SettingsWindow(
             }}
             QTabBar::tab:selected {{
                 background-color: {C['lty_blue']};
-                color: #ffffff;
+                color: {C['on_accent']};
                 border: 1px solid {C['lty_blue']};
                 border-bottom: 1px solid {C['lty_blue']};
                 font-weight: bold;

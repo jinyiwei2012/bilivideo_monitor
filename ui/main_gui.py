@@ -441,7 +441,7 @@ class BilibiliMonitorGUI(QMainWindow):
                     background-color: {C['bg_hover']};
                 }}
                 QPushButton:checked {{
-                    color: #ffffff;
+                    color: {C['on_accent']};
                     background-color: {C['bilibili']};
                 }}
             """)
@@ -936,7 +936,7 @@ class BilibiliMonitorGUI(QMainWindow):
 
     def set_finetune_status(self, text: str, color=None):
         """更新主界面底部状态栏的微调状态"""
-        self._sb("finetune", text, color=color or C.get("accent", "#4A90D9"))
+        self._sb("finetune", text, color=color or C["accent"])
 
 
 def main():
@@ -949,10 +949,10 @@ def main():
     splash = QSplashScreen()
     splash.setWindowFlags(Qt.WindowType.SplashScreen | Qt.WindowType.WindowStaysOnTopHint)
     splash_pm = QPixmap(480, 160)
-    splash_pm.fill(QColor("#161b22"))
+    splash_pm.fill(QColor(C["dash_card_bg"]))
     splash.setPixmap(splash_pm)
     splash.show()
-    splash.showMessage("  B站监控\n  天依正在准备中…♪", Qt.AlignmentFlag.AlignCenter, QColor("#fb7299"))
+    splash.showMessage("  B站监控\n  天依正在准备中…♪", Qt.AlignmentFlag.AlignCenter, QColor(C["brand_pink"]))
     app.processEvents()
 
     window = BilibiliMonitorGUI()

@@ -20,31 +20,9 @@ from ui.theme import C
 logger = logging.getLogger(__name__)
 
 # ── 颜色表 ────────────────────────────────────────────────────────────────────
-PALETTE = [
-    "#fb7299",  # bilibili 粉
-    "#23ade5",  # 蓝
-    "#42b983",  # 绿
-    "#f5a623",  # 橙
-    "#9b59b6",  # 紫
-    "#e74c3c",  # 红
-    "#1abc9c",  # 青绿
-    "#e67e22",  # 棕橙
-    "#3498db",  # 浅蓝
-    "#2ecc71",  # 亮绿
-]
+PALETTE = C["series"]
 
-PALETTE_LIGHT = [
-    "#ff8db5",
-    "#4bbfea",
-    "#66cba0",
-    "#f7b84e",
-    "#b07cc6",
-    "#e57878",
-    "#45d1b8",
-    "#f0a35a",
-    "#5aaee8",
-    "#5ddda2",
-]
+PALETTE_LIGHT = C["series_light"]
 
 # ── 指标定义 ──────────────────────────────────────────────────────────────────
 METRICS = [

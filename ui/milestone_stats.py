@@ -42,8 +42,8 @@ from ui import lty_voice
 from ui.helpers import FONT_BOLD, FONT_SM, fmt_num, is_valid_bvid
 
 PERIODS = ["1周", "1月", "1年"]
-PERIOD_COLORS = {"1周": "#58a6ff", "1月": "#3fb950", "1年": "#f5a623"}
-PERIOD_COLOR_OBJ = {"1周": QColor("#58a6ff"), "1月": QColor("#3fb950"), "1年": QColor("#f5a623")}
+PERIOD_COLORS = C["period_colors"]
+PERIOD_COLOR_OBJ = {k: QColor(v) for k, v in C["period_colors"].items()}
 FIELDS = [
     ("view_count", "播放量", True, "必填"),
     ("like_count", "点赞数", False, ""),

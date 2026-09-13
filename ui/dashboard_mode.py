@@ -18,20 +18,21 @@ from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QPainter, QColor, QFont, QBrush
 
 from ui.helpers import THRESHOLDS, THRESHOLD_NAMES
+from ui.theme import C
 
 logger = logging.getLogger(__name__)
 
 # 大屏颜色主题（深色）
 _DASH_COLORS = {
-    "bg": "#0d1117",
-    "card_bg": "#161b22",
-    "text_1": "#f0f6fc",
-    "text_2": "#8b949e",
-    "accent": "#58a6ff",
-    "success": "#3fb950",
-    "warning": "#d29922",
-    "danger": "#f85149",
-    "bilibili": "#fb7299",
+    "bg": C["dash_bg"],
+    "card_bg": C["dash_card_bg"],
+    "text_1": C["dash_text_1"],
+    "text_2": C["dash_text_2"],
+    "accent": C["dash_accent"],
+    "success": C["dash_success"],
+    "warning": C["dash_warning"],
+    "danger": C["dash_danger"],
+    "bilibili": C["dash_bilibili"],
 }
 
 
@@ -329,7 +330,7 @@ class DashboardWindow(QWidget):
             card.setStyleSheet(f"""
                 QFrame {{
                     background-color: {_DASH_COLORS['card_bg']};
-                    border: 1px solid #30363d;
+                    border: 1px solid {C['dash_border']};
                     border-radius: 8px;
                 }}
             """)
@@ -363,7 +364,7 @@ class DashboardWindow(QWidget):
         table_frame.setStyleSheet(f"""
             QFrame {{
                 background-color: {_DASH_COLORS['card_bg']};
-                border: 1px solid #30363d;
+                border: 1px solid {C['dash_border']};
                 border-radius: 8px;
             }}
         """)
@@ -463,7 +464,7 @@ class DashboardWindow(QWidget):
             card.setStyleSheet(f"""
                 QFrame {{
                     background-color: {_DASH_COLORS['card_bg']};
-                    border: 1px solid #30363d;
+                    border: 1px solid {C['dash_border']};
                     border-radius: 8px;
                 }}
             """)
@@ -518,7 +519,7 @@ class DashboardWindow(QWidget):
         alert_frame.setStyleSheet(f"""
             QFrame {{
                 background-color: {_DASH_COLORS['card_bg']};
-                border: 1px solid #30363d;
+                border: 1px solid {C['dash_border']};
                 border-radius: 8px;
             }}
         """)
@@ -571,7 +572,7 @@ class DashboardWindow(QWidget):
             probe_frame.setStyleSheet(f"""
                 QFrame {{
                     background-color: {_DASH_COLORS['card_bg']};
-                    border: 1px solid #30363d;
+                    border: 1px solid {C['dash_border']};
                     border-radius: 8px;
                 }}
             """)

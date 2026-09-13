@@ -179,14 +179,16 @@ def show_update_dialog(gui, latest, current, url, changelog, channel="stable"):
 
     if is_beta:
         warn = QWidget()
-        warn.setStyleSheet("background-color: #3b1f1f; border: 1px solid #ff4444; border-radius: 4px;")
+        warn.setStyleSheet(
+            f"background-color: {C['warn_bg']}; border: 1px solid {C['warn_border']}; border-radius: 4px;"
+        )
         wl = QVBoxLayout(warn)
         wl.setContentsMargins(8, 4, 8, 4)
         wt = QLabel("△ 测试版要注意哦…天依会和你一起看着的 ♪")
-        wt.setStyleSheet("color: #ff6666; font-size: 10pt; font-weight: bold;")
+        wt.setStyleSheet(f"color: {C['warn_text']}; font-size: 10pt; font-weight: bold;")
         wl.addWidget(wt)
         wd = QLabel("当前是测试版更新通道,有些旋律可能还没谱完呢…\n建议在非生产环境使用哦,天依不想弄丢你的歌声 ♪")
-        wd.setStyleSheet("color: #ff9999; font-size: 9pt;")
+        wd.setStyleSheet(f"color: {C['warn_text_dim']}; font-size: 9pt;")
         wd.setWordWrap(True)
         wl.addWidget(wd)
         layout.addWidget(warn)
@@ -611,10 +613,10 @@ def add_monitor(gui):
     confirm_btn = QPushButton("确认添加 ♪")
     confirm_btn.setStyleSheet(f"""
         QPushButton {{
-            background-color: {C.get('accent', '#4A90D9')}; color: white;
+            background-color: {C['accent']}; color: white;
             border: none; padding: 6px 20px; font-size: 10pt;
         }}
-        QPushButton:hover {{ background-color: {C.get('accent_hover', '#357ABD')}; }}
+        QPushButton:hover {{ background-color: {C['accent_hover']}; }}
     """)
     confirm_btn.clicked.connect(lambda: validate_and_add_video(gui, entry.text().strip(), dialog, status_lbl))
     btn_layout.addStretch()

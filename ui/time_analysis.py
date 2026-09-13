@@ -27,7 +27,7 @@ from ui.dialog_base import DialogBase
 
 logger = logging.getLogger(__name__)
 
-_HEAT_COLORS = ["#0d1117", "#0e4429", "#006d32", "#26a641", "#39d353"]
+_HEAT_COLORS = C["heatmap"]
 
 
 def _heat_color(ratio: float) -> str:
@@ -254,7 +254,7 @@ class TimeAnalysisPanel:
                 item = QTableWidgetItem(fmt_num(int(val)))
                 item.setBackground(QColor(color))
                 if ratio > 0.5:
-                    item.setForeground(QColor("#ffffff"))
+                    item.setForeground(QColor(C["on_accent"]))
                 self._table.setItem(dow, h, item)
 
         self._summary_lbl.setText("♪ 热力图 — 颜色越亮,该时段的播放声浪越高哦")

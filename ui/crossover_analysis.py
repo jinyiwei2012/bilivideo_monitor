@@ -35,13 +35,7 @@ logger = logging.getLogger(__name__)
 _ML, _MR, _MT, _MB = 72, 24, 32, 40
 
 # 折线颜色列表（每对 = 主色 + 浅色）
-LINE_COLORS = [
-    ("#fb7299", "#ff8db5"),
-    ("#23ade5", "#4bbfea"),
-    ("#42b983", "#66cba0"),
-    ("#f5a623", "#f7b84e"),
-    ("#9b59b6", "#b07cc6"),
-]
+LINE_COLORS = list(zip(C["series"], C["series_light"]))[:5]
 
 
 def _fmt_num(n):
@@ -339,7 +333,7 @@ class CrossoverAnalysisWindow(QDialog):
             }}
             QListWidget::item:selected {{
                 background-color: {C['accent']};
-                color: #ffffff;
+                color: {C['on_accent']};
             }}
         """)
         for v in self.monitored_videos:

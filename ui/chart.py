@@ -27,9 +27,9 @@ from PyQt6.QtGui import (
 from ui.theme import C
 from ui.helpers import fmt_num, abbrev, THRESHOLDS, THRESHOLD_NAMES, THRESH_COLORS
 
-_PRED_COLOR = "#0969da"
-_PRED_LIGHT = "#58a6ff"
-_PRED_BG = "#ddf4ff"
+_PRED_COLOR = C["pred_color"]
+_PRED_LIGHT = C["pred_light"]
+_PRED_BG = C["pred_bg"]
 
 
 class _PolylineItem(QGraphicsItem):
@@ -321,7 +321,7 @@ class ChartWidget(QWidget):
         cur_val = views_list[-1]
         self._draw_rect(lx - 32, lv - 22, lx + 32, lv - 6, C["bilibili"])
         label_text = f"+{fmt_num(cur_val)}" if cur_val > 0 and base_v else fmt_num(cur_val)
-        self._draw_text(lx, lv - 14, label_text, QColor("#ffffff"), 8, Qt.AlignmentFlag.AlignCenter)
+        self._draw_text(lx, lv - 14, label_text, QColor(C["on_accent"]), 8, Qt.AlignmentFlag.AlignCenter)
 
         # 预测投影
         if self._prediction:
@@ -336,7 +336,7 @@ class ChartWidget(QWidget):
                 # 虚线连接
                 self._draw_line(last_x, last_y, proj_x, proj_y, _PRED_COLOR, dash=(4, 4))
                 # 预测点
-                self._draw_oval(proj_x, proj_y, 4, _PRED_COLOR, "#ffffff", 2)
+                self._draw_oval(proj_x, proj_y, 4, _PRED_COLOR, C["on_accent"], 2)
                 label = f"预测 {fmt_num(int(pred_val))}" if base_v else f"预测 {fmt_num(int(w_pred))}"
                 self._draw_text(proj_x, proj_y - 14, label, QColor(_PRED_COLOR), 8, Qt.AlignmentFlag.AlignCenter)
 
@@ -481,7 +481,7 @@ class ChartWidget(QWidget):
         ly = py(last_v)
         label_text = f"+{fmt_num(last_v)}" if last_v >= 0 else fmt_num(last_v)
         self._draw_rect(lx - 34, ly - 22, lx + 34, ly - 6, C["chart_line"])
-        self._draw_text(lx, ly - 14, label_text, QColor("#ffffff"), 8, Qt.AlignmentFlag.AlignCenter)
+        self._draw_text(lx, ly - 14, label_text, QColor(C["on_accent"]), 8, Qt.AlignmentFlag.AlignCenter)
 
         # 预测投影
         if pred_delta is not None:
@@ -489,7 +489,7 @@ class ChartWidget(QWidget):
             proj_x = min(lx + spacing_val, W - MR - 10)
             proj_y = py(pred_delta)
             self._draw_line(lx, ly, proj_x, proj_y, _PRED_COLOR, dash=(4, 4))
-            self._draw_oval(proj_x, proj_y, 4, _PRED_COLOR, "#ffffff", 2)
+            self._draw_oval(proj_x, proj_y, 4, _PRED_COLOR, C["on_accent"], 2)
             sign = "+" if pred_delta >= 0 else ""
             self._draw_text(
                 proj_x,

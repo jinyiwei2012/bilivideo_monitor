@@ -889,7 +889,11 @@ class _PieWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._data: dict = {}
-        self._colors = {"positive": "#42b983", "neutral": "#aab0b8", "negative": "#e74c3c"}
+        self._colors = {
+            "positive": C["sentiment_positive"],
+            "neutral": C["sentiment_neutral"],
+            "negative": C["sentiment_negative"],
+        }
         self._labels = {"positive": "积极", "neutral": "中性", "negative": "消极"}
 
     def set_data(self, data: dict):
@@ -918,8 +922,8 @@ class _PieWidget(QWidget):
             angle = int(val * 360 * 16)  # QPainter uses 1/16 degree
             if angle <= 0:
                 continue
-            painter.setBrush(QColor(self._colors.get(key, "#aaa")))
-            painter.setPen(QPen(QColor(self._colors.get(key, "#aaa")), 2))
+            painter.setBrush(QColor(self._colors.get(key, C["sentiment_neutral"])))
+            painter.setPen(QPen(QColor(self._colors.get(key, C["sentiment_neutral"])), 2))
             painter.drawPie(cx - r, cy - r, 2 * r, 2 * r, start_angle, angle)
 
             mid_angle = start_angle + angle // 2
@@ -937,7 +941,7 @@ class _PieWidget(QWidget):
         # Legend
         ly = cy + r + 10
         for key, val in data:
-            painter.setBrush(QColor(self._colors.get(key, "#aaa")))
+            painter.setBrush(QColor(self._colors.get(key, C["sentiment_neutral"])))
             painter.setPen(Qt.PenStyle.NoPen)
             painter.drawRect(10, ly - 4, 10, 8)
             painter.setPen(QColor(C["text_2"]))

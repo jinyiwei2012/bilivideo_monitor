@@ -46,18 +46,7 @@ THRESHOLDS: list = []
 THRESHOLD_NAMES: list = []
 THRESH_COLORS: list = []
 
-_THRESH_PALETTE = [
-    "#1a7f37",  # 绿
-    "#9a6700",  # 琥珀
-    "#8250df",  # 紫
-    "#0969da",  # 蓝
-    "#d1242f",  # 红
-    "#bf3989",  # 粉紫
-    "#0550ae",  # 深蓝
-    "#953800",  # 棕
-    "#0e765c",  # 青绿
-    "#6e40c9",  # 紫罗兰
-]
+_THRESH_PALETTE = C["thresh_palette"]
 
 
 def _get_threshold_colors(n):

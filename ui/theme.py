@@ -66,11 +66,79 @@ THEME_LIGHT = {
     "lty_jade": "#63d3a5",  # 翡翠绿 (绿瞳/玉佩)
     "lty_wave_a": "#66ccff",  # 水波渐变起点
     "lty_wave_b": "#b8e4ff",  # 水波渐变终点
-    # 大屏专用（深色）
-    "dash_bg": "#0b1220",
-    "dash_card_bg": "#101a2c",
-    "dash_text_1": "#eaf4ff",
-    "dash_text_2": "#8aa0b8",
+    # ── 通用前景/叠加与品牌色 ────────────────
+    "on_accent": "#ffffff",  # 强调色之上的文字/描边
+    "accent_pressed": "#0859c6",  # accent 按钮按下态
+    "brand_pink": "#fb7299",  # B站官方粉（大屏/健康度/启动画面）
+    "probe_fill": "#44fb7299",  # 健康度雷达图半透明填充（ARGB）
+    # ── 数据系列调色板（趋势/快照/交叉图共用）──
+    "series": [
+        "#fb7299",
+        "#23ade5",
+        "#42b983",
+        "#f5a623",
+        "#9b59b6",
+        "#e74c3c",
+        "#1abc9c",
+        "#e67e22",
+        "#3498db",
+        "#2ecc71",
+    ],
+    "series_light": [
+        "#ff8db5",
+        "#4bbfea",
+        "#66cba0",
+        "#f7b84e",
+        "#b07cc6",
+        "#e57878",
+        "#45d1b8",
+        "#f0a35a",
+        "#5aaee8",
+        "#5ddda2",
+    ],
+    # ── 阈值调色板（threshold 相关可视化）────
+    "thresh_palette": [
+        "#1a7f37",
+        "#9a6700",
+        "#8250df",
+        "#0969da",
+        "#d1242f",
+        "#bf3989",
+        "#0550ae",
+        "#953800",
+        "#0e765c",
+        "#6e40c9",
+    ],
+    # ── 图表预测投影 ─────────────────────────
+    "pred_color": "#0969da",
+    "pred_light": "#58a6ff",
+    "pred_bg": "#ddf4ff",
+    # ── 健康度等级 ───────────────────────────
+    "grade_colors": {"S": "#fb7299", "A": "#23ade5", "B": "#42b983", "C": "#f5a623", "D": "#e74c3c"},
+    # ── 弹幕情感 ─────────────────────────────
+    "sentiment_positive": "#42b983",
+    "sentiment_neutral": "#aab0b8",
+    "sentiment_negative": "#e74c3c",
+    # ── 时段里程碑 ───────────────────────────
+    "period_colors": {"1周": "#58a6ff", "1月": "#3fb950", "1年": "#f5a623"},
+    # ── 时间热力图 ───────────────────────────
+    "heatmap": ["#0d1117", "#0e4429", "#006d32", "#26a641", "#39d353"],
+    # ── 内存告警框 ───────────────────────────
+    "warn_bg": "#3b1f1f",
+    "warn_border": "#ff4444",
+    "warn_text": "#ff6666",
+    "warn_text_dim": "#ff9999",
+    # 大屏专用（深色，两主题一致）
+    "dash_bg": "#0d1117",
+    "dash_card_bg": "#161b22",
+    "dash_text_1": "#f0f6fc",
+    "dash_text_2": "#8b949e",
+    "dash_border": "#30363d",
+    "dash_accent": "#58a6ff",
+    "dash_success": "#3fb950",
+    "dash_warning": "#d29922",
+    "dash_danger": "#f85149",
+    "dash_bilibili": "#fb7299",
 }
 
 # 暗色主题配色
@@ -125,11 +193,72 @@ THEME_DARK = {
     "lty_jade": "#63d3a5",
     "lty_wave_a": "#66ccff",
     "lty_wave_b": "#2e6fb8",
-    # 大屏专用（深色，暗色模式下不变）
-    "dash_bg": "#0b1220",
-    "dash_card_bg": "#101a2c",
-    "dash_text_1": "#eaf4ff",
-    "dash_text_2": "#8aa0b8",
+    # ── 通用前景/叠加与品牌色 ────────────────
+    "on_accent": "#ffffff",
+    "accent_pressed": "#0859c6",
+    "brand_pink": "#fb7299",
+    "probe_fill": "#44fb7299",
+    # ── 数据系列调色板（两主题一致）──────────
+    "series": [
+        "#fb7299",
+        "#23ade5",
+        "#42b983",
+        "#f5a623",
+        "#9b59b6",
+        "#e74c3c",
+        "#1abc9c",
+        "#e67e22",
+        "#3498db",
+        "#2ecc71",
+    ],
+    "series_light": [
+        "#ff8db5",
+        "#4bbfea",
+        "#66cba0",
+        "#f7b84e",
+        "#b07cc6",
+        "#e57878",
+        "#45d1b8",
+        "#f0a35a",
+        "#5aaee8",
+        "#5ddda2",
+    ],
+    "thresh_palette": [
+        "#1a7f37",
+        "#9a6700",
+        "#8250df",
+        "#0969da",
+        "#d1242f",
+        "#bf3989",
+        "#0550ae",
+        "#953800",
+        "#0e765c",
+        "#6e40c9",
+    ],
+    "pred_color": "#0969da",
+    "pred_light": "#58a6ff",
+    "pred_bg": "#ddf4ff",
+    "grade_colors": {"S": "#fb7299", "A": "#23ade5", "B": "#42b983", "C": "#f5a623", "D": "#e74c3c"},
+    "sentiment_positive": "#42b983",
+    "sentiment_neutral": "#aab0b8",
+    "sentiment_negative": "#e74c3c",
+    "period_colors": {"1周": "#58a6ff", "1月": "#3fb950", "1年": "#f5a623"},
+    "heatmap": ["#0d1117", "#0e4429", "#006d32", "#26a641", "#39d353"],
+    "warn_bg": "#3b1f1f",
+    "warn_border": "#ff4444",
+    "warn_text": "#ff6666",
+    "warn_text_dim": "#ff9999",
+    # 大屏专用（深色，两主题一致）
+    "dash_bg": "#0d1117",
+    "dash_card_bg": "#161b22",
+    "dash_text_1": "#f0f6fc",
+    "dash_text_2": "#8b949e",
+    "dash_border": "#30363d",
+    "dash_accent": "#58a6ff",
+    "dash_success": "#3fb950",
+    "dash_warning": "#d29922",
+    "dash_danger": "#f85149",
+    "dash_bilibili": "#fb7299",
 }
 
 # 当前激活的主题
@@ -180,7 +309,7 @@ def _build_qss(theme: dict) -> str:
     }}
     QPushButton[primary="true"] {{
         background-color: {t['bilibili']};
-        color: #ffffff;
+        color: {t['on_accent']};
         border: none;
     }}
     QPushButton[primary="true"]:hover {{
@@ -193,15 +322,15 @@ def _build_qss(theme: dict) -> str:
     }}
     QPushButton[danger="true"]:hover {{
         background-color: {t['danger']};
-        color: #ffffff;
+        color: {t['on_accent']};
     }}
     QPushButton[accent="true"] {{
         background-color: {t['accent']};
-        color: #ffffff;
+        color: {t['on_accent']};
         border: none;
     }}
     QPushButton[accent="true"]:hover {{
-        background-color: #0859c6;
+        background-color: {t['accent_pressed']};
     }}
     /* 输入框 */
     QLineEdit, QSpinBox, QDoubleSpinBox {{
@@ -467,7 +596,7 @@ def _build_palette(theme: dict) -> QPalette:
     p.setColor(QPalette.ColorRole.ButtonText, _c(t["text_1"]))
     p.setColor(QPalette.ColorRole.BrightText, _c(t["danger"]))
     p.setColor(QPalette.ColorRole.Highlight, _c(t["accent"]))
-    p.setColor(QPalette.ColorRole.HighlightedText, _c("#ffffff"))
+    p.setColor(QPalette.ColorRole.HighlightedText, _c(t["on_accent"]))
     p.setColor(QPalette.ColorRole.Link, _c(t["accent"]))
     p.setColor(QPalette.ColorRole.LinkVisited, _c(t["bilibili"]))
 

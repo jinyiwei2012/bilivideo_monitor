@@ -52,7 +52,7 @@ class BottomBar(QWidget):
         self._add_btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: {C['lty_blue']};
-                color: #ffffff;
+                color: {C['on_accent']};
                 border: none;
                 border-radius: {C['radius_sm']}px;
                 padding: 4px 14px;

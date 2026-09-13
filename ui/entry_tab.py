@@ -282,7 +282,7 @@ class EntryTab(QWidget):
         tab_input_layout = QVBoxLayout(tab_input)
         tab_input_layout.setContentsMargins(0, 0, 0, 0)
 
-        sf = ScrollableFrame(height=None, bg=C.get("bg_base", "#0d1117"))
+        sf = ScrollableFrame(height=None, bg=C["bg_base"])
         tab_input_layout.addWidget(sf)
         self._container = sf.inner
         inner_tabs.addTab(tab_input, "  输入行  ")
@@ -527,7 +527,7 @@ class EntryTab(QWidget):
             # Label
             lbl = QLabel(flabel + ("*" if required else ""))
             lbl.setFixedWidth(50)
-            color = C.get("danger", "#f85149") if required else C.get("text_2", "#8b949e")
+            color = C["danger"] if required else C["text_2"]
             lbl.setStyleSheet(f"color: {color}; font-size: 8pt; background: transparent;")
             lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             row_layout.addWidget(lbl)
@@ -596,7 +596,7 @@ class EntryTab(QWidget):
         if errors:
             msg += f" 呜…还有 {errors} 条没存好"
 
-        color = C.get("success", "#3fb950") if not errors else C.get("warning", "#d29922")
+        color = C["success"] if not errors else C["warning"]
         self._status.setText(msg)
         self._status.setStyleSheet(f"color: {color}; padding: 2px 12px;")
 

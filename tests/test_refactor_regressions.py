@@ -2647,3 +2647,71 @@ class TestSummaryStatsQuery:
         stats = CentralQuery(_FakeDB()).get_summary_stats()
         # 缺表 → 整条查询失败 → 全 0（不抛异常）
         assert stats == {"total_videos": 0, "total_records": 0, "total_predictions": 0}
+
+
+class TestThemeTokenCoverage:
+    """M3.6 守卫：ui/ 面板不得硬编码色值，且引用的 C 键必须在两主题中都存在。"""
+
+    # 文档字符串/注释中描述性提及的品牌色（非渲染用色）
+    _DOC_LITERALS = {
+        "ui/lty_voice.py": {"#66ccff"},
+        "ui/widgets.py": {"#66ccff"},
+    }
+
+    @staticmethod
+    def _ui_files():
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        ui = root / "ui"
+        return root, sorted(p for p in ui.rglob("*.py") if p.name != "theme.py")
+
+    def test_no_hardcoded_colors_in_ui(self):
+        import re
+
+        pattern = re.compile(r"#[0-9a-fA-F]{3}\b|#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{8}\b")
+        root, files = self._ui_files()
+        offenders = []
+        for path in files:
+            rel = path.relative_to(root).as_posix()
+            allowed = self._DOC_LITERALS.get(rel, set())
+            for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                for m in pattern.finditer(line):
+                    if m.group(0).lower() in allowed:
+                        continue
+                    offenders.append(f"{rel}:{lineno}: {line.strip()[:90]}")
+        assert not offenders, "ui/ 中仍有硬编码色值（应引用 C 令牌）:\n" + "\n".join(offenders)
+
+    def test_referenced_theme_keys_exist_in_both_themes(self):
+        import re
+
+        from ui.theme import THEME_DARK, THEME_LIGHT
+
+        pattern = re.compile(r"""C\[['"]([a-z_0-9]+)['"]\]|C\.get\(['"]([a-z_0-9]+)['"]""")
+        root, files = self._ui_files()
+        missing = []
+        for path in files:
+            rel = path.relative_to(root).as_posix()
+            for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                for m in pattern.finditer(line):
+                    key = m.group(1) or m.group(2)
+                    if key not in THEME_LIGHT or key not in THEME_DARK:
+                        missing.append(f"{rel}:{lineno} -> {key}")
+        assert not missing, "引用了不存在的主题令牌:\n" + "\n".join(missing)
+
+    def test_theme_dicts_have_identical_keys(self):
+        from ui.theme import THEME_DARK, THEME_LIGHT
+
+        assert set(THEME_LIGHT) == set(THEME_DARK), (
+            f"两主题键不一致: only_light={sorted(set(THEME_LIGHT) - set(THEME_DARK))} "
+            f"only_dark={sorted(set(THEME_DARK) - set(THEME_LIGHT))}"
+        )
+
+    def test_qss_builds_for_both_themes(self):
+        from ui.theme import THEME_DARK, THEME_LIGHT, _build_palette, _build_qss
+
+        for theme in (THEME_LIGHT, THEME_DARK):
+            qss = _build_qss(theme)
+            assert qss.strip(), "QSS 为空"
+            assert "{t[" not in qss, "存在未替换的令牌占位符"
+            _build_palette(theme)
