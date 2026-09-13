@@ -583,3 +583,32 @@ class TestBatchFetchBounded:
         assert len(completed) == 40, "所有视频都应被抓取"
         assert max_active["n"] <= 4, f"并发应受限于 4，实际 {max_active['n']}"
         assert max_active["n"] >= 1
+
+
+class TestCoverValidityCache:
+    """M2.3: get_valid_cover 命中有效性缓存后不再重复整文件读取 + MD5。"""
+
+    def test_repeated_calls_skip_md5(self, monkeypatch, tmp_path):
+        import utils.cover_manager as cm
+
+        monkeypatch.setattr(cm, "COVER_DIR", str(tmp_path))
+        cm._cover_valid_cache.clear()
+
+        bvid = "BV1xx411c7mD"
+        data = b"fake-image-bytes"
+        (tmp_path / f"{bvid}.jpg").write_bytes(data)
+        (tmp_path / f"{bvid}.jpg.md5").write_text(cm._compute_md5(data))
+
+        calls = {"n": 0}
+        real_compute = cm._compute_md5
+
+        def _counting(d):
+            calls["n"] += 1
+            return real_compute(d)
+
+        monkeypatch.setattr(cm, "_compute_md5", _counting)
+
+        p1 = cm.get_valid_cover(bvid)
+        p2 = cm.get_valid_cover(bvid)
+        assert p1 == p2 == str(tmp_path / f"{bvid}.jpg")
+        assert calls["n"] == 1, "第二次调用应命中缓存，不再计算 MD5"

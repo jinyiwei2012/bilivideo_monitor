@@ -177,7 +177,7 @@ class VideoListPanel(QWidget):
         self.gui = gui
         self._parent = parent
         self._cover_cache = OrderedDict()
-        self._card_widgets = {}  # bvid -> index
+        self._card_widgets = {}  # bvid -> QListWidgetItem（索引，避免线性扫描 O(N²)）
         self._search_text = ""
 
         # 封面加载器 — 在主线程通过 QTimer.singleShot 延迟加载，_cover_semaphore(4) 限制并发
@@ -275,13 +275,10 @@ class VideoListPanel(QWidget):
         delegate = self._list.itemDelegate()
         if isinstance(delegate, VideoCardDelegate):
             delegate.set_cover(bvid, pixmap)
-        # 刷新可见项
-        for i in range(self._list.count()):
-            item = self._list.item(i)
-            data = item.data(Qt.ItemDataRole.UserRole)
-            if data and data.get("bvid") == bvid:
-                self._list.update(self._list.indexFromItem(item))
-                break
+        # 刷新可见项（索引查找）
+        item = self._card_widgets.get(bvid)
+        if item is not None:
+            self._list.update(self._list.indexFromItem(item))
 
     def _on_search(self, text):
         """搜索过滤"""
@@ -308,6 +305,7 @@ class VideoListPanel(QWidget):
     def rebuild_list(self, videos):
         """重建视频列表"""
         self._list.clear()
+        self._card_widgets.clear()
         delegate = self._list.itemDelegate()
         for v in videos:
             bvid = v.get("bvid", "")
@@ -315,6 +313,8 @@ class VideoListPanel(QWidget):
             item.setData(Qt.ItemDataRole.UserRole, v)
             item.setSizeHint(QSize(0, 60))
             self._list.addItem(item)
+            if bvid:
+                self._card_widgets[bvid] = item
 
             # 触发封面异步加载
             cover_url = v.get("pic", v.get("cover_url", ""))
@@ -337,16 +337,14 @@ class VideoListPanel(QWidget):
         bvid = video.get("bvid", "")
         if not bvid:
             return
-        # 检查是否已存在
-        for i in range(self._list.count()):
-            item = self._list.item(i)
-            data = item.data(Qt.ItemDataRole.UserRole)
-            if data and data.get("bvid") == bvid:
-                return
+        # 已存在则跳过（索引 O(1) 查找）
+        if bvid in self._card_widgets:
+            return
         item = QListWidgetItem()
         item.setData(Qt.ItemDataRole.UserRole, video)
         item.setSizeHint(QSize(0, 60))
         self._list.addItem(item)
+        self._card_widgets[bvid] = item
         self._update_count()
 
     def update_card(self, video):
@@ -354,40 +352,38 @@ class VideoListPanel(QWidget):
         bvid = video.get("bvid", "")
         if not bvid:
             return
+        item = self._card_widgets.get(bvid)  # 索引查找，避免 O(N) 线性扫描
+        if item is None:
+            return
+        data = item.data(Qt.ItemDataRole.UserRole)
+        if not data:
+            return
         delegate = self._list.itemDelegate()
-        for i in range(self._list.count()):
-            item = self._list.item(i)
-            data = item.data(Qt.ItemDataRole.UserRole)
-            if data and data.get("bvid") == bvid:
-                # 合并新数据到已有数据
-                data.update(video)
-                item.setData(Qt.ItemDataRole.UserRole, data)
-                # 刷新显示
-                self._list.update(self._list.indexFromItem(item))
-                # 触发封面加载
-                cover_url = video.get("pic", video.get("cover_url", ""))
-                if cover_url:
-                    local = get_valid_cover(bvid)
-                    if local:
-                        pixmap = QPixmap(local)
-                        if not pixmap.isNull() and isinstance(delegate, VideoCardDelegate):
-                            delegate.set_cover(bvid, pixmap)
-                    else:
-                        QTimer.singleShot(0, lambda b=bvid, u=cover_url: (
-                            self._cover_loader.load_cover(b, u)
-                        ))
-                break
+        # 合并新数据到已有数据
+        data.update(video)
+        item.setData(Qt.ItemDataRole.UserRole, data)
+        # 刷新显示
+        self._list.update(self._list.indexFromItem(item))
+        # 触发封面加载
+        cover_url = video.get("pic", video.get("cover_url", ""))
+        if cover_url:
+            local = get_valid_cover(bvid)
+            if local:
+                pixmap = QPixmap(local)
+                if not pixmap.isNull() and isinstance(delegate, VideoCardDelegate):
+                    delegate.set_cover(bvid, pixmap)
+            else:
+                QTimer.singleShot(0, lambda b=bvid, u=cover_url: (
+                    self._cover_loader.load_cover(b, u)
+                ))
 
     def remove_card(self, bvid):
         """移除指定 BV 号的视频卡片（数据层删除后调用，保持界面一致）"""
         if not bvid:
             return
-        for i in range(self._list.count()):
-            item = self._list.item(i)
-            data = item.data(Qt.ItemDataRole.UserRole)
-            if data and data.get("bvid") == bvid:
-                self._list.takeItem(i)
-                break
+        item = self._card_widgets.pop(bvid, None)
+        if item is not None:
+            self._list.takeItem(self._list.row(item))
         self._update_count()
 
     def update_video_count(self):
@@ -404,12 +400,9 @@ class VideoListPanel(QWidget):
 
     def select_by_bvid(self, bvid):
         """按 BV 号选中"""
-        for i in range(self._list.count()):
-            item = self._list.item(i)
-            data = item.data(Qt.ItemDataRole.UserRole)
-            if data and data.get("bvid") == bvid:
-                self._list.setCurrentItem(item)
-                break
+        item = self._card_widgets.get(bvid)
+        if item is not None:
+            self._list.setCurrentItem(item)
 
     def highlight_card(self, bvid):
         """高亮选中指定 BV 号的卡片"""

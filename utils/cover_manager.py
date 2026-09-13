@@ -95,6 +95,11 @@ def save_cover(bvid: str, image_data: bytes, title: str = "") -> str | None:
         return None
 
 
+# 封面有效性缓存：(path, mtime_ns, size) -> True/None
+# 避免同一封面在每次刷新时都重新整文件读取 + 计算 MD5（主线程开销）
+_cover_valid_cache: dict = {}
+
+
 def get_valid_cover(bvid: str, title: str = "") -> str | None:
     """获取本地有效封面路径，若丢失或 MD5 不匹配则返回 None"""
     path = _cover_path(bvid, title)
@@ -109,14 +114,22 @@ def get_valid_cover(bvid: str, title: str = "") -> str | None:
         else:
             return None
     try:
+        st = os.stat(path)
+        cache_key = (path, st.st_mtime_ns, st.st_size)
+        if cache_key in _cover_valid_cache:
+            # 文件未变（路径+mtime+size 一致）→ 直接复用上次结论
+            return path if _cover_valid_cache[cache_key] else None
         with open(path, "rb") as f:
             data = f.read()
         expected = _read_md5(bvid, title)
         if expected is None:
+            _cover_valid_cache[cache_key] = True
             return path
         if _compute_md5(data) == expected:
+            _cover_valid_cache[cache_key] = True
             return path
         logger.info("封面损坏（MD5 不匹配），将重新下载 %s", bvid)
+        _cover_valid_cache[cache_key] = None
         os.remove(path)
     except OSError as e:
         logger.warning("读取封面失败 %s: %s", bvid, e)
