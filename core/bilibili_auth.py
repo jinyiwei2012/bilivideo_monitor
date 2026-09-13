@@ -166,7 +166,8 @@ def login_with_password(self, username: str, password: str, captcha: str = "", c
                 import hashlib as _hl
 
                 mid_raw = str(d.get("mid", ""))
-                ckMd5 = _hl.md5(mid_raw.encode()).hexdigest() if mid_raw else ""
+                # B站协议要求 ckMd5 = md5(DedeUserID)，属协议字段而非安全用途
+                ckMd5 = _hl.md5(mid_raw.encode(), usedforsecurity=False).hexdigest() if mid_raw else ""
                 cookies = {
                     "SESSDATA": d.get("sessdata", ""),
                     "bili_jct": d.get("bili_jct", ""),
@@ -268,7 +269,9 @@ def login_with_password(self, username: str, password: str, captcha: str = "", c
                                     "SESSDATA": d2.get("sessdata", ""),
                                     "bili_jct": d2.get("bili_jct", ""),
                                     "DedeUserID": mid2,
-                                    "DedeUserID__ckMd5": hashlib.md5(mid2.encode()).hexdigest() if mid2 else "",
+                                    "DedeUserID__ckMd5": (
+                                        hashlib.md5(mid2.encode(), usedforsecurity=False).hexdigest() if mid2 else ""
+                                    ),
                                 }.items()
                                 if v
                             }

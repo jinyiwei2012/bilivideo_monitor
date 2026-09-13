@@ -10,10 +10,11 @@ import os
 import re
 import subprocess
 import threading
-import urllib.request
 import zipfile
 from pathlib import Path
 from typing import Callable, Optional
+
+import requests
 
 from config import DATA_DIR
 
@@ -51,10 +52,15 @@ def ensure_aria2() -> bool:
     ARIA2_DIR.mkdir(parents=True, exist_ok=True)
     zip_path = ARIA2_DIR / "aria2.zip"
     logger.info("正在下载 aria2c (%s)…", ARIA2_VERSION)
+    if not ARIA2_DOWNLOAD_URL.startswith(("https://", "http://")):
+        raise ValueError(f"不支持的下载协议: {ARIA2_DOWNLOAD_URL}")
     try:
-        # urlretrieve is deprecated since 3.13; use urlopen for compatibility
-        with urllib.request.urlopen(ARIA2_DOWNLOAD_URL) as resp, open(zip_path, "wb") as f:
-            f.write(resp.read())
+        # 用 requests 流式下载（替代已弃用的 urlretrieve / urlopen）
+        with requests.get(ARIA2_DOWNLOAD_URL, stream=True, timeout=120) as resp:
+            resp.raise_for_status()
+            with open(zip_path, "wb") as f:
+                for chunk in resp.iter_content(chunk_size=1 << 20):
+                    f.write(chunk)
         with zipfile.ZipFile(zip_path, "r") as zf:
             zf.extractall(ARIA2_DIR)
         # 移动 aria2c.exe 到根目录

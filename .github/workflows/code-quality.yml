@@ -1,0 +1,53 @@
+name: Code Quality
+
+on:
+  push:
+    branches: [main, develop, 'refactor/**']
+  pull_request:
+    branches: [main, develop, 'refactor/**']
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install black flake8 bandit radon pytest
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      # 格式门禁：全仓必须符合 black(line-length=120)，不允许 || true
+      - name: Check formatting with Black
+        run: black --check --line-length=120 .
+
+      # Lint 门禁：任何非复杂度违规即失败；复杂度按「函数名基线」棘轮，新增超标函数即失败
+      - name: Lint gate (flake8 + complexity ratchet)
+        run: python scripts/lint_gate.py
+
+      # 安全门禁：-ll 只报 medium/high，现为零问题
+      - name: Security scan with Bandit
+        run: bandit -r . -c pyproject.toml -ll
+
+      # 复杂度报告（仅展示，真正的门禁在 lint gate 的棘轮里）
+      - name: Complexity report
+        run: radon cc -a -s .
+
+      - name: Run tests with Pytest
+        run: python -m pytest tests/ -q
+
+      # 说明：mypy 暂未接入（代码库尚未做类型注解，M3.9 完成后再启用，届时禁止 || true）

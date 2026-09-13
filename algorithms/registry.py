@@ -236,7 +236,7 @@ class AlgorithmRegistry:
 
             ts_arr = np.array([h["timestamp"] for h in history_list], dtype=np.float64)
             v_arr = np.array([h["view_count"] for h in history_list], dtype=np.float64)
-            return hashlib.md5(ts_arr.tobytes() + v_arr.tobytes()).hexdigest()
+            return hashlib.blake2b(ts_arr.tobytes() + v_arr.tobytes(), digest_size=16).hexdigest()
         except Exception:
             return str(len(history_list))
 

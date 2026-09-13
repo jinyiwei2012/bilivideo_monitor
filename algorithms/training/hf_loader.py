@@ -67,6 +67,8 @@ except ImportError:
 # ── HuggingFace 模型仓库 ID 常量 ─────────────────────
 MOIRAI_REPO = "Salesforce/moirai-1.1-R-small"  # MOIRAI-2 小型版本
 LAG_LLAMA_REPO = "time-series-foundation-models/Lag-Llama"  # Lag-Llama 时序基础模型
+LAG_LLAMA_REVISION = "main"
+"""下载版本；如需完全固定依赖可改为具体 commit hash"""
 
 # ── 进程内单例缓存 ──────────────────────────────────
 _models: dict = {}  # {"moirai": model, "lag_llama": model} 或 None（失败标记）
@@ -189,6 +191,7 @@ def get_lag_llama_model() -> Tuple[Optional[Any], bool, str]:
         ckpt_path = hf_hub_download(
             repo_id=LAG_LLAMA_REPO,
             filename="lag-llama.ckpt",
+            revision=LAG_LLAMA_REVISION,
         )
         import torch as _torch
 
