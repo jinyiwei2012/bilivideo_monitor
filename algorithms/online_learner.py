@@ -270,6 +270,8 @@ class OnlineLearner:
             dict: {算法名: {name, ewma_loss, cumulative_loss, error_count, last_error, weight}}
         """
         with self._lock:
+            # 一次性计算整表权重（O(T)），避免每个 tracker 重复调用 get_weights() → O(T²)
+            weights = self.get_weights()
             result = {}
             for name, t in self._trackers.items():
                 result[name] = {
@@ -278,7 +280,7 @@ class OnlineLearner:
                     "cumulative_loss": round(t.cumulative_loss, 4),
                     "error_count": t.error_count,
                     "last_error": round(t.last_error, 4) if t.last_error is not None else None,
-                    "weight": round(self._quick_weight(name), 4),
+                    "weight": round(weights.get(name, 1.0), 4),
                 }
             return result
 
@@ -499,16 +501,18 @@ class OnlineLearner:
 
     # ── 内部方法 ──────────────────────────────────
 
-    def _quick_weight(self, name: str) -> float:
+    def _quick_weight(self, name: str, weights: Optional[Dict[str, float]] = None) -> float:
         """不加锁快速获取权重（调用方必须已持有 _lock）。
 
         Args:
             name: 算法名称
+            weights: 可选，预计算的整表权重字典；传入时避免重复调用 get_weights()。
 
         Returns:
             float: 归一化权重值
         """
-        weights = self.get_weights()
+        if weights is None:
+            weights = self.get_weights()
         return weights.get(name, 1.0)
 
 

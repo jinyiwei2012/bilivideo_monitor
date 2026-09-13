@@ -397,3 +397,32 @@ class TestRegistryAccuracyBatch:
         assert list(accs.keys()) == ["algo_a", "algo_b"]
         assert accs["algo_a"] == pytest.approx(1.0 - 20 / 120, abs=1e-6)
         assert accs["algo_b"] == pytest.approx(0.5)
+
+
+class TestOnlineLearnerStatsLinear:
+    """M1.4: get_algorithm_stats 一次性计算权重，避免 O(T²)（每个 tracker 各算一次）。"""
+
+    def test_get_weights_called_once(self, monkeypatch):
+        from algorithms.online_learner import OnlineLearner
+
+        learner = OnlineLearner()
+        n = 2000
+        for i in range(n):
+            learner.register(f"algo_{i}")
+
+        orig = learner.get_weights
+        calls = {"n": 0}
+
+        def _gw():
+            calls["n"] += 1
+            return orig()
+
+        monkeypatch.setattr(learner, "get_weights", _gw)
+
+        stats = learner.get_algorithm_stats()
+        assert len(stats) == n
+        assert calls["n"] == 1, f"get_weights 应只调用一次，实际 {calls['n']}（O(T²) 回归）"
+
+        w = orig()
+        for name, info in stats.items():
+            assert info["weight"] == round(w.get(name, 1.0), 4)
