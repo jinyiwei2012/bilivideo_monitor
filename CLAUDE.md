@@ -11,10 +11,11 @@ python main.py
 # Or with environment checks + algorithm init
 python run.py
 
-# Lint & format
+# Lint & format（所有命令须在 conda 环境 bili 中运行）
 black --line-length=120 .
 flake8 .
-mypy core/ algorithms/base.py ui/ utils/ || true
+python scripts/lint_gate.py       # flake8 + 复杂度棘轮（基线 .lint-baseline.json，当前 0 项 CC>=16）
+python scripts/type_gate.py       # mypy 棘轮（基线 .mypy-baseline.json，当前为空 = 零容忍）
 bandit -r . -c pyproject.toml -ll
 radon cc -a .
 
@@ -35,7 +36,9 @@ B站视频监控与播放量预测系统 — a **PyQt6** desktop app for monitor
 main.py / run.py           — Entry points
 ├── algorithms/             — Prediction engine (120+ algorithms)
 │   ├── base.py             — BaseAlgorithm: predict(video_data, threshold) → PredictionResult
-│   ├── registry.py         — AlgorithmRegistry: auto-scans models/, parallel predict_all()
+│   ├── registry.py         — AlgorithmRegistry 门面（126 行）；方法按职责拆入 registry_parts/
+│   ├── registry_parts/     — 混入包：_features(特征准备) _ensemble(集成预测)
+│   │                         _warmup(回测预热) _models(模型加载) _shared
 │   ├── weight_manager.py   — ML-driven per-algorithm weight adjustment
 │   ├── online_learner.py   — Hedge online learning + global accuracy aggregation
 │   ├── causal_inference.py — Granger causality between metrics
@@ -53,6 +56,9 @@ main.py / run.py           — Entry points
 │       ├── statistical/    — SVR, random forest, Gaussian process, Bayesian, etc.
 │       ├── ensemble/       — Voting, stacking, XGBoost, LightGBM, CatBoost, etc.
 │       ├── deep_learning/  — LSTM, GRU, TCN, N-BEATS, TimesNet, DLinear, PatchTST, etc.
+│       │   └── torch_upgrade/ — 36 个 *TorchModel + runtime/backends/prediction/
+│       │                        model_io/layers 子模块（`_torch_upgrade.py` 仅 126 行门面，
+│       │                        41 个对外名字保持不变）
 │       ├── advanced/       — Kalman filter, change point, viral potential, quality score
 │       ├── content/        — Content-based algorithms
 │       ├── event/          — Event-driven prediction
@@ -77,7 +83,10 @@ main.py / run.py           — Entry points
 │       └── central_backup.py— Backup sync + diff detection
 ├── ui/                      — PyQt6 GUI panels (QWidget + QGraphicsView + QSS)
 │   ├── main_gui.py         — Main window, titlebar, navigation, 3-column splitter
-│   ├── main_gui_events.py  — Event handlers (add/remove/push/update)
+│   ├── main_gui_events.py  — 事件处理器门面（96 行，41 个对外名字保持）
+│   ├── main_gui_events_monitor.py — 监控增删/选择/详情
+│   ├── main_gui_events_runtime.py — 拉取/定时器/模型/训练/推送/导航
+│   ├── main_gui_events_update.py  — 更新对话框/通道切换/下载进度
 │   ├── main_gui_tick.py    — 1s global tick: countdown, periodic sync, alerts
 │   ├── main_gui_data.py    — Data ops (load/save/restore)
 │   ├── theme.py            — Dark theme design tokens (C dict)
@@ -90,6 +99,9 @@ main.py / run.py           — Entry points
 │   ├── monitor/            — Monitor service
 │   │   ├── _service.py     — Per-video worker threads, fetch+sleep loop
 │   │   └── _prediction.py  — Prediction dispatch + surge detection
+│   ├── training_panel.py   — 训练面板门面（43 行）；逻辑拆入 training_{base,batch,events,
+│   │                         jobs,logging,monitoring,refresh,runner,ui_build}.py
+│   ├── finetune_panel.py   — 微调面板（472 行）；拆出 finetune_{jobs,progress}.py
 │   ├── settings_*.py       — Settings tabs (general/monitor/notif/proxy/account/advanced)
 │   └── ...                 — 30+ panels: dialogs, search, training, comparison, etc.
 ├── utils/                   — Utilities
@@ -100,9 +112,31 @@ main.py / run.py           — Entry points
 │   ├── report_exporter.py  — HTML/CSV export + optional AI insight paragraph
 │   ├── alert_review.py     — HTML alert review cards (details + mini trend)
 │   └── ...
+├── scripts/                 — lint_gate.py(flake8+复杂度棘轮) type_gate.py(mypy 棘轮)
+│                              sign.py / update_hashes.py / characterize_algorithms.py 等
+├── tests/                   — pytest 回归测试（258 passed），核心在 test_refactor_regressions.py
 ├── config/                  — JSON config load/save with deep-merge defaults
 └── data/                    — Runtime data (settings, DBs, covers, logs)
 ```
+
+### Quality Gates (CI 强制，见 `.github/workflows/code-quality.yml`)
+
+| 门禁 | 命令 | 当前状态 |
+|---|---|---|
+| 格式 | `black --check --line-length=120 .` | 340 文件全部通过 |
+| Lint | `python scripts/lint_gate.py` | flake8 **0 项**；复杂度基线 **0**（无 CC>=16 函数） |
+| 类型 | `python scripts/type_gate.py` | mypy **0 错误**（基线为空 = 零容忍） |
+| 安全 | `bandit -r . -c pyproject.toml -ll` | Medium/High = 0（137 项均为 Low 严重度，被 `-ll` 过滤） |
+| 测试 | `python -m pytest tests/ -q` | **258 passed** |
+
+- **复杂度棘轮**（`.lint-baseline.json`）：按「函数名」记录，新增超标函数即失败；重构后用
+  `python scripts/lint_gate.py --update-baseline` 收紧。
+- **类型棘轮**（`.mypy-baseline.json`）：按「文件|错误码|消息」记录（**不含行号**，避免重构导致基线失配），
+  新增类型错误即失败；当前基线为空。
+- **抑制标签政策**：禁止新增 `# type: ignore` 与 `# noqa`。仅以下视为有意设计并被允许：
+  第三方可用性探测的 `F401`（torch / transformers / huggingface_hub / socks / intel_extension_for_pytorch /
+  torch_directml）、Qt 命名约定覆写的 `N802`（`boundingRect` / `paint` / `paintEvent`）、
+  torch 惰性导入守卫块的 `C901`（`if _torch_available or TYPE_CHECKING:`）、CLI 脚本刻意的 `BLE001`。
 
 ### Key Design Decisions
 
@@ -124,6 +158,24 @@ main.py / run.py           — Entry points
 
 9. **Incremental UI updates**: Prediction panels use cached widget references to call `setText()` on existing QLabel objects rather than rebuilding widget trees. Stat bar values update without destroying card frames.
 
+10. **巨型模块拆分 + 门面再导出**: 拆分巨型模块时，原模块退化为「门面」，用显式
+    `from ... import ...` 或 `__all__` 保持**对外导入面零变**——`algorithms/registry_parts/`（原
+    `registry.py` 1333→126 行）、`algorithms/models/deep_learning/torch_upgrade/`（原 `_torch_upgrade.py`
+    3051→126 行，41 个对外名字保持）、`ui/main_gui_events_{monitor,runtime,update}.py`（原 1262→96 行，
+    41 个名字保持）、`ui/training_*.py`（原 1375→43 行）、`ui/finetune_{jobs,progress}.py`。
+    每次拆分都必须通过「导入面校验 + 全量测试」，注册表算法数（**137**）不得变化。
+
+11. **主题令牌中心化**: 所有颜色集中在 `ui/theme.py` 的 `C` 字典（**78 个令牌**：数据系列
+    `series`/`series_light`、大屏 `dash_*`、预测投影 `pred_*`、阈值调色板 `thresh_palette`、等级
+    `grade_colors`、情感 `sentiment_*`、时段 `period_colors`、热力 `heatmap`、告警框 `warn_*`、
+    `on_accent`/`accent_pressed`/`brand_pink`/`probe_fill` 等）。`THEME_LIGHT` 与 `THEME_DARK`
+    的键集合必须一致（有守卫测试），`ui/` 内不得再出现硬编码色值。
+
+12. **质量棘轮而非一次性清零**: 复杂度用 `scripts/lint_gate.py`（按函数名），类型用
+    `scripts/type_gate.py`（按 文件|错误码|消息）；两者都由 CI 硬性执行，且都支持
+    `--update-baseline` 在改善后收紧。`mypy.ini` 额外设置 `explicit_package_bases = True` 与
+    `mypy_path = .`，避免「同一文件被识别为两个模块名」而中止检查。
+
 ### Algorithm Category Labels
 
 Existing categories: `"速度类"`, `"时间衰减"`, `"扩散模型"`, `"时间序列"`, `"统计模型"`, `"集成学习"`, `"深度学习"`, `"高级分析"`, `"基础"`, `"其他"`.
@@ -136,3 +188,6 @@ Existing categories: `"速度类"`, `"时间衰减"`, `"扩散模型"`, `"时间
 - `defusedxml` is a **hard dependency** for XXE-safe XML parsing. No fallback to `xml.etree.ElementTree`.
 - Background threads dispatch UI updates via `ui/invoker.py` → `invoke()` for thread-safe QWidget operations.
 - `cryptography` is required for cookie encryption. XOR fallback logs a warning.
+- **禁止抑制**：不要新增 `# type: ignore` / `# noqa`。类型问题要真修（补注解、`cast` 到明确类型、
+  `isinstance` 收窄、对动态值显式标注 `Any`），复杂度问题要抽函数而不是忽略。
+- 提交前至少跑：`python scripts/lint_gate.py`、`python scripts/type_gate.py`、`python -m pytest tests/ -q`。

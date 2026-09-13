@@ -1,5 +1,10 @@
 # B站视频监控与播放量预测系统 — 代码审查报告
 
+> **状态（已过时/部分已修复）**：本文记录的是重构前（`refactor/optimization` 分支之前）的代码状态。所列问题绝大多数已在 M0–M3 中修复：
+> `flake8` 959→0、`mypy` 1513→0、`pytest` 115→258 passed。
+> 最终验收结论见 `OPTIMIZATION_PLAN.md` §7（7 项已全部勾选），变更摘要见 `CHANGELOG.md`。
+> 保留原文以供追溯。
+
 > **审查日期:** 2026-06-27 | **最后修复:** 2026-06-27 (P2 终轮) | **Python:** 3.10 | **GUI:** PyQt6 | **数据库:** SQLite
 >
 > **审查范围:** 全项目 ~230 个 Python 文件，覆盖 `ui/`、`core/`、`algorithms/`、`utils/`、`config/`、`tests/`、`scripts/` 及入口文件

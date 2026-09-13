@@ -1,11 +1,11 @@
 # B站视频监控与播放量预测系统
 
-基于 **PyQt6** 的 Bilibili 视频数据监控与播放量预测桌面应用，集成 **120+ 种预测算法**，支持 Windows 原生推送和 QQ Bot (OneBot) 推送。
+基于 **PyQt6** 的 Bilibili 视频数据监控与播放量预测桌面应用，集成 **137 种预测算法**，支持 Windows 原生推送和 QQ Bot (OneBot) 推送。
 
 ## 功能特性
 
 - **视频监控** — 实时监控播放量、点赞、投币、弹幕、在线人数等指标
-- **播放量预测** — 120+ 种算法预测到达 10万 / 100万 / 1000万 播放量所需时间
+- **播放量预测** — 137 种算法预测到达 10万 / 100万 / 1000万 播放量所需时间
 - **预测精度体系** — 稳健增量速率（MAD 剪除 API 冻结/补量）、log-ETA 加权集成、保形 log 域预测区间、生命周期自适应置信
 - **加权集成** — ML 驱动的算法权重自动调整（含 Hedge 在线学习 + 回测预热冷启动）
 - **智能告警 v2** — 异常检测分级推送（high/medium/low），阈值达标自动扩档，HTML 异动复盘卡
@@ -61,15 +61,16 @@ python main.py
 ```
 b站监控/
 ├── main.py / run.py            # 入口文件
-├── algorithms/                 # 预测引擎 (120+ 算法)
+├── algorithms/                 # 预测引擎 (137 算法)
 │   ├── base.py                 # BaseAlgorithm 基类
-│   ├── registry.py             # 算法注册器（自动发现 + 加权集成）
+│   ├── registry.py             # 算法注册器门面（126 行）+ registry_parts/ 混入包
 │   ├── weight_manager.py       # ML 权重管理
 │   ├── online_learner.py       # Hedge 在线学习
 │   ├── causal_inference.py     # Granger 因果推断
 │   ├── graph_neural.py         # 图神经网络
 │   ├── training/               # PyTorch 训练管线
-│   └── models/                 # 算法实现（按类别分目录）
+│   └── models/                 # 算法实现（按类别分目录，共 137 个算法）
+│       └── deep_learning/torch_upgrade/  # 36 个 *TorchModel + 运行时/后端/model_io 子模块
 ├── core/                       # 核心模块
 │   ├── bilibili_api.py         # B站 API (412 重试 / 代理 / WBI 签名)
 │   ├── bilibili_auth.py        # 登录认证（扫码/密码/Cookie）
@@ -79,14 +80,19 @@ b站监控/
 │   └── database/               # SQLite（每视频独立库 + 中央库）
 ├── ui/                         # PyQt6 界面
 │   ├── main_gui.py             # 主窗口（三栏布局 + 全局时钟）
+│   ├── main_gui_events*.py     # 事件门面 + monitor/runtime/update 三个域模块
 │   ├── detail_panel.py         # 中间详情 + 图表
 │   ├── prediction_panel.py     # 右侧预测面板
 │   ├── video_list_panel.py     # 左侧视频列表
 │   ├── chart.py                # QGraphicsView 趋势图
 │   ├── theme.py                # 深色主题设计令牌
 │   ├── dashboard_mode.py       # 看板大屏
+│   ├── training_panel.py       # 训练面板门面 + training_*.py（9 个模块）
+│   ├── finetune_panel.py       # 微调面板 + finetune_{jobs,progress}.py
 │   ├── monitor/                # 监控服务 (per-video worker)
 │   └── settings_*.py           # 各设置标签页
+├── scripts/                    # lint_gate.py / type_gate.py 等门禁与维护脚本
+├── tests/                      # pytest 回归测试（258 passed）
 ├── utils/                      # 工具模块
 ├── config/                     # 配置管理
 └── data/                       # 运行时数据（不入 git）
@@ -142,13 +148,28 @@ class MyAlgorithm(BaseAlgorithm):
 > 所有命令须在 conda 环境 **`bili`** 中运行（见上方「环境固定」）。
 
 ```bash
-python main.py                    # 启动
-black --line-length=120 .         # 格式化
-flake8 .                          # 静态检查
-bandit -r . -c pyproject.toml -ll # 安全扫描
-radon cc -a .                     # 圈复杂度
-pre-commit run --all-files        # 提交前检查
+python main.py                       # 启动
+black --line-length=120 .            # 格式化
+flake8 .                             # 静态检查
+python scripts/lint_gate.py          # 门禁：flake8 + 复杂度棘轮（基线 0 项 CC>=16）
+python scripts/type_gate.py          # 门禁：mypy 棘轮（基线为空 = 零容忍）
+bandit -r . -c pyproject.toml -ll    # 安全扫描
+radon cc -a .                        # 圈复杂度
+pre-commit run --all-files           # 提交前检查
 ```
+
+### 代码质量门禁（CI 强制，已移除 `|| true`）
+
+| 门禁 | 命令 | 当前状态 |
+|---|---|---|
+| 格式 | `black --check --line-length=120 .` | 340 文件全部通过 |
+| Lint | `python scripts/lint_gate.py` | flake8 **0 项**；复杂度基线 **0**（无 CC>=16 函数） |
+| 类型 | `python scripts/type_gate.py` | mypy **0 错误**（基线为空 = 零容忍） |
+| 安全 | `bandit -r . -c pyproject.toml -ll` | Medium/High = 0 |
+| 测试 | `python -m pytest tests/ -q` | **258 passed** |
+
+> 抑制标签政策：禁止新增 `# type: ignore` 与 `# noqa`；仅第三方可用性探测（`F401`）、
+> Qt 命名约定覆写（`N802`）、torch 惰性导入守卫（`C901`）与 CLI 刻意宽泛捕获（`BLE001`）例外。
 
 ## 文档
 

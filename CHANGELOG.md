@@ -1,5 +1,46 @@
 # 更新日志
 
+## 重构/优化里程碑 M0–M3（`refactor/optimization`）
+
+### ✅ 质量门禁（全部硬性，已移除 `|| true` / `exit 0`）
+- `flake8` **959 → 0**；复杂度基线 30 → **0**（无 CC>=16 函数）
+- `mypy` **1513 → 0**（739 条历史错误全部真修，基线清空 = 零容忍）；`# type: ignore` 全部消除
+- `black --check` 340 文件通过；`bandit -ll` Medium/High = 0
+- `pytest` **115 → 258 passed**
+- 新增 `scripts/lint_gate.py`（复杂度棘轮）与 `scripts/type_gate.py`（类型棘轮）并接入 CI
+
+### 🧩 结构拆分（对外导入面零变）
+- `registry.py` 1333→126（+`registry_parts/`）；`_torch_upgrade.py` 3051→126（+`torch_upgrade/`，41 个名字保持）
+- `main_gui_events.py` 1262→96（+3 个域 mixin，41 个名字保持）
+- `training_panel.py` 1375→43（+9 个模块）；`finetune_panel.py` 953→472（+2 个模块）
+- 注册表算法数 **137**，id 唯一且完备（修正 `bass_diffusion_growth` 冲突，补 4 个缺失 id）
+
+### 📉 复杂度
+- 30 个 CC>=16 函数全部降至 ≤15（`try_torch_predict` 42→14、`_prepare_video_data` 35→5、`predict_all` 27→5 等）
+
+### 🎨 主题令牌化
+- `ui/theme.py` 集中 **78 个令牌**（`series`/`series_light`/`dash_*`/`pred_*`/`grade_colors`/`sentiment_*`/`period_colors`/`heatmap`/`warn_*` 等）
+- `ui/` 内硬编码色值 125 处 → 2 处（仅文档描述性提及）；两主题键集合同构（守卫测试）
+
+### 🔐 加密加固
+- 密文版本前缀 `f1:`/`x1:`；XOR 回退 HMAC 标签 32bit → 完整 64 hex；`is_encrypted` 前缀精确判定
+- 机器密钥改惰性 + 进程内缓存，移除从未生效的 PowerShell CPU 探测（冷启动约省 3s）
+
+### 🧹 仓库与 DB 卫生
+- 取消跟踪 `.omo/run-continuation/*.json`、`data/*.json`、`data/**/*.csv` 运行产物并补全 `.gitignore`
+- 刷新 `main.py` 内嵌完整性哈希；`dataset.py` 监控记录列名白名单校验（防拼接注入）
+- `central_query.get_summary_stats` 三次 COUNT 合并为单次 UNION ALL
+
+### 🧪 测试
+- 新增契约/回归测试覆盖：A+B 双尺度训练目标、稳健增量、告警检测器、Hedge 在线学习器、
+  `_fetch_one_video` 锁作用域（网络 I/O 不在锁内）、主题令牌守卫、加密加固、注册表 id 唯一/完备、
+  算法源码可编译、索引、后台缓存、时间戳规范格式等
+
+### ⚠️ 已知观察（未改行为，已用测试锁定）
+- `algorithms/training/dataset.py` 的长期目标 `long_rate[N-1]` 补 0 会被末端样本均值纳入，
+  轻微稀释靠近序列尾部的长期监督（`test_tail_zero_pad_dilutes_long_target`）。
+
+
 ## Release 2026-09-03 (v3.2.0)
 
 ### 🎯 预测精度提升体系

@@ -74,3 +74,47 @@ ui/main_gui.py                          B 18.96
 - `radon cc`：被改动函数的 CC **下降**，无新增 >15。
 - `radon mi`：目标文件 MI 上升；`registry.py` / `_torch_upgrade.py` / `training_panel.py` 离开 C 级。
 - 每个改动单元单独一个 commit，先跑该单元"验证"再提交（见 `OPTIMIZATION_PLAN.md` §1.7/§1.8、§9、§10）。
+
+---
+
+## 6. 重构后（最终状态）
+
+> 分支 `refactor/optimization`，比 `main` 领先 79 个提交；`OPTIMIZATION_PLAN.md` §7 的 7 项验收标准已全部勾选。
+
+| 指标 | 重构前基线 | 最终状态 |
+|---|---|---|
+| `pytest tests/ -q` | 115 passed | **258 passed** |
+| `flake8 .` | 959 项 | **0 项** |
+| 复杂度（CC>=16 函数数） | 30 | **0**（基线 `.lint-baseline.json` 为空） |
+| `mypy` | 1513 条错误 | **0 条**（基线 `.mypy-baseline.json` 为空 = 零容忍） |
+| `# type: ignore` | 7 | **0** |
+| `# noqa` | 29 | **19**（全部为有意设计：可用性探测 `F401` / Qt 命名 `N802` / torch 守卫 `C901` / CLI 宽泛捕获 `BLE001`） |
+| `black --check --line-length=120 .` | — | 340 文件全部通过 |
+| `bandit -ll` | — | Medium 0 / High 0 |
+
+### 结构拆分结果（对外导入面零变）
+
+| 原模块 | 行数 | 拆分为 |
+|---|---|---|
+| `algorithms/registry.py` | 1333 → **126** | `algorithms/registry_parts/`（`_features` `_ensemble` `_warmup` `_models` `_shared`） |
+| `algorithms/models/deep_learning/_torch_upgrade.py` | 3051 → **126** | `torch_upgrade/`（runtime/backends/prediction/model_io/layers + 4 个模型模块），**41 个对外名字保持** |
+| `ui/main_gui_events.py` | 1262 → **96** | `main_gui_events_{monitor,runtime,update}.py`，**41 个名字保持** |
+| `ui/training_panel.py` | 1375 → **43** | `ui/training_{base,batch,events,jobs,logging,monitoring,refresh,runner,ui_build}.py` |
+| `ui/finetune_panel.py` | 953 → **472** | `ui/finetune_{jobs,progress}.py` |
+
+### 复杂度热点（radon，拆分/重构前 → 后）
+
+| 函数 | 前 | 后 |
+|---|---|---|
+| `_torch_upgrade.try_torch_predict` | 42 | 14 |
+| `registry._prepare_video_data` | 35 | 5 |
+| `registry.predict_all` | 27 | 5 |
+| `SnapshotBarChart.paintEvent` | 25 | 7 |
+| `ModelTrainer._train_one` | 26 | 3 |
+| `PredictionAccuracyPanel._load_data` | 28 | 9 |
+
+### 门禁脚本
+
+- `scripts/lint_gate.py` —— flake8 + 复杂度棘轮（按**函数名**），`--update-baseline` 收紧。
+- `scripts/type_gate.py` —— mypy 棘轮（按**文件|错误码|消息**，不含行号），`--update-baseline` 收紧。
+- 两者均由 `.github/workflows/code-quality.yml` 硬性执行。
