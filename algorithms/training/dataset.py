@@ -164,6 +164,32 @@ def _ts_to_iso(ts: float) -> str:
     return datetime.fromtimestamp(ts).isoformat()
 
 
+_MONITOR_RECORD_COLUMNS = frozenset(
+    {
+        "view_count",
+        "like_count",
+        "coin_count",
+        "share_count",
+        "favorite_count",
+        "danmaku_count",
+        "reply_count",
+        "viewers_total",
+        "viewers_web",
+        "viewers_app",
+        "like_view_ratio",
+    }
+)
+"""monitor_records 表允许作为特征读取的数值列（拼接 SQL 前必须校验，防注入）。"""
+
+
+def _validated_columns(features: Tuple[str, ...]) -> Tuple[str, ...]:
+    """校验特征列名是否都在白名单内；含非法列名时抛 ValueError。"""
+    invalid = [name for name in features if name not in _MONITOR_RECORD_COLUMNS]
+    if invalid:
+        raise ValueError(f"不支持的监控记录列: {invalid}")
+    return features
+
+
 def _load_records(
     bvid: str, features: Tuple[str, ...], data_root: str = _DATA_ROOT, min_timestamp: Optional[float] = None
 ) -> Tuple[Optional[np.ndarray], float]:
@@ -188,13 +214,13 @@ def _load_records(
     if not os.path.exists(db_path):
         return (None, 0.0)
     try:
+        cols = ", ".join(_validated_columns(features))  # 白名单校验后再拼接
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row  # 按列名访问
         # WAL 模式提高并发读取性能，busy_timeout 防止写锁冲突
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA busy_timeout=5000")
         cursor = conn.cursor()
-        cols = ", ".join(features)
         if min_timestamp is not None:
             # 数据库存储 ISO 字符串，需要转换后比较
             _iso = _ts_to_iso(min_timestamp)
@@ -205,7 +231,7 @@ def _load_records(
             cursor.execute(f"SELECT {cols}, timestamp FROM monitor_records ORDER BY timestamp ASC")
         rows = cursor.fetchall()
         conn.close()
-    except sqlite3.Error as e:
+    except (sqlite3.Error, ValueError) as e:
         logger.warning("[dataset] 读取 %s 失败: %s", bvid, e)
         return (None, 0.0)
     if not rows:

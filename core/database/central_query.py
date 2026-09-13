@@ -71,17 +71,17 @@ class CentralQuery:
         )
 
     def get_summary_stats(self) -> Dict:
-        """获取数据库汇总统计"""
+        """获取数据库汇总统计（单次 UNION ALL，避免三次查询往返）。"""
         stats = {"total_videos": 0, "total_records": 0, "total_predictions": 0}
         try:
-            for key, table in [
-                ("total_videos", "videos"),
-                ("total_records", "monitor_records"),
-                ("total_predictions", "predictions"),
-            ]:
-                rows = self._run_query(f"SELECT COUNT(*) as cnt FROM {table}")
-                if rows:
-                    stats[key] = rows[0]["cnt"]
+            rows = self._run_query(
+                "SELECT 'total_videos' AS k, COUNT(*) AS cnt FROM videos "
+                "UNION ALL SELECT 'total_records', COUNT(*) FROM monitor_records "
+                "UNION ALL SELECT 'total_predictions', COUNT(*) FROM predictions"
+            )
+            for row in rows:
+                if row["k"] in stats:
+                    stats[row["k"]] = row["cnt"]
         except Exception as e:
             logger.warning("获取统计失败: %s", e)
         return stats

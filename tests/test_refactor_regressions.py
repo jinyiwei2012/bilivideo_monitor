@@ -2549,3 +2549,101 @@ class TestCryptoHardening:
         tag8 = hmac.new(key, enc, hashlib.sha256).hexdigest()[:8]
         legacy_xor = base64.urlsafe_b64encode(tag8.encode() + enc).decode()
         assert crypto.decrypt(legacy_xor) == "legacy-xor"
+
+
+class TestDatasetColumnWhitelist:
+    """M3.10: dataset 特征列白名单校验，阻止拼接 SQL 注入。"""
+
+    def test_valid_columns_pass_through(self):
+        from algorithms.training import dataset
+
+        cols = ("view_count", "like_count", "danmaku_count")
+        assert dataset._validated_columns(cols) == cols
+
+    def test_injection_attempt_rejected(self):
+        import pytest
+
+        from algorithms.training import dataset
+
+        for bad in ("view_count; DROP TABLE monitor_records", "1=1", "view_count, x", "timestamp FROM x --"):
+            with pytest.raises(ValueError):
+                dataset._validated_columns((bad,))
+
+    def test_load_records_rejects_invalid_column_without_crash(self, tmp_path):
+        import sqlite3
+
+        from algorithms.training import dataset
+
+        bvid = "BV1GJ411x7h7"
+        vdir = tmp_path / bvid
+        vdir.mkdir()
+        conn = sqlite3.connect(vdir / f"{bvid}.db")
+        conn.execute("CREATE TABLE monitor_records (view_count INTEGER, timestamp TEXT)")
+        conn.execute("INSERT INTO monitor_records VALUES (100, '2026-01-01 00:00:00')")
+        conn.commit()
+        conn.close()
+
+        arr, max_ts = dataset._load_records(bvid, ("view_count", "evil_column"), data_root=str(tmp_path))
+        assert arr is None
+        assert max_ts == 0.0
+
+        arr_ok, max_ts_ok = dataset._load_records(bvid, ("view_count",), data_root=str(tmp_path))
+        assert arr_ok is not None
+        assert arr_ok.shape == (1, 1)
+        assert max_ts_ok > 0
+
+
+class TestSummaryStatsQuery:
+    """M3.10: get_summary_stats 合并为单次 UNION ALL，结果与逐表 COUNT 等价。"""
+
+    _SCHEMA = {
+        "videos": 1,
+        "monitor_records": 3,
+        "predictions": 2,
+    }
+
+    def _make_query(self):
+        import contextlib
+        import sqlite3
+
+        from core.database.central_query import CentralQuery
+
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        for table, n in self._SCHEMA.items():
+            conn.execute(f"CREATE TABLE {table} (x INTEGER)")
+            for i in range(n):
+                conn.execute(f"INSERT INTO {table} VALUES (?)", (i,))
+
+        class _FakeDB:
+            def _get_connection(self):
+                return contextlib.closing(conn)
+
+        return CentralQuery(_FakeDB())
+
+    def test_counts_match_per_table_counts(self):
+        stats = self._make_query().get_summary_stats()
+        assert stats == {
+            "total_videos": 1,
+            "total_records": 3,
+            "total_predictions": 2,
+        }
+
+    def test_missing_table_degrades_to_zeros(self):
+        import contextlib
+        import sqlite3
+
+        from core.database.central_query import CentralQuery
+
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute("CREATE TABLE videos (x INTEGER)")
+        conn.execute("INSERT INTO videos VALUES (1)")
+
+        class _FakeDB:
+            def _get_connection(self):
+                return contextlib.closing(conn)
+
+        stats = CentralQuery(_FakeDB()).get_summary_stats()
+        # 缺表 → 整条查询失败 → 全 0（不抛异常）
+        assert stats == {"total_videos": 0, "total_records": 0, "total_predictions": 0}
