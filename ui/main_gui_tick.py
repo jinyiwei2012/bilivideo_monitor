@@ -144,6 +144,7 @@ def do_periodic_sync(gui):
 
             _maybe_cleanup_predictions(gui)
             _maybe_cleanup_online_learner(gui)
+            _maybe_cleanup_old_records(gui)
 
             import gc
             gc.collect()
@@ -203,6 +204,46 @@ def _maybe_cleanup_online_learner(gui):
         gc.collect()
     except Exception as e:
         logger.debug("OnlineLearner 清理失败: %s", e)
+
+
+def _maybe_cleanup_old_records(gui):
+    """按配置 monitor.history_days 清理过旧的监控记录（每小时检查一次）。
+
+    history_days <= 0 表示永久保留。用 SQLite datetime() 归一化兼容混合时间戳格式；
+    在 _sync_worker（后台线程）中调用，不阻塞主线程。
+    """
+    import time
+
+    now = time.time()
+    last = getattr(gui, "_last_record_cleanup", 0)
+    if now - last < 3600:
+        return
+    gui._last_record_cleanup = now
+    try:
+        from config import load_config
+
+        days = int((load_config().get("monitor", {}) or {}).get("history_days", 0) or 0)
+        if days <= 0:
+            return  # <=0 表示永久保留
+        from datetime import datetime, timedelta
+
+        cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+        total = 0
+        for bvid, video_db in list(gui.video_dbs.items()):
+            try:
+                total += video_db.delete_monitor_records_before(cutoff)
+            except Exception as e:
+                logger.debug("清理视频库旧记录失败 %s: %s", bvid, e)
+        try:
+            from core import db
+
+            total += db.delete_monitor_records_before(cutoff)
+        except Exception as e:
+            logger.debug("清理中央库旧记录失败: %s", e)
+        if total:
+            logger.info("数据保留清理完成: 删除 %d 条早于 %s 的监控记录", total, cutoff)
+    except Exception as e:
+        logger.warning("数据保留清理异常: %s", e)
 
 
 def scan_alerts_background(gui):

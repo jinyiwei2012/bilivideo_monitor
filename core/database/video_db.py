@@ -515,6 +515,25 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
             logger.warning("添加监控记录失败 %s: %s", record.bvid, e, exc_info=True)
             return False
 
+    def delete_monitor_records_before(self, cutoff: str) -> int:
+        """删除 timestamp 早于 cutoff 的监控记录（主库+镜像），返回删除行数。
+
+        用 SQLite datetime() 归一化，兼容 "YYYY-MM-DD HH:MM:SS" 与 ISO "T" 两种格式。
+        返回 0 表示未删除或失败。
+        """
+        sql = "DELETE FROM monitor_records WHERE datetime(replace(timestamp, 'T', ' ')) < datetime(?)"
+        try:
+            with self._get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute(sql, (cutoff,))
+                deleted = cur.rowcount
+                conn.commit()
+            self._exec_mirror(sql, (cutoff,))
+            return max(0, int(deleted))
+        except Exception as e:
+            logger.warning("清理旧监控记录失败 %s: %s", self.bvid, e, exc_info=True)
+            return 0
+
     def _prediction_sql(self, row: dict) -> tuple:
         """构造 predictions 写入的 (SQL, params), 主库/镜像库共用。"""
         sql = """

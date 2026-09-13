@@ -411,6 +411,10 @@ class Database:
     def sync_yearly_score(self, bvid: str, timestamp: str, score_data: dict) -> bool:
         return self._crud.sync_yearly_score(bvid, timestamp, score_data)
 
+    def delete_monitor_records_before(self, cutoff: str) -> int:
+        """按时间清理中央库旧监控记录（委托 CRUD）。"""
+        return self._crud.delete_monitor_records_before(cutoff)
+
     def sync_all_video_dbs(self) -> Dict[str, bool]:
         return self._crud.sync_all_video_dbs()
 

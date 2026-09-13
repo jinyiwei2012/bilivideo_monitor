@@ -120,6 +120,25 @@ class CentralCRUD:
             logger.warning("删除视频失败 %s: %s", bvid, e, exc_info=True)
             return False
 
+    def delete_monitor_records_before(self, cutoff: str) -> int:
+        """删除中央库中 timestamp 早于 cutoff 的监控记录，返回删除行数。
+
+        用 SQLite datetime() 归一化，兼容混合时间戳格式。
+        """
+        try:
+            with self.db._get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "DELETE FROM monitor_records WHERE datetime(replace(timestamp, 'T', ' ')) < datetime(?)",
+                    (cutoff,),
+                )
+                deleted = cur.rowcount
+                conn.commit()
+                return max(0, int(deleted))
+        except Exception as e:
+            logger.warning("清理中央库旧监控记录失败: %s", e)
+            return 0
+
     def sync_from_video_db(self, bvid: str) -> bool:
         """从单个视频独立库同步视频信息到总数据库（仅同步元数据，不包含监控记录）"""
         try:

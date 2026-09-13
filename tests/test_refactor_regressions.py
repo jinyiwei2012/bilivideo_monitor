@@ -745,3 +745,84 @@ class TestCollectHealthAlerts:
         items = dm._collect_health_alerts(_GUI())
         assert ("t1", "alert-BV1") in items
         assert ("t2", "alert-BV2") in items
+
+
+class TestRetentionCutoffSql:
+    """M2.9a: 保留清理 SQL 对两种时间戳格式都正确（空格与 ISO 'T'）。"""
+
+    def test_sql_matches_both_formats(self, tmp_path):
+        import sqlite3
+
+        conn = sqlite3.connect(str(tmp_path / "t.db"))
+        conn.execute("CREATE TABLE monitor_records (timestamp TEXT, view_count INTEGER)")
+        conn.executemany(
+            "INSERT INTO monitor_records (timestamp, view_count) VALUES (?, ?)",
+            [
+                ("2020-01-01 00:00:00", 1),
+                ("2099-01-01T00:00:00", 2),
+                ("2099-01-01 00:00:00", 3),
+            ],
+        )
+        conn.commit()
+        cur = conn.execute(
+            "DELETE FROM monitor_records WHERE datetime(replace(timestamp,'T',' ')) < datetime(?)",
+            ("2050-01-01 00:00:00",),
+        )
+        assert cur.rowcount == 1
+        remaining = sorted(r[0] for r in conn.execute("SELECT view_count FROM monitor_records"))
+        assert remaining == [2, 3]
+        conn.close()
+
+    def test_methods_exist(self):
+        from core.database.video_db import VideoDatabase
+        from core.database.central_crud import CentralCRUD
+
+        assert hasattr(VideoDatabase, "delete_monitor_records_before")
+        assert hasattr(CentralCRUD, "delete_monitor_records_before")
+
+
+class TestMaybeCleanupOldRecords:
+    """M2.9a: _maybe_cleanup_old_records 按 history_days 配置执行/跳过。"""
+
+    def _run(self, monkeypatch, days, video_dbs):
+        import ui.main_gui_tick as tick
+        import config as cfgmod
+        import core as coremod
+
+        monkeypatch.setattr(cfgmod, "load_config", lambda: {"monitor": {"history_days": days}})
+
+        class _DB:
+            def delete_monitor_records_before(self, cutoff):
+                return 2
+
+        monkeypatch.setattr(coremod, "db", _DB())
+
+        class _GUI:
+            _last_record_cleanup = 0
+
+            def __init__(self):
+                self.video_dbs = video_dbs
+
+        tick._maybe_cleanup_old_records(_GUI())
+
+    def test_deletes_when_enabled(self, monkeypatch):
+        calls = []
+
+        class _VDB:
+            def delete_monitor_records_before(self, cutoff):
+                calls.append(cutoff)
+                return 3
+
+        self._run(monkeypatch, 30, {"BV1": _VDB()})
+        assert calls, "history_days>0 时应清理视频库"
+
+    def test_skips_when_disabled(self, monkeypatch):
+        calls = []
+
+        class _VDB:
+            def delete_monitor_records_before(self, cutoff):
+                calls.append(cutoff)
+                return 3
+
+        self._run(monkeypatch, 0, {"BV1": _VDB()})
+        assert not calls, "history_days<=0 时应跳过"
