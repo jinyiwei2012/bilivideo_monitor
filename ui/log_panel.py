@@ -82,7 +82,9 @@ class LogPanel(QWidget):
         self._log_level = "ALL"
         self._refresh_timer = None
         self._pending_logs = []  # 批量缓存
+        self._pending_lock = threading.Lock()  # 保护 _pending_logs / _flush_scheduled 并发访问
         self._flush_scheduled = False  # 防止重复 invoke
+        self._displayed_lines = 0  # 已显示行数（空状态判断用，避免全量 toPlainText）
         self._flush_timer = QTimer(self)
         self._flush_timer.setInterval(300)
         self._flush_timer.timeout.connect(self._flush_pending)
@@ -153,25 +155,31 @@ class LogPanel(QWidget):
             if len(self._log_entries) > self._MAX_ENTRIES:
                 self._log_entries.pop(0)
 
-        # 追加到待刷新缓存
-        self._pending_logs.append((level, now, message))
-        if not self._flush_scheduled:
-            self._flush_scheduled = True
+        # 追加到待刷新缓存（加锁：add_log 可能来自多线程，_flush_pending 在主线程）
+        with self._pending_lock:
+            self._pending_logs.append((level, now, message))
+            need_schedule = not self._flush_scheduled
+            if need_schedule:
+                self._flush_scheduled = True
+        if need_schedule:
             invoke(self._schedule_flush)
 
     def _schedule_flush(self):
         """在主线程启动 flush 定时器（线程安全）"""
-        if self._pending_logs:
+        with self._pending_lock:
+            has_pending = bool(self._pending_logs)
+        if has_pending:
             self._flush_timer.start()
 
     def _flush_pending(self):
         """批量刷新日志到文本控件（主线程安全）"""
-        if not self._pending_logs:
+        with self._pending_lock:
+            entries = self._pending_logs[:]
+            self._pending_logs.clear()
+            self._flush_scheduled = False
+        if not entries:
             self._flush_timer.stop()
             return
-
-        entries = self._pending_logs[:]
-        self._pending_logs.clear()
 
         for level, now, msg in entries:
             if self._log_level != "ALL" and level != self._log_level:
@@ -184,7 +192,6 @@ class LogPanel(QWidget):
 
         self._sync_empty_state()
         self._flush_timer.stop()
-        self._flush_scheduled = False
 
     def _append_text(self, level, timestamp, message):
         """在文本控件中追加一行带颜色的日志"""
@@ -216,6 +223,8 @@ class LogPanel(QWidget):
         fmt.setForeground(QColor(C["text_1"]))
         cursor.insertText(f"{message}\n", fmt)
 
+        self._displayed_lines += 1
+
         # 自动滚动到底部
         self._text.verticalScrollBar().setValue(
             self._text.verticalScrollBar().maximum()
@@ -229,6 +238,7 @@ class LogPanel(QWidget):
     def _refresh_log_view(self):
         """重新加载日志视图（切换等级时）"""
         self._text.clear()
+        self._displayed_lines = 0
         with self._entries_lock:
             snapshot = list(self._log_entries)
         for level, ts, msg in snapshot:
@@ -239,13 +249,14 @@ class LogPanel(QWidget):
     def _clear_log(self):
         """清空日志"""
         self._text.clear()
+        self._displayed_lines = 0
         with self._entries_lock:
             self._log_entries.clear()
         self._sync_empty_state()
 
     def _sync_empty_state(self):
-        """根据是否有日志内容切换空状态占位"""
-        has_logs = bool(self._text.toPlainText().strip())
+        """根据是否有日志内容切换空状态占位（用计数，避免全量 toPlainText 复制）"""
+        has_logs = self._displayed_lines > 0
         self._stack.setCurrentWidget(self._text if has_logs else self._empty_state)
 
     def stop_auto_refresh(self):

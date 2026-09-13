@@ -670,3 +670,52 @@ class TestNoGlobalRandomSeedPollution:
             if "np.random.seed(" in p.read_text(encoding="utf-8")
         ]
         assert not offenders, f"仍存在污染全局 RNG 的 np.random.seed: {offenders}"
+
+
+@pytest.fixture(scope="module")
+def qapp():
+    """模块级 QApplication（offscreen）；模块内保持引用，避免被 GC 后重建。"""
+    import os
+
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PyQt6.QtWidgets import QApplication
+
+    return QApplication.instance() or QApplication([])
+
+
+class TestLogPanelEmptyStateCounter:
+    """M2.10c: _sync_empty_state 用计数判断（不再全量 toPlainText）；add_log 并发不丢。"""
+
+    def test_empty_state_uses_counter(self, qapp):
+        from ui.log_panel import LogPanel
+
+        panel = LogPanel(None, None)
+        panel._displayed_lines = 0
+        panel._sync_empty_state()
+        assert panel._stack.currentWidget() is panel._empty_state
+        panel._displayed_lines = 1
+        panel._sync_empty_state()
+        assert panel._stack.currentWidget() is panel._text
+
+    def test_concurrent_add_log_no_lost(self, qapp, monkeypatch):
+        import threading
+
+        import ui.log_panel as lp
+
+        # 隔离跨线程调度（无事件循环时 invoke 会抛异常），仅验证加锁追加不丢日志
+        monkeypatch.setattr(lp, "invoke", lambda fn: None)
+
+        panel = lp.LogPanel(None, None)
+        n_threads, per = 8, 200
+
+        def _worker():
+            for i in range(per):
+                panel.add_log("INFO", f"m{i}")
+
+        ts = [threading.Thread(target=_worker) for _ in range(n_threads)]
+        for t in ts:
+            t.start()
+        for t in ts:
+            t.join()
+        # flush 未执行 → pending 应恰好保留全部追加（无丢失）
+        assert len(panel._pending_logs) == n_threads * per
