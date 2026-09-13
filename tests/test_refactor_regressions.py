@@ -2472,3 +2472,74 @@ class TestMonitorLoadHelpers:
         monkeypatch.setattr(svc.bilibili_api, "get_video_info", lambda b: None)
         assert svc._load_one_monitor(gui, "BV4") is False
         assert gui.restored == [], "无元数据时不应注册视频"
+
+
+class TestCryptoHardening:
+    """M3.8: 密文版本前缀 + 完整性标签加固。"""
+
+    def test_roundtrip_with_version_prefix(self):
+        from utils import crypto
+
+        for plain in ("sk-secret-123", "中文 cookie 值", "a" * 300):
+            ct = crypto.encrypt(plain)
+            assert ct.startswith(("f1:", "x1:")), f"密文应带版本前缀: {ct[:6]!r}"
+            assert crypto.decrypt(ct) == plain
+            assert crypto.is_encrypted(ct) is True
+
+    def test_plaintext_not_misjudged(self):
+        from utils import crypto
+
+        for plain in ("sk-secret-123", "SESSDATA=abc", "plain-text", "1.2万"):
+            assert crypto.is_encrypted(plain) is False, f"明文被误判为密文: {plain!r}"
+
+    def test_empty_roundtrip(self):
+        from utils import crypto
+
+        assert crypto.encrypt("") == ""
+        assert crypto.decrypt("") == ""
+        assert crypto.is_encrypted("") is False
+
+    def test_xor_tier_roundtrip_and_tamper_detection(self, monkeypatch):
+        import base64
+
+        import pytest
+
+        from utils import crypto
+
+        monkeypatch.setattr(crypto, "_HAZMAT", False)  # 强制走 XOR 回退
+        ct = crypto.encrypt("回退路径 top-secret")
+        assert ct.startswith("x1:")
+        assert crypto.decrypt(ct) == "回退路径 top-secret"
+
+        raw = bytearray(base64.urlsafe_b64decode(ct[len("x1:") :].encode()))
+        raw[-1] ^= 0x01  # 篡改密文体
+        tampered = "x1:" + base64.urlsafe_b64encode(bytes(raw)).decode()
+        with pytest.raises(ValueError):
+            crypto.decrypt(tampered)
+
+    def test_legacy_formats_still_decryptable(self):
+        import base64
+        import hashlib
+        import hmac
+
+        import pytest
+
+        from utils import crypto
+
+        if not crypto._HAZMAT:
+            pytest.skip("未安装 cryptography，无法验证旧 Fernet 密文")
+        legacy_fernet = crypto._fernet_encrypt("legacy-fernet")  # 无前缀
+        assert crypto.decrypt(legacy_fernet) == "legacy-fernet"
+
+        # 旧 XOR 格式：8 个 hex 字符的短标签、无前缀
+        data = "legacy-xor".encode()
+        key = crypto._MACHINE_KEY
+        stream = bytearray()
+        counter = 0
+        while len(stream) < len(data):
+            stream.extend(hmac.new(key, counter.to_bytes(4, "big"), "sha256").digest())
+            counter += 1
+        enc = bytes(a ^ b for a, b in zip(data, stream[: len(data)]))
+        tag8 = hmac.new(key, enc, hashlib.sha256).hexdigest()[:8]
+        legacy_xor = base64.urlsafe_b64encode(tag8.encode() + enc).decode()
+        assert crypto.decrypt(legacy_xor) == "legacy-xor"

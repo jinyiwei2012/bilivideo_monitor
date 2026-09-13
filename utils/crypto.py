@@ -19,6 +19,11 @@ import subprocess
 
 logger = logging.getLogger(__name__)
 
+# ── 密文版本前缀（is_encrypted 据此精确判定，不再依赖"解密试算"猜测）──
+_PREFIX_FERNET = "f1:"
+_PREFIX_XOR = "x1:"
+_XOR_TAG_HEX_LEN = 64  # 完整 hmac-sha256 hex 标签（旧格式为 8）
+
 # ── 后端选择 ──────────────────────────────────────────
 
 _HAZMAT = False
@@ -103,68 +108,91 @@ def _fernet_decrypt(ciphertext: str) -> str:
 
 
 def _xor_encrypt(plaintext: str) -> str:
-    """使用 XOR + HMAC 流密码加密（无 cryptography 时的回退方案）"""
+    """使用 XOR + HMAC 流密码加密（无 cryptography 时的回退方案）。
+
+    密文格式：``x1:`` + base64(完整 HMAC-SHA256 hex 标签 ‖ 密文体)。
+    旧实现只取标签前 8 个 hex 字符（32 bit），完整性强度过弱，已改为完整 64 字符。
+    """
     data = plaintext.encode("utf-8")
     key = _MACHINE_KEY
-    # 用 HMAC-SHA256 生成与明文等长的密钥流
+    # 用 HMAC-SHA256 生成与明文等长的密钥流（CTR 构造）
     stream = bytearray()
     counter = 0
     while len(stream) < len(data):
         block = hmac.new(key, counter.to_bytes(4, "big"), "sha256").digest()
         stream.extend(block)
         counter += 1
-    # XOR
     encrypted = bytes(a ^ b for a, b in zip(data, stream[: len(data)]))
-    # HMAC-SHA256 标签（前 8 字符）防止篡改
-    tag = hmac.new(key, encrypted, hashlib.sha256).hexdigest()[:8]
-    return base64.urlsafe_b64encode(tag.encode() + encrypted).decode("utf-8")
+    tag = hmac.new(key, encrypted, hashlib.sha256).hexdigest()
+    return _PREFIX_XOR + base64.urlsafe_b64encode(tag.encode() + encrypted).decode("utf-8")
 
 
-def _xor_decrypt(ciphertext: str) -> str:
-    """使用 XOR + HMAC 流密码解密（验证 HMAC 标签）"""
-    raw = base64.urlsafe_b64decode(ciphertext.encode("utf-8"))
-    key = _MACHINE_KEY
-    tag = raw[:8].decode()
-    encrypted = raw[8:]
-    expected = hmac.new(key, encrypted, hashlib.sha256).hexdigest()[:8]
+def _xor_decrypt_raw(body: str, tag_hex_len: int) -> str:
+    """按给定标签长度解密 XOR 密文体（供新/旧格式复用）。"""
+    raw = base64.urlsafe_b64decode(body.encode("utf-8"))
+    tag = raw[:tag_hex_len].decode()
+    encrypted = raw[tag_hex_len:]
+    expected = hmac.new(_MACHINE_KEY, encrypted, hashlib.sha256).hexdigest()[:tag_hex_len]
     if not hmac.compare_digest(tag, expected):
         raise ValueError("密文 HMAC 校验失败，数据可能被篡改")
     stream = bytearray()
     counter = 0
     while len(stream) < len(encrypted):
-        block = hmac.new(key, counter.to_bytes(4, "big"), "sha256").digest()
+        block = hmac.new(_MACHINE_KEY, counter.to_bytes(4, "big"), "sha256").digest()
         stream.extend(block)
         counter += 1
     decrypted = bytes(a ^ b for a, b in zip(encrypted, stream[: len(encrypted)]))
     return decrypted.decode("utf-8")
 
 
+def _xor_decrypt(ciphertext: str) -> str:
+    """解密 XOR 回退密文；兼容历史无前缀 / 短标签（8 hex）格式。"""
+    if ciphertext.startswith(_PREFIX_XOR):
+        return _xor_decrypt_raw(ciphertext[len(_PREFIX_XOR) :], _XOR_TAG_HEX_LEN)
+    try:
+        return _xor_decrypt_raw(ciphertext, _XOR_TAG_HEX_LEN)
+    except Exception:
+        return _xor_decrypt_raw(ciphertext, 8)  # 历史格式
+
+
 def encrypt(plaintext: str) -> str:
-    """加密明文，返回可安全存储的字符串。"""
+    """加密明文，返回带版本前缀、可安全存储的字符串。"""
     if not plaintext:
         return ""
     if _HAZMAT:
-        return _fernet_encrypt(plaintext)
+        return _PREFIX_FERNET + _fernet_encrypt(plaintext)
     return _xor_encrypt(plaintext)
 
 
 def decrypt(ciphertext: str) -> str:
-    """解密密文，返回原始明文。"""
+    """解密密文，返回原始明文（兼容历史无前缀密文）。"""
     if not ciphertext:
         return ""
+    if ciphertext.startswith(_PREFIX_FERNET):
+        return _fernet_decrypt(ciphertext[len(_PREFIX_FERNET) :])
+    if ciphertext.startswith(_PREFIX_XOR):
+        return _xor_decrypt(ciphertext)
+    # 历史无前缀密文：先按当前后端试，失败再试另一种（旧 XOR 密文可能在装了
+    # cryptography 之后才被读到，反之亦然）
     if _HAZMAT:
-        return _fernet_decrypt(ciphertext)
+        try:
+            return _fernet_decrypt(ciphertext)
+        except Exception:
+            return _xor_decrypt(ciphertext)
     return _xor_decrypt(ciphertext)
 
 
 def is_encrypted(value: str) -> bool:
-    """判断值是否已加密：尝试解密，能成功解出可读字符串即为密文。
+    """判断值是否已加密：优先凭版本前缀精确判定，避免"试算猜谜"。
 
-    旧实现仅查非空且不含 '"'、'{'、':' —— 明文如 'sk-secret-123' 不含这些字符
-    会被误判为已加密，导致明文直接落盘。改用解密试算，误判率更低。
+    历史实现「解密不抛错即视为密文」会把恰好可解码的明文误判（XOR 回退下更随机）。
+    现对**本模块产生的密文**只查前缀（确定、廉价）；仅对历史无前缀值保留试算兜底，
+    并用 ``isprintable()`` 收紧判定。
     """
     if not value or not isinstance(value, str):
         return False
+    if value.startswith((_PREFIX_FERNET, _PREFIX_XOR)):
+        return True
     if any(c in value for c in ('"', "{", ":")):
         # 含 JSON 特征，几乎不可能是密文
         return False
@@ -172,8 +200,7 @@ def is_encrypted(value: str) -> bool:
         decrypted = decrypt(value)
     except Exception:
         return False
-    # 解密成功且不含不可打印控制字符 → 判定为密文
-    return isinstance(decrypted, str) and decrypted != ""
+    return bool(decrypted) and decrypted.isprintable()
 
 
 def encrypt_dict(d: dict, *keys: str) -> dict:
