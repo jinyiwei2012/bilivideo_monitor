@@ -2393,6 +2393,9 @@ def _build_torch_input(video_data, features, window):
     3. z-score 归一化（mean/std）
     4. 计算历史速度序列的均值和标准差（用于反归一化预测结果）
 
+    结果按 (history 长度, 末条时间戳, features, window) 缓存在 ``video_data`` 上：
+    同一轮预测内 40+ 个 DL 算法共用同一段历史时只构建一次，历史变化即自动失效。
+
     Args:
         video_data: 视频数据字典
         features: 基础特征列表
@@ -2405,6 +2408,20 @@ def _build_torch_input(video_data, features, window):
     history = video_data.get("history_data", [])
     if len(history) < 3:
         return None, 0.0, 1.0
+
+    last = history[-1]
+    memo_key = (
+        len(history),
+        last.get("timestamp") if isinstance(last, dict) else None,
+        tuple(features),
+        int(window),
+    )
+    memo = video_data.get("_torch_input_memo")
+    if isinstance(memo, tuple) and memo[0] == memo_key:
+        cached_arr, cached_mean, cached_std = memo[1]
+        # 返回副本：避免调用方就地改写污染缓存
+        return cached_arr.copy(), cached_mean, cached_std
+
     n = window
     arr = np.zeros((n, len(features)), dtype=np.float32)
     recent = history[-n:] if len(history) >= n else history
@@ -2424,6 +2441,7 @@ def _build_torch_input(video_data, features, window):
     v_std = float(np.std(velocities)) if len(velocities) > 1 else 1.0
     if v_std < 1e-8:
         v_std = 1.0
+    video_data["_torch_input_memo"] = (memo_key, (arr_n, v_mean, v_std))
     return arr_n, v_mean, v_std
 
 

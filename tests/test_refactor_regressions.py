@@ -1839,3 +1839,54 @@ class TestCurveFitCache:
         BaseAlgorithm._safe_curve_fit(algo, algo._model, times, views, [1.0], (0, np.inf))
         BaseAlgorithm._safe_curve_fit(algo, algo._model, times, views, [1.0], (0, 10))
         assert calls["n"] == 2, "不同 bounds 不应共用缓存"
+
+
+class TestTorchInputMemo:
+    """M2.7b: _build_torch_input 结果按历史内容缓存在 video_data。"""
+
+    @staticmethod
+    def _entry(i):
+        return {
+            "timestamp": 1767225600.0 + i * 3600,  # 数值时间戳（_velocity_series 要求）
+            "view_count": 100 * (i + 1),
+            "like_count": i,
+            "coin_count": 0,
+            "favorite_count": 0,
+            "danmaku_count": 0,
+            "reply_count": 0,
+        }
+
+    def test_memoized_and_recomputed_on_history_change(self):
+        import numpy as np
+
+        from algorithms.models.deep_learning._torch_upgrade import _build_torch_input
+
+        hist = [self._entry(i) for i in range(6)]
+        video = {"history_data": hist}
+        feats = ("view_count", "like_count")
+
+        arr1, m1, s1 = _build_torch_input(video, feats, 5)
+        assert arr1 is not None and arr1.shape == (5, 7)
+        assert "_torch_input_memo" in video, "首次构建应写入缓存"
+
+        arr2, m2, s2 = _build_torch_input(video, feats, 5)
+        assert np.array_equal(arr1, arr2)
+        assert (m1, s1) == (m2, s2)
+        assert arr2 is not arr1, "命中缓存应返回副本"
+
+        # 改写副本不应污染缓存
+        arr2[0, 0] = 999.0
+        arr3, _, _ = _build_torch_input(video, feats, 5)
+        assert arr3[0, 0] != 999.0
+
+        # 历史变化 → 缓存失效并重建
+        video["history_data"] = hist + [self._entry(6)]
+        arr4, _, _ = _build_torch_input(video, feats, 5)
+        assert not np.array_equal(arr4, arr1)
+
+    def test_insufficient_history_short_circuits(self):
+        from algorithms.models.deep_learning._torch_upgrade import _build_torch_input
+
+        video = {"history_data": [self._entry(0)]}
+        assert _build_torch_input(video, ("view_count",), 5) == (None, 0.0, 1.0)
+        assert "_torch_input_memo" not in video, "历史不足时不应写缓存"
