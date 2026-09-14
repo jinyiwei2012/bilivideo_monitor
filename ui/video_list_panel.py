@@ -42,7 +42,7 @@ from ui.helpers import (
 )
 from ui.widgets import SectionHeader, EmptyState
 from ui.lty_voice import BUTTON_HINTS
-from utils.cover_manager import get_valid_cover, save_cover
+from utils.cover_manager import cover_signature, get_valid_cover, save_cover
 
 _cover_session = _req.Session()
 _cover_session.headers.update(
@@ -70,20 +70,30 @@ class CoverLoader(QObject):
         super().__init__(parent)
         self._running = True
         self._pool = ThreadPoolExecutor(max_workers=self.MAX_WORKERS, thread_name_prefix="cover")
+        self._inflight: set = set()  # 在途下载去重：避免每轮刷新重复入队同一封面
+        self._inflight_lock = threading.Lock()
 
     def load_cover(self, bvid, url):
         """在后台线程加载封面——不阻塞主线程"""
         if not self._running:
             return
+        with self._inflight_lock:
+            if bvid in self._inflight:
+                return  # 同一封面已在途，跳过重复请求
+            self._inflight.add(bvid)
         try:
             self._pool.submit(self._fetch, bvid, url)
         except RuntimeError:
-            pass  # 线程池已关闭（应用退出）
+            self._release(bvid)  # 线程池已关闭（应用退出）
+
+    def _release(self, bvid):
+        with self._inflight_lock:
+            self._inflight.discard(bvid)
 
     def _fetch(self, bvid, url):
-        if not self._running:
-            return
         try:
+            if not self._running:
+                return
             with _cover_semaphore:
                 resp = _cover_session.get(url, timeout=10)
                 if resp.status_code == 200:
@@ -94,6 +104,8 @@ class CoverLoader(QObject):
                         save_cover(bvid, resp.content)
         except Exception as e:
             logger.debug("封面加载失败 %s: %s", bvid, e)
+        finally:
+            self._release(bvid)
 
     def shutdown(self):
         """应用退出时释放线程池"""
@@ -214,6 +226,9 @@ class VideoListPanel(QWidget):
         self._cover_cache = OrderedDict()
         self._card_widgets = {}  # bvid -> QListWidgetItem（索引，避免线性扫描 O(N²)）
         self._search_text = ""
+
+        # 本地封面文件签名缓存：文件未变则跳过 QPixmap 重解码（避免每轮刷新主线程读盘+解码）
+        self._cover_sig = {}
 
         # 搜索去抖：避免每次按键都全表扫描
         self._search_timer = QTimer(self)
@@ -350,6 +365,25 @@ class VideoListPanel(QWidget):
                 if hasattr(self.gui, "_select_video"):
                     self.gui._select_video(bvid)
 
+    def _sync_cover(self, delegate, bvid, cover_url):
+        """同步本地封面到 delegate（不阻塞 UI）
+
+        - 本地文件签名未变 → 复用已解码的 QPixmap，跳过读盘 + 解码（原先每轮都重做）
+        - 无本地文件 → 交给后台 CoverLoader 异步下载（同一 bvid 在途时自动去重）
+        """
+        local = get_valid_cover(bvid)
+        if not local:
+            QTimer.singleShot(0, lambda b=bvid, u=cover_url: (self._cover_loader.load_cover(b, u)))
+            return
+        sig = cover_signature(local)
+        if sig is not None and self._cover_sig.get(bvid) == sig:
+            return  # 文件未变 → 已解码过，直接复用 delegate 内缓存的缩略图
+        pixmap = QPixmap(local)
+        if not pixmap.isNull() and isinstance(delegate, VideoCardDelegate):
+            delegate.set_cover(bvid, pixmap)
+            if sig is not None:
+                self._cover_sig[bvid] = sig
+
     def rebuild_list(self, videos):
         """重建视频列表"""
         self._list.clear()
@@ -364,17 +398,10 @@ class VideoListPanel(QWidget):
             if bvid:
                 self._card_widgets[bvid] = item
 
-            # 触发封面异步加载
+            # 封面：本地未变则复用已解码图，否则异步下载（去重）
             cover_url = v.get("pic", v.get("cover_url", ""))
             if cover_url:
-                local = get_valid_cover(bvid)
-                if local:
-                    pixmap = QPixmap(local)
-                    if not pixmap.isNull():
-                        if isinstance(delegate, VideoCardDelegate):
-                            delegate.set_cover(bvid, pixmap)
-                else:
-                    QTimer.singleShot(0, lambda b=bvid, u=cover_url: (self._cover_loader.load_cover(b, u)))
+                self._sync_cover(delegate, bvid, cover_url)
 
         self._update_count()
 
@@ -410,16 +437,10 @@ class VideoListPanel(QWidget):
         item.setData(Qt.ItemDataRole.UserRole, data)
         # 刷新显示
         self._list.update(self._list.indexFromItem(item))
-        # 触发封面加载
+        # 封面：本地未变则复用已解码图，否则异步下载（去重）
         cover_url = video.get("pic", video.get("cover_url", ""))
         if cover_url:
-            local = get_valid_cover(bvid)
-            if local:
-                pixmap = QPixmap(local)
-                if not pixmap.isNull() and isinstance(delegate, VideoCardDelegate):
-                    delegate.set_cover(bvid, pixmap)
-            else:
-                QTimer.singleShot(0, lambda b=bvid, u=cover_url: (self._cover_loader.load_cover(b, u)))
+            self._sync_cover(delegate, bvid, cover_url)
 
     def remove_card(self, bvid):
         """移除指定 BV 号的视频卡片（数据层删除后调用，保持界面一致）"""
@@ -428,6 +449,7 @@ class VideoListPanel(QWidget):
         item = self._card_widgets.pop(bvid, None)
         if item is not None:
             self._list.takeItem(self._list.row(item))
+        self._cover_sig.pop(bvid, None)
         self._update_count()
 
     def update_video_count(self):

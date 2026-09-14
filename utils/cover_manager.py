@@ -96,6 +96,19 @@ def save_cover(bvid: str, image_data: bytes, title: str = "") -> str | None:
 _cover_valid_cache: dict = {}
 
 
+def cover_signature(path: str) -> tuple | None:
+    """返回本地封面文件的签名 (path, mtime_ns, size)；不可访问时返回 None。
+
+    与 `get_valid_cover` 内部判据同源，供调用方判断「文件未变 → 可复用已解码 QPixmap」，
+    避免每轮刷新都重新读盘 + 解码图片（decoding 是主要开销）。
+    """
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return (path, st.st_mtime_ns, st.st_size)
+
+
 def get_valid_cover(bvid: str, title: str = "") -> str | None:
     """获取本地有效封面路径，若丢失或 MD5 不匹配则返回 None"""
     path = _cover_path(bvid, title)
