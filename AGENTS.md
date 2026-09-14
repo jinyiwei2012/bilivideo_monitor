@@ -176,6 +176,11 @@ main.py / run.py           — Entry points
     `--update-baseline` 在改善后收紧。`mypy.ini` 额外设置 `explicit_package_bases = True` 与
     `mypy_path = .`，避免「同一文件被识别为两个模块名」而中止检查。
 
+13. **弹窗唯一显示入口**: 所有弹出界面必须经 `ui/dialog_host.present()`（非模态）或
+    `present_modal()`（模态，返回 `int(DialogCode)`）显示；禁止在 `open_*` 里只构造
+    `DialogBase`/`QDialog` 而不显示（Qt 窗口在 show/exec 前始终隐藏，实测曾致约 20 个
+    弹窗点开无反应）。`DialogBase.close()` 禁止再连 `rejected→reject`（自反连接会栈溢出）。
+
 ### Algorithm Category Labels
 
 Existing categories: `"速度类"`, `"时间衰减"`, `"扩散模型"`, `"时间序列"`, `"统计模型"`, `"集成学习"`, `"深度学习"`, `"高级分析"`, `"基础"`, `"其他"`.
