@@ -154,6 +154,24 @@ class TestPresentModal:
         assert dialog_host.present_modal(_NotAWindow()) == int(QDialog.DialogCode.Rejected)
 
 
+class TestNoBareExecInUi:
+    """T4 守卫：ui/ 下除 dialog_host（统一入口）与应用事件循环外，不得再出现裸 .exec()。"""
+
+    def test_no_direct_exec_outside_host_and_app(self):
+        import pathlib
+
+        ui_dir = pathlib.Path(__file__).resolve().parents[1] / "ui"
+        allowed = {"dialog_host.py", "main_gui.py"}
+        offenders = []
+        for path in sorted(ui_dir.rglob("*.py")):
+            if path.name in allowed:
+                continue
+            for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                if ".exec()" in line:
+                    offenders.append(f"{path.name}:{lineno}: {line.strip()}")
+        assert not offenders, f"应改用 present_modal(): {offenders}"
+
+
 class TestDialogBaseHardening:
     """T3：geometry 校验 / 字号缓存 / 死 API 处置（不破坏仍被使用的 API）。"""
 

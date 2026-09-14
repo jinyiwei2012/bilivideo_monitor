@@ -27,6 +27,7 @@ from PyQt6.QtGui import QFont, QAction
 
 from core import get_bilibili_api
 from ui.theme import C
+from ui.dialog_host import present_modal
 from ui.dialog_base import DialogBase
 
 logger = logging.getLogger(__name__)
@@ -453,7 +454,7 @@ class VideoSearchWindow(DialogBase):
         btn_layout.addWidget(close_btn)
 
         layout.addWidget(btn_row)
-        dlg.exec()
+        present_modal(dlg)
 
     def _copy_bvid(self, bvid):
         """复制 BV 号到剪贴板"""

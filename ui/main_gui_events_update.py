@@ -20,6 +20,7 @@ from ui.helpers import fmt_num
 from ui.invoker import invoke
 from ui.lty_voice import error
 from ui.theme import C
+from ui.dialog_host import present_modal
 from utils.thread_utils import fire_and_forget
 
 logger = logging.getLogger(__name__)
@@ -291,4 +292,4 @@ def show_update_dialog(gui, latest, current, url, changelog, channel="stable"):
             gui._sb("status", "呜…git pull 没能成功,天依会再试试的,也可以手动更新哦 ♪", C["danger"])
         dlg.accept()
 
-    dlg.exec()
+    present_modal(dlg)

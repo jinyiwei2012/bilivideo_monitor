@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 
 from ui.theme import C
+from ui.dialog_host import present_modal
 from ui.helpers import FONT, FONT_SM, FONT_MONO, project_path
 from ui.scrollable_frame import ScrollableFrame
 from utils.update_checker import _hard
@@ -129,7 +130,7 @@ class VersionManagerMixin(_WidgetBase):
                 if a["algorithm_id"] == initial_aid:
                     _refresh_detail(initial_aid, a["name"])
                     break
-        dialog.exec()
+        present_modal(dialog)
 
     def _draw_version_list_pyqt(self, algo_inner, algos, refresh_cb):
         """填充左侧算法列表按钮"""

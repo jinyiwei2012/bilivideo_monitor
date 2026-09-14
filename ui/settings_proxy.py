@@ -29,6 +29,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 
 from ui.theme import C
+from ui.dialog_host import present_modal
 from ui.dialog_base import DialogBase
 from ui.helpers import FONT, FONT_SM, project_path
 from ui.invoker import invoke
@@ -549,7 +550,7 @@ class SettingsProxyMixin:
             QMessageBox.information(cast(QWidget, self), "导入完成啦 ♪", msg)
 
         dlg._imported.connect(_on_import)
-        dlg.exec()
+        present_modal(dlg)
 
     def _apply_proxies(self):
         text = self._proxy_text.toPlainText().strip()

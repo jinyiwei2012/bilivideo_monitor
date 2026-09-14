@@ -29,6 +29,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 
 from ui.theme import C
+from ui.dialog_host import present_modal
 from ui.helpers import (
     FONT_MONO_LG,
     FONT_TITLE,
@@ -594,7 +595,7 @@ class DetailPanel(_RatioDanmakuMixin):
             return
 
         dlg = FinetuneDialog(self.gui, bvid, algos)
-        dlg.exec()
+        present_modal(dlg)
 
     # ── Stat Bar ─────────────────────────────────
 

@@ -22,7 +22,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 
 from ui.theme import C
-from ui.dialog_host import present
+from ui.dialog_host import present, present_modal
 from ui.helpers import FAST_GAP, FAST_INTERVAL
 
 logger = logging.getLogger(__name__)
@@ -149,7 +149,7 @@ class Dialogs:
         btn_layout.addWidget(cancel_btn)
 
         layout.addLayout(btn_layout)
-        dialog.exec()
+        present_modal(dialog)
 
     # ──────────────────────────────────────────
     # 数据库查询
@@ -500,7 +500,7 @@ class Dialogs:
         btn_layout.addWidget(close_btn)
         layout.addLayout(btn_layout)
 
-        dialog.exec()
+        present_modal(dialog)
 
     # ──────────────────────────────────────────
     # UP主追踪

@@ -23,6 +23,7 @@ from ui.helpers import FONT_SM
 from ui.invoker import invoke
 from ui.scrollable_frame import ScrollableFrame
 from ui.theme import C
+from ui.dialog_host import present_modal
 from ui.training_base import _TrainingPanelContract
 
 logger = logging.getLogger(__name__)
@@ -105,7 +106,7 @@ class TrainingBatchMixin(_TrainingPanelContract):
 
         ui["start_btn"].clicked.connect(_start_ft)
         ui["cancel_btn"].clicked.connect(dialog.close)
-        dialog.exec()
+        present_modal(dialog)
 
     def _build_batch_dialog(self, algo_list, videos):
         """构建批量微调对话框，返回 (dialog, ui_dict)"""

@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import QTimer
 
 from ui.theme import C
+from ui.dialog_host import present_modal
 from ui.dialog_base import DialogBase
 from ui.helpers import FONT, FONT_SM
 from ui.invoker import invoke
@@ -370,7 +371,7 @@ class SettingsAccountMixin:
 
     def _import_cookie_editor(self):
         dlg = _CookieEditorDialog(self.dlg)
-        if dlg.exec() == QDialog.DialogCode.Accepted:
+        if present_modal(dlg) == int(QDialog.DialogCode.Accepted):
             cookies = dlg.get_cookies()
             if cookies:
                 get_bilibili_api().set_cookies(cookies)
@@ -388,7 +389,7 @@ class SettingsAccountMixin:
 
     def _qrcode_login(self):
         dlg = _QRCodeLoginDialog(self.dlg)
-        if dlg.exec() == QDialog.DialogCode.Accepted:
+        if present_modal(dlg) == int(QDialog.DialogCode.Accepted):
             cookies = get_bilibili_api()._cookies
             get_bilibili_api().add_account(
                 get_bilibili_api().get_active_account(),
@@ -432,7 +433,7 @@ class SettingsAccountMixin:
 
     def _add_account_dialog(self, _parent=None):
         dlg = _AddAccountDialog(self.dlg)
-        if dlg.exec() == QDialog.DialogCode.Accepted:
+        if present_modal(dlg) == int(QDialog.DialogCode.Accepted):
             self._refresh_account_list()
             self._refresh_cookie_display()
             self._refresh_status()
@@ -456,7 +457,7 @@ class SettingsAccountMixin:
 
     def _password_login(self):
         dlg = _PasswordLoginDialog(self.dlg)
-        if dlg.exec() == QDialog.DialogCode.Accepted:
+        if present_modal(dlg) == int(QDialog.DialogCode.Accepted):
             result = dlg.get_result()
             if result.get("code") == 0:
                 cookies = result.get("cookies", {})

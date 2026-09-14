@@ -20,6 +20,7 @@ from ui.helpers import fmt_num
 from ui.invoker import invoke
 from ui.lty_voice import add_video_success, confirm_delete, warning
 from ui.theme import C
+from ui.dialog_host import present_modal
 from utils.thread_utils import fire_and_forget
 
 logger = logging.getLogger(__name__)
@@ -128,7 +129,7 @@ def add_monitor(gui):
     layout.addWidget(btn_widget)
 
     entry.returnPressed.connect(confirm_btn.click)
-    dialog.exec()
+    present_modal(dialog)
 
 
 def validate_and_add_video(gui, raw_input, dialog, status_lbl):
