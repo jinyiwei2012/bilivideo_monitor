@@ -2,7 +2,7 @@
 
 import threading
 import importlib
-from typing import Any, cast, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, cast, Dict, List, Optional, Set, Tuple, TYPE_CHECKING
 import math
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -31,6 +31,39 @@ class EnsembleMixin:
 
         @classmethod
         def _record_ensemble_feedback(cls, bvid: str, current_value: float) -> None:
+            raise NotImplementedError
+
+        # ── ScheduleMixin 提供（重算法降频调度）──
+        @classmethod
+        def _should_run_heavy(cls, bvid: str, anchor_idx: Optional[int], cached_video_data: Dict) -> Tuple[bool, str]:
+            raise NotImplementedError
+
+        @classmethod
+        def _heavy_names(cls) -> Set[str]:
+            raise NotImplementedError
+
+        @classmethod
+        def _inject_reused(
+            cls,
+            bvid: str,
+            results: Dict,
+            current_value: float,
+            thresholds: List,
+            threshold_names: List,
+            anchor_idx: Optional[int],
+        ) -> List[str]:
+            raise NotImplementedError
+
+        @classmethod
+        def _record_sched_stat(cls, key: str) -> None:
+            raise NotImplementedError
+
+        @classmethod
+        def _store_heavy(cls, bvid: str, results: Dict, anchor_idx: Optional[int]) -> None:
+            raise NotImplementedError
+
+        @staticmethod
+        def _is_reused(result: Any) -> bool:
             raise NotImplementedError
 
     @classmethod
@@ -132,13 +165,58 @@ class EnsembleMixin:
             "metadata": {"na": True, "threshold_predictions": []},
         }
 
+    @staticmethod
+    def _is_valid_result(result: Dict) -> bool:
+        """结果是否计入「有效算法」（非 N/A 且置信度 > 0）。"""
+        return not (result.get("metadata", {}).get("na") or result.get("confidence", 0) == 0)
+
     @classmethod
-    def _run_parallel_predictions(
-        cls, current_value, bvid, cached_video_data, thresholds, threshold_names, anchor_threshold=None
-    ):
-        results = {}
+    def _collect_future_results(cls, futures, results: Dict) -> Tuple[int, int]:
+        """回收线程池结果写入 results，返回 (有效数, NA 数)。"""
         valid_count = 0
         na_count = 0
+        for future in as_completed(futures):
+            name, result, error = future.result()
+            results[name] = result
+            if error:
+                continue
+            if cls._is_valid_result(result):
+                valid_count += 1
+            else:
+                na_count += 1
+        return valid_count, na_count
+
+    @classmethod
+    def _count_results(cls, results: Dict, names: List[str]) -> Tuple[int, int]:
+        """统计指定算法名的 (有效数, NA 数)。"""
+        valid_count = 0
+        na_count = 0
+        for name in names:
+            if cls._is_valid_result(results[name]):
+                valid_count += 1
+            else:
+                na_count += 1
+        return valid_count, na_count
+
+    @classmethod
+    def _run_parallel_predictions(
+        cls,
+        current_value,
+        bvid,
+        cached_video_data,
+        thresholds,
+        threshold_names,
+        anchor_threshold=None,
+        anchor_idx=None,
+    ):
+        results: Dict[str, Any] = {}
+        valid_count = 0
+        na_count = 0
+
+        # 重算法降频：无事件轮次跳过重算法，改用上一轮结果按当前播放量重投影
+        run_heavy, sched_reason = cls._should_run_heavy(bvid, anchor_idx, cached_video_data)
+        skip_names = set() if run_heavy else cls._heavy_names()
+        cls._record_sched_stat("run_rounds" if run_heavy else "skip_rounds")
 
         # 预取全部权重（避免 100+ 线程争抢 WeightManager._lock）
         _weights = {name: get_weight_manager().get_weight(name) for name in cls._algorithms}
@@ -205,17 +283,20 @@ class EnsembleMixin:
                 workers = memory_guard.get_safe_workers()
                 cls._pool = ThreadPoolExecutor(max_workers=workers)
             pool = cls._pool
-        futures = [pool.submit(_run_single, item) for item in cls._algorithms.items()]
+        items = [(name, algo) for name, algo in cls._algorithms.items() if name not in skip_names]
+        futures = [pool.submit(_run_single, item) for item in items]
 
-        for future in as_completed(futures):
-            name, result, error = future.result()
-            results[name] = result
-            if error:
-                continue
-            if result.get("metadata", {}).get("na") or result["confidence"] == 0:
-                na_count += 1
-            else:
-                valid_count += 1
+        valid_count, na_count = cls._collect_future_results(futures, results)
+
+        # 降频轮次：注入上一轮重算法结果（按当前播放量重投影）并计入有效/NA 统计
+        if skip_names:
+            reused = cls._inject_reused(bvid, results, current_value, thresholds, threshold_names, anchor_idx)
+            r_valid, r_na = cls._count_results(results, reused)
+            valid_count += r_valid
+            na_count += r_na
+            if reused:
+                cls._record_sched_stat("reuse_rounds")
+            logger.debug("[%s] 重算法降频(%s): 实算 %d 个, 复用 %d 个", bvid, sched_reason, len(items), len(reused))
 
         return results, valid_count, na_count
 
@@ -230,6 +311,9 @@ class EnsembleMixin:
 
             decay = 0.85
             for name, pred, w in valid_predictions:
+                if cls._is_reused(results.get(name)):
+                    # 降频复用项：不计入「算法表现」历史，否则缓存年龄会被当成算法连续表现
+                    continue
                 rel_dev = abs(pred - current_value) / max(current_value, 1)
                 hist = _window_weight_history.get(name, [])
                 hist.append(rel_dev)
@@ -308,6 +392,9 @@ class EnsembleMixin:
             logger.debug("推流检测计算失败: %s", e)
 
         for name, pred, w in valid_predictions:
+            if cls._is_reused(results.get(name)):
+                # 降频复用项：沿用缓存内的最终权重，不重复套一次共识折扣
+                continue
             coherence = min(pred, median_val) / max(pred, median_val)
             # 推流时放宽一致性惩罚：让高预测算法保留更多权重
             if is_surging:
@@ -598,6 +685,7 @@ class EnsembleMixin:
             thresholds,
             threshold_names,
             anchor_threshold=anchor_threshold,
+            anchor_idx=anchor_idx,
         )
 
         valid_predictions = cls._get_valid_predictions(results)
@@ -618,5 +706,8 @@ class EnsembleMixin:
         weighted_pred = cls._apply_surge_correction(results, cached_video_data, current_value, weighted_pred)
         weighted_pred = cls._apply_bias_correction(results, bvid, current_value, weighted_pred)
         cls._log_ensemble_result(results, bvid, weighted_pred, valid_count)
+
+        # 降频调度：保存本轮重算法的最终结果，作为下一轮跳过时的复用来源
+        cls._store_heavy(bvid, results, anchor_idx)
 
         return cast(Dict[Any, Any], results)

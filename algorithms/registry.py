@@ -12,13 +12,14 @@ import threading
 
 from .base import BaseAlgorithm
 from . import weight_manager as _weight_manager
-from .registry_parts import EnsembleMixin, FeaturePrepMixin, ModelLoadMixin, WarmupMixin
+from .registry_parts import EnsembleMixin, FeaturePrepMixin, ModelLoadMixin, ScheduleMixin, WarmupMixin
+from .registry_parts._schedule import DEFAULT_HEAVY_IDS, DEFAULT_HEAVY_INTERVAL_SECONDS, DEFAULT_JUMP_RATIO
 from .registry_parts._shared import _LRUDict, _MAX_CACHE_SIZE, logger
 
 get_weight_manager = _weight_manager.get_weight_manager
 
 
-class AlgorithmRegistry(FeaturePrepMixin, EnsembleMixin, WarmupMixin, ModelLoadMixin):
+class AlgorithmRegistry(FeaturePrepMixin, EnsembleMixin, WarmupMixin, ModelLoadMixin, ScheduleMixin):
     """算法注册器 —— 单例风格的类方法容器。
 
     职责：
@@ -36,6 +37,16 @@ class AlgorithmRegistry(FeaturePrepMixin, EnsembleMixin, WarmupMixin, ModelLoadM
     _history_lock = threading.Lock()
     _cache_lock = threading.Lock()  # 保护 _derived_cache 并发读写
     _derived_cache: _LRUDict = _LRUDict(maxsize=_MAX_CACHE_SIZE)
+
+    # ── 重算法降频调度状态（ScheduleMixin 使用）──
+    # 实测：最重 7 个算法占 77.2% 运行时长但只占 5.11% 权重，对集成输出影响 ≤0.093%
+    _sched_lock = threading.Lock()
+    _sched_state: Dict[str, Dict] = {}
+    _sched_enabled = True
+    _sched_heavy_ids = set(DEFAULT_HEAVY_IDS)
+    _sched_interval = DEFAULT_HEAVY_INTERVAL_SECONDS
+    _sched_jump_ratio = DEFAULT_JUMP_RATIO
+    _sched_stats: Dict[str, int] = {}
 
     # B3: 集成偏差校准 —— 记录每个 bvid 上一次集成预测 (prediction, current_value)
     # 下次预测时用新的 current_value 作"实际值"验证 growth 偏差
@@ -71,6 +82,7 @@ class AlgorithmRegistry(FeaturePrepMixin, EnsembleMixin, WarmupMixin, ModelLoadM
         """删除某视频的偏差样本（删除监控时调用）。"""
         with cls._prev_ensemble_lock:
             cls._prev_ensemble_pred.pop(bvid, None)
+        cls.reset_schedule(bvid)
         try:
             from .bias_correction import get_bias_corrector
 
@@ -149,6 +161,7 @@ class AlgorithmRegistry(FeaturePrepMixin, EnsembleMixin, WarmupMixin, ModelLoadM
         cls._initialized = False
         with cls._prev_ensemble_lock:
             cls._prev_ensemble_pred.clear()
+        cls.reset_schedule()
 
 
 # 不再模块级初始化，改为按需（Lazy）初始化 —— 所有公开方法都已检查 _initialized 标志
