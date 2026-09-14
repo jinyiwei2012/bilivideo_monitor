@@ -5,6 +5,7 @@
 """
 
 import logging
+import re
 
 from PyQt6.QtWidgets import (
     QDialog,
@@ -29,22 +30,28 @@ class DialogBase(QDialog):
     提供统一的头部、卡片分段、按钮栏与间距控制。
     """
 
-    def __init__(self, parent=None, title="", geometry=(480, 360), modal=True):
+    # "WxH" 解析用（非法输入不抛异常）
+    _GEOMETRY_RE = re.compile(r"^\s*(\d+)\s*[xX]\s*(\d+)\s*$")
+    # 字号/粗体 → QFont 缓存：字体仅由 family+size+bold 决定，同键等价，可安全共享
+    _FONT_CACHE: dict = {}
+
+    def __init__(self, parent=None, title="", geometry=(480, 360), modal=True, icon=True):
         """初始化对话框窗口
 
         :param parent: 父窗口
         :param title: 窗口标题
-        :param geometry: (width, height) 元组 或 "WxH" 字符串
+        :param geometry: (width, height) 元组 或 "WxH" 字符串；非法输入回退 (480, 360)
         :param modal: 是否为模态对话框
+        :param icon: 是否套用主程序窗口图标（资源缺失则静默跳过）
         """
         super().__init__(parent)
         self.setWindowTitle(title)
-        if isinstance(geometry, str):
-            w, h = geometry.split("x")
-            geometry = (int(w), int(h))
-        if geometry:
-            self.resize(*geometry)
+        parsed = self._parse_geometry(geometry)
+        if parsed:
+            self.resize(*parsed)
         self.setMinimumSize(300, 200)
+        if icon:
+            self._apply_window_icon()
 
         if modal and parent:
             self.setWindowModality(Qt.WindowModality.ApplicationModal)
@@ -63,6 +70,52 @@ class DialogBase(QDialog):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.container)
 
+    # ── 尺寸 / 字体 / 图标 ────────────────────────────────
+
+    @classmethod
+    def _parse_geometry(cls, geometry):
+        """解析 geometry；非法输入回退默认尺寸 ``(480, 360)``，绝不抛异常。"""
+        if isinstance(geometry, str):
+            m = cls._GEOMETRY_RE.match(geometry)
+            if m is None:
+                logger.warning("非法 geometry 字符串 %r，回退默认尺寸", geometry)
+                return (480, 360)
+            return (int(m.group(1)), int(m.group(2)))
+        if not geometry:
+            return (480, 360)
+        try:
+            w, h = geometry
+            return (int(w), int(h))
+        except Exception:
+            logger.warning("非法 geometry %r，回退默认尺寸", geometry)
+            return (480, 360)
+
+    @classmethod
+    def _font(cls, size: int, bold: bool = False) -> QFont:
+        """取缓存的 QFont（等价于 ``QFont("Microsoft YaHei UI", size)`` + setBold）。"""
+        key = (size, bold)
+        font = cls._FONT_CACHE.get(key)
+        if font is None:
+            font = QFont("Microsoft YaHei UI", size)
+            font.setBold(bold)
+            cls._FONT_CACHE[key] = font
+        return font
+
+    def _apply_window_icon(self) -> None:
+        """套用主程序窗口图标（资源缺失或导入失败时静默跳过，不影响弹窗显示）。"""
+        try:
+            import os
+
+            from PyQt6.QtGui import QIcon
+
+            from utils import project_path
+
+            path = project_path("assets", "app_icon.png")
+            if os.path.exists(path):
+                self.setWindowIcon(QIcon(path))
+        except Exception as e:
+            logger.debug("设置弹窗图标失败: %s", e)
+
     # ── 头部 ────────────────────────────────────────────
 
     def header(self, title, subtitle=None):
@@ -73,15 +126,13 @@ class DialogBase(QDialog):
         layout.setContentsMargins(24, 20, 24, 0)
 
         lbl = QLabel(title)
-        font = QFont("Microsoft YaHei UI", 14)
-        font.setBold(True)
-        lbl.setFont(font)
+        lbl.setFont(self._font(14, bold=True))
         lbl.setStyleSheet(f"color: {C['text_1']};")
         layout.addWidget(lbl)
 
         if subtitle:
             sub = QLabel(subtitle)
-            sub.setFont(QFont("Microsoft YaHei UI", 9))
+            sub.setFont(self._font(9))
             sub.setStyleSheet(f"color: {C['text_3']};")
             layout.addWidget(sub)
 
@@ -117,9 +168,7 @@ class DialogBase(QDialog):
 
         if title:
             lbl = QLabel(title)
-            font = QFont("Microsoft YaHei UI", 8)
-            font.setBold(True)
-            lbl.setFont(font)
+            lbl.setFont(self._font(8, bold=True))
             lbl.setStyleSheet(f"color: {C['text_2']};")
             layout.addWidget(lbl)
 
@@ -172,23 +221,6 @@ class DialogBase(QDialog):
 
         self._main_layout.addWidget(bar)
         return bar
-
-    # ── 标签式行（字段+值）─────────────────────────────
-
-    def field_row(self, parent, label, value_widget, label_width=14):
-        """一行：左标签 + 右控件，适合表单"""
-        row = QWidget(parent)
-        layout = QHBoxLayout(row)
-        layout.setContentsMargins(0, 2, 0, 2)
-
-        lbl = QLabel(label)
-        lbl.setFont(QFont("Microsoft YaHei UI", 9))
-        lbl.setStyleSheet(f"color: {C['text_2']};")
-        lbl.setMinimumWidth(label_width * 8)
-        layout.addWidget(lbl)
-
-        layout.addWidget(value_widget, 1)
-        return row
 
     # ── 内容区（充满剩余空间，用于 Text / Treeview）────────
 

@@ -154,6 +154,45 @@ class TestPresentModal:
         assert dialog_host.present_modal(_NotAWindow()) == int(QDialog.DialogCode.Rejected)
 
 
+class TestDialogBaseHardening:
+    """T3：geometry 校验 / 字号缓存 / 死 API 处置（不破坏仍被使用的 API）。"""
+
+    def test_geometry_string_parsed(self, qapp):
+        from ui.dialog_base import DialogBase
+
+        dlg = DialogBase(None, "t", "512x384")
+        assert (dlg.width(), dlg.height()) == (512, 384)
+        dlg.close()
+
+    @pytest.mark.parametrize("bad", ["abc", "12x", "", "x300", None, (1, 2, 3)])
+    def test_invalid_geometry_falls_back_without_crash(self, qapp, bad):
+        from ui.dialog_base import DialogBase
+
+        dlg = DialogBase(None, "t", bad)
+        assert dlg.width() >= 300 and dlg.height() >= 200
+        dlg.close()
+
+    def test_font_cache_returns_same_object(self, qapp):
+        from ui.dialog_base import DialogBase
+
+        assert DialogBase._font(9, bold=True) is DialogBase._font(9, bold=True)
+        assert DialogBase._font(9) is not DialogBase._font(9, bold=True)
+
+    def test_dead_field_row_removed(self):
+        from ui.dialog_base import DialogBase
+
+        assert not hasattr(DialogBase, "field_row"), "0 调用者的 field_row 应已删除"
+
+    def test_used_apis_preserved(self):
+        """防误删：content_area(8 处调用) 与 button_row(4 处调用) 必须保留。"""
+        from ui.dialog_base import DialogBase
+
+        assert hasattr(DialogBase, "content_area")
+        assert hasattr(DialogBase, "button_row")
+        assert hasattr(DialogBase, "header")
+        assert hasattr(DialogBase, "section")
+
+
 class TestDialogBaseClose:
     """回归：DialogBase 原先 `rejected → reject` 自反连接，关闭窗口即无限递归。
 
