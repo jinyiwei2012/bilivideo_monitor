@@ -221,6 +221,49 @@ class TestSingleDisplayFunnel:
             window.close()
 
 
+class TestDeadApiGuards:
+    """T6：源码级防误删基线 —— 仍被使用的 API 必须有真实调用点。"""
+
+    @staticmethod
+    def _ui_dir():
+        import pathlib
+
+        return pathlib.Path(__file__).resolve().parents[1] / "ui"
+
+    def _callers(self, needle):
+        hits = []
+        for path in sorted(self._ui_dir().rglob("*.py")):
+            if path.name == "dialog_base.py":
+                continue
+            for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                if needle in line:
+                    hits.append(f"{path.name}:{lineno}")
+        return hits
+
+    def test_content_area_still_has_callers(self):
+        hits = self._callers("content_area(")
+        assert len(hits) >= 8, f"content_area 调用点基线为 8，实际 {len(hits)}: {hits}"
+
+    def test_button_row_still_has_callers(self):
+        hits = self._callers("button_row(")
+        assert len(hits) >= 4, f"button_row 调用点基线为 4，实际 {len(hits)}: {hits}"
+
+    def test_header_and_section_still_have_callers(self):
+        assert len(self._callers(".header(")) >= 5
+        assert len(self._callers(".section(")) >= 10
+
+    def test_close_no_crash_after_show(self, qapp):
+        """回归：close() 不得因 rejected→reject 自反连接而栈溢出（原 0xC00000FD）。"""
+        from ui.dialog_base import DialogBase
+
+        dlg = DialogBase(None, "t", "400x300")
+        dlg.show()
+        assert dlg.isVisible() is True
+        dlg.close()
+        assert dlg.isVisible() is False
+        dlg.close()  # 重复关闭同样不得崩溃
+
+
 class TestNoBareExecInUi:
     """T4 守卫：ui/ 下除 dialog_host（统一入口）与应用事件循环外，不得再出现裸 .exec()。"""
 
