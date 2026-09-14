@@ -126,7 +126,7 @@ def compute_hashes(files: list[str]) -> dict[str, str]:
             print(f"[WARN] 文件不存在，跳过: {rel_path}")
             continue
         with open(filepath, "rb") as f:
-            h = hashlib.sha256(f.read()).hexdigest().upper()
+            h = hashlib.sha256(f.read().replace(b"\r\n", b"\n")).hexdigest().upper()
         hashes[rel_path] = h
     return hashes
 

@@ -55,6 +55,9 @@ jobs:
     needs: [quality]
     runs-on: windows-latest
     timeout-minutes: 120
+    env:
+      # Windows runner 控制台默认非 UTF-8，脚本打印中文会抛 UnicodeEncodeError
+      PYTHONUTF8: '1'
 
     steps:
       - uses: actions/checkout@v4

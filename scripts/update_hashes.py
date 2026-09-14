@@ -35,7 +35,9 @@ def compute_hashes(files: list[str]) -> dict[str, str]:
         filepath = os.path.join(PROJECT_ROOT, rel_path)
         if os.path.isfile(filepath):
             with open(filepath, "rb") as f:
-                h = hashlib.sha256(f.read()).hexdigest().upper()
+                # 行尾归一：与 main.py 的校验、sign.py 的签名保持一致，
+                # 否则 Windows(CRLF)/CI(LF) 检出会算出不同哈希。
+                h = hashlib.sha256(f.read().replace(b"\r\n", b"\n")).hexdigest().upper()
             hashes[rel_path] = h
         else:
             print(f"[WARN] 文件不存在: {rel_path}")

@@ -11,6 +11,9 @@ on:
 jobs:
   quality:
     runs-on: ubuntu-latest
+    env:
+      # 统一 UTF-8，避免脚本打印中文在非 UTF-8 locale/控制台下抛 UnicodeEncodeError
+      PYTHONUTF8: '1'
     steps:
       - uses: actions/checkout@v4
 

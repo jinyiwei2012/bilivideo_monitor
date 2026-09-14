@@ -42,9 +42,9 @@ _SIGNING_PUBLIC_KEY = "55A2652006C9F1669CA24FAB01D16BCA6DF581D3525789AE5EA5B67B3
 
 # 嵌入式哈希回退列表（向后兼容，手动维护或通过 scripts/update_hashes.py 更新）
 _INTEGRITY_HASHES: dict[str, str] = {
-    "core/bilibili_api.py": "13A1B013C723488F64BBD94EDA26D4D4CAD1A61C370F64B4E89A83AF911C3E60",
-    "algorithms/registry.py": "96D7D80C9F01761BB641CFF860E6F38353D04EA408CC6BEBEE62214FF7B58975",
-    "algorithms/base.py": "0AA1EF5C44FABB678D2E70DA355EE14BA68C7C008366D40C7B7CC57F982B5038",
+    "core/bilibili_api.py": "AE83D379CA727F2E6D6621732CCC7B672348469664D4CC6A0CAAB5A2AA2288D1",
+    "algorithms/registry.py": "05DB4866DECAB0E7EC390B32B952652F3DC632F5CEB35DAB936549CBD6653F12",
+    "algorithms/base.py": "3DEADBC7503BC7D7C471CDCB1D29C41F8ECAF5C07988A7A14F563B2C7B5A3340",
     "core/notification.py": "CDC56CD3618EB7406AAB0FCC3B6611572329BE765CC3C02D97FA08607FD74A09",
 }
 
@@ -80,7 +80,9 @@ def _verify_file_hashes(hashes: dict[str, str]) -> None:
                 f"参考 README.md 文件"
             )
         with open(filepath, "rb") as f:
-            actual_hash = hashlib.sha256(f.read()).hexdigest().upper()
+            # 行尾归一后再哈希：仓库在 Windows(CRLF) / CI(LF) 检出的字节不同，
+            # 若按原始字节哈希，同一提交会算出不同哈希 → 跨平台误报"已被篡改"。
+            actual_hash = hashlib.sha256(f.read().replace(b"\r\n", b"\n")).hexdigest().upper()
         if actual_hash != expected_hash:
             raise RuntimeError(
                 f"文件已被篡改: {rel_path}\n"
