@@ -96,7 +96,12 @@ class DialogBase(QDialog):
     # ── 卡片分段 ─────────────────────────────────────────
 
     def section(self, parent=None, title=None, padding=14):
-        """创建一个卡片风格的 Frame 分段"""
+        """创建一个卡片风格的 Frame 分段。
+
+        ``parent`` 非空时挂到 **parent 自己的布局**（parent 无布局则退回主布局），
+        使调用方能把握分段放进自己的容器（如 health_probe 的 bottom 区）；
+        ``parent`` 为空时行为与原先一致（挂主布局）。
+        """
         p = parent or self.container
 
         sec = QFrame(p)
@@ -118,7 +123,12 @@ class DialogBase(QDialog):
             lbl.setStyleSheet(f"color: {C['text_2']};")
             layout.addWidget(lbl)
 
-        self._main_layout.addWidget(sec)
+        host_layout = self._main_layout
+        if parent is not None:
+            parent_layout = parent.layout()
+            if parent_layout is not None:
+                host_layout = parent_layout
+        host_layout.addWidget(sec)
         return sec
 
     # ── 按钮栏 ───────────────────────────────────────────
