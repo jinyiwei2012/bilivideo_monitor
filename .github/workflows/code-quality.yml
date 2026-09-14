@@ -31,6 +31,16 @@ jobs:
           pip install black flake8 bandit radon pytest mypy
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
+      # PyQt6 的 wheel 自带 Qt，但依赖系统提供 libEGL/libGL/xkbcommon/xcb 等；
+      # ubuntu-latest 默认没有 → 凡导入 UI 模块的测试都会 ImportError: libEGL.so.1
+      - name: Install Qt system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libegl1 libgl1 libxkbcommon-x11-0 libdbus-1-3 libfontconfig1 \
+            libxcb-cursor0 libxcb-xinerama0 libxcb-icccm4 libxcb-image0 \
+            libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0
+
       # 格式门禁：全仓必须符合 black(line-length=120)，不允许 || true
       - name: Check formatting with Black
         run: black --check --line-length=120 .
@@ -47,8 +57,11 @@ jobs:
       - name: Complexity report
         run: radon cc -a -s .
 
+      # QT_QPA_PLATFORM=offscreen：runner 无显示器，用离屏后端建 QApplication
       - name: Run tests with Pytest
         run: python -m pytest tests/ -q
+        env:
+          QT_QPA_PLATFORM: offscreen
 
       # 类型门禁：mypy 零容忍（历史 738 条类型错误已全部修复，基线为空）。
       # 任何新增类型错误都会使 CI 失败；如确需挂起，用 `python scripts/type_gate.py --update-baseline`。
