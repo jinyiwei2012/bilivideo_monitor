@@ -368,15 +368,22 @@ class TestDialogBaseHardening:
         assert DialogBase._parse_geometry("999999999999999999999x1") == (480, 360)
 
     def test_font_cache_is_equivalent_and_isolated(self, qapp):
-        """缓存返回等价副本：调用方改动不得污染后续调用者。"""
+        """缓存返回等价但**独立**的副本：调用方改动不得污染缓存，原型仍被复用。"""
         from ui.dialog_base import DialogBase
 
-        assert DialogBase._font(9, bold=True) == DialogBase._font(9, bold=True)
+        first = DialogBase._font(9, bold=True)
+        second = DialogBase._font(9, bold=True)
+        assert first == second
+        assert first is not second, "必须返回独立副本（缓存原型 + 隐式共享副本）"
         assert DialogBase._font(9) != DialogBase._font(9, bold=True)
+
+        proto = DialogBase._FONT_CACHE[(9, True)]
+        assert DialogBase._font(9, bold=True) == proto, "缓存原型应被复用"
 
         mutated = DialogBase._font(6)
         mutated.setPointSize(33)
         assert DialogBase._font(6).pointSize() == 6, "缓存被调用方改动污染"
+        assert DialogBase._FONT_CACHE[(6, False)].pointSize() == 6, "缓存原型被污染"
 
     def test_dead_field_row_removed(self):
         from ui.dialog_base import DialogBase
