@@ -89,8 +89,20 @@ def invoke(fn, key=None):
     """在任意线程中调用，fn 会被调度到主线程执行。
 
     key 非空时按 key 合并：同一 key 的待执行回调只保留最新一个。
+
+    宿主 QObject 可能已被销毁（应用退出、测试拆解、解释器关闭）——此时
+    `emit()` 会抛 RuntimeError。此处重建单例并重试一次，仍失败则丢弃回调，
+    避免把异常抛回调用方线程（后台 worker 会因此中断剩余工作）。
     """
-    _invoker.invoke(fn, key)
+    global _invoker
+    try:
+        _invoker.invoke(fn, key)
+    except RuntimeError:
+        try:
+            _invoker = _MainInvoker()
+            _invoker.invoke(fn, key)
+        except RuntimeError:
+            logger.debug("invoker 宿主对象不可用，丢弃回调")
 
 
 def invoke_later(ms, fn):
@@ -100,4 +112,4 @@ def invoke_later(ms, fn):
     def wrapper():
         QTimer.singleShot(ms, fn)
 
-    _invoker.invoke(wrapper)
+    invoke(wrapper)  # 走 invoke 的宿主重建防护，避免直接触碰已销毁的 QObject

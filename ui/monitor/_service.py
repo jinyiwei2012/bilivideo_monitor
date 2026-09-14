@@ -459,7 +459,8 @@ def _batch_fetch_all(gui):
                 fut.result()
             except Exception as e:
                 logger.debug("抓取失败 %s: %s", futures.get(fut, ""), e)
-    gui._sb("last_ref", f"上次刷新啦: {datetime.now().strftime('%H:%M:%S')} ♪")
+    # 此处在后台线程（fire_and_forget(_loop)）→ 必须经 invoke 回主线程改控件
+    invoke(lambda: gui._sb("last_ref", f"上次刷新啦: {datetime.now().strftime('%H:%M:%S')} ♪"))
 
 
 def _start_central_fetcher(gui):
