@@ -26,7 +26,9 @@ from PyQt6.QtCore import Qt, QRect
 from PyQt6.QtGui import QPainter, QColor, QFont, QPen
 
 from ui.theme import C
+from ui.invoker import invoke
 from algorithms.registry import AlgorithmRegistry
+from utils.thread_utils import fire_and_forget
 from utils.time_utils import safe_datetime
 
 logger = logging.getLogger(__name__)
@@ -367,6 +369,7 @@ class CrossoverAnalysisWindow(QDialog):
         analyze_btn = QPushButton("开始分析")
         analyze_btn.clicked.connect(self._analyze)
         algo_row_layout.addWidget(analyze_btn)
+        self._analyze_btn = analyze_btn  # 后台分析期间需禁用，防止重入
         algo_row_layout.addSpacing(12)
 
         self._status_lbl = QLabel("")
@@ -437,7 +440,12 @@ class CrossoverAnalysisWindow(QDialog):
 
     # ── 分析 ──────────────────────────────────────────
     def _analyze(self):
-        """开始分析：校验选择、加载数据、拟合、计算交会、绘制趋势图"""
+        """开始分析：校验选择后把重活（全库读取 + 137 算法集成）移出主线程
+
+        原先整条链在 UI 线程同步执行（每个视频一轮全算法 predict_all ≈ 5s，
+        最多 5 个视频 → 点击即冻结数十秒）。现仅「读库 + 拟合」下放后台线程，
+        控件读写仍在主线程完成，可见结果不变。
+        """
         sel_items = self._listbox.selectedItems()
         if len(sel_items) < 2:
             QMessageBox.warning(self, "提示", "至少选2个视频,天依才能算出它们的交会哦 ♪")
@@ -447,17 +455,37 @@ class CrossoverAnalysisWindow(QDialog):
             return
 
         sel_idx = [self._listbox.row(item) for item in sel_items]
-        self._selected = [self.monitored_videos[i] for i in sel_idx if i < len(self.monitored_videos)]
+        selected = [self.monitored_videos[i] for i in sel_idx if i < len(self.monitored_videos)]
+        # 主线程快照：控件文本 + 共享历史的浅拷贝（worker 不读控件、不写共享 dict）
+        algo = self._algo_combo.currentText()
+        base_hist = {v.get("bvid", ""): list(self.history_data.get(v.get("bvid", ""), [])) for v in selected}
+        self._selected = selected
+        self._analyze_btn.setEnabled(False)
 
-        self._load_history()
-        fits = self._fit_videos()
+        def _work():
+            try:
+                hist = self._collect_history(selected, base_hist)
+                fits = self._fit_selected(selected, hist, algo)
+            except Exception:
+                logger.exception("交叉分析计算失败")
+                invoke(lambda: self._analyze_btn.setEnabled(True))
+                return
+            invoke(lambda: self._finish_analysis(selected, hist, fits))
+
+        fire_and_forget(_work, name="crossover-analyze")
+
+    def _finish_analysis(self, selected, hist, fits):
+        """主线程：合并历史、填充表格/图表、恢复按钮（保持原有可见行为与顺序）"""
+        self._analyze_btn.setEnabled(True)
+        if hist:
+            self.history_data.update(hist)
 
         # 清空旧结果
         self._tree.clear()
         self._chart.set_data({}, [])
 
         # 筛选出拟合成功的视频
-        valid = [v for v in self._selected if fits.get(v.get("bvid", ""))]
+        valid = [v for v in selected if fits.get(v.get("bvid", ""))]
         if len(valid) < 2:
             self._status_lbl.setText("呜…这些视频的历史数据还太少,每个至少要有2条记录才行哦 ♪")
             self._status_lbl.setStyleSheet(f"color: {C['danger']}; font-size: 9pt;")
@@ -473,36 +501,40 @@ class CrossoverAnalysisWindow(QDialog):
         self._status_lbl.setText(f"分析完成啦!♪ {len(valid)} 个视频,找到了 {crossover_count} 个交会点")
         self._status_lbl.setStyleSheet(f"color: {C['success']}; font-size: 9pt;")
 
-        self._chart.set_data(fits, self._selected)
+        self._chart.set_data(fits, selected)
 
         if crossover_count == 0 and len(valid) >= 2:
             QMessageBox.information(self, "结果", "呜…按现在的趋势,这些视频的歌声还没有相遇的时刻呢 ♪")
 
-    def _load_history(self):
-        """从视频数据库补充历史播放数据到 history_data"""
-        for v in self._selected:
+    def _collect_history(self, selected, base_hist) -> dict:
+        """读库补充历史播放数据，返回新的映射（不修改共享 self.history_data）
+
+        在后台线程执行，故不得写入共享 dict（会与监控 worker 的 _data_lock 写路径竞争）。
+        """
+        hist = {bvid: list(pts) for bvid, pts in base_hist.items()}
+        for v in selected:
             bvid = v.get("bvid", "")
             if bvid in self.video_dbs:
                 try:
                     records = self.video_dbs[bvid].get_all_records()
                     if records:
-                        self.history_data[bvid] = [(row["timestamp"], row["view_count"]) for row in records]
+                        hist[bvid] = [(row["timestamp"], row["view_count"]) for row in records]
                 except Exception as e:
                     logger.debug("加载视频历史数据失败: %s", e)
+        return hist
 
-    def _fit_videos(self) -> dict:
+    def _fit_selected(self, selected, hist, algo) -> dict:
         """对每个视频做拟合，返回 {bvid: (slope, intercept, base_ts, points)}"""
-        algo = self._algo_combo.currentText()
         if algo == "线性回归(原方法)":
-            return self._fit_linear()
-        return self._fit_with_algorithms(algo)
+            return self._fit_linear(selected, hist)
+        return self._fit_with_algorithms(selected, hist, algo)
 
-    def _fit_linear(self) -> dict:
+    def _fit_linear(self, selected, hist) -> dict:
         """原线性回归拟合方法"""
         fits: dict[str, tuple[float, float, datetime, list[tuple[datetime, float]]] | None] = {}
-        for v in self._selected:
+        for v in selected:
             bvid = v.get("bvid", "")
-            raw = self.history_data.get(bvid, [])
+            raw = hist.get(bvid, [])
             pts_parsed = []
             for item in raw:
                 ts = _parse_ts(item[0])
@@ -520,13 +552,13 @@ class CrossoverAnalysisWindow(QDialog):
             fits[bvid] = (*result, base_ts, pts_parsed) if result else None
         return fits
 
-    def _fit_with_algorithms(self, algo_name: str) -> dict:
+    def _fit_with_algorithms(self, selected, hist, algo_name: str) -> dict:
         """使用算法预测进行拟合：通过算法预测增长率，失败时回退到线性回归"""
         threshold = 100000
         fits: dict[str, tuple[float, float, datetime, list[tuple[datetime, float]]] | None] = {}
-        for v in self._selected:
+        for v in selected:
             bvid = v.get("bvid", "")
-            raw = self.history_data.get(bvid, [])
+            raw = hist.get(bvid, [])
             pts_parsed = []
             for item in raw:
                 ts = _parse_ts(item[0])
