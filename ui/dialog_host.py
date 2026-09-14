@@ -125,6 +125,11 @@ def present_modal(window: Any) -> int:
     if widget is None:
         logger.warning("present_modal() 收到无法显示的弹窗对象: %r", type(window))
         return int(QDialog.DialogCode.Rejected)
+    if not isinstance(widget, QDialog):
+        # 纯 QWidget 没有 exec()：降级为非模态显示，并按「未接受」返回，避免调用方误判为成功
+        logger.warning("present_modal() 目标非 QDialog，降级为非模态显示: %r", type(window))
+        present(window, singleton=False)
+        return int(QDialog.DialogCode.Rejected)
     _keep(window)
     try:
         return int(widget.exec())
