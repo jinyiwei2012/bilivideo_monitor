@@ -53,6 +53,27 @@ class _PolylineItem(QGraphicsItem):
         self._dot_outline = QColor(dot_outline)
         self._dot_width = float(dot_width)
         self._bounds = bounds
+        # 绘制缓存：由 _rebuild_cache() 从上面这些「影响绘制的字段」派生，
+        # 值与旧实现在 paint() 内临时构造的对象逐字段相同，仅构造时机前移。
+        self._line_pen: QPen
+        self._dot_pen: QPen
+        self._polyline: QPolygonF
+        self._dot_draws: list[tuple[QPointF, float, QBrush]]
+        self._rebuild_cache()
+
+    def _rebuild_cache(self) -> None:
+        """从当前数据字段重建绘制缓存。
+
+        缓存 key 即构造参数全集（``points`` / ``dots`` / ``line_color`` /
+        ``line_width`` / ``dot_outline`` / ``dot_width``）。本图元是**不可变**的：
+        这些字段只在 ``__init__`` 赋值，之后 ``_redraw()`` 通过
+        ``scene.clear()`` + 新建图元来反映数据变更，因此不存在其它失效入口；
+        若将来新增就地改数据的方法，只需在其末尾再调用一次本方法即可。
+        """
+        self._line_pen = QPen(self._line_color, self._line_width)
+        self._dot_pen = QPen(self._dot_outline, self._dot_width)
+        self._polyline = QPolygonF([QPointF(x, y) for x, y in self._points])
+        self._dot_draws = [(QPointF(x, y), r, QBrush(color)) for x, y, r, color in self._dots]
 
     def boundingRect(self) -> QRectF:  # noqa: N802 (Qt 命名约定)
         return self._bounds
@@ -65,18 +86,23 @@ class _PolylineItem(QGraphicsItem):
     ) -> None:  # noqa: N802 (Qt 命名约定)
         painter = cast(QPainter, painter)
         if len(self._points) >= 2:
-            painter.setPen(QPen(self._line_color, self._line_width))
+            painter.setPen(self._line_pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawPolyline(QPolygonF([QPointF(x, y) for x, y in self._points]))
-        if self._dots:
-            painter.setPen(QPen(self._dot_outline, self._dot_width))
-            for x, y, r, color in self._dots:
-                painter.setBrush(QBrush(color))
-                painter.drawEllipse(QPointF(x, y), r, r)
+            painter.drawPolyline(self._polyline)
+        if self._dot_draws:
+            painter.setPen(self._dot_pen)
+            for center, radius, brush in self._dot_draws:
+                painter.setBrush(brush)
+                painter.drawEllipse(center, radius, radius)
 
 
 class ChartWidget(QWidget):
     """图表控件 - 使用 QGraphicsView 绘制播放量趋势图"""
+
+    # 字号 → QFont 缓存。字体只由 (family, pointSize) 决定，同 key 构造出的 QFont
+    # 完全等价；QGraphicsTextItem.setFont() 保存的是副本，缓存实例不会被就地修改，
+    # 故共享安全。失效时机：无——key 已覆盖全部影响字形的入参，family 是常量。
+    _FONT_CACHE: dict[int, QFont] = {}
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -102,6 +128,18 @@ class ChartWidget(QWidget):
         self._view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._view.setBackgroundBrush(QBrush(QColor(C["bg_base"])))
+        # 重绘策略优化（均**不改变**任何像素输出）：
+        # 1. MinimalViewportUpdate：只重画脏区域而非整个 viewport。
+        # 2. DontSavePainterState：省去 QGraphicsView 对每个图元的 painter save/restore；
+        #    本场景所有图元（自定义 _PolylineItem 与 Qt 内建 line/rect/ellipse/polygon/text）
+        #    都在 paint 里显式设置自己的 pen/brush（QGraphicsTextItem 内部自带 save/restore），
+        #    不依赖上一个图元残留的状态，故安全。
+        # 3. CacheBackground：背景仅是 setBackgroundBrush 的纯色填充（网格线是场景图元，
+        #    不走 drawBackground），缓存位图与实时填充逐像素相同。
+        # 注意：刻意**不加** DontAdjustForAntialiasing——那会改变抗锯齿渲染结果。
+        self._view.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.MinimalViewportUpdate)
+        self._view.setOptimizationFlag(QGraphicsView.OptimizationFlag.DontSavePainterState, True)
+        self._view.setCacheMode(QGraphicsView.CacheModeFlag.CacheBackground)
         self._view.setStyleSheet("border: none;")
         layout.addWidget(self._view)
 
@@ -165,11 +203,19 @@ class ChartWidget(QWidget):
         H = self._view.height() or 300
         self._draw_text(W // 2, H // 2, text, QColor(C["text_3"]), 11, Qt.AlignmentFlag.AlignCenter)
 
+    @classmethod
+    def _font(cls, size: int) -> QFont:
+        """取缓存的 QFont（等价于 ``QFont("Microsoft YaHei UI", size)``）。"""
+        font = cls._FONT_CACHE.get(size)
+        if font is None:
+            font = QFont("Microsoft YaHei UI", size)
+            cls._FONT_CACHE[size] = font
+        return font
+
     def _draw_text(self, x, y, text, color, size=8, align=Qt.AlignmentFlag.AlignCenter):
         """在场景中绘制文本"""
         item = QGraphicsTextItem(text)
-        font = QFont("Microsoft YaHei UI", size)
-        item.setFont(font)
+        item.setFont(self._font(size))
         item.setDefaultTextColor(color)
 
         if align == Qt.AlignmentFlag.AlignCenter:
