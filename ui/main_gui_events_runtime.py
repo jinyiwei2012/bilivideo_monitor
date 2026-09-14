@@ -35,6 +35,10 @@ from utils.thread_utils import fire_and_forget
 
 logger = logging.getLogger(__name__)
 
+# 首触预热用的占位 BV 号：只需通过 BV 号格式校验（torch 模型会校验，无效 BV 会让它们
+# 走底模从而起不到预热作用）。真实视频添加后模型缓存会按各自 bvid 重建。
+_PREWARM_BVID = "BV1xx411c7mD"
+
 
 def on_exit(gui):
     """应用退出时的清理工作"""
@@ -163,7 +167,7 @@ def auto_activate_on_startup(gui):
 
 
 def preload_algorithms(gui):
-    """后台线程预加载 AlgorithmRegistry"""
+    """后台线程预加载 AlgorithmRegistry（必要时顺带做首触预热）"""
 
     def _worker():
         from algorithms.registry import AlgorithmRegistry
@@ -171,6 +175,19 @@ def preload_algorithms(gui):
         AlgorithmRegistry.initialize()
         n = len(AlgorithmRegistry.get_algorithm_names())
         logger.info("后台算法预加载完成，共 %d 个算法", n)
+
+        # 首触预热：仅当启动时**没有**监控视频时才做。
+        # 有视频时首个拉取会立刻触发真实预测（并阻塞在 initialize 锁上），
+        # 此时再并发预热只会跟它抢 CPU；而"无视频"时预热不与任何预测竞争，
+        # 用户随后添加视频的首次预测即可命中已加载的模型与已初始化的库（省掉懒加载）。
+        try:
+            videos = getattr(gui, "monitored_videos", None) or []
+            if videos:
+                logger.debug("已有 %d 个监控视频，跳过首触预热（首轮预测即预热）", len(videos))
+                return
+            AlgorithmRegistry.prewarm_algorithms(_PREWARM_BVID)
+        except Exception as e:
+            logger.debug("算法首触预热跳过: %s", e)
 
     fire_and_forget(_worker, name="algo-preload")
 

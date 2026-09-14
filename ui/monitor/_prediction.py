@@ -416,9 +416,6 @@ def _predict_single(gui, bvid, video) -> dict:
     current_view = video.get("view_count", 0)
     history = _merge_history(gui, bvid)
 
-    # B3: 冷启动权重预热 —— 每个视频首次预测时后台跑离线回测，用 MAPE 初始化权重
-    _schedule_weight_warmup(gui, bvid, history)
-
     # 运行所有算法进行预测
     # 研究补进: 把实时信号(viewers在线/时段)注入 video_data, 此前已拉取但从不被算法消费
     live_features = _collect_live_features(video)
@@ -430,6 +427,12 @@ def _predict_single(gui, bvid, video) -> dict:
         threshold_names=THRESHOLD_NAMES,
         live_features=live_features,
     )
+
+    # B3: 冷启动权重预热 —— 必须放在首轮预测**之后**。
+    # 原先在 predict_all 之前起线程：它会用同一批共享算法实例跑 40 个算法的滚动回测，
+    # 既与首轮预测抢 CPU，又可能在权重预取前后改动权重 → 首轮集成数值取决于线程时序。
+    # 移到之后既保留预热效果，又让首轮结果确定（首轮用未预热的旧权重）。
+    _schedule_weight_warmup(gui, bvid, history)
 
     rate_per_sec = _calc_surge_aware_growth_rate(history)
 
