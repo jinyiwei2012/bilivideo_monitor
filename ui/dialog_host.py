@@ -93,6 +93,9 @@ def present(window: Any, *, singleton: bool = True, center: bool = False) -> Any
                 prev_widget.raise_()
                 prev_widget.activateWindow()
                 return previous
+            # 旧单例已被关闭但未销毁（QDialog.close() 只是隐藏）：先解除它的保活，
+            # 否则它会变成既不可见、又无法经 forget() 回收的强引用（实测泄漏）。
+            _release(id(previous))
 
     _keep(window, singleton=singleton)
 
@@ -144,12 +147,15 @@ def present_modal(window: Any, *, center: bool = False, **kwargs: Any) -> int:
     Args:
         window: 已构造的 ``QDialog``（或持有 ``.dlg`` 的包装对象）
         center: True 时先居中到父窗口再 ``exec()``
-        **kwargs: 为与 :func:`present` 保持调用面一致而接受；当前无其他生效参数
+        **kwargs: 为与 :func:`present` 保持调用面一致而接受；未知参数被忽略（会记 debug 日志）
 
     模态天生串行，故不参与同类去重，也不调 ``raise_``/``activateWindow``。
     取不到窗口、或目标不是 ``QDialog``（没有 ``exec()``）时记 warning 并返回 ``Rejected``，
     且**不显示**该窗口；``exec()`` 自身抛出的异常按原样向上抛（与直接 ``dlg.exec()`` 一致，
     避免把程序缺陷伪装成"用户取消"）。
+
+    注意：本模块只在**已持有/正在登记**的意义上线程安全；调用 ``present()`` /
+    ``present_modal()`` 本身必须在 Qt GUI 线程执行。
     """
     widget = resolve_window(window)
     if widget is None:
@@ -158,6 +164,8 @@ def present_modal(window: Any, *, center: bool = False, **kwargs: Any) -> int:
     if not isinstance(widget, QDialog):
         logger.warning("present_modal() 目标不是 QDialog（无 exec()），已拒绝显示: %r", type(window))
         return int(QDialog.DialogCode.Rejected)
+    if kwargs:
+        logger.debug("present_modal() 忽略未知参数: %s", sorted(kwargs))
     token = _keep(window)
     try:
         if center:

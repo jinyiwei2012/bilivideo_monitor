@@ -92,6 +92,8 @@ class DialogBase(QDialog):
             return fallback
         else:
             try:
+                if len(geometry) != 2:
+                    raise ValueError("geometry 需恰好为 (width, height)")
                 candidate = (int(geometry[0]), int(geometry[1]))
             except Exception:
                 logger.warning("非法 geometry %r，回退默认尺寸", geometry)

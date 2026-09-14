@@ -356,6 +356,17 @@ class TestDialogBaseHardening:
         assert dlg.width() >= 300 and dlg.height() >= 200
         dlg.close()
 
+    def test_geometry_parse_contract(self, qapp):
+        """_parse_geometry 的精确契约：合法即原样返回，非法/越界/非二元一律回退 (480, 360)。"""
+        from ui.dialog_base import DialogBase
+
+        assert DialogBase._parse_geometry("800x600") == (800, 600)
+        assert DialogBase._parse_geometry((640, 480)) == (640, 480)
+        assert DialogBase._parse_geometry((1, 2, 3)) == (480, 360)
+        assert DialogBase._parse_geometry("0x0") == (480, 360)
+        assert DialogBase._parse_geometry("-1x5") == (480, 360)
+        assert DialogBase._parse_geometry("999999999999999999999x1") == (480, 360)
+
     def test_font_cache_is_equivalent_and_isolated(self, qapp):
         """缓存返回等价副本：调用方改动不得污染后续调用者。"""
         from ui.dialog_base import DialogBase
@@ -470,6 +481,25 @@ class TestRegistryIdentity:
         qapp.processEvents()
         assert dialog_host.alive_count() == 1, "旧实例销毁误删了同类新实例的保活"
         new.close()
+
+    def test_closed_singleton_is_released_when_replaced(self, qapp, clean_registry):
+        """关闭后重新打开：旧单例必须解除保活，否则成为 forget() 也回收不掉的强引用。"""
+        from PyQt6.QtWidgets import QDialog
+
+        class _W(QDialog):
+            pass
+
+        first = _W()
+        dialog_host.present(first)
+        assert dialog_host.alive_count() == 1
+
+        first.close()  # QDialog.close() 只隐藏、不销毁
+        second = _W()
+        dialog_host.present(second)
+        assert dialog_host.alive_count() == 1, "被替换的已关闭单例应已解除保活"
+
+        dialog_host.forget(_W)
+        assert dialog_host.alive_count() == 0
 
     def test_two_non_singletons_both_kept(self, qapp, clean_registry):
         from PyQt6.QtWidgets import QDialog
