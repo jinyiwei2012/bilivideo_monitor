@@ -20,13 +20,15 @@ import logging
 import threading
 from typing import Any, Dict, Optional
 
-from PyQt6.QtWidgets import QApplication, QWidget
+from PyQt6.QtWidgets import QApplication, QDialog, QWidget
 
 logger = logging.getLogger(__name__)
 
 # 类 -> 存活实例（保活 + 同类去重）
+# 用 RLock：`destroyed` 信号可能在同线程内同步回调 forget()（例如清空保活表时
+# 释放最后一个引用导致 C++ 对象析构），非重入锁会在同线程内自锁死。
 _registry: Dict[type, Any] = {}
-_lock = threading.Lock()
+_lock = threading.RLock()
 
 
 def resolve_window(window: Any) -> Optional[QWidget]:
@@ -89,8 +91,7 @@ def present(window: Any, *, singleton: bool = True, center: bool = False) -> Any
                 prev_widget.activateWindow()
                 return previous
 
-    with _lock:
-        _registry[type(window)] = window  # 保活：防止包装对象被 GC
+    _keep(window)
 
     if center:
         center_on_parent(widget)
@@ -98,6 +99,38 @@ def present(window: Any, *, singleton: bool = True, center: bool = False) -> Any
     widget.raise_()
     widget.activateWindow()
     return window
+
+
+def _keep(window: Any) -> None:
+    """保活引用，并在窗口被 Qt 销毁时自动回收，避免长期持有已销毁对象。"""
+    cls = type(window)
+    widget = resolve_window(window)
+    with _lock:
+        _registry[cls] = window
+    if widget is None:
+        return
+    try:
+        widget.destroyed.connect(lambda *_a, _cls=cls: forget(_cls))
+    except Exception as e:  # 注册回收失败不应影响显示
+        logger.debug("注册弹窗销毁回收失败: %s", e)
+
+
+def present_modal(window: Any) -> int:
+    """以**模态**方式显示弹窗：阻塞到关闭，返回 ``int(QDialog.DialogCode)``。
+
+    模态窗口天生串行，故不做同类去重，也不调 raise_/activateWindow（exec 自带模态）。
+    取不到窗口或执行异常时返回 ``Rejected``，不向调用方抛异常（保持既有 exec 语义可用）。
+    """
+    widget = resolve_window(window)
+    if widget is None:
+        logger.warning("present_modal() 收到无法显示的弹窗对象: %r", type(window))
+        return int(QDialog.DialogCode.Rejected)
+    _keep(window)
+    try:
+        return int(widget.exec())
+    except Exception as e:
+        logger.warning("模态弹窗执行失败: %r (%s)", type(window), e)
+        return int(QDialog.DialogCode.Rejected)
 
 
 def forget(window_cls: type) -> None:

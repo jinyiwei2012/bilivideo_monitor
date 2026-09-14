@@ -111,6 +111,48 @@ class TestPresent:
         assert dialog_host.present(obj) is obj  # 不抛异常，仅告警
         assert dialog_host.alive_count() == 0
 
+    def test_destroyed_releases_keepalive(self, qapp, clean_registry):
+        """窗口被 Qt 销毁后应自动解除保活引用（避免长期持有已销毁对象）。"""
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QDialog
+
+        dlg = QDialog()
+        dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        dialog_host.present(_Wrapper(dlg))
+        assert dialog_host.alive_count() == 1
+
+        dlg.close()
+        qapp.processEvents()
+        assert dialog_host.alive_count() == 0
+
+
+class TestPresentModal:
+    """模态分支：阻塞执行并透传 DialogCode（原先各弹窗各自 exec()）。"""
+
+    def test_returns_accepted_code(self, qapp, clean_registry):
+        from PyQt6.QtCore import QTimer
+        from PyQt6.QtWidgets import QDialog
+
+        dlg = QDialog()
+        QTimer.singleShot(0, dlg.accept)
+        assert dialog_host.present_modal(dlg) == int(QDialog.DialogCode.Accepted)
+
+    def test_returns_rejected_code(self, qapp, clean_registry):
+        from PyQt6.QtCore import QTimer
+        from PyQt6.QtWidgets import QDialog
+
+        dlg = QDialog()
+        QTimer.singleShot(0, dlg.reject)
+        assert dialog_host.present_modal(dlg) == int(QDialog.DialogCode.Rejected)
+
+    def test_non_window_returns_rejected(self, clean_registry):
+        from PyQt6.QtWidgets import QDialog
+
+        class _NotAWindow:
+            pass
+
+        assert dialog_host.present_modal(_NotAWindow()) == int(QDialog.DialogCode.Rejected)
+
 
 class TestDialogBaseClose:
     """回归：DialogBase 原先 `rejected → reject` 自反连接，关闭窗口即无限递归。
