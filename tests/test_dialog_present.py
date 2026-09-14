@@ -25,11 +25,16 @@ def qapp():
 
 @pytest.fixture
 def clean_registry():
-    """清理保活表，避免测试间互相影响。"""
-    yield
-    while dialog_host.alive_count():
+    """保证测试前后保活表与单例表都为空，避免测试间互相影响。"""
+
+    def _clear() -> None:
         with dialog_host._lock:
-            dialog_host._registry.clear()
+            dialog_host._keep_alive.clear()
+            dialog_host._singletons.clear()
+
+    _clear()
+    yield
+    _clear()
 
 
 class _Wrapper:
@@ -153,6 +158,58 @@ class TestPresentModal:
 
         assert dialog_host.present_modal(_NotAWindow()) == int(QDialog.DialogCode.Rejected)
 
+    def test_non_qdialog_is_rejected_and_not_shown(self, qapp, clean_registry):
+        """没有 exec() 的纯 QWidget：不得被显示（原先会降级为非模态显示）。"""
+        from PyQt6.QtWidgets import QDialog, QWidget
+
+        widget = QWidget()
+        assert dialog_host.present_modal(widget) == int(QDialog.DialogCode.Rejected)
+        assert widget.isVisible() is False
+        assert dialog_host.alive_count() == 0
+
+    def test_exec_exception_propagates(self, qapp, clean_registry, monkeypatch):
+        """exec() 自身的异常必须向上抛，不得伪装成「用户取消」。"""
+        from PyQt6.QtWidgets import QDialog
+
+        dlg = QDialog()
+
+        def _boom(*_a, **_k):
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(dlg, "exec", _boom)
+        with pytest.raises(RuntimeError):
+            dialog_host.present_modal(dlg)
+        assert dialog_host.alive_count() == 0, "异常路径也必须回收保活"
+
+    def test_releases_keepalive_after_exec(self, qapp, clean_registry):
+        from PyQt6.QtCore import QTimer
+        from PyQt6.QtWidgets import QDialog
+
+        dlg = QDialog()
+        QTimer.singleShot(0, dlg.reject)
+        dialog_host.present_modal(dlg)
+        assert dialog_host.alive_count() == 0, "模态结束后不应继续保活"
+
+    def test_center_is_applied_before_exec(self, qapp, clean_registry, monkeypatch):
+        from PyQt6.QtCore import QTimer
+        from PyQt6.QtWidgets import QDialog
+
+        seen = []
+        monkeypatch.setattr(dialog_host, "center_on_parent", lambda w: seen.append(w))
+        dlg = QDialog()
+        QTimer.singleShot(0, dlg.reject)
+        dialog_host.present_modal(dlg, center=True)
+        assert seen == [dlg]
+
+    def test_accepts_reserved_kwargs(self, qapp, clean_registry):
+        """**kwargs 为签面对齐保留，不得因未知参数抛异常。"""
+        from PyQt6.QtCore import QTimer
+        from PyQt6.QtWidgets import QDialog
+
+        dlg = QDialog()
+        QTimer.singleShot(0, dlg.reject)
+        assert dialog_host.present_modal(dlg, singleton=True) == int(QDialog.DialogCode.Rejected)
+
 
 class TestSingleDisplayFunnel:
     """T5：score_center 与 report_scheduler 接入单一显示漏斗。"""
@@ -200,25 +257,24 @@ class TestSingleDisplayFunnel:
         assert calls == ["reload", "selection", "present"], calls
         window.dlg.close()
 
-    def test_report_scheduler_shows_through_present(self, qapp, monkeypatch):
+    def test_report_scheduler_constructor_is_pure(self, qapp, clean_registry):
+        """构造函数只做初始化：不显示、不登记保活（显示由 open_report_scheduler 的 present 负责）。"""
         import ui.dialog_host as dh
         import ui.report_scheduler as rs
 
-        seen = []
-        real_present = dh.present
-
-        def fake_present(window, **kwargs):
-            seen.append(type(window).__name__)
-            return real_present(window, **kwargs)
-
-        monkeypatch.setattr(rs, "present", fake_present)
-
         window = rs.ReportSchedulerWindow(None, gui=None)
         try:
-            assert seen == ["ReportSchedulerWindow"], "构造后应经统一显示层显示"
-            assert window.isVisible() is True
+            assert window.isVisible() is False, "构造函数不应自行显示弹窗"
+            assert dh.alive_count() == 0, "构造函数不应登记保活引用"
         finally:
             window.close()
+
+    def test_report_scheduler_open_path_uses_present(self):
+        """源码级：唯一打开路径必须经统一层显示（否则该窗口将不再出现）。"""
+        import pathlib
+
+        src = (pathlib.Path(__file__).resolve().parents[1] / "ui" / "dialogs.py").read_text(encoding="utf-8")
+        assert "present(ReportSchedulerWindow(" in src
 
 
 class TestDeadApiGuards:
@@ -292,7 +348,7 @@ class TestDialogBaseHardening:
         assert (dlg.width(), dlg.height()) == (512, 384)
         dlg.close()
 
-    @pytest.mark.parametrize("bad", ["abc", "12x", "", "x300", None, (1, 2, 3)])
+    @pytest.mark.parametrize("bad", ["abc", "12x", "", "x300", None, (1, 2, 3), "0x0", "999999999999999999999x1"])
     def test_invalid_geometry_falls_back_without_crash(self, qapp, bad):
         from ui.dialog_base import DialogBase
 
@@ -300,11 +356,16 @@ class TestDialogBaseHardening:
         assert dlg.width() >= 300 and dlg.height() >= 200
         dlg.close()
 
-    def test_font_cache_returns_same_object(self, qapp):
+    def test_font_cache_is_equivalent_and_isolated(self, qapp):
+        """缓存返回等价副本：调用方改动不得污染后续调用者。"""
         from ui.dialog_base import DialogBase
 
-        assert DialogBase._font(9, bold=True) is DialogBase._font(9, bold=True)
-        assert DialogBase._font(9) is not DialogBase._font(9, bold=True)
+        assert DialogBase._font(9, bold=True) == DialogBase._font(9, bold=True)
+        assert DialogBase._font(9) != DialogBase._font(9, bold=True)
+
+        mutated = DialogBase._font(6)
+        mutated.setPointSize(33)
+        assert DialogBase._font(6).pointSize() == 6, "缓存被调用方改动污染"
 
     def test_dead_field_row_removed(self):
         from ui.dialog_base import DialogBase
@@ -369,6 +430,7 @@ class TestOpenPathsGoThroughPresent:
         mod = importlib.import_module(module)
         monkeypatch.setattr(mod, cls_name, _Stub)
         monkeypatch.setattr("ui.dialogs.present", lambda w, **k: calls.setdefault("presented", w))
+        calls["cls"] = _Stub
         return calls
 
     @pytest.mark.parametrize(
@@ -387,4 +449,129 @@ class TestOpenPathsGoThroughPresent:
         calls = self._patch(monkeypatch, module, cls_name)
         getattr(Dialogs(self._Gui()), method)()
         assert "presented" in calls, f"{method}() 未经过 present()，弹窗不会显示"
-        assert isinstance(calls["presented"], type(calls["presented"]))
+        assert isinstance(calls["presented"], calls["cls"]), f"{method}() 呈现的对象类型不符"
+
+
+class TestRegistryIdentity:
+    """F2 复现用例：保活按**身份**回收，同类多实例可共存。"""
+
+    def test_destroying_older_instance_keeps_newer(self, qapp, clean_registry):
+        """旧实例销毁时的 destroyed 回调不得删掉同类新实例的保活。"""
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QDialog
+
+        old, new = QDialog(), QDialog()
+        old.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        dialog_host.present(old, singleton=False)
+        dialog_host.present(new, singleton=False)
+        assert dialog_host.alive_count() == 2
+
+        old.close()
+        qapp.processEvents()
+        assert dialog_host.alive_count() == 1, "旧实例销毁误删了同类新实例的保活"
+        new.close()
+
+    def test_two_non_singletons_both_kept(self, qapp, clean_registry):
+        from PyQt6.QtWidgets import QDialog
+
+        first, second = QDialog(), QDialog()
+        dialog_host.present(first, singleton=False)
+        dialog_host.present(second, singleton=False)
+        assert dialog_host.alive_count() == 2, "singleton=False 时同类多实例都应被保活"
+        first.close()
+        second.close()
+
+
+class TestModalMigrationBehavior:
+    """T4 要求：13 个调用点在**行为/AST** 两层都确实经过 present_modal()。"""
+
+    EXPECTED_SITES = {
+        "ui/dialogs.py": 2,
+        "ui/detail_panel.py": 1,
+        "ui/main_gui_events_monitor.py": 1,
+        "ui/main_gui_events_update.py": 1,
+        "ui/settings_account.py": 4,
+        "ui/settings_proxy.py": 1,
+        "ui/training_batch.py": 1,
+        "ui/training_version.py": 1,
+        "ui/video_search.py": 1,
+    }
+
+    def test_all_sites_call_present_modal_ast(self):
+        import ast
+        import pathlib
+
+        root = pathlib.Path(__file__).resolve().parents[1]
+        for rel, expected in self.EXPECTED_SITES.items():
+            tree = ast.parse((root / rel).read_text(encoding="utf-8"))
+            calls = sum(
+                1
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "present_modal"
+            )
+            assert calls == expected, f"{rel}: present_modal 调用 {calls} 次，期望 {expected} 次"
+            imported = any(
+                isinstance(node, ast.ImportFrom)
+                and node.module == "ui.dialog_host"
+                and any(alias.name == "present_modal" for alias in node.names)
+                for node in ast.walk(tree)
+            )
+            assert imported, f"{rel}: 未从 ui.dialog_host 导入 present_modal"
+
+    def test_interval_settings_goes_through_present_modal(self, qapp, monkeypatch):
+        """行为级：open_interval_settings() 必须经 present_modal 显示（原先 bar 裸 dialog.exec()）。"""
+        from PyQt6.QtWidgets import QDialog, QWidget
+
+        from ui.dialogs import Dialogs
+
+        class _Gui(QWidget):
+            def __init__(self) -> None:
+                super().__init__()
+                self.monitored_videos: list = []
+                self.DEFAULT_INTERVAL = 75
+                self.FAST_INTERVAL = 30
+                self._video_timers: dict = {}
+
+        seen = []
+
+        def _fake_modal(window, **kwargs):
+            seen.append(window)
+            return int(QDialog.DialogCode.Rejected)
+
+        monkeypatch.setattr("ui.dialogs.present_modal", _fake_modal)
+        Dialogs(_Gui()).open_interval_settings()
+
+        assert len(seen) == 1, "间隔设置弹窗必须经 present_modal 显示"
+        assert seen[0].windowTitle() == "刷新间隔设置 ♪"
+
+    @pytest.mark.parametrize(
+        "method,cls_attr",
+        [
+            ("_import_cookie_editor", "_CookieEditorDialog"),
+            ("_password_login", "_PasswordLoginDialog"),
+            ("_qrcode_login", "_QRCodeLoginDialog"),
+            ("_add_account_dialog", "_AddAccountDialog"),
+        ],
+    )
+    def test_rejected_modal_skips_account_writes(self, monkeypatch, method, cls_attr):
+        """Rejected（用户取消）时账号类分支不得写入 cookie/配置。"""
+        from unittest.mock import MagicMock
+
+        from PyQt6.QtWidgets import QDialog
+
+        import ui.settings_account as sa
+
+        monkeypatch.setattr(sa, cls_attr, lambda *a, **k: MagicMock())
+        monkeypatch.setattr(sa, "present_modal", lambda *a, **k: int(QDialog.DialogCode.Rejected))
+        api = MagicMock()
+        monkeypatch.setattr(sa, "get_bilibili_api", lambda: api)
+
+        stub = MagicMock()
+        stub._net_cfg = {"cookies": {"SESSDATA": "keep-me"}}
+
+        getattr(sa.SettingsAccountMixin, method)(stub)
+
+        assert stub._net_cfg == {"cookies": {"SESSDATA": "keep-me"}}, "Rejected 时不得改写账号配置"
+        stub._save_net_config.assert_not_called()
+        stub._refresh_account_list.assert_not_called()
+        api.add_account.assert_not_called()

@@ -24,10 +24,13 @@ from PyQt6.QtWidgets import QApplication, QDialog, QWidget
 
 logger = logging.getLogger(__name__)
 
-# 类 -> 存活实例（保活 + 同类去重）
-# 用 RLock：`destroyed` 信号可能在同线程内同步回调 forget()（例如清空保活表时
+# 保活表：id(对象) -> 对象。按**身份**索引，允许同类多实例共存，且某个实例销毁时
+# 只会回收它自己那一份（早期按类索引会让旧实例的 destroyed 误删同类新实例的登记）。
+_keep_alive: Dict[int, Any] = {}
+# 单例表：窗口类 -> 当前前台实例。仅 present(singleton=True) 参与同类去重。
+_singletons: Dict[type, Any] = {}
+# 用 RLock：`destroyed` 信号可能在同线程内同步回调 _release()（例如清空保活表时
 # 释放最后一个引用导致 C++ 对象析构），非重入锁会在同线程内自锁死。
-_registry: Dict[type, Any] = {}
 _lock = threading.RLock()
 
 
@@ -79,7 +82,7 @@ def present(window: Any, *, singleton: bool = True, center: bool = False) -> Any
 
     if singleton:
         with _lock:
-            previous = _registry.get(type(window))
+            previous = _singletons.get(type(window))
         if previous is not None and previous is not window:
             prev_widget = resolve_window(previous)
             if prev_widget is not None and prev_widget.isVisible():
@@ -91,7 +94,7 @@ def present(window: Any, *, singleton: bool = True, center: bool = False) -> Any
                 prev_widget.activateWindow()
                 return previous
 
-    _keep(window)
+    _keep(window, singleton=singleton)
 
     if center:
         center_on_parent(widget)
@@ -101,50 +104,78 @@ def present(window: Any, *, singleton: bool = True, center: bool = False) -> Any
     return window
 
 
-def _keep(window: Any) -> None:
-    """保活引用，并在窗口被 Qt 销毁时自动回收，避免长期持有已销毁对象。"""
+def _keep(window: Any, *, singleton: bool = False) -> int:
+    """保活引用并返回身份令牌；窗口被 Qt 销毁时只回收自己那一份。
+
+    ``singleton=True`` 时额外登记为同类前台实例（参与 :func:`present` 的同类去重）。
+    同一对象重复登记不会重复连接 ``destroyed``（令牌已在表中则跳过）。
+    """
     cls = type(window)
-    widget = resolve_window(window)
+    token = id(window)
     with _lock:
-        _registry[cls] = window
-    if widget is None:
-        return
+        already = token in _keep_alive
+        _keep_alive[token] = window
+        if singleton:
+            _singletons[cls] = window
+    widget = resolve_window(window)
+    if widget is None or already:
+        return token
     try:
-        widget.destroyed.connect(lambda *_a, _cls=cls: forget(_cls))
+        widget.destroyed.connect(lambda *_a, _t=token: _release(_t))
     except Exception as e:  # 注册回收失败不应影响显示
         logger.debug("注册弹窗销毁回收失败: %s", e)
+    return token
 
 
-def present_modal(window: Any) -> int:
+def _release(token: int) -> None:
+    """按身份令牌回收保活（Qt ``destroyed`` 回调与模态结束都走这里）。"""
+    with _lock:
+        obj = _keep_alive.pop(token, None)
+        if obj is None:
+            return
+        for cls, current in list(_singletons.items()):
+            if current is obj:
+                _singletons.pop(cls, None)
+
+
+def present_modal(window: Any, *, center: bool = False, **kwargs: Any) -> int:
     """以**模态**方式显示弹窗：阻塞到关闭，返回 ``int(QDialog.DialogCode)``。
 
-    模态窗口天生串行，故不做同类去重，也不调 raise_/activateWindow（exec 自带模态）。
-    取不到窗口或执行异常时返回 ``Rejected``，不向调用方抛异常（保持既有 exec 语义可用）。
+    Args:
+        window: 已构造的 ``QDialog``（或持有 ``.dlg`` 的包装对象）
+        center: True 时先居中到父窗口再 ``exec()``
+        **kwargs: 为与 :func:`present` 保持调用面一致而接受；当前无其他生效参数
+
+    模态天生串行，故不参与同类去重，也不调 ``raise_``/``activateWindow``。
+    取不到窗口、或目标不是 ``QDialog``（没有 ``exec()``）时记 warning 并返回 ``Rejected``，
+    且**不显示**该窗口；``exec()`` 自身抛出的异常按原样向上抛（与直接 ``dlg.exec()`` 一致，
+    避免把程序缺陷伪装成"用户取消"）。
     """
     widget = resolve_window(window)
     if widget is None:
         logger.warning("present_modal() 收到无法显示的弹窗对象: %r", type(window))
         return int(QDialog.DialogCode.Rejected)
     if not isinstance(widget, QDialog):
-        # 纯 QWidget 没有 exec()：降级为非模态显示，并按「未接受」返回，避免调用方误判为成功
-        logger.warning("present_modal() 目标非 QDialog，降级为非模态显示: %r", type(window))
-        present(window, singleton=False)
+        logger.warning("present_modal() 目标不是 QDialog（无 exec()），已拒绝显示: %r", type(window))
         return int(QDialog.DialogCode.Rejected)
-    _keep(window)
+    token = _keep(window)
     try:
+        if center:
+            center_on_parent(widget)
         return int(widget.exec())
-    except Exception as e:
-        logger.warning("模态弹窗执行失败: %r (%s)", type(window), e)
-        return int(QDialog.DialogCode.Rejected)
+    finally:
+        _release(token)  # 模态结束后不再保活，避免长期持有已关闭窗口
 
 
 def forget(window_cls: type) -> None:
-    """解除某类窗口的保活引用（关闭/销毁时调用，避免长期持有已关闭窗口）。"""
+    """按**类**解除单例登记（并回收该实例的保活），供关闭/销毁时调用。"""
     with _lock:
-        _registry.pop(window_cls, None)
+        obj = _singletons.pop(window_cls, None)
+    if obj is not None:
+        _release(id(obj))
 
 
 def alive_count() -> int:
-    """当前被保活的窗口类数量（供测试与诊断）。"""
+    """当前被保活的**实例**数（供测试与诊断）。"""
     with _lock:
-        return len(_registry)
+        return len(_keep_alive)

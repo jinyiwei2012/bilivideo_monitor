@@ -32,7 +32,9 @@ class DialogBase(QDialog):
 
     # "WxH" 解析用（非法输入不抛异常）
     _GEOMETRY_RE = re.compile(r"^\s*(\d+)\s*[xX]\s*(\d+)\s*$")
-    # 字号/粗体 → QFont 缓存：字体仅由 family+size+bold 决定，同键等价，可安全共享
+    # 尺寸上限：拦住会让 QWidget.resize() 抛 OverflowError 的天文数字
+    _MAX_DIM = 100000
+    # 字号/粗体 → QFont 缓存：字体仅由 family+size+bold 决定，同键等价，可安全复用
     _FONT_CACHE: dict = {}
 
     def __init__(self, parent=None, title="", geometry=(480, 360), modal=True, icon=True):
@@ -74,32 +76,45 @@ class DialogBase(QDialog):
 
     @classmethod
     def _parse_geometry(cls, geometry):
-        """解析 geometry；非法输入回退默认尺寸 ``(480, 360)``，绝不抛异常。"""
+        """解析 geometry；非法/越界输入回退默认尺寸 ``(480, 360)``，绝不抛异常。
+
+        上限 ``_MAX_DIM`` 用于拦住 ``"999999999999999999999x1"`` 这类能通过正则、
+        却会让 ``QWidget.resize()`` 抛 ``OverflowError`` 的输入。
+        """
+        fallback = (480, 360)
         if isinstance(geometry, str):
             m = cls._GEOMETRY_RE.match(geometry)
             if m is None:
                 logger.warning("非法 geometry 字符串 %r，回退默认尺寸", geometry)
-                return (480, 360)
-            return (int(m.group(1)), int(m.group(2)))
-        if not geometry:
-            return (480, 360)
-        try:
-            w, h = geometry
-            return (int(w), int(h))
-        except Exception:
-            logger.warning("非法 geometry %r，回退默认尺寸", geometry)
-            return (480, 360)
+                return fallback
+            candidate = (int(m.group(1)), int(m.group(2)))
+        elif not geometry:
+            return fallback
+        else:
+            try:
+                candidate = (int(geometry[0]), int(geometry[1]))
+            except Exception:
+                logger.warning("非法 geometry %r，回退默认尺寸", geometry)
+                return fallback
+        width, height = candidate
+        if not (1 <= width <= cls._MAX_DIM and 1 <= height <= cls._MAX_DIM):
+            logger.warning("geometry 尺寸越界 %r，回退默认尺寸", geometry)
+            return fallback
+        return candidate
 
     @classmethod
     def _font(cls, size: int, bold: bool = False) -> QFont:
-        """取缓存的 QFont（等价于 ``QFont("Microsoft YaHei UI", size)`` + setBold）。"""
+        """取 ``"Microsoft YaHei UI"`` 字号的 QFont（缓存原型 + 隐式共享副本）。
+
+        返回**副本**：调用方可以安全地改字号/字重而不污染后续调用者。
+        """
         key = (size, bold)
-        font = cls._FONT_CACHE.get(key)
-        if font is None:
-            font = QFont("Microsoft YaHei UI", size)
-            font.setBold(bold)
-            cls._FONT_CACHE[key] = font
-        return font
+        proto = cls._FONT_CACHE.get(key)
+        if proto is None:
+            proto = QFont("Microsoft YaHei UI", size)
+            proto.setBold(bold)
+            cls._FONT_CACHE[key] = proto
+        return QFont(proto)
 
     def _apply_window_icon(self) -> None:
         """套用主程序窗口图标（资源缺失或导入失败时静默跳过，不影响弹窗显示）。"""
