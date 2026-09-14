@@ -4,6 +4,173 @@
 
 > 预发布（beta 通道）
 
+> 变更区间：`v3.0.0-pre.20260914-173232..HEAD`
+
+### 省流
+
+- 🚀 发版时生成变更日志(省流版进 Release 正文供客户端展示, 完整版写回 CHANGELOG.md)
+- 🚀 dialog_host 增加 present_modal 模态分支 + 保活引用随窗口销毁自动回收(RLock 防同线程死锁)
+- 🚀 密文版本前缀 f1:/x1: + 完整 HMAC 标签；is_encrypted 改为前缀精确判定（兼容旧格式）(M3.8)
+- 🚀 分数中心接入工具菜单 (M2.11e)
+- 🚀 新增周/年分数中心窗口（按需物化+范围查询+趋势） (M2.11d)
+- 🚀 分数物化器 ensure_scores/current_scores（小时桶+水位线幂等） (M2.11b)
+- 🚀 分数表 timestamp 唯一索引 + v4 迁移，upsert 幂等 (M2.11a)
+- 🚀 时间戳格式单点定义 TS_FMT/now_ts/format_ts (M2.9c-1)
+- 其余 54 项见下方完整分类
+
+### 🚀 新功能
+
+- 发版时生成变更日志(省流版进 Release 正文供客户端展示, 完整版写回 CHANGELOG.md) (`af6a341`)
+- dialog_host 增加 present_modal 模态分支 + 保活引用随窗口销毁自动回收(RLock 防同线程死锁) (`c329d6c`)
+- 密文版本前缀 f1:/x1: + 完整 HMAC 标签；is_encrypted 改为前缀精确判定（兼容旧格式）(M3.8) (`3660d89`)
+- 分数中心接入工具菜单 (M2.11e) (`f22f00d`)
+- 新增周/年分数中心窗口（按需物化+范围查询+趋势） (M2.11d) (`10410dd`)
+- 分数物化器 ensure_scores/current_scores（小时桶+水位线幂等） (M2.11b) (`7c4c6e9`)
+- 分数表 timestamp 唯一索引 + v4 迁移，upsert 幂等 (M2.11a) (`ac5c6d4`)
+- 时间戳格式单点定义 TS_FMT/now_ts/format_ts (M2.9c-1) (`ea3c65a`)
+- 按 history_days 定期清理旧监控记录 (M2.9a) (`1018e1a`)
+
+### 🐛 修复
+
+- checkout 取全量历史(fetch-depth=0) + tag 指向构建提交，修空变更日志与 tag 错指 (`fe3c171`)
+- 哈希行尾归一(CRLF/LF 无关) + CI 强制 UTF-8，修内嵌哈希跨平台漂移 (`3140f53`)
+- 里程碑统计弹窗 setId 改用指标下标, 修 hash() 超 int32 导致的构造崩溃 (`a025f6f`)
+- 修 F2 复审残留(geometry 非二元回退/关闭后替换单例保活泄漏) + 文档化 GUI 线程要求 (`c9bfaa3`)
+- 修复 F 波审计缺陷(保活按身份回收/geometry 越界/模态异常透传/构造函数副作用) (`2258a45`)
+- DialogBase.section(parent=) 挂到 parent 自己的布局，修 health_probe 分段归属与顺序 (`89b1e42`)
+- present_modal 对非 QDialog 目标做 isinstance 收窄并降级为非模态显示 (`747e951`)
+- 弹窗统一呈现层 present()——修复 20 个弹窗构造后从不显示 + 修 DialogBase 关闭时栈溢出崩溃 (`0f6ac77`)
+- 权重预热移到首轮预测之后(消除首轮权重的线程时序依赖) + 启动预加载改为有视频时跳过预热 (`fbd144e`)
+- _batch_fetch_all 状态栏改经 invoke 回主线程 + invoker 宿主 QObject 销毁后自愈 (P1) (`1e25e21`)
+- dataset 特征列白名单校验 + get_summary_stats 单次 UNION ALL (M3.10b) (`21a9cc1`)
+- 消除 bass_diffusion 重复 id + 补 4 个缺失 algorithm_id，加唯一/完备门禁 (M3.5) (`5195be4`)
+- 修复 _parse_dt 截断导致时间筛选全部失效；拆分 _apply_custom_range，C901 32→31 (M3.4g) (`bab31b0`)
+- 恢复 blending_ensemble 基学习器列表，修复 F821 (M2.6b-4) (`177f6e6`)
+- 确保备份/迁移/只读连接使用后关闭 (M2.8) (`81d0183`)
+- 修复 3 处 NameError/闭包失效并补回归测试 (M1.8) (`738ec37`)
+
+### ⚡ 性能优化
+
+- 新增 prewarm_algorithms 首触预热 + 回测预热改批量写权重(40 次重算/落盘 → 1 次) (`b0ebdb8`)
+- Bagging 内部并行改串行(消嵌套过度订阅) + LightGBM 接入内容缓存拟合 (`e15394f`)
+- 重算法降频调度(固定时间/推流/anchor/跳变强制刷新 + 重投影复用) (M4) (`9dfd262`)
+- viewers 表加 timestamp 索引，最新一条查询 96.6ms→0.1ms(17万行) (P3) (`adcd768`)
+- chart.py 缓存 QPolygonF/QPen/QBrush/QFont + 重绘策略(MinimalViewportUpdate/DontSavePainterState/CacheBackground) (P2) (`30ee4f6`)
+- database_query 逐行新建连接改复用 + predictions 预载一次，逐行成本降 3.6~5x (P2) (`99e9ed2`)
+- 交叉分析的全库读取+137算法集成移出主线程，消除点击冻结 (P1) (`cbd5f58`)
+- 封面解码结果按文件签名缓存 + 下载在途去重，消除每轮主线程重解码 (P1) (`db9229d`)
+- 推送通知(push_single/manual_push/训练完成)移出主线程，避免阻塞网络 IO 冻结 UI (P1) (`2f6bcdb`)
+- 机器密钥派生改惰性并移除 PowerShell 子进程（每进程省约 3s，派生与历史一致）(M3.7) (`a6a3c66`)
+- 图表折线+点合并为单图元，图元数 -58~85%、重绘 -39~44% (M2.1) (`695851a`)
+- 模型内容缓存接入 TabNet/Stacking/Blending (M2.6b-3) (`ad976a1`)
+- 模型内容缓存接入 ET/NGB/残差/TSFC/NARX/Bagging/Quantile + 源码编译门禁 (M2.6b-2) (`40dd96d`)
+- 已拟合估计器内容缓存助手 + 接入 RF/XGB/GBR/GP (M2.6b-1) (`9243340`)
+- _build_torch_input 按历史内容缓存 (M2.7b) (`7ba6518`)
+- curve_fit 结果按内容缓存（LRU+并发安全） (M2.6a) (`15d74c9`)
+- 中央同步改用高水位线，只处理增量 (M2.5b) (`62787c4`)
+- 同步改用轻量只读读取 video_info，免建表迁移 (M2.5a) (`357551b`)
+- get_video_age_hours 排序结果按 video_data 缓存 (M2.7a) (`f82bc2e`)
+- diffusion_ts 反向扩散改为少步采样 (M2.10h) (`e5cf51d`)
+- 搜索输入去抖后再过滤列表 (M2.10g) (`c8ce60f`)
+- 封面加载改用 QImage + 有界线程池 (M2.10f) (`60bdec3`)
+- invoker 增加按 key 合并与背压，异常走 logger (M2.10e) (`dc9efbd`)
+- 弹幕显示改为后台读取+计数变化才重渲 (M2.2c) (`1a6b320`)
+- 详细数据历史分数改为后台缓存读取 (M2.2b) (`3e4a4cf`)
+- 在线人数面板改为后台读缓存后再刷新 (M2.2d) (`814d706`)
+- 补充 predictions.created_at / danmaku.video_ts / videos.owner_id 索引 (M2.9b) (`5a5035f`)
+- 健康页预警收集移出主线程 (M2.2a) (`74e8dfe`)
+- 日志面板改用行计数空状态 + pending 加锁 (M2.10c) (`0d868b5`)
+- tracemalloc 内存体检移出主线程 (M2.10a) (`45d664c`)
+- 视频卡片索引化 + 封面有效性缓存 (M2.3) (`fddccca`)
+- 集中抓取改有界线程池 + 可中断等待 (M2.4) (`2285e4d`)
+- _adjust_eta 增量化，消除 O(T*10) 全量扫描 (M1.5) (`276a6d1`)
+- get_algorithm_stats O(T^2)->O(T) 一次性算权重 (M1.4) (`d237d7c`)
+- 权重反馈批量更新，重算/落盘 120→1 (M1.3) (`cd1ea81`)
+- 模型缓存改为内存压力驱动释放并保留活跃视频 (M1.2) (`92cca68`)
+- try_torch_predict 缓存优先跳过 checkpoint 重读 (M1.1) (`fa0910f`)
+
+### 🧩 重构
+
+- score_center 与 report_scheduler 接入单一显示漏斗 (`474c98d`)
+- 13 处显式 exec() 统一走 dialog_host.present_modal()（模态与返回码语义不变） (`4d374d7`)
+- DialogBase 加固(geometry 校验/字号缓存/windowIcon) 并删除 0 调用者的 field_row (`cee856e`)
+- finetune_panel.py 953->548 行, 拆出 jobs/progress 模块 (M3.3e) (`18a99b4`)
+- training_panel.py 1375->53 行, 拆为 8 个 training_* 模块 (M3.3d) (`4df9c17`)
+- main_gui_events.py 1262->98 行, 按域拆 3 个 mixin, 41 个对外名字门面保持 (M3.3b) (`34f3a36`)
+- _torch_upgrade.py 3051->126 行, 拆为 torch_upgrade 子包, 41 个对外名字门面保持 (M3.3c) (`f38d036`)
+- registry.py 拆为 registry_parts 混入包, 门面保留 AlgorithmRegistry/_LRUDict (M3.3a) (`d4bee22`)
+- 清零剩余 20 个超标函数(CC>=16), 复杂度基线 20->0 (M3.4b) (`9d0b393`)
+- 降 10 个超标函数复杂度(torch_upgrade/registry/trainer/prediction_accuracy/snapshot_tab) 并收紧基线 30->21 (M3.4a) (`d9d2049`)
+- _prediction.py 函数内 import 提升到模块级, 保留 3 处必要惰性 (M3.2) (`5c85588`)
+- 抽出 _load_one_monitor/_attach_viewers/_attach_history，C901 31→30 (M3.4h) (`56c1aef`)
+- 拆分 _persist_settings；修复 OneBot token 保存后内存残留密文，C901 33→32 (M3.4f) (`93782ca`)
+- _parse_danmaku_elem 改分派表并补 16 字段行为测试，C901 基线 34→33 (M3.4e) (`b089692`)
+- 拆分 _source_a_up_stat 分页/兜底助手，C901 基线 35→34 (M3.4d) (`348ed05`)
+- 拆分 suggest_tags / _parse_proxy_list 降低复杂度，C901 基线 37→35 (M3.4b) (`93b3bc7`)
+- 删除不可达的 Database._migrate_old_data 死代码，C901 基线 38→37 (M3.4a) (`927dd4d`)
+- 清理未用局部绑定与死代码，F841 清零 (M3.1c) (`e066c6b`)
+- 移除每抓取写分，详情面板后台先物化再读 (M2.11c) (`41ba3d1`)
+- 清理条件改用纯字典序比较（可命中索引）(M2.9c-3) (`90a3f14`)
+- 写库时间戳统一走 now_ts/format_ts，修复 accuracy cutoff 比较 (M2.9c-2) (`5502bca`)
+- 算法模块改用局部 RandomState(42)，不污染全局 RNG (M2.10b) (`56963d8`)
+
+### 🧪 测试
+
+- _font 缓存补显式「独立副本」断言，对齐修订后的验收 (`87f6d45`)
+- 弹窗统一层防线用例(模态透传/回收/section/geometry/防误删/关闭不崩) (`7207fae`)
+- 调度判定/重投影/权重隔离回归测试(18 项) + 影子回放漂移验证脚本 (`201f856`)
+- 补 _fetch_one_video 锁作用域不变量测试(网络I/O不在锁内) (M3.9c) (`a36fe97`)
+- 补 Hedge 在线学习器/派生特征缓存键/单测 9 项 (M3.9b) (`b0d5c1e`)
+- 补 A+B 训练目标/稳健增量/告警检测器契约测试 19 项 (M3.9a) (`9e1eadd`)
+- 用例改用 machine_key()（随惰性化移除 _MACHINE_KEY） (`0f8b04b`)
+- 补齐 M0.2 回归测试（crypto round-trip + registry algorithm_id 唯一性 xfail） (`5f8ff39`)
+
+### 🔧 CI / 构建
+
+- 拆为两条发版线(dev->预发布/beta 通道, main->稳定版) + 发版前内嵌哈希门禁 (`834a8d1`)
+- 新增发版流水线(质量门禁前置 -> 编译打包 exe -> 冒烟 -> 发布 Release) (`40e082d`)
+- mypy.ini 钉住 platform=win32，修 CI(Linux) 上 6 条平台桩假阳性 (`1853aae`)
+- 安装 Qt 系统依赖并让 pytest 走 offscreen，修 libEGL.so.1 导致的 CI 测试全挂 (`6bccc10`)
+- 接入 mypy 棘轮门禁(scripts/type_gate.py + 738 条历史错误基线), 移除 || true (M3.8) (`28c028c`)
+- 恢复质量门禁（black/flake8棘轮/bandit/pytest 全为真实门禁）+ bandit 5 项修复 (M3.1f) (`e38135f`)
+
+### 📝 文档
+
+- 记录 v3.0.0-pre.20260914-173232 [skip ci] (`a62b558`)
+- 记录 v3.0.0-pre.20260914-173232 [skip ci] (`4f410fc`)
+- 固化「弹窗必须经 ui.dialog_host 显示」约定 (`480a0c1`)
+- 补齐缺失的 2 个算法条目(短期热度感知/季节性分解) + 补充 STL/Hawkes/HIP 参考文献 + 更新页脚 (137/137) (`a2d7ba5`)
+- 同步更新文档(AGENTS/CLAUDE/README/CHANGELOG/REFACTOR_BASELINE/ALGORITHMS + 6 份历史报告状态横幅) (`b652bf6`)
+- 勾选 7 项验收标准 + 记录 M3 完成情况与已知观察 (`e9c0575`)
+
+### 🧰 维护
+
+- 刷新 main.py 内嵌哈希(registry.py 等 4 项，其中 3 项此前已过期) (`305c355`)
+- 清理可消除 noqa(F401/F811) 并等价修复(__all__ 显式再导出/断言消费探测导入), 修 helpers+device 类型 (M3.11) (`e0f5c2b`)
+- 取消跟踪运行产物(.omo/ 与 data/ 生成文件) + 补 .gitignore + 刷新内嵌完整性哈希 (M3.10a) (`85b8157`)
+- 移除本分支的 GitHub Actions CI 配置 (`a02764d`)
+- 记录重构前基线（pytest 115 passed / flake8 959 / CC>15 共 30 个） (`0ef93a3`)
+
+### 🎨 代码风格
+
+- UI 硬编码色值回归 C 令牌(17 文件) + 主题令牌守卫测试 (M3.6) (`e477504`)
+- black 复格式新增回归测试 (M3.4c) (`032be3a`)
+- black 复格式 install_uni2ts.py (M3.1g) (`11351a3`)
+- E402 导入前移清零 + black 复格式 (M3.1e) (`c9925f3`)
+- 清理 F824/E303/E741/E731/F401/F541/F811/E401/E702 (M3.1d) (`830f4a1`)
+- black --line-length=120 全仓格式化 (M3.1b) (`a21c90d`)
+- 清理 528 处未用导入/空白/分号（ruff 安全修复）(M3.1a) (`e65a199`)
+- _service 导入前移，消除 16 处 E402 (`e6d7f71`)
+
+### • 其他
+
+- mypy 全仓清零(1513->0) + 消除全部 type: ignore + 类型门禁转零容忍 (M3.12b) (`6ca6627`)
+- 修复 core/algorithms/models/ui(training,finetune,settings) 的 mypy 错误, 1513->216 (M3.12a) (`6f49b00`)
+
+## Release 2026-09-14 (v3.0.0)
+
+> 预发布（beta 通道）
+
 > 变更区间：`3140f53b9ff06fe60d309c6fc5a518b47569a112..HEAD`
 
 ### 省流
