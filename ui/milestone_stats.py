@@ -44,6 +44,21 @@ from ui.helpers import FONT_BOLD, FONT_SM, fmt_num, is_valid_bvid
 PERIODS = ["1周", "1月", "1年"]
 PERIOD_COLORS = cast(dict[str, str], C["period_colors"])
 PERIOD_COLOR_OBJ = {k: QColor(v) for k, v in PERIOD_COLORS.items()}
+
+# 对比页可选指标：(显示名, 数据键)。
+# QButtonGroup 的 id 用**下标**而不是 hash(val)：Python 字符串 hash 是 64 位，
+# 超出 Qt int32 范围会让 setId() 抛 OverflowError（实测该弹窗构造即崩，且哈希随机化
+# 使单个值超界概率约 50%）。
+_METRIC_OPTIONS = (
+    ("播放量", "view_count"),
+    ("点赞数", "like_count"),
+    ("投币数", "coin_count"),
+    ("收藏数", "favorite_count"),
+    ("分享数", "share_count"),
+    ("弹幕数", "danmaku_count"),
+    ("评论数", "reply_count"),
+)
+
 FIELDS = [
     ("view_count", "播放量", True, "必填"),
     ("like_count", "点赞数", False, ""),
@@ -617,16 +632,7 @@ class MilestoneStatsWindow(DialogBase):
 
         ctrl_layout.addWidget(QLabel("展示指标："))
         self._metric_group = QButtonGroup(self)
-        metrics = [
-            ("播放量", "view_count"),
-            ("点赞数", "like_count"),
-            ("投币数", "coin_count"),
-            ("收藏数", "favorite_count"),
-            ("分享数", "share_count"),
-            ("弹幕数", "danmaku_count"),
-            ("评论数", "reply_count"),
-        ]
-        for label, val in metrics:
+        for index, (label, val) in enumerate(_METRIC_OPTIONS):
             rb = QRadioButton(label)
             rb.setStyleSheet(f"""
                 QRadioButton {{
@@ -639,7 +645,7 @@ class MilestoneStatsWindow(DialogBase):
             if val == "view_count":
                 rb.setChecked(True)
             self._metric_group.addButton(rb)
-            self._metric_group.setId(rb, hash(val))
+            self._metric_group.setId(rb, index)
             rb.toggled.connect(lambda checked, v=val: self._on_metric_changed() if checked else None)
             ctrl_layout.addWidget(rb)
 
@@ -735,23 +741,9 @@ class MilestoneStatsWindow(DialogBase):
         self._current_metric = "view_count"
 
     def _on_metric_changed(self):
-        self._current_metric = next(
-            (
-                v
-                for label, v in [
-                    ("播放量", "view_count"),
-                    ("点赞数", "like_count"),
-                    ("投币数", "coin_count"),
-                    ("收藏数", "favorite_count"),
-                    ("分享数", "share_count"),
-                    ("弹幕数", "danmaku_count"),
-                    ("评论数", "reply_count"),
-                ]
-                if self._metric_group.checkedButton()
-                and self._metric_group.id(self._metric_group.checkedButton()) == hash(v)
-            ),
-            "view_count",
-        )
+        button = self._metric_group.checkedButton()
+        index = self._metric_group.id(button) if button is not None else -1
+        self._current_metric = _METRIC_OPTIONS[index][1] if 0 <= index < len(_METRIC_OPTIONS) else "view_count"
         self._redraw_compare()
 
     def _on_tbl_right_click(self, pos):
