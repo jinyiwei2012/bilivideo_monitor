@@ -2,32 +2,43 @@ name: Build and Release EXE
 
 # 发版流水线：代码质量门禁 →（全绿才）编译打包 EXE → 产物尺寸校验 → exe 启动冒烟 → 发布 Release
 #
+# 发版流水线（两条线）：
+#   dev  分支 → 预发布（prerelease=true，标签 v<ver>-pre.<时间戳>）→ 只推给客户端 beta 通道
+#   main 分支 → 稳定版（标签 v<ver>）                            → 推给客户端 stable 通道
+#
 # 触发方式：
-#   1. push 到 releases 分支（自动发版）
-#   2. Actions 页手动 workflow_dispatch（可指定版本号 / 标记预发布）
+#   1. push 到 dev / main（自动发版）
+#   2. Actions 页手动 workflow_dispatch（可显式指定发版线与版本号）
+#
+# 前置条件：先过完整代码质量门禁（复用 code-quality.yml），门禁不绿绝不编译。
 #
 # 设计约束（均由代码实测决定，勿随意改动）：
 #   - 必须 onefile 单文件 BiliMonitor.exe：utils/update_checker.py 只从 release 资产里挑
 #     `.exe` 并下载为 BiliMonitor_new.exe 做自替换，目录型（onedir）产物无法被更新器消费。
-#   - 标签必须带语义化版本（vX.Y.Z-<时间戳>）：update_checker._parse_version 取
+#   - 标签必须带语义化版本：update_checker._parse_version 取
 #     `tag_name.lstrip("v").split("-")[0]` 再按 "." 切数字；旧方案的 `release-<时间戳>`
 #     会解析成空元组，永远判不出新版本（等于用户永远收不到更新）。
+#   - 预发布必须置 prerelease=true：stable 通道读 /releases/latest（排除 prerelease），
+#     beta 通道读 /releases?per_page=5（含 prerelease）。
 #   - 单资产需 < 2 GiB（GitHub 限制）：历史产物 333.7 MB，保持现状即可。
+#   - 内嵌哈希必须最新：main.py 的 _INTEGRITY_HASHES 由 scripts/update_hashes.py 生成；
+#     发版前校验，过期即拒绝发版（冻结 exe 跳过校验，但源码模式会因此报完整性失败）。
 #   - 质量门禁复用 code-quality.yml（workflow_call），不在此处重复定义命令。
 
 on:
   push:
-    branches: [releases]
+    branches: [main, dev]
   workflow_dispatch:
     inputs:
+      channel:
+        description: '发版线'
+        type: choice
+        options: [pre, stable]
+        default: pre
       version:
-        description: '版本号（留空则用 __init__.py 的 __version__），例如 3.0.1'
+        description: '版本号（留空则用 __init__.py 的 __version__），例如 3.2.1'
         required: false
         default: ''
-      prerelease:
-        description: '标记为预发布（不进 releases/latest，更新器 stable 通道不推送）'
-        type: boolean
-        default: false
 
 permissions:
   contents: write
@@ -61,20 +72,40 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pip-
 
-      - name: Resolve version and tag
+      - name: Resolve release line, version and tag
         id: ver
         shell: pwsh
         run: |
+          $branch = "${{ github.ref_name }}"
+          $channel = "${{ github.event.inputs.channel }}"
+          if ([string]::IsNullOrWhiteSpace($channel)) {
+            $channel = if ($branch -eq 'main') { 'stable' } else { 'pre' }
+          }
+
           $ver = "${{ github.event.inputs.version }}"
           if ([string]::IsNullOrWhiteSpace($ver)) {
             $match = Select-String -Path __init__.py -Pattern '__version__\s*=\s*"([^"]+)"' | Select-Object -First 1
             if (-not $match) { throw "无法从 __init__.py 解析 __version__" }
             $ver = $match.Matches[0].Groups[1].Value
           }
+
           $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+          if ($channel -eq 'stable') {
+            $tag = "v$ver"
+            $rename = "BiliMonitor v$ver"
+            $prerelease = 'false'
+          } else {
+            $tag = "v$ver-pre.$stamp"
+            $rename = "BiliMonitor $tag （预发布）"
+            $prerelease = 'true'
+          }
+
+          "channel=$channel" >> $env:GITHUB_OUTPUT
           "version=$ver" >> $env:GITHUB_OUTPUT
-          "tag=v$ver-$stamp" >> $env:GITHUB_OUTPUT
-          Write-Host "版本=$ver  标签=v$ver-$stamp"
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "release_name=$rename" >> $env:GITHUB_OUTPUT
+          "prerelease=$prerelease" >> $env:GITHUB_OUTPUT
+          Write-Host "分支=$branch 发版线=$channel 版本=$ver 标签=$tag 预发布=$prerelease"
 
       - name: Apply version override
         if: ${{ github.event.inputs.version != '' }}
@@ -92,6 +123,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install pyinstaller
           pip install -r requirements.txt
+
+      # 发版门禁：_INTEGRITY_HASHES 必须与当前源文件一致。
+      # 冻结 exe 会跳过完整性校验，但源码模式（开发/直接跑 main.py）会因此判定被篡改。
+      - name: Verify embedded integrity hashes are up to date
+        shell: pwsh
+        run: |
+          python scripts/update_hashes.py --hashes-only
+          $changed = git status --porcelain -- main.py
+          if ($changed) {
+            git --no-pager diff -- main.py | Select-Object -First 40
+            throw "main.py 的内嵌哈希已过期。请在本地运行 `python scripts/update_hashes.py --hashes-only` 并提交后再发版。"
+          }
+          Write-Host "内嵌哈希与当前源文件一致"
 
       - name: Build with PyInstaller
         shell: cmd
@@ -136,6 +180,7 @@ jobs:
         shell: python
         env:
           REL_VERSION: ${{ steps.ver.outputs.version }}
+          REL_CHANNEL: ${{ steps.ver.outputs.channel }}
         run: |
           import os
           import pathlib
@@ -146,9 +191,18 @@ jobs:
           if not match:
               match = re.search(r"(## [^\n]+[\s\S]*?)(?=\n## |\Z)", text)
           body = match.group(1).strip() if match else "（CHANGELOG.md 无可提取段落）"
+
+          channel = os.environ.get("REL_CHANNEL", "pre")
+          note = (
+              "> ⚠️ **预发布版本**：仅在使用「beta 更新通道」时才会收到推送，stable 通道用户不受影响。\n\n"
+              if channel == "pre"
+              else "> ✅ **稳定版本**：stable 更新通道用户会收到自动更新提示。\n\n"
+          )
           header = (
               f"**版本**: {os.environ['REL_VERSION']}\n"
+              f"**通道**: {channel}\n"
               f"**提交**: `{os.environ.get('GITHUB_SHA', '')[:7]}`\n\n"
+              f"{note}"
               "**安装/升级**：下载下方 `BiliMonitor.exe` 覆盖旧文件即可（程序内也会提示自动更新）。\n\n"
               "---\n\n"
           )
@@ -159,8 +213,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.ver.outputs.tag }}
-          name: BiliMonitor ${{ steps.ver.outputs.tag }}
+          name: ${{ steps.ver.outputs.release_name }}
           body_path: release_body.md
           files: dist/BiliMonitor.exe
           fail_on_unmatched_files: true
-          prerelease: ${{ github.event.inputs.prerelease == 'true' }}
+          prerelease: ${{ steps.ver.outputs.prerelease == 'true' }}
