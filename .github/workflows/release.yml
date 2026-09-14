@@ -61,6 +61,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # 变更日志需要完整历史与 tag（脚本按「上一个 tag..HEAD」统计）；默认 fetch-depth=1 会算出空日志
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -196,6 +199,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.ver.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           name: ${{ steps.ver.outputs.release_name }}
           body_path: release_body.md
           files: dist/BiliMonitor.exe
