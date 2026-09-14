@@ -52,6 +52,9 @@ def _get_viewer_db(bvid: str) -> sqlite3.Connection:
     db.execute("PRAGMA journal_mode=WAL")
     db.execute("PRAGMA synchronous=NORMAL")
     db.execute("CREATE TABLE IF NOT EXISTS viewers " "(timestamp TEXT, total INTEGER, web INTEGER, app INTEGER)")
+    # 该表每 15s 追加一行（30 天≈17 万行），且每次刷新都要取「最新一条」；
+    # 无索引时 ORDER BY timestamp DESC LIMIT 1 是全表扫描（实测 17 万行 96.6ms → 有索引 0.1ms）
+    db.execute("CREATE INDEX IF NOT EXISTS idx_viewers_ts ON viewers(timestamp DESC)")
     db.commit()
     _db_cache[bvid] = db
     return db
