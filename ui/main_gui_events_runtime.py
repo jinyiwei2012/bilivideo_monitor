@@ -258,8 +258,6 @@ def post_fetch(gui):
 
 def push_single(gui, bvid):
     """推送单个视频状态"""
-    from core.notification import notification_manager
-
     video = get_video(gui, bvid)
     if not video:
         QMessageBox.warning(gui, warning(""), f"呜…没找到视频 {bvid} 呢,天依再帮你找找别的光吧 ♪")
@@ -268,17 +266,21 @@ def push_single(gui, bvid):
     msg = build_push_msg(gui, [video])
     title = video.get("title", bvid)[:30]
 
-    notification_manager.send_qq_private(msg)
-    notification_manager.send_qq_group(msg)
-    notification_manager.send_webhook(f"◧ B站监控 — {title[:20]}\n{msg}")
-    notification_manager.send_windows_notification(f"◧ B站监控 — {title[:20]}", msg[:256])
-    gui._sb("status", f"已把「{title[:20]}」的歌声传给大家啦 ♪", C["success"])
+    # 推送是阻塞网络 IO（单渠道 timeout=8s，4 渠道串行）→ 移出主线程避免 UI 冻结
+    def _worker():
+        from core.notification import notification_manager
+
+        notification_manager.send_qq_private(msg)
+        notification_manager.send_qq_group(msg)
+        notification_manager.send_webhook(f"◧ B站监控 — {title[:20]}\n{msg}")
+        notification_manager.send_windows_notification(f"◧ B站监控 — {title[:20]}", msg[:256])
+        invoke(lambda: gui._sb("status", f"已把「{title[:20]}」的歌声传给大家啦 ♪", C["success"]))
+
+    fire_and_forget(_worker, name="push-single")
 
 
 def manual_push(gui):
     """手动推送所有监控视频状态"""
-    from core.notification import notification_manager
-
     videos = gui.monitored_videos
     if not videos:
         QMessageBox.warning(gui, warning(""), no_video())
@@ -286,18 +288,26 @@ def manual_push(gui):
 
     msg = build_push_msg(gui, videos)
     now_str = datetime.now().strftime("%H:%M")
+    video_count = len(videos)
 
-    ok_qq_private = notification_manager.send_qq_private(msg)
-    ok_qq_group = notification_manager.send_qq_group(msg)
-    ok_webhook = notification_manager.send_webhook(f"◧ B站监控报告 ({now_str})\n{msg}")
-    ok_win = notification_manager.send_windows_notification(f"◧ B站监控报告 ({now_str})", msg[:256])
+    # 推送是阻塞网络 IO → 移出主线程，结果分支在 worker 内判定后回主线程刷状态栏
+    def _worker():
+        from core.notification import notification_manager
 
-    if ok_qq_private or ok_qq_group or ok_webhook:
-        gui._sb("status", f"已把 {len(videos)} 首歌的现状唱给大家听啦 ♪", C["success"])
-    elif ok_win:
-        gui._sb("status", "这次只有 Windows 通知送达哦…QQ 那边天依够不到 ♪", C["warning"])
-    else:
-        gui._sb("status", "呜…推送失败了,天依的声音没传出去,请检查通知设置哦 ♪", C["danger"])
+        ok_qq_private = notification_manager.send_qq_private(msg)
+        ok_qq_group = notification_manager.send_qq_group(msg)
+        ok_webhook = notification_manager.send_webhook(f"◧ B站监控报告 ({now_str})\n{msg}")
+        ok_win = notification_manager.send_windows_notification(f"◧ B站监控报告 ({now_str})", msg[:256])
+
+        if ok_qq_private or ok_qq_group or ok_webhook:
+            status, color = f"已把 {video_count} 首歌的现状唱给大家听啦 ♪", C["success"]
+        elif ok_win:
+            status, color = "这次只有 Windows 通知送达哦…QQ 那边天依够不到 ♪", C["warning"]
+        else:
+            status, color = "呜…推送失败了,天依的声音没传出去,请检查通知设置哦 ♪", C["danger"]
+        invoke(lambda: gui._sb("status", status, color))
+
+    fire_and_forget(_worker, name="push-all")
 
 
 # ── 训练完成回调 ──────────────────────────────
@@ -305,22 +315,30 @@ def manual_push(gui):
 
 def on_training_completed(gui, mode="训练", count=0, detail="", trained_ids=None):
     """训练/微调完成后自动刷新预测 + 推送通知 + 更新权重"""
-    try:
-        from core.notification import notification_manager
+    now_str = datetime.now().strftime("%H:%M")
+    if count > 0 and detail:
+        msg = f"◉ {mode}完成 ({now_str})\n{count} 个算法: {detail}"
+    elif count > 0:
+        msg = f"◉ {mode}完成 ({now_str})\n共 {count} 个算法已更新"
+    else:
+        msg = f"◉ {mode}完成 ({now_str})"
 
-        now_str = datetime.now().strftime("%H:%M")
-        if count > 0 and detail:
-            msg = f"◉ {mode}完成 ({now_str})\n{count} 个算法: {detail}"
-        elif count > 0:
-            msg = f"◉ {mode}完成 ({now_str})\n共 {count} 个算法已更新"
-        else:
-            msg = f"◉ {mode}完成 ({now_str})"
-        notification_manager.send_qq_private(msg)
-        notification_manager.send_qq_group(msg)
-        notification_manager.send_webhook(f"◉ {mode}完成 ({now_str})\n{msg}")
-        notification_manager.send_windows_notification(f"◉ {mode}完成", msg[:256])
+    # 推送是阻塞网络 IO → 移出主线程（4 渠道串行，异常时最长可冻结数十秒）
+    def _notify_worker():
+        try:
+            from core.notification import notification_manager
+
+            notification_manager.send_qq_private(msg)
+            notification_manager.send_qq_group(msg)
+            notification_manager.send_webhook(f"◉ {mode}完成 ({now_str})\n{msg}")
+            notification_manager.send_windows_notification(f"◉ {mode}完成", msg[:256])
+        except Exception as e:
+            logger.debug("训练推送异常: %s", e)
+
+    try:
+        fire_and_forget(_notify_worker, name="train-notify")
     except Exception as e:
-        logger.debug("训练推送异常: %s", e)
+        logger.debug("启动训练完成推送失败: %s", e)
 
     if trained_ids:
         try:
