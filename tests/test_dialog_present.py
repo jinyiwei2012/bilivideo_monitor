@@ -154,6 +154,73 @@ class TestPresentModal:
         assert dialog_host.present_modal(_NotAWindow()) == int(QDialog.DialogCode.Rejected)
 
 
+class TestSingleDisplayFunnel:
+    """T5：score_center 与 report_scheduler 接入单一显示漏斗。"""
+
+    def test_open_score_center_is_singleton_and_visible(self, qapp):
+        import ui.score_center as sc
+
+        try:
+            w1 = sc.open_score_center(None)
+            w2 = sc.open_score_center(None)
+            assert w1 is w2, "重复调用应复用同一窗口"
+            assert w1.dlg.isVisible() is True, "open_score_center 后窗口必须可见"
+
+            w1.dlg.close()
+            assert w1.dlg.isVisible() is False
+            w3 = sc.open_score_center(None)
+            assert w3 is w1
+            assert w3.dlg.isVisible() is True, "关闭后再次调用应能重新显示（不被保活残留挡住）"
+        finally:
+            sc._window_ref = None
+            import ui.dialog_host as dh
+
+            dh.forget(dh.QDialog)
+
+    def test_score_center_show_order_preserved(self, qapp, monkeypatch):
+        """show() 仍为 _reload_videos → _on_selection_changed → 显示。"""
+        import ui.dialog_host as dh
+        import ui.score_center as sc
+
+        calls = []
+        real_present = dh.present
+        monkeypatch.setattr(sc.ScoreCenterWindow, "_reload_videos", lambda self: calls.append("reload"))
+        monkeypatch.setattr(sc.ScoreCenterWindow, "_on_selection_changed", lambda self: calls.append("selection"))
+
+        def fake_present(window, **kwargs):
+            calls.append("present")
+            return real_present(window, **kwargs)
+
+        monkeypatch.setattr(sc, "present", fake_present)
+
+        window = sc.ScoreCenterWindow(None, None)
+        calls.clear()
+        window.show()
+
+        assert calls == ["reload", "selection", "present"], calls
+        window.dlg.close()
+
+    def test_report_scheduler_shows_through_present(self, qapp, monkeypatch):
+        import ui.dialog_host as dh
+        import ui.report_scheduler as rs
+
+        seen = []
+        real_present = dh.present
+
+        def fake_present(window, **kwargs):
+            seen.append(type(window).__name__)
+            return real_present(window, **kwargs)
+
+        monkeypatch.setattr(rs, "present", fake_present)
+
+        window = rs.ReportSchedulerWindow(None, gui=None)
+        try:
+            assert seen == ["ReportSchedulerWindow"], "构造后应经统一显示层显示"
+            assert window.isVisible() is True
+        finally:
+            window.close()
+
+
 class TestNoBareExecInUi:
     """T4 守卫：ui/ 下除 dialog_host（统一入口）与应用事件循环外，不得再出现裸 .exec()。"""
 

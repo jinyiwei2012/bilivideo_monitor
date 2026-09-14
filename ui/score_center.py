@@ -30,6 +30,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ui.dialog_base import DialogBase
+from ui.dialog_host import present
 from ui.invoker import invoke
 from ui.theme import C
 from utils.score_materializer import ensure_scores
@@ -418,7 +419,9 @@ class ScoreCenterWindow:
         """显示窗口（会把 fps 刷新到最新监控列表）。"""
         self._reload_videos()
         self._on_selection_changed()
-        self.dlg.show()
+        # 单例已由模块级 _window_ref 保证，故此处 singleton=False：
+        # 否则保活键会退化成 DialogBase，与其他裸基类弹窗互相误去重。
+        present(self.dlg, singleton=False)
 
 
 _window_ref = None  # 模块级单例
@@ -432,8 +435,7 @@ def open_score_center(gui):
     else:
         _window_ref.gui = gui
     _window_ref.show()
-    _window_ref.dlg.raise_()
-    _window_ref.dlg.activateWindow()
+    # 置前由 dialog_host.present() 统一负责
     return _window_ref
 
 

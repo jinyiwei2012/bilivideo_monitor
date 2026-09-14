@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import QTimer
 
+from ui.dialog_host import present
 from ui.theme import C
 from config import DATA_DIR
 
@@ -52,7 +53,7 @@ class ReportSchedulerWindow(QDialog):
         self.resize(int(sw * 0.42), int(sh * 0.60))
 
         self._setup_ui()
-        self.show()
+        present(self)
 
     def _setup_ui(self):
         """构建报告定时器设置窗口 UI：手动导出、定时导出、已导出文件列表"""
