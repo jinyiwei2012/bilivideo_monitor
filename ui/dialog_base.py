@@ -49,8 +49,9 @@ class DialogBase(QDialog):
         if modal and parent:
             self.setWindowModality(Qt.WindowModality.ApplicationModal)
 
-        # ESC 关闭
-        self.rejected.connect(self.reject)
+        # ESC 关闭：QDialog 原生已处理（Esc → reject()），此处**不能**再
+        # `self.rejected.connect(self.reject)` —— reject() 自身会 emit rejected，
+        # 该自反连接会造成无限递归，实测关闭窗口即栈溢出崩溃（0xC00000FD）。
 
         # 主容器
         self.container = QWidget(self)
