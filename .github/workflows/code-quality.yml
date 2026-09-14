@@ -5,6 +5,8 @@ on:
     branches: [main, develop, 'refactor/**']
   pull_request:
     branches: [main, develop, 'refactor/**']
+  # 供发版流水线（release.yml）复用同一套门禁：发版时由调用方保证「先过门禁再编译」
+  workflow_call:
 
 jobs:
   quality:

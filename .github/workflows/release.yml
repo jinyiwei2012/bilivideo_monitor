@@ -1,0 +1,166 @@
+name: Build and Release EXE
+
+# 发版流水线：代码质量门禁 →（全绿才）编译打包 EXE → 产物尺寸校验 → exe 启动冒烟 → 发布 Release
+#
+# 触发方式：
+#   1. push 到 releases 分支（自动发版）
+#   2. Actions 页手动 workflow_dispatch（可指定版本号 / 标记预发布）
+#
+# 设计约束（均由代码实测决定，勿随意改动）：
+#   - 必须 onefile 单文件 BiliMonitor.exe：utils/update_checker.py 只从 release 资产里挑
+#     `.exe` 并下载为 BiliMonitor_new.exe 做自替换，目录型（onedir）产物无法被更新器消费。
+#   - 标签必须带语义化版本（vX.Y.Z-<时间戳>）：update_checker._parse_version 取
+#     `tag_name.lstrip("v").split("-")[0]` 再按 "." 切数字；旧方案的 `release-<时间戳>`
+#     会解析成空元组，永远判不出新版本（等于用户永远收不到更新）。
+#   - 单资产需 < 2 GiB（GitHub 限制）：历史产物 333.7 MB，保持现状即可。
+#   - 质量门禁复用 code-quality.yml（workflow_call），不在此处重复定义命令。
+
+on:
+  push:
+    branches: [releases]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号（留空则用 __init__.py 的 __version__），例如 3.0.1'
+        required: false
+        default: ''
+      prerelease:
+        description: '标记为预发布（不进 releases/latest，更新器 stable 通道不推送）'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  # ① 代码质量门禁：直接复用 CI 的同一套工作流（black / lint 棘轮 / bandit / radon / pytest / mypy 棘轮）
+  quality:
+    name: 质量门禁（发版前置）
+    uses: ./.github/workflows/code-quality.yml
+
+  # ② 编译打包：needs 保证「门禁全绿」之前绝不开始编译
+  build:
+    name: 编译打包并发布
+    needs: [quality]
+    runs-on: windows-latest
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\pip\Cache
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Resolve version and tag
+        id: ver
+        shell: pwsh
+        run: |
+          $ver = "${{ github.event.inputs.version }}"
+          if ([string]::IsNullOrWhiteSpace($ver)) {
+            $match = Select-String -Path __init__.py -Pattern '__version__\s*=\s*"([^"]+)"' | Select-Object -First 1
+            if (-not $match) { throw "无法从 __init__.py 解析 __version__" }
+            $ver = $match.Matches[0].Groups[1].Value
+          }
+          $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+          "version=$ver" >> $env:GITHUB_OUTPUT
+          "tag=v$ver-$stamp" >> $env:GITHUB_OUTPUT
+          Write-Host "版本=$ver  标签=v$ver-$stamp"
+
+      - name: Apply version override
+        if: ${{ github.event.inputs.version != '' }}
+        shell: pwsh
+        run: |
+          $ver = "${{ steps.ver.outputs.version }}"
+          $content = Get-Content __init__.py -Raw
+          $patched = [regex]::Replace($content, '__version__ = "[^"]+"', "__version__ = `"$ver`"")
+          if ($patched -eq $content) { throw "版本号覆盖失败，请检查 __init__.py 的 __version__ 行" }
+          [System.IO.File]::WriteAllText("$PWD/__init__.py", $patched, [System.Text.UTF8Encoding]::new($false))
+          Write-Host "已把 __init__.py 的 __version__ 覆盖为 $ver（保证 exe 内自报版本与发布标签一致）"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          pip install -r requirements.txt
+
+      - name: Build with PyInstaller
+        shell: cmd
+        run: |
+          pyinstaller --noconfirm --clean --onefile --windowed --name "BiliMonitor" ^
+            --collect-all bilibili_api ^
+            --hidden-import plyer.platforms.win.notification ^
+            --hidden-import PIL._tkinter_finder ^
+            --hidden-import pandas ^
+            --hidden-import sklearn ^
+            --hidden-import scipy ^
+            --hidden-import statsmodels ^
+            --hidden-import xgboost ^
+            --hidden-import lightgbm ^
+            --hidden-import prophet ^
+            main.py
+
+      - name: Verify artifact
+        shell: pwsh
+        run: |
+          $exe = Get-Item "dist\BiliMonitor.exe" -ErrorAction SilentlyContinue
+          if (-not $exe) { throw "编译产物 dist\BiliMonitor.exe 不存在" }
+          $mb = [math]::Round($exe.Length / 1MB, 1)
+          Write-Host "产物: $($exe.Name)  $mb MB"
+          if ($exe.Length -lt 50MB) { throw "产物过小（$mb MB），疑为编译失败" }
+          if ($exe.Length -gt 2000MB) { throw "产物超过 GitHub Release 单资产 2 GiB 限制（$mb MB）" }
+
+      - name: Smoke test packaged exe
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          $proc = Start-Process -FilePath "dist\BiliMonitor.exe" -PassThru
+          Start-Sleep -Seconds 40
+          if ($proc.HasExited) {
+            throw "打包产物启动后立即退出（exit=$($proc.ExitCode)），视为坏包，已阻止发版"
+          }
+          Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+          Write-Host "冒烟通过：exe 存活 40s（未因缺 DLL/启动异常崩溃）"
+
+      - name: Extract release body from CHANGELOG
+        shell: python
+        env:
+          REL_VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          import os
+          import pathlib
+          import re
+
+          text = pathlib.Path("CHANGELOG.md").read_text(encoding="utf-8", errors="replace")
+          match = re.search(r"(## Release \d{4}-\d{2}-\d{2}[\s\S]*?)(?=\n## |\Z)", text)
+          if not match:
+              match = re.search(r"(## [^\n]+[\s\S]*?)(?=\n## |\Z)", text)
+          body = match.group(1).strip() if match else "（CHANGELOG.md 无可提取段落）"
+          header = (
+              f"**版本**: {os.environ['REL_VERSION']}\n"
+              f"**提交**: `{os.environ.get('GITHUB_SHA', '')[:7]}`\n\n"
+              "**安装/升级**：下载下方 `BiliMonitor.exe` 覆盖旧文件即可（程序内也会提示自动更新）。\n\n"
+              "---\n\n"
+          )
+          pathlib.Path("release_body.md").write_text(header + body, encoding="utf-8")
+          print(f"release_body.md 已生成（{len(body)} 字符）")
+
+      - name: Publish to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: BiliMonitor ${{ steps.ver.outputs.tag }}
+          body_path: release_body.md
+          files: dist/BiliMonitor.exe
+          fail_on_unmatched_files: true
+          prerelease: ${{ github.event.inputs.prerelease == 'true' }}
