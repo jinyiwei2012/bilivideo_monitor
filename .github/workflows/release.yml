@@ -176,38 +176,18 @@ jobs:
           Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
           Write-Host "冒烟通过：exe 存活 40s（未因缺 DLL/启动异常崩溃）"
 
-      - name: Extract release body from CHANGELOG
-        shell: python
+      # 变更日志：省流版写进 Release 正文（客户端读 body 展示给用户），
+      # 完整版由下一步追加进 CHANGELOG.md（GitHub 上可查）
+      - name: Generate changelog (client summary + full entry)
+        shell: pwsh
         env:
           REL_VERSION: ${{ steps.ver.outputs.version }}
           REL_CHANNEL: ${{ steps.ver.outputs.channel }}
         run: |
-          import os
-          import pathlib
-          import re
-
-          text = pathlib.Path("CHANGELOG.md").read_text(encoding="utf-8", errors="replace")
-          match = re.search(r"(## Release \d{4}-\d{2}-\d{2}[\s\S]*?)(?=\n## |\Z)", text)
-          if not match:
-              match = re.search(r"(## [^\n]+[\s\S]*?)(?=\n## |\Z)", text)
-          body = match.group(1).strip() if match else "（CHANGELOG.md 无可提取段落）"
-
-          channel = os.environ.get("REL_CHANNEL", "pre")
-          note = (
-              "> ⚠️ **预发布版本**：仅在使用「beta 更新通道」时才会收到推送，stable 通道用户不受影响。\n\n"
-              if channel == "pre"
-              else "> ✅ **稳定版本**：stable 更新通道用户会收到自动更新提示。\n\n"
-          )
-          header = (
-              f"**版本**: {os.environ['REL_VERSION']}\n"
-              f"**通道**: {channel}\n"
-              f"**提交**: `{os.environ.get('GITHUB_SHA', '')[:7]}`\n\n"
-              f"{note}"
-              "**安装/升级**：下载下方 `BiliMonitor.exe` 覆盖旧文件即可（程序内也会提示自动更新）。\n\n"
-              "---\n\n"
-          )
-          pathlib.Path("release_body.md").write_text(header + body, encoding="utf-8")
-          print(f"release_body.md 已生成（{len(body)} 字符）")
+          python scripts/changelog_release.py --version "$env:REL_VERSION" --channel "$env:REL_CHANNEL" `
+            --out-body release_body.md --out-entry changelog_entry.md
+          Write-Host "--- Release 正文（省流版，客户端可见）预览 ---"
+          Get-Content release_body.md -TotalCount 16
 
       - name: Publish to GitHub Releases
         uses: softprops/action-gh-release@v2
@@ -218,3 +198,17 @@ jobs:
           files: dist/BiliMonitor.exe
           fail_on_unmatched_files: true
           prerelease: ${{ steps.ver.outputs.prerelease == 'true' }}
+
+      # 发版同时把完整版变更日志写回仓库（GitHub 可查，符合既有 CHANGELOG 版式）。
+      # [skip ci] 防止这次提交再触发新的流水线；分支受保护等情况下不允许发版失败，故 best-effort。
+      - name: Write full changelog into CHANGELOG.md
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          python scripts/changelog_release.py --append-to CHANGELOG.md --entry changelog_entry.md
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+          if (-not (git status --porcelain -- CHANGELOG.md)) { Write-Host "CHANGELOG.md 无变化，跳过提交"; exit 0 }
+          git commit -m "docs(changelog): 记录 ${{ steps.ver.outputs.tag }} [skip ci]"
+          git push
