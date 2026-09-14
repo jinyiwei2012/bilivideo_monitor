@@ -379,28 +379,62 @@ class DatabaseQueryWindow(DialogBase):
         backup = project_path("core", "data", bvid, f"{bvid}.db")
         return backup if os.path.exists(backup) else None
 
-    def _load_extra_data(self, bvid: str, timestamp: str) -> dict:
+    @staticmethod
+    def _dedupe_latest_per_algo(pred_rows, timestamp) -> list:
+        """从「按 algorithm ASC, created_at DESC 预排序」的列表中，取每个算法的最新一条。
+
+        等价于原 SQL 的 `WHERE created_at <= ? ORDER BY algorithm, created_at DESC` 再按
+        algorithm 去重取首条；把 created_at 过滤搬到 Python，是为了让同一 bvid 的
+        predictions 只整体查询一次（实测逐行查询改预载后约快 5x）。
+        """
+        seen = set()
+        out = []
+        for pr in pred_rows:
+            created = pr["created_at"]
+            if created is None or created > timestamp:
+                continue
+            an = pr["algorithm"]
+            if an not in seen:
+                seen.add(an)
+                out.append(dict(pr))
+        return out
+
+    def _load_extra_data(self, bvid: str, timestamp: str, cache: Optional[dict] = None) -> dict:
+        """加载某条记录关联的预测/周评分/年评分数据。
+
+        cache 非空时（批量查询路径）：同一 bvid 复用同一只读连接，predictions 只整体
+        载入一次；连接由调用方统一关闭。cache 为空时保持原「单次调用自开自关」语义。
+        """
         extra: dict = {}
         vdp = self._get_video_db_path(bvid)
         if not vdp:
             return extra
         conn = None
+        owns_conn = cache is None  # 批量路径下连接归缓存所有，由调用方关闭
         try:
-            uri = "file:{}?mode=ro".format(urllib.parse.quote(vdp.replace("\\", "/"), safe="/:"))
-            conn = sqlite3.connect(uri, uri=True, check_same_thread=False)
-            conn.row_factory = sqlite3.Row
+            if cache is not None:
+                conn = cache["conns"].get(bvid)
+            if conn is None:
+                uri = "file:{}?mode=ro".format(urllib.parse.quote(vdp.replace("\\", "/"), safe="/:"))
+                conn = sqlite3.connect(uri, uri=True, check_same_thread=False)
+                conn.row_factory = sqlite3.Row
+                if cache is not None:
+                    cache["conns"][bvid] = conn
+                    owns_conn = False
             cur = conn.cursor()
-            cur.execute(
-                "SELECT * FROM predictions WHERE created_at <= ? ORDER BY algorithm, created_at DESC", (timestamp,)
-            )
-            pred_rows = cur.fetchall()
-            seen = set()
-            pred_list = []
-            for pr in pred_rows:
-                an = pr["algorithm"]
-                if an not in seen:
-                    seen.add(an)
-                    pred_list.append(dict(pr))
+            if cache is not None:
+                pred_rows = cache["preds"].get(bvid)
+                if pred_rows is None:
+                    cur.execute("SELECT * FROM predictions ORDER BY algorithm ASC, created_at DESC")
+                    pred_rows = cur.fetchall()
+                    cache["preds"][bvid] = pred_rows
+                pred_list = self._dedupe_latest_per_algo(pred_rows, timestamp)
+            else:
+                cur.execute(
+                    "SELECT * FROM predictions WHERE created_at <= ? ORDER BY algorithm, created_at DESC",
+                    (timestamp,),
+                )
+                pred_list = self._dedupe_latest_per_algo(cur.fetchall(), timestamp)
             extra["_predictions"] = pred_list
 
             cur.execute(
@@ -445,7 +479,7 @@ class DatabaseQueryWindow(DialogBase):
         except Exception as e:
             logger.debug("查询视频额外数据失败: %s", e)
         finally:
-            if conn:
+            if conn and owns_conn:
                 conn.close()
         return extra
 
@@ -650,13 +684,22 @@ class DatabaseQueryWindow(DialogBase):
         all_an = set()
         total = len(raw_rows)
         batch = max(1, total // 20)
-        for idx, row in enumerate(raw_rows):
-            extra = self._load_extra_data(row["bvid"], row["timestamp"])
-            extra_list.append(extra)
-            for pred in extra.get("_predictions", []):
-                all_an.add(pred.get("algorithm", ""))
-            if total > 50 and (idx + 1) % batch == 0:
-                self._status_update.emit(f"天依在收集关联数据 {idx + 1}/{total}…♪")
+        # 批量路径：逐行复用同一只读连接 + 每 bvid 的 predictions 只整体载入一次
+        cache: Dict[str, dict] = {"conns": {}, "preds": {}}
+        try:
+            for idx, row in enumerate(raw_rows):
+                extra = self._load_extra_data(row["bvid"], row["timestamp"], cache)
+                extra_list.append(extra)
+                for pred in extra.get("_predictions", []):
+                    all_an.add(pred.get("algorithm", ""))
+                if total > 50 and (idx + 1) % batch == 0:
+                    self._status_update.emit(f"天依在收集关联数据 {idx + 1}/{total}…♪")
+        finally:
+            for _conn in cache["conns"].values():
+                try:
+                    _conn.close()
+                except Exception as e:
+                    logger.debug("关闭只读查询连接失败: %s", e)
         known = ["线性增长", "移动平均", "加权移动平均", "指数平滑", "趋势外推", "Gompertz"]
         anames = sorted(all_an, key=lambda n: (known.index(n) if n in known else len(known), n))
         return extra_list, anames
