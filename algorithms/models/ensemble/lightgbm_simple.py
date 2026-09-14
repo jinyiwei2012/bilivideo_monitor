@@ -32,6 +32,7 @@ from typing import Dict, Any, Optional
 import numpy as np
 
 from algorithms.base import BaseAlgorithm, PredictionResult
+from algorithms.model_cache import get_or_fit
 
 logger = logging.getLogger(__name__)
 
@@ -199,15 +200,21 @@ class LightGBMSimpleAlgorithm(BaseAlgorithm):
         y_target = y_growth[-len(X) :]
 
         # LightGBM 训练参数：leaf-wise 生长 + 列采样
-        model = lgb.LGBMRegressor(
-            n_estimators=80,  # 树的数量
-            max_depth=4,  # 最大深度
-            learning_rate=0.1,  # 学习率
-            subsample=0.8,  # 样本采样率（GOSS 风格）
-            colsample_bytree=0.8,  # 每棵树的特征采样率
-            verbosity=-1,  # 完全静默
+        # 与 bagging/quantile 等一致，用 get_or_fit 按「训练内容摘要」缓存已拟合模型：
+        # 同一轮数据被重复预测时（监控回路 + 交叉分析 + 训练后重算）不再重复拟合
+        model = get_or_fit(
+            "lightgbm_simple",
+            lambda: lgb.LGBMRegressor(
+                n_estimators=80,  # 树的数量
+                max_depth=4,  # 最大深度
+                learning_rate=0.1,  # 学习率
+                subsample=0.8,  # 样本采样率（GOSS 风格）
+                colsample_bytree=0.8,  # 每棵树的特征采样率
+                verbosity=-1,  # 完全静默
+            ),
+            X,
+            y_target,
         )
-        model.fit(X, y_target)
 
         # 构造最新特征
         last_feat = []

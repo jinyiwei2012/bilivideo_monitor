@@ -321,7 +321,9 @@ class BaggingSimpleAlgorithm(BaseAlgorithm):
                 n_estimators=30,
                 max_samples=0.8,
                 random_state=42,
-                n_jobs=-1,
+                # 调用方（registry）已有 8-worker 线程池；内部再开 n_jobs=-1 会与
+                # 外层抢核造成嵌套过度订阅（实测首次调用被拖到 54s）
+                n_jobs=1,
             ),
             X,
             y_target,
