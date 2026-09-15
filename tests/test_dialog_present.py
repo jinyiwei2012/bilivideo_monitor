@@ -118,15 +118,17 @@ class TestPresent:
 
     def test_destroyed_releases_keepalive(self, qapp, clean_registry):
         """窗口被 Qt 销毁后应自动解除保活引用（避免长期持有已销毁对象）。"""
-        from PyQt6.QtCore import Qt
+        from PyQt6.QtCore import QEvent
         from PyQt6.QtWidgets import QDialog
 
         dlg = QDialog()
-        dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         dialog_host.present(_Wrapper(dlg))
         assert dialog_host.alive_count() == 1
 
-        dlg.close()
+        # 用 deleteLater + 显式处理 DeferredDelete 做**确定性**销毁；
+        # 不用 WA_DeleteOnClose + close()（销毁时机与事件循环耦合，Linux 上曾段错误）
+        dlg.deleteLater()
+        qapp.sendPostedEvents(None, QEvent.Type.DeferredDelete)
         qapp.processEvents()
         assert dialog_host.alive_count() == 0
 
@@ -475,16 +477,17 @@ class TestRegistryIdentity:
 
     def test_destroying_older_instance_keeps_newer(self, qapp, clean_registry):
         """旧实例销毁时的 destroyed 回调不得删掉同类新实例的保活。"""
-        from PyQt6.QtCore import Qt
+        from PyQt6.QtCore import QEvent
         from PyQt6.QtWidgets import QDialog
 
         old, new = QDialog(), QDialog()
-        old.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         dialog_host.present(old, singleton=False)
         dialog_host.present(new, singleton=False)
         assert dialog_host.alive_count() == 2
 
-        old.close()
+        # 确定性销毁旧实例（避免 WA_DeleteOnClose + close() 的时机耦合）
+        old.deleteLater()
+        qapp.sendPostedEvents(None, QEvent.Type.DeferredDelete)
         qapp.processEvents()
         assert dialog_host.alive_count() == 1, "旧实例销毁误删了同类新实例的保活"
         new.close()
