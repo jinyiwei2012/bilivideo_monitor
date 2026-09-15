@@ -256,6 +256,16 @@ class BilibiliAPI(_RequestMixin, _AuthMixin, _VideoMixin, _UpMixin):
         # 启动时加载已保存的 Cookie 和代理
         self._load_saved_network_config()
         self.proxy_manager.init_ua_bindings()
+        # 设备标识：补齐 _uuid / b_lsid / b_nut 并持久化（本地生成，不发网络请求；见风控手册 §4）
+        self._uuid = ""
+        self._b_lsid = ""
+        self._b_nut = ""
+        try:
+            from core.device_identity import ensure_identity
+
+            ensure_identity(self, fetch_remote=False)
+        except Exception as e:
+            logger.debug("初始化设备标识失败: %s", e)
         # 代理自动发现改由用户在设置界面手动触发，启动时不拉取
 
     @staticmethod
@@ -537,6 +547,12 @@ class BilibiliAPI(_RequestMixin, _AuthMixin, _VideoMixin, _UpMixin):
             "login_name": login_name,
             "risk": self.risk_state(),
         }
+
+    def refresh_device_identity(self) -> Dict[str, Any]:
+        """向服务端补全设备标识（buvid3/4）。需要网络，供设置页或风控命中时调用。"""
+        from core.device_identity import ensure_identity
+
+        return ensure_identity(self, fetch_remote=True)
 
     def reset_status(self) -> None:
         """重置状态（用于连续失败后的恢复）"""

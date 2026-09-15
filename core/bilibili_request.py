@@ -50,13 +50,19 @@ def _is_352_error(self: Any, data: Dict[str, Any]) -> bool:
 
 
 def _refresh_ticket_after_risk(self: Any) -> None:
-    """风控命中后顺手刷新 bili_ticket（失败只记日志，不影响主流程）。"""
+    """风控命中后顺手刷新 bili_ticket 与设备标识（失败只记日志，不影响主流程）。"""
     try:
         from core.bilibili_ticket import ensure_ticket
 
         ensure_ticket(self, force=True)
     except Exception as e:
         logger.debug("风控后刷新 bili_ticket 失败: %s", e)
+    try:
+        from core.device_identity import ensure_identity
+
+        ensure_identity(self, fetch_remote=True)
+    except Exception as e:
+        logger.debug("风控后刷新设备标识失败: %s", e)
 
 
 def _register_risk_cooldown(self: Any, kind: str) -> float:
@@ -105,7 +111,15 @@ def _ensure_min_interval(self: Any) -> None:
 
 
 def _rotate_user_agent(self: Any) -> None:
-    self.session.headers["User-Agent"] = random.choice(self.USER_AGENTS)
+    # 文档硬约束：UA 不得含 curl/python/awa，且同一 UA 不得短时重复（见风控手册 §4）
+    from core.device_identity import pick_user_agent
+
+    previous = str(self.session.headers.get("User-Agent", "") or "")
+    chosen = pick_user_agent(self.USER_AGENTS, previous)
+    if not chosen:
+        logger.warning("UA 池内无合规候选，保持当前 UA")
+        return
+    self.session.headers["User-Agent"] = chosen
     logger.debug(f"User-Agent已更换: {self.session.headers['User-Agent'][:50]}...")
 
 
@@ -118,6 +132,11 @@ def _get_request_cookies(self: Any) -> Dict[str, Any]:
     ticket = str(getattr(self, "_bili_ticket", "") or "")
     if ticket:
         cookies.setdefault("bili_ticket", ticket)
+    # 设备标识（_uuid / b_lsid / b_nut）只读注入，同样不在热路径发请求
+    for key, attr in (("_uuid", "_uuid"), ("b_lsid", "_b_lsid"), ("b_nut", "_b_nut")):
+        value = str(getattr(self, attr, "") or "")
+        if value:
+            cookies.setdefault(key, value)
     if random.random() < 0.1:
         self._buvid3 = self._gen_buvid()
         cookies["buvid3"] = self._buvid3
