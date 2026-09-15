@@ -146,6 +146,19 @@ def _risk_response_header_voucher(self: Any, response: Any) -> bool:
 ② 同一天内第二次调用**不发请求**（缓存命中）；③ 跨天过期后重取；
 ④ `w_webid` 出现在签名后的 query 中且排序正确。
 
+**实现状态（2026-09）**：`core/w_webid.py` 已完成并可全部验收（11 项测试）：
+`extract_access_id`（URL 编码 / 明文 / 嵌套）、按天缓存（`data/w_webid.json`）、
+`fetch_access_id`（先自己的空间页、空则直播页备选）、`get_w_webid`（命中缓存零请求，
+失败回退旧值且不抛错）、`with_w_webid(api, params)`（**必须在 `_wbi_sign` 之前调用**）。
+
+⚠ **暂未主动注入任何现有请求**，原因（代码核查结论）：本仓库调用的是
+`/x/space/acc/info`、`/x/space/arc/search` 等**非 WBI** 变体（`core/bilibili_up.py` L46/48/106/133），
+唯一已签名的 WBI 调用是 UP 搜索 `/x/web-interface/wbi/search/type`（L26）——
+上游只在 `x/space/wbi/acc/info` 一带带 `w_webid`，在未验证的接口上加未知参数有触发 `-352` 的风险，
+因此留作**显式接入**：等改用 `/x/space/wbi/acc/info` 或确认搜索接口也需要时，
+把 `params = self._wbi_sign(params)` 改为 `params = self._wbi_sign(with_w_webid(self, params))`。
+
+
 ## 6. 会话隔离（评论 / 搜索等高频接口）
 
 **依据**：`whiteguo233/OpenBiliClaw`（MIT）—— B站按 **session/接口**限流，
