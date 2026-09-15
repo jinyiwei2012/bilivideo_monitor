@@ -6,7 +6,7 @@
 
 import time
 import logging
-from typing import Protocol, cast
+from typing import Any, Protocol, cast
 from tracemalloc import Snapshot
 
 from PyQt6.QtCore import QTimer
@@ -30,6 +30,9 @@ def start_global_tick(gui):
     gui._last_countdown_text = ""
     gui._last_mode_text = ""
     gui._last_interval_text = ""
+    # 风控观测（每 5s）+ Cookie 续期（启动后一次 + 每 12h）走独立定时器，
+    # 不挤进 1s tick（那里只负责倒计时/周期维护）
+    start_risk_timers(gui)
     gui._global_tick_timer = QTimer(gui)
     gui._global_tick_timer.setInterval(1000)
     gui._global_tick_timer.timeout.connect(lambda: global_tick(gui))
@@ -41,6 +44,11 @@ def stop_global_tick(gui):
     if gui._global_tick_timer:
         gui._global_tick_timer.stop()
         gui._global_tick_timer = None
+    for attr in ("_risk_timer", "_cookie_renew_timer"):
+        timer = getattr(gui, attr, None)
+        if timer is not None:
+            timer.stop()
+            setattr(gui, attr, None)
 
 
 def do_memory_health_check(gui):
@@ -65,6 +73,162 @@ def do_memory_health_check(gui):
             top_leaks.append(f"{stat.traceback}: +{stat.size_diff // 1024 // 1024}MB")
     if top_leaks:
         logger.warning("[MemoryHealth] 检测到持续内存增长 (30min):\n  %s", "\n  ".join(top_leaks))
+
+
+# ═══════════════ 风控观测 / 掉登录消费端 / Cookie 续期 ═══════════════
+
+_COOKIE_RENEW_INTERVAL = 12 * 3600  # 与 core.bilibili_cookie_refresh 的默认间隔一致
+_RISK_POLL_INTERVAL_MS = 5000  # 风控/掉登录状态轮询间隔（本地读取，无网络）
+
+
+def _has_login_cookies(api: Any) -> bool:
+    """是否持有登录态 Cookie（**只读本地，不发任何请求**）。"""
+    try:
+        if api.session.cookies.get("SESSDATA", domain=".bilibili.com"):
+            return True
+    except Exception as e:
+        logger.debug("读取 session cookie 失败: %s", e)
+    return bool((getattr(api, "_cookies", {}) or {}).get("SESSDATA"))
+
+
+def _risk_badge_text(state: dict) -> str:
+    """状态栏风控文本（纯函数，便于离线测试）。"""
+    if state.get("logged_out"):
+        return "⚠ 登录已失效"
+    remaining = int(float(state.get("cooldown_remaining", 0) or 0))
+    if remaining > 0:
+        return f"⚠ 风控冷却 {remaining}s"
+    return ""
+
+
+def _risk_badge_color(state: dict) -> str:
+    """状态栏风控颜色（登录失效=危险，冷却=警告，正常=次要文本）。"""
+    if state.get("logged_out"):
+        return str(C["danger"])
+    if float(state.get("cooldown_remaining", 0) or 0) > 0:
+        return str(C["warning"])
+    return str(C["text_3"])
+
+
+def _maybe_report_risk(gui, api: Any = None) -> None:
+    """把请求层的风控/掉登录信号送到状态栏与通知（playbook §10 消费端）。
+
+    只在**状态发生变化**时通知一次，避免每秒 tick 反复打扰；
+    掉登录时顺带触发一次 Cookie 续期（§8）。
+    """
+    try:
+        if api is None:
+            from core.bilibili_api import get_bilibili_api
+
+            api = get_bilibili_api()
+        state = dict(api.risk_state())
+    except Exception as e:
+        logger.debug("读取风控状态失败: %s", e)
+        return
+
+    logged_out = bool(state.get("logged_out"))
+    try:
+        gui._sb("risk", _risk_badge_text(state), _risk_badge_color(state))
+        was_logged_out = bool(getattr(gui, "_risk_logged_out", False))
+        gui._risk_logged_out = logged_out
+    except Exception as e:  # 状态栏写入失败不得影响其它职责
+        logger.debug("写入风控状态失败: %s", e)
+        return
+    if not logged_out or was_logged_out:
+        return
+
+    logger.warning("检测到登录已失效（-101），触发一次 Cookie 续期尝试")
+    try:
+        gui.log_panel.add_log(
+            "WARNING", "登录已失效（-101）：已触发 Cookie 续期，必要时请重新登录（设置 → Cookie 设置）"
+        )
+    except Exception as e:
+        logger.debug("写日志面板失败: %s", e)
+    _notify_logged_out()
+    _renew_now_async(api)
+
+
+def _notify_logged_out() -> None:
+    """掉登录时发一次系统通知（失败不影响主流程）。"""
+    try:
+        from core.notification import notification_manager
+
+        notification_manager.send_windows_notification(
+            "B站登录已失效",
+            "Cookie 已过期或被风控拦截；自动续期失败时请重新登录（设置 → Cookie 设置）",
+        )
+    except Exception as e:
+        logger.debug("发送掉登录通知失败: %s", e)
+
+
+def _renew_now_async(api: Any) -> None:
+    """立即尝试续期一次（后台线程，网络 I/O 不阻塞 tick）。"""
+    from core.bilibili_cookie_refresh import refresh_now
+
+    def _worker() -> None:
+        try:
+            result = refresh_now(api)
+            logger.info("掉登录后续期: %s（%s）", result.status, result.message)
+        except Exception as e:
+            logger.debug("续期异常: %s", e)
+
+    fire_and_forget(_worker, name="cookie-renew-now")
+
+
+def _renew_worker(api: Any) -> None:
+    """后台执行一次按间隔节流的续期（供启动/定时调用）。"""
+    try:
+        from core.bilibili_cookie_refresh import maybe_refresh
+
+        result = maybe_refresh(api, interval_hours=_COOKIE_RENEW_INTERVAL / 3600)
+        if result is not None:
+            logger.info("定时 Cookie 续期: %s（%s）", result.status, result.message)
+    except Exception as e:
+        logger.debug("定时续期异常: %s", e)
+
+
+def _maybe_renew_cookies(gui, api: Any = None, runner: Any = None) -> None:
+    """启动后一次 + 每 12h 一次续期；**未登录时一个请求都不发**。
+
+    Args:
+        api: 注入的 API 实例（测试用；缺省取全局单例）
+        runner: 任务调度器（缺省 ``fire_and_forget``；测试可注入同步执行器）
+    """
+    now = time.time()
+    last = float(getattr(gui, "_last_cookie_renew", 0.0) or 0.0)
+    if last and now - last < _COOKIE_RENEW_INTERVAL:
+        return
+    if api is None:
+        from core.bilibili_api import get_bilibili_api
+
+        api = get_bilibili_api()
+    if not _has_login_cookies(api):
+        return  # 未登录 → 零请求
+    gui._last_cookie_renew = now
+    (runner or fire_and_forget)(lambda: _renew_worker(api), name="cookie-renew")
+
+
+def start_risk_timers(gui) -> None:
+    """启动风控观测与 Cookie 续期两个独立定时器（可重复调用，旧的会被停掉）。"""
+    for attr in ("_risk_timer", "_cookie_renew_timer"):
+        old = getattr(gui, attr, None)
+        if old is not None:
+            old.stop()
+            setattr(gui, attr, None)
+
+    risk_timer = QTimer(gui)
+    risk_timer.setInterval(_RISK_POLL_INTERVAL_MS)
+    risk_timer.timeout.connect(lambda: _maybe_report_risk(gui))
+    risk_timer.start()
+    gui._risk_timer = risk_timer
+
+    renew_timer = QTimer(gui)
+    renew_timer.setInterval(_COOKIE_RENEW_INTERVAL * 1000)
+    renew_timer.timeout.connect(lambda: _maybe_renew_cookies(gui))
+    renew_timer.start()
+    gui._cookie_renew_timer = renew_timer
+
+    _maybe_renew_cookies(gui)  # 启动后一次（未登录时零请求）
 
 
 def global_tick(gui):

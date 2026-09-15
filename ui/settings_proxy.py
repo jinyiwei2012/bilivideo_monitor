@@ -408,8 +408,100 @@ class SettingsProxyMixin:
 
         layout.addWidget(sec)
 
+        self._build_risk_diagnostics(layout, page)
+
         tab_idx = nb.addTab(page, "  代理设置  ")
         return tab_idx
+
+    def _build_risk_diagnostics(self, layout, parent) -> None:
+        """网络诊断卡片：登录态 / 风控冷却 / 续期状态（只读本地，**不发请求**）。"""
+        from ui.settings_common import make_section_widget, styled_label
+
+        sec = make_section_widget(parent, "网络诊断（登录态与风控）")
+        sec_layout = sec.layout()
+        self._diag_labels: dict = {}
+        for key, label in (
+            ("logged_out", "登录态"),
+            ("cooldown", "风控冷却"),
+            ("voucher_streak", "voucher 连续次数"),
+            ("scope", "冷却范围"),
+            ("last_kind", "最近命中类型"),
+            ("http_412", "连续 412 次数"),
+            ("renew", "上次续期"),
+            ("refresh_token", "refresh_token"),
+        ):
+            row = QWidget(sec)
+            row.setStyleSheet(f"background-color: {C['bg_elevated']};")
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 2, 0, 2)
+            name = styled_label(label, font_=FONT_SM)
+            name.setFixedWidth(150)
+            row_layout.addWidget(name)
+            value = styled_label("—", font_=FONT_SM)
+            row_layout.addWidget(value, 1)
+            sec_layout.addWidget(row)
+            self._diag_labels[key] = value
+
+        btn_row = QWidget(sec)
+        btn_row.setStyleSheet(f"background-color: {C['bg_elevated']};")
+        btn_layout = QHBoxLayout(btn_row)
+        btn_layout.setContentsMargins(0, 4, 0, 0)
+        refresh_btn = QPushButton("⟳ 刷新诊断")
+        refresh_btn.clicked.connect(self._refresh_risk_diagnostics)
+        btn_layout.addWidget(refresh_btn)
+        btn_layout.addStretch()
+        sec_layout.addWidget(btn_row)
+
+        layout.addWidget(sec)
+        self._refresh_risk_diagnostics()
+
+    def _set_diag(self, key: str, text: str, color_key: str = "text_2") -> None:
+        """写入一条诊断值（含颜色）。"""
+        label = getattr(self, "_diag_labels", {}).get(key)
+        if label is None:
+            return
+        label.setText(text)
+        label.setStyleSheet(f"color: {C[color_key]}; background: transparent;")
+
+    def _refresh_risk_diagnostics(self) -> None:
+        """刷新诊断文本（本地读取 `risk_state` / `renew_state`，零网络请求）。"""
+        import time as _time
+
+        try:
+            from core.bilibili_api import get_bilibili_api
+            from core.bilibili_cookie_refresh import renew_state
+
+            api = get_bilibili_api()
+            state = dict(api.risk_state())
+            renew = dict(renew_state(api))
+        except Exception as e:
+            logger.debug("读取风控诊断失败: %s", e)
+            return
+
+        remaining = int(float(state.get("cooldown_remaining", 0) or 0))
+        streak = int(state.get("voucher_streak", 0) or 0)
+        logged_out = bool(state.get("logged_out"))
+        self._set_diag(
+            "logged_out",
+            "⚠ 已失效（请重新登录）" if logged_out else "✓ 正常",
+            "danger" if logged_out else "success",
+        )
+        self._set_diag("cooldown", f"{remaining}s" if remaining > 0 else "无", "warning" if remaining > 0 else "text_2")
+        self._set_diag("voucher_streak", f"{streak} 次" + ("（已达全局阈值）" if streak >= 3 else ""))
+        self._set_diag("scope", str(state.get("scope", "") or "—"))
+        kinds = {"sign": "签名/UA（-352）", "ip": "IP 频率（-412）"}
+        self._set_diag("last_kind", kinds.get(str(state.get("last_kind", "")), "—"))
+        count_412 = int(state.get("consecutive_412_errors", 0) or 0)
+        self._set_diag("http_412", f"{count_412} 次", "warning" if count_412 > 0 else "text_2")
+        last_at = float(renew.get("last_refresh_at", 0) or 0)
+        when = _time.strftime("%Y-%m-%d %H:%M", _time.localtime(last_at)) if last_at else "本次启动未续期"
+        self._set_diag("renew", when)
+        has_token = bool(renew.get("has_refresh_token"))
+        self._set_diag(
+            "refresh_token",
+            "✓ 已持有" if has_token else "✗ 缺失（重新登录一次即可获得）",
+            "text_2" if has_token else "warning",
+        )
 
     def _auto_fetch_proxies(self):
         self._auto_fetch_status.setText("⏳ 天依在找代理呢,像在银河里收集星光 ♪")

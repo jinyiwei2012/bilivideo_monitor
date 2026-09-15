@@ -147,6 +147,7 @@ class BottomBar(QWidget):
             ("alert", ""),
             ("finetune", ""),
             ("last_ref", "上次刷新: — ♪"),
+            ("risk", ""),  # 风控/掉登录提示（由全局 tick 写入）
             ("status", STATUS["ready"]),
         ]
 
