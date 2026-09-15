@@ -154,18 +154,27 @@ const getMixinKey = (orig) => mixinKeyEncTab.map(n => orig[n]).join('').slice(0,
 
 ## 7. 契约 → 实现 → 验收 映射
 
-| # | 契约条目 | 实现位置 | 验收 |
-|---|---|---|---|
-| 1 | WBI mixin key 重排取前 32 | `core/bilibili_api.py::_refresh_wbi_key` | 测试向量（固定 img/sub → 已知 mixin_key） |
-| 2 | WBI 值过滤 + URL 编码 + 排序 + wts | `core/bilibili_api.py::_wbi_sign` | 签名回归测试 + 真实接口非 `-403` |
-| 3 | WBI 密钥 600 s 缓存 | 同上 | 缓存命中/过期的单元测试 |
-| 4 | 密码密文 base64 | `core/bilibili_auth.py::login_with_password` | 断言 `password` 为 base64（非 hex） |
-| 5 | 每次提交前重取 key/salt | 同上 | 断言调用两次 key 接口 |
-| 6 | 极验 6 必填字段 + `seccode=\|jordan` | `_submit_geetest_login` / `_try_auto_geetest_login` | 断言请求体字段齐全 |
-| 7 | 成功判定 `data.status` | `_password_login_result` / `login_with_password` | 风控响应不得返回"登录成功" |
-| 8 | `exchange` → `exchange_cookie` | `_exchange_qr_refresh_token` | 断言请求 URL |
-| 9 | 扫码收全 5 个 Cookie | `_collect_qr_response_cookies` | 断言 5 键 |
-| 10 | `-101` 掉登录可见 | `core/bilibili_request.py` + 通知 | 断言信号被消费（日志/回调） |
+| # | 契约条目 | 实现位置 | 验收 | 状态（2026-09-15 核对） |
+|---|---|---|---|---|
+| 1 | WBI mixin key 重排取前 32 | `core/bilibili_api.py::_refresh_wbi_key` | 测试向量（固定 img/sub → 已知 mixin_key） | ✅ `tests/test_wbi_signing.py` |
+| 2 | WBI 值过滤 + URL 编码 + 排序 + wts | `core/bilibili_api.py::_wbi_sign` | 签名回归测试 + 真实接口非 `-403` | ✅ 同上 |
+| 3 | WBI 密钥 600 s 缓存 | 同上 | 缓存命中/过期的单元测试 | ✅ 同上 |
+| 4 | 密码密文 base64 | `core/bilibili_auth.py::login_with_password` | 断言 `password` 为 base64（非 hex） | ❌ **未修**：`bilibili_auth.py:278` 仍是 `encrypted.hex()` |
+| 5 | 每次提交前重取 key/salt | 同上 | 断言调用两次 key 接口 | ⚠ 部分：首次提交前取（L256-257），但极验重提（L310）复用旧密文，未重取 |
+| 6 | 极验 6 必填字段 + `seccode=\|jordan` | `_submit_geetest_login` / `_try_auto_geetest_login` | 断言请求体字段齐全 | ❌ **未修**：全仓 grep 无 `jordan`，`seccode` 未加该后缀 |
+| 7 | 成功判定 `data.status` | `_password_login_result` / `login_with_password` | 风控响应不得返回"登录成功" | ❌ **未修**：`_password_login_result`（L120-143）不读 `data.status`，`code==0` 即报成功 |
+| 8 | `exchange` → `exchange_cookie` | `_exchange_qr_refresh_token` | 断言请求 URL | ❌ **未修**：`bilibili_auth.py:525` 仍是 `web/exchange` |
+| 9 | 扫码收全 5 个 Cookie | `_collect_qr_response_cookies` | 断言 5 键 | ⚠ 部分：只收 `SESSDATA`/`bili_jct`/`DedeUserID`（L505-517），缺 `DedeUserID__ckMd5`/`sid`（`_extract_login_cookies` 已有 8 键名单可复用） |
+| 10 | `-101` 掉登录可见 | `core/bilibili_request.py` + 通知 | 断言信号被消费（日志/回调） | ⚠ 部分：信号已产生（`_logged_out` / `risk_state()` 已进 `get_status()`），但**全仓无人读取** → 状态栏/托盘/通知未接（见 `risk_control_playbook.md` §10、§13） |
+
+> **未修项小结（4 个真缺陷同在 `core/bilibili_auth.py`，可直接照此修）**
+> ④ `encrypted.hex()` → `base64.b64encode(encrypted).decode()`（明文为 `hash + password`，PKCS#1 v1.5）；
+> ⑥ `seccode` 统一加 `"|jordan"` 后缀（3 处请求体）；
+> ⑦ `code == 0 且 data.status != 0` 必须判为风控失败（当前会误报"登录成功"并写入无效 Cookie）；
+> ⑧ `https://passport.bilibili.com/x/passport-login/web/exchange` → `.../web/exchange_cookie`。
+> ⑤⑨ 属健壮性补强（重取 key/salt、补齐 Cookie 键）。
+> 验收：新增 `tests/test_password_login_contract.py`（断言密文 base64 可解回 `hash+password`、
+> 请求体含 `validate`/`seccode` 且带 `|jordan`、`code:0 + status!=0` 返回失败、exchange URL 正确）。
 
 ## 8. 评论抓取（`x/v2/reply` 族）
 
@@ -179,6 +188,13 @@ const getMixinKey = (orig) => mixinKeyEncTab.map(n => orig[n]).join('').slice(0,
 | `GET /x/v2/reply/hot` | 热门评论 | |
 | `GET /x/v2/reply/info` | 指定评论信息 | |
 | `GET /x/v2/reply/count` | 评论数量 | |
+
+> **本项目现状（2026-09-15 核对）**：`core/bilibili_api.py:171` 的 `COMMENT_URL` 仍指向**已废弃**的
+> `/x/v2/reply/main`，`core/bilibili_video.py::get_video_comments`（L183）仍用它 + `pn` 翻页
+> → 待迁移到 `/x/v2/reply/wbi/main`（WBI 签名 + `pagination_str` 游标）。
+> **迁移办法**：直接让 `get_video_comments` 复用已实现的新模块 `core/bilibili_comment.py`
+> （已走 `/x/v2/reply/wbi/main` + 楼中楼 `/x/v2/reply/reply`，含重试与风控分流），
+> 不要再写一份分页逻辑。
 
 **主接口参数**：`type`（评论区类型，**必要**；视频 = `1`，全表见 `comment/readme.md`）、
 `oid`（目标 id，**必要**；视频为 **aid**）、`mode`（`0`/`1`/`2`/`3` 排序）、

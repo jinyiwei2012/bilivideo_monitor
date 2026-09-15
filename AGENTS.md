@@ -69,6 +69,12 @@ main.py / run.py           — Entry points
 │   ├── bilibili_auth.py    — QR login, password login, cookie management
 │   ├── bilibili_video.py   — Video info + danmaku XML parsing
 │   ├── bilibili_up.py      — UP主 info fetching
+│   ├── bilibili_comment.py — Comment fetching (independent session + own DB)
+│   ├── bilibili_ticket.py  — bili_ticket (HMAC hexsign, 2-day refresh)
+│   ├── bilibili_cookie_refresh.py — Cookie renewal chain (RSA CorrespondPath, 5 steps)
+│   ├── device_identity.py  — Device identity (buvid/_uuid/b_lsid/b_nut, UA sanitize)
+│   ├── w_webid.py          — w_webid (__RENDER_DATA__ extraction + daily cache)
+│   ├── gaia_vgate.py       — gaia-vgate fallback (user-triggered captcha solve)
 │   ├── notification.py     — Windows toast + QQ Bot (OneBot WS→HTTP fallback)
 │   ├── proxy_manager.py    — Proxy rotation, auto-discovery, health checking
 │   ├── smart_alert.py      — 8 anomaly detectors, confidence-graded (high/medium/low)
@@ -114,7 +120,7 @@ main.py / run.py           — Entry points
 │   └── ...
 ├── scripts/                 — lint_gate.py(flake8+复杂度棘轮) type_gate.py(mypy 棘轮)
 │                              sign.py / update_hashes.py / characterize_algorithms.py 等
-├── tests/                   — pytest 回归测试（258 passed），核心在 test_refactor_regressions.py
+├── tests/                   — pytest 回归测试（440 passed），核心在 test_refactor_regressions.py
 ├── config/                  — JSON config load/save with deep-merge defaults
 └── data/                    — Runtime data (settings, DBs, covers, logs)
 ```
@@ -123,11 +129,11 @@ main.py / run.py           — Entry points
 
 | 门禁 | 命令 | 当前状态 |
 |---|---|---|
-| 格式 | `black --check --line-length=120 .` | 340 文件全部通过 |
+| 格式 | `black --check --line-length=120 .` | 368 文件全部通过 |
 | Lint | `python scripts/lint_gate.py` | flake8 **0 项**；复杂度基线 **0**（无 CC>=16 函数） |
 | 类型 | `python scripts/type_gate.py` | mypy **0 错误**（基线为空 = 零容忍） |
 | 安全 | `bandit -r . -c pyproject.toml -ll` | Medium/High = 0（137 项均为 Low 严重度，被 `-ll` 过滤） |
-| 测试 | `python -m pytest tests/ -q` | **258 passed** |
+| 测试 | `python -m pytest tests/ -q` | **440 passed** |
 
 - **复杂度棘轮**（`.lint-baseline.json`）：按「函数名」记录，新增超标函数即失败；重构后用
   `python scripts/lint_gate.py --update-baseline` 收紧。
@@ -195,4 +201,6 @@ Existing categories: `"速度类"`, `"时间衰减"`, `"扩散模型"`, `"时间
 - `cryptography` is required for cookie encryption. XOR fallback logs a warning.
 - **禁止抑制**：不要新增 `# type: ignore` / `# noqa`。类型问题要真修（补注解、`cast` 到明确类型、
   `isinstance` 收窄、对动态值显式标注 `Any`），复杂度问题要抽函数而不是忽略。
+- 风控相关改动前先读 `docs/risk_control_playbook.md` §11（落地顺序 + 状态）与 §13（尚未完成清单），
+  接口契约（WBI / 密码登录 / 评论 / 续期）见 `docs/bilibili_api_contract.md`。
 - 提交前至少跑：`python scripts/lint_gate.py`、`python scripts/type_gate.py`、`python -m pytest tests/ -q`。

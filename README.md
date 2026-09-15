@@ -74,6 +74,12 @@ b站监控/
 ├── core/                       # 核心模块
 │   ├── bilibili_api.py         # B站 API (412 重试 / 代理 / WBI 签名)
 │   ├── bilibili_auth.py        # 登录认证（扫码/密码/Cookie）
+│   ├── bilibili_comment.py     # 评论抓取（独立会话 + 独立库 + 全字段留档）
+│   ├── bilibili_ticket.py      # bili_ticket（HMAC hexsign，2 天刷新）
+│   ├── bilibili_cookie_refresh.py  # Cookie 续期链（RSA CorrespondPath 五步）
+│   ├── device_identity.py      # 设备标识（buvid/_uuid/b_lsid/b_nut + UA 净化）
+│   ├── w_webid.py              # w_webid（__RENDER_DATA__ 提取 + 日缓存）
+│   ├── gaia_vgate.py           # gaia-vgate 兜底（人机验证解除风控，需 UI 触发）
 │   ├── notification.py         # Windows 推送 + QQ Bot
 │   ├── proxy_manager.py        # 代理管理器
 │   ├── smart_alert.py          # 8 种异常检测器
@@ -92,7 +98,7 @@ b站监控/
 │   ├── monitor/                # 监控服务 (per-video worker)
 │   └── settings_*.py           # 各设置标签页
 ├── scripts/                    # lint_gate.py / type_gate.py 等门禁与维护脚本
-├── tests/                      # pytest 回归测试（258 passed）
+├── tests/                      # pytest 回归测试（440 passed）
 ├── utils/                      # 工具模块
 ├── config/                     # 配置管理
 └── data/                       # 运行时数据（不入 git）
@@ -162,11 +168,11 @@ pre-commit run --all-files           # 提交前检查
 
 | 门禁 | 命令 | 当前状态 |
 |---|---|---|
-| 格式 | `black --check --line-length=120 .` | 340 文件全部通过 |
+| 格式 | `black --check --line-length=120 .` | 368 文件全部通过 |
 | Lint | `python scripts/lint_gate.py` | flake8 **0 项**；复杂度基线 **0**（无 CC>=16 函数） |
 | 类型 | `python scripts/type_gate.py` | mypy **0 错误**（基线为空 = 零容忍） |
 | 安全 | `bandit -r . -c pyproject.toml -ll` | Medium/High = 0 |
-| 测试 | `python -m pytest tests/ -q` | **258 passed** |
+| 测试 | `python -m pytest tests/ -q` | **440 passed** |
 
 > 抑制标签政策：禁止新增 `# type: ignore` 与 `# noqa`；仅第三方可用性探测（`F401`）、
 > Qt 命名约定覆写（`N802`）、torch 惰性导入守卫（`C901`）与 CLI 刻意宽泛捕获（`BLE001`）例外。

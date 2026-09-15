@@ -51,6 +51,35 @@
   轻微稀释靠近序列尾部的长期监督（`test_tail_zero_pad_dilutes_long_target`）。
 
 
+## 风控强化 M4（`refactor/optimization`）
+
+> 依据 `docs/risk_control_playbook.md` §11 顺序落地；**进度与剩余项见该文档 §11（状态列）/ §13（尚未完成清单）**。
+
+### ✅ 请求层与分流
+- `-352`（签名/UA）与 `-412`（IP）分流：352 不再退化成"空数据"，也不再轮换代理白耗代理（`b6b73e5`）
+- 冷却参数：sign 180s / ip 600s 起、上限 1800s、连续 3 次升全局（来源 OpenBiliClaw，MIT）
+- `v_voucher` 提取留档；`_logged_out` 掉登录标记 + `get_status()["risk"]` 观测（`b6b73e5`）
+
+### ✅ 会话与标识
+- 会话隔离：评论抓取用独立会话 + 独立库，只关自建实例（`f60ee89`）
+- `bili_ticket`：HMAC hexsign + JWT 过期解析 + 2 天刷新，随 Cookie 注入热路径（`f60ee89`）
+- 设备标识：`buvid3/4` 改为**服务端下发 + Cookie 持久化**（修掉"每次启动重新伪造"），补 `_uuid`/`b_lsid`/`b_nut` + UA 净化（`81f81a4`）
+
+### ✅ 续期与兜底
+- Cookie 续期链（RSA `CorrespondPath` 五步 + `Set-Cookie` 解析），设置页「检查登录」触发（`80327dc`）
+- `w_webid`：`__RENDER_DATA__` 提取 + 按天缓存 + helper（**暂无已验证注入点**）（`ce9c401`）
+- gaia-vgate 兜底：register/validate + 会话级 vtoken + 评论面板「⚠ 解除风控」按钮（**必须用户确认后才求解**）（`3199699`）
+
+### 🧪 测试与门禁
+- 本轮新增测试 **86 项**：`test_risk_control`(10)、`test_bili_ticket`(12)、`test_session_isolation`(5)、
+  `test_device_identity`(13)、`test_cookie_refresh`(14)、`test_w_webid`(11)、`test_gaia_vgate`(11)、`test_comment_module`(10)
+- 全量 `pytest` **440 passed**；`black` 368 文件；`lint_gate` / `type_gate` 0 违规；
+  改 `core/` 后跑 `python scripts/update_hashes.py --hashes-only` + `python main.py` 启动冒烟
+
+### ⬜ 尚未完成（摘要，详见 playbook §13）
+掉登录的 UI/通知消费端、续期定时接入、零登录监控（用户暂缓）、`buvid_fp`/`ExClimbWuzhi`（缺可验证向量）、
+`CORE_FILES` 完整性清单决策、契约 §7 密码登录 4 个缺陷、契约 §8 评论接口迁移。
+
 ## Release 2026-09-03 (v3.2.0)
 
 ### 🎯 预测精度提升体系

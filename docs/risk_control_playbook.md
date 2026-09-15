@@ -290,17 +290,17 @@ def _risk_response_header_voucher(self: Any, response: Any) -> bool:
 
 ## 11. 落地顺序与许可
 
-| 序 | 项 | 改动面 | 风险 | 预估 |
-|---|---|---|---|---|
-| 1 | **`-352` 识别 + 分流（§2）** | `core/bilibili_request.py` | 中（改重试主路径，需真测试） | 小 |
-| 2 | **`_logged_out` 接线 + 风险观测（§10）** | 请求层 + 状态栏/通知 | 低 | 小 |
-| 3 | **会话隔离（§6）** | 调用方建实例处 | 低 | 小 |
-| 4 | **`bili_ticket`（§3）** | 新模块 + 注入点 | 低（可开关） | 中 |
-| 5 | **设备标识补齐（§4）** | 新模块 + 初始化 | 中（格式错反而更糟，需正则测试） | 中 |
-| 6 | **零登录监控（§9）** | `BilibiliAPI` 构造 + 监控 worker | 中（功能回归需覆盖） | 中 |
-| 7 | **Cookie 续期链（§8）** | 新模块 + 定时器 | 中（涉及登录态） | 中 |
-| 8 | **`w_webid`（§5）** | 签名前注入 + 日缓存 | 中（仅部分接口需要） | 中 |
-| 9 | **gaia 兜底链（§7）** | 新模块 + UI 交互 | 高（依赖用户在场，且不保证可解） | 大 |
+| 序 | 项 | 改动面 | 风险 | 预估 | 状态（2026-09-15） |
+|---|---|---|---|---|---|
+| 1 | **`-352` 识别 + 分流（§2）** | `core/bilibili_request.py` | 中（改重试主路径，需真测试） | 小 | ✅ 完成 `b6b73e5`（`tests/test_risk_control.py` 10 项） |
+| 2 | **`_logged_out` 接线 + 风险观测（§10）** | 请求层 + 状态栏/通知 | 低 | 小 | ⚠ 只做了**信号产生**：`_logged_out`/`risk_state()` 已有并进 `get_status()["risk"]`；**消费端（状态栏/托盘/通知/网络诊断页）未做** |
+| 3 | **会话隔离（§6）** | 调用方建实例处 | 低 | 小 | ✅ 完成 `f60ee89`（`tests/test_session_isolation.py` 5 项） |
+| 4 | **`bili_ticket`（§3）** | 新模块 + 注入点 | 低（可开关） | 中 | ✅ 完成 `f60ee89`（`tests/test_bili_ticket.py` 12 项） |
+| 5 | **设备标识补齐（§4）** | 新模块 + 初始化 | 中（格式错反而更糟，需正则测试） | 中 | ✅ 完成 `81f81a4`（13 项；**不含** `buvid_fp`，见 §4 与 §13） |
+| 6 | **零登录监控（§9）** | `BilibiliAPI` 构造 + 监控 worker | 中（功能回归需覆盖） | 中 | ⬜ **未做**（用户 2026-09 明确「暂缓」，勿擅自开工） |
+| 7 | **Cookie 续期链（§8）** | 新模块 + 定时器 | 中（涉及登录态） | 中 | ⚠ 链路完成 `80327dc`（14 项）；**启动后一次 + 后台定时器未接**——目前仅设置页「检查登录」触发（`ui/settings_account.py:309`） |
+| 8 | **`w_webid`（§5）** | 签名前注入 + 日缓存 | 中（仅部分接口需要） | 中 | ⚠ 模块完成 `ce9c401`（11 项）；**无已验证注入点**（本项目相关接口非 WBI），helper 备好待用 |
+| 9 | **gaia 兜底链（§7）** | 新模块 + UI 交互 | 高（依赖用户在场，且不保证可解） | 大 | ✅ 完成 `3199699`（11 项 + 评论面板「⚠ 解除风控」按钮 + 重试带 `gaia_vtoken`）；⚠ 线上「能否真的解除」**未端到端验证**（见 §7 注） |
 
 **统一验收**：`black --line-length=120`、`lint_gate`、`type_gate`、`pytest tests/ -q`；
 改动 `core/bilibili_*.py` 后需 `python scripts/update_hashes.py --hashes-only` 并确认启动无完整性报错
@@ -325,3 +325,25 @@ def _risk_response_header_voucher(self: Any, response: Any) -> bool:
 4. **不要硬编码静态 Cookie/指纹**（多个老项目的通病）：一旦泄漏即账号风险，且会随失效静默失败。
 5. **不要拷贝 GPL/AGPL 项目代码**：本项目 MIT 且分发 exe，只能借鉴"事实与思路"。
 6. **不要为了绕过风控而提升请求频率**：文档与所有活跃项目的一致结论是**降频 + 合规头 + 合法标识**。
+
+## 13. 尚未完成清单（截至 2026-09-15，对齐代码核实）
+
+> 本节是「下一步做什么」的唯一入口。每条都注明了**为何没做**与**怎么算做完**（验收），
+> 避免下次接手时把已完成项重做、或把暂缓项当成遗漏。
+
+| # | 待办 | 现状与原因 | 验收 |
+|---|---|---|---|
+| 1 | **§10 掉登录的消费端** | `_logged_out` / `risk_state()` 只在 core 内部产生，**全仓无人读取**（已 grep 核实）→ 用户掉登录仍无感知 | 状态栏/托盘提示 + 一次 `core/notification.py` 通知 + 设置页「网络诊断」显示 `{voucher_hits, http_412_count, cooldown_until}`；新增 `tests/test_risk_observability.py` |
+| 2 | **§8 续期定时接入** | 链路已通，但只在设置页「检查登录」触发（`ui/settings_account.py:309` 调 `maybe_refresh`）→ 长期挂机不会自动续期 | 启动后一次 + `ui/main_gui_tick.py`（1s tick）内按 12h 间隔调用 `maybe_refresh`；断言「未登录时零请求」 |
+| 3 | **§4 `buvid_fp` + `ExClimbWuzhi`** | 未做：本机无 `mmh3`，离线留档只覆盖 **APP 端**算法，**无可验证参考向量** → 凭空写不可验（当前请求也不发这些字段） | 先取得可核对向量（真实请求体或 mmh3 实现）再实现；否则保持现状并在 UI 不承诺 |
+| 4 | **§9 零登录监控** | **用户明确要求暂缓**（2026-09） | `BilibiliAPI(with_cookies=False)` / `clone_anonymously()`；新增 `tests/test_anonymous_client.py`（匿名请求 Cookie 不含 `SESSDATA`/`bili_jct`，监控仍能取 `view` 数据） |
+| 5 | **§5 `w_webid` 注入** | 模块 + 日缓存已完成，但核查发现本项目通路（`/x/space/acc/info`、`/x/space/arc/search`）**非 WBI**，唯一已签名 WBI 是 UP 搜索（`core/bilibili_up.py:26`）→ 不拿在跑通路赌未知参数 | 先确认某接口确实要求 `w_webid`（对线上取证）再注入；注入必须用现成 `with_w_webid` 且放在 `_wbi_sign` **之前** |
+| 6 | **完整性清单决策** | `scripts/sign.py::CORE_FILES` 是显式清单，**不含** `device_identity` / `bili_ticket` / `cookie_refresh` / `w_webid` / `gaia_vgate` / `bilibili_comment`（已 grep 核实）→ 这 6 个模块被篡改不会触发启动完整性告警 | **需用户决策**：是否纳入（纳入须同步跑 `scripts/sign.py` 并提交清单变更） |
+| 7 | **契约 §7 的 4 个密码登录缺陷** | 全部未修，分布在 `core/bilibili_auth.py`：密文用 hex（应 base64，L278）、`seccode` 缺 `\|jordan`、`code:0 + status!=0` 误报成功（L120）、`exchange` 应改 `exchange_cookie`（L525） | 详见 `docs/bilibili_api_contract.md` §7 小结；新增 `tests/test_password_login_contract.py` |
+| 8 | **契约 §8 评论接口迁移** | `core/bilibili_api.py:171` 的 `COMMENT_URL` 仍是**已废弃**的 `/x/v2/reply/main`，`core/bilibili_video.py::get_video_comments`（L183）仍用它 + `pn` 翻页 | 让 `get_video_comments` 复用 `core/bilibili_comment.py`（新端点 + 游标），删掉重复分页逻辑；断言走 `/x/v2/reply/wbi/main` |
+
+**已完成的验证基线**（下次改 `core/bilibili_*.py` 后必须复现）：
+`black --line-length=120 .`、`python scripts/lint_gate.py`、`python scripts/type_gate.py`、
+`python -m pytest tests/ -q`（**440 passed**）、`python scripts/update_hashes.py --hashes-only`、
+`python main.py` 启动 18-20s 无异常。
+
