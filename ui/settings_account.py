@@ -291,11 +291,30 @@ class SettingsAccountMixin:
                 login_name = status.get("login_name", "")
                 if is_login and hasattr(self, "gui") and self.gui:
                     invoke(lambda name=login_name: self.gui.log_panel.add_log("INFO", f"Cookie 登录验证成功: {name}"))
+                self._maybe_renew_cookies()
             except Exception as e:
                 logger.debug("检查Cookie登录状态失败: %s", e)
             invoke(lambda: self._refresh_status())
 
         threading.Thread(target=_worker, daemon=True).start()
+
+    def _maybe_renew_cookies(self) -> None:
+        """按间隔节流地续期 Cookie（见 docs/risk_control_playbook.md §8）。
+
+        未到间隔时 ``maybe_refresh`` 直接返回 ``None``，不发任何请求。
+        """
+        try:
+            from core.bilibili_cookie_refresh import STATUS_OK, STATUS_UNCONFIRMED, maybe_refresh
+
+            renewed = maybe_refresh(get_bilibili_api(), interval_hours=12.0)
+        except Exception as e:
+            logger.debug("Cookie 续期检查失败: %s", e)
+            return
+        if renewed is None or renewed.status not in (STATUS_OK, STATUS_UNCONFIRMED):
+            return
+        logger.info("Cookie 续期: %s", renewed.message)
+        if hasattr(self, "gui") and self.gui:
+            invoke(lambda msg=renewed.message: self.gui.log_panel.add_log("INFO", f"Cookie 续期: {msg}"))
 
     def _clear_cookies(self):
         reply = QMessageBox.question(

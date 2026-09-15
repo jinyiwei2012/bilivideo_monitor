@@ -186,21 +186,36 @@ def _risk_response_header_voucher(self: Any, response: Any) -> bool:
 
 ## 8. Cookie 续期链（长跑不掉登录）
 
-**字段与端点细节见** [bilibili_api_contract.md](bilibili_api_contract.md) §4；这里是**实现步骤**：
+**字段与端点细节见** [bilibili_api_contract.md](bilibili_api_contract.md) §4；留档原文见
+`docs/bilibili-api/frozen-fork/cookie_refresh.md`。**已实现**：`core/bilibili_cookie_refresh.py`。
 
-1. `GET /x/passport-login/web/cookie/info`（需 `SESSDATA`）→ `data.refresh`；
-   `-101` → 直接判"已掉登录"（与 §1 的 `_logged_out` 打通）；
-2. 由 `refresh_<毫秒>` 经 **RSA-OAEP（固定 JWK）** 加密转**小写 base16** 得 `CorrespondPath`；
-3. `GET /correspond/1/{CorrespondPath}` → 取得 `CorrespondPath` Cookie；
-4. `POST /x/passport-login/web/exchange_cookie`（**注意：不是 `web/exchange`**）→ 新 Cookie；
-5. `GET /x/passport-login/web/confirm/refresh` 确认；
-6. 结果经 `core/bilibili_auth.py::set_cookies` + `_persist_cookies` 落盘（加密）。
+1. `GET https://passport.bilibili.com/x/passport-login/web/cookie/info` → `data.refresh` / `data.timestamp`；
+   `code=-101` → 直接判"已掉登录"（与 §1 的 `_logged_out` 打通）；
+2. `refresh_{timestamp}` 经 **RSA-OAEP（SHA-256，固定公钥）** 加密后转**小写 base16** = `CorrespondPath`；
+3. `GET https://www.bilibili.com/correspond/1/{CorrespondPath}` → **返回的是 HTML 页面**，
+   其中 `<div id="1-name">` 的内容才是实时口令 `refresh_csrf`（不是 Cookie！）；
+4. `POST https://passport.bilibili.com/x/passport-login/web/cookie/refresh`
+   （`csrf`=当前 `bili_jct`、`refresh_csrf`、`source=main_web`、`refresh_token`=**旧** ac_time_value）
+   → **新 Cookie 只在 `Set-Cookie` 响应头里**，body 里只有**新的** `refresh_token`
+   （错误码：`-101` 未登录 / `-111` csrf 失败 / `86095` token 与 Cookie 不匹配）；
+5. `POST https://passport.bilibili.com/x/passport-login/web/confirm/refresh`
+   （`csrf`=**新** Cookie 里的 `bili_jct`，`refresh_token`=**旧**值，用来让旧凭证失效）；
+6. 结果经 `core/bilibili_auth.py::set_cookies` + `_persist_cookies` 落盘（加密），
+   并把新的 `refresh_token` 写回账号记录（否则重启后又用回旧值）。
 
-**触发时机**：应用启动后一次 + 每 N 小时一次 + **`-101`/`cookie/info.refresh=true` 时立即**。
+> 2026-09 订正：本节旧稿把第 4 步写成 `web/exchange_cookie`，那是**扫码登录**用的接口；
+> Web 续期用的是 `web/cookie/refresh`。第 5 步是 **POST** 不是 GET。
 
-**验收**：`tests/test_cookie_refresh.py` —— ① `refresh=false` 时不动作；
-② `-101` 时置"掉登录"并触发通知（见 §10）；③ 4/5 步的 URL 与字段名断言；
-④ 续期成功后 `get_status()` 的 `isLogin` 恢复。
+**触发时机**：`refresh_now()` 为单次执行入口，`maybe_refresh(api, interval_hours=12)` 按间隔节流
+（未到间隔**不发请求**）。当前已接入：设置页「账号」的*检查登录*（`ui/settings_account.py::_verify_login`
+→ `_maybe_renew_cookies`）。**未接入**：应用启动后一次与后台定时器——留待后续批次（见 §11 ⑩）。
+
+**验收**：`tests/test_cookie_refresh.py`（14 项）—— ① `refresh=false` 时不动作且零请求；
+② `-101` 判掉登录并给出「需重新登录」原因；③ 五步的 URL 与字段名断言（含第 5 步用**新** csrf + **旧** token）；
+④ 成功后续期后的 5 个新 Cookie 落盘、`refresh_token` 回写账号；⑤ `86095`/`-111` 分流；
+⑥ 确认步骤失败仍保留新 Cookie（状态为 `refreshed_unconfirmed`）；⑦ 节流生效；
+⑧ 固定公钥可加载且为 1024 位（防手抄 PEM 出错）。
+
 
 ## 9. 零登录策略（缩小暴露面）
 

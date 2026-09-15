@@ -406,6 +406,17 @@ def _request(
     return None
 
 
+def _request_raw(self: Any, method: str, url: str, **kwargs: Any) -> Any:
+    """发一次原始请求并返回响应对象（供需要 Set-Cookie / HTML 的场景，如 Cookie 续期）。
+
+    与 ``_request`` 共用同一套 UA / 代理 / Cookie / 限速，但**不做结果解析与重试**。
+    """
+    _ensure_min_interval(self)
+    request_kwargs, _proxy_idx = _prepare_request_kwargs(self, **kwargs)
+    cookies = _get_request_cookies(self)
+    return _do_http_request(self, method, url, request_kwargs, cookies)
+
+
 def _request_public(self: Any, method: str, url: str, **kwargs: Any) -> Optional[Dict[str, Any]]:
     max_attempts = 3
     last_error = None
@@ -448,6 +459,7 @@ def _request_public(self: Any, method: str, url: str, **kwargs: Any) -> Optional
 
 class _RequestMixin:
     _request = _request
+    _request_raw = _request_raw
     _request_public = _request_public
     _prepare_request_kwargs = _prepare_request_kwargs
     _do_http_request = _do_http_request

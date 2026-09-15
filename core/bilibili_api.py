@@ -248,6 +248,8 @@ class BilibiliAPI(_RequestMixin, _AuthMixin, _VideoMixin, _UpMixin):
             self._bili_ticket_expires = float(self._cookies.get("bili_ticket_expires", 0) or 0)
         except (TypeError, ValueError):
             self._bili_ticket_expires = 0.0
+        # Cookie 续期节流时间戳（见 docs/risk_control_playbook.md §8）
+        self._cookie_refresh_at = 0.0
 
         # 随机 buvid（模拟不同设备指纹，降低 412 概率）
         self._buvid3 = self._gen_buvid()
