@@ -168,7 +168,6 @@ class BilibiliAPI(_RequestMixin, _AuthMixin, _VideoMixin, _UpMixin):
     VIDEO_URL = "https://api.bilibili.com/x/web-interface/view"
     VIEWERS_URL = "https://api.bilibili.com/x/player/online/total"
     DANMAKU_URL = "https://api.bilibili.com/x/v1/dm/list.so"
-    COMMENT_URL = "https://api.bilibili.com/x/v2/reply/main"
     POPULAR_URL = "https://api.bilibili.com/x/web-interface/popular"
 
     # wbi 混音密钥（运行时按 _WBI_KEY_TTL 刷新，见 docs/bilibili_api_contract.md §1）

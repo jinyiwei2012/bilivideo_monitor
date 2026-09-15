@@ -3,7 +3,6 @@ B站API模块 - 视频操作
 视频信息、统计数据、观看人数、弹幕、评论获取
 """
 
-import math
 import random
 import logging
 from typing import Any, Dict, List, Optional, cast
@@ -181,32 +180,15 @@ def get_video_danmaku(self: Any, oid: int) -> List[Dict[str, Any]]:
 
 
 def get_video_comments(self: Any, aid: int, limit: int = 20) -> List[Dict[str, Any]]:
-    max_pages = 50 if limit == 0 else max(1, math.ceil(limit / 20))
-    max_pages = min(max_pages, 250)
-    all_replies: List[Dict[str, Any]] = []
+    """顶层评论（委托 ``core.bilibili_comment`` —— ``/x/v2/reply/wbi/main`` 游标翻页）。
 
-    for page in range(1, max_pages + 1):
-        params = {"oid": aid, "type": 1, "pn": page, "ps": 20, "sort": 2}
-        params = self._wbi_sign(params)
-        data = self._request("GET", self.COMMENT_URL, params=params)
-        if not data or "replies" not in data or not data["replies"]:
-            break
+    签名与输出契约不变：``limit=0`` 返回全部（有页数保护）；无评论返回空列表；
+    元素键为 ``content`` / ``like`` / ``ctime`` / ``uname`` / ``mid``。
+    函数内导入以避免 ``core.bilibili_comment`` ↔ ``core.bilibili_api`` 循环依赖。
+    """
+    from core.bilibili_comment import fetch_top_comments
 
-        for r in data["replies"]:
-            all_replies.append(
-                {
-                    "content": r.get("content", {}).get("message", ""),
-                    "like": r.get("like", 0),
-                    "ctime": r.get("ctime", 0),
-                    "uname": r.get("member", {}).get("uname", ""),
-                    "mid": r.get("mid", 0),
-                }
-            )
-
-        if limit > 0 and len(all_replies) >= limit:
-            return all_replies[:limit]
-
-    return all_replies[:limit] if limit > 0 else all_replies
+    return fetch_top_comments(self, aid, limit=limit)
 
 
 class _VideoMixin:

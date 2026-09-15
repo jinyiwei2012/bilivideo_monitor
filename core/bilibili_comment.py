@@ -16,6 +16,7 @@
 
 import json
 import logging
+import math
 import time
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -146,10 +147,11 @@ class CommentFetcher:
         except (TypeError, ValueError):
             return 0
 
+    @staticmethod
     def _fetch_main_page(
-        self, aid: int, mode: int, offset: str
+        api: BilibiliAPI, aid: int, mode: int, offset: str
     ) -> Tuple[List[Dict[str, Any]], Dict[str, Any], int, str]:
-        """取一页主评论。
+        """取一页主评论（静态方法：只依赖 ``api``，供落库与只读两条路径复用）。
 
         Returns:
             ``(replies, cursor, all_count, error)``；``error`` 非空表示需要中止
@@ -165,15 +167,15 @@ class CommentFetcher:
         }
         if not offset:
             params["seek_rpid"] = ""
-        signed = self._api._wbi_sign(params)
+        signed = api._wbi_sign(params)
         # gaia_vtoken 在 **签名之后** 附加：它由 gaia 网关层消费，
         # 不参与 w_rid 计算 → 过期/缺失也不会破坏签名（见风控手册 §7 第 5 步）
         from core.gaia_vgate import with_gaia_vtoken
 
-        data = self._api._request("GET", COMMENT_URL, params=with_gaia_vtoken(self._api, signed))
+        data = api._request("GET", COMMENT_URL, params=with_gaia_vtoken(api, signed))
         if data is None:
             # 请求层已耗尽重试：区分"IP 被风控"与"其它失败"
-            blocked = int(getattr(self._api, "_consecutive_412_errors", 0) or 0) > 0
+            blocked = int(getattr(api, "_consecutive_412_errors", 0) or 0) > 0
             return [], {}, 0, "blocked" if blocked else "error"
         if data.get("v_voucher"):
             # 风控挑战票据（可能伴随 code=0）→ 属签名/UA 问题，换 IP 无用
@@ -250,7 +252,7 @@ class CommentFetcher:
                 message = f"已达页数上限 {max_pages}"
                 break
 
-            replies, cursor, all_count, error = self._fetch_main_page(aid, mode, offset)
+            replies, cursor, all_count, error = self._fetch_main_page(self._api, aid, mode, offset)
             if error == "challenge" or error == "blocked":
                 state.status = STATUS_BLOCKED
                 message = (
@@ -466,6 +468,53 @@ class CommentFetcher:
             progress(state.top_count + state.sub_count, message)
         except Exception as e:  # 回调由 UI 提供，失败不应影响抓取
             logger.debug("进度回调异常: %s", e)
+
+
+def fetch_top_comments(api: BilibiliAPI, aid: int, *, limit: int = 20, mode: int = MODE_HOT) -> List[Dict[str, Any]]:
+    """只读抓取顶层评论（不落库、不建任务）—— ``get_video_comments`` 的委托目标。
+
+    走 ``/x/v2/reply/wbi/main`` + ``pagination_str`` 游标翻页，单页请求复用
+    :meth:`CommentFetcher._fetch_main_page`（含 WBI 签名与风控分流），无第二份端点实现。
+
+    Args:
+        api: 调用方持有的 :class:`BilibiliAPI` 实例（生命周期由调用方负责）
+        aid: 视频 aid（评论接口的 ``oid``）
+        limit: 返回条数上限；``0`` 表示尽量全部（受与旧实现相同的页数保护）
+        mode: 排序（默认 :data:`MODE_HOT`，与旧接口 ``sort=2`` 同义）
+
+    Returns:
+        元素为 ``{"content", "like", "ctime", "uname", "mid"}`` 的字典列表
+        （与旧 ``get_video_comments`` 输出形状一致）；无评论/被风控时返回已取部分
+        （可能为空列表）。
+    """
+    # 与旧 get_video_comments 相同的页数保护：limit=0 → 50 页封顶，全局 250 页封顶
+    max_pages = 50 if limit <= 0 else max(1, math.ceil(limit / PAGE_SIZE))
+    max_pages = min(max_pages, 250)
+
+    comments: List[Dict[str, Any]] = []
+    offset = ""
+    for _ in range(max_pages):
+        replies, cursor, _all_count, error = CommentFetcher._fetch_main_page(api, aid, mode, offset)
+        if error or not replies:
+            break
+        for r in replies:
+            comments.append(
+                {
+                    "content": str((r.get("content") or {}).get("message", "") or ""),
+                    "like": r.get("like", 0),
+                    "ctime": r.get("ctime", 0),
+                    "uname": str((r.get("member") or {}).get("uname", "") or ""),
+                    "mid": r.get("mid", 0),
+                }
+            )
+        if limit > 0 and len(comments) >= limit:
+            return comments[:limit]
+        if cursor.get("is_end"):
+            break
+        offset = str((cursor.get("pagination_reply") or {}).get("next_offset", "") or "")
+        if not offset:
+            break
+    return comments[:limit] if limit > 0 else comments
 
 
 @dataclass
