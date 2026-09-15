@@ -13,6 +13,74 @@ import requests
 logger = logging.getLogger(__name__)
 
 
+# ── 风控分流（依据 docs/risk_control_playbook.md §2/§11）──────────────────────
+# -352 = UA/WBI 签名校验失败：换 IP 无效，重新签名 + 放慢才有效
+# -412/-509/-10403 = IP 级限流：换 IP 有效
+RISK_SIGN_CODES = (-352,)
+RISK_IP_CODES = (-412, -509, -10403)
+# code:0 也可能夹带一次性风控凭证；凭证不可构造，只能上报与冷却
+RISK_VOUCHER_KEYS = ("v_voucher", "v_voucher_ttl", "gaia_vtoken")
+RISK_COOLDOWN_SIGN = 180.0  # 首次命中 -352/v_voucher 的冷却（秒）
+RISK_COOLDOWN_IP = 600.0  # 首次命中 412 的冷却（秒）
+RISK_COOLDOWN_MAX = 1800.0  # 冷却上限（秒）
+RISK_VOUCHER_GLOBAL_THRESHOLD = 3  # 连续命中达到此值才升级为全局冷却
+
+
+def _extract_voucher(data: Any) -> str:
+    """提取风控凭证（可能位于顶层或 data 内；不可构造，仅用于上报与冷却）。"""
+    if not isinstance(data, dict):
+        return ""
+    for container in (data, data.get("data")):
+        if isinstance(container, dict):
+            for key in RISK_VOUCHER_KEYS:
+                value = container.get(key)
+                if isinstance(value, str) and value:
+                    return value
+    return ""
+
+
+def _is_352_error(self: Any, data: Dict[str, Any]) -> bool:
+    """-352：UA/WBI 签名校验失败（与 IP 级 412 成因不同，处置必须分流）。"""
+    if not isinstance(data, dict):
+        return False
+    if data.get("code") in RISK_SIGN_CODES:
+        return True
+    message = str(data.get("message", ""))
+    return "风控校验失败" in message or "签名校验失败" in message
+
+
+def _register_risk_cooldown(self: Any, kind: str) -> float:
+    """记录一次风控命中并返回冷却秒数（连续命中按次数升级，封顶 ``RISK_COOLDOWN_MAX``）。"""
+    if kind == "sign":
+        self._voucher_streak = int(getattr(self, "_voucher_streak", 0)) + 1
+        seconds = RISK_COOLDOWN_SIGN * self._voucher_streak
+        scope = "global" if self._voucher_streak >= RISK_VOUCHER_GLOBAL_THRESHOLD else "session"
+    else:
+        self._voucher_streak = 0
+        seconds = RISK_COOLDOWN_IP
+        scope = "session"
+    seconds = float(min(seconds, RISK_COOLDOWN_MAX))
+    self._risk_cooldown_until = time.time() + seconds
+    self._risk_last_kind = kind
+    self._risk_scope = scope
+    logger.warning("风控命中(%s): 冷却 %.0fs 范围=%s 连续=%d", kind, seconds, scope, self._voucher_streak)
+    return seconds
+
+
+def risk_state(self: Any) -> Dict[str, Any]:
+    """风控只读观测（供 UI / 日志 / 监控上报；不改变请求行为）。"""
+    until = float(getattr(self, "_risk_cooldown_until", 0.0) or 0.0)
+    return {
+        "cooldown_remaining": round(max(0.0, until - time.time()), 1),
+        "voucher_streak": int(getattr(self, "_voucher_streak", 0)),
+        "scope": str(getattr(self, "_risk_scope", "")),
+        "last_kind": str(getattr(self, "_risk_last_kind", "")),
+        "last_voucher": str(getattr(self, "_risk_last_voucher", "")),
+        "logged_out": bool(getattr(self, "_logged_out", False)),
+        "consecutive_412_errors": int(getattr(self, "_consecutive_412_errors", 0)),
+    }
+
+
 def _ensure_min_interval(self: Any) -> None:
     with self._interval_lock:
         target = max(
@@ -56,15 +124,20 @@ def _get_retry_delay(self: Any, attempt: int) -> float:
     return float(delay)
 
 
-def _apply_bypass_measures(self: Any, attempt: int, proxy_idx: Optional[int] = None) -> None:
+def _apply_bypass_measures(self: Any, attempt: int, proxy_idx: Optional[int] = None, kind: str = "ip") -> None:
+    """按风控类型施加绕过措施：``sign``（352/签名）重新签名且**不轮换代理**，``ip``（412）才换 IP。"""
     measures: list[str] = []
-    self._on_request_failure(proxy_idx)
-    measures.append("已更换User-Agent")
+    if kind == "sign":
+        _rotate_user_agent(self)
+        measures.append("352 换 IP 无效：保持代理，改重新签名/更换 UA")
+    else:
+        self._on_request_failure(proxy_idx)
+        measures.append("已更换User-Agent")
     if attempt >= 1:
         old_interval = self._min_request_interval
         self._min_request_interval = min(old_interval * 2, 5.0)
         measures.append(f"请求间隔: {old_interval:.1f}s -> {self._min_request_interval:.1f}s")
-    if self.proxy_manager.proxies:
+    if kind == "ip" and self.proxy_manager.proxies:
         _, new_proxy, _ = self.proxy_manager.get_proxy_binding()
         if new_proxy:
             masked = self.proxy_manager.mask_url(new_proxy.get("http", "N/A"))
@@ -170,26 +243,50 @@ def _handle_successful_response(
     if not isinstance(data, dict):
         return data, False
     api_code = data.get("code", 0)
+    voucher = _extract_voucher(data)
     if api_code == 0:
         self._consecutive_412_errors = 0
+        self._logged_out = False
+        if voucher:
+            # code:0 仍可能夹带一次性风控凭证（数据可用，但要记冷却并上报）
+            self._risk_last_voucher = voucher
+            _register_risk_cooldown(self, "sign")
         return data.get("data"), False
     if api_code == -101:
         logger.warning("登录态可能已失效 (api_code=-101)，请重新登录")
         self._logged_out = True
         return None, False
+    if _is_352_error(self, data):
+        # 签名/风控校验失败：过去落到末行被当作「空数据」静默吞掉
+        self._consecutive_412_errors += 1
+        error_code, error_msg = _get_error_info(self, data)
+        self._risk_last_voucher = voucher
+        _register_risk_cooldown(self, "sign")
+        logger.error(f"B站API 签名风控错误 [{error_code}]: {error_msg} (第{attempt + 1}次尝试)")
+        if attempt < max_retries and not skip_retry:
+            delay = _get_retry_delay(self, attempt)
+            logger.info(f"等待 {delay:.1f} 秒后重试...")
+            time.sleep(delay)
+            _apply_bypass_measures(self, attempt, proxy_idx, kind="sign")
+            return None, True
+        return None, False
     if _is_412_error(self, data):
         self._consecutive_412_errors += 1
         error_code, error_msg = _get_error_info(self, data)
+        _register_risk_cooldown(self, "ip")
         logger.error(f"B站API 412错误: {error_msg} (第{attempt + 1}次尝试)")
         if attempt < max_retries and not skip_retry:
             delay = _get_retry_delay(self, attempt)
             logger.info(f"等待 {delay:.1f} 秒后重试...")
             time.sleep(delay)
-            _apply_bypass_measures(self, attempt, proxy_idx)
+            _apply_bypass_measures(self, attempt, proxy_idx, kind="ip")
             return None, True
         return None, False
     if api_code != 0:
         logger.error(f"API错误 [{api_code}]: {data.get('message', '')}")
+        if voucher:
+            self._risk_last_voucher = voucher
+            _register_risk_cooldown(self, "sign")
     return data.get("data") if "data" in data else None, False
 
 
@@ -328,4 +425,6 @@ class _RequestMixin:
     _get_request_cookies = _get_request_cookies
     _update_public_headers = _update_public_headers
     _is_412_error = _is_412_error
+    _is_352_error = _is_352_error
     _get_error_info = _get_error_info
+    risk_state = risk_state

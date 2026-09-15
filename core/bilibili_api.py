@@ -236,6 +236,12 @@ class BilibiliAPI(_RequestMixin, _AuthMixin, _VideoMixin, _UpMixin):
 
         # 登录态标记：收到 api_code=-101（未登录）时置 True，供上层提示重新登录
         self._logged_out = False
+        # 风控观测状态（分流与冷却语义见 docs/risk_control_playbook.md §2/§11）
+        self._voucher_streak = 0
+        self._risk_cooldown_until = 0.0
+        self._risk_last_kind = ""
+        self._risk_scope = ""
+        self._risk_last_voucher = ""
 
         # 随机 buvid（模拟不同设备指纹，降低 412 概率）
         self._buvid3 = self._gen_buvid()
@@ -523,12 +529,19 @@ class BilibiliAPI(_RequestMixin, _AuthMixin, _VideoMixin, _UpMixin):
             ),
             "is_login": login_status,
             "login_name": login_name,
+            "risk": self.risk_state(),
         }
 
     def reset_status(self) -> None:
         """重置状态（用于连续失败后的恢复）"""
         self._consecutive_412_errors = 0
         self._min_request_interval = 0.5
+        self._voucher_streak = 0
+        self._risk_cooldown_until = 0.0
+        self._risk_last_kind = ""
+        self._risk_scope = ""
+        self._risk_last_voucher = ""
+        self._logged_out = False
         logger.info("API状态已重置")
 
     def close(self) -> None:
