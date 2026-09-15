@@ -17,10 +17,9 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QProgressBar,
 )
-from PyQt6.QtCore import QTimer
-
 from ui.theme import C
 from ui.dialog_base import DialogBase
+from ui.invoker import invoke
 
 logger = logging.getLogger(__name__)
 
@@ -193,8 +192,10 @@ class DanmakuHistoryWindow:
                     nonlocal progress_index
                     pct = int((progress_index + 1) / total * 100) if total > 0 else 0
                     progress_index += 1
-                    QTimer.singleShot(0, lambda: self._progress_bar.setValue(pct))
-                    QTimer.singleShot(0, lambda: self._log(f"  {date}: {count} 条弹幕"))
+                    # 以下回调都在 _worker 后台线程里触发：普通 threading.Thread 无事件循环，
+                    # QTimer.singleShot 永不执行（实测），会让进度/日志/按钮复位全部失效。
+                    invoke(lambda: self._progress_bar.setValue(pct))
+                    invoke(lambda: self._log(f"  {date}: {count} 条弹幕"))
 
                 total = monitor.fetch_history_danmaku(
                     bvid,
@@ -203,14 +204,12 @@ class DanmakuHistoryWindow:
                     month=month,
                     on_progress=progress,
                 )
-                QTimer.singleShot(
-                    0, lambda: self._log(f"\n完成啦!♪ 天依收集了 {total} 条弹幕,大家的歌声都被好好收下了")
-                )
+                invoke(lambda: self._log(f"\n完成啦!♪ 天依收集了 {total} 条弹幕,大家的歌声都被好好收下了"))
             except Exception as e:
                 logger.warning("历史弹幕拉取失败 %s: %s", bvid, e)
-                QTimer.singleShot(0, lambda: self._log("呜…拉取的时候出了点小状况,天依会再试试的哦 ♪"))
+                invoke(lambda: self._log("呜…拉取的时候出了点小状况,天依会再试试的哦 ♪"))
             finally:
-                QTimer.singleShot(0, lambda: self._fetch_btn.setEnabled(True))
-                QTimer.singleShot(0, lambda: setattr(self, "_fetching", False))
+                invoke(lambda: self._fetch_btn.setEnabled(True))
+                invoke(lambda: setattr(self, "_fetching", False))
 
         threading.Thread(target=_worker, daemon=True).start()

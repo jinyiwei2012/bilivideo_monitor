@@ -23,6 +23,7 @@ from PyQt6.QtCore import Qt
 
 from ui.theme import C
 from ui.dialog_host import present, present_modal
+from ui.invoker import invoke
 from ui.helpers import FAST_GAP, FAST_INTERVAL
 
 logger = logging.getLogger(__name__)
@@ -342,9 +343,9 @@ class Dialogs:
                         skipped += 1
                         continue
                     video = self.gui._map_api_to_video_dict(bvid, info, fallback=v)
-                    from PyQt6.QtCore import QTimer
-
-                    QTimer.singleShot(0, lambda v=video: self.gui._register_video_to_monitor(v))
+                    # 工作线程必须经 invoke 回主线程：普通 threading.Thread 没有事件循环，
+                    # QTimer.singleShot 永不触发（实测），会让导入「日志显示成功但视频不出现」。
+                    invoke(lambda v=video: self.gui._register_video_to_monitor(v))
                     added += 1
                 except Exception:
                     logger.warning("导入 %s 失败", bvid, exc_info=True)
@@ -352,14 +353,12 @@ class Dialogs:
                     skipped += 1
                 time.sleep(0.3)
 
-            from PyQt6.QtCore import QTimer
-
-            QTimer.singleShot(0, self.gui._save_watch_list)
+            invoke(self.gui._save_watch_list)
             msg = f"导入完成啦!♪ {added} 首新歌加入追光之旅~"
             if skipped:
                 msg += f"（有 {skipped} 首暂时没能登台：已存在或获取失败，天依记在歌单里啦）"
             if added or skipped:
-                QTimer.singleShot(0, lambda: QMessageBox.information(self.gui, "导入完成 ♪", msg))
+                invoke(lambda: QMessageBox.information(self.gui, "导入完成 ♪", msg))
             self.gui.log_panel.add_log("INFO", f"导入完成：成功 {added}，跳过 {skipped}")
 
         threading.Thread(target=_worker, daemon=True).start()

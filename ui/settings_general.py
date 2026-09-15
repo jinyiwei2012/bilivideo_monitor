@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QFrame,
 )
-from PyQt6.QtCore import QTimer
+from ui.invoker import invoke
 from ui.theme import C
 from ui.dialog_base import DialogBase
 from core.bilibili_api import get_bilibili_api
@@ -229,7 +229,7 @@ class SettingsGeneralMixin:
             except Exception as e:
                 logger.debug("获取状态失败: %s", e)
                 status = {}
-            QTimer.singleShot(0, lambda s=status: self._apply_status(s))
+            invoke(lambda s=status: self._apply_status(s))
 
         threading.Thread(target=_worker, daemon=True).start()
 

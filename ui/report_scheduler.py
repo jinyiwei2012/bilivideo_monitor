@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import QTimer
 
+from ui.invoker import invoke
 from ui.theme import C
 from config import DATA_DIR
 
@@ -309,16 +310,10 @@ class ReportSchedulerWindow(QDialog):
                                 results.append(f"{name}: {exporter(self.gui.monitored_videos)}")
                             except Exception:
                                 pass
-                    QTimer.singleShot(
-                        0,
-                        lambda r=results: self._on_ai_export_done(r, insight),
-                    )
+                    invoke(lambda r=results: self._on_ai_export_done(r, insight))
                 except Exception as e:
                     logger.warning("AI解读导出失败: %s", e)
-                    QTimer.singleShot(
-                        0,
-                        lambda: self._on_ai_export_error(),
-                    )
+                    invoke(lambda: self._on_ai_export_error())
 
             fire_and_forget(_worker, name="manual-export-ai")
             return

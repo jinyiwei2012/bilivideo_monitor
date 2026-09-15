@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QMessageBox,
 )
-from PyQt6.QtCore import QTimer
+from ui.invoker import invoke
 
 from ui.theme import C
 from ui.dialog_base import DialogBase
@@ -299,13 +299,12 @@ class SettingsAIMixin:
                 logger.debug("AI 连接测试请求异常: %s", e)
                 result.append("呜…连接不上呢,像天使鱼在冰海里迷了路,检查一下配置哦 ♪")
 
-            QTimer.singleShot(
-                0,
+            invoke(
                 lambda: QMessageBox.information(
                     self.dlg,
                     "API 连接测试 ♪",
                     result[0] if result else "呜…没有回应呢,像冰海里安静得听不见歌声,再检查一下哦 ♪",
-                ),
+                )
             )
 
         _th = threading.Thread(target=_worker, daemon=True)

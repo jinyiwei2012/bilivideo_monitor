@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
     QProgressBar,
     QFileDialog,
 )
-from PyQt6.QtCore import QTimer
+from ui.invoker import invoke
 
 from ui.theme import C
 from ui.dialog_base import DialogBase
@@ -301,21 +301,19 @@ class SettingsTrainingMixin(AsyncQueueRunner, VersionManagerMixin):
                     f"训练样本: {total_samples:,}\n"
                     f"预计单算法训练时间: {eta_min:.1f} 分钟"
                 )
-                QTimer.singleShot(
-                    0,
+                invoke(
                     lambda: [
                         self._tr_data_lbl.setText(txt),
                         self._tr_data_lbl.setStyleSheet(f"color: {C['text_1']}; background: transparent;"),
-                    ],
+                    ]
                 )
             except Exception as e:
                 logger.error("估算训练数据规模失败", exc_info=True)
-                QTimer.singleShot(
-                    0,
+                invoke(
                     lambda e=e: [
                         self._tr_data_lbl.setText("呜…数据估算失败啦，请稍后再试哦 ♪"),
                         self._tr_data_lbl.setStyleSheet(f"color: {C['danger']}; background: transparent;"),
-                    ],
+                    ]
                 )
 
         import threading
