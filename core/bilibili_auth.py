@@ -3,6 +3,7 @@ B站API模块 - 认证管理
 密码登录、QR扫码登录、Cookie持久化、多账号切换
 """
 
+import base64
 import json
 import os
 import logging
@@ -118,6 +119,17 @@ def login_with_password_fallback(self: Any, username: str, password: str) -> Dic
 
 
 def _password_login_result(self: Any, resp: Any, data: Dict[str, Any], include_sid: bool = False) -> Dict[str, Any]:
+    status = int(data.get("status", 0) or 0)
+    if status != 0:
+        return {
+            "code": -1,
+            "message": f"登录被风控拦截 (status={status})",
+            "cookies": {},
+            "refresh_token": "",
+            "need_captcha": False,
+            "captcha_type": 0,
+            "captcha_phone": "",
+        }
     cookies = _extract_login_cookies(self, resp, data)
     if not cookies:
         mid_raw = str(data.get("mid", ""))
@@ -143,6 +155,13 @@ def _password_login_result(self: Any, resp: Any, data: Dict[str, Any], include_s
     }
 
 
+def _with_jordan(seccode: str) -> str:
+    """为极验 seccode 附加契约要求的 "|jordan" 后缀（幂等：已带则不重复追加）。"""
+    if seccode.endswith("|jordan"):
+        return seccode
+    return f"{seccode}|jordan"
+
+
 def _submit_geetest_login(
     self: Any, login_url: str, username: str, encrypted_password: str, captcha: str
 ) -> tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
@@ -153,7 +172,7 @@ def _submit_geetest_login(
         "keep": 1,
         "source": "main_web",
         "validate": validate,
-        "seccode": seccode,
+        "seccode": _with_jordan(seccode),
     }
     resp = self.session.post(
         login_url,
@@ -204,7 +223,7 @@ def _try_auto_geetest_login(
         "keep": 1,
         "source": "main_web",
         "validate": validate,
-        "seccode": seccode,
+        "seccode": _with_jordan(seccode),
     }
     resp = self.session.post(
         login_url,
@@ -275,7 +294,7 @@ def login_with_password(
             (hash_str + password).encode(),
             padding.PKCS1v15(),
         )
-        encrypted_password = encrypted.hex()
+        encrypted_password = base64.b64encode(encrypted).decode()
 
         login_url = "https://passport.bilibili.com/x/passport-login/web/login"
         login_data = {
@@ -522,7 +541,9 @@ def _exchange_qr_refresh_token(self: Any, sess: Any, data: Dict[str, Any]) -> Di
     logger.debug("QR 登录未取到 Cookie，尝试从 refresh_token 换票")
     token_data = {"refresh_token": data["refresh_token"]}
     try:
-        ex = sess.post("https://passport.bilibili.com/x/passport-login/web/exchange", data=token_data, timeout=10)
+        ex = sess.post(
+            "https://passport.bilibili.com/x/passport-login/web/exchange_cookie", data=token_data, timeout=10
+        )
         if ex.status_code == 200:
             exd = ex.json().get("data", {})
             cookies = _extract_login_cookies(self, ex, exd)
