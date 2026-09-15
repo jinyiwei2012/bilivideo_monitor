@@ -1,0 +1,168 @@
+# BACNext
+
+## Docs
+- 根目录 [贡献者指南](https://bacnext.apifox.cn/8129985m0.md): 
+- 根目录 [APP API 相关问题](https://bacnext.apifox.cn/8129990m0.md): 
+- 根目录 [Wbi 签名](https://bacnext.apifox.cn/8131560m0.md): 
+- 根目录 [视频状态](https://bacnext.apifox.cn/8141476m0.md): 
+- 根目录 [PUGV](https://bacnext.apifox.cn/pugv.md): 
+
+## API Docs
+- 根目录 [主站 Correspond 续期](https://bacnext.apifox.cn/413629293e0.md): 
+- 根目录 > 空间 > Wbi 接口 [用户空间详细信息](https://bacnext.apifox.cn/413444688e0.md): 
+- 根目录 > 空间 > Wbi 接口 [相互关系](https://bacnext.apifox.cn/413453393e0.md): 
+- 根目录 > 空间 [登录用户空间详细信息](https://bacnext.apifox.cn/413445456e0.md): 
+- 根目录 > 空间 [UP 状态数](https://bacnext.apifox.cn/413629324e0.md): 
+- 根目录 > 空间 [导航栏状态数](https://bacnext.apifox.cn/413629329e0.md): 本接口校验Referer，请开发者注意
+- 根目录 > 空间 [查询用户置顶视频](https://bacnext.apifox.cn/413629336e0.md): 
+- 根目录 > 空间 [设置置顶视频](https://bacnext.apifox.cn/413629363e0.md): 
+- 根目录 > 空间 [取消置顶视频](https://bacnext.apifox.cn/413629364e0.md): 
+- 根目录 > 空间 [查询用户代表作](https://bacnext.apifox.cn/413629366e0.md): 
+- 根目录 > Web 界面 > Wbi [视频信息](https://bacnext.apifox.cn/416367303e0.md): 
+- 根目录 > Web 界面 [用户名片信息](https://bacnext.apifox.cn/413444997e0.md): 
+- 根目录 > Web 界面 [导航栏](https://bacnext.apifox.cn/413445059e0.md): 
+- 根目录 > Web 界面 [相互关系](https://bacnext.apifox.cn/413453374e0.md): 
+- 根目录 > Web 界面 [每日硬币经验](https://bacnext.apifox.cn/413629040e0.md): 
+- 根目录 > Web 界面 [IP属地](https://bacnext.apifox.cn/413713023e0.md): 
+- 根目录 > Web 界面 [各分区当日投稿稿件数](https://bacnext.apifox.cn/413713093e0.md): | 字段 | 类型 | 内容                      | 
+- 根目录 > Web 界面 [历史记录](https://bacnext.apifox.cn/413717917e0.md): 
+- 根目录 > Web 界面 [视频信息](https://bacnext.apifox.cn/416365930e0.md): 
+- 根目录 > Web 界面 [视频详细信息](https://bacnext.apifox.cn/416369956e0.md): 
+- 根目录 > Web 界面 [视频简介](https://bacnext.apifox.cn/416376236e0.md): 
+- 根目录 > Polymer 接口 > PC 客户端 [多用户详细信息](https://bacnext.apifox.cn/413447228e0.md): 
+- 根目录 > Polymer 接口 > 网页动态 [用户名查 UID](https://bacnext.apifox.cn/413448404e0.md): 
+- 根目录 > Polymer 接口 > 网页动态 [获取动态详情](https://bacnext.apifox.cn/413677463e0.md): 
+- 根目录 > 老粉计划 [加入老粉计划](https://bacnext.apifox.cn/413449061e0.md): 
+- 根目录 > 老粉计划 [老粉计划发送留言](https://bacnext.apifox.cn/413449113e0.md): 
+- 根目录 > 关系 > 分组 [查询关注分组明细](https://bacnext.apifox.cn/413453411e0.md): 
+- 根目录 > 关系 > 分组 [查询目标用户所在的分组](https://bacnext.apifox.cn/413453421e0.md): 
+- 根目录 > 关系 > 分组 [查询关注分组列表](https://bacnext.apifox.cn/413453410e0.md): 
+- 根目录 > 关系 > 分组 [查询所有特别关注 mid](https://bacnext.apifox.cn/413453422e0.md): 
+- 根目录 > 关系 > 分组 [创建分组](https://bacnext.apifox.cn/413453442e0.md): 
+- 根目录 > 关系 > 分组 [重命名分组](https://bacnext.apifox.cn/413453445e0.md): 
+- 根目录 > 关系 > 分组 [删除分组](https://bacnext.apifox.cn/413453531e0.md): 
+- 根目录 > 关系 > 分组 [修改分组成员](https://bacnext.apifox.cn/413453685e0.md): 
+- 根目录 > 关系 > 分组 [复制关注到分组](https://bacnext.apifox.cn/413453688e0.md): 
+- 根目录 > 关系 > 分组 [移动关注到分组](https://bacnext.apifox.cn/413453689e0.md): 
+- 根目录 > 关系 [用户粉丝](https://bacnext.apifox.cn/413450732e0.md): 本接口只有登录、标头 referer 为 bilibili.com 下的子域名、UA 不含 python 时才会返回列表
+- 根目录 > 关系 [用户粉丝 (旧)](https://bacnext.apifox.cn/413450847e0.md): 
+- 根目录 > 关系 [获取自己粉丝列表的未读状态](https://bacnext.apifox.cn/413451931e0.md): 
+- 根目录 > 关系 [用户关注](https://bacnext.apifox.cn/413451957e0.md): 
+- 根目录 > 关系 [用户关注 V2](https://bacnext.apifox.cn/413451996e0.md): 来自[BAC原文档](https://github.com/BACNext/bilibili-API-collect-backup/blob/master/docs/user/relation.md#%E6%9F%A5%E8%AF%A2%E7%94%A8%E6%88%B7%E5%85%B3%E6%B3%A8%E6%98%8E%E7%BB%862)
+- 根目录 > 关系 [搜索关注](https://bacnext.apifox.cn/413452271e0.md): 测试用户均返回22115用户已设置隐私，待查
+- 根目录 > 关系 [悄悄关注](https://bacnext.apifox.cn/413452367e0.md): 
+- 根目录 > 关系 [互相关注](https://bacnext.apifox.cn/413452386e0.md): 
+- 根目录 > 关系 [黑名单](https://bacnext.apifox.cn/413452387e0.md): 
+- 根目录 > 关系 [关系操作](https://bacnext.apifox.cn/413452520e0.md): ###### 操作代码
+- 根目录 > 关系 [批量关系操作](https://bacnext.apifox.cn/413452761e0.md): 
+- 根目录 > 关系 [用户与自己关系](https://bacnext.apifox.cn/413453372e0.md): 
+- 根目录 > 关系 [批量关系查询](https://bacnext.apifox.cn/413453405e0.md): 
+- 根目录 > 关系 [数量状态](https://bacnext.apifox.cn/413629295e0.md): 
+- 根目录 > 信誉 > 答题解控 [获取问卷](https://bacnext.apifox.cn/413628616e0.md): 
+- 根目录 > 信誉 > 答题解控 [提交问卷](https://bacnext.apifox.cn/413629008e0.md): 
+- 根目录 > 个人中心 [本账号信息](https://bacnext.apifox.cn/413629036e0.md): 
+- 根目录 > 个人中心 [经验奖励状态](https://bacnext.apifox.cn/413629039e0.md): 
+- 根目录 > 个人中心 [实名状态](https://bacnext.apifox.cn/413629055e0.md): 
+- 根目录 > 个人中心 [实名详细](https://bacnext.apifox.cn/413629060e0.md): 这里的脱敏分两种：
+- 根目录 > 个人中心 [硬币记录](https://bacnext.apifox.cn/413629061e0.md): 
+- 根目录 > 个人中心 [个人签名修改](https://bacnext.apifox.cn/413629065e0.md): 
+- 根目录 > 个人中心 [经验记录](https://bacnext.apifox.cn/413629080e0.md): 
+- 根目录 > 个人中心 [节操记录](https://bacnext.apifox.cn/413629087e0.md): 
+- 根目录 > 个人中心 [登录记录](https://bacnext.apifox.cn/413629127e0.md): 
+- 根目录 > 大会员 [大会员状态](https://bacnext.apifox.cn/413629041e0.md): 
+- 根目录 > 大会员 [权益查询](https://bacnext.apifox.cn/413707406e0.md): 
+- 根目录 > 大会员 [大会员中心信息](https://bacnext.apifox.cn/413707647e0.md): 
+- 根目录 > 大会员 [大会员每日经验](https://bacnext.apifox.cn/413709113e0.md): 
+- 根目录 > 安全中心 [查询登录记录](https://bacnext.apifox.cn/413629096e0.md): 
+- 根目录 > 大积分 [大积分信息](https://bacnext.apifox.cn/413707793e0.md): 
+- 根目录 > 大积分 [变化记录](https://bacnext.apifox.cn/413707898e0.md): 
+- 根目录 > PCG > 活动 [大积分签到](https://bacnext.apifox.cn/413707978e0.md): 我觉得他弃用了，反正我调不出来
+- 根目录 > PCG > 活动 [大积分签到](https://bacnext.apifox.cn/413708472e0.md): 本接口校验Referer，请开发者注意
+- 根目录 > Web 展示 [获取首页头图](https://bacnext.apifox.cn/413713198e0.md): 
+- 根目录 > Web 展示 [分区轮播图](https://bacnext.apifox.cn/413713215e0.md): 
+- 根目录 > 活动 [运营资源列表](https://bacnext.apifox.cn/413716683e0.md): 
+- 根目录 > 活动 [活动页列表](https://bacnext.apifox.cn/413717468e0.md): 
+- 根目录 > 活动 [活动主体信息](https://bacnext.apifox.cn/413717523e0.md): 
+- 根目录 > 转正答题 [查询答题状态](https://bacnext.apifox.cn/413716903e0.md): 
+- 根目录 > 转正答题 [自选题分类](https://bacnext.apifox.cn/413716909e0.md): 
+- 根目录 > 转正答题 [答题结果](https://bacnext.apifox.cn/413716910e0.md): 
+- 根目录 > 转正答题 [拉取基础题](https://bacnext.apifox.cn/413716915e0.md): 如需解密题数据，请按以下流程操作：
+- 根目录 > 转正答题 [拉取附加题](https://bacnext.apifox.cn/413717300e0.md): 
+- 根目录 > 转正答题 [拉取自选题](https://bacnext.apifox.cn/413717330e0.md): 
+- 根目录 > 转正答题 [提交基础题](https://bacnext.apifox.cn/413717428e0.md): 
+- 根目录 > 转正答题 [提交附加题](https://bacnext.apifox.cn/413717430e0.md): 
+- 根目录 > 转正答题 [提交自选题](https://bacnext.apifox.cn/413717432e0.md): 
+- 根目录 > 转正答题 [获取验证码](https://bacnext.apifox.cn/413717438e0.md): 
+- 根目录 > 转正答题 [提交验证码](https://bacnext.apifox.cn/413717460e0.md): 
+- 根目录 > 转正答题 [提交自选题分类](https://bacnext.apifox.cn/413717465e0.md): 
+- 根目录 > 转正答题 [提前提交](https://bacnext.apifox.cn/413717466e0.md): 
+- 根目录 > PUGV [获取课程基本信息](https://bacnext.apifox.cn/413717724e0.md): 
+- 根目录 > PUGV [获取课程分集列表](https://bacnext.apifox.cn/413717775e0.md): 
+- 根目录 > PUGV [播放地址](https://bacnext.apifox.cn/413717826e0.md): 
+- 根目录 > 收藏 [获取收藏夹信息](https://bacnext.apifox.cn/413717866e0.md): 
+- 根目录 > 收藏 [用户全部收藏夹](https://bacnext.apifox.cn/413717874e0.md): 
+- 根目录 > 收藏 [查询用户收藏的视频收藏夹](https://bacnext.apifox.cn/413717876e0.md): 
+- 根目录 > 收藏 [批量获取指定收藏id的内容](https://bacnext.apifox.cn/413717877e0.md): 
+- 根目录 > 历史记录 [历史记录（旧版）](https://bacnext.apifox.cn/413717918e0.md): 
+- 根目录 > 历史记录 [删除历史记录](https://bacnext.apifox.cn/413717927e0.md): 视频：archive_{稿件avid}
+- 根目录 > 历史记录 [清空历史记录](https://bacnext.apifox.cn/413717930e0.md): 视频：archive_{稿件avid}
+- 根目录 > 历史记录 [历史记录停用状态](https://bacnext.apifox.cn/413717935e0.md): 
+- 根目录 > 历史记录 [切换是否停用历史记录](https://bacnext.apifox.cn/413717943e0.md): 
+- 根目录 > 播放器 [查询视频分P列表](https://bacnext.apifox.cn/416378334e0.md): 
+- 根目录 > 播放器 [获取视频快照](https://bacnext.apifox.cn/416430876e0.md): 
+- 根目录 > 装扮 [获取装扮数据](https://bacnext.apifox.cn/416787219e0.md): 该API可以获取包括收藏集装扮在内的所有数据
+- 根目录 > 装扮 [进行装扮搜索](https://bacnext.apifox.cn/416789348e0.md): 
+- 根目录 > 装扮 [获取指定收藏集活动id数据](https://bacnext.apifox.cn/416793460e0.md): 不包括过期卡池
+- 根目录 > 装扮 [获取指定收藏集活动id和卡池id数据](https://bacnext.apifox.cn/416794988e0.md): 不包括过期卡池
+- 根目录 > 装扮 [获取收藏集活动以及卡池数据](https://bacnext.apifox.cn/416795558e0.md): 
+- 根目录 > 自定义活动 > CNY2026 [CNY直播间任务列表](https://bacnext.apifox.cn/417465790e0.md): 
+- 根目录 > 自定义活动 > CNY2026 [CNY直播间福气任务列表](https://bacnext.apifox.cn/417466443e0.md): 
+- 根目录 > 自定义活动 > CNY2026 [接收bonus](https://bacnext.apifox.cn/417506272e0.md): 
+- 根目录 > 自定义活动 > CNY2026 [福气值查询](https://bacnext.apifox.cn/417510930e0.md): 
+- 根目录 > 自定义活动 > CNY2026 [完成任务](https://bacnext.apifox.cn/417511549e0.md): 
+- 根目录 > 自定义活动 > 货币 [CashNum](https://bacnext.apifox.cn/417468645e0.md): 
+- 根目录 > 项目 > CNY [CNY Tab页信息](https://bacnext.apifox.cn/417512165e0.md): 
+- 根目录 > 拉新 [CNY拉新](https://bacnext.apifox.cn/417799130e0.md): 
+- 根目录 > 社区(小站) [切换小站加入状态](https://bacnext.apifox.cn/424358645e0.md): 
+- 根目录 [指定用户粉丝勋章信息](https://bacnext.apifox.cn/413450371e0.md): 
+- 根目录 [IP 属地](https://bacnext.apifox.cn/413713083e0.md): 
+- 根目录 [获取CNY直播间列表](https://bacnext.apifox.cn/417784909e0.md): 
+- 根目录 > 安全中心 [获取二次验证信息](https://bacnext.apifox.cn/412898748e0.md): 
+- 根目录 > 安全中心 [获取验证码](https://bacnext.apifox.cn/412899167e0.md): 
+- 根目录 > 安全中心 [发送手机验证码](https://bacnext.apifox.cn/412900792e0.md): 
+- 根目录 > 安全中心 [发送邮箱验证码](https://bacnext.apifox.cn/412901676e0.md): 
+- 根目录 > 安全中心 [验证手机验证码](https://bacnext.apifox.cn/412901682e0.md): 
+- 根目录 > 安全中心 [手机绑定](https://bacnext.apifox.cn/412905517e0.md): 
+- 根目录 > 安全中心 [发送手机验证码（绑定场景）](https://bacnext.apifox.cn/412906375e0.md): 
+- 根目录 > 安全中心 [安全中心公钥获取](https://bacnext.apifox.cn/412915258e0.md): 
+- 根目录 > SNS 登录 [SNS 授权 URL](https://bacnext.apifox.cn/412912782e0.md): 
+- 根目录 > SNS 登录 [获取 CSRF state](https://bacnext.apifox.cn/412913201e0.md): 
+- 根目录 > SNS 登录 [SNS 登录](https://bacnext.apifox.cn/412914246e0.md): 
+- 根目录 [申请验证码](https://bacnext.apifox.cn/412263926e0.md): 
+- 根目录 [申请验证码 (旧版)](https://bacnext.apifox.cn/412263998e0.md): 
+- 根目录 [申请二维码](https://bacnext.apifox.cn/412264595e0.md): 
+- 根目录 [扫码登录](https://bacnext.apifox.cn/412264665e0.md): 
+- 根目录 [申请二维码 (旧版)](https://bacnext.apifox.cn/412265197e0.md): 
+- 根目录 [扫码登录 (旧版)](https://bacnext.apifox.cn/412265805e0.md): 扫码登录 确认登录 流程完成后，会同时设置以下 Cookie 值：
+- 根目录 [获取国际冠字码](https://bacnext.apifox.cn/412265624e0.md): 
+- 根目录 [发送短信验证码](https://bacnext.apifox.cn/412265747e0.md): 说明：
+- 根目录 [退出登录](https://bacnext.apifox.cn/412266781e0.md): 该流程成功完成后，以下 Cookie 将被 `Set-Cookie` 移除：
+- 根目录 [检查是否需要刷新 Cookie](https://bacnext.apifox.cn/412267738e0.md): 
+- 根目录 [确认更新 Cookie](https://bacnext.apifox.cn/412267798e0.md): 
+- 根目录 [注册游客账号](https://bacnext.apifox.cn/412884364e0.md): 
+- 根目录 [获取公钥&盐](https://bacnext.apifox.cn/412887455e0.md): 
+- 根目录 [密码登录](https://bacnext.apifox.cn/412887534e0.md): 本接口需要先[申请验证码](apifox://link/endpoint/412263926)和[获取公钥&盐](apifox://link/endpoint/412887455)
+- 根目录 [获取 Cookie](https://bacnext.apifox.cn/412910674e0.md): 
+- 根目录 [查询账号安全情况](https://bacnext.apifox.cn/413629046e0.md): 
+- 根目录 [多用户详细信息](https://bacnext.apifox.cn/413447686e0.md): 
+- 根目录 [多用户详细信息](https://bacnext.apifox.cn/413447693e0.md): 
+- 根目录 [相簿投稿数](https://bacnext.apifox.cn/413629335e0.md): 
+- 根目录 [IP 属地](https://bacnext.apifox.cn/413713090e0.md): 
+- 根目录 [青少年模式状态更新](https://bacnext.apifox.cn/413716715e0.md): 
+
+## Schemas
+- 根目录 [DynamicDetail](https://bacnext.apifox.cn/243990993d0.md): 
+- 根目录 [RichTextNodes](https://bacnext.apifox.cn/243991732d0.md): 
+- 根目录 [Relation](https://bacnext.apifox.cn/244397338d0.md): 
+- 根目录 [Video](https://bacnext.apifox.cn/245866624d0.md): 
+- 根目录 [PartIDEnum](https://bacnext.apifox.cn/246169689d0.md): 

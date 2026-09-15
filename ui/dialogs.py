@@ -550,6 +550,22 @@ class Dialogs:
             QMessageBox.critical(self.gui, "呜…出错了", "呜…历史弹幕打不开啦，天依还想翻翻过去的留言呢，请稍后再试哦 ♪")
 
     # ──────────────────────────────────────────
+    # 评论抓取（独立窗口 + 独立评论库）
+    # ──────────────────────────────────────────
+
+    def open_comment_panel(self):
+        """打开评论抓取窗口（数据存 data/comments/comments.db）"""
+        try:
+            from ui.comment_panel import CommentPanel
+
+            present(CommentPanel(parent=self.gui, gui=self.gui).dlg)
+        except Exception:
+            logger.error("打开评论抓取失败", exc_info=True)
+            QMessageBox.critical(
+                self.gui, "呜…出错了", "呜…评论抓取打不开啦，天依还想听听大家在说什么呢，请稍后再试哦 ♪"
+            )
+
+    # ──────────────────────────────────────────
     # 热门发现
     # ──────────────────────────────────────────
 

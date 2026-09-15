@@ -89,6 +89,7 @@ class TestWbiSign:
 
         api = BilibiliAPI.__new__(BilibiliAPI)
         api._wbi_key = "test_mixin_key"
+        api._wbi_key_expire = float("inf")  # 视为永久有效，避免触发密钥刷新（TTL 契约见契约 §1）
         signed = api._wbi_sign({"bvid": "BV1xx", "pn": 1})
         assert "wts" in signed and "w_rid" in signed
         p2 = {"bvid": "BV1xx", "pn": 1, "wts": signed["wts"]}

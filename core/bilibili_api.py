@@ -9,7 +9,10 @@ import random
 import logging
 import threading
 import warnings
+import hashlib
+import re
 from typing import Any, Callable, Dict, List, Optional, ParamSpec, TypeVar, cast
+from urllib.parse import quote
 
 from core.proxy_manager import ProxyManager
 from core.constants import USER_AGENTS
@@ -65,6 +68,98 @@ class _CurlCffiResponse:
             raise HTTPError(f"HTTP {self.status_code}", response=self)
 
 
+# ── WBI 签名（规范、验证向量与来源见 docs/bilibili_api_contract.md §1）──────────
+# 混音密钥置换表：按此表重排 ``img_key+sub_key`` 后取前 32 字符（**不是** md5(img+sub)）
+MIXIN_KEY_ENC_TAB: List[int] = [
+    46,
+    47,
+    18,
+    2,
+    53,
+    8,
+    23,
+    32,
+    15,
+    50,
+    10,
+    31,
+    58,
+    3,
+    45,
+    35,
+    27,
+    43,
+    5,
+    49,
+    33,
+    9,
+    42,
+    19,
+    29,
+    28,
+    14,
+    39,
+    12,
+    38,
+    41,
+    13,
+    37,
+    48,
+    7,
+    16,
+    24,
+    55,
+    40,
+    61,
+    26,
+    17,
+    0,
+    1,
+    60,
+    51,
+    30,
+    4,
+    22,
+    25,
+    54,
+    21,
+    56,
+    59,
+    6,
+    63,
+    57,
+    62,
+    11,
+    36,
+    20,
+    34,
+    44,
+    52,
+]
+
+_WBI_ILLEGAL_CHARS = re.compile(r"[!'()*]")
+
+
+def wbi_mixin_key(img_key: str, sub_key: str) -> str:
+    """WBI 混音密钥：按置换表重排 ``img_key+sub_key`` 后取前 32 字符。"""
+    orig = img_key + sub_key
+    return "".join(orig[i] for i in MIXIN_KEY_ENC_TAB if i < len(orig))[:32]
+
+
+def wbi_key_from_url(url: str) -> str:
+    """从 ``wbi_img`` 的 ``img_url`` / ``sub_url`` 提取密钥（末段文件名去扩展名）。"""
+    return url.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+
+
+def wbi_query(params: Dict[str, Any]) -> str:
+    """按 WBI 规则编码参数为 query：值过滤 ``!'()*``、k/v 百分号编码、key 升序。"""
+    parts = []
+    for key in sorted(params):
+        value = _WBI_ILLEGAL_CHARS.sub("", str(params[key]))
+        parts.append(f"{quote(str(key), safe='')}={quote(value, safe='')}")
+    return "&".join(parts)
+
+
 class BilibiliAPI(_RequestMixin, _AuthMixin, _VideoMixin, _UpMixin):
     """B站API封装类 - 支持重试与绕过412错误"""
 
@@ -76,8 +171,10 @@ class BilibiliAPI(_RequestMixin, _AuthMixin, _VideoMixin, _UpMixin):
     COMMENT_URL = "https://api.bilibili.com/x/v2/reply/main"
     POPULAR_URL = "https://api.bilibili.com/x/web-interface/popular"
 
-    # wbi 密钥（运行时刷新）
-    _wbi_key = None
+    # wbi 混音密钥（运行时按 _WBI_KEY_TTL 刷新，见 docs/bilibili_api_contract.md §1）
+    _wbi_key: Optional[str] = None
+    _wbi_key_expire: float = 0.0
+    _WBI_KEY_TTL: float = 600.0
 
     # 多个User-Agent轮换使用（2026 版本，与 curl_cffi 默认 impersonate Chrome 版本对齐）
     USER_AGENTS = USER_AGENTS
@@ -338,23 +435,17 @@ class BilibiliAPI(_RequestMixin, _AuthMixin, _VideoMixin, _UpMixin):
 
     # ── WBI签名 ───────────────────────────────────────────
     def _refresh_wbi_key(self) -> None:
-        """刷新 WBI 密钥（从 nav 接口获取）"""
+        """刷新 WBI 混音密钥（来自 nav 的 ``wbi_img``，有效期 ``_WBI_KEY_TTL`` 秒）。"""
         try:
             nav_url = f"{self.BASE_URL}/x/web-interface/nav"
             data = self._request("GET", nav_url, skip_retry=True)
-            if data and "wbi_img" in data:
-                img_url = data["wbi_img"]["img_url"]
-                sub_url = data["wbi_img"]["sub_url"]
-                import re
-
-                img_key = re.search(r"/([^/]+)\.png", img_url)
-                sub_key = re.search(r"/([^/]+)\.png", sub_url)
-                if img_key and sub_key:
-                    mix = img_key.group(1) + sub_key.group(1)
-                    import hashlib
-
-                    self._wbi_key = hashlib.md5(mix.encode(), usedforsecurity=False).hexdigest()
-                    return
+            wbi_img = (data or {}).get("wbi_img") or {}
+            img_key = wbi_key_from_url(str(wbi_img.get("img_url", "")))
+            sub_key = wbi_key_from_url(str(wbi_img.get("sub_url", "")))
+            if img_key and sub_key:
+                self._wbi_key = wbi_mixin_key(img_key, sub_key)
+                self._wbi_key_expire = time.time() + self._WBI_KEY_TTL
+                return
             self._wbi_key = None
             logger.warning("WBI密钥刷新失败: 无法解析密钥图片URL")
         except Exception as e:
@@ -362,25 +453,20 @@ class BilibiliAPI(_RequestMixin, _AuthMixin, _VideoMixin, _UpMixin):
             logger.warning(f"WBI密钥刷新失败: {e}")
 
     def _wbi_sign(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        """为请求参数添加 WBI 签名"""
-        if not self._wbi_key:
+        """为请求参数添加 WBI 签名（``wts`` + ``w_rid``）。
+
+        密钥缺失或过期时先刷新；刷新失败则**原样返回**（调用方仍可发请求，服务端会
+        回 ``-403`` 或风控票据 ``v_voucher``）。``wts`` 必须参与哈希，否则验签失败。
+        """
+        if not self._wbi_key or time.time() >= self._wbi_key_expire:
             self._refresh_wbi_key()
         if not self._wbi_key:
             return params
-        import hashlib
-
-        # 标准 WBI 算法（对照 bilibili-api-python _enc_wbi）：
-        # 先把 wts 加入参数，再排序拼接 + mixin_key，最后 md5。
-        # wts 不参与哈希会导致服务端验签失败（-403）。
-        params = dict(params)
-        params["wts"] = int(time.time())
-        sorted_params = sorted(params.items())
-        query = "&".join(f"{k}={v}" for k, v in sorted_params)
-        query += self._wbi_key
-
-        w_rid = hashlib.md5(query.encode(), usedforsecurity=False).hexdigest()
-        params["w_rid"] = w_rid
-        return params
+        signed = dict(params)
+        signed["wts"] = str(int(time.time()))
+        query = wbi_query(signed)
+        signed["w_rid"] = hashlib.md5((query + self._wbi_key).encode(), usedforsecurity=False).hexdigest()
+        return signed
 
     # ── 热门视频 ─────────────────────────────────────────
     def get_popular_videos(self, pn: int = 1, ps: int = 20) -> List[Dict[str, Any]]:

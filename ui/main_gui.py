@@ -903,6 +903,9 @@ class BilibiliMonitorGUI(QMainWindow):
     def _open_milestone_stats(self):
         open_milestone_stats(self)
 
+    def _open_comment_panel(self):
+        Dialogs(self).open_comment_panel()
+
     def _add_bvid_to_monitor(self, bvid: str):
         add_bvid_to_monitor(self, bvid)
 

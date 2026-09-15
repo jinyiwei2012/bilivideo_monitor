@@ -94,6 +94,13 @@ class BottomBar(QWidget):
         self._push_btn.clicked.connect(self.gui._manual_push)
         h.addWidget(self._push_btn)
 
+        # 「评论抓取」按钮（独立窗口 + 独立评论库 data/comments/comments.db）
+        self._comment_btn = QPushButton("💬 评论抓取")
+        self._comment_btn.setToolTip("把评论连楼中楼一起收进独立数据库 ♪")
+        self._comment_btn.setFixedHeight(32)
+        self._comment_btn.clicked.connect(self.gui._open_comment_panel)
+        h.addWidget(self._comment_btn)
+
         h.addStretch()
 
         # 自动刷新开关（右侧）

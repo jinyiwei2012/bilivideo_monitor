@@ -178,6 +178,9 @@ pre-commit run --all-files           # 提交前检查
 - [CHANGELOG.md](CHANGELOG.md) — 版本更新日志
 - [AGENTS.md](AGENTS.md) — AI 助理开发指南
 - [OPTIMIZATION_PLAN.md](OPTIMIZATION_PLAN.md) — 重构/优化方案（含待改动方法清单、大型文件重构步骤）
+- [docs/bilibili_api_contract.md](docs/bilibili_api_contract.md) — B站接口契约（WBI 签名/密码登录/风控/Cookie 续期/评论抓取）
+- [docs/analysis_enhancements.md](docs/analysis_enhancements.md) — 分析能力增强实现方案（HDS·VDR·运营告警·IQR·AHP·新增特征）
+- [docs/risk_control_playbook.md](docs/risk_control_playbook.md) — 风控应对手册（412/352 分流·bili_ticket·设备标识·w_webid·gaia 兜底·零登录）
 
 ## 注意事项
 
