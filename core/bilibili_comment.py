@@ -119,10 +119,14 @@ class CommentFetcher:
         """请求停止（线程安全：仅置标志，由抓取循环检查）。"""
         self._stop = True
 
-    def close(self) -> None:
-        """释放资源：关闭评论库；**自建**的 API 实例一并关闭（注入的实例由调用方负责）。"""
+    def close(self, *, close_api: bool = True) -> None:
+        """释放资源：关闭评论库；**自建**的 API 实例一并关闭（注入的实例由调用方负责）。
+
+        Args:
+            close_api: 命中风控后要保留同一会话去解除验证时传 ``False``
+        """
         self._db.close()
-        if not self._owns_api:
+        if not (self._owns_api and close_api):
             return
         closer = getattr(self._api, "close", None)
         if callable(closer):
@@ -161,7 +165,12 @@ class CommentFetcher:
         }
         if not offset:
             params["seek_rpid"] = ""
-        data = self._api._request("GET", COMMENT_URL, params=self._api._wbi_sign(params))
+        signed = self._api._wbi_sign(params)
+        # gaia_vtoken 在 **签名之后** 附加：它由 gaia 网关层消费，
+        # 不参与 w_rid 计算 → 过期/缺失也不会破坏签名（见风控手册 §7 第 5 步）
+        from core.gaia_vgate import with_gaia_vtoken
+
+        data = self._api._request("GET", COMMENT_URL, params=with_gaia_vtoken(self._api, signed))
         if data is None:
             # 请求层已耗尽重试：区分"IP 被风控"与"其它失败"
             blocked = int(getattr(self._api, "_consecutive_412_errors", 0) or 0) > 0
@@ -188,7 +197,9 @@ class CommentFetcher:
             "gaia_source": "main_web",
             "web_location": WEB_LOCATION_SUB,
         }
-        data = self._api._request("GET", REPLY_URL, params=params)
+        from core.gaia_vgate import with_gaia_vtoken
+
+        data = self._api._request("GET", REPLY_URL, params=with_gaia_vtoken(self._api, params))
         if not data or data.get("v_voucher"):
             return []
         return list(data.get("replies") or [])

@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QProgressBar,
     QPushButton,
     QSpinBox,
@@ -61,6 +62,7 @@ class CommentPanel:
         self._fetcher: Optional[CommentFetcher] = None
         self._db: Optional[CommentDatabase] = None
         self._fetching = False
+        self._risk_api: Any = None  # 命中风控后保留的同一会话（解除验证要用它）
         self._last_bvid = ""
         self._setup_ui()
 
@@ -150,6 +152,12 @@ class CommentPanel:
         self._stop_btn.setEnabled(False)
         self._stop_btn.clicked.connect(self._stop_fetch)
         layout.addWidget(self._stop_btn)
+
+        self._risk_btn = QPushButton("⚠ 解除风控")
+        self._risk_btn.setToolTip("命中人机验证时点这里（需你确认后才求解，见 docs/risk_control_playbook.md §7）")
+        self._risk_btn.setEnabled(False)
+        self._risk_btn.clicked.connect(self._solve_risk)
+        layout.addWidget(self._risk_btn)
 
         sec.layout().addWidget(row)
 
@@ -270,7 +278,7 @@ class CommentPanel:
         """后台线程：抓取 + 进度回调（UI 更新一律经 ui.invoker.invoke）。"""
         try:
             min_interval = float(params.pop("min_interval", 1.0))
-            fetcher = CommentFetcher(min_interval=min_interval)
+            fetcher = CommentFetcher(api=self._risk_api, min_interval=min_interval)
         except Exception as exc:
             logger.exception("初始化评论抓取器失败")
             detail = f"初始化失败: {exc}"
@@ -313,19 +321,28 @@ class CommentPanel:
         if result.status in (STATUS_DONE, STATUS_STOPPED):
             self._progress.setValue(100 if result.status == STATUS_DONE else self._progress.value())
         self._refresh_results()
-        self._release_fetcher()
+        blocked = result.status == STATUS_BLOCKED
+        self._risk_btn.setEnabled(blocked)
+        # 命中风控时保留同一会话：gaia 解除验证必须落在被风控的那个会话上
+        self._release_fetcher(keep_api=blocked)
 
-    def _release_fetcher(self) -> None:
-        """释放抓取器（含自建独立会话）；抓取仍在进行时只请求停止，不抢占资源。"""
+    def _release_fetcher(self, *, keep_api: bool = False) -> None:
+        """释放抓取器（含自建独立会话）；抓取仍在进行时只请求停止，不抢占资源。
+
+        Args:
+            keep_api: 保留其 API 实例（命中风控后解除验证要用同一会话）
+        """
         fetcher = self._fetcher
         if fetcher is None:
             return
         if self._fetching:
             fetcher.stop()
             return
+        if keep_api:
+            self._risk_api = getattr(fetcher, "_api", None)
         self._fetcher = None
         try:
-            fetcher.close()
+            fetcher.close(close_api=not keep_api)
         except Exception as e:
             logger.debug("释放评论抓取器失败: %s", e)
 
@@ -442,6 +459,45 @@ class CommentPanel:
         """追加一行日志（主线程调用）。"""
         self._log_text.append(message)
 
+    def _solve_risk(self) -> None:
+        """解除风控（**必须由用户点击触发**：求解要过人机验证，失败还会消耗风控额度）。"""
+        api = self._risk_api
+        if api is None:
+            self._log("✗ 没有可用会话（请先抓取一次以命中风控挑战）")
+            return
+        reply = QMessageBox.question(
+            self.dlg,
+            "需要人机验证",
+            "这是最后手段：将尝试用人机验证解除当前风控，可能失败并消耗风控额度。\n是否现在验证？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            self._log("… 已取消验证")
+            return
+        self._risk_btn.setEnabled(False)
+        self._log("… 正在解除风控（人机验证中，请稍候）")
+        threading.Thread(target=self._risk_worker, args=(api,), daemon=True).start()
+
+    def _risk_worker(self, api: Any) -> None:
+        """后台线程：跑 gaia 五步，结果经 invoke 回主线程。"""
+        try:
+            from core.gaia_vgate import solve_challenge
+
+            result = solve_challenge(api)
+        except Exception as exc:
+            logger.exception("解除风控异常")
+            message = f"解除风控异常：{exc}"
+            invoke(lambda: self._on_risk_done(False, message))
+            return
+        invoke(lambda: self._on_risk_done(result.ok, result.message))
+
+    def _on_risk_done(self, ok: bool, message: str) -> None:
+        """解除风控结果（主线程）。"""
+        self._log(("✓ " if ok else "✗ ") + message)
+        self._risk_btn.setEnabled(not ok)
+        if ok:
+            self._log("  可以重新点「开始抓取」重试（会复用本会话并在原请求上带 gaia_vtoken）")
+
     def _on_close(self) -> None:
         """关闭窗口：停止抓取并释放连接。"""
         self._fetching = False
@@ -450,4 +506,10 @@ class CommentPanel:
         if self._db is not None:
             self._db.close()
             self._db = None
+        if self._risk_api is not None:
+            try:
+                self._risk_api.close()
+            except Exception as e:
+                logger.debug("关闭风控会话失败: %s", e)
+            self._risk_api = None
         self.dlg.close()

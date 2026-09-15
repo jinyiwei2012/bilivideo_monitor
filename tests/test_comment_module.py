@@ -219,6 +219,20 @@ def test_task_lifecycle_and_summary(tmp_path: Path) -> None:
     fetcher.close()
 
 
+def test_request_carries_gaia_vtoken_when_present(tmp_path: Path) -> None:
+    """命中风控并解除后，重试请求必须在原请求上带 gaia_vtoken（风控手册 §7 第 5 步）。"""
+    from core.gaia_vgate import GAIA_VTOKEN_PARAM, store_vtoken
+
+    api = _FakeAPI({"": _page([_reply(1)], is_end=True)})
+    store_vtoken(api, "VT-retry")
+    fetcher = _fetcher(tmp_path, api)
+    fetcher.fetch("BV1xx411c7mu", max_pages=1)
+    main_calls = [c for c in api.calls if c["url"].endswith("/reply/wbi/main")]
+    assert main_calls and main_calls[-1]["params"][GAIA_VTOKEN_PARAM] == "VT-retry"
+    assert "w_rid" in main_calls[-1]["params"], "gaia_vtoken 不应影响 WBI 签名本身"
+    fetcher.close()
+
+
 def test_database_roundtrip(tmp_path: Path) -> None:
     db = CommentDatabase(base_dir=str(tmp_path))
     task_id = db.create_task("BV1xx411c7mu", AID, MODE_HOT, {"x": 1})

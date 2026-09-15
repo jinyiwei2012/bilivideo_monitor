@@ -197,6 +197,28 @@ def _risk_response_header_voucher(self: Any, response: Any) -> bool:
 **验收**：`tests/test_gaia_vgate.py` —— ① 5 步流程在假响应下串通（断言请求顺序与字段名）；
 ② `geetest: null` 时返回明确原因而非抛异常；③ 未注入 `grisk_id` 时不修改请求参数（默认无副作用）。
 
+**实现状态（2026-09）**：`core/gaia_vgate.py` 已完成并全部验收（11 项测试）：
+`register`（第 2 步）/ `validate`（第 4 步）/ `solve_challenge`（第 2-4 步，`solver` 可注入，
+默认 `utils.geetest_solver.solve`）/ `store_vtoken`·`current_vtoken`·`clear_vtoken`（**会话级**缓存，
+实例属性 + Cookie，10 分钟保守 TTL，**不持久化**）/ `with_gaia_vtoken`（无 token 时零副作用）/
+`gaia_state` 观测。`v_voucher` 留空时自动回退 `api._risk_last_voucher`（§2 已记录的值）。
+
+**UI 触发入口（已接）**：评论面板的「⚠ 解除风控」按钮（默认禁用，`blocked` 结束时启用）→
+确认弹窗 → 后台线程求解 → 日志给结果；命中风控时**保留同一会话**（`CommentFetcher.close(close_api=False)`
++ 面板持有 `_risk_api`），重试时复用该会话，并且**重试请求会带上 `gaia_vtoken`**。
+
+⚠ 两个刻意的设计决定（都有理由）：
+
+1. `gaia_vtoken` 在 **`_wbi_sign` 之后**附加（见 `core/bilibili_comment.py::_fetch_main_page`）——
+   它由 gaia 网关层消费，不参与 `w_rid` 计算；这样过期/缺失的 token 也**不会破坏签名**
+   （失败模式更安全：宁可不带，也别把签名搞坏）。
+2. **绝不后台静默求解**：求解要过人机验证、失败还消耗风控额度，且 `geetest: null` 明确不可解 ——
+   只能由用户在界面里点确认。
+
+⚠ 未验证部分（如实标注）：本机无法对线上风控实测，因此「能否真的解除」未经端到端验证；
+已验证的是**流程正确性**（请求顺序、字段名、状态流转、零副作用）与 UI 可达性。
+
+
 ## 8. Cookie 续期链（长跑不掉登录）
 
 **字段与端点细节见** [bilibili_api_contract.md](bilibili_api_contract.md) §4；留档原文见
