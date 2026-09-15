@@ -120,7 +120,7 @@ main.py / run.py           — Entry points
 │   └── ...
 ├── scripts/                 — lint_gate.py(flake8+复杂度棘轮) type_gate.py(mypy 棘轮)
 │                              sign.py / update_hashes.py / characterize_algorithms.py 等
-├── tests/                   — pytest 回归测试（440 passed），核心在 test_refactor_regressions.py
+├── tests/                   — pytest 回归测试（463 passed），核心在 test_refactor_regressions.py
 ├── config/                  — JSON config load/save with deep-merge defaults
 └── data/                    — Runtime data (settings, DBs, covers, logs)
 ```
@@ -129,11 +129,11 @@ main.py / run.py           — Entry points
 
 | 门禁 | 命令 | 当前状态 |
 |---|---|---|
-| 格式 | `black --check --line-length=120 .` | 368 文件全部通过 |
+| 格式 | `black --check --line-length=120 .` | 371 文件全部通过 |
 | Lint | `python scripts/lint_gate.py` | flake8 **0 项**；复杂度基线 **0**（无 CC>=16 函数） |
 | 类型 | `python scripts/type_gate.py` | mypy **0 错误**（基线为空 = 零容忍） |
 | 安全 | `bandit -r . -c pyproject.toml -ll` | Medium/High = 0（137 项均为 Low 严重度，被 `-ll` 过滤） |
-| 测试 | `python -m pytest tests/ -q` | **440 passed** |
+| 测试 | `python -m pytest tests/ -q` | **463 passed** |
 
 - **复杂度棘轮**（`.lint-baseline.json`）：按「函数名」记录，新增超标函数即失败；重构后用
   `python scripts/lint_gate.py --update-baseline` 收紧。

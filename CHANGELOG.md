@@ -70,15 +70,25 @@
 - `w_webid`：`__RENDER_DATA__` 提取 + 按天缓存 + helper（**暂无已验证注入点**）（`ce9c401`）
 - gaia-vgate 兜底：register/validate + 会话级 vtoken + 评论面板「⚠ 解除风控」按钮（**必须用户确认后才求解**）（`3199699`）
 
+### ✅ 续作（2026-09-16）
+- **掉登录消费端**：状态栏 `risk` 格（登录失效 / 风控冷却）+ 状态转换时一次系统通知 + 设置页「网络诊断」卡片（`caee67d`）
+- **Cookie 续期定时**：启动后一次 + 每 12h 独立定时器（未登录零请求；真机日志 `定时 Cookie 续期: not_needed`）（`caee67d`）
+- **密码登录契约 4 缺陷**：密文由 hex 改 base64、`seccode` 补 `|jordan`（幂等 helper）、
+  `code:0 + data.status!=0` 判为风控失败（不再误报成功）、换票 URL 改 `exchange_cookie`（`dc434bb`）
+- **评论接口迁移**：删除已废弃的 `/x/v2/reply/main`，`get_video_comments` 委托 `core/bilibili_comment.py`
+  （`/reply/wbi/main` + 游标翻页，签名/风控/gaia 复用同一实现，输出契约不变）（`45fbaf1`）
+
 ### 🧪 测试与门禁
-- 本轮新增测试 **86 项**：`test_risk_control`(10)、`test_bili_ticket`(12)、`test_session_isolation`(5)、
-  `test_device_identity`(13)、`test_cookie_refresh`(14)、`test_w_webid`(11)、`test_gaia_vgate`(11)、`test_comment_module`(10)
-- 全量 `pytest` **440 passed**；`black` 368 文件；`lint_gate` / `type_gate` 0 违规；
+- 本轮新增测试 **99 项**：`test_risk_control`(10)、`test_bili_ticket`(12)、`test_session_isolation`(5)、
+  `test_device_identity`(13)、`test_cookie_refresh`(14)、`test_w_webid`(11)、`test_gaia_vgate`(11)、
+  `test_comment_module`(10)、`test_risk_observability`(10)、`test_password_login_contract`(6)、
+  `test_get_video_comments`(7)
+- 全量 `pytest` **463 passed**；`black` 371 文件；`lint_gate` / `type_gate` 0 违规；
   改 `core/` 后跑 `python scripts/update_hashes.py --hashes-only` + `python main.py` 启动冒烟
 
 ### ⬜ 尚未完成（摘要，详见 playbook §13）
-掉登录的 UI/通知消费端、续期定时接入、零登录监控（用户暂缓）、`buvid_fp`/`ExClimbWuzhi`（缺可验证向量）、
-`CORE_FILES` 完整性清单决策、契约 §7 密码登录 4 个缺陷、契约 §8 评论接口迁移。
+零登录监控（用户暂缓）、`buvid_fp`/`ExClimbWuzhi`（缺可验证向量）、`w_webid` 注入（无已验证注入点）、
+`CORE_FILES` 完整性清单决策、契约 §7 的 ⑤⑨ 健壮性补强（极验重提前重取 key/salt、扫码补 2 个 Cookie 键）。
 
 ## Release 2026-09-03 (v3.2.0)
 

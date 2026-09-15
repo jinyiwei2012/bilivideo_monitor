@@ -275,30 +275,31 @@ def _risk_response_header_voucher(self: Any, response: Any) -> bool:
 
 ## 10. 可观测性与 `_logged_out` 死信号
 
-**现状**：`core/bilibili_request.py:178` 在 `-101` 时置 `self._logged_out = True`，
-**全仓无人读取** → 用户掉登录完全无感知。
+**现状（2026-09-16 已接线）**：`core/bilibili_request.py` 在 `-101` 时置 `self._logged_out = True`；
+信号经 `risk_state()` / `get_status()["risk"]` 暴露，**消费端已落地**（`ui/main_gui_tick.py`）：
 
-**改法**
-1. `get_status()`（`core/bilibili_api.py`）已返回 `isLogin` 与 `has_buvid3` → 在此基础上补充
-   `has_bili_ticket` / `has_b_nut` / `risk_state()`；
-2. 掉登录时：日志 warning + **状态栏/托盘提示** + 一次通知（`core/notification.py`）+ 触发 §8 续期；
-3. 统计并暴露：`{voucher_hits, http_412_count, cooldown_until}` → 设置页"网络诊断"展示，
-   便于用户判断"是不是该换代理"。
+1. 状态栏新增 `risk` 格（`ui/bottom_bar.py`）：掉登录 → 「⚠ 登录已失效」（danger），冷却中 → 「⚠ 风控冷却 Ns」；
+   由独立 5s 定时器写入（本地读取，零网络请求，不占用 1s tick）。
+2. 掉登录时：日志 warning + 日志面板 + **一次系统通知**（`core/notification.py`）+
+   立即触发一次续期（§8 的 `refresh_now`）；**仅在状态转换时通知**，持续掉登录不重复打扰。
+3. 设置 → 代理设置页新增「网络诊断」卡片：登录态 / 风控冷却 / voucher 连续次数 / 冷却范围 /
+   最近命中类型 / 连续 412 次数 / 上次续期 / refresh_token（字段取 `risk_state()` + `renew_state()`）。
 
-**验收**：`tests/test_risk_observability.py` —— ① `-101` 后 `get_status()` 的登录项为 False 且
-产生一次通知调用（mock 断言）；② `risk_state()` 字段完整。
+**验收**：`tests/test_risk_observability.py`（10 项）—— 徽标文本与颜色优先级、冷却中不打扰、
+掉登录「每次转换只通知一次」（含恢复后再掉可再通知）、API 读取异常不抛出、未登录零请求零调度、
+12h 节流、`_renew_worker` 传 12h 非 force、异常被吞掉；另有 offscreen 冒烟验证定时器真实生效。
 
 ## 11. 落地顺序与许可
 
 | 序 | 项 | 改动面 | 风险 | 预估 | 状态（2026-09-15） |
 |---|---|---|---|---|---|
 | 1 | **`-352` 识别 + 分流（§2）** | `core/bilibili_request.py` | 中（改重试主路径，需真测试） | 小 | ✅ 完成 `b6b73e5`（`tests/test_risk_control.py` 10 项） |
-| 2 | **`_logged_out` 接线 + 风险观测（§10）** | 请求层 + 状态栏/通知 | 低 | 小 | ⚠ 只做了**信号产生**：`_logged_out`/`risk_state()` 已有并进 `get_status()["risk"]`；**消费端（状态栏/托盘/通知/网络诊断页）未做** |
+| 2 | **`_logged_out` 接线 + 风险观测（§10）** | 请求层 + 状态栏/通知 | 低 | 小 | ✅ 完成 `b6b73e5`（信号）+ `caee67d`（消费端：状态栏 / 一次通知 / 设置页网络诊断 / 独立 5s 定时器；`tests/test_risk_observability.py` 10 项） |
 | 3 | **会话隔离（§6）** | 调用方建实例处 | 低 | 小 | ✅ 完成 `f60ee89`（`tests/test_session_isolation.py` 5 项） |
 | 4 | **`bili_ticket`（§3）** | 新模块 + 注入点 | 低（可开关） | 中 | ✅ 完成 `f60ee89`（`tests/test_bili_ticket.py` 12 项） |
 | 5 | **设备标识补齐（§4）** | 新模块 + 初始化 | 中（格式错反而更糟，需正则测试） | 中 | ✅ 完成 `81f81a4`（13 项；**不含** `buvid_fp`，见 §4 与 §13） |
 | 6 | **零登录监控（§9）** | `BilibiliAPI` 构造 + 监控 worker | 中（功能回归需覆盖） | 中 | ⬜ **未做**（用户 2026-09 明确「暂缓」，勿擅自开工） |
-| 7 | **Cookie 续期链（§8）** | 新模块 + 定时器 | 中（涉及登录态） | 中 | ⚠ 链路完成 `80327dc`（14 项）；**启动后一次 + 后台定时器未接**——目前仅设置页「检查登录」触发（`ui/settings_account.py:309`） |
+| 7 | **Cookie 续期链（§8）** | 新模块 + 定时器 | 中（涉及登录态） | 中 | ✅ 完成 `80327dc`（链路）+ `caee67d`（**启动后一次 + 每 12h 独立定时器**；未登录零请求）。真机日志实证：`定时 Cookie 续期: not_needed（服务端未要求续期）` |
 | 8 | **`w_webid`（§5）** | 签名前注入 + 日缓存 | 中（仅部分接口需要） | 中 | ⚠ 模块完成 `ce9c401`（11 项）；**无已验证注入点**（本项目相关接口非 WBI），helper 备好待用 |
 | 9 | **gaia 兜底链（§7）** | 新模块 + UI 交互 | 高（依赖用户在场，且不保证可解） | 大 | ✅ 完成 `3199699`（11 项 + 评论面板「⚠ 解除风控」按钮 + 重试带 `gaia_vtoken`）；⚠ 线上「能否真的解除」**未端到端验证**（见 §7 注） |
 
@@ -326,24 +327,31 @@ def _risk_response_header_voucher(self: Any, response: Any) -> bool:
 5. **不要拷贝 GPL/AGPL 项目代码**：本项目 MIT 且分发 exe，只能借鉴"事实与思路"。
 6. **不要为了绕过风控而提升请求频率**：文档与所有活跃项目的一致结论是**降频 + 合规头 + 合法标识**。
 
-## 13. 尚未完成清单（截至 2026-09-15，对齐代码核实）
+## 13. 尚未完成清单（截至 2026-09-16，对齐代码核实）
 
 > 本节是「下一步做什么」的唯一入口。每条都注明了**为何没做**与**怎么算做完**（验收），
 > 避免下次接手时把已完成项重做、或把暂缓项当成遗漏。
 
+**本轮已完成（2026-09-16，原 §13-1/2/7/8）**
+
+| 项 | commit | 证据 |
+|---|---|---|
+| §10 掉登录消费端（状态栏 + 通知 + 网络诊断） | `caee67d` | `tests/test_risk_observability.py` 10 项；offscreen 冒烟 5/5 |
+| §8 续期定时接入（启动后一次 + 12h） | `caee67d` | 真机启动日志 `定时 Cookie 续期: not_needed（服务端未要求续期）` |
+| 契约 §7 密码登录 ④⑥⑦⑧ 四处缺陷 | `dc434bb` | `tests/test_password_login_contract.py` 6 项 |
+| 契约 §8 评论接口迁移（废弃端点 → 独立模块） | `45fbaf1` | `tests/test_get_video_comments.py` 7 项；`danmaku_analysis.py:350` 调用方不变 |
+
 | # | 待办 | 现状与原因 | 验收 |
 |---|---|---|---|
-| 1 | **§10 掉登录的消费端** | `_logged_out` / `risk_state()` 只在 core 内部产生，**全仓无人读取**（已 grep 核实）→ 用户掉登录仍无感知 | 状态栏/托盘提示 + 一次 `core/notification.py` 通知 + 设置页「网络诊断」显示 `{voucher_hits, http_412_count, cooldown_until}`；新增 `tests/test_risk_observability.py` |
-| 2 | **§8 续期定时接入** | 链路已通，但只在设置页「检查登录」触发（`ui/settings_account.py:309` 调 `maybe_refresh`）→ 长期挂机不会自动续期 | 启动后一次 + `ui/main_gui_tick.py`（1s tick）内按 12h 间隔调用 `maybe_refresh`；断言「未登录时零请求」 |
-| 3 | **§4 `buvid_fp` + `ExClimbWuzhi`** | 未做：本机无 `mmh3`，离线留档只覆盖 **APP 端**算法，**无可验证参考向量** → 凭空写不可验（当前请求也不发这些字段） | 先取得可核对向量（真实请求体或 mmh3 实现）再实现；否则保持现状并在 UI 不承诺 |
-| 4 | **§9 零登录监控** | **用户明确要求暂缓**（2026-09） | `BilibiliAPI(with_cookies=False)` / `clone_anonymously()`；新增 `tests/test_anonymous_client.py`（匿名请求 Cookie 不含 `SESSDATA`/`bili_jct`，监控仍能取 `view` 数据） |
-| 5 | **§5 `w_webid` 注入** | 模块 + 日缓存已完成，但核查发现本项目通路（`/x/space/acc/info`、`/x/space/arc/search`）**非 WBI**，唯一已签名 WBI 是 UP 搜索（`core/bilibili_up.py:26`）→ 不拿在跑通路赌未知参数 | 先确认某接口确实要求 `w_webid`（对线上取证）再注入；注入必须用现成 `with_w_webid` 且放在 `_wbi_sign` **之前** |
-| 6 | **完整性清单决策** | `scripts/sign.py::CORE_FILES` 是显式清单，**不含** `device_identity` / `bili_ticket` / `cookie_refresh` / `w_webid` / `gaia_vgate` / `bilibili_comment`（已 grep 核实）→ 这 6 个模块被篡改不会触发启动完整性告警 | **需用户决策**：是否纳入（纳入须同步跑 `scripts/sign.py` 并提交清单变更） |
-| 7 | **契约 §7 的 4 个密码登录缺陷** | 全部未修，分布在 `core/bilibili_auth.py`：密文用 hex（应 base64，L278）、`seccode` 缺 `\|jordan`、`code:0 + status!=0` 误报成功（L120）、`exchange` 应改 `exchange_cookie`（L525） | 详见 `docs/bilibili_api_contract.md` §7 小结；新增 `tests/test_password_login_contract.py` |
-| 8 | **契约 §8 评论接口迁移** | `core/bilibili_api.py:171` 的 `COMMENT_URL` 仍是**已废弃**的 `/x/v2/reply/main`，`core/bilibili_video.py::get_video_comments`（L183）仍用它 + `pn` 翻页 | 让 `get_video_comments` 复用 `core/bilibili_comment.py`（新端点 + 游标），删掉重复分页逻辑；断言走 `/x/v2/reply/wbi/main` |
+| 1 | **§4 `buvid_fp` + `ExClimbWuzhi`** | 未做：本机无 `mmh3`，离线留档只覆盖 **APP 端**算法，**无可验证参考向量** → 凭空写不可验（当前请求也不发这些字段） | 先取得可核对向量（真实请求体或 mmh3 实现）再实现；否则保持现状并在 UI 不承诺 |
+| 2 | **§9 零登录监控** | **用户明确要求暂缓**（2026-09） | `BilibiliAPI(with_cookies=False)` / `clone_anonymously()`；新增 `tests/test_anonymous_client.py`（匿名请求 Cookie 不含 `SESSDATA`/`bili_jct`，监控仍能取 `view` 数据） |
+| 3 | **§5 `w_webid` 注入** | 模块 + 日缓存已完成，但核查发现本项目通路（`/x/space/acc/info`、`/x/space/arc/search`）**非 WBI**，唯一已签名 WBI 是 UP 搜索（`core/bilibili_up.py:26`）→ 不拿在跑通路赌未知参数 | 先确认某接口确实要求 `w_webid`（对线上取证）再注入；注入必须用现成 `with_w_webid` 且放在 `_wbi_sign` **之前** |
+| 4 | **完整性清单决策** | `scripts/sign.py::CORE_FILES` 是显式清单，**不含** `device_identity` / `bili_ticket` / `cookie_refresh` / `w_webid` / `gaia_vgate` / `bilibili_comment`（已 grep 核实）→ 这 6 个模块被篡改不会触发启动完整性告警 | **需用户决策**：是否纳入（纳入须同步跑 `scripts/sign.py` 并提交清单变更） |
+| 5 | **契约 §7 的 ⑤⑨ 健壮性补强** | ④⑥⑦⑧ 已修；剩余两条未做：极验重提（`bilibili_auth.py` 内）仍复用旧密文、未重取 key/salt；扫码路径只收 3 个 Cookie（缺 `DedeUserID__ckMd5`/`sid`） | 极验重提前重取 key/salt 并重算密文；扫码收全 5 键（可复用 `_extract_login_cookies` 的 8 键名单）；补测试断言 |
 
 **已完成的验证基线**（下次改 `core/bilibili_*.py` 后必须复现）：
-`black --line-length=120 .`、`python scripts/lint_gate.py`、`python scripts/type_gate.py`、
-`python -m pytest tests/ -q`（**440 passed**）、`python scripts/update_hashes.py --hashes-only`、
+`black --line-length=120 .`（**371 文件**）、`python scripts/lint_gate.py`、`python scripts/type_gate.py`、
+`python -m pytest tests/ -q`（**463 passed**）、`python scripts/update_hashes.py --hashes-only`、
 `python main.py` 启动 18-20s 无异常。
+
 
