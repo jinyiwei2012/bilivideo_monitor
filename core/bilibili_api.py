@@ -203,11 +203,11 @@ class BilibiliAPI(_RequestMixin, _AuthMixin, _VideoMixin, _UpMixin):
 
             self._accounts = net_cfg.get("accounts", [])
             if not self._accounts:
-                # 旧格式兼容：单账号
+                # 旧格式兼容：单账号。这里**只读出、不预先解密**——下方统一循环
+                # 会对每个账号各做一次 decrypt_dict + _sanitize_cookies；若在此处先解密，
+                # 明文会被二次解密 → 每次启动刷 4 条 UnicodeDecodeError + 1 条 HMAC 校验失败。
                 cookies = net_cfg.get("cookies", {})
                 if cookies:
-                    decrypt_dict(cookies, "SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid")
-                    cookies = self._sanitize_cookies(cookies)
                     name = net_cfg.get("account_name", "默认")
                     self._accounts = [
                         {
