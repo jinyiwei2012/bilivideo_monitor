@@ -105,6 +105,7 @@ class CommentFetcher:
             min_interval: 页间最小间隔（秒），避免撞风控
         """
         self._api = api if api is not None else BilibiliAPI()
+        self._owns_api = api is None  # 自建实例才由自己关闭（会话隔离，见风控手册 §6）
         self._db = db if db is not None else CommentDatabase()
         self._min_interval = max(0.0, float(min_interval))
         self._stop = False
@@ -119,8 +120,16 @@ class CommentFetcher:
         self._stop = True
 
     def close(self) -> None:
-        """关闭数据库连接。"""
+        """释放资源：关闭评论库；**自建**的 API 实例一并关闭（注入的实例由调用方负责）。"""
         self._db.close()
+        if not self._owns_api:
+            return
+        closer = getattr(self._api, "close", None)
+        if callable(closer):
+            try:
+                closer()
+            except Exception as e:
+                logger.debug("关闭评论会话失败: %s", e)
 
     # ── 单页请求 ────────────────────────────────────────
     def resolve_aid(self, bvid: str) -> int:

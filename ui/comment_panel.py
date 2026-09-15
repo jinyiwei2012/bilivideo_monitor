@@ -313,6 +313,21 @@ class CommentPanel:
         if result.status in (STATUS_DONE, STATUS_STOPPED):
             self._progress.setValue(100 if result.status == STATUS_DONE else self._progress.value())
         self._refresh_results()
+        self._release_fetcher()
+
+    def _release_fetcher(self) -> None:
+        """释放抓取器（含自建独立会话）；抓取仍在进行时只请求停止，不抢占资源。"""
+        fetcher = self._fetcher
+        if fetcher is None:
+            return
+        if self._fetching:
+            fetcher.stop()
+            return
+        self._fetcher = None
+        try:
+            fetcher.close()
+        except Exception as e:
+            logger.debug("释放评论抓取器失败: %s", e)
 
     def _on_error(self, message: str) -> None:
         """初始化等前置错误（主线程）。"""
@@ -320,6 +335,7 @@ class CommentPanel:
         self._start_btn.setEnabled(True)
         self._stop_btn.setEnabled(False)
         self._log(f"✗ {message}")
+        self._release_fetcher()
 
     # ── 结果 ────────────────────────────────────────────
     def _get_db(self) -> CommentDatabase:

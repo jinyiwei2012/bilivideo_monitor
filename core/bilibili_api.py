@@ -242,6 +242,12 @@ class BilibiliAPI(_RequestMixin, _AuthMixin, _VideoMixin, _UpMixin):
         self._risk_last_kind = ""
         self._risk_scope = ""
         self._risk_last_voucher = ""
+        # bili_ticket（缓存在 Cookie 里，规格见 docs/risk_control_playbook.md §3）
+        self._bili_ticket = str(self._cookies.get("bili_ticket", "") or "")
+        try:
+            self._bili_ticket_expires = float(self._cookies.get("bili_ticket_expires", 0) or 0)
+        except (TypeError, ValueError):
+            self._bili_ticket_expires = 0.0
 
         # 随机 buvid（模拟不同设备指纹，降低 412 概率）
         self._buvid3 = self._gen_buvid()

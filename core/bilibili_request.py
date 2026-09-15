@@ -49,12 +49,23 @@ def _is_352_error(self: Any, data: Dict[str, Any]) -> bool:
     return "风控校验失败" in message or "签名校验失败" in message
 
 
+def _refresh_ticket_after_risk(self: Any) -> None:
+    """风控命中后顺手刷新 bili_ticket（失败只记日志，不影响主流程）。"""
+    try:
+        from core.bilibili_ticket import ensure_ticket
+
+        ensure_ticket(self, force=True)
+    except Exception as e:
+        logger.debug("风控后刷新 bili_ticket 失败: %s", e)
+
+
 def _register_risk_cooldown(self: Any, kind: str) -> float:
     """记录一次风控命中并返回冷却秒数（连续命中按次数升级，封顶 ``RISK_COOLDOWN_MAX``）。"""
     if kind == "sign":
         self._voucher_streak = int(getattr(self, "_voucher_streak", 0)) + 1
         seconds = RISK_COOLDOWN_SIGN * self._voucher_streak
         scope = "global" if self._voucher_streak >= RISK_VOUCHER_GLOBAL_THRESHOLD else "session"
+        _refresh_ticket_after_risk(self)
     else:
         self._voucher_streak = 0
         seconds = RISK_COOLDOWN_IP
@@ -102,6 +113,11 @@ def _get_request_cookies(self: Any) -> Dict[str, Any]:
     cookies = dict(self._cookies)
     cookies.setdefault("buvid3", self._buvid3)
     cookies.setdefault("buvid4", self._buvid4)
+    # bili_ticket 可降低反复风控（规格见 docs/risk_control_playbook.md §3）：
+    # 这里**只读实例缓存**，绝不在请求热路径上触发网络刷新
+    ticket = str(getattr(self, "_bili_ticket", "") or "")
+    if ticket:
+        cookies.setdefault("bili_ticket", ticket)
     if random.random() < 0.1:
         self._buvid3 = self._gen_buvid()
         cookies["buvid3"] = self._buvid3
