@@ -19,6 +19,8 @@ _persist_lock = threading.Lock()  # 防止并发写入 network_config.json
 # 密码登录端点（契约 §2：**每次提交前**都要重取 key/salt —— 盐有效期仅约 20s）
 _PWD_KEY_URL = "https://passport.bilibili.com/x/passport-login/web/key"
 _PWD_LOGIN_URL = "https://passport.bilibili.com/x/passport-login/web/login"
+# 申请人机验证（契约 §2：`token`/`challenge` 来自这里）
+_CAPTCHA_URL = "https://passport.bilibili.com/x/passport-login/captcha"
 # 登录必须收全的 Cookie 键（契约 §3：扫码经 Set-Cookie 下发这 5 个，缺一不可）
 LOGIN_COOKIE_KEYS = ("SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid")
 
@@ -206,6 +208,24 @@ def _geetest_fields(validate: str, seccode: str, challenge: str = "", token: str
     return fields
 
 
+def _fetch_captcha_challenge(self: Any, source: str = "main_web") -> tuple[str, str, str]:
+    """申请人机验证：``GET /x/passport-login/captcha?source=main_web`` → ``(token, gt, challenge)``。
+
+    契约 §2 的 `token`/`challenge` 就来自这里（`data.token` + `data.geetest.{gt,challenge}`）；
+    失败时返回三个空串，调用方据此放弃自动求解而**不报错**。
+    """
+    resp = self._request("GET", f"{_CAPTCHA_URL}?source={source}")
+    if not resp or not isinstance(resp, dict):
+        return "", "", ""
+    data = resp.get("data", {}) or {}
+    geetest = data.get("geetest", {}) or {}
+    return (
+        str(data.get("token", "") or ""),
+        str(geetest.get("gt", "") or ""),
+        str(geetest.get("challenge", "") or ""),
+    )
+
+
 def _submit_geetest_login(
     self: Any,
     login_url: str,
@@ -268,6 +288,10 @@ def _try_auto_geetest_login(
     d = data.get("data", {})
     gt = d.get("gt", "")
     challenge = d.get("challenge", "")
+    token = str(d.get("token", "") or "")
+    if not gt or not challenge:
+        # 失败响应没带极验参数 → 主动申请一次验证码（契约 §2 的 token/challenge 来源）
+        token, gt, challenge = _fetch_captcha_challenge(self)
     if not gt or not challenge:
         return None
     solved = _auto_solve_geetest(self, gt, challenge)
@@ -282,7 +306,7 @@ def _try_auto_geetest_login(
         "password": encrypted_password,
         "keep": 1,
         "source": "main_web",
-        **_geetest_fields(validate, seccode, challenge, str(d.get("token", "") or "")),
+        **_geetest_fields(validate, seccode, challenge, token),
     }
     resp = self.session.post(
         login_url,

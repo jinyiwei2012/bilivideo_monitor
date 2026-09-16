@@ -94,6 +94,7 @@ class _StubAPI:
         *,
         key_payload: Optional[Dict[str, Any]] = None,
         key_payloads: Optional[List[Dict[str, Any]]] = None,
+        captcha_payload: Optional[Dict[str, Any]] = None,
         login_payload: Any = None,
     ) -> None:
         if key_payloads is not None:
@@ -101,11 +102,16 @@ class _StubAPI:
         else:
             self._key_payloads = [key_payload] if key_payload else [{}]
         self.key_calls = 0
+        self.captcha_calls = 0
+        self._captcha_payload = captcha_payload if captcha_payload is not None else {}
         self.session = _StubSession(login_payload if login_payload is not None else {"code": -1, "message": "stub"})
         self._cookies: Dict[str, Any] = {}
         self._refresh_token = ""
 
     def _request(self, method: str, url: str, **kwargs: Any) -> Any:
+        if "/captcha" in url:
+            self.captcha_calls += 1
+            return self._captcha_payload
         payload = self._key_payloads[min(self.key_calls, len(self._key_payloads) - 1)]
         if url.endswith("/web/key"):
             self.key_calls += 1
@@ -196,6 +202,47 @@ def test_auto_geetest_passes_challenge_and_token(monkeypatch: pytest.MonkeyPatch
     assert posted["challenge"] == "c-1"
     assert posted["token"] == "tok-1"
     assert "captcha" not in posted
+
+
+def test_auto_geetest_fetches_captcha_challenge_when_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """(b4) 失败响应没给 gt/challenge 时：必须先申请验证码，并把 token/challenge 一起提交。
+
+    证据（公开实现一致）：`GET /x/passport-login/captcha?source=main_web` →
+    `data.token` + `data.geetest.{gt,challenge}`；`token` 是密码登录体字段。
+    """
+    pem, _private_key = _rsa_keypair()
+    api = _StubAPI(
+        key_payload={"key": pem, "hash": "salt-3"},
+        captcha_payload={"data": {"token": "tk-9", "geetest": {"gt": "gt-9", "challenge": "ch-9"}}},
+        login_payload={"code": -2100, "message": "stop"},
+    )
+    solved: List[str] = []
+
+    def _fake_solve(self: Any, gt: str, challenge: str) -> Any:
+        solved.append(f"{gt}:{challenge}")
+        return ("v-9", "s-9")
+
+    monkeypatch.setattr(bilibili_auth, "_auto_solve_geetest", _fake_solve)
+
+    result = _try_auto_geetest_login(api, "https://example/login", "user", "p@ss", {"code": -2100})
+
+    assert api.captcha_calls == 1, "必须调用申请验证码接口"
+    assert solved == ["gt-9:ch-9"], "应当用申请到的 gt/challenge 去求解"
+    assert result is None, "stub 响应 code!=0，不应判成功"
+    posted = api.session.posts[0]["data"]
+    assert posted["token"] == "tk-9"
+    assert posted["challenge"] == "ch-9"
+    assert posted["validate"] == "v-9"
+    assert posted["seccode"] == "s-9|jordan"
+
+
+def test_auto_geetest_gives_up_when_captcha_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    """(b5) 申请验证码失败（无 gt/challenge）时安静放弃：不抛异常、不发登录请求。"""
+    api = _StubAPI(key_payload={"key": "x", "hash": "y"})
+    monkeypatch.setattr(bilibili_auth, "_auto_solve_geetest", lambda self, gt, challenge: ("v", "s"))
+
+    assert _try_auto_geetest_login(api, "https://example/login", "user", "p@ss", {"code": -2100}) is None
+    assert api.session.posts == [], "没有极验参数就不该提交登录"
 
 
 def test_with_jordan_is_idempotent() -> None:
