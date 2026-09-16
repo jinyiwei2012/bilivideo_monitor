@@ -29,6 +29,24 @@ from core.smart_alert import AnomalyDetector
 logger = logging.getLogger(__name__)
 
 
+def scan_summary_text(count: int, stats: dict) -> str:
+    """扫描结果文案（纯函数，便于测试）。
+
+    **0 条命中也必须说清扫了什么、为何没结果** —— 否则用户分不清
+    「确实没异常」和「压根没扫到数据」。
+    """
+    total = int(stats.get("videos", 0) or 0)
+    scanned = int(stats.get("scanned", 0) or 0)
+    thin = int(stats.get("skipped_records", 0) or 0) + int(stats.get("skipped_history", 0) or 0)
+    if count:
+        return f"天依注意到异常啦!♪ 已检查 {scanned}/{total} 个视频，发现 {count} 处变化，逃不过天依的耳朵~"
+    if total == 0:
+        return "还没有监控中的视频呢…先添加一个，天依才能帮你听出异常哦 ♪"
+    if scanned == 0:
+        return f"已检查 {total} 个视频，但都因记录不足（<3 条）跳过了…多积累一会儿数据再来吧 ♪"
+    return f"扫描完成 ♪ 已检查 {scanned}/{total} 个视频（{thin} 个记录不足被跳过），一切安安静静的~"
+
+
 class AnomalyPanel:
     """异常增长检测面板：扫描所有监控视频，检测播放量突增/突降/停滞等异常行为"""
 
@@ -128,28 +146,34 @@ class AnomalyPanel:
 
         def worker():
             """后台工作线程：遍历每个视频，执行异常检测"""
-            results = self._collect_scan_results()
+            results, stats = self._collect_scan_results()
 
             # 回主线程更新 UI
-            invoke(lambda: self._show_results(results))
+            invoke(lambda: self._show_results(results, stats))
 
         threading.Thread(target=worker, daemon=True).start()
 
     def _collect_scan_results(self):
+        """扫描全部监控视频，返回 ``(命中列表, 扫描统计)``（统计用于空态说明）。"""
         results = []
+        stats = {"videos": 0, "scanned": 0, "skipped_history": 0, "skipped_records": 0}
         for video in self.gui.monitored_videos:
+            stats["videos"] += 1
             bvid = video.get("bvid", "")
             history = self.gui.history_data.get(bvid, [])
             if len(history) < 3:
+                stats["skipped_history"] += 1
                 continue
             full_records = self._load_scan_records(bvid)
             if len(full_records) < 3:
+                stats["skipped_records"] += 1
                 continue
+            stats["scanned"] += 1
             recent, dt_last, delta_views, velocity = self._scan_velocity(history)
             results.extend(
                 self._detect_video_anomalies(video, bvid, full_records, recent, dt_last, delta_views, velocity)
             )
-        return results
+        return results, stats
 
     def _load_scan_records(self, bvid):
         full_records = []
@@ -246,8 +270,9 @@ class AnomalyPanel:
                 }
             ]
 
-    def _show_results(self, results):
-        """在表格中展示异常检测结果，高亮严重异常"""
+    def _show_results(self, results, stats=None):
+        """在表格中展示异常检测结果，高亮严重异常；0 条时用统计说明扫描范围"""
+        stats = stats or {}
         self._tree.clear()
         danger_types = ("↗ 增速飙升", "↘ 在线暴跌")
 
@@ -269,14 +294,19 @@ class AnomalyPanel:
             self._tree.addTopLevelItem(item)
 
         count = len(results)
-        msg = (
-            f"天依注意到异常啦!♪ 歌声里有 {count} 处变化，逃不过天依的耳朵~"
-            if count
-            else "扫描完成啦 ♪ 一切安安静静的，像深夜书店翻书的声音~"
-        )
+        msg = scan_summary_text(count, stats)
         color = C["danger"] if count else C["success"]
         self._status_lbl.setText(msg)
         self._status_lbl.setStyleSheet(f"color: {color}; background: transparent;")
+        if not count:
+            # 空结果时把「扫了谁 / 谁被跳过」写进详情区，避免整片空白让人以为坏了
+            self._detail_text.setPlainText(
+                "本次扫描明细：\n"
+                f"· 监控中视频：{stats.get('videos', 0)} 个\n"
+                f"· 记录充足并已检测：{stats.get('scanned', 0)} 个\n"
+                f"· 记录不足(<3 条)跳过：{stats.get('skipped_records', 0)} 个\n"
+                f"· 内存历史不足(<3 点)跳过：{stats.get('skipped_history', 0)} 个"
+            )
 
     def _show_detail(self):
         """点击表格行时显示异常详情"""

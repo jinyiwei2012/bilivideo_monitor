@@ -31,6 +31,46 @@ from ui.dialog_base import DialogBase
 logger = logging.getLogger(__name__)
 
 
+# 界面可选的里程碑阈值（与监控/预测侧的阈值一致）
+_THRESHOLDS = [100000, 1000000, 10000000]
+# 时间范围下拉 → 天数（9999 表示全部）
+_DAYS_MAP = {"7天": 7, "14天": 14, "30天": 30, "全部": 9999}
+
+
+def _threshold_counts(vdb) -> list[tuple[int, int]]:
+    """各阈值的预测条数（只读；供「默认筛选恰好命中 0 行」时自适应）。"""
+    try:
+        with vdb._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT target_threshold, COUNT(*) FROM predictions GROUP BY target_threshold"
+            ).fetchall()
+        return [(int(row[0]), int(row[1])) for row in rows]
+    except Exception as e:
+        logger.debug("统计预测阈值分布失败: %s", e)
+        return []
+
+
+def pick_best_threshold(available: list[tuple[int, int]], choices: list[int]) -> int | None:
+    """在界面可选项中挑**条数最多**的阈值；没有任何可用数据时返回 ``None``（纯函数，便于测试）。"""
+    usable = [(thr, cnt) for thr, cnt in available if thr in choices and cnt > 0]
+    if not usable:
+        return None
+    return max(usable, key=lambda item: item[1])[0]
+
+
+def newest_created_at(vdb, threshold: int) -> str:
+    """该阈值下最新的预测时间（用于判断是否只是被时间窗过滤掉了）。"""
+    try:
+        with vdb._get_connection() as conn:
+            row = conn.execute(
+                "SELECT MAX(created_at) FROM predictions WHERE target_threshold = ?", (threshold,)
+            ).fetchone()
+        return str(row[0]) if row and row[0] else ""
+    except Exception as e:
+        logger.debug("读取最新预测时间失败: %s", e)
+        return ""
+
+
 class PredictionAccuracyPanel:
     """预测准确率回看面板"""
 
@@ -39,6 +79,7 @@ class PredictionAccuracyPanel:
         self.dlg = DialogBase(parent, "预测准确率回看", "1000x700")
 
         self._build_ui()
+        self._auto_switch_hint = ""
         self._refresh()
 
     def _build_ui(self):
@@ -137,9 +178,9 @@ class PredictionAccuracyPanel:
             self._show_empty_state("选一个视频吧,天依好帮你回看预测的歌声 ♪")
             return
 
-        thresholds = [100000, 1000000, 10000000]
+        thresholds = _THRESHOLDS
         threshold = thresholds[self._thresh_combo.currentIndex()]
-        days_map = {"7天": 7, "14天": 14, "30天": 30, "全部": 9999}
+        days_map = _DAYS_MAP
         days = days_map[self._days_combo.currentText()]
 
         vdb = self.gui.video_dbs.get(bvid)
@@ -155,8 +196,22 @@ class PredictionAccuracyPanel:
             return
 
         if not rows:
-            self._show_empty_state("还没有预测记录呢…等天依唱出预测就有了 ♪")
-            return
+            # 默认筛选（10万 / 7天）常常恰好命中 0 行 —— 但库里其实有别的阈值的预测。
+            # 先自适应切到**确实有数据**的筛选，再退化成空态文案。
+            switched = self._adapt_filter_to_data(vdb, thresholds, days)
+            if switched is None:
+                self._show_empty_state("这个视频还没有预测记录呢…等天依唱出预测就有啦 ♪")
+                return
+            threshold, days = switched
+            rows = self._query_prediction_rows(vdb, threshold, days)
+            if not rows:
+                self._show_empty_state("这个筛选下还是没有记录呢…换一个阈值或时间范围试试吧 ♪")
+                return
+            self._auto_switch_hint = (
+                f"已自动切到有数据的筛选（{threshold // 10000}万 / " f"{'全部' if days >= 9999 else str(days) + '天'}）"
+            )
+        else:
+            self._auto_switch_hint = ""
 
         # 加载 monitor_records 用于查找预测到达时点的实际播放量
         records = vdb.get_all_records()
@@ -188,10 +243,49 @@ class PredictionAccuracyPanel:
             self._render_detail(detail_rows)
 
         self._update_summary(len(rows), total_dev, count, skipped_future, latest_views, ranking_view)
+        if self._auto_switch_hint:
+            self._summary_lbl.setText(f"{self._auto_switch_hint} | {self._summary_lbl.text()}")
 
     def _show_empty_state(self, message):
+        self._auto_switch_hint = ""
         self._summary_lbl.setText(message)
         self._table.setRowCount(0)
+
+    def _adapt_filter_to_data(self, vdb, thresholds: list[int], days: int) -> tuple[int, int] | None:
+        """当前筛选命中 0 行时，切换到一个**确实有数据**的筛选项。
+
+        Returns:
+            ``(阈值, 天数)``；库里该视频没有任何预测时返回 ``None``
+        """
+        best = pick_best_threshold(_threshold_counts(vdb), thresholds)
+        if best is None:
+            return None
+        new_days = days
+        newest = newest_created_at(vdb, best)
+        if days < 9999 and newest:
+            try:
+                if datetime.fromisoformat(newest) < datetime.now() - timedelta(days=days):
+                    new_days = 9999  # 数据都在时间窗之外 → 放宽到「全部」
+            except (ValueError, TypeError):
+                pass
+        self._select_filter(best, new_days)
+        return best, new_days
+
+    def _select_filter(self, threshold: int, days: int) -> None:
+        """按值切换下拉（屏蔽信号，避免重入 _refresh）。"""
+        days_label = next((label for label, value in _DAYS_MAP.items() if value == days), None)
+        for combo in (self._thresh_combo, self._days_combo):
+            combo.blockSignals(True)
+        try:
+            if threshold in _THRESHOLDS:
+                self._thresh_combo.setCurrentIndex(_THRESHOLDS.index(threshold))
+            if days_label is not None:
+                idx = self._days_combo.findText(days_label)
+                if idx >= 0:
+                    self._days_combo.setCurrentIndex(idx)
+        finally:
+            for combo in (self._thresh_combo, self._days_combo):
+                combo.blockSignals(False)
 
     @staticmethod
     def _query_prediction_rows(vdb, threshold, days):
