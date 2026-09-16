@@ -75,20 +75,24 @@
 - **Cookie 续期定时**：启动后一次 + 每 12h 独立定时器（未登录零请求；真机日志 `定时 Cookie 续期: not_needed`）（`caee67d`）
 - **密码登录契约 4 缺陷**：密文由 hex 改 base64、`seccode` 补 `|jordan`（幂等 helper）、
   `code:0 + data.status!=0` 判为风控失败（不再误报成功）、换票 URL 改 `exchange_cookie`（`dc434bb`）
+- **契约 ⑤⑥⑨**：每次提交前重取 key/salt（`-662` 自动重试一次）、极验字段补 `challenge`/`token`
+  并删掉不存在的 `captcha`/`captcha_type`、扫码三来源合并收全 5 个 Cookie（`03f5971`）
 - **评论接口迁移**：删除已废弃的 `/x/v2/reply/main`，`get_video_comments` 委托 `core/bilibili_comment.py`
   （`/reply/wbi/main` + 游标翻页，签名/风控/gaia 复用同一实现，输出契约不变）（`45fbaf1`）
+- **面板可见性修复**：预测回看默认筛选命中 0 行时自适应切到有数据的阈值/时间范围并说明；
+  异常检查 0 条时给出扫描范围与跳过原因（`a712952`）
 
 ### 🧪 测试与门禁
-- 本轮新增测试 **99 项**：`test_risk_control`(10)、`test_bili_ticket`(12)、`test_session_isolation`(5)、
+- 本里程碑新增测试 **110 项**：`test_risk_control`(10)、`test_bili_ticket`(12)、`test_session_isolation`(5)、
   `test_device_identity`(13)、`test_cookie_refresh`(14)、`test_w_webid`(11)、`test_gaia_vgate`(11)、
-  `test_comment_module`(10)、`test_risk_observability`(10)、`test_password_login_contract`(6)、
-  `test_get_video_comments`(7)
-- 全量 `pytest` **463 passed**；`black` 371 文件；`lint_gate` / `type_gate` 0 违规；
+  `test_comment_module`(10)、`test_risk_observability`(10)、`test_password_login_contract`(11)、
+  `test_get_video_comments`(7)、`test_panel_empty_states`(6)
+- 全量 `pytest` **474 passed**；`black` 372 文件；`lint_gate` / `type_gate` 0 违规；
   改 `core/` 后跑 `python scripts/update_hashes.py --hashes-only` + `python main.py` 启动冒烟
 
 ### ⬜ 尚未完成（摘要，详见 playbook §13）
 零登录监控（用户暂缓）、`buvid_fp`/`ExClimbWuzhi`（缺可验证向量）、`w_webid` 注入（无已验证注入点）、
-`CORE_FILES` 完整性清单决策、契约 §7 的 ⑤⑨ 健壮性补强（极验重提前重取 key/salt、扫码补 2 个 Cookie 键）。
+`CORE_FILES` 完整性清单决策、契约 §7 `token` 取证（是否需先调申请验证码接口）。
 
 ## Release 2026-09-03 (v3.2.0)
 
