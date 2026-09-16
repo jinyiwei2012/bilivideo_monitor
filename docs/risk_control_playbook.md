@@ -340,6 +340,7 @@ def _risk_response_header_voucher(self: Any, response: Any) -> bool:
 | §8 续期定时接入（启动后一次 + 12h） | `caee67d` | 真机启动日志 `定时 Cookie 续期: not_needed（服务端未要求续期）` |
 | 契约 §7 密码登录 ④⑥⑦⑧ 四处缺陷 | `dc434bb` | `tests/test_password_login_contract.py` 6 项 |
 | 契约 §7 的 ⑤⑥⑨（重取 key/salt / 极验字段 / 扫码 5 键） | `03f5971` | `tests/test_password_login_contract.py` 11 项（含 `-662` 重取重试、请求体无 `captcha`、跨来源合并 5 键） |
+| 契约 §2 `token` 取证 + 主动申请验证码 | `16668c8` | 13 项测试（缺 `gt`/`challenge` 时调 `/x/passport-login/captcha` 并把 `token`/`challenge` 一并提交） |
 | 面板「看不到信息」（预测回看无数据 / 异常检查无说明） | `a712952` | `tests/test_panel_empty_states.py` 6 项 + 真库复现（137 行渲染、扫描范围文案） |
 | 契约 §8 评论接口迁移（废弃端点 → 独立模块） | `45fbaf1` | `tests/test_get_video_comments.py` 7 项；`danmaku_analysis.py:350` 调用方不变 |
 
@@ -349,11 +350,11 @@ def _risk_response_header_voucher(self: Any, response: Any) -> bool:
 | 2 | **§9 零登录监控** | **用户明确要求暂缓**（2026-09） | `BilibiliAPI(with_cookies=False)` / `clone_anonymously()`；新增 `tests/test_anonymous_client.py`（匿名请求 Cookie 不含 `SESSDATA`/`bili_jct`，监控仍能取 `view` 数据） |
 | 3 | **§5 `w_webid` 注入** | 模块 + 日缓存已完成，但核查发现本项目通路（`/x/space/acc/info`、`/x/space/arc/search`）**非 WBI**，唯一已签名 WBI 是 UP 搜索（`core/bilibili_up.py:26`）→ 不拿在跑通路赌未知参数 | 先确认某接口确实要求 `w_webid`（对线上取证）再注入；注入必须用现成 `with_w_webid` 且放在 `_wbi_sign` **之前** |
 | 4 | **完整性清单决策** | `scripts/sign.py::CORE_FILES` 是显式清单，**不含** `device_identity` / `bili_ticket` / `cookie_refresh` / `w_webid` / `gaia_vgate` / `bilibili_comment`（已 grep 核实）→ 这 6 个模块被篡改不会触发启动完整性告警 | **需用户决策**：是否纳入（纳入须同步跑 `scripts/sign.py` 并提交清单变更） |
-| 5 | **契约 §7 的 `token` 取证** | ⑤⑨ 已修；`token` 契约称来自「申请验证码接口」，本仓未调用该接口 → 是否需要「先申请验证码再登录」尚未确定 | 取得权威实现证据后决定：若要，补一次申请验证码调用并把 `token`/`challenge` 一并透传；补测试断言请求体 |
+| 5 | **`\|jordan` 后缀的确认** | `token` 已取证落地；剩 `seccode` 的 `|jordan` 后缀：本仓契约要求，但公开实现均原样提交、检索无命中（出自历史 web 登录 JS） | 线上若出现「验证码正确却 `-105`」→ 优先试去掉该后缀；届时补一条开关 + 测试 |
 
 **已完成的验证基线**（下次改 `core/bilibili_*.py` 后必须复现）：
 `black --line-length=120 .`（**372 文件**）、`python scripts/lint_gate.py`、`python scripts/type_gate.py`、
-`python -m pytest tests/ -q`（**474 passed**）、`python scripts/update_hashes.py --hashes-only`、
+`python -m pytest tests/ -q`（**476 passed**）、`python scripts/update_hashes.py --hashes-only`、
 `python main.py` 启动 18-20s 无异常。
 
 

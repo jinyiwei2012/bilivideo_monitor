@@ -161,7 +161,7 @@ const getMixinKey = (orig) => mixinKeyEncTab.map(n => orig[n]).join('').slice(0,
 | 3 | WBI 密钥 600 s 缓存 | 同上 | 缓存命中/过期的单元测试 | ✅ 同上 |
 | 4 | 密码密文 base64 | `core/bilibili_auth.py::login_with_password` | 断言 `password` 为 base64（非 hex） | ✅ 已修 `dc434bb`（`base64.b64encode(...).decode()`） |
 | 5 | 每次提交前重取 key/salt | 同上 | 断言调用两次 key 接口 | ✅ 已修 `03f5971`（`_encrypt_password`；主提交与两条极验重提**各自重取**；`-662` 自动重取重算并重试一次） |
-| 6 | 极验 6 必填字段 + `seccode=\|jordan` | `_submit_geetest_login` / `_try_auto_geetest_login` | 断言请求体字段齐全 | ✅ 已修 `dc434bb` + `03f5971`（幂等 `_with_jordan`；`_geetest_fields` 透传 `challenge`/`token`；**删除契约说不存在的 `captcha`/`captcha_type`**）。⚠ `token` 契约称来自「申请验证码接口」（本仓未调用）→ 是否需先调该接口待外部取证 |
+| 6 | 极验 6 必填字段 + `seccode=\|jordan` | `_submit_geetest_login` / `_try_auto_geetest_login` | 断言请求体字段齐全 | ✅ 已修 `dc434bb` + `03f5971` + `16668c8`（幂等 `_with_jordan`；`_geetest_fields` 透传 `challenge`/`token`；**删除契约说不存在的 `captcha`/`captcha_type`**；缺 `gt`/`challenge` 时 `_fetch_captcha_challenge` 主动申请验证码）。⚠ `\|jordan` 后缀公开实现无佐证（详见下方注） |
 | 7 | 成功判定 `data.status` | `_password_login_result` / `login_with_password` | 风控响应不得返回"登录成功" | ✅ 已修 `dc434bb`（`status != 0` 直接返回失败且不写 Cookie） |
 | 8 | `exchange` → `exchange_cookie` | `_exchange_qr_refresh_token` | 断言请求 URL | ✅ 已修 `dc434bb` |
 | 9 | 扫码收全 5 个 Cookie | `_collect_qr_response_cookies` | 断言 5 键 | ✅ 已修 `03f5971`（`LOGIN_COOKIE_KEYS` 单一来源常量；三条兜底由「首个非空即返回」改为**跨来源合并**，收全 `SESSDATA`/`bili_jct`/`DedeUserID`/`DedeUserID__ckMd5`/`sid`） |
@@ -173,8 +173,18 @@ const getMixinKey = (orig) => mixinKeyEncTab.map(n => orig[n]).join('').slice(0,
 > **⑤⑥⑨ 已补强（`03f5971`）**：`_encrypt_password` 让主提交与两条极验重提**各自重取 key/salt**，
 > `-662` 自动重取重算并重试一次；`_geetest_fields` 统一极验字段并**删掉不存在的 `captcha`/`captcha_type`**
 > （`challenge` 在自动求解路径透传）；`LOGIN_COOKIE_KEYS` 成为登录 Cookie 键的单一来源，扫码三来源改为合并收全 5 键。
-> **唯一悬置**：`token` 契约称来自「申请验证码接口」，而本仓从未调用该接口 —— 是否必须先申请验证码再登录，
-> 待外部检索结论；当前实现只透传服务端明确给出的 `token`（不会构造）。
+> **`token` 已取证并落地（`16668c8`）**：申请验证码端点为
+> **`GET /x/passport-login/captcha?source=main_web`** → `data.token` + `data.geetest.{gt,challenge}`
+> （`bili_you`、`aaa1115910/bv`(MIT)、`pilipala`/`PiliPlus`、`bili_ticket_rush` 多个在维护实现一致；
+> 曾怀疑的 `/x/passport-login/web/captcha` 变体在公开代码中**查无使用**）；`token` 确为登录体字段
+> （`biliticket/transition-ticket` 的 `util/Login/__init__.py:195` 对 `/x/passport-login/web/login`
+> 提交 `username`/`password`/`keep`/`token`）。实现方式：失败响应未带 `gt`/`challenge` 时
+> 主动申请一次验证码后求解，并把 `token`/`challenge` 一并提交；申请失败则安静放弃。
+>
+> **仍待确认**：`seccode` 的 `|jordan` 后缀。本仓契约要求 `validate + "|jordan"`，但公开实现
+> （含 `bili_ticket_rush` 的短信登录）均为**原样提交** `seccode`，检索 `jordan` 在 B 站相关代码中无命中。
+> 该写法来自历史 web 登录 JS，保留现状并在测试中锁定；若线上出现 `-105`（验证码错误）且验证码本身有效，
+> 应优先怀疑此处。
 
 ## 8. 评论抓取（`x/v2/reply` 族）
 
