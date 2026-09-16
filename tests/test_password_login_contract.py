@@ -1,14 +1,17 @@
-"""密码登录契约回归测试（离线：假 API + 真实 RSA 密钥对，无网络）。
+"""密码登录 / 扫码登录契约回归测试（离线：假 API + 真实 RSA 密钥对，无网络）。
 
-覆盖 docs/bilibili_api_contract.md §7 表格中标记「未修」的 4 项缺陷修复：
-(a) 登录密码密文以 base64 提交（可 PKCS1v15 解回 hash+password，旧 hex 形式必失败）；
-(b) 极验 seccode 带 "|jordan" 后缀（手动/自动两条提交路径），且 _with_jordan 幂等；
-(c) code==0 但 data.status != 0 判为风控失败（message 含「风控」、不写 Cookie）；
-(d) refresh_token 换票 URL 为 /web/exchange_cookie（而非旧的 /web/exchange）。
+覆盖 `docs/bilibili_api_contract.md` §7 的实现项：
+(a) ④ 登录密码密文以 base64 提交（可 PKCS1v15 解回 hash+password，旧 hex 形式必失败）；
+(b) ⑥ 极验 seccode 带 "|jordan"、challenge/token 透传、**不发**不存在的 captcha/captcha_type；
+(c) ⑦ code==0 但 data.status != 0 判为风控失败（message 含「风控」、不写 Cookie）；
+(d) ⑧ refresh_token 换票 URL 为 /web/exchange_cookie（而非旧的 /web/exchange）；
+(e) ⑤ 每次提交前重取 key/salt：`-662` 重取重试一次；极验重提同样重取；
+(f) ⑨ 扫码三来源**合并**收全 5 个登录 Cookie（键集与 LOGIN_COOKIE_KEYS 同源）。
 """
 
 import base64
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlencode
 
 import pytest
 from cryptography.hazmat.backends import default_backend
@@ -17,6 +20,8 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 from core import bilibili_auth
 from core.bilibili_auth import (
+    LOGIN_COOKIE_KEYS,
+    _collect_qr_response_cookies,
     _exchange_qr_refresh_token,
     _password_login_result,
     _submit_geetest_login,
@@ -24,6 +29,14 @@ from core.bilibili_auth import (
     _with_jordan,
     login_with_password,
 )
+
+QR_FIVE: Dict[str, str] = {
+    "SESSDATA": "sd",
+    "bili_jct": "jc",
+    "DedeUserID": "111",
+    "DedeUserID__ckMd5": "md5-val",
+    "sid": "sid-val",
+}
 
 
 class _StubCookies:
@@ -55,16 +68,20 @@ class _StubResponse:
 
 
 class _StubSession:
-    """记录 post(url, data=...) 的会话替身，永远返回预设 payload。"""
+    """记录 post(url, data=...) 的会话替身；可给一串 payload（按调用顺序取，末尾重复）。"""
 
-    def __init__(self, payload: Dict[str, Any]) -> None:
-        self.payload = payload
+    def __init__(self, payload: Any) -> None:
+        self.payloads: List[Any] = list(payload) if isinstance(payload, list) else [payload]
         self.cookies = _StubCookies()
         self.posts: List[Dict[str, Any]] = []
 
     def post(self, url: str, **kwargs: Any) -> _StubResponse:
-        self.posts.append({"url": url, **kwargs})
-        return _StubResponse(self.payload)
+        idx = min(len(self.posts), len(self.payloads) - 1)
+        recorded = dict(kwargs)
+        if isinstance(recorded.get("data"), dict):
+            recorded["data"] = dict(recorded["data"])  # 快照：调用方改自己的 dict 不应污染已记录内容
+        self.posts.append({"url": url, **recorded})
+        return _StubResponse(self.payloads[idx])
 
 
 class _StubAPI:
@@ -76,15 +93,23 @@ class _StubAPI:
         self,
         *,
         key_payload: Optional[Dict[str, Any]] = None,
-        login_payload: Optional[Dict[str, Any]] = None,
+        key_payloads: Optional[List[Dict[str, Any]]] = None,
+        login_payload: Any = None,
     ) -> None:
-        self._key_payload = key_payload or {}
-        self.session = _StubSession(login_payload or {"code": -1, "message": "stub-stop"})
+        if key_payloads is not None:
+            self._key_payloads = list(key_payloads)
+        else:
+            self._key_payloads = [key_payload] if key_payload else [{}]
+        self.key_calls = 0
+        self.session = _StubSession(login_payload if login_payload is not None else {"code": -1, "message": "stub"})
         self._cookies: Dict[str, Any] = {}
         self._refresh_token = ""
 
     def _request(self, method: str, url: str, **kwargs: Any) -> Any:
-        return self._key_payload
+        payload = self._key_payloads[min(self.key_calls, len(self._key_payloads) - 1)]
+        if url.endswith("/web/key"):
+            self.key_calls += 1
+        return payload
 
     def _sanitize_cookies(self, cookies: Dict[str, Any]) -> Dict[str, Any]:
         return dict(cookies)
@@ -99,6 +124,15 @@ def _rsa_keypair() -> Tuple[str, rsa.RSAPrivateKey]:
         .decode()
     )
     return pem, private_key
+
+
+def _decrypt(posted: Dict[str, Any], private_key: rsa.RSAPrivateKey) -> str:
+    """解回 ``salt + password`` 明文。"""
+    ciphertext = base64.b64decode(posted["password"], validate=True)
+    return private_key.decrypt(ciphertext, padding.PKCS1v15()).decode()
+
+
+# ═══════════════ ④ 密文 base64 ═══════════════
 
 
 def test_password_ciphertext_is_base64_not_hex() -> None:
@@ -118,44 +152,59 @@ def test_password_ciphertext_is_base64_not_hex() -> None:
     login_with_password(api, "user@example.com", plain_password)
 
     assert len(api.session.posts) == 1
-    posted_password = api.session.posts[0]["data"]["password"]
-    ciphertext = base64.b64decode(posted_password, validate=True)
-    decrypted = private_key.decrypt(ciphertext, padding.PKCS1v15())
-    assert decrypted.decode() == hash_str + plain_password
+    assert _decrypt(api.session.posts[0]["data"], private_key) == hash_str + plain_password
+
+
+# ═══════════════ ⑥ 极验字段 ═══════════════
 
 
 def test_submit_geetest_seccode_carries_jordan_suffix() -> None:
-    """(b1) 手动极验重提：captcha "validate:seccode" 拆分后 seccode 必须带 "|jordan"。"""
-    api = _StubAPI()
-    result, raw = _submit_geetest_login(api, "https://example/login", "user", "enc-pass", "val-1:sec-1")
+    """(b1) 手动极验重提：seccode 带 "|jordan"、明文可解、不带不存在的 captcha 字段。"""
+    pem, private_key = _rsa_keypair()
+    api = _StubAPI(key_payload={"key": pem, "hash": "salt-1"})
+
+    result, _raw = _submit_geetest_login(api, "https://example/login", "user", "p@ss", "val-1:sec-1")
 
     assert result is None, "stub 响应 code!=0，不应判成功"
     posted = api.session.posts[0]["data"]
     assert posted["validate"] == "val-1"
     assert posted["seccode"] == "sec-1|jordan"
     assert posted["username"] == "user"
-    assert posted["password"] == "enc-pass"
+    assert _decrypt(posted, private_key) == "salt-1p@ss"
+    assert "captcha" not in posted and "captcha_type" not in posted, "契约 §2：不存在这两个字段"
+    assert api.key_calls == 1, "提交前必须重取 key/salt"
 
 
-def test_auto_geetest_seccode_carries_jordan_suffix(monkeypatch: pytest.MonkeyPatch) -> None:
-    """(b2) 自动求解路径：_auto_solve_geetest 返回的 seccode 同样补 "|jordan"。"""
-    api = _StubAPI()
+def test_auto_geetest_passes_challenge_and_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    """(b2) 自动求解路径：seccode 带 "|jordan"，服务端给的 challenge/token 必须透传。"""
+    pem, _private_key = _rsa_keypair()
+    api = _StubAPI(key_payload={"key": pem, "hash": "salt-2"})
     monkeypatch.setattr(bilibili_auth, "_auto_solve_geetest", lambda self, gt, challenge: ("v-auto", "s-auto"))
 
     result = _try_auto_geetest_login(
-        api, "https://example/login", "user", "enc-pass", {"data": {"gt": "g-1", "challenge": "c-1"}}
+        api,
+        "https://example/login",
+        "user",
+        "p@ss",
+        {"data": {"gt": "g-1", "challenge": "c-1", "token": "tok-1"}},
     )
 
     assert result is None, "stub 响应 code!=0，不应判成功"
     posted = api.session.posts[0]["data"]
     assert posted["validate"] == "v-auto"
     assert posted["seccode"] == "s-auto|jordan"
+    assert posted["challenge"] == "c-1"
+    assert posted["token"] == "tok-1"
+    assert "captcha" not in posted
 
 
 def test_with_jordan_is_idempotent() -> None:
     """(b3) 幂等：已带后缀不重复追加。"""
     assert _with_jordan("abc") == "abc|jordan"
     assert _with_jordan("abc|jordan") == "abc|jordan"
+
+
+# ═══════════════ ⑦ 风控 status ═══════════════
 
 
 def test_risk_control_status_forces_failure_and_skips_cookies(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -178,6 +227,9 @@ def test_risk_control_status_forces_failure_and_skips_cookies(monkeypatch: pytes
     assert ok["message"] == "登录成功"
 
 
+# ═══════════════ ⑧ 换票 URL ═══════════════
+
+
 def test_exchange_uses_exchange_cookie_endpoint() -> None:
     """(d) QR 换票必须打 /web/exchange_cookie（旧 /web/exchange 已失效）。"""
     api = _StubAPI()
@@ -189,3 +241,72 @@ def test_exchange_uses_exchange_cookie_endpoint() -> None:
     assert sess.posts[0]["url"] == "https://passport.bilibili.com/x/passport-login/web/exchange_cookie"
     assert sess.posts[0]["data"] == {"refresh_token": "rt-123"}
     assert cookies == {}
+
+
+# ═══════════════ ⑤ 每次提交前重取 key/salt ═══════════════
+
+
+def test_minus_662_refetches_key_and_retries_once() -> None:
+    """(e1) `-662`（盐过期）→ 重取 key/salt 重新加密后重试一次（契约验收：key 接口 ≥2 次）。"""
+    pem1, key1 = _rsa_keypair()
+    pem2, key2 = _rsa_keypair()
+    api = _StubAPI(
+        key_payloads=[{"key": pem1, "hash": "s1"}, {"key": pem2, "hash": "s2"}],
+    )
+    api.session = _StubSession([{"code": -662, "message": "时间戳过期"}, {"code": -2100, "message": "stop"}])
+
+    login_with_password(api, "u", "p@ss")
+
+    assert api.key_calls == 2, "必须重取一次 key/salt"
+    assert len(api.session.posts) == 2, "必须重试且只重试一次"
+    assert _decrypt(api.session.posts[0]["data"], key1) == "s1p@ss"
+    assert _decrypt(api.session.posts[1]["data"], key2) == "s2p@ss", "重试必须用新盐重新加密"
+
+
+def test_geetest_resubmit_refetches_key() -> None:
+    """(e2) 极验重提路径同样重取 key/salt（主提交 + 重提各一次）。"""
+    pem, key = _rsa_keypair()
+    api = _StubAPI(key_payload={"key": pem, "hash": "s"})
+    api.session = _StubSession([{"code": -2100, "message": "need geetest"}, {"code": -2100, "message": "stop"}])
+
+    login_with_password(api, "u", "p@ss", captcha="val-1:sec-1", captcha_type=-1)
+
+    assert api.key_calls == 2
+    assert len(api.session.posts) == 2
+    first, second = api.session.posts[0]["data"], api.session.posts[1]["data"]
+    assert first["validate"] == "val-1" and second["seccode"] == "sec-1|jordan"
+    assert "captcha" not in first and "captcha_type" not in first, "首个提交也不得带不存在的字段"
+
+
+# ═══════════════ ⑨ 扫码收全 5 个 Cookie ═══════════════
+
+
+def test_login_cookie_keys_are_the_five() -> None:
+    """(f1) 登录 Cookie 键名单是契约 §3 的 5 个（单一来源，防再次漂移）。"""
+    assert LOGIN_COOKIE_KEYS == ("SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid")
+
+
+def test_qr_redirect_url_provides_all_five() -> None:
+    """(f2) crossDomain 重定向 URL 带回全部 5 个键。"""
+    api = _StubAPI()
+    url = "https://passport.biligame.com/crossDomain?" + urlencode(QR_FIVE)
+
+    cookies = _collect_qr_response_cookies(api, _StubResponse({"code": 0}), {"url": url})
+
+    assert set(QR_FIVE) <= set(cookies)
+
+
+def test_qr_cookies_merge_across_sources() -> None:
+    """(f3) 三来源各给一部分时必须**合并**收全 5 个（旧实现「首个非空即返回」会丢键）。"""
+    api = _StubAPI()
+    resp = _StubResponse({"code": 0})
+    resp.cookies = {"sid": QR_FIVE["sid"]}
+    data = {
+        "url": "https://passport.biligame.com/crossDomain?"
+        + urlencode({"SESSDATA": "sd", "bili_jct": "jc", "DedeUserID": "111"}),
+        "cookie_info": {"cookies": [{"name": "DedeUserID__ckMd5", "value": QR_FIVE["DedeUserID__ckMd5"]}]},
+    }
+
+    cookies = _collect_qr_response_cookies(api, resp, data)
+
+    assert cookies == QR_FIVE, "必须从三处来源合并出完整 5 键"

@@ -16,6 +16,12 @@ from urllib.parse import urlparse, parse_qs
 logger = logging.getLogger(__name__)
 _persist_lock = threading.Lock()  # 防止并发写入 network_config.json
 
+# 密码登录端点（契约 §2：**每次提交前**都要重取 key/salt —— 盐有效期仅约 20s）
+_PWD_KEY_URL = "https://passport.bilibili.com/x/passport-login/web/key"
+_PWD_LOGIN_URL = "https://passport.bilibili.com/x/passport-login/web/login"
+# 登录必须收全的 Cookie 键（契约 §3：扫码经 Set-Cookie 下发这 5 个，缺一不可）
+LOGIN_COOKIE_KEYS = ("SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid")
+
 
 class _CredentialLike(Protocol):
     sessdata: str
@@ -162,17 +168,67 @@ def _with_jordan(seccode: str) -> str:
     return f"{seccode}|jordan"
 
 
+def _encrypt_password(self: Any, password: str) -> Optional[str]:
+    """取 key/salt 并加密密码（**每次提交前调用**：盐可能 20s 就过期，契约 §2）。
+
+    Returns:
+        base64 密文 ``base64(RSA(PKCS1v15, hash + password))``；取不到公钥时返回 ``None``
+    """
+    from cryptography.hazmat.backends import default_backend
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import padding, rsa
+
+    key_resp = self._request("GET", _PWD_KEY_URL)
+    if not key_resp or "key" not in key_resp:
+        return None
+    public_key = key_resp["key"]
+    salt = key_resp.get("hash", "")
+    pub_key_obj = cast(
+        rsa.RSAPublicKey,
+        serialization.load_pem_public_key(public_key.encode(), backend=default_backend()),
+    )
+    encrypted = pub_key_obj.encrypt((salt + password).encode(), padding.PKCS1v15())
+    return base64.b64encode(encrypted).decode()
+
+
+def _geetest_fields(validate: str, seccode: str, challenge: str = "", token: str = "") -> Dict[str, Any]:
+    """极验提交字段（契约 §2 必填表）。
+
+    契约明确 `captcha` / `captcha_type` **不存在**；正确字段是
+    `validate` / `seccode`(= validate + ``|jordan``) / `challenge` / `token`。
+    `challenge` / `token` 有值才带（只透传服务端给的值，绝不构造）。
+    """
+    fields: Dict[str, Any] = {"validate": validate, "seccode": _with_jordan(seccode)}
+    if challenge:
+        fields["challenge"] = challenge
+    if token:
+        fields["token"] = token
+    return fields
+
+
 def _submit_geetest_login(
-    self: Any, login_url: str, username: str, encrypted_password: str, captcha: str
+    self: Any,
+    login_url: str,
+    username: str,
+    password: str,
+    captcha: str,
+    challenge: str = "",
+    token: str = "",
 ) -> tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
+    """带极验票据提交登录（`captcha` 形如 ``"<validate>:<seccode>"``）。
+
+    提交前**重取 key/salt 重新加密**（契约 §2），避免用过期盐导致 `-662`。
+    """
+    encrypted_password = _encrypt_password(self, password)
+    if encrypted_password is None:
+        return None, {"code": -1, "message": "无法获取登录密钥"}
     validate, seccode = captcha.split(":", 1)
     login_data = {
         "username": username,
         "password": encrypted_password,
         "keep": 1,
         "source": "main_web",
-        "validate": validate,
-        "seccode": _with_jordan(seccode),
+        **_geetest_fields(validate, seccode, challenge, token),
     }
     resp = self.session.post(
         login_url,
@@ -206,8 +262,9 @@ def _submit_geetest_login(
 
 
 def _try_auto_geetest_login(
-    self: Any, login_url: str, username: str, encrypted_password: str, data: Dict[str, Any]
+    self: Any, login_url: str, username: str, password: str, data: Dict[str, Any]
 ) -> Optional[Dict[str, Any]]:
+    """自动求解极验后重提（提交前重取 key/salt 重新加密，契约 §2）。"""
     d = data.get("data", {})
     gt = d.get("gt", "")
     challenge = d.get("challenge", "")
@@ -217,13 +274,15 @@ def _try_auto_geetest_login(
     if not solved:
         return None
     validate, seccode = solved
+    encrypted_password = _encrypt_password(self, password)
+    if encrypted_password is None:
+        return None
     login_data = {
         "username": username,
         "password": encrypted_password,
         "keep": 1,
         "source": "main_web",
-        "validate": validate,
-        "seccode": _with_jordan(seccode),
+        **_geetest_fields(validate, seccode, challenge, str(d.get("token", "") or "")),
     }
     resp = self.session.post(
         login_url,
@@ -267,14 +326,9 @@ def _password_login_failure(data: Dict[str, Any], api_code: int, need_captcha: b
 def login_with_password(
     self: Any, username: str, password: str, captcha: str = "", captcha_type: int = 0
 ) -> Dict[str, Any]:
-    from cryptography.hazmat.primitives import serialization
-    from cryptography.hazmat.primitives.asymmetric import padding, rsa
-    from cryptography.hazmat.backends import default_backend
-
     try:
-        key_url = "https://passport.bilibili.com/x/passport-login/web/key"
-        key_resp = self._request("GET", key_url)
-        if not key_resp or "key" not in key_resp:
+        encrypted_password = _encrypt_password(self, password)
+        if encrypted_password is None:
             return {
                 "code": -1,
                 "message": "无法获取登录密钥",
@@ -284,28 +338,18 @@ def login_with_password(
                 "captcha_type": 0,
                 "captcha_phone": "",
             }
-        pubkey = key_resp["key"]
-        hash_str = key_resp.get("hash", "")
 
-        pub_key_obj = cast(
-            rsa.RSAPublicKey, serialization.load_pem_public_key(pubkey.encode(), backend=default_backend())
-        )
-        encrypted = pub_key_obj.encrypt(
-            (hash_str + password).encode(),
-            padding.PKCS1v15(),
-        )
-        encrypted_password = base64.b64encode(encrypted).decode()
-
-        login_url = "https://passport.bilibili.com/x/passport-login/web/login"
+        login_url = _PWD_LOGIN_URL
+        validate, seccode = captcha.split(":", 1) if ":" in captcha else ("", "")
+        # 契约 §2：不存在 captcha/captcha_type 字段；极验字段是 validate/seccode/challenge/token
+        geetest: Dict[str, Any] = _geetest_fields(validate, seccode) if validate else {}
         login_data = {
             "username": username,
             "password": encrypted_password,
             "keep": 1,
             "source": "main_web",
+            **geetest,
         }
-        if captcha:
-            login_data["captcha"] = captcha
-            login_data["captcha_type"] = captcha_type
 
         resp = self.session.post(
             login_url,
@@ -319,21 +363,40 @@ def login_with_password(
         data = resp.json()
         api_code = data.get("code", -1)
 
+        if api_code == -662:
+            # 盐过期（契约 §2：`-662` = 密码时间戳过期）→ 重取 key/salt 重算密文重试一次
+            retried = _encrypt_password(self, password)
+            if retried:
+                logger.debug("密码时间戳过期(-662)，重取 key/salt 后重试一次")
+                encrypted_password = retried
+                login_data["password"] = retried
+                resp = self.session.post(
+                    login_url,
+                    data=login_data,
+                    headers={
+                        "User-Agent": random.choice(self.USER_AGENTS),
+                        "Referer": "https://www.bilibili.com/",
+                    },
+                    timeout=15,
+                )
+                data = resp.json()
+                api_code = data.get("code", -1)
+
         if api_code == 0:
             d = data.get("data", {})
             result = _password_login_result(self, resp, d, include_sid=True)
             self._refresh_token = result["refresh_token"]
             return result
 
-        if captcha and captcha_type == -1 and ":" in captcha:
-            geetest_result, data = _submit_geetest_login(self, login_url, username, encrypted_password, captcha)
+        if captcha and ":" in captcha:
+            geetest_result, data = _submit_geetest_login(self, login_url, username, password, captcha)
             if geetest_result:
                 return geetest_result
             api_code = data.get("code", -1)
 
         need_captcha = data.get("need_captcha", False) or api_code in [-629, -352]
         if need_captcha and not captcha:
-            auto_result = _try_auto_geetest_login(self, login_url, username, encrypted_password, data)
+            auto_result = _try_auto_geetest_login(self, login_url, username, password, data)
             if auto_result:
                 return auto_result
         return _password_login_failure(data, api_code, need_captcha)
@@ -420,7 +483,7 @@ def _persist_cookies(self: Any, cookies: Dict[str, Any]) -> None:
 
 
 def _extract_login_cookies(self: Any, resp: Any, data: Dict[str, Any]) -> Dict[str, Any]:
-    wanted = ("SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid", "buvid3", "buvid4", "buvid_fp")
+    wanted = LOGIN_COOKIE_KEYS + ("buvid3", "buvid4", "buvid_fp")
     cookies: Dict[str, Any] = {}
 
     redirect_url = data.get("url", "")
@@ -509,30 +572,34 @@ def _apply_qr_poll_status(result: Dict[str, Any], data: Dict[str, Any]) -> bool:
 
 
 def _collect_qr_redirect_cookies(self: Any, resp: Any, data: Dict[str, Any]) -> Dict[str, Any]:
-    cookies = _extract_login_cookies(self, resp, data)
-    if not cookies:
-        redirect_url = data.get("url", "")
-        if redirect_url:
-            parsed = urlparse(redirect_url)
-            params = parse_qs(parsed.query)
-            cookies = {
-                k: params.get(k, [None])[0] for k in ("SESSDATA", "bili_jct", "DedeUserID") if params.get(k, [None])[0]
-            }
+    cookies = dict(_extract_login_cookies(self, resp, data))
+    # 重定向 URL 兜底：**合并**（不是覆盖），键集与 LOGIN_COOKIE_KEYS 同源（契约 §3 要求 5 个）
+    redirect_url = data.get("url", "")
+    if redirect_url:
+        params = parse_qs(urlparse(redirect_url).query)
+        for key in LOGIN_COOKIE_KEYS:
+            if key in cookies:
+                continue
+            value = params.get(key, [None])[0]
+            if value:
+                cookies[key] = value
     return cookies
 
 
 def _collect_qr_response_cookies(self: Any, resp: Any, data: Dict[str, Any]) -> Dict[str, Any]:
-    cookies = _collect_qr_redirect_cookies(self, resp, data)
-    if not cookies:
-        for ci in data.get("cookie_info", {}).get("cookies", []):
-            name = ci.get("name", "")
-            if name in ("SESSDATA", "bili_jct", "DedeUserID"):
-                cookies[name] = ci.get("value", "")
-    if not cookies:
-        for k in ("SESSDATA", "bili_jct", "DedeUserID"):
-            value = resp.cookies.get(k)
-            if value:
-                cookies[k] = value
+    """三种来源**合并**收全登录 Cookie（契约 §3：`Set-Cookie` 下发 5 个，缺一不可）。"""
+    cookies = dict(_collect_qr_redirect_cookies(self, resp, data))
+    for ci in data.get("cookie_info", {}).get("cookies", []):
+        name = ci.get("name", "")
+        value = ci.get("value", "")
+        if name in LOGIN_COOKIE_KEYS and name not in cookies and value:
+            cookies[name] = value
+    for key in LOGIN_COOKIE_KEYS:
+        if key in cookies:
+            continue
+        value = resp.cookies.get(key)
+        if value:
+            cookies[key] = value
     return cookies
 
 
