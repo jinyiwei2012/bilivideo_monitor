@@ -190,19 +190,6 @@ def test_add_video_fetch_is_registered_and_defers_api_teardown(monkeypatch):
     assert api.closed
 
 
-class _PersistentThread:
-    def __init__(self, name: str) -> None:
-        self.name = name
-        self.alive = True
-        self.join_calls: list[float] = []
-
-    def join(self, timeout: float = 0.0) -> None:
-        self.join_calls.append(timeout)
-
-    def is_alive(self) -> bool:
-        return self.alive
-
-
 class _PersistentPrecisionManager:
     def __init__(self) -> None:
         self.stop_calls = 0
@@ -221,26 +208,19 @@ def test_repeated_stop_polls_retain_all_persistent_owners(monkeypatch):
     """A timeout must not discard owners that a later shutdown poll must drain."""
     import ui.monitor._service as service
 
-    adhoc = _PersistentThread("adhoc")
     precision = _PersistentPrecisionManager()
-    monkeypatch.setattr(service, "_adhoc_threads", {adhoc})
     monkeypatch.setattr(service, "_precision_watch_manager", precision)
     monkeypatch.setattr(service, "_central_fetch_running", False)
 
     first = service._stop_all_workers()
     second = service._stop_all_workers()
-    expected = {"adhoc", "PrecisionWatch-BV1-100"}
-    assert expected.issubset(first)
-    assert expected.issubset(second)
-    assert service._adhoc_threads == {adhoc}
+    assert first == ["PrecisionWatch-BV1-100"]
+    assert second == ["PrecisionWatch-BV1-100"]
     assert service._precision_watch_manager is precision
-    assert adhoc.join_calls == [0.0, 0.0]
     assert precision.join_calls == [0.0, 0.0]
 
-    adhoc.alive = False
     precision.alive = False
     assert service._stop_all_workers() == []
-    assert service._adhoc_threads == set()
     assert service._precision_watch_manager is None
 
 

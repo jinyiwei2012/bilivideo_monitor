@@ -68,45 +68,9 @@ _central_fetch_lock = threading.Lock()
 _central_stop_event = threading.Event()  # 可中断的间隔等待（替代逐秒 sleep）
 _precision_watch_manager = None
 
-# 即弃型工作线程登记（弹幕拉取、手动拉取、集中拉取线程等），
-# 退出时统一 join，避免关闭数据库后仍有线程触碰连接/UI
-_adhoc_threads: set = set()
-_adhoc_lock = threading.Lock()
-
-
-def _track_thread(t: threading.Thread):
-    """登记一个即弃工作线程，退出清理时 join。返回 t 便于链式调用。"""
-    with _adhoc_lock:
-        _adhoc_threads.add(t)
-    return t
-
-
-def _untrack_thread(t: threading.Thread):
-    """线程自然结束后移除登记（由 wrapper 在 finally 中调用）"""
-    with _adhoc_lock:
-        _adhoc_threads.discard(t)
-
-
-def _start_tracked_thread(target, args=(), name=None):
-    """启动并登记一个守护线程；线程结束时自动注销登记。
-
-    注意: 线程在 t 赋值后才 start(),因此 wrapper 内引用 t 安全（非晚绑定问题）。
-    """
-
-    def _wrapper():
-        try:
-            target(*args)
-        finally:
-            _untrack_thread(t)
-
-    t = threading.Thread(target=_wrapper, daemon=True, name=name)
-    _track_thread(t)
-    t.start()
-    return t
-
 
 def _start_runtime_task(gui, target, args=(), name=None):
-    """Start a shutdown-aware registered task and retain legacy fallback tracking."""
+    """Start a shutdown-aware registered task."""
     return start_registered_task(gui, target, args, name)
 
 
@@ -512,7 +476,7 @@ def _stop_central_fetcher():
 
 
 def _stop_all_workers(gui=None):
-    """停止集中拉取、精确监视和登记的即弃线程（应用退出时调用）
+    """停止集中拉取和精确监视（应用退出时调用）
 
     主线程只做零等待存活轮询，避免多个慢任务累计阻塞 Qt 事件循环。未退出的
     owner 保留在各自容器中，由 ``on_exit`` 的后续轮询持续报告并延后资源关闭。
@@ -526,16 +490,6 @@ def _stop_all_workers(gui=None):
         gui._workers_stop_requested = True
     _stop_central_fetcher()
     alive = _stop_precision_watch_manager(timeout)
-
-    # join 登记的即弃线程（弹幕拉取、fetch-now）
-    with _adhoc_lock:
-        threads = list(_adhoc_threads)
-    for t in threads:
-        t.join(timeout=timeout)
-        if t.is_alive():
-            alive.append(t.name)
-    with _adhoc_lock:
-        _adhoc_threads.intersection_update({thread for thread in _adhoc_threads if thread.is_alive()})
     if gui is not None:
         alive.extend(drain_registered_tasks(gui))
     if alive:
