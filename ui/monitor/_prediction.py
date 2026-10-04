@@ -92,8 +92,8 @@ def _save_predictions_to_db(gui, bvid, current_view, results):
     """将预测结果写入视频库，并返回数据供中央库同步"""
     video_db = gui.video_dbs.get(bvid)
     rows = []
-    ensemble_data = None
-    coherence_rows: list[dict] = []
+    ensemble_data = _build_ensemble_sync_payload(results)
+    coherence_rows = _build_coherence_rows(results) if ensemble_data is not None else []
 
     if video_db:
         for name, r in results.items():
@@ -131,6 +131,39 @@ def _save_predictions_to_db(gui, bvid, current_view, results):
                 gui.log_panel.add_log("WARNING", f"批量保存预测记录失败 {bvid}: {e}")
 
     return rows, ensemble_data, coherence_rows
+
+
+def _build_ensemble_sync_payload(results: dict) -> Optional[dict]:
+    """构造中央库集成预测同步数据。"""
+    weighted = results.get("_weighted")
+    if not isinstance(weighted, dict):
+        return None
+    prediction = weighted.get("prediction")
+    if (
+        not isinstance(prediction, (int, float, np.integer, np.floating))
+        or not np.isfinite(prediction)
+        or float(prediction) <= 0
+    ):
+        return None
+    return {
+        "prediction": prediction,
+        "confidence": weighted.get("ensemble_confidence", 0),
+        "valid_algos": weighted.get("valid_algorithms", 0),
+        "total_algos": weighted.get("total_algorithms", 0),
+        "prediction_interval": weighted.get("prediction_interval"),
+        "surge_correction_applied": weighted.get("surge_correction_applied", False),
+        "surge_magnitude": weighted.get("surge_magnitude"),
+        "surge_type": weighted.get("surge_type", ""),
+    }
+
+
+def _build_coherence_rows(results: dict) -> list[tuple[str, Any]]:
+    """构造中央库算法共识度同步行。"""
+    return [
+        (name, r.get("coherence", 0))
+        for name, r in results.items()
+        if name != "_weighted" and "error" not in r and r.get("coherence")
+    ]
 
 
 def _merge_history(gui, bvid: str) -> list:
