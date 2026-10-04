@@ -133,8 +133,65 @@
 - 不加高覆盖率硬门槛；不删疑似重复算法；不动数据库结构——除非先有特征测试作保。
 - 不急于持久化全部运行缓存（bias / conformal / schedule）；先明确产品语义。
 
-## 三阶段路线图
+## 七、后续批次规划（首批未覆盖）
 
-1. **正确性与边界（2–4 周）**：第一批五包落地。
-2. **渐进解耦（4–8 周）**：AppState/AppActions、Repository、TaskSupervisor、算法执行策略。
-3. **数据与界面**：迁移统一 → 数据所有权 → Feature registry → UI 视觉重排。
+> 首批五包（第五节）覆盖 P0-1～P0-5 与 B2 最小切口；本节规划其余任务——B1、B3、B4、B5、B6、C1、C2、C3、D1、D2、D3 及尾巴项——的批次、顺序与验收。各任务的「问题 / 证据 / 风险」详见第二、三、四节，不再重复。
+
+### 批次总览
+
+| 批次 | 主题 | 覆盖 | 依赖 / 并行性 |
+|---|---|---|---|
+| 第二批 | 状态与任务骨架 | B3、B1、B6-a、C3（观测） | 依赖首批包 4 的状态机雏形；B6-b 可另行并行 |
+| 第三批 | 数据访问与迁移底座 | B4、B6-b、B5-a（审计） | B4 建议在第二批 AppState 迁移后启动 |
+| 第四批 | 数据所有权与组合根 | B5-b、算法执行策略、B2 完整化 | 依赖第三批的 Repository 与迁移器 |
+| 第五批 | 工程化与分发 | D1、D2、D3、尾巴项 | 完全独立，可与任一批并行 |
+| 第六批 | 界面演进 | C1、C2、（视觉重排可选） | 必须等第二～四批边界稳定后 |
+
+### 第二批：状态与任务骨架（建议最先启动）
+
+1. **B3 AppState/AppActions（逐个面板迁移）**〔核心〕
+   - `AppState(QObject)`：只读快照 + typed signals（`video_updated` / `selection_changed` / `prediction_updated`）；`AppActions` 承接增删 / 刷新 / 选择 / 推送。
+   - 迁移顺序：VideoListPanel → DetailPanel → PredictionPanel；逐面板可回退，顺手清 `self.gui.` 直摸（现状 117 处）与私有字段访问（如 `_cached_up_info`）。
+   - 验收：三个核心面板不再直持主窗；面板相关回归 + 全量门禁通过。
+2. **B1 TaskSupervisor**：I/O / 预测 / 持久化任务收拢为统一 supervisor；per-bvid single-flight（同视频仅一个在途预测）+ latest-wins；统一取消与异常收集。可分两步：先统一登记与 single-flight，再拆分类 executor。
+   - 验收：手动 + 定时 + warmup 并发触发的「预测风暴」不重复排队；退出收敛口径与包 4 一致。
+3. **B6-a 断环（小件，先行）**：`core/threshold_escalation.py:123,255` 的反向 `ui.helpers` 依赖移入中立模块；core 对 ui 零依赖。
+   - 验收：`core/` 内 import `ui` 零命中（grep）；相关测试通过。
+4. **C3 性能预算（先观测）**：采集启动→首帧 / 列表可用 / 首次数据 / 首次预测 / 单视频 P50·P95 / 队列长度 / RSS；依数据再决策重算法降频扩展、批量取权重、首屏轻量算法、模型延迟加载。
+   - 验收：可复现的基线数字 + 实测结论（写回本文档）。
+
+### 第三批：数据访问与迁移底座
+
+1. **B4 Repository 层**：`Monitor / Prediction / Viewer / ReadModel` 四仓库；UI 禁直连 SQLite（database_query、online_viewers_panel、monitor 现存越界点）；查询工具改注入只读连接工厂（`mode=ro`）。
+   - 验收：`ui/` 直连 sqlite3 零命中；相关功能回归通过。
+2. **B6-b 版本化迁移统一**：中央 / 视频 / 备份三套 schema 收敛为顺序迁移 + `schema_version` 表；备份恢复复用同一迁移器；失败中止并给出可恢复提示。
+   - 验收：新库 = 迁移序列产物；旧库升级路径（含 precision µs 字段）有测试。
+3. **B5-a 数据所有权（审计先行）**：建立一致性校验与同步游标；冻结「视频库=权威明细、中央库=可重建投影、备份=一致性快照」语义，不再新增双写路径。
+   - 验收：同步差异可量化报告；游标 / 版本表落地。
+
+### 第四批：数据所有权收口与组合根
+
+1. **B5-b 取消在线多路径双写**：监控 / 预测写入只做一次本地事务；中央投影走 outbox / 增量；备份改 SQLite backup 或一致性快照；取消逐条镜像 commit。
+   - 验收：故障注入后可重建中央库；不依赖跨库原子性。
+2. **算法执行策略正式化**：把包 3 的后置项落地为声明式（`STATELESS_SHARED / LOCKED_SHARED / PER_VIDEO`）+ 审计清单。
+3. **B2 完整化**：`app/bootstrap.py` 显式创建 DB / API / 通知 / 仓库 / 服务并注入；`core.__init__` 收敛为纯再导出。
+   - 验收：无副作用导入保持；替身可注入测试。
+
+### 第五批：工程化与分发（独立线，可随时并行）
+
+1. **D1 打包单轨**：spec 与 CI onefile 二选一（建议以 spec 为准）；打包冒烟（算法数 / 开库 / 离线预测 / 建窗）；同步 spec 模块清单（现「97」陈旧）。
+2. **D2 更新链信任根**：签名 manifest（Ed25519 + SHA-256）+ `.bak` 自动回滚；私钥迁出工作树（CI secret / HSM）；`sign --verify` 纳入发布流程。（安全相关，发布在即则提前并行。）
+3. **D3 CI 对齐**：本地 / CI flake8 规则一致；Windows 轻量矩阵；覆盖率与依赖扫描先观测、不设硬门槛。
+4. **尾巴项（机会性清理）**：`data/` 假 BV 测试残留（约 5.3MB）；日志保留 / 压缩策略（现仅按天改名）；ONNX 全局 broken 标志改按模型降级；死代码评审（`data_cleaner.py` 等）；`scripts/sync_data.py` 一次性脚本处置。
+
+### 第六批：界面演进（最后）
+
+1. **C1 Feature registry**：`FeatureDescriptor`（id / title / icon / category / factory / placement）收拢导航、齿轮菜单与 Dialogs（dialogs.py 现 30 处 `self.gui.`）。
+2. **C2 样式与组件收口**：911 处局部 setStyleSheet 组件化（Card / ToolbarButton / MetricLabel + dynamic property）；补字号 / 间距令牌；统一 `clear_layout`（21 处散落 deleteLater）；抽 BarTrend / Pie / Radar 公共图表。
+3. **视觉重排（可选项）**：侧导航 + 中央工作区 + 可折叠 inspector——建议前两步稳定后再评估。
+
+### 阶段映射与护栏
+
+- **映射**：第二批 ≈ 状态先行；第三 / 四批 ≈ 数据与组合根（对应原路线「渐进解耦」与「迁移统一」）；第五批 ≈ 并行工程化；第六批 ≈ 界面演进（原路线第 3 阶段的 UI 部分）。
+- **护栏**：先特征测试、后实现；小步提交、可回退；不与数据库结构迁移并行；不触碰完整性保护文件；每批收尾五道门禁（black / lint_gate / type_gate / bandit / pytest）。
+- **独立并行线**：风控 §13 余项（buvid_fp / w_webid 注入 / 完整性清单更新 / |jordan 求证）以 `docs/risk_control_playbook.md` 为准；测试盲区（utils、core/up_database、training 面板等）随批次顺带补齐，不单立项。
