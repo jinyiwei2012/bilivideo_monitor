@@ -127,6 +127,9 @@ class Database:
                     viewers_web INTEGER DEFAULT 0,
                     viewers_total INTEGER DEFAULT 0,
                     like_view_ratio REAL DEFAULT 0,
+                    observed_at_us INTEGER,
+                    request_start_us INTEGER,
+                    rtt_us INTEGER,
                     FOREIGN KEY (bvid) REFERENCES videos(bvid)
                 )
             """)
@@ -256,6 +259,9 @@ class Database:
                 ("viewers_web", "INTEGER DEFAULT 0"),
                 ("viewers_total", "INTEGER DEFAULT 0"),
                 ("like_view_ratio", "REAL DEFAULT 0"),
+                ("observed_at_us", "INTEGER"),
+                ("request_start_us", "INTEGER"),
+                ("rtt_us", "INTEGER"),
             ],
             "predictions": [
                 ("predicted_views", "INTEGER DEFAULT 0"),

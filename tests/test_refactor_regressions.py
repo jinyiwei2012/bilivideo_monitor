@@ -2299,13 +2299,18 @@ class TestPersistSettings:
             (_W(text="abc"), _W(text="x"), None),  # 非法 → 跳过
         ]
         fake._ai_profile_cb = _W(current_text="p1")
+        fake.ntp_enabled = _W(checked=True)
+        fake.ntp_apply_to_records = _W(checked=True)
+        fake.ntp_servers = _W(text="ntp.aliyun.com, ntp.tencent.com")
+        fake.ntp_auto_sync_hours = _W(value=6)
 
         # 静态方法直接挂；实例方法用 MethodType 绑定
-        static_names = ("_text_or_value",)
+        static_names = ("_text_or_value", "_ntp_servers_from_text")
         instance_names = (
             "_collect_onebot_cfg",
             "_collect_webhooks",
             "_collect_thresholds",
+            "_collect_ntp_settings",
             "_encrypt_secrets",
             "_restore_secrets",
             "_persist_settings",
@@ -2347,6 +2352,7 @@ class TestPersistSettings:
         assert saved["prediction"]["prediction_hours"] == 24
         assert saved["prediction"]["min_confidence"] == 0.6
         assert saved["notification"]["webhooks"] == [{"name": "n1", "type": "generic", "url": "http://w"}]
+        assert saved["ntp"]["servers"] == ["ntp.aliyun.com", "ntp.tencent.com"]
         assert [t[0] for t in saved["prediction"]["thresholds"]] == [100000], "非法阈值行应跳过"
         assert saved["prediction"]["thresholds"][0][1], "空名称应自动命名"
         assert saved["ai"]["enabled"] is True

@@ -51,6 +51,9 @@ class MonitorRecord:
     viewers_web: int = 0  # 网页端观看人数
     viewers_total: int = 0  # 总观看人数
     like_view_ratio: float = 0.0  # 播赞比
+    observed_at_us: int | None = None  # API 响应边界的 Unix 微秒
+    request_start_us: int | None = None  # API 请求开始的 Unix 微秒
+    rtt_us: int | None = None  # API 请求往返耗时微秒
 
 
 @dataclass

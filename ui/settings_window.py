@@ -38,6 +38,7 @@ from ui.settings_ai import SettingsAIMixin
 from ui.settings_weights import SettingsWeightsMixin
 from ui.settings_training import SettingsTrainingMixin
 from ui.settings_about import SettingsAboutMixin
+from ui.settings_ntp import SettingsNtpMixin
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +54,7 @@ class SettingsWindow(
     SettingsAIMixin,
     SettingsWeightsMixin,
     SettingsTrainingMixin,
+    SettingsNtpMixin,
     SettingsAboutMixin,
 ):
     """统一设置窗口 — PyQt6 版"""
@@ -189,6 +191,7 @@ class SettingsWindow(
         self._build_ai_tab(self._tabs)
         self._build_weights_tab(self._tabs)
         self._build_training_tab(self._tabs)
+        self._build_ntp_tab(self._tabs)
         self._build_proxy_tab(self._tabs)
         self._build_account_tab(self._tabs)
         self._build_about_tab(self._tabs)
@@ -261,6 +264,8 @@ class SettingsWindow(
                 return False
         except ValueError:
             QMessageBox.critical(self.dlg, "呜…没通过验证", "最小置信度要填数字哦 ♪")
+            return False
+        if not self._validate_ntp_settings():
             return False
         return True
 
@@ -359,6 +364,7 @@ class SettingsWindow(
         self._cfg["monitor"]["max_monitor_count"] = max_m
         self._cfg["prediction"]["prediction_hours"] = pred_hours
         self._cfg["prediction"]["min_confidence"] = confidence
+        self._collect_ntp_settings()
 
         # 可选开关（部分设置页可能未构建对应控件）
         if hasattr(self, "auto_escalate"):
@@ -394,6 +400,12 @@ class SettingsWindow(
         from core.proxy_manager import ProxyManager
 
         notification_manager.configure(self._cfg)
+        try:
+            from utils.ntp_time import refresh_config
+
+            refresh_config(self._cfg.get("ntp", {}))
+        except Exception as e:
+            logger.debug("应用 NTP 配置失败: %s", e)
 
         # 同步 SSL 验证设置
         ProxyManager.ssl_verify = self._net_cfg.get("ssl_verify", False)

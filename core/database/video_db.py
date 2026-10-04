@@ -156,7 +156,10 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
                 viewers_app INTEGER DEFAULT 0,
                 viewers_web INTEGER DEFAULT 0,
                 viewers_total INTEGER DEFAULT 0,
-                like_view_ratio REAL DEFAULT 0
+                like_view_ratio REAL DEFAULT 0,
+                observed_at_us INTEGER,
+                request_start_us INTEGER,
+                rtt_us INTEGER
             )
         """,
             False,
@@ -206,6 +209,32 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
         ("CREATE INDEX IF NOT EXISTS idx_algo_perf_algorithm ON algorithm_performance(algorithm)", False),
         ("CREATE INDEX IF NOT EXISTS idx_algo_perf_bvid ON algorithm_performance(bvid)", False),
         ("CREATE INDEX IF NOT EXISTS idx_monitor_timestamp ON monitor_records(timestamp)", False),
+        (
+            """
+            CREATE TABLE IF NOT EXISTS crossing_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                threshold INTEGER NOT NULL,
+                display_window_start TIMESTAMP NOT NULL,
+                display_window_end TIMESTAMP NOT NULL,
+                range_start TIMESTAMP NOT NULL,
+                range_end TIMESTAMP NOT NULL,
+                estimate TIMESTAMP NOT NULL,
+                period_lo REAL,
+                period_hi REAL,
+                refined_start TIMESTAMP,
+                refined_end TIMESTAMP,
+                request_count INTEGER DEFAULT 0,
+                rtt_median_us INTEGER,
+                corrected_range_start TIMESTAMP,
+                corrected_range_end TIMESTAMP,
+                corrected_estimate TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(threshold)
+            )
+        """,
+            False,
+        ),
+        ("CREATE INDEX IF NOT EXISTS idx_crossing_threshold ON crossing_events(threshold)", False),
         (
             """
             CREATE TABLE IF NOT EXISTS weekly_scores (
@@ -318,6 +347,8 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
                 self._migrate_scores_unique(conn)
                 cursor.execute("PRAGMA user_version = 4")
 
+            self._migrate_precision_columns(cursor)
+
             conn.commit()
 
     def _migrate_scores_unique(self, conn: sqlite3.Connection) -> None:
@@ -364,6 +395,7 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
         try:
             mirror_cur = self._mirror_conn.cursor()
             self._apply_schema(mirror_cur)
+            self._migrate_precision_columns(mirror_cur)
             self._mirror_conn.commit()
         except Exception as e:
             logger.warning("初始化镜像数据库表失败 %s: %s", self.bvid, e, exc_info=True)
@@ -402,6 +434,9 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
                 ("viewers_web", "INTEGER DEFAULT 0"),
                 ("viewers_total", "INTEGER DEFAULT 0"),
                 ("like_view_ratio", "REAL DEFAULT 0"),
+                ("observed_at_us", "INTEGER"),
+                ("request_start_us", "INTEGER"),
+                ("rtt_us", "INTEGER"),
             ],
             "predictions": [
                 ("metadata", "TEXT DEFAULT ''"),
@@ -438,6 +473,29 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
                         cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_def}")
                     except Exception as e:
                         logger.warning(f"迁移失败 {table}.{col_name}: {e}")
+
+    @staticmethod
+    def _migrate_precision_columns(cursor: sqlite3.Cursor) -> None:
+        """补充不改变既有字段语义的精确时间列。"""
+        upgrades = {
+            "monitor_records": (
+                ("observed_at_us", "INTEGER"),
+                ("request_start_us", "INTEGER"),
+                ("rtt_us", "INTEGER"),
+            ),
+            "crossing_events": (
+                ("rtt_median_us", "INTEGER"),
+                ("corrected_range_start", "TIMESTAMP"),
+                ("corrected_range_end", "TIMESTAMP"),
+                ("corrected_estimate", "TIMESTAMP"),
+            ),
+        }
+        for table, columns in upgrades.items():
+            cursor.execute(f"PRAGMA table_info({table})")
+            existing = {row["name"] for row in cursor.fetchall()}
+            for column, definition in columns:
+                if column not in existing:
+                    cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
     def _migrate_compute_values(self, cursor: sqlite3.Cursor) -> None:
         """自动计算缺失的数值字段
@@ -545,8 +603,9 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
             INSERT INTO monitor_records
             (timestamp, view_count, like_count, coin_count, share_count,
              favorite_count, danmaku_count, reply_count, viewers_app,
-             viewers_web, viewers_total, like_view_ratio)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             viewers_web, viewers_total, like_view_ratio, observed_at_us,
+             request_start_us, rtt_us)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
         params = (
             record.timestamp,
@@ -561,6 +620,9 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
             record.viewers_web,
             record.viewers_total,
             record.like_view_ratio,
+            record.observed_at_us,
+            record.request_start_us,
+            record.rtt_us,
         )
         try:
             with self._get_connection() as conn:
@@ -590,6 +652,56 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
         except Exception as e:
             logger.warning("清理旧监控记录失败 %s: %s", self.bvid, e, exc_info=True)
             return 0
+
+    def insert_crossing_event(self, event: dict[str, Any]) -> bool:
+        """按阈值写入精确过线事件，重复阈值保持首条结果。"""
+        sql = """
+            INSERT OR IGNORE INTO crossing_events
+            (threshold, display_window_start, display_window_end, range_start,
+             range_end, estimate, period_lo, period_hi, refined_start,
+             refined_end, request_count, rtt_median_us, corrected_range_start,
+             corrected_range_end, corrected_estimate)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
+        params = (
+            event.get("threshold", 0),
+            event.get("display_window_start"),
+            event.get("display_window_end"),
+            event.get("range_start"),
+            event.get("range_end"),
+            event.get("estimate"),
+            event.get("period_lo"),
+            event.get("period_hi"),
+            event.get("refined_start"),
+            event.get("refined_end"),
+            event.get("request_count", 0),
+            event.get("rtt_median_us"),
+            event.get("corrected_range_start"),
+            event.get("corrected_range_end"),
+            event.get("corrected_estimate"),
+        )
+        try:
+            with self._get_connection() as conn:
+                conn.execute(sql, params)
+                conn.commit()
+            self._exec_mirror(sql, params)
+            return True
+        except Exception as e:
+            logger.warning("保存精确过线事件失败 %s: %s", self.bvid, e, exc_info=True)
+            return False
+
+    def get_crossing_event(self, threshold: int) -> dict[str, Any] | None:
+        """返回指定阈值最近的精确过线事件。"""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.execute(
+                    "SELECT * FROM crossing_events WHERE threshold = ? ORDER BY id DESC LIMIT 1", (threshold,)
+                )
+                row = cursor.fetchone()
+                return dict(row) if row else None
+        except Exception as e:
+            logger.debug("读取精确过线事件失败 %s/%s: %s", self.bvid, threshold, e)
+            return None
 
     def _prediction_sql(self, row: dict) -> tuple:
         """构造 predictions 写入的 (SQL, params), 主库/镜像库共用。"""

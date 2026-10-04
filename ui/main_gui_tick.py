@@ -13,6 +13,8 @@ from PyQt6.QtCore import QTimer
 
 from ui.invoker import invoke
 from ui.theme import C
+from config import load_config
+from utils.ntp_time import get_status, refresh_config, sync_now
 from utils.thread_utils import fire_and_forget
 from utils.time_utils import format_ts
 
@@ -33,6 +35,7 @@ def start_global_tick(gui):
     # 风控观测（每 5s）+ Cookie 续期（启动后一次 + 每 12h）走独立定时器，
     # 不挤进 1s tick（那里只负责倒计时/周期维护）
     start_risk_timers(gui)
+    start_ntp_timer(gui)
     gui._global_tick_timer = QTimer(gui)
     gui._global_tick_timer.setInterval(1000)
     gui._global_tick_timer.timeout.connect(lambda: global_tick(gui))
@@ -44,7 +47,7 @@ def stop_global_tick(gui):
     if gui._global_tick_timer:
         gui._global_tick_timer.stop()
         gui._global_tick_timer = None
-    for attr in ("_risk_timer", "_cookie_renew_timer"):
+    for attr in ("_risk_timer", "_cookie_renew_timer", "_ntp_timer"):
         timer = getattr(gui, attr, None)
         if timer is not None:
             timer.stop()
@@ -229,6 +232,34 @@ def start_risk_timers(gui) -> None:
     gui._cookie_renew_timer = renew_timer
 
     _maybe_renew_cookies(gui)  # 启动后一次（未登录时零请求）
+
+
+def _ntp_tick() -> None:
+    """重载 NTP 配置，并在到期时把同步任务交给后台线程。"""
+    config = load_config()
+    section = config.get("ntp", {})
+    refresh_config(section if isinstance(section, dict) else {})
+    if not isinstance(section, dict) or not section.get("enabled", False):
+        return
+    status = get_status()
+    if bool(status["sync_due"]):
+        fire_and_forget(sync_now, name="ntp-sync")
+
+
+def start_ntp_timer(gui) -> None:
+    """启动 NTP 配置轮询定时器，启动后五秒额外尝试一次同步。"""
+    old = getattr(gui, "_ntp_timer", None)
+    if old is not None:
+        old.stop()
+    config = load_config()
+    section = config.get("ntp", {})
+    refresh_config(section if isinstance(section, dict) else {})
+    timer = QTimer(gui)
+    timer.setInterval(300_000)
+    timer.timeout.connect(_ntp_tick)
+    timer.start()
+    gui._ntp_timer = timer
+    QTimer.singleShot(5000, _ntp_tick)
 
 
 def global_tick(gui):

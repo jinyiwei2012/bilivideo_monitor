@@ -9,6 +9,7 @@ import threading
 import time
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from datetime import datetime
 
 from PyQt6.QtCore import QTimer
@@ -18,6 +19,7 @@ from ui.invoker import invoke
 
 from core import bilibili_api, db, MonitorRecord
 from utils.thread_utils import fire_and_forget
+from utils.ntp_time import record_now
 from utils.time_utils import format_ts
 from ui.helpers import _parse_viewer_count
 
@@ -25,12 +27,35 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_FETCH_INTERVAL = 75  # 集中拉取间隔（秒）
 
+
+@dataclass(frozen=True)
+class ObservationTiming:
+    """一次播放量观测在 API 响应边界处捕获的时间信息。"""
+
+    observed_at: datetime
+    request_started_at: datetime
+    rtt_s: float
+
+    @property
+    def observed_at_us(self) -> int:
+        return round(self.observed_at.timestamp() * 1_000_000)
+
+    @property
+    def request_start_us(self) -> int:
+        return round(self.request_started_at.timestamp() * 1_000_000)
+
+    @property
+    def rtt_us(self) -> int:
+        return round(max(0.0, self.rtt_s) * 1_000_000)
+
+
 # ── 模块级状态 ──
 _merged_from_db: set[str] = set()
 _merged_from_db_lock = threading.Lock()
 _central_fetch_running = False
 _central_fetch_lock = threading.Lock()
 _central_stop_event = threading.Event()  # 可中断的间隔等待（替代逐秒 sleep）
+_precision_watch_manager = None
 
 _predictors: dict = {}  # bvid → VideoPredictor
 _predictors_lock = threading.Lock()
@@ -261,18 +286,26 @@ def _update_video_viewers(gui, bvid, video, info):
         _retain_viewer_counts(video)
 
 
-def _append_history(gui, bvid, video, ts):
+def _coerce_observation_timing(timing: ObservationTiming | datetime) -> ObservationTiming:
+    if isinstance(timing, ObservationTiming):
+        return timing
+    return ObservationTiming(timing, timing, 0.0)
+
+
+def _append_history(gui, bvid, video, timing: ObservationTiming | datetime):
+    timing = _coerce_observation_timing(timing)
     if bvid not in gui.history_data:
         gui.history_data[bvid] = []
-    gui.history_data[bvid].append((ts, video["view_count"]))
+    gui.history_data[bvid].append((timing.observed_at, video["view_count"]))
     if len(gui.history_data[bvid]) > 1000:
         gui.history_data[bvid] = gui.history_data[bvid][-800:]
 
 
-def _monitor_record(bvid, video, ts):
+def _monitor_record(bvid, video, timing: ObservationTiming | datetime):
+    timing = _coerce_observation_timing(timing)
     return MonitorRecord(
         bvid=bvid,
-        timestamp=format_ts(ts),
+        timestamp=format_ts(timing.observed_at),
         view_count=video["view_count"],
         like_count=video["like_count"],
         coin_count=video["coin_count"],
@@ -283,24 +316,28 @@ def _monitor_record(bvid, video, ts):
         viewers_total=video.get("viewers_total", 0),
         viewers_web=video.get("viewers_web", 0),
         viewers_app=video.get("viewers_app", 0),
+        observed_at_us=timing.observed_at_us,
+        request_start_us=timing.request_start_us,
+        rtt_us=timing.rtt_us,
     )
 
 
-def _save_monitor_record(gui, bvid, video, ts):
+def _save_monitor_record(gui, bvid, video, timing: ObservationTiming | datetime):
     try:
         if bvid in gui.video_dbs:
-            gui.video_dbs[bvid].add_monitor_record(_monitor_record(bvid, video, ts))
+            gui.video_dbs[bvid].add_monitor_record(_monitor_record(bvid, video, timing))
             # 分数改为惰性物化（utils.score_materializer.ensure_scores），不再每抓取写入
     except Exception as e:
         gui.log_panel.add_log("WARNING", f"[{bvid}] 写数据库失败: {e}")
 
 
-def _sync_monitor_record(gui, bvid, video, ts):
+def _sync_monitor_record(gui, bvid, video, timing: ObservationTiming | datetime):
+    timing = _coerce_observation_timing(timing)
     try:
         db.sync_monitor_record(
             bvid,
             {
-                "timestamp": format_ts(ts),
+                "timestamp": format_ts(timing.observed_at),
                 "view_count": video["view_count"],
                 "like_count": video["like_count"],
                 "coin_count": video["coin_count"],
@@ -311,6 +348,9 @@ def _sync_monitor_record(gui, bvid, video, ts):
                 "viewers_total": video.get("viewers_total", 0),
                 "viewers_web": video.get("viewers_web", 0),
                 "viewers_app": video.get("viewers_app", 0),
+                "observed_at_us": timing.observed_at_us,
+                "request_start_us": timing.request_start_us,
+                "rtt_us": timing.rtt_us,
             },
         )
     except Exception as e:
@@ -347,12 +387,67 @@ def _notify_predictor(gui, bvid, video):
         predictor.notify()
 
 
+def _precision_fetch(bvid):
+    info = bilibili_api.get_video_info(bvid)
+    return info or {}
+
+
+def _precision_persist(gui, bvid, event):
+    video_db = gui.video_dbs.get(bvid)
+    if video_db is not None:
+        video_db.insert_crossing_event(dict(event))
+
+
+def _start_precision_watch_manager(gui):
+    global _precision_watch_manager
+    if _precision_watch_manager is not None:
+        return
+    from config import load_config
+    from ui.monitor._precision_watch import PrecisionWatchManager
+
+    cfg = load_config().get("precision_watch", {})
+    _precision_watch_manager = PrecisionWatchManager(
+        _precision_fetch,
+        lambda bvid, event: _precision_persist(gui, bvid, event),
+        **cfg,
+    )
+
+
+def _offer_precision_watch(bvid, current_views):
+    manager = _precision_watch_manager
+    if manager is None:
+        return
+    try:
+        from ui.helpers import THRESHOLDS
+
+        for threshold in sorted(THRESHOLDS):
+            if current_views < threshold:
+                manager.offer(bvid, current_views, threshold)
+                break
+    except Exception as e:
+        logger.debug("精确过线监视派发失败 %s: %s", bvid, e)
+
+
+def _stop_precision_watch_manager():
+    global _precision_watch_manager
+    manager = _precision_watch_manager
+    _precision_watch_manager = None
+    if manager is not None:
+        manager.stop()
+        manager.join()
+
+
 def _fetch_one_video(gui, bvid, video):
     """拉取单个视频数据：API → 更新字段 → 在线人数 → 历史记录 → 写DB → UI 回调 → 分发预测"""
     _log_fetch_route(gui, bvid)
+    t0_mono = time.monotonic()
+    t0_wall = record_now()
     info = _get_video_info(gui, bvid)
+    t1_mono = time.monotonic()
+    observed_at = record_now()
     if info is None:
         return
+    timing = ObservationTiming(observed_at, t0_wall, t1_mono - t0_mono)
     stat = info.get("stat", {})
 
     with gui._data_lock:
@@ -363,15 +458,14 @@ def _fetch_one_video(gui, bvid, video):
         _update_video_viewers(gui, bvid, video, info)
 
     # 写入历史记录
-    ts = datetime.now()
     with gui._data_lock:
-        _append_history(gui, bvid, video, ts)
+        _append_history(gui, bvid, video, timing)
 
     # 写入视频库
-    _save_monitor_record(gui, bvid, video, ts)
+    _save_monitor_record(gui, bvid, video, timing)
 
     # 同步中央库
-    _sync_monitor_record(gui, bvid, video, ts)
+    _sync_monitor_record(gui, bvid, video, timing)
 
     # 同步视频信息到中央库
     _sync_video_info(gui, bvid, video)
@@ -381,6 +475,7 @@ def _fetch_one_video(gui, bvid, video):
 
     # 阈值突破检测 + 自动扩档（仅在播放量有效时执行；A1）
     _check_video_thresholds(gui, bvid, video)
+    _offer_precision_watch(bvid, video["view_count"])
 
     # 主线程 UI 更新（通过 _invoker 跨线程安全调用）
     invoke(lambda v=video.copy(), b=bvid: _on_fetch_done(gui, b, v))
@@ -471,6 +566,7 @@ def _start_central_fetcher(gui):
             return
         _central_fetch_running = True
     _central_stop_event.clear()
+    _start_precision_watch_manager(gui)
 
     gui.log_panel.add_log("INFO", f"集中拉取已启动，每 {DEFAULT_FETCH_INTERVAL}s 拉取所有视频")
 
@@ -505,6 +601,7 @@ def _stop_all_workers():
     由守护线程属性保证进程可正常退出，避免数据库关闭后线程越界访问。
     """
     _stop_central_fetcher()
+    _stop_precision_watch_manager()
     _stop_all_predictors()
 
     # join 登记的即弃线程（弹幕拉取、fetch-now）

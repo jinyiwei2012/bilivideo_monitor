@@ -232,6 +232,17 @@ class TestSingleDisplayFunnel:
             assert w3.dlg.isVisible() is True, "关闭后再次调用应能重新显示（不被保活残留挡住）"
         finally:
             sc._window_ref = None
+            window = locals().get("w1")
+            if window is not None:
+                # 确定性收尾：先排空绘制事件，再隐藏并立即销毁；
+                # 否则窗口会留到后续测试的事件冲刷中被析构（offscreen 下曾触发原生崩溃）。
+                qapp.processEvents()
+                window.dlg.close()
+                window.dlg.deleteLater()
+                from PyQt6.QtCore import QEvent
+
+                qapp.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+                qapp.processEvents()
             import ui.dialog_host as dh
 
             dh.forget(dh.QDialog)
@@ -257,7 +268,13 @@ class TestSingleDisplayFunnel:
         window.show()
 
         assert calls == ["reload", "selection", "present"], calls
+        # 确定性收尾：隐藏后立即销毁并冲刷事件队列，避免残留窗口在后续测试中被析构。
         window.dlg.close()
+        window.dlg.deleteLater()
+        from PyQt6.QtCore import QEvent
+
+        qapp.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        qapp.processEvents()
 
     def test_report_scheduler_constructor_is_pure(self, qapp, clean_registry):
         """构造函数只做初始化：不显示、不登记保活（显示由 open_report_scheduler 的 present 负责）。"""

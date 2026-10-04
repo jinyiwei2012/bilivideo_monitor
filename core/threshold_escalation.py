@@ -170,6 +170,22 @@ def _send(title: str, body: str) -> None:
         logger.debug("通知发送失败: %s", e)
 
 
+def _precise_crossing_line(gui: Any, bvid: str, threshold: int) -> str:
+    """读取已持久化的精确过线结果并生成通知附加行。"""
+    try:
+        video_db = getattr(gui, "video_dbs", {}).get(bvid) if gui is not None else None
+        row = video_db.get_crossing_event(threshold) if video_db is not None else None
+        if not row:
+            return ""
+        start = row.get("refined_start") or row.get("range_start")
+        end = row.get("refined_end") or row.get("range_end")
+        if start and end:
+            return f"\n精确过线区间: {start} ～ {end}"
+    except Exception as e:
+        logger.debug("读取精确过线结果失败 %s/%s: %s", bvid, threshold, e)
+    return ""
+
+
 def check_thresholds(gui: Any, bvid: str, video: dict[str, Any], current_views: int) -> _ThresholdResult:
     """在每次 fetch 后调用：检查阈值突破 + 自动扩档。
 
@@ -198,6 +214,7 @@ def check_thresholds(gui: Any, bvid: str, video: dict[str, Any], current_views: 
         msg = (
             f"♪ 追到光啦! 《{title}》播放量突破 {_fmt_threshold(t)}！\n"
             f"当前播放量: {_fmt_count(current_views)}   BV号: {bvid}"
+            f"{_precise_crossing_line(gui, bvid, t)}"
         )
         result["notified"].append(msg)
         _send("♪ 播放量突破提醒", msg)

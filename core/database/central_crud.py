@@ -264,8 +264,9 @@ class CentralCRUD:
                     """INSERT OR IGNORE INTO monitor_records
                     (bvid, timestamp, view_count, like_count, coin_count, share_count,
                      favorite_count, danmaku_count, reply_count, viewers_app,
-                     viewers_web, viewers_total, like_view_ratio)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                     viewers_web, viewers_total, like_view_ratio, observed_at_us,
+                     request_start_us, rtt_us)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         bvid,
                         record.get("timestamp"),
@@ -280,6 +281,9 @@ class CentralCRUD:
                         record.get("viewers_web", 0),
                         record.get("viewers_total", 0),
                         like_view_ratio,
+                        record.get("observed_at_us"),
+                        record.get("request_start_us"),
+                        record.get("rtt_us"),
                     ),
                 )
                 conn.commit()
@@ -309,8 +313,9 @@ class CentralCRUD:
                     """INSERT INTO monitor_records
                     (bvid, timestamp, view_count, like_count, coin_count, share_count,
                      favorite_count, danmaku_count, reply_count, viewers_app,
-                     viewers_web, viewers_total, like_view_ratio)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                     viewers_web, viewers_total, like_view_ratio, observed_at_us,
+                     request_start_us, rtt_us)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         record.bvid,
                         record.timestamp,
@@ -325,6 +330,9 @@ class CentralCRUD:
                         record.viewers_web,
                         record.viewers_total,
                         record.like_view_ratio,
+                        record.observed_at_us,
+                        record.request_start_us,
+                        record.rtt_us,
                     ),
                 )
                 conn.commit()

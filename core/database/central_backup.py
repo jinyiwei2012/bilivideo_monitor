@@ -199,6 +199,7 @@ class CentralBackup:
         每个 bvid 以中央库已同步的最大 timestamp 作为水位线，只扫描并写入该线之后的
         记录 → 耗时由 O(全表) 降为 O(增量)，且不再把两侧全量记录拉进内存。
         """
+        self._migrate_monitor_timing_columns(central_cur)
         central_cur.execute("SELECT bvid, MAX(timestamp) AS wm FROM monitor_records GROUP BY bvid")
         watermark = {r["bvid"]: (r["wm"] or "") for r in central_cur.fetchall()}
         central_bvids = set(watermark)
@@ -221,8 +222,9 @@ class CentralBackup:
                     """INSERT INTO monitor_records
                     (bvid, timestamp, view_count, like_count, coin_count, share_count,
                      favorite_count, danmaku_count, reply_count, viewers_app,
-                     viewers_web, viewers_total, like_view_ratio)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                     viewers_web, viewers_total, like_view_ratio, observed_at_us,
+                     request_start_us, rtt_us)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (
                         rd["bvid"],
                         rd["timestamp"],
@@ -237,6 +239,9 @@ class CentralBackup:
                         rd.get("viewers_web", 0),
                         rd.get("viewers_total", 0),
                         lvr,
+                        rd.get("observed_at_us"),
+                        rd.get("request_start_us"),
+                        rd.get("rtt_us"),
                     ),
                 )
                 result["synced_records"] += 1
@@ -477,7 +482,9 @@ class CentralBackup:
             share_count INTEGER, favorite_count INTEGER, danmaku_count INTEGER,
             reply_count INTEGER, viewers_app INTEGER DEFAULT 0,
             viewers_web INTEGER DEFAULT 0, viewers_total INTEGER DEFAULT 0,
-            like_view_ratio REAL DEFAULT 0)""")
+            like_view_ratio REAL DEFAULT 0, observed_at_us INTEGER,
+            request_start_us INTEGER, rtt_us INTEGER)""")
+        CentralBackup._migrate_monitor_timing_columns(cur)
         cur.execute("""CREATE UNIQUE INDEX IF NOT EXISTS idx_monitor_bvid_ts
             ON monitor_records(bvid, timestamp)""")
         cur.execute("""CREATE TABLE IF NOT EXISTS weekly_scores (
@@ -525,6 +532,15 @@ class CentralBackup:
         except Exception:
             logger.exception("中央库 UNIQUE INDEX 创建失败")
             pass
+
+    @staticmethod
+    def _migrate_monitor_timing_columns(cur: sqlite3.Cursor) -> None:
+        """确保中央库监控记录包含请求边界时间字段。"""
+        cur.execute("PRAGMA table_info(monitor_records)")
+        existing = {row[1] if isinstance(row, (list, tuple)) else row["name"] for row in cur.fetchall()}
+        for column in ("observed_at_us", "request_start_us", "rtt_us"):
+            if column not in existing:
+                cur.execute(f"ALTER TABLE monitor_records ADD COLUMN {column} INTEGER")
 
     @staticmethod
     def _migrate_central_predictions(cur: sqlite3.Cursor) -> None:
