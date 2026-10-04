@@ -18,6 +18,8 @@ class EnsembleMixin:
     _window_weight_history: Dict[str, List[float]]
     _surge_cache: _LRUDict
     _initialized: bool
+    _prev_ensemble_pred: Dict[str, Tuple[Optional[float], Optional[float]]]
+    _prev_ensemble_lock: threading.Lock
 
     if TYPE_CHECKING:
 
@@ -618,6 +620,14 @@ class EnsembleMixin:
         return weighted_pred
 
     @classmethod
+    def _store_ensemble_prediction(cls, bvid: str, prediction: float, current_value: float) -> None:
+        """保存本轮最终集成预测，供下一轮偏差反馈验证。"""
+        if not bvid or not math.isfinite(prediction) or prediction <= 0:
+            return
+        with cls._prev_ensemble_lock:
+            cls._prev_ensemble_pred[bvid] = (prediction, current_value)
+
+    @classmethod
     def _log_ensemble_result(cls, results, bvid, weighted_pred, valid_count):
         interval_width = 0
         if results["_weighted"].get("prediction_interval"):
@@ -706,6 +716,12 @@ class EnsembleMixin:
         weighted_pred = cls._apply_surge_correction(results, cached_video_data, current_value, weighted_pred)
         weighted_pred = cls._apply_bias_correction(results, bvid, current_value, weighted_pred)
         cls._log_ensemble_result(results, bvid, weighted_pred, valid_count)
+
+        try:
+            final_pred = float(results.get("_weighted", {}).get("prediction", 0))
+            cls._store_ensemble_prediction(bvid, final_pred, current_value)
+        except Exception as e:
+            logger.debug("集成预测回填失败: %s", e)
 
         # 降频调度：保存本轮重算法的最终结果，作为下一轮跳过时的复用来源
         cls._store_heavy(bvid, results, anchor_idx)
