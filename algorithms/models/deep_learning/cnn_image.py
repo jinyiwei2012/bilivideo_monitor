@@ -10,6 +10,7 @@
 """
 
 import logging
+import threading
 import math
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -129,6 +130,7 @@ class CnnImageAlgorithm(BaseAlgorithm):
         self._device = get_device()
         self._ckpt = CheckpointManager(self.algorithm_id)
         self._cached_model: Optional[CnnImageTorchModel] = None
+        self._cache_lock = threading.RLock()
         self._features = ["view_count", "like_count", "coin_count", "favorite_count", "share_count"]
 
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
@@ -167,26 +169,28 @@ class CnnImageAlgorithm(BaseAlgorithm):
         state, _ = load_best_checkpoint(self.algorithm_id, bvid=bvid)
         if state is None:
             raise RuntimeError("无可用的 checkpoint — 请先训练")
-        if self._cached_model is None or (bvid and not getattr(self, "_cached_bvid", "") == bvid):
-            from algorithms.models.deep_learning._torch_upgrade import load_checkpoint_model
+        with self._cache_lock:
+            if self._cached_model is None or (bvid and not getattr(self, "_cached_bvid", "") == bvid):
+                from algorithms.models.deep_learning._torch_upgrade import load_checkpoint_model
 
-            model = load_checkpoint_model(
-                CnnImageTorchModel,
-                {"window": self.training_window},
-                state,
-                self.training_window,
-                getattr(self, "_training_n_features", len(self._features) + 5),
-                int(self.training_horizon),
-            )
-            self._cached_model = model
-            self._cached_bvid = bvid or ""
+                model = load_checkpoint_model(
+                    CnnImageTorchModel,
+                    {"window": self.training_window},
+                    state,
+                    self.training_window,
+                    getattr(self, "_training_n_features", len(self._features) + 5),
+                    int(self.training_horizon),
+                )
+                self._cached_model = model
+                self._cached_bvid = bvid or ""
+            model = self._cached_model
         # NPU 加速推理（自动回退到 PyTorch）
-        y = self._npu_infer(self._cached_model, x_arr, algo_name=self.algorithm_id)
+        y = self._npu_infer(model, x_arr, algo_name=self.algorithm_id)
         y_np = y.cpu().numpy().squeeze(0)  # [H] 或 [H+1]
         # A+B 双尺度：短期 y[0] 为当前速度；双输出时长期 y[horizon] 为平均速率（放元数据）
         predicted = max(0.0, float(y_np[0]) * v_std + v_mean)  # 反归一化
         long_velocity = None
-        if bool(getattr(self._cached_model, "_dual_output", False)) and len(y_np) > int(self.training_horizon):
+        if bool(getattr(model, "_dual_output", False)) and len(y_np) > int(self.training_horizon):
             long_velocity = max(0.0, float(y_np[int(self.training_horizon)]) * v_std + v_mean)
         meta = {"horizon_pred": y_np.tolist(), "method": "cnn2d"}
         if long_velocity is not None:

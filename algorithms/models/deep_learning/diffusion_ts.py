@@ -19,6 +19,7 @@ DDPM 核心公式：
 """
 
 import logging
+import threading
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -286,6 +287,7 @@ class DiffusionTSAlgorithm(BaseAlgorithm):
         self._device = get_device()
         self._ckpt = CheckpointManager(self.algorithm_id)
         self._cached_model: Optional[DiffusionTSTorchModel] = None
+        self._cache_lock = threading.RLock()
         self._cached_model_for_training: Optional[DiffusionTSTorchModel] = (
             None  # 训练时 preprocess → forward 传递噪声用
         )
@@ -336,19 +338,21 @@ class DiffusionTSAlgorithm(BaseAlgorithm):
         if state is None:
             raise RuntimeError("无可用的 checkpoint — 请先训练")
         # 视频微调不缓存（每次加载最新权重），全局 checkpoint 可缓存
-        if self._cached_model is None or (bvid and not getattr(self, "_cached_bvid", "") == bvid):
-            model = DiffusionTSTorchModel(in_channels=1, base=32, t_dim=64, n_steps=100)
-            state = {k[len("_orig_mod.") :] if k.startswith("_orig_mod.") else k: v for k, v in state.items()}
-            model.load_state_dict(state)
-            model.to(self._device).eval()
-            self._cached_model = model
-            self._cached_bvid = bvid or ""
+        with self._cache_lock:
+            if self._cached_model is None or (bvid and not getattr(self, "_cached_bvid", "") == bvid):
+                model = DiffusionTSTorchModel(in_channels=1, base=32, t_dim=64, n_steps=100)
+                state = {k[len("_orig_mod.") :] if k.startswith("_orig_mod.") else k: v for k, v in state.items()}
+                model.load_state_dict(state)
+                model.to(self._device).eval()
+                self._cached_model = model
+                self._cached_bvid = bvid or ""
+            model = self._cached_model
         mean = float(np.mean(velocities))
         std = float(np.std(velocities)) if len(velocities) > 1 else 1.0
         if std < 1e-8:
             std = 1.0
         # 直接采样预测段（简化：不做 conditional inpainting，纯生成）
-        sample = self._cached_model.sample((1, 1, self.training_horizon), self._device, steps=self.SAMPLE_STEPS)
+        sample = model.sample((1, 1, self.training_horizon), self._device, steps=self.SAMPLE_STEPS)
         y_norm = sample.cpu().numpy().reshape(-1)  # [H]
         predicted = max(0.0, float(y_norm[0]) * std + mean)  # 反归一化
         return predicted, 0.7, {"horizon_pred": y_norm.tolist(), "method": "diffusion_ddpm"}

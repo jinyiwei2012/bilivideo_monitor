@@ -207,7 +207,7 @@ def _get_torch_model(algorithm, algo_id, bvid, gpu_key, model_cls, model_kwargs,
 
     # 注册到 GPU LRU
     if algorithm._device.type == "cuda":
-        _register_gpu_model(gpu_key, model, algorithm._device)
+        _register_gpu_model(gpu_key, model, algorithm._device, algorithm._gpu_use_lock)
     return model
 
 
@@ -261,16 +261,26 @@ def _run_torch_prediction(
 
 
 def _retry_after_cuda_oom(
-    error, algorithm, video_data, threshold, model_cls, fallback_fn, model_kwargs, features, window, horizon
+    error,
+    algorithm,
+    video_data,
+    threshold,
+    model_cls,
+    fallback_fn,
+    model_kwargs,
+    features,
+    window,
+    horizon,
+    oom_retried,
 ):
     """CUDA OOM 时淘汰缓存并递归重试一次。"""
-    if "out of memory" not in str(error).lower() or algorithm._device.type != "cuda":
+    if oom_retried or "out of memory" not in str(error).lower() or algorithm._device.type != "cuda":
         return False, None
     try:
         _evict_lru_gpu_model()
         torch.cuda.empty_cache()
         algorithm._cached_torch_model = None
-        return True, try_torch_predict(
+        return True, _try_torch_predict_locked(
             algorithm,
             video_data,
             threshold,
@@ -280,6 +290,7 @@ def _retry_after_cuda_oom(
             features,
             window,
             horizon,
+            oom_retried=True,
         )
     except Exception:
         return False, None
@@ -343,10 +354,21 @@ def _fallback_after_torch_error(
     v_mean,
     v_std,
     model_source,
+    oom_retried,
 ):
     """按 OOM 重试、NPU、ONNX、numpy 顺序处理 torch 失败。"""
     retried, result = _retry_after_cuda_oom(
-        error, algorithm, video_data, threshold, model_cls, fallback_fn, model_kwargs, features, window, horizon
+        error,
+        algorithm,
+        video_data,
+        threshold,
+        model_cls,
+        fallback_fn,
+        model_kwargs,
+        features,
+        window,
+        horizon,
+        oom_retried,
     )
     if retried:
         return result
@@ -407,6 +429,29 @@ def try_torch_predict(
     features: Optional[List[str]] = None,
     window: int = DEFAULT_WINDOW,
     horizon: int = DEFAULT_HORIZON,
+):
+    """以实例锁串行化有状态 torch 缓存的加载、切换和推理。"""
+    if not _torch_available or model_cls is None:
+        return fallback_fn(video_data, threshold)
+    _initialize_torch_runtime(algorithm)
+    with algorithm._prediction_lock:
+        with algorithm._gpu_use_lock:
+            return _try_torch_predict_locked(
+                algorithm, video_data, threshold, model_cls, fallback_fn, model_kwargs, features, window, horizon
+            )
+
+
+def _try_torch_predict_locked(
+    algorithm,
+    video_data: Dict[str, Any],
+    threshold: int,
+    model_cls: type,
+    fallback_fn: Callable,
+    model_kwargs: Optional[Dict[str, Any]] = None,
+    features: Optional[List[str]] = None,
+    window: int = DEFAULT_WINDOW,
+    horizon: int = DEFAULT_HORIZON,
+    oom_retried: bool = False,
 ):
     """统一的预测入口：ONNX(NPU) → torch → ONNX(CPU) → numpy 降级。
 
@@ -542,4 +587,5 @@ def try_torch_predict(
             v_mean,
             v_std,
             model_source,
+            oom_retried,
         )

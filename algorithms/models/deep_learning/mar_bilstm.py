@@ -18,6 +18,7 @@ Mar-BiLSTM — 马尔可夫增强双向LSTM（Markov-augmented BiLSTM）
 """
 
 import logging
+import threading
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -135,6 +136,7 @@ class MarBilstmAlgorithm(BaseAlgorithm):
         self._device = get_device()  # 获取计算设备（CPU/CUDA）
         self._ckpt = CheckpointManager(self.algorithm_id)  # checkpoint管理器
         self._cached_model: Optional[MarBilstmTorchModel] = None  # 模型缓存（避免重复加载）
+        self._cache_lock = threading.RLock()
         self._features = ["view_count", "like_count", "coin_count", "favorite_count", "share_count"]  # 基础特征
 
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
@@ -187,17 +189,19 @@ class MarBilstmAlgorithm(BaseAlgorithm):
         if state is None:
             raise RuntimeError("无可用的 checkpoint — 请先训练")
         # 模型缓存：避免每次预测都重新加载
-        if self._cached_model is None or (bvid and not getattr(self, "_cached_bvid", "") == bvid):
-            model = MarBilstmTorchModel(
-                in_features=getattr(self, "_training_n_features", len(self._features) + 5),
-                horizon=self.training_horizon,
-            )
-            state = {k[len("_orig_mod.") :] if k.startswith("_orig_mod.") else k: v for k, v in state.items()}
-            model.load_state_dict(state)
-            self._cached_model = model
-            self._cached_bvid = bvid or ""
+        with self._cache_lock:
+            if self._cached_model is None or (bvid and not getattr(self, "_cached_bvid", "") == bvid):
+                model = MarBilstmTorchModel(
+                    in_features=getattr(self, "_training_n_features", len(self._features) + 5),
+                    horizon=self.training_horizon,
+                )
+                state = {k[len("_orig_mod.") :] if k.startswith("_orig_mod.") else k: v for k, v in state.items()}
+                model.load_state_dict(state)
+                self._cached_model = model
+                self._cached_bvid = bvid or ""
+            model = self._cached_model
         # NPU 加速推理（自动回退到 PyTorch）
-        y = self._npu_infer(self._cached_model, x_arr, algo_name=self.algorithm_id)
+        y = self._npu_infer(model, x_arr, algo_name=self.algorithm_id)
         # 反归一化：z-score空间 → 原始速度空间
         predicted = max(0.0, float(y.cpu().numpy().squeeze(0)[0]) * vel_std + vel_mean)
         return predicted, 0.74, {"horizon_pred": y.cpu().numpy().squeeze(0).tolist(), "method": "mar_bilstm"}

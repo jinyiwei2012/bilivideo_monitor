@@ -9,6 +9,7 @@ from .context import logger, torch
 
 _GPU_MODEL_LRU: OrderedDict = OrderedDict()
 _GPU_LRU_LOCK = threading.Lock()
+_PREDICTION_LOCK_INIT_LOCK = threading.Lock()
 _GPU_VRAM_RESERVE_MB = 512
 _GPU_VRAM_MIN_FREE_RATIO = 0.15
 
@@ -34,18 +35,40 @@ def _get_free_vram_mb(device) -> int:
     return -1
 
 
-def _evict_lru_gpu_model():
-    """将最久未用的模型从 GPU 移回 CPU，释放显存。"""
+def _take_idle_lru_gpu_model():
+    """原子地取走一个未被预测使用的 LRU 模型及其所有者锁。"""
     with _GPU_LRU_LOCK:
         if not _GPU_MODEL_LRU:
-            return
-        key, (model, vram_mb, _ts) = _GPU_MODEL_LRU.popitem(last=False)
+            return None
+        entries = list(_GPU_MODEL_LRU.items())
+
+    for key, entry in entries:
+        model, vram_mb, _ts, owner_lock = entry
+        if not owner_lock.acquire(blocking=False):
+            continue
+        with _GPU_LRU_LOCK:
+            if _GPU_MODEL_LRU.get(key) is entry:
+                _GPU_MODEL_LRU.pop(key)
+                return key, model, vram_mb, owner_lock
+        owner_lock.release()
+    return None
+
+
+def _evict_lru_gpu_model() -> bool:
+    """将一个未在推理中的 LRU 模型从 GPU 移回 CPU，释放显存。"""
+    entry = _take_idle_lru_gpu_model()
+    if entry is None:
+        return False
+    key, model, vram_mb, owner_lock = entry
     try:
         model.cpu()
         torch.cuda.empty_cache()
         logger.debug("[VRAM] 驱逐 %s → CPU，释放 ~%dMB", key, vram_mb)
     except Exception as e:
         logger.debug("[VRAM] 驱逐模型 %s 失败: %s", key, e)
+    finally:
+        owner_lock.release()
+    return True
 
 
 def _ensure_vram(headroom_needed_mb: int, device):
@@ -64,7 +87,8 @@ def _ensure_vram(headroom_needed_mb: int, device):
         with _GPU_LRU_LOCK:
             if len(_GPU_MODEL_LRU) <= 1:
                 break
-        _evict_lru_gpu_model()
+        if not _evict_lru_gpu_model():
+            break
         free_mb = _get_free_vram_mb(device)
         if free_mb < 0:
             break
@@ -77,7 +101,7 @@ def _touch_gpu_lru(key: str):
             _GPU_MODEL_LRU.move_to_end(key)
 
 
-def _register_gpu_model(key: str, model, device):
+def _register_gpu_model(key: str, model, device, owner_lock):
     """将模型注册到 GPU LRU 缓存。"""
     if device.type != "cuda":
         return
@@ -85,7 +109,7 @@ def _register_gpu_model(key: str, model, device):
     _ensure_vram(vram_mb, device)
     with _GPU_LRU_LOCK:
         _GPU_MODEL_LRU.pop(key, None)
-        _GPU_MODEL_LRU[key] = (model, vram_mb, time.time())
+        _GPU_MODEL_LRU[key] = (model, vram_mb, time.time(), owner_lock)
 
 
 def _unregister_gpu_model(key: str):
@@ -95,17 +119,9 @@ def _unregister_gpu_model(key: str):
 
 
 def clear_all_gpu_models():
-    """释放所有 GPU 缓存的模型（退出时调用）。"""
-    with _GPU_LRU_LOCK:
-        keys = list(_GPU_MODEL_LRU.keys())
-    for key in keys:
-        with _GPU_LRU_LOCK:
-            entry = _GPU_MODEL_LRU.pop(key, None)
-        if entry:
-            try:
-                entry[0].cpu()
-            except Exception:
-                pass
+    """释放所有未在推理中的 GPU 缓存模型（退出时调用）。"""
+    while _evict_lru_gpu_model():
+        pass
     try:
         torch.cuda.empty_cache()
     except Exception:
@@ -132,23 +148,35 @@ def release_cached_models(algorithms_dict: Optional[dict[str, Any]] = None, keep
     cached_algorithms: dict[str, Any] = algorithms_dict
     count = 0
     for algo in cached_algorithms.values():
-        if getattr(algo, "_cached_torch_model", None) is None:
-            continue
-        # 保留当前活跃视频的模型，避免下一轮预测立刻重载（LRU 语义）
-        if keep_bvid and getattr(algo, "_cached_bvid", "") == keep_bvid:
-            continue
-        try:
-            algo._cached_torch_model.cpu()
-        except Exception:
-            pass
-        algo._cached_torch_model = None
-        algo._cached_bvid = ""
-        for attr in ("_cached_ckpt_sig", "_cached_model_source"):
-            try:
-                setattr(algo, attr, None)
-            except Exception:
-                pass
-        count += 1
+        with _PREDICTION_LOCK_INIT_LOCK:
+            if not hasattr(algo, "_prediction_lock"):
+                algo._prediction_lock = threading.RLock()
+            if not hasattr(algo, "_gpu_use_lock"):
+                algo._gpu_use_lock = threading.Lock()
+            lock = algo._prediction_lock
+        with lock:
+            if getattr(algo, "_cached_torch_model", None) is None:
+                continue
+            # 保留当前活跃视频的模型，避免下一轮预测立刻重载（LRU 语义）
+            if keep_bvid and getattr(algo, "_cached_bvid", "") == keep_bvid:
+                continue
+            with algo._gpu_use_lock:
+                old_bvid = getattr(algo, "_cached_bvid", "")
+                algo_id = getattr(algo, "algorithm_id", "unknown")
+                old_key = f"{algo_id}@{old_bvid}" if old_bvid else algo_id
+                try:
+                    algo._cached_torch_model.cpu()
+                except Exception:
+                    pass
+                _unregister_gpu_model(old_key)
+                algo._cached_torch_model = None
+                algo._cached_bvid = ""
+                for attr in ("_cached_ckpt_sig", "_cached_model_source"):
+                    try:
+                        setattr(algo, attr, None)
+                    except Exception:
+                        pass
+            count += 1
     if count > 0:
         import gc
 
@@ -163,14 +191,19 @@ def release_cached_models(algorithms_dict: Optional[dict[str, Any]] = None, keep
 
 def _initialize_torch_runtime(algorithm):
     """懒加载 checkpoint manager 和推理设备。"""
-    if not hasattr(algorithm, "_ckpt"):
-        from algorithms.training.checkpoint_manager import CheckpointManager
+    with _PREDICTION_LOCK_INIT_LOCK:
+        if not hasattr(algorithm, "_prediction_lock"):
+            algorithm._prediction_lock = threading.RLock()
+        if not hasattr(algorithm, "_gpu_use_lock"):
+            algorithm._gpu_use_lock = threading.Lock()
+        if not hasattr(algorithm, "_ckpt"):
+            from algorithms.training.checkpoint_manager import CheckpointManager
 
-        algorithm._ckpt = CheckpointManager(getattr(algorithm, "algorithm_id", "unknown"))
-    if not hasattr(algorithm, "_device"):
-        from algorithms.training.device import get_device
+            algorithm._ckpt = CheckpointManager(getattr(algorithm, "algorithm_id", "unknown"))
+        if not hasattr(algorithm, "_device"):
+            from algorithms.training.device import get_device
 
-        algorithm._device = get_device()
+            algorithm._device = get_device()
 
 
 def _load_prediction_checkpoint(algorithm, algo_id, bvid, checkpoint_signature, load_best_checkpoint):

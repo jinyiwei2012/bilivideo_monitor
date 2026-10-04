@@ -20,6 +20,7 @@ MOIRAI在大量公开时序数据（10亿+时间点）上预训练，支持任�
 """
 
 import logging
+import threading
 from typing import Any, Dict, List, Tuple
 
 import numpy as np
@@ -59,6 +60,7 @@ class MoiraiAlgorithm(BaseAlgorithm):
         self._cached_model = None  # 缓存已加载的MOIRAI模型
         self._tried_load = False  # 是否已尝试加载模型
         self._available = is_hf_available()  # HuggingFace环境是否可用
+        self._cache_lock = threading.RLock()
 
     def predict(self, video_data: Dict[str, Any], threshold: int = 100000) -> PredictionResult:
         """执行预测
@@ -74,19 +76,25 @@ class MoiraiAlgorithm(BaseAlgorithm):
             PredictionResult: 预测结果
         """
         current_views = int(video_data.get("view_count", 0))
-        if self._available:
+        with self._cache_lock:
+            available = self._available
+        if available:
             try:
                 v, conf, meta = self._torch_predict(video_data)
                 result: PredictionResult = self._make_result(current_views, threshold, v, conf, "moirai_hf", meta)
                 return result
             except Exception as e:
                 # 首次失败记warning，后续整条HF路径关闭，避免日志刷屏
-                if not self._tried_load or self._cached_model is not None:
+                with self._cache_lock:
+                    tried_load = self._tried_load
+                    cached_model = self._cached_model
+                if not tried_load or cached_model is not None:
                     logger.warning("[moirai] HF 推理失败，降级: %s", e)
                 else:
                     logger.debug("[moirai] HF 路径已禁用，走 numpy: %s", e)
-                if self._cached_model is None:
-                    self._available = False  # 永久关闭HF路径
+                with self._cache_lock:
+                    if self._cached_model is None:
+                        self._available = False  # 永久关闭HF路径
         return self._numpy_predict(video_data, current_views, threshold)
 
     def _torch_predict(self, video_data: Dict[str, Any]) -> Tuple[float, float, Dict]:
@@ -113,23 +121,25 @@ class MoiraiAlgorithm(BaseAlgorithm):
         if len(velocities) < 8:
             raise RuntimeError("MOIRAI 至少需要 8 步历史")
         # 尝试加载模型（仅首次）
-        if self._cached_model is None and not self._tried_load:
-            self._tried_load = True
-            model, ok, reason = get_moirai_model()
-            if not ok:
-                raise RuntimeError(f"模型加载失败: {reason}")
-            self._cached_model = model
-        if self._cached_model is None:
+        with self._cache_lock:
+            if self._cached_model is None and not self._tried_load:
+                self._tried_load = True
+                model, ok, reason = get_moirai_model()
+                if not ok:
+                    raise RuntimeError(f"模型加载失败: {reason}")
+                self._cached_model = model
+            model = self._cached_model
+        if model is None:
             raise RuntimeError("MOIRAI 模型不可用")
 
         x = torch.tensor(velocities, dtype=torch.float32).reshape(1, -1, 1)  # [1, L, 1]
         try:
             with torch.no_grad():
                 # 根据模型类型选择推理方式（兼容不同版本的uni2ts）
-                if hasattr(self._cached_model, "generate"):
-                    out = self._cached_model.generate(x, max_new_tokens=3)
-                elif hasattr(self._cached_model, "forecast"):
-                    out = self._cached_model.forecast(x, horizon=3)
+                if hasattr(model, "generate"):
+                    out = model.generate(x, max_new_tokens=3)
+                elif hasattr(model, "forecast"):
+                    out = model.forecast(x, horizon=3)
                 else:
                     # MoiraiModule.forward() 在 uni2ts>=2.0 需要 6 个额外参数
                     # (observed_mask, sample_id, time_id, variate_id, prediction_mask, patch_size)
@@ -145,7 +155,7 @@ class MoiraiAlgorithm(BaseAlgorithm):
                         feat_dynamic_real_dim=0,
                         past_feat_dynamic_real_dim=0,
                         context_length=context_length,
-                        module=self._cached_model,
+                        module=model,
                         patch_size=8,
                     )
                     forecast_model.eval()

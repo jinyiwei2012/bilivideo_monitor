@@ -286,10 +286,6 @@ class AttentionMechanismAlgorithm(BaseAlgorithm):
         Returns:
             (预测秒数, 置信度) 或 None
         """
-        if not hasattr(self, "_ckpt"):
-            from algorithms.training.checkpoint_manager import CheckpointManager
-
-            self._ckpt = CheckpointManager(self.algorithm_id)
         try:
             from datetime import datetime
 

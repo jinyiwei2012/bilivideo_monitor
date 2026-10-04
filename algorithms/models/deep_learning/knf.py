@@ -20,6 +20,7 @@ Torch 实现 + 降级链：
 """
 
 import logging
+import threading
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -159,6 +160,7 @@ class KnfAlgorithm(BaseAlgorithm):
         self._device = get_device()
         self._ckpt = CheckpointManager(self.algorithm_id)
         self._cached_model: Optional[KnfTorchModel] = None
+        self._cache_lock = threading.RLock()
         self._features = ["view_count", "like_count", "coin_count", "favorite_count", "share_count"]
 
     # —— BaseAlgorithm ——
@@ -201,18 +203,20 @@ class KnfAlgorithm(BaseAlgorithm):
         state, _ = load_best_checkpoint(self.algorithm_id, bvid=bvid)
         if state is None:
             raise RuntimeError("无可用的 checkpoint — 请先训练")
-        if self._cached_model is None or (bvid and not getattr(self, "_cached_bvid", "") == bvid):
-            model = KnfTorchModel(
-                in_features=getattr(self, "_training_n_features", len(self._features) + 5),
-                window=self.training_window,
-                horizon=self.training_horizon,
-            )
-            state = {k[len("_orig_mod.") :] if k.startswith("_orig_mod.") else k: v for k, v in state.items()}
-            model.load_state_dict(state)
-            self._cached_model = model
-            self._cached_bvid = bvid or ""
+        with self._cache_lock:
+            if self._cached_model is None or (bvid and not getattr(self, "_cached_bvid", "") == bvid):
+                model = KnfTorchModel(
+                    in_features=getattr(self, "_training_n_features", len(self._features) + 5),
+                    window=self.training_window,
+                    horizon=self.training_horizon,
+                )
+                state = {k[len("_orig_mod.") :] if k.startswith("_orig_mod.") else k: v for k, v in state.items()}
+                model.load_state_dict(state)
+                self._cached_model = model
+                self._cached_bvid = bvid or ""
+            model = self._cached_model
         # NPU 加速推理（自动回退到 PyTorch）
-        y = self._npu_infer(self._cached_model, x_arr, algo_name=self.algorithm_id)
+        y = self._npu_infer(model, x_arr, algo_name=self.algorithm_id)
         y_np = y.cpu().numpy().squeeze(0)  # [H]
         # y 是归一化后的速度，反归一化用历史的均值/标准差
         velocity = self._denormalize_prediction(video_data, y_np)

@@ -314,10 +314,6 @@ class MLPPredictorAlgorithm(BaseAlgorithm):
         Returns:
             Optional[Tuple[int, float]]: (预测秒数, 置信度) 或 None
         """
-        if not hasattr(self, "_ckpt"):
-            from algorithms.training.checkpoint_manager import CheckpointManager
-
-            self._ckpt = CheckpointManager(self.algorithm_id)
         try:
             video_data = self._wrap_video_data(current_views, history_data, video_info)
             result = try_torch_predict(
