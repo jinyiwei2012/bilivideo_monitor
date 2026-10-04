@@ -427,8 +427,6 @@ def _precision_persist(gui, bvid, event):
 
 
 def _start_precision_watch_manager(gui):
-    global _precision_watch_manager
-
     def create() -> None:
         global _precision_watch_manager
         if _precision_watch_manager is not None:

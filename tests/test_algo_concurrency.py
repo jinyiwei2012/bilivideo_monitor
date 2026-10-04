@@ -8,11 +8,11 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-torch = pytest.importorskip("torch")
-
 from algorithms.models.deep_learning import cnn_image
 from algorithms.models.deep_learning.torch_upgrade import runtime
 from algorithms.models.deep_learning.torch_upgrade import prediction
+
+torch = pytest.importorskip("torch")
 
 
 def _video_data(bvid: str, offset: int) -> dict[str, Any]:

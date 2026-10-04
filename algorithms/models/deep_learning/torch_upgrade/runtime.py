@@ -128,6 +128,36 @@ def clear_all_gpu_models():
         pass
 
 
+def _ensure_algo_locks(algo: Any) -> Any:
+    """确保算法实例具备预测锁与 GPU 使用锁，返回预测锁。"""
+    with _PREDICTION_LOCK_INIT_LOCK:
+        if not hasattr(algo, "_prediction_lock"):
+            algo._prediction_lock = threading.RLock()
+        if not hasattr(algo, "_gpu_use_lock"):
+            algo._gpu_use_lock = threading.Lock()
+        return algo._prediction_lock
+
+
+def _release_one_cached_model(algo: Any) -> None:
+    """在持有实例锁的前提下，卸载单个算法的 PyTorch 缓存并从 GPU LRU 注销。"""
+    with algo._gpu_use_lock:
+        old_bvid = getattr(algo, "_cached_bvid", "")
+        algo_id = getattr(algo, "algorithm_id", "unknown")
+        old_key = f"{algo_id}@{old_bvid}" if old_bvid else algo_id
+        try:
+            algo._cached_torch_model.cpu()
+        except Exception:
+            pass
+        _unregister_gpu_model(old_key)
+        algo._cached_torch_model = None
+        algo._cached_bvid = ""
+        for attr in ("_cached_ckpt_sig", "_cached_model_source"):
+            try:
+                setattr(algo, attr, None)
+            except Exception:
+                pass
+
+
 def release_cached_models(algorithms_dict: Optional[dict[str, Any]] = None, keep_bvid: str = "") -> int:
     """释放各算法实例缓存的 PyTorch 模型以回收内存，保留 ONNX session（体积小）。
 
@@ -148,34 +178,14 @@ def release_cached_models(algorithms_dict: Optional[dict[str, Any]] = None, keep
     cached_algorithms: dict[str, Any] = algorithms_dict
     count = 0
     for algo in cached_algorithms.values():
-        with _PREDICTION_LOCK_INIT_LOCK:
-            if not hasattr(algo, "_prediction_lock"):
-                algo._prediction_lock = threading.RLock()
-            if not hasattr(algo, "_gpu_use_lock"):
-                algo._gpu_use_lock = threading.Lock()
-            lock = algo._prediction_lock
+        lock = _ensure_algo_locks(algo)
         with lock:
             if getattr(algo, "_cached_torch_model", None) is None:
                 continue
             # 保留当前活跃视频的模型，避免下一轮预测立刻重载（LRU 语义）
             if keep_bvid and getattr(algo, "_cached_bvid", "") == keep_bvid:
                 continue
-            with algo._gpu_use_lock:
-                old_bvid = getattr(algo, "_cached_bvid", "")
-                algo_id = getattr(algo, "algorithm_id", "unknown")
-                old_key = f"{algo_id}@{old_bvid}" if old_bvid else algo_id
-                try:
-                    algo._cached_torch_model.cpu()
-                except Exception:
-                    pass
-                _unregister_gpu_model(old_key)
-                algo._cached_torch_model = None
-                algo._cached_bvid = ""
-                for attr in ("_cached_ckpt_sig", "_cached_model_source"):
-                    try:
-                        setattr(algo, attr, None)
-                    except Exception:
-                        pass
+            _release_one_cached_model(algo)
             count += 1
     if count > 0:
         import gc

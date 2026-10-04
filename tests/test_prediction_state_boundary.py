@@ -1,11 +1,8 @@
 """Characterize PredictionPanel's AppState/AppActions migration boundary."""
 
-import os
 from datetime import datetime
 from types import MappingProxyType
 from typing import Any
-
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import QObject, pyqtSignal
 from PyQt6.QtWidgets import QApplication, QWidget

@@ -256,7 +256,7 @@ def remove_monitor(gui):
     gui._sb("videos", f"监控: {len(gui.monitored_videos)} 个视频 ♪")
     from ui.main_gui_data import save_watch_list
 
-    fire_and_forget(save_watch_list, gui, name="save-watchlist")
+    start_registered_task(gui, save_watch_list, args=(gui,), name="save-watchlist")
 
     # 撤销提示（状态栏）
     gui._sb("alert", f"已把 {title[:20]} 移出歌单啦(30 秒内可以反悔哦) ♪", C["warning"])
@@ -315,7 +315,7 @@ def undo_delete(gui):
     gui.bottom_bar.hide_undo_button()
     from ui.main_gui_data import save_watch_list
 
-    fire_and_forget(save_watch_list, gui, name="save-watchlist")
+    start_registered_task(gui, save_watch_list, args=(gui,), name="save-watchlist")
 
 
 def _finalize_delete(gui, bvid):

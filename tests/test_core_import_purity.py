@@ -7,8 +7,6 @@ import subprocess
 import sys
 import threading
 
-import requests
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 _IMPORT_PROBE = r"""

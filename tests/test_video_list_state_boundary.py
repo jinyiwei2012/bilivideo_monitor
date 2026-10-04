@@ -1,10 +1,7 @@
 """Characterize VideoListPanel's AppState/AppActions migration boundary."""
 
-import os
 import threading
 from typing import Any
-
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import QObject, Qt, pyqtSignal
 from PyQt6.QtTest import QTest
