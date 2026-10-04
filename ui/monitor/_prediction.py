@@ -6,6 +6,7 @@ import logging
 import threading
 import time
 from datetime import datetime
+from typing import Any, Optional, Tuple
 
 import numpy as np
 
@@ -33,6 +34,35 @@ _SURGE_DETECTOR = _SurgeDetector()
 # ── 模块级状态 ──
 _up_db = None
 _last_up_fetch_time: dict = {}
+_prediction_cycle_lock = threading.Lock()
+_prediction_cycle_counters: dict[str, int] = {}
+_prediction_committed_cycles: dict[str, int] = {}
+
+
+def _begin_prediction_cycle(bvid: str) -> int:
+    """为单个视频分配单调递增的预测周期序号。"""
+    with _prediction_cycle_lock:
+        seq = _prediction_cycle_counters.get(bvid, 0) + 1
+        _prediction_cycle_counters[bvid] = seq
+        return seq
+
+
+def _commit_prediction_result_state(gui: Any, bvid: str, result: dict, seq: int) -> Tuple[bool, Optional[dict]]:
+    """仅提交不早于最新已提交周期的结果，并返回被替换的结果。"""
+    with _prediction_cycle_lock:
+        if seq < _prediction_committed_cycles.get(bvid, 0):
+            return False, None
+        with gui._data_lock:
+            prev_result = gui.prediction_results.get(bvid)
+            gui.prediction_results[bvid] = result
+        _prediction_committed_cycles[bvid] = seq
+    return True, prev_result
+
+
+def _commit_prediction_result(gui: Any, bvid: str, result: dict, seq: int) -> bool:
+    """提交预测结果；结果已过期时返回 False。"""
+    committed, _ = _commit_prediction_result_state(gui, bvid, result, seq)
+    return committed
 
 
 def _sync_predictions_to_central(bvid, rows, ensemble_data, coherence_rows):
@@ -413,6 +443,7 @@ def _save_prediction_outputs(gui, bvid, video, current_view, results):
 
 def _predict_single(gui, bvid, video) -> dict:
     """在 worker 线程中对单个视频运行预测（纯函数，无 UI 调用）"""
+    seq = _begin_prediction_cycle(bvid)
     current_view = video.get("view_count", 0)
     history = _merge_history(gui, bvid)
 
@@ -440,10 +471,14 @@ def _predict_single(gui, bvid, video) -> dict:
     surge_info = _detect_surge_for_ui(history)
 
     result = _build_prediction_result(bvid, current_view, results, rate_per_sec, surge_info)
+    committed, prev_result = _commit_prediction_result_state(gui, bvid, result, seq)
+    if not committed:
+        # 旧周期晚于新周期完成时，不覆盖结果，也不污染反馈与持久化。
+        logger.debug("跳过过期预测结果 %s: seq=%d", bvid, seq)
+        _maybe_release_memory(gui)
+        return dict(result)
+
     # 在线学习反馈
-    with gui._data_lock:
-        prev_result = gui.prediction_results.get(bvid)
-        gui.prediction_results[bvid] = result
     _online_learning_feedback(gui, bvid, results, current_view, prev_result)
 
     # ── 保形预测校准 ──
