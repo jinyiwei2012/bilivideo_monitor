@@ -159,8 +159,9 @@
 
 ### 第二批：状态与任务骨架（建议最先启动）
 
-1. **B3 AppState/AppActions（逐个面板迁移）**〔核心〕
-   - `AppState(QObject)`：只读快照 + typed signals（`video_updated` / `selection_changed` / `prediction_updated`）；`AppActions` 承接增删 / 刷新 / 选择 / 推送。
+1. **B3 AppState/AppActions（逐个面板迁移）**〔核心；骨架已落地，面板迁移待办〕
+   - `ui/app_state.py` 已提供 `AppState(QObject)`：覆盖主窗 `monitored_videos`、`history_data`、`prediction_results`、`video_dbs`、`selected_bvid`、`_video_index` 的只读快照，以及 typed signals（`video_updated` / `selection_changed` / `prediction_updated`）。普通 dict/list/tuple/set 数据递归冻结，并在存在时持有既有 `_data_lock` 复制；`video_dbs` 仅是按 `_data_lock` → `_video_db_lock` 顺序取得的兼容性成员快照，值仍为不应由未来面板使用的可变 DB 资源句柄。`ui/app_actions.py` 已提供注入式增删 / 刷新 / 选择 / 推送委派入口。
+   - 本次仅落地边界骨架，未接线至运行中的面板；VideoListPanel、DetailPanel、PredictionPanel 仍通过既有 `self.gui` 契约工作，保证无行为变化。
    - 迁移顺序：VideoListPanel → DetailPanel → PredictionPanel；逐面板可回退，顺手清 `self.gui.` 直摸（现状 117 处）与私有字段访问（如 `_cached_up_info`）。
    - 验收：三个核心面板不再直持主窗；面板相关回归 + 全量门禁通过。
 2. **B1 TaskSupervisor**：I/O / 预测 / 持久化任务收拢为统一 supervisor；per-bvid single-flight（同视频仅一个在途预测）+ latest-wins；统一取消与异常收集。可分两步：先统一登记与 single-flight，再拆分类 executor。
