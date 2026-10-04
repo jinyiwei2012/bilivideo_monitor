@@ -53,7 +53,9 @@ class TestWarmupOrdering:
 
         order: List[str] = []
         monkeypatch.setattr(R, "predict_all", classmethod(lambda cls, *a, **k: (order.append("predict"), {})[1]))
-        monkeypatch.setattr(pred, "_schedule_weight_warmup", lambda gui, bvid, history: order.append("warmup"))
+        monkeypatch.setattr(
+            pred, "_schedule_weight_warmup", lambda gui, bvid, history, token=None: order.append("warmup")
+        )
         monkeypatch.setattr(pred, "_online_learning_feedback", lambda *a, **k: None)
         monkeypatch.setattr(pred, "_update_ensemble_accuracy", lambda *a, **k: None)
         monkeypatch.setattr(pred, "_save_prediction_outputs", lambda *a, **k: None)

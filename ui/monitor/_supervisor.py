@@ -9,7 +9,7 @@ from ui.monitor._lifecycle import accepts_tasks, start_registered_task
 
 logger = logging.getLogger(__name__)
 
-PredictionWorker = Callable[[Any, str, dict[str, Any]], Any]
+PredictionWorker = Callable[[Any, str, dict[str, Any], "TaskToken"], Any]
 
 
 class TaskKey(NamedTuple):
@@ -126,8 +126,15 @@ class TaskSupervisor:
         while True:
             completed_without_error = False
             try:
-                current_target(self._gui, key.bvid, current_video)
+                token = lane.current
+                if token is None:
+                    return
+                result = current_target(self._gui, key.bvid, current_video, token)
                 completed_without_error = True
+                if isinstance(result, dict) and self.is_current(token):
+                    from ui.monitor._prediction import _schedule_prediction_ui
+
+                    _schedule_prediction_ui(self._gui, result, token)
             except Exception:
                 logger.exception("预测任务失败 %s", key.bvid)
             with self._lock:
@@ -141,7 +148,8 @@ class TaskSupervisor:
                 pending = lane.pending
                 if pending is None:
                     lane.running = False
-                    lane.current = None
+                    # Keep the most recently committed token current until a newer
+                    # submission replaces it, so its queued UI callback can render.
                     return
                 lane.pending = None
                 lane.current, current_video, current_target = pending

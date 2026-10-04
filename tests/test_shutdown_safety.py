@@ -203,15 +203,6 @@ class _PersistentThread:
         return self.alive
 
 
-class _PersistentPredictor:
-    def __init__(self, bvid: str) -> None:
-        self.bvid = bvid
-        self._thread = _PersistentThread(f"Predictor-{bvid}")
-
-    def stop(self, timeout: float = 0.0) -> None:
-        self._thread.join(timeout)
-
-
 class _PersistentPrecisionManager:
     def __init__(self) -> None:
         self.stop_calls = 0
@@ -230,31 +221,25 @@ def test_repeated_stop_polls_retain_all_persistent_owners(monkeypatch):
     """A timeout must not discard owners that a later shutdown poll must drain."""
     import ui.monitor._service as service
 
-    predictor = _PersistentPredictor("BV1")
     adhoc = _PersistentThread("adhoc")
     precision = _PersistentPrecisionManager()
-    monkeypatch.setattr(service, "_predictors", {"BV1": predictor})
     monkeypatch.setattr(service, "_adhoc_threads", {adhoc})
     monkeypatch.setattr(service, "_precision_watch_manager", precision)
     monkeypatch.setattr(service, "_central_fetch_running", False)
 
     first = service._stop_all_workers()
     second = service._stop_all_workers()
-    expected = {"Predictor-BV1", "adhoc", "PrecisionWatch-BV1-100"}
+    expected = {"adhoc", "PrecisionWatch-BV1-100"}
     assert expected.issubset(first)
     assert expected.issubset(second)
-    assert service._predictors == {"BV1": predictor}
     assert service._adhoc_threads == {adhoc}
     assert service._precision_watch_manager is precision
-    assert predictor._thread.join_calls == [0.0, 0.0]
     assert adhoc.join_calls == [0.0, 0.0]
     assert precision.join_calls == [0.0, 0.0]
 
-    predictor._thread.alive = False
     adhoc.alive = False
     precision.alive = False
     assert service._stop_all_workers() == []
-    assert service._predictors == {}
     assert service._adhoc_threads == set()
     assert service._precision_watch_manager is None
 

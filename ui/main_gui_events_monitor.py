@@ -22,6 +22,7 @@ from ui.lty_voice import add_video_success, confirm_delete, warning
 from ui.theme import C
 from ui.dialog_host import present_modal
 from ui.monitor._lifecycle import accepts_tasks, start_registered_task
+from ui.monitor._supervisor import get_task_supervisor
 
 logger = logging.getLogger(__name__)
 
@@ -242,10 +243,8 @@ def remove_monitor(gui):
         gui.monitored_videos = [v for v in gui.monitored_videos if v.get("bvid") != bvid]
         gui._video_index.pop(bvid, None)
     gui.video_list.remove_card(bvid)
-    # 停止该视频的预测线程，避免线程泄漏 / 重加同 bvid 时复用过期 dict
-    from ui.monitor import _stop_predictor
-
-    _stop_predictor(bvid)
+    # 让正在执行或排队的旧预测永久失效，重加时会得到一个新 lane
+    get_task_supervisor(gui).retire_bvid(bvid)
     gui.selected_bvid = None
     gui.app_state.notify_selection_changed()
     gui.detail._build_header_empty()
@@ -306,10 +305,10 @@ def undo_delete(gui):
 
     gui.video_list.make_card(removed["video"])
     gui.video_list.update_video_count()
-    # 重建预测线程（删除时已停止，撤销后需重新绑定新的视频 dict）
-    from ui.monitor._service import _ensure_predictor
+    # 撤销删除后重新提交，确保结果绑定到重新创建的 prediction lane
+    from ui.monitor._prediction import _predict_single
 
-    _ensure_predictor(gui, bvid, removed["video"])
+    get_task_supervisor(gui).submit_prediction(gui, bvid, removed["video"], _predict_single)
     gui._sb("alert", f"把 {removed['video'].get('title', bvid)[:20]} 请回歌单啦!♪ 旋律又接上了~", C["success"])
     gui._sb("videos", f"监控: {len(gui.monitored_videos)} 个视频 ♪")
     gui.bottom_bar.hide_undo_button()

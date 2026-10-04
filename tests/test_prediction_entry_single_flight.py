@@ -39,7 +39,7 @@ def test_prediction_entries_share_a_per_bvid_single_flight_lane(monkeypatch):
     executions = 0
     submissions = 0
 
-    def controlled_prediction(_gui, _bvid, _video):
+    def controlled_prediction(_gui, _bvid, _video, _token):
         nonlocal active, max_active, executions
         with lock:
             active += 1

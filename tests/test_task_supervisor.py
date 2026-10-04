@@ -54,7 +54,7 @@ def test_same_key_runs_current_then_latest_pending_only():
     max_active = 0
     lock = threading.Lock()
 
-    def worker(_gui, _bvid, video):
+    def worker(_gui, _bvid, video, _token):
         nonlocal active, max_active
         with lock:
             active += 1
@@ -86,7 +86,7 @@ def test_pending_requests_are_continuously_overwritten_by_latest_payload():
     complete = threading.Event()
     payloads = []
 
-    def worker(_gui, _bvid, video):
+    def worker(_gui, _bvid, video, _token):
         payloads.append(video["view_count"])
         if video["view_count"] == 1:
             first_started.set()
@@ -113,7 +113,7 @@ def test_different_bvids_can_run_concurrently():
     completed_count = 0
     lock = threading.Lock()
 
-    def worker(_gui, _bvid, _video):
+    def worker(_gui, _bvid, _video, _token):
         nonlocal completed_count
         both_started.wait(1)
         assert release.wait(1)
@@ -137,7 +137,7 @@ def test_retire_discards_pending_and_invalidates_running_token():
     first_finished = threading.Event()
     payloads = []
 
-    def worker(_gui, _bvid, video):
+    def worker(_gui, _bvid, video, _token):
         payloads.append(video["view_count"])
         if video["view_count"] == 1:
             first_started.set()
@@ -162,7 +162,7 @@ def test_supervisor_tasks_are_registered_with_runtime_drain():
     started = threading.Event()
     release = threading.Event()
 
-    def worker(_gui, _bvid, _video):
+    def worker(_gui, _bvid, _video, _token):
         started.set()
         assert release.wait(1)
 

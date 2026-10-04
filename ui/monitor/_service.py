@@ -1,8 +1,8 @@
-"""集中拉取 + 每视频独立预测线程 + 生命周期管理 + 公开 API — PyQt6 版
+"""集中拉取 + 单飞预测任务 + 生命周期管理 + 公开 API — PyQt6 版
 
 架构：
     - 每 75s 集中拉取所有视频数据（单一定时器）
-    - 每个视频一个独立预测线程，由拉取完成后分发触发、回调更新 UI
+    - 每个视频一个 supervisor 单飞预测 lane，由拉取完成后分发触发、回调更新 UI
 """
 
 import threading
@@ -68,9 +68,6 @@ _central_fetch_lock = threading.Lock()
 _central_stop_event = threading.Event()  # 可中断的间隔等待（替代逐秒 sleep）
 _precision_watch_manager = None
 
-_predictors: dict = {}  # bvid → VideoPredictor
-_predictors_lock = threading.Lock()
-
 # 即弃型工作线程登记（弹幕拉取、手动拉取、集中拉取线程等），
 # 退出时统一 join，避免关闭数据库后仍有线程触碰连接/UI
 _adhoc_threads: set = set()
@@ -111,131 +108,6 @@ def _start_tracked_thread(target, args=(), name=None):
 def _start_runtime_task(gui, target, args=(), name=None):
     """Start a shutdown-aware registered task and retain legacy fallback tracking."""
     return start_registered_task(gui, target, args, name)
-
-
-# ══════════════════════════════════════════════
-#  每视频独立预测线程
-# ══════════════════════════════════════════════
-
-
-class VideoPredictor:
-    """每视频独立预测线程：由拉取完成后 notify() 唤醒，执行预测后回调 UI。
-
-    threading.Event 驱动，拉取完成后 notify() → 线程被唤醒 → 预测 → 回调。
-    若预测进行中又有新数据到达，标记 pending，当前预测结束后立即再预测一次。
-    """
-
-    def __init__(self, gui, bvid, video):
-        self.gui = gui
-        self.bvid = bvid
-        self.video = video  # 引用 gui.monitored_videos 中的同一个 dict
-        self._event = threading.Event()
-        self._running = True
-        self._busy = False
-        self._pending = False  # 预测进行中又有新数据到达时置 True
-        self._thread = threading.Thread(target=self._loop, daemon=True, name=f"Predictor-{bvid}")
-        self._thread.start()
-
-    def notify(self):
-        """拉取完成 → 唤醒预测线程"""
-        if accepts_tasks(self.gui):
-            self._event.set()
-
-    def stop(self, timeout: float = 3.0):
-        """停止预测线程（最多等待 _PREDICT_STOP_TIMEOUT 秒）
-
-        预测本身不可强杀，超时后记录日志，交由守护线程随进程退出；
-        正常路径下 Event 唤醒后线程会在下一个循环入口立即退出。
-        """
-        self._running = False
-        self._event.set()
-        self._thread.join(timeout=timeout)
-        if self._thread.is_alive():
-            logger.warning(
-                "预测线程 %s 在 %s 秒内未退出（可能卡在长预测/网络调用），转为守护退出",
-                self._thread.name,
-                timeout,
-            )
-
-    def _loop(self):
-        while self._running:
-            self._event.wait()
-            self._event.clear()
-            if not self._running:
-                break
-            if not accepts_tasks(self.gui):
-                break
-            if self._busy:
-                self._pending = True  # 标记：新数据到达，等本次预测完后重跑
-                continue
-            self._busy = True
-            self._pending = False
-            try:
-                from ui.monitor._prediction import _predict_single
-
-                get_task_supervisor(self.gui).submit_prediction(self.gui, self.bvid, self.video, _predict_single)
-            except Exception as e:
-                logger.debug("预测失败 %s: %s", self.bvid, e)
-            finally:
-                self._busy = False
-                if self._pending and self._running:
-                    self._event.set()  # 有 pending 数据，立即再触发一次预测
-
-    def _on_done(self, result):
-        """预测完成 → 更新预测面板（仅在选中当前视频时）"""
-        gui = self.gui
-        if result["bvid"] != gui.selected_bvid:
-            return
-        gui._prediction_done(
-            result["prediction"],
-            result["current_view"],
-            result["growth"],
-            result["rate_per_sec"],
-            result["success_list"],
-            result["fail_list"],
-            result["valid"],
-            result["total"],
-            result.get("surge_info"),
-            result.get("bias_info"),
-            result.get("eta_info"),
-        )
-
-
-def _ensure_predictor(gui, bvid, video):
-    """确保视频有对应的预测线程（幂等）"""
-
-    def create() -> None:
-        with _predictors_lock:
-            if bvid not in _predictors:
-                _predictors[bvid] = VideoPredictor(gui, bvid, video)
-
-    admit_runtime_creation(gui, create)
-
-
-def _stop_all_predictors(timeout: float = 0.0):
-    """停止所有预测线程（先收集再锁外 join，避免主线程持锁阻塞 3N 秒）"""
-    with _predictors_lock:
-        predictors = list(_predictors.values())
-    for predictor in predictors:
-        predictor.stop(timeout)
-    alive_predictors = {predictor.bvid: predictor for predictor in predictors if predictor._thread.is_alive()}
-    with _predictors_lock:
-        for bvid, predictor in list(_predictors.items()):
-            if predictor in predictors and bvid not in alive_predictors:
-                _predictors.pop(bvid, None)
-    return [predictor._thread.name for predictor in alive_predictors.values()]
-
-
-def _stop_predictor(bvid):
-    """停止单个视频的预测线程（删除视频时调用，避免线程泄漏）"""
-    with _predictors_lock:
-        predictor = _predictors.get(bvid)
-    if predictor is not None:
-        predictor.stop(0.0)
-        if not predictor._thread.is_alive():
-            with _predictors_lock:
-                if _predictors.get(bvid) is predictor:
-                    _predictors.pop(bvid, None)
 
 
 # ══════════════════════════════════════════════
@@ -640,7 +512,7 @@ def _stop_central_fetcher():
 
 
 def _stop_all_workers(gui=None):
-    """停止集中拉取 + 所有预测线程 + 登记的即弃线程（应用退出时调用）
+    """停止集中拉取、精确监视和登记的即弃线程（应用退出时调用）
 
     主线程只做零等待存活轮询，避免多个慢任务累计阻塞 Qt 事件循环。未退出的
     owner 保留在各自容器中，由 ``on_exit`` 的后续轮询持续报告并延后资源关闭。
@@ -654,7 +526,6 @@ def _stop_all_workers(gui=None):
         gui._workers_stop_requested = True
     _stop_central_fetcher()
     alive = _stop_precision_watch_manager(timeout)
-    alive.extend(_stop_all_predictors(timeout))
 
     # join 登记的即弃线程（弹幕拉取、fetch-now）
     with _adhoc_lock:
@@ -704,7 +575,7 @@ def fetch_all_video_data(gui, callback=None):
 
 
 def auto_predict_all(gui):
-    """对所有已加载视频运行预测（启动后调用一次，后续由每视频预测线程接管）"""
+    """对所有已加载视频运行预测。"""
 
     def _worker():
         from ui.monitor._prediction import _predict_single
@@ -819,7 +690,7 @@ def _load_one_monitor(gui, bvid: str) -> bool:
 
 
 def load_watch_list(gui):
-    """启动时加载监控列表，创建每视频预测线程，启动集中拉取"""
+    """启动时加载监控列表并启动集中拉取。"""
     from ui.theme import C
     from config import load_config
 
@@ -837,12 +708,6 @@ def load_watch_list(gui):
             if _load_one_monitor(gui, bvid):
                 time.sleep(0.15)
 
-        # ── 所有视频加载完成 → 创建每视频预测线程 + 启动集中拉取 ──
-        for video in gui.monitored_videos:
-            bvid = video.get("bvid", "")
-            if bvid:
-                _ensure_predictor(gui, bvid, video)
-
         invoke(lambda: _start_central_fetcher(gui))
 
         from ui.theme import C as C2
@@ -855,11 +720,10 @@ def load_watch_list(gui):
 
         gui.log_panel.add_log(
             "INFO",
-            f"系统就绪，{len(gui.monitored_videos)} 个视频监控中"
-            f"（拉取 {DEFAULT_FETCH_INTERVAL}s，每视频独立预测线程）",
+            f"系统就绪，{len(gui.monitored_videos)} 个视频监控中" f"（拉取 {DEFAULT_FETCH_INTERVAL}s，按视频单飞预测）",
         )
 
-        # 启动后立即运行一次初始预测（后续由每视频线程在拉取完成后接管）
+        # 启动后立即运行一次初始预测，后续由拉取完成后的单飞任务接管
         invoke(lambda: QTimer.singleShot(100, lambda: auto_predict_all(gui)))
 
     _start_runtime_task(gui, _worker, name="auto-predict")

@@ -16,7 +16,9 @@ from algorithms.registry import AlgorithmRegistry
 from core import get_bilibili_api, get_db
 from core.up_database import UpDatabase
 from ui.helpers import THRESHOLDS, THRESHOLD_NAMES
+from ui.invoker import invoke
 from ui.monitor._lifecycle import accepts_tasks, start_registered_task, use_video_db
+from ui.monitor._supervisor import TaskToken, get_task_supervisor
 from utils.memory_guard import is_memory_pressure
 from utils.time_utils import now_ts, safe_datetime, normalize_timestamp
 
@@ -369,8 +371,11 @@ def _detect_surge_for_ui(history: list) -> dict:
         return {"is_surging": False, "surge_type": "none"}
 
 
-def _schedule_weight_warmup(gui, bvid, history):
+def _schedule_weight_warmup(gui, bvid, history, token: Optional[TaskToken] = None):
     try:
+        if not _is_current_prediction_token(gui, token):
+            logger.debug("跳过已失效权重预热 %s", bvid)
+            return
         if not accepts_tasks(gui):
             return
         if len(history) >= 15:
@@ -469,7 +474,10 @@ def _update_ensemble_accuracy(prev_result, current_view):
         logger.debug("保形预测校准失败: %s", e)
 
 
-def _save_prediction_outputs(gui, bvid, video, current_view, results):
+def _save_prediction_outputs(gui, bvid, video, current_view, results, token: Optional[TaskToken] = None):
+    if not _is_current_prediction_token(gui, token):
+        logger.debug("跳过已失效预测输出 %s", bvid)
+        return
     if not accepts_tasks(gui):
         return
     try:
@@ -480,8 +488,40 @@ def _save_prediction_outputs(gui, bvid, video, current_view, results):
         logger.exception("后台保存预测数据失败 %s", bvid)
 
 
-def _predict_single(gui, bvid, video) -> dict:
-    """在 worker 线程中对单个视频运行预测（纯函数，无 UI 调用）"""
+def _is_current_prediction_token(gui: Any, token: Optional[TaskToken]) -> bool:
+    """Return whether a prediction execution may still publish side effects."""
+    return token is None or get_task_supervisor(gui).is_current(token)
+
+
+def _schedule_prediction_ui(gui: Any, result: dict, token: TaskToken) -> None:
+    """Queue a token-guarded prediction panel refresh on the UI thread."""
+    bvid = result.get("bvid", "")
+
+    def render() -> None:
+        if not _is_current_prediction_token(gui, token):
+            logger.debug("跳过已失效预测 UI 回调 %s", bvid)
+            return
+        if bvid != getattr(gui, "selected_bvid", None) or not hasattr(gui, "_prediction_done"):
+            return
+        gui._prediction_done(
+            result["prediction"],
+            result["current_view"],
+            result["growth"],
+            result["rate_per_sec"],
+            result["success_list"],
+            result["fail_list"],
+            result["valid"],
+            result["total"],
+            result.get("surge_info"),
+            result.get("bias_info"),
+            result.get("eta_info"),
+        )
+
+    invoke(render, key=f"prediction-result-{bvid}")
+
+
+def _predict_single(gui, bvid, video, token: Optional[TaskToken] = None) -> dict:
+    """Run one prediction in a worker thread and publish only for a current lane."""
     if not accepts_tasks(gui):
         return {}
     seq = _begin_prediction_cycle(bvid)
@@ -500,18 +540,16 @@ def _predict_single(gui, bvid, video) -> dict:
         live_features=live_features,
     )
 
-    # B3: 冷启动权重预热 —— 必须放在首轮预测**之后**。
-    # 原先在 predict_all 之前起线程：它会用同一批共享算法实例跑 40 个算法的滚动回测，
-    # 既与首轮预测抢 CPU，又可能在权重预取前后改动权重 → 首轮集成数值取决于线程时序。
-    # 移到之后既保留预热效果，又让首轮结果确定（首轮用未预热的旧权重）。
-    _schedule_weight_warmup(gui, bvid, history)
-
     rate_per_sec = _calc_surge_aware_growth_rate(history)
 
     # ── 推流检测信息（供 UI 展示）──────────────────
     surge_info = _detect_surge_for_ui(history)
 
     result = _build_prediction_result(bvid, current_view, results, rate_per_sec, surge_info)
+    if not _is_current_prediction_token(gui, token):
+        logger.debug("跳过已失效预测结果 %s", bvid)
+        _maybe_release_memory(gui)
+        return dict(result)
     committed, prev_result = _commit_prediction_result_state(gui, bvid, result, seq)
     if not committed:
         # 旧周期晚于新周期完成时，不覆盖结果，也不污染反馈与持久化。
@@ -519,17 +557,35 @@ def _predict_single(gui, bvid, video) -> dict:
         _maybe_release_memory(gui)
         return dict(result)
 
+    if not _is_current_prediction_token(gui, token):
+        logger.debug("跳过已失效预测反馈 %s", bvid)
+        _maybe_release_memory(gui)
+        return dict(result)
+
+    # 冷启动权重预热在首轮预测成功提交后调度，避免已退役 lane 触发后台回测。
+    _schedule_weight_warmup(gui, bvid, history, token)
+
     # 在线学习反馈
     _online_learning_feedback(gui, bvid, results, current_view, prev_result)
 
+    if not _is_current_prediction_token(gui, token):
+        logger.debug("跳过已失效预测校准 %s", bvid)
+        _maybe_release_memory(gui)
+        return dict(result)
+
     # ── 保形预测校准 ──
     _update_ensemble_accuracy(prev_result, current_view)
+
+    if not _is_current_prediction_token(gui, token):
+        logger.debug("跳过已失效预测保存调度 %s", bvid)
+        _maybe_release_memory(gui)
+        return dict(result)
 
     # 后台：图更新 + 视频库保存 + 中央库同步
     start_registered_task(
         gui,
         _save_prediction_outputs,
-        args=(gui, bvid, video, current_view, results),
+        args=(gui, bvid, video, current_view, results, token),
         name=f"save-prediction-{bvid}",
     )
 
