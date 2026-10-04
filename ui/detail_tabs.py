@@ -35,7 +35,8 @@ class _VideoDatabase(Protocol):
 class _RatioDanmakuMixin:
     """互动率 + 弹幕标签页 Mixin"""
 
-    gui: Any
+    _state: Any
+    _lifecycle_owner: Any
     _ratio_layout: QVBoxLayout
     _ratio_bars: list[tuple[QFrame, QLabel]]
     _dm_text: QTextEdit
@@ -113,7 +114,7 @@ class _RatioDanmakuMixin:
 
     def _refresh_danmaku_display(self):
         """从缓存渲染弹幕；数据库读取在后台完成（不阻塞主线程）"""
-        bvid = self.gui.selected_bvid
+        bvid = self._state.selected_bvid
         if not bvid:
             self._dm_text.setVisible(True)
             self._dm_empty.setVisible(False)
@@ -161,7 +162,7 @@ class _RatioDanmakuMixin:
         def _load():
             try:
                 result = use_video_db(
-                    self.gui,
+                    self._lifecycle_owner,
                     bvid,
                     lambda video_db: (video_db.get_danmaku_records(limit=200), video_db.count_danmaku()),
                 )
@@ -180,10 +181,10 @@ class _RatioDanmakuMixin:
                 if prev is not None and prev["count"] == count:
                     return
                 self._dm_cache[bvid] = {"records": records, "count": count}
-                if self.gui is not None and self.gui.selected_bvid == bvid and self._current_tab_name == "♬ 弹幕":
+                if self._state.selected_bvid == bvid and self._current_tab_name == "♬ 弹幕":
                     self._render_danmaku(records, count)
 
             invoke(_apply)
 
-        if start_registered_task(self.gui, _load, name=f"danmaku:{bvid}") is None:
+        if start_registered_task(self._lifecycle_owner, _load, name=f"danmaku:{bvid}") is None:
             self._dm_pending.discard(bvid)

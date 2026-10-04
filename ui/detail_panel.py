@@ -7,6 +7,7 @@ QWidget + QTabWidget 标签页切换 + ChartWidget 图表
 
 import threading
 from datetime import datetime
+from typing import Any
 
 from PyQt6.QtWidgets import (
     QWidget,
@@ -54,9 +55,9 @@ from utils.update_checker import _confirm_risky
 class FinetuneDialog(QDialog):
     """微调对话框"""
 
-    def __init__(self, gui, bvid, algos):
-        super().__init__(gui)
-        self.gui = gui
+    def __init__(self, parent: QWidget, actions: Any, bvid, algos):
+        super().__init__(parent)
+        self._actions = actions
         self.bvid = bvid
         self.algos: list = algos or []
         self.setWindowTitle(f"♪ 微调 — {bvid}")
@@ -193,13 +194,13 @@ class FinetuneDialog(QDialog):
 
             trainer = ModelTrainer()
             total = len(selected)
-            self.gui.set_finetune_status(f"◎ 天依正在微调 {self.bvid} …")
+            invoke(lambda: self._actions.set_finetune_status(f"◎ 天依正在微调 {self.bvid} …"))
             for i, aid in enumerate(selected):
                 msg = f"[{i + 1}/{total}] 微调 {aid}…"
                 gui_msg = f"◎ 天依在微调 {self.bvid}: [{i + 1}/{total}] {aid}"
                 invoke(lambda m=msg: self._status_lbl.setText(m))
                 invoke(lambda p=(i + 0.5) / total: self._progress.setValue(int(p * 100)))
-                invoke(lambda m=gui_msg: self.gui.set_finetune_status(m))
+                invoke(lambda m=gui_msg: self._actions.set_finetune_status(m))
                 try:
                     version = trainer.finetune_for_video(
                         algo_id=aid,
@@ -218,7 +219,7 @@ class FinetuneDialog(QDialog):
             invoke(lambda: self._progress.setValue(100))
             invoke(lambda: self._start_btn.setText("完成 ♪"))
             invoke(lambda: self._start_btn.setEnabled(True))
-            invoke(lambda: self.gui.set_finetune_status(f"✓ 微调 {self.bvid} 完成啦 ({total})♪"))
+            invoke(lambda: self._actions.set_finetune_status(f"✓ 微调 {self.bvid} 完成啦 ({total})♪"))
             invoke(lambda: setattr(self, "_running", False))
 
         threading.Thread(target=_worker, daemon=True).start()
@@ -227,8 +228,12 @@ class FinetuneDialog(QDialog):
 class DetailPanel(_RatioDanmakuMixin):
     """中间详情面板 — PyQt6 版"""
 
-    def __init__(self, parent, gui):
-        self.gui = gui
+    def __init__(self, parent, state, actions, lifecycle_owner):
+        self._state = state
+        self._actions = actions
+        # Database leases and registered tasks remain owned by the lifecycle host.
+        # It is deliberately separate from AppState/AppActions.
+        self._lifecycle_owner = lifecycle_owner
         self._parent = parent
         self._stat_labels = {}
         self._current_tab_name = "↗ 播放量趋势"
@@ -245,6 +250,7 @@ class DetailPanel(_RatioDanmakuMixin):
         self._header_video = None  # 缓存当前 header 对应的 video 对象（身份校验，防陈旧缓存）
 
         self._build()
+        self._state.selection_changed.connect(self._on_state_selection_changed)
 
     def _build(self):
         """构建中间面板"""
@@ -545,7 +551,7 @@ class DetailPanel(_RatioDanmakuMixin):
             }}
             QPushButton:hover {{ color: {C['accent']}; }}
         """)
-        bv_lbl.clicked.connect(lambda: self.gui._copy_bvid(bvid))
+        bv_lbl.clicked.connect(lambda: self._actions.copy_bvid(bvid))
         meta_h.addWidget(bv_lbl)
         meta_h.addStretch()
         info_layout.addWidget(meta)
@@ -594,7 +600,7 @@ class DetailPanel(_RatioDanmakuMixin):
             )
             return
 
-        dlg = FinetuneDialog(self.gui, bvid, algos)
+        dlg = FinetuneDialog(self.frame, self._actions, bvid, algos)
         present_modal(dlg)
 
     # ── Stat Bar ─────────────────────────────────
@@ -735,10 +741,18 @@ class DetailPanel(_RatioDanmakuMixin):
 
     def _get_selected_video(self):
         """获取当前选中视频（每次现查，避免缓存指向已删除/重建的旧 dict）"""
-        bvid = self.gui.selected_bvid
+        bvid = self._state.selected_bvid
         if not bvid:
             return None
-        return next((v for v in self.gui.monitored_videos if v.get("bvid") == bvid), None)
+        return next((v for v in self._state.monitored_videos if v.get("bvid") == bvid), None)
+
+    def _on_state_selection_changed(self, _bvid):
+        """Refresh this panel once after the shared selection state changes."""
+        video = self._get_selected_video()
+        if video:
+            self.build_header(video)
+            self.update_stat_bar(video)
+            self._on_tab_changed(self._tabs.currentIndex())
 
     # ── Chart Rendering ─────────────────────────
 
@@ -787,11 +801,12 @@ class DetailPanel(_RatioDanmakuMixin):
 
     def _do_render_chart(self):
         """执行图表渲染"""
-        if not self.gui.selected_bvid:
+        bvid = self._state.selected_bvid
+        if not bvid:
             self._chart_empty.setVisible(True)
             self._chart_widget.setVisible(False)
             return
-        video = next((v for v in self.gui.monitored_videos if v.get("bvid") == self.gui.selected_bvid), None)
+        video = next((v for v in self._state.monitored_videos if v.get("bvid") == bvid), None)
         if not video:
             self._chart_empty.setVisible(True)
             self._chart_widget.setVisible(False)
@@ -801,18 +816,20 @@ class DetailPanel(_RatioDanmakuMixin):
         except ValueError:
             points = 20
         self._chart_max_points = points
-        pred = self.gui.prediction_results.get(self.gui.selected_bvid)
+        prediction_results = self._state.prediction_results
+        history_data = self._state.history_data
+        pred = prediction_results.get(bvid)
 
-        history = self.gui.history_data.get(self.gui.selected_bvid, [])
+        history = history_data.get(bvid, [])
         pred_val = pred.get("prediction", 0) if pred else 0
-        fp = (self.gui.selected_bvid, video.get("view_count", 0), len(history), pred_val, self._chart_mode)
+        fp = (bvid, video.get("view_count", 0), len(history), pred_val, self._chart_mode)
         if fp == self._chart_fingerprint:
             return
         self._chart_fingerprint = fp
 
         self._chart_widget.update_chart(
-            self.gui.history_data,
-            self.gui.selected_bvid,
+            history_data,
+            bvid,
             video,
             mode=self._chart_mode,
             max_points=points,
@@ -850,7 +867,7 @@ class DetailPanel(_RatioDanmakuMixin):
             try:
                 # 先按整点桶补齐归档（幂等），再读最近 5 点
                 result = use_video_db(
-                    self.gui,
+                    self._lifecycle_owner,
                     bvid,
                     lambda db: (ensure_scores(db), db.get_weekly_scores(limit=5), db.get_yearly_scores(limit=5)),
                 )
@@ -867,7 +884,7 @@ class DetailPanel(_RatioDanmakuMixin):
                 if fresh == prev:
                     return
                 self._score_history_cache[bvid] = fresh
-                if self.gui is not None and self.gui.selected_bvid == bvid and self._current_tab_name == "☰ 详细数据":
+                if self._state.selected_bvid == bvid and self._current_tab_name == "☰ 详细数据":
                     self._detail_text_fp = None
                     video = self._get_selected_video()
                     if video:
@@ -875,7 +892,7 @@ class DetailPanel(_RatioDanmakuMixin):
 
             invoke(_apply)
 
-        if start_registered_task(self.gui, _load, name=f"score-history:{bvid}") is None:
+        if start_registered_task(self._lifecycle_owner, _load, name=f"score-history:{bvid}") is None:
             self._score_history_pending.discard(bvid)
 
     def _detail_text_fingerprint(self, video):
@@ -1016,7 +1033,7 @@ class DetailPanel(_RatioDanmakuMixin):
 
     def _append_historical_scores(self, html_parts, style_map, bvid):
         """追加后台缓存中的历史周刊和年刊分数。"""
-        if bvid not in self.gui.video_dbs:
+        if bvid not in self._state.video_dbs:
             return
         history_scores, yearly_scores = self._get_score_history(bvid)
         if len(history_scores) > 1:

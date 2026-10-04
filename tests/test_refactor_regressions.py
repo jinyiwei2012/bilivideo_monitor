@@ -923,6 +923,7 @@ class TestDetailScoreHistoryCache:
         panel._score_history_pending = pending
         panel._current_tab_name = "☰ 详细数据"
         panel._detail_text_fp = None
+        panel._state = type("_State", (), {"selected_bvid": "OTHER"})()
         return panel
 
     @staticmethod
@@ -960,7 +961,7 @@ class TestDetailScoreHistoryCache:
 
         db = self._make_db()
         panel = self._make_panel({}, set())
-        panel.gui = self._make_gui(db)
+        panel._lifecycle_owner = self._make_gui(db)
 
         weekly, yearly = panel._get_score_history("BV1")
         assert weekly == [] and yearly == []
@@ -974,7 +975,7 @@ class TestDetailScoreHistoryCache:
 
         db = self._make_db()
         panel = self._make_panel({}, set())
-        panel.gui = self._make_gui(db)
+        panel._lifecycle_owner = self._make_gui(db)
 
         panel._get_score_history("BV1")
         assert db.calls == 2
@@ -992,7 +993,7 @@ class TestDetailScoreHistoryCache:
 
         db = self._make_db()
         panel = self._make_panel({}, set())
-        panel.gui = self._make_gui(db)
+        panel._lifecycle_owner = self._make_gui(db)
 
         panel._get_score_history("BV1")
         panel._get_score_history("BV1")
@@ -1021,7 +1022,7 @@ class TestDetailScoreHistoryCache:
             selected_bvid = "OTHER"
 
         panel = self._make_panel({}, set())
-        panel.gui = _Gui()
+        panel._lifecycle_owner = _Gui()
 
         panel._get_score_history("BV1")
         assert order == ["ensure", "weekly", "yearly"], "后台应先物化归档再读最近 5 点"
@@ -1038,6 +1039,7 @@ class TestDanmakuBackgroundLoad:
         panel._dm_cache = {}
         panel._dm_pending = set()
         panel._current_tab_name = "♬ 弹幕"
+        panel._state = type("_State", (), {"selected_bvid": "OTHER"})()
         return panel
 
     def test_schedule_does_not_query_and_only_rerenders_on_count_change(self, monkeypatch):
@@ -1069,7 +1071,8 @@ class TestDanmakuBackgroundLoad:
             video_dbs = {"BV1": db}
 
         panel = self._panel()
-        panel.gui = _Gui()
+        panel._lifecycle_owner = _Gui()
+        panel._state.selected_bvid = "BV1"
         rendered = []
         panel._render_danmaku = lambda records, count: rendered.append(count)
 
@@ -1110,7 +1113,7 @@ class TestDanmakuBackgroundLoad:
                 return 0
 
         panel = self._panel()
-        panel.gui = type("_Gui", (), {"video_dbs": {"BV1": _DB()}, "selected_bvid": "OTHER"})()
+        panel._lifecycle_owner = type("_Gui", (), {"video_dbs": {"BV1": _DB()}})()
         panel._schedule_danmaku_load("BV1")
         panel._schedule_danmaku_load("BV1")
         assert sched["n"] == 1, "同一 bvid 只应调度一次后台读取"

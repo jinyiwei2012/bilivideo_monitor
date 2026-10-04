@@ -43,11 +43,7 @@ def show_video_detail(gui, video):
     else:
         gui.prediction._build_pred_hero_empty()
         gui.prediction._clear_info()
-    # 刷新详情面板
-    gui.detail.build_header(video)
-    gui.detail.update_stat_bar(video)
-    idx = gui.detail._tabs.currentIndex()
-    gui.detail._on_tab_changed(idx)
+    # DetailPanel observes AppState.selection_changed and refreshes itself.
 
 
 def select_video(gui, bvid):

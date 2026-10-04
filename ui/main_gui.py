@@ -625,7 +625,7 @@ class BilibiliMonitorGUI(QMainWindow):
         splitter.addWidget(self.video_list)
 
         # Center: detail + chart
-        self.detail = DetailPanel(splitter, self)
+        self.detail = DetailPanel(splitter, self.app_state, self.app_actions, self)
         splitter.addWidget(self.detail.frame)
 
         # Right: prediction

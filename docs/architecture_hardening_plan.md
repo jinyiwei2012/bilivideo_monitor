@@ -159,9 +159,10 @@
 
 ### 第二批：状态与任务骨架（建议最先启动）
 
-1. **B3 AppState/AppActions（逐个面板迁移）**〔核心；骨架与 VideoListPanel 已落地，Detail / Prediction 迁移待办〕
+1. **B3 AppState/AppActions（逐个面板迁移）**〔核心；骨架、VideoListPanel 与 DetailPanel 已落地，PredictionPanel 迁移待办〕
    - `ui/app_state.py` 已提供 `AppState(QObject)`：覆盖主窗 `monitored_videos`、`history_data`、`prediction_results`、`video_dbs`、`selected_bvid`、`_video_index` 的只读快照，以及 typed signals（`video_updated` / `selection_changed` / `prediction_updated`）。普通 dict/list/tuple/set 数据递归冻结，并在存在时持有既有 `_data_lock` 复制；`video_dbs` 仅是按 `_data_lock` → `_video_db_lock` 顺序取得的兼容性成员快照，值仍为不应由未来面板使用的可变 DB 资源句柄。`ui/app_actions.py` 已提供注入式增删 / 刷新 / 选择 / 推送委派入口。
-   - VideoListPanel 已完成首个机械迁移：构造时接收 `AppState` / `AppActions`，不再持有主窗引用；`selection_changed` 仅同步列表高亮且阻断列表信号回流，用户选择和“全部推送”经 actions 委派。卡片的增量 `make_card` / `update_card` / `remove_card` 调用仍由主窗既有流程维护，避免每次状态更新重建列表；DetailPanel、PredictionPanel 仍通过既有 `self.gui` 契约工作，主窗仍是暂时的状态所有者。
+    - VideoListPanel 已完成首个机械迁移：构造时接收 `AppState` / `AppActions`，不再持有主窗引用；`selection_changed` 仅同步列表高亮且阻断列表信号回流，用户选择和“全部推送”经 actions 委派。卡片的增量 `make_card` / `update_card` / `remove_card` 调用仍由主窗既有流程维护，避免每次状态更新重建列表。
+    - DetailPanel 已完成同一机械迁移：选择、视频/历史/预测快照、DB 成员兼容性检查和陈旧回调守卫改从 `AppState` 读取；复制 BV 号与微调状态经 `AppActions` 委派，微调工作线程保持通过 `invoke()` 回到主线程。分数/弹幕后台读取仍明确接收独立 lifecycle owner，仅用于 `use_video_db` 租约和 `start_registered_task`，绝不把 DB 资源放入 AppState。PredictionPanel 仍使用既有主窗契约；主窗仍是暂时的状态所有者。
    - VideoListPanel 验证：新增 5 项真实 offscreen QWidget 边界测试，覆盖单次选择、push 布尔参数隔离、状态高亮无重入、搜索与增量卡片操作及冻结快照适配。全量 560 passed（4 个既有第三方警告），Black / lint_gate / type_gate / Bandit 全部通过，算法注册数保持 137；未改布局与样式。
    - 迁移顺序：VideoListPanel → DetailPanel → PredictionPanel；逐面板可回退，顺手清 `self.gui.` 直摸（现状 117 处）与私有字段访问（如 `_cached_up_info`）。
    - 验收：三个核心面板不再直持主窗；面板相关回归 + 全量门禁通过。
