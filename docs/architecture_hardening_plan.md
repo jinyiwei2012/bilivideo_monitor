@@ -73,14 +73,14 @@
 
 ## 五、第一批动工包（2–4 周；先测试、后实现；逐包可回退）
 
-**状态（2026-10-04 更新）**：包 1 已交付（`80ab97f` / `24cecd8` / `d84233a`）；包 2 已交付（`743fafa`，524 passed）；包 3 已提交（`3dc6f1e`）；包 4–5 通过合流门禁与独立风险复核，并随本记录作集成提交（退出路径与工厂迁移存在共享文件）。全量 **545 passed**，算法注册数 **137**，完整性保护文件未修改。以下工程要点保留作为验收依据。
+**状态（2026-10-04 更新）**：包 1 已交付（`80ab97f` / `24cecd8` / `d84233a`）；包 2 已交付（`743fafa`，524 passed）；包 3 已提交（`3dc6f1e`）；包 4–5 经合流门禁与独立风险复核后提交为 `70a2690`（退出路径与工厂迁移存在共享文件）。B6-a 已完成实现、边界特征测试与全量门禁，待随本批次合流。全量 **549 passed**，算法注册数 **137**，完整性保护文件未修改。以下工程要点保留作为验收依据。
 
 #### 包 3–5 本轮交付与验证记录
 
 - **包 3**：CNN / Diffusion / MAR-BiLSTM / KNF 缓存换载持实例锁，推理使用局部模型引用；Lag-Llama / Moirai 懒加载状态受锁保护；通用 torch 路径整体实例串行。GPU LRU 驱逐采用非阻塞模型使用锁，跳过在途推理；CUDA OOM 最多重试一次，再进入既有降级链。新增 `tests/test_algo_concurrency.py`。
 - **包 4**：引入 `ui/monitor/_lifecycle.py`，统一 RUNNING / STOPPING / STOPPED、任务登记与 DB 租约；收拢监控、保存、预热、tick 维护、添加视频及面板后台资源使用。预测器、adhoc、PrecisionWatch 超时后保留所有权，重复轮询直到退出；STOPPING 与任务创建原子互斥；依赖关闭延迟至任务收敛之后。新增 `tests/test_shutdown_safety.py`、`tests/test_panel_db_lifecycle.py`、`tests/test_shutdown_qt.py`（真实 Qt 事件循环、隔离子进程验证延迟清理）。
 - **包 5**：移除 `core` 导入时 DB / API 实例别名与通知实例再导出，调用方显式获取工厂；共享 HTTP Session / Adapter 延迟创建。新增 `tests/test_core_import_purity.py`，子进程护栏验证无 DB 文件、线程、网络及 Session / Adapter 构造增量。
-- **最终门禁**：在 conda `bili` 环境中，Black（390 文件）、lint_gate、type_gate（0 errors）、Bandit（Medium / High = 0）、pytest（545 passed，4 个既有第三方收敛警告）、`git diff --check` 全部通过；算法数独立断言为 137。
+- **B6-a 验证**：在 conda `bili` 环境中，Black（392 文件）、lint_gate、type_gate（0 errors）、Bandit（Medium / High = 0）、pytest（549 passed，4 个既有第三方收敛警告）、`git diff --check` 全部通过；AST 护栏确认 `core/` 不导入 `ui`，算法数独立断言为 137。
 - **独立复核**：已闭合 GPU 驱逐竞态、OOM 无界递归、重复退出轮询丢失线程所有权、STOPPING 后启动及面板未登记资源使用等具体阻塞项。最终限定复核 PASS。
 - **保留限制**：第三方网络调用若永久不返回，将延迟退出而非提前关闭依赖；历史弹幕抓取为保证写入句柄存活会持有较长 DB 租约；无空闲 GPU 模型可驱逐时保守降级。同一算法实例的多训练任务隔离、声明式执行策略仍属后续任务，不视为本轮交付。
 - **下一施工入口**：按第二批推进 B6-a 断环及 B3 / B1 状态与任务骨架；本轮仅完成首批包 3–5，不代表第二至第六批已经交付。
@@ -165,7 +165,7 @@
    - 验收：三个核心面板不再直持主窗；面板相关回归 + 全量门禁通过。
 2. **B1 TaskSupervisor**：I/O / 预测 / 持久化任务收拢为统一 supervisor；per-bvid single-flight（同视频仅一个在途预测）+ latest-wins；统一取消与异常收集。可分两步：先统一登记与 single-flight，再拆分类 executor。
    - 验收：手动 + 定时 + warmup 并发触发的「预测风暴」不重复排队；退出收敛口径与包 4 一致。
-3. **B6-a 断环（小件，先行）**：`core/threshold_escalation.py:123,255` 的反向 `ui.helpers` 依赖移入中立模块；core 对 ui 零依赖。
+3. **B6-a 断环（小件，已完成）**：`core/threshold_escalation.py:123,255` 的反向 `ui.helpers` 依赖已移入 `config.thresholds`；`ui.helpers` 显式再导出原有阈值对象与重载入口，core 对 ui 零依赖。
    - 验收：`core/` 内 import `ui` 零命中（grep）；相关测试通过。
 4. **C3 性能预算（先观测）**：采集启动→首帧 / 列表可用 / 首次数据 / 首次预测 / 单视频 P50·P95 / 队列长度 / RSS；依数据再决策重算法降频扩展、批量取权重、首屏轻量算法、模型延迟加载。
    - 验收：可复现的基线数字 + 实测结论（写回本文档）。

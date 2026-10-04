@@ -9,11 +9,18 @@
 """
 
 import math
-from typing import Any, cast
+from typing import cast
 
 from ui.theme import C
 
 from utils import PROJECT_ROOT, project_path
+from config.thresholds import (
+    THRESHOLD_NAMES,
+    THRESHOLDS,
+    add_reload_listener,
+    auto_threshold_name,
+    reload_thresholds as reload_shared_thresholds,
+)
 
 from PyQt6.QtGui import QFont
 
@@ -84,8 +91,6 @@ SPACE_LG = 14
 SPACE_XL = 20
 
 # ── 阈值与间隔 ───────────────────────────────
-THRESHOLDS: list = []
-THRESHOLD_NAMES: list = []
 THRESH_COLORS: list = []
 
 _THRESH_PALETTE: list[str] = cast("list[str]", C["thresh_palette"])
@@ -95,52 +100,17 @@ def _get_threshold_colors(n: int) -> list[str]:
     return [_THRESH_PALETTE[i % len(_THRESH_PALETTE)] for i in range(n)]
 
 
+def _refresh_threshold_colors() -> None:
+    """Keep UI-only threshold colors aligned with the shared threshold lists."""
+    THRESH_COLORS[:] = _get_threshold_colors(len(THRESHOLDS))
+
+
+add_reload_listener(_refresh_threshold_colors)
+
+
 def reload_thresholds() -> None:
-    """从配置文件加载阈值列表"""
-    raw: Any = []
-    try:
-        from config import load_config, DEFAULT_CONFIG
-
-        cfg = load_config()
-        raw = cfg.get("prediction", {}).get("thresholds", [])
-        if not raw:
-            # 默认阈值单点定义见 config.DEFAULT_CONFIG
-            raw = DEFAULT_CONFIG["prediction"]["thresholds"]
-    except Exception:
-        from config import DEFAULT_CONFIG
-
-        raw = DEFAULT_CONFIG["prediction"]["thresholds"]
-
-    values = []
-    names = []
-    if raw and isinstance(raw[0], (list, tuple)):
-        for item in raw:
-            v = int(item[0])
-            n = str(item[1]) if len(item) > 1 else auto_threshold_name(v)
-            values.append(v)
-            names.append(n)
-    else:
-        values = [int(v) for v in raw]
-        names = [auto_threshold_name(v) for v in raw]
-
-    pairs = sorted(zip(values, names), key=lambda x: x[0])
-    values = [p[0] for p in pairs]
-    names = [p[1] for p in pairs]
-
-    THRESHOLDS[:] = values
-    THRESHOLD_NAMES[:] = names
-    THRESH_COLORS[:] = _get_threshold_colors(len(values))
-
-
-def auto_threshold_name(v):
-    if v >= 100_000_000:
-        return f"{v / 100_000_000:.0f}亿"
-    if v >= 10_000:
-        w = v / 10_000
-        if w == int(w):
-            return f"{int(w)}万"
-        return f"{w}万"
-    return str(v)
+    """Reload shared threshold state and refresh UI-only threshold colors."""
+    reload_shared_thresholds()
 
 
 reload_thresholds()

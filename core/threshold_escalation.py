@@ -7,7 +7,7 @@
     3. 达标记录持久化在 data/threshold_progress.json，重启不重复通知
 
 设计：
-    - 与全局 THRESHOLDS/THRESHOLD_NAMES 联动（ui.helpers 加载自 config）
+    - 与全局 THRESHOLDS/THRESHOLD_NAMES 联动（config.thresholds 加载自 config）
     - 追加档位仅写 config + reload_thresholds()，不触碰算法内部
 """
 
@@ -118,14 +118,14 @@ def _fmt_count(n: int) -> str:
 
 
 def _load_current_thresholds() -> tuple[list[int], list[str]]:
-    """读取当前生效的阈值列表（从 helpers 或 config 兜底）"""
+    """读取当前生效的阈值列表。"""
     try:
-        from ui.helpers import THRESHOLDS, THRESHOLD_NAMES
+        from config.thresholds import THRESHOLDS, THRESHOLD_NAMES
 
         if THRESHOLDS:
             return list(THRESHOLDS), list(THRESHOLD_NAMES)
     except Exception as e:
-        logger.debug("读取 helpers 阈值失败: %s", e)
+        logger.debug("读取共享阈值失败: %s", e)
     try:
         from config import load_config
 
@@ -252,7 +252,7 @@ def _apply_escalation(gui: Any, bvid: str, title: str, old_max: int, new_t: int)
     """将新档位写入 config 并重载全局阈值"""
     try:
         from config import load_config, save_config
-        from ui.helpers import reload_thresholds
+        from config.thresholds import reload_thresholds
 
         cfg = load_config()
         th = cfg.setdefault("prediction", {}).setdefault("thresholds", [])
