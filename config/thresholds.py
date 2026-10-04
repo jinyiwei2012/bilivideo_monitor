@@ -1,7 +1,7 @@
 """Headless threshold configuration state shared by core and UI layers."""
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 THRESHOLDS: list[int] = []
 THRESHOLD_NAMES: list[str] = []
@@ -27,12 +27,12 @@ def _load_threshold_entries() -> list[Any]:
 
         configured = load_config().get("prediction", {}).get("thresholds", [])
         if configured:
-            return configured
-        return DEFAULT_CONFIG["prediction"]["thresholds"]
+            return cast("list[Any]", configured)
+        return cast("list[Any]", DEFAULT_CONFIG["prediction"]["thresholds"])
     except Exception:
         from config import DEFAULT_CONFIG
 
-        return DEFAULT_CONFIG["prediction"]["thresholds"]
+        return cast("list[Any]", DEFAULT_CONFIG["prediction"]["thresholds"])
 
 
 def reload_thresholds() -> None:

@@ -115,7 +115,7 @@ def mark_stopped(gui: Any) -> None:
 
 
 def start_registered_task(
-    gui: Any, target: Callable[..., None], args: tuple[Any, ...] = (), name: str | None = None
+    gui: Any, target: Callable[..., Any], args: tuple[Any, ...] = (), name: str | None = None
 ) -> Optional[threading.Thread]:
     return _runtime(gui).start_thread(target, args, name)
 

@@ -167,7 +167,8 @@ class _RatioDanmakuMixin:
                     lambda video_db: (video_db.get_danmaku_records(limit=200), video_db.count_danmaku()),
                 )
                 if result is None:
-                    records, count = [], 0
+                    records: list[Any] = []
+                    count: int = 0
                 else:
                     records, count = result
             except Exception as e:

@@ -23,10 +23,10 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-NTP_DELTA = 2_208_988_800
-_NTP_ERA_SECONDS = 2**32
-_MAX_DIAGNOSTIC_OFFSET_SECONDS = 30 * 24 * 3600
-_MAX_AUTO_OFFSET_SECONDS = 5.0
+NTP_DELTA: int = 2_208_988_800
+_NTP_ERA_SECONDS: int = 2**32
+_MAX_DIAGNOSTIC_OFFSET_SECONDS: int = 30 * 24 * 3600
+_MAX_AUTO_OFFSET_SECONDS: float = 5.0
 _MAX_QUORUM_OFFSET_SECONDS = 5 * 60.0
 _MAX_DELAY_SECONDS = 5.0
 _CONSENSUS_RADIUS_SECONDS = 1.0
@@ -102,9 +102,11 @@ def _pack_ntp_timestamp(unix_time: float) -> bytes:
 
 def _unpack_ntp_timestamp(raw: bytes, local_unix: float) -> float:
     """Decode an NTP timestamp, selecting the era nearest local time."""
+    seconds: int
+    fraction: int
     seconds, fraction = struct.unpack("!II", raw)
     local_ntp = local_unix + NTP_DELTA
-    era = round((local_ntp - seconds) / _NTP_ERA_SECONDS)
+    era = float(round((local_ntp - seconds) / _NTP_ERA_SECONDS))
     return era * _NTP_ERA_SECONDS + seconds + fraction / _NTP_ERA_SECONDS - NTP_DELTA
 
 

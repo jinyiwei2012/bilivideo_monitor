@@ -329,7 +329,8 @@ class ScoreCenterWindow:
         self._pending.add(key)
 
         def _work():
-            rows, latest = [], ""
+            rows: list[Any] = []
+            latest = ""
             try:
                 if bvid:
                     result = use_video_db(

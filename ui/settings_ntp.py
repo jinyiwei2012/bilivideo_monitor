@@ -2,7 +2,7 @@
 
 from datetime import datetime
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from PyQt6.QtWidgets import (
     QCheckBox,
@@ -17,12 +17,21 @@ from PyQt6.QtWidgets import (
     QMessageBox,
 )
 
+from ui.dialog_base import DialogBase
 from ui.invoker import invoke
 from ui.theme import C
 
 
 class SettingsNtpMixin:
     """Build and manage the NTP calibration settings tab."""
+
+    _cfg: dict[str, Any]
+    dlg: DialogBase
+
+    if TYPE_CHECKING:
+
+        def _section(self, parent: QWidget, title: str, padding: tuple[int, ...] | None = None) -> QWidget:
+            raise NotImplementedError
 
     def _build_ntp_tab(self, tabs: QTabWidget) -> None:
         page = QWidget()

@@ -872,7 +872,8 @@ class DetailPanel(_RatioDanmakuMixin):
                     lambda db: (ensure_scores(db), db.get_weekly_scores(limit=5), db.get_yearly_scores(limit=5)),
                 )
                 if result is None:
-                    weekly, yearly = [], []
+                    weekly: list[Any] = []
+                    yearly: list[Any] = []
                 else:
                     _, weekly, yearly = result
             except Exception:

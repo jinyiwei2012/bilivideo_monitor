@@ -6,7 +6,7 @@ main-window reference while the current UI remains unchanged.
 """
 
 from types import MappingProxyType
-from typing import Any, Callable, Mapping, Optional, Tuple, TypeVar
+from typing import Any, Callable, Mapping, Optional, Tuple, TypeVar, cast
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
@@ -53,22 +53,26 @@ class AppState(QObject):
 
     def _data_snapshot(self, field_name: str) -> Any:
         """Capture and recursively freeze one ordinary shared-data field."""
-        return self._read_data_locked(lambda: _freeze_snapshot(getattr(self._host, field_name)))
+        snapshot: Any = self._read_data_locked(lambda: _freeze_snapshot(getattr(self._host, field_name)))
+        return snapshot
 
     @property
     def monitored_videos(self) -> Tuple[Any, ...]:
         """Return a snapshot of the monitored-video sequence."""
-        return self._data_snapshot("monitored_videos")
+        snapshot: Any = self._data_snapshot("monitored_videos")
+        return cast("Tuple[Any, ...]", snapshot)
 
     @property
     def history_data(self) -> Mapping[str, Any]:
         """Return a read-only snapshot of history data keyed by BVID."""
-        return self._data_snapshot("history_data")
+        snapshot: Any = self._data_snapshot("history_data")
+        return cast("Mapping[str, Any]", snapshot)
 
     @property
     def prediction_results(self) -> Mapping[str, Any]:
         """Return a read-only snapshot of prediction results keyed by BVID."""
-        return self._data_snapshot("prediction_results")
+        snapshot: Any = self._data_snapshot("prediction_results")
+        return cast("Mapping[str, Any]", snapshot)
 
     @property
     def video_dbs(self) -> Mapping[str, Any]:
@@ -99,7 +103,8 @@ class AppState(QObject):
     @property
     def _video_index(self) -> Mapping[str, Any]:
         """Return a read-only snapshot of the existing O(1) BVID index."""
-        return self._data_snapshot("_video_index")
+        snapshot: Any = self._data_snapshot("_video_index")
+        return cast("Mapping[str, Any]", snapshot)
 
     @property
     def video_index(self) -> Mapping[str, Any]:
