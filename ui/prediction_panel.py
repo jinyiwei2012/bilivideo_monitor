@@ -51,8 +51,9 @@ class _SectionTitle(QWidget):
 class PredictionPanel:
     """右侧预测面板 — PyQt6 版"""
 
-    def __init__(self, parent, gui):
-        self.gui = gui
+    def __init__(self, parent, state, actions):
+        self._state = state
+        self._actions = actions
         self._parent = parent
         self._hero_widgets: dict = {}
         self._hero_has_data = False
@@ -843,16 +844,16 @@ class PredictionPanel:
 
     def _update_algo_list(self, results, failed):
         """兼容旧接口"""
-        bvid = self.gui.selected_bvid
+        bvid = self._state.selected_bvid
         if not bvid:
             self._clear_info()
             return
-        video = self.gui._get_video(bvid)
+        video = self._actions.get_video(bvid)
         if not video:
             self._clear_info()
             return
-        history = self.gui.history_data.get(bvid, [])
-        cached = self.gui.prediction_results.get(bvid, {})
+        history = self._state.history_data.get(bvid, [])
+        cached = self._state.prediction_results.get(bvid, {})
         self.update_info(video, history, cached)
 
     @property

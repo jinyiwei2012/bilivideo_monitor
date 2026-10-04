@@ -629,7 +629,7 @@ class BilibiliMonitorGUI(QMainWindow):
         splitter.addWidget(self.detail.frame)
 
         # Right: prediction
-        self.prediction = PredictionPanel(splitter, self)
+        self.prediction = PredictionPanel(splitter, self.app_state, self.app_actions)
         splitter.addWidget(self.prediction.frame)
 
         # Proportions: 22 : 58 : 20
