@@ -28,13 +28,13 @@ pip install -r requirements.txt
 
 ## Architecture Overview
 
-B站视频监控与播放量预测系统 — a **PyQt6** desktop app for monitoring Bilibili videos and predicting view counts using **120+ algorithms**.
+B站视频监控与播放量预测系统 — a **PyQt6** desktop app for monitoring Bilibili videos and predicting view counts using **137 algorithms**.
 
 ### Module Layout
 
 ```
 main.py / run.py           — Entry points
-├── algorithms/             — Prediction engine (120+ algorithms)
+├── algorithms/             — Prediction engine (137 algorithms)
 │   ├── base.py             — BaseAlgorithm: predict(video_data, threshold) → PredictionResult
 │   ├── registry.py         — AlgorithmRegistry 门面（126 行）；方法按职责拆入 registry_parts/
 │   ├── registry_parts/     — 混入包：_features(特征准备) _ensemble(集成预测)
@@ -79,6 +79,7 @@ main.py / run.py           — Entry points
 │   ├── proxy_manager.py    — Proxy rotation, auto-discovery, health checking
 │   ├── smart_alert.py      — 8 anomaly detectors, confidence-graded (high/medium/low)
 │   ├── threshold_escalation.py — Auto threshold escalation after milestone alerts
+│   ├── crossing_precision.py — 亚秒级过线时刻估计（纯计算，rtt/2 对称修正）
 │   ├── up_database.py      — UP主 data storage
 │   └── database/           — SQLite (per-video DB + central DB)
 │       ├── connection.py   — Thread-safe connection context manager
@@ -104,11 +105,12 @@ main.py / run.py           — Entry points
 │   ├── bottom_bar.py       — Status bar + action buttons
 │   ├── monitor/            — Monitor service
 │   │   ├── _service.py     — Per-video worker threads, fetch+sleep loop
-│   │   └── _prediction.py  — Prediction dispatch + surge detection
+│   │   ├── _prediction.py  — Prediction dispatch + surge detection
+│   │   └── _precision_watch.py — 亚秒级过线观察（rtt/2 对称修正）
 │   ├── training_panel.py   — 训练面板门面（43 行）；逻辑拆入 training_{base,batch,events,
 │   │                         jobs,logging,monitoring,refresh,runner,ui_build}.py
 │   ├── finetune_panel.py   — 微调面板（472 行）；拆出 finetune_{jobs,progress}.py
-│   ├── settings_*.py       — Settings tabs (general/monitor/notif/proxy/account/advanced)
+│   ├── settings_*.py       — Settings tabs (general/monitor/notif/proxy/account/advanced/ntp)
 │   └── ...                 — 30+ panels: dialogs, search, training, comparison, etc.
 ├── utils/                   — Utilities
 │   ├── ai_qa.py            — LLM API client (multi-provider)
@@ -117,10 +119,12 @@ main.py / run.py           — Entry points
 │   ├── file_logger.py      — Time-split log rotation
 │   ├── report_exporter.py  — HTML/CSV export + optional AI insight paragraph
 │   ├── alert_review.py     — HTML alert review cards (details + mini trend)
+│   ├── ntp_time.py         — NTP 校准钟 + 单调时钟纪律（断网降级）
 │   └── ...
 ├── scripts/                 — lint_gate.py(flake8+复杂度棘轮) type_gate.py(mypy 棘轮)
 │                              sign.py / update_hashes.py / characterize_algorithms.py 等
-├── tests/                   — pytest 回归测试（476 passed），核心在 test_refactor_regressions.py
+├── tests/                   — pytest 回归测试（514 passed），核心在 test_refactor_regressions.py
+├── docs/                    — 风控 playbook / API 契约 / 精度说明 / 架构加强计划
 ├── config/                  — JSON config load/save with deep-merge defaults
 └── data/                    — Runtime data (settings, DBs, covers, logs)
 ```
@@ -129,11 +133,11 @@ main.py / run.py           — Entry points
 
 | 门禁 | 命令 | 当前状态 |
 |---|---|---|
-| 格式 | `black --check --line-length=120 .` | 372 文件全部通过 |
+| 格式 | `black --check --line-length=120 .` | 383 文件全部通过 |
 | Lint | `python scripts/lint_gate.py` | flake8 **0 项**；复杂度基线 **0**（无 CC>=16 函数） |
 | 类型 | `python scripts/type_gate.py` | mypy **0 错误**（基线为空 = 零容忍） |
 | 安全 | `bandit -r . -c pyproject.toml -ll` | Medium/High = 0（137 项均为 Low 严重度，被 `-ll` 过滤） |
-| 测试 | `python -m pytest tests/ -q` | **476 passed** |
+| 测试 | `python -m pytest tests/ -q` | **514 passed** |
 
 - **复杂度棘轮**（`.lint-baseline.json`）：按「函数名」记录，新增超标函数即失败；重构后用
   `python scripts/lint_gate.py --update-baseline` 收紧。
@@ -187,6 +191,10 @@ main.py / run.py           — Entry points
     `DialogBase`/`QDialog` 而不显示（Qt 窗口在 show/exec 前始终隐藏，实测曾致约 20 个
     弹窗点开无反应）。`DialogBase.close()` 禁止再连 `rejected→reject`（自反连接会栈溢出）。
 
+14. **时钟纪律与延迟感知精度**: 时间记录统一走 `utils/ntp_time.py` 校准钟（单调非递减、断网降级）；
+    监控请求在响应边界取时，落 `observed_at_us` / `request_start_us` / `rtt_us`（µs，自动迁移）；
+    过线估计以 `t_recv − rtt/2` 对称修正，细节见 `docs/precision_crossing.md`。
+
 ### Algorithm Category Labels
 
 Existing categories: `"速度类"`, `"时间衰减"`, `"扩散模型"`, `"时间序列"`, `"统计模型"`, `"集成学习"`, `"深度学习"`, `"高级分析"`, `"基础"`, `"其他"`.
@@ -203,4 +211,5 @@ Existing categories: `"速度类"`, `"时间衰减"`, `"扩散模型"`, `"时间
   `isinstance` 收窄、对动态值显式标注 `Any`），复杂度问题要抽函数而不是忽略。
 - 风控相关改动前先读 `docs/risk_control_playbook.md` §11（落地顺序 + 状态）与 §13（尚未完成清单），
   接口契约（WBI / 密码登录 / 评论 / 续期）见 `docs/bilibili_api_contract.md`。
+- 架构加强路线图与首批施工包见 `docs/architecture_hardening_plan.md`（2026-10 四路勘察终排）。
 - 提交前至少跑：`python scripts/lint_gate.py`、`python scripts/type_gate.py`、`python -m pytest tests/ -q`。
