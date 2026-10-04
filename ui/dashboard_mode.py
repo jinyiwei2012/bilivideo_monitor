@@ -19,6 +19,8 @@ from PyQt6.QtGui import QPainter, QColor, QFont, QBrush
 
 from ui.helpers import THRESHOLDS, THRESHOLD_NAMES
 from ui.theme import C
+from ui.invoker import invoke
+from ui.monitor._lifecycle import accepts_tasks, start_registered_task, use_video_db
 
 logger = logging.getLogger(__name__)
 
@@ -51,13 +53,16 @@ def _collect_health_alerts(gui):
     """
     from core.smart_alert import AnomalyDetector
 
+    if not accepts_tasks(gui):
+        return []
+
     items = []
     for v in list(getattr(gui, "monitored_videos", [])):
         bvid = v.get("bvid", "")
-        if bvid not in getattr(gui, "video_dbs", {}):
-            continue
         try:
-            records = gui.video_dbs[bvid].get_all_records(limit=10)
+            records = use_video_db(gui, bvid, lambda video_db: video_db.get_all_records(limit=10))
+            if records is None:
+                continue
             alerts = AnomalyDetector.detect_all(records, bvid=bvid)
             for msg in alerts or []:
                 items.append((v.get("title", ""), msg))
@@ -737,20 +742,9 @@ class DashboardWindow(QWidget):
             except Exception:
                 logger.debug("后台收集健康预警失败", exc_info=True)
                 return
-            try:
-                from ui.invoker import invoke
+            invoke(lambda: self._on_alerts_ready(alerts))
 
-                invoke(lambda: self._on_alerts_ready(alerts))
-            except Exception:
-                pass
-
-        try:
-            from utils.thread_utils import fire_and_forget
-
-            fire_and_forget(_worker, name="dash-health-alerts")
-        except Exception:
-            # 无法后台执行时降级为同步，保持功能可用
-            self._on_alerts_ready(_collect_health_alerts(self.gui))
+        start_registered_task(self.gui, _worker, name="dash-health-alerts")
 
     def _on_alerts_ready(self, alerts):
         """主线程回调：更新预警缓存；健康页可见时重新渲染。"""

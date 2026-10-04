@@ -55,17 +55,19 @@ def save_watch_list(gui):
     from config import load_config, save_config
 
     config = load_config()
-    config["watch_list"] = [v.get("bvid", "") for v in gui.monitored_videos]
+    with gui._data_lock:
+        config["watch_list"] = [v.get("bvid", "") for v in gui.monitored_videos]
     save_config(config)
 
 
 def restore_video(gui, video):
     """从 watch_list 恢复视频到界面"""
     bvid = video.get("bvid", "")
-    if bvid in gui._video_index:
-        return
-    gui.monitored_videos.append(video)
-    gui._video_index[bvid] = video
+    with gui._data_lock:
+        if bvid in gui._video_index:
+            return
+        gui.monitored_videos.append(video)
+        gui._video_index[bvid] = video
     gui.video_list.make_card(video)
     gui.video_list.update_video_count()
     gui._sb("videos", f"监控: {len(gui.monitored_videos)} 个视频 ♪")
@@ -74,12 +76,17 @@ def restore_video(gui, video):
 
 def register_video_to_monitor(gui, video):
     """注册视频到监控系统：初始化数据库 + 创建卡片"""
-    from core import db, MonitorRecord
+    from core import MonitorRecord, get_db
 
     bvid = video["bvid"]
     try:
+        db = get_db()
         video_db = db.get_video_db(bvid)
-        gui.video_dbs[bvid] = video_db
+        from ui.monitor._lifecycle import set_video_db
+
+        if not set_video_db(gui, bvid, video_db):
+            video_db.close()
+            return
         video_db.save_video_info(video)
         history = video_db.get_all_records()
         if history:
@@ -101,10 +108,19 @@ def register_video_to_monitor(gui, video):
             video_db.add_monitor_record(rec)
             # 分数改为惰性物化（utils.score_materializer.ensure_scores），不再逐条写入
     except Exception as e:
+        try:
+            from ui.monitor._lifecycle import remove_video_db
+
+            detached_db = remove_video_db(gui, bvid)
+            if detached_db is not None:
+                detached_db.close()
+        except Exception as cleanup_error:
+            logger.debug("清理初始化失败的视频数据库 %s 时出错: %s", bvid, cleanup_error)
         gui.log_panel.add_log("WARNING", f"数据库初始化失败: {bvid}: {e}")
         return  # 不注册没有可用 DB 的视频
-    gui.monitored_videos.append(video)
-    gui._video_index[bvid] = video
+    with gui._data_lock:
+        gui.monitored_videos.append(video)
+        gui._video_index[bvid] = video
     gui.video_list.make_card(video)
     gui.video_list.update_video_count()
     gui._sb("videos", f"监控: {len(gui.monitored_videos)} 个视频 ♪")

@@ -27,6 +27,7 @@ from PyQt6.QtGui import QFont, QColor
 from ui.theme import C
 from ui.helpers import FONT, FONT_SM, fmt_num, _parse_viewer_count
 from ui.invoker import invoke
+from ui.monitor._lifecycle import accepts_tasks, start_registered_task
 from utils.time_utils import now_ts
 
 logger = logging.getLogger(__name__)
@@ -278,7 +279,11 @@ class OnlineViewersPanel(QWidget):
     def refresh(self):
         if not self._refresh_lock.acquire(blocking=False):
             return
-        threading.Thread(target=self._async_refresh, daemon=True).start()
+        if self.gui is None:
+            self._refresh_lock.release()
+            return
+        if start_registered_task(self.gui, self._async_refresh, name="online-viewers-refresh") is None:
+            self._refresh_lock.release()
 
     def _async_refresh(self):
         try:
@@ -290,7 +295,7 @@ class OnlineViewersPanel(QWidget):
             cached = _read_viewers()
         except Exception:
             cached = {}
-        if self._active:
+        if self._active and accepts_tasks(self.gui):
             invoke(lambda c=cached: self._update_ui_after_fetch(c))
 
     def _selected_viewer_bvid(self):
@@ -327,13 +332,14 @@ class OnlineViewersPanel(QWidget):
                 fetchable.append((v.get("bvid", ""), cid))
         return fetchable
 
-    @staticmethod
-    def _fetch_one_viewer(bvid, cid):
+    def _fetch_one_viewer(self, bvid, cid):
         """拉取并缓存一个视频的在线观看人数。"""
+        if self.gui is None or not accepts_tasks(self.gui):
+            return
         try:
-            from core import bilibili_api
+            from core import get_bilibili_api
 
-            viewers = bilibili_api.get_video_viewers(bvid, cid)
+            viewers = get_bilibili_api().get_video_viewers(bvid, cid)
             if viewers:
                 total = _parse_viewer_count(viewers.get("total", "0"))
                 web = _parse_viewer_count(viewers.get("count", "0"))
@@ -346,8 +352,12 @@ class OnlineViewersPanel(QWidget):
         """按原超时等待在线人数抓取任务并吞掉单任务错误。"""
         if self._fetch_pool is None:
             return
-        futures = [self._fetch_pool.submit(self._fetch_one_viewer, bvid, cid) for bvid, cid in fetchable]
-        for f in as_completed(futures, timeout=10):
+        futures = []
+        for bvid, cid in fetchable:
+            if not accepts_tasks(self.gui):
+                break
+            futures.append(self._fetch_pool.submit(self._fetch_one_viewer, bvid, cid))
+        for f in as_completed(futures):
             try:
                 f.result()
             except Exception:

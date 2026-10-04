@@ -21,7 +21,7 @@ from ui.invoker import invoke
 from ui.lty_voice import add_video_success, confirm_delete, warning
 from ui.theme import C
 from ui.dialog_host import present_modal
-from utils.thread_utils import fire_and_forget
+from ui.monitor._lifecycle import accepts_tasks, start_registered_task
 
 logger = logging.getLogger(__name__)
 
@@ -172,16 +172,21 @@ def check_video_in_monitor_list(gui, bvid, dialog):
 
 def fetch_video_info_and_add(gui, bvid, dialog, status_lbl):
     """获取视频信息并添加到监控"""
-    from core import bilibili_api
+    from core import get_bilibili_api
     from ui.main_gui_data import map_api_to_video_dict, register_video_to_monitor, save_watch_list
 
     status_lbl.setText("天依正在听视频的自我介绍哦…♪")
+    dialog._fetch_in_progress = True
 
     def _fetch():
-        info = bilibili_api.get_video_info(bvid)
+        info = get_bilibili_api().get_video_info(bvid)
         invoke(lambda: _done(info))
 
     def _done(info):
+        if not accepts_tasks(gui):
+            dialog._fetch_in_progress = False
+            return
+        dialog._fetch_in_progress = False
         if not info:
             status_lbl.setText("呜…没能听见它的歌声,检查一下BV号对不对哦 ♪")
             status_lbl.setStyleSheet(f"color: {C['danger']}; font-size: 9pt;")
@@ -196,7 +201,9 @@ def fetch_video_info_and_add(gui, bvid, dialog, status_lbl):
         )
         dialog.accept()
 
-    fire_and_forget(_fetch, name="fetch-video")
+    if start_registered_task(gui, _fetch, name="fetch-video") is None:
+        dialog._fetch_in_progress = False
+        status_lbl.setText("")
 
 
 def get_video(gui, bvid):
@@ -223,17 +230,20 @@ def remove_monitor(gui):
     ):
         return
 
-    # 软删除：移入待删除队列
-    removed = {
-        "bvid": bvid,
-        "video": video,
-        "history": gui.history_data.pop(bvid, []),
-        "vdb": gui.video_dbs.pop(bvid, None),
-        "predictions": gui.prediction_results.pop(bvid, None),
-        "timer": gui._video_timers.pop(bvid, None),
-    }
-    gui.monitored_videos = [v for v in gui.monitored_videos if v.get("bvid") != bvid]
-    gui._video_index.pop(bvid, None)
+    # Lock order is _data_lock then _video_db_lock; see ui.monitor._lifecycle.
+    from ui.monitor._lifecycle import remove_video_db
+
+    with gui._data_lock:
+        removed = {
+            "bvid": bvid,
+            "video": video,
+            "history": gui.history_data.pop(bvid, []),
+            "vdb": remove_video_db(gui, bvid),
+            "predictions": gui.prediction_results.pop(bvid, None),
+            "timer": gui._video_timers.pop(bvid, None),
+        }
+        gui.monitored_videos = [v for v in gui.monitored_videos if v.get("bvid") != bvid]
+        gui._video_index.pop(bvid, None)
     gui.video_list.remove_card(bvid)
     # 停止该视频的预测线程，避免线程泄漏 / 重加同 bvid 时复用过期 dict
     from ui.monitor import _stop_predictor
@@ -283,15 +293,18 @@ def undo_delete(gui):
     if timer:
         timer.stop()
 
-    # 恢复数据
-    gui.monitored_videos.append(removed["video"])
-    gui.history_data[bvid] = removed["history"]
-    if removed["vdb"]:
-        gui.video_dbs[bvid] = removed["vdb"]
-    if removed["predictions"]:
-        gui.prediction_results[bvid] = removed["predictions"]
-    if removed["timer"]:
-        gui._video_timers[bvid] = removed["timer"]
+    # Lock order is _data_lock then _video_db_lock; see ui.monitor._lifecycle.
+    from ui.monitor._lifecycle import set_video_db
+
+    with gui._data_lock:
+        gui.monitored_videos.append(removed["video"])
+        gui.history_data[bvid] = removed["history"]
+        if removed["vdb"]:
+            set_video_db(gui, bvid, removed["vdb"])
+        if removed["predictions"]:
+            gui.prediction_results[bvid] = removed["predictions"]
+        if removed["timer"]:
+            gui._video_timers[bvid] = removed["timer"]
 
     gui.video_list.make_card(removed["video"])
     gui.video_list.update_video_count()

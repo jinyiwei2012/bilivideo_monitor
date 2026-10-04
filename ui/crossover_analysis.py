@@ -28,8 +28,8 @@ from PyQt6.QtGui import QPainter, QColor, QFont, QPen
 from ui.theme import C
 from ui.invoker import invoke
 from algorithms.registry import AlgorithmRegistry
-from utils.thread_utils import fire_and_forget
 from utils.time_utils import safe_datetime
+from ui.monitor._lifecycle import start_registered_task, use_video_db
 
 logger = logging.getLogger(__name__)
 
@@ -295,6 +295,7 @@ class CrossoverAnalysisWindow(QDialog):
         self.monitored_videos = monitored_videos or []
         self.history_data = history_data or {}
         self.video_dbs = video_dbs or {}
+        self._runtime_gui = parent if hasattr(parent, "video_dbs") else None
         self._selected: List[Dict] = []
 
         self._setup_ui()
@@ -472,7 +473,11 @@ class CrossoverAnalysisWindow(QDialog):
                 return
             invoke(lambda: self._finish_analysis(selected, hist, fits))
 
-        fire_and_forget(_work, name="crossover-analyze")
+        if self._runtime_gui is None:
+            self._analyze_btn.setEnabled(True)
+            return
+        if start_registered_task(self._runtime_gui, _work, name="crossover-analyze") is None:
+            self._analyze_btn.setEnabled(True)
 
     def _finish_analysis(self, selected, hist, fits):
         """主线程：合并历史、填充表格/图表、恢复按钮（保持原有可见行为与顺序）"""
@@ -514,13 +519,14 @@ class CrossoverAnalysisWindow(QDialog):
         hist = {bvid: list(pts) for bvid, pts in base_hist.items()}
         for v in selected:
             bvid = v.get("bvid", "")
-            if bvid in self.video_dbs:
-                try:
-                    records = self.video_dbs[bvid].get_all_records()
-                    if records:
-                        hist[bvid] = [(row["timestamp"], row["view_count"]) for row in records]
-                except Exception as e:
-                    logger.debug("加载视频历史数据失败: %s", e)
+            if self._runtime_gui is None:
+                continue
+            try:
+                records = use_video_db(self._runtime_gui, bvid, lambda video_db: video_db.get_all_records())
+                if records:
+                    hist[bvid] = [(row["timestamp"], row["view_count"]) for row in records]
+            except Exception as e:
+                logger.debug("加载视频历史数据失败: %s", e)
         return hist
 
     def _fit_selected(self, selected, hist, algo) -> dict:

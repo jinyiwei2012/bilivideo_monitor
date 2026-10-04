@@ -13,13 +13,17 @@ import numpy as np
 from algorithms.base import BaseAlgorithm as BA
 from algorithms.online_learner import get_online_learner
 from algorithms.registry import AlgorithmRegistry
-from core import bilibili_api, db
+from core import get_bilibili_api, get_db
 from core.up_database import UpDatabase
 from ui.helpers import THRESHOLDS, THRESHOLD_NAMES
+from ui.monitor._lifecycle import accepts_tasks, start_registered_task, use_video_db
 from utils.memory_guard import is_memory_pressure
 from utils.time_utils import now_ts, safe_datetime, normalize_timestamp
 
 logger = logging.getLogger(__name__)
+
+bilibili_api = get_bilibili_api()
+db = get_db()
 
 
 class _SurgeDetector(BA):
@@ -90,26 +94,25 @@ def _json_default(obj):
 
 def _save_predictions_to_db(gui, bvid, current_view, results):
     """将预测结果写入视频库，并返回数据供中央库同步"""
-    video_db = gui.video_dbs.get(bvid)
     rows = []
     ensemble_data = _build_ensemble_sync_payload(results)
     coherence_rows = _build_coherence_rows(results) if ensemble_data is not None else []
 
-    if video_db:
-        for name, r in results.items():
-            if name == "_weighted" or "error" in r:
-                continue
-            metadata = r.get("metadata", {})
-            threshold_preds = metadata.get("threshold_predictions", [])
-            if not threshold_preds:
-                continue
-            confidence = r.get("confidence", 0)
-            predicted_hours = metadata.get("predicted_hours", 0)
-            velocity = metadata.get("velocity", 0)
-            metadata_str = json.dumps(metadata, ensure_ascii=False, default=_json_default)
+    for name, r in results.items():
+        if name == "_weighted" or "error" in r:
+            continue
+        metadata = r.get("metadata", {})
+        threshold_preds = metadata.get("threshold_predictions", [])
+        if not threshold_preds:
+            continue
+        confidence = r.get("confidence", 0)
+        predicted_hours = metadata.get("predicted_hours", 0)
+        velocity = metadata.get("velocity", 0)
+        metadata_str = json.dumps(metadata, ensure_ascii=False, default=_json_default)
 
-            for tp in threshold_preds:
-                row = {
+        for tp in threshold_preds:
+            rows.append(
+                {
                     "algorithm": name,
                     "algorithm_id": name,
                     "target_threshold": tp.get("threshold", 0),
@@ -122,13 +125,13 @@ def _save_predictions_to_db(gui, bvid, current_view, results):
                     "predicted_hours": predicted_hours,
                     "current_velocity": velocity,
                 }
-                rows.append(row)
+            )
 
-        if rows:
-            try:
-                video_db.add_predictions_batch(rows)
-            except Exception as e:
-                gui.log_panel.add_log("WARNING", f"批量保存预测记录失败 {bvid}: {e}")
+    if rows:
+        try:
+            use_video_db(gui, bvid, lambda video_db: video_db.add_predictions_batch(rows))
+        except Exception as e:
+            gui.log_panel.add_log("WARNING", f"批量保存预测记录失败 {bvid}: {e}")
 
     return rows, ensemble_data, coherence_rows
 
@@ -174,7 +177,6 @@ def _merge_history(gui, bvid: str) -> list:
     with gui._data_lock:
         current_view = next((v.get("view_count", 0) for v in gui.monitored_videos if v.get("bvid") == bvid), 0)
         history = list(gui.history_data.get(bvid, []))
-        vdb = gui.video_dbs.get(bvid)  # 在锁内获取引用，防止主线程并发删除
 
     # 检查是否已从 DB 合并过
     from ui.monitor._service import _merged_from_db_lock, _merged_from_db
@@ -186,8 +188,8 @@ def _merge_history(gui, bvid: str) -> list:
             already_merged = False
     if not already_merged:
         try:
-            if vdb is not None:
-                db_hist = vdb.get_all_records(limit=500)
+            db_hist = use_video_db(gui, bvid, lambda video_db: video_db.get_all_records(limit=500))
+            if db_hist:
                 if db_hist:
 
                     existing_ts = {normalize_timestamp(h[0])[2] for h in history}
@@ -369,16 +371,18 @@ def _detect_surge_for_ui(history: list) -> dict:
 
 def _schedule_weight_warmup(gui, bvid, history):
     try:
+        if not accepts_tasks(gui):
+            return
         if len(history) >= 15:
             with gui._data_lock:
                 warmed_key = f"_warmup_{bvid}"
                 already = getattr(gui, warmed_key, False)
             if not already:
-                threading.Thread(
-                    target=lambda: AlgorithmRegistry.warmup_weights_from_backtest(bvid, history),
-                    daemon=True,
+                start_registered_task(
+                    gui,
+                    lambda: AlgorithmRegistry.warmup_weights_from_backtest(bvid, history),
                     name=f"warmup-{bvid}",
-                ).start()
+                )
                 with gui._data_lock:
                     setattr(gui, warmed_key, True)
     except Exception as e:
@@ -466,6 +470,8 @@ def _update_ensemble_accuracy(prev_result, current_view):
 
 
 def _save_prediction_outputs(gui, bvid, video, current_view, results):
+    if not accepts_tasks(gui):
+        return
     try:
         _update_video_graph(gui, bvid, video)
         rows, ensemble, coherence = _save_predictions_to_db(gui, bvid, current_view, results)
@@ -476,6 +482,8 @@ def _save_prediction_outputs(gui, bvid, video, current_view, results):
 
 def _predict_single(gui, bvid, video) -> dict:
     """在 worker 线程中对单个视频运行预测（纯函数，无 UI 调用）"""
+    if not accepts_tasks(gui):
+        return {}
     seq = _begin_prediction_cycle(bvid)
     current_view = video.get("view_count", 0)
     history = _merge_history(gui, bvid)
@@ -518,9 +526,12 @@ def _predict_single(gui, bvid, video) -> dict:
     _update_ensemble_accuracy(prev_result, current_view)
 
     # 后台：图更新 + 视频库保存 + 中央库同步
-    threading.Thread(
-        target=_save_prediction_outputs, args=(gui, bvid, video, current_view, results), daemon=True
-    ).start()
+    start_registered_task(
+        gui,
+        _save_prediction_outputs,
+        args=(gui, bvid, video, current_view, results),
+        name=f"save-prediction-{bvid}",
+    )
 
     # 内存压力时才释放模型缓存（替代原先"每 N 次预测必清"）
     _maybe_release_memory(gui)

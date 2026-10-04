@@ -101,7 +101,7 @@ def test_logged_out_notified_once_per_transition(monkeypatch) -> None:
     gui = _StubGui()
     calls = {"notify": 0, "renew": 0}
     monkeypatch.setattr(tick, "_notify_logged_out", lambda: calls.__setitem__("notify", calls["notify"] + 1))
-    monkeypatch.setattr(tick, "_renew_now_async", lambda api: calls.__setitem__("renew", calls["renew"] + 1))
+    monkeypatch.setattr(tick, "_renew_now_async", lambda gui, api: calls.__setitem__("renew", calls["renew"] + 1))
 
     api = _StubApi(sessdata="x", logged_out=True)
     tick._maybe_report_risk(gui, api=api)

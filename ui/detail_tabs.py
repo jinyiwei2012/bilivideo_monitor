@@ -19,7 +19,7 @@ from PyQt6.QtGui import QTextCursor
 from ui.theme import C
 from ui.invoker import invoke
 from ui.widgets import SectionHeader
-from utils.thread_utils import fire_and_forget
+from ui.monitor._lifecycle import start_registered_task, use_video_db
 
 logger = logging.getLogger(__name__)
 
@@ -121,15 +121,10 @@ class _RatioDanmakuMixin:
             self._dm_count_lbl.setText("")
             return
 
-        video_db = self.gui.video_dbs.get(bvid)
-        if not video_db:
-            self._dm_count_lbl.setText("呜…数据库还没找到呢")
-            return
-
         cached = self._dm_cache.get(bvid)
         if cached is not None:
             self._render_danmaku(cached["records"], cached["count"])
-        self._schedule_danmaku_load(bvid, video_db)
+        self._schedule_danmaku_load(bvid)
 
     def _render_danmaku(self, records, count):
         """渲染弹幕文本（仅主线程 UI 操作，不查库）"""
@@ -157,7 +152,7 @@ class _RatioDanmakuMixin:
         cursor.movePosition(QTextCursor.MoveOperation.End)
         self._dm_text.setTextCursor(cursor)
 
-    def _schedule_danmaku_load(self, bvid, video_db):
+    def _schedule_danmaku_load(self, bvid):
         """后台读取弹幕记录与总数；仅当计数变化时才重渲（同一 bvid 去重）"""
         if bvid in self._dm_pending:
             return
@@ -165,13 +160,18 @@ class _RatioDanmakuMixin:
 
         def _load():
             try:
-                records = video_db.get_danmaku_records(limit=200)
+                result = use_video_db(
+                    self.gui,
+                    bvid,
+                    lambda video_db: (video_db.get_danmaku_records(limit=200), video_db.count_danmaku()),
+                )
+                if result is None:
+                    records, count = [], 0
+                else:
+                    records, count = result
             except Exception as e:
                 logger.debug("弹幕记录获取失败: %s", e)
                 records = []
-            try:
-                count = video_db.count_danmaku()
-            except Exception:
                 count = len(records)
 
             def _apply():
@@ -185,4 +185,5 @@ class _RatioDanmakuMixin:
 
             invoke(_apply)
 
-        fire_and_forget(_load, name=f"danmaku:{bvid}")
+        if start_registered_task(self.gui, _load, name=f"danmaku:{bvid}") is None:
+            self._dm_pending.discard(bvid)

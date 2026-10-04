@@ -13,7 +13,7 @@ from typing import ClassVar, Dict, List, Optional
 
 from utils import project_path
 
-from .connection import _ConnectionCtx, _http_session
+from .connection import _ConnectionCtx, get_http_session
 from .models import _validate_bvid, VideoInfo, MonitorRecord, PredictionRecord
 from .video_db import VideoDatabase
 from .central_crud import CentralCRUD
@@ -304,7 +304,7 @@ class Database:
             local = get_valid_cover(bvid)
             if local is not None:
                 return local
-            response = _http_session.get(pic_url, timeout=10)
+            response = get_http_session().get(pic_url, timeout=10)
             if response.status_code == 200:
                 path = save_cover(bvid, response.content)
                 return path or ""

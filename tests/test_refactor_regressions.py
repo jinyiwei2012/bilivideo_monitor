@@ -624,14 +624,20 @@ class TestCoverValidityCache:
 
 
 class TestMemoryHealthOffMainThread:
-    """M2.10a: do_memory_health_check 必须经 fire_and_forget 后台执行，不得在主线程同步调用。"""
+    """M2.10a: do_memory_health_check 必须经登记后台任务执行，不得在主线程同步调用。"""
 
-    def test_scheduled_via_fire_and_forget(self, monkeypatch):
+    def test_scheduled_via_registered_background_task(self, monkeypatch):
+        import threading
+
         import ui.main_gui_tick as tick
 
-        called = {"ff": [], "sync": []}
-        monkeypatch.setattr(tick, "fire_and_forget", lambda fn, name=None, **k: called["ff"].append(name))
-        monkeypatch.setattr(tick, "do_memory_health_check", lambda gui: called["sync"].append(1))
+        called = {"tasks": [], "threads": []}
+        monkeypatch.setattr(
+            tick,
+            "start_registered_task",
+            lambda gui, fn, args=(), name=None: called["tasks"].append((name, fn)),
+        )
+        monkeypatch.setattr(tick, "do_memory_health_check", lambda gui: called["threads"].append(threading.get_ident()))
         monkeypatch.setattr(tick, "do_periodic_sync", lambda gui: None)
         monkeypatch.setattr(tick, "wal_checkpoint_worker", lambda gui: None)
         monkeypatch.setattr(tick, "scan_alerts_background", lambda gui: None)
@@ -662,8 +668,14 @@ class TestMemoryHealthOffMainThread:
                 pass
 
         tick.global_tick(_GUI())
-        assert called["ff"] == ["mem-health"], f"应经 fire_and_forget 调度，实际 {called['ff']}"
-        assert called["sync"] == [], "不应在主线程同步调用 do_memory_health_check"
+        assert [name for name, _ in called["tasks"]] == ["mem-health"], "内存维护必须登记到运行时任务"
+        assert called["threads"] == [], "不应在主线程同步调用 do_memory_health_check"
+
+        _, task = called["tasks"][0]
+        worker = threading.Thread(target=task)
+        worker.start()
+        worker.join(1)
+        assert called["threads"] and called["threads"][0] != threading.get_ident()
 
 
 class TestNoGlobalRandomSeedPollution:
@@ -802,7 +814,7 @@ class TestMaybeCleanupOldRecords:
             def delete_monitor_records_before(self, cutoff):
                 return 2
 
-        monkeypatch.setattr(coremod, "db", _DB())
+        monkeypatch.setattr(coremod, "get_db", lambda: _DB())
 
         class _GUI:
             _last_record_cleanup = 0
@@ -943,7 +955,7 @@ class TestDetailScoreHistoryCache:
     def test_main_thread_does_not_touch_db(self, monkeypatch):
         import ui.detail_panel as dp
 
-        monkeypatch.setattr(dp, "fire_and_forget", lambda fn, *a, **k: None)
+        monkeypatch.setattr(dp, "start_registered_task", lambda gui, fn, *a, **k: object())
         monkeypatch.setattr(dp, "invoke", lambda fn: fn())
 
         db = self._make_db()
@@ -957,7 +969,7 @@ class TestDetailScoreHistoryCache:
     def test_background_load_populates_cache(self, monkeypatch):
         import ui.detail_panel as dp
 
-        monkeypatch.setattr(dp, "fire_and_forget", lambda fn, *a, **k: fn())
+        monkeypatch.setattr(dp, "start_registered_task", lambda gui, fn, *a, **k: (fn(), object())[1])
         monkeypatch.setattr(dp, "invoke", lambda fn: fn())
 
         db = self._make_db()
@@ -973,7 +985,9 @@ class TestDetailScoreHistoryCache:
         import ui.detail_panel as dp
 
         sched = {"n": 0}
-        monkeypatch.setattr(dp, "fire_and_forget", lambda fn, *a, **k: sched.__setitem__("n", sched["n"] + 1))
+        monkeypatch.setattr(
+            dp, "start_registered_task", lambda gui, fn, *a, **k: (sched.__setitem__("n", sched["n"] + 1), object())[1]
+        )
         monkeypatch.setattr(dp, "invoke", lambda fn: fn())
 
         db = self._make_db()
@@ -989,7 +1003,7 @@ class TestDetailScoreHistoryCache:
         import ui.detail_panel as dp
 
         order = []
-        monkeypatch.setattr(dp, "fire_and_forget", lambda fn, *a, **k: fn())
+        monkeypatch.setattr(dp, "start_registered_task", lambda gui, fn, *a, **k: (fn(), object())[1])
         monkeypatch.setattr(dp, "invoke", lambda fn: fn())
         monkeypatch.setattr(dp, "ensure_scores", lambda db: order.append("ensure"))
 
@@ -1046,7 +1060,9 @@ class TestDanmakuBackgroundLoad:
 
         db = _DB()
         holds = {"fn": None}
-        monkeypatch.setattr(dt, "fire_and_forget", lambda fn, *a, **k: holds.__setitem__("fn", fn))
+        monkeypatch.setattr(
+            dt, "start_registered_task", lambda gui, fn, *a, **k: (holds.__setitem__("fn", fn), object())[1]
+        )
 
         class _Gui:
             selected_bvid = "BV1"
@@ -1057,7 +1073,7 @@ class TestDanmakuBackgroundLoad:
         rendered = []
         panel._render_danmaku = lambda records, count: rendered.append(count)
 
-        panel._schedule_danmaku_load("BV1", db)
+        panel._schedule_danmaku_load("BV1")
         assert db.calls == 0, "调度时不得查库"
         assert "BV1" in panel._dm_pending
 
@@ -1066,14 +1082,14 @@ class TestDanmakuBackgroundLoad:
         assert rendered == [1]
 
         # 计数未变 → 不重渲
-        panel._schedule_danmaku_load("BV1", db)
+        panel._schedule_danmaku_load("BV1")
         holds["fn"]()
         assert rendered == [1], "计数未变不应重渲"
 
         # 计数变化 → 重渲
         state["count"] = 2
         state["records"] = state["records"] + [{"video_ts": 2, "content": "b"}]
-        panel._schedule_danmaku_load("BV1", db)
+        panel._schedule_danmaku_load("BV1")
         holds["fn"]()
         assert rendered == [1, 2]
 
@@ -1082,7 +1098,9 @@ class TestDanmakuBackgroundLoad:
 
         monkeypatch.setattr(dt, "invoke", lambda fn: fn())
         sched = {"n": 0}
-        monkeypatch.setattr(dt, "fire_and_forget", lambda fn, *a, **k: sched.__setitem__("n", sched["n"] + 1))
+        monkeypatch.setattr(
+            dt, "start_registered_task", lambda gui, fn, *a, **k: (sched.__setitem__("n", sched["n"] + 1), object())[1]
+        )
 
         class _DB:
             def get_danmaku_records(self, limit=200):
@@ -1092,8 +1110,9 @@ class TestDanmakuBackgroundLoad:
                 return 0
 
         panel = self._panel()
-        panel._schedule_danmaku_load("BV1", _DB())
-        panel._schedule_danmaku_load("BV1", _DB())
+        panel.gui = type("_Gui", (), {"video_dbs": {"BV1": _DB()}, "selected_bvid": "OTHER"})()
+        panel._schedule_danmaku_load("BV1")
+        panel._schedule_danmaku_load("BV1")
         assert sched["n"] == 1, "同一 bvid 只应调度一次后台读取"
 
 

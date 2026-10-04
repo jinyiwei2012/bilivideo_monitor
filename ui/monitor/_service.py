@@ -17,13 +17,23 @@ from PyQt6.QtCore import QTimer
 # 线程安全的主线程调度 — 从共享模块导入，消除 _service.py 中的重复实现
 from ui.invoker import invoke
 
-from core import bilibili_api, db, MonitorRecord
-from utils.thread_utils import fire_and_forget
+from core import MonitorRecord, get_bilibili_api, get_db
 from utils.ntp_time import record_now
 from utils.time_utils import format_ts
 from ui.helpers import _parse_viewer_count
+from ui.monitor._lifecycle import (
+    accepts_tasks,
+    admit_runtime_creation,
+    begin_stopping,
+    drain_registered_tasks,
+    start_registered_task,
+    use_video_db,
+)
 
 logger = logging.getLogger(__name__)
+
+bilibili_api = get_bilibili_api()
+db = get_db()
 
 DEFAULT_FETCH_INTERVAL = 75  # 集中拉取间隔（秒）
 
@@ -97,6 +107,11 @@ def _start_tracked_thread(target, args=(), name=None):
     return t
 
 
+def _start_runtime_task(gui, target, args=(), name=None):
+    """Start a shutdown-aware registered task and retain legacy fallback tracking."""
+    return start_registered_task(gui, target, args, name)
+
+
 # ══════════════════════════════════════════════
 #  每视频独立预测线程
 # ══════════════════════════════════════════════
@@ -122,9 +137,10 @@ class VideoPredictor:
 
     def notify(self):
         """拉取完成 → 唤醒预测线程"""
-        self._event.set()
+        if accepts_tasks(self.gui):
+            self._event.set()
 
-    def stop(self):
+    def stop(self, timeout: float = 3.0):
         """停止预测线程（最多等待 _PREDICT_STOP_TIMEOUT 秒）
 
         预测本身不可强杀，超时后记录日志，交由守护线程随进程退出；
@@ -132,12 +148,12 @@ class VideoPredictor:
         """
         self._running = False
         self._event.set()
-        self._thread.join(timeout=3)
+        self._thread.join(timeout=timeout)
         if self._thread.is_alive():
             logger.warning(
                 "预测线程 %s 在 %s 秒内未退出（可能卡在长预测/网络调用），转为守护退出",
                 self._thread.name,
-                3,
+                timeout,
             )
 
     def _loop(self):
@@ -145,6 +161,8 @@ class VideoPredictor:
             self._event.wait()
             self._event.clear()
             if not self._running:
+                break
+            if not accepts_tasks(self.gui):
                 break
             if self._busy:
                 self._pending = True  # 标记：新数据到达，等本次预测完后重跑
@@ -186,26 +204,39 @@ class VideoPredictor:
 
 def _ensure_predictor(gui, bvid, video):
     """确保视频有对应的预测线程（幂等）"""
-    with _predictors_lock:
-        if bvid not in _predictors:
-            _predictors[bvid] = VideoPredictor(gui, bvid, video)
+
+    def create() -> None:
+        with _predictors_lock:
+            if bvid not in _predictors:
+                _predictors[bvid] = VideoPredictor(gui, bvid, video)
+
+    admit_runtime_creation(gui, create)
 
 
-def _stop_all_predictors():
+def _stop_all_predictors(timeout: float = 0.0):
     """停止所有预测线程（先收集再锁外 join，避免主线程持锁阻塞 3N 秒）"""
     with _predictors_lock:
         predictors = list(_predictors.values())
-        _predictors.clear()
     for predictor in predictors:
-        predictor.stop()
+        predictor.stop(timeout)
+    alive_predictors = {predictor.bvid: predictor for predictor in predictors if predictor._thread.is_alive()}
+    with _predictors_lock:
+        for bvid, predictor in list(_predictors.items()):
+            if predictor in predictors and bvid not in alive_predictors:
+                _predictors.pop(bvid, None)
+    return [predictor._thread.name for predictor in alive_predictors.values()]
 
 
 def _stop_predictor(bvid):
     """停止单个视频的预测线程（删除视频时调用，避免线程泄漏）"""
     with _predictors_lock:
-        predictor = _predictors.pop(bvid, None)
+        predictor = _predictors.get(bvid)
     if predictor is not None:
-        predictor.stop()
+        predictor.stop(0.0)
+        if not predictor._thread.is_alive():
+            with _predictors_lock:
+                if _predictors.get(bvid) is predictor:
+                    _predictors.pop(bvid, None)
 
 
 # ══════════════════════════════════════════════
@@ -324,9 +355,8 @@ def _monitor_record(bvid, video, timing: ObservationTiming | datetime):
 
 def _save_monitor_record(gui, bvid, video, timing: ObservationTiming | datetime):
     try:
-        if bvid in gui.video_dbs:
-            gui.video_dbs[bvid].add_monitor_record(_monitor_record(bvid, video, timing))
-            # 分数改为惰性物化（utils.score_materializer.ensure_scores），不再每抓取写入
+        use_video_db(gui, bvid, lambda video_db: video_db.add_monitor_record(_monitor_record(bvid, video, timing)))
+        # 分数改为惰性物化（utils.score_materializer.ensure_scores），不再每抓取写入
     except Exception as e:
         gui.log_panel.add_log("WARNING", f"[{bvid}] 写数据库失败: {e}")
 
@@ -367,7 +397,7 @@ def _sync_video_info(gui, bvid, video):
 def _start_danmaku_fetch(gui, bvid, video):
     cid = video.get("_cid", 0)
     if cid:
-        _start_tracked_thread(_fetch_danmaku_bg, args=(gui, bvid, cid), name=f"dm-{bvid}")
+        _start_runtime_task(gui, _fetch_danmaku_bg, args=(gui, bvid, cid), name=f"dm-{bvid}")
 
 
 def _check_video_thresholds(gui, bvid, video):
@@ -393,24 +423,27 @@ def _precision_fetch(bvid):
 
 
 def _precision_persist(gui, bvid, event):
-    video_db = gui.video_dbs.get(bvid)
-    if video_db is not None:
-        video_db.insert_crossing_event(dict(event))
+    use_video_db(gui, bvid, lambda video_db: video_db.insert_crossing_event(dict(event)))
 
 
 def _start_precision_watch_manager(gui):
     global _precision_watch_manager
-    if _precision_watch_manager is not None:
-        return
-    from config import load_config
-    from ui.monitor._precision_watch import PrecisionWatchManager
 
-    cfg = load_config().get("precision_watch", {})
-    _precision_watch_manager = PrecisionWatchManager(
-        _precision_fetch,
-        lambda bvid, event: _precision_persist(gui, bvid, event),
-        **cfg,
-    )
+    def create() -> None:
+        global _precision_watch_manager
+        if _precision_watch_manager is not None:
+            return
+        from config import load_config
+        from ui.monitor._precision_watch import PrecisionWatchManager
+
+        cfg = load_config().get("precision_watch", {})
+        _precision_watch_manager = PrecisionWatchManager(
+            _precision_fetch,
+            lambda bvid, event: _precision_persist(gui, bvid, event),
+            **cfg,
+        )
+
+    admit_runtime_creation(gui, create)
 
 
 def _offer_precision_watch(bvid, current_views):
@@ -428,17 +461,22 @@ def _offer_precision_watch(bvid, current_views):
         logger.debug("精确过线监视派发失败 %s: %s", bvid, e)
 
 
-def _stop_precision_watch_manager():
+def _stop_precision_watch_manager(timeout: float = 0.0):
     global _precision_watch_manager
     manager = _precision_watch_manager
-    _precision_watch_manager = None
     if manager is not None:
         manager.stop()
-        manager.join()
+        alive = manager.join(timeout)
+        if not alive:
+            _precision_watch_manager = None
+        return alive
+    return []
 
 
 def _fetch_one_video(gui, bvid, video):
     """拉取单个视频数据：API → 更新字段 → 在线人数 → 历史记录 → 写DB → UI 回调 → 分发预测"""
+    if not accepts_tasks(gui):
+        return
     _log_fetch_route(gui, bvid)
     t0_mono = time.monotonic()
     t0_wall = record_now()
@@ -520,8 +558,7 @@ def _fetch_danmaku_bg(gui, bvid, cid):
         from core.bilibili_danmaku import get_danmaku_monitor
 
         monitor = get_danmaku_monitor()
-        video_db = gui.video_dbs.get(bvid)
-        new_count = monitor.fetch_new_danmaku(bvid, cid, video_db)
+        new_count = use_video_db(gui, bvid, lambda video_db: monitor.fetch_new_danmaku(bvid, cid, video_db)) or 0
         if new_count > 0:
             gui.log_panel.add_log("INFO", f"[{bvid}] 新增弹幕 {new_count} 条")
             # A3: 有新增弹幕时更新情绪侧写（同一后台线程, 不阻塞拉取）
@@ -537,7 +574,14 @@ def _fetch_danmaku_bg(gui, bvid, cid):
 
 def _batch_fetch_all(gui):
     """拉取所有监控视频的数据（有界并发，避免"每视频一个 OS 线程"）"""
-    videos = [v for v in list(gui.monitored_videos) if v.get("bvid", "")]
+    if not accepts_tasks(gui):
+        return
+    data_lock = getattr(gui, "_data_lock", None)
+    if data_lock is None:
+        videos = [v for v in list(gui.monitored_videos) if v.get("bvid", "")]
+    else:
+        with data_lock:
+            videos = [v for v in gui.monitored_videos if v.get("bvid", "")]
     if not videos:
         return
     gui.log_panel.add_log("INFO", f"开始集中拉取 {len(videos)} 个视频…")
@@ -560,15 +604,6 @@ def _batch_fetch_all(gui):
 
 def _start_central_fetcher(gui):
     """启动集中拉取定时器（每 75s 触发一次）"""
-    global _central_fetch_running
-    with _central_fetch_lock:
-        if _central_fetch_running:
-            return
-        _central_fetch_running = True
-    _central_stop_event.clear()
-    _start_precision_watch_manager(gui)
-
-    gui.log_panel.add_log("INFO", f"集中拉取已启动，每 {DEFAULT_FETCH_INTERVAL}s 拉取所有视频")
 
     def _loop():
         while True:
@@ -583,7 +618,22 @@ def _start_central_fetcher(gui):
             if _central_stop_event.wait(DEFAULT_FETCH_INTERVAL):
                 break
 
-    fire_and_forget(_loop, name="CentralFetcher")
+    def create() -> None:
+        global _central_fetch_running
+        with _central_fetch_lock:
+            if _central_fetch_running:
+                return
+            _central_fetch_running = True
+        _central_stop_event.clear()
+        _start_precision_watch_manager(gui)
+        if _start_runtime_task(gui, _loop, name="CentralFetcher") is None:
+            with _central_fetch_lock:
+                _central_fetch_running = False
+            _central_stop_event.set()
+            return
+        gui.log_panel.add_log("INFO", f"集中拉取已启动，每 {DEFAULT_FETCH_INTERVAL}s 拉取所有视频")
+
+    admit_runtime_creation(gui, create)
 
 
 def _stop_central_fetcher():
@@ -594,28 +644,37 @@ def _stop_central_fetcher():
     _central_stop_event.set()  # 唤醒正在等待的拉取循环，立即退出
 
 
-def _stop_all_workers():
+def _stop_all_workers(gui=None):
     """停止集中拉取 + 所有预测线程 + 登记的即弃线程（应用退出时调用）
 
-    每类线程有界 join：预测线程 3s、即弃线程 2s；超时记录日志，
-    由守护线程属性保证进程可正常退出，避免数据库关闭后线程越界访问。
+    主线程只做零等待存活轮询，避免多个慢任务累计阻塞 Qt 事件循环。未退出的
+    owner 保留在各自容器中，由 ``on_exit`` 的后续轮询持续报告并延后资源关闭。
     """
+    if gui is not None:
+        begin_stopping(gui)
+    # Shutdown polls must not accumulate an N × timeout GUI-thread stall.  All
+    # owners remain registered until a later zero-wait poll observes completion.
+    timeout = 0.0
+    if gui is not None:
+        gui._workers_stop_requested = True
     _stop_central_fetcher()
-    _stop_precision_watch_manager()
-    _stop_all_predictors()
+    alive = _stop_precision_watch_manager(timeout)
+    alive.extend(_stop_all_predictors(timeout))
 
     # join 登记的即弃线程（弹幕拉取、fetch-now）
     with _adhoc_lock:
         threads = list(_adhoc_threads)
-    alive = []
     for t in threads:
-        t.join(timeout=2)
+        t.join(timeout=timeout)
         if t.is_alive():
             alive.append(t.name)
-    if alive:
-        logger.warning("以下工作线程未在 2s 内退出,转为守护退出: %s", ", ".join(alive))
     with _adhoc_lock:
-        _adhoc_threads.clear()
+        _adhoc_threads.intersection_update({thread for thread in _adhoc_threads if thread.is_alive()})
+    if gui is not None:
+        alive.extend(drain_registered_tasks(gui))
+    if alive:
+        logger.warning("以下运行时任务未在截止时间内退出: %s", ", ".join(alive))
+    return alive
 
 
 # ══════════════════════════════════════════════
@@ -625,16 +684,20 @@ def _stop_all_workers():
 
 def fetch_single_video_data(gui, bvid, callback=None):
     """立即触发单个视频的数据拉取"""
+    if not accepts_tasks(gui):
+        return
     video = None
     if hasattr(gui, "_video_index"):
         video = gui._video_index.get(bvid)
     if video is None:
-        for v in gui.monitored_videos:
+        with gui._data_lock:
+            videos = list(gui.monitored_videos)
+        for v in videos:
             if v.get("bvid") == bvid:
                 video = v
                 break
     if video:
-        _start_tracked_thread(_fetch_one_video, args=(gui, bvid, video), name=f"fetch-now-{bvid}")
+        _start_runtime_task(gui, _fetch_one_video, args=(gui, bvid, video), name=f"fetch-now-{bvid}")
     if callback:
         # 用跨线程桥调度回主线程(而非 QTimer.singleShot, 后者在无事件循环的后台线程不触发)
         invoke(lambda: callback(bvid))
@@ -642,7 +705,7 @@ def fetch_single_video_data(gui, bvid, callback=None):
 
 def fetch_all_video_data(gui, callback=None):
     """立即触发所有视频的数据拉取"""
-    fire_and_forget(_batch_fetch_all, gui, name="fetch-all-now")
+    _start_runtime_task(gui, _batch_fetch_all, args=(gui,), name="fetch-all-now")
 
 
 def auto_predict_all(gui):
@@ -651,7 +714,11 @@ def auto_predict_all(gui):
     def _worker():
         from ui.monitor._prediction import _predict_single
 
-        for video in gui.monitored_videos:
+        with gui._data_lock:
+            videos = list(gui.monitored_videos)
+        for video in videos:
+            if not accepts_tasks(gui):
+                return
             bvid = video.get("bvid", "")
             if not bvid:
                 continue
@@ -666,7 +733,7 @@ def auto_predict_all(gui):
         )
         gui.log_panel.add_log("INFO", f"初始预测完成（{len(gui.monitored_videos)} 个视频）")
 
-    fire_and_forget(_worker, name="auto-predict")
+    _start_runtime_task(gui, _worker, name="auto-predict")
 
 
 def _load_watch_list_from_db():
@@ -712,12 +779,24 @@ def _attach_history(gui, bvid: str, video: dict) -> None:
     """初始化视频库并挂载历史数据（失败仅记日志）。"""
     try:
         video_db = db.get_video_db(bvid)
-        gui.video_dbs[bvid] = video_db
+        from ui.monitor._lifecycle import set_video_db
+
+        if not set_video_db(gui, bvid, video_db):
+            video_db.close()
+            return
         video_db.save_video_info(video)
         history = video_db.get_all_records()
         if history:
             gui.history_data[bvid] = [(row["timestamp"], row["view_count"]) for row in history]
     except Exception as e:
+        try:
+            from ui.monitor._lifecycle import remove_video_db
+
+            detached_db = remove_video_db(gui, bvid)
+            if detached_db is not None:
+                detached_db.close()
+        except Exception as cleanup_error:
+            logger.debug("清理初始化失败的视频数据库 %s 时出错: %s", bvid, cleanup_error)
         logger.debug("初始化视频数据库失败 %s: %s", bvid, e)
 
 
@@ -788,4 +867,4 @@ def load_watch_list(gui):
         # 启动后立即运行一次初始预测（后续由每视频线程在拉取完成后接管）
         invoke(lambda: QTimer.singleShot(100, lambda: auto_predict_all(gui)))
 
-    fire_and_forget(_worker, name="auto-predict")
+    _start_runtime_task(gui, _worker, name="auto-predict")

@@ -196,8 +196,13 @@ class PrecisionWatchManager:
         """阻止新任务并请求现有任务尽快停止。"""
         self._stop.set()
 
-    def join(self, timeout: float = 2) -> None:
+    def join(self, timeout: float = 2) -> list[str]:
+        """Join active watches and return names that still own resources."""
         with self._lock:
             threads = list(self._active.values())
+        alive: list[str] = []
         for thread in threads:
             thread.join(timeout=timeout)
+            if thread.is_alive():
+                alive.append(thread.name)
+        return alive

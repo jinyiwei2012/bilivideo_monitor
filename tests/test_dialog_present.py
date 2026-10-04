@@ -276,6 +276,19 @@ class TestSingleDisplayFunnel:
         qapp.sendPostedEvents(None, QEvent.Type.DeferredDelete)
         qapp.processEvents()
 
+    def test_score_center_standalone_window_never_starts_runtime_work(self, qapp, monkeypatch):
+        """The supported empty standalone window has no GUI runtime owner to register against."""
+        import ui.score_center as sc
+
+        monkeypatch.setattr(
+            sc, "start_registered_task", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError())
+        )
+        window = sc.ScoreCenterWindow(None, None)
+        try:
+            assert window._pending == set()
+        finally:
+            window.dlg.close()
+
     def test_report_scheduler_constructor_is_pure(self, qapp, clean_registry):
         """构造函数只做初始化：不显示、不登记保活（显示由 open_report_scheduler 的 present 负责）。"""
         import ui.dialog_host as dh

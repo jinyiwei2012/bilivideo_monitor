@@ -4,7 +4,6 @@
 展示时间/增量/在线人数等详细上下文信息
 """
 
-import threading
 import logging
 from datetime import datetime
 
@@ -24,6 +23,7 @@ from ui.theme import C
 from ui.helpers import FONT_SM, fmt_num
 from ui.dialog_base import DialogBase
 from ui.invoker import invoke
+from ui.monitor._lifecycle import start_registered_task, use_video_db
 from core.smart_alert import AnomalyDetector
 
 logger = logging.getLogger(__name__)
@@ -151,7 +151,7 @@ class AnomalyPanel:
             # 回主线程更新 UI
             invoke(lambda: self._show_results(results, stats))
 
-        threading.Thread(target=worker, daemon=True).start()
+        start_registered_task(self.gui, worker, name="anomaly-scan")
 
     def _collect_scan_results(self):
         """扫描全部监控视频，返回 ``(命中列表, 扫描统计)``（统计用于空态说明）。"""
@@ -178,9 +178,8 @@ class AnomalyPanel:
     def _load_scan_records(self, bvid):
         full_records = []
         try:
-            video_db = self.gui.video_dbs.get(bvid)
-            if video_db:
-                raw = video_db.get_all_records(limit=30)
+            raw = use_video_db(self.gui, bvid, lambda video_db: video_db.get_all_records(limit=30))
+            if raw:
                 for r in raw:
                     full_records.append(
                         {

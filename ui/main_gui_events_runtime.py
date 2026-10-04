@@ -31,7 +31,7 @@ from ui.lty_voice import (
     no_video,
 )
 from utils.time_utils import safe_timestamp
-from utils.thread_utils import fire_and_forget
+from ui.monitor._lifecycle import drain_registered_tasks, has_registered_tasks, start_registered_task
 
 logger = logging.getLogger(__name__)
 
@@ -42,28 +42,50 @@ _PREWARM_BVID = "BV1xx411c7mD"
 
 def on_exit(gui):
     """应用退出时的清理工作"""
+    from ui.monitor._lifecycle import begin_stopping
+
+    begin_stopping(gui)
+    if getattr(gui, "_shutdown_finalized", False):
+        return
+    from ui.main_gui_tick import stop_global_tick
+    from ui.monitor import _stop_all_workers
+
+    stop_global_tick(gui)
+    survivors = _stop_all_workers(gui)
+    survivors.extend(drain_registered_tasks(gui))
+    if survivors or has_registered_tasks(gui):
+        logger.warning("退出延后：仍在收敛运行时任务 %s", ", ".join(survivors) or "registered")
+        QTimer.singleShot(100, lambda: on_exit(gui))
+        return
+    gui._shutdown_finalized = True
     from ui.main_gui_data import save_watch_list
 
     save_watch_list(gui)
     gui.log_panel.cleanup()
-    from ui.main_gui_tick import stop_global_tick
-
-    stop_global_tick(gui)
     gui._stop_export_schedule()
     gui._file_logger.cancel_midnight_checker()
     gui._file_logger.close()
-    from ui.monitor import _stop_all_workers
+    # Flush learning state while runtime dependencies remain available.
+    try:
+        from algorithms.online_learner import get_online_learner
+        from ui.helpers import project_path
 
-    _stop_all_workers()
-    from core import db, bilibili_api
+        get_online_learner().save(project_path("data", "online_learner_state.json"))
+    except Exception as e:
+        logger.debug("保存在线学习状态失败: %s", e)
+    try:
+        from algorithms.weight_manager import get_weight_manager
 
-    for bvid in gui.video_dbs:
-        try:
-            gui.video_dbs[bvid].close()
-        except Exception as e:
-            logger.debug("关闭视频数据库失败 %s: %s", bvid, e)
-    db.close()
-    bilibili_api.close()
+        get_weight_manager().sync_save()
+    except Exception as e:
+        logger.debug("强制落盘权重状态失败: %s", e)
+
+    from ui.monitor._lifecycle import close_video_dbs, mark_stopped
+    from core import get_bilibili_api, get_db
+
+    close_video_dbs(gui)
+    get_db().close()
+    get_bilibili_api().close()
     try:
         from ui.video_list_panel import _cover_session
 
@@ -81,28 +103,13 @@ def on_exit(gui):
         logger.debug("关闭 NotificationManager 失败: %s", e)
 
     try:
-        from algorithms.online_learner import get_online_learner
-        from ui.helpers import project_path
-
-        learner = get_online_learner()
-        learner.save(project_path("data", "online_learner_state.json"))
-    except Exception as e:
-        logger.debug("保存在线学习状态失败: %s", e)
-
-    try:
-        from algorithms.weight_manager import get_weight_manager
-
-        get_weight_manager().sync_save()
-    except Exception as e:
-        logger.debug("强制落盘权重状态失败: %s", e)
-
-    try:
         from core.database.connection import close_http_session
 
         close_http_session()
     except Exception as e:
         logger.debug("关闭 HTTP Session 失败: %s", e)
 
+    mark_stopped(gui)
     QApplication.quit()
 
 
@@ -167,7 +174,7 @@ def auto_activate_on_startup(gui):
             logger.debug("自动激活模型失败: %s", e)
             invoke(lambda: refresh_model_status(gui))
 
-    fire_and_forget(_worker, name="auto-activate")
+    start_registered_task(gui, _worker, name="auto-activate")
 
 
 # ── 初始化 ─────────────────────────────────────
@@ -205,7 +212,7 @@ def preload_algorithms(gui):
         except Exception as e:
             logger.debug("算法首触预热跳过: %s", e)
 
-    fire_and_forget(_worker, name="algo-preload")
+    start_registered_task(gui, _worker, name="algo-preload")
 
 
 # ── 视频间隔 / 定时器 ──────────────────────────
@@ -309,7 +316,7 @@ def push_single(gui, bvid):
         notification_manager.send_windows_notification(f"◧ B站监控 — {title[:20]}", msg[:256])
         invoke(lambda: gui._sb("status", f"已把「{title[:20]}」的歌声传给大家啦 ♪", C["success"]))
 
-    fire_and_forget(_worker, name="push-single")
+    start_registered_task(gui, _worker, name="push-single")
 
 
 def manual_push(gui):
@@ -340,7 +347,7 @@ def manual_push(gui):
             status, color = "呜…推送失败了,天依的声音没传出去,请检查通知设置哦 ♪", C["danger"]
         invoke(lambda: gui._sb("status", status, color))
 
-    fire_and_forget(_worker, name="push-all")
+    start_registered_task(gui, _worker, name="push-all")
 
 
 # ── 训练完成回调 ──────────────────────────────
@@ -369,7 +376,7 @@ def on_training_completed(gui, mode="训练", count=0, detail="", trained_ids=No
             logger.debug("训练推送异常: %s", e)
 
     try:
-        fire_and_forget(_notify_worker, name="train-notify")
+        start_registered_task(gui, _notify_worker, name="train-notify")
     except Exception as e:
         logger.debug("启动训练完成推送失败: %s", e)
 
@@ -380,7 +387,7 @@ def on_training_completed(gui, mode="训练", count=0, detail="", trained_ids=No
             logger.debug("更新训练算法权重失败: %s", e)
 
     try:
-        fire_and_forget(lambda: run_post_training_predict(gui), name="post-train-predict")
+        start_registered_task(gui, lambda: run_post_training_predict(gui), name="post-train-predict")
     except Exception as e:
         logger.debug("启动训练后预测失败: %s", e)
 

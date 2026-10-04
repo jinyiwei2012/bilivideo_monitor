@@ -4,7 +4,6 @@
 """
 
 import logging
-import threading
 from datetime import datetime
 from typing import List
 
@@ -20,6 +19,7 @@ from PyQt6.QtWidgets import (
 from ui.theme import C
 from ui.dialog_base import DialogBase
 from ui.invoker import invoke
+from ui.monitor._lifecycle import start_registered_task, use_video_db
 
 logger = logging.getLogger(__name__)
 
@@ -179,10 +179,6 @@ class DanmakuHistoryWindow:
             self._fetch_btn.setEnabled(True)
             return
 
-        video_db = None
-        if self.gui and hasattr(self.gui, "video_dbs"):
-            video_db = self.gui.video_dbs.get(bvid)
-
         # 后台线程拉取
         def _worker():
             try:
@@ -197,13 +193,19 @@ class DanmakuHistoryWindow:
                     invoke(lambda: self._progress_bar.setValue(pct))
                     invoke(lambda: self._log(f"  {date}: {count} 条弹幕"))
 
-                total = monitor.fetch_history_danmaku(
+                total = use_video_db(
+                    self.gui,
                     bvid,
-                    cid,
-                    video_db=video_db,
-                    month=month,
-                    on_progress=progress,
+                    lambda video_db: monitor.fetch_history_danmaku(
+                        bvid,
+                        cid,
+                        video_db=video_db,
+                        month=month,
+                        on_progress=progress,
+                    ),
                 )
+                if total is None:
+                    return
                 invoke(lambda: self._log(f"\n完成啦!♪ 天依收集了 {total} 条弹幕,大家的歌声都被好好收下了"))
             except Exception as e:
                 logger.warning("历史弹幕拉取失败 %s: %s", bvid, e)
@@ -212,4 +214,6 @@ class DanmakuHistoryWindow:
                 invoke(lambda: self._fetch_btn.setEnabled(True))
                 invoke(lambda: setattr(self, "_fetching", False))
 
-        threading.Thread(target=_worker, daemon=True).start()
+        if start_registered_task(self.gui, _worker, name=f"danmaku-history:{bvid}") is None:
+            self._fetching = False
+            self._fetch_btn.setEnabled(True)

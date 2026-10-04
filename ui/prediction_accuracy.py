@@ -27,6 +27,7 @@ from PyQt6.QtGui import QColor
 from ui.theme import C
 from ui.helpers import fmt_num
 from ui.dialog_base import DialogBase
+from ui.monitor._lifecycle import use_video_db
 
 logger = logging.getLogger(__name__)
 
@@ -183,13 +184,11 @@ class PredictionAccuracyPanel:
         days_map = _DAYS_MAP
         days = days_map[self._days_combo.currentText()]
 
-        vdb = self.gui.video_dbs.get(bvid)
-        if not vdb:
-            self._show_empty_state("呜…还没有这个视频的数据库呢 ♪")
-            return
-
         try:
-            rows = self._query_prediction_rows(vdb, threshold, days)
+            rows = use_video_db(self.gui, bvid, lambda vdb: self._query_prediction_rows(vdb, threshold, days))
+            if rows is None:
+                self._show_empty_state("呜…还没有这个视频的数据库呢 ♪")
+                return
         except Exception as e:
             logger.warning("查询预测记录失败: %s", e)
             self._show_empty_state("呜…查询失败了,天依会再试试的哦 ♪")
@@ -198,12 +197,12 @@ class PredictionAccuracyPanel:
         if not rows:
             # 默认筛选（10万 / 7天）常常恰好命中 0 行 —— 但库里其实有别的阈值的预测。
             # 先自适应切到**确实有数据**的筛选，再退化成空态文案。
-            switched = self._adapt_filter_to_data(vdb, thresholds, days)
+            switched = use_video_db(self.gui, bvid, lambda vdb: self._adapt_filter_to_data(vdb, thresholds, days))
             if switched is None:
                 self._show_empty_state("这个视频还没有预测记录呢…等天依唱出预测就有啦 ♪")
                 return
             threshold, days = switched
-            rows = self._query_prediction_rows(vdb, threshold, days)
+            rows = use_video_db(self.gui, bvid, lambda vdb: self._query_prediction_rows(vdb, threshold, days)) or []
             if not rows:
                 self._show_empty_state("这个筛选下还是没有记录呢…换一个阈值或时间范围试试吧 ♪")
                 return
@@ -214,7 +213,7 @@ class PredictionAccuracyPanel:
             self._auto_switch_hint = ""
 
         # 加载 monitor_records 用于查找预测到达时点的实际播放量
-        records = vdb.get_all_records()
+        records = use_video_db(self.gui, bvid, lambda vdb: vdb.get_all_records())
         if not records:
             self._show_empty_state("还没有监控记录,天依没法算出准确率呢…等等数据哦 ♪")
             return

@@ -15,8 +15,8 @@ from ui.invoker import invoke
 from ui.theme import C
 from config import load_config
 from utils.ntp_time import get_status, refresh_config, sync_now
-from utils.thread_utils import fire_and_forget
 from utils.time_utils import format_ts
+from ui.monitor._lifecycle import start_registered_task, use_all_video_dbs, use_video_db, video_db_ids
 
 logger = logging.getLogger(__name__)
 
@@ -148,7 +148,7 @@ def _maybe_report_risk(gui, api: Any = None) -> None:
     except Exception as e:
         logger.debug("写日志面板失败: %s", e)
     _notify_logged_out()
-    _renew_now_async(api)
+    _renew_now_async(gui, api)
 
 
 def _notify_logged_out() -> None:
@@ -164,7 +164,7 @@ def _notify_logged_out() -> None:
         logger.debug("发送掉登录通知失败: %s", e)
 
 
-def _renew_now_async(api: Any) -> None:
+def _renew_now_async(gui: Any, api: Any) -> None:
     """立即尝试续期一次（后台线程，网络 I/O 不阻塞 tick）。"""
     from core.bilibili_cookie_refresh import refresh_now
 
@@ -175,7 +175,7 @@ def _renew_now_async(api: Any) -> None:
         except Exception as e:
             logger.debug("续期异常: %s", e)
 
-    fire_and_forget(_worker, name="cookie-renew-now")
+    start_registered_task(gui, _worker, name="cookie-renew-now")
 
 
 def _renew_worker(api: Any) -> None:
@@ -195,7 +195,7 @@ def _maybe_renew_cookies(gui, api: Any = None, runner: Any = None) -> None:
 
     Args:
         api: 注入的 API 实例（测试用；缺省取全局单例）
-        runner: 任务调度器（缺省 ``fire_and_forget``；测试可注入同步执行器）
+        runner: 任务调度器（缺省为登记的运行时任务；测试可注入同步执行器）
     """
     now = time.time()
     last = float(getattr(gui, "_last_cookie_renew", 0.0) or 0.0)
@@ -208,7 +208,10 @@ def _maybe_renew_cookies(gui, api: Any = None, runner: Any = None) -> None:
     if not _has_login_cookies(api):
         return  # 未登录 → 零请求
     gui._last_cookie_renew = now
-    (runner or fire_and_forget)(lambda: _renew_worker(api), name="cookie-renew")
+    if runner is not None:
+        runner(lambda: _renew_worker(api), name="cookie-renew")
+    else:
+        start_registered_task(gui, lambda: _renew_worker(api), name="cookie-renew")
 
 
 def start_risk_timers(gui) -> None:
@@ -234,7 +237,7 @@ def start_risk_timers(gui) -> None:
     _maybe_renew_cookies(gui)  # 启动后一次（未登录时零请求）
 
 
-def _ntp_tick() -> None:
+def _ntp_tick(gui: Any) -> None:
     """重载 NTP 配置，并在到期时把同步任务交给后台线程。"""
     config = load_config()
     section = config.get("ntp", {})
@@ -243,7 +246,7 @@ def _ntp_tick() -> None:
         return
     status = get_status()
     if bool(status["sync_due"]):
-        fire_and_forget(sync_now, name="ntp-sync")
+        start_registered_task(gui, sync_now, name="ntp-sync")
 
 
 def start_ntp_timer(gui) -> None:
@@ -256,10 +259,10 @@ def start_ntp_timer(gui) -> None:
     refresh_config(section if isinstance(section, dict) else {})
     timer = QTimer(gui)
     timer.setInterval(300_000)
-    timer.timeout.connect(_ntp_tick)
+    timer.timeout.connect(lambda: _ntp_tick(gui))
     timer.start()
     gui._ntp_timer = timer
-    QTimer.singleShot(5000, _ntp_tick)
+    QTimer.singleShot(5000, lambda: _ntp_tick(gui))
 
 
 def global_tick(gui):
@@ -308,12 +311,12 @@ def global_tick(gui):
         if gui._tick_counter == 0:
             do_periodic_sync(gui)
         elif gui._tick_counter % 300 == 0:
-            fire_and_forget(lambda: wal_checkpoint_worker(gui), name="wal-checkpoint")
-            fire_and_forget(lambda: scan_alerts_background(gui), name="scan-alerts")
+            start_registered_task(gui, lambda: wal_checkpoint_worker(gui), name="wal-checkpoint")
+            start_registered_task(gui, lambda: scan_alerts_background(gui), name="scan-alerts")
         # 每 30 分钟检查内存增长
         elif gui._tick_counter % 1800 == 10:
             # tracemalloc 快照对比较耗时，移到后台线程，避免卡住主线程
-            fire_and_forget(lambda: do_memory_health_check(gui), name="mem-health")
+            start_registered_task(gui, lambda: do_memory_health_check(gui), name="mem-health")
     except Exception:
         logger.exception("_global_tick 异常，继续调度")
 
@@ -324,9 +327,10 @@ def do_periodic_sync(gui):
 
     def _sync_worker():
         try:
-            from core import db
+            from core import get_db
 
-            for bvid in list(gui.video_dbs.keys()):
+            db = get_db()
+            for bvid in video_db_ids(gui):
                 try:
                     db.sync_from_video_db(bvid)
                 except Exception as e:
@@ -353,7 +357,7 @@ def do_periodic_sync(gui):
         except Exception as e:
             logger.warning("每小时同步异常: %s", e)
 
-    fire_and_forget(_sync_worker, name="periodic-sync")
+    start_registered_task(gui, _sync_worker, name="periodic-sync")
 
 
 def _maybe_cleanup_predictions(gui):
@@ -368,18 +372,23 @@ def _maybe_cleanup_predictions(gui):
     gui._last_prediction_cleanup = now
 
     try:
-        from core import db
+        from core import get_db
 
+        db = get_db()
         central_result = db.cleanup_duplicate_predictions()
         total_deleted = central_result.get("deleted", 0)
         total_mirror_deleted = central_result.get("mirror_deleted", 0) if "mirror_deleted" in central_result else 0
-        for bvid, video_db in list(gui.video_dbs.items()):
+
+        def cleanup_video_db(bvid, video_db):
+            nonlocal total_deleted, total_mirror_deleted
             try:
                 vr = video_db.cleanup_duplicate_predictions()
                 total_deleted += vr.get("deleted", 0)
                 total_mirror_deleted += vr.get("mirror_deleted", 0)
             except Exception as e:
                 logger.debug("清理视频库预测失败 %s: %s", bvid, e)
+
+        use_all_video_dbs(gui, cleanup_video_db)
 
         if total_deleted > 0:
             logger.info(
@@ -434,15 +443,19 @@ def _maybe_cleanup_old_records(gui):
 
         cutoff = format_ts(datetime.now() - timedelta(days=days))
         total = 0
-        for bvid, video_db in list(gui.video_dbs.items()):
+
+        def cleanup_old_records(bvid, video_db):
+            nonlocal total
             try:
                 total += video_db.delete_monitor_records_before(cutoff)
             except Exception as e:
                 logger.debug("清理视频库旧记录失败 %s: %s", bvid, e)
-        try:
-            from core import db
 
-            total += db.delete_monitor_records_before(cutoff)
+        use_all_video_dbs(gui, cleanup_old_records)
+        try:
+            from core import get_db
+
+            total += get_db().delete_monitor_records_before(cutoff)
         except Exception as e:
             logger.debug("清理中央库旧记录失败: %s", e)
         if total:
@@ -454,9 +467,8 @@ def _maybe_cleanup_old_records(gui):
 def _alert_records(gui, bvid, record_window):
     records = []
     try:
-        video_db = gui.video_dbs.get(bvid)
-        if video_db:
-            raw = video_db.get_all_records(limit=record_window)
+        raw = use_video_db(gui, bvid, lambda video_db: video_db.get_all_records(limit=record_window))
+        if raw:
             for r in raw:
                 records.append(
                     {
@@ -572,14 +584,17 @@ def scan_alerts_background(gui):
 def wal_checkpoint_worker(gui):
     """后台线程执行 WAL checkpoint，避免阻塞主线程"""
     try:
-        from core import db
+        from core import get_db
 
-        db.wal_checkpoint()
-        for vdb in list(gui.video_dbs.values()):
+        get_db().wal_checkpoint()
+
+        def checkpoint_video_db(_bvid, vdb):
             try:
                 with vdb._get_connection() as conn:
                     conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
             except Exception as e:
                 logger.debug("忽略异常: %s", e)
+
+        use_all_video_dbs(gui, checkpoint_video_db)
     except Exception as e:
         logger.debug("忽略异常: %s", e)

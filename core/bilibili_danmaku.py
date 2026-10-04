@@ -626,8 +626,8 @@ def get_danmaku_monitor(api: Any = None) -> DanmakuMonitor:
         with _danmaku_lock:
             if _danmaku_monitor is None:
                 if api is None:
-                    from core import bilibili_api
+                    from core import get_bilibili_api
 
-                    api = bilibili_api
+                    api = get_bilibili_api()
                 _danmaku_monitor = DanmakuMonitor(api)
     return _danmaku_monitor

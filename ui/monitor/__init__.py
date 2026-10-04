@@ -30,6 +30,8 @@ __all__ = [
     "_load_watch_list_from_db",
     "_merged_from_db",
     "_merged_from_db_lock",
+    "AppState",
+    "get_app_state",
 ]
 
 from ui.monitor._prediction import (
@@ -59,3 +61,5 @@ from ui.monitor._service import (
     _merged_from_db,
     _merged_from_db_lock,
 )
+
+from ui.monitor._lifecycle import AppState, get_app_state

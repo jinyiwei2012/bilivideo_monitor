@@ -14,6 +14,8 @@
 import logging
 import threading
 
+from ui.monitor._lifecycle import use_video_db
+
 logger = logging.getLogger(__name__)
 
 _sentiment_lock = threading.Lock()
@@ -35,10 +37,7 @@ def analyze_recent(gui, bvid: str) -> dict | None:
     if gui is None:
         return None
     try:
-        vdb = gui.video_dbs.get(bvid) if hasattr(gui, "video_dbs") else None
-        if vdb is None:
-            return None
-        rows = vdb.get_danmaku_records(limit=_MAX_SAMPLE)
+        rows = use_video_db(gui, bvid, lambda vdb: vdb.get_danmaku_records(limit=_MAX_SAMPLE))
         if not rows:
             return None
         texts = [r.get("content", "") for r in rows if r.get("content")]

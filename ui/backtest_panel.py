@@ -3,7 +3,6 @@
 评估各算法在历史数据上的离线预测表现（RMSE / MAE / MAPE）
 """
 
-import threading
 import numpy as np
 from datetime import datetime
 
@@ -25,6 +24,7 @@ from ui.theme import C
 from ui.helpers import FONT, FONT_SM, fmt_num
 from ui.dialog_base import DialogBase
 from ui.invoker import invoke
+from ui.monitor._lifecycle import start_registered_task, use_video_db
 from algorithms.rollout_backtest import (
     RollingBacktester,
     make_linear_fn,
@@ -161,11 +161,8 @@ class BacktestPanel:
 
     def _get_series(self, bvid: str):
         """从数据库提取播放量时间序列（一维 numpy 数组）"""
-        video_db = self.gui.video_dbs.get(bvid)
-        if not video_db:
-            return None
         try:
-            records = video_db.get_all_records(limit=3000)
+            records = use_video_db(self.gui, bvid, lambda video_db: video_db.get_all_records(limit=3000))
             if not records:
                 return None
             views = []
@@ -248,7 +245,7 @@ class BacktestPanel:
             "use_factories": self._use_factories.isChecked(),
             "use_algorithms": self._use_algorithms.isChecked(),
         }
-        threading.Thread(target=self._run_backtest, args=(params,), daemon=True).start()
+        start_registered_task(self.gui, self._run_backtest, args=(params,), name=f"backtest:{bvid}")
 
     def _run_backtest(self, params):
         """后台执行回测并更新 UI"""

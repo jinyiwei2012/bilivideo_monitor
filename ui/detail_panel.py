@@ -44,7 +44,7 @@ from ui import lty_voice
 from ui.chart import ChartWidget
 from ui.detail_tabs import _RatioDanmakuMixin
 from ui.invoker import invoke
-from utils.thread_utils import fire_and_forget
+from ui.monitor._lifecycle import start_registered_task, use_video_db
 from utils.score_materializer import ensure_scores
 from utils.weekly_score import calculate_from_dict as _calc_ws
 from utils.yearly_score import calculate_yearly_from_dict as _calc_ys
@@ -843,18 +843,21 @@ class DetailPanel(_RatioDanmakuMixin):
         """后台读取周刊/年刊分数历史并写入缓存（同一 bvid 去重）。"""
         if bvid in self._score_history_pending:
             return
-        db = getattr(self.gui, "video_dbs", {}).get(bvid) if self.gui is not None else None
-        if db is None:
-            return
         self._score_history_pending.add(bvid)
         prev = self._score_history_cache.get(bvid)
 
         def _load():
             try:
                 # 先按整点桶补齐归档（幂等），再读最近 5 点
-                ensure_scores(db)
-                weekly = db.get_weekly_scores(limit=5)
-                yearly = db.get_yearly_scores(limit=5)
+                result = use_video_db(
+                    self.gui,
+                    bvid,
+                    lambda db: (ensure_scores(db), db.get_weekly_scores(limit=5), db.get_yearly_scores(limit=5)),
+                )
+                if result is None:
+                    weekly, yearly = [], []
+                else:
+                    _, weekly, yearly = result
             except Exception:
                 weekly, yearly = [], []
 
@@ -872,7 +875,8 @@ class DetailPanel(_RatioDanmakuMixin):
 
             invoke(_apply)
 
-        fire_and_forget(_load, name=f"score-history:{bvid}")
+        if start_registered_task(self.gui, _load, name=f"score-history:{bvid}") is None:
+            self._score_history_pending.discard(bvid)
 
     def _detail_text_fingerprint(self, video):
         """计算详细数据文本使用的视频字段指纹。"""

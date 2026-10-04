@@ -34,8 +34,8 @@ from ui.dialog_host import present
 from ui.invoker import invoke
 from ui.theme import C
 from utils.score_materializer import ensure_scores
-from utils.thread_utils import fire_and_forget
 from utils.time_utils import format_ts
+from ui.monitor._lifecycle import start_registered_task, use_all_video_dbs, use_video_db
 
 logger = logging.getLogger(__name__)
 
@@ -321,6 +321,8 @@ class ScoreCenterWindow:
 
     def _schedule_load(self, bvid: str, kind: str):
         """后台读取分数（含幂等物化），完成后回主线程刷新缓存。"""
+        if self.gui is None:
+            return
         key = (bvid, kind)
         if key in self._pending:
             return
@@ -330,17 +332,22 @@ class ScoreCenterWindow:
             rows, latest = [], ""
             try:
                 if bvid:
-                    video_db = getattr(self.gui, "video_dbs", {}).get(bvid)
-                    if video_db is not None:
-                        rows = load_scores(video_db, kind)
-                        latest_row = video_db.get_latest_weekly_score()
+                    result = use_video_db(
+                        self.gui,
+                        bvid,
+                        lambda video_db: (load_scores(video_db, kind), video_db.get_latest_weekly_score()),
+                    )
+                    if result is not None:
+                        rows, latest_row = result
                         latest = str((latest_row or {}).get("timestamp", "") or "")
                 else:
-                    for other in self._selected_bvids():
-                        video_db = getattr(self.gui, "video_dbs", {}).get(other)
-                        if video_db is None:
-                            continue
-                        rows.extend(load_scores(video_db, kind))
+                    selected = set(self._selected_bvids())
+                    for other, loaded_rows in use_all_video_dbs(
+                        self.gui,
+                        lambda other, video_db: (other, load_scores(video_db, kind)),
+                    ):
+                        if other in selected:
+                            rows.extend(loaded_rows)
                     rows = sort_rows_ascending(rows)
                     rows.reverse()  # 表格按最新在前
                     latest = str((rows[0] or {}).get("timestamp", "")) if rows else ""
@@ -355,7 +362,8 @@ class ScoreCenterWindow:
 
             invoke(_apply)
 
-        fire_and_forget(_work, name=f"score-center:{bvid or 'all'}:{kind}")
+        if start_registered_task(self.gui, _work, name=f"score-center:{bvid or 'all'}:{kind}") is None:
+            self._pending.discard(key)
 
     # ── 计算并补齐 ───────────────────────────────────────
 
@@ -383,20 +391,22 @@ class ScoreCenterWindow:
                 if self._cancel.is_set():
                     cancelled = True
                     break
-                video_db = getattr(self.gui, "video_dbs", {}).get(bvid)
-                if video_db is not None:
-                    try:
-                        result = ensure_scores(video_db)
+                try:
+                    result = use_video_db(self.gui, bvid, ensure_scores)
+                    if result is not None:
                         computed += int(result.get("computed", 0))
                         written += int(result.get("written", 0))
-                    except Exception as e:
-                        logger.warning("分数补齐失败 %s: %s", bvid, e)
+                except Exception as e:
+                    logger.warning("分数补齐失败 %s: %s", bvid, e)
                 done += 1
                 invoke(lambda d=done, w=written: self._status.setText(f"待补齐 {d}/{total} · 已写入 {w}"))
 
             invoke(lambda: self._finish_materialize(computed, written, cancelled))
 
-        fire_and_forget(_work, name="score-center-materialize")
+        if start_registered_task(self.gui, _work, name="score-center-materialize") is None:
+            self._busy = False
+            self._run_btn.setEnabled(True)
+            self._cancel_btn.setEnabled(False)
 
     def _cancel_materialize(self):
         """请求取消（当前视频跑完即停）。"""

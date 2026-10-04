@@ -46,7 +46,7 @@ from ui.detail_panel import DetailPanel
 from ui.prediction_panel import PredictionPanel
 from ui.bottom_bar import BottomBar
 from ui.dialogs import Dialogs
-from core import notification_manager
+from core.notification import notification_manager
 from config import load_config
 from utils.file_logger import FileLogger
 from ui.main_gui_events import (
