@@ -42,6 +42,8 @@ from ui.helpers import (
 from ui.widgets import WaveDivider
 from ui.log_panel import LogPanel, install_logging_bridge
 from ui.video_list_panel import VideoListPanel
+from ui.app_actions import AppActions
+from ui.app_state import AppState
 from ui.detail_panel import DetailPanel
 from ui.prediction_panel import PredictionPanel
 from ui.bottom_bar import BottomBar
@@ -144,6 +146,8 @@ class BilibiliMonitorGUI(QMainWindow):
         self.video_dbs = {}
         self.selected_bvid = None
         self._video_index = {}
+        self.app_state = AppState(self)
+        self.app_actions = AppActions(self)
 
         self._file_logger = FileLogger(project_path("data", "log"))
         if not logging.root.handlers:
@@ -617,7 +621,7 @@ class BilibiliMonitorGUI(QMainWindow):
         """)
 
         # Left: video list
-        self.video_list = VideoListPanel(splitter, self)
+        self.video_list = VideoListPanel(splitter, self.app_state, self.app_actions)
         splitter.addWidget(self.video_list)
 
         # Center: detail + chart

@@ -9,6 +9,7 @@ import logging
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 import threading
+from collections.abc import Mapping
 
 import requests as _req
 
@@ -26,7 +27,7 @@ from PyQt6.QtWidgets import (
     QStyle,
     QStackedLayout,
 )
-from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal, QObject, QRectF
+from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal, QObject, QRectF, QSignalBlocker
 from PyQt6.QtGui import QPixmap, QImage, QColor, QPainter, QPen, QFontMetrics, QPainterPath
 
 from ui.theme import C
@@ -219,10 +220,10 @@ class VideoListPanel(QWidget):
 
     SEARCH_DEBOUNCE_MS = 200  # 搜索去抖间隔（毫秒）
 
-    def __init__(self, parent, gui):
+    def __init__(self, parent, state, actions):
         super().__init__(parent)
-        self.gui = gui
-        self._parent = parent
+        self._state = state
+        self._actions = actions
         self._cover_cache = OrderedDict()
         self._card_widgets = {}  # bvid -> QListWidgetItem（索引，避免线性扫描 O(N²)）
         self._search_text = ""
@@ -241,6 +242,7 @@ class VideoListPanel(QWidget):
         self._cover_loader.cover_loaded.connect(self._on_cover_loaded)
 
         self._build()
+        self._state.selection_changed.connect(self._on_state_selection_changed)
 
     def closeEvent(self, event):
         """清理封面加载器"""
@@ -275,7 +277,9 @@ class VideoListPanel(QWidget):
         push_all_btn.setToolTip(BUTTON_HINTS["push"])
         push_all_btn.setFixedSize(70, 22)
         push_all_btn.setProperty("accent", True)
-        push_all_btn.clicked.connect(self.gui._manual_push)
+        # QPushButton.clicked emits a bool; wrap the action so it can never be
+        # mistaken for the optional BVID accepted by AppActions.push.
+        push_all_btn.clicked.connect(lambda _checked=False: self._actions.push())
         h.addWidget(push_all_btn)
 
         layout.addWidget(hdr)
@@ -362,8 +366,18 @@ class VideoListPanel(QWidget):
             if data:
                 bvid = data.get("bvid", "")
                 self.video_selected.emit(bvid)
-                if hasattr(self.gui, "_select_video"):
-                    self.gui._select_video(bvid)
+                self._actions.select_video(bvid)
+
+    def _on_state_selection_changed(self, bvid):
+        """Reflect external selection changes without sending a second action."""
+        self.select_by_bvid(bvid)
+
+    @staticmethod
+    def _display_payload(video):
+        """Copy a frozen state snapshot into the mutable Qt item payload format."""
+        if isinstance(video, Mapping):
+            return dict(video)
+        return video
 
     def _sync_cover(self, delegate, bvid, cover_url):
         """同步本地封面到 delegate（不阻塞 UI）
@@ -390,16 +404,19 @@ class VideoListPanel(QWidget):
         self._card_widgets.clear()
         delegate = self._list.itemDelegate()
         for v in videos:
-            bvid = v.get("bvid", "")
+            display_video = self._display_payload(v)
+            if not isinstance(display_video, dict):
+                continue
+            bvid = display_video.get("bvid", "")
             item = QListWidgetItem()
-            item.setData(Qt.ItemDataRole.UserRole, v)
+            item.setData(Qt.ItemDataRole.UserRole, display_video)
             item.setSizeHint(QSize(0, 60))
             self._list.addItem(item)
             if bvid:
                 self._card_widgets[bvid] = item
 
             # 封面：本地未变则复用已解码图，否则异步下载（去重）
-            cover_url = v.get("pic", v.get("cover_url", ""))
+            cover_url = display_video.get("pic", display_video.get("cover_url", ""))
             if cover_url:
                 self._sync_cover(delegate, bvid, cover_url)
 
@@ -407,14 +424,17 @@ class VideoListPanel(QWidget):
 
     def make_card(self, video):
         """添加单个视频卡片"""
-        bvid = video.get("bvid", "")
+        display_video = self._display_payload(video)
+        if not isinstance(display_video, dict):
+            return
+        bvid = display_video.get("bvid", "")
         if not bvid:
             return
         # 已存在则跳过（索引 O(1) 查找）
         if bvid in self._card_widgets:
             return
         item = QListWidgetItem()
-        item.setData(Qt.ItemDataRole.UserRole, video)
+        item.setData(Qt.ItemDataRole.UserRole, display_video)
         item.setSizeHint(QSize(0, 60))
         self._list.addItem(item)
         self._card_widgets[bvid] = item
@@ -422,7 +442,10 @@ class VideoListPanel(QWidget):
 
     def update_card(self, video):
         """更新已有视频卡片的数据（刷新封面、标题、播放量等）"""
-        bvid = video.get("bvid", "")
+        display_video = self._display_payload(video)
+        if not isinstance(display_video, dict):
+            return
+        bvid = display_video.get("bvid", "")
         if not bvid:
             return
         item = self._card_widgets.get(bvid)  # 索引查找，避免 O(N) 线性扫描
@@ -433,12 +456,12 @@ class VideoListPanel(QWidget):
             return
         delegate = self._list.itemDelegate()
         # 合并新数据到已有数据
-        data.update(video)
+        data.update(display_video)
         item.setData(Qt.ItemDataRole.UserRole, data)
         # 刷新显示
         self._list.update(self._list.indexFromItem(item))
         # 封面：本地未变则复用已解码图，否则异步下载（去重）
-        cover_url = video.get("pic", video.get("cover_url", ""))
+        cover_url = display_video.get("pic", display_video.get("cover_url", ""))
         if cover_url:
             self._sync_cover(delegate, bvid, cover_url)
 
@@ -467,8 +490,12 @@ class VideoListPanel(QWidget):
     def select_by_bvid(self, bvid):
         """按 BV 号选中"""
         item = self._card_widgets.get(bvid)
+        blocker = QSignalBlocker(self._list)
         if item is not None:
             self._list.setCurrentItem(item)
+        elif not bvid:
+            self._list.setCurrentItem(None)
+        del blocker
 
     def highlight_card(self, bvid):
         """高亮选中指定 BV 号的卡片"""

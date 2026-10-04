@@ -54,6 +54,7 @@ def select_video(gui, bvid):
     """选中视频"""
     gui.selected_bvid = bvid
     gui.video_list.highlight_card(bvid)
+    gui.app_state.notify_selection_changed()
     video = get_video(gui, bvid)
     if video:
         show_video_detail(gui, video)
@@ -250,6 +251,7 @@ def remove_monitor(gui):
 
     _stop_predictor(bvid)
     gui.selected_bvid = None
+    gui.app_state.notify_selection_changed()
     gui.detail._build_header_empty()
     gui.detail._rebuild_stat_bar({})
     gui.prediction._build_pred_hero_empty()
