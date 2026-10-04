@@ -73,11 +73,56 @@
 
 ## 五、第一批动工包（2–4 周；先测试、后实现；逐包可回退）
 
-1. **预测正确性包**（本分支先行）：P0-1 + P0-2 + 过期预测护栏（observation 版本检查，`ui/monitor/_prediction.py:442-447`）。
-2. **学习状态可靠性包**：P0-5。
-3. **算法缓存并发保护包**：P0-3。
-4. **退出与共享容器安全包**：P0-4。
-5. **core bootstrap 最小切口**：`import core` 不再开库；先加「无副作用导入」测试，再迁移调用点。
+**状态**：包 1 已交付并核验（提交 `80ab97f` / `24cecd8` / `d84233a`；当前全量 514 passed）。包 2–5 待开工，工程要点如下。
+
+### 包 2：学习状态可靠性包（对应 P0-5）
+
+- **目标**：持久化由「全量非原子、写而不读」改为「单写者、原子替换、可节流、启动可恢复」。
+- **现状与证据**：快照在锁内生成、文件写在锁外（`algorithms/weight_manager.py:106-140`），`open(fpath,"w")` 直接覆盖 `default_weights.json`；生产每视频每轮触发一次全量重写（`_prediction.py` 的 `_online_learning_feedback` → `update_accuracy_batch`，`weight_manager.py:195-217`，137 算法 × 100 条）；`online_learner.py` 有 `save()`（:354-379）、`load()`（:381-407）全仓零调用；per-bvid 权重分支（`weight_manager.py:73-87、:132-133`）无调用方。
+- **工程要点**：
+  1. **原子写**：同目录临时文件 → `flush` + `os.fsync` → `os.replace()`；失败保留旧文件并记日志。
+  2. **单写者 + 版本护栏**：写盘串行化；快照带单调版本号，旧版本不得覆盖新版本。
+  3. **节流**：更新只置 `dirty`，周期落盘（5–30s 或每 N 次更新）；`on_exit` 强制 flush，不丢最后一轮。
+  4. **启动加载 OnlineLearner**：让 `load()` 容忍「文件中存在未注册 tracker」（按文件恢复，而非只认已注册）；状态文件加 `schema_version` + 算法集合指纹，不匹配时安全降级并记日志。
+  5. **清理死分支**：移除（或显式标注保留）per-bvid 权重分支。
+- **验收**：20–50 线程并发 `update_accuracy` 后 JSON 恒可解析且不回退到旧快照；写入中断后旧文件仍有效；save → 重启 load 后 tracker 数 / 样本数 / 权重一致；新增 `tests/test_learning_state_reliability.py`；全量门禁通过。
+- **风险/工作量**：风险 S / 工作量 S–M；文件格式向后兼容（新增字段缺省视为 v1）；独立提交、可回退。
+
+### 包 3：算法缓存并发保护包（对应 P0-3）
+
+- **目标**：消除多视频并发下共享算法实例的缓存竞态与串模型风险。
+- **现状与证据**：算法每类仅实例化一次、全局共享（`algorithms/registry_parts/_models.py:64-77`），多视频 predictor 并发进入共享线程池（`ui/monitor/_service.py:105-165`、`_ensemble.py:280-289`）；有状态缓存家族：`cnn_image.py:131/170-182`、`diffusion_ts.py:288-345`、`mar_bilstm.py:137-198`、`knf.py:161+`、`lag_llama.py:61-114`、`torch_upgrade/prediction.py:205-206`、`runtime.py:179-187`；warmup（`_schedule_weight_warmup`）与实时预测并行共用同批实例（`_warmup.py:110-117`）。
+- **工程要点**：
+  1. **盘点**：扫描所有在 `predict` / 懒加载路径写实例字段的算法，形成「有状态清单」。
+  2. **保护临界区**：缓存「检查 → 换载 → 使用」收进实例级锁；推理在锁外用局部引用执行；确认不可重入的模型再升级为整体串行。
+  3. **warmup 互斥**：warmup 与实时预测不得并发使用有状态实例（同一把实例锁天然互斥；必要时跳过或排队）。
+  4. **（后置可选）执行策略声明**：`STATELESS_SHARED / LOCKED_SHARED / PER_VIDEO`；审计后为无状态算法免除锁开销，不一步到位。
+- **验收**：A/B 双视频并发 × 20 与串行结果一致、`_cached_bvid` 不串；锁等待时间可接受；注册表保持 137；新增 `tests/test_algo_concurrency.py`（无 torch 环境优雅 skip）；全量门禁通过。
+- **风险/工作量**：风险 M / 工作量 M–L；不改算法数值行为；独立提交、可回退。
+
+### 包 4：退出与共享容器安全包（对应 P0-4）
+
+- **目标**：运行时不取到已关闭 / 已删除的资源；退出时先收敛全部线程，再关库。
+- **现状与证据**：`video_dbs` 后台读（`_service.py:523`、`_prediction.py:63,114`）vs 主线程增删（`main_gui_events_monitor.py:231,290`），无统一锁；`monitored_videos` 改 / 遍历无锁（`_service.py:453-461`）；退出路径 `main_gui_events_runtime.py:43-95`、`_service.py:597-618`（有界 join，超时转守护）；未登记线程：预测保存（`_save_prediction_outputs`）与 warmup（`_schedule_weight_warmup`）。
+- **工程要点**：
+  1. **应用状态机**：`RUNNING / STOPPING / STOPPED`；STOPPING 后拒绝新任务（fetch / predict / save / warmup）。
+  2. **统一访问器**：`video_dbs` 收敛为持锁访问器（取用 / 删除），固定与 `_data_lock` 的锁层级顺序并注释。
+  3. **线程登记**：保存与 warmup 线程纳入统一登记（可 join、可取消），向 TaskSupervisor 长线靠拢。
+  4. **drain 顺序**：停 tick → 拒新 → 有界收敛 → flush 学习状态（包 2 接口）→ 关视频库 → 关中央库 → 关 api/session；关库后访问视为缺陷（防御断言 + 日志）。
+- **验收**：在途任务中反复退出：无 closed-database、无残留进程；增删视频并发压测无崩溃；新增 `tests/test_shutdown_safety.py`（fake 组件，不依赖 offscreen 窗口）；全量门禁通过。
+- **风险/工作量**：风险 M / 工作量 M；稳定性收益高；独立提交、可回退。
+
+### 包 5：core bootstrap 最小切口（对应 B2）
+
+- **目标**：`import core` 不再开库、建 API；以「无副作用导入」护栏开路，分批迁移调用点，为 composition root 铺路。
+- **现状与证据**：`core/__init__.py:11-12` 导入即 `get_db()`、`get_bilibili_api()`；`core/database/connection.py:14-25` 导入即建 session；`core/notification.py:44/439` 导入即建线程池与单例（**保护文件——本包不触碰，单独立项**）；调用方依赖便利别名（`ui/monitor/_service.py:20`、`_prediction.py:15`；`ui/main_gui.py:49` 仅因通知管理器而导入整个 core）。
+- **工程要点**：
+  1. **护栏先行**：子进程断言 `python -c "import core"` 不新增 DB 文件、不起新线程、不发网络请求（`tests/test_core_import_purity.py`）。
+  2. **去实例化**：`core/__init__` 仅再导出类型 / 工厂；移除 `db` / `bilibili_api` 模块级别名。
+  3. **迁移调用点**：统计 `from core import db|bilibili_api` 的实际使用面，分批改为显式获取；`ui/main_gui.py` 等改为直连 `core.notification`。
+  4. **（方向性）** 新代码经显式引导创建 / 注入依赖；完整 DI 留给阶段 2。
+- **验收**：`import core` 纯净；主程序行为不变；测试可注入临时 DB / API 替身；全量门禁通过。
+- **风险/工作量**：风险 M / 工作量 M；不与数据库所有权迁移并行；不触碰完整性保护文件。
 
 每包收尾统一执行：`black --check --line-length=120 .`、`python scripts/lint_gate.py`、`python scripts/type_gate.py`、`bandit -r . -c pyproject.toml -ll`、`python -m pytest tests/ -q`。
 
