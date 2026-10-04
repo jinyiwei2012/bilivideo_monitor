@@ -55,8 +55,9 @@ class MonitorRuntime:
 
             def runner() -> None:
                 try:
-                    if self.accepts_tasks():
-                        target(*args)
+                    # Admission above is atomic with registration.  A task admitted while
+                    # RUNNING must drain even if shutdown begins before this thread runs.
+                    target(*args)
                 finally:
                     with self._lock:
                         self._threads.discard(thread)
@@ -108,6 +109,9 @@ def accepts_tasks(gui: Any) -> bool:
 
 def begin_stopping(gui: Any) -> None:
     _runtime(gui).begin_stopping()
+    supervisor = getattr(gui, "_task_supervisor", None)
+    if supervisor is not None:
+        supervisor.shutdown()
 
 
 def mark_stopped(gui: Any) -> None:
