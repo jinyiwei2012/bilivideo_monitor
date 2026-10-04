@@ -32,6 +32,7 @@ from ui.lty_voice import (
 )
 from utils.time_utils import safe_timestamp
 from ui.monitor._lifecycle import drain_registered_tasks, has_registered_tasks, start_registered_task
+from ui.monitor._supervisor import get_task_supervisor
 
 logger = logging.getLogger(__name__)
 
@@ -408,8 +409,7 @@ def update_trained_weights(gui, algo_ids):
 
 def run_post_training_predict(gui):
     """后台并行重跑所有监控视频的预测"""
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    from ui.monitor import _predict_single
+    from ui.monitor._prediction import _predict_single
 
     bvids = [v.get("bvid", "") for v in gui.monitored_videos if v.get("bvid")]
     if not bvids:
@@ -417,26 +417,12 @@ def run_post_training_predict(gui):
 
     video_map = {v.get("bvid"): v for v in gui.monitored_videos if v.get("bvid")}
 
-    logger.info("训练完成，开始并行预测 %d 个视频…", len(bvids))
-
-    def _predict_one(bvid):
+    logger.info("训练完成，开始提交 %d 个视频的预测…", len(bvids))
+    supervisor = get_task_supervisor(gui)
+    for bvid in bvids:
         video = video_map.get(bvid)
-        if not video:
-            return bvid, None
-        try:
-            result = _predict_single(gui, bvid, video)
-            return bvid, result
-        except Exception as e:
-            logger.debug("训练后预测 %s 失败: %s", bvid, e)
-            return bvid, None
-
-    max_workers = min(len(bvids), 8)
-    with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        futures = {pool.submit(_predict_one, bvid): bvid for bvid in bvids}
-        for future in as_completed(futures):
-            bvid, result = future.result()
-            if result:
-                logger.debug("训练后预测 %s 完成: %.0f", bvid, result.get("prediction", 0))
+        if video is not None:
+            supervisor.submit_prediction(gui, bvid, video, _predict_single)
 
     total_videos = len(gui.monitored_videos)
     status_msg = f"训练后预测完成啦!♪ 天依把 {total_videos} 首歌重新听了一遍"

@@ -29,6 +29,7 @@ from ui.monitor._lifecycle import (
     start_registered_task,
     use_video_db,
 )
+from ui.monitor._supervisor import get_task_supervisor
 
 logger = logging.getLogger(__name__)
 
@@ -172,9 +173,7 @@ class VideoPredictor:
             try:
                 from ui.monitor._prediction import _predict_single
 
-                result = _predict_single(self.gui, self.bvid, self.video)
-                if result is not None:
-                    invoke(lambda r=result: self._on_done(r))
+                get_task_supervisor(self.gui).submit_prediction(self.gui, self.bvid, self.video, _predict_single)
             except Exception as e:
                 logger.debug("预测失败 %s: %s", self.bvid, e)
             finally:
@@ -410,11 +409,9 @@ def _check_video_thresholds(gui, bvid, video):
 
 
 def _notify_predictor(gui, bvid, video):
-    _ensure_predictor(gui, bvid, video)
-    with _predictors_lock:
-        predictor = _predictors.get(bvid)
-    if predictor:
-        predictor.notify()
+    from ui.monitor._prediction import _predict_single
+
+    get_task_supervisor(gui).submit_prediction(gui, bvid, video, _predict_single)
 
 
 def _precision_fetch(bvid):
@@ -720,7 +717,7 @@ def auto_predict_all(gui):
             bvid = video.get("bvid", "")
             if not bvid:
                 continue
-            _predict_single(gui, bvid, video)
+            get_task_supervisor(gui).submit_prediction(gui, bvid, video, _predict_single)
 
         from ui.theme import C
 
