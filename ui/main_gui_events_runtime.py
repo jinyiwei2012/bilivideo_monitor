@@ -90,6 +90,13 @@ def on_exit(gui):
         logger.debug("保存在线学习状态失败: %s", e)
 
     try:
+        from algorithms.weight_manager import get_weight_manager
+
+        get_weight_manager().sync_save()
+    except Exception as e:
+        logger.debug("强制落盘权重状态失败: %s", e)
+
+    try:
         from core.database.connection import close_http_session
 
         close_http_session()
@@ -171,6 +178,15 @@ def preload_algorithms(gui):
 
     def _worker():
         from algorithms.registry import AlgorithmRegistry
+
+        # P0-5: 启动时恢复上次退出时保存的在线学习状态（文件缺失时静默跳过）
+        try:
+            from algorithms.online_learner import get_online_learner
+            from ui.helpers import project_path
+
+            get_online_learner().load(project_path("data", "online_learner_state.json"))
+        except Exception as e:
+            logger.debug("恢复在线学习状态失败: %s", e)
 
         AlgorithmRegistry.initialize()
         n = len(AlgorithmRegistry.get_algorithm_names())

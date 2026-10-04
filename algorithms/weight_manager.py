@@ -6,8 +6,7 @@
     2. 机器学习计算的权重（基于历史准确率，使用 softmax 归一化）
     3. 默认权重（base_weight 兜底）—— 算法定义的初始权重
 
-权重持久化到 JSON 文件，支持多视频隔离存储。
-通过互斥锁保证多线程环境下的线程安全。
+权重持久化到全局 JSON 文件，通过互斥锁保证多线程环境下的线程安全。
 
 权重生命周期：
     set_user_weight → 覆盖 ML 权重 → get_weight 返回用户权重
@@ -28,6 +27,8 @@ import math
 import threading
 import logging
 import importlib
+import tempfile
+import time
 from typing import Any, Dict, List, Optional
 from datetime import datetime
 
@@ -43,7 +44,12 @@ class WeightManager:
     通过互斥锁 _lock 保证线程安全，权重变更后异步写盘。
     """
 
-    def __init__(self, save_dir: Optional[str] = None):
+    def __init__(
+        self,
+        save_dir: Optional[str] = None,
+        save_interval_seconds: float = 10.0,
+        save_update_threshold: int = 20,
+    ):
         """初始化权重管理器。
 
         Args:
@@ -57,6 +63,14 @@ class WeightManager:
 
         # 线程锁，保护所有内部状态的并发读写
         self._lock = threading.Lock()
+        self._recalculate_lock = threading.Lock()
+        self._write_lock = threading.Lock()
+        self._state_version = 0
+        self._persisted_version = 0
+        self._dirty_updates = 0
+        self._last_save_monotonic = time.monotonic()
+        self._save_interval_seconds = save_interval_seconds
+        self._save_update_threshold = max(1, save_update_threshold)
 
         # 用户自定义权重（优先级最高），{算法名: 权重值}
         self.user_weights: Dict[str, float] = {}
@@ -70,20 +84,8 @@ class WeightManager:
         # 从磁盘加载已有权重数据
         self._load_weights()
 
-    def _get_weights_file(self, bvid: Optional[str] = None) -> str:
-        """获取权重文件路径。
-
-        bvid 不为 None 时返回视频专属权重文件（多视频隔离），
-        否则返回默认全局权重文件。
-
-        Args:
-            bvid: 视频 BV 号（可选）
-
-        Returns:
-            str: 权重 JSON 文件的完整路径
-        """
-        if bvid:
-            return os.path.join(self.save_dir, f"{bvid}_weights.json")
+    def _get_weights_file(self) -> str:
+        """获取全局权重 JSON 文件路径。"""
         return os.path.join(self.save_dir, "default_weights.json")
 
     def _load_weights(self):
@@ -100,44 +102,80 @@ class WeightManager:
                     self.user_weights = data.get("user_weights", {})
                     self.ml_weights = data.get("ml_weights", {})
                     self.accuracy_records = data.get("accuracy_records", {})
+                    version = int(data.get("state_version", 0))
+                    self._state_version = version
+                    self._persisted_version = version
             except Exception as e:
                 logger.warning("加载权重失败: %s", e)
 
+    def _snapshot(self) -> tuple[int, Dict[str, Any]]:
+        """在状态锁内取得带版本号的一致快照。"""
+        with self._lock:
+            version = self._state_version
+            data = {
+                "schema_version": 2,
+                "state_version": version,
+                "user_weights": dict(self.user_weights),
+                "ml_weights": dict(self.ml_weights),
+                "accuracy_records": {k: list(v) for k, v in self.accuracy_records.items()},
+                "updated_at": datetime.now().isoformat(),
+            }
+        return version, data
+
     def _save_weights_sync(self):
-        """在 _lock 外组装数据快照，然后委托 _write_weights_file 落盘。
-
-        设计为"组装快照时不持锁 → 写文件时不持锁"，
-        避免 IO 操作阻塞其他权重的读写。
-        """
+        """立即将当前一致快照原子写盘。"""
         try:
-            with self._lock:
-                data = {
-                    "user_weights": dict(self.user_weights),
-                    "ml_weights": dict(self.ml_weights),
-                    "accuracy_records": {k: list(v) for k, v in self.accuracy_records.items()},
-                    "updated_at": datetime.now().isoformat(),
-                }
-            self._write_weights_file(data)
+            version, data = self._snapshot()
+            self._write_weights_file(version, data)
         except Exception as e:
             logger.warning("保存权重失败: %s", e)
 
-    def _write_weights_file(self, data: Dict[str, Any], bvid: Optional[str] = None):
-        """执行实际的文件写入（可在后台线程中调用）。
+    def _write_weights_file(self, version: int, data: Dict[str, Any]):
+        """以单写者协议原子替换全局权重文件，失败时保留旧文件。"""
+        fpath = self._get_weights_file()
+        temp_path = ""
+        with self._write_lock:
+            if version < self._persisted_version:
+                logger.debug("跳过旧权重快照: version=%d, persisted=%d", version, self._persisted_version)
+                return
+            try:
+                os.makedirs(os.path.dirname(fpath), exist_ok=True)
+                with tempfile.NamedTemporaryFile(
+                    mode="w",
+                    encoding="utf-8",
+                    dir=os.path.dirname(fpath),
+                    prefix=".weights-",
+                    suffix=".tmp",
+                    delete=False,
+                ) as file:
+                    temp_path = file.name
+                    json.dump(data, file, ensure_ascii=False, indent=2)
+                    file.flush()
+                    os.fsync(file.fileno())
+                os.replace(temp_path, fpath)
+                temp_path = ""
+                self._persisted_version = version
+                self._last_save_monotonic = time.monotonic()
+                with self._lock:
+                    if self._state_version == version:
+                        self._dirty_updates = 0
+            except Exception as e:
+                logger.warning("保存权重失败: %s", e)
+            finally:
+                if temp_path:
+                    try:
+                        os.remove(temp_path)
+                    except OSError:
+                        logger.warning("清理权重临时文件失败: %s", temp_path)
 
-        Args:
-            data: 要写入的权重数据字典
-            bvid: 视频 BV 号（可选，用于多视频隔离）
-        """
-        try:
-            if bvid:
-                fpath = os.path.join(self.save_dir, f"{bvid}_weights.json")
-            else:
-                fpath = os.path.join(self.save_dir, "default_weights.json")
-            os.makedirs(os.path.dirname(fpath), exist_ok=True)
-            with open(fpath, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            logger.warning("保存权重失败: %s", e)
+    def _maybe_save(self):
+        """达到时间或更新数阈值时同步落盘，否则仅保留 dirty 状态。"""
+        with self._lock:
+            due = self._dirty_updates >= self._save_update_threshold or (
+                self._dirty_updates > 0 and time.monotonic() - self._last_save_monotonic >= self._save_interval_seconds
+            )
+        if due:
+            self._save_weights_sync()
 
     def set_user_weight(self, algorithm_name: str, weight: float):
         """设置用户自定义权重（覆盖 ML 权重，限制范围 [0.01, 10.0]）。
@@ -148,6 +186,8 @@ class WeightManager:
         """
         with self._lock:
             self.user_weights[algorithm_name] = max(0.01, min(10.0, weight))
+            self._state_version += 1
+            self._dirty_updates += 1
         self._save_weights_sync()
 
     def clear_user_weight(self, algorithm_name: str):
@@ -159,6 +199,8 @@ class WeightManager:
         with self._lock:
             if algorithm_name in self.user_weights:
                 del self.user_weights[algorithm_name]
+                self._state_version += 1
+                self._dirty_updates += 1
         self._save_weights_sync()
 
     def is_user_weight(self, algorithm_name: str) -> bool:
@@ -176,7 +218,7 @@ class WeightManager:
         """更新算法准确率记录（线程安全）。
 
         准确率列表最多保留最近 100 条。
-        更新后立即触发 ML 权重重算和异步写盘。
+        更新后立即触发 ML 权重重算，写盘按时间或更新数节流。
 
         Args:
             algorithm_name: 算法名称
@@ -189,10 +231,12 @@ class WeightManager:
             # 限制记录长度，防止无限增长（最多 100 条）
             if len(self.accuracy_records[algorithm_name]) > 100:
                 self.accuracy_records[algorithm_name] = self.accuracy_records[algorithm_name][-100:]
+            self._state_version += 1
+            self._dirty_updates += 1
 
         # 锁外执行：ML 重算 + 写盘，避免长时间持锁阻塞其他算法
         self._recalculate_ml_weights()
-        self._save_weights_sync()
+        self._maybe_save()
 
     def update_accuracy_batch(self, records):
         """批量更新多个算法的准确率记录：整批仅重算一次、仅落盘一次。
@@ -212,9 +256,11 @@ class WeightManager:
                 bucket.append(accuracy)
                 if len(bucket) > 100:
                     self.accuracy_records[algorithm_name] = bucket[-100:]
-        # 锁外：整批只重算一次 + 只落盘一次
+            self._state_version += 1
+            self._dirty_updates += len(pairs)
+        # 锁外：整批只重算一次，写盘按时间或更新数节流
         self._recalculate_ml_weights()
-        self._save_weights_sync()
+        self._maybe_save()
 
     def _recalculate_ml_weights(self):
         """重新计算机器学习权重。
@@ -225,40 +271,37 @@ class WeightManager:
             3. softmax 归一化，使权重总和 ≈ 算法个数
             4. 写入 self.ml_weights
         """
-        with self._lock:
-            records_snapshot = {k: list(v) for k, v in self.accuracy_records.items()}
+        with self._recalculate_lock:
+            with self._lock:
+                records_snapshot = {k: list(v) for k, v in self.accuracy_records.items()}
 
-        new_weights = {}
-        for algo_name, records in records_snapshot.items():
-            if not records:
-                new_weights[algo_name] = 1.0  # 无记录时默认权重
-                continue
+            new_weights = {}
+            for algo_name, records in records_snapshot.items():
+                if not records:
+                    new_weights[algo_name] = 1.0
+                    continue
+                weights = []
+                weight_sum = 0.0
+                for i, acc in enumerate(records):
+                    weight = (i + 1) / len(records) * 0.5 + 0.5
+                    weights.append(weight * acc)
+                    weight_sum += weight
+                avg_accuracy = sum(weights) / weight_sum if weight_sum > 0 else 0.5
+                new_weights[algo_name] = 0.5 + avg_accuracy * 1.5
 
-            # 时间加权：越晚的记录权重越大（递增加权 [0.5, 1.0]）
-            weights = []
-            weight_sum = 0.0
-            for i, acc in enumerate(records):
-                w = (i + 1) / len(records) * 0.5 + 0.5  # 权重范围 [0.5+0.5/n, 1.0]
-                weights.append(w * acc)
-                weight_sum += w
+            algo_names = list(new_weights.keys())
+            if algo_names:
+                weight_list = [new_weights[name] for name in algo_names]
+                max_weight = max(weight_list)
+                softmax_sum = sum(math.exp(weight - max_weight) for weight in weight_list)
+                if softmax_sum > 0:
+                    for name, weight in zip(algo_names, weight_list):
+                        normalized = math.exp(weight - max_weight) / softmax_sum * len(algo_names)
+                        new_weights[name] = max(0.01, min(10.0, normalized))
 
-            avg_accuracy = sum(weights) / weight_sum if weight_sum > 0 else 0.5
-            # 将 [0, 1] 准确率映射到 [0.5, 2.0] 的原始权重范围
-            new_weights[algo_name] = 0.5 + avg_accuracy * 1.5
-
-        # softmax 归一化，避免个别算法权重过高导致其他算法被忽略
-        algo_names = list(new_weights.keys())
-        if algo_names:
-            wlist = [new_weights[an] for an in algo_names]
-            max_w = max(wlist)  # softmax trick：减去最大值防止溢出
-            softmax_sum = sum(math.exp(w - max_w) for w in wlist)
-            if softmax_sum > 0:
-                for an, w in zip(algo_names, wlist):
-                    nw = math.exp(w - max_w) / softmax_sum * len(algo_names)
-                    new_weights[an] = max(0.01, min(10.0, nw))  # 裁剪合理范围
-
-        with self._lock:
-            self.ml_weights = new_weights
+            with self._lock:
+                self.ml_weights = new_weights
+                self._state_version += 1
 
     def get_weight(self, algorithm_name: str, base_weight: float = 1.0) -> float:
         """获取算法的最终权重。
@@ -327,6 +370,8 @@ class WeightManager:
             self.user_weights = {}
             self.ml_weights = {}
             self.accuracy_records = {}
+            self._state_version += 1
+            self._dirty_updates += 1
         self._save_weights_sync()
 
     def sync_save(self):
@@ -334,17 +379,7 @@ class WeightManager:
 
         与 _save_weights_sync 类似，但调用方可以确定文件写入完成。
         """
-        try:
-            with self._lock:
-                data = {
-                    "user_weights": dict(self.user_weights),
-                    "ml_weights": dict(self.ml_weights),
-                    "accuracy_records": {k: list(v) for k, v in self.accuracy_records.items()},
-                    "updated_at": datetime.now().isoformat(),
-                }
-            self._write_weights_file(data)
-        except Exception as e:
-            logger.warning("同步保存权重失败: %s", e)
+        self._save_weights_sync()
 
 
 # 全局权重管理器实例（惰性初始化，双检锁）

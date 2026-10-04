@@ -24,6 +24,8 @@ import threading
 import logging
 import json
 import os
+import hashlib
+import tempfile
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -35,6 +37,7 @@ DEFAULT_MIN_WEIGHT = 0.05  # 最低权重（防止算法被彻底淘汰出局）
 DEFAULT_WARMUP = 5  # 至少需要 N 次反馈才开始调整（冷启动保护）
 DEFAULT_DECAY = 0.95  # EWMA 衰减系数（越大越重视历史，越平滑）
 MAX_TRACKERS = 5000  # 最大追踪器数量，超出时清理最久未更新的
+STATE_SCHEMA_VERSION = 2
 
 
 class _AlgorithmTracker:
@@ -113,6 +116,9 @@ class OnlineLearner:
         self.warmup = warmup
         self.decay = decay
         self._lock = threading.RLock()  # 可重入锁，支持嵌套调用
+        self._write_lock = threading.Lock()
+        self._state_version = 0
+        self._persisted_version = 0
 
         # 算法跟踪器字典：名称 → _AlgorithmTracker
         self._trackers: Dict[str, _AlgorithmTracker] = {}
@@ -135,6 +141,7 @@ class OnlineLearner:
         with self._lock:
             if name not in self._trackers:
                 self._trackers[name] = _AlgorithmTracker(name, initial_weight)
+                self._state_version += 1
 
     def unregister(self, name: str):
         """从在线学习中移除一个算法。
@@ -143,7 +150,8 @@ class OnlineLearner:
             name: 算法名称
         """
         with self._lock:
-            self._trackers.pop(name, None)
+            if self._trackers.pop(name, None) is not None:
+                self._state_version += 1
 
     def remove_by_prefix(self, prefix: str):
         """按前缀移除追踪器（删除视频时调用，清理该视频的所有算法追踪器）。
@@ -156,6 +164,7 @@ class OnlineLearner:
             for k in to_remove:
                 del self._trackers[k]
             if to_remove:
+                self._state_version += 1
                 logger.debug("[online_learner] 清理 %d 个追踪器 (prefix=%s)", len(to_remove), prefix)
 
     def cleanup_stale(self, max_age_seconds: float = 86400):
@@ -182,6 +191,7 @@ class OnlineLearner:
                 else:
                     break
             if removed:
+                self._state_version += 1
                 logger.debug("[online_learner] 清理 %d 个过期追踪器 (剩余 %d)", removed, len(self._trackers))
 
     def update(self, name: str, predicted: float, actual: float):
@@ -234,6 +244,7 @@ class OnlineLearner:
                 t.recent_sumsq -= old * old
 
             self._step += 1
+            self._state_version += 1
 
             # 每 5 步触发一次学习率自适应调整
             if self._step % 5 == 0:
@@ -360,9 +371,16 @@ class OnlineLearner:
             filepath: JSON 文件路径
         """
         with self._lock:
+            version = self._state_version
+            tracker_names = list(self._trackers)
             data: Dict[str, Any] = {
+                "schema_version": STATE_SCHEMA_VERSION,
+                "state_version": version,
+                "algorithm_fingerprint": self._algorithm_fingerprint(tracker_names),
                 "step": self._step,
                 "eta": self.eta,
+                "min_weight": self.min_weight,
+                "warmup": self.warmup,
                 "decay": self.decay,
                 "trackers": {},
             }
@@ -373,10 +391,48 @@ class OnlineLearner:
                     "error_count": t.error_count,
                     "last_error": t.last_error,
                     "last_update": t.last_update,
+                    "weight": t.weight,
+                    "recent_errors": list(t.recent_errors),
+                    "ftrl_g2": t._ftrl_g2,
+                    "ftrl_g": t._ftrl_g,
+                    "ftrl_z": t._ftrl_z,
                 }
-            os.makedirs(os.path.dirname(filepath) or ".", exist_ok=True)
-            with open(filepath, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
+        self._write_state_file(filepath, version, data)
+
+    @staticmethod
+    def _algorithm_fingerprint(names: List[str]) -> str:
+        """返回稳定的算法集合 SHA-256 指纹。"""
+        payload = "\0".join(sorted(names)).encode("utf-8")
+        return hashlib.sha256(payload).hexdigest()
+
+    def _write_state_file(self, filepath: str, version: int, data: Dict[str, Any]):
+        """串行原子替换状态文件，旧版本快照不得覆盖新版本。"""
+        directory = os.path.dirname(filepath) or "."
+        temp_path = ""
+        with self._write_lock:
+            if version < self._persisted_version:
+                logger.debug("跳过旧 OnlineLearner 快照: version=%d, persisted=%d", version, self._persisted_version)
+                return
+            try:
+                os.makedirs(directory, exist_ok=True)
+                with tempfile.NamedTemporaryFile(
+                    mode="w", encoding="utf-8", dir=directory, prefix=".online-learner-", suffix=".tmp", delete=False
+                ) as file:
+                    temp_path = file.name
+                    json.dump(data, file, ensure_ascii=False, indent=2)
+                    file.flush()
+                    os.fsync(file.fileno())
+                os.replace(temp_path, filepath)
+                temp_path = ""
+                self._persisted_version = version
+            except Exception as e:
+                logger.warning("OnlineLearner 保存失败: %s", e)
+            finally:
+                if temp_path:
+                    try:
+                        os.remove(temp_path)
+                    except OSError:
+                        logger.warning("清理 OnlineLearner 临时文件失败: %s", temp_path)
 
     def load(self, filepath: str):
         """从 JSON 文件恢复在线学习状态。
@@ -388,23 +444,55 @@ class OnlineLearner:
         """
         if not os.path.exists(filepath):
             return
-        with self._lock:
-            try:
-                with open(filepath, "r", encoding="utf-8") as f:
-                    data = json.load(f)
+        try:
+            with open(filepath, "r", encoding="utf-8") as file:
+                data = json.load(file)
+            schema_version = int(data.get("schema_version", 1))
+            if schema_version not in (1, STATE_SCHEMA_VERSION):
+                logger.warning("OnlineLearner schema_version 不兼容: %s", schema_version)
+                return
+            tracker_data = data.get("trackers", {})
+            if not isinstance(tracker_data, dict):
+                logger.warning("OnlineLearner trackers 格式无效，跳过恢复")
+                return
+            file_names = list(tracker_data)
+            expected_fingerprint = self._algorithm_fingerprint(file_names)
+            stored_fingerprint = data.get("algorithm_fingerprint")
+            if schema_version >= 2 and stored_fingerprint != expected_fingerprint:
+                logger.warning("OnlineLearner 算法集合指纹校验失败，跳过恢复")
+                return
+
+            with self._lock:
+                runtime_names = set(self._trackers)
+                restore_names = set(file_names)
+                if runtime_names and runtime_names != restore_names:
+                    restore_names &= runtime_names
+                    logger.warning("OnlineLearner 算法集合不匹配，仅恢复交集 %d 项", len(restore_names))
                 self._step = data.get("step", 0)
                 self.eta = data.get("eta", DEFAULT_ETA)
+                self.min_weight = data.get("min_weight", self.min_weight)
+                self.warmup = data.get("warmup", self.warmup)
                 self.decay = data.get("decay", DEFAULT_DECAY)
-                for name, td in data.get("trackers", {}).items():
-                    if name in self._trackers:
-                        t = self._trackers[name]
-                        t.cumulative_loss = td.get("cumulative_loss", 0)
-                        t.ewma_loss = td.get("ewma_loss", 0)
-                        t.error_count = td.get("error_count", 0)
-                        t.last_error = td.get("last_error")
-                        t.last_update = td.get("last_update", 0)
-            except Exception as e:
-                logger.warning("OnlineLearner 加载失败: %s", e)
+                for name in restore_names:
+                    td = tracker_data[name]
+                    tracker = self._trackers.setdefault(name, _AlgorithmTracker(name))
+                    tracker.cumulative_loss = td.get("cumulative_loss", 0.0)
+                    tracker.ewma_loss = td.get("ewma_loss", 0.0)
+                    tracker.error_count = td.get("error_count", 0)
+                    tracker.last_error = td.get("last_error")
+                    tracker.last_update = td.get("last_update", 0.0)
+                    tracker.weight = td.get("weight", 1.0)
+                    tracker.recent_errors = list(td.get("recent_errors", []))[-10:]
+                    tracker.recent_sum = sum(tracker.recent_errors)
+                    tracker.recent_sumsq = sum(error * error for error in tracker.recent_errors)
+                    tracker._ftrl_g2 = td.get("ftrl_g2", 0.0)
+                    tracker._ftrl_g = td.get("ftrl_g", 0.0)
+                    tracker._ftrl_z = td.get("ftrl_z", 0.0)
+                version = int(data.get("state_version", 0))
+                self._state_version = max(self._state_version, version)
+                self._persisted_version = max(self._persisted_version, version)
+        except Exception as e:
+            logger.warning("OnlineLearner 加载失败: %s", e)
 
     def reset(self):
         """重置所有学习状态到初始值（清空历史经验）。"""
@@ -418,6 +506,7 @@ class OnlineLearner:
                 t.recent_errors.clear()
                 t.recent_sum = 0.0
                 t.recent_sumsq = 0.0
+            self._state_version += 1
 
     # ── 自适应学习率 ──────────────────────────
 
@@ -489,6 +578,7 @@ class OnlineLearner:
             t.weight = max(self.min_weight, min(5.0, t.weight))  # 裁剪权重范围
             t.error_count += 1
             t.last_update = time.time()
+            self._state_version += 1
 
     def update_ftrl(
         self,
@@ -542,6 +632,7 @@ class OnlineLearner:
             t.weight = max(self.min_weight, min(5.0, t.weight))  # 裁剪
             t.error_count += 1
             t.last_update = time.time()
+            self._state_version += 1
 
     # ── 内部方法 ──────────────────────────────────
 
