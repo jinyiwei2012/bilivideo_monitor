@@ -23,6 +23,11 @@ class _ScoreOpsMixin:
     def _get_connection(self) -> _ConnectionCtx:
         raise NotImplementedError
 
+    def _enqueue_outbox(
+        self, cursor: sqlite3.Cursor, stream: str, entity_key: str, source_row_id: int | None, payload: dict[str, Any]
+    ) -> None:
+        raise NotImplementedError
+
     # ── 镜像同步（内部方法）──────────────────────────────
 
     def _mirror_add_weekly_score(self, timestamp: str, score_data: dict[str, Any]) -> None:
@@ -121,6 +126,8 @@ class _ScoreOpsMixin:
                         score_data.get("base_view_score", 0),
                     ),
                 )
+                source = cursor.execute("SELECT id FROM weekly_scores WHERE timestamp=?", (timestamp,)).fetchone()
+                self._enqueue_outbox(cursor, "weekly_scores", timestamp, source[0] if source else None, score_data)
                 conn.commit()
             self._mirror_add_weekly_score(timestamp, score_data)
             return True
@@ -181,6 +188,8 @@ class _ScoreOpsMixin:
                         score_data.get("correction_c", 0),
                     ),
                 )
+                source = cursor.execute("SELECT id FROM yearly_scores WHERE timestamp=?", (timestamp,)).fetchone()
+                self._enqueue_outbox(cursor, "yearly_scores", timestamp, source[0] if source else None, score_data)
                 conn.commit()
             self._mirror_add_yearly_score(timestamp, score_data)
             return True

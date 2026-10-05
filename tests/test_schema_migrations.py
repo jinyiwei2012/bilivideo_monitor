@@ -70,7 +70,7 @@ def test_central_v3_failure_rolls_back_version_and_schema(monkeypatch) -> None:
 
         monkeypatch.undo()
         migrate_central_schema(conn)
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 4
         assert conn.execute("SELECT * FROM sync_cursors").fetchall() == []
     finally:
         conn.close()

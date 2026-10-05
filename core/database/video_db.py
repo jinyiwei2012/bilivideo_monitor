@@ -5,6 +5,7 @@ import os
 import re
 import threading
 import logging
+import json
 from datetime import datetime
 from utils import project_path
 from utils.time_utils import now_ts
@@ -18,7 +19,7 @@ from .migrations import run_migrations
 
 logger = logging.getLogger(__name__)
 
-VIDEO_SCHEMA_VERSION = 5
+VIDEO_SCHEMA_VERSION = 6
 
 
 class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
@@ -86,6 +87,7 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
             import sqlite3 as _sqlite3
 
             self._mirror_conn = _sqlite3.connect(self._mirror_path, check_same_thread=False)
+            self._mirror_conn.row_factory = sqlite3.Row
             self._mirror_conn.execute("PRAGMA journal_mode=WAL")
             self._mirror_conn.execute("PRAGMA synchronous=NORMAL")
             self._init_mirror_tables()
@@ -327,6 +329,7 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
                 3: self._migrate_danmaku_v3,
                 4: self._migrate_scores_unique,
                 5: self._migrate_precision_columns,
+                6: self._migrate_projection_outbox,
             },
             validate=self._validate_video_schema,
         )
@@ -334,7 +337,18 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
     def _validate_video_schema(self, conn: sqlite3.Connection) -> None:
         """Check lightweight structural invariants after migration."""
         tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        required = {"video_info", "monitor_records", "predictions", "weekly_scores", "yearly_scores", "danmaku_records"}
+        required = {
+            "video_info",
+            "monitor_records",
+            "predictions",
+            "weekly_scores",
+            "yearly_scores",
+            "danmaku_records",
+            "prediction_ensemble",
+            "algorithm_coherence",
+            "video_milestones",
+            "projection_outbox",
+        }
         if not required <= tables:
             raise RuntimeError("video schema lacks required tables")
         columns = {row[1] for row in conn.execute("PRAGMA table_info(monitor_records)")}
@@ -344,6 +358,86 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
             indexes = {row[1] for row in conn.execute(f"PRAGMA index_list({table})")}
             if index not in indexes:
                 raise RuntimeError(f"video schema lacks {index}")
+
+    @staticmethod
+    def _migrate_projection_outbox(conn: sqlite3.Connection) -> None:
+        """v5→v6: add per-video projection authority tables and durable outbox."""
+        statements = (
+            """
+            CREATE TABLE IF NOT EXISTS prediction_ensemble (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bvid TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
+                prediction INTEGER DEFAULT 0,
+                confidence REAL DEFAULT 0,
+                valid_algos INTEGER DEFAULT 0,
+                total_algos INTEGER DEFAULT 0,
+                interval_lower INTEGER,
+                interval_upper INTEGER,
+                interval_width_ratio REAL,
+                surge_correction_applied BOOLEAN DEFAULT 0,
+                surge_magnitude REAL,
+                surge_type TEXT
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS algorithm_coherence (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bvid TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
+                algorithm TEXT,
+                coherence REAL DEFAULT 0
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS video_milestones (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                period TEXT NOT NULL UNIQUE,
+                view_count INTEGER NOT NULL,
+                like_count INTEGER,
+                coin_count INTEGER,
+                share_count INTEGER,
+                favorite_count INTEGER,
+                danmaku_count INTEGER,
+                reply_count INTEGER,
+                note TEXT,
+                recorded_at TEXT NOT NULL
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS projection_outbox (
+                event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                stream TEXT NOT NULL,
+                entity_key TEXT NOT NULL,
+                operation TEXT NOT NULL,
+                source_row_id INTEGER,
+                payload TEXT,
+                created_at TEXT NOT NULL,
+                delivered_at TEXT,
+                attempt_count INTEGER NOT NULL DEFAULT 0,
+                last_error TEXT
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_outbox_stream_entity ON projection_outbox(stream, entity_key)",
+        )
+        for statement in statements:
+            conn.execute(statement)
+
+    @staticmethod
+    def _enqueue_outbox(
+        cursor: sqlite3.Cursor,
+        stream: str,
+        entity_key: str,
+        source_row_id: int | None,
+        payload: dict[str, Any],
+    ) -> None:
+        """Append a projection event in the caller's active business transaction."""
+        cursor.execute(
+            """INSERT INTO projection_outbox
+            (stream, entity_key, operation, source_row_id, payload, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)""",
+            (stream, entity_key, "upsert", source_row_id, json.dumps(payload, ensure_ascii=False), now_ts()),
+        )
 
     def _migrate_scores_unique(self, conn: sqlite3.Connection) -> None:
         """v3→v4 迁移：分数表按 timestamp 去重并建唯一索引。
@@ -617,7 +711,15 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
         )
         try:
             with self._get_connection() as conn:
-                conn.cursor().execute(sql, params)
+                cursor = conn.cursor()
+                cursor.execute(sql, params)
+                self._enqueue_outbox(
+                    cursor,
+                    "monitor_records",
+                    record.timestamp,
+                    cursor.lastrowid,
+                    {"timestamp": record.timestamp, "view_count": record.view_count},
+                )
                 conn.commit()
             self._exec_mirror(sql, params)
             return True
@@ -783,7 +885,19 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
         sql, params = self._prediction_sql(row)
         try:
             with self._get_connection() as conn:
-                conn.cursor().execute(sql, params)
+                cursor = conn.cursor()
+                cursor.execute(sql, params)
+                source = cursor.execute(
+                    "SELECT id FROM predictions WHERE algorithm=? AND target_threshold=?",
+                    (prediction.algorithm, prediction.target_threshold),
+                ).fetchone()
+                self._enqueue_outbox(
+                    cursor,
+                    "predictions",
+                    f"{prediction.algorithm}:{prediction.target_threshold}",
+                    source[0] if source else None,
+                    row,
+                )
                 conn.commit()
             self._exec_mirror(sql, params)
             # 中央库兜底同步
@@ -869,6 +983,18 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
                 """,
                     [_prediction_params(r) for r in rows],
                 )
+                for row in rows:
+                    source = cursor.execute(
+                        "SELECT id FROM predictions WHERE algorithm=? AND target_threshold=?",
+                        (row.get("algorithm"), row.get("target_threshold")),
+                    ).fetchone()
+                    self._enqueue_outbox(
+                        cursor,
+                        "predictions",
+                        f"{row.get('algorithm', '')}:{row.get('target_threshold', 0)}",
+                        source[0] if source else None,
+                        row,
+                    )
                 conn.commit()
             # 镜像批量同步（单事务批量写入，避免逐行 commit）
             if self._mirror_conn:

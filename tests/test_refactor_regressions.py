@@ -1537,7 +1537,7 @@ class TestScoresUniqueTimestamp:
             names = {r[0] for r in db._conn.execute("SELECT name FROM sqlite_master WHERE type='index'")}
             assert "idx_weekly_ts" in names, "应创建唯一索引"
             assert "idx_weekly_timestamp" not in names, "旧普通索引应被删除"
-            assert db._conn.execute("PRAGMA user_version").fetchone()[0] == 5
+            assert db._conn.execute("PRAGMA user_version").fetchone()[0] == 6
         finally:
             db.close()
 

@@ -4,7 +4,7 @@ import sqlite3
 
 from .migrations import run_migrations
 
-CENTRAL_SCHEMA_VERSION = 3
+CENTRAL_SCHEMA_VERSION = 4
 
 CENTRAL_V1_STATEMENTS = (
     """CREATE TABLE IF NOT EXISTS videos (
@@ -130,6 +130,19 @@ def _migrate_central_v3(conn: sqlite3.Connection) -> None:
         last_error TEXT, PRIMARY KEY (scope, stream, partition_key))""")
 
 
+def _migrate_central_v4(conn: sqlite3.Connection) -> None:
+    """v3→v4: add source row keys and future projection idempotency indexes."""
+    for table in ("monitor_records", "prediction_ensemble", "algorithm_coherence"):
+        _add_missing_columns(conn, table, (("source_row_id", "INTEGER"),))
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_monitor_source_row ON monitor_records(bvid, source_row_id)")
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_ensemble_source_row ON prediction_ensemble(bvid, source_row_id)"
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_coherence_source_row ON algorithm_coherence(bvid, source_row_id)"
+    )
+
+
 def validate_central_schema(conn: sqlite3.Connection) -> None:
     required_tables = {
         "videos",
@@ -152,6 +165,14 @@ def validate_central_schema(conn: sqlite3.Connection) -> None:
     indexes = {row[1] for row in conn.execute("PRAGMA index_list(monitor_records)")}
     if "idx_monitor_bvid_ts" not in indexes:
         raise RuntimeError("central monitor_records lacks timestamp index")
+    for table, index in (
+        ("monitor_records", "idx_monitor_source_row"),
+        ("prediction_ensemble", "idx_ensemble_source_row"),
+        ("algorithm_coherence", "idx_coherence_source_row"),
+    ):
+        indexes = {row[1] for row in conn.execute(f"PRAGMA index_list({table})")}
+        if index not in indexes:
+            raise RuntimeError(f"central schema lacks {index}")
 
 
 def migrate_central_schema(conn: sqlite3.Connection) -> None:
@@ -160,6 +181,6 @@ def migrate_central_schema(conn: sqlite3.Connection) -> None:
         conn,
         schema_name="central",
         latest_version=CENTRAL_SCHEMA_VERSION,
-        steps={1: _migrate_central_v1, 2: _migrate_central_v2, 3: _migrate_central_v3},
+        steps={1: _migrate_central_v1, 2: _migrate_central_v2, 3: _migrate_central_v3, 4: _migrate_central_v4},
         validate=validate_central_schema,
     )
