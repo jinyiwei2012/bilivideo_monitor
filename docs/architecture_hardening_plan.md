@@ -73,7 +73,7 @@
 
 ## 五、第一批动工包（2–4 周；先测试、后实现；逐包可回退）
 
-**状态（2026-10-04 更新）**：包 1 已交付（`80ab97f` / `24cecd8` / `d84233a`）；包 2 已交付（`743fafa`，524 passed）；包 3 已提交（`3dc6f1e`）；包 4–5 经合流门禁与独立风险复核后提交为 `70a2690`（退出路径与工厂迁移存在共享文件）。B6-a 已完成实现、边界特征测试与全量门禁，待随本批次合流。全量 **549 passed**，算法注册数 **137**，完整性保护文件未修改。以下工程要点保留作为验收依据。
+**状态（2026-10-05 更新）**：包 1 已交付（`80ab97f` / `24cecd8` / `d84233a`）；包 2 已交付（`743fafa`，524 passed）；包 3 已提交（`3dc6f1e`）；包 4–5 经合流门禁与独立风险复核后提交为 `70a2690`（退出路径与工厂迁移存在共享文件）。**第二批已完成**：B6-a（`842f858`）、B3 骨架与三面板迁移（`ca798d0` / `b1ca3a4` / `d4ac2b7` / `1612732`）、B1 五包（`84bf354` / `f8bdd29` / `955e891` / `349244a` / `2716264`），另含两轮质量门禁收口（`56f6016` / `4a5feb5`）。全量 **583 passed**，算法注册数 **137**，完整性保护文件未修改。以下工程要点保留作为验收依据。
 
 #### 包 3–5 本轮交付与验证记录
 
@@ -164,14 +164,21 @@
     - VideoListPanel 已完成首个机械迁移：构造时接收 `AppState` / `AppActions`，不再持有主窗引用；`selection_changed` 仅同步列表高亮且阻断列表信号回流，用户选择和“全部推送”经 actions 委派。卡片的增量 `make_card` / `update_card` / `remove_card` 调用仍由主窗既有流程维护，避免每次状态更新重建列表。
     - DetailPanel 已完成同一机械迁移：选择、视频/历史/预测快照、DB 成员兼容性检查和陈旧回调守卫改从 `AppState` 读取；复制 BV 号与微调状态经 `AppActions` 委派，微调工作线程保持通过 `invoke()` 回到主线程。分数/弹幕后台读取仍明确接收独立 lifecycle owner，仅用于 `use_video_db` 租约和 `start_registered_task`，绝不把 DB 资源放入 AppState。
     - PredictionPanel 已完成最后一个核心面板迁移：算法信息刷新从 `AppState` 取选中 BVID、历史和预测冻结快照，并经 `AppActions.get_video()` 保留既有视频查询路径。保留既有 `show_video_detail` / `prediction_done` 的命令式刷新，刻意不订阅 `selection_changed`，避免一次选择双重渲染；英雄卡、信息区和缓存指纹均未重建或改变。三个核心面板不再直持主窗；其余 `self.gui.` 出现在非核心面板，仍属 B3 后续范围。
-   - VideoListPanel 验证：新增 5 项真实 offscreen QWidget 边界测试，覆盖单次选择、push 布尔参数隔离、状态高亮无重入、搜索与增量卡片操作及冻结快照适配。全量 560 passed（4 个既有第三方警告），Black / lint_gate / type_gate / Bandit 全部通过，算法注册数保持 137；未改布局与样式。
-   - 迁移顺序：VideoListPanel → DetailPanel → PredictionPanel；逐面板可回退，顺手清 `self.gui.` 直摸（现状 117 处）与私有字段访问（如 `_cached_up_info`）。
-   - 验收：三个核心面板不再直持主窗；面板相关回归 + 全量门禁通过。
-2. **B1 TaskSupervisor**：I/O / 预测 / 持久化任务收拢为统一 supervisor；per-bvid single-flight（同视频仅一个在途预测）+ latest-wins；统一取消与异常收集。可分两步：先统一登记与 single-flight，再拆分类 executor。
-   - 验收：手动 + 定时 + warmup 并发触发的「预测风暴」不重复排队；退出收敛口径与包 4 一致。
+   - VideoListPanel 验证：新增 5 项真实 offscreen QWidget 边界测试，覆盖单次选择、push 布尔参数隔离、状态高亮无重入、搜索与增量卡片操作及冻结快照适配。
+   - **B3 已交付**（`ca798d0` 骨架 / `b1ca3a4` VideoList / `d4ac2b7` Detail / `1612732` Prediction）：新增 `tests/test_app_state_skeleton.py`、`tests/test_video_list_state_boundary.py`、`tests/test_detail_state_boundary.py`、`tests/test_prediction_state_boundary.py`；三核心面板不再直持主窗，全量门禁通过，算法注册数保持 137。DetailPanel 保留独立 lifecycle owner 供 `use_video_db` / `start_registered_task`，DB 资源不入 AppState；PredictionPanel 刻意不订阅 `selection_changed` 以避免双重渲染。
+   - 迁移顺序：VideoListPanel → DetailPanel → PredictionPanel；逐面板可回退。**尾部未清**：非核心面板仍直持主窗（`self.gui.` 约 89 处，最密为 `dialogs.py` 30 处），归后续范围。
+   - 验收：三个核心面板不直持主窗（已达成）；面板相关回归 + 全量门禁通过。
+2. **B1 TaskSupervisor（五包已交付）**：`ui/monitor/_supervisor.py` 统一预测与 fetch 任务秩序，`MonitorRuntime` 管物理生命周期。per-bvid single-flight 分两式：预测为 latest-wins（在途不可取消，pending 覆盖写入 `video.copy()` 快照，完成后至多再跑一次），fetch 为 active 合并（重复请求共享当前 completion，不补跑）。架构顾问裁决的施工序与落点如下——
+   - **B1.1（`84bf354`）**：修正 `MonitorRuntime.start_thread` 准入竞态（已 RUNNING 原子准入的任务必执行，STOPPING 只拒后续并 drain）；新建 dormant `TaskSupervisor` 内核（lane/pending/token/retire/shutdown）；`tests/test_task_supervisor.py`（7 项 Event/Barrier 并发测试）。
+   - **B1.2（`f8bdd29`）**：三处预测入口（`_notify_predictor` / `auto_predict_all` / `run_post_training_predict`）原子收拢经 `submit_prediction`；移除训练后预测的 ad-hoc `ThreadPoolExecutor`；`tests/test_prediction_entry_single_flight.py`。
+   - **B1.3（`955e891`）**：删除 `VideoPredictor` 第三套线程所有权（`VideoPredictor` / `_predictors` / `_ensure_predictor` / `_stop_all_predictors` / `_stop_predictor`）；`_predict_single` token 化（结果/反馈/持久化调度前校验 token）；新增 token 守卫的 `_schedule_prediction_ui`；删除/重加经 `retire_bvid` 永久失效隔离；`tests/test_prediction_freshness.py`。
+   - **B1.4（`349244a`）**：删除架空的 `_adhoc_threads` / `_track_thread` / `_untrack_thread` / `_start_tracked_thread`；`_stop_all_workers` 收敛，shutdown 时序不变。
+   - **B1.5（`2716264`）**：`TaskSupervisor.coalesce_fetch` per-bvid fetch 合并；手动单个/全部/周期批量统一经它，保留跨 bvid 有界并发与 `get_safe_workers()` 上限；异常释放 lane；`tests/test_fetch_single_flight.py`。
+   - 验收：手动 + 定时 + warmup 并发触发的「预测风暴」不重复排队（已达成）；退出收敛口径与包 4 一致（已达成）。
+   - **细粒度边界（如实标注）**：prediction save 未引入严格 FIFO（`use_video_db` 租约已足，如需顺序须独立 persistence 包）；手动单个 fetch 若 worker 真抛异常，其 Future 无人取结果（生产中 `_fetch_one_video` 内部已吞异常，低危过渡）。
 3. **B6-a 断环（小件，已完成）**：`core/threshold_escalation.py:123,255` 的反向 `ui.helpers` 依赖已移入 `config.thresholds`；`ui.helpers` 显式再导出原有阈值对象与重载入口，core 对 ui 零依赖。
    - 验收：`core/` 内 import `ui` 零命中（grep）；相关测试通过。
-4. **C3 性能预算（先观测）**：采集启动→首帧 / 列表可用 / 首次数据 / 首次预测 / 单视频 P50·P95 / 队列长度 / RSS；依数据再决策重算法降频扩展、批量取权重、首屏轻量算法、模型延迟加载。
+4. **C3 性能预算（先观测；尚未动工）**：采集启动→首帧 / 列表可用 / 首次数据 / 首次预测 / 单视频 P50·P95 / 队列长度 / RSS；依数据再决策重算法降频扩展、批量取权重、首屏轻量算法、模型延迟加载。
    - 验收：可复现的基线数字 + 实测结论（写回本文档）。
 
 ### 第三批：数据访问与迁移底座
