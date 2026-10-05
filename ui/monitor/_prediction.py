@@ -73,6 +73,10 @@ def _commit_prediction_result(gui: Any, bvid: str, result: dict, seq: int) -> bo
 
 def _sync_predictions_to_central(bvid, rows, ensemble_data, coherence_rows):
     """将预测数据同步到中央库（预测 + 集成 + 共识度）"""
+    from config.runtime_mode import legacy_central_writes_enabled
+
+    if not legacy_central_writes_enabled():
+        return
     try:
         db.sync_predictions(bvid, rows)
         if ensemble_data:

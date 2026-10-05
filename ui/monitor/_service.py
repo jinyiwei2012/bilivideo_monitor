@@ -197,6 +197,10 @@ def _save_monitor_record(gui, bvid, video, timing: ObservationTiming | datetime)
 
 
 def _sync_monitor_record(gui, bvid, video, timing: ObservationTiming | datetime):
+    from config.runtime_mode import legacy_central_writes_enabled
+
+    if not legacy_central_writes_enabled():
+        return
     timing = _coerce_observation_timing(timing)
     try:
         db.sync_monitor_record(
@@ -337,6 +341,7 @@ def _fetch_one_video(gui, bvid, video):
     _sync_monitor_record(gui, bvid, video, timing)
 
     # 同步视频信息到中央库
+    use_video_db(gui, bvid, lambda video_db: video_db.save_video_info(video.copy()))
     _sync_video_info(gui, bvid, video)
 
     # 后台拉取弹幕（登记线程,退出时统一 join）

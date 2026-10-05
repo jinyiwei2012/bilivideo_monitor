@@ -633,11 +633,14 @@ class EntryTab(QWidget):
         mode = row["mode"]
         bvid = row["bvid"]
 
+        from config.runtime_mode import legacy_central_writes_enabled
+
         if mode == "milestone":
             video_db = self._video_dbs.get(bvid)
-            if video_db is not None:
-                video_db.upsert_milestone(row["key"], data)
-            ok = get_db().upsert_milestone(bvid, row["key"], data)
+            ok = video_db is not None and video_db.upsert_milestone(row["key"], data)
+            if ok and legacy_central_writes_enabled():
+                if not get_db().upsert_milestone(bvid, row["key"], data):
+                    logger.warning("权威已保存、中央同步失败 [%s]", bvid)
         else:
             ok = self._save_snapshot_record(bvid, row["key"], data)
 
@@ -666,9 +669,14 @@ class EntryTab(QWidget):
                 danmaku_count=data.get("danmaku_count", 0),
                 reply_count=data.get("reply_count", 0),
             )
-            video_db.add_monitor_record(record)
+            if not video_db.add_monitor_record(record):
+                return False
+            from config.runtime_mode import legacy_central_writes_enabled
+
+            if not legacy_central_writes_enabled():
+                return True
             try:
-                get_db().sync_monitor_record(
+                synced = get_db().sync_monitor_record(
                     bvid,
                     {
                         "timestamp": ts_str_full,
@@ -681,8 +689,10 @@ class EntryTab(QWidget):
                         "reply_count": data.get("reply_count", 0),
                     },
                 )
+                if not synced:
+                    logger.warning("权威已保存、中央同步失败 [%s]", bvid)
             except Exception as e:
-                logger.debug("entry_tab 同步中央库失败 %s: %s", bvid, e)
+                logger.warning("权威已保存、中央同步失败 [%s]: %s", bvid, e)
             return True
         except Exception as e:
             logger.warning("快照写入失败 [%s]: %s", bvid, e)

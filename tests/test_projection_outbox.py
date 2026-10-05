@@ -20,6 +20,7 @@ def test_projection_cycle_reuses_projector_and_acquires_video_leases(monkeypatch
     video_db = object()
     gui = SimpleNamespace()
     monkeypatch.setattr(main_gui_tick, "load_config", lambda: {"projection": {"mode": "shadow", "batch_size": 7}})
+    monkeypatch.setattr(main_gui_tick, "projector_enabled", lambda: True)
     monkeypatch.setattr(main_gui_tick, "video_db_ids", lambda _gui: ["BV1xx411c7mD"])
 
     def lease(_gui, bvid, operation):
@@ -258,7 +259,7 @@ def test_monitor_write_and_outbox_are_atomic(tmp_path, monkeypatch) -> None:
 
 
 def test_outbox_content_and_legacy_central_sync_coexist(tmp_path) -> None:
-    database = VideoDatabase("BV1xx411c7mD", str(tmp_path / "videos"))
+    database = VideoDatabase("BV1xx411c7mD", str(tmp_path / "videos"), legacy_central_sync=True)
     central = Database(str(tmp_path / "central.db"))
     try:
         assert database.add_monitor_record(_record())

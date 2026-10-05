@@ -7,6 +7,7 @@ import threading
 import logging
 import json
 from dataclasses import asdict
+from config.runtime_mode import legacy_central_writes_enabled
 from datetime import datetime
 from utils import project_path
 from utils.time_utils import now_ts
@@ -29,7 +30,7 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
     同时维护一个镜像连接同步写入 data/ 目录。
     """
 
-    def __init__(self, bvid: str, base_dir: str | None = None) -> None:
+    def __init__(self, bvid: str, base_dir: str | None = None, *, legacy_central_sync: bool | None = None) -> None:
         """初始化视频独立数据库
 
         Args:
@@ -37,6 +38,9 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
             base_dir: 数据库存放目录，默认为 core/data/
         """
         _validate_bvid(bvid)
+        self._legacy_central_sync = (
+            legacy_central_writes_enabled() if legacy_central_sync is None else legacy_central_sync
+        )
         self.bvid = bvid
         if base_dir is None:
             base_dir = project_path("core", "data")
@@ -1010,7 +1014,7 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
                 conn.commit()
             self._exec_mirror(sql, params)
             # 中央库兜底同步
-            if self._central_db:
+            if self._central_db and self._legacy_central_sync:
                 try:
                     self._central_db.sync_predictions(self.bvid, [row])
                 except Exception as e:
@@ -1121,7 +1125,7 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
                 except Exception as e:
                     logger.debug("镜像批量同步预测记录失败 %s: %s", self.bvid, e)
             # 中央库兜底同步
-            if self._central_db:
+            if self._central_db and self._legacy_central_sync:
                 try:
                     self._central_db.sync_predictions(self.bvid, rows)
                 except Exception as e:

@@ -602,11 +602,16 @@ class MilestoneStatsWindow(DialogBase):
                 skipped += 1
                 continue
             gui = self.parent()
+            ok = False
             if gui is not None and hasattr(gui, "video_dbs"):
                 from ui.monitor._lifecycle import use_video_db
 
-                use_video_db(gui, row.bvid, lambda video_db: video_db.upsert_milestone(row.period, data))
-            ok = get_db().upsert_milestone(row.bvid, row.period, data)
+                ok = bool(use_video_db(gui, row.bvid, lambda video_db: video_db.upsert_milestone(row.period, data)))
+            from config.runtime_mode import legacy_central_writes_enabled
+
+            if ok and legacy_central_writes_enabled():
+                if not get_db().upsert_milestone(row.bvid, row.period, data):
+                    QMessageBox.warning(self, "中央同步失败", f"{row.bvid} 权威已保存、中央同步失败")
             if ok:
                 saved += 1
             else:

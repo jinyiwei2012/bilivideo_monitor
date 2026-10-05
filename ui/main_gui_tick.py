@@ -15,6 +15,7 @@ from PyQt6.QtCore import QTimer
 from ui.invoker import invoke
 from ui.theme import C
 from config import load_config
+from config.runtime_mode import projector_enabled
 from utils.ntp_time import get_status, refresh_config, sync_now
 from utils.time_utils import format_ts
 from ui.monitor._lifecycle import start_registered_task, use_all_video_dbs, use_video_db, video_db_ids
@@ -68,7 +69,7 @@ def _projection_interval_ms() -> int:
 def _run_projection_cycle(gui: Any) -> None:
     """Deliver pending per-video outbox events when projection mode is enabled."""
     projection = load_config().get("projection", {})
-    if not isinstance(projection, dict) or projection.get("mode", "legacy") == "legacy":
+    if not projector_enabled():
         return
     from core import get_db
     from core.database.projector import CentralProjector
@@ -379,11 +380,6 @@ def do_periodic_sync(gui):
             from core import get_db
 
             db = get_db()
-            for bvid in video_db_ids(gui):
-                try:
-                    db.sync_from_video_db(bvid)
-                except Exception as e:
-                    logger.debug("同步视频库 %s 失败: %s", bvid, e)
             result = db.sync_to_central()
             logger.info(
                 "每小时同步完成: %d视频 %d记录 %d瑕疵",

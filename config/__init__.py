@@ -45,7 +45,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "save_history": True,
         "history_days": 30,
     },
-    "projection": {"mode": "legacy", "interval_seconds": 5, "batch_size": 100, "shadow_audit": True},
+    "projection": {"mode": "projector", "interval_seconds": 5, "batch_size": 100, "shadow_audit": True},
     "precision_watch": {
         "enabled": True,
         "near_remaining": 10000,
