@@ -133,9 +133,6 @@ class Database:
     def delete_video(self, bvid: str) -> bool:
         return self._crud.delete_video(bvid)
 
-    def sync_from_video_db(self, bvid: str) -> bool:
-        return self._crud.sync_from_video_db(bvid)
-
     def sync_video_info(self, bvid: str, video: dict) -> bool:
         return self._crud.sync_video_info(bvid, video)
 
@@ -185,9 +182,6 @@ class Database:
     def delete_monitor_records_before(self, cutoff: str) -> int:
         """按时间清理中央库旧监控记录（委托 CRUD）。"""
         return self._crud.delete_monitor_records_before(cutoff)
-
-    def sync_all_video_dbs(self) -> Dict[str, bool]:
-        return self._crud.sync_all_video_dbs()
 
     def add_monitor_record(self, record: MonitorRecord) -> bool:
         return self._crud.add_monitor_record(record)

@@ -387,50 +387,6 @@ class CentralCRUD:
                 except Exception:
                     pass
 
-    def sync_from_video_db(self, bvid: str) -> bool:
-        """从单个视频独立库同步视频信息到总数据库（仅同步元数据，不包含监控记录）"""
-        try:
-            with self.db._get_connection() as conn:
-                cursor = conn.cursor()
-                video_info = self._read_video_info_light(bvid, self.db.data_dir)
-                if not video_info:
-                    return True
-                cursor.execute(
-                    """INSERT OR REPLACE INTO videos
-                    (bvid, title, view_count, like_count, coin_count, share_count,
-                     favorite_count, danmaku_count, reply_count, viewers_app,
-                     viewers_web, viewers_total, cover_path, like_view_ratio,
-                     owner_name, owner_id, pubdate, duration, pic, updated_at)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                    (
-                        bvid,
-                        video_info.get("title", ""),
-                        video_info.get("view_count", 0),
-                        video_info.get("like_count", 0),
-                        video_info.get("coin_count", 0),
-                        video_info.get("share_count", 0),
-                        video_info.get("favorite_count", 0),
-                        video_info.get("danmaku_count", 0),
-                        video_info.get("reply_count", 0),
-                        video_info.get("viewers_app", 0),
-                        video_info.get("viewers_web", 0),
-                        video_info.get("viewers_total", 0),
-                        video_info.get("cover_path", ""),
-                        video_info.get("like_view_ratio", 0),
-                        video_info.get("owner_name", ""),
-                        video_info.get("owner_id", 0),
-                        video_info.get("pubdate", ""),
-                        video_info.get("duration", 0),
-                        video_info.get("pic", ""),
-                        datetime.now(),
-                    ),
-                )
-                conn.commit()
-            return True
-        except Exception as e:
-            logger.warning("同步数据失败 %s: %s", bvid, e, exc_info=True)
-            return False
-
     def sync_video_info(self, bvid: str, video: dict) -> bool:
         """从内存字典直接同步视频信息到总数据库，避免重复读盘"""
         try:
@@ -522,18 +478,6 @@ class CentralCRUD:
             logger.warning("同步监控记录失败 %s: %s", bvid, e, exc_info=True)
             self._sync_error_cursor("monitor_records", bvid, e)
             return False
-
-    def sync_all_video_dbs(self) -> Dict[str, bool]:
-        """同步所有视频独立库到总数据库"""
-        results = {}
-        video_dirs = []
-        for item in os.listdir(self.db.data_dir):
-            item_path = os.path.join(self.db.data_dir, item)
-            if os.path.isdir(item_path) and item.startswith("BV"):
-                video_dirs.append(item)
-        for bvid in video_dirs:
-            results[bvid] = self.sync_from_video_db(bvid)
-        return results
 
     def add_monitor_record(self, record: MonitorRecord) -> bool:
         """添加监控记录到总库"""
