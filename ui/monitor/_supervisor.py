@@ -2,6 +2,7 @@
 
 import logging
 import threading
+from concurrent.futures import Future
 from dataclasses import dataclass
 from typing import Any, Callable, NamedTuple, Optional
 
@@ -10,6 +11,7 @@ from ui.monitor._lifecycle import accepts_tasks, start_registered_task
 logger = logging.getLogger(__name__)
 
 PredictionWorker = Callable[[Any, str, dict[str, Any], "TaskToken"], Any]
+FetchWorker = Callable[[Any, str, dict[str, Any]], Any]
 
 
 class TaskKey(NamedTuple):
@@ -30,6 +32,14 @@ class _Lane:
     retired: bool = False
 
 
+@dataclass
+class _FetchLane:
+    """One active fetch and the completion signal shared by its callers."""
+
+    completion: Future[None]
+    retired: bool = False
+
+
 @dataclass(frozen=True)
 class TaskToken:
     """In-memory validity token for a specific lane execution."""
@@ -45,6 +55,7 @@ class TaskSupervisor:
         self._gui = gui
         self._lock = threading.RLock()
         self._lanes: dict[TaskKey, _Lane] = {}
+        self._fetch_lanes: dict[str, _FetchLane] = {}
         self._committed: set[TaskToken] = set()
         gui._task_supervisor = self
 
@@ -82,6 +93,32 @@ class TaskSupervisor:
                 return None
             return token
 
+    def coalesce_fetch(self, gui: Any, bvid: str, video: dict[str, Any], target: FetchWorker) -> Optional[Future[None]]:
+        """Start one fetch per BVID, or return the active fetch's completion signal.
+
+        Unlike prediction lanes, fetch requests never retain pending work: callers
+        that arrive while a fetch is active wait for that same observation.
+        """
+        if not accepts_tasks(gui):
+            return None
+        with self._lock:
+            if not accepts_tasks(gui):
+                return None
+            lane = self._fetch_lanes.get(bvid)
+            if lane is not None:
+                return None if lane.retired else lane.completion
+
+            completion: Future[None] = Future()
+            lane = _FetchLane(completion)
+            self._fetch_lanes[bvid] = lane
+            thread = start_registered_task(gui, self._run_fetch, (bvid, lane, video, target), f"fetch-now-{bvid}")
+            if thread is None:
+                if self._fetch_lanes.get(bvid) is lane:
+                    self._fetch_lanes.pop(bvid)
+                completion.cancel()
+                return None
+            return completion
+
     def retire_bvid(self, bvid: str) -> None:
         """Invalidate and detach a BVID lane, dropping work that has not started."""
         key = TaskKey("prediction", bvid)
@@ -91,6 +128,9 @@ class TaskSupervisor:
                 lane.retired = True
                 lane.pending = None
                 self._committed = {token for token in self._committed if token.lane is not lane}
+            fetch_lane = self._fetch_lanes.get(bvid)
+            if fetch_lane is not None:
+                fetch_lane.retired = True
 
     def shutdown(self) -> None:
         """Reject deferred work after shutdown begins; running work drains naturally."""
@@ -114,6 +154,11 @@ class TaskSupervisor:
         """Return the number of non-retired lanes currently owned by this supervisor."""
         with self._lock:
             return sum(not lane.retired for lane in self._lanes.values())
+
+    def active_fetch_lane_count(self) -> int:
+        """Return the number of currently owned fetch lanes."""
+        with self._lock:
+            return sum(not lane.retired for lane in self._fetch_lanes.values())
 
     @staticmethod
     def _new_token(lane: _Lane) -> TaskToken:
@@ -153,6 +198,22 @@ class TaskSupervisor:
                     return
                 lane.pending = None
                 lane.current, current_video, current_target = pending
+
+    def _run_fetch(self, bvid: str, lane: _FetchLane, video: dict[str, Any], target: FetchWorker) -> None:
+        error: Exception | None = None
+        try:
+            target(self._gui, bvid, video)
+        except Exception as exc:
+            logger.exception("拉取任务失败 %s", bvid)
+            error = exc
+        finally:
+            with self._lock:
+                if self._fetch_lanes.get(bvid) is lane:
+                    self._fetch_lanes.pop(bvid)
+            if error is None:
+                lane.completion.set_result(None)
+            else:
+                lane.completion.set_exception(error)
 
 
 def get_task_supervisor(gui: Any) -> TaskSupervisor:

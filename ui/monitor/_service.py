@@ -422,8 +422,9 @@ def _batch_fetch_all(gui):
         workers = max(1, min(get_safe_workers(), len(videos)))
     except Exception:
         workers = max(1, min(8, len(videos)))
+    supervisor = get_task_supervisor(gui)
     with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="fetch") as pool:
-        futures = {pool.submit(_fetch_one_video, gui, v["bvid"], v): v["bvid"] for v in videos}
+        futures = {pool.submit(_wait_for_coalesced_fetch, supervisor, gui, v["bvid"], v): v["bvid"] for v in videos}
         for fut in as_completed(futures):
             try:
                 fut.result()
@@ -431,6 +432,13 @@ def _batch_fetch_all(gui):
                 logger.debug("抓取失败 %s: %s", futures.get(fut, ""), e)
     # 此处在后台线程（fire_and_forget(_loop)）→ 必须经 invoke 回主线程改控件
     invoke(lambda: gui._sb("last_ref", f"上次刷新啦: {datetime.now().strftime('%H:%M:%S')} ♪"))
+
+
+def _wait_for_coalesced_fetch(supervisor, gui, bvid, video):
+    """Submit one BVID fetch and wait for its shared completion signal."""
+    completion = supervisor.coalesce_fetch(gui, bvid, video, _fetch_one_video)
+    if completion is not None:
+        completion.result()
 
 
 def _start_central_fetcher(gui):
@@ -517,7 +525,7 @@ def fetch_single_video_data(gui, bvid, callback=None):
                 video = v
                 break
     if video:
-        _start_runtime_task(gui, _fetch_one_video, args=(gui, bvid, video), name=f"fetch-now-{bvid}")
+        get_task_supervisor(gui).coalesce_fetch(gui, bvid, video, _fetch_one_video)
     if callback:
         # 用跨线程桥调度回主线程(而非 QTimer.singleShot, 后者在无事件循环的后台线程不触发)
         invoke(lambda: callback(bvid))
