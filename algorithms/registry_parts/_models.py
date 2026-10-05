@@ -77,6 +77,27 @@ class ModelLoadMixin:
             cls._algorithms[algo_name] = instance
 
     @classmethod
+    def get_execution_strategy(cls, algorithm_name: str) -> str:
+        """Return the declared execution strategy value for a registered algorithm.
+
+        This is a read-only audit accessor; it does not change registration,
+        scheduling, or concurrency behaviour.
+        """
+        from ..execution_policy import strategy_for
+
+        algo = cls._algorithms.get(algorithm_name)
+        if algo is None:
+            return "locked_shared"
+        return strategy_for(algo).value
+
+    @classmethod
+    def execution_policy_summary(cls) -> Dict[str, Any]:
+        """Return declared strategy coverage over the currently registered algorithms."""
+        from ..execution_policy import execution_policy_summary
+
+        return execution_policy_summary(list(cls._algorithms.values()))
+
+    @classmethod
     def update_accuracy(
         cls,
         algorithm_name: str,
