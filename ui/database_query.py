@@ -7,7 +7,6 @@ import logging
 import os
 import sqlite3
 import threading
-import urllib.parse
 from datetime import datetime
 from typing import Optional, List, Dict
 
@@ -29,11 +28,13 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 
 from ui.theme import C
-from ui.helpers import FONT, FONT_SM, project_path, is_valid_bvid
+from ui.helpers import FONT, FONT_SM, is_valid_bvid
 from ui.invoker import invoke
 from ui.dialog_base import DialogBase
 from ui.database_query_export import build_export_headers, build_export_row
 from utils.update_checker import _confirm_risky
+from core.database import data_layout
+from core.repositories import MonitorRepository, PredictionRepository, ReadModelRepository
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +91,7 @@ class DatabaseQueryWindow(DialogBase):
 
         super().__init__(parent, "数据库查询", (int(sw * 0.54), int(sh * 0.72)), modal=False)
 
-        self.db_path = project_path("data", "bilibili_monitor.db")
+        self.db_path = data_layout.backup_central()
         self.query_results: List[Dict] = []
         self._extra_data: List[Dict] = []
         self._algo_names: List[str] = []
@@ -373,18 +374,17 @@ class DatabaseQueryWindow(DialogBase):
     def _get_video_db_path(self, bvid: str) -> Optional[str]:
         if not is_valid_bvid(bvid):
             return None
-        primary = os.path.join(os.path.dirname(self.db_path), bvid, f"{bvid}.db")
+        primary = data_layout.mirror_video(bvid)
         if os.path.exists(primary):
             return primary
-        backup = project_path("core", "data", bvid, f"{bvid}.db")
+        backup = data_layout.active_video(bvid)
         return backup if os.path.exists(backup) else None
 
     @staticmethod
     def _dedupe_latest_per_algo(pred_rows, timestamp) -> list:
         """从「按 algorithm ASC, created_at DESC 预排序」的列表中，取每个算法的最新一条。
 
-        等价于原 SQL 的 `WHERE created_at <= ? ORDER BY algorithm, created_at DESC` 再按
-        algorithm 去重取首条；把 created_at 过滤搬到 Python，是为了让同一 bvid 的
+        等价于原有时间筛选及排序后按 algorithm 去重取首条；把 created_at 过滤搬到 Python，是为了让同一 bvid 的
         predictions 只整体查询一次（实测逐行查询改预载后约快 5x）。
         """
         seen = set()
@@ -409,91 +409,16 @@ class DatabaseQueryWindow(DialogBase):
         vdp = self._get_video_db_path(bvid)
         if not vdp:
             return extra
-        conn = None
-        owns_conn = cache is None  # 批量路径下连接归缓存所有，由调用方关闭
         try:
-            if cache is not None:
-                conn = cache["conns"].get(bvid)
-            if conn is None:
-                uri = "file:{}?mode=ro".format(urllib.parse.quote(vdp.replace("\\", "/"), safe="/:"))
-                conn = sqlite3.connect(uri, uri=True, check_same_thread=False)
-                conn.row_factory = sqlite3.Row
-                if cache is not None:
-                    cache["conns"][bvid] = conn
-                    owns_conn = False
-            cur = conn.cursor()
-            if cache is not None:
-                pred_rows = cache["preds"].get(bvid)
-                if pred_rows is None:
-                    cur.execute("SELECT * FROM predictions ORDER BY algorithm ASC, created_at DESC")
-                    pred_rows = cur.fetchall()
-                    cache["preds"][bvid] = pred_rows
-                pred_list = self._dedupe_latest_per_algo(pred_rows, timestamp)
-            else:
-                cur.execute(
-                    "SELECT * FROM predictions WHERE created_at <= ? ORDER BY algorithm, created_at DESC",
-                    (timestamp,),
-                )
-                pred_list = self._dedupe_latest_per_algo(cur.fetchall(), timestamp)
-            extra["_predictions"] = pred_list
-
-            cur.execute(
-                "SELECT * FROM weekly_scores WHERE timestamp <= ? ORDER BY timestamp DESC LIMIT 1", (timestamp,)
-            )
-            ws = cur.fetchone()
-            if ws:
-                wd = dict(ws)
-                for k in [
-                    "total_score",
-                    "view_score",
-                    "interaction_score",
-                    "favorite_score",
-                    "coin_score",
-                    "like_score",
-                    "correction_a",
-                    "correction_b",
-                    "correction_c",
-                    "correction_d",
-                    "base_view_score",
-                ]:
-                    extra[f"weekly_{k}"] = wd.get(k, "")
-
-            cur.execute(
-                "SELECT * FROM yearly_scores WHERE timestamp <= ? ORDER BY timestamp DESC LIMIT 1", (timestamp,)
-            )
-            ys = cur.fetchone()
-            if ys:
-                yd = dict(ys)
-                for k in [
-                    "total_score",
-                    "view_score",
-                    "interaction_score",
-                    "favorite_score",
-                    "coin_score",
-                    "like_score",
-                    "correction_a",
-                    "correction_b",
-                    "correction_c",
-                ]:
-                    extra[f"yearly_{k}"] = yd.get(k, "")
+            extra = PredictionRepository(vdp).load_extra_data(timestamp, cache)
         except Exception as e:
             logger.debug("查询视频额外数据失败: %s", e)
-        finally:
-            if conn and owns_conn:
-                conn.close()
         return extra
 
     def _load_videos_list(self):
         """从中央数据库加载视频列表"""
-        if not os.path.exists(self.db_path):
-            return
         try:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
-            cur = conn.cursor()
-            cur.execute("SELECT bvid, title FROM videos ORDER BY updated_at DESC")
-            videos = cur.fetchall()
-            conn.close()
+            videos = ReadModelRepository(self.db_path).load_videos()
 
             items = ["全部视频"]
             self._video_bvid_map = {}
@@ -556,15 +481,11 @@ class DatabaseQueryWindow(DialogBase):
         vdp = self._get_video_db_path(bvid)
         if not vdp:
             return []
-        uri = "file:{}?mode=ro".format(urllib.parse.quote(vdp.replace("\\", "/"), safe="/:"))
-        conn = sqlite3.connect(uri, uri=True, check_same_thread=False)
-        conn.row_factory = sqlite3.Row
-        cur = conn.cursor()
-        try:
-            rows = self._run_video_query(cur, mode)
-        finally:
-            conn.close()
-        result = [dict(r) for r in rows]
+        result = MonitorRepository(vdp).query_video(
+            mode,
+            self._get_param_int(self._param_stack.widget(0), 100),
+            self._get_param_int(self._param_stack.widget(1 if mode == "播放首次大于X" else 2), 10000),
+        )
         for row in result:
             row.setdefault("bvid", bvid)
         return result
@@ -576,22 +497,6 @@ class DatabaseQueryWindow(DialogBase):
             if raw.isdigit():
                 return int(raw)
         return default
-
-    def _run_video_query(self, cur, mode: str) -> list:
-        if mode == "最新N条":
-            limit = self._get_param_int(self._param_stack.widget(0), 100)
-            cur.execute("SELECT * FROM monitor_records ORDER BY timestamp DESC LIMIT ?", (limit,))
-        elif mode == "播放首次大于X":
-            thr = self._get_param_int(self._param_stack.widget(1), 10000)
-            cur.execute("SELECT * FROM monitor_records WHERE view_count > ? ORDER BY timestamp ASC LIMIT 1", (thr,))
-        elif mode == "播放量大于X":
-            thr = self._get_param_int(self._param_stack.widget(2), 10000)
-            cur.execute("SELECT * FROM monitor_records WHERE view_count > ? ORDER BY timestamp DESC", (thr,))
-        elif mode == "播放趋势":
-            cur.execute("SELECT * FROM monitor_records ORDER BY timestamp ASC")
-        elif mode == "全量数据":
-            cur.execute("SELECT * FROM monitor_records ORDER BY timestamp DESC")
-        return list(cur.fetchall())
 
     def _run_fallback_query(self, mode, filter_bvid, bvid_for_trend):
         raw_rows = self._query_central_db(mode, filter_bvid, bvid_for_trend)
@@ -610,74 +515,18 @@ class DatabaseQueryWindow(DialogBase):
 
     def _query_central_db(self, mode, filter_bvid, bvid_for_trend):
         try:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
-            cur = conn.cursor()
-            raw_rows = self._run_query(cur, mode, filter_bvid, bvid_for_trend)
-            conn.close()
-            return raw_rows
+            return MonitorRepository(self.db_path).query_central(
+                mode,
+                self._get_param_int(self._param_stack.widget(0), 100),
+                self._get_param_int(self._param_stack.widget(1 if mode == "播放首次大于X" else 2), 10000),
+                filter_bvid,
+                bvid_for_trend,
+            )
         except Exception:
             logger.error("中央库查询失败", exc_info=True)
             QMessageBox.critical(self, "呜…出错了", "呜…中央库打不开呢，像深夜书店暂时关上了门，天依会再试试的哦 ♪")
             self._reset_query_state()
             return None
-
-    def _run_query(self, cur, mode, filter_bvid, bvid_for_trend):
-        if mode == "最新N条":
-            limit = self._get_param_int(self._param_stack.widget(0), 100)
-            if filter_bvid:
-                cur.execute(
-                    "SELECT * FROM monitor_records WHERE bvid = ? ORDER BY timestamp DESC LIMIT ?",
-                    (filter_bvid, limit),
-                )
-            else:
-                cur.execute("SELECT * FROM monitor_records ORDER BY timestamp DESC LIMIT ?", (limit,))
-        elif mode == "播放首次大于X":
-            thr = self._get_param_int(self._param_stack.widget(1), 10000)
-            if filter_bvid:
-                cur.execute(
-                    "SELECT * FROM monitor_records WHERE bvid = ? AND view_count > ? ORDER BY timestamp ASC LIMIT 1",
-                    (filter_bvid, thr),
-                )
-            else:
-                cur.execute(
-                    """
-                    WITH fa AS (
-                        SELECT bvid, MIN(timestamp) as ft
-                        FROM monitor_records WHERE view_count > ? GROUP BY bvid
-                    )
-                    SELECT m.* FROM monitor_records m
-                    INNER JOIN fa f ON m.bvid = f.bvid AND m.timestamp = f.ft
-                    ORDER BY m.timestamp DESC
-                """,
-                    (thr,),
-                )
-        elif mode == "播放量大于X":
-            thr = self._get_param_int(self._param_stack.widget(2), 10000)
-            if filter_bvid:
-                cur.execute(
-                    "SELECT * FROM monitor_records WHERE bvid = ? AND view_count > ? ORDER BY timestamp DESC",
-                    (filter_bvid, thr),
-                )
-            else:
-                cur.execute(
-                    "SELECT * FROM monitor_records WHERE view_count > ? ORDER BY timestamp DESC",
-                    (thr,),
-                )
-        elif mode == "播放趋势":
-            cur.execute(
-                "SELECT * FROM monitor_records WHERE bvid = ? ORDER BY timestamp ASC",
-                (bvid_for_trend,),
-            )
-        elif mode == "全量数据":
-            if filter_bvid:
-                cur.execute(
-                    "SELECT * FROM monitor_records WHERE bvid = ? ORDER BY timestamp DESC",
-                    (filter_bvid,),
-                )
-            else:
-                cur.execute("SELECT * FROM monitor_records ORDER BY timestamp DESC")
-        return [dict(r) for r in cur.fetchall()]
 
     def _load_query_extra_data(self, raw_rows):
         extra_list = []

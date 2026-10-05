@@ -1,10 +1,13 @@
 """数据库连接管理及全局 HTTP 会话"""
 
 import logging
+import os
 import sqlite3
 import threading
+import urllib.parse
+from contextlib import contextmanager
 from types import TracebackType
-from typing import Any, Literal, Optional
+from typing import Any, Iterator, Literal, Optional
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -14,6 +17,27 @@ logger = logging.getLogger(__name__)
 # 模块级共享 Session 按需创建，避免导入 core 时初始化 HTTP 基础设施
 _http_session: Optional[requests.Session] = None
 _http_session_lock = threading.Lock()
+
+
+def open_readonly_connection(path: str) -> sqlite3.Connection | None:
+    """Open an existing SQLite database in read-only mode without creating it."""
+    if not os.path.isfile(path):
+        return None
+    uri_path = urllib.parse.quote(path.replace("\\", "/"), safe="/:")
+    connection = sqlite3.connect(f"file:{uri_path}?mode=ro", uri=True)
+    connection.row_factory = sqlite3.Row
+    return connection
+
+
+@contextmanager
+def readonly_connection(path: str) -> Iterator[sqlite3.Connection | None]:
+    """Yield a read-only connection and close it when the caller is finished."""
+    connection = open_readonly_connection(path)
+    try:
+        yield connection
+    finally:
+        if connection is not None:
+            connection.close()
 
 
 def get_http_session() -> requests.Session:

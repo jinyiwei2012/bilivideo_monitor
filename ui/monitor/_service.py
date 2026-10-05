@@ -567,23 +567,12 @@ def auto_predict_all(gui):
 def _load_watch_list_from_db():
     """从数据库加载所有视频 BVid（当配置的 watch_list 为空时兜底）"""
     try:
-        from config import DATA_DIR as _data_dir
-        import os
-        import sqlite3
+        from core.repositories import ReadModelRepository
 
-        db_path = os.path.join(_data_dir, "bilibili_monitor.db")
-        if not os.path.exists(db_path):
-            return []
-        conn = sqlite3.connect(db_path, check_same_thread=False)
-        try:
-            cur = conn.cursor()
-            cur.execute("SELECT bvid FROM videos ORDER BY updated_at DESC")
-            bvids = [r[0] for r in cur.fetchall() if r[0]]
-            if bvids:
-                logger.info("从数据库加载 %d 个视频作为 watch_list 兜底", len(bvids))
-            return bvids
-        finally:
-            conn.close()
+        bvids = ReadModelRepository().load_watch_bvids()
+        if bvids:
+            logger.info("从数据库加载 %d 个视频作为 watch_list 兜底", len(bvids))
+        return bvids
     except Exception as e:
         logger.debug("从数据库加载 watch_list 失败: %s", e)
         return []
