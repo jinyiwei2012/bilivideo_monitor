@@ -232,7 +232,8 @@
    - **遗留风险（Windows 腿首次运行即暴露）**：同一份代码、同一 mypy 2.4.0，windows-latest 上 `core/bilibili_cookie_refresh.py` / `ui/database_query.py` / `utils/browser_cookies.py` 的三处返回被第三方 stub 退化为 `Any` 而报 `no-any-return`；本机 conda `bili` 与 ubuntu 主腿均为 0。这是**平台类型 stub 差异**，非缺陷。故类型门禁保留在 ubuntu 主腿（可诚实判定），Windows 腿职责收敛为格式 + lint 一致性。若后续须跨平台 mypy 一致，应先在 Windows 上锁定具体退化来源（缺 `py.typed` 的依赖）再补 `cast`，不得盲修。
 4. **尾巴项（机会性清理）**：
    - **5.4 已交付**：`data/` 假 BV 测试残留已清（`BV1TEST12345` / `BV1TESTD9000A` / `BV1fK4y1U7abcd` / `BV1Y2oNB1ESs`，本地未跟踪，6.72MB→6.17MB；保留 `BV1kfjR6uEye` / `BV1Bfjq6LEDi` / `BV1xx411c7mD`）；日志保留与压缩策略已落地（`utils/file_logger.py::_apply_retention`——保留 7 天原始 `.log`、更早至 30 天压为 `.gz`、再早删除，归档后自动触发；`running.log` 永不触碰）。
-   - **5.5（推演中）**：**ONNX 全局 broken 标志改按模型降级**（现状 `algorithms/training/onnx_exporter.py:39 _onnx_export_broken` 为进程级全局布尔，任一模型环境不兼容即全仓永久关闭 ONNX；须辨环境级 vs 模型级）；死代码评审（`algorithms/data_cleaner.py`——5 个清洗函数全仓零调用；`scripts/sync_data.py`——早年 `core/data/`→`data/` 反向一次性迁移脚本，语义已与 4.4 后的数据布局矛盾）。边界由架构顾问 `ora-12` 钉定后落刀。
+   - **5.5 已交付（5.5-A `085de4c`）ONNX 按模型降级**：删除进程级 `_onnx_export_broken`，改为按 `(algo_id, bvid)` 记录 `_onnx_export_failures`；`is_onnx_available()` 语义收敛为「ONNX Runtime 是否可用于推理」，不再受导出失败影响；`force=True` 可绕过并恢复；失败删残缺产物。依据架构顾问 `ora-12` 裁决保守收口（不重构 ONNX 架构、不改后端选择、不引入持久化失败状态）。新增 `tests/test_onnx_model_degradation.py`（7 项）。
+   - **5.5 已交付（5.5-B）死代码清理**：删除 `algorithms/data_cleaner.py`（5 个清洗函数全仓零调用）与 `scripts/sync_data.py`（早年 `core/data/`→`data/` 反向一次性迁移脚本，语义已与 4.4 后数据布局矛盾）；同步修正 `AGENTS.md` / `algorithms/ALGORITHMS.md` / `docs/analysis_enhancements.md` 的失效宣示（改为「未来需重新实现并接入」）。
 
 ### 第六批：界面演进（最后）
 

@@ -65,11 +65,11 @@ def vdr_series(records: list[dict], duration: int) -> list[tuple[str, float, flo
 ## 2. 数据清洗细化（哨兵值 / 累计回退 / 暴跌 / 脏首点）
 
 **收益**：B站 API 在**冻结**与**补量**时会出现"值不动"或"值回退"，
-现有 `algorithms/data_cleaner.py` 只有 `detect_view_reversal` + `zscore_filter` + SG 平滑 +
-`interpolate_outliers`，对四类伪影覆盖不全 → 清洗不准会直接污染速率估计与预测。
+对四类伪影覆盖不全 → 清洗不准会直接污染速率估计与预测。
 （项目已用 MAD 剪除处理部分场景，本项是**补齐 + 更早发现**。）
+曾存在的 `algorithms/data_cleaner.py` 因全仓零调用已删除，本项需**重新实现**。
 
-**实现方案**：扩展 `algorithms/data_cleaner.py`
+**实现方案**：新建数据清洗模块（`algorithms/data_cleaner.py` 已在 5.5 删除，未来接入时按当时语义重新设计）
 
 | 新增/扩展 | 规则（来源：bili_monitor `viz/plots.py:184-254`） |
 |---|---|
@@ -243,7 +243,7 @@ checkpoint 与 `A+B 双尺度` 目标不受影响，但输入层形状变了）�
 
 | 序 | 项 | 改动面 | 风险 | 预估 |
 |---|---|---|---|---|
-| 1 | 数据清洗细化（第 2 条） | `algorithms/data_cleaner.py` + 测试 | 低（纯函数、可回归保护） | 小 |
+| 1 | 数据清洗细化（第 2 条） | 新建数据清洗模块 + 测试 | 低（纯函数、可回归保护） | 小 |
 | 2 | 图表断线分段（第 4 条） | `ui/chart.py` + 速率守卫 | 低 | 小 |
 | 3 | 三条运营告警（第 5 条） | `core/smart_alert.py` + 测试 | 低（复用既有骨架） | 小 |
 | 4 | IQR + 置信分级（第 6 条） | 新 `utils/stat_intervals.py` + 面板展示 | 低（纯函数、测试向量现成） | 小 |

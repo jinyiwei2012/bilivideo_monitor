@@ -1558,12 +1558,8 @@ seq2seq 多步预测 (线性+二次组合) + 高/中/低频融合 (原始/每3�
 
 ## 新增工具模块
 
-### 数据清洗 (data_cleaner.py)
-- `detect_view_reversal`: 播放量倒退检测
-- `zscore_filter`: 滑动窗口 Z-score (阈值3.5)
-- `savitzky_golay_smooth`: SG 滤波器去噪
-- `interpolate_outliers`: 异常点线性插值修复
-- `clean_history`: 完整清洗流水线
+### 数据清洗
+当前系统**未接入**数据清洗流水线；曾存在的 `algorithms/data_cleaner.py` 因全仓零调用已删除。若未来需要，应按当时的数据语义重新实现并先行补伪影特征测试，再接入预测链。
 
 ### 滚动窗口回测 (rollout_backtest.py)
 - `RollingBacktester`: 滑动窗口时间序列交叉验证
