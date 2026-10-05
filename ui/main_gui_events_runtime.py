@@ -61,6 +61,14 @@ def on_exit(gui):
     gui._shutdown_finalized = True
     from ui.main_gui_data import save_watch_list
 
+    # 退出期最终一致性快照：本地事务已 drain、视频库尚未关闭，此刻快照不会撕裂。
+    try:
+        from core import get_db
+
+        get_db().sync_per_video_dbs_to_backup()
+    except Exception as e:
+        logger.debug("退出期最终快照失败: %s", e)
+
     save_watch_list(gui)
     gui.log_panel.cleanup()
     gui._stop_export_schedule()

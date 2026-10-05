@@ -40,6 +40,7 @@ def start_global_tick(gui):
     start_risk_timers(gui)
     start_ntp_timer(gui)
     start_projection_timer(gui)
+    start_snapshot_timer(gui)
     gui._global_tick_timer = QTimer(gui)
     gui._global_tick_timer.setInterval(1000)
     gui._global_tick_timer.timeout.connect(lambda: global_tick(gui))
@@ -57,6 +58,7 @@ def stop_global_tick(gui):
             timer.stop()
             setattr(gui, attr, None)
     stop_projection_timer(gui)
+    stop_snapshot_timer(gui)
 
 
 def _projection_interval_ms() -> int:
@@ -102,6 +104,38 @@ def stop_projection_timer(gui: Any) -> None:
     if timer is not None:
         timer.stop()
         gui._projection_timer = None
+
+
+def _snapshot_interval_ms() -> int:
+    """Return the configured periodic-snapshot interval in milliseconds."""
+    section = load_config().get("snapshot", {})
+    seconds = section.get("interval_seconds", 600) if isinstance(section, dict) else 600
+    return max(30, int(seconds)) * 1000
+
+
+def _run_snapshot_cycle(gui: Any) -> None:
+    """Snapshot active per-video databases into the backup root on a low-frequency timer."""
+    from core import get_db
+
+    get_db().sync_per_video_dbs_to_backup()
+
+
+def start_snapshot_timer(gui: Any) -> None:
+    """Start the independent periodic-snapshot scheduler."""
+    stop_snapshot_timer(gui)
+    timer = QTimer(gui)
+    timer.setInterval(_snapshot_interval_ms())
+    timer.timeout.connect(lambda: start_registered_task(gui, _run_snapshot_cycle, args=(gui,), name="snapshot"))
+    timer.start()
+    gui._snapshot_timer = timer
+
+
+def stop_snapshot_timer(gui: Any) -> None:
+    """Stop the periodic-snapshot scheduler without interrupting an admitted task."""
+    timer = getattr(gui, "_snapshot_timer", None)
+    if timer is not None:
+        timer.stop()
+        gui._snapshot_timer = None
 
 
 def do_memory_health_check(gui):
