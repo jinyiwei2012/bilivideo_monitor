@@ -73,7 +73,24 @@
 
 ## 五、第一批动工包（2–4 周；先测试、后实现；逐包可回退）
 
-**状态（2026-10-05 更新）**：包 1 已交付（`80ab97f` / `24cecd8` / `d84233a`）；包 2 已交付（`743fafa`，524 passed）；包 3 已提交（`3dc6f1e`）；包 4–5 经合流门禁与独立风险复核后提交为 `70a2690`（退出路径与工厂迁移存在共享文件）。**第二批已完成**：B6-a（`842f858`）、B3 骨架与三面板迁移（`ca798d0` / `b1ca3a4` / `d4ac2b7` / `1612732`）、B1 五包（`84bf354` / `f8bdd29` / `955e891` / `349244a` / `2716264`），另含两轮质量门禁收口（`56f6016` / `4a5feb5`）。全量 **583 passed**，算法注册数 **137**，完整性保护文件未修改。以下工程要点保留作为验收依据。
+**状态（2026-10-05 更新）**：包 1 已交付（`80ab97f` / `24cecd8` / `d84233a`）；包 2 已交付（`743fafa`，524 passed）；包 3 已提交（`3dc6f1e`）；包 4–5 经合流门禁与独立风险复核后提交为 `70a2690`（退出路径与工厂迁移存在共享文件）。**第二批已完成**：B6-a（`842f858`）、B3 骨架与三面板迁移（`ca798d0` / `b1ca3a4` / `d4ac2b7` / `1612732`）、B1 五包（`84bf354` / `f8bdd29` / `955e891` / `349244a` / `2716264`），另含两轮质量门禁收口（`56f6016` / `4a5feb5`）。
+
+**第二批追加（已交付）**：第三批（B5-a1 / B4 / B6-b / B5-a2）、第四批（B5-b 全序 4.1–4.4-F、算法执行策略 4.5、B2 前置护栏 4.6）、第五批 5.1（D1 单轨打包）均已交付并通过 CI。第四批全序 commit：
+
+- **4.1** `764b49c`：契约冻结；`xfail(strict=True)` 反证「仅凭中央不可重建」。
+- **4.2** `b922114`：权威表 + durable outbox；视频 schema v6、中央 schema v4。
+- **4.3** `372a372`：projector + 影子校验（七 stream `apply_projection_batch`、`CentralProjector`、`audit_projection_entities`）。
+- **4.4-A** `9b639c9`：切流前提（预测周期→`save_prediction_cycle`、里程碑权威写、payload 等价、single-flight）。
+- **4.4-B** `18151cf`：原子切流；默认 `mode="projector"`；`config/runtime_mode.py`；七 stream legacy 守卫。
+- **4.4-C** `ada98aa`：`core/database/snapshot.py` 一致性快照基建（`Connection.backup()` → `quick_check` → `os.replace`）。
+- **4.4-D** `acca068`：删在线镜像（`video_db`/`video_db_scores`），备份委托快照，读路由切活跃库；净减 236 行。
+- **4.4-E** `051546a`：周期与退出快照接管（`main_gui_tick` snapshot QTimer + `on_exit` finalizer）。
+- **4.4-F** `2f27964`：删旧收口——移除覆盖式旧同步 API（`sync_from_video_db`/`sync_all_video_dbs`），**保守保留 legacy 生产回退通道**。
+- **4.5** `610e336`：算法执行策略声明与审计（`execution_policy.py` + 137 项 manifest + 审计测试 + 文档）；**只声明不改并发**。
+- **4.6** `cbf726e`：B2 前置——`tests/test_core_import_purity.py` 冻住 `import core` 无副作用（`core/__init__` 本已纯再导出）。
+- **5.1** `3e21190`：D1 打包单轨 onefile（`BiliMonitor.spec` + `release.yml` + 打包冒烟）。
+
+全量 **645 collected / 644 passed**（deselect 既存 Windows `test_shutdown_qt` 超时），算法注册数 **137**，完整性保护文件未修改。以下工程要点保留作为验收依据。
 
 #### 包 3–5 本轮交付与验证记录
 
@@ -181,9 +198,9 @@
 4. **C3 性能预算（先观测；尚未动工）**：采集启动→首帧 / 列表可用 / 首次数据 / 首次预测 / 单视频 P50·P95 / 队列长度 / RSS；依数据再决策重算法降频扩展、批量取权重、首屏轻量算法、模型延迟加载。
    - 验收：可复现的基线数字 + 实测结论（写回本文档）。
 
-### 第三批：数据访问与迁移底座
+### 第三批：数据访问与迁移底座（**已全数交付**）
 
-**施工顺序**：B5-a1 → B4 → B6-b → B5-a2。
+**施工顺序**：B5-a1 → B4 → B6-b → B5-a2；B5-a1 / B4 / B6-b / B5-a2 均已完成并 CI 验证（视频 schema v1–v6、中央 schema v1–v5）。
 
 1. **B5-a1 数据角色与所有权基线（已交付，commit 待填）**：新增 `core/database/data_layout.py` 的只解析路径角色 API、`core/database/consistency_audit.py` 的只读差异报告和 `docs/data_ownership.md` 表级矩阵；不迁移物理路径、不改变现有读取目标、不调整双写或 schema 版本来源。
    - 验收：临时库差异/水位/缺表可报告，审计前后文件 hash 与 mtime 不变；中央自有三表不标为可重建投影。
@@ -194,20 +211,24 @@
 4. **B5-a2 数据所有权续包**：在 B4 / B6-b 的只读连接与版本化迁移基础上，扩展同步游标与审计范围；冻结已证明可重建部分的语义，不再新增双写路径。
     - 验收：同步差异可量化报告；游标 / 版本表落地。
 
-### 第四批：数据所有权收口与组合根
+### 第四批：数据所有权收口与组合根（**已全数交付**）
 
-1. **B5-b 取消在线多路径双写**：监控 / 预测写入只做一次本地事务；中央投影走 outbox / 增量；备份改 SQLite backup 或一致性快照；取消逐条镜像 commit。
-   - 验收：故障注入后可重建中央库；不依赖跨库原子性。
-2. **算法执行策略正式化**：把包 3 的后置项落地为声明式（`STATELESS_SHARED / LOCKED_SHARED / PER_VIDEO`）+ 审计清单。
-3. **B2 完整化**：`app/bootstrap.py` 显式创建 DB / API / 通知 / 仓库 / 服务并注入；`core.__init__` 收敛为纯再导出。
-   - 验收：无副作用导入保持；替身可注入测试。
+1. **B5-b 取消在线多路径双写（已交付，4.1–4.4-F）**：监控 / 预测写入只做一次本地事务；中央投影走 outbox / 增量；备份改 SQLite 一致性快照；取消逐条镜像 commit。逐包 commit 见第五节状态记录。
+   - 验收：故障注入后可重建中央库；不依赖跨库原子性。✅（4.1 以 `xfail(strict=True)` 反证并闭合）
+   - 4.4-F 边界（经架构顾问裁决）：**保守收口**——仅删确证死代码（覆盖式旧同步 API），完整保留 `legacy` 生产回退通道（`_central_db` / `set_central_db` / `legacy_central_sync` / 各模块 legacy 守卫 / `legacy_central_writes_enabled`）。
+2. **算法执行策略正式化（已交付，4.5）**：声明式 `STATELESS_SHARED / LOCKED_SHARED / PER_VIDEO` + 137 项审计清单（`algorithms/execution_policy.py` + `execution_policy_manifest.py` + `docs/algorithm_execution_policy.md`）。**只声明、不改并发**；`PER_VIDEO` 仅声明未生效。
+   - 验收：137 全覆盖、无幽灵项、已知有状态模型不得标 `STATELESS_SHARED`、未知默认 `LOCKED_SHARED`。✅
+3. **B2 完整化（已交付前置，4.6）**：`core.__init__` 收敛为纯再导出（本已达成）；以 `tests/test_core_import_purity.py` 冻住「无副作用导入」。
+   - 验收：无副作用导入保持；替身可注入测试。✅
+   - 保留：`core/notification.py` / `core/bilibili_api.py` 为完整性保护文件，未触碰；完整 DI 注入留待阶段 2（`app/bootstrap.py` 显式引导）。
 
 ### 第五批：工程化与分发（独立线，可随时并行）
 
-1. **D1 打包单轨**：spec 与 CI onefile 二选一（建议以 spec 为准）；打包冒烟（算法数 / 开库 / 离线预测 / 建窗）；同步 spec 模块清单（现「97」陈旧）。
-2. **D2 更新链信任根**：签名 manifest（Ed25519 + SHA-256）+ `.bak` 自动回滚；私钥迁出工作树（CI secret / HSM）；`sign --verify` 纳入发布流程。（安全相关，发布在即则提前并行。）
-3. **D3 CI 对齐**：本地 / CI flake8 规则一致；Windows 轻量矩阵；覆盖率与依赖扫描先观测、不设硬门槛。
-4. **尾巴项（机会性清理）**：`data/` 假 BV 测试残留（约 5.3MB）；日志保留 / 压缩策略（现仅按天改名）；ONNX 全局 broken 标志改按模型降级；死代码评审（`data_cleaner.py` 等）；`scripts/sync_data.py` 一次性脚本处置。
+1. **D1 打包单轨（已交付，5.1）**：spec 与 CI 收敛为 onefile 单轨（`BiliMonitor.spec` 为准）；打包冒烟（`tests/test_packaging_smoke.py`）；spec 模块清单同步。
+   - 验收：onefile 单轨产物可构建、冒烟通过。✅
+2. **D2 更新链信任根（待启，5.3）**：签名 manifest（Ed25519 + SHA-256）+ `.bak` 自动回滚；私钥迁出工作树（CI secret / protected env）；**签实际 EXE manifest（非源文件清单）**；`sign --verify` 纳入发布流程。
+3. **D3 CI 对齐（待启，5.2）**：本地 / CI flake8 规则一致；Windows 轻量矩阵；工具版本钉死；覆盖率与依赖扫描先观测、不设硬门槛。
+4. **尾巴项（机会性清理，待启，5.4 / 5.5）**：`data/` 假 BV 测试残留（约 5.3MB）；日志保留 / 压缩策略；**ONNX 全局 broken 标志改按模型降级**；死代码评审（`data_cleaner.py` 等）；`scripts/sync_data.py` 一次性脚本处置。
 
 ### 第六批：界面演进（最后）
 
