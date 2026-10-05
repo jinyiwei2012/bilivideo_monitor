@@ -171,6 +171,8 @@ class FileLogger:
             os.replace(old_path, new_path)
             # 重新打开供后续使用（虽然 close 不会再写，但保险起见）
             self._file = open(new_path, "a", encoding="utf-8")
+            # 归档后执行保留策略：超期日志压缩 / 删除，防止无界累积
+            self._apply_retention()
         except Exception as e:
             # 重命名失败后重新打开原文件（防止 self._file 处于已关闭状态）
             logger.debug("重命名日志文件失败: %s", e)
@@ -178,3 +180,52 @@ class FileLogger:
                 self._file = open(old_path, "a", encoding="utf-8")
             except Exception as e2:
                 logger.debug("日志文件重命名回退也失败: %s", e2)
+
+    def _apply_retention(self, keep_days: int = 7, compress_days: int = 30) -> None:
+        """对已归档日志执行保留策略（内部已持有锁）。
+
+        - 最近 ``keep_days`` 天的 ``.log``：原样保留。
+        - 更早至 ``compress_days`` 天的 ``.log``：压缩为 ``.gz``（删除原文件）。
+        - 早于 ``compress_days`` 天的 ``.log`` / ``.gz``：删除。
+
+        ``running.log`` 永不触碰。任何单文件失败仅记 debug 日志，不中断。
+        """
+        import glob
+        import gzip
+
+        try:
+            now_ts = datetime.now().timestamp()
+            keep_secs = max(1, keep_days) * 86400
+            compress_secs = max(max(1, keep_days), max(1, compress_days)) * 86400
+
+            for path in glob.glob(os.path.join(self._log_dir, "*.log")):
+                name = os.path.basename(path)
+                if name.endswith("-running.log"):
+                    continue
+                try:
+                    age = now_ts - os.path.getmtime(path)
+                    if age <= keep_secs:
+                        continue
+                    if age <= compress_secs:
+                        self._gzip_file(path, gzip)
+                    else:
+                        os.remove(path)
+                except Exception as e:
+                    logger.debug("日志保留策略处理失败 %s: %s", name, e)
+
+            for path in glob.glob(os.path.join(self._log_dir, "*.gz")):
+                try:
+                    if now_ts - os.path.getmtime(path) > compress_secs:
+                        os.remove(path)
+                except Exception as e:
+                    logger.debug("日志保留策略删除归档失败 %s: %s", path, e)
+        except Exception as e:
+            logger.debug("日志保留策略执行失败: %s", e)
+
+    @staticmethod
+    def _gzip_file(path: str, gzip_module: Any) -> None:
+        """把单个日志文件压缩为 ``.gz`` 并删除原文件。"""
+        gz_path = path + ".gz"
+        with open(path, "rb") as src, gzip_module.open(gz_path, "wb") as dst:
+            dst.write(src.read())
+        os.remove(path)
