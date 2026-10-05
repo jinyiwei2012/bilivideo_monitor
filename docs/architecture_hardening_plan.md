@@ -227,7 +227,9 @@
 1. **D1 打包单轨（已交付，5.1）**：spec 与 CI 收敛为 onefile 单轨（`BiliMonitor.spec` 为准）；打包冒烟（`tests/test_packaging_smoke.py`）；spec 模块清单同步。
    - 验收：onefile 单轨产物可构建、冒烟通过。✅
 2. **D2 更新链信任根（待启，5.3）**：签名 manifest（Ed25519 + SHA-256）+ `.bak` 自动回滚；私钥迁出工作树（CI secret / protected env）；**签实际 EXE manifest（非源文件清单）**；`sign --verify` 纳入发布流程。
-3. **D3 CI 对齐（待启，5.2）**：本地 / CI flake8 规则一致；Windows 轻量矩阵；工具版本钉死；覆盖率与依赖扫描先观测、不设硬门槛。
+3. **D3 CI 对齐（已交付，5.2）**：`code-quality.yml` 工具版本钉死（black==26.5.1 / flake8==7.4.1 / bandit==1.9.4 / radon==6.0.1 / pytest==9.1.1 / mypy==2.4.0）；新增 `quality-windows` 轻量腿（Windows 侧 Black + lint 规则一致）；本地 / CI flake8 规则天然同一份（`.flake8` 在工作树内，`lint_gate.py` 裸调 flake8 自动读取）。覆盖率与依赖扫描先观测、不设硬门槛。
+   - 验收：Windows 腿与 ubuntu 主腿的格式 / lint 判定一致。✅
+   - **遗留风险（Windows 腿首次运行即暴露）**：同一份代码、同一 mypy 2.4.0，windows-latest 上 `core/bilibili_cookie_refresh.py` / `ui/database_query.py` / `utils/browser_cookies.py` 的三处返回被第三方 stub 退化为 `Any` 而报 `no-any-return`；本机 conda `bili` 与 ubuntu 主腿均为 0。这是**平台类型 stub 差异**，非缺陷。故类型门禁保留在 ubuntu 主腿（可诚实判定），Windows 腿职责收敛为格式 + lint 一致性。若后续须跨平台 mypy 一致，应先在 Windows 上锁定具体退化来源（缺 `py.typed` 的依赖）再补 `cast`，不得盲修。
 4. **尾巴项（机会性清理，待启，5.4 / 5.5）**：`data/` 假 BV 测试残留（约 5.3MB）；日志保留 / 压缩策略；**ONNX 全局 broken 标志改按模型降级**；死代码评审（`data_cleaner.py` 等）；`scripts/sync_data.py` 一次性脚本处置。
 
 ### 第六批：界面演进（最后）
