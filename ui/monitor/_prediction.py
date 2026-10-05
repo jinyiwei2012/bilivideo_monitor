@@ -129,9 +129,13 @@ def _save_predictions_to_db(gui, bvid, current_view, results):
                 }
             )
 
-    if rows:
+    if rows or ensemble_data is not None:
         try:
-            use_video_db(gui, bvid, lambda video_db: video_db.add_predictions_batch(rows))
+            timestamp = now_ts()
+            payload = json.loads(json.dumps(ensemble_data or {}, default=_json_default))
+            use_video_db(
+                gui, bvid, lambda video_db: video_db.save_prediction_cycle(timestamp, rows, payload, coherence_rows)
+            )
         except Exception as e:
             gui.log_panel.add_log("WARNING", f"批量保存预测记录失败 {bvid}: {e}")
 

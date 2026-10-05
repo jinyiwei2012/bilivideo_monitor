@@ -6,6 +6,7 @@ import re
 import threading
 import logging
 import json
+from dataclasses import asdict
 from datetime import datetime
 from utils import project_path
 from utils.time_utils import now_ts
@@ -449,6 +450,17 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
                 for prediction in predictions:
                     sql, params = self._prediction_sql(prediction)
                     cursor.execute(sql, params)
+                    provided = [key for key in ("is_reached", "actual_time", "error_rate") if key in prediction]
+                    if provided:
+                        assignments = ", ".join(f"{key}=?" for key in provided)
+                        cursor.execute(
+                            f"UPDATE predictions SET {assignments} WHERE algorithm=? AND target_threshold=?",
+                            (
+                                *[prediction[key] for key in provided],
+                                prediction.get("algorithm"),
+                                prediction.get("target_threshold"),
+                            ),
+                        )
                     source = cursor.execute(
                         "SELECT id FROM predictions WHERE algorithm=? AND target_threshold=?",
                         (prediction.get("algorithm"), prediction.get("target_threshold")),
@@ -472,9 +484,9 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
                         ensemble.get("confidence", 0),
                         ensemble.get("valid_algos", 0),
                         ensemble.get("total_algos", 0),
-                        interval.get("lower"),
-                        interval.get("upper"),
-                        ensemble.get("interval_width_ratio"),
+                        interval.get("lower") if "prediction_interval" in ensemble else ensemble.get("interval_lower"),
+                        interval.get("upper") if "prediction_interval" in ensemble else ensemble.get("interval_upper"),
+                        interval.get("interval_width_ratio", ensemble.get("interval_width_ratio")),
                         int(ensemble.get("surge_correction_applied", False)),
                         ensemble.get("surge_magnitude"),
                         ensemble.get("surge_type", ""),
@@ -815,7 +827,7 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
                     "monitor_records",
                     record.timestamp,
                     cursor.lastrowid,
-                    {"timestamp": record.timestamp, "view_count": record.view_count},
+                    asdict(record),
                 )
                 conn.commit()
             self._exec_mirror(sql, params)

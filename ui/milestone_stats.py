@@ -601,6 +601,11 @@ class MilestoneStatsWindow(DialogBase):
             if data is None:
                 skipped += 1
                 continue
+            gui = self.parent()
+            if gui is not None and hasattr(gui, "video_dbs"):
+                from ui.monitor._lifecycle import use_video_db
+
+                use_video_db(gui, row.bvid, lambda video_db: video_db.upsert_milestone(row.period, data))
             ok = get_db().upsert_milestone(row.bvid, row.period, data)
             if ok:
                 saved += 1

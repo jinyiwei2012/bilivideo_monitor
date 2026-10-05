@@ -17,6 +17,9 @@ def _apply_ensemble_projection(conn: sqlite3.Connection, bvid: str, event: Any) 
     """Apply one ensemble event, including timestamp-key legacy compatibility."""
     data = event.payload
     timestamp = data.get("timestamp") or event.entity_key
+    interval = data.get("prediction_interval") or {}
+    lower = interval.get("lower") if "prediction_interval" in data else data.get("interval_lower")
+    upper = interval.get("upper") if "prediction_interval" in data else data.get("interval_upper")
     values = (
         bvid,
         event.source_row_id,
@@ -25,9 +28,9 @@ def _apply_ensemble_projection(conn: sqlite3.Connection, bvid: str, event: Any) 
         data.get("confidence", 0),
         data.get("valid_algos", 0),
         data.get("total_algos", 0),
-        data.get("interval_lower"),
-        data.get("interval_upper"),
-        data.get("interval_width_ratio"),
+        lower,
+        upper,
+        interval.get("interval_width_ratio", data.get("interval_width_ratio")),
         int(bool(data.get("surge_correction_applied", False))),
         data.get("surge_magnitude"),
         data.get("surge_type", ""),
@@ -207,11 +210,29 @@ class CentralCRUD:
                         data.get("current_velocity", 0),
                     ),
                 )
+                optional_columns = ("predicted_views", "is_reached", "actual_time", "error_rate")
+                provided = [column for column in optional_columns if column in data]
+                if provided:
+                    assignments = ", ".join(f"{column}=?" for column in provided)
+                    conn.execute(
+                        f"UPDATE predictions SET {assignments} WHERE bvid=? AND algorithm=? AND target_threshold=?",
+                        (
+                            *[data[column] for column in provided],
+                            bvid,
+                            data.get("algorithm"),
+                            data.get("target_threshold", 0),
+                        ),
+                    )
             elif event.stream in ("weekly_scores", "yearly_scores"):
                 table = event.stream
                 columns = "total_score, view_score, interaction_score, favorite_score, coin_score, like_score, correction_a, correction_b, correction_c"
+                if table == "weekly_scores":
+                    columns += ", correction_d, base_view_score"
+                names = columns.split(", ")
+                placeholders = ", ".join("?" for _ in range(len(names) + 2))
+                assignments = ", ".join(f"{name}=excluded.{name}" for name in names)
                 conn.execute(
-                    f"INSERT INTO {table} (bvid, timestamp, {columns}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(bvid, timestamp) DO UPDATE SET total_score=excluded.total_score, view_score=excluded.view_score, interaction_score=excluded.interaction_score, favorite_score=excluded.favorite_score, coin_score=excluded.coin_score, like_score=excluded.like_score, correction_a=excluded.correction_a, correction_b=excluded.correction_b, correction_c=excluded.correction_c",
+                    f"INSERT INTO {table} (bvid, timestamp, {columns}) VALUES ({placeholders}) ON CONFLICT(bvid, timestamp) DO UPDATE SET {assignments}",
                     (bvid, event.entity_key, *[data.get(key, 0) for key in columns.split(", ")]),
                 )
             elif event.stream == "prediction_ensemble":

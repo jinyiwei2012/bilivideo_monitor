@@ -6,6 +6,7 @@
 
 import time
 import logging
+import threading
 from typing import Any, Protocol, cast
 from tracemalloc import Snapshot
 
@@ -19,6 +20,7 @@ from utils.time_utils import format_ts
 from ui.monitor._lifecycle import start_registered_task, use_all_video_dbs, use_video_db, video_db_ids
 
 logger = logging.getLogger(__name__)
+_projector_creation_lock = threading.Lock()
 
 
 class _MainTraceState(Protocol):
@@ -71,9 +73,14 @@ def _run_projection_cycle(gui: Any) -> None:
     from core import get_db
     from core.database.projector import CentralProjector
 
-    projector = CentralProjector(get_db())
-    for bvid in video_db_ids(gui):
-        use_video_db(gui, bvid, projector.project_video)
+    with _projector_creation_lock:
+        projector = getattr(gui, "_central_projector", None)
+        if projector is None:
+            projector = CentralProjector(get_db(), batch_size=max(1, int(projection.get("batch_size", 100))))
+            gui._central_projector = projector
+    projector.project_pending(
+        video_db_ids(gui), operation=lambda bvid: use_video_db(gui, bvid, projector.project_video)
+    )
 
 
 def start_projection_timer(gui: Any) -> None:

@@ -6,9 +6,12 @@ from ui.monitor import _prediction
 class _FakeVideoDb:
     def __init__(self):
         self.rows = []
+        self.cycles = []
 
-    def add_predictions_batch(self, rows):
+    def save_prediction_cycle(self, timestamp, rows, ensemble, coherence):
         self.rows.extend(rows)
+        self.cycles.append((timestamp, ensemble, coherence))
+        return True
 
 
 class _FakeLogPanel:
@@ -64,6 +67,11 @@ def test_save_predictions_returns_ensemble_and_filtered_coherence():
         "surge_type": "moderate",
     }
     assert coherence == [("algo-ok", 0.75)]
+    assert len(gui.video_dbs[bvid].cycles) == 1
+    timestamp, saved_ensemble, saved_coherence = gui.video_dbs[bvid].cycles[0]
+    assert timestamp
+    assert saved_ensemble == ensemble
+    assert saved_coherence == coherence
 
 
 def test_save_predictions_without_weighted_result_has_no_sync_payload():

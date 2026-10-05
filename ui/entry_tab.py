@@ -634,6 +634,9 @@ class EntryTab(QWidget):
         bvid = row["bvid"]
 
         if mode == "milestone":
+            video_db = self._video_dbs.get(bvid)
+            if video_db is not None:
+                video_db.upsert_milestone(row["key"], data)
             ok = get_db().upsert_milestone(bvid, row["key"], data)
         else:
             ok = self._save_snapshot_record(bvid, row["key"], data)

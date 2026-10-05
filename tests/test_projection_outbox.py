@@ -1,6 +1,7 @@
 """Authority-table and durable outbox schema and transaction tests."""
 
 import sqlite3
+import json
 
 import pytest
 
@@ -8,6 +9,148 @@ from core.database.central_schema import migrate_central_schema
 from core.database.central_db import Database
 from core.database.models import MonitorRecord, PredictionRecord
 from core.database.video_db import VideoDatabase
+from core.database.projector import ProjectionEvent
+
+
+def test_projection_cycle_reuses_projector_and_acquires_video_leases(monkeypatch) -> None:
+    from types import SimpleNamespace
+    from ui import main_gui_tick
+
+    calls = []
+    video_db = object()
+    gui = SimpleNamespace()
+    monkeypatch.setattr(main_gui_tick, "load_config", lambda: {"projection": {"mode": "shadow", "batch_size": 7}})
+    monkeypatch.setattr(main_gui_tick, "video_db_ids", lambda _gui: ["BV1xx411c7mD"])
+
+    def lease(_gui, bvid, operation):
+        calls.append(bvid)
+        return operation(video_db)
+
+    monkeypatch.setattr(main_gui_tick, "use_video_db", lease)
+    import core
+    from core.database.projector import CentralProjector, ProjectionRunResult
+
+    monkeypatch.setattr(core, "get_db", lambda: object())
+    monkeypatch.setattr(CentralProjector, "project_video", lambda self, db: ProjectionRunResult(delivered=1))
+    main_gui_tick._run_projection_cycle(gui)
+    projector = gui._central_projector
+    assert projector._batch_size == 7
+    main_gui_tick._run_projection_cycle(gui)
+    assert gui._central_projector is projector
+    assert calls == ["BV1xx411c7mD", "BV1xx411c7mD"]
+    assert projector._run_lock.acquire(blocking=False)
+    try:
+        main_gui_tick._run_projection_cycle(gui)
+        assert len(calls) == 2
+    finally:
+        projector._run_lock.release()
+
+
+def test_monitor_payload_contains_full_record(tmp_path) -> None:
+    database = VideoDatabase("BV1xx411c7mD", str(tmp_path))
+    try:
+        record = _record()
+        assert database.add_monitor_record(record)
+        payload = json.loads(database._conn.execute("SELECT payload FROM projection_outbox").fetchone()[0])
+        assert set(record.__dataclass_fields__) <= payload.keys()
+        assert payload["like_count"] == record.like_count
+        assert "observed_at_us" in payload
+    finally:
+        database.close()
+
+
+def test_nested_cycle_interval_survives_outbox_delivery(tmp_path) -> None:
+    from core.database.projector import CentralProjector
+
+    video = VideoDatabase("BV1xx411c7mD", str(tmp_path / "videos"))
+    central = Database(str(tmp_path / "central.db"))
+    try:
+        assert video.save_prediction_cycle(
+            "2026-10-05 12:00:00",
+            [],
+            {"prediction": 100, "prediction_interval": {"lower": 80, "upper": 120, "interval_width_ratio": 0.4}},
+            [],
+        )
+        assert CentralProjector(central).project_video(video).delivered == 1
+        row = central._conn.execute(
+            "SELECT interval_lower, interval_upper, interval_width_ratio FROM prediction_ensemble"
+        ).fetchone()
+        assert tuple(row) == (80, 120, 0.4)
+    finally:
+        video.close()
+        central.close()
+
+
+def test_prediction_cycle_and_milestone_authority_are_atomic(tmp_path, monkeypatch) -> None:
+    database = VideoDatabase("BV1xx411c7mD", str(tmp_path))
+    prediction = {"algorithm": "linear", "algorithm_id": "linear", "target_threshold": 100, "is_reached": True}
+    try:
+        assert database.save_prediction_cycle(
+            "2026-10-05 12:00:00", [prediction], {"prediction": 100}, [("linear", 0.5)]
+        )
+        assert database.upsert_milestone("1周", {"view_count": 100})
+        for table in ("predictions", "prediction_ensemble", "algorithm_coherence", "video_milestones"):
+            assert database._conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 1
+        assert database._conn.execute("SELECT COUNT(*) FROM projection_outbox").fetchone()[0] == 4
+        assert database._conn.execute("SELECT is_reached FROM predictions").fetchone()[0] == 1
+
+        def fail_enqueue(*args, **kwargs):
+            raise RuntimeError("atomicity probe")
+
+        monkeypatch.setattr(database, "_enqueue_outbox", fail_enqueue)
+        assert not database.save_prediction_cycle("2026-10-05 12:01:00", [], {"prediction": 200}, [])
+        assert database._conn.execute("SELECT COUNT(*) FROM prediction_ensemble").fetchone()[0] == 1
+        assert database._conn.execute("SELECT COUNT(*) FROM projection_outbox").fetchone()[0] == 4
+    finally:
+        database.close()
+
+
+def test_projection_preserves_weekly_ensemble_and_prediction_fields(tmp_path) -> None:
+    central = Database(str(tmp_path / "central.db"))
+    try:
+        events = [
+            ProjectionEvent(
+                1, "weekly_scores", "2026-10-05 12:00:00", 1, {"correction_d": 1.25, "base_view_score": 42}
+            ),
+            ProjectionEvent(
+                2, "prediction_ensemble", "2026-10-05 12:00:00", 1, {"interval_lower": 10, "interval_upper": 20}
+            ),
+            ProjectionEvent(
+                3, "prediction_ensemble", "2026-10-05 12:01:00", 2, {"prediction_interval": {"lower": 30, "upper": 40}}
+            ),
+            ProjectionEvent(
+                4,
+                "predictions",
+                "linear:100",
+                1,
+                {
+                    "algorithm": "linear",
+                    "target_threshold": 100,
+                    "is_reached": True,
+                    "actual_time": "done",
+                    "error_rate": 0.1,
+                    "predicted_views": 99,
+                },
+            ),
+        ]
+        central.apply_projection_batch("BV1xx411c7mD", events)
+        assert tuple(central._conn.execute("SELECT correction_d, base_view_score FROM weekly_scores").fetchone()) == (
+            1.25,
+            42,
+        )
+        assert [
+            tuple(row)
+            for row in central._conn.execute(
+                "SELECT interval_lower, interval_upper FROM prediction_ensemble ORDER BY id"
+            )
+        ] == [(10, 20), (30, 40)]
+        assert tuple(
+            central._conn.execute(
+                "SELECT is_reached, actual_time, error_rate, predicted_views FROM predictions"
+            ).fetchone()
+        ) == (1, "done", 0.1, 99)
+    finally:
+        central.close()
 
 
 def _record() -> MonitorRecord:

@@ -61,13 +61,26 @@ class CentralProjector:
             )
         return ProjectionRunResult(delivered=len(events))
 
-    def project_pending(self, video_dbs: list[Any], max_videos: int | None = None) -> ProjectionRunResult:
+    def project_pending(
+        self,
+        video_dbs: list[Any],
+        max_videos: int | None = None,
+        *,
+        operation: Callable[[Any], ProjectionRunResult | None] | None = None,
+    ) -> ProjectionRunResult:
+        """Run one single-flight batch, optionally acquiring a lifetime lease per item.
+
+        With ``operation``, callers may pass registered DB keys rather than bare
+        handles; the callback must lease the handle until projection completes.
+        """
         if not self._run_lock.acquire(blocking=False):
             return ProjectionRunResult(already_running=True)
         try:
             delivered = failed = 0
             for video_db in video_dbs[:max_videos]:
-                result = self.project_video(video_db)
+                result = (operation or self.project_video)(video_db)
+                if result is None:
+                    continue
                 delivered += result.delivered
                 failed += result.failed
             return ProjectionRunResult(delivered, failed)
