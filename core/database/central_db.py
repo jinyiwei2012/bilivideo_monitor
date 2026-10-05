@@ -157,6 +157,26 @@ class Database:
     def sync_yearly_score(self, bvid: str, timestamp: str, score_data: dict) -> bool:
         return self._crud.sync_yearly_score(bvid, timestamp, score_data)
 
+    def upsert_sync_cursor(
+        self,
+        *,
+        scope: str,
+        stream: str,
+        partition_key: str,
+        watermark: str,
+        status: str,
+        last_error: str | None = None,
+    ) -> None:
+        """Persist a non-controlling synchronization observation."""
+        self._crud.upsert_sync_cursor(
+            scope=scope,
+            stream=stream,
+            partition_key=partition_key,
+            watermark=watermark,
+            status=status,
+            last_error=last_error,
+        )
+
     def delete_monitor_records_before(self, cutoff: str) -> int:
         """按时间清理中央库旧监控记录（委托 CRUD）。"""
         return self._crud.delete_monitor_records_before(cutoff)

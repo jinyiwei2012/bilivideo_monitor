@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from .central_schema import migrate_central_schema
+from .central_crud import upsert_sync_cursor_on_connection
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,7 @@ class CentralBackup:
                 self._sync_videos_to_central(active_cur, backup_cur, result)
                 active_bvids, central_bvids = self._sync_monitor_records_to_central(active_cur, backup_cur, result)
                 self._sync_per_video_details(active_bvids, central_bvids, backup_cur, result)
+            self._observe_backup_sync_success(backup_conn, active_bvids | central_bvids)
             backup_conn.commit()
             logger.info(
                 "中央库同步完成: %d视频 %d记录 %d瑕疵 | 预测%d 周刊%d 年刊%d",
@@ -62,6 +64,9 @@ class CentralBackup:
             )
         except Exception as e:
             logger.warning("中央库同步失败: %s", e)
+            if backup_conn is not None:
+                backup_conn.rollback()
+                self._observe_backup_sync_error(backup_conn, str(e))
         finally:
             if backup_conn:
                 try:
@@ -69,6 +74,41 @@ class CentralBackup:
                 except Exception:
                     pass
         return result
+
+    @staticmethod
+    def _observe_backup_sync_success(conn: sqlite3.Connection, bvids: set[str]) -> None:
+        """Record completed backup observations without influencing sync selection."""
+        for bvid in bvids:
+            for stream in ("monitor_records", "predictions", "weekly_scores", "yearly_scores"):
+                watermark_column = "created_at" if stream == "predictions" else "timestamp"
+                row = conn.execute(f"SELECT MAX({watermark_column}) FROM {stream} WHERE bvid=?", (bvid,)).fetchone()
+                upsert_sync_cursor_on_connection(
+                    conn,
+                    scope="active_central",
+                    stream=stream,
+                    partition_key=bvid,
+                    watermark=str(row[0] or ""),
+                    status="success",
+                )
+
+    @staticmethod
+    def _observe_backup_sync_error(conn: sqlite3.Connection, error: str) -> None:
+        """Mark known backup observations failed while retaining their watermarks."""
+        try:
+            rows = conn.execute("SELECT scope, stream, partition_key, watermark FROM sync_cursors").fetchall()
+            for scope, stream, partition_key, watermark in rows:
+                upsert_sync_cursor_on_connection(
+                    conn,
+                    scope=scope,
+                    stream=stream,
+                    partition_key=partition_key,
+                    watermark=watermark,
+                    status="error",
+                    last_error=error,
+                )
+            conn.commit()
+        except Exception as cursor_error:
+            logger.warning("备份同步游标失败状态写入失败: %s", cursor_error)
 
     def sync_per_video_dbs_to_backup(self) -> None:
         """关闭前将活跃库的所有视频独立库同步到备份目录"""

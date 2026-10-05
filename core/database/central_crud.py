@@ -13,11 +13,80 @@ from .models import VideoInfo, MonitorRecord, PredictionRecord
 logger = logging.getLogger(__name__)
 
 
+def upsert_sync_cursor_on_connection(
+    conn: sqlite3.Connection,
+    *,
+    scope: str,
+    stream: str,
+    partition_key: str,
+    watermark: str,
+    status: str,
+    last_error: str | None = None,
+) -> None:
+    """Persist one cursor observation on an already-owned central connection."""
+    conn.execute(
+        """INSERT INTO sync_cursors
+        (scope, stream, partition_key, watermark, updated_at, status, last_error)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(scope, stream, partition_key) DO UPDATE SET
+        watermark=excluded.watermark, updated_at=excluded.updated_at,
+        status=excluded.status, last_error=excluded.last_error""",
+        (scope, stream, partition_key, watermark, now_ts(), status, last_error),
+    )
+
+
 class CentralCRUD:
     """CRUD operations for central database (delegated from Database)"""
 
     def __init__(self, database: Any) -> None:
         self.db = database
+
+    def upsert_sync_cursor(
+        self,
+        *,
+        scope: str,
+        stream: str,
+        partition_key: str,
+        watermark: str,
+        status: str,
+        last_error: str | None = None,
+    ) -> None:
+        """Write an observational cursor without interrupting its primary flow."""
+        try:
+            with self.db._get_connection() as conn:
+                upsert_sync_cursor_on_connection(
+                    conn,
+                    scope=scope,
+                    stream=stream,
+                    partition_key=partition_key,
+                    watermark=watermark,
+                    status=status,
+                    last_error=last_error,
+                )
+                conn.commit()
+        except Exception as error:
+            logger.warning("同步游标观测写入失败 %s/%s/%s: %s", scope, stream, partition_key, error)
+
+    def _sync_error_cursor(self, stream: str, bvid: str, error: Exception) -> None:
+        """Record failure while retaining the last successfully observed watermark."""
+        watermark = ""
+        try:
+            with self.db._get_connection() as conn:
+                row = conn.execute(
+                    "SELECT watermark FROM sync_cursors WHERE scope=? AND stream=? AND partition_key=?",
+                    ("active_video", stream, bvid),
+                ).fetchone()
+                watermark = row[0] if row else ""
+        except Exception:
+            pass
+        self.upsert_sync_cursor(
+            scope="active_video",
+            stream=stream,
+            partition_key=bvid,
+            watermark=watermark,
+            status="error",
+            last_error=str(error),
+        )
 
     def _query_backup(self, sql: str, params: tuple = ()) -> List[sqlite3.Row]:
         """从备份库执行只读查询，返回行列表"""
@@ -287,9 +356,17 @@ class CentralCRUD:
                     ),
                 )
                 conn.commit()
-                return True
+            self.upsert_sync_cursor(
+                scope="active_video",
+                stream="monitor_records",
+                partition_key=bvid,
+                watermark=str(record.get("timestamp") or ""),
+                status="success",
+            )
+            return True
         except Exception as e:
             logger.warning("同步监控记录失败 %s: %s", bvid, e, exc_info=True)
+            self._sync_error_cursor("monitor_records", bvid, e)
             return False
 
     def sync_all_video_dbs(self) -> Dict[str, bool]:
@@ -552,9 +629,18 @@ class CentralCRUD:
                         ),
                     )
                 conn.commit()
-                return True
+            watermark = max((str(row.get("created_at") or "") for row in rows), default="")
+            self.upsert_sync_cursor(
+                scope="active_video",
+                stream="predictions",
+                partition_key=bvid,
+                watermark=watermark or str(len(rows)),
+                status="success",
+            )
+            return True
         except Exception as e:
             logger.warning("批量同步预测失败 %s: %s", bvid, e, exc_info=True)
+            self._sync_error_cursor("predictions", bvid, e)
             return False
 
     def sync_prediction_ensemble(self, bvid: str, timestamp: str, data: dict) -> bool:
@@ -634,9 +720,13 @@ class CentralCRUD:
                     ),
                 )
                 conn.commit()
-                return True
+            self.upsert_sync_cursor(
+                scope="active_video", stream="weekly_scores", partition_key=bvid, watermark=timestamp, status="success"
+            )
+            return True
         except Exception as e:
             logger.warning("同步周刊分数失败 %s: %s", bvid, e, exc_info=True)
+            self._sync_error_cursor("weekly_scores", bvid, e)
             return False
 
     def sync_yearly_score(self, bvid: str, timestamp: str, score_data: dict) -> bool:
@@ -664,9 +754,13 @@ class CentralCRUD:
                     ),
                 )
                 conn.commit()
-                return True
+            self.upsert_sync_cursor(
+                scope="active_video", stream="yearly_scores", partition_key=bvid, watermark=timestamp, status="success"
+            )
+            return True
         except Exception as e:
             logger.warning("同步年刊分数失败 %s: %s", bvid, e, exc_info=True)
+            self._sync_error_cursor("yearly_scores", bvid, e)
             return False
 
     def cleanup_duplicate_predictions(self) -> dict:

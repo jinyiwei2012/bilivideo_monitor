@@ -28,6 +28,23 @@ def _has_table(connection: sqlite3.Connection, table: str) -> bool:
     return row is not None
 
 
+def read_sync_cursors(db_path: str) -> list[dict[str, Any]]:
+    """Read central synchronization observations without changing data selection."""
+    connection = _open_read_only(db_path)
+    if connection is None:
+        return []
+    try:
+        if not _has_table(connection, "sync_cursors"):
+            return []
+        columns = "scope, stream, partition_key, watermark, updated_at, status, last_error"
+        rows = connection.execute(
+            f"SELECT {columns} FROM sync_cursors ORDER BY scope, stream, partition_key"
+        ).fetchall()
+        return [dict(zip(columns.split(", "), row)) for row in rows]
+    finally:
+        connection.close()
+
+
 def _stream_values(
     connection: sqlite3.Connection, table: str, watermark_column: str, logical_predictions: bool, bvid: str | None
 ) -> tuple[int | None, str | None, bool]:
@@ -148,4 +165,5 @@ def audit_video_consistency(
         "checked_at": checked_at,
         "flows": flows,
         "entries": [entry for flow in flows for entry in flow],
+        "sync_cursors": read_sync_cursors(os.path.join(active_base, data_layout.CENTRAL_DB_FILENAME)),
     }
