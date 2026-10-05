@@ -35,8 +35,8 @@ try:
 except ImportError:
     pass
 
-# 全局标记：torch.onnx 导出是否因版本不兼容而永久失败
-_onnx_export_broken = False
+# 按模型记录导出失败（key = (algo_id, bvid)）：单模型失败只降级其自身，不关闭全进程 ONNX 能力
+_onnx_export_failures: set[tuple[str, str]] = set()
 
 # DML 性能标记：首次推理后缓存
 _dml_faster_than_cpu: Optional[bool] = None  # None=未测试, True=DML更快, False=CPU更快
@@ -56,9 +56,21 @@ def _get_onnx_dir():
     return _ONNX_DIR
 
 
+def _remove_partial_artifact(onnx_path: str) -> None:
+    """导出失败后删除残缺 .onnx，避免被后续误当作已有产物。"""
+    if os.path.exists(onnx_path):
+        try:
+            os.remove(onnx_path)
+        except Exception as e:
+            logger.debug("[ONNX] 清理残缺产物失败 %s: %s", onnx_path, e)
+
+
 def is_onnx_available() -> bool:
-    """检查 ONNX Runtime 是否可用（含 torch.onnx 兼容性）。"""
-    return _onnx_available and not _onnx_export_broken
+    """ONNX Runtime 是否可用于加载与执行 ONNX 模型。
+
+    只回答「当前进程能否用 ONNX Runtime 做推理」，不再受任何模型导出失败影响。
+    """
+    return _onnx_available
 
 
 def get_onnx_path(algo_id: str, bvid: str = "") -> str:
@@ -105,17 +117,20 @@ def export_to_onnx(
     Returns:
         str or None: ONNX 文件路径，失败返回 None
     """
-    global _onnx_export_broken
     if not _onnx_available:
         logger.debug("[ONNX] onnxruntime 未安装，跳过导出")
         return None
 
-    if _onnx_export_broken:
-        return None  # 已知 torch.onnx 不兼容，不再重试
-
     onnx_path = get_onnx_path(algo_id, bvid)
+    key = (algo_id, bvid)
+
+    # 已有产物优先——即便此前导出失败，也允许消费既有文件
     if os.path.exists(onnx_path) and not force:
         return onnx_path
+
+    # 该模型此前导出失败：非强制调用直接返回，避免热路径重复尝试
+    if key in _onnx_export_failures and not force:
+        return None
 
     try:
         import torch
@@ -148,19 +163,18 @@ def export_to_onnx(
                 do_constant_folding=True,
             )
         logger.info("[ONNX] 导出成功 %s → %s", algo_id, os.path.basename(onnx_path))
+        _onnx_export_failures.discard(key)
         return onnx_path
     except (ImportError, AttributeError, ModuleNotFoundError) as e:
-        # torch.onnx 内部 API 不兼容（如 torch >= 2.6 重构），永久跳过
-        _onnx_export_broken = True
-        logger.warning("[ONNX] torch.onnx 不兼容，已禁用 ONNX 导出: %s", e)
+        # torch.onnx 内部 API 不兼容：仅降级当前模型，不再关闭全进程 ONNX 能力
+        _onnx_export_failures.add(key)
+        _remove_partial_artifact(onnx_path)
+        logger.warning("[ONNX] torch.onnx 不兼容，已降级当前模型 %s: %s", algo_id, e)
         return None
     except Exception as e:
         logger.warning("[ONNX] 导出失败 %s: %s", algo_id, e)
-        if os.path.exists(onnx_path):
-            try:
-                os.remove(onnx_path)
-            except Exception:
-                pass
+        _onnx_export_failures.add(key)
+        _remove_partial_artifact(onnx_path)
         return None
 
 
