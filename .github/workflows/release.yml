@@ -146,18 +146,7 @@ jobs:
       - name: Build with PyInstaller
         shell: cmd
         run: |
-          pyinstaller --noconfirm --clean --onefile --windowed --name "BiliMonitor" ^
-            --collect-all bilibili_api ^
-            --hidden-import plyer.platforms.win.notification ^
-            --hidden-import PIL._tkinter_finder ^
-            --hidden-import pandas ^
-            --hidden-import sklearn ^
-            --hidden-import scipy ^
-            --hidden-import statsmodels ^
-            --hidden-import xgboost ^
-            --hidden-import lightgbm ^
-            --hidden-import prophet ^
-            main.py
+          pyinstaller --noconfirm --clean BiliMonitor.spec
 
       - name: Verify artifact
         shell: pwsh
