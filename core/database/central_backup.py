@@ -111,11 +111,15 @@ class CentralBackup:
             logger.warning("备份同步游标失败状态写入失败: %s", cursor_error)
 
     def sync_per_video_dbs_to_backup(self) -> None:
-        """关闭前将活跃库的所有视频独立库同步到备份目录"""
+        """将活跃库的所有视频独立库以一致性快照同步到备份目录。
+
+        使用 SQLite ``Connection.backup()`` 生成单文件一致快照，取代裸
+        ``shutil.copy2`` 与手工 WAL/SHM 拼接（后者可能复制出撕裂视图）。
+        """
         backup_base = self.db._get_backup_dir()
         if backup_base == self.db.data_dir:
             return
-        import shutil
+        from .snapshot import snapshot_file
 
         synced = 0
         for item in os.listdir(self.db.data_dir):
@@ -126,30 +130,15 @@ class CentralBackup:
             if not os.path.exists(src_db):
                 continue
             dst_dir = os.path.join(backup_base, item)
-            dst_db = os.path.join(dst_dir, f"{item}.db")
-            if os.path.exists(dst_db):
-                try:
-                    import sqlite3 as _sql
-
-                    with closing(_sql.connect(src_db)) as _conn:
-                        sc = _conn.execute("SELECT COUNT(*) FROM monitor_records").fetchone()[0]
-                    with closing(_sql.connect(dst_db)) as _conn:
-                        dc = _conn.execute("SELECT COUNT(*) FROM monitor_records").fetchone()[0]
-                    if sc <= dc:
-                        continue
-                    shutil.rmtree(dst_dir)
-                except Exception as e:
-                    logger.debug("同步视频独立库跳过 %s: %s", item, e)
-                    continue
             os.makedirs(dst_dir, exist_ok=True)
-            shutil.copy2(src_db, dst_db)
-            for ext in ("-wal", "-shm"):
-                src_ext = src_db + ext
-                if os.path.exists(src_ext):
-                    shutil.copy2(src_ext, dst_db + ext)
-            synced += 1
+            dst_db = os.path.join(dst_dir, f"{item}.db")
+            result = snapshot_file(src_db, dst_db)
+            if result.ok:
+                synced += 1
+            else:
+                logger.debug("同步视频独立库快照失败 %s: %s", item, result.error)
         if synced:
-            logger.info("已同步 %d 个视频独立库到 %s", synced, backup_base)
+            logger.info("已快照 %d 个视频独立库到 %s", synced, backup_base)
 
     def check_backup_diffs(self) -> List[Dict]:
         """比较活跃库与备份库的差异，返回有差异的视频列表"""

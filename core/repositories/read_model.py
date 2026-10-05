@@ -1,16 +1,16 @@
-"""Read models sourced from the legacy backup central database."""
+"""Read models sourced from the active central database."""
 
 from typing import Any
 
 from core.database.connection import readonly_connection
-from core.database.data_layout import backup_central
+from core.database.data_layout import active_central
 
 
 class ReadModelRepository:
-    """Read central video metadata without changing its existing data source."""
+    """Read central video metadata from the active central projection."""
 
     def __init__(self, database_path: str | None = None) -> None:
-        self._database_path = database_path or backup_central()
+        self._database_path = database_path or active_central()
 
     def load_videos(self) -> list[dict[str, Any]]:
         """Return central video summaries in their current UI ordering."""

@@ -1,4 +1,4 @@
-"""Read-only repository behavior and legacy backup-root routing tests."""
+"""Read-only repository behavior and active-root routing tests."""
 
 import hashlib
 import sqlite3
@@ -127,7 +127,7 @@ def test_prediction_repository_preserves_batch_prediction_preload(tmp_path):
     assert before == _digest(video)
 
 
-def test_watch_list_uses_backup_central_role(monkeypatch, tmp_path):
+def test_watch_list_uses_read_model_repository(monkeypatch, tmp_path):
     central = tmp_path / "data" / "bilibili_monitor.db"
     central.parent.mkdir()
     _create_central(central)

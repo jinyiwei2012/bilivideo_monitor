@@ -14,10 +14,9 @@ logger = logging.getLogger(__name__)
 
 
 class _ScoreOpsMixin:
-    """周刊/年刊分数的增删查操作（需要 self._get_connection, self._lock, self._mirror_conn, self.bvid）"""
+    """周刊/年刊分数的增删查操作（需要 self._get_connection, self._lock, self.bvid）"""
 
     bvid: str
-    _mirror_conn: sqlite3.Connection | None
     _lock: Any
 
     def _get_connection(self) -> _ConnectionCtx:
@@ -27,73 +26,6 @@ class _ScoreOpsMixin:
         self, cursor: sqlite3.Cursor, stream: str, entity_key: str, source_row_id: int | None, payload: dict[str, Any]
     ) -> None:
         raise NotImplementedError
-
-    # ── 镜像同步（内部方法）──────────────────────────────
-
-    def _mirror_add_weekly_score(self, timestamp: str, score_data: dict[str, Any]) -> None:
-        """将周刊分数同步写入镜像数据库"""
-        if not self._mirror_conn:
-            return
-        try:
-            with self._lock:
-                self._mirror_conn.execute(
-                    """
-                    INSERT OR REPLACE INTO weekly_scores
-                    (timestamp, total_score, view_score, interaction_score,
-                     favorite_score, coin_score, like_score,
-                     correction_a, correction_b, correction_c, correction_d,
-                     base_view_score)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                    (
-                        timestamp,
-                        score_data.get("total_score", 0),
-                        score_data.get("view_score", 0),
-                        score_data.get("interaction_score", 0),
-                        score_data.get("favorite_score", 0),
-                        score_data.get("coin_score", 0),
-                        score_data.get("like_score", 0),
-                        score_data.get("correction_a", 0),
-                        score_data.get("correction_b", 0),
-                        score_data.get("correction_c", 0),
-                        score_data.get("correction_d", 0),
-                        score_data.get("base_view_score", 0),
-                    ),
-                )
-                self._mirror_conn.commit()
-        except Exception as e:
-            logger.debug("镜像添加周刊分数失败 %s: %s", self.bvid, e)
-
-    def _mirror_add_yearly_score(self, timestamp: str, score_data: dict[str, Any]) -> None:
-        """将年刊分数同步写入镜像数据库"""
-        if not self._mirror_conn:
-            return
-        try:
-            with self._lock:
-                self._mirror_conn.execute(
-                    """
-                    INSERT OR REPLACE INTO yearly_scores
-                    (timestamp, total_score, view_score, interaction_score,
-                     favorite_score, coin_score, like_score,
-                     correction_a, correction_b, correction_c)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                    (
-                        timestamp,
-                        score_data.get("total_score", 0),
-                        score_data.get("view_score", 0),
-                        score_data.get("interaction_score", 0),
-                        score_data.get("favorite_score", 0),
-                        score_data.get("coin_score", 0),
-                        score_data.get("like_score", 0),
-                        score_data.get("correction_a", 0),
-                        score_data.get("correction_b", 0),
-                        score_data.get("correction_c", 0),
-                    ),
-                )
-                self._mirror_conn.commit()
-        except Exception as e:
-            logger.debug("镜像添加年刊分数失败 %s: %s", self.bvid, e)
 
     # ── 周刊分数 ──────────────────────────────────────
 
@@ -129,7 +61,6 @@ class _ScoreOpsMixin:
                 source = cursor.execute("SELECT id FROM weekly_scores WHERE timestamp=?", (timestamp,)).fetchone()
                 self._enqueue_outbox(cursor, "weekly_scores", timestamp, source[0] if source else None, score_data)
                 conn.commit()
-            self._mirror_add_weekly_score(timestamp, score_data)
             return True
         except Exception as e:
             logger.warning("添加周刊分数记录失败 %s: %s", self.bvid, e, exc_info=True)
@@ -191,7 +122,6 @@ class _ScoreOpsMixin:
                 source = cursor.execute("SELECT id FROM yearly_scores WHERE timestamp=?", (timestamp,)).fetchone()
                 self._enqueue_outbox(cursor, "yearly_scores", timestamp, source[0] if source else None, score_data)
                 conn.commit()
-            self._mirror_add_yearly_score(timestamp, score_data)
             return True
         except Exception as e:
             logger.warning("添加年刊分数记录失败 %s: %s", self.bvid, e, exc_info=True)

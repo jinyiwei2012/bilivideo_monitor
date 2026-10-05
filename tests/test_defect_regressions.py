@@ -295,17 +295,14 @@ class TestVideoDb:
         assert row[1] != "", "actual_time 不应为空"
         assert row[2] == 0
 
-    def test_mirror_initialized(self, tmp_path, monkeypatch):
+    def test_mirror_not_initialized(self, tmp_path, monkeypatch):
         import core.database.video_db as vdb_mod
 
-        # 让 mirror_base 指向 tmp/mirror 而非真实 data/ 目录
-        monkeypatch.setattr(vdb_mod, "project_path", lambda *a, **kw: str(tmp_path / "mirror"))
+        # 4.4-D 起在线镜像已取消：视频库不再持有第二写连接与镜像路径。
         bvid = "BV1fK4y1U7abcd"
         vdb = vdb_mod.VideoDatabase(bvid, base_dir=str(tmp_path / "active"))
-        # 视频库 _mirror_path 设置（mirror_base != base_dir）
-        assert vdb._mirror_conn is not None, "镜像连接未初始化"
-        assert vdb._mirror_path is not None
-        assert bvid in vdb._mirror_path
+        assert not hasattr(vdb, "_mirror_conn"), "在线镜像连接应已移除"
+        assert not hasattr(vdb, "_mirror_path"), "镜像路径应已移除"
         vdb.close()
 
 

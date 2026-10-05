@@ -90,7 +90,7 @@ class DatabaseQueryWindow(DialogBase):
 
         super().__init__(parent, "数据库查询", (int(sw * 0.54), int(sh * 0.72)), modal=False)
 
-        self.db_path = data_layout.backup_central()
+        self.db_path = data_layout.active_central()
         self.query_results: List[Dict] = []
         self._extra_data: List[Dict] = []
         self._algo_names: List[str] = []
@@ -373,11 +373,11 @@ class DatabaseQueryWindow(DialogBase):
     def _get_video_db_path(self, bvid: str) -> Optional[str]:
         if not is_valid_bvid(bvid):
             return None
-        primary = data_layout.mirror_video(bvid)
+        primary = data_layout.active_video(bvid)
         if os.path.exists(primary):
             return primary
-        backup = data_layout.active_video(bvid)
-        return backup if os.path.exists(backup) else None
+        fallback = data_layout.mirror_video(bvid)
+        return fallback if os.path.exists(fallback) else None
 
     @staticmethod
     def _dedupe_latest_per_algo(pred_rows, timestamp) -> list:

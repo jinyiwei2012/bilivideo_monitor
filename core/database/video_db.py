@@ -57,15 +57,6 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
         self._conn.execute("PRAGMA journal_mode=WAL")  # 启用 WAL 模式提升并发读性能
         self._conn.execute("PRAGMA synchronous=NORMAL")  # 平衡写入安全与速度
 
-        # 镜像连接：同步写入 data/ 目录（延迟初始化，首次写入时才创建以节省内存）
-        self._mirror_conn: sqlite3.Connection | None = None
-        self._mirror_path: str | None = None
-        mirror_base = project_path("data")
-        if mirror_base != base_dir:
-            mirror_dir = os.path.join(mirror_base, bvid)
-            os.makedirs(mirror_dir, exist_ok=True)
-            self._mirror_path = os.path.join(mirror_dir, f"{bvid}.db")
-
         # 中央数据库引用（用于写入兜底，由调用方通过 set_central_db 注入）
         self._central_db: Any = None
 
@@ -74,48 +65,10 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
         except Exception:
             self._conn.close()
             raise
-        # 镜像库初始化：确保镜像连接可用（失败仅记 debug 日志，不影响主库）
-        try:
-            self._ensure_mirror()
-        except Exception as e:
-            logger.debug("初始化镜像数据库失败 %s: %s", self.bvid, e)
 
     def _get_connection(self) -> _ConnectionCtx:
         """返回线程安全的连接上下文管理器（兼容 with 语法）"""
         return _ConnectionCtx(self._conn, self._lock)
-
-    def _ensure_mirror(self) -> None:
-        """延迟创建镜像数据库连接（首次写入时调用，节省内存）。"""
-        if self._mirror_conn is not None or self._mirror_path is None:
-            return
-        try:
-            import sqlite3 as _sqlite3
-
-            self._mirror_conn = _sqlite3.connect(self._mirror_path, check_same_thread=False)
-            self._mirror_conn.row_factory = sqlite3.Row
-            self._mirror_conn.execute("PRAGMA journal_mode=WAL")
-            self._mirror_conn.execute("PRAGMA synchronous=NORMAL")
-            self._init_mirror_tables()
-        except Exception as e:
-            logger.warning("创建镜像数据库连接失败 %s: %s", self.bvid, e, exc_info=True)
-            self._mirror_conn = None
-
-    def _execute_on_all(self, sql: str, params: tuple[Any, ...] = ()) -> None:
-        """在主连接和镜像连接上同时执行 SQL"""
-
-        def _exec(conn: sqlite3.Connection, label: str = "main") -> None:
-            try:
-                conn.execute(sql, params) if params else conn.execute(sql)
-                conn.commit()
-            except Exception as e:
-                logger.error("数据库写入失败 [%s]: %s | SQL: %.200s", label, e, sql)
-
-        with self._get_connection() as conn:
-            _exec(conn, "main")
-        self._ensure_mirror()
-        if self._mirror_conn:
-            with _ConnectionCtx(self._mirror_conn, self._lock) as conn:
-                _exec(conn, "mirror")
 
     def _raw_connection(self) -> sqlite3.Connection:
         """返回原始连接（用于需要直接操作的场景）"""
@@ -585,18 +538,6 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
         """
         self._central_db = central_db
 
-    def _init_mirror_tables(self) -> None:
-        """在镜像连接上创建与主库相同的表结构（仅当镜像连接存在时）。
-
-        schema 单点定义见 SCHEMA_STATEMENTS, 与主库共用。
-        """
-        if not self._mirror_conn:
-            return
-        try:
-            self.migrate_video_schema(self._mirror_conn)
-        except Exception as e:
-            logger.warning("初始化镜像数据库表失败 %s: %s", self.bvid, e, exc_info=True)
-
     def _migrate_video_v1(self, conn: sqlite3.Connection) -> None:
         """检查并迁移数据库：添加缺少的列、自动计算默认值
 
@@ -731,20 +672,6 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
         except Exception as e:
             logger.debug("更新 predictions predicted_hours 失败: %s", e)
 
-    def _exec_mirror(self, sql: str, params: tuple[Any, ...] = ()) -> None:
-        """在镜像连接上执行 SQL（若镜像已创建）。
-
-        与主库写入共用同一 SQL/参数定义, 消除 _mirror_* 重复方法。
-        """
-        if not self._mirror_conn:
-            return
-        try:
-            with self._lock:
-                self._mirror_conn.execute(sql, params)
-                self._mirror_conn.commit()
-        except Exception as e:
-            logger.debug("镜像写入失败 %s: %s", self.bvid, e)
-
     def save_video_info(self, video_info: Dict) -> None:
         """保存（插入或替换）视频信息到 video_info 表, 并同步镜像库。
 
@@ -784,7 +711,6 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
             with self._get_connection() as conn:
                 conn.cursor().execute(sql, params)
                 conn.commit()
-            self._exec_mirror(sql, params)
         except Exception as e:
             logger.warning("保存视频信息失败 %s: %s", self.bvid, e, exc_info=True)
 
@@ -834,7 +760,6 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
                     asdict(record),
                 )
                 conn.commit()
-            self._exec_mirror(sql, params)
             return True
         except Exception as e:
             logger.warning("添加监控记录失败 %s: %s", record.bvid, e, exc_info=True)
@@ -853,7 +778,6 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
                 cur.execute(sql, (cutoff,))
                 deleted = cur.rowcount
                 conn.commit()
-            self._exec_mirror(sql, (cutoff,))
             return max(0, int(deleted))
         except Exception as e:
             logger.warning("清理旧监控记录失败 %s: %s", self.bvid, e, exc_info=True)
@@ -890,7 +814,6 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
             with self._get_connection() as conn:
                 conn.execute(sql, params)
                 conn.commit()
-            self._exec_mirror(sql, params)
             return True
         except Exception as e:
             logger.warning("保存精确过线事件失败 %s: %s", self.bvid, e, exc_info=True)
@@ -1012,7 +935,6 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
                     row,
                 )
                 conn.commit()
-            self._exec_mirror(sql, params)
             # 中央库兜底同步
             if self._central_db and self._legacy_central_sync:
                 try:
@@ -1109,21 +1031,6 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
                         row,
                     )
                 conn.commit()
-            # 镜像批量同步（单事务批量写入，避免逐行 commit）
-            if self._mirror_conn:
-                try:
-                    self._mirror_conn.executemany(
-                        """INSERT OR REPLACE INTO predictions
-                        (algorithm, algorithm_id, target_threshold, predicted_seconds,
-                         predicted_time, confidence, current_views,
-                         metadata, predicted_hours, current_velocity,
-                         is_reached, actual_time)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                        [_prediction_params(r) for r in rows],
-                    )
-                    self._mirror_conn.commit()
-                except Exception as e:
-                    logger.debug("镜像批量同步预测记录失败 %s: %s", self.bvid, e)
             # 中央库兜底同步
             if self._central_db and self._legacy_central_sync:
                 try:
@@ -1164,52 +1071,24 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
                 result["deleted"] = before - (cursor.execute("SELECT COUNT(*) FROM predictions").fetchone()[0])
                 result["kept"] = cursor.execute("SELECT COUNT(*) FROM predictions").fetchone()[0]
                 conn.commit()
-            # 镜像同步清理
-            if self._mirror_conn:
-                try:
-                    mirror_cur = self._mirror_conn.cursor()
-                    mirror_before = mirror_cur.execute("SELECT COUNT(*) FROM predictions").fetchone()[0]
-                    mirror_cur.execute("""
-                        DELETE FROM predictions
-                        WHERE id NOT IN (
-                            SELECT MAX(id) FROM predictions
-                            GROUP BY algorithm, target_threshold
-                        )
-                    """)
-                    self._mirror_conn.commit()
-                    result["mirror_deleted"] = (
-                        mirror_before - mirror_cur.execute("SELECT COUNT(*) FROM predictions").fetchone()[0]
-                    )
-                except Exception as e:
-                    logger.debug("镜像清理预测重复失败 %s: %s", self.bvid, e)
-            if result["deleted"] > 0 or result["mirror_deleted"] > 0:
+            if result["deleted"] > 0:
                 logger.info(
-                    "预测清理完成 %s: 主库删除%d行(保留%d), 镜像删除%d行",
+                    "预测清理完成 %s: 主库删除%d行(保留%d)",
                     self.bvid,
                     result["deleted"],
                     result["kept"],
-                    result["mirror_deleted"],
                 )
         except Exception as e:
             logger.warning("清理预测重复失败 %s: %s", self.bvid, e, exc_info=True)
         return result
 
     def close(self) -> None:
-        """关闭数据库连接，刷新 WAL
-
-        依次 checkpoint、关闭主连接、关闭镜像连接
-        """
+        """关闭数据库连接，刷新 WAL"""
         self.wal_checkpoint()
         try:
             self._conn.close()
         except Exception as e:
             logger.debug("关闭数据库连接失败: %s", e)
-        if self._mirror_conn:
-            try:
-                self._mirror_conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-                self._mirror_conn.close()
-            except Exception as e:
-                logger.debug("关闭镜像数据库连接失败: %s", e)
 
     def wal_checkpoint(self) -> None:
         """安全执行 WAL checkpoint，持有锁避免与写入冲突"""
