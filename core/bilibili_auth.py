@@ -615,18 +615,26 @@ def _apply_qr_poll_status(result: Dict[str, Any], data: Dict[str, Any]) -> bool:
     return False
 
 
+def _fill_missing_cookies(target: Dict[str, Any], source: Dict[str, Optional[str]], keys: tuple[str, ...]) -> None:
+    """把 ``source`` 中 ``target`` 尚缺的键补入 ``target``（不覆盖已有，不补空值）。
+
+    这是 cookie 三来源合并的通用原语：各来源按序提供，缺哪个补哪个。
+    """
+    for key in keys:
+        if key in target:
+            continue
+        value = source.get(key)
+        if value:
+            target[key] = value
+
+
 def _collect_qr_redirect_cookies(self: _QRCodeAuthHost, resp: Any, data: Dict[str, Any]) -> Dict[str, Any]:
     cookies = dict(_extract_login_cookies(self, resp, data))
     # 重定向 URL 兜底：**合并**（不是覆盖），键集与 LOGIN_COOKIE_KEYS 同源（契约 §3 要求 5 个）
     redirect_url = data.get("url", "")
     if redirect_url:
-        params = parse_qs(urlparse(redirect_url).query)
-        for key in LOGIN_COOKIE_KEYS:
-            if key in cookies:
-                continue
-            value = params.get(key, [None])[0]
-            if value:
-                cookies[key] = value
+        params = {k: vs[0] for k, vs in parse_qs(urlparse(redirect_url).query).items() if vs}
+        _fill_missing_cookies(cookies, params, LOGIN_COOKIE_KEYS)
     return cookies
 
 
@@ -638,12 +646,7 @@ def _collect_qr_response_cookies(self: _QRCodeAuthHost, resp: Any, data: Dict[st
         value = ci.get("value", "")
         if name in LOGIN_COOKIE_KEYS and name not in cookies and value:
             cookies[name] = value
-    for key in LOGIN_COOKIE_KEYS:
-        if key in cookies:
-            continue
-        value = resp.cookies.get(key)
-        if value:
-            cookies[key] = value
+    _fill_missing_cookies(cookies, {k: resp.cookies.get(k) for k in LOGIN_COOKIE_KEYS}, LOGIN_COOKIE_KEYS)
     return cookies
 
 
