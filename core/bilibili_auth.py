@@ -32,6 +32,26 @@ class _CredentialLike(Protocol):
     ac_time_value: str
 
 
+class _QRCodeAuthHost(Protocol):
+    """扫码登录函数对宿主的**最小能力契约**（结构性，不要求运行时基类）。
+
+    扫码段（get_qrcode_login_url / poll_qrcode_login 及其私有辅助）只依赖这些成员；
+    仅描述实际访问面，不扩张为整个 BilibiliAPI 接口。
+    """
+
+    USER_AGENTS: list
+    _qr_session: Any
+
+    def set_cookies(self, cookies: Dict[str, Any]) -> None:
+        pass
+
+    def _persist_cookies(self, cookies: Dict[str, Any]) -> None:
+        pass
+
+    def _extract_login_cookies(self, resp: Any, data: Dict[str, Any]) -> Dict[str, Any]:
+        pass
+
+
 def set_cookies(self: Any, cookies: Dict[str, Any]) -> None:
     cookies = self._sanitize_cookies(cookies)
     self._cookies = cookies
@@ -528,7 +548,7 @@ def _extract_login_cookies(self: Any, resp: Any, data: Dict[str, Any]) -> Dict[s
     return cookies
 
 
-def _init_qr_session(self: Any) -> Any:
+def _init_qr_session(self: _QRCodeAuthHost) -> Any:
     if not hasattr(self, "_qr_session") or self._qr_session is None:
         import requests as _req
 
@@ -543,7 +563,7 @@ def _init_qr_session(self: Any) -> Any:
     return self._qr_session
 
 
-def _close_qr_session(self: Any) -> None:
+def _close_qr_session(self: _QRCodeAuthHost) -> None:
     """关闭二维码登录独立 Session"""
     if hasattr(self, "_qr_session") and self._qr_session is not None:
         try:
@@ -553,7 +573,7 @@ def _close_qr_session(self: Any) -> None:
         self._qr_session = None
 
 
-def get_qrcode_login_url(self: Any) -> Optional[Dict[str, Any]]:
+def get_qrcode_login_url(self: _QRCodeAuthHost) -> Optional[Dict[str, Any]]:
     """获取 QR 扫码登录 URL 和密钥"""
     sess = _init_qr_session(self)
     try:
@@ -595,7 +615,7 @@ def _apply_qr_poll_status(result: Dict[str, Any], data: Dict[str, Any]) -> bool:
     return False
 
 
-def _collect_qr_redirect_cookies(self: Any, resp: Any, data: Dict[str, Any]) -> Dict[str, Any]:
+def _collect_qr_redirect_cookies(self: _QRCodeAuthHost, resp: Any, data: Dict[str, Any]) -> Dict[str, Any]:
     cookies = dict(_extract_login_cookies(self, resp, data))
     # 重定向 URL 兜底：**合并**（不是覆盖），键集与 LOGIN_COOKIE_KEYS 同源（契约 §3 要求 5 个）
     redirect_url = data.get("url", "")
@@ -610,7 +630,7 @@ def _collect_qr_redirect_cookies(self: Any, resp: Any, data: Dict[str, Any]) -> 
     return cookies
 
 
-def _collect_qr_response_cookies(self: Any, resp: Any, data: Dict[str, Any]) -> Dict[str, Any]:
+def _collect_qr_response_cookies(self: _QRCodeAuthHost, resp: Any, data: Dict[str, Any]) -> Dict[str, Any]:
     """三种来源**合并**收全登录 Cookie（契约 §3：`Set-Cookie` 下发 5 个，缺一不可）。"""
     cookies = dict(_collect_qr_redirect_cookies(self, resp, data))
     for ci in data.get("cookie_info", {}).get("cookies", []):
@@ -627,7 +647,7 @@ def _collect_qr_response_cookies(self: Any, resp: Any, data: Dict[str, Any]) -> 
     return cookies
 
 
-def _exchange_qr_refresh_token(self: Any, sess: Any, data: Dict[str, Any]) -> Dict[str, Any]:
+def _exchange_qr_refresh_token(self: _QRCodeAuthHost, sess: Any, data: Dict[str, Any]) -> Dict[str, Any]:
     cookies: Dict[str, Any] = {}
     logger.debug("QR 登录未取到 Cookie，尝试从 refresh_token 换票")
     token_data = {"refresh_token": data["refresh_token"]}
@@ -643,14 +663,14 @@ def _exchange_qr_refresh_token(self: Any, sess: Any, data: Dict[str, Any]) -> Di
     return cookies
 
 
-def _collect_qr_login_cookies(self: Any, sess: Any, resp: Any, data: Dict[str, Any]) -> Dict[str, Any]:
+def _collect_qr_login_cookies(self: _QRCodeAuthHost, sess: Any, resp: Any, data: Dict[str, Any]) -> Dict[str, Any]:
     cookies = _collect_qr_response_cookies(self, resp, data)
     if not cookies and data.get("refresh_token"):
         cookies = _exchange_qr_refresh_token(self, sess, data)
     return cookies
 
 
-def poll_qrcode_login(self: Any, qrcode_key: str) -> Optional[Dict[str, Any]]:
+def poll_qrcode_login(self: _QRCodeAuthHost, qrcode_key: str) -> Optional[Dict[str, Any]]:
     sess = _init_qr_session(self)
     url = "https://passport.bilibili.com/x/passport-login/web/qrcode/poll"
     result = {"status": 0, "message": "等待扫码", "cookies": {}}
@@ -680,6 +700,8 @@ def poll_qrcode_login(self: Any, qrcode_key: str) -> Optional[Dict[str, Any]]:
 
 
 class _AuthMixin:
+    _qr_session: Any  # 仅注解，不赋值：保留 _init_qr_session 的 hasattr 惰性语义
+
     set_cookies = set_cookies
     get_refresh_token = get_refresh_token
     get_accounts = get_accounts
