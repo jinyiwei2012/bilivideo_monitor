@@ -5,7 +5,6 @@
 import csv
 import logging
 import os
-import sqlite3
 import threading
 from datetime import datetime
 from typing import Optional, List, Dict
@@ -725,18 +724,7 @@ class DatabaseQueryWindow(DialogBase):
 
         def _do_delete():
             try:
-                conn = sqlite3.connect(db_path)
-                cur = conn.cursor()
-                for bvid, ts in del_data:
-                    if source_bvid:
-                        cur.execute("DELETE FROM monitor_records WHERE timestamp = ?", (ts,))
-                    else:
-                        cur.execute(
-                            "DELETE FROM monitor_records WHERE bvid = ? AND timestamp = ?",
-                            (bvid, ts),
-                        )
-                conn.commit()
-                conn.close()
+                MonitorRepository(db_path).delete_monitor_records(del_data, by_bvid=not bool(source_bvid))
                 self._delete_finished.emit(del_data, len(sel))
             except Exception:
                 logger.error("删除记录失败", exc_info=True)

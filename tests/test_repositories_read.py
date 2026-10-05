@@ -4,7 +4,7 @@ import hashlib
 import sqlite3
 
 from core.database.connection import open_readonly_connection
-from core.repositories import MonitorRepository, PredictionRepository, ReadModelRepository
+from core.repositories import MonitorRepository, PredictionRepository, ReadModelRepository, ViewerRepository
 from ui.monitor import _service
 
 
@@ -74,6 +74,36 @@ def test_read_model_and_monitor_modes_are_read_only(tmp_path):
             raise AssertionError("read-only connection accepted a write")
     finally:
         connection.close()
+
+
+def test_monitor_repository_deletes_with_central_and_video_identities(tmp_path):
+    database = tmp_path / "monitor.db"
+    _create_central(database)
+    repository = MonitorRepository(str(database))
+
+    repository.delete_monitor_records([("BV1", "2026-01-02")], by_bvid=True)
+    repository.delete_monitor_records([("ignored", "2026-01-03")], by_bvid=False)
+
+    connection = sqlite3.connect(database)
+    try:
+        rows = connection.execute("SELECT bvid, timestamp FROM monitor_records ORDER BY timestamp").fetchall()
+    finally:
+        connection.close()
+    assert rows == [("BV1", "2026-01-01")]
+
+
+def test_viewer_repository_persists_latest_snapshot(monkeypatch, tmp_path):
+    root = tmp_path / "viewer-data"
+    monkeypatch.setattr("core.database.data_layout.backup_root", lambda: str(root))
+    timestamps = iter(["2026-01-01 00:00:00", "2026-01-01 00:00:01"])
+    monkeypatch.setattr("core.repositories.viewer.now_ts", lambda: next(timestamps))
+    repository = ViewerRepository()
+    try:
+        repository.write("BV1", 10, 6, 4)
+        repository.write("BV1", 20, 12, 8)
+        assert repository.read_latest() == {"BV1": {"total": 20, "web": 12, "app": 8}}
+    finally:
+        repository.close()
 
 
 def test_prediction_repository_preserves_batch_prediction_preload(tmp_path):

@@ -1,5 +1,6 @@
-"""Read-only monitor-record queries for central and per-video databases."""
+"""Monitor-record queries and mutations for central and per-video databases."""
 
+import sqlite3
 from typing import Any
 
 from core.database.connection import readonly_connection
@@ -26,6 +27,23 @@ class MonitorRepository:
             if connection is None:
                 return []
             return self._query(connection, mode, limit, threshold, None, None, central=False)
+
+    def delete_monitor_records(self, entries: list[tuple[str, str]], by_bvid: bool) -> None:
+        """Delete selected records using the established video or central identity."""
+        connection = sqlite3.connect(self._database_path)
+        try:
+            cursor = connection.cursor()
+            for bvid, timestamp in entries:
+                if by_bvid:
+                    cursor.execute(
+                        "DELETE FROM monitor_records WHERE bvid = ? AND timestamp = ?",
+                        (bvid, timestamp),
+                    )
+                else:
+                    cursor.execute("DELETE FROM monitor_records WHERE timestamp = ?", (timestamp,))
+            connection.commit()
+        finally:
+            connection.close()
 
     @staticmethod
     def _query(

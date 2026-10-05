@@ -6,8 +6,6 @@
 
 import logging
 import threading
-import os
-import sqlite3
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -28,72 +26,13 @@ from ui.theme import C
 from ui.helpers import FONT, FONT_SM, fmt_num, _parse_viewer_count
 from ui.invoker import invoke
 from ui.monitor._lifecycle import accepts_tasks, start_registered_task
-from utils.time_utils import now_ts
+from core.repositories import ViewerRepository
 
 logger = logging.getLogger(__name__)
 
 REFRESH_INTERVAL = 15000  # 毫秒，15 秒刷新
 MAX_VIEWER_FETCH_WORKERS = 4
 TOP_N_FETCH = 20
-
-# ── 模块级在线人数数据库（每个视频独立 data/<BV>/viewercount.db）──
-_db_cache: dict[str, sqlite3.Connection] = {}
-_db_lock = threading.Lock()
-
-
-def _get_viewer_db(bvid: str) -> sqlite3.Connection:
-    """获取指定视频的在线人数数据库连接（惰性创建）"""
-    if bvid in _db_cache:
-        return _db_cache[bvid]
-    from config import DATA_DIR
-
-    db_path = os.path.join(DATA_DIR, bvid, "viewercount.db")
-    os.makedirs(os.path.dirname(db_path), exist_ok=True)
-    db = sqlite3.connect(db_path, check_same_thread=False)
-    db.execute("PRAGMA journal_mode=WAL")
-    db.execute("PRAGMA synchronous=NORMAL")
-    db.execute("CREATE TABLE IF NOT EXISTS viewers " "(timestamp TEXT, total INTEGER, web INTEGER, app INTEGER)")
-    # 该表每 15s 追加一行（30 天≈17 万行），且每次刷新都要取「最新一条」；
-    # 无索引时 ORDER BY timestamp DESC LIMIT 1 是全表扫描（实测 17 万行 96.6ms → 有索引 0.1ms）
-    db.execute("CREATE INDEX IF NOT EXISTS idx_viewers_ts ON viewers(timestamp DESC)")
-    db.commit()
-    _db_cache[bvid] = db
-    return db
-
-
-def _write_viewer(bvid: str, total: int, web: int, app: int):
-    """写入一条在线人数记录"""
-    with _db_lock:
-        db = _get_viewer_db(bvid)
-        db.execute(
-            "INSERT INTO viewers (timestamp, total, web, app) VALUES (?, ?, ?, ?)",
-            (now_ts(), total, web, app),
-        )
-        db.commit()
-
-
-def _read_viewers() -> dict:
-    """读取每个视频最新的在线人数（bvid → {total, web, app}）"""
-    result = {}
-    with _db_lock:
-        for bvid, db in list(_db_cache.items()):
-            cur = db.execute("SELECT total, web, app FROM viewers ORDER BY timestamp DESC LIMIT 1")
-            row = cur.fetchone()
-            if row:
-                result[bvid] = {"total": row[0], "web": row[1], "app": row[2]}
-    return result
-
-
-def _close_viewers_db():
-    """关闭所有在线人数数据库连接"""
-    with _db_lock:
-        for db in _db_cache.values():
-            try:
-                db.close()
-            except Exception:
-                pass
-        _db_cache.clear()
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 # ── 面板 ──────────────────────────────────────────────────────────────────────
@@ -109,6 +48,7 @@ class OnlineViewersPanel(QWidget):
         self._sort_col = "viewers_total"
         self._sort_rev = True
         self._refresh_lock = threading.Lock()
+        self._viewer_repo = ViewerRepository()
         self._fetch_pool = None
         self._active = False
         self._started = False
@@ -292,7 +232,7 @@ class OnlineViewersPanel(QWidget):
             self._refresh_lock.release()
         # 在后台读取各视频最新在线人数（避免主线程逐视频查库）
         try:
-            cached = _read_viewers()
+            cached = self._viewer_repo.read_latest()
         except Exception:
             cached = {}
         if self._active and accepts_tasks(self.gui):
@@ -344,7 +284,7 @@ class OnlineViewersPanel(QWidget):
                 total = _parse_viewer_count(viewers.get("total", "0"))
                 web = _parse_viewer_count(viewers.get("count", "0"))
                 app = max(0, total - web)
-                _write_viewer(bvid, total, web, app)
+                self._viewer_repo.write(bvid, total, web, app)
         except Exception:
             pass
 
@@ -373,7 +313,7 @@ class OnlineViewersPanel(QWidget):
             return
 
         selected_bvid = self._selected_viewer_bvid()
-        cached = _read_viewers()
+        cached = self._viewer_repo.read_latest()
         priority_videos = self._priority_viewer_videos(videos, cached, selected_bvid)
         fetchable = self._fetchable_viewer_videos(priority_videos)
 
@@ -391,7 +331,7 @@ class OnlineViewersPanel(QWidget):
         未传入时回退到同步读取（兼容直接调用）。
         """
         if cached is None:
-            cached = _read_viewers()
+            cached = self._viewer_repo.read_latest()
         gui = self.gui
         if gui is None:
             return
@@ -507,7 +447,7 @@ class OnlineViewersPanel(QWidget):
         if self._fetch_pool:
             self._fetch_pool.shutdown(wait=True, timeout=5)
             self._fetch_pool = None
-        _close_viewers_db()
+        self._viewer_repo.close()
 
     def _start_auto_refresh(self):
         self._timer.start(REFRESH_INTERVAL)

@@ -872,24 +872,24 @@ class TestIndexesAdded:
 class TestOnlineViewersBackgroundCache:
     """M2.2d: 在线人数缓存由后台读取并传入 _populate，主线程不查库。"""
 
-    def test_populate_with_cached_skips_read(self, monkeypatch):
-        import ui.online_viewers_panel as ovp
-
+    def test_populate_with_cached_skips_read(self):
         calls = {"n": 0}
 
-        def _read():
-            calls["n"] += 1
-            return {}
-
-        monkeypatch.setattr(ovp, "_read_viewers", _read)
+        class _ViewerRepository:
+            def read_latest(self):
+                calls["n"] += 1
+                return {}
 
         class _Fake:
             gui = None
+            _viewer_repo = _ViewerRepository()
 
-        ovp.OnlineViewersPanel._populate(_Fake(), cached={"BV1": {"total": 1}})
+        from ui.online_viewers_panel import OnlineViewersPanel
+
+        OnlineViewersPanel._populate(_Fake(), cached={"BV1": {"total": 1}})
         assert calls["n"] == 0, "传入 cached 时不应再查库"
 
-        ovp.OnlineViewersPanel._populate(_Fake())
+        OnlineViewersPanel._populate(_Fake())
         assert calls["n"] == 1, "未传 cached 时回退同步读取"
 
     def test_update_ui_passes_cached(self):
