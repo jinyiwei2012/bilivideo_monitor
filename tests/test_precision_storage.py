@@ -51,6 +51,10 @@ def test_existing_central_database_migrates_monitor_timing_columns(tmp_path) -> 
     try:
         with sqlite3.connect(path) as conn:
             columns = {row[1] for row in conn.execute("PRAGMA table_info(monitor_records)")}
+            tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            version = conn.execute("PRAGMA user_version").fetchone()[0]
         assert {"observed_at_us", "request_start_us", "rtt_us"} <= columns
+        assert "sync_cursors" in tables
+        assert version == 3
     finally:
         database.close()

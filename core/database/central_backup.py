@@ -7,6 +7,8 @@ from contextlib import closing
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from .central_schema import migrate_central_schema
+
 logger = logging.getLogger(__name__)
 
 
@@ -41,9 +43,8 @@ class CentralBackup:
         try:
             backup_conn = sqlite3.connect(central_db)
             backup_conn.row_factory = sqlite3.Row
+            self._ensure_central_tables(backup_conn)
             backup_cur = backup_conn.cursor()
-            self._ensure_central_tables(backup_cur)
-            backup_conn.commit()
             with self.db._get_connection() as active_conn:
                 active_cur = active_conn.cursor()
                 self._sync_videos_to_central(active_cur, backup_cur, result)
@@ -199,7 +200,6 @@ class CentralBackup:
         每个 bvid 以中央库已同步的最大 timestamp 作为水位线，只扫描并写入该线之后的
         记录 → 耗时由 O(全表) 降为 O(增量)，且不再把两侧全量记录拉进内存。
         """
-        self._migrate_monitor_timing_columns(central_cur)
         central_cur.execute("SELECT bvid, MAX(timestamp) AS wm FROM monitor_records GROUP BY bvid")
         watermark = {r["bvid"]: (r["wm"] or "") for r in central_cur.fetchall()}
         central_bvids = set(watermark)
@@ -462,100 +462,6 @@ class CentralBackup:
         return len(batch)
 
     @staticmethod
-    def _ensure_central_tables(cur: sqlite3.Cursor) -> None:
+    def _ensure_central_tables(conn: sqlite3.Connection) -> None:
         """确保中央库有完整的表结构（兼容首次同步）"""
-        cur.execute("""CREATE TABLE IF NOT EXISTS videos (
-            bvid TEXT PRIMARY KEY, title TEXT, view_count INTEGER DEFAULT 0,
-            like_count INTEGER DEFAULT 0, coin_count INTEGER DEFAULT 0,
-            share_count INTEGER DEFAULT 0, favorite_count INTEGER DEFAULT 0,
-            danmaku_count INTEGER DEFAULT 0, reply_count INTEGER DEFAULT 0,
-            viewers_app INTEGER DEFAULT 0, viewers_web INTEGER DEFAULT 0,
-            viewers_total INTEGER DEFAULT 0, cover_path TEXT,
-            like_view_ratio REAL DEFAULT 0, owner_name TEXT, owner_id INTEGER,
-            pubdate TEXT, duration INTEGER, pic TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
-        cur.execute("""CREATE TABLE IF NOT EXISTS monitor_records (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, bvid TEXT,
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            view_count INTEGER, like_count INTEGER, coin_count INTEGER,
-            share_count INTEGER, favorite_count INTEGER, danmaku_count INTEGER,
-            reply_count INTEGER, viewers_app INTEGER DEFAULT 0,
-            viewers_web INTEGER DEFAULT 0, viewers_total INTEGER DEFAULT 0,
-            like_view_ratio REAL DEFAULT 0, observed_at_us INTEGER,
-            request_start_us INTEGER, rtt_us INTEGER)""")
-        CentralBackup._migrate_monitor_timing_columns(cur)
-        cur.execute("""CREATE UNIQUE INDEX IF NOT EXISTS idx_monitor_bvid_ts
-            ON monitor_records(bvid, timestamp)""")
-        cur.execute("""CREATE TABLE IF NOT EXISTS weekly_scores (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, bvid TEXT NOT NULL,
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            total_score REAL, view_score REAL, interaction_score REAL,
-            favorite_score REAL, coin_score REAL, like_score REAL,
-            correction_a REAL, correction_b REAL, correction_c REAL,
-            correction_d REAL, base_view_score REAL)""")
-        cur.execute("""CREATE INDEX IF NOT EXISTS idx_weekly_bvid
-            ON weekly_scores(bvid, timestamp)""")
-        cur.execute("""CREATE TABLE IF NOT EXISTS yearly_scores (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, bvid TEXT NOT NULL,
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            total_score REAL, view_score REAL, interaction_score REAL,
-            favorite_score REAL, coin_score REAL, like_score REAL,
-            correction_a REAL, correction_b REAL, correction_c REAL)""")
-        cur.execute("""CREATE INDEX IF NOT EXISTS idx_yearly_bvid
-            ON yearly_scores(bvid, timestamp)""")
-        cur.execute("""CREATE TABLE IF NOT EXISTS predictions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            bvid TEXT NOT NULL,
-            algorithm TEXT,
-            algorithm_id TEXT,
-            target_threshold INTEGER,
-            predicted_seconds INTEGER,
-            predicted_time TIMESTAMP,
-            confidence REAL,
-            current_views INTEGER,
-            metadata TEXT DEFAULT '',
-            predicted_hours REAL DEFAULT 0,
-            current_velocity REAL DEFAULT 0,
-            is_reached BOOLEAN DEFAULT 0,
-            actual_time TIMESTAMP,
-            error_rate REAL DEFAULT 0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )""")
-        CentralBackup._migrate_central_predictions(cur)
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_predictions_bvid ON predictions(bvid)")
-        try:
-            cur.execute(
-                "CREATE UNIQUE INDEX IF NOT EXISTS idx_central_predict_unique "
-                "ON predictions(bvid, algorithm, target_threshold)"
-            )
-        except Exception:
-            logger.exception("中央库 UNIQUE INDEX 创建失败")
-            pass
-
-    @staticmethod
-    def _migrate_monitor_timing_columns(cur: sqlite3.Cursor) -> None:
-        """确保中央库监控记录包含请求边界时间字段。"""
-        cur.execute("PRAGMA table_info(monitor_records)")
-        existing = {row[1] if isinstance(row, (list, tuple)) else row["name"] for row in cur.fetchall()}
-        for column in ("observed_at_us", "request_start_us", "rtt_us"):
-            if column not in existing:
-                cur.execute(f"ALTER TABLE monitor_records ADD COLUMN {column} INTEGER")
-
-    @staticmethod
-    def _migrate_central_predictions(cur: sqlite3.Cursor) -> None:
-        """确保中央库 predictions 表包含独立库的全部字段"""
-        cur.execute("PRAGMA table_info(predictions)")
-        existing = {r[1] if isinstance(r, (list, tuple)) else r["name"] for r in cur.fetchall()}
-        if not existing:
-            return
-        for col, definition in [
-            ("metadata", "TEXT DEFAULT ''"),
-            ("predicted_hours", "REAL DEFAULT 0"),
-            ("current_velocity", "REAL DEFAULT 0"),
-        ]:
-            if col not in existing:
-                try:
-                    cur.execute(f"ALTER TABLE predictions ADD COLUMN {col} {definition}")
-                except Exception as e:
-                    logger.debug("迁移列 %s 失败: %s", col, e)
+        migrate_central_schema(conn)

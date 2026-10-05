@@ -6,7 +6,6 @@ Database 是面向外部调用的门面（Facade），
 
 import sqlite3
 import os
-import re
 import threading
 import logging
 from typing import ClassVar, Dict, List, Optional
@@ -19,6 +18,7 @@ from .video_db import VideoDatabase
 from .central_crud import CentralCRUD
 from .central_query import CentralQuery
 from .central_backup import CentralBackup
+from .central_schema import migrate_central_schema
 
 logger = logging.getLogger(__name__)
 
@@ -79,215 +79,9 @@ class Database:
         return _ConnectionCtx(self._conn, self._lock)
 
     def init_database(self) -> None:
-        """初始化总数据库表结构
-
-        创建 videos、monitor_records、predictions、video_milestones 等核心表及索引
-        """
+        """Initialize the central database through the versioned migrator."""
         with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS videos (
-                    bvid TEXT PRIMARY KEY,
-                    title TEXT,
-                    view_count INTEGER DEFAULT 0,
-                    like_count INTEGER DEFAULT 0,
-                    coin_count INTEGER DEFAULT 0,
-                    share_count INTEGER DEFAULT 0,
-                    favorite_count INTEGER DEFAULT 0,
-                    danmaku_count INTEGER DEFAULT 0,
-                    reply_count INTEGER DEFAULT 0,
-                    viewers_app INTEGER DEFAULT 0,
-                    viewers_web INTEGER DEFAULT 0,
-                    viewers_total INTEGER DEFAULT 0,
-                    cover_path TEXT,
-                    like_view_ratio REAL DEFAULT 0,
-                    owner_name TEXT,
-                    owner_id INTEGER,
-                    pubdate TEXT,
-                    duration INTEGER,
-                    pic TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_videos_owner_id ON videos(owner_id)")
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS monitor_records (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    bvid TEXT,
-                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    view_count INTEGER,
-                    like_count INTEGER,
-                    coin_count INTEGER,
-                    share_count INTEGER,
-                    favorite_count INTEGER,
-                    danmaku_count INTEGER,
-                    reply_count INTEGER,
-                    viewers_app INTEGER DEFAULT 0,
-                    viewers_web INTEGER DEFAULT 0,
-                    viewers_total INTEGER DEFAULT 0,
-                    like_view_ratio REAL DEFAULT 0,
-                    observed_at_us INTEGER,
-                    request_start_us INTEGER,
-                    rtt_us INTEGER,
-                    FOREIGN KEY (bvid) REFERENCES videos(bvid)
-                )
-            """)
-            cursor.execute("""
-                CREATE UNIQUE INDEX IF NOT EXISTS idx_monitor_bvid_ts
-                ON monitor_records(bvid, timestamp)
-            """)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS predictions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    bvid TEXT,
-                    algorithm TEXT,
-                    algorithm_id TEXT,
-                    target_threshold INTEGER,
-                    predicted_seconds INTEGER,
-                    predicted_time TIMESTAMP,
-                    confidence REAL,
-                    current_views INTEGER,
-                    is_reached BOOLEAN DEFAULT 0,
-                    actual_time TIMESTAMP,
-                    error_rate REAL DEFAULT 0,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (bvid) REFERENCES videos(bvid)
-                )
-            """)
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_predictions_bvid ON predictions(bvid)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_predictions_created_at ON predictions(created_at)")
-            try:
-                cursor.execute(
-                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_central_predict_unique "
-                    "ON predictions(bvid, algorithm, target_threshold)"
-                )
-            except Exception:
-                # 已有重复数据时 UNIQUE 索引创建会失败，由定期清理修复后下次重启生效
-                pass
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS video_milestones (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    bvid TEXT NOT NULL,
-                    period TEXT NOT NULL,
-                    view_count INTEGER NOT NULL,
-                    like_count INTEGER,
-                    coin_count INTEGER,
-                    share_count INTEGER,
-                    favorite_count INTEGER,
-                    danmaku_count INTEGER,
-                    reply_count INTEGER,
-                    note TEXT,
-                    recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(bvid, period)
-                )
-            """)
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_milestones_bvid ON video_milestones(bvid)")
-
-            # 集成预测记录表
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS prediction_ensemble (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    bvid TEXT NOT NULL,
-                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    prediction INTEGER DEFAULT 0,
-                    confidence REAL DEFAULT 0,
-                    valid_algos INTEGER DEFAULT 0,
-                    total_algos INTEGER DEFAULT 0,
-                    interval_lower INTEGER,
-                    interval_upper INTEGER,
-                    interval_width_ratio REAL,
-                    surge_correction_applied BOOLEAN DEFAULT 0,
-                    surge_magnitude REAL,
-                    surge_type TEXT
-                )
-            """)
-            # 算法共识度表
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS algorithm_coherence (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    bvid TEXT NOT NULL,
-                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    algorithm TEXT,
-                    coherence REAL DEFAULT 0
-                )
-            """)
-            # 周刊分数表
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS weekly_scores (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    bvid TEXT NOT NULL,
-                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    total_score REAL, view_score REAL, interaction_score REAL,
-                    favorite_score REAL, coin_score REAL, like_score REAL,
-                    correction_a REAL, correction_b REAL, correction_c REAL,
-                    correction_d REAL, base_view_score REAL
-                )
-            """)
-            # 年刊分数表
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS yearly_scores (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    bvid TEXT NOT NULL,
-                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    total_score REAL, view_score REAL, interaction_score REAL,
-                    favorite_score REAL, coin_score REAL, like_score REAL,
-                    correction_a REAL, correction_b REAL, correction_c REAL
-                )
-            """)
-            # predictions 表补全字段（迁移）
-            self._migrate_db(conn)
-            conn.commit()
-
-    def _migrate_db(self, conn: sqlite3.Connection) -> None:
-        """总数据库迁移：检查并添加缺少的列"""
-        cursor = conn.cursor()
-        schema_upgrades = {
-            "videos": [
-                ("viewers_app", "INTEGER DEFAULT 0"),
-                ("viewers_web", "INTEGER DEFAULT 0"),
-                ("viewers_total", "INTEGER DEFAULT 0"),
-                ("like_view_ratio", "REAL DEFAULT 0"),
-                ("owner_name", "TEXT"),
-                ("owner_id", "INTEGER"),
-                ("pubdate", "TEXT"),
-                ("duration", "INTEGER"),
-                ("pic", "TEXT"),
-            ],
-            "monitor_records": [
-                ("viewers_app", "INTEGER DEFAULT 0"),
-                ("viewers_web", "INTEGER DEFAULT 0"),
-                ("viewers_total", "INTEGER DEFAULT 0"),
-                ("like_view_ratio", "REAL DEFAULT 0"),
-                ("observed_at_us", "INTEGER"),
-                ("request_start_us", "INTEGER"),
-                ("rtt_us", "INTEGER"),
-            ],
-            "predictions": [
-                ("predicted_views", "INTEGER DEFAULT 0"),
-                ("metadata", "TEXT DEFAULT ''"),
-                ("predicted_hours", "REAL DEFAULT 0"),
-                ("current_velocity", "REAL DEFAULT 0"),
-            ],
-        }
-        for table, columns in schema_upgrades.items():
-            if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", table):
-                continue
-            cursor.execute(f"PRAGMA table_info({table})")
-            existing = {row["name"] for row in cursor.fetchall()}
-            if not existing:
-                continue
-            for col_name, col_def in columns:
-                if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", col_name):
-                    continue
-                if col_name not in existing:
-                    if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*(\s+DEFAULT\s+[^\s;]+)?$", col_def):
-                        logger.warning(f"迁移跳过: {table}.{col_name} 含不安全的列定义 {col_def}")
-                        continue
-                    try:
-                        cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_def}")
-                    except Exception as e:
-                        logger.warning(f"迁移失败 {table}.{col_name}: {e}")
+            migrate_central_schema(conn)
 
     def get_video_db(self, bvid: str) -> VideoDatabase:
         """获取单个视频的独立数据库实例，自动注入中央库引用用于写入兜底"""

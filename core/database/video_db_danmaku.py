@@ -50,7 +50,6 @@ class _DanmakuMixin:
                 )
             except sqlite3.OperationalError:
                 logger.warning("v1→v2: %s 无法创建弹幕 UNIQUE 索引", self.bvid)
-            conn.commit()
         except sqlite3.Error as e:
             logger.debug("v1→v2 弹幕迁移失败 %s: %s", self.bvid, e)
 
@@ -92,7 +91,6 @@ class _DanmakuMixin:
                     )
                 except sqlite3.OperationalError:
                     logger.warning("v2→v3: %s 无法创建弹幕 UNIQUE 索引", self.bvid)
-            conn.commit()
             logger.info("v2→v3 弹幕 schema 升级完成: %s", self.bvid)
         except sqlite3.Error as e:
             logger.debug("v2→v3 弹幕迁移失败 %s: %s", self.bvid, e)

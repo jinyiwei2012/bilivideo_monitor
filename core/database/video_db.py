@@ -14,8 +14,11 @@ from .connection import _ConnectionCtx
 from .models import _validate_bvid, MonitorRecord, PredictionRecord
 from .video_db_danmaku import _DanmakuMixin
 from .video_db_scores import _ScoreOpsMixin
+from .migrations import run_migrations
 
 logger = logging.getLogger(__name__)
+
+VIDEO_SCHEMA_VERSION = 5
 
 
 class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
@@ -156,10 +159,7 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
                 viewers_app INTEGER DEFAULT 0,
                 viewers_web INTEGER DEFAULT 0,
                 viewers_total INTEGER DEFAULT 0,
-                like_view_ratio REAL DEFAULT 0,
-                observed_at_us INTEGER,
-                request_start_us INTEGER,
-                rtt_us INTEGER
+                like_view_ratio REAL DEFAULT 0
             )
         """,
             False,
@@ -255,7 +255,6 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
         """,
             False,
         ),
-        ("CREATE UNIQUE INDEX IF NOT EXISTS idx_weekly_ts ON weekly_scores(timestamp)", True),
         (
             """
             CREATE TABLE IF NOT EXISTS yearly_scores (
@@ -274,7 +273,6 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
         """,
             False,
         ),
-        ("CREATE UNIQUE INDEX IF NOT EXISTS idx_yearly_ts ON yearly_scores(timestamp)", True),
         (
             """
             CREATE TABLE IF NOT EXISTS danmaku_records (
@@ -282,8 +280,6 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
                 bvid TEXT NOT NULL,
                 oid INTEGER NOT NULL,
                 segment_index INTEGER DEFAULT 0,
-                dmid INTEGER DEFAULT 0,
-                id_str TEXT DEFAULT '',
                 content TEXT NOT NULL,
                 video_ts REAL DEFAULT 0,
                 mode INTEGER DEFAULT 1,
@@ -292,9 +288,6 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
                 send_time INTEGER DEFAULT 0,
                 weight INTEGER DEFAULT 1,
                 uid TEXT DEFAULT '',
-                like_count INTEGER DEFAULT 0,
-                pool INTEGER DEFAULT 0,
-                dm_from INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """,
@@ -302,10 +295,6 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
         ),
         ("CREATE INDEX IF NOT EXISTS idx_danmaku_bvid ON danmaku_records(bvid)", False),
         ("CREATE INDEX IF NOT EXISTS idx_danmaku_segment ON danmaku_records(bvid, oid, segment_index)", False),
-        # dmid 列可能尚未迁移（将在下方 v3 迁移中处理）
-        ("CREATE INDEX IF NOT EXISTS idx_danmaku_dmid ON danmaku_records(dmid) WHERE dmid > 0", True),
-        # 去重：优先用 dmid（Proto 唯一弹幕ID），回退用内容指纹
-        ("CREATE UNIQUE INDEX IF NOT EXISTS idx_danmaku_unique ON danmaku_records(bvid, oid, dmid)", True),
         # 弹幕按时间排序展示的覆盖索引
         ("CREATE INDEX IF NOT EXISTS idx_danmaku_video_ts ON danmaku_records(video_ts)", False),
     ]
@@ -322,34 +311,39 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
                 logger.debug("schema 语句跳过(容忍): %.80s | %s", sql, e)
 
     def _init_db(self) -> None:
-        """初始化数据库：创建所需的表、索引，并执行 schema 迁移"""
+        """Initialize the database through the transactional versioned migrator."""
         with self._get_connection() as conn:
-            cursor = conn.cursor()
+            self.migrate_video_schema(conn)
 
-            # 建表 + 索引 (schema 单点定义见 SCHEMA_STATEMENTS)
-            self._apply_schema(cursor)
+    def migrate_video_schema(self, conn: sqlite3.Connection) -> None:
+        """Bring this video's database to the latest schema atomically."""
+        run_migrations(
+            conn,
+            schema_name="video",
+            latest_version=VIDEO_SCHEMA_VERSION,
+            steps={
+                1: self._migrate_video_v1,
+                2: self._migrate_danmaku_dedup,
+                3: self._migrate_danmaku_v3,
+                4: self._migrate_scores_unique,
+                5: self._migrate_precision_columns,
+            },
+            validate=self._validate_video_schema,
+        )
 
-            # 数据库迁移：逐库检查 schema 版本（通过 PRAGMA user_version）
-            cursor.execute("PRAGMA user_version")
-            row = cursor.fetchone()
-            db_version = row[0] if row else 0
-            if db_version < 1:
-                self._migrate_db(conn)
-            if db_version < 2:
-                # v1→v2: 去重弹幕 + 添加 UNIQUE 约束（修复 INSERT OR IGNORE 失效 bug）
-                self._migrate_danmaku_dedup(conn)
-            if db_version < 3:
-                # v2→v3: 添加 Proto 弹幕新字段 (dmid/like_count/pool/dm_from) + 更新 UNIQUE 索引
-                self._migrate_danmaku_v3(conn)
-                cursor.execute("PRAGMA user_version = 3")
-            if db_version < 4:
-                # v3→v4: 分数表 timestamp 去重 + 唯一索引（使 INSERT OR REPLACE 幂等）
-                self._migrate_scores_unique(conn)
-                cursor.execute("PRAGMA user_version = 4")
-
-            self._migrate_precision_columns(cursor)
-
-            conn.commit()
+    def _validate_video_schema(self, conn: sqlite3.Connection) -> None:
+        """Check lightweight structural invariants after migration."""
+        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        required = {"video_info", "monitor_records", "predictions", "weekly_scores", "yearly_scores", "danmaku_records"}
+        if not required <= tables:
+            raise RuntimeError("video schema lacks required tables")
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(monitor_records)")}
+        if not {"observed_at_us", "request_start_us", "rtt_us"} <= columns:
+            raise RuntimeError("video monitor_records lacks precision columns")
+        for table, index in (("weekly_scores", "idx_weekly_ts"), ("yearly_scores", "idx_yearly_ts")):
+            indexes = {row[1] for row in conn.execute(f"PRAGMA index_list({table})")}
+            if index not in indexes:
+                raise RuntimeError(f"video schema lacks {index}")
 
     def _migrate_scores_unique(self, conn: sqlite3.Connection) -> None:
         """v3→v4 迁移：分数表按 timestamp 去重并建唯一索引。
@@ -375,7 +369,6 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
                 cursor.execute(f"CREATE UNIQUE INDEX IF NOT EXISTS {new_idx} ON {table}(timestamp)")
             except sqlite3.OperationalError:
                 logger.warning("v3→v4: %s 无法创建唯一索引", table)
-        conn.commit()
 
     def set_central_db(self, central_db: Any) -> None:
         """注入中央数据库引用，用于写入时同步兜底
@@ -393,20 +386,18 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
         if not self._mirror_conn:
             return
         try:
-            mirror_cur = self._mirror_conn.cursor()
-            self._apply_schema(mirror_cur)
-            self._migrate_precision_columns(mirror_cur)
-            self._mirror_conn.commit()
+            self.migrate_video_schema(self._mirror_conn)
         except Exception as e:
             logger.warning("初始化镜像数据库表失败 %s: %s", self.bvid, e, exc_info=True)
 
-    def _migrate_db(self, conn: sqlite3.Connection) -> None:
+    def _migrate_video_v1(self, conn: sqlite3.Connection) -> None:
         """检查并迁移数据库：添加缺少的列、自动计算默认值
 
         Args:
             conn: 数据库连接
         """
         cursor = conn.cursor()
+        self._apply_schema(cursor)
         self._migrate_schema_upgrades(cursor)
         self._migrate_compute_values(cursor)
 
@@ -434,9 +425,6 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
                 ("viewers_web", "INTEGER DEFAULT 0"),
                 ("viewers_total", "INTEGER DEFAULT 0"),
                 ("like_view_ratio", "REAL DEFAULT 0"),
-                ("observed_at_us", "INTEGER"),
-                ("request_start_us", "INTEGER"),
-                ("rtt_us", "INTEGER"),
             ],
             "predictions": [
                 ("metadata", "TEXT DEFAULT ''"),
@@ -475,7 +463,7 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
                         logger.warning(f"迁移失败 {table}.{col_name}: {e}")
 
     @staticmethod
-    def _migrate_precision_columns(cursor: sqlite3.Cursor) -> None:
+    def _migrate_precision_columns(conn: sqlite3.Connection) -> None:
         """补充不改变既有字段语义的精确时间列。"""
         upgrades = {
             "monitor_records": (
@@ -490,9 +478,12 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
                 ("corrected_estimate", "TIMESTAMP"),
             ),
         }
+        cursor = conn.cursor()
         for table, columns in upgrades.items():
             cursor.execute(f"PRAGMA table_info({table})")
             existing = {row["name"] for row in cursor.fetchall()}
+            if not existing:
+                continue
             for column, definition in columns:
                 if column not in existing:
                     cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")

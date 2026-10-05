@@ -1511,18 +1511,17 @@ class TestScoresUniqueTimestamp:
         finally:
             db.close()
 
-    def test_v4_migration_dedupes_and_builds_unique_index(self, tmp_path, monkeypatch):
+    def test_legacy_v3_scores_upgrade_through_latest(self, tmp_path, monkeypatch):
         import sqlite3
 
         vdb = self._isolate(monkeypatch, tmp_path)
 
         # 造一个 v3 旧库：重复 timestamp + 旧普通索引
         d = tmp_path / "BV1xx411c7mD"
-        d.mkdir()
+        seeded = vdb.VideoDatabase("BV1xx411c7mD", base_dir=str(tmp_path))
+        seeded.close()
         con = sqlite3.connect(str(d / "BV1xx411c7mD.db"))
-        con.execute(
-            "CREATE TABLE weekly_scores (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TIMESTAMP, total_score REAL)"
-        )
+        con.execute("DROP INDEX idx_weekly_ts")
         con.execute("CREATE INDEX idx_weekly_timestamp ON weekly_scores(timestamp)")
         con.execute("INSERT INTO weekly_scores (timestamp, total_score) VALUES ('2026-01-01 10:00:00', 1.0)")
         con.execute("INSERT INTO weekly_scores (timestamp, total_score) VALUES ('2026-01-01 10:00:00', 2.0)")
@@ -1538,7 +1537,7 @@ class TestScoresUniqueTimestamp:
             names = {r[0] for r in db._conn.execute("SELECT name FROM sqlite_master WHERE type='index'")}
             assert "idx_weekly_ts" in names, "应创建唯一索引"
             assert "idx_weekly_timestamp" not in names, "旧普通索引应被删除"
-            assert db._conn.execute("PRAGMA user_version").fetchone()[0] == 4
+            assert db._conn.execute("PRAGMA user_version").fetchone()[0] == 5
         finally:
             db.close()
 
@@ -1648,7 +1647,8 @@ class TestCentralIncrementalSync:
     _COLS = (
         "bvid TEXT, timestamp TEXT, view_count INTEGER, like_count INTEGER, coin_count INTEGER,"
         " share_count INTEGER, favorite_count INTEGER, danmaku_count INTEGER, reply_count INTEGER,"
-        " viewers_app INTEGER, viewers_web INTEGER, viewers_total INTEGER, like_view_ratio REAL"
+        " viewers_app INTEGER, viewers_web INTEGER, viewers_total INTEGER, like_view_ratio REAL,"
+        " observed_at_us INTEGER, request_start_us INTEGER, rtt_us INTEGER"
     )
 
     @staticmethod
