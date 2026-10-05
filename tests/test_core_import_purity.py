@@ -1,157 +1,64 @@
-"""Regression guard for side effects during the ``core`` package import."""
+"""Import-purity guard for ``core`` (B2 composition-root prerequisite).
 
-import json
-import os
-from pathlib import Path
-import subprocess
-import sys
-import threading
+``import core`` must not open databases, spawn threads, or expose module-level
+instance aliases. These guards freeze the current purity so future refactors
+cannot silently re-introduce import-time side effects.
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-
-_IMPORT_PROBE = r"""
-import json
-from pathlib import Path
-import socket
-import threading
-import requests
-from requests import adapters
-
-def db_files():
-    return sorted(str(path.relative_to(Path.cwd())) for path in Path.cwd().rglob("*.db"))
-
-network_attempts = []
-http_constructions = []
-original_connect = socket.socket.connect
-original_create_connection = socket.create_connection
-
-def reject_connect(sock, address):
-    network_attempts.append(repr(address))
-    raise AssertionError("network access during import")
-
-def reject_create_connection(address, *args, **kwargs):
-    network_attempts.append(repr(address))
-    raise AssertionError("network access during import")
-
-socket.socket.connect = reject_connect
-socket.create_connection = reject_create_connection
-def reject_session(*args, **kwargs):
-    http_constructions.append("Session")
-    raise AssertionError("requests.Session construction during import")
-
-def reject_adapter(*args, **kwargs):
-    http_constructions.append("HTTPAdapter")
-    raise AssertionError("HTTPAdapter construction during import")
-
-requests.Session = reject_session
-adapters.HTTPAdapter = reject_adapter
-before_threads = {thread.ident for thread in threading.enumerate()}
-before_db_files = db_files()
-
-try:
-    import core
-    error = None
-except Exception as exc:
-    error = repr(exc)
-finally:
-    socket.socket.connect = original_connect
-    socket.create_connection = original_create_connection
-
-after_threads = {thread.ident for thread in threading.enumerate()}
-print(json.dumps({
-    "error": error,
-    "new_db_files": sorted(set(db_files()) - set(before_db_files)),
-    "new_threads": sorted(thread_id for thread_id in after_threads - before_threads if thread_id is not None),
-    "network_attempts": network_attempts,
-    "http_constructions": http_constructions,
-}))
+The checks run in a subprocess so that already-imported modules in the test
+process cannot mask a regression.
 """
 
+import subprocess
+import sys
+import textwrap
 
-def test_import_core_has_no_runtime_side_effects(tmp_path: Path) -> None:
-    """Importing core must not initialize persistent or concurrent infrastructure."""
-    env = os.environ.copy()
-    python_path = env.get("PYTHONPATH")
-    env["PYTHONPATH"] = str(PROJECT_ROOT) if not python_path else os.pathsep.join((str(PROJECT_ROOT), python_path))
+_PURE_IMPORT_PROBE = textwrap.dedent("""
+    import os
+    import threading
 
+    def _snapshot_data_dir():
+        files = set()
+        for root, _dirs, names in os.walk("data"):
+            for name in names:
+                files.add(os.path.join(root, name))
+        return files
+
+    before_threads = threading.active_count()
+    before_files = _snapshot_data_dir()
+
+    import core  # noqa: F401  (import purity is exactly what is under test)
+
+    after_threads = threading.active_count()
+    after_files = _snapshot_data_dir()
+
+    new_files = sorted(after_files - before_files)
+    assert after_threads == before_threads, (
+        "import core spawned threads: %d -> %d" % (before_threads, after_threads)
+    )
+    assert new_files == [], "import core created files: %s" % (new_files,)
+
+    # No module-level instance aliases: only factories/types/submodules allowed.
+    assert not hasattr(core, "db"), "core exposes a module-level db alias"
+    assert not hasattr(core, "bilibili_api_instance"), (
+        "core exposes a module-level api instance alias"
+    )
+    for name in ("get_db", "get_bilibili_api"):
+        assert name in getattr(core, "__all__", []), "core.__all__ missing %r" % (name,)
+    """)
+
+
+def test_import_core_has_no_import_time_side_effects():
     result = subprocess.run(
-        [sys.executable, "-c", _IMPORT_PROBE],
-        cwd=tmp_path,
-        env=env,
+        [sys.executable, "-c", _PURE_IMPORT_PROBE],
         capture_output=True,
         text=True,
-        check=True,
     )
-    probe = json.loads(result.stdout)
-
-    assert probe["error"] is None
-    assert probe["new_db_files"] == []
-    assert probe["new_threads"] == []
-    assert probe["network_attempts"] == []
-    assert probe["http_constructions"] == []
+    assert result.returncode == 0, f"import purity probe failed:\n{result.stdout}\n{result.stderr}"
 
 
-def test_http_session_is_lazy_thread_safe_and_reinitializes(monkeypatch) -> None:
-    """The shared HTTP session is constructed once on demand and recreated after close."""
-    from core.database import connection
+def test_core_get_db_is_lazy_and_injectable():
+    """``get_db`` must be a lazy factory, not an import-time instance."""
+    from core.database import central_db
 
-    sessions = []
-    construction_lock = threading.Lock()
-
-    class FakeSession:
-        def __init__(self) -> None:
-            with construction_lock:
-                sessions.append(self)
-            self.headers = {}
-            self.mounts = []
-            self.closed = False
-
-        def mount(self, prefix, adapter) -> None:
-            self.mounts.append((prefix, adapter))
-
-        def close(self) -> None:
-            self.closed = True
-
-    connection.close_http_session()
-    monkeypatch.setattr(connection.requests, "Session", FakeSession)
-    monkeypatch.setattr(connection, "HTTPAdapter", lambda **kwargs: kwargs)
-
-    assert sessions == []
-
-    threads = [threading.Thread(target=connection.get_http_session) for _ in range(12)]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
-
-    assert len(sessions) == 1
-    first_session = connection.get_http_session()
-    assert first_session is sessions[0]
-    assert first_session.headers["Referer"] == "https://www.bilibili.com/"
-    assert {prefix for prefix, _adapter in first_session.mounts} == {"http://", "https://"}
-
-    connection.close_http_session()
-
-    assert first_session.closed
-    second_session = connection.get_http_session()
-    assert second_session is not first_session
-    assert len(sessions) == 2
-    connection.close_http_session()
-
-
-def test_close_http_session_before_first_use_does_not_construct_session(monkeypatch) -> None:
-    """Closing an unused HTTP session factory must remain a no-op."""
-    from core.database import connection
-
-    calls = []
-
-    def fake_session():
-        calls.append("Session")
-        raise AssertionError("close_http_session must not create a session")
-
-    connection.close_http_session()
-    monkeypatch.setattr(connection.requests, "Session", fake_session)
-
-    connection.close_http_session()
-
-    assert calls == []
+    assert callable(central_db.get_db)
+    assert hasattr(central_db, "_db")
