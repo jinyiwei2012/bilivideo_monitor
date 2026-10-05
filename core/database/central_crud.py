@@ -13,6 +13,71 @@ from .models import VideoInfo, MonitorRecord, PredictionRecord
 logger = logging.getLogger(__name__)
 
 
+def _apply_ensemble_projection(conn: sqlite3.Connection, bvid: str, event: Any) -> None:
+    """Apply one ensemble event, including timestamp-key legacy compatibility."""
+    data = event.payload
+    timestamp = data.get("timestamp") or event.entity_key
+    values = (
+        bvid,
+        event.source_row_id,
+        timestamp,
+        data.get("prediction", 0),
+        data.get("confidence", 0),
+        data.get("valid_algos", 0),
+        data.get("total_algos", 0),
+        data.get("interval_lower"),
+        data.get("interval_upper"),
+        data.get("interval_width_ratio"),
+        int(bool(data.get("surge_correction_applied", False))),
+        data.get("surge_magnitude"),
+        data.get("surge_type", ""),
+    )
+    conflict_key = "bvid, timestamp" if event.source_row_id is None else "bvid, source_row_id"
+    update = "prediction=excluded.prediction, confidence=excluded.confidence, valid_algos=excluded.valid_algos, total_algos=excluded.total_algos, interval_lower=excluded.interval_lower, interval_upper=excluded.interval_upper, interval_width_ratio=excluded.interval_width_ratio, surge_correction_applied=excluded.surge_correction_applied, surge_magnitude=excluded.surge_magnitude, surge_type=excluded.surge_type"
+    if event.source_row_id is not None:
+        update = "timestamp=excluded.timestamp, " + update
+    conn.execute(
+        f"""INSERT INTO prediction_ensemble (bvid, source_row_id, timestamp, prediction, confidence, valid_algos,
+        total_algos, interval_lower, interval_upper, interval_width_ratio, surge_correction_applied,
+        surge_magnitude, surge_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT({conflict_key}) DO UPDATE SET {update}""",
+        values,
+    )
+
+
+def _apply_coherence_projection(conn: sqlite3.Connection, bvid: str, event: Any) -> None:
+    """Apply one coherence event, including timestamp-algorithm legacy compatibility."""
+    data = event.payload
+    timestamp = data.get("timestamp") or event.entity_key.split(":", 1)[0]
+    values = (bvid, event.source_row_id, timestamp, data.get("algorithm"), data.get("coherence", 0))
+    conflict_key = "bvid, timestamp, algorithm" if event.source_row_id is None else "bvid, source_row_id"
+    update = (
+        "coherence=excluded.coherence"
+        if event.source_row_id is None
+        else "timestamp=excluded.timestamp, algorithm=excluded.algorithm, coherence=excluded.coherence"
+    )
+    conn.execute(
+        f"""INSERT INTO algorithm_coherence (bvid, source_row_id, timestamp, algorithm, coherence)
+        VALUES (?, ?, ?, ?, ?) ON CONFLICT({conflict_key}) DO UPDATE SET {update}""",
+        values,
+    )
+
+
+def _apply_milestone_projection(conn: sqlite3.Connection, bvid: str, event: Any) -> None:
+    """Apply one milestone event using its period as the stable logical key."""
+    columns = (
+        "view_count, like_count, coin_count, share_count, favorite_count, danmaku_count, reply_count, note, recorded_at"
+    )
+    conn.execute(
+        f"""INSERT INTO video_milestones (bvid, period, {columns}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(bvid, period) DO UPDATE SET view_count=excluded.view_count, like_count=excluded.like_count,
+        coin_count=excluded.coin_count, share_count=excluded.share_count, favorite_count=excluded.favorite_count,
+        danmaku_count=excluded.danmaku_count, reply_count=excluded.reply_count, note=excluded.note,
+        recorded_at=excluded.recorded_at""",
+        (bvid, event.entity_key, *[event.payload.get(key) for key in columns.split(", ")]),
+    )
+
+
 def upsert_sync_cursor_on_connection(
     conn: sqlite3.Connection,
     *,
@@ -87,6 +152,74 @@ class CentralCRUD:
             status="error",
             last_error=str(error),
         )
+
+    @staticmethod
+    def apply_projection_batch(conn: sqlite3.Connection, bvid: str, events: list[Any]) -> None:
+        """Apply outbox events using stable central UPSERT keys without committing."""
+        for event in events:
+            data = event.payload
+            if event.stream == "monitor_records":
+                conn.execute(
+                    """INSERT INTO monitor_records (bvid, source_row_id, timestamp, view_count, like_count, coin_count, share_count,
+                    favorite_count, danmaku_count, reply_count, viewers_app, viewers_web, viewers_total, like_view_ratio,
+                    observed_at_us, request_start_us, rtt_us) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(bvid, source_row_id) DO UPDATE SET timestamp=excluded.timestamp, view_count=excluded.view_count,
+                    like_count=excluded.like_count, coin_count=excluded.coin_count, share_count=excluded.share_count,
+                    favorite_count=excluded.favorite_count, danmaku_count=excluded.danmaku_count, reply_count=excluded.reply_count,
+                    viewers_app=excluded.viewers_app, viewers_web=excluded.viewers_web, viewers_total=excluded.viewers_total,
+                    like_view_ratio=excluded.like_view_ratio, observed_at_us=excluded.observed_at_us,
+                    request_start_us=excluded.request_start_us, rtt_us=excluded.rtt_us""",
+                    (
+                        bvid,
+                        event.source_row_id,
+                        data.get("timestamp"),
+                        data.get("view_count", 0),
+                        data.get("like_count", 0),
+                        data.get("coin_count", 0),
+                        data.get("share_count", 0),
+                        data.get("favorite_count", 0),
+                        data.get("danmaku_count", 0),
+                        data.get("reply_count", 0),
+                        data.get("viewers_app", 0),
+                        data.get("viewers_web", 0),
+                        data.get("viewers_total", 0),
+                        data.get("like_view_ratio", 0),
+                        data.get("observed_at_us"),
+                        data.get("request_start_us"),
+                        data.get("rtt_us"),
+                    ),
+                )
+            elif event.stream == "predictions":
+                conn.execute(
+                    """INSERT INTO predictions (bvid, algorithm, algorithm_id, target_threshold, predicted_seconds, predicted_time, confidence, current_views, metadata, predicted_hours, current_velocity)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(bvid, algorithm, target_threshold) DO UPDATE SET algorithm_id=excluded.algorithm_id, predicted_seconds=excluded.predicted_seconds, predicted_time=excluded.predicted_time, confidence=excluded.confidence, current_views=excluded.current_views, metadata=excluded.metadata, predicted_hours=excluded.predicted_hours, current_velocity=excluded.current_velocity""",
+                    (
+                        bvid,
+                        data.get("algorithm"),
+                        data.get("algorithm_id"),
+                        data.get("target_threshold", 0),
+                        data.get("predicted_seconds", 0),
+                        data.get("predicted_time"),
+                        data.get("confidence", 0),
+                        data.get("current_views", 0),
+                        data.get("metadata", ""),
+                        data.get("predicted_hours", 0),
+                        data.get("current_velocity", 0),
+                    ),
+                )
+            elif event.stream in ("weekly_scores", "yearly_scores"):
+                table = event.stream
+                columns = "total_score, view_score, interaction_score, favorite_score, coin_score, like_score, correction_a, correction_b, correction_c"
+                conn.execute(
+                    f"INSERT INTO {table} (bvid, timestamp, {columns}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(bvid, timestamp) DO UPDATE SET total_score=excluded.total_score, view_score=excluded.view_score, interaction_score=excluded.interaction_score, favorite_score=excluded.favorite_score, coin_score=excluded.coin_score, like_score=excluded.like_score, correction_a=excluded.correction_a, correction_b=excluded.correction_b, correction_c=excluded.correction_c",
+                    (bvid, event.entity_key, *[data.get(key, 0) for key in columns.split(", ")]),
+                )
+            elif event.stream == "prediction_ensemble":
+                _apply_ensemble_projection(conn, bvid, event)
+            elif event.stream == "algorithm_coherence":
+                _apply_coherence_projection(conn, bvid, event)
+            elif event.stream == "video_milestones":
+                _apply_milestone_projection(conn, bvid, event)
 
     def _query_backup(self, sql: str, params: tuple = ()) -> List[sqlite3.Row]:
         """从备份库执行只读查询，返回行列表"""

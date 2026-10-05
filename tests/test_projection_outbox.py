@@ -90,7 +90,7 @@ def test_central_v3_upgrades_to_v4_with_projection_indexes() -> None:
         connection.execute("PRAGMA user_version = 3")
         connection.commit()
         migrate_central_schema(connection)
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 4
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 5
         indexes = {row[1] for row in connection.execute("PRAGMA index_list(monitor_records)")}
         assert "idx_monitor_source_row" in indexes
     finally:

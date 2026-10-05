@@ -4,7 +4,7 @@ import sqlite3
 
 from .migrations import run_migrations
 
-CENTRAL_SCHEMA_VERSION = 4
+CENTRAL_SCHEMA_VERSION = 5
 
 CENTRAL_V1_STATEMENTS = (
     """CREATE TABLE IF NOT EXISTS videos (
@@ -143,6 +143,26 @@ def _migrate_central_v4(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_central_v5(conn: sqlite3.Connection) -> None:
+    """v4→v5: add idempotent projection keys."""
+    for table, index in (("weekly_scores", "idx_weekly_bvid_ts"), ("yearly_scores", "idx_yearly_bvid_ts")):
+        conn.execute(f"DELETE FROM {table} WHERE id NOT IN (SELECT MAX(id) FROM {table} GROUP BY bvid, timestamp)")
+        conn.execute(f"CREATE UNIQUE INDEX IF NOT EXISTS {index} ON {table}(bvid, timestamp)")
+    conn.execute(
+        "DELETE FROM prediction_ensemble WHERE id NOT IN "
+        "(SELECT MAX(id) FROM prediction_ensemble GROUP BY bvid, timestamp)"
+    )
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_ensemble_bvid_ts ON prediction_ensemble(bvid, timestamp)")
+    conn.execute(
+        "DELETE FROM algorithm_coherence WHERE id NOT IN "
+        "(SELECT MAX(id) FROM algorithm_coherence GROUP BY bvid, timestamp, algorithm)"
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_coherence_bvid_ts_algorithm "
+        "ON algorithm_coherence(bvid, timestamp, algorithm)"
+    )
+
+
 def validate_central_schema(conn: sqlite3.Connection) -> None:
     required_tables = {
         "videos",
@@ -173,6 +193,15 @@ def validate_central_schema(conn: sqlite3.Connection) -> None:
         indexes = {row[1] for row in conn.execute(f"PRAGMA index_list({table})")}
         if index not in indexes:
             raise RuntimeError(f"central schema lacks {index}")
+    for table, index in (("weekly_scores", "idx_weekly_bvid_ts"), ("yearly_scores", "idx_yearly_bvid_ts")):
+        if index not in {row[1] for row in conn.execute(f"PRAGMA index_list({table})")}:
+            raise RuntimeError(f"central schema lacks {index}")
+    for table, index in (
+        ("prediction_ensemble", "idx_ensemble_bvid_ts"),
+        ("algorithm_coherence", "idx_coherence_bvid_ts_algorithm"),
+    ):
+        if index not in {row[1] for row in conn.execute(f"PRAGMA index_list({table})")}:
+            raise RuntimeError(f"central schema lacks {index}")
 
 
 def migrate_central_schema(conn: sqlite3.Connection) -> None:
@@ -181,6 +210,12 @@ def migrate_central_schema(conn: sqlite3.Connection) -> None:
         conn,
         schema_name="central",
         latest_version=CENTRAL_SCHEMA_VERSION,
-        steps={1: _migrate_central_v1, 2: _migrate_central_v2, 3: _migrate_central_v3, 4: _migrate_central_v4},
+        steps={
+            1: _migrate_central_v1,
+            2: _migrate_central_v2,
+            3: _migrate_central_v3,
+            4: _migrate_central_v4,
+            5: _migrate_central_v5,
+        },
         validate=validate_central_schema,
     )

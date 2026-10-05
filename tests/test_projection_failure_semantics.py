@@ -1,14 +1,27 @@
-"""B5-b failure-window contract placeholders before outbox implementation."""
+"""Projection failure-window delivery tests."""
 
-from pathlib import Path
+from core.database.central_db import Database
+from core.database.models import MonitorRecord
+from core.database.projector import CentralProjector
+from core.database.video_db import VideoDatabase
 
-import pytest
 
-
-@pytest.mark.xfail(strict=True, reason="4.2 尚未引入 projection_outbox")
-def test_outbox_schema_will_cover_business_and_delivery_failure_windows() -> None:
-    design = Path("docs/b5b_projection_design.md").read_text(encoding="utf-8")
-    assert "projection_outbox" not in Path("core/database/video_db.py").read_text(encoding="utf-8")
-    assert "业务数据写入与 outbox 插入必须位于同一 SQLite 事务" in design
-    assert "中央事务提交后才回标源 outbox" in design
-    raise AssertionError("projection_outbox failure-window implementation is intentionally pending")
+def test_projector_failure_leaves_outbox_pending_for_recovery(tmp_path, monkeypatch) -> None:
+    bvid = "BV1xx411c7mD"
+    video = VideoDatabase(bvid, str(tmp_path / "video"))
+    central = Database(str(tmp_path / "central.db"))
+    try:
+        assert video.add_monitor_record(MonitorRecord(bvid, "2026-10-05 12:00:00", 10, 1, 1, 1, 1, 1, 1))
+        projector = CentralProjector(central)
+        monkeypatch.setattr(
+            central, "apply_projection_batch", lambda _bvid, _events: (_ for _ in ()).throw(RuntimeError("boom"))
+        )
+        assert projector.project_video(video).failed == 1
+        pending = video._conn.execute("SELECT delivered_at, attempt_count FROM projection_outbox").fetchone()
+        assert tuple(pending) == (None, 1)
+        monkeypatch.undo()
+        assert projector.project_video(video).delivered == 1
+        assert video._conn.execute("SELECT delivered_at FROM projection_outbox").fetchone()[0] is not None
+    finally:
+        video.close()
+        central.close()

@@ -177,6 +177,11 @@ class Database:
             last_error=last_error,
         )
 
+    def apply_projection_batch(self, bvid: str, events: list) -> None:
+        """Atomically apply decoded outbox events for one video."""
+        with self._get_connection() as conn:
+            self._crud.apply_projection_batch(conn, bvid, events)
+
     def delete_monitor_records_before(self, cutoff: str) -> int:
         """按时间清理中央库旧监控记录（委托 CRUD）。"""
         return self._crud.delete_monitor_records_before(cutoff)

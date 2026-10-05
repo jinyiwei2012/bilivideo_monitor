@@ -2,6 +2,7 @@
 
 import os
 import sqlite3
+import json
 from datetime import datetime, timezone
 from typing import Any
 
@@ -167,3 +168,162 @@ def audit_video_consistency(
         "entries": [entry for flow in flows for entry in flow],
         "sync_cursors": read_sync_cursors(os.path.join(active_base, data_layout.CENTRAL_DB_FILENAME)),
     }
+
+
+_PROJECTION_TABLES = {
+    "monitor_records": "monitor_records",
+    "predictions": "predictions",
+    "weekly_scores": "weekly_scores",
+    "yearly_scores": "yearly_scores",
+    "prediction_ensemble": "prediction_ensemble",
+    "algorithm_coherence": "algorithm_coherence",
+    "video_milestones": "video_milestones",
+}
+
+
+def _projection_key(event: sqlite3.Row | tuple[Any, ...]) -> tuple[str, tuple[Any, ...]]:
+    """Return the central logical key for one decoded outbox event."""
+    stream, entity_key, source_row_id, payload = event[1], event[2], event[3], json.loads(event[4] or "{}")
+    if stream in ("monitor_records", "prediction_ensemble", "algorithm_coherence") and source_row_id is not None:
+        return stream, ("source_row_id", source_row_id)
+    if stream == "predictions":
+        return stream, (payload.get("algorithm"), payload.get("target_threshold", 0))
+    if stream in ("weekly_scores", "yearly_scores"):
+        return stream, (entity_key,)
+    if stream == "video_milestones":
+        return stream, (entity_key,)
+    if stream == "prediction_ensemble":
+        return stream, ("timestamp", payload.get("timestamp") or entity_key)
+    if stream == "algorithm_coherence":
+        return stream, ("timestamp_algorithm", payload.get("timestamp"), payload.get("algorithm"))
+    return stream, (entity_key,)
+
+
+def _central_row_for_key(
+    connection: sqlite3.Connection, bvid: str, stream: str, key: tuple[Any, ...]
+) -> list[sqlite3.Row]:
+    """Look up central rows under the projection stream's stable key."""
+    table = _PROJECTION_TABLES[stream]
+    if key[0] == "source_row_id":
+        return connection.execute(f"SELECT * FROM {table} WHERE bvid=? AND source_row_id=?", (bvid, key[1])).fetchall()
+    if key[0] == "timestamp":
+        return connection.execute(f"SELECT * FROM {table} WHERE bvid=? AND timestamp=?", (bvid, key[1])).fetchall()
+    if key[0] == "timestamp_algorithm":
+        return connection.execute(
+            f"SELECT * FROM {table} WHERE bvid=? AND timestamp=? AND algorithm=?", (bvid, key[1], key[2])
+        ).fetchall()
+    if stream == "predictions":
+        return connection.execute(
+            "SELECT * FROM predictions WHERE bvid=? AND algorithm=? AND target_threshold=?", (bvid, key[0], key[1])
+        ).fetchall()
+    if stream in ("weekly_scores", "yearly_scores"):
+        return connection.execute(f"SELECT * FROM {table} WHERE bvid=? AND timestamp=?", (bvid, key[0])).fetchall()
+    return connection.execute(f"SELECT * FROM {table} WHERE bvid=? AND period=?", (bvid, key[0])).fetchall()
+
+
+def _normalized(value: Any, field: str) -> Any:
+    """Normalize persisted values before projection-value comparisons."""
+    if field == "metadata" and isinstance(value, str):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return value
+    if field == "coherence" and value is not None:
+        return round(float(value), 4)
+    return value
+
+
+def _audit_projection_event(
+    central: sqlite3.Connection, bvid: str, event: sqlite3.Row, report: dict[str, Any]
+) -> tuple[str, tuple[Any, ...]] | None:
+    """Compare one source outbox event to its central logical entity."""
+    stream, key = _projection_key(event)
+    if stream not in _PROJECTION_TABLES:
+        return None
+    identity = {"stream": stream, "key": key, "event_id": event[0]}
+    rows = _central_row_for_key(central, bvid, stream, key)
+    if not rows:
+        report["missing_in_central"].append(identity)
+        return stream, key
+    if len(rows) > 1:
+        report["duplicate_logical_keys"].append({**identity, "count": len(rows)})
+        return stream, key
+    payload = json.loads(event[4] or "{}")
+    actual = dict(rows[0])
+    for field, expected in payload.items():
+        if field not in actual or field == "prediction_interval":
+            continue
+        expected_value = _normalized(expected, field)
+        actual_value = _normalized(actual[field], field)
+        if actual_value != expected_value:
+            report["value_mismatch"].append(
+                {**identity, "field": field, "expected": expected_value, "actual": actual_value}
+            )
+    return stream, key
+
+
+def _central_logical_key(stream: str, row: sqlite3.Row) -> tuple[Any, ...]:
+    """Derive one central row's projection key."""
+    if stream in ("monitor_records", "prediction_ensemble", "algorithm_coherence") and row["source_row_id"] is not None:
+        return "source_row_id", row["source_row_id"]
+    if stream == "predictions":
+        return row["algorithm"], row["target_threshold"]
+    if stream in ("weekly_scores", "yearly_scores", "prediction_ensemble"):
+        return "timestamp", row["timestamp"]
+    if stream == "algorithm_coherence":
+        return "timestamp_algorithm", row["timestamp"], row["algorithm"]
+    return (row["period"],)
+
+
+def _find_unexpected_projection_rows(
+    central: sqlite3.Connection, bvid: str, expected_keys: set[tuple[str, tuple[Any, ...]]]
+) -> list[dict[str, Any]]:
+    """Find central rows that are not represented by audited events."""
+    unexpected = []
+    for stream, table in _PROJECTION_TABLES.items():
+        for row in central.execute(f"SELECT * FROM {table} WHERE bvid=?", (bvid,)).fetchall():
+            key = _central_logical_key(stream, row)
+            if (stream, key) not in expected_keys:
+                unexpected.append({"stream": stream, "key": key, "id": row["id"]})
+    return unexpected
+
+
+def audit_projection_entities(
+    bvid: str, video_db_path: str, central_db_path: str, *, event_ids: list[int] | None = None
+) -> dict[str, Any]:
+    """Read-only audit of outbox entities against their central projections."""
+    checked_at = datetime.now(timezone.utc).isoformat()
+    report: dict[str, Any] = {
+        "missing_in_central": [],
+        "value_mismatch": [],
+        "duplicate_logical_keys": [],
+        "unexpected_central_rows": [],
+        "checked_event_ids": [],
+        "checked_at": checked_at,
+    }
+    source = _open_read_only(video_db_path)
+    central = _open_read_only(central_db_path)
+    if source is None or central is None or not _has_table(source, "projection_outbox"):
+        if source is not None:
+            source.close()
+        if central is not None:
+            central.close()
+        return report
+    try:
+        sql = "SELECT event_id, stream, entity_key, source_row_id, payload FROM projection_outbox"
+        params: tuple[Any, ...] = ()
+        if event_ids is not None:
+            if not event_ids:
+                return report
+            sql += f" WHERE event_id IN ({','.join('?' for _ in event_ids)})"
+            params = tuple(event_ids)
+        events = source.execute(sql + " ORDER BY event_id", params).fetchall()
+        report["checked_event_ids"] = [row[0] for row in events]
+        expected_keys = {
+            result for event in events if (result := _audit_projection_event(central, bvid, event, report)) is not None
+        }
+        report["unexpected_central_rows"] = _find_unexpected_projection_rows(central, bvid, expected_keys)
+        return report
+    finally:
+        source.close()
+        central.close()

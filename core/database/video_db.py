@@ -439,6 +439,103 @@ class VideoDatabase(_DanmakuMixin, _ScoreOpsMixin):
             (stream, entity_key, "upsert", source_row_id, json.dumps(payload, ensure_ascii=False), now_ts()),
         )
 
+    def save_prediction_cycle(
+        self, timestamp: str, predictions: list[dict], ensemble: dict, coherence: list[tuple]
+    ) -> bool:
+        """Persist a prediction cycle and all projection events in one local transaction."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                for prediction in predictions:
+                    sql, params = self._prediction_sql(prediction)
+                    cursor.execute(sql, params)
+                    source = cursor.execute(
+                        "SELECT id FROM predictions WHERE algorithm=? AND target_threshold=?",
+                        (prediction.get("algorithm"), prediction.get("target_threshold")),
+                    ).fetchone()
+                    self._enqueue_outbox(
+                        cursor,
+                        "predictions",
+                        f"{prediction.get('algorithm')}:{prediction.get('target_threshold')}",
+                        source[0],
+                        prediction,
+                    )
+                interval = ensemble.get("prediction_interval", {}) or {}
+                cursor.execute(
+                    """INSERT INTO prediction_ensemble (bvid, timestamp, prediction, confidence, valid_algos, total_algos,
+                    interval_lower, interval_upper, interval_width_ratio, surge_correction_applied, surge_magnitude, surge_type)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        self.bvid,
+                        timestamp,
+                        ensemble.get("prediction", 0),
+                        ensemble.get("confidence", 0),
+                        ensemble.get("valid_algos", 0),
+                        ensemble.get("total_algos", 0),
+                        interval.get("lower"),
+                        interval.get("upper"),
+                        ensemble.get("interval_width_ratio"),
+                        int(ensemble.get("surge_correction_applied", False)),
+                        ensemble.get("surge_magnitude"),
+                        ensemble.get("surge_type", ""),
+                    ),
+                )
+                ensemble_payload = dict(ensemble)
+                ensemble_payload["timestamp"] = timestamp
+                self._enqueue_outbox(cursor, "prediction_ensemble", timestamp, cursor.lastrowid, ensemble_payload)
+                for algorithm, value in coherence:
+                    cursor.execute(
+                        "INSERT INTO algorithm_coherence (bvid, timestamp, algorithm, coherence) VALUES (?, ?, ?, ?)",
+                        (self.bvid, timestamp, algorithm, round(value, 4)),
+                    )
+                    self._enqueue_outbox(
+                        cursor,
+                        "algorithm_coherence",
+                        f"{timestamp}:{algorithm}",
+                        cursor.lastrowid,
+                        {"timestamp": timestamp, "algorithm": algorithm, "coherence": round(value, 4)},
+                    )
+                conn.commit()
+            return True
+        except Exception as error:
+            logger.warning("保存预测周期失败 %s: %s", self.bvid, error, exc_info=True)
+            return False
+
+    def upsert_milestone(self, period: str, data: dict[str, Any]) -> bool:
+        """Persist a per-video milestone and its outbox event atomically."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                recorded_at = data.get("recorded_at") or now_ts()
+                cursor.execute(
+                    """INSERT INTO video_milestones (period, view_count, like_count, coin_count, share_count, favorite_count,
+                    danmaku_count, reply_count, note, recorded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(period) DO UPDATE SET view_count=excluded.view_count, like_count=excluded.like_count,
+                    coin_count=excluded.coin_count, share_count=excluded.share_count, favorite_count=excluded.favorite_count,
+                    danmaku_count=excluded.danmaku_count, reply_count=excluded.reply_count, note=excluded.note, recorded_at=excluded.recorded_at""",
+                    (
+                        period,
+                        data.get("view_count", 0),
+                        data.get("like_count"),
+                        data.get("coin_count"),
+                        data.get("share_count"),
+                        data.get("favorite_count"),
+                        data.get("danmaku_count"),
+                        data.get("reply_count"),
+                        data.get("note"),
+                        recorded_at,
+                    ),
+                )
+                source = cursor.execute("SELECT id FROM video_milestones WHERE period=?", (period,)).fetchone()
+                milestone_payload = dict(data)
+                milestone_payload["recorded_at"] = recorded_at
+                self._enqueue_outbox(cursor, "video_milestones", period, source[0], milestone_payload)
+                conn.commit()
+            return True
+        except Exception as error:
+            logger.warning("保存里程碑失败 %s: %s", self.bvid, error, exc_info=True)
+            return False
+
     def _migrate_scores_unique(self, conn: sqlite3.Connection) -> None:
         """v3→v4 迁移：分数表按 timestamp 去重并建唯一索引。
 

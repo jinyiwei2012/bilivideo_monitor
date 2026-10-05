@@ -36,6 +36,7 @@ def start_global_tick(gui):
     # 不挤进 1s tick（那里只负责倒计时/周期维护）
     start_risk_timers(gui)
     start_ntp_timer(gui)
+    start_projection_timer(gui)
     gui._global_tick_timer = QTimer(gui)
     gui._global_tick_timer.setInterval(1000)
     gui._global_tick_timer.timeout.connect(lambda: global_tick(gui))
@@ -52,6 +53,47 @@ def stop_global_tick(gui):
         if timer is not None:
             timer.stop()
             setattr(gui, attr, None)
+    stop_projection_timer(gui)
+
+
+def _projection_interval_ms() -> int:
+    """Return the configured projection timer interval in milliseconds."""
+    projection = load_config().get("projection", {})
+    seconds = projection.get("interval_seconds", 5) if isinstance(projection, dict) else 5
+    return max(1, int(seconds)) * 1000
+
+
+def _run_projection_cycle(gui: Any) -> None:
+    """Deliver pending per-video outbox events when projection mode is enabled."""
+    projection = load_config().get("projection", {})
+    if not isinstance(projection, dict) or projection.get("mode", "legacy") == "legacy":
+        return
+    from core import get_db
+    from core.database.projector import CentralProjector
+
+    projector = CentralProjector(get_db())
+    for bvid in video_db_ids(gui):
+        use_video_db(gui, bvid, projector.project_video)
+
+
+def start_projection_timer(gui: Any) -> None:
+    """Start the independent central-projector scheduler."""
+    stop_projection_timer(gui)
+    timer = QTimer(gui)
+    timer.setInterval(_projection_interval_ms())
+    timer.timeout.connect(
+        lambda: start_registered_task(gui, _run_projection_cycle, args=(gui,), name="central-projector")
+    )
+    timer.start()
+    gui._projection_timer = timer
+
+
+def stop_projection_timer(gui: Any) -> None:
+    """Stop the central-projector scheduler without interrupting an admitted task."""
+    timer = getattr(gui, "_projection_timer", None)
+    if timer is not None:
+        timer.stop()
+        gui._projection_timer = None
 
 
 def do_memory_health_check(gui):

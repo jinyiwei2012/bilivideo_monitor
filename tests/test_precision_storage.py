@@ -55,6 +55,6 @@ def test_existing_central_database_migrates_monitor_timing_columns(tmp_path) -> 
             version = conn.execute("PRAGMA user_version").fetchone()[0]
         assert {"observed_at_us", "request_start_us", "rtt_us"} <= columns
         assert "sync_cursors" in tables
-        assert version == 4
+        assert version == 5
     finally:
         database.close()
