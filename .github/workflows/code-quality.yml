@@ -33,7 +33,10 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install black flake8 bandit radon pytest mypy
+          # 工具版本钉死：门禁判定必须可复现，避免上游次版本更新悄悄改变结论。
+          # 与本机 conda `bili` 环境对齐（black 26.5.1 / flake8 7.4.1 / bandit 1.9.4 /
+          # radon 6.0.1 / pytest 9.1.1 / mypy 2.4.0）。
+          pip install "black==26.5.1" "flake8==7.4.1" "bandit==1.9.4" "radon==6.0.1" "pytest==9.1.1" "mypy==2.4.0"
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
       # PyQt6 的 wheel 自带 Qt，但依赖系统提供 libEGL/libGL/xkbcommon/xcb 等；
@@ -70,5 +73,45 @@ jobs:
 
       # 类型门禁：mypy 零容忍（历史 738 条类型错误已全部修复，基线为空）。
       # 任何新增类型错误都会使 CI 失败；如确需挂起，用 `python scripts/type_gate.py --update-baseline`。
+      - name: Type gate (mypy ratchet)
+        run: python scripts/type_gate.py
+
+  # Windows 轻量矩阵：验证「本地 Windows 环境 + 静态门禁」与 ubuntu 主腿一致。
+  # 刻意只跑静态三件（Black / lint / type），不跑全量 Qt pytest——
+  # Windows 上 test_shutdown_qt 的 10s 事件循环既有脆性，全量测试留在 ubuntu 主腿保真。
+  quality-windows:
+    runs-on: windows-latest
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\pip\Cache
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install tooling (pinned)
+        run: |
+          python -m pip install --upgrade pip
+          pip install "black==26.5.1" "flake8==7.4.1" "bandit==1.9.4" "radon==6.0.1" "mypy==2.4.0"
+
+      # 格式门禁（与 ubuntu 主腿同命令）
+      - name: Check formatting with Black
+        run: black --check --line-length=120 .
+
+      # Lint 门禁（flake8 + 复杂度棘轮，读工作树 .flake8）
+      - name: Lint gate (flake8 + complexity ratchet)
+        run: python scripts/lint_gate.py
+
+      # 类型门禁（mypy 棘轮；Windows 侧额外验证 mypy.ini 的 GBK 控制台解码）
       - name: Type gate (mypy ratchet)
         run: python scripts/type_gate.py
